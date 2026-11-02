@@ -42,6 +42,8 @@ const look = (id, fields = {}, { words = null, route = [], history = [] } = {}) 
   { Id: id, Kind: 'ask', Title: 'Does the wizard\'s move range on the terraces look right?', State: 'open', Owner: 'Painter', Since: at(80), Filed: String(NOW - 80 * MIN), Pictures: 'pictures/B55/after.jpg', Asks: 'look', Blocking: 'no', Advice: 'yes', Via: 'chat', ...fields },
   { Text: [words ?? 'Does the wizard\'s move range on the terraces look right? I advise yes.'], ...(route.length === 0 ? {} : { Route: route }), History: [`- ${at(80)} ${fields.Owner ?? 'Painter'}: asked (look, from its "For you" block)`, ...history] },
 )
+/** Autopilot v2: a look's words without "I advise" (with advice the board takes it, and the partner never sees it). */
+const PLAIN = { words: 'Does the wizard’s move range on the terraces look right?' }
 const step = (id, fields, sections = {}) => text({ Id: id, Kind: 'step', Activity: 'Garden', Since: at(300), ...fields }, { ...sections, History: [`- ${at(300)} Lead: made`] })
 /** B55 is done (as the live B855 was), a step of the focus goal G29; B70 a step of another goal. */
 const steps = () => ({
@@ -89,9 +91,12 @@ test('a worker\'s look is routed as before (the partner answers it); only the pa
   const handedOver = { ...pure, handedWhy: WHY }
   // The coordinator's ruling (2026-11-02): Autopilot never asks the person more than Off does, and a look the partner answers with the
   // worker's advice is not the person's: a worker's look goes to the partner at filing, whatever step its picture is of.
-  assert.equal(autopilotRoute(Q590(), pure).to, 'partner', 'Q590\'s shape, filed: a detail question for the partner')
-  assert.equal(autopilotRoute(Q590({ Of: 'B24' }), pure).to, 'partner')
-  assert.equal(autopilotRoute(Q590({ Pictures: undefined }), pure).to, 'partner')
+  // Autopilot v2 (the person's "B", 2026-11-02), on purpose: with the worker's advice the board takes it (the partner did); without, the
+  // partner judges it.
+  assert.equal(autopilotRoute(Q590(), pure).to, 'advice', 'Q590\'s shape, filed: its advice is taken')
+  assert.equal(autopilotRoute(Q590({ Of: 'B24' }), pure).to, 'advice')
+  assert.equal(autopilotRoute(Q590({ Pictures: undefined }), pure).to, 'advice')
+  assert.equal(autopilotRoute(Q590({ Advice: undefined }, 'Does the moat\'s move range look right?'), pure).to, 'partner', 'without advice: a look for the partner')
   // Handed to the person by the partner: it waits for the recap, put under the step its picture names.
   assert.deepEqual(autopilotRoute(Q590(), handedOver), { to: 'recap', why: FOCUS_LOOK_WHY, step: 'B24' }, 'put under the step its picture names')
   assert.equal(FOCUS_LOOK_WHY, 'a new look of the focus goal waits for its recap')
@@ -171,7 +176,8 @@ test('only the partner\'s hand-over that Autopilot kept is a kept look (its Rout
 // The board
 
 test('Q590 end to end: the worker\'s look goes to the partner as before; the partner hands it over; it waits for the recap, though no row names its step and the goal\'s demo exists; a look of another goal goes to the person', async t => {
-  const dir = await storeWith({ ...steps(), Q1: look('Q1'), Q2: look('Q2', { Pictures: 'pictures/B70/after.jpg' }) })
+  // Autopilot v2: looks without advice (with it the board takes the advice, and nothing reaches the partner).
+  const dir = await storeWith({ ...steps(), Q1: look('Q1', { Advice: undefined }, PLAIN), Q2: look('Q2', { Pictures: 'pictures/B70/after.jpg', Advice: undefined }, PLAIN) })
   t.after(() => rm(dir, { recursive: true, force: true }))
   // The coordinator's ruling: Autopilot never asks the person more than Off does, so the pass routes both looks to the partner.
   const done = await pass(dir)
@@ -274,7 +280,8 @@ test('the pass moves a look that stands for the person because the partner hande
 })
 
 test('the switch-on\'s sweep keeps the partner\'s hand-overs it moved for the Undo; after the Undo no pass takes a look back into the recap; a look the board routed to the person goes to the partner, as before', async t => {
-  const dir = await storeWith({ ...steps(), Q1: handed('Q1'), Q2: look('Q2', { Route: 'person' }, { history: [`- ${at(70)} server: autopilot: routed to person`] }) })
+  // Autopilot v2: Q2 without advice (with it the board takes the advice).
+  const dir = await storeWith({ ...steps(), Q1: handed('Q1'), Q2: look('Q2', { Route: 'person', Advice: undefined }, { ...PLAIN, history: [`- ${at(70)} server: autopilot: routed to person`] }) })
   t.after(() => rm(dir, { recursive: true, force: true }))
   const swept = await pass(dir, { sweep: true })
   assert.deepEqual(swept.result.routed, [{ id: 'Q2', to: 'partner' }, { id: 'Q1', to: 'recap' }])
@@ -324,7 +331,8 @@ test('S1: a blocking look the partner hands over frees its step: the step goes o
   const dir = await storeWith({ ...steps() })
   t.after(() => rm(dir, { recursive: true, force: true }))
   // The worker's blocking look under its step in progress: at filing it goes to the partner and the step waits on the person.
-  const asked = await chat(dir, 'Painter', { action: 'ask', of: 'B56', kind: 'look', blocking: true, title: 'Does the pond look right?', text: ['The pond is round now.'], options: ['yes', 'no'], advice: 'yes', pictures: [] }, NOW, { autopilot: true })
+  // Autopilot v2: without advice (with it the board takes the advice).
+  const asked = await chat(dir, 'Painter', { action: 'ask', of: 'B56', kind: 'look', blocking: true, title: 'Does the pond look right?', text: ['The pond is round now.'], options: ['yes', 'no'], pictures: [] }, NOW, { autopilot: true })
   assert.equal(asked.ok, true, asked.why)
   const id = asked.result.id
   let items = await read(dir)

@@ -64,9 +64,11 @@ const B22 = step('B22', { Title: 'Quality Assurance: B21 Round the pool', State:
 test('the sweep routes each open ask once, with one History line; one handed on stays; while off it routes nothing', async t => {
   const dir = await storeWith({
     B21, B22,
-    Q1: ask('Q1', { Title: 'Icons or words on the bar?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', Via: 'chat' }),
+    // Autopilot v2, on purpose: Q1 carries no advice (with it the board takes it), and Q3 rebuilds a goal that is not the focus (a
+    // rebuild of the focus goal with advice is taken too).
+    Q1: ask('Q1', { Title: 'Icons or words on the bar?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Via: 'chat' }),
     Q2: ask('Q2', { Title: 'Merge B21 into main', Owner: 'Painter', Asks: 'do', Via: 'chat' }),
-    Q3: ask('Q3', { Title: 'Rebuild G29: which way?', Owner: 'Partner', Asks: 'decide', Of: 'G29', Options: 'A walls | B pool', Advice: 'A' }),
+    Q3: ask('Q3', { Title: 'Rebuild G7: which way?', Owner: 'Partner', Asks: 'decide', Of: 'G7', Options: 'A walls | B pool', Advice: 'A' }),
     Q4: ask('Q4', { Title: 'Icons or words on the map?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', Route: 'person' }, null, { Route: ['Your partner hands this to you: a new look is yours'] }),
     Q5: ask('Q5', { Title: 'Which bar colour?', Owner: 'Painter', Asks: 'decide', Advice: 'blue', Route: 'partner' }),
   })

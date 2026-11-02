@@ -131,7 +131,8 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
   // B12 would join the open one there, one question per task).
   const names = await asChat('Advisor', { action: 'ask', of: 'B14', kind: 'decide', title: 'Shorter names on the hedge labels?', text: 'Shorter names fit the labels.', advice: 'yes' })
   ok(names, 'the partner\'s')
-  const part = await asChat('Advisor', { action: 'ask', of: 'G6', kind: 'decide', title: 'Which part first?', text: 'Damage first or the bars first?', options: ['A damage', 'B bars'], advice: 'A' })
+  // Autopilot v2 (on purpose: "Which part first?" of the focus goal now takes its advice): a goal's start stays the person's.
+  const part = await asChat('Advisor', { action: 'ask', of: 'G6', kind: 'decide', title: 'Which goal comes next: damage or the bars?', text: 'Damage first or the bars first?', options: ['A damage', 'B bars'], advice: 'A' })
   ok(part, 'the goal\'s')
   const look = await asChat('Checker', { action: 'ask', of: 'B12', kind: 'look', title: 'Approve the hedge as it is?', text: 'It stands a little low.', advice: 'yes' })
   ok(look, 'the checker\'s')
@@ -175,7 +176,8 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
   await until(async () => (await outbox()).some(one => one.to === 'Checker' && /taller, please/.test(one.text ?? '')), 'the recap\'s answer to Checker')
 
   // A new ask while Autopilot is on is routed as it is filed.
-  const fresh = await asChat('Digger', { action: 'ask', of: 'B12', kind: 'decide', title: 'Box or yew for the hedge?', text: 'Both grow well here.', options: ['A box', 'B yew'], advice: 'B' })
+  // Autopilot v2: without advice (with it the board takes the advice).
+  const fresh = await asChat('Digger', { action: 'ask', of: 'B12', kind: 'decide', title: 'Box or yew for the hedge?', text: 'Both grow well here.', options: ['A box', 'B yew'] })
   ok(fresh, 'the new ask')
   assert.equal(await head(idOf(fresh), 'Route'), 'partner')
   assert.match(await readFile(join(work, `${idOf(fresh)}.md`), 'utf8'), /server: autopilot: routed to partner/)

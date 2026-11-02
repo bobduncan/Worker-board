@@ -107,26 +107,29 @@ test('earlierAnswerOf: an ask about a step, the newest answered ask other than i
 const ROLES = { Lead: 'main', Partner: 'advisor', Painter: 'worker' }
 const ctxOf = (more = {}) => ({ roleOf: name => ROLES[name] ?? null, items: of(STEP91, EARLIER, CARD), focusGoal: 'G7', prefix: '', now: NOW, ...more })
 
-test('the route: the card of Q608\'s shape, with the earlier answer, goes to the partner, with the why and the earlier ask; without it, to the person as before', () => {
+test('the route: the card of Q608\'s shape goes to the partner, with the earlier answer as its hint (Autopilot v2: without it too, on purpose: it was the person\'s)', () => {
   assert.deepEqual(autopilotRoute(CARD, { ...ctxOf(), again: true }), { to: 'partner', why: 'the person\'s earlier answer on Q50 names B91', earlier: 'Q50' })
   const without = autopilotRoute(CARD, { ...ctxOf({ items: of(STEP91, CARD) }), again: true })
-  assert.equal(without.to, 'person')
+  assert.deepEqual([without.to, without.earlier], ['partner', undefined])
   assert.match(without.why, /its step is of no focus goal/)
-  // Without a clock the earlier answer is not looked for.
-  assert.equal(autopilotRoute(CARD, { ...ctxOf({ now: undefined }), again: true }).to, 'person')
+  // Without a clock the earlier answer is not looked for: the partner judges it all the same.
+  assert.deepEqual([autopilotRoute(CARD, { ...ctxOf({ now: undefined }), again: true }).to, autopilotRoute(CARD, { ...ctxOf({ now: undefined }), again: true }).earlier], ['partner', undefined])
   // The board's card the board has not routed yet (no History line) is routed the same, with no `again`.
   const fresh = item(cardFields({ Route: '-' }), cardSections({ History: [`- ${at(0)} server: asked (decide)`] }))
   assert.equal(autopilotRoute(fresh, ctxOf({ items: of(STEP91, EARLIER, fresh) })).earlier, 'Q50')
 })
 
-test('the route: a verdict a worker files (a look or decide that accepts, an action that marks done) goes the same way', () => {
-  const look = item({ Id: 'Q53', Kind: 'ask', Title: 'Do you accept B91 as it is?', State: 'open', Owner: 'Painter', Asks: 'look', Of: 'B91', Options: 'A yes | B no', Advice: 'A', Via: 'chat', Since: at(0), Filed: String(NOW) }, { Text: ['Do you accept B91 as it is?'], History: [`- ${at(0)} Painter: asked (look)`] })
+test('the route: a verdict a worker files (a look or decide that accepts, an action that marks done) goes the same way; with advice (v2) its advice is taken', () => {
+  const look = item({ Id: 'Q53', Kind: 'ask', Title: 'Do you accept B91 as it is?', State: 'open', Owner: 'Painter', Asks: 'look', Of: 'B91', Options: 'A yes | B no', Via: 'chat', Since: at(0), Filed: String(NOW) }, { Text: ['Do you accept B91 as it is?'], History: [`- ${at(0)} Painter: asked (look)`] })
   assert.deepEqual(autopilotRoute(look, ctxOf()), { to: 'partner', why: 'the person\'s earlier answer on Q50 names B91', earlier: 'Q50' })
+  // v2, on purpose (it went to the partner on the earlier answer): with the worker's advice, the board takes it.
+  const advised = item({ ...Object.fromEntries(look.head), Advice: 'A' }, { Text: ['Do you accept B91 as it is?'], History: [`- ${at(0)} Painter: asked (look)`] })
+  assert.deepEqual(autopilotRoute(advised, ctxOf()), { to: 'advice', why: 'a verdict on a result ("accept"), and its step is of no focus goal: its advice is taken' })
   const mark = item({ Id: 'Q54', Kind: 'ask', Title: 'Mark B91 done on the board.', State: 'open', Owner: 'Lead', Asks: 'do', Of: 'B91', Via: 'chat', Since: at(0), Filed: String(NOW) }, { Text: ['Mark B91 done on the board.'], History: [`- ${at(0)} Lead: asked (do)`] })
   assert.equal(autopilotRoute(mark, ctxOf()).earlier, 'Q50')
-  // Not a verdict: a detail question keeps going to the partner for its own reason, with no earlier answer named.
+  // Not a verdict: a detail question takes its advice (v2, on purpose: it went to the partner), with no earlier answer named.
   const detail = item({ Id: 'Q55', Kind: 'ask', Title: 'Icons or words on the bar?', State: 'open', Owner: 'Painter', Asks: 'decide', Of: 'B91', Options: 'A icons | B words', Advice: 'A', Via: 'chat', Since: at(0), Filed: String(NOW) }, { Text: ['Icons or words on the bar?'], History: [`- ${at(0)} Painter: asked (decide)`] })
-  assert.deepEqual(autopilotRoute(detail, ctxOf()), { to: 'partner', why: 'a detail question' })
+  assert.deepEqual(autopilotRoute(detail, ctxOf()), { to: 'advice', why: 'a detail question: its advice is taken' })
 })
 
 test('the route: never when the person\'s hands are needed, never goal level, never once the partner handed it on', () => {
@@ -140,7 +143,7 @@ test('the route: never when the person\'s hands are needed, never goal level, ne
   const recap = item(cardFields(), cardSections({ Text: ['B91 in the goal recap: [Open the recap](http://127.0.0.1:4310/#demo=pictures/g15/recap/demo.json).'] }))
   const goal = autopilotRoute(recap, { ...ctxOf({ items: of(STEP91, EARLIER, recap) }), again: true })
   assert.deepEqual([goal.to, goal.earlier], ['person', undefined])
-  assert.match(goal.why, /goal level/)
+  assert.match(goal.why, /the goal's recap/)
   // The partner's hand-over is its judgement already: not routed back to it.
   const handed = autopilotRoute(CARD, { ...ctxOf(), again: true, handedWhy: 'it is not clear' })
   assert.deepEqual([handed.to, handed.earlier], ['person', undefined])
@@ -186,23 +189,26 @@ const field = (items, id, key) => items.get(id).head.get(key)
 const history = (items, id) => items.get(id).sections.get('History') ?? []
 const needsIds = (items, now = NOW + 2 * MIN) => storeNeeds({ ok: true, items }, { now, autopilot: true, roleOf: name => ROLES[name] ?? null, focusGoal: 'G7' }).filter(one => one.answer === null).map(one => one.workId)
 
-test('the pass: the card the board routed to the person goes to the partner when the person\'s earlier answer exists now; one a chat handed on, or with no such answer, stays', async t => {
+test('the pass: the card the board routed to the person goes to the partner (Autopilot v2: with no earlier answer too, on purpose: it stayed the person\'s), its card line naming the earlier answer when there is one; one a chat handed on stays', async t => {
   const dir = await storeWith({ B91: step('B91'), B92: step('B92'), Q51: cardText() })
   t.after(() => rm(dir, { recursive: true, force: true }))
-  // No earlier answer yet: the card stays the person's, and the next pass does not touch it.
+  // No earlier answer: the partner judges it by the step's check, with no card line.
   const none = await pass(dir)
-  assert.deepEqual(none.result.routed, [])
-  assert.deepEqual(needsIds(await read(dir)), ['Q51'])
-  // The person's answer, then the next pass: routed to the partner, once, with the card line and the partner's 30 minutes from now.
-  await writeFile(join(dir, 'Q50.md'), earlierText())
+  assert.deepEqual(none.result.routed, [{ id: 'Q51', to: 'partner' }])
+  assert.equal((await read(dir)).get('Q51').sections.get('Route'), undefined)
+  assert.deepEqual(needsIds(await read(dir)), [])
+  // The person's answer on B92, then a card of B92 the board routed to them: routed to the partner, once, with the card line and
+  // the partner's 30 minutes from now.
+  await writeFile(join(dir, 'Q50.md'), earlierText().replace('(B90, B91)', '(B91, B92)'))
+  await writeFile(join(dir, 'Q52.md'), cardText({ Id: 'Q52', Of: 'B92', Title: 'Accept B92, or send it back?' }))
   const moved = await pass(dir, NOW + 5 * MIN)
   assert.equal(moved.ok, true, moved.why)
-  assert.deepEqual(moved.result.routed, [{ id: 'Q51', to: 'partner' }])
+  assert.deepEqual(moved.result.routed, [{ id: 'Q52', to: 'partner' }])
   let items = await read(dir)
-  assert.equal(field(items, 'Q51', 'Route'), 'partner')
-  assert.equal(field(items, 'Q51', 'Filed'), String(NOW + 5 * MIN))
-  assert.deepEqual(items.get('Q51').sections.get('Route'), ['Your earlier answer on Q50 may cover this: your partner checks it'])
-  assert.deepEqual(history(items, 'Q51').filter(line => line.includes('autopilot: routed to')).map(line => line.replace(/^- [\d: -]+ /, '')), ['server: autopilot: routed to person', 'server: autopilot: routed to partner'])
+  assert.equal(field(items, 'Q52', 'Route'), 'partner')
+  assert.equal(field(items, 'Q52', 'Filed'), String(NOW + 5 * MIN))
+  assert.deepEqual(items.get('Q52').sections.get('Route'), ['Your earlier answer on Q50 may cover this: your partner checks it'])
+  assert.deepEqual(history(items, 'Q52').filter(line => line.includes('autopilot: routed to')).map(line => line.replace(/^- [\d: -]+ /, '')), ['server: autopilot: routed to person', 'server: autopilot: routed to partner'])
   // It stands for the partner now, not the person; a pass again changes nothing.
   assert.deepEqual(needsIds(items, NOW + 6 * MIN), [])
   assert.deepEqual((await pass(dir, NOW + 6 * MIN)).result.routed, [])
@@ -227,15 +233,17 @@ test('the pass: a card filed after the earlier answer goes to the partner at onc
 test('a chat files its own verdict ask: it goes to the partner at once with its card line; a day later the answer is too old and it is the person\'s', async t => {
   const dir = await storeWith({ B91: step('B91', { State: 'in progress', Branch: 'b91' }), Q50: earlierText() })
   t.after(() => rm(dir, { recursive: true, force: true }))
-  const asked = { action: 'ask', of: 'B91', kind: 'look', text: 'Do you accept B91 as it is?', options: ['A yes', 'B no'], advice: 'A' }
+  const asked = { action: 'ask', of: 'B91', kind: 'look', text: 'Do you accept B91 as it is?', options: ['A yes', 'B no'] }
   const filed = await chat(dir, 'Painter', asked, NOW, { autopilot: true })
   assert.equal(filed.ok, true, filed.why)
   assert.equal(filed.result.route, 'partner')
   const items = await read(dir)
   assert.deepEqual([field(items, filed.result.id, 'Route'), items.get(filed.result.id).sections.get('Route')], ['partner', ['Your earlier answer on Q50 may cover this: your partner checks it']])
+  // A day later the answer is too old to be its hint: Autopilot v2 (on purpose: it was the person's) still has the partner judge it.
   const late = await chat(dir, 'Painter', { ...asked, text: 'Do you accept B91 now, after a day?' }, NOW + 25 * HOUR, { autopilot: true })
   assert.equal(late.ok, true, late.why)
-  assert.notEqual(late.result.route, 'partner')
+  assert.equal(late.result.route, 'partner')
+  assert.equal((await read(dir)).get(late.result.id).sections.get('Route'), undefined, 'no card line: no earlier answer')
 })
 
 test('the partner answers the card on the person\'s earlier answer: Accept closes the step as the partner\'s, with the why in the daily note and the Undo', async t => {
@@ -323,16 +331,16 @@ test('the partner\'s word names the earlier answer: the reconciler, the supervis
   assert.match(next.result.text, /answer it only if that clearly covers it, else escalate/)
 })
 
-test('the pass judges nothing else anew: a card the recap would take now stays the person\'s until the switch-on\'s sweep, the earlier answer or not', async t => {
+test('Autopilot v2 (on purpose: the pass judged nothing else anew before): every pass judges anew a card the board routed to the person, so one the recap takes now waits there', async t => {
   const dir = await storeWith({ B91: step('B91', { Goal: 'G7' }), Q50: earlierText(), Q51: cardText() })
   t.after(() => rm(dir, { recursive: true, force: true }))
   const recap = { focusHasDemo: true, recaps: [{ step: 'B91', goal: 'G7', path: 'pictures/g7/recap/demo.json' }] }
-  const quiet = await pass(dir, NOW + MIN, recap)
-  assert.deepEqual(quiet.result.routed, [])
-  assert.equal(field(await read(dir), 'Q51', 'Route'), 'person')
-  // The switch-on's sweep does: the step's recap names it, so the card waits there.
+  const moved = await pass(dir, NOW + MIN, recap)
+  assert.deepEqual(moved.result.routed, [{ id: 'Q51', to: 'recap' }])
+  assert.equal(field(await read(dir), 'Q51', 'Route'), 'recap')
+  // The switch-on's sweep after it finds nothing left.
   const swept = await workApi({ action: 'autopilot', on: true, sweep: true }, ctx(dir, NOW + 2 * MIN, 'server', recap))
-  assert.deepEqual(swept.result.routed, [{ id: 'Q51', to: 'recap' }])
+  assert.deepEqual(swept.result.routed, [])
 })
 
 test('the board\'s line to the partner names the earlier answer too: the delivery and the supervisor\'s repeat', async t => {
@@ -353,10 +361,11 @@ test('the board\'s line to the partner names the earlier answer too: the deliver
   assert.equal(found[0].fix.text, partnerAskWords('Q51', earlier))
 })
 
-test('the partner\'s own verdict ask, or the Product owner\'s, is not routed back to the partner: it keeps its old route', () => {
-  const ownAsk = (id, owner) => item({ Id: id, Kind: 'ask', Title: 'Do you accept B91 as it is?', State: 'open', Owner: owner, Asks: 'look', Of: 'B91', Options: 'A yes | B no', Advice: 'A', Via: 'chat', Since: at(0), Filed: String(NOW) }, { Text: ['Do you accept B91 as it is?'], History: [`- ${at(0)} ${owner}: asked (look)`] })
-  for (const owner of ['Partner', 'Keeper']) {
-    const route = autopilotRoute(ownAsk('Q59', owner), ctxOf({ roleOf: name => ({ ...ROLES, Keeper: 'owner' })[name] ?? null }))
-    assert.deepEqual([route.to, route.earlier], ['person', undefined], owner)
-  }
+test('the partner\'s own verdict ask is decided for the person (Autopilot v2, on purpose: it kept its old route, the person\'s); the Product owner\'s stays the person\'s', () => {
+  const ownAsk = (id, owner, more = {}) => item({ Id: id, Kind: 'ask', Title: 'Do you accept B91 as it is?', State: 'open', Owner: owner, Asks: 'look', Of: 'B91', Options: 'A yes | B no', Advice: 'A', Via: 'chat', Since: at(0), Filed: String(NOW), ...more }, { Text: ['Do you accept B91 as it is?'], History: [`- ${at(0)} ${owner}: asked (look)`] })
+  const roles = ctxOf({ roleOf: name => ({ ...ROLES, Keeper: 'owner' })[name] ?? null })
+  assert.equal(autopilotRoute(ownAsk('Q59', 'Partner'), roles).to, 'advice', 'its advice is taken')
+  assert.deepEqual([autopilotRoute(ownAsk('Q59', 'Partner', { Advice: '-' }), roles).to, autopilotRoute(ownAsk('Q59', 'Partner', { Advice: '-' }), roles).earlier], ['partner', 'Q50'], 'without advice it decides it, with the earlier answer as its hint')
+  const keeper = autopilotRoute(ownAsk('Q59', 'Keeper'), roles)
+  assert.deepEqual([keeper.to, keeper.earlier], ['person', undefined], 'the Product owner answers for the goal')
 })

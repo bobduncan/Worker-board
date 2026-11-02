@@ -6,17 +6,26 @@
 // and for real issues (what no chat can do: accounts, money, permissions, an app restart; a goal stuck after its retries;
 // the weekly limit). Mid-goal looks below their target wait for the goal's recap (the person's "A").
 //
+// Autopilot v2 (the person, 2026-11-02 ~22:30: "you can auto approve and manage my needs attention. everything except the goal
+// recap/verdict. autopilot doesnt help me enough i still get way too many signels"; their choice "B"): only a goal's recap and its
+// verdicts, a goal's start (its definition, work blocks and Go) and a switch of focus reach them as cards, with what the partner or
+// the main chat hands on; what only their hands can do stands as one quiet line (`hands` in the route); everything else is
+// decided for them with Undo: a decide or look with advice takes it (`advice`), anything else the partner decides (`partner`).
+//
 // It extends Partner answers (partnerAnswers.mjs, 2026-10-19): the setting `autopilot` (config.json, the ⚙ panel) is off
 // unless the person switched it on. PURE: where an ask goes (`autopilotRoute`), whether it stands in Needs your attention
 // (`standsForPerson`), and the words the board writes. The work API writes the routes (api.mjs `autopilot`), the server
 // wakes the chats (server.mjs).
 //
 // Routes, kept in the ask's `Route` field:
-// - `partner`: the partner answers it (or hands it on), as for Partner answers; the board's wake and 30-minute rule. Also (the
-//   person's "B", 2026-11-02) the person's verdict on a result when the person answered an ask naming that step lately: see
-//   `earlierAnswerOf`; the partner answers it only when that answer clearly covers it, else hands it on.
-// - `advice`: the partner's or the Product owner's own ask with advice, under a step: the board answers it with the advice
-//   (`Answered by: autopilot`), listed in the partner's daily note under "Decided for you" with Undo.
+// - `partner`: the partner answers it (or hands it on), as for Partner answers; the board's wake and 30-minute rule. Under v2
+//   every ask that is not the person's and carries no advice: a decide, look or provide, a do of the person's own senses (it
+//   judges by the evidence), and a verdict on a result that no recap of the focus goal takes (an accept, a send back, a mark
+//   done). When the person answered an ask naming that step lately (`earlierAnswerOf`, their "B" of 2026-11-02) its card and
+//   word name that answer as a hint.
+// - `advice`: a decide or look with advice (workers', the main chat's and the partner's, under a step or not, a rebuild of the
+//   focus goal too; the Product owner's only under a step): the board answers it with the advice (`Answered by: autopilot`),
+//   listed in the partner's daily note under "Decided for you" with Undo.
 // - `recap`: a look the step's checker asks, a look of a step below its target, and the board's "Accept or send back" card, of
 //   a step of the focus goal whose recap will name it: it waits for the goal's recap (the Focus page lists it; its step reads
 //   `Recap verdict: waits (Q<n>)`, so the goal demo is asked with the step in review and gives it its own row); the person's
@@ -27,9 +36,10 @@
 //   a step of the focus goal that the partner hands to the person (`focusLookOf`, with the work API's `escalate` and the pass): it
 //   waits there instead, whatever the recap names. A worker's look still goes to the partner first (it answers it with the advice).
 // - `main`: an action (a do ask) a chat can do: the main chat does it, else hands it to the person (`escalate`).
-// - `person`: everything goal level (a stuck goal's rebuild too: Autopilot approves no rebuild), what only the person's hands
-//   can do (PERSONS_HANDS), what marks a step done, accepts it or sends it back, an ask under no step from the partner, and
-//   an ask the partner or the main chat handed on.
+// - `person`: a goal's recap (its demo, "Did we reach the goal?", the Product owner's asks), a goal's start or a focus switch
+//   (`goalLevelOf`: an ask of a goal that is not the focus, or about a goal's definition, work blocks, plan, Go or which goal
+//   comes next), what only the person's hands can do (PERSONS_HANDS; the route carries `hands`, and the page draws it as one
+//   line), the app's question form, and an ask the partner or the main chat handed on or the person took back.
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
 import { chainWaitOf, checkedOf, fixesOf } from './resultCheck.mjs'
@@ -291,36 +301,46 @@ export function refineAdviceOf(question) {
 export const dropsStep = (question, stepId) => new RegExp(`\\bdrop (?:it|this step|${stepId})\\b`, 'i').test(String(question ?? '')) && !/\b(?:don'?t|not)\s+drop\b/i.test(String(question ?? ''))
 
 /**
- * Goal level (the person's to answer): an ask of a goal (`Of: G<n>`: the partner's focus asks, the goal guard's, "Rebuild
- * G<n>"), the goal guard's own words, and the goal's recap or demo (its `#demo=` link or demo.json). The coordinator's ruling
- * (2026-10-31, "Autopilot On must never ask the person more than Off for asks under a step"): the goal-level words apply only
- * to an ask under no step: "the goal's recap", a title about a goal, the focus, an approach, a setting, a standard or a
- * licence (ABOUT_GOAL), and the partner's and the Product owner's words about a goal's definition, its work blocks or a change
- * of the goal. The phrase that made it goal level, or null.
+ * A goal's start or a switch of focus (Autopilot v2, the person's "B", 2026-11-02: "a new goal's start (its definition, work blocks
+ * and Go) and a switch of focus still reach them"; the live Q606 "Give G29's new plan your Go on the Goals page"): words about a
+ * goal's definition, its work blocks or plan, a change of the goal, the goal map (which goals there are), or which goal comes next.
+ * Whole phrases ("the new goal steps panel" of the board is no goal's start). Its Go is `GOAL_GO`.
  */
-export function goalLevelOf(item, role = null) {
-  if (GOAL.test(valueOf(item, 'Of') ?? '')) return `of ${valueOf(item, 'Of')}`
-  const words = `${title(item)} ${text(item)}`
-  const guard = title(item).match(/^Rebuild G\d+\b|\bG\d+\b[^.?!]*\bfailed \d+ times\b/)?.[0] ?? words.match(/#demo=|\bdemo\.json\b/i)?.[0] ?? null
-  if (guard !== null) return guard
-  if (STEP.test(valueOf(item, 'Of') ?? '')) return null
-  const said = words.match(/\bgoal(?:'s)? (?:recap|demo)\b/i)?.[0] ?? title(item).match(ABOUT_GOAL)?.[0] ?? null
-  if (said !== null) return said
-  return ['advisor', 'owner'].includes(role) ? words.match(/\bgoal definition\b|\bwork blocks?\b|\bChange this goal\b|\bDid we reach the goal\b/i)?.[0] ?? null : null
-}
-/** Whether an ask is goal level (`goalLevelOf`). */
-export const isGoalLevel = (item, role = null) => goalLevelOf(item, role) !== null
+export const GOAL_START = /\bgoal definition\b|\bwork blocks?\b|\bnew plan\b|\bChange this goal\b|\bnext (?:focus|goal)\b|\bswitch(?:es|ed|ing)? (?:the |your |its )?focus\b|\bfocus switch\b|\bwhich goal\b|\bgoal map\b|\bnew goal\b(?!\s+steps?\b)/i
+/** A goal's Go, as the Goals page names the person's button ("your Go", "the Go"): case kept, so "your go-ahead" is none. */
+export const GOAL_GO = /\b(?:your|the|its) Go\b/
 
 /**
- * A question about a goal, the focus, the goal map, an approach, a setting, a standard (the person's map bar) or a licence
- * (its title), for an ask under no step: the person's. Whole phrases (the re-review of 2026-10-31: "the settings page's
- * previews" of the game, "the new goal steps panel" of the board and "levels-g28" are no goal questions): a goal by its id,
- * "the goal", "the focus", "goal map", an approach, "a setting" of the board, a standard, the map bar, a licence.
+ * Goal level under Autopilot v2 (the person's "B", 2026-11-02): what of a goal still reaches the person, `{ phrase, part }` (`part`
+ * 'recap' or 'start'), or null. The goal's recap: its `#demo=` link or demo.json, and under no step "the goal's recap" or "Did we
+ * reach the goal?". A goal's start or a focus switch, under no step: an ask of a goal that is not the focus (`Of: G<n>`), a title that
+ * names such a goal, and (every chat's but a worker's: a worker plans no goal) the words of GOAL_START and GOAL_GO. The coordinator's
+ * ruling (2026-10-31) stands: under a step none of these words count. Everything else of a goal is decided for the person now: an
+ * ask of the focus goal (its rebuild too, "Rebuild G60: which way", the live Q605), an approach, a setting, a standard, a licence.
+ * `focusGoal` null: every goal is "not the focus".
  */
-export const ABOUT_GOAL = /(?<![-\w])G\d+\b|\b(?:the|this|that|a|your|next|new|maps?|focus) goal\b(?!\s+steps)|\bgoal map\b|\b(?:the|next) focus\b|\bapproach\b|\b(?:a|the|this|that|your|board's|board) setting\b|\bstandards?\b|\bmap bar\b|\blicen[cs]es?\b/i
+export function goalLevelOf(item, role = null, focusGoal = null) {
+  const of = valueOf(item, 'Of')
+  const words = `${title(item)} ${text(item)}`
+  const isUnderStep = STEP.test(of ?? '')
+  const recap = words.match(/#demo=|\bdemo\.json\b/i)?.[0] ?? (isUnderStep ? null : words.match(/\bgoal(?:'s)? (?:recap|demo)\b|\bDid we reach the goal\b/i)?.[0] ?? null)
+  if (recap !== null) return { phrase: recap, part: 'recap' }
+  if (isUnderStep) return null
+  if (GOAL.test(of ?? '') && of !== focusGoal) return { phrase: `of ${of}`, part: 'start' }
+  const other = (title(item).match(/(?<![-\w])G\d+\b/g) ?? []).find(id => id !== focusGoal) ?? null
+  if (other !== null) return { phrase: other, part: 'start' }
+  const start = role === 'worker' ? null : words.match(GOAL_START)?.[0] ?? words.match(GOAL_GO)?.[0] ?? null
+  return start === null ? null : { phrase: start, part: 'start' }
+}
+/** Whether an ask is goal level (`goalLevelOf`). */
+export const isGoalLevel = (item, role = null, focusGoal = null) => goalLevelOf(item, role, focusGoal) !== null
 
-/** The pattern of a permanent delete: a chat, a file or folder, a launch.json entry, a branch. */
-const DELETES = /\bdelet(?:e|es|ed|ing|ion)\b|\berase[sd]?\b|\bwipe[sd]?\b|\brmdir\b|\brm -r/i
+/**
+ * The pattern of a permanent delete: a chat, a file or folder, a launch.json entry, a branch. A cache is none (Autopilot v2, the
+ * live Q601 "May I stop the game on port 5300 and delete the board's old game cache?": "It rebuilds by itself"): a delete, or an
+ * `rm -r`, whose own sentence names a cache after it is a chat's to do.
+ */
+const DELETES = /\bdelet(?:e|es|ed|ing|ion)\b(?![^.?!]*\bcaches?\b)|\berase[sd]?\b|\bwipe[sd]?\b|\brmdir\b|\brm -r(?![^.?!]*cache)/i
 
 /**
  * What only the person's own hands can do, one list (the review of 2026-10-31: Q104, Q559, Q345, Q113, Q539 went to the main
@@ -392,9 +412,6 @@ export function stepVerdictOf(item, step) {
   const score = words.match(/\b(\d+) of (\d+)\b/)
   return approve !== null && (belowTarget(step) || (score !== null && Number(score[1]) < Number(score[2]))) ? approve : null
 }
-/** A score beside a target in a question's title ("68 of 75", "the 75 target"). */
-// A score, not a target picture (the re-review: "beside the target" of Q393 is a look, Q578's "the 75 target" a score).
-const TARGET_WORDS = /\b\d+ of \d+\b|\b\d+\b[^.?!]*\btarget\b|\btarget\b[^.?!]*\b\d+\b/i
 
 /**
  * A chore asked as a yes/no question ("Restart the board on port 4310 so it shows the new popup? I advise yes"): no options,
@@ -429,19 +446,26 @@ export function isByChecker(item, items, prefix = '') {
 
 /**
  * Where an open ask goes while Autopilot is on: `{ to, why }`, `to` one of ROUTES, `why` with the phrase that decided it where
- * one did. `ctx`: `roleOf(owner)` the asking chat's role ('main', 'worker', 'advisor', 'helper', 'owner', 'supervisor', or null
- * for none or one no longer on the list), `items` the store's items by id, `focusGoal` the focus goal's id (or null),
- * `focusHasDemo` whether it has its Demo line already, `recapSteps` the steps an undecided part of a recap names
- * (src/recaps.mjs `recapWaitsOf`: `[{ step, goal, path }]`), `prefix` the chats' title start, `again` that the switch-on's
- * sweep judges an ask the board itself routed to the person anew, `handedWhy` the why of the partner's hand-over of a look (the
- * work API's `escalate`, `partnerHandOverOf`), which is judged as if nobody had handed it on: a new look of the focus goal
- * waits for its recap (and only then; a worker's look goes its old way), as long as the ask's words and that why name nothing only
- * the person's hands can do.
+ * one did; `hands` (the name of what of PERSONS_HANDS it needs) when only the person's hands can do it: the page draws such an
+ * ask as one quiet line, not a card. `ctx`: `roleOf(owner)` the asking chat's role ('main', 'worker', 'advisor', 'helper',
+ * 'owner', 'supervisor', or null for none or one no longer on the list), `items` the store's items by id, `focusGoal` the focus
+ * goal's id (or null), `focusHasDemo` whether it has its Demo line already, `recapSteps` the steps an undecided part of a recap
+ * names (src/recaps.mjs `recapWaitsOf`: `[{ step, goal, path }]`), `prefix` the chats' title start, `again` that the board
+ * judges an ask it routed to the person itself anew (the switch-on's sweep and, under v2, every pass), `handedWhy` the why of
+ * the partner's hand-over of a look (the work API's `escalate`, `partnerHandOverOf`), which is judged as if nobody had handed it
+ * on: a new look of the focus goal waits for its recap (and only then; a worker's look goes its old way), as long as the ask's
+ * words and that why name nothing only the person's hands can do.
  * `step` in the answer: the step a recap ask is put under.
- * `now` (ms) lets the person's verdict on a result go to `partner` instead of `person` when the person answered an ask naming
- * its step in the last 24 hours (`earlierAnswerOf`): the answer then holds `earlier`, that ask's id. Without `now`, never.
+ * `now` (ms): a verdict on a result routed to `partner` names the person's earlier answer on its step, when they answered an
+ * ask naming it in the last 24 hours (`earlierAnswerOf`), as `earlier` (that ask's id): a hint for the partner (Autopilot v2: no
+ * longer the condition of the route). Without `now`, never.
  * A recap wait (the person's "A", 2026-10-31) only for a step of the focus goal whose recap will name it: the goal demo is
  * still to be asked (its words then ask for the step's own row), or a recap of the goal names the step already.
+ *
+ * Autopilot v2 (the person's "B", 2026-11-02: "you can auto approve and manage my needs attention. everything except the goal
+ * recap/verdict"): what is not the person's (the goal's recap, a goal's start or a focus switch, their hands, a hand-over) is
+ * decided for them: a decide or look with advice takes it (`advice`; the Product owner's only under a step: it answers for the
+ * goal, as before), anything else goes to the partner, which decides it or hands it on.
  */
 export function autopilotRoute(item, { roleOf = () => null, items = new Map(), focusGoal = null, focusHasDemo = false, recapSteps = [], prefix = '', again = false, handedWhy = null, now = Number.NaN } = {}) {
   const owner = valueOf(item, 'Owner')
@@ -452,22 +476,30 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   const isUnderStep = STEP.test(of ?? '')
   const step = isUnderStep ? items.get(of) : undefined
   const advice = adviceOf(item)
-  const hasOptions = optionsOf(item).length > 0
-  const recapOr = why => {
-    if (step === undefined || focusGoal === null || valueOf(step, 'Goal') !== focusGoal) return { to: 'person', why: `${why}, and its step is of no focus goal` }
-    const named = (recapSteps ?? []).some(one => one.step === of && (one.goal ?? focusGoal) === focusGoal)
-    return !focusHasDemo || named ? { to: 'recap', why } : { to: 'person', why: `${why}, and the goal's demo is made without its step` }
+  // Decided for the person (v2): the advice of a decide or look is taken (never on the board's Accept card, whose answer ticks
+  // the step: the partner judges it); anything else the partner decides. The Product owner's own ask stays the person's (the
+  // goal's recap is its job), but its advice under a step is taken, as before.
+  const decided = why => {
+    const takes = advice !== null && ['decide', 'look'].includes(kind) && via !== 'accept'
+    if (role === 'owner') return takes && isUnderStep ? { to: 'advice', why: 'the Product owner\'s own advice on a step' } : { to: 'person', why: `the Product owner's: it answers for the goal (${why})` }
+    return takes ? { to: 'advice', why: `${why}: its advice is taken` } : { to: 'partner', why: `${why}: the partner decides it` }
   }
-  // The person's verdict on a result that would be theirs, when they answered an ask naming its step lately (`earlierAnswerOf`):
-  // the partner reads that answer and answers it only when it clearly covers it, else hands it on. Not a recap wait (that keeps
-  // its route), not one the partner handed on already (`handedWhy`), not the partner's, its helper's or the Product owner's own ask
-  // (the partner would answer itself; the Product owner answers for the goal); the hands and goal level were judged before.
-  const verdictOr = decided => {
-    if (decided.to !== 'person' || handedWhy !== null || ['advisor', 'helper', 'owner'].includes(role)) return decided
+  // A verdict on a result (an accept, a send back, a mark done) decided for the person: when they answered an ask naming its step
+  // lately (`earlierAnswerOf`), the partner's card and word name that answer (plan-earlier's "B", now a hint, not a condition).
+  const verdictOf = why => {
+    if (role === 'owner') return { to: 'person', why: `the Product owner's: it answers for the goal (${why})` }
+    const route = decided(why)
+    if (route.to !== 'partner') return route
     const earlier = earlierAnswerOf(item, items, now)
-    return earlier === null ? decided : { to: 'partner', why: `the person's earlier answer on ${earlier.id} names ${of}`, earlier: earlier.id }
+    return earlier === null ? route : { to: 'partner', why: `the person's earlier answer on ${earlier.id} names ${of}`, earlier: earlier.id }
   }
-  // `again`: the switch-on's sweep judges the asks the board itself routed to the person anew (isBoardRoutedPerson).
+  // A verdict of a step of the focus goal waits for its recap (rule 1: the goal's recap and its verdicts reach the person there).
+  const recapOr = (why, otherwise = decided) => {
+    if (step === undefined || focusGoal === null || valueOf(step, 'Goal') !== focusGoal) return otherwise(`${why}, and its step is of no focus goal`)
+    const named = (recapSteps ?? []).some(one => one.step === of && (one.goal ?? focusGoal) === focusGoal)
+    return !focusHasDemo || named ? { to: 'recap', why } : otherwise(`${why}, and the goal's demo is made without its step`)
+  }
+  // `again`: the board judges the asks it routed to the person itself anew (isBoardRoutedPerson).
   if (isExplicitPerson(item) && !(again && isBoardRoutedPerson(item)) && handedWhy === null) return { to: 'person', why: 'handed to the person' }
   if (via === 'form') return { to: 'person', why: 'the app\'s question form is answered in its chat' }
   // An action: a do, or a yes/no chore the main chat would carry out.
@@ -476,42 +508,44 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   // step; for a detail decide or look under a step only its phrases.
   const list = isAction || !isUnderStep ? PERSONS_HANDS : UNDER_STEP_HANDS
   const hands = handsMatchOf(item, list) ?? (handedWhy === null ? null : handsMatchOf({ head: new Map([['Title', handedWhy]]), sections: new Map() }, list))
-  if (hands !== null) return { to: 'person', why: `only the person's hands: ${hands.name} ("${hands.phrase}")` }
+  if (hands !== null) return { to: 'person', why: `only the person's hands: ${hands.name} ("${hands.phrase}")`, hands: hands.name }
+  // Never Fable without the person's yes (the person, 2026-10-24: "you cant run fable without my permission"): an ask that names
+  // Fable in its words or options is theirs, whatever its advice, so neither the board nor the partner says yes for them.
+  if (/\bFable\b/i.test(`${title(item)} ${text(item)} ${valueOf(item, 'Options') ?? ''}`)) return { to: 'person', why: 'only the person says yes to Fable' }
+  // The board's ask for an asset from the provider the person chose for its kind (the work API's `asset`, mode person): only they
+  // provide it, so it is their hands too.
+  if (role === 'board' && kind === 'provide') return { to: 'person', why: 'only the person provides it (the board\'s asset ask)', hands: 'a file only you provide' }
   // The focus goal's recap asks it already: the ask waits for the recap (before the goal-level words: its `#demo=` link is one).
   const recapAsk = recapAskOf(item, { focusGoal, recapSteps, items }, role)
   if (recapAsk !== null) return recapAsk
-  const goal = goalLevelOf(item, role)
-  if (goal !== null) return { to: 'person', why: `goal level ("${goal}")` }
+  const goal = goalLevelOf(item, role, focusGoal)
+  if (goal !== null) return { to: 'person', why: goal.part === 'recap' ? `the goal's recap ("${goal.phrase}")` : `a goal's start or a focus switch ("${goal.phrase}")` }
   // The partner's hand-over of a new look of the focus goal waits for its recap, whatever the recap names (the person's "A",
   // 2026-11-02): before the rules of a look. A worker's look is no hand-over: the partner answers it, as before.
   const look = handedWhy === null ? null : focusLookOf(item, { focusGoal, items }, role)
   if (look !== null) return { to: 'recap', why: FOCUS_LOOK_WHY, ...(look.isInferred ? { step: look.step } : {}) }
-  if (via === 'accept') return verdictOr(recapOr('an accept or send back below its target'))
+  // Anything else the partner handed over stays handed over: it judged it already, so it is never decided back to it.
+  if (handedWhy !== null) return { to: 'person', why: 'handed to the person' }
+  if (via === 'accept') return recapOr('an accept or send back below its target', verdictOf)
   if (kind === 'look' && isByChecker(item, items, prefix)) return recapOr('a look of the step\'s checker')
   if (kind === 'look' && belowTarget(step)) return recapOr('a look below its target')
-  if (role === 'board') return { to: 'person', why: 'the board\'s own card' }
-  if (!isUnderStep && ['look', 'decide'].includes(kind) && TARGET_WORDS.test(title(item))) return { to: 'person', why: 'a score below its target, under no step' }
-  // Never the main chat's: an action that marks a step done, accepts it or sends it back.
-  if (isAction && STEP_VERDICT.test(title(item))) return verdictOr({ to: 'person', why: 'it marks a step done, accepts it or sends it back' })
-  // Never the partner's: a look or decide that accepts a result, leaves its gap, approves it below its bar or sends it back
-  // (the last re-check, Q520): the person's, under a step of the focus goal at its recap.
+  // Never the main chat's: an action that marks a step done, accepts it or sends it back (the partner judges it).
+  if (isAction && STEP_VERDICT.test(title(item))) return verdictOf('it marks a step done, accepts it or sends it back')
+  // A look or decide that accepts a result, leaves its gap, approves it below its bar or sends it back (the last re-check, Q520):
+  // under a step of the focus goal at its recap; else decided for the person, as every verdict outside a focus goal's recap.
   const verdict = isAction || !['look', 'decide'].includes(kind) ? null : stepVerdictOf(item, step)
   if (verdict !== null) {
-    const why = `the person's verdict on a result ("${verdict}")`
-    return isUnderStep ? verdictOr(recapOr(why)) : { to: 'person', why }
+    const why = `a verdict on a result ("${verdict}")`
+    return isUnderStep ? recapOr(why, verdictOf) : verdictOf(why)
   }
-  if (kind === 'do' && OWN_SENSES.test(title(item))) return { to: 'person', why: 'the person\'s own eyes, ears or words' }
-  if (kind === 'do') return role === 'owner' ? { to: 'person', why: 'the Product owner\'s' } : { to: 'main', why: 'an action' }
+  // A do of the person's own eyes, ears or words (the live Q593 "Look at the whole ring in the game"): the partner judges it by the
+  // evidence; the main chat carries out any other do.
+  if (kind === 'do' && OWN_SENSES.test(title(item))) return role === 'owner' ? decided('the person\'s own eyes, ears or words') : { to: 'partner', why: 'the person\'s own eyes, ears or words: the partner judges it by the evidence' }
+  if (kind === 'do') return role === 'owner' ? decided('an action') : { to: 'main', why: 'an action' }
   if (isAction) return { to: 'main', why: 'an action asked as a question' }
-  if (kind === 'provide') return { to: 'person', why: 'only the person provides it' }
-  if (['advisor', 'helper', 'owner'].includes(role)) {
-    // A refine question without advice goes back to the Advisor (`partner`); one with advice under a step is answered with it.
-    if (advice !== null && isUnderStep) return { to: 'advice', why: 'the partner\'s own advice on a step' }
-    if (via === 'refine' && advice === null) return { to: 'partner', why: 'the Advisor decides it' }
-    return { to: 'person', why: advice === null ? 'the partner gave no advice' : 'the partner\'s ask under no step' }
-  }
-  if (kind === 'decide' || (kind === 'look' && (hasOptions || advice !== null))) return { to: 'partner', why: 'a detail question' }
-  return { to: 'person', why: 'a look only the person judges' }
+  // A refine question without advice goes back to the Advisor (as before); one with advice is answered with it.
+  if (via === 'refine' && advice === null) return { to: 'partner', why: 'the Advisor decides it' }
+  return decided(kind === 'provide' ? 'a provide' : kind === 'look' ? 'a look' : 'a detail question')
 }
 
 /**

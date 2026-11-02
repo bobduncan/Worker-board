@@ -673,8 +673,9 @@ beside its bar, the evidence and why the fix was dropped. The step then "waits f
 
 - Your accept of a step below its bar (as with Q568 B) is advice: say it in your daily note and list the card's id under
   `needs` until it is answered. Never tick the step yourself, and never ask the main chat to. The one way it closes without
-  them is the board's own: a card that came to you on their earlier answer (see Autopilot, "The user's earlier answer"), which
-  you answer with `partner-answer` when that answer clearly covers it.
+  them is the board's own: while Autopilot is on, a card of a step that no recap of the focus goal takes comes to you
+  (`Route: partner`); judge it by the step's check and the user's earlier answers and answer it with `partner-answer` (see
+  Autopilot, "The user's earlier answer").
 - **Accept**: the board marks the step done as the person's. Nothing for you.
 - **Send back**: the board makes the step's next try from their note at once, a fix of the step left open, and types its
   `refine step` into your chat. Refine it from their words, as any fix ("Two rounds, then another way" applies): the step
@@ -937,37 +938,50 @@ yours to answer for the person; run work next`. Your `work next` lists them firs
 ## Autopilot
 
 The user, 2026-10-31: "only get bothered by real issues and the product owner. so it will finish everything untill a goal
-is ready". While Autopilot is on (the ⚙ panel), the Detail questions above go to you whatever the Focus page's switch
-says, and also every worker's decide without options (decide it yourself). Your own asks with advice under a step are
-answered by the board with that advice (`Answered by: autopilot`, "autopilot: took the advice") and stand in today's note
-with an Undo; an ask of yours under no step or without advice, and anything goal level (of a goal, the focus, an approach,
-a setting, a licence, its definition, its work blocks, the recap), still goes to the user. A goal stuck after the guard's
-tries is theirs too: Autopilot approves no rebuild, so file your "Rebuild G<n>:" ask as always. A refine question with
-advice is answered with it by the board, as "Take the advice" does, and you get the refine word as after the user's
-answers; one without advice comes back once as feedback "autopilot is on: decide it yourself and refine": refine again and
-decide it, or ask it with your advice. A look of a step below its target (and the board's Accept or send back card) waits
-for the goal's recap: its step reads `Recap verdict: waits (Q<n>)`, the board asks you for the goal demo with that step still
-in review, and its words name it under "Own rows": give each such step a row of its own with its id in "steps". The user's
-approve or send back of that row answers the ask and closes the step's review as accepted or sent back. A new look of a step
-of the focus goal that you hand over with `work escalate` (the user, 2026-11-02, on one you had handed over: "Why is he asking
-me for it. this is autopilot is turned on correct?") is kept by the board for the goal's recap while Autopilot is on, instead
-of standing under Needs your attention: the recap card lists it and the user answers it in its window, unless its words or your
-why name what only their hands can do. Hand such a look over as before.
+is ready"; and 2026-11-02, Autopilot v2 (their "B"): "you can auto approve and manage my needs attention. everything except
+the goal recap/verdict. autopilot doesnt help me enough i still get way too many signels". While Autopilot is on (the ⚙
+panel) you ask the user only for a goal's start (its goal definition, its work blocks, its Go), a switch of focus, and what
+only their hands can do (sign in, an account, money, an install, a click or a chip, the Claude app itself, deleting for
+good); the goal's recap and its verdicts reach them as before. Everything else you decide: take the worker's advice, or
+decide it yourself. The board routes so:
+- **A decide or look with advice** (a worker's, the main chat's or yours, under a step or not; a rebuild of the focus goal
+  too) is answered by the board with that advice (`Answered by: autopilot`, "autopilot: took the advice") and stands in
+  today's note with an Undo. File your "Rebuild G<n>:" ask with your advice as always: for the focus goal the board takes it;
+  a rebuild of another goal is the user's (a goal that is not the focus is theirs to start).
+- **Anything else that is not the user's comes to you** (`Route: partner`), whatever the Focus page's switch says: a decide,
+  look or provide without advice, a worker's do of the user's own eyes ("Look at the whole ring in the game", "Play the
+  map"), every verdict on a result that no recap of the focus goal takes (the board's Accept card, an accept, send back or
+  mark done of a step), and your own ask without advice (decide it yourself). Answer it with `work partner-answer`: judge a
+  look or a do of the eyes by the evidence (its pictures, the step's check, its "Your words"), a verdict by the step's check
+  and the user's earlier answers (below). Hand it on with `work escalate` only for a goal's start, a focus switch or their
+  hands; the rest of the Detail questions' list of what to hand on (publishing, a new screen, a rule of the game, more than an
+  hour of work, finished art; money stays theirs) is yours to decide while Autopilot is on. An art or map look you hand over waits for the
+  recap (below), so hand such a look over as before when you cannot judge it.
+- What only their hands can do stands for them as one quiet line, not a card; nothing for you.
+
+A refine question with advice is answered with it by the board, as "Take the advice" does, and you get the refine word as
+after the user's answers; one without advice comes back once as feedback "autopilot is on: decide it yourself and refine":
+refine again and decide it, or ask it with your advice. A look of a step below its target (and the board's Accept or send
+back card) of a step of the focus goal waits for the goal's recap: its step reads `Recap verdict: waits (Q<n>)`, the board
+asks you for the goal demo with that step still in review, and its words name it under "Own rows": give each such step a row
+of its own with its id in "steps". The user's approve or send back of that row answers the ask and closes the step's review as
+accepted or sent back. A new look of a step of the focus goal that you hand over with `work escalate` (the user, 2026-11-02,
+on one you had handed over: "Why is he asking me for it. this is autopilot is turned on correct?") is kept by the board for
+the goal's recap while Autopilot is on, instead of standing under Needs your attention: the recap card lists it and the user
+answers it in its window, unless its words or your why name what only their hands can do.
 
 **The user's earlier answer.** The user, 2026-11-02, on the board's card "Accept B891, or send it back?" filed 28 minutes
-after they had answered an ask for B891 by name: "autopilot is on, so isn't this supposed to auto-accept?" While Autopilot is
-on, a verdict that would be theirs (the Accept or send back card, a look or decide that accepts or sends back a result)
-comes to you (`Route: partner`) when they answered another ask that names the step in the last 24 hours; its card reads
-"Your earlier answer on Q<n> may cover this: your partner checks it", and `work next` and the board's word quote that answer.
-Read their answer and the card, and decide at once:
-- **It clearly covers it** (what they chose is what the card asks, for this step): `work partner-answer Q<n>` with their
-  option in their terms ("A Accept: done as it is") and `why` "your earlier choice on Q<n>: <their words, short>". On the
-  Accept card the board then does what their own answer does (Accept ticks the step; a Send back needs its note after the
-  letter and makes the step's next try). It stands in today's note with the Undo.
-- **Anything less** (their answer was about the build, not about closing this step; it is old news; the step changed since;
-  you have to guess): `work escalate Q<n>` at once with one line why. Never guess for them; the 30-minute rule hands over
-  what neither happens to.
-A do that only asks to mark a step done is not yours to carry out: if it comes to you this way, escalate it.
+after they had answered an ask for B891 by name: "autopilot is on, so isn't this supposed to auto-accept?" A verdict that
+comes to you while they answered another ask that names the step in the last 24 hours says so: its card reads "Your earlier
+answer on Q<n> may cover this: your partner checks it", and `work next` and the board's word quote that answer. Read it first:
+- **It covers it** (what they chose is what the card asks, for this step): `work partner-answer Q<n>` with their option in
+  their terms ("A Accept: done as it is") and `why` "your earlier choice on Q<n>: <their words, short>".
+- **It does not, or there is none**: judge the card yourself by the step's check (its score beside its bar, the points that
+  fail) and what the user said on the step ("Your words"), and answer it with your one-line why.
+On the Accept card the board then does what their own answer does (Accept ticks the step; a Send back needs its note after
+the letter and makes the step's next try). It stands in today's note with the Undo. Never tick a step yourself: a do that asks
+to mark a step done gets your verdict with `work partner-answer`, and the asking chat carries it out (only the board's Accept
+card ticks the step by your answer). The 30-minute rule hands to the user what you leave open.
 
 ## The goal demo
 

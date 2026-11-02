@@ -42,7 +42,7 @@ import { readAutopilotClearedFile, readNamesFile, readObsoleteFile, readPartnerA
 import { KEPT_WORDS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
-import { HANDED_KEPT_WORDS, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, earlierAnswerOf, earlierCardWords, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, partnerHandOverOf, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords, shortAnswer } from './autopilot.mjs'
+import { HANDED_KEPT_WORDS, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, earlierCardWords, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, partnerHandOverOf, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords, shortAnswer } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
@@ -1586,10 +1586,11 @@ async function routeAsk(id, to, w, card = null, step = null, { said = null, plac
  * waits for a recap whose step is of no focus goal any more goes to the person. While on, a step's open refine questions are
  * answered with their advice and the step goes on (`refines`: the board sends the refine word); a question without advice
  * goes back to the Advisor once per step. Answers `{ routed, answered, escalated, mainAsks, refines, wakes }`.
- * The switch-on (`body.sweep`, 2026-11-02; the person: "if autopilot is turned on, the outstanding, needing for attentions get
- * reevaluated and possible resolved if autopilot would answer them"): also judges anew the asks the board itself routed to the
- * person (autopilot.mjs `isBoardRoutedPerson`, never one somebody handed on) and routes them when the answer is anything but
- * the person; what it moved into the recap is kept for the Undo (autopilotCleared.mjs, `autopilot-cleared.json`).
+ * Every pass while on (the switch-on's sweep since 2026-11-02, every pass since Autopilot v2, the person's "B": "if autopilot is
+ * turned on, the outstanding, needing for attentions get reevaluated and possible resolved if autopilot would answer them") also
+ * judges anew the asks the board itself routed to the person (autopilot.mjs `isBoardRoutedPerson`, never one somebody handed on)
+ * and routes them when the answer is anything but the person; what the switch-on (`body.sweep`) moved into the recap is kept for
+ * the Undo (autopilotCleared.mjs, `autopilot-cleared.json`).
  */
 async function autopilot(body, w) {
   const on = body.on === true
@@ -1602,19 +1603,20 @@ async function autopilot(body, w) {
   const wakes = []
   // The partner's hand-overs this pass kept for the recap (the person's "A"): each is kept for the Undo, at every pass.
   const kept = []
+  // Autopilot v2: the asks this pass judged anew (they stood for the person): one it moved into the recap is kept for the Undo too.
+  const judgedAgain = new Set()
   if (on) {
     for (const item of openAsksAll(w)) {
       const route = valueOf(item, 'Route')
-      // The person's "B" (2026-11-02, on Q608, filed after their Q588 answer named its step: "autopilot is on, so isn't this supposed
-      // to auto-accept?"), at every pass: an ask the board itself routed to the person that an earlier answer of theirs on its step
-      // may cover goes to the partner now (`isEarlier`); only that route counts, the rest of the sweep stays the switch-on's.
-      const isEarlier = !isSweep && isBoardRoutedPerson(item) && earlierAnswerOf(item, w.store.items, w.now) !== null
-      const isAgain = (isSweep && isBoardRoutedPerson(item)) || isEarlier
+      // Autopilot v2 (the person's "B", 2026-11-02: "autopilot doesnt help me enough i still get way too many signels"): every pass,
+      // not only the switch-on's sweep, judges anew an ask the board itself routed to the person (`isBoardRoutedPerson`), so what
+      // the new rule decides for them leaves Needs your attention; never one a chat or the partner handed on, nor the person's
+      // take-back (their words stand on its card).
+      const isAgain = isBoardRoutedPerson(item)
       if (valueOf(item, 'Via') === 'refine') continue
       if (!isAgain && (isAutopilotRouted(item) || (route !== null && !(route === 'person' && !isExplicitPerson(item))))) continue
       const decided = autopilotRoute(item, isAgain ? { ...ctx, again: true } : ctx)
       if (isAgain && decided.to === 'person') continue
-      if (isEarlier && decided.earlier === undefined) continue
       let done = await routeAsk(valueOf(item, 'Id'), decided.to, w, decided.earlier === undefined ? null : earlierCardWords(decided.earlier), decided.step ?? null)
       // A step the recap names that the store cannot give: the ask is the person's, as before.
       if (!done.ok && decided.step !== undefined) {
@@ -1622,6 +1624,7 @@ async function autopilot(body, w) {
         done = await routeAsk(valueOf(item, 'Id'), 'person', w)
       }
       if (done.ok) routed.push({ id: valueOf(item, 'Id'), to: decided.to })
+      if (done.ok && isAgain) judgedAgain.add(valueOf(item, 'Id'))
     }
     // The partner's hand-over of a look (the person's "A", 2026-11-02, the live Q590: "Why is he asking me for it. this is autopilot
     // is turned on correct?"), at every pass: one that stands for the person because the partner escalated it, and that a new look
@@ -1709,11 +1712,12 @@ async function autopilot(body, w) {
     }
   }
   // The switch-on keeps what it moved into the recap (the page: "Autopilot cleared N", with an Undo for a day); every pass keeps the
-  // partner's hand-overs it kept for the recap (the person's "A", 2026-11-02): they stood for the person before.
+  // partner's hand-overs it kept for the recap (the person's "A", 2026-11-02), and (Autopilot v2) what it judged anew into the recap:
+  // they stood for the person before. What it decided otherwise has its own Undo (the daily note's).
   let clearedWhy = null
   const titleOf = id => valueOf(w.store.items.get(id), 'Title') ?? id
   const moved = [
-    ...(isSweep ? routed.filter(one => one.to === 'recap' && !kept.includes(one.id)).map(one => clearedItem(one.id, titleOf(one.id), 'recap', MOVED_WORDS)) : []),
+    ...routed.filter(one => one.to === 'recap' && !kept.includes(one.id) && (isSweep || judgedAgain.has(one.id))).map(one => clearedItem(one.id, titleOf(one.id), 'recap', MOVED_WORDS)),
     ...kept.map(id => clearedItem(id, titleOf(id), 'recap', KEPT_WORDS)),
   ]
   if (moved.length > 0) {
