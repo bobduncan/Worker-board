@@ -39,7 +39,8 @@ function makePage({ stored = null, boxes = [], popup = { open: false, childNodes
     },
   }
   const document = {
-    querySelectorAll: () => boxes,
+    // The popups are the page harness's (test/restartCostsNothing.page.test.mjs): here none is open.
+    querySelectorAll: selector => (selector.includes('dialog') ? [] : boxes),
     getElementById: id => (id === 'details' ? popup : boxes.find(one => one.id === id) ?? null),
   }
   popup.showModal = () => { popup.open = true; shown.push('showModal') }
@@ -57,6 +58,14 @@ const chosen = new Map()
 const openForms = new Set()
 const focusUi = { words: { talk: '', notYet: '', new: '', bar: '' } }
 let detailsOf = null
+const noteDrafts = new Map()
+let keptPopup = null
+let keptScroll = new Map()
+let shownPicture = null
+let shownFile = null
+let helpAt = 0
+let isFolderTyped = false
+const changeGoalUi = { goal: null, busy: false }
 const $ = id => document.getElementById(id)
 ${cut('times')}
 ${cut('chatstatus')}
@@ -69,8 +78,8 @@ try {
 } catch { /* nothing was kept */ }
 Object.assign(this, {
   keepForReload, restoreKept, finishRestore,
-  state: () => ({ drafts, calmWords, calmPicks, chosen, openForms, focusWords: focusUi.words, details: detailsOf }),
-  set: (what, put) => { put({ drafts, calmWords, calmPicks, chosen, openForms, focusUi, setDetails: value => { detailsOf = value } }) },
+  state: () => ({ drafts, calmWords, calmPicks, chosen, openForms, focusWords: focusUi.words, details: detailsOf, noteDrafts }),
+  set: (what, put) => { put({ drafts, calmWords, calmPicks, chosen, openForms, focusUi, noteDrafts, setDetails: value => { detailsOf = value } }) },
   isPending: () => kept !== null,
 })
 `, context)
@@ -79,7 +88,9 @@ Object.assign(this, {
 
 /** What the person did on a page before it reloads. */
 function doThings(page) {
-  page.set('things', ({ drafts, calmWords, calmPicks, chosen, openForms, focusUi, setDetails }) => {
+  page.set('things', ({ drafts, calmWords, calmPicks, chosen, openForms, focusUi, noteDrafts, setDetails }) => {
+    // Signals change 5: a note half-typed under "Add a note" of a step.
+    noteDrafts.set('B7', 'look at the edges')
     drafts.set('Q12', 'yes, A')
     drafts.set('refine:B7:feedback', 'shorter')
     calmWords.set('Q20', 'a note')
@@ -107,6 +118,7 @@ test('keepForReload writes the drafts, notes, picks, open forms, boxes and the o
   assert.deepEqual(written.fields, { 'main-text': 'do it', 'goals-ask-text': 'why?' })
   assert.deepEqual(written.focusWords, { talk: 'hello' })
   assert.deepEqual(written.details, { need: 'Q20' })
+  assert.deepEqual(written.notes, [['B7', 'look at the edges']])
 })
 
 test('after the reload restoreKept puts everything back once, and finishRestore tells the boxes and opens the popup again', () => {
@@ -128,6 +140,7 @@ test('after the reload restoreKept puts everything back once, and finishRestore 
   assert.deepEqual(plain([...state.openForms]), ['Q30'])
   assert.equal(state.focusWords.talk, 'hello')
   assert.deepEqual(plain(state.details), { need: 'Q20' })
+  assert.deepEqual(plain([...state.noteDrafts]), [['B7', 'look at the edges']])
   assert.deepEqual(after.boxes.map(one => one.value), ['do it', 'typed already', ''])
   // Not yet told: the first draw comes first.
   assert.deepEqual(after.boxes.map(one => one.heard), [0, 0, 0])

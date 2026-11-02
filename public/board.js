@@ -116,6 +116,9 @@ try {
 } catch { /* no sessionStorage: nothing was kept */ }
 /** The boxes `restoreKept` filled: told about it after the first draw, so what listens to them reads the words. */
 let restoredBoxes = []
+/** Signals change 5: the popup a reload kept (`popupOf`), opened again once after the first draw, and the popups' scroll. */
+let keptPopup = null
+let keptScroll = new Map()
 const chosen = new Map()
 const problems = new Map()
 const sending = new Set()
@@ -323,8 +326,12 @@ function reloadsOn403(status, { lastAt = 0, now = 0 }) {
  * option chosen); `forms`: the ids of the forms left open; `fields`: the words in the page's own boxes (the Talk to
  * Main and Advisor boxes, ...) by their element id; `focusWords`: the Focus page's boxes; `details`: what the open
  * popup is about (`detailsOf`). Empty words and anything of another shape are left out.
+ * Signals change 5 (2026-11-02): also `notes` (the "Add a note" boxes, [id, text]), `popup` (the other popup that was open,
+ * as `popupOf` says it: the file view, a picture, the help, New project, Change this goal) and `scroll` (where each open
+ * popup was scrolled: [popup id, [[node, top], ...]], `scrollOf`). A cold start of the board (a new token) still reloads
+ * the page; nothing the person had half-done is lost by it.
  */
-function keptState({ drafts = [], words = [], picks = [], chosen = [], forms = [], fields = {}, focusWords = {}, details = null }) {
+function keptState({ drafts = [], words = [], picks = [], chosen = [], forms = [], fields = {}, focusWords = {}, details = null, notes = [], popup = null, scroll = [] }) {
   const pairs = list => [...list].filter(([name, text]) => typeof name === 'string' && typeof text === 'string' && text !== '')
   return JSON.stringify({
     drafts: pairs(drafts),
@@ -335,7 +342,16 @@ function keptState({ drafts = [], words = [], picks = [], chosen = [], forms = [
     fields: Object.fromEntries(pairs(Object.entries(fields))),
     focusWords: Object.fromEntries(pairs(Object.entries(focusWords))),
     details,
+    notes: pairs(notes),
+    popup,
+    scroll: [...scroll].filter(isScroll),
   })
+}
+
+/** Signals change 5: one popup's scroll as `scrollOf` gives it: [its id, [[node, top], ...]] with whole numbers. */
+function isScroll(entry) {
+  return Array.isArray(entry) && typeof entry[0] === 'string' && Array.isArray(entry[1])
+    && entry[1].every(pair => Array.isArray(pair) && Number.isInteger(pair[0]) && Number.isFinite(pair[1]))
 }
 
 /** B524: what `keptState` wrote, back from the text, every part present and well-formed; anything unreadable gives null. */
@@ -359,6 +375,9 @@ function keptBack(text) {
     fields: named(kept.fields),
     focusWords: named(kept.focusWords),
     details: isPlain(kept.details) ? kept.details : null,
+    notes: pairs(kept.notes),
+    popup: isPlain(kept.popup) && typeof kept.popup.kind === 'string' ? kept.popup : null,
+    scroll: Array.isArray(kept.scroll) ? kept.scroll.filter(isScroll) : [],
   }
 }
 
@@ -808,16 +827,20 @@ function newProjectDone(result) {
 
 /** B320: the New project form. The folder follows the name until the person types a folder of their own. */
 let isFolderTyped = false
-$('new-project-button').addEventListener('click', () => {
+/** Opens the form; `isFresh` empties it (the ⚙ menu's New project…), else it keeps its words (a reload put them back). */
+function openNewProject(isFresh) {
   $('settings').open = false
-  isFolderTyped = false
-  $('new-project-form').reset()
+  if (isFresh) {
+    isFolderTyped = false
+    $('new-project-form').reset()
+  }
   $('new-project-status').textContent = ''
   $('new-project-make').disabled = false
   $('new-project-cancel').textContent = 'Cancel'
-  $('new-project').showModal()
+  if (!$('new-project').open) $('new-project').showModal()
   $('new-project-name').focus()
-})
+}
+$('new-project-button').addEventListener('click', () => openNewProject(true))
 $('new-project-name').addEventListener('input', () => {
   const name = $('new-project-name').value.trim()
   $('new-project-prefix').placeholder = name === '' ? '' : `${name} - `
@@ -1470,6 +1493,64 @@ function boxesWithWords() {
   return Object.fromEntries([...document.querySelectorAll('textarea[id], input[id]')].filter(field => isText(field) && field.value.trim() !== '').map(field => [field.id, field.value]))
 }
 
+/**
+ * Signals change 5 (2026-11-02, B of B913): the popup open besides the details and the recap (they keep their own), as
+ * `reopenPopup` opens it again after a reload: `{ kind: 'file', path, alt }` (the file view, or a picture of the game's
+ * folder), `{ kind: 'picture', path, caption }`, `{ kind: 'help', card }`, `{ kind: 'new-project', folderTyped }` (its words are
+ * boxes with ids: kept as fields), `{ kind: 'change-goal', goal }` (its words alike); null when none is open.
+ */
+function popupOf() {
+  const isOpen = id => $(id)?.open === true
+  if (isOpen('lightbox') && shownPicture !== null) return { ...shownPicture }
+  if (isOpen('file-view') && shownFile !== null) return { kind: 'file', ...shownFile }
+  if (isOpen('help')) return { kind: 'help', card: helpAt }
+  if (isOpen('new-project')) return { kind: 'new-project', folderTyped: isFolderTyped }
+  if (isOpen('change-goal') && changeGoalUi.goal !== null) return { kind: 'change-goal', goal: changeGoalUi.goal }
+  return null
+}
+
+/** Signals change 5: where each open popup is scrolled: [its id, [[node, top], ...]], node 0 the popup itself, then its nodes in order. */
+function scrollOf() {
+  return [...document.querySelectorAll('dialog[open]')].filter(box => typeof box.id === 'string' && box.id !== '').map(box => {
+    const tops = [box, ...box.querySelectorAll('*')].map((node, at) => [at, Math.round(node.scrollTop ?? 0)]).filter(([, top]) => top > 0)
+    return [box.id, tops]
+  }).filter(([, tops]) => tops.length > 0)
+}
+
+/** Signals change 5: puts back where the popup `id` was scrolled before the reload, once, when it is open with its nodes drawn. */
+function putScrollBack(id) {
+  const tops = keptScroll.get(id)
+  const box = $(id)
+  if (tops === undefined || box === null || !box.open) return
+  keptScroll.delete(id)
+  const nodes = [box, ...box.querySelectorAll('*')]
+  for (const [at, top] of tops) if (nodes[at] !== undefined) nodes[at].scrollTop = top
+}
+
+/** Signals change 5: opens the popup `popupOf` kept again, as the person had it; nothing is sent by it. */
+async function reopenPopup(popup) {
+  if (popup.kind === 'file' && typeof popup.path === 'string') {
+    await openGameFile(popup.path, typeof popup.alt === 'string' ? popup.alt : null)
+    return putScrollBack('file-view')
+  }
+  if (popup.kind === 'picture' && typeof popup.path === 'string') return openPicture(popup.path, typeof popup.caption === 'string' ? popup.caption : '')
+  if (popup.kind === 'help') {
+    openHelp()
+    if (Number.isInteger(popup.card) && popup.card > 0) moveHelp(popup.card)
+    return putScrollBack('help')
+  }
+  if (popup.kind === 'new-project') {
+    openNewProject(false)
+    return putScrollBack('new-project')
+  }
+  if (popup.kind === 'change-goal' && typeof popup.goal === 'string') {
+    // The words in its box were put back with the fields: the same goal keeps them.
+    changeGoalUi.goal = popup.goal
+    openChangeGoal(popup.goal)
+    return putScrollBack('change-goal')
+  }
+}
+
 /** B524: writes what the person did on the page into sessionStorage, for `restoreKept` after the reload. */
 function keepForReload() {
   try {
@@ -1478,6 +1559,7 @@ function keepForReload() {
     sessionStorage.setItem(KEPT_KEY, keptState({
       drafts, words: calmWords, picks: calmPicks, chosen, forms: openForms,
       fields: boxesWithWords(), focusWords: focusUi.words, details: detailsOf,
+      notes: noteDrafts, popup: popupOf(), scroll: scrollOf(),
     }))
   } catch { /* full or blocked: the page still loads */ }
 }
@@ -1507,12 +1589,25 @@ function restoreKept() {
     }
   }
   detailsOf = back.details
+  // Signals change 5: the "Add a note" boxes, the other popup that was open, and where the popups were scrolled.
+  for (const [id, text] of back.notes) noteDrafts.set(id, text)
+  // Before the boxes hear of their words: a folder the person typed into New project is not replaced by a suggestion.
+  if (back.popup?.kind === 'new-project') isFolderTyped = back.popup.folderTyped === true
+  keptPopup = back.popup
+  keptScroll = new Map(back.scroll)
 }
 
 /** B524: after the first draw: the boxes hear of their words, and the popup that was open opens again. */
 function finishRestore() {
   for (const box of restoredBoxes.splice(0)) box.dispatchEvent(new Event('input', { bubbles: true }))
-  if (detailsOf !== null && !$('details').open && $('details').childNodes.length > 0) $('details').showModal()
+  if (detailsOf !== null && !$('details').open && $('details').childNodes.length > 0) {
+    $('details').showModal()
+    putScrollBack('details')
+  }
+  // Signals change 5: the other popup that was open opens again, once, over the details when both were.
+  const popup = keptPopup
+  keptPopup = null
+  if (popup !== null) void reopenPopup(popup)
 }
 
 /** The note on top (see `updateView`). B454: a newer page loads itself when the page is idle; a short note says so after. */
@@ -9541,8 +9636,12 @@ function showPicture(url, caption, problem = null) {
   if (url !== null && image.complete && !PHONE.matches) place()
 }
 
+/** Signals change 5: what the picture popup shows, for `popupOf`: `{ kind: 'picture', path, caption }` or `{ kind: 'file', path, alt }`. */
+let shownPicture = null
+
 /** A picture the board may show, large, with its caption; a plain line when it may not (too big), nothing otherwise. */
 function openPicture(path, caption) {
+  shownPicture = { kind: 'picture', path, caption: caption ?? '' }
   pictureUrl(path).then(url => {
     if (url !== null) return showPicture(url, caption || path)
     const problem = pictureProblems.get(path)
@@ -17582,6 +17681,9 @@ $('advice-text').addEventListener('toggle', event => {
   else planOpen.delete(part.dataset.planPart)
 }, true)
 
+/** Signals change 5: the file the file view shows, for `popupOf`: `{ path, alt }`. */
+let shownFile = null
+
 /** B218: a file of the game's folder, read-only, in a window of its own; a picture in the picture popup. */
 async function openGameFile(path, alt = null) {
   const query = `path=${encodeURIComponent(path)}${alt === null ? '' : `&alt=${encodeURIComponent(alt)}`}`
@@ -17597,8 +17699,10 @@ async function openGameFile(path, alt = null) {
   head.append(el('h2', '', shown), close)
   if (answer !== null && answer.ok && (answer.headers.get('Content-Type') ?? '').startsWith('image/')) {
     showPicture(URL.createObjectURL(await answer.blob()), shown)
+    shownPicture = { kind: 'file', path, alt }
     return
   }
+  shownFile = { path, alt }
   const body = el('div', 'file-view-body advice')
   if (answer === null) body.append(el('p', 'problem', 'The board\'s server does not answer.'))
   else if (!answer.ok) body.append(el('p', 'problem', (await answer.text()).trim() || 'This file is not shown.'))
@@ -21087,7 +21191,8 @@ function helpAtStart(state) {
   helpLooked = true
   let seen = true
   try { seen = localStorage.getItem('help-seen') === 'yes' } catch { /* seen stays true */ }
-  if (helpOpensAtStart({ seen, hash: helpStartHash, isDemo: state?.isDemo === true })) openHelp()
+  // Signals change 5: a tour a reload opened again (on the card it was on) is not started over.
+  if (helpOpensAtStart({ seen, hash: helpStartHash, isDemo: state?.isDemo === true }) && !$('help').open) openHelp()
 }
 
 // The person, 2026-10-31: the reload icon spins while the board reads again (at least a moment, so a quick read shows too).

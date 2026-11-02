@@ -73,3 +73,118 @@ test('a board started cold has a new token: the page still loads itself at once 
     assert.match(page.window.sessionStorage.getItem('kept-state') ?? '', /kept across the reload/)
   } finally { await page.close() }
 })
+
+// B: everything half-done survives a reload a cold start still needs (B524's keep, extended)
+
+/** A link of the page as the board draws them (a game file's, a picture's), added to the page; its selector for a click. */
+function linkTo(page, data) {
+  const link = page.document.createElement('a')
+  link.id = 'test-link'
+  for (const [name, value] of Object.entries(data)) link.dataset[name] = value
+  page.document.body.append(link)
+  return '#test-link'
+}
+
+const REFUSED = { ok: false, status: 403, json: async () => ({}), text: async () => 'Only the board\'s own page may read.' }
+const SEEN = { 'help-seen': 'yes' }
+const isPost = request => request.method === 'POST'
+
+/**
+ * The person does `act` on a page; the board comes back with a new token (403) and the page reloads (B519): the page that
+ * loads then has what the reload kept in sessionStorage. Returns that new page.
+ */
+async function acrossAReload({ state = stateOf(BOARD_NOW - 1_000), answers, act }) {
+  let refused = false
+  const before = await openPage({ now: BOARD_NOW, state: () => (refused ? REFUSED : state), answers, storage: SEEN })
+  let kept = null
+  try {
+    await act(before)
+    refused = true
+    await before.advance(30_000)
+    assert.equal(before.reloads(), 1, 'the 403 reloads the page')
+    kept = before.window.sessionStorage.getItem('kept-state')
+  } finally { await before.close() }
+  const after = await openPage({ now: BOARD_NOW + 31_000, state, answers, storage: SEEN, session: { 'kept-state': kept } })
+  await after.advance(0)
+  return after
+}
+
+test('the help tour comes back open on the card it was on', async () => {
+  let heading = ''
+  const page = await acrossAReload({ act: async before => {
+    await before.click('#help-button')
+    await before.click('#help-next')
+    await before.click('#help-next')
+    heading = before.text('#help-heading')
+  } })
+  try {
+    assert.equal(page.find('#help').open, true)
+    assert.equal(page.text('#help-heading'), heading)
+    assert.equal(page.requests.some(isPost), false, 'nothing is sent by itself')
+  } finally { await page.close() }
+})
+
+test('New project comes back open with its words, and a folder the person typed stays theirs', async () => {
+  const page = await acrossAReload({ act: async before => {
+    await before.click('#new-project-button')
+    await before.type('#new-project-name', 'Orchard')
+    await before.type('#new-project-folder', 'D:/trees/orchard')
+    await before.type('#new-project-prefix', 'Orchard · ')
+  } })
+  try {
+    assert.equal(page.find('#new-project').open, true)
+    assert.deepEqual(['name', 'folder', 'prefix'].map(part => page.find(`#new-project-${part}`).value), ['Orchard', 'D:/trees/orchard', 'Orchard · '])
+    await page.type('#new-project-name', 'Orchard two')
+    assert.equal(page.find('#new-project-folder').value, 'D:/trees/orchard', 'the typed folder is not replaced by a suggestion')
+    assert.equal(page.requests.some(isPost), false)
+  } finally { await page.close() }
+})
+
+const GOALS = ['# Goals', 'Last id: G6', 'Focus: G6', '', '- [~] G6 Paths through the garden', '  Goal definition: calm', ''].join('\n')
+
+test('Change this goal comes back open on its goal, with the words typed into it', async () => {
+  const state = asSent({ ...build([], undefined, GOALS), goalsEdit: { canWrite: true }, version: version(BOARD_NOW - 1_000) })
+  const page = await acrossAReload({ state, act: async before => {
+    await before.click('[data-tab="advice"]')
+    await before.click('.focus-title [data-focus-act="change-goal"]')
+    await before.type('#change-goal-words', 'Every bench on a path, not just the big ones')
+  } })
+  try {
+    assert.equal(page.find('#change-goal').open, true)
+    assert.equal(page.text('#change-goal-title'), 'Change G6 · Paths through the garden')
+    assert.equal(page.find('#change-goal-words').value, 'Every bench on a path, not just the big ones')
+    assert.equal(page.requests.some(isPost), false)
+  } finally { await page.close() }
+})
+
+test('a file of the game comes back open, scrolled where the person had it', async () => {
+  const file = { ok: true, status: 200, headers: new Map([['Content-Type', 'text/plain; charset=utf-8'], ['X-Board-File', 'notes/plan.txt']]), text: async () => 'a line of the plan\n'.repeat(300) }
+  const answers = request => (request.url.startsWith('/api/game-file') ? file : { ok: true, status: 200, json: async () => ({}), text: async () => '{}' })
+  const page = await acrossAReload({ answers, act: async before => {
+    await before.click(linkTo(before, { gameFile: 'notes/plan.txt' }))
+    await before.advance(0)
+    assert.equal(before.find('#file-view').open, true)
+    before.find('#file-view .file-view-body').scrollTop = 480
+  } })
+  try {
+    assert.equal(page.find('#file-view').open, true)
+    assert.equal(page.text('#file-view h2'), 'notes/plan.txt')
+    assert.equal(page.find('#file-view .file-view-body').scrollTop, 480)
+    assert.equal(page.requests.filter(one => one.url.startsWith('/api/game-file')).length, 1, 'read once again, nothing sent')
+    assert.equal(page.requests.some(isPost), false)
+  } finally { await page.close() }
+})
+
+test('a picture comes back open in the picture popup', async () => {
+  const shown = { ok: true, status: 200, blob: async () => new Blob(['png']), json: async () => ({}), text: async () => '' }
+  const answers = request => (request.url.startsWith('/api/picture') ? shown : { ok: true, status: 200, json: async () => ({}), text: async () => '{}' })
+  const page = await acrossAReload({ answers, act: async before => {
+    await before.click(linkTo(before, { zoom: 'art-inbox/garden/bench.png', caption: 'The bench' }))
+    await before.advance(0)
+    assert.equal(before.find('#lightbox').open, true)
+  } })
+  try {
+    assert.equal(page.find('#lightbox').open, true)
+    assert.equal(page.text('#lightbox-caption'), 'The bench')
+  } finally { await page.close() }
+})
