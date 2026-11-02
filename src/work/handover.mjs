@@ -127,7 +127,20 @@ export function isBoardTimeout(envelope) {
 const clearStepOf = envelope => envelope?.clear?.step ?? envelope?.step ?? null
 
 /** B930: the held line of a worker whose clear failed on the board's own time-out a second time for the same step. */
-export const timedOutTwiceWhy = step => `its clear${step === null ? '' : ` after ${step}`} failed twice on the board's own time-out: held until its turn ends (the board does not try a third time)`
+export const timedOutTwiceWhy = step => `its clear${step === null ? '' : ` after ${step}`} failed twice on the board's own time-out`
+/**
+ * 2026-11-02 (the lead: Workers 3 and 4 held for an hour after "/clear did not run within two minutes" at 21:25 and 21:31):
+ * a held worker is handed nothing, so an idle one never gets the turn end that released it: a deadlock. A hold on a failed
+ * clear now lasts at most this long of the board's running time; then the next idle report releases it (one more clear),
+ * and again every such span while the clear keeps failing. The lane says when the next try comes.
+ */
+export const HELD_RETRY_MS = 10 * MIN
+/** 2026-11-02: a clear cut by the board's own restart (refused "not running", or sent in the minute before the restart) is no time-out. */
+const RESTART_CUT_MS = MIN
+const isRestartCut = (envelope, boardStartedAt) => isBoardTimeout(envelope) && (/is not running\b/.test(envelope.outcome?.why ?? '')
+  || (Number.isFinite(boardStartedAt) && Number.isFinite(envelope.at) && envelope.at >= boardStartedAt - RESTART_CUT_MS && envelope.at <= boardStartedAt))
+const two = n => String(n).padStart(2, '0')
+const hourMinuteOf = ms => `${two(new Date(ms).getHours())}:${two(new Date(ms).getMinutes())}`
 
 /** When an envelope was settled (its outcome), or failed. */
 const settledAt = envelope => [envelope?.settledAt, envelope?.deliveredAt, envelope?.failedAt].find(Number.isFinite) ?? envelope?.at ?? -Infinity
@@ -262,7 +275,7 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * give in the same call, the envelope to write, the envelope the net fired for (marked once), one that waits in the outbox
  * and is to be closed (its task went back).
  */
-export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null }) {
+export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null }) {
   const name = worker.name
   const isTurnEnd = event?.kind === 'turn-ended'
   const turnSince = isTurnEnd && Number.isFinite(event.since) ? event.since : -Infinity
@@ -376,11 +389,19 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
     const at = settledAt(last)
     const isReported = report?.state === 'idle' && Number.isFinite(report?.at) && report.at > at
     // X133: also an envelope the sweep closed since (its task taken back, state dropped): its outcome is the hold's cause.
-    const isTimedOutAgain = isBoardTimeout(last) && envelopes.some(one => one !== last && isBoardTimeout(one) && clearStepOf(one) === clearStepOf(last))
+    // 2026-11-02: a clear the board's own restart cut is no time-out at all: it never counts toward "twice".
+    const isTimedOutAgain = isBoardTimeout(last) && !isRestartCut(last, boardStartedAt)
+      && envelopes.some(one => one !== last && isBoardTimeout(one) && !isRestartCut(one, boardStartedAt) && clearStepOf(one) === clearStepOf(last))
+    // 2026-11-02: no hold for ever: after HELD_RETRY_MS of running time the next idle report releases it (one more clear).
+    const heldMs = runningMs(at)
     const isReleased = turnSince >= at || (Number.isFinite(report?.since) && report.since > at)
       || (isReported && backgroundCount(worker) === 0 && (last.outcome?.background === true || last.outcome?.set === false))
       || (isReported && isBoardTimeout(last) && !isTimedOutAgain)
-    if (!isReleased) return result(STATES.HELD, isTimedOutAgain ? timedOutTwiceWhy(clearStepOf(last)) : failedWhy(last), { step: typeof last.step === 'string' ? last.step : null })
+      || (isReported && heldMs >= HELD_RETRY_MS)
+    if (!isReleased) {
+      const nextTry = hourMinuteOf(now + Math.max(0, HELD_RETRY_MS - heldMs))
+      return result(STATES.HELD, `${isTimedOutAgain ? timedOutTwiceWhy(clearStepOf(last)) : failedWhy(last)}; next try ${nextTry}`, { step: typeof last.step === 'string' ? last.step : null })
+    }
   }
   // UNKNOWN after the net: it gets nothing until its next event (a turn end or a report that changed).
   if (takenBack === null && last !== null && Number.isFinite(last.netAt)) {

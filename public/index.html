@@ -23,13 +23,10 @@
   <nav class="tabs" aria-label="Views">
     <div class="tab-list">
       <button class="tab is-active" type="button" data-tab="overview"><span class="tab-long">Overview</span><span class="tab-short">Today</span></button>
-      <button class="tab" type="button" data-tab="vision">Vision</button>
-      <button class="tab" type="button" data-tab="advice"><span class="tab-long">Focus</span><span class="tab-short">Focus</span></button>
+      <button class="tab" type="button" data-group="plan">Plan</button>
       <button class="tab" type="button" data-tab="coordinate">Backlog</button>
-      <button class="tab" type="button" data-tab="design">Design</button>
-      <button class="tab" type="button" data-tab="bugs">Bugs</button>
+      <button class="tab" type="button" data-group="new">New</button>
       <button class="tab" type="button" data-tab="spending">Spending</button>
-      <button class="tab" type="button" data-tab="settings">Settings</button>
     </div>
     <span class="grow"></span>
     <button class="waits-button" id="waits-for-you" type="button" title="Open Needs your attention on the Overview" hidden></button>
@@ -88,6 +85,7 @@
           <span class="cpu-count" id="code-jobs-about"></span>
         </section>
         <span class="version" id="version"></span>
+        <button class="new-project-button" type="button" id="providers-open">Asset providers →</button>
         <button class="new-project-button" type="button" id="new-project-button" hidden>New project…</button>
       </div>
     </details>
@@ -95,6 +93,14 @@
     <button class="icon-button" id="refresh" type="button" title="Read again" aria-label="Read again"></button>
     <button class="icon-button help-button" id="help-button" type="button" title="How the board works" aria-label="Help: how the board works, in six cards">?</button>
   </nav>
+  <div class="subtabs" id="subtabs-plan" role="group" aria-label="Plan" hidden>
+    <button class="subtab" type="button" data-tab="advice">Focus</button>
+    <button class="subtab" type="button" data-tab="vision">Vision</button>
+  </div>
+  <div class="subtabs" id="subtabs-new" role="group" aria-label="New" hidden>
+    <button class="subtab" type="button" data-tab="design">Idea</button>
+    <button class="subtab" type="button" data-tab="bugs">Bug</button>
+  </div>
 
   <div class="view spending-view" id="view-spending" hidden><main id="spending-content" aria-live="polite"></main></div>
   <div class="view" id="view-overview" data-mode="simple">

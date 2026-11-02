@@ -94,6 +94,8 @@ export function factsOf({ lane, state, items, pause, sent, config, installed = n
     // Signals change 4 (D.1): the wake of its chat. D.5 (decision 13) is the pass's order alone (running lanes first, and
     // `match`'s): the review of 2026-11-02 found a sleeper held back for a running worker that would not take the task.
     wake: wakeFact(wakes, lane, event),
+    // 2026-11-02: when this board started, so a clear the board's own restart cut counts as no time-out (handover.mjs).
+    boardStartedAt: Number.isFinite(state.board?.startedAt) ? state.board.startedAt : null,
   }
 }
 
