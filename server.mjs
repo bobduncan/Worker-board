@@ -126,7 +126,9 @@ const HOST = '127.0.0.1'
 const BODY_BYTES = 16 * 1024
 const PICTURE_BYTES = REFERENCE_BYTES
 const FOLDERS_MS = 60_000
-const STATE_MS = 2_000
+// B917 (X93): 2 s rarely covered the chats' 5-second pings and the page's 10-second polls (207 rebuilds in 10 min on
+// 2026-11-02); every change through the board still resets it, so a change shows at once.
+const STATE_MS = 5_000
 /** Light state: what `GET /api/step?id=` takes, a step's key: its id (B12), or "<activity>:<place>" for an old line without one. */
 const STEP_KEY = /^(?:[A-Za-z][A-Za-z0-9-]{0,40}|\d{1,4}:\d{1,5})$/
 /** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */

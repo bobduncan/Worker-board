@@ -75,6 +75,40 @@ test('child transcripts contribute costs with parent identity and no invented ta
   }finally{await rm(root,{recursive:true,force:true})}
 })
 
+// B917 (X93): the board asked 5 summaries per rebuild over all events; one is kept while nothing it reads changed.
+test('a summary is kept until the events change or its window moves a minute, never served stale',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'spending-kept-'))
+  try{
+    const transcripts=join(root,'transcripts');await mkdir(transcripts)
+    const t0=Date.UTC(2026,10,1,12),line=(id,at)=>JSON.stringify({type:'assistant',timestamp:new Date(at).toISOString(),message:{id,model:'claude-sonnet-5-5',content:[],usage:{input_tokens:10,output_tokens:1,cache_creation_input_tokens:0,cache_read_input_tokens:0}}})+'\n'
+    // 50 000 events, as the live ledger holds: the summary's own cost shows.
+    const events=Array.from({length:50000},(_,n)=>({messageId:`e${n}`,sourceSessionId:'s',chat:'Worker',phase:'implement',sourceAt:t0-n*2000,actualModel:'claude-sonnet-5-5',actualEffort:'medium',taskId:`B${n%400}`,input:10,cacheWrite:0,cacheRead:0,output:1}))
+    await writeFile(join(root,'spending.json'),JSON.stringify({version:1,events,scans:{}}))
+    let now=t0+1000
+    const collector=createSpendingCollector({dir:root,transcripts,clock:()=>now});await collector.load()
+    let at=performance.now();const first=collector.summary(1);const firstMs=performance.now()-at
+    at=performance.now();for(let n=0;n<20;n++)collector.summary(1);const keptMs=(performance.now()-at)/20
+    assert.ok(keptMs<firstMs/10,`a kept summary took ${keptMs.toFixed(1)} ms, the first ${firstMs.toFixed(1)} ms`)
+    assert.equal(first.messages,43200)
+    // The time and the coverage are fresh on a kept one.
+    now+=5000
+    assert.equal(collector.summary(1).until,now)
+    assert.equal(collector.summary(1).messages,first.messages)
+    // A new event (a scan) is counted at once, in a window worked out anew (the ledger keeps its newest 50 000).
+    const inDay=()=>events.filter(e=>e.sourceAt>=now-86400000).length
+    await writeFile(join(transcripts,'s.jsonl'),line('new',now))
+    await collector.scan([{session:'s',name:'Worker'}])
+    assert.equal(collector.summary(1).messages,inDay()+1)
+    assert.equal(collector.summary(null).messages,50000)
+    // A window that moved a minute leaves the oldest events behind.
+    now+=61000
+    assert.equal(collector.summary(1).messages,inDay()+1)
+    assert.ok(inDay()+1<first.messages)
+    // A part of a day (today) is kept as well, and moves with its window.
+    const today=collector.summary(0.5);assert.equal(collector.summary(0.5).messages,today.messages)
+  }finally{await rm(root,{recursive:true,force:true})}
+})
+
 test('invalid persisted ledgers cannot break summaries or overwrite recoverable history',async()=>{
   for(const raw of ['{broken',JSON.stringify({version:1,events:[null],scans:{}}),JSON.stringify({version:1,events:[],scans:{s:null}})]){
     const root=await mkdtemp(join(tmpdir(),'spending-corrupt-'))
