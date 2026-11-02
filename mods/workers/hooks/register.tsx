@@ -7,8 +7,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, shownName, stopLine, typedWhy } from './board'
-import type { Board, BoardStart, Envelope, Handover, Outcome, OwedClear, PauseState, PauseWhere, StopAsk, TurnReport, Whoami } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
+import type { Board, BoardStart, Envelope, Handover, Outcome, OwedClear, PauseState, PauseWhere, StopAsk, TurnReport, TurnWords, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
   boardReading, cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, isOwnerChat, lineOf, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, roleOrOwner, sessionOf, uniqueByName,
@@ -85,14 +85,17 @@ let turnReport: TurnReport = { state: 'idle', since: 0, background: false }
  */
 let reportRun = 0
 let reportSeq = 0
-/** B738: the chats the board's last answer to a take named as not running; empty when it did not answer. */
-let boardOff: string[] = []
+/** 8c (0.30.0): the words of ours on their way, the word the current or last turn ran on, and that turn's start (board.ts `TurnWords`). */
+let turnWords: TurnWords = NO_TURN_WORDS
 /**
  * 2c (0.28.0): the board's status of every chat of its list, as its last answer to a take gave them, and when that was. A take
- * the board does not answer (down, or a 409 after a rename) empties `boardOff` at once, as before, but the statuses are kept
- * for 120 s (chats.ts `boardReading`): a board that blinks must not turn every line to the pane's own reading and back.
+ * the board does not answer (down, or a 409 after a rename) leaves the statuses to stand for 120 s (chats.ts `boardReading`):
+ * a board that blinks must not turn every line to the pane's own reading and back. 2c (0.30.0): the take's `off` (B738) is no
+ * longer read: the board's status says "Not running" itself, and the pane's own reading no longer mixes in the board's word.
  */
 let boardStatuses: BoardStatus[] = []
+/** 2c (0.30.0): the board's statuses as the pane was last drawn for them, so a take redraws it only when they changed. */
+let shownVerdict = '[]'
 let statusesAt: number | null = null
 /** 2c: when the board last answered a take without statuses (an older board): its lines are today's, with no mark. */
 let answeredAt: number | null = null
@@ -178,6 +181,8 @@ const COMMAND_TURN = /^\s*(?:\/(?:clear|compact)\b|<command-(?:name|message)>\/?
 let lastBoardsLook = -Infinity
 let isLookingAtBoards = false
 const startTried = new Map<string, number>()
+/** 5c (0.30.0): the looks in a row that found each board down (board.ts `boardLook`): it is started at the second. */
+const boardMisses = new Map<string, number>()
 /** How long the line about a compaction stays up: the person may be looking at another chat when it happens. */
 const TELL_MS = 20000
 /** True once the chat sent another chat a note or a question in this turn: it then waits for that chat. */
@@ -416,7 +421,7 @@ async function loadChats($: EngineInterface): Promise<ChatsView> {
   const now = await $.clock.now()
   bootAt ??= now
   const reading = boardReading({ now, bootAt, statusesAt, answeredAt, isMember: myself !== null, isBoardKnown })
-  const next: ChatsView = { me: await $.session.id(), now, rows, off: boardOff, statuses: boardStatuses, statusesAt, reading }
+  const next: ChatsView = { me: await $.session.id(), now, rows, off: [], statuses: boardStatuses, statusesAt, reading }
   const before = await read($, chatsAtom)
   if (shown(before) !== shown(next)) await update($, chatsAtom, () => next)
   return next
@@ -522,8 +527,9 @@ async function askBoard($: EngineInterface, board: Board, path: string, more: Re
   const answer = await $.http.fetch(`${board.url}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Board-Key': board.key, [MOD_HEADER]: MOD_VERSION },
-    // Redesign Part 1: a take (the ping) and a report carry the chat's turn state as it stands when they go out.
-    body: JSON.stringify({ chat: myself.name, session: await $.session.id(), ...more, ...(path === TAKE_PATH || path === REPORT_PATH ? { report: { ...turnReport, run: reportRun, seq: (reportSeq += 1) } } : {}) }),
+    // Redesign Part 1: a take (the ping) and a report carry the chat's turn state as it stands when they go out. 8c (0.30.0):
+    // with the word its turn runs on and the turn's own start (`reportBody`), for the board's wait line.
+    body: JSON.stringify({ chat: myself.name, session: await $.session.id(), ...more, ...(path === TAKE_PATH || path === REPORT_PATH ? { report: reportBody(turnReport, turnWords, reportRun, (reportSeq += 1)) } : {}) }),
   })
   // B463: a chat renamed in the app learns its new name here, at the next take, whatever wakes it.
   if (answer.status === 409) await followShown($, answer.text)
@@ -963,19 +969,18 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
     const answer = await askBoard($, board, TAKE_PATH)
     // B738: a board that does not answer leaves the list as the files say; the list reads this, never waits for the board.
     const taken = answer === null ? null : parseTaken(answer)
-    const off = taken === null ? [] : taken.off
-    // 2c: the board's statuses of its chats, kept with the time they came. A null take (board down, a 409 after a rename) empties
-    // `boardOff` at once, as before, but leaves the statuses to stand for 120 s (`boardReading`). An answer without statuses is an
-    // older board's: today's line, no mark.
+    // 2c: the board's statuses of its chats, kept with the time they came. A null take (board down, a 409 after a rename) leaves
+    // the statuses to stand for 120 s (`boardReading`). An answer without statuses is an older board's: today's line, no mark.
     let isFirstStatuses = false
     if (taken !== null && taken.statuses !== null) {
       isFirstStatuses = statusesAt === null
       boardStatuses = taken.statuses
       statusesAt = now
     } else if (taken !== null && taken.isAnswer) answeredAt = now
-    // The pane is drawn again when the board's verdict changed, not at every take.
-    if (JSON.stringify(off) !== JSON.stringify(boardOff) || isFirstStatuses) {
-      boardOff = off
+    // The pane is drawn again when the board's verdict changed (a status, its why or tone, the held step), not at every take.
+    const verdict = JSON.stringify(boardStatuses.map(one => [one.name, one.status, one.why, one.tone, one.held ?? null]))
+    if (verdict !== shownVerdict || isFirstStatuses) {
+      shownVerdict = verdict
       void refreshChats($)
     }
     if (taken === null) return
@@ -989,12 +994,20 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
     for (const message of taken.messages) {
       if (typedIds.has(message.id)) continue
       typedIds.add(message.id)
+      // 8c: noted before the submit, in the order the board handed them out (its outbox order), so the turn it starts names it.
+      turnWords = wordTyping(turnWords, message.id, message.text)
       void $.prompt.submit({ text: message.text, asUser: true }).then(
         // A prompt a hook dropped did not enter the chat, though the call itself went well.
-        entered => (entered.drop === undefined
-          ? reportTyped($, board, [message.id], [])
-          : reportTyped($, board, [], [message.id], { [message.id]: typedWhy(entered.drop, 'a hook dropped it') })),
-        reason => reportTyped($, board, [], [message.id], { [message.id]: typedWhy(reason, 'the chat did not take it') }),
+        entered => {
+          turnWords = wordSettled(turnWords, message.id, entered.drop === undefined)
+          return entered.drop === undefined
+            ? reportTyped($, board, [message.id], [])
+            : reportTyped($, board, [], [message.id], { [message.id]: typedWhy(entered.drop, 'a hook dropped it') })
+        },
+        reason => {
+          turnWords = wordSettled(turnWords, message.id, false)
+          return reportTyped($, board, [], [message.id], { [message.id]: typedWhy(reason, 'the chat did not take it') })
+        },
       )
     }
   } catch {
@@ -1037,7 +1050,9 @@ async function keepBoards($: EngineInterface): Promise<void> {
       } catch {
         isUp = false
       }
-      if (isUp || now - (startTried.get(board.name) ?? -Infinity) < BOARD_RETRY_MS) continue
+      const look = boardLook({ missed: boardMisses.get(board.name) ?? 0, isUp, triedAt: startTried.get(board.name) ?? -Infinity, now, retryMs: BOARD_RETRY_MS })
+      boardMisses.set(board.name, look.missed)
+      if (!look.isStart) continue
       startTried.set(board.name, now)
       void runBoard($, board, project)
     }
@@ -1511,11 +1526,21 @@ async function typeLine($: EngineInterface, envelope: Envelope, outcome: Outcome
       outcome.typed = false
       outcome.why = `its line is too long: ${envelope.line.length} > ${MOST_CHARS} characters`
     } else {
+      const text = [...words, envelope.line].join('\n\n')
+      // 8c: the envelope is an outbox message: its id is the word its turn runs on. 4c (0.30.0): the exact times in the outcome,
+      // `typedAt` just before the submit and `enteredAt` when it resolved (the line entered the chat), so the board's take-back
+      // rule compares a turn with the line's own entry, not the envelope's hand-out (the 11:07 case: handed out 11:01:57, entered
+      // 11:07:22 after the wake's first turn of 11:06:56-11:07:21 had ended).
+      turnWords = wordTyping(turnWords, envelope.id, text)
+      outcome.typedAt = await $.clock.now()
       try {
-        const entered = await $.prompt.submit({ text: [...words, envelope.line].join('\n\n'), asUser: true })
+        const entered = await $.prompt.submit({ text, asUser: true })
         outcome.typed = entered.drop === undefined
-        if (entered.drop !== undefined) outcome.why = typedWhy(entered.drop, 'a hook dropped it')
+        turnWords = wordSettled(turnWords, envelope.id, outcome.typed)
+        if (entered.drop === undefined) outcome.enteredAt = await $.clock.now()
+        else outcome.why = typedWhy(entered.drop, 'a hook dropped it')
       } catch (err) {
+        turnWords = wordSettled(turnWords, envelope.id, false)
         outcome.typed = false
         outcome.why = typedWhy(err, 'the chat did not take it')
       }
@@ -1833,10 +1858,6 @@ const WHOAMI_EAGER_MS = 2 * 60_000
  * hook (the app's guard skips them on a work login), so it never relies on a Stop hook's list.
  */
 const backgroundIds = new Set<string>()
-/** A task id as the app writes it: letters, digits, "-" and "_". */
-const TASK_ID = /^[\w-]{3,80}$/
-/** A background start in a tool's answer: "Command running in background with ID: b4zduzypn", or a monitor's id. */
-const STARTED_ID = /(?:running in background with ID|[Tt]ask ID|task_id)["':\s]+([\w-]{3,80})/
 
 /** Notes a tool call of this chat (never a subagent's) that starts or stops background work. */
 function noteBackground(e: { tool?: unknown; run_in_background?: unknown; task_id?: unknown; shell_id?: unknown }, out: unknown): void {
@@ -1846,10 +1867,10 @@ function noteBackground(e: { tool?: unknown; run_in_background?: unknown; task_i
     if (TASK_ID.test(id)) backgroundIds.delete(id)
     return
   }
-  const isStart = (tool === 'Bash' || tool === 'PowerShell') ? e.run_in_background === true : tool === 'Monitor'
-  if (!isStart) return
-  const found = STARTED_ID.exec(JSON.stringify(out ?? ''))?.[1]
-  if (found !== undefined) backgroundIds.add(found)
+  // F (0.30.0): by the result's own id (board.ts `backgroundStartOf`): a background command or a Monitor, also one the app
+  // moved to the background itself.
+  const found = backgroundStartOf(tool, e, out)
+  if (found !== null) backgroundIds.add(found)
 }
 
 /** The app's note that a background task ended (a prompt of origin task-notification): its id leaves the list. */
@@ -2487,6 +2508,8 @@ export const register: Register = on => {
     turnReport = { state: 'idle', since: await $.clock.now(), background: false }
     reportRun = turnReport.since
     reportSeq = 0
+    // 8c: a new process has typed no word and run no turn yet.
+    turnWords = NO_TURN_WORDS
     const view = await load($)
     ensureWatch($)
     const hasChats = await startChats($)
@@ -2561,8 +2584,15 @@ export const register: Register = on => {
       isCommandTurn = true
       return next(e)
     }
+    // 8c (0.30.0): a turn of the chat's own begins (not a subagent's inside it, not the mod's /clear or /compact): the word it
+    // runs on, by its text, and its start, before the busy goes out. An ask that closes within the turn is no start (asking ->
+    // busy keeps both). A start whose state report does not change (a question still open) is told at once all the same.
+    const isOwnStart = e.agentId === undefined && !isInTurn
+    if (isOwnStart) turnWords = turnBegan(turnWords, e.text, await $.clock.now())
+    const wasBusy = turnReport.state === 'busy'
     // Redesign Part 1: a turn of the chat's own reports busy (a question still open to the person keeps it asking).
     if (e.agentId === undefined && openForms === 0) await setReport($, 'busy')
+    if (isOwnStart && (openForms > 0 || wasBusy)) void reportToBoard($)
     // A turn that starts while one runs is a subagent's inside the chat's own: it starts nothing again.
     if (!isInTurn) {
       // Clear after each step: a real turn on the session a clear was decided for: the clear is dropped, its /clear refused.
@@ -2750,7 +2780,13 @@ export const register: Register = on => {
 
   on('session.end', async ($, e, next) => {
     isInTurn = false
-    if (e.reason === 'clear') await sessionCleared($, e.sessionId)
+    if (e.reason === 'clear') {
+      // 8c: the conversation after a /clear runs none of the words still queued, and its first turn is no word's.
+      turnWords = wordsCleared(turnWords)
+      // F (0.30.0): the conversation after a /clear has started no background work: the count starts at 0 again.
+      backgroundIds.clear()
+      await sessionCleared($, e.sessionId)
+    }
     else {
       // The review of chat-reports: the chat ends here; the board shows it not running at once (held 1.5 s at most).
       turnReport = { state: 'ended', since: await $.clock.now(), background: false }

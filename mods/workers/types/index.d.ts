@@ -138,7 +138,12 @@ export type BoardStatus = {
   tone: 'quiet' | 'attention'
   since: number | null
   reportAt: number | null
+  /** 7c (0.30.0): the step the board knows the chat holds, with the row's time words; null when it holds none (absent: an older board). */
+  held?: BoardHeld | null
 }
+
+/** 7c (0.30.0): a held step as the board's row draws it: its id, its title (up to 60) and its time ("1 h 56 of its 2 h", "No time"), or none. */
+export type BoardHeld = { id: string; title: string; time: string | null }
 
 /** 2c: `board`: the board's statuses are fresh; `plain`: today's line with no mark; `unreached`: today's line, marked. */
 export type BoardReading = 'board' | 'plain' | 'unreached'
