@@ -10,7 +10,8 @@ import test from 'node:test'
 
 import { goalChecked, goalReopened, focusMove } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
-import { FOCUS_COMMANDS, wakeFor } from '../src/say.mjs'
+import { FOCUS_COMMANDS } from '../src/say.mjs'
+import { wakeNeeds } from '../src/wake.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { valueOf } from '../src/work/item.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
@@ -92,7 +93,7 @@ test('a tick on the Goals part asks the partner for the re-check, once; without 
   assert.deepEqual([again.words, again.result.unchanged], [null, true])
   // A partner that does not run is woken for it through the main chat.
   const state = { restart: { main: 'Main' }, chats: [{ name: 'Main', isRunning: true }], advisor: { name: 'Partner', isRunning: false } }
-  assert.equal(wakeFor({ id: 'm1', at: NOW, ...asked.words, state: 'waiting' }, state, [], NOW, 4000)?.command, 'start')
+  assert.equal(wakeNeeds(state, [{ state: 'waiting', ...{ id: 'm1', at: NOW, ...asked.words, state: 'waiting' } }])[0]?.why, 'words')
 })
 
 test('a passed re-check ticks the goal, clears the focus and takes the asked line away; a failed one keeps it open as an attempt', async () => {

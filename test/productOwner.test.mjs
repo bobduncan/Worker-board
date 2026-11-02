@@ -20,8 +20,9 @@ import { parseConfig } from '../src/config.mjs'
 import { focusMove } from '../src/focus.mjs'
 import { handJobs, workerNames } from '../src/hands.mjs'
 import { chatsByRole } from '../src/oldMods.mjs'
-import { asleepWithWork, chatToOpen, handWorkWaits } from '../src/opener.mjs'
-import { checkSay, wakeFor, wakerFor } from '../src/say.mjs'
+import { chatToOpen, handWorkWaits } from '../src/opener.mjs'
+import { wakeNeeds } from '../src/wake.mjs'
+import { checkSay } from '../src/say.mjs'
 import { OWNER_SETTING, TALK_COMMANDS, isTalkWord, ownerStartWords, ownerTaskIds, talkPartnerOf } from '../src/talkPartner.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { storeFromText } from '../src/work/read.mjs'
@@ -192,14 +193,13 @@ const lanes = () => ({
   productOwner: { name: OWNER, isRunning: false, state: 'off', appSession: 'local_Productowner', session: '33333333-3333-3333-3333-333333333333' },
 })
 
-test('a talk word to an owner that does not run wakes it at once: the start word goes to a chat that runs', () => {
+test('a talk word to an owner that does not run wakes it at once: its need comes first, by message through any running chat', () => {
   const state = lanes()
   const word = { id: 'w1', at: NOW, to: OWNER, command: 'brainstorm-answer', about: PATH, text: 'brainstorm answer', state: 'waiting' }
-  const start = wakeFor(word, state, [word], NOW, 4000)
-  assert.deepEqual([start.to, start.command, start.about], ['Lead', 'start', OWNER])
-  // The owner never carries a start word for another chat, also while it runs and every other chat is off.
-  const quiet = { ...state, chats: state.chats.map(one => ({ ...one, isRunning: false })), advisor: { ...state.advisor, isRunning: false }, productOwner: { ...state.productOwner, isRunning: true, state: 'free' } }
-  assert.equal(wakerFor(quiet, 'Digger', [], NOW), null)
+  // Signals change 4 (src/wake.mjs): no start word to the main chat; the owner's need is the first, and any running chat's
+  // hands carry it (the code check: the owner's mod claims hand jobs like any other, gated by maySend).
+  const need = wakeNeeds(state, [word, { ...word, id: 'w2', to: 'Digger', command: 'refine' }])[0]
+  assert.deepEqual([need.chat, need.why, need.paths], [OWNER, 'words', ['message', 'launch']])
 })
 
 test('the hands carry the owner\'s start, wake and resume before any other job', () => {
@@ -222,9 +222,10 @@ test('no chat runs: a talk word for the owner opens the owner\'s own chat first;
   assert.equal(handWorkWaits(state, []), false)
   assert.deepEqual(chatToOpen(state, waiting), { chat: OWNER, session: '33333333-3333-3333-3333-333333333333' })
   assert.equal(chatToOpen(state, []).chat, 'Lead', 'with nothing for it, the main chat as before')
-  const asleep = { ...state, chats: [...state.chats, { name: 'Worker 2', asleep: true, session: '44444444-4444-4444-4444-444444444444', queue: [{ id: 'B12' }] }], productOwner: { ...state.productOwner, asleep: true, asleepSince: NOW - 9 * MIN } }
-  assert.deepEqual(asleepWithWork(asleep, waiting).map(one => one.chat), [OWNER, 'Worker 2'])
-  assert.deepEqual(asleepWithWork(asleep, []).map(one => one.chat), ['Worker 2'])
+  // Signals change 4: the wake procedure's needs, the owner first (src/wake.mjs `wakeNeeds`).
+  const asleep = { ...state, chats: [...state.chats, { name: 'Worker 2', isRunning: false, asleep: true, session: '44444444-4444-4444-4444-444444444444', queue: [{ id: 'B12' }] }], productOwner: { ...state.productOwner, isRunning: false, asleep: true, asleepSince: NOW - 9 * MIN } }
+  assert.deepEqual(wakeNeeds(asleep, waiting).map(one => one.chat), [OWNER, 'Worker 2'])
+  assert.deepEqual(wakeNeeds(asleep, []).map(one => one.chat), ['Worker 2'])
 })
 
 test('the owner gets nothing else: no step of the store, no refine, no check, no incident; its drafts and asks as the partner\'s', async () => {

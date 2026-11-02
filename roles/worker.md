@@ -17,8 +17,9 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
 - Never Fable (the user, 2026-10-24: "maximum run opus ... you cant run fable without my permission"): never start a
   subagent with model: "fable", and never ask for a chat on Fable.
 - The project's asset provider needs no yes (the user, 2026-10-25: "i dont want to be asked for permission ... it need
-  to work autonomously"): Codex makes the pictures. Switch a picture to Codex, or run another Codex round, without
-  asking the user or the partner; ask only when no provider can make what is needed.
+  to work autonomously"). Never run Codex, Suno, ElevenLabs or another image, music or sound tool yourself; ask the
+  board with `work asset` (kind, text, pictures, of; `follows` for the next round). It answers at once; the board's
+  provider makes it and you get "asset A<n> ready: <folder>". Ask again without asking the user or the partner.
 
 - Put yourself in the list of chats once, when the main chat's first message tells you your name: the Workers mod's
   chat tool with action "join", that name, role "worker". Keep your card as that tool says: the worker board shows it.

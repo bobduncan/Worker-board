@@ -9,7 +9,7 @@ import { parseThread } from '../src/brainstorm.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, focusMove, focusAllDone } from '../src/focus.mjs'
 import { PLAN_MOVES, planMove } from '../src/planMoves.mjs'
 import { parseGoals } from '../src/goals.mjs'
-import { wakeFor } from '../src/say.mjs'
+import { wakeNeeds } from '../src/wake.mjs'
 import { workApi } from '../src/work/api.mjs'
 
 function fakeFs(files) {
@@ -245,9 +245,10 @@ test('the words are the person\'s, marked so in the chat, and a partner not runn
   assert.match(messageText(message, () => '14:05'), /^goal definition: agreed\nGoal: G2 .+\nThread: .+\n\(typed on the worker board, 14:05\)$/)
   const state = { restart: { main: 'Main' }, chats: [{ name: 'Main', isRunning: true }], advisor: { name: 'Partner', isRunning: false, appSession: 'local_abc' } }
   for (const command of ['focus', 'vibe-agreed', 'vibe-not-yet', 'how-go', 'how-not-yet']) {
-    const wake = wakeFor({ ...message, command }, state, [], NOW, 4000)
-    assert.equal(wake?.command, 'start', command)
-    assert.equal(wake.about, 'Partner')
+    // Signals change 4: the word is the wake procedure's need for the partner (src/wake.mjs), no start word.
+    const wake = wakeNeeds(state, [{ ...message, command }])[0]
+    assert.equal(wake?.why, 'words', command)
+    assert.equal(wake.chat, 'Partner')
   }
 })
 

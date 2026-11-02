@@ -273,7 +273,8 @@ const isBarred = (one, worker, prefix = '', items = null) => {
  */
 export function match({ ready = [], idle = [], items, prefix = '' }) {
   const scratch = new Map(items)
-  const free = [...idle]
+  // Signals change 4, D.5 (decision 13): running lanes before asleep ones, each in their given order (a stable sort).
+  const free = [...idle].sort((a, b) => (a?.isRunning === true ? 0 : 1) - (b?.isRunning === true ? 0 : 1))
   const given = []
   const give = (one, lane, why) => {
     const item = items.get(one.id)

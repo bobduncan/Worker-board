@@ -154,7 +154,7 @@ test('the end of a turn carries the pull: one call answers the missed instructio
   }
 })
 
-test('a waiting line whose step went to another chat or was dropped is withdrawn, with the start it asked of the main chat', async () => {
+test('a waiting line whose step went to another chat or was dropped is withdrawn (signals change 4: no start word beside it any more)', async () => {
   const dir = await folder()
   try {
     await writeStore(dir, migrateBacklog('# Backlog\n\n## Garden\n- [ ] B1 Plant the hedge (for Digger; about 1 h)\n- [ ] B2 Mow (for Digger)\n', { now: NOW - 60 * MIN }), undefined, { now: NOW - 60 * MIN })
@@ -162,10 +162,10 @@ test('a waiting line whose step went to another chat or was dropped is withdrawn
     const down = { restart: { main: 'Main' }, chatPrefix: '', chats: [{ name: 'Main', isMain: true, isLeftover: false, isRunning: true }, { name: 'Units', isLeftover: false, isRunning: false }] }
     await sendOnce({ dir, key: 'B1 Units a', words: words('Units', 'B1'), outbox, state: down, now: NOW, maxChars: 2000, newId, keep: KEEP })
     await sendOnce({ dir, key: 'B2 Digger a', words: words('Digger', 'B2'), outbox, state: down, now: NOW, maxChars: 2000, newId, keep: KEEP })
-    assert.deepEqual(outbox.outbox().map(one => [one.to, one.command, one.state]), [['Units', 'work', 'waiting'], ['Main', 'start', 'waiting'], ['Digger', 'work', 'waiting']])
-    // B1 is Digger's now, not Units': the line to Units goes, and so does the start of Units.
+    assert.deepEqual(outbox.outbox().map(one => [one.to, one.command, one.state]), [['Units', 'work', 'waiting'], ['Digger', 'work', 'waiting']])
+    // B1 is Digger's now, not Units': the line to Units goes.
     await deliverWork({ state: { ...down, reconciled: { moves: [], deliveries: [], says: [] } }, dir, outbox, apply: async () => null, now: NOW, maxChars: 2000, newId, keep: KEEP })
-    assert.deepEqual(outbox.outbox().map(one => [one.to, one.command, one.state]), [['Units', 'work', 'dropped'], ['Main', 'start', 'dropped'], ['Digger', 'work', 'waiting']])
+    assert.deepEqual(outbox.outbox().map(one => [one.to, one.command, one.state]), [['Units', 'work', 'dropped'], ['Digger', 'work', 'waiting']])
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }

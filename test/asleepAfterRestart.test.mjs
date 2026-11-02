@@ -18,7 +18,7 @@ import { answer, step, typed } from '../fixtures/lines.mjs'
 import { shownChats } from '../src/bridge.mjs'
 import { laneFromReport } from '../src/chatReport.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { ASLEEP_LINE, asleepOfJob, handJobs } from '../src/hands.mjs'
+import { ASLEEP_LINE } from '../src/hands.mjs'
 import { resumesDue } from '../src/say.mjs'
 import { memoryStore } from '../src/store.mjs'
 import { workApi } from '../src/work/api.mjs'
@@ -30,6 +30,7 @@ import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { storeFromText } from '../src/work/read.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
+import { claim, emptyWakes, nextPath, wakeJobId, wakeNeeds } from '../src/wake.mjs'
 import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
@@ -87,6 +88,14 @@ function storeWith({ items = [held('B12', 'Digger'), ready('B20')], pause = null
   return work
 }
 
+/**
+ * Signals change 4: the wake record as the server hands it to the state (src/wake.mjs), from `{ since, at }` by chat: one
+ * message sent at `at` in the spell `since` (state.mjs `wokenAtOf` reads its `sentAt`).
+ */
+const wakesOf = sent => (sent === null ? null : {
+  record: { wakes: new Map([...sent].map(([chat, one]) => [chat, [{ spell: one.since, attempts: [{ path: 'message', at: one.at, by: 'Lead', jobId: `wake:${one.since}:${chat}`, sentAt: one.at, runBefore: null, verdict: null, verdictAt: null, why: null }], turnEndedAt: null, told: { failed: false, nobody: false } }]])) },
+  senderClaims: true, canLaunch: false,
+})
 function build({ reports = REPORTS, work = storeWith(), appStartedAt = APP, now = NOW, startedAt = STARTED, outbox = [], asleepWakes = null } = {}) {
   const raw = {
     listText: '{"prefix":"Garden · ","main":"Lead","supervisor":"Watcher"}',
@@ -97,7 +106,7 @@ function build({ reports = REPORTS, work = storeWith(), appStartedAt = APP, now 
   }
   return buildState(raw, {
     lines: [], outbox, runs: [], now, config, seen: { shown: {}, other: {} },
-    board: { startedAt, offSince: null }, reports: new Map(reports), asleepWakes,
+    board: { startedAt, offSince: null }, reports: new Map(reports), wakes: wakesOf(asleepWakes),
   })
 }
 const lane = (state, name) => state.chats.find(chat => chat.name === name)
@@ -149,14 +158,17 @@ test('a board start with kept reports older than the start keeps each chat\'s ow
   assert.deepEqual(shown(state, 'Digger'), ['interrupted', false, true, earlier])
 })
 
+/** Signals change 4: the wake message a running chat's hands get for a need (server.mjs hands route), claimed once per spell. */
+const wakeJobs = (record, state, caller, now) => wakeNeeds(state, []).filter(need => need.chat !== caller && need.paths.includes('message')
+  && nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths }) === 'message'
+  && claim(record, { chat: need.chat, spell: need.spell, path: 'message', by: caller, jobId: wakeJobId(need.spell, need.chat), now, paths: need.paths }))
+  .map(need => ({ id: wakeJobId(need.spell, need.chat), to: need.appSession, chat: need.chat, text: need.text }))
+
 test('a chat whose session ended holding a step gets exactly one resume word, by a running chat\'s hands', () => {
   const state = build({ reports: [...REPORTS, report('Digger', 'ended', NOW - 3 * MIN)], appStartedAt: at(17, 0) })
-  const lanes = shownChats(state)
-  const sent = new Map()
-  const { jobs } = handJobs({ caller: 'Lead', lanes, now: NOW, asleepSent: sent })
-  assert.deepEqual(jobs, [{ id: `asleep:${NOW - 3 * MIN}:Digger`, to: 'local_Digger', chat: 'Digger', text: 'resume your step B12 from your checkpoint' }])
-  sent.set('Digger', asleepOfJob(jobs[0].id))
-  assert.deepEqual(handJobs({ caller: 'Lead', lanes, now: NOW + 20_000, asleepSent: sent }).jobs, [])
+  const record = emptyWakes()
+  assert.deepEqual(wakeJobs(record, state, 'Lead', NOW), [{ id: `wake:${NOW - 3 * MIN}:Digger`, to: 'local_Digger', chat: 'Digger', text: 'resume your step B12 from your checkpoint' }])
+  assert.deepEqual(wakeJobs(record, state, 'Lead', NOW + 20_000), [])
   assert.deepEqual(resumesDue(state, []), [])
 })
 
@@ -216,24 +228,21 @@ for (const [why, reports] of [
 
 test('a busy chat with a step gets exactly one resume word per app start: Resume all\'s line, as a hand\'s job', () => {
   const state = build()
-  const lanes = shownChats(state)
-  const sent = new Map()
-  const first = handJobs({ caller: 'Lead', lanes, now: NOW, asleepSent: sent })
-  assert.deepEqual(first.jobs, [{ id: `asleep:${APP}:Digger`, to: 'local_Digger', chat: 'Digger', text: 'resume your step B12 from your checkpoint' }])
-  assert.deepEqual(asleepOfJob(first.jobs[0].id), { since: APP, chat: 'Digger' })
-  // The server keeps what it gave (server.mjs `asleepWoken`): the next claims, every 20 s, give none for this app start.
-  sent.set('Digger', { since: APP, at: NOW })
-  for (const later of [NOW + 20_000, NOW + 40_000, NOW + 10 * MIN]) assert.deepEqual(handJobs({ caller: 'Lead', lanes, now: later, asleepSent: sent }).jobs, [])
+  const record = emptyWakes()
+  const first = wakeJobs(record, state, 'Lead', NOW)
+  assert.deepEqual(first, [{ id: `wake:${APP}:Digger`, to: 'local_Digger', chat: 'Digger', text: 'resume your step B12 from your checkpoint' }])
+  // The wake record keeps what was given: the next claims, every 20 s, give none for this app start.
+  for (const later of [NOW + 20_000, NOW + 40_000, NOW + 10 * MIN]) assert.deepEqual(wakeJobs(record, state, 'Lead', later), [])
   // Nor the board's older resume word after a crash: the asleep chat has its one.
   assert.deepEqual(resumesDue(state, []), [])
   // The next app start is another spell: one word again.
   const again = build({ appStartedAt: at(18, 20) })
-  assert.deepEqual(handJobs({ caller: 'Lead', lanes: shownChats(again), now: NOW, asleepSent: sent }).jobs.map(one => one.id), [`asleep:${at(18, 20)}:Digger`])
+  assert.deepEqual(wakeJobs(record, again, 'Lead', NOW).map(one => one.id), [`wake:${at(18, 20)}:Digger`])
 })
 
 test('while the person pauses no resume word goes, and the page shows the asleep chat Suspended as any paused one', async () => {
   const state = build({ work: storeWith({ pause: { state: 'pausing', since: at(18, 10) } }) })
-  assert.deepEqual(handJobs({ caller: 'Lead', lanes: shownChats(state), now: NOW, isPaused: true }).jobs, [])
+  assert.deepEqual(wakeNeeds(state, []), [])
   const page = {}
   vm.runInNewContext(`${script.match(/^function pausedLanes\([\s\S]*?^}$/m)[0]}\nthis.pausedLanes = pausedLanes`, page)
   // Also with no checkpoint since the pause: it was asleep, nothing of it ran to be cut.
@@ -248,7 +257,7 @@ test('the main chat, the partner and the supervisor: idle is Free, a cut turn ge
   assert.deepEqual([state.advisor.state, state.advisor.asleep], ['free', true])
   assert.deepEqual([state.supervisorChat.state, state.supervisorChat.asleep], ['interrupted', true])
   // Weeder runs and its hands send the words: a line each, no restart, no set.
-  const { jobs } = handJobs({ caller: 'Weeder', lanes: shownChats(state), now: NOW })
+  const jobs = wakeJobs(emptyWakes(), state, 'Weeder', NOW)
   assert.deepEqual(jobs.map(one => [one.chat, one.to, one.text]), [['Lead', 'local_Lead', ASLEEP_LINE], ['Watcher', 'local_Watcher', ASLEEP_LINE]])
   assert.ok(jobs.every(one => Object.keys(one).sort().join() === 'chat,id,text,to'))
 })
@@ -256,9 +265,9 @@ test('the main chat, the partner and the supervisor: idle is Free, a cut turn ge
 // ---- Not running once a wake did not take.
 
 test('woken and silent for longer than offAfterMinutes after the wake: Not running; within it, still asleep', () => {
-  // The start word a hand sent Weeder at 18:24 (its task's), and Digger's resume word at 18:28.
-  const outbox = [{ id: 's1', command: 'start', to: 'Lead', about: 'Weeder', at: at(18, 23), takenAt: at(18, 23, 30), deliveredAt: at(18, 24), state: 'delivered' }]
-  const asleepWakes = new Map([['Digger', { since: APP, at: at(18, 28) }]])
+  // Signals change 4: the wake record's messages: Weeder's at 18:24 (its task's), and Digger's resume line at 18:28.
+  const outbox = []
+  const asleepWakes = new Map([['Weeder', { since: APP, at: at(18, 24) }], ['Digger', { since: APP, at: at(18, 28) }]])
   const state = build({ outbox, asleepWakes })
   assert.deepEqual(shown(state, 'Weeder').slice(0, 3), ['off', false, false])
   assert.equal(lane(state, 'Weeder').offWhy, 'woken at 18:24, it did not start')
@@ -267,9 +276,9 @@ test('woken and silent for longer than offAfterMinutes after the wake: Not runni
   assert.deepEqual(shown(later, 'Digger').slice(0, 3), ['off', false, false])
   // Not running again, the board's older ways take over: its step's resume word through a chat that runs.
   assert.deepEqual(resumesDue(later, []).map(one => [one.to, one.about]), [['Digger', 'B12']])
-  // A wake before it fell asleep (an earlier spell) does not count; a start word nobody took is no wake.
-  assert.deepEqual(shown(build({ outbox: [{ ...outbox[0], deliveredAt: at(18, 5), takenAt: at(18, 5) }] }), 'Weeder').slice(0, 3), ['free', false, true])
-  assert.deepEqual(shown(build({ outbox: [{ ...outbox[0], state: 'waiting', takenAt: undefined, deliveredAt: undefined }] }), 'Weeder').slice(0, 3), ['free', false, true])
+  // A wake before it fell asleep (an earlier spell) does not count; a start word in the outbox is no wake (only the record's sends are).
+  assert.deepEqual(shown(build({ asleepWakes: new Map([['Weeder', { since: at(18, 0), at: at(18, 5) }]]) }), 'Weeder').slice(0, 3), ['free', false, true])
+  assert.deepEqual(shown(build({ outbox: [{ id: 's1', command: 'start', to: 'Lead', about: 'Weeder', at: at(18, 23), takenAt: at(18, 23, 30), deliveredAt: at(18, 24), state: 'delivered' }] }), 'Weeder').slice(0, 3), ['free', false, true])
 })
 
 test('the rule on its own: asleep keeps the report\'s state; woken past offAfterMs is off', () => {
@@ -285,7 +294,7 @@ test('the rule on its own: asleep keeps the report\'s state; woken past offAfter
   // No app start since: unknown until offAfterMs, then asleep since its report.
   assert.deepEqual(laneFromReport(entry('idle', { at: NOW - 2 * MIN }), facts()), { state: 'unknown', isRunning: null })
   assert.deepEqual(laneFromReport(entry('idle', { at: NOW - 6 * MIN }), facts()).asleepSince, NOW - 6 * MIN)
-  assert.deepEqual(laneFromReport(entry('idle'), facts({ ...app, wokenAt: NOW - 6 * MIN })), { state: 'off', isRunning: false, why: 'woken', wokenAt: NOW - 6 * MIN })
+  assert.deepEqual(laneFromReport(entry('idle'), facts({ ...app, wokenAt: NOW - 6 * MIN })), { state: 'off', isRunning: false, why: 'woken', wokenAt: NOW - 6 * MIN, sleptSince: APP })
   assert.equal(laneFromReport(entry('idle'), facts({ ...app, wokenAt: NOW - 4 * MIN })).state, 'free')
   // An ended session is asleep since it ended, also when the app started later; off without an app session.
   assert.deepEqual(laneFromReport(entry('ended'), facts(app)), { state: 'free', isRunning: false, asleep: true, asleepSince: BEFORE })
@@ -311,4 +320,64 @@ test('the page: asleep and free reads Free, "asleep since 18:07, wakes when it g
   assert.deepEqual([idle.simpleIdle(lane(state, 'Weeder')), idle.simpleIdle(lane(state, 'Digger')).replace(/ · \d+ (?:s|min) ago/, '')], [`Asleep · since ${hhmm(APP)}`, 'Stopped · resumes by itself'])
   const words = pagePart('partner-answers', 'laneStateText')
   assert.deepEqual([words.laneStateText(lane(state, 'Weeder')), words.laneStateText({ ...lane(state, 'Weeder'), status: undefined, asleep: false })], [`Asleep · since ${hhmm(APP)}`, 'Not running'])
+})
+
+// ---- Signals change 4, B908 (E): the lane's wake words and the page's one notice, from the wake record.
+
+test('change 4: an asleep chat being woken says so on its lane, quiet; one that could not be woken says why in the attention tone, and the notice names it', () => {
+  // Digger asleep since the app's start, its step cut: a message sent 18:28 by Lead, no verdict yet.
+  const sent = build({ asleepWakes: new Map([['Digger', { since: APP, at: at(18, 28) }]]) })
+  const digger = lane(sent, 'Digger')
+  assert.deepEqual([digger.wake.state, digger.wake.need, digger.flags[0]], ['sent', true, { kind: 'wake', id: null, text: 'waking · message sent 18:28 by Lead', button: null }])
+  assert.equal(sent.wakeNotice, null)
+  // The message failed and no launch can follow (no CLI session id here): could not wake, once, in one notice.
+  const failed = wakesOf(new Map([['Digger', { since: APP, at: at(18, 28) }]]))
+  const attempt = failed.record.wakes.get('Digger')[0].attempts[0]
+  Object.assign(attempt, { verdict: 'failed', verdictAt: at(18, 30), why: 'no report within 2 minutes of the message' })
+  const raw = buildState({
+    listText: '{"prefix":"Garden · ","main":"Lead","supervisor":"Watcher"}', appChatTexts: NAMES.map(app), tails: Object.fromEntries(NAMES.map(name => [`cli-${name}`, tail])),
+    planLineTexts: {}, work: storeWith(), adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: APP,
+  }, { lines: [], outbox: [], runs: [], now: NOW, config, seen: { shown: {}, other: {} }, board: { startedAt: STARTED, offSince: null }, reports: new Map(REPORTS), wakes: failed })
+  const shownFailed = lane(raw, 'Digger')
+  assert.deepEqual([shownFailed.wake.state, shownFailed.wake.final, shownFailed.flags[0].kind, shownFailed.flags[0].text], ['failed', true, 'wake failed', 'could not wake: no report within 2 minutes of the message'])
+  assert.equal(raw.wakeNotice.text, 'could not wake Digger: no report after the message (sent 18:28 by Lead); open its chat')
+  assert.equal(raw.wakes.Digger.state, 'failed')
+  // No record (the demo, a board that only shows): nothing of it.
+  assert.deepEqual([build().wakeNotice, build().wakes], [null, {}])
+})
+
+test('change 4: the ⚙ row of the wake reads by itself, "last launch failed" or "message only" with its why', async () => {
+  const { openPage } = await import('./pageHarness.mjs')
+  const { asSent, build: page, ask, NOW: PAGE_NOW, MIN: PAGE_MIN } = await import('./partnerState.mjs')
+  const { emptyWakes, rowOf } = await import('../src/wake.mjs')
+  const base = asSent(page([ask('Q2', 'person', PAGE_NOW - 40 * PAGE_MIN)]))
+  const jobs = rows => ({ rows, missing: [], needsTask: false, missingRoutines: [], checked: null, canAllow: true, taskLine: null })
+  const shown = async row => {
+    const one = await openPage({ state: { ...base, codeJobs: jobs([row]) } })
+    try {
+      return [one.text('#code-job-list .code-job-title'), one.text('#code-job-list .code-job-state'), one.find('#code-job-list li').title]
+    } finally { await one.close() }
+  }
+  assert.deepEqual((await shown(rowOf(emptyWakes(), {}))).slice(0, 2), ['Wake a chat that has work', 'by itself'])
+  const failed = await shown({ key: 'launch', title: 'Wake a chat that has work', byCode: false, why: 'the last launch failed: the app did not start Worker 2 (launched 10:32)' })
+  assert.equal(failed[1], 'last launch failed')
+  assert.match(failed[2], /the app did not start Worker 2 \(launched 10:32\); the page names the chat to open\.$/)
+  assert.equal((await shown(rowOf(emptyWakes(), { blocked: 'only on Windows can the board launch a chat' })))[1], 'message only')
+})
+
+test('review (3): after the take-back ended its need, "could not wake" and its incident stand for the whole spell', async () => {
+  const { buildView } = await import('../src/supervisor/view.mjs')
+  const { WATCH_RULES } = await import('../src/supervisor/rules/watch.mjs')
+  // Weeder sleeps free (no need: nothing waits for it any more); its spell's message failed.
+  const facts = wakesOf(new Map([['Weeder', { since: APP, at: at(18, 20) }]]))
+  Object.assign(facts.record.wakes.get('Weeder')[0].attempts[0], { verdict: 'failed', verdictAt: at(18, 22), why: 'no report within 2 minutes of the message' })
+  const raw = buildState({
+    listText: '{"prefix":"Garden · ","main":"Lead","supervisor":"Watcher"}', appChatTexts: NAMES.map(app), tails: Object.fromEntries(NAMES.map(name => [`cli-${name}`, tail])),
+    planLineTexts: {}, work: storeWith(), adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: APP,
+  }, { lines: [], outbox: [], runs: [], now: NOW, config, seen: { shown: {}, other: {} }, board: { startedAt: STARTED, offSince: null }, reports: new Map(REPORTS), wakes: facts })
+  const weeder = lane(raw, 'Weeder')
+  assert.deepEqual([weeder.wake.need, weeder.wake.final, weeder.flags[0]?.kind], [false, true, 'wake failed'])
+  assert.match(raw.wakeNotice.text, /could not wake Weeder: no report after the message \(sent 18:20 by Lead\); open its chat/)
+  const found = WATCH_RULES.find(one => one.id === 'wake-failed').check(buildView({ state: raw, items: new Map(), outbox: [], settings: {}, now: NOW }), { seen: new Map(), observed: [] })
+  assert.deepEqual(found.map(one => one.key), [`wake-failed Weeder ${APP}`])
 })

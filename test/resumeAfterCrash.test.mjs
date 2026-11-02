@@ -16,7 +16,8 @@ import vm from 'node:vm'
 import { answer, step, typed } from '../fixtures/lines.mjs'
 import { messageText } from '../src/bridge.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { RESUME_STEP, checkSay, nobodyRunsOf, resumesDue, wakeFailedOf, wakeFor, wakesDue, waitsLong } from '../src/say.mjs'
+import { RESUME_STEP, checkSay, resumesDue, waitsLong } from '../src/say.mjs'
+import { claim, emptyWakes, failedToSend, nextPath, nobodyRunsSpell, noticeOf, wakeJobId, wakeNeeds } from '../src/wake.mjs'
 import { readSources } from '../src/sources.mjs'
 import { isLate, keepMs, memoryStore } from '../src/store.mjs'
 import { parseItem } from '../src/work/item.mjs'
@@ -131,10 +132,9 @@ test('the word is a wake word that waits as long as its purpose stands, and the 
   const keep = { messageMs: 10 * MIN, answerMs: 48 * HOUR }
   assert.equal(keepMs(asked(), keep), 48 * HOUR)
   assert.equal(isLate(asked({ at: NOW - 3 * HOUR }), NOW, keep), false)
-  // A running chat is asked to start the closed one (the wake-up), as for any word that waits for it.
+  // Signals change 4: the closed chat is the wake procedure's need (src/wake.mjs), as for any word that waits for it.
   const state = board([holder(), lane('Worker 5', { state: 'free', isRunning: true })])
-  const start = wakeFor(asked(), state, [], NOW, MAX)
-  assert.deepEqual([start?.to, start?.command, start?.about], ['Worker 5', 'start', 'Worker 3'])
+  assert.deepEqual(wakeNeeds(state, [asked()]).map(one => [one.chat, one.why]), [['Worker 3', 'words']])
   // The board's word, never the page's.
   const refused = checkSay({ to: 'Worker 3', command: RESUME_STEP, about: 'B670' }, { chats: state.chats, restart: state.restart }, MAX)
   assert.deepEqual([refused.ok, refused.status, refused.why], [false, 400, 'No such command.'])
@@ -185,7 +185,7 @@ test('swept as the board does it: the word waits while its chat is off, goes whe
 const NAMES = ['Main', 'Worker 3', 'Worker 5']
 const config = { ...parseConfig('{}', {}), project: 'C:\\game' }
 const CRASH = new Date(2026, 9, 26, 9, 2).getTime()
-const app = name => JSON.stringify({ title: `Team - ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: 'C:\\game', isArchived: false, createdAt: name.length, lastActivityAt: CRASH, lastAssistantUuid: 'u-1' })
+const app = name => JSON.stringify({ title: `Team - ${name}`, sessionId: `local_${name.replace(/\s/g, '')}`, cliSessionId: `cli-${name}`, cwd: 'C:\\game', isArchived: false, createdAt: name.length, lastActivityAt: CRASH, lastAssistantUuid: 'u-1' })
 /** The chats' cards as their mods left them: all on a Workers mod that reports; Worker 3 was working on B670 when the PC crashed. */
 const cardOf = (name, at = CRASH) => JSON.stringify(name === 'Worker 3'
   ? { name, role: 'worker', state: 'working', task: { text: 'B670 Moving lava on a painted', step: 0, steps: 0, left: null, isReported: false }, at, mod: '0.20.0' }
@@ -216,84 +216,95 @@ function build({ now = NOW, running = [], outbox = [], startedAt = NOW - 10 * MI
 const laneOf = (state, name) => state.chats.find(chat => chat.name === name)
 
 /**
- * One look of the board's clock, as the server does it (server.mjs): the resume words first, kept in the outbox, then the
- * wake-up for the words that wait. Returns what was added.
+ * One look of the board's clock, as the server does it (server.mjs): the resume words, kept in the outbox; then (signals
+ * change 4) a running chat's hands claim the wake jobs of the needs (the hands route), each once per spell in the wake
+ * record, shown here as `{ to: <the hand>, command: 'wake job', about: <the chat> }`. Returns what was added.
  */
-function tick(outbox, stateAt, now) {
+function tick(outbox, stateAt, now, record = emptyWakes()) {
   const added = []
   const say = word => { outbox.push({ id: `clock-${outbox.length}`, at: now, ...word, state: 'waiting' }); added.push(word) }
   const state = stateAt(now)
   for (const word of resumesDue(state, outbox)) say(word)
-  if (state.bridge?.isMissing !== true) for (const word of wakesDue(state, outbox, now, MAX)) say(word)
+  const hand = (state.chats ?? []).find(lane => lane.isRunning === true && !lane.isLeftover)?.name ?? null
+  for (const need of hand === null ? [] : wakeNeeds(stateAt(now), outbox)) {
+    if (need.chat === hand || nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths }) !== 'message') continue
+    if (claim(record, { chat: need.chat, spell: need.spell, path: 'message', by: hand, jobId: wakeJobId(need.spell, need.chat), now, paths: need.paths })) added.push({ to: hand, command: 'wake job', about: need.chat, text: need.text })
+  }
   return added
 }
 
-test('2026-10-26: Worker 3 holds B670 and does not run, Worker 5 runs: one tick resumes the one and has the other start it, the next ten minutes add nothing', () => {
+test('2026-10-26: Worker 3 holds B670 and does not run, Worker 5 runs: one tick resumes the one and has the other wake it, the next ten minutes add nothing', () => {
   const outbox = []
+  const record = emptyWakes()
   const stateAt = (now, running = ['Worker 5']) => build({ now, running, outbox })
   const first = stateAt(NOW)
   assert.deepEqual([laneOf(first, 'Worker 3').state, laneOf(first, 'Worker 3').isRunning, laneOf(first, 'Worker 5').state, laneOf(first, 'Worker 5').isRunning], ['off', false, 'free', true])
   assert.deepEqual(laneOf(first, 'Worker 3').storeSteps.map(one => [one.id, one.state]), [['B670', 'in progress']])
-  const added = tick(outbox, stateAt, NOW)
-  assert.deepEqual(added.map(one => [one.to, one.command, one.about]), [['Worker 3', 'resume-step', 'B670'], ['Worker 5', 'start', 'Worker 3']])
+  const added = tick(outbox, stateAt, NOW, record)
+  assert.deepEqual(added.map(one => [one.to, one.command, one.about]), [['Worker 3', 'resume-step', 'B670'], ['Worker 5', 'wake job', 'Worker 3']])
   assert.equal(added[0].text, 'resume your step B670 from your checkpoint')
-  assert.equal(added[1].text.split('\n')[0], 'start "Worker 3"')
+  assert.equal(added[1].text, 'The worker board holds words for you: run work next')
   // The next ticks, every half minute for ten minutes: nothing more, however the chat fares.
-  for (let at = NOW + 30_000; at < NOW + 10 * MIN; at += 30_000) assert.deepEqual(tick(outbox, now => stateAt(now), at), [], `${(at - NOW) / MIN} min later`)
+  for (let at = NOW + 30_000; at < NOW + 10 * MIN; at += 30_000) assert.deepEqual(tick(outbox, now => stateAt(now), at, record), [], `${(at - NOW) / MIN} min later`)
   // Main was not touched: it holds nothing, and it is a closed chat nothing waits for.
   assert.equal(outbox.filter(one => one.to === 'Main').length, 0)
 })
 
-test('2026-10-26: the start worked and Worker 3 runs: the word and the start are closed; a chat that quits again without a line is not asked again, one that wrote a line is', async () => {
+test('2026-10-26: the wake worked and Worker 3 runs: the word is closed; a chat that quits again without a line is not asked again, one that wrote a line is', async () => {
   const outbox = []
+  const record = emptyWakes()
   const stateAt = (now, running, more = {}) => build({ now, running, outbox, ...more })
-  tick(outbox, now => stateAt(now, ['Worker 5']), NOW)
+  tick(outbox, now => stateAt(now, ['Worker 5']), NOW, record)
   const at = NOW + 2 * MIN
   const running = stateAt(at, ['Worker 5', 'Worker 3'])
   assert.equal(laneOf(running, 'Worker 3').isRunning, true)
   const store = memoryStore()
   for (const one of outbox) store.outbox().push({ ...one })
   const closed = await sweepOutbox({ dir: null, outbox: store, state: running, now: at, keep: { messageMs: 10 * MIN, answerMs: 48 * HOUR } })
-  assert.deepEqual(closed.map(one => [one.state, one.why]).sort(), [['dropped', 'Worker 3 runs again'], ['dropped', 'Worker 3 runs now']])
+  assert.deepEqual(closed.map(one => [one.state, one.why]).sort(), [['dropped', 'Worker 3 runs again']])
   const sent = store.outbox()
   // It quits again three hours later having written nothing: the word sent after it last wrote counts, so it is not started in a loop.
   const later = NOW + 3 * HOUR
   const quit = stateAt(later, ['Worker 5'])
   assert.deepEqual([laneOf(quit, 'Worker 3').state, laneOf(quit, 'Worker 3').isRunning], ['off', false])
   assert.deepEqual(resumesDue(quit, sent), [])
-  // It wrote a line after the word, then quit: a new off spell, a new word, once.
+  assert.deepEqual(tick(sent, now => stateAt(now, ['Worker 5']), later, record), [], 'the same spell: no second wake')
+  // It wrote a line after the word, then quit: a new off spell for the resume word, once. The review of 2026-11-02 (6): a
+  // chat that never reports has one wake spell (0, not its last write, which the wake message itself moves), so its one
+  // message in it is spent: no second wake job.
   const wrote = stateAt(later, ['Worker 5'], { wroteAt: NOW + 2 * MIN })
   assert.deepEqual(resumesDue(wrote, sent).map(one => [one.to, one.about]), [['Worker 3', 'B670']])
-  assert.deepEqual(tick(sent, now => stateAt(now, ['Worker 5'], { wroteAt: NOW + 2 * MIN }), later).map(one => one.command), ['resume-step', 'start'])
-  assert.deepEqual(tick(sent, now => stateAt(now, ['Worker 5'], { wroteAt: NOW + 2 * MIN }), later + MIN), [])
+  assert.deepEqual(tick(sent, now => stateAt(now, ['Worker 5'], { wroteAt: NOW + 2 * MIN }), later, record).map(one => one.command), ['resume-step'])
+  assert.deepEqual(tick(sent, now => stateAt(now, ['Worker 5'], { wroteAt: NOW + 2 * MIN }), later + MIN, record), [])
 })
 
-test('2026-10-26: no chat runs after the reboot: Worker 3 gets its word, the state names it, the page line shows, Worker 5 is not free', () => {
+test('2026-10-26: no chat runs after the reboot: Worker 3 gets its word, the board-wide spell names it, the page line shows, Worker 5 is not free', () => {
   const outbox = []
+  const record = emptyWakes()
   const stateAt = now => build({ now, running: [], outbox })
   const state = stateAt(NOW)
   // The board has run past the off time and no mod has called: every chat with a mod that reports reads as not running.
   assert.deepEqual(state.bridge, { isMissing: true })
   assert.deepEqual(state.chats.map(chat => [chat.name, chat.state, chat.isRunning]), [['Main', 'off', false], ['Worker 3', 'off', false], ['Worker 5', 'off', false]])
-  assert.equal(state.nobodyRuns, null, 'nothing waits yet')
-  assert.deepEqual(tick(outbox, stateAt, NOW).map(one => [one.to, one.command, one.about]), [['Worker 3', 'resume-step', 'B670']])
+  assert.equal(nobodyRunsSpell(state, outbox), null, 'nothing waits yet')
+  assert.deepEqual(tick(outbox, stateAt, NOW, record).map(one => [one.to, one.command, one.about]), [['Worker 3', 'resume-step', 'B670']])
+  // Signals change 4: the board-wide "nobody runs" spell (src/wake.mjs), which the launch path opens the main chat for.
   const waiting = stateAt(NOW + 30_000)
-  assert.deepEqual(JSON.parse(JSON.stringify(waiting.nobodyRuns)), { since: NOW, chats: ['Worker 3'] })
-  assert.deepEqual(waiting.wakeFailed, [])
-  assert.deepEqual(nobodyRunsOf(waiting, outbox), waiting.nobodyRuns)
-  // The page's line, the page's own code cut out of board.js.
+  assert.deepEqual(nobodyRunsSpell(waiting, outbox), { since: NOW, chats: ['Worker 3'] })
+  // The page's one line, the page's own code cut out of board.js, once its launch failed.
   const page = {}
-  vm.runInNewContext(`${cut('nobodyruns')}\nObject.assign(this, { nobodyRunsText })`, page)
-  assert.equal(page.nobodyRunsText(waiting.nobodyRuns), 'No chat is running, so nobody can wake Worker 3: open any chat of the project, and the board wakes the rest.')
-  // Nothing is added while it stands, nor ten minutes on.
-  assert.deepEqual(tick(outbox, stateAt, NOW + 30_000), [])
-  assert.deepEqual(tick(outbox, stateAt, NOW + 9 * MIN), [])
-  // Then one chat is opened (Worker 5): the line goes, and the board has it start Worker 3.
+  vm.runInNewContext(`${cut('nobodyruns')}\nObject.assign(this, { wakeNoticeText })`, page)
+  assert.equal(page.wakeNoticeText({ tone: 'attention', text: 'nobody answers the board\'s wake-ups: open any chat' }), 'Nobody answers the board\'s wake-ups: open any chat.')
+  assert.equal(page.wakeNoticeText(null), null)
+  // Nothing is added while it stands (no hand runs), nor ten minutes on.
+  assert.deepEqual(tick(outbox, stateAt, NOW + 30_000, record), [])
+  assert.deepEqual(tick(outbox, stateAt, NOW + 9 * MIN, record), [])
+  // Then one chat is opened (Worker 5): the spell ends, and its hands wake Worker 3.
   const opened = NOW + 10 * MIN
   const stateOpened = now => build({ now, running: ['Worker 5'], outbox })
-  assert.equal(stateOpened(opened).nobodyRuns, null)
-  const added = tick(outbox, stateOpened, opened)
-  assert.deepEqual(added.map(one => [one.to, one.command, one.about]), [['Worker 5', 'start', 'Worker 3']])
+  assert.equal(nobodyRunsSpell(stateOpened(opened), outbox), null)
+  const added = tick(outbox, stateOpened, opened, record)
+  assert.deepEqual(added.map(one => [one.to, one.command, one.about]), [['Worker 5', 'wake job', 'Worker 3']])
 })
 
 test('a chat with no card has no known mod, so it is not called off by a guess (Worker 5 of 2026-10-26); one that holds a step is read off by the app\'s restart and is resumed', () => {
@@ -307,7 +318,7 @@ test('a chat with no card has no known mod, so it is not called off by a guess (
   assert.deepEqual([laneOf(state, 'Worker 5').state, laneOf(state, 'Worker 5').isRunning, laneOf(state, 'Worker 5').report], ['free', null, null])
   // It holds nothing, so it gets no word; Worker 3, whose card names its mod, is read off and resumed, and the page says nobody runs.
   assert.deepEqual(tick(outbox, closed, NOW).map(one => [one.to, one.about]), [['Worker 3', 'B670']])
-  assert.deepEqual(JSON.parse(JSON.stringify(closed(NOW + MIN).nobodyRuns)), { since: NOW, chats: ['Worker 3'] }, 'an unknown chat counts as not running while no mod has called')
+  assert.deepEqual(nobodyRunsSpell(closed(NOW + MIN), outbox), { since: NOW, chats: ['Worker 3'] }, 'an unknown chat counts as not running while no mod has called')
   // Once a chat has called, it is known not to run (nothing of it asked), and still free: an idle chat that is closed.
   const heard = now => build({ now, running: ['Main'], outbox, withCards: cards })
   assert.deepEqual([laneOf(heard(NOW + MIN), 'Worker 5').state, laneOf(heard(NOW + MIN), 'Worker 5').isRunning], ['free', false])
@@ -376,8 +387,10 @@ test('a card torn by the crash (its end filled with NUL bytes) is read as the JS
 test('the server adds the resume words on every look of its clock that delivers, before the wake-up, and also while no chat has called the board', async () => {
   const server = await readFile(join(HERE, '..', 'server.mjs'), 'utf8')
   const resume = server.indexOf('resumesDue(state, sentNow())')
-  const wake = server.indexOf('wakesDue(state, sentNow()')
-  assert.ok(resume > 0 && wake > resume, 'resumesDue runs before wakesDue')
+  assert.ok(resume > 0, 'resumesDue runs on the clock')
+  // Signals change 4: no start word by the clock any more; the hands route makes the wake jobs of the needs.
+  assert.equal(server.indexOf('wakesDue('), -1)
+  assert.ok(server.indexOf('wakeNeeds(state, outboxNow') > 0)
   const condition = server.slice(server.lastIndexOf('if (bridgeKey', resume), resume)
   assert.match(condition, /^if \(bridgeKey !== null\) \{/, condition)
   assert.ok(!condition.includes('isMissing'), 'a board no chat has called yet adds the words too')
@@ -398,14 +411,19 @@ test('the worker\'s role and the design say what the word is and what to do with
   assert.match(protocol, /`resume your step B<id> from your checkpoint` \(no mark: the board's word\)/)
 })
 
-// The failure of the wake-up stays what it was: asked in vain, said once.
-test('a resume that no chat could carry is said as the wake-up says it, after three tries, and never asked again', () => {
+// Signals change 4: the failure of the wake is said once, from the wake record (one message per spell, not three asks).
+test('a resume that no chat could carry: one message in its spell, then "could not wake", and never asked again', () => {
   const outbox = [asked({ at: NOW - 40 * MIN })]
-  const state = board([holder(), lane('Worker 5', { state: 'free', isRunning: true }), lane('Worker 6', { state: 'free', isRunning: true }), lane('Worker 7', { state: 'free', isRunning: true })])
-  for (const [to, ago] of [['Worker 5', 30], ['Worker 6', 20], ['Worker 7', 10]]) outbox.push({ id: `s-${to}`, at: NOW - ago * MIN, to, command: 'start', about: 'Worker 3', state: 'delivered' })
-  assert.deepEqual(wakesDue(state, outbox, NOW, MAX), [])
+  const state = board([holder(), lane('Worker 5', { state: 'free', isRunning: true }), lane('Worker 6', { state: 'free', isRunning: true })])
+  const [need] = wakeNeeds(state, outbox)
+  const record = emptyWakes()
+  claim(record, { chat: 'Worker 3', spell: need.spell, path: 'message', by: 'Worker 5', jobId: 'j', now: NOW - 30 * MIN, paths: need.paths })
+  failedToSend(record, 'Worker 3', 'j', 'the app said no such session', NOW - 30 * MIN)
+  // No launch either (no CLI session id): nothing more, also by another running chat.
+  assert.equal(nextPath(record, { chat: 'Worker 3', spell: need.spell, senderClaims: true, paths: need.paths }), null)
   assert.deepEqual(resumesDue(state, outbox), [])
-  assert.deepEqual(wakeFailedOf(state, outbox, NOW).map(one => [one.chat, one.tries]), [['Worker 3', 3]])
+  const clockOf = ms => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
+  assert.match(noticeOf(record, [need], NOW, clockOf, { senderClaims: true }).text, /^could not wake Worker 3: the message did not go \(\d\d:\d\d by Worker 5: the app said no such session\); open its chat$/)
 })
 
 test('T9.1.1: a worker that holds a Quality Assurance task in progress (no branch) is resumed as for any step', () => {
@@ -414,6 +432,6 @@ test('T9.1.1: a worker that holds a Quality Assurance task in progress (no branc
   const stateAt = (now, running = ['Worker 5']) => build({ now, running, outbox, steps: [['B701', 'review', 'Worker 1'], task] })
   assert.deepEqual(laneOf(stateAt(NOW), 'Worker 3').storeSteps.map(one => [one.id, one.state]), [['B730', 'in progress']])
   const added = tick(outbox, stateAt, NOW)
-  assert.deepEqual(added.map(one => [one.to, one.command, one.about]), [['Worker 3', 'resume-step', 'B730'], ['Worker 5', 'start', 'Worker 3']])
+  assert.deepEqual(added.map(one => [one.to, one.command, one.about]), [['Worker 3', 'resume-step', 'B730'], ['Worker 5', 'wake job', 'Worker 3']])
   assert.equal(added[0].text, 'resume your step B730 from your checkpoint')
 })

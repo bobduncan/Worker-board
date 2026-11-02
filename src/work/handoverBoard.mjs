@@ -20,6 +20,7 @@ import { GIVE_BACK_MINUTES, RESUME_MINUTES, continuationOf, standOf } from './ho
 import { isHolding } from './pause.mjs'
 import { readStore } from './store.mjs'
 import { isLate } from '../store.mjs'
+import { wakeFact } from '../wake.mjs'
 import { resolve } from 'node:path'
 
 /** One decision at a time per store folder, in this process (the board is the store's only writer). */
@@ -67,8 +68,11 @@ export function setterFor(lane, items, config) {
 /** Signals change 3: the person's stop and remove words about a worker (B769, carried out by code), from the outbox. */
 const stopsOf = (sent, name) => (sent ?? []).filter(one => (one?.command === 'stop' || one?.command === 'remove') && one.byCode === true && one.about === name)
 
-/** The facts of one worker's decision, out of the state, a fresh read of the store and the outbox. */
-export function factsOf({ lane, state, items, pause, sent, config, installed = null, now, event, localOnly = new Set() }) {
+/**
+ * The facts of one worker's decision, out of the state, a fresh read of the store and the outbox. Signals change 4: `wakes`
+ * the server's wake facts (`{ record, senderClaims, canLaunch }`, src/wake.mjs), or null where none is kept.
+ */
+export function factsOf({ lane, state, items, pause, sent, config, installed = null, now, event, localOnly = new Set(), wakes = null }) {
   const prefix = state.chatPrefix ?? ''
   return {
     worker: lane, items, prefix,
@@ -87,6 +91,9 @@ export function factsOf({ lane, state, items, pause, sent, config, installed = n
     stops: stopsOf(sent, lane.name),
     timers: { resumeMs: (config?.resumeAfterMinutes ?? RESUME_MINUTES) * MIN, giveBackMs: (config?.giveBackAfterMinutes ?? GIVE_BACK_MINUTES) * MIN },
     localOnly,
+    // Signals change 4 (D.1): the wake of its chat. D.5 (decision 13) is the pass's order alone (running lanes first, and
+    // `match`'s): the review of 2026-11-02 found a sleeper held back for a running worker that would not take the task.
+    wake: wakeFact(wakes, lane, event),
   }
 }
 
@@ -108,15 +115,20 @@ async function localOnlyOf(ready, items, isPushed) {
   return found
 }
 
-/** The envelope waiting for `chat` that may be handed out now: its set word (when it has one) is done. */
-export function carryable(sent, chat, now, keep) {
+/**
+ * The envelope waiting for `chat` that may be handed out now: its set word (when it has one) is done. Signals change 4, D.4
+ * (decision 12): `holdClear` while the chat's first turn after a wake runs (src/wake.mjs `inFirstTurn`): an envelope with a
+ * clear waits for that turn's end (its clear would fail "a turn is running"); the chat's next take gets it.
+ */
+export function carryable(sent, chat, now, keep, { holdClear = false } = {}) {
   return sent.find(message => message.command === HANDOVER_COMMAND && message.to === chat && message.state === 'waiting' && !isLate(message, now, keep)
+    && !(holdClear && message.clear !== null && message.clear !== undefined)
     && (typeof message.waitsFor !== 'string' || sent.find(one => one.id === message.waitsFor)?.state === 'delivered')) ?? null
 }
 
 /** Hands the carryable envelope of `chat` out (marked taken, as a take marks a word): its contract, or null. */
-export async function handOut(outbox, chat, now, keep) {
-  const found = carryable(outbox.outbox(), chat, now, keep)
+export async function handOut(outbox, chat, now, keep, { holdClear = false } = {}) {
+  const found = carryable(outbox.outbox(), chat, now, keep, { holdClear })
   if (found === null) return null
   const taken = await outbox.take(chat, now, keep, message => message.id === found.id)
   return taken.length === 0 ? null : contractOf(taken[0])
@@ -141,11 +153,11 @@ export async function settle(outbox, chat, id, outcome, now) {
  * One worker's decision carried out: `{ decision, envelope }` (the message written, or null). `apply(body)` is the work
  * API as the server. A give the API refuses moves to the next candidate in the same call (at most three).
  */
-export async function handOver({ lane, state, dir, outbox, apply, config, installed = null, now, newId, event, fs, isPushed = null, log }) {
+export async function handOver({ lane, state, dir, outbox, apply, config, installed = null, now, newId, event, fs, isPushed = null, log, wakes = null }) {
   const read = await readStore(dir, fs)
   const sent = outbox.outbox()
   const localOnly = await localOnlyOf(state.readyList?.ready, read.items, isPushed)
-  const facts = factsOf({ lane, state, items: read.items, pause: read.pause ?? null, sent, config, installed, now, event, localOnly })
+  const facts = factsOf({ lane, state, items: read.items, pause: read.pause ?? null, sent, config, installed, now, event, localOnly, wakes })
   let decision = decide(facts)
   // Signals change 3: the give-back of a holder that did not go on (giveBack.mjs, the work API's give-back path). Its
   // waiting "go on" line is closed only once the step went back: a refused give-back changes nothing.
@@ -166,7 +178,7 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
     refused.add(decision.give)
     // Decided again without it: the take-back above is done, so it is not taken back twice.
     const again = await readStore(dir, fs)
-    decision = { ...decide({ ...factsOf({ lane, state, items: again.items, pause: again.pause ?? null, sent: outbox.outbox(), config, installed, now, event, localOnly }), ready: facts.ready.filter(one => !refused.has(one.id)) }), takeBack: decision.takeBack }
+    decision = { ...decide({ ...factsOf({ lane, state, items: again.items, pause: again.pause ?? null, sent: outbox.outbox(), config, installed, now, event, localOnly, wakes }), ready: facts.ready.filter(one => !refused.has(one.id)) }), takeBack: decision.takeBack }
     if (decision.give === null) break
   }
   if (decision.give !== null && refused.has(decision.give)) decision = { ...decision, give: null, envelope: null }
@@ -198,8 +210,9 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
  * failed fails its envelope; a restart envelope its mod carried out gets the hands' restart word once; then its decision.
  * `lanes` the state's chats. `{ decided: [{ chat, state }], wrote: n }`.
  */
-export async function handoverPass({ state, dir, outbox, apply, config, installed = null, now, newId, fs, isPushed = null, log }) {
-  const lanes = (state.chats ?? []).filter(lane => onSequence(lane, config))
+export async function handoverPass({ state, dir, outbox, apply, config, installed = null, now, newId, fs, isPushed = null, log, wakes = null }) {
+  // Signals change 4, D.5: the running workers first, so a ready task goes to a running free one before a sleeper.
+  const lanes = (state.chats ?? []).filter(lane => onSequence(lane, config)).sort((a, b) => (a.isRunning === true ? 0 : 1) - (b.isRunning === true ? 0 : 1))
   const decided = []
   let wrote = 0
   for (const lane of lanes) {
@@ -217,7 +230,7 @@ export async function handoverPass({ state, dir, outbox, apply, config, installe
         await outbox.say({ id: newId(), at: now, ...restartWords({ to: main, chat: lane.name, session: lane.appSession ?? null, runs: lane.mod ?? 'unknown', installed: restart.version, why: 'its hand-over: the log is kept and its turn ended' }), state: 'waiting' })
         wrote += 1
       }
-      const done = await handOver({ lane, state, dir, outbox, apply, config, installed, now, newId, event: { kind: 'pass' }, fs, isPushed, log })
+      const done = await handOver({ lane, state, dir, outbox, apply, config, installed, now, newId, event: { kind: 'pass' }, fs, isPushed, log, wakes })
       decided.push({ chat: lane.name, state: done.decision.state })
       if (done.envelope !== null || done.decision.takeBack !== null) wrote += 1
     })

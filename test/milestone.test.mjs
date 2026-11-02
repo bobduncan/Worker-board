@@ -179,14 +179,13 @@ test('an answer stays known long after it arrived, so the recommendation is neve
   assert.equal(checkSay({ to: 'Advisor', command: 'recommend', about: 'R1', answer: 'no', reason: 'x' }, build({ outbox: [old] }), 2000).status, 409)
 })
 
-test('a "no" for an Advisor whose chat is not running wakes it through the main chat', async () => {
-  const { wakeFor } = await import('../src/say.mjs')
+test('a "no" for an Advisor whose chat is not running wakes it (signals change 4: the wake procedure\'s need)', async () => {
+  const { wakeNeeds } = await import('../src/wake.mjs')
   const state = build()
   const asleep = { ...state, chats: state.chats.map(chat => (chat.name === 'Advisor' ? { ...chat, isRunning: false } : chat)), advisor: state.advisor === null ? null : { ...state.advisor, isRunning: false, appSession: 'local_Advisor' } }
   const { message } = checkSay({ to: 'Advisor', command: 'recommend', about: 'R1', answer: 'no', reason: 'x' }, state, 2000)
-  const wake = wakeFor(message, asleep, [], NOW, 2000)
-  assert.equal(wake?.command, 'start')
-  assert.equal(wake?.about, 'Advisor')
+  const wake = wakeNeeds(asleep, [{ ...message, id: 'm', at: NOW, state: 'waiting' }]).find(one => one.chat === 'Advisor')
+  assert.equal(wake?.why, 'words')
 })
 
 // The page
@@ -199,7 +198,7 @@ test('the page: the Advisor tab in four parts under their buttons, the way first
   assert.match(html, /data-tab="advice"><span class="tab-long">Focus<\/span><span class="tab-short">Focus<\/span><\/button>/)
   assert.deepEqual([...html.matchAll(/data-advisor-pane="(\w+)"/g)].map(found => found[1]), ['focus', 'way', 'goals', 'brainstorm', 'plan', 'suggestions', 'refine', 'chat'])
   // Vision (2026-10-19): the fifth tab, the product plan's; the chat still has none of its own.
-  assert.equal((html.match(/class="tab[^"]*" type="button" data-tab=/g) ?? []).length, 7)
+  assert.equal((html.match(/class="tab[^"]*" type="button" data-tab=/g) ?? []).length, 8)
   assert.match(script, /const pane = ADVISOR_PANES\.includes\(name\) \? name : advisorFirstPart\(board\?\.advisorParts\)/)
   // The answers: yes to the main chat (since 2026-10-28 carried out by the board), no with its reason to the Advisor;
   // the way is drawn anew while one is sent.

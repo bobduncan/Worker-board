@@ -620,7 +620,7 @@ export function checkSay(body, state, maxChars) {
  * Every chat the board knows by name: the main chat and the workers (not a leftover), the partner, its helper and the
  * supervisor's chat, each as the state gives it (`name`, `isRunning`, `state`, `appSession`).
  */
-const boardLanes = state => [
+export const boardLanes = state => [
   ...(state.chats ?? []).filter(chat => !chat.isLeftover),
   ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : []), ...(state.supervisorChat ? [state.supervisorChat] : []),
   // The Product owner (2026-10-31): started and woken as any chat, but it never carries a start word (`wakerOrder`).
@@ -667,11 +667,7 @@ export function spawnWhenAlone(state, outbox, lines) {
   return spawnWords(main, 3, 'alone')
 }
 
-/** A chat is asked to be started at most this often (T9.4: by the main chat, or by the chat that carries the word instead). */
-const WAKE_AGAIN_MS = 2 * 60_000
-const WAKE_PENDING_MS = 10 * 60_000
-
-/** The commands the board puts to a chat other than the main one: a word the chat's work stands on (wakeFor). */
+/** The commands the board puts to a chat other than the main one: a word the chat's work stands on (`isWakeWord`). */
 // B570: and the board's word that asks the partner to restart the main chat on a new Workers mod.
 const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'obsolete-check', 'recap-feedback', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
@@ -697,12 +693,14 @@ export const waitsLong = command => command === 'start' || command === 'wake' ||
  * is no partner word. 2026-10-26: and the word that resumes a worker holding a step after a crash (`resumesDue`), whose
  * whole purpose is to have its chat started.
  */
-const isWakeWord = (message, state) => {
+export const isWakeWord = (message, state) => {
   const main = state.restart?.main ?? null
   const command = message.command ?? null
   // Signals change 3: the hand-over's "go on" line to a stopped holder stands in for RESUME_STEP: it wakes its chat too.
+  // Signals change 4 (decision 2, 2026-11-02: B855's envelope to an asleep Worker 2 woke nobody): every hand-over
+  // envelope (a task, a resume, a restart, a clear) is a wake word, not only the resume.
   return (main !== null && message.to === main) || command === null || isPartnerWord(command) || command === 'sweep' || command === RESUME_STEP
-    || (command === 'handover' && message.kind === 'resume')
+    || command === 'handover'
 }
 
 /**
@@ -714,7 +712,7 @@ const isWakeWord = (message, state) => {
  * it was removed in the last minutes (`removedAt`: its lane stays two; only the lanes carry it, not the partner, its helper
  * or the supervisor's chat). `outbox` is what was sent.
  */
-function wakerOrder(state, target, outbox) {
+export function wakerOrder(state, target, outbox) {
   const main = state.restart?.main ?? null
   const canCarry = chat => chat !== null && chat !== undefined && chat.name !== target && chat.isLeftover !== true
     && chat.state !== 'suspended' && !Number.isFinite(chat.removedAt) && stoppedOf(outbox, chat) === null
@@ -728,159 +726,13 @@ function wakerOrder(state, target, outbox) {
   ].filter(chat => chat !== undefined)
 }
 
-/** T9.4: a chat asked this recently to start a target is passed over when the target has to be asked for again. */
-const WAKER_AGAIN_MS = 30 * 60_000
-
-/**
- * T9.4: the chat that carries the start word for `target` (a chat that is not running): the main chat when it runs, else
- * the partner when it runs, else another running chat of the board (`wakerOrder`). Only a running chat can start another
- * (the app's session tools; the board cannot). Without `since` (a word that has just been sent): a chat asked to start this
- * target in the last half hour (its word still waits, or it took it and the target did not start; a word closed because the
- * target runs does not count) is passed over, so a retry goes to the next one; when every running chat was asked, the first
- * is asked again: a repeat is better than a word that waits for nobody. With `since` (the clock's retry, review of
- * 2026-10-25: retries must stop): a chat asked at any time since then, whatever became of its word, is not asked again, and
- * when every running chat was asked there is none. Its name, or null when no chat can be asked. `outbox` is what was sent.
- */
-export function wakerFor(state, target, outbox, now, since = null) {
-  const running = wakerOrder(state, target, outbox).filter(chat => chat.isRunning === true)
-  const isOnce = since !== null
-  const askedBefore = chat => outbox.some(sent => sent.command === 'start' && sent.to === chat.name && sent.about === target && Number.isFinite(sent.at)
-    && (isOnce ? sent.at >= since : sent.state !== 'dropped' && now - sent.at < WAKER_AGAIN_MS))
-  return (running.find(chat => !askedBefore(chat)) ?? (isOnce ? undefined : running[0]))?.name ?? null
-}
-
 /** A round is the board's own word to the Advisor (B173); it wakes its chat as a message does. */
-const wakeWordOf = message => (message.command === 'round' ? { ...message, command: null } : message)
+export const wakeWordOf = message => (message.command === 'round' ? { ...message, command: null } : message)
 
-/**
- * T9.4: the words that say nobody can wake the chats that wait for it, or null: some word that the board wakes a chat for
- * (`isWakeWord`) waits for a chat of the board, and no chat that could carry the start word (`wakerOrder`) may run. Not
- * guessed: one that may run (`isRunning` unknown) says nothing, except on a board no mod has called since it started
- * (`bridge.isMissing`: nothing can tell any chat's state then, so an unknown one counts as not running). `{ since, chats }`:
- * the oldest of those words' times and the chats they wait for, as they first appear in `outbox` (everything sent; a word
- * the person's pause holds, `isHeld`, does not count).
- */
-export function nobodyRunsOf(state, outbox) {
-  const lanes = boardLanes(state)
-  if (lanes.length === 0) return null
-  const isOff = chat => chat.isRunning === false || (state.bridge?.isMissing === true && chat.isRunning !== true)
-  if (wakerOrder(state, null, outbox).some(chat => !isOff(chat))) return null
-  const since = new Map()
-  for (const message of outbox) {
-    const target = lanes.find(chat => chat.name === message.to)
-    if (message.state !== 'waiting' || message.isHeld === true || target === undefined || !isOff(target) || !isWakeWord(wakeWordOf(message), state)) continue
-    since.set(message.to, Math.min(since.get(message.to) ?? Infinity, Number.isFinite(message.at) ? message.at : Infinity))
-  }
-  if (since.size === 0) return null
-  const times = [...since.values()].filter(Number.isFinite)
-  return { since: times.length === 0 ? null : Math.min(...times), chats: [...since.keys()] }
-}
-
-/**
- * T9.4 (review of 2026-10-25): when a start word began to be on its way: when it was sent; a word that the person's pause
- * held (sent before the pause ended, still waiting) from the end of the pause, since it is delivered then.
- */
-const onItsWaySince = (sent, state) => {
-  const pause = state.pause ?? null
-  return sent.state === 'waiting' && pause !== null && pause.state !== 'pausing' && Number.isFinite(pause.since) && pause.since > sent.at ? pause.since : sent.at
-}
-/** Whether a start word was sent, or its pause ended, in the last ten minutes: whatever became of it. */
-const isRecentStart = (sent, state, now) => now - onItsWaySince(sent, state) < WAKE_PENDING_MS
-/** Whether an earlier start word is still on its way: waiting or taken for under ten minutes; one the pause holds, however old. */
-const isOnItsWay = (sent, state, now) => (sent.state === 'waiting' && isHolding(state.pause)) || ((sent.state === 'waiting' || sent.state === 'taken') && isRecentStart(sent, state, now))
-
-/**
- * What the board adds when something was sent to a chat that is not running: the word to a running chat to start it
- * (`wakerFor`: the main chat, else the partner, else another), so nothing waits for a closed chat without a word. A word
- * to the main chat that waits while it does not run wakes it the same way. Null when nothing is to be asked: the chat
- * runs, or is not known to, no chat runs to carry the word, or it was asked a moment ago. `outbox` is what was sent before.
- * `since` (the clock's retry, `wakesDue`) is passed on to `wakerFor`.
- */
-export function wakeFor(message, state, outbox, now, maxChars, since = null) {
-  if (!isWakeWord(message, state)) return null
-  const main = state.restart?.main ?? null
-  // Every word to the main chat wakes it, but only while it is known not to run.
-  if (message.to === main && (state.chats ?? []).find(chat => chat.name === main)?.isRunning !== false) return null
-  // Not again within two minutes; and while an earlier word still waits for its waker (or the pause holds it), not for ten.
-  if (outbox.some(sent => sent.command === 'start' && sent.about === message.to && (now - sent.at < WAKE_AGAIN_MS || isOnItsWay(sent, state, now)))) return null
-  // The re-check of the review: retries stop for a word that has just been sent too (a pinned start sent anew each start
-  // window asked Main 37 times in 6 h): at most MAX_WAKE_TRIES start words for one wait, each of a chat not asked in it.
-  const pending = outbox.some(one => one.id !== undefined && one.id === message.id) ? outbox : [...outbox, { ...message, state: 'waiting' }]
-  const progress = wakeProgress(state, message.to, pending)
-  if (progress !== null && progress.asks.length >= MAX_WAKE_TRIES) return null
-  const waker = wakerFor(state, message.to, outbox, now, since ?? progress?.since ?? null)
-  if (waker === null) return null
-  const checked = checkSay({ to: waker, command: 'start', chat: message.to }, state, maxChars)
-  return checked.ok ? checked.message : null
-}
-
-/** The start words are asked at most this many times for one wait (review of 2026-10-25: retries must stop), each of another chat. */
-export const MAX_WAKE_TRIES = 3
-
-/**
- * T9.4: how the wake-up of `target` stands, or null when no word waits for it that the board wakes it for: `since`, the
- * oldest of those words, and `asks`, the start words about it since then that a chat could carry: taken, delivered or
- * failed, or waiting for a chat that may run. Not a word the sweep closed, nor one that waits for a chat known not to run
- * (the hand-out's start handed to a main chat that is off asks nobody yet; re-check of the review). A wait that ended (the
- * words were taken) starts a new count.
- */
-function wakeProgress(state, target, outbox) {
-  const times = outbox.filter(one => one.state === 'waiting' && one.to === target && Number.isFinite(one.at) && isWakeWord(wakeWordOf(one), state)).map(one => one.at)
-  if (times.length === 0) return null
-  const since = Math.min(...times)
-  const isOff = name => boardLanes(state).find(chat => chat.name === name)?.isRunning === false
-  const isTry = one => one.state !== 'dropped' && !(one.state === 'waiting' && isOff(one.to))
-  return { since, asks: outbox.filter(one => one.command === 'start' && one.about === target && Number.isFinite(one.at) && one.at >= since && isTry(one)) }
-}
-
-/**
- * What the board asks on its clock for words that wait for a chat that is not running and for which no chat was ever
- * asked: they were sent while no chat could carry the start word (`wakeFor` asks nothing then), so they waited unseen
- * until a chat was opened by hand (2026-10-21: three words to the Advisor waited 09:46 to 10:57; T9.4, 2026-10-25: words
- * to the main chat and a start of Worker 3 waited 15 minutes). One start word per chat, through `wakeFor`, for the words
- * that wake it (`isWakeWord`: a start word held by an off chat hides no later word); none for a chat asked to be started in
- * the last ten minutes. Requests never get lost (2026-10-25), and retries stop (review): an ask that did not wake the chat
- * in ten minutes is asked again, of a running chat not asked since the oldest word that waits; at most `MAX_WAKE_TRIES`
- * start words for one wait, and then nothing more (`wakeFailedOf` says so). Nothing while the person's pause holds.
- * `outbox` is everything sent, in order, with what waited too long marked "expired".
- */
-export function wakesDue(state, outbox, now, maxChars) {
-  if (isHolding(state.pause)) return []
-  const seen = new Set()
-  const starts = []
-  for (const message of outbox) {
-    if (message.state !== 'waiting' || seen.has(message.to)) continue
-    const word = wakeWordOf(message)
-    if (!isWakeWord(word, state)) continue
-    seen.add(message.to)
-    const progress = wakeProgress(state, message.to, outbox)
-    if (progress === null || progress.asks.length >= MAX_WAKE_TRIES || progress.asks.some(ask => isRecentStart(ask, state, now))) continue
-    const start = wakeFor(word, state, outbox, now, maxChars, progress.since)
-    if (start !== null) starts.push(start)
-  }
-  return starts
-}
-
-/**
- * T9.4 (review of 2026-10-25): the chats nobody could wake, `[{ chat, tries, since }]`: words wait for a chat known not to
- * run, the board asked at least once, the last ask is no longer on its way (ten minutes), and the clock asks no more
- * (`wakesDue`: `MAX_WAKE_TRIES` asks, or every running chat was asked). The page says so, and that the person opens it
- * themselves. It goes once the chat runs, its words no longer wait, or another chat runs that can still be asked. Nothing
- * while the person's pause holds. `outbox` is everything sent.
- */
-export function wakeFailedOf(state, outbox, now) {
-  if (isHolding(state.pause)) return []
-  const lanes = boardLanes(state)
-  const failed = []
-  for (const target of new Set(outbox.filter(one => one.state === 'waiting').map(one => one.to))) {
-    if (lanes.find(chat => chat.name === target)?.isRunning !== false) continue
-    const progress = wakeProgress(state, target, outbox)
-    if (progress === null || progress.asks.length === 0 || progress.asks.some(ask => isRecentStart(ask, state, now))) continue
-    const next = progress.asks.length < MAX_WAKE_TRIES ? wakerFor(state, target, outbox, now, progress.since) : null
-    if (next === null) failed.push({ chat: target, tries: progress.asks.length, since: progress.since })
-  }
-  return failed
-}
+// Signals change 4, B908 (2026-11-02): the start words the board made to wake a chat (wakeFor, wakesDue, wakerFor, their
+// retries MAX_WAKE_TRIES, WAKE_AGAIN_MS, WAKE_PENDING_MS, WAKER_AGAIN_MS, and wakeFailedOf) went into the one wake procedure
+// (src/wake.mjs): a word to a chat that does not run simply waits, and the wake's needs bring its chat (a message through any
+// running chat's hands, else a launch). nobodyRunsOf moved there as `nobodyRunsSpell`. `isWakeWord` and `wakerOrder` stay.
 
 /** The steps a worker holds in the store that its chat must go on with: taken and in progress (not one that waits for the person, or is in review). */
 const RESUMED_STEPS = ['taken', 'in progress']

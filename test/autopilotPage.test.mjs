@@ -165,20 +165,19 @@ test('Needs your attention with Autopilot on: only the person\'s asks, counted o
   const page = await openPage({
     state: {
       ...state, autopilot: { on: true, decidedToday: 3 },
-      nobodyRuns: { since: NOW - 5 * MIN, chats: ['Digger'] }, wakeFailed: [{ chat: 'Advisor', tries: 3, since: NOW - 40 * MIN }],
-      opener: { tone: 'quiet', text: 'Opened Lead at 09:58 to wake the chats.' },
+      // Signals change 4: the one wake notice of the wake record (src/wake.mjs `noticeOf`) in place of the three older lines.
+      wakeNotice: { tone: 'attention', text: 'nobody answers the board\'s wake-ups: open any chat · could not wake Advisor: the app did not start it (launched 09:58); open its chat' },
     },
   })
   try {
-    const top = page.all('#needs > *').slice(0, 3).map(words)
-    assert.match(top[0], /^No chat is running, so nobody can wake Digger: open any chat of the project/)
-    assert.match(top[1], /^Nobody could wake Advisor after 3 tries since \d\d:\d\d: open it yourself\.$/)
-    assert.equal(top[2], 'Autopilot is on · decided for you today: 3')
+    const top = page.all('#needs > *').slice(0, 2).map(words)
+    assert.match(top[0], /^Nobody answers the board's wake-ups: open any chat · could not wake Advisor: the app did not start it \(launched 09:58\); open its chat\.$/)
+    assert.equal(top[1], 'Autopilot is on · decided for you today: 3')
     assert.equal(page.find('#needs .autopilot-line a').getAttribute('href'), '#advice/focus')
     assert.equal(page.text('#waits-for-you'), '1 waits for you')
     assert.equal(page.all('#needs [data-id^="work:"]').filter(card => !card.classList.contains('is-closed')).map(card => card.dataset.id).join(), 'work:Q4')
-    // The opener's line stands above the lanes as before.
-    assert.match(words(page.find('#restart')), /Opened Lead at 09:58 to wake the chats\./)
+    // Signals change 4: the opener's line above the lanes went into the one wake notice.
+    assert.doesNotMatch(words(page.find('#restart')), /Opened .* to wake the chats/)
   } finally { await page.close() }
   // Off: no line on top.
   const off = await openPage({ state: asSent(garden(items)) })

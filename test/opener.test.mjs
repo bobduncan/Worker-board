@@ -1,19 +1,17 @@
 // T13 part 4 (the person, 2026-10-28: after a restart work must come back by itself, without a timer that costs tokens):
-// when no chat's hands checked in for a minute and work waits that only they carry, the board opens one chat in the Claude
-// app with the app's own program (`claude.exe --desktop --resume <session>`): the main chat first, then the partner, the
-// supervisor, a worker. A fixed launch: the program's checked path and a UUID from the board's own list, nothing else. At
-// most one open in 3 minutes; after two opens in a row that brought no hand back it stops and the page says so. Made-up
-// names and ids only.
+// the board opens a chat in the Claude app with the app's own program (`claude.exe --desktop --resume <session>`). A fixed
+// launch: the program's checked path and a UUID from the board's own list, nothing else. Signals change 4, B908
+// (2026-11-02): the launch is the second path of the one wake procedure (src/wake.mjs `launchPlan`): never while a sender
+// claims, one per chat and spell, the board-wide spell launches the main chat once; the morning's launches of 10:32-11:08
+// (nothing started, PowerShell ok each time) are the cases. Made-up names and ids only.
 
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-import {
-  HANDS_GONE_MS, OPEN_EVERY_MS, OPEN_TRIES, OPEN_WAIT_MS, OPEN_SHOWN_MS, chatToOpen, failuresOf, handWorkWaits, handsGone, isProgram, isSessionId,
-  launchCommand, openChat, openOrder, openPlan, openerNote, openerRow,
-} from '../src/opener.mjs'
+import { HANDS_GONE_MS, chatToOpen, handWorkWaits, handsGone, isProgram, isSessionId, launchCommand, openChat } from '../src/opener.mjs'
+import { BOARD_KEY, claim, emptyWakes, failedToSend, heard, launchPlan, pass, sent, wakeNeeds } from '../src/wake.mjs'
 
 const MIN = 60_000
 const NOW = 500 * MIN
@@ -22,7 +20,6 @@ const ID = (n = 1) => `a4d087f2-6dbc-480f-981c-42282ff5c5d${n}`
 const claims = (...ages) => new Map(ages.map((ago, n) => [`Chat ${n}`, { can: [], at: NOW - ago }]))
 const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, removedAt: null, session: ID(name.length % 10), appSession: `local_${name.replace(/\W/g, '')}`, state: 'free', ...more })
 const word = (command, state = 'waiting') => ({ id: `w-${command}`, at: NOW - MIN, to: 'Lead', command, about: 'Digger', state })
-const plan = more => openPlan({ now: NOW, handsGone: true, waits: true, paused: false, last: -Infinity, failures: 0, ...more })
 
 test('the hands are gone once no chat claimed them for a minute; a young board waits for a call of a chat since its start', () => {
   assert.equal(handsGone({ claims: claims(30_000), now: NOW }), false)
@@ -49,61 +46,6 @@ test('T14: only hands that may send keep the hands present; Auto-mode workers al
   // An older mod never says it, and keeps counting as before.
   assert.equal(handsGone({ claims: new Map([['Worker 1', { ...auto, mod: '0.26.4' }]]), now: NOW }), false)
   assert.equal(handsGone({ claims: new Map([['Worker 1', { ...auto, mod: null }]]), now: NOW }), false)
-  // So with only such workers running, the board opens the main chat, and their claims do not reset its tries.
-  const opens = [{ at: NOW - 10 * MIN, chat: 'Lead', ok: true }, { at: NOW - 6 * MIN, chat: 'Lead', ok: true }]
-  assert.equal(failuresOf({ opens, claims: new Map([['Worker 1', auto]]), now: NOW }), 2)
-  assert.equal(failuresOf({ opens, claims: new Map([['Lead', sender]]), now: NOW }), 0)
-})
-
-test('hand work waits: a waiting start, wake, resume, new worker, set, restart or remove word; a resume with a chat not started; an asleep cut-off chat', () => {
-  for (const command of ['start', 'wake', 'resume', 'spawn', 'worker-effort', 'partner-effort', 'mod-restart', 'remove']) assert.equal(handWorkWaits({}, [word(command)]), true, command)
-  // Taken, delivered or no hand's word: nothing waits.
-  assert.equal(handWorkWaits({}, [word('start', 'taken'), word('wake', 'delivered'), word('step'), word(null)]), false)
-  assert.equal(handWorkWaits({}, []), false)
-  // Resuming: while a chat holding a step has not started.
-  assert.equal(handWorkWaits({ pause: { state: 'resuming', waiting: [{ chat: 'Digger', ids: ['B12'] }] } }, []), true)
-  assert.equal(handWorkWaits({ pause: { state: 'resuming', waiting: [] } }, []), false)
-  assert.equal(handWorkWaits({ pause: { state: 'running' } }, []), false)
-  // Part 3: an asleep chat whose turn was cut, once per asleep spell, and only with an app id a hand can send to.
-  const asleep = lane('Digger', { state: 'interrupted', asleep: true, asleepSince: NOW - 20 * MIN })
-  assert.equal(handWorkWaits({ chats: [asleep] }, []), true)
-  assert.equal(handWorkWaits({ chats: [asleep] }, [], { asleepSent: new Map([['Digger', { since: NOW - 20 * MIN }]]) }), false)
-  assert.equal(handWorkWaits({ chats: [asleep] }, [], { asleepSent: new Map([['Digger', { since: NOW - 90 * MIN }]]) }), true)
-  assert.equal(handWorkWaits({ chats: [{ ...asleep, appSession: null }] }, []), false)
-  assert.equal(handWorkWaits({ chats: [{ ...asleep, state: 'free' }] }, []), false)
-  // The partner and the supervisor too.
-  assert.equal(handWorkWaits({ advisor: { ...asleep, name: 'Advisor' } }, []), true)
-  assert.equal(handWorkWaits({ supervisorChat: { ...asleep, name: 'Supervisor' } }, []), true)
-})
-
-test('open only while the hands are gone, work waits, nobody pauses, 3 minutes after the last open and before two failures', () => {
-  assert.deepEqual(plan({}), { open: true, why: 'no chat runs and work waits for one' })
-  assert.deepEqual(plan({ handsGone: false }), { open: false, why: 'a chat with the Workers mod runs' })
-  assert.deepEqual(plan({ waits: false }), { open: false, why: 'nothing waits for a running chat' })
-  assert.deepEqual(plan({ paused: true }), { open: false, why: 'the person pauses the chats' })
-  // The spacing.
-  assert.equal(plan({ last: NOW - OPEN_EVERY_MS + 1 }).open, false)
-  assert.equal(plan({ last: NOW - 2 * MIN }).why, 'a chat was opened less than 3 minutes ago')
-  assert.equal(plan({ last: NOW - OPEN_EVERY_MS }).open, true)
-  // The cooldown.
-  assert.equal(plan({ failures: OPEN_TRIES - 1 }).open, true)
-  assert.deepEqual(plan({ failures: OPEN_TRIES }), { open: false, why: '2 opens in a row brought no chat back' })
-})
-
-test('a failure is an open no hand came back after within 2 minutes; a hand checking in resets the count', () => {
-  const opens = [{ at: NOW - 10 * MIN, chat: 'Lead', ok: true }, { at: NOW - 6 * MIN, chat: 'Lead', ok: true }]
-  assert.equal(failuresOf({ opens, claims: new Map(), now: NOW }), 2)
-  // An open still in its 2 minutes is no failure yet; one PowerShell could not start is one at once.
-  assert.equal(failuresOf({ opens: [{ at: NOW - OPEN_WAIT_MS + 1, ok: true }], now: NOW }), 0)
-  assert.equal(failuresOf({ opens: [{ at: NOW - OPEN_WAIT_MS, ok: true }], now: NOW }), 1)
-  assert.equal(failuresOf({ opens: [{ at: NOW - 1000, ok: false }], now: NOW }), 1)
-  // A hand that checked in after the first open resets it: only the open after it counts.
-  assert.equal(failuresOf({ opens, claims: claims(8 * MIN), now: NOW }), 1)
-  assert.equal(failuresOf({ opens, claims: claims(30_000), now: NOW }), 0)
-  // Two failures stop the opening, and a hand back opens the way again.
-  const after = failuresOf({ opens, claims: new Map(), now: NOW })
-  assert.equal(plan({ failures: after, last: opens[1].at }).open, false)
-  assert.equal(plan({ failures: failuresOf({ opens, claims: claims(MIN + 10_000), now: NOW + 3 * MIN }), last: opens[1].at, now: NOW + 3 * MIN }).open, true)
 })
 
 test('the chat to open: the main chat, else the partner, else the supervisor, else a worker; never one left or removed', () => {
@@ -171,192 +113,102 @@ test('opening starts PowerShell detached, with its own console and nothing redir
   assert.deepEqual(await openChat({ exe: null, session: ID(1), spawn: fakeSpawn(0, []) }), { launched: false, ok: false, why: 'the Claude app\'s program was not found' })
 })
 
-test('the page\'s line: quiet for 15 minutes after an open, attention once the tries brought no chat back; the ⚙ row', () => {
-  const timeOf = at => `T${(at / MIN) % 1000}`
-  assert.equal(openerNote({ opens: [], now: NOW, timeOf }), null)
-  const opens = [{ at: NOW - 5 * MIN, chat: 'Lead', ok: true }]
-  assert.deepEqual(openerNote({ opens, failures: 0, now: NOW, timeOf }), { tone: 'quiet', text: 'Opened Lead at T495 to wake the chats.' })
-  assert.equal(openerNote({ opens, failures: 0, now: NOW + OPEN_SHOWN_MS, timeOf }), null)
-  assert.deepEqual(openerNote({ opens, failures: 2, now: NOW + OPEN_SHOWN_MS, timeOf }), { tone: 'attention', text: 'Opened Lead twice, but no chat came back: open any chat of the project yourself.' })
-  assert.deepEqual(openerRow({}), { key: 'open', title: 'Wake the chats when none runs', byCode: true, why: null })
-  assert.deepEqual(openerRow({ failed: 'Lead' }), { key: 'open', title: 'Wake the chats when none runs', byCode: false, why: 'the last try failed: no chat came back after the board opened Lead twice' })
-  assert.equal(openerRow({ blocked: 'only on Windows' }).why, 'only on Windows')
-})
-
-test('the server checks on its own timer, at the start and after Resume all, never on the demo or a board that only shows; the launch has only the list\'s id', async () => {
-  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
-  assert.match(server, /const canOpen = !isShowOnly && bridgeKey !== null && config\.project !== '' && process\.platform === 'win32'/)
-  assert.match(server, /if \(!isDemo && canOpen\) \{\n {4}const lookToOpen = \(\) => loops\.run\('opener', \(\) => openCheck\(\)\)\n {4}setTimeout\(lookToOpen, OPEN_FIRST_MS\)\n {4}setInterval\(lookToOpen, OPEN_CHECK_MS\)/)
-  assert.match(server, /body\?\.action === 'resume-all' && !isShowOnly\) \{\n {8}const state = await readState\(\)\n.*\n {8}void loops\.run\('opener', \(\) => openCheck\(state\)\)/)
-  // The cheap exit first: nothing is read while a chat's hands claimed within the minute.
-  assert.match(server, /const gone = handsGone\(\{ claims: codeClaims, now, startedAt, calls: seen\?\.shown \?\? \{\} \}\)\n {4}let state = given\n {4}if \(gone && await ownsLoops\(\)\) \{/)
-  assert.match(server, /paused: isHolding\(state\.pause\)/)
-  // The Product owner (2026-10-31): with the outbox, so a talk word that waits for it opens its chat first.
-  assert.match(server, /const target = chatToOpen\(state, outbox\)/)
-  assert.match(server, /openChat\(\{ exe: await findClaude\(\), session: target\.session, cwd: resolve\(HERE, config\.project\) \}\)/)
-  assert.match(server, /opens\.push\(\{ at: now, chat: target\.chat, ok: done\.ok \}\)/)
-  assert.match(server, /rows: \[\.\.\.view\.rows, openerRowNow\(\)\]/)
-  assert.match(server, /opener: openerNoteNow\(\),/)
-})
-
-test('the page shows the line where the restart banner is, quiet or amber, also without a main chat; the ⚙ row says it', async () => {
-  const { openPage } = await import('./pageHarness.mjs')
-  const { asSent, build, ask, MIN: PAGE_MIN, NOW: PAGE_NOW } = await import('./partnerState.mjs')
-  const base = asSent(build([ask('Q2', 'person', PAGE_NOW - 40 * PAGE_MIN)]))
-  const quiet = await openPage({ state: { ...base, opener: { tone: 'quiet', text: 'Opened Lead at 10:00 to wake the chats.' } } })
-  try {
-    assert.equal(quiet.find('#restart').hidden, false)
-    const line = quiet.find('#restart .opener-note')
-    assert.equal(line.textContent, 'Opened Lead at 10:00 to wake the chats.')
-    assert.deepEqual([line.classList.contains('muted'), line.classList.contains('alert')], [true, false])
-  } finally { await quiet.close() }
-  const loud = await openPage({ state: { ...base, restart: { ...base.restart, main: null }, opener: { tone: 'attention', text: 'Opened Lead twice, but no chat came back: open any chat of the project yourself.' } } })
-  try {
-    assert.equal(loud.find('#restart').hidden, false)
-    assert.equal(loud.find('#restart .opener-note').classList.contains('alert'), true)
-  } finally { await loud.close() }
-  const none = await openPage({ state: { ...base, restart: { ...base.restart, main: null }, opener: null } })
-  try {
-    assert.equal(none.find('#restart').hidden, true)
-  } finally { await none.close() }
-  const rows = [
-    { key: 'wake', title: 'Wake, start and resume chats', byCode: true, why: null },
-    openerRow({}),
-  ]
-  const jobs = { rows, missing: [], needsTask: false, missingRoutines: [], checked: null, canAllow: true, taskLine: null }
-  const panel = await openPage({ state: { ...base, codeJobs: jobs } })
-  try {
-    const lines = panel.all('#code-job-list li').map(one => [one.querySelector('.code-job-title').textContent, one.querySelector('.code-job-state').textContent])
-    assert.deepEqual(lines, [['Wake, start and resume chats', 'by itself'], ['Wake the chats when none runs', 'by itself']])
-  } finally { await panel.close() }
-  const failed = await openPage({ state: { ...base, codeJobs: { ...jobs, rows: [openerRow({ failed: 'Lead' })] } } })
-  try {
-    assert.equal(failed.text('#code-job-list .code-job-state'), 'last try failed')
-    assert.match(failed.find('#code-job-list li').title, /no chat came back after the board opened Lead twice; open any chat of the project yourself\.$/)
-  } finally { await failed.close() }
-})
-
-// The person, 2026-10-30: "why cant the board connect directly to the chats using the same command, bypassing main?"
-test('while other chats run, an asleep worker with a queued step or a waiting word is the one to open; never the main chat, one awake or left', async () => {
-  const { asleepWithWork } = await import('../src/opener.mjs')
-  const state = {
-    chats: [
-      lane('Lead', { isMain: true, asleep: true, queue: [{ id: 'B1' }] }),
-      lane('Digger', { asleep: true, asleepSince: NOW - 10 * MIN, queue: [{ id: 'B2' }] }),
-      lane('Miner', { asleep: true, asleepSince: NOW - 5 * MIN, queue: [] }),
-      lane('Smith', { asleep: true, queue: [] }),
-      lane('Awake', { asleep: false, queue: [{ id: 'B3' }] }),
-      lane('Gone', { asleep: true, isLeftover: true, queue: [{ id: 'B4' }] }),
-      lane('NoId', { asleep: true, session: 'not-a-uuid', queue: [{ id: 'B5' }] }),
-    ],
-  }
-  const outbox = [{ ...word('work'), to: 'Miner' }, { ...word('work', 'delivered'), to: 'Smith' }]
-  assert.deepEqual(asleepWithWork(state, outbox).map(one => [one.chat, one.since]), [['Digger', NOW - 10 * MIN], ['Miner', NOW - 5 * MIN]])
-  assert.deepEqual(asleepWithWork({ chats: [] }, outbox), [])
-})
-
-test('an asleep worker opens after its work waited a minute, at most once in 3 minutes, and not after two opens left it asleep', async () => {
-  const { ASLEEP_WAIT_MS, asleepPlan } = await import('../src/opener.mjs')
-  const at = more => asleepPlan({ now: NOW, chat: 'Digger', since: NOW - 30 * MIN, waitingSince: NOW - ASLEEP_WAIT_MS, opens: [], paused: false, ...more })
-  assert.equal(at().open, true)
-  assert.equal(at({ waitingSince: NOW - ASLEEP_WAIT_MS + 1 }).open, false)
-  assert.equal(at({ paused: true }).open, false)
-  assert.equal(at({ opens: [{ at: NOW - OPEN_EVERY_MS + 1, chat: 'Digger', ok: true }] }).open, false)
-  assert.equal(at({ opens: [{ at: NOW - OPEN_EVERY_MS, chat: 'Digger', ok: true }] }).open, true)
-  // Another chat's open does not count, nor one before this asleep spell.
-  assert.equal(at({ opens: [{ at: NOW - MIN, chat: 'Miner', ok: true }, { at: NOW - 40 * MIN, chat: 'Digger', ok: false }] }).open, true)
-  const failed = [{ at: NOW - 20 * MIN, chat: 'Digger', ok: true }, { at: NOW - 10 * MIN, chat: 'Digger', ok: false }]
-  assert.equal(at({ opens: failed }).open, false)
-  assert.equal(at({ opens: failed.slice(0, OPEN_TRIES - 1) }).open, true)
-})
-
-test('the server opens an asleep worker on the same minute\'s look while other chats run, with the list\'s id only, one per look', async () => {
-  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
-  // Change 4a: no early return on the open asleep; the check falls through to it with the state it read.
-  assert.match(server, /return openAsleep\(now, state\)\n {2}\}\n {2}\/\/ The person, 2026-10-30/)
-  assert.match(server, /const waiting = asleepWithWork\(state, store\.outbox\(\)\.filter\(message => !isLate\(message, now, keep\)\)\)/)
-  assert.match(server, /asleepPlan\(\{ now, chat: one\.chat, since: one\.since, waitingSince: asleepWaiting\.get\(one\.chat\), opens, paused: isHolding\(state\.pause\) \}\)/)
-  assert.match(server, /openChat\(\{ exe: await findClaude\(\), session: one\.session, cwd: resolve\(HERE, config\.project\) \}\)/)
-})
-
-// Change 4a (2026-10-31): since 17:00 a refine word and an incident word waited for the Advisor while every chat was asleep, and the
-// board opened nothing: the page's rule (nobodyRunsOf) counted them, the opener's rule did not. Made-up names.
+// Change 4a (2026-10-31): a refine word and an incident word waited for the Advisor while every chat was asleep. Made-up names.
 const asleepBoard = (more = {}) => ({
   chats: [lane('Lead', { isMain: true, isRunning: false, session: ID(1) }), lane('Digger', { isRunning: false, session: ID(2), asleep: true, asleepSince: NOW - 20 * MIN })],
-  advisor: { name: 'Advisor', isRunning: false, state: 'free', session: ID(3) },
+  advisor: { name: 'Advisor', isRunning: false, state: 'free', session: ID(3), appSession: 'local_Advisor' },
   supervisorChat: { name: 'Supervisor', isRunning: false, state: 'free', session: ID(4) },
   restart: { main: 'Lead' },
   ...more,
 })
 const refineWord = { id: 'w-refine', at: NOW - 30 * MIN, to: 'Advisor', ask: null, command: 'refine', about: 'B900', round: 1, state: 'waiting' }
 const incidentWord = { ...refineWord, id: 'w-incident', command: 'incident', about: 'X1' }
-const envelope = { id: 'w-hand', at: NOW - 6 * MIN, to: 'Digger', command: 'handover', kind: 'restart', about: null, state: 'waiting' }
+const envelope = { id: 'w-hand', at: NOW - 6 * MIN, to: 'Digger', command: 'handover', kind: 'task', step: 'B855', clear: null, about: 'Digger', state: 'waiting' }
+const spell = NOW - 20 * MIN
 
-test('4a: every chat asleep and a refine or incident word waits for the partner: hand work waits, and the main chat is the one to open', () => {
+test('handWorkWaits reads the one rule: a chat that needs a wake, or the board-wide spell; a running chat and an unknown one say nothing', () => {
   const state = asleepBoard()
-  for (const one of [refineWord, incidentWord]) {
-    assert.equal(handWorkWaits(state, [one]), true, one.command)
-    assert.deepEqual(chatToOpen(state, [one]), { chat: 'Lead', session: ID(1) }, one.command)
-    assert.equal(openOrder({ plan: plan({ waits: handWorkWaits(state, [one]) }), target: chatToOpen(state, [one]) }), 'main', one.command)
-  }
-  // Taken or delivered: nothing waits any more.
+  for (const one of [refineWord, incidentWord, envelope]) assert.equal(handWorkWaits(state, [one]), true, one.command)
   assert.equal(handWorkWaits(state, [{ ...refineWord, state: 'taken' }, { ...incidentWord, state: 'delivered' }]), false)
-})
-
-test('4a: the opener and the page read one rule: whatever nobodyRunsOf counts waits, a chat running or an unknown chat says nothing', () => {
-  // A chat that runs carries the word itself: nobody needs opening.
-  const runs = asleepBoard({ advisor: { name: 'Advisor', isRunning: true, state: 'free', session: ID(3) } })
-  assert.equal(handWorkWaits(runs, [refineWord]), false)
-  // Unknown state on a board the mod has called: the page's rule says nothing, so the opener's does not either, ...
+  // A chat that runs carries the word itself.
+  assert.equal(handWorkWaits(asleepBoard({ advisor: { name: 'Advisor', isRunning: true, state: 'free', session: ID(3) } }), [refineWord]), false)
+  // Unknown is not guessed, but on a board no mod has called since it started it counts as off.
   const unknown = asleepBoard({ advisor: { name: 'Advisor', state: 'free', session: ID(3) }, chats: [] })
   assert.equal(handWorkWaits(unknown, [refineWord]), false)
-  // ... but a start word to it still counts, through HAND_WAITS alone.
-  assert.equal(handWorkWaits(unknown, [{ ...refineWord, command: 'start' }]), true)
-  // On a board no mod has called since it started, an unknown state counts as not running.
   assert.equal(handWorkWaits({ ...unknown, bridge: { isMissing: true } }, [refineWord]), true)
-  // A word the board does not wake a chat for (a delivered note, a step) is no wait.
-  assert.equal(handWorkWaits(asleepBoard(), [{ ...refineWord, command: 'step' }]), false)
-  // A handover envelope is no wake word to the main chat's rule: the none-runs path does not open the main chat for it.
-  assert.equal(handWorkWaits(asleepBoard(), [envelope]), false)
 })
 
-test('4a: an envelope to an asleep worker is opened by the asleep look while every chat is asleep, not by the main chat', async () => {
-  const { asleepWithWork } = await import('../src/opener.mjs')
+test('H.5: no launch while a sender claims; the message is first (the 11:06:50 case: the Advisor\'s message woke Worker 5)', () => {
   const state = asleepBoard()
-  assert.equal(handWorkWaits(state, [envelope]), false)
-  const target = chatToOpen(state, [envelope])
-  // The none-runs plan has nothing to open (it does not wait), so the check falls through to the asleep look.
-  assert.equal(openOrder({ plan: plan({ waits: handWorkWaits(state, [envelope]) }), target }), 'asleep')
-  assert.deepEqual(asleepWithWork(state, [envelope]).map(one => one.chat), ['Digger'])
+  const needs = wakeNeeds(state, [envelope])
+  assert.deepEqual(needs.map(one => one.chat), ['Digger'])
+  assert.equal(launchPlan(emptyWakes(), { needs, senderClaims: true }), null)
+  // No sender: Digger is launched.
+  assert.deepEqual(launchPlan(emptyWakes(), { needs, senderClaims: false }), { key: 'Digger', chat: 'Digger', session: ID(2), spell })
 })
 
-test('4a: the order of one check: the main chat when the plan opens it (and nothing else), else the asleep look, whatever the plan\'s why', () => {
+test('H.5: one launch per spell (10:32 and 10:35 were two): a second check does not launch again, pending or failed', () => {
+  const record = emptyWakes()
+  const needs = wakeNeeds(asleepBoard(), [envelope])
+  const plan = launchPlan(record, { needs, senderClaims: false })
+  assert.ok(claim(record, { chat: plan.key, spell: plan.spell, path: 'launch', by: 'board', jobId: 'l1', now: NOW, paths: ['launch'] }))
+  sent(record, 'Digger', 'l1', NOW + 1000)
+  // The next minute: the launch is pending.
+  assert.equal(launchPlan(record, { needs, senderClaims: false }), null)
+  // Two minutes after the send, no report: failed, and still no second launch in this spell.
+  assert.equal(pass(record, NOW + 1000 + 2 * MIN).length, 1)
+  assert.equal(launchPlan(record, { needs, senderClaims: false }), null)
+})
+
+test('H.5: after a failed message a launch runs although carriers claim', () => {
+  const record = emptyWakes()
+  const needs = wakeNeeds(asleepBoard(), [envelope])
+  claim(record, { chat: 'Digger', spell, path: 'message', by: 'Advisor', jobId: `wake:${spell}:Digger`, now: NOW })
+  sent(record, 'Digger', `wake:${spell}:Digger`, NOW)
+  assert.equal(launchPlan(record, { needs, senderClaims: true }), null, 'the message is on its way')
+  pass(record, NOW + 2 * MIN)
+  assert.deepEqual(launchPlan(record, { needs, senderClaims: true }), { key: 'Digger', chat: 'Digger', session: ID(2), spell })
+})
+
+test('H.5: the board-wide spell launches chatToOpen once (the main chat); while it is pending nothing else; after it failed, a chat\'s own', () => {
+  const record = emptyWakes()
   const state = asleepBoard()
-  const both = [refineWord, envelope]
-  const target = chatToOpen(state, both)
-  // Both waiting at once: the main chat this check; the asleep look is left for the next minute.
-  assert.equal(openOrder({ plan: plan({ waits: handWorkWaits(state, both) }), target }), 'main')
-  // Every reason the plan does not open falls through to the asleep look.
-  for (const [why, more] of [['nothing waits', { waits: false }], ['cooldown', { last: NOW - MIN }], ['failures', { failures: OPEN_TRIES }], ['the person pauses', { paused: true }], ['hands present', { handsGone: false }]]) {
-    assert.equal(openOrder({ plan: plan(more), target }), 'asleep', why)
-  }
-  // No chat to open, though the plan says open: the asleep look too.
-  assert.equal(openOrder({ plan: plan({}), target: null }), 'asleep')
+  const outbox = [refineWord, envelope]
+  const nobody = { since: refineWord.at, chats: ['Advisor', 'Digger'] }
+  const needs = wakeNeeds(state, outbox)
+  const target = chatToOpen(state, outbox)
+  const plan = launchPlan(record, { needs, nobody, senderClaims: false, target })
+  assert.deepEqual(plan, { key: BOARD_KEY, chat: 'Lead', session: ID(1), spell: refineWord.at })
+  claim(record, { chat: BOARD_KEY, spell: plan.spell, path: 'launch', by: 'board', jobId: 'b', now: NOW, paths: ['launch'] })
+  sent(record, BOARD_KEY, 'b', NOW)
+  assert.equal(launchPlan(record, { needs, nobody, senderClaims: false, target }), null, 'one chat at a time')
+  pass(record, NOW + 2 * MIN)
+  // Its launch failed: no second board-wide launch; the needs' own launches, in order (the partner first).
+  assert.deepEqual(launchPlan(record, { needs, nobody, senderClaims: false, target }), { key: 'Advisor', chat: 'Advisor', session: ID(3), spell: 0 })
 })
 
-test('4a: the server\'s openCheck keeps that order: the main launch ends the check, every other way ends in the asleep look with the state it read', async () => {
+test('H.5: a launch is never a verdict; the chat\'s own report with a new run is', () => {
+  const record = emptyWakes()
+  claim(record, { chat: 'Digger', spell, path: 'launch', by: 'board', jobId: 'l', now: NOW, runBefore: 11 })
+  sent(record, 'Digger', 'l', NOW + 500)
+  assert.equal(record.wakes.get('Digger').at(-1).attempts[0].verdict, null)
+  assert.equal(heard(record, 'Digger', { state: 'idle', run: 11, at: NOW + MIN }, NOW + MIN), null)
+  assert.equal(heard(record, 'Digger', { state: 'busy', run: 12, at: NOW + MIN }, NOW + MIN).verdict, 'woke')
+  // A launch whose PowerShell failed is failed at once, with its why.
+  const other = emptyWakes()
+  claim(other, { chat: 'Digger', spell, path: 'launch', by: 'board', jobId: 'l', now: NOW })
+  assert.equal(failedToSend(other, 'Digger', 'l', 'PowerShell ended with 1', NOW).why, 'PowerShell ended with 1')
+})
+
+test('the server: the wake\'s minute on its own timer, at the start and after Resume all; the launch claimed before its await, logged "launched"', async () => {
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
-  const check = server.slice(server.indexOf('const openCheck = async'), server.indexOf('const asleepWaiting = new Map()'))
-  assert.match(check, /handWorkWaits\(state, outbox, \{ asleepSent: asleepWoken \}\)/)
-  assert.match(check, /if \(openOrder\(\{ plan, target \}\) === 'main'\) \{[\s\S]*?\} finally \{\n {10}isOpening = false\n {8}\}\n {8}return\n {6}\}\n {4}\}\n {4}return openAsleep\(now, state\)\n {2}\}/)
-  // Only one place calls the asleep look, and the main launch is not followed by it.
-  assert.equal((check.match(/openAsleep\(/g) ?? []).length, 1)
-  assert.doesNotMatch(check, /openAsleep\(now, given\)/)
-})
-
-test('4a: the opener copies no list of the page\'s words: it reads nobodyRunsOf', async () => {
-  const source = await readFile(new URL('../src/opener.mjs', import.meta.url), 'utf8')
-  assert.match(source, /import \{ nobodyRunsOf \} from '\.\/say\.mjs'/)
-  assert.match(source, /nobodyRunsOf\(state \?\? \{\}, outbox \?\? \[\]\) !== null/)
-  assert.doesNotMatch(source, /'refine'|'incident'/)
+  assert.match(server, /const canOpen = !isShowOnly && bridgeKey !== null && config\.project !== '' && process\.platform === 'win32'/)
+  assert.match(server, /if \(!isDemo && bridgeKey !== null && !isShowOnly\) \{\n {4}const lookToOpen = \(\) => loops\.run\('opener', \(\) => wakePass\(\)\)\n {4}setTimeout\(lookToOpen, OPEN_FIRST_MS\)\n {4}setInterval\(lookToOpen, OPEN_CHECK_MS\)/)
+  assert.match(server, /void loops\.run\('opener', \(\) => wakePass\(state\)\)/)
+  const launch = server.slice(server.indexOf('const launchFor = async'), server.indexOf('const wakePass = async'))
+  assert.ok(launch.indexOf('claimWake(wakes') < launch.indexOf('await openChat('), 'the claim before the await')
+  assert.match(launch, /openChat\(\{ exe: await findClaude\(\), session: target\.session, cwd: resolve\(HERE, config\.project\) \}\)/)
+  assert.match(launch, /Wake: launched \$\{target\.chat\} \(\$\{target\.session\}\) at \$\{timeOf\(now\)\}/)
+  assert.doesNotMatch(server, /'started' : done\.why/)
+  assert.match(server, /rows: \[\.\.\.view\.rows, wakeRowNow\(\)\]/)
 })

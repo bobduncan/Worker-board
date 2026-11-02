@@ -13,7 +13,7 @@ import { messageText } from '../src/bridge.mjs'
 import { parseThread } from '../src/brainstorm.mjs'
 import { FOCUS_MOVES, focusMove } from '../src/focus.mjs'
 import { parseGoals } from '../src/goals.mjs'
-import { wakeFor } from '../src/say.mjs'
+import { wakeNeeds } from '../src/wake.mjs'
 
 function fakeFs(files) {
   return {
@@ -72,7 +72,7 @@ test('while the partner has the turn: talk: with the words, the goal and the thr
   // Typed as the person's word, and a partner not running is woken through the main chat.
   assert.match(messageText({ id: 'm', at: NOW, ...said.words }, () => '15:00'), /\n\(typed on the worker board, 15:00\)$/)
   const state = { restart: { main: 'Main' }, chats: [{ name: 'Main', isRunning: true }], advisor: { name: 'Partner', isRunning: false, appSession: 'local_x' } }
-  assert.equal(wakeFor({ id: 'm', at: NOW, ...said.words, state: 'waiting' }, state, [], NOW, 4000)?.command, 'start')
+  assert.equal(wakeNeeds(state, [{ state: 'waiting', ...{ id: 'm', at: NOW, ...said.words, state: 'waiting' } }])[0]?.why, 'words')
 })
 
 test('the partner\'s question open: the words are its answer in the thread, and brainstorm answer is typed', async () => {

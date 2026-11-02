@@ -202,7 +202,7 @@ test('reading this PC and Allow work through the file system they are given', as
 test('the server keeps each chat\'s claim, shows the check in the state and allows only what is missing; the page draws it', async () => {
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   // T14: with the mod's version, for whether the claim may send.
-  assert.match(server, /const claim = \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\), mod: typeof body\?\.mod === 'string' \? body\.mod : null \}\n\s+codeClaims\.set\(checked\.chat, claim\)/)
+  assert.match(server, /const claim = \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\), mod: typeof body\?\.mod === 'string' \? body\.mod : null, since: claimSince \}\n\s+codeClaims\.set\(checked\.chat, claim\)/)
   // The Product owner (2026-10-31): with the list's name for it, so its routine is checked once the list names one.
   assert.match(server, /codeJobs: await codeJobsNow\(state\.chatPrefix \?\? '', state\.ownerName \?\? null\)/)
   // T12: one routine per worker slot up to the limit: read for it, shown by it, and the pasted line makes the missing ones.

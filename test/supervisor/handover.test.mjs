@@ -12,7 +12,8 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { messageText } from '../../src/bridge.mjs'
-import { incidentWords, wakeFor } from '../../src/say.mjs'
+import { incidentWords } from '../../src/say.mjs'
+import { wakeNeeds } from '../../src/wake.mjs'
 import { createSupervisor } from '../../src/supervisor/index.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
@@ -142,8 +143,9 @@ test('a returned one gives both again, naming its count; the partner\'s fix in b
 test('the word waits in the outbox when the partner does not run: the main chat is asked to start it, as for every board word', () => {
   const words = incidentWords('Partner', { id: 'X1', title: 'Digger unknown for 21 min', state: 'open', count: 1, source: 'unknown-lane', subject: 'Digger', evidence: 'state unknown since 13:40' }, 'C:/board/roles/partner.md')
   const state = { restart: { main: 'Lead' }, chats: [lane('Lead', { isMain: true })], advisor: { ...lane('Partner'), isRunning: false, appSession: 'local_partner' } }
-  const start = wakeFor({ ...words, at: START }, state, [], START, 3000)
-  assert.deepEqual([start?.command, start?.about], ['start', 'Partner'])
+  // Signals change 4: the word is the wake procedure's need for the partner (src/wake.mjs), no start word.
+  const start = wakeNeeds(state, [{ ...words, at: START, state: 'waiting' }])[0]
+  assert.deepEqual([start?.why, start?.chat, start?.paths], ['words', 'Partner', ['message']])
   // Typed as the board's word, with its mark, as a result check's is.
   assert.match(messageText({ ...words, at: START }, () => '14:00'), /^incident: X1 Digger unknown for 21 min\n[\s\S]*\(typed on the worker board, 14:00\)$/)
 })

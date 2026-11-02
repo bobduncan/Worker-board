@@ -14,8 +14,7 @@ import vm from 'node:vm'
 
 import { statusOf } from '../../src/chatStatus.mjs'
 import { parseConfig } from '../../src/config.mjs'
-import { handJobs } from '../../src/hands.mjs'
-import { asleepWithWork } from '../../src/opener.mjs'
+import { wakeNeeds } from '../../src/wake.mjs'
 import { resumesDue } from '../../src/say.mjs'
 import { memoryStore } from '../../src/store.mjs'
 import { findStuck } from '../../src/supervisor/rules/repair.mjs'
@@ -124,14 +123,15 @@ test('a busy report at minute 8: it works, nothing happens; idle again at 9 is a
   for (const why of ['background', 'partner']) assert.equal(decideAt(30, { worker: stopped(at(30), { state: 'working', why }) }).envelope, null, why)
 })
 
-test('an asleep holder: its line waits in the outbox, and that waiting line is what has the board open it (asleepWithWork names it)', () => {
+test('an asleep holder: its line waits in the outbox, and that waiting line is what has the board wake it (wakeNeeds names it)', () => {
   const asleep = stopped(at(5), { isRunning: false, asleep: true, asleepSince: T0, session: 'local_worker1', report: { state: 'ended', since: T0, background: false, at: T0 } })
   const due = decideAt(5, { worker: asleep })
   assert.equal(due.envelope.kind, RESUME_KIND)
   const sent = written(due, 'e1', at(5))
-  const state = { chats: [{ ...asleep, session: '0123abcd-0123-4567-89ab-0123456789ab' }] }
-  assert.deepEqual(asleepWithWork(state, [sent]).map(one => one.chat), ['Worker 1'])
-  assert.deepEqual(asleepWithWork(state, []), [], 'without the line nothing waits for it')
+  // The lane as the state gives it: its store steps name the step it holds.
+  const state = { chats: [{ ...asleep, session: '0123abcd-0123-4567-89ab-0123456789ab', storeSteps: [{ id: 'B12', state: 'in progress' }] }] }
+  assert.deepEqual(wakeNeeds(state, [sent]).map(one => [one.chat, one.why]), [['Worker 1', 'envelope']])
+  assert.deepEqual(wakeNeeds(state, []), [], 'without the line nothing waits for it')
   // An off holder (woken and silent, or no app session) and an unknown one count as stopped too.
   for (const lane of [{ state: 'off', isRunning: false }, { state: 'unknown', isRunning: null }]) {
     assert.equal(decideAt(5, { worker: stopped(at(5), { ...lane, report: { state: 'busy', since: at(-5), background: false, at: T0 } }) }).envelope?.kind, RESUME_KIND, lane.state)
@@ -330,16 +330,17 @@ test('the outbox sweep keeps the waiting line while its worker holds the step, a
   assert.equal(whyClosed(sent, ctx(null)), null, 'without a store it matters')
 })
 
-test('the old resume senders skip a holder on the sequence: resumesDue and the hands\' asleep job; one off the sequence keeps them', () => {
+test('the old resume senders skip a holder on the sequence: resumesDue and the wake\'s asleep need; one off the sequence keeps them', () => {
   const steps = [{ id: 'B12', state: 'in progress' }]
   const off = { name: 'Worker 1', isMain: false, isLeftover: false, isRunning: false, state: 'off', storeSteps: steps }
   assert.deepEqual(resumesDue({ chats: [{ ...off, onSequence: true }], restart: { main: 'Lead' } }, []), [])
   assert.equal(resumesDue({ chats: [off], restart: { main: 'Lead' } }, []).length, 1)
   const asleep = { ...off, state: 'interrupted', asleep: true, asleepSince: at(0), appSession: 'local_0123456789abcdef0123456789abcdef' }
-  assert.deepEqual(handJobs({ caller: 'Lead', lanes: [{ ...asleep, onSequence: true }], now: at(5) }).jobs, [])
-  assert.equal(handJobs({ caller: 'Lead', lanes: [asleep], now: at(5) }).jobs.length, 1)
+  // Signals change 4: the asleep line is the wake procedure's need now (src/wake.mjs `wakeNeeds`, case 3).
+  assert.deepEqual(wakeNeeds({ chats: [{ ...asleep, onSequence: true }] }, []), [])
+  assert.equal(wakeNeeds({ chats: [asleep] }, []).length, 1)
   // A sequence worker cut off mid-turn with no step still gets the asleep line (the timers are for holders).
-  assert.equal(handJobs({ caller: 'Lead', lanes: [{ ...asleep, onSequence: true, storeSteps: [] }], now: at(5) }).jobs.length, 1)
+  assert.equal(wakeNeeds({ chats: [{ ...asleep, onSequence: true, storeSteps: [] }] }, []).length, 1)
 })
 
 test('limit-back lines up with the new words: go on from your checkpoint, with branch, commit and next', () => {

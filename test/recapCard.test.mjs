@@ -6,6 +6,7 @@
 // "Waits for your verdict →" on a block, in both views. Made-up garden project.
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFileSync } from 'node:fs'
 
 import { parseConfig } from '../src/config.mjs'
 import { askedStepsOf, isVerdictAsk, recapCardOf, scoreOf, standingAsksOf, tilePictureOf } from '../src/recapCard.mjs'
@@ -393,4 +394,12 @@ test('2026-11-01 (the person, "B"): while verdicts wait the run\'s stage reads "
     assert.match(words(page.find('.focus-progress small')), / · 3 verdicts wait for you$/)
     assert.ok(page.find('.focus-bar').className.includes('is-recap'))
   } finally { await page.close() }
+})
+
+test('2026-11-02 (the person: "Yes, fix it"): the recap\'s bar is amber, not the green of a wide bar', () => {
+  const css = readFileSync(new URL('../public/board.css', import.meta.url), 'utf8')
+  const green = css.indexOf('.focus-bar.is-wide span')
+  const amber = css.search(/\.focus-bar\.is-wide\.is-recap span \{ background: #e3a52b; \}/)
+  assert.ok(green >= 0 && amber > green, 'the amber rule outweighs the green one and stands after it')
+  assert.doesNotMatch(css, /\.focus-bar\.is-recap span/, 'no lighter amber rule the green one overrides')
 })

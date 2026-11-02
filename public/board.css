@@ -181,7 +181,6 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-stage.is-recap { border-color: #c99a2e; background: #2a2210; color: #f4c35a; }
 .focus-stage.is-recap .focus-n { background: #e3a52b; color: #1a1305; }
 .focus-progress small.is-recap { color: #f4c35a; }
-.focus-bar.is-recap span { background: #e3a52b; }
 .focus-stage.is-done { border-color: #2d6b47; color: var(--working); }
 .focus-stage.is-done .focus-n { background: var(--working); color: var(--ink); }
 .focus-check { color: var(--working); }
@@ -189,6 +188,8 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-bar { height: 7px; border-radius: 4px; background: var(--inset); overflow: hidden; }
 .focus-bar span { display: block; height: 100%; border-radius: 4px; background: var(--free); }
 .focus-bar.is-wide span, .focus-part.is-done .focus-bar span { background: var(--working); }
+/* The recap's bar in the attention colour too: after the green rule above and one class heavier, so it wins. */
+.focus-bar.is-wide.is-recap span { background: #e3a52b; }
 .focus-body { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .focus-column { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .focus-card { min-width: 0; padding: 18px 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
@@ -2284,13 +2285,52 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .design-badge.is-busy { background: var(--free); border-color: var(--free); color: #fff; }
 .design-badge.is-good { background: #2fb568; border-color: #2fb568; color: var(--ink); }
 .design-badge.is-bad { border-color: var(--warn); color: var(--warn); }
-/* T9.3 part 1: "Asset providers", quiet; only a provider that does not work is in the attention colour. */
-.design-providers { display: flex; flex-direction: column; gap: 8px; }
-.provider-list { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
-.provider-line { display: grid; grid-template-columns: 8em 9em minmax(0, 1fr); gap: 12px; align-items: baseline; }
-.provider-kind { color: var(--muted); }
-.provider-state.is-quiet { color: var(--muted); }
-.provider-state.is-attention { color: var(--warn); overflow-wrap: anywhere; }
+/* T2.1 part B: the Settings tab's part "Asset providers". Logos are drawn in the text colour on a board-coloured tile;
+   "needs" takes the attention colour, "works" the ok green, the rest is muted. */
+.settings-page { max-width: 1180px; margin: 0 auto; padding: 18px 16px 40px; }
+.providers-part { display: flex; flex-direction: column; gap: 6px; padding: 20px 22px 24px; }
+.providers-part h2 { margin-bottom: 0; }
+.providers-head { display: flex; align-items: baseline; gap: 12px; }
+.providers-tag { color: var(--muted); font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; }
+.providers-note { color: var(--attn-text); font-size: 13.5px; }
+.provider-kind-head { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 8px; }
+.provider-kind-head h3 { font-size: 17px; }
+.provider-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.provider-card { position: relative; display: flex; flex-direction: column; gap: 10px; min-height: 200px; padding: 18px; border: 2px solid var(--line); border-radius: 14px; background: var(--bg); }
+.provider-card.is-in-use { border-color: var(--free); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18); }
+.provider-card.is-greyed { opacity: 0.55; }
+.provider-card.is-more { align-items: center; justify-content: center; border-style: dashed; color: var(--muted); text-align: center; }
+.provider-plus { font-size: 30px; line-height: 1; }
+.provider-use-badge { position: absolute; top: 12px; right: 12px; padding: 2px 10px; border-radius: 999px; background: var(--free); color: #fff; font-size: 12px; font-weight: 700; }
+.provider-head { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.provider-logo { flex: none; display: grid; place-items: center; width: 58px; height: 58px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+.provider-mark { width: 34px; height: 34px; background-color: var(--text); -webkit-mask: var(--logo) center / contain no-repeat; mask: var(--logo) center / contain no-repeat; }
+.provider-logo.is-openai { --logo: url(/providers/openai.svg); }
+.provider-logo.is-claude { --logo: url(/providers/claude.svg); }
+.provider-logo.is-claude .provider-mark { background-color: #D97757; }
+.provider-logo.is-elevenlabs { --logo: url(/providers/elevenlabs.svg); }
+.provider-logo.is-library { --logo: url(/providers/library.svg); }
+.provider-logo.is-manual { --logo: url(/providers/manual.svg); }
+.provider-badge-img { width: 74%; height: 74%; border-radius: 50%; }
+.provider-words { min-width: 0; padding-right: 54px; }
+.provider-title { font-size: 17px; font-weight: 700; }
+.provider-line-text { color: var(--muted); font-size: 13px; }
+.provider-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+.provider-fact { padding: 2px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); color: var(--muted); font-size: 12px; }
+.provider-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: auto; }
+.provider-button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); color: var(--text); font-weight: 600; cursor: pointer; }
+.provider-button.is-pick { border-color: var(--free); background: var(--free); color: #fff; }
+.provider-button:disabled { opacity: 0.7; cursor: default; }
+.provider-spin { display: inline-block; width: 12px; height: 12px; vertical-align: -1px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: provider-spin 0.8s linear infinite; }
+@keyframes provider-spin { to { transform: rotate(360deg); } }
+.provider-result { min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.provider-result.is-ok { color: var(--working); }
+.provider-result.is-attention { color: var(--attn-text); }
+.provider-result.is-quiet { color: var(--muted); }
+.provider-key { display: flex; gap: 8px; }
+.provider-key-input { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; }
+.provider-problem { color: var(--attn-text); font-size: 13px; overflow-wrap: anywhere; }
+@media (max-width: 900px) { .provider-cards { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 1100px) {
   .design-parts { grid-template-columns: minmax(0, 1fr); }
 }

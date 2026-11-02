@@ -35,6 +35,14 @@ const askItem = (id, owner, more = '') => parseItem(`Id: ${id}\nKind: ask\nTitle
 const report = (name, state, more = {}) => [name, { state, since: NOW - 2 * MIN, background: false, at: NOW - 5_000, session: `cli-${name}`, mod: '0.19.0', ...more }]
 
 /** Every chat's transcript shows a turn running (but those in `noTail`, which have none); the board started 30 min ago. */
+/**
+ * Signals change 4: the wake record as the server hands it to the state (src/wake.mjs), from `{ since, at }` by chat: one
+ * message sent at `at` in the spell `since` (state.mjs `wokenAtOf` reads its `sentAt`).
+ */
+const wakesOf = sent => (sent === null ? null : {
+  record: { wakes: new Map([...sent].map(([chat, one]) => [chat, [{ spell: one.since, attempts: [{ path: 'message', at: one.at, by: 'Lead', jobId: `wake:${one.since}:${chat}`, sentAt: one.at, runBefore: null, verdict: null, verdictAt: null, why: null }], turnEndedAt: null, told: { failed: false, nobody: false } }]])) },
+  senderClaims: true, canLaunch: false,
+})
 function build({ reports = [], items = [], noTail = [], appStartedAt = NOW - 3 * 60 * MIN, settings = {}, asleepWakes = null } = {}) {
   const work = storeFromText('## Board\n', { now: NOW - 60 * MIN })
   for (const item of items) work.items.set(item.head.get('Id'), item)
@@ -46,7 +54,7 @@ function build({ reports = [], items = [], noTail = [], appStartedAt = NOW - 3 *
   }
   return buildState(raw, {
     lines: [], outbox: [], runs: [], now: NOW, config: { ...config, ...settings }, seen: { shown: { Main: NOW - 5_000 }, other: {} },
-    board: { startedAt: NOW - 30 * MIN, offSince: null }, reports: new Map(reports), asleepWakes,
+    board: { startedAt: NOW - 30 * MIN, offSince: null }, reports: new Map(reports), wakes: wakesOf(asleepWakes),
   })
 }
 const lane = (state, name) => state.chats.find(chat => chat.name === name)

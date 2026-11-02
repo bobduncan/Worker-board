@@ -38,6 +38,14 @@ const report = (name, state, { since, heard, ...more }) => [name, { state, since
 const stepItem = (id, owner, state, now) => parseItem(`Id: ${id}\nKind: step\nTitle: Step ${id}\nState: ${state}\nOwner: ${owner}\nSince: ${stamp(now - 40 * MIN)}\n`)
 
 /** The board's state at `now`: every chat's conversation written at `written`, the reports and the board's hearing given. */
+/**
+ * Signals change 4: the wake record as the server hands it to the state (src/wake.mjs), from `{ since, at }` by chat: one
+ * message sent at `at` in the spell `since` (state.mjs `wokenAtOf` reads its `sentAt`).
+ */
+const wakesOf = sent => (sent === null ? null : {
+  record: { wakes: new Map([...sent].map(([chat, one]) => [chat, [{ spell: one.since, attempts: [{ path: 'message', at: one.at, by: 'Lead', jobId: `wake:${one.since}:${chat}`, sentAt: one.at, runBefore: null, verdict: null, verdictAt: null, why: null }], turnEndedAt: null, told: { failed: false, nobody: false } }]])) },
+  senderClaims: true, canLaunch: false,
+})
 function build({ now, reports = [], hearing = null, items = [], written = now - 20_000, appStartedAt = at(9, 0), startedAt = at(20, 59), asleepWakes = null }) {
   const work = storeFromText('## Garden\n', { now: now - 60 * MIN })
   for (const item of items) work.items.set(item.head.get('Id'), item)
@@ -49,7 +57,7 @@ function build({ now, reports = [], hearing = null, items = [], written = now - 
   }
   return buildState(raw, {
     lines: [], outbox: [], runs: [], now, config, seen: { shown: {}, other: {} },
-    board: { startedAt, offSince: null }, reports: new Map(reports), hearing, asleepWakes,
+    board: { startedAt, offSince: null }, reports: new Map(reports), hearing, wakes: wakesOf(asleepWakes),
   })
 }
 const lane = (state, name) => state.chats.find(chat => chat.name === name)

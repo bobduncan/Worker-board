@@ -14,7 +14,8 @@ import { fileURLToPath } from 'node:url'
 import { line } from '../../fixtures/lines.mjs'
 import { clearRefusal, messageText } from '../../src/bridge.mjs'
 import { configProblem, parseConfig } from '../../src/config.mjs'
-import { sweepWords, wakeFor } from '../../src/say.mjs'
+import { sweepWords } from '../../src/say.mjs'
+import { wakeNeeds } from '../../src/wake.mjs'
 import { oddLinesOf } from '../../src/supervisor/health.mjs'
 import { SWEEP_MOD, createSupervisor, tokensOfTurn } from '../../src/supervisor/index.mjs'
 import { NOTHING_ODD, SWEEP_LONGEST_MS, SWEEP_SETTLE_MS, TOKENS_AFTER_MS, sweepRunner, whyNoSweep } from '../../src/supervisor/sweep.mjs'
@@ -315,10 +316,11 @@ test('the sweep word is the board\'s own line, typed as it is; a stopped supervi
   const words = sweepWords('Watcher', { subject: null, job: 'C:/board/roles/supervisor.md' })
   assert.equal(messageText({ ...words, at: START }, () => '12:00'), words.text)
   const state = { restart: { main: 'Lead' }, chats: [lane('Lead', { isMain: true, isRunning: true })], supervisorChat: { ...WATCHER, isRunning: false, appSession: 'local_watcher' } }
-  const start = wakeFor({ ...words, at: START }, state, [], START, 3000)
-  assert.equal(start?.command, 'start')
-  assert.equal(start?.about, 'Watcher')
-  assert.match(start.text, /Its session id: local_watcher\./)
+  // Signals change 4: the word is the wake procedure's need for the supervisor's chat (src/wake.mjs), no start word.
+  const start = wakeNeeds(state, [{ ...words, at: START, state: 'waiting' }])[0]
+  assert.equal(start?.why, 'words')
+  assert.equal(start?.chat, 'Watcher')
+  assert.equal(start.appSession, 'local_watcher')
 })
 
 test('the supervisor\'s chat keeps no log: the board refuses save-log for it, as for every chat but a worker', () => {

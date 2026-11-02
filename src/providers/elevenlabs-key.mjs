@@ -3,6 +3,10 @@
 // The key is only read here: it goes to api.elevenlabs.io in one header and is in no answer, line of text, file, log or error.
 
 import { execFile } from 'node:child_process'
+import { mkdir, readdir } from 'node:fs/promises'
+import { join } from 'node:path'
+
+import { writeAtomic } from '../write.mjs'
 
 /** The environment variable the key lives in (on Windows the user variable; never a file or a chat). */
 export const KEY_VARIABLE = 'ELEVENLABS_API_KEY'
@@ -119,4 +123,67 @@ export function planAnswer(plan, refusePlan = () => null) {
   const refused = refusePlan(plan)
   if (refused !== null) return { ok: false, state: 'needs', why: refused, detail: refused }
   return { ok: true, state: 'works', why: plan.text === '' ? 'works' : `works (${plan.text})`, detail: plan.credits === '' ? 'Key works' : plan.credits }
+}
+
+/** How long the board waits for ElevenLabs to make a sound or a track (part C): a whole track takes a while. */
+export const MAKE_MS = 5 * 60_000
+/** The biggest file the board keeps from ElevenLabs: a sound or a track of a few minutes is far below it. */
+const MAKE_MAX_BYTES = 50 * 1024 * 1024
+
+/**
+ * Part C: asks ElevenLabs to make something (POST `url` with the JSON `body`) and answers the bytes it sends back:
+ * `{ ok: true, bytes }` or `{ ok: false, why }`. The key from `readKey` goes in one header and is in no answer, line of
+ * text or error. `tools.key` and `tools.fetch` stand in for the key and `fetch` (the tests'); it waits at most MAKE_MS
+ * (`tools.makeMs`) and never throws. A refusal says ElevenLabs' own short reason when it gives one (`detail.message`),
+ * cut to one line; that reason is ElevenLabs', never the key.
+ */
+export async function makeAudio(url, body, tools = {}) {
+  const key = await readKey(tools)
+  if (key === '') return { ok: false, why: `No ElevenLabs key (${KEY_VARIABLE})` }
+  const ask = typeof tools.fetch === 'function' ? tools.fetch : fetch
+  const stop = new AbortController()
+  let timer
+  const late = new Promise((_, reject) => { timer = setTimeout(() => { stop.abort(); reject(new Error('late')) }, tools.makeMs ?? MAKE_MS) })
+  try {
+    const answer = await Promise.race([ask(url, { method: 'POST', headers: { 'xi-api-key': key, 'content-type': 'application/json', accept: 'audio/mpeg' }, body: JSON.stringify(body), redirect: 'error', signal: stop.signal }), late])
+    if (answer.status === 401 || answer.status === 403) return { ok: false, why: 'ElevenLabs refused the key' }
+    if (!answer.ok) {
+      const said = await Promise.race([answer.json().catch(() => null), late]).catch(() => null)
+      const reason = typeof said?.detail?.message === 'string' ? said.detail.message : typeof said?.detail === 'string' ? said.detail : ''
+      const words = reason.split(key).join('').replace(/\s+/g, ' ').trim().slice(0, 200)
+      return { ok: false, why: `ElevenLabs made nothing (${answer.status})${words === '' ? '' : `: ${words}`}` }
+    }
+    const bytes = Buffer.from(await Promise.race([answer.arrayBuffer(), late]))
+    if (bytes.length === 0) return { ok: false, why: 'ElevenLabs sent an empty file' }
+    if (bytes.length > MAKE_MAX_BYTES) return { ok: false, why: 'ElevenLabs sent a file too big to keep' }
+    return { ok: true, bytes }
+  } catch (error) {
+    return { ok: false, why: error?.message === 'late' ? `ElevenLabs took longer than ${Math.round((tools.makeMs ?? MAKE_MS) / 1000)} seconds` : 'ElevenLabs did not answer' }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Part C: what the ElevenLabs providers do with `makeAudio`'s answer: the bytes as `<n>.mp3` in the request's folder
+ * (the first number not taken), `{ files: ['1.mp3'] }`, or `{ failed: why }`. It never throws.
+ */
+export async function keepAudio(made, folder) {
+  if (!made.ok) return { failed: made.why }
+  try {
+    const name = await freeName(folder, 'mp3')
+    await mkdir(folder, { recursive: true })
+    await writeAtomic(join(folder, name), made.bytes)
+    return { files: [name] }
+  } catch {
+    return { failed: 'The file could not be kept in the request\'s folder' }
+  }
+}
+
+/** The first `<n>.<extension>` (1, 2, ...) that `folder` does not hold yet. */
+export async function freeName(folder, extension) {
+  const taken = new Set(await readdir(folder).catch(() => []))
+  let n = 1
+  while (taken.has(`${n}.${extension}`)) n += 1
+  return `${n}.${extension}`
 }

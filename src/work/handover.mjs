@@ -44,6 +44,10 @@ export const UNANSWERED_WHY = 'did not answer its hand-over'
 export const PAUSED_WHY = 'the person pauses the chats'
 export const LIMIT_WHY = 'a usage limit is full'
 export const RESTART_LATE_WHY = 'its restart did not happen'
+/** Signals change 4 (D.2): the take-back's why when every way to wake the worker failed. */
+export const WAKE_FAILED_WHY = 'could not wake it'
+/** Signals change 4: the states of a wake still on its way (src/wake.mjs WAKE_PENDING; kept here so decide stays pure of the record). */
+const WAKING = ['waiting-sender', 'on-its-way', 'sent', 'launched']
 
 /** The states in which a step is its worker's work now. */
 const HOLDS = ['taken', 'in progress', 'waiting on you']
@@ -206,7 +210,8 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * - `now`, `runningMs(from)`: the board's running time since `from` (its off time left out);
  * - signals change 3: `pause` (the store's pause record), `stops` (the person's stop and remove words about it), `timers`
  *   `{ resumeMs, giveBackMs }` (the settings `resumeAfterMinutes` and `giveBackAfterMinutes`), `localOnly` (the ids of the
- *   given-back ready steps whose checkpoint commit is on no remote branch: their continuation line says so).
+ *   given-back ready steps whose checkpoint commit is on no remote branch: their continuation line says so);
+ * - signals change 4, B908: `wake` (src/wake.mjs `wakeFact`: `{ state, final, wokeAt, firstTurnEnd }`, or null).
  *
  * In this order, the first that holds wins:
  * 1. the person pauses, or a limit is full: SUSPENDED, nothing sent; the task in flight goes back at once;
@@ -216,7 +221,10 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  *    `giveBackMs` after the line with no progress `giveBack` `{ step, chat, askedAt }` with `close` the line still waiting;
  *    its envelope in flight: a turn that ended after its line without a take gives the task back at once and decides
  *    on, that task not offered to it again; a failed outcome gives it back at once, HELD; the net gives it back once,
- *    UNKNOWN; else HANDING (no outcome yet) or OFFERED (the line typed);
+ *    UNKNOWN; else HANDING (no outcome yet) or OFFERED (the line typed). Signals change 4: while its chat is being woken
+ *    (`wake` on its way) HANDING and no net; once every way to wake it failed, the task goes back once (WAKE_FAILED_WHY),
+ *    UNKNOWN; the net counts from the "woke" verdict; a turn end counts only once the line is settled typed, and never
+ *    the woken chat's first;
  * 3. its newest report's check failed and it did not report again: WORKING, with the "back to you" words once per failed check;
  * 4. its newest report's check is pending: CHECKING;
  * 5. its mod is older than the installed one: RESTARTING, the envelope `restart` once (UNKNOWN after RESTART_NET_MS);
@@ -230,10 +238,20 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * give in the same call, the envelope to write, the envelope the net fired for (marked once), one that waits in the outbox
  * and is to be closed (its task went back).
  */
-export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set() }) {
+export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null }) {
   const name = worker.name
   const isTurnEnd = event?.kind === 'turn-ended'
   const turnSince = isTurnEnd && Number.isFinite(event.since) ? event.since : -Infinity
+  // Signals change 4 (D.2, decision 10, 2026-11-02 10:31-11:01: B855 bounced Workers 2 → 3 → 4 → 5 by the net while no wake
+  // reached any of them): a wake still on its way holds the net; one that failed on every path gives the task back once.
+  // Only for a chat that does not run: a running one woke (its newest spell's `wokeAt` still sets the net's start).
+  // The review of 2026-11-02: a wake that waits for a chat that can send (no sender claims, no launch possible) holds the
+  // net for the whole spell; acceptable only because nothing runs then that could take the task, and the page says
+  // "nobody answers the board's wake-ups" (src/wake.mjs `noticeOf`).
+  const isAsleepNow = worker.isRunning !== true
+  const isWaking = isAsleepNow && wake !== null && (WAKING.includes(wake.state) || (wake.state === 'failed' && wake.final !== true))
+  const isWakeFailed = isAsleepNow && wake !== null && wake.state === 'failed' && wake.final === true
+  const wokeAt = Number.isFinite(wake?.wokeAt) ? wake.wokeAt : -Infinity
   // Signals change 3: the "go on" lines are the holder's timers', not the hand-over's: they never stand in for its last envelope.
   const envelopes = all.filter(one => one?.kind !== RESUME_KIND)
   const resumes = all.filter(one => one?.kind === RESUME_KIND)
@@ -274,9 +292,15 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
       const why = failedWhy(inFlight)
       return result(STATES.HELD, why, { step: id, takeBack: { id, why }, close: closeOf(inFlight) })
     }
-    if (isTurnEnd && isCarried && turnSince >= inFlight.at) {
+    if (isWakeFailed) return result(STATES.UNKNOWN, `${WAKE_FAILED_WHY} (${id})`, { step: id, takeBack: { id, why: WAKE_FAILED_WHY }, close: closeOf(inFlight) })
+    if (isWaking) return result(STATES.HANDING, null, { step: id })
+    // Decision 5 (board-only, the 11:07 case: Worker 5's first turn began 11:06:56 with the wake message, its line was typed
+    // 11:07:22 after that turn ended): a turn end counts only once the line is settled typed, and never the woken chat's
+    // first. 4c: once the Workers mod sends `typedAt` in the outcome, the rule becomes `turnSince >= typedAt`.
+    const isSettledTyped = inFlight.outcome?.typed === true || inFlight.state === 'delivered'
+    if (isTurnEnd && isCarried && isSettledTyped && turnSince >= inFlight.at && wake?.firstTurnEnd !== true) {
       takenBack = { id, why: NOT_TAKEN_WHY }
-    } else if (runningMs(inFlight.at) >= NET_MS) {
+    } else if (runningMs(Math.max(inFlight.at, wokeAt)) >= NET_MS) {
       return result(STATES.UNKNOWN, `${UNANSWERED_WHY} (${id})`, { step: id, takeBack: { id, why: UNANSWERED_WHY }, net: inFlight.id, close: closeOf(inFlight) })
     } else {
       const isTyped = inFlight.outcome?.typed === true || inFlight.state === 'delivered'
@@ -287,7 +311,8 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
   // A turn that ended after it was carried ends it; the net marks one that never answered, once.
   if (last !== null && takenBack === null && last.netAt === undefined && ['waiting', 'taken'].includes(last.state) && (last.outcome ?? null) === null && typeof last.step !== 'string'
     && !(isTurnEnd && last.state !== 'waiting' && turnSince >= last.at) && last.restart !== true) {
-    if (runningMs(last.at) < NET_MS) return result(STATES.HANDING, null)
+    // Signals change 4: no net while its chat is being woken either; it counts from the "woke" verdict.
+    if (isWaking || runningMs(Math.max(last.at, wokeAt)) < NET_MS) return result(STATES.HANDING, null)
     return result(STATES.UNKNOWN, UNANSWERED_WHY, { net: last.id, close: closeOf(last) })
   }
 
@@ -331,6 +356,9 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
     const isBack = turnSince >= last.netAt || (Number.isFinite(report?.since) && report.since > last.netAt)
     if (!isBack) return result(STATES.UNKNOWN, `${UNANSWERED_WHY}${typeof last.step === 'string' ? ` (${last.step})` : ''}`, { step: last.step ?? null })
   }
+  // Signals change 4: a worker no way could wake gets nothing at a pass until it shows life (its own report starts a new
+  // spell), the person opens it, or a new sender comes (src/wake.mjs `nextPath`): never the next task to bounce.
+  if (isWakeFailed && !isTurnEnd) return result(STATES.UNKNOWN, WAKE_FAILED_WHY)
   if (!mayHand) return wait()
 
   // 6. The clear when one is owed, and the ready list's first task this worker may take, in the same call.

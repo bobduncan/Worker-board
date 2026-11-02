@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { messageText } from '../src/bridge.mjs'
-import { checkSay, planWords, wakeFor, wakesDue, workWords } from '../src/say.mjs'
+import { checkSay, planWords, workWords } from '../src/say.mjs'
+import { emptyWakes, nextPath, claim, wakeNeeds } from '../src/wake.mjs'
 import { isLate } from '../src/store.mjs'
 
 const state = {
@@ -131,72 +132,44 @@ test('"start" is refused for a chat that runs, one the board cannot tell about, 
   assert.equal(checkSay({ to: 'Units', command: 'start', chat: 'Units' }, down, 50).ok, false)
 })
 
-test('what is sent to a chat that is not running makes the board ask the main chat to start it, once', () => {
-  const answer = { id: 'm1', at: 1000, to: 'Units', ask: 'units-path', text: 'Take A.' }
-  const wake = wakeFor(answer, down, [], 1000, 50)
-  assert.deepEqual([wake.to, wake.command, wake.about], ['Main', 'start', 'Units'])
-  // Asked a moment ago already: not again. Two minutes later it is asked anew.
-  const asked = state => [{ id: 'w1', at: 900, to: 'Main', command: 'start', about: 'Units', text: 'start "Units"', state }]
-  assert.equal(wakeFor(answer, down, asked('delivered'), 1000, 50), null)
-  assert.notEqual(wakeFor(answer, down, asked('delivered'), 900 + 3 * 60_000, 50), null)
-  // A word the main chat has not come to yet is not followed by a second one, however many answers are given
-  // meanwhile: a busy main chat would get them all at once. After ten minutes it is asked anew.
-  for (const state of ['waiting', 'taken']) {
-    assert.equal(wakeFor(answer, down, asked(state), 900 + 3 * 60_000, 50), null)
-    assert.notEqual(wakeFor(answer, down, asked(state), 900 + 11 * 60_000, 50), null)
-  }
-  // Nothing is asked for a chat that runs, or for a word to the main chat while it runs.
-  assert.equal(wakeFor({ ...answer, to: 'Levels' }, down, [], 1000, 50), null)
-  assert.equal(wakeFor({ id: 'c', at: 1000, to: 'Main', command: 'resume', text: 'resume' }, down, [], 1000, 50), null)
-  // T9.4: this used to expect null when the main chat does not run ("only the main chat starts a chat"). Now a chat that
-  // runs carries the word instead: here Levels, the one chat of the list that runs; with none running there is still nobody.
-  const mainDown = { ...down, chats: down.chats.map(chat => (chat.isMain ? { ...chat, isRunning: false } : chat)) }
-  const carried = wakeFor(answer, mainDown, [], 1000, 50)
-  assert.deepEqual([carried.to, carried.command, carried.about], ['Levels', 'start', 'Units'])
-  const allDown = { ...mainDown, chats: mainDown.chats.map(chat => (chat.name === 'Levels' ? { ...chat, isRunning: false } : chat)) }
-  assert.equal(wakeFor(answer, allDown, [], 1000, 50), null)
+// Signals change 4, B908 (2026-11-02): the board makes no start word to wake a chat any more (wakeFor, wakesDue went): a
+// word to a chat that does not run is the wake procedure's need (src/wake.mjs `wakeNeeds`), and a running chat's hands
+// carry ONE message per spell (or the board launches it when none can send).
+test('what is sent to a chat that is not running is the wake\'s need, once per spell; nothing for a chat that runs', () => {
+  const answer = { id: 'm1', at: 1000, to: 'Units', ask: 'units-path', text: 'Take A.', state: 'waiting' }
+  const [need] = wakeNeeds(down, [answer])
+  assert.deepEqual([need.chat, need.why, need.text, need.paths], ['Units', 'words', 'The worker board holds words for you: run work next', ['message']])
+  // One message per spell: once claimed, the next path is none.
+  const record = emptyWakes()
+  assert.ok(claim(record, { chat: 'Units', spell: need.spell, path: 'message', by: 'Levels', jobId: 'j', now: 1000, paths: need.paths }))
+  assert.equal(nextPath(record, { chat: 'Units', spell: need.spell, senderClaims: true, paths: need.paths }), null)
+  // Nothing for a chat that runs, or for a word to the main chat while it runs.
+  assert.deepEqual(wakeNeeds(down, [{ ...answer, to: 'Levels' }]), [])
+  assert.deepEqual(wakeNeeds(down, [{ id: 'c', at: 1000, to: 'Main', command: 'resume', text: 'resume', state: 'waiting' }]), [])
 })
 
-test('words sent while the main chat did not run either are followed by the start word once it runs, once per chat', () => {
-  // 2026-10-21: three words to the Advisor waited 09:46 to 10:57 unseen, since nothing asked the main chat later.
+test('words sent while no chat ran wait as needs: one per chat, only words that wait', () => {
+  // 2026-10-21: three words to the Advisor waited 09:46 to 10:57 unseen; now each chat they wait for is a need at once.
   const words = [
     { id: 'm1', at: 1000, to: 'Units', ask: 'units-path', text: 'Take A.', state: 'waiting' },
     { id: 'm2', at: 1100, to: 'Units', ask: null, text: 'And B.', state: 'waiting' },
     { id: 'm3', at: 1200, to: 'Advisor', ask: null, command: 'round', round: 'morning', text: 'morning round', state: 'waiting' },
   ]
-  const starts = wakesDue(down, words, 5000, 2000)
-  assert.deepEqual(starts.map(start => [start.to, start.command, start.about]), [['Main', 'start', 'Units'], ['Main', 'start', 'Advisor']])
-  // T9.4: this used to expect nothing while the main chat does not run. Now Levels, a chat that runs, carries the start
-  // words; only when no chat runs is there nothing yet.
-  const mainDown = { ...down, chats: down.chats.map(chat => (chat.isMain ? { ...chat, isRunning: false } : chat)) }
-  assert.deepEqual(wakesDue(mainDown, words, 5000, 2000).map(start => [start.to, start.command, start.about]), [['Levels', 'start', 'Units'], ['Levels', 'start', 'Advisor']])
-  const allDown = { ...mainDown, chats: mainDown.chats.map(chat => (chat.name === 'Levels' ? { ...chat, isRunning: false } : chat)) }
-  assert.deepEqual(wakesDue(allDown, words, 5000, 2000), [])
-  // Asked since the oldest word that waits: not again for ten minutes. T9.4 (requests never get lost): this used to be
-  // never again, also when that ask failed; now an ask that did not wake the chat in ten minutes is asked again.
-  for (const state of ['waiting', 'delivered', 'failed']) {
-    const asked = { id: 's1', at: 1050, to: 'Main', command: 'start', about: 'Units', text: 'start "Units"', state }
-    assert.deepEqual(wakesDue(down, [...words, asked], 5000 + 5 * 60_000, 2000).map(start => start.about), ['Advisor'], state)
-    assert.deepEqual(wakesDue(down, [...words, asked], 5000 + 60 * 60_000, 2000).map(start => start.about), ['Units', 'Advisor'], state)
-  }
-  // An ask from before the oldest word does not count: the word came after it (past wakeFor's two minutes).
-  const before = { id: 's0', at: 900, to: 'Main', command: 'start', about: 'Units', text: 'start "Units"', state: 'delivered' }
-  assert.deepEqual(wakesDue(down, [before, ...words], 5000 + 3 * 60_000, 2000).map(start => start.about), ['Units', 'Advisor'])
+  // The partner before a worker.
+  assert.deepEqual(wakeNeeds(down, words).map(one => [one.chat, one.why]), [['Advisor', 'words'], ['Units', 'words']])
   // Only words that wait: not delivered, taken, copied, held or expired ones, and none for a chat that runs.
-  for (const state of ['delivered', 'taken', 'copied', 'held', 'expired']) assert.deepEqual(wakesDue(down, words.map(word => ({ ...word, state })), 5000, 2000), [])
-  assert.deepEqual(wakesDue(down, [{ ...words[0], to: 'Levels' }], 5000, 2000), [])
+  for (const state of ['delivered', 'taken', 'copied', 'held', 'expired']) assert.deepEqual(wakeNeeds(down, words.map(word => ({ ...word, state }))), [], state)
+  assert.deepEqual(wakeNeeds(down, [{ ...words[0], to: 'Levels' }]), [])
 })
 
-test('the Vision tab\'s words on the plan wake a partner that does not run, at once and later', () => {
+test('the Vision tab\'s words on the plan wake a partner that does not run', () => {
   // 2026-10-24: "plan: standards change" waited for a stopped Advisor and nothing asked the main chat to start it.
   for (const command of ['plan-standards-change', 'plan-check', 'plan-tradeoff', 'plan-confirm']) {
     const word = { id: 'p1', at: 1000, to: 'Advisor', ask: null, command, text: 'plan: …', state: 'waiting' }
-    const wake = wakeFor(word, down, [], 1000, 2000)
-    assert.deepEqual([wake?.to, wake?.command, wake?.about], ['Main', 'start', 'Advisor'], command)
-    assert.deepEqual(wakesDue(down, [word], 5000, 2000).map(start => start.about), ['Advisor'], command)
+    assert.deepEqual(wakeNeeds(down, [word]).map(one => [one.chat, one.why]), [['Advisor', 'words']], command)
   }
   // A command that is no word to a chat still wakes nobody.
-  assert.equal(wakeFor({ id: 'p2', at: 1000, to: 'Advisor', command: 'planner', text: 'x' }, down, [], 1000, 2000), null)
+  assert.deepEqual(wakeNeeds(down, [{ id: 'p2', at: 1000, to: 'Advisor', command: 'planner', text: 'x', state: 'waiting' }]), [])
 })
 
 test('a name on the "start" line stands in quotes and holds none itself', () => {
@@ -214,8 +187,8 @@ test('B300: the board’s one line that a step is a chat’s, typed as it is, ke
   // It waits as long as an answer does: the chat may be closed.
   const keep = { messageMs: 10 * 60_000, answerMs: 48 * 60 * 60_000 }
   assert.equal(isLate(message, 1000 + 60 * 60_000, keep), false)
-  const wake = wakeFor(message, down, [], 1000, 2000)
-  assert.deepEqual([wake.to, wake.command, wake.about], ['Main', 'start', 'Units'])
+  // Signals change 4: the wake procedure's need for it (src/wake.mjs), no start word.
+  assert.deepEqual(wakeNeeds(down, [message]).map(one => [one.chat, one.why]), [['Units', 'words']])
 })
 
 test('the Vision tab\'s start slide: "plan interview" with what the person builds, in their words (the trial\'s gap 1)', () => {
