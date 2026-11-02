@@ -129,6 +129,8 @@ test('a board its keeper starts anew keeps the page\'s token: the open page is a
   assert.equal(statuses.includes(403), false, `the old page's token was never refused: ${[...new Set(statuses)].join(', ')}`)
   assert.equal(await pageToken(), token, 'a page loaded now gets the same token')
   assert.equal(keeper.process.exitCode, null, 'the keeper that was started is still the one that runs')
+  // The new board serves before it prints its line (that comes after its loops' first look): give it a moment.
+  for (let tries = 0; tries < 100 && !/Worker board: http[\s\S]*Worker board: http/.test(keeper.out); tries += 1) await new Promise(wait => setTimeout(wait, 200))
   assert.match(keeper.out, /Worker board: http[\s\S]*Worker board: http/, 'two boards, one after the other, under one keeper')
 })
 
