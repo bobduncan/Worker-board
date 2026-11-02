@@ -1103,7 +1103,10 @@ function wakeFailed(view) {
 function nobodyAnswersWakes(view) {
   const needs = wakeLanesOf(view).filter(lane => lane.wake?.need === true)
   const board = view.wakes?.['*'] ?? null
-  if (needs.length === 0 || !needs.every(lane => lane.wake.state === 'failed' && lane.wake.final === true) || board?.state !== 'failed') return []
+  // The review of 2026-11-02 (7): only the board-wide spell of now, or one that failed within a day.
+  const failedAt = Math.max(...(board?.attempts ?? []).map(one => one.verdictAt).filter(Number.isFinite))
+  const isNow = board !== null && ((Number.isFinite(view.wakeBoardSince) && board.spell === view.wakeBoardSince) || view.now - failedAt <= DAY)
+  if (needs.length === 0 || !needs.every(lane => lane.wake.state === 'failed' && lane.wake.final === true) || board?.state !== 'failed' || !isNow) return []
   return [{
     rule: 'nobody-answers-wakes', key: `nobody-answers-wakes ${dayOfMs(view.now)}`, subject: 'board',
     text: `nobody answers the board's wake-ups: ${needs.map(lane => lane.name).join(', ')} could not be woken, and the launch when nobody ran failed`,

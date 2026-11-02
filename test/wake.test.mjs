@@ -240,3 +240,50 @@ test('wakeFact (D.1) and wakeWords (E): what the hand-over and the lane read of 
   assert.deepEqual(wakeWords(wakeFact({ record: other, senderClaims: false, canLaunch: true }, w2), timeOf), { tone: 'attention', text: 'could not wake: the app did not start it' })
   assert.deepEqual(wakeWords(wakeFact({ record: other, senderClaims: true, canLaunch: true }, w2), timeOf), { tone: 'quiet', text: 'waking · the app did not start it; trying the other way' })
 })
+
+// ---- The review of 2026-11-02: the fixes before landing.
+
+test('review (2): only a message begins a first turn; a launch-woken chat, or one whose own report says idle after the verdict, has none', async () => {
+  const { inFirstTurn } = await import('../src/wake.mjs')
+  const launched = emptyWakes()
+  claim(launched, { chat: 'Worker 2', spell: W2_SPELL, path: 'launch', by: 'board', jobId: 'l', now: at(10, 32), runBefore: RUN_OLD })
+  sent(launched, 'Worker 2', 'l', at(10, 32, 5))
+  heard(launched, 'Worker 2', { state: 'idle', run: RUN_NEW, at: at(10, 32, 40) }, at(10, 32, 40))
+  assert.equal(inFirstTurn(launched, 'Worker 2', { state: 'idle', at: at(10, 32, 40) }), false)
+  const messaged = emptyWakes()
+  claim(messaged, { chat: 'Worker 5', spell: W5_SPELL, path: 'message', by: 'Advisor', jobId: 'm', now: at(11, 6, 45), runBefore: RUN_OLD })
+  sent(messaged, 'Worker 5', 'm', at(11, 6, 50))
+  heard(messaged, 'Worker 5', { state: 'busy', run: RUN_NEW, at: at(11, 7, 3) }, at(11, 7, 3))
+  assert.equal(inFirstTurn(messaged, 'Worker 5', { state: 'busy', at: at(11, 7, 8) }), true)
+  // The person opened it instead: its report says idle after the verdict, no turn runs.
+  assert.equal(inFirstTurn(messaged, 'Worker 5', { state: 'idle', at: at(11, 7, 8) }), false)
+})
+
+test('review (3, 4b): the notice holds for the whole spell, need or not; "nobody answers" when no sender claims and every need waits for one', () => {
+  const record = emptyWakes()
+  claim(record, { chat: 'Worker 2', spell: W2_SPELL, path: 'launch', by: 'board', jobId: 'l', now: at(10, 32) })
+  sent(record, 'Worker 2', 'l', at(10, 32))
+  pass(record, at(10, 35))
+  // The take-back ended its need: the chat is a target without a need, its spell's tries stand.
+  const target = { chat: 'Worker 2', spell: W2_SPELL, paths: ['launch'], need: false }
+  assert.match(noticeOf(record, [target], at(10, 41), timeOf, { senderClaims: false }).text, /^could not wake Worker 2: the app did not start it \(launched 10:32\); open its chat$/)
+  // Every need waits for a chat that can send (no sender, no launch): the board-wide line.
+  const waiting = noticeOf(emptyWakes(), [{ chat: 'Worker 3', spell: 1, paths: ['message'], need: true }], at(10, 41), timeOf, { senderClaims: false })
+  assert.equal(waiting.text, 'nobody answers the board\'s wake-ups: open any chat')
+  assert.equal(noticeOf(emptyWakes(), [{ chat: 'Worker 3', spell: 1, paths: ['message'], need: true }], at(10, 41), timeOf, { senderClaims: true }), null)
+})
+
+test('review (5, 6): a wake on its way or done holds back a start word; a spell value already kept is never a new entry (A, B, A)', async () => {
+  const { isWakeOnItsWay } = await import('../src/wake.mjs')
+  const record = emptyWakes()
+  assert.equal(isWakeOnItsWay(record, 'Worker 2', 7), false)
+  claim(record, { chat: 'Worker 2', spell: 7, path: 'message', by: 'Advisor', jobId: 'm', now: at(10, 31) })
+  assert.equal(isWakeOnItsWay(record, 'Worker 2', 7), true)
+  failedToSend(record, 'Worker 2', 'm', 'no', at(10, 31, 5))
+  assert.equal(isWakeOnItsWay(record, 'Worker 2', 7), false, 'a failed one holds nothing back')
+  assert.equal(newSpell(record, 'Worker 2', 8), true)
+  assert.equal(newSpell(record, 'Worker 2', 7), false, 'A again is the kept entry')
+  assert.equal(nextPath(record, { chat: 'Worker 2', spell: 7, senderClaims: true }), 'launch', 'its message stays spent')
+  // A chat that never reported has spell 0, not its last activity.
+  assert.equal(spellOf({ isRunning: false, lastActivityAt: 12345 }), 0)
+})

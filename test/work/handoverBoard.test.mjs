@@ -301,3 +301,16 @@ test('change 4, D.4: carryable holds back an envelope with a clear while the wok
   turnEnded(record, 'Worker 5', T + 31_000)
   assert.equal(carryable([withClear], 'Worker 5', T + 36_000, keep, { holdClear: inFirstTurn(record, 'Worker 5') })?.id, 'e1')
 })
+
+test('review (2): a launch-woken chat with a clear envelope gets it at its first take (no turn holds it)', async () => {
+  const { claim, emptyWakes, heard, inFirstTurn, sent } = await import('../../src/wake.mjs')
+  const record = emptyWakes()
+  const T = new Date(2026, 10, 2, 10, 32).getTime()
+  claim(record, { chat: 'Worker 2', spell: T - 3_600_000, path: 'launch', by: 'board', jobId: 'l', now: T, runBefore: 1 })
+  sent(record, 'Worker 2', 'l', T + 5_000)
+  const report = { state: 'idle', run: 2, at: T + 40_000 }
+  heard(record, 'Worker 2', report, T + 40_000)
+  const withClear = { id: 'e1', at: T - 60_000, to: 'Worker 2', command: HANDOVER_COMMAND, kind: 'task', step: 'B855', clear: { step: 'B821', reportedAt: T - 9_000_000 }, line: 'work: B855 is yours; run work next', state: 'waiting' }
+  const keep = { messageMs: 60 * 60_000, answerMs: 24 * 60 * 60_000 }
+  assert.equal(carryable([withClear], 'Worker 2', T + 40_000, keep, { holdClear: inFirstTurn(record, 'Worker 2', report) })?.id, 'e1')
+})

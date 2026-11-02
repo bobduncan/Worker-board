@@ -269,10 +269,12 @@ test('2026-10-26: the wake worked and Worker 3 runs: the word is closed; a chat 
   assert.deepEqual([laneOf(quit, 'Worker 3').state, laneOf(quit, 'Worker 3').isRunning], ['off', false])
   assert.deepEqual(resumesDue(quit, sent), [])
   assert.deepEqual(tick(sent, now => stateAt(now, ['Worker 5']), later, record), [], 'the same spell: no second wake')
-  // It wrote a line after the word, then quit: a new off spell, a new word and a new wake, once.
+  // It wrote a line after the word, then quit: a new off spell for the resume word, once. The review of 2026-11-02 (6): a
+  // chat that never reports has one wake spell (0, not its last write, which the wake message itself moves), so its one
+  // message in it is spent: no second wake job.
   const wrote = stateAt(later, ['Worker 5'], { wroteAt: NOW + 2 * MIN })
   assert.deepEqual(resumesDue(wrote, sent).map(one => [one.to, one.about]), [['Worker 3', 'B670']])
-  assert.deepEqual(tick(sent, now => stateAt(now, ['Worker 5'], { wroteAt: NOW + 2 * MIN }), later, record).map(one => one.command), ['resume-step', 'wake job'])
+  assert.deepEqual(tick(sent, now => stateAt(now, ['Worker 5'], { wroteAt: NOW + 2 * MIN }), later, record).map(one => one.command), ['resume-step'])
   assert.deepEqual(tick(sent, now => stateAt(now, ['Worker 5'], { wroteAt: NOW + 2 * MIN }), later + MIN, record), [])
 })
 

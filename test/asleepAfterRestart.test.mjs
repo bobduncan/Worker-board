@@ -364,3 +364,20 @@ test('change 4: the ⚙ row of the wake reads by itself, "last launch failed" or
   assert.match(failed[2], /the app did not start Worker 2 \(launched 10:32\); the page names the chat to open\.$/)
   assert.equal((await shown(rowOf(emptyWakes(), { blocked: 'only on Windows can the board launch a chat' })))[1], 'message only')
 })
+
+test('review (3): after the take-back ended its need, "could not wake" and its incident stand for the whole spell', async () => {
+  const { buildView } = await import('../src/supervisor/view.mjs')
+  const { WATCH_RULES } = await import('../src/supervisor/rules/watch.mjs')
+  // Weeder sleeps free (no need: nothing waits for it any more); its spell's message failed.
+  const facts = wakesOf(new Map([['Weeder', { since: APP, at: at(18, 20) }]]))
+  Object.assign(facts.record.wakes.get('Weeder')[0].attempts[0], { verdict: 'failed', verdictAt: at(18, 22), why: 'no report within 2 minutes of the message' })
+  const raw = buildState({
+    listText: '{"prefix":"Garden · ","main":"Lead","supervisor":"Watcher"}', appChatTexts: NAMES.map(app), tails: Object.fromEntries(NAMES.map(name => [`cli-${name}`, tail])),
+    planLineTexts: {}, work: storeWith(), adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: APP,
+  }, { lines: [], outbox: [], runs: [], now: NOW, config, seen: { shown: {}, other: {} }, board: { startedAt: STARTED, offSince: null }, reports: new Map(REPORTS), wakes: facts })
+  const weeder = lane(raw, 'Weeder')
+  assert.deepEqual([weeder.wake.need, weeder.wake.final, weeder.flags[0]?.kind], [false, true, 'wake failed'])
+  assert.match(raw.wakeNotice.text, /could not wake Weeder: no report after the message \(sent 18:20 by Lead\); open its chat/)
+  const found = WATCH_RULES.find(one => one.id === 'wake-failed').check(buildView({ state: raw, items: new Map(), outbox: [], settings: {}, now: NOW }), { seen: new Map(), observed: [] })
+  assert.deepEqual(found.map(one => one.key), [`wake-failed Weeder ${APP}`])
+})

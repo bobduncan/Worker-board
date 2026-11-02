@@ -320,3 +320,18 @@ test('H.6: two callers in one tick make one job: the second finds the claim', as
   }
   assert.deepEqual(made, [{ caller: 'Advisor', id: 'wake:7:Worker 2', text: 'take B855 in this turn: run work next' }])
 })
+
+// The review of 2026-11-02 (5): old wakeFor start words still waiting at the first start after change 4 are the case.
+test('review (5): a start or wake word for a chat whose wake is on its way or done is closed, never sent beside it', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  const route = server.slice(server.indexOf('hands: counted(async body => {'), server.indexOf('handsDone: counted('))
+  const close = route.indexOf("'the wake procedure wakes it'")
+  assert.ok(close > 0 && close < route.indexOf('store.takeHands(checked.chat, clock(), keep, isHand)'), 'closed before any hand takes it')
+  assert.match(route, /isWakeOnItsWay\(wakes, message\.about, spell\)/)
+  // The close itself: a waiting start word goes to dropped with the reason, and no hand takes it after.
+  const store = memoryStore()
+  await store.say({ ...word('s1', 'start', 'Worker 1'), at: 0 })
+  assert.equal(await store.close('s1', 'dropped', 'the wake procedure wakes it', 1), true)
+  assert.deepEqual(await store.takeHands('Advisor', 2, keep, () => true), [])
+})

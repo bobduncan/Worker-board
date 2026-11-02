@@ -92,8 +92,8 @@ import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
-import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, WAKE_JOB, claim as claimWake, emptyWakes, inFirstTurn, launchPlan, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
+import { BOARD_KEY, WAKE_JOB, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
@@ -1493,11 +1493,15 @@ async function main(args) {
   const codeClaims = new Map()
   // T13 part 4: only the board that delivers, on Windows, launches a chat (the wake's second path).
   const canOpen = !isShowOnly && bridgeKey !== null && config.project !== '' && process.platform === 'win32'
+  /** Why the board could not launch the app's program at its last try (no program found, a folder refused), or null. */
+  let openBlocked = null
+  /** The review of 2026-11-02 (4a): the launch path counts only while the board can launch, so a blocked launch is no silent hold. */
+  const canLaunchNow = () => canOpen && openBlocked === null
   /** Change 4: the facts the state reads the wake record with: whether a sender claims, and whether the board can launch. */
   const wakeFacts = () => {
     const now = clock()
     const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
-    return { record: wakes, senderClaims: !gone, canLaunch: canOpen }
+    return { record: wakes, senderClaims: !gone, canLaunch: canLaunchNow() }
   }
   // B736 (X73, X87, X89): when the board heard no chat at all, and the work calls it answered after the chat's mod gave up.
   const hearing = bridgeKey === null ? null : hearingLog({ startedAt, quietMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000 })
@@ -1904,8 +1908,6 @@ async function main(args) {
   // launch is pending nothing else; else the first chat that needs a wake whose next path is the launch (decision 8: never
   // first while a sender claims). The claim comes before the await of the launch; board.log says "launched", never
   // "started": a launch is no verdict.
-  /** Why the board could not launch the app's program at its last try (no program found), or null. */
-  let openBlocked = null
   let isOpening = false
   /** Change 4: one board.log line per verdict, with what was tried. */
   const sayVerdict = (chat, attempt) => {
@@ -1973,10 +1975,15 @@ async function main(args) {
     }
     if (changed) wakesChanged()
     if (!canOpen || isHolding(state.pause)) return
+    // The review of 2026-11-02 (4a): a launch the board could not make waits until its program and folder pass again.
+    if (openBlocked !== null) {
+      if (isProgram(await findClaude()) && isFolder(resolve(HERE, config.project))) openBlocked = null
+      else return
+    }
     const outbox = store.outbox().filter(message => !isLate(message, now, keep))
     const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
     const nobody = gone ? nobodyRunsSpell(state, outbox) : null
-    const needs = wakeNeeds(state, outbox, { resumeList: await resumeListOf(state), canLaunch: true })
+    const needs = wakeNeeds(state, outbox, { resumeList: await resumeListOf(state), canLaunch: canLaunchNow() })
     // One launch per check (src/wake.mjs `launchPlan`): the next waits for the next minute's look.
     const plan = launchPlan(wakes, { needs, nobody, senderClaims: !gone, target: chatToOpen(state, outbox) })
     if (plan !== null) await launchFor({ target: { chat: plan.chat, session: plan.session }, key: plan.key, spell: plan.spell, now })
@@ -2033,7 +2040,7 @@ async function main(args) {
       // Change 4 (B.2): the woken chat's first turn end was seen, right after the decision that read it.
       if (wakeTurnEnded(wakes, checked.chat, clock())) wakesChanged()
       if (decided !== null) {
-        const envelope = await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat) })
+        const envelope = await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null) })
         if (envelope !== null) readState.reset()
         const { pull: _pull, ...rest } = done.result
         const waits = envelope === null && decided.envelope !== null && typeof decided.envelope.waitsFor === 'string' ? 'set' : null
@@ -2619,7 +2626,7 @@ async function main(args) {
       // release for a mod older than 0.28.0.
       const { envelope, statuses } = await handedWithStatuses({
         // Signals change 4, D.4: an envelope with a clear waits while the chat's first turn after a wake runs.
-        hand: async () => (!onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat) })),
+        hand: async () => (!onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null) })),
         readState,
       })
       return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }), ...(statuses.length === 0 ? {} : { statuses }) } }
@@ -2665,6 +2672,12 @@ async function main(args) {
       for (const message of store.outbox().filter(one => one.state === 'waiting' && isMootSpawn(one, onBoard))) {
         if (await store.close(message.id, 'dropped', mootWhy(message), clock())) readState.reset()
       }
+      // The review of 2026-11-02 (5): a start or wake word for a chat whose wake is on its way or done in this spell is never
+      // a second message beside it (old wakeFor start words still waiting at the first start after change 4): closed.
+      for (const message of store.outbox().filter(one => one.state === 'waiting' && ['start', 'wake'].includes(one.command) && typeof one.about === 'string')) {
+        const spell = spellOf(lanes.find(lane => lane.name === message.about))
+        if (spell !== null && isWakeOnItsWay(wakes, message.about, spell) && await store.close(message.id, 'dropped', 'the wake procedure wakes it', clock())) readState.reset()
+      }
       const isHand = message => !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set'), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
@@ -2691,7 +2704,7 @@ async function main(args) {
       const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, now: clock(), spawn, usage, canSend, first: state.productOwner?.name ?? null })
       // Signals change 4, B.4: a start or wake word a hand took (the page's start, a closed worker's start, B577's wake of a
       // stopped chat) is a message that wakes a chat: claimed in the wake record too, by the word's id. A word whose chat
-      // runs, or already has a wake on its way, still goes (it is the person's or B577's), unrecorded.
+      // runs still goes (it is the person's or B577's), unrecorded; one whose chat has a wake on its way was closed above.
       let wakeClaimed = false
       for (const job of jobs) {
         const word = taken.find(one => one.id === job.id && ['start', 'wake'].includes(one.command))
@@ -2706,7 +2719,7 @@ async function main(args) {
       // a second hand in the same window finds the claim. Never the caller itself; only a caller that may send.
       if (canSend && !isHolding(state.pause)) {
         const outboxNow = store.outbox().filter(message => !isLate(message, clock(), keep))
-        for (const need of wakeNeeds(state, outboxNow, { resumeList, canLaunch: canOpen })) {
+        for (const need of wakeNeeds(state, outboxNow, { resumeList, canLaunch: canLaunchNow() })) {
           if (need.chat === checked.chat || !need.paths.includes('message') || !Number.isFinite(need.spell)) continue
           if (wakeNextPath(wakes, { chat: need.chat, spell: need.spell, senderClaims: true, senderSince: claim.since, paths: need.paths }) !== 'message') continue
           const id = wakeJobId(need.spell, need.chat)

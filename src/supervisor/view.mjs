@@ -61,6 +61,7 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
       .map(step => Object.freeze({ id: step.id, round: step.refineAsk.round ?? 1, state: step.refineAsk.state, at: step.refineAsk.at }))),
     // Signals change 4: the wake record's newest spell per chat (the rules wake-failed, nobody-answers-wakes, handover-unanswered).
     wakes: Object.freeze({ ...(state.wakes !== null && typeof state.wakes === 'object' ? state.wakes : {}) }),
+    wakeBoardSince: Number.isFinite(state.wakeBoardSince) ? state.wakeBoardSince : null,
     limits: limits ?? state.limits ?? {},
     pause: pause ?? state.pause ?? null,
     refused,

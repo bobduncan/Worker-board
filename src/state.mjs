@@ -51,7 +51,7 @@ import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { clearOwed, modAtLeast } from './clearOwed.mjs'
-import { newestSpells, noticeOf, nobodyRunsSpell, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
+import { newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, standingAsksOf } from './recapCard.mjs'
@@ -2577,28 +2577,43 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now }) {
   const resumeList = pauseRecord?.state === 'resuming' && items !== null ? pauseAnswer({ pause: pauseRecord, items, lanes, prefix, chat: main, role: 'main' }).resumeList : []
   const needs = wakeNeeds(built, sent, { resumeList, canLaunch: wakes.canLaunch === true })
   const byChat = new Map(needs.map(need => [need.chat, need]))
-  const PENDING = ['on-its-way', 'sent', 'launched']
-  const wakeOfLane = lane => {
+  // The review of 2026-11-02 (3): the wake of every chat that does not run, from its own spell and paths, need or not, so
+  // "could not wake X" stands for the whole spell (a take-back ends the need; a cut-off chat turns off "woken"). A chat
+  // without a need and without a try in its spell has nothing to say.
+  const targetOf = lane => {
     const need = byChat.get(lane.name)
-    if (need !== undefined) return wakeOf(record, need, { senderClaims })
-    const status = wakeStatusOf(record, lane.name, spellOf(lane))
-    return { ...status, final: false, shown: PENDING.includes(status.state) }
+    if (need !== undefined) return { ...need, need: true }
+    if (lane.isRunning !== false) return null
+    const target = { chat: lane.name, spell: spellOf(lane), paths: pathsOf(lane, wakes.canLaunch === true), need: false }
+    const kept = wakeStatusOf(record, lane.name, target.spell)
+    return kept.spell === target.spell && kept.attempts.length > 0 ? target : null
+  }
+  const targets = []
+  const wakeOfLane = lane => {
+    const target = targetOf(lane)
+    if (target !== null) {
+      targets.push(target)
+      return { ...wakeOf(record, target, { senderClaims }), need: target.need, spell: target.spell }
+    }
+    return { ...wakeStatusOf(record, lane.name, spellOf(lane)), final: false, need: false, shown: false }
   }
   const withWake = lane => {
     if (lane === null || lane === undefined || lane.isLeftover === true) return lane
     const wake = wakeOfLane(lane)
     const words = wake.shown === false ? null : wakeWords(wake, hourMinute)
     const flag = words === null ? [] : [{ kind: words.tone === 'attention' ? 'wake failed' : 'wake', id: null, text: words.text, button: null }]
-    const need = byChat.get(lane.name)
-    const spell = need?.spell ?? wake.spell ?? spellOf(lane)
-    return { ...lane, wake: { state: wake.state, final: wake.final === true, need: need !== undefined, spell, path: wake.path, at: wake.at, by: wake.by, why: wake.why, wokeAt: wake.wokeAt ?? null, attempts: wake.attempts ?? [], words }, ...(Array.isArray(lane.flags) ? { flags: [...flag, ...lane.flags] } : {}) }
+    const spell = wake.spell ?? spellOf(lane)
+    return { ...lane, wake: { state: wake.state, final: wake.final === true, need: wake.need === true, spell, path: wake.path, at: wake.at, by: wake.by, why: wake.why, wokeAt: wake.wokeAt ?? null, attempts: wake.attempts ?? [], words }, ...(Array.isArray(lane.flags) ? { flags: [...flag, ...lane.flags] } : {}) }
   }
+  const chats = (built.chats ?? []).map(withWake)
+  const roles = Object.fromEntries(['advisor', 'advisorHelper', 'supervisorChat', 'productOwner'].map(key => [key, built[key] == null ? built[key] : withWake(built[key])]))
+  const nobody = nobodyRunsSpell(built, sent)
   return {
-    ...built,
-    chats: (built.chats ?? []).map(withWake),
-    ...Object.fromEntries(['advisor', 'advisorHelper', 'supervisorChat', 'productOwner'].map(key => [key, built[key] == null ? built[key] : withWake(built[key])])),
-    wakeNotice: noticeOf(record, needs, now, hourMinute, { senderClaims, nobody: nobodyRunsSpell(built, sent) }),
+    ...built, chats, ...roles,
+    wakeNotice: noticeOf(record, targets, now, hourMinute, { senderClaims, nobody }),
     wakes: newestSpells(record),
+    // The review of 2026-11-02 (7): the board-wide spell now (nobody runs since), for the rule nobody-answers-wakes.
+    wakeBoardSince: nobody?.since ?? null,
   }
 }
 

@@ -182,3 +182,12 @@ test('step 6: the old hand-over rules are gone; the new ones never fire for a wo
   for (const gone of ['not-cleared', 'not-taking']) assert.equal(WATCH_RULES.find(one => one.id === gone), undefined, gone)
   assert.deepEqual(check('handover-held', view({ chats: [LEAD, old], outbox: [failedEnvelope('Digger', 30)] })), [])
 })
+
+test('review (7): nobody-answers-wakes only for the board-wide spell of now, or one that failed within a day', () => {
+  const spell = ago(600)
+  const chats = [LEAD, asleep('Worker 2', spell, failedLaunch(spell))]
+  const old = { '*': { state: 'failed', spell: ago(3 * 24 * 60), attempts: [{ ...failedLaunch(spell).attempts[0], verdictAt: ago(2 * 24 * 60) }], spells: [ago(3 * 24 * 60)] } }
+  assert.deepEqual(check('nobody-answers-wakes', view({ chats, wakes: old })), [])
+  const nowSpell = buildView({ state: { chats, today: [], limits: {}, pause: null, chatPrefix: '', readyList: null, gaps: [], wakes: old, wakeBoardSince: ago(3 * 24 * 60) }, items: new Map(), outbox: [], settings: {}, now: NOW })
+  assert.equal(check('nobody-answers-wakes', nowSpell).length, 1)
+})

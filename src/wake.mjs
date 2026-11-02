@@ -60,9 +60,9 @@ export const emptyWakes = () => ({ wakes: new Map() })
 
 /**
  * The spell of a lane that does not run: its `asleepSince`; an off chat without one, its report's since when its
- * session ended, else its report's time; one that never reported, when it was last active (its conversation's write,
- * `lastActivityAt`: a chat that ran again and quit has a new spell), else 0. Null when the lane runs, or the board does not
- * know (principle 3: `isRunning` null is not guessed).
+ * session ended, else its report's time; one that never reported, 0 (the review of 2026-11-02: not its last activity,
+ * which the wake message itself moves, so the cap of one try per path would reset). Null when the lane runs, or the board
+ * does not know (principle 3: `isRunning` null is not guessed).
  */
 export function spellOf(lane) {
   if (lane === null || lane === undefined || lane.isRunning !== false) return null
@@ -72,7 +72,6 @@ export function spellOf(lane) {
   const report = lane.report ?? null
   if (report?.state === 'ended' && isTime(report.since)) return report.since
   if (isTime(report?.at)) return report.at
-  if (isTime(lane.lastActivityAt)) return lane.lastActivityAt
   return 0
 }
 
@@ -87,7 +86,9 @@ const isPending = attempt => attempt.verdict === null
  */
 export function newSpell(record, chat, spell) {
   if (!isTime(spell) || typeof chat !== 'string' || chat === '') return false
-  if (newestOf(record, chat)?.spell === spell) return false
+  // The review of 2026-11-02: a spell value a kept entry already has (A, B, then A again) is that entry, never a new one:
+  // the cap of one try per path holds for it.
+  if (entriesOf(record, chat).some(one => one.spell === spell)) return false
   const entries = [...entriesOf(record, chat), { spell, attempts: [], turnEndedAt: null, told: { failed: false, nobody: false } }]
   record.wakes.set(chat, entries.slice(-WAKE_SPELLS_KEPT))
   return true
@@ -233,10 +234,26 @@ export function turnEnded(record, chat, now) {
   return true
 }
 
-/** Decision 12: whether `chat` was woken and its first turn has not ended (an envelope's clear waits for that turn end). */
-export function inFirstTurn(record, chat) {
+/**
+ * Decision 12: whether `chat` was woken by a message and the turn that message began has not ended (an envelope's clear
+ * waits for that turn end; its first turn end takes nothing back). The review of 2026-11-02: only a message starts a turn;
+ * a chat a launch woke, or the person opened, has none, and neither has one whose own report (`report`, the board's kept
+ * `{ state, at }`) says idle or ended after the verdict: else its clear would wait for ever and the net fire after "woke".
+ */
+export function inFirstTurn(record, chat, report = null) {
   const entry = newestOf(record, chat)
-  return entry !== null && entry.turnEndedAt === null && entry.attempts.some(one => one.verdict === 'woke')
+  if (entry === null || entry.turnEndedAt !== null) return false
+  const woke = entry.attempts.find(one => one.verdict === 'woke')
+  if (woke === undefined || woke.path !== 'message') return false
+  return !(['idle', 'ended'].includes(report?.state) && isTime(report?.at) && report.at > woke.verdictAt)
+}
+
+/** The ways a lane's ids allow: 'message' (an app id), 'launch' (a CLI session id, and `canLaunch`). */
+export const pathsOf = (lane, canLaunch) => [...(isAppId(lane?.appSession) ? ['message'] : []), ...(canLaunch === true && isSessionId(lane?.session) ? ['launch'] : [])]
+
+/** The review of 2026-11-02 (5): whether a wake of `chat` is on its way or done in this spell: a start or wake word is not sent beside it. */
+export function isWakeOnItsWay(record, chat, spell) {
+  return (entryOf(record, chat, spell)?.attempts ?? []).some(one => isPending(one) || one.verdict === 'woke')
 }
 
 /**
@@ -282,14 +299,16 @@ export function triedWords(attempts, timeOf) {
 }
 
 /**
- * The ONE attention text of the board's wake-ups (decision 6), `{ tone: 'attention', text }` or null. Per chat whose wake
- * failed on every path it could take (`wakeOf` final): "could not wake Worker 2: the app did not start it (launched
- * 10:32); no report after the message (sent 10:35 by Advisor); open its chat". When every chat that needs a wake failed,
- * no sender claims and nothing is on its way, or the board-wide spell's launch failed: "nobody answers the board's
- * wake-ups: open any chat" first. Replaces nobodyRunsText, wakeFailedText and openerNote.
+ * The ONE attention text of the board's wake-ups (decision 6), `{ tone: 'attention', text }` or null, from `targets`: every
+ * chat that does not run, `{ chat, spell, paths, need }` (`need` true when `wakeNeeds` names it). Per chat whose wake
+ * failed on every path it could take in its spell (`wakeOf` final; the review of 2026-11-02: for the whole spell, need or
+ * not, so the line does not go when the take-back ends the need): "could not wake Worker 2: the app did not start it
+ * (launched 10:32); no report after the message (sent 10:35 by Advisor); open its chat". "nobody answers the board's
+ * wake-ups: open any chat" first when the board-wide spell's launch failed, or no sender claims and every need (at least
+ * one) failed or waits for a chat that can send. Replaces nobodyRunsText, wakeFailedText and openerNote.
  */
-export function noticeOf(record, needs, now, timeOf, { senderClaims = false, senderSince = -Infinity, nobody = null } = {}) {
-  const wakes = (needs ?? []).map(need => ({ need, wake: wakeOf(record, need, { senderClaims, senderSince }) }))
+export function noticeOf(record, targets, now, timeOf, { senderClaims = false, senderSince = -Infinity, nobody = null } = {}) {
+  const wakes = (targets ?? []).map(need => ({ need, wake: wakeOf(record, need, { senderClaims, senderSince }) }))
   const failed = wakes.filter(one => one.wake.final)
   const lines = failed.map(({ need, wake }) => {
     const tried = wake.why === 'no id' && wake.attempts.length === 0 ? ['the board has no id to reach it'] : triedWords(wake.attempts, timeOf)
@@ -297,7 +316,8 @@ export function noticeOf(record, needs, now, timeOf, { senderClaims = false, sen
   })
   const board = nobody === null ? null : statusOf(record, BOARD_KEY, nobody.since ?? null)
   const isBoardFailed = board !== null && board.state === 'failed'
-  const isEveryone = wakes.length > 0 && failed.length === wakes.length && senderClaims !== true
+  const needs = wakes.filter(one => one.need.need !== false)
+  const isEveryone = senderClaims !== true && needs.length > 0 && needs.every(one => one.wake.final || one.wake.state === 'waiting-sender')
   if (isBoardFailed || isEveryone) lines.unshift('nobody answers the board\'s wake-ups: open any chat')
   return lines.length === 0 ? null : { tone: 'attention', text: lines.join(' · ') }
 }
@@ -353,11 +373,11 @@ export function wakeFact(facts, lane, event = null) {
   const record = facts?.record ?? null
   if (record === null || lane === null || lane === undefined || typeof lane.name !== 'string') return null
   const spell = spellOf(lane)
-  const paths = [...(isAppId(lane.appSession) ? ['message'] : []), ...(facts.canLaunch === true && isSessionId(lane.session) ? ['launch'] : [])]
+  const paths = pathsOf(lane, facts.canLaunch === true)
   const wake = spell === null ? { ...statusOf(record, lane.name, null), final: false } : wakeOf(record, { chat: lane.name, spell, paths }, { senderClaims: facts.senderClaims === true })
   return {
     state: wake.state, final: wake.final === true, path: wake.path, at: wake.at, by: wake.by, why: wake.why, wokeAt: wake.wokeAt ?? null,
-    firstTurnEnd: event?.kind === 'turn-ended' && inFirstTurn(record, lane.name),
+    firstTurnEnd: event?.kind === 'turn-ended' && inFirstTurn(record, lane.name, lane.report ?? null),
   }
 }
 
@@ -422,7 +442,7 @@ export function wakeNeeds(state, outbox = [], { resumeList = [], canLaunch = tru
     if (lane?.isRunning !== false || lane.isLeftover === true || (lane.removedAt ?? null) !== null || typeof lane.name !== 'string') continue
     const need = needOf(lane, { state, waiting, prefix, resumeList, ownerName })
     if (need === null) continue
-    const paths = [...(isAppId(lane.appSession) ? ['message'] : []), ...(canLaunch && isSessionId(lane.session) ? ['launch'] : [])]
+    const paths = pathsOf(lane, canLaunch === true)
     needs.push({ chat: lane.name, appSession: lane.appSession ?? null, session: lane.session ?? null, spell: spellOf(lane), ...need, paths })
   }
   const rank = orderOf(state)
