@@ -5596,8 +5596,10 @@ function drawNeeds(state) {
   const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
-  // T20: the recap card first, the dashed "Autopilot cleared" line under it, then the cards as before.
-  fill(box, [recapAttention === null ? null : drawRecapAttention(recapAttention), cleared === null ? null : drawClearedLine(cleared), none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
+  fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
+  // T20: the Product owner's recap card is the first card, the dashed "Autopilot cleared" line right under it.
+  const firstCards = [recapAttention === null ? null : drawRecapAttention(recapAttention), cleared === null ? null : drawClearedLine(cleared)].filter(one => one !== null)
+  if (firstCards.length > 0) box.prepend(...firstCards)
   // Signals change 4: the one wake notice on top of the panel, in the attention colour.
   const nobodyLines = [drawWakeNotice(state.wakeNotice)].filter(line => line !== null)
   // Autopilot (2026-10-31): its one quiet line on top, under the wake lines, which always stay (the board's own cards).
