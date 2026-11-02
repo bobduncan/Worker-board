@@ -198,7 +198,10 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   if (finite(worker.removedAt) || worker.removal?.isOpen === true || (worker.suspended ?? null) !== null) return null
   if (PAUSE_STATES.includes(pause?.state)) return null
   const asks = [...items.values()].filter(item => valueOf(item, 'Kind') === 'ask')
-  if (asks.some(ask => valueOf(ask, 'State') === 'open' && (isMine(ask, name, prefix) || valueOf(ask, 'Of') === id))) return null
+  // The lead's live check (2026-11-02, change 3 BROKEN): the timers paused for ANY open ask of the worker (its own, under
+  // any step, blocking or not), so a holder with one old question somewhere was never nudged nor given back. Only a
+  // BLOCKING ask of the held step pauses them: that is the one wait that is the person's, not the holder's.
+  if (asks.some(ask => valueOf(ask, 'State') === 'open' && valueOf(ask, 'Of') === id && valueOf(ask, 'Blocking') === 'yes')) return null
   const changedAt = sinceMs(valueOf(holding, 'Since'))
   const took = lastTakenAt(holding)
   const takenAt = finite(took) ? took : changedAt

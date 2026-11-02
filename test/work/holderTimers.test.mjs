@@ -156,11 +156,15 @@ test('the person\'s pause and the time the board was off are not counted (mutant
   assert.equal(decideAt(25, { envelopes: [sent], pause: { state: 'running', since: at(10) } }).giveBack?.step, 'B12')
 })
 
-test('never for a step with an open ask (B308: any of that worker, or under the step), nor after the person\'s Stop since the take, a worker being removed or paused for a limit', () => {
+test('never for a step with an open BLOCKING ask under it (the lead\'s live check of 2026-11-02: any other ask pauses nothing), nor after the person\'s Stop since the take, a worker being removed or paused for a limit', () => {
   const ask = (more = {}) => item({ Id: 'Q1', Kind: 'ask', Title: 'Which hinge?', State: 'open', Owner: 'Worker 1', Since: stamp(at(-5)), ...more })
-  assert.equal(decideAt(30, { items: mapOf(held(), ask()) }).envelope, null)
-  assert.equal(decideAt(30, { items: mapOf(held(), ask({ Owner: 'Worker 2', Of: 'B12' })) }).envelope, null)
-  assert.equal(decideAt(30, { items: mapOf(held(), ask({ Owner: 'Worker 2', Of: 'B7' })) }).envelope?.kind, RESUME_KIND, 'another chat\'s ask on another step is no bar')
+  // 2026-11-02 (change 3 had never nudged once: the timers paused for ANY open ask of the worker): only a blocking ask of
+  // the held step is the person's wait; the worker's other asks, and a non-blocking one under the step, pause nothing.
+  assert.equal(decideAt(30, { items: mapOf(held(), ask({ Of: 'B12', Blocking: 'yes' })) }).envelope, null, 'a blocking ask under the step')
+  assert.equal(decideAt(30, { items: mapOf(held(), ask({ Owner: 'Worker 2', Of: 'B12', Blocking: 'yes' })) }).envelope, null, 'whoever asked it')
+  assert.equal(decideAt(30, { items: mapOf(held(), ask()) }).envelope?.kind, RESUME_KIND, 'an open ask of the worker on nothing in particular is no bar')
+  assert.equal(decideAt(30, { items: mapOf(held(), ask({ Of: 'B12' })) }).envelope?.kind, RESUME_KIND, 'a non-blocking ask under the step is no bar')
+  assert.equal(decideAt(30, { items: mapOf(held(), ask({ Owner: 'Worker 2', Of: 'B7', Blocking: 'yes' })) }).envelope?.kind, RESUME_KIND, 'another step\'s blocking ask is no bar')
   // The person's answer at 10:10 starts the clock anew (the answer is on its way to it).
   const answered = mapOf(held(), ask({ State: 'answered', Since: stamp(at(10)) }))
   assert.equal(decideAt(15, { items: answered }).envelope, null)
