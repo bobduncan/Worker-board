@@ -24,6 +24,15 @@ export const TILE_LINE = 'approve or send back'
 const BUILT_STATES = ['done', 'dropped', 'stopped', 'verdict']
 const FINISHED = ['done', 'closed', 'dropped']
 const IMAGE = /\.(?:png|jpe?g|gif|webp)$/i
+/** The advice on a look's tile is cut at this many characters (it is one small line). */
+const LOOK_ADVICE_MOST = 60
+
+/** The small line of a look's tile: "a look · advised: yes", or "a look" without advice. */
+export function lookLineOf(advice) {
+  const words = String(advice ?? '').replace(/\s+/g, ' ').trim()
+  if (words === '') return 'a look'
+  return `a look · advised: ${words.length <= LOOK_ADVICE_MOST ? words : `${words.slice(0, LOOK_ADVICE_MOST).replace(/\s+\S*$/, '')}…`}`
+}
 
 /** The picture a recap row shows on its tile: its last final picture (the result), else its last picture; null for none. */
 export function tilePictureOf(pictures) {
@@ -160,12 +169,18 @@ export function wholeGoalAskOf(standing, goal, recapPath) {
  * recap file is the goal's own ask (2026-11-02, Autopilot moved "Open the recap and try it" into the recap): the first of them
  * makes the "play it" tile like a standing one; every further one is an ask outside the card, listed under it.
  *
- * `{ goal, open, count, isBuilt, tiles, outside }`. Count: the recap parts waiting (rows that name steps; a part with a step still
+ * `{ goal, open, count, isBuilt, tiles, looks, outside }`. Count: the recap parts waiting (rows that name steps; a part with a step still
  * being checked is no verdict yet; a part with a step of an open recap ask counts too; each part once) plus the work blocks whose
  * step waits for the person in another form (an Accept card, a look standing with them) that no counted part covers, plus the
  * goal's own "play it" ask. `tiles`: the first MOST_TILES of them in that order, each `{ title, line, picture, target }`; a target is
  * `{ path, key }` (the recap at its part), `{ step }` or `{ ask }` (that window). `open`: the recap file, else the first tile's.
  * `outside`: the ids of the recap asks whose step no counted part or block covers: the page lists those under the card.
+ *
+ * A look (the person's "A", 2026-11-02, the live Q590: a worker's look of the focus goal that no recap part names, which Autopilot
+ * keeps for the recap): every look in `asked` of a step that no part and no block covers (and that is not being checked) is a tile
+ * of its own, after the others: its title, the line "a look · advised: <advice>" (or "a look"), its first picture, and the target
+ * `{ ask }`, the window where the person answers it. It counts, and it is no ask `outside`. `looks` holds all of them (the page's
+ * Product owner card names the first three, `tiles` only the first MOST_TILES of everything).
  */
 export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {}, steps = new Map(), blocks = [], standing = [], openChecks = new Set(), asked = [] }) {
   const isOpenCheck = id => openChecks.has(id)
@@ -205,8 +220,16 @@ export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {},
   }
   // The goal's own ask: open the recap and play it.
   if (whole !== null) tiles.push({ title: 'The whole goal: play it', line: `is ${goal} reached?`, picture: whole.pictures[0] ?? null, target: recapPath !== null ? { path: recapPath } : { ask: whole.id } })
-  if (tiles.length === 0) return null
   for (const ask of Array.isArray(asked) ? asked : []) if (outside.includes(ask.id) && covered.has(ask.of)) outside.splice(outside.indexOf(ask.id), 1)
+  // A look no part and no block covers: a tile of its own (a step still being checked is no verdict yet, as for a part).
+  const looks = []
+  for (const ask of Array.isArray(asked) ? asked : []) {
+    if (ask.asks !== 'look' || !/^B\d+$/.test(ask.of ?? '') || !outside.includes(ask.id) || isOpenCheck(ask.of)) continue
+    outside.splice(outside.indexOf(ask.id), 1)
+    looks.push({ title: ask.title, line: lookLineOf(ask.advice), picture: ask.pictures?.[0] ?? null, target: { ask: ask.id } })
+  }
+  tiles.push(...looks)
+  if (tiles.length === 0) return null
   const isBuilt = (blocks ?? []).every(block => BUILT_STATES.includes(block.state)) && [...parts.values()].every(one => one.verdict === null)
   const first = tiles[0].target
   return {
@@ -215,6 +238,7 @@ export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {},
     count: tiles.length,
     isBuilt,
     tiles: tiles.slice(0, MOST_TILES),
+    looks,
     outside,
   }
 }

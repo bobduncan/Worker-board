@@ -42,7 +42,7 @@ import { readAutopilotClearedFile, readNamesFile, readObsoleteFile, readPartnerA
 import { INCIDENT_WAS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
-import { RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, linksRecap, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
+import { FOCUS_LOOK_WHY, HANDED_KEPT_WORDS, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, partnerHandOverOf, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
@@ -1478,6 +1478,16 @@ async function escalate(body, w) {
   if (stateOf(found.item) !== 'open' || !routes.includes(route)) return refuse(409, `${id} is not routed to ${w.role === 'main' ? 'you' : 'the partner'}${stateOf(found.item) === 'open' ? '' : ` (it is ${stateOf(found.item)})`}: nothing to hand on.`)
   const why = line(body.why, 300)
   if (why === '') return refuse(400, 'Say in one line in "why" why the person answers it: it stands on its card.')
+  // The person's "A" (2026-11-02, the live Q590: "Why is he asking me for it. this is autopilot is turned on correct?"): while Autopilot
+  // is on, the partner's hand-over of a new look of the focus goal waits for that goal's recap instead of standing for the person; the
+  // partner's why stays in the ask's History. Anything else the partner hands over (and a look that names a click, a sign-in, ...) is the person's.
+  if (w.autopilot === true && w.role !== 'server' && w.role !== 'main' && valueOf(found.item, 'Asks') === 'look') {
+    const decided = autopilotRoute(found.item, { ...routeCtx(w), handedWhy: why })
+    if (decided.to === 'recap') {
+      const kept = await routeAsk(id, 'recap', w, HANDED_KEPT_WORDS, decided.step ?? null, { said: { by: w.who, words: `to the person: ${why}` }, placed: PLACED_BY_PICTURE })
+      if (kept.ok) return changed(kept.item, `${id} waits for the goal's recap: Autopilot is on, so the new look of the focus goal is judged there, not handed to the person now (${why}).`)
+    }
+  }
   const card = w.role === 'server'
     ? /^the partner /i.test(why) ? `Your partner ${why.replace(/^the partner /i, '')}: it is yours` : `${why[0].toUpperCase()}${why.slice(1)}: it is yours`
     : w.role === 'main' ? `The main chat hands this to you: ${why}` : `Your partner hands this to you: ${why}`
@@ -1487,6 +1497,9 @@ async function escalate(body, w) {
   const done = await save(next, found.text, w)
   return done.ok ? changed(next, `${id} goes to the person: ${why}.`) : done
 }
+
+/** The "put under" line's words for a look of the focus goal that no row of the recap names: its picture names the step. */
+const PLACED_BY_PICTURE = 'the step its picture names'
 
 /** Autopilot (2026-10-31): the store's open asks (Q<n>) in id order, as `w` reads them. */
 const openAsksAll = w => [...w.store.items.values()].filter(one => kindOf(one) === 'ask' && stateOf(one) === 'open' && /^Q\d+$/.test(valueOf(one, 'Id') ?? ''))
@@ -1499,9 +1512,11 @@ const freshOf = async w => ({ ...w, store: { ...w.store, ...(await readStore(w.d
  * Autopilot: an open ask given its route (`to`), once: the Route field and one History line. Partner: its 30 minutes start now.
  * Recap (the coordinator's ruling, 2026-10-31): its step reads `Recap verdict: waits (Q<n>)` first, and a blocking ask is
  * blocking no more (its worker goes on). `step` (2026-11-02): an ask under no step that the goal's recap asks for a step it
- * names (autopilot.mjs `recapAskOf`) is put under that step first: `Of: <step>`, then marked as any recap wait.
+ * names (autopilot.mjs `recapAskOf`, `focusLookOf`) is put under that step first: `Of: <step>`, then marked as any recap wait.
+ * `said` (`{ by, words }`): a History line of a chat that comes first (the partner's hand-over that Autopilot keeps for the recap);
+ * `placed`: the words of the "put under" line when no row of the recap names the step (`focusLookOf`).
  */
-async function routeAsk(id, to, w, card = null, step = null) {
+async function routeAsk(id, to, w, card = null, step = null, { said = null, placed = null } = {}) {
   const found = await load(id, w, { kind: ['ask'] })
   if (!found.ok || stateOf(found.item) !== 'open') return { ok: false }
   let item = put(copy(found.item), 'Route', to)
@@ -1510,8 +1525,9 @@ async function routeAsk(id, to, w, card = null, step = null) {
   // The partner's 30-minute rule reads the ask's filing (reconcile.mjs): an older ask routed now gets its 30 minutes from now.
   if (to === 'partner') put(item, 'Filed', String(w.now))
   if (card !== null) item.sections.set('Route', [card])
+  if (said !== null) item = appendHistory(item, said.by, said.words, w.now)
   item = appendHistory(item, 'server', routedWords(to), w.now)
-  if (isPlaced) item = appendHistory(item, 'server', `autopilot: put under ${step}, which the goal's recap names`, w.now)
+  if (isPlaced) item = appendHistory(item, 'server', `autopilot: put under ${step}, ${placed ?? "which the goal's recap names"}`, w.now)
   if (to === 'recap' && valueOf(item, 'Blocking') === 'yes') item = appendHistory(put(item, 'Blocking', 'no'), 'server', RECAP_GOES_ON, w.now)
   item = ordered(item)
   const of = valueOf(item, 'Of')
@@ -1556,13 +1572,25 @@ async function autopilot(body, w) {
       if (!isAgain && (isAutopilotRouted(item) || (route !== null && !(route === 'person' && !isExplicitPerson(item))))) continue
       const decided = autopilotRoute(item, isAgain ? { ...ctx, again: true } : ctx)
       if (isAgain && decided.to === 'person') continue
-      let done = await routeAsk(valueOf(item, 'Id'), decided.to, w, null, decided.step ?? null)
+      let done = await routeAsk(valueOf(item, 'Id'), decided.to, w, null, decided.step ?? null, { placed: decided.why === FOCUS_LOOK_WHY ? PLACED_BY_PICTURE : null })
       // A step the recap names that the store cannot give: the ask is the person's, as before.
       if (!done.ok && decided.step !== undefined) {
         decided.to = 'person'
         done = await routeAsk(valueOf(item, 'Id'), 'person', w)
       }
       if (done.ok) routed.push({ id: valueOf(item, 'Id'), to: decided.to })
+    }
+    // The partner's hand-over of a look (the person's "A", 2026-11-02, the live Q590: "Why is he asking me for it. this is autopilot
+    // is turned on correct?"), at every pass: one that stands for the person because the partner escalated it, and that a new look
+    // of the focus goal now answers with the recap, waits for the recap. Never one the person took back (the Undo's line stands on its
+    // card), nor one handed on by the main chat or the board, nor one whose words or why name what only the person's hands can do.
+    for (const item of openAsksAll(w)) {
+      const handed = partnerHandOverOf(item)
+      if (handed === null || valueOf(item, 'Asks') !== 'look') continue
+      const decided = autopilotRoute(item, { ...ctx, handedWhy: handed })
+      if (decided.to !== 'recap') continue
+      const done = await routeAsk(valueOf(item, 'Id'), 'recap', w, HANDED_KEPT_WORDS, decided.step ?? null, { placed: PLACED_BY_PICTURE })
+      if (done.ok) routed.push({ id: valueOf(item, 'Id'), to: 'recap' })
     }
   }
   let now = await freshOf(w)
@@ -1614,7 +1642,9 @@ async function autopilot(body, w) {
     const step = now.store.items.get(valueOf(item, 'Of') ?? '')
     const isFocus = step !== undefined && (now.focusGoal ?? null) !== null && valueOf(step, 'Goal') === now.focusGoal
     const isNamed = (now.recaps ?? []).some(one => one.step === valueOf(item, 'Of'))
-    if (isFocus && (now.focusHasDemo !== true || isNamed)) continue
+    // A look of the focus goal stays on the recap even when no row names it (the person's "A", 2026-11-02): it is answered in its window.
+    const isKept = isKeptLook(item, valueOf(item, 'Owner') === null ? 'board' : now.roleOf?.(valueOf(item, 'Owner')) ?? 'worker')
+    if (isFocus && (now.focusHasDemo !== true || isNamed || isKept)) continue
     const done = await routeAsk(id, 'person', now, isFocus ? 'The goal demo came without its step, so the recap will not answer it: it is yours' : recapGoneWords)
     if (done.ok) escalated.push(id)
   }

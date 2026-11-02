@@ -330,15 +330,17 @@ test('the review\'s deadlock (2026-10-31): a card routed to the recap makes its 
 })
 
 test('the recap\'s net: a goal demo made without the step\'s row hands the waiting ask to the person; Autopilot off shows it again', async t => {
-  const dir = await storeWith({ B21, B22, Q2: ask('Q2', { Title: 'Approve the pool at 64 of 75?', Owner: 'Checker', Asks: 'look', Of: 'B21', Advice: 'yes' }) })
+  // Q2 is the board's Accept card; Q3 a look of the step's checker (2026-11-02, the person's "A": a look of the focus goal stays on the recap).
+  const dir = await storeWith({ B21, B22, Q2: ask('Q2', { Title: 'Accept B21 at 64 of 75, or send it back?', Asks: 'decide', Of: 'B21', Options: 'A Accept: done as it is | B Send back: the partner makes another try from your note', Via: 'accept' }), Q3: ask('Q3', { Title: 'Approve the pool at 64 of 75?', Owner: 'Checker', Asks: 'look', Of: 'B21', Advice: 'yes' }) })
   t.after(() => rm(dir, { recursive: true, force: true }))
-  assert.deepEqual((await sweep(dir)).result.routed, [{ id: 'Q2', to: 'recap' }])
+  assert.deepEqual((await sweep(dir)).result.routed, [{ id: 'Q2', to: 'recap' }, { id: 'Q3', to: 'recap' }])
   // The demo came (its Demo line), and no recap row names B21.
   const net = await sweep(dir, false, NOW + 5 * MIN, { focusHasDemo: true, recaps: [{ step: 'B99', goal: 'G29' }] })
   assert.deepEqual(net.result.escalated, ['Q2'])
   const items = await read(dir)
   assert.deepEqual(items.get('Q2').sections.get('Route'), ['The goal demo came without its step, so the recap will not answer it: it is yours'])
   assert.deepEqual(needsIds({ ok: true, items }), ['Q2'])
+  assert.equal(items.get('Q3').head.get('Route'), 'recap', 'the look stays: it is answered in its own window')
 })
 
 test('a blocking ask routed to the recap is blocking no more: its worker goes on (as filed, and as the sweep routes it)', async t => {

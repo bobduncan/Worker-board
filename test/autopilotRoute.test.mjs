@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { PERSONS_HANDS, UNDER_STEP_HANDS, REFINE_BACK_WORDS, SENT_BACK, adviceAnswerOf, adviceOf, autopilotRoute, belowTarget, handsOf, isBoardRoutedPerson, isChore, isExplicitPerson, isGoalLevel, letteredOptions, recapVerdictWords, recapWaitIds, optionsOf, recapWaitOf, refineAdviceOf, routedWords, standsForPerson, waitsForRecap } from '../src/work/autopilot.mjs'
+import { FOCUS_LOOK_WHY, HANDED_KEPT_WORDS, PERSONS_HANDS, UNDER_STEP_HANDS, REFINE_BACK_WORDS, SENT_BACK, adviceAnswerOf, adviceOf, autopilotRoute, belowTarget, focusLookOf, handsOf, isBoardRoutedPerson, isChore, isExplicitPerson, isGoalLevel, isKeptLook, letteredOptions, recapVerdictWords, recapWaitIds, optionsOf, partnerHandOverOf, recapWaitOf, refineAdviceOf, routedWords, standsForPerson, waitsForRecap } from '../src/work/autopilot.mjs'
 import { routesToPartner } from '../src/work/partnerAnswers.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
@@ -30,7 +30,9 @@ const B21 = item({ Id: 'B21', Kind: 'step', Title: 'Round the pool', State: 'rev
 const B22 = item({ Id: 'B22', Kind: 'step', Title: 'Quality Assurance: B21 Round the pool', State: 'done', Owner: 'Checker', Goal: 'G29', Checks: 'B21' })
 const B23 = item({ Id: 'B23', Kind: 'step', Title: 'Wall stripes', State: 'review', Owner: 'Painter', Goal: 'G7' }, { Checked: ['Score: 60 of 75'] })
 const B24 = item({ Id: 'B24', Kind: 'step', Title: 'Moat walls', State: 'review', Owner: 'Painter', Goal: 'G29' }, { Checked: ['Score: 80 of 75'] })
-const ITEMS = new Map([['B21', B21], ['B22', B22], ['B23', B23], ['B24', B24]])
+// B25: a step of another goal (G7) in progress: a look of it keeps its route (the focus goal's looks wait for the recap).
+const B25 = item({ Id: 'B25', Kind: 'step', Title: 'Hedge trim', State: 'in progress', Owner: 'Painter', Goal: 'G7' })
+const ITEMS = new Map([['B21', B21], ['B22', B22], ['B23', B23], ['B24', B24], ['B25', B25]])
 const ctx = { roleOf: name => ROLES[name] ?? null, items: ITEMS, focusGoal: 'G29', prefix: '' }
 const routeOf = one => autopilotRoute(one, ctx).to
 
@@ -65,7 +67,9 @@ test('the eleven asks of the day, by the rulings of 2026-10-31: chores to the ma
   assert.equal(routeOf(ACCEPT), 'recap', 'an accept or send back below its target waits for the recap')
   assert.equal(routeOf(CHECKER_LOOK), 'recap', 'a look the step\'s checker asks waits for the recap')
   assert.equal(routeOf(BUILDER_LOOK), 'recap', 'a look of a step below its target waits for the recap')
-  assert.equal(routeOf(LOOSE_LOOK), 'person', 'a look below its target under no step')
+  // 2026-11-02 (the person's "A"): its picture names B24, a step of the focus goal: a new look waits for the recap (the live Q590's shape).
+  assert.equal(routeOf(LOOSE_LOOK), 'recap', 'a look whose picture is of a step of the focus goal')
+  assert.equal(routeOf(ask('Q10b', { Title: LOOSE_LOOK.head.get('Title'), Owner: 'Painter', Asks: 'look', Advice: 'accepting it and keeping 75', Via: 'chat' })), 'person', 'a look below its target under no step, of no step')
   assert.equal(routeOf(PLAY_LOOK), 'partner')
 })
 
@@ -73,7 +77,9 @@ test('the recap: only for a step of the focus goal whose demo is still to come o
   // The goal's demo is made (its Demo line) and no recap names B21: nothing would close it, so it is the person's.
   assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusHasDemo: true }).to, 'person')
   assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B21', goal: 'G29' }] }).to, 'recap')
-  assert.equal(autopilotRoute(CHECKER_LOOK, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B99', goal: 'G29' }] }).to, 'person')
+  // A look is no such wait (2026-11-02, the person's "A"): a look of a step of the focus goal waits for the recap, named by a row or not, demo or not.
+  assert.deepEqual(autopilotRoute(CHECKER_LOOK, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B99', goal: 'G29' }] }), { to: 'recap', why: FOCUS_LOOK_WHY })
+  assert.equal(autopilotRoute(CHECKER_LOOK, { ...ctx, focusGoal: null }).to, 'person', 'no focus goal: a recap wait needs one')
   assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusGoal: null }).to, 'person')
 })
 
@@ -91,8 +97,10 @@ test('every row of the plan: partner, advice, recap, main and person', () => {
   assert.equal(routeOf(ask('Q25', { Title: 'Two rows or three?', Owner: 'Partner', Asks: 'decide', Of: 'B30', Via: 'refine' })), 'partner')
   // recap: only for a step of the focus goal; another goal's (or none) is the person's.
   assert.equal(routeOf(ask('Q26', { Title: 'Accept B23 at 60 of 75, or send it back?', Asks: 'decide', Of: 'B23', Via: 'accept', Options: 'A Accept | B Send back' })), 'person')
-  // A look of a step at or above its target is no recap wait.
-  assert.equal(routeOf(ask('Q27', { Title: 'Does the moat look right?', Owner: 'Painter', Asks: 'look', Of: 'B24', Advice: 'yes' })), 'partner')
+  // A look of a step at or above its target is no recap wait of its own, but a new look of the focus goal waits for the recap all the same
+  // (2026-11-02); a look of a step of another goal is the partner's.
+  assert.equal(routeOf(ask('Q27', { Title: 'Does the moat look right?', Owner: 'Painter', Asks: 'look', Of: 'B24', Advice: 'yes' })), 'recap')
+  assert.equal(routeOf(ask('Q27', { Title: 'Does the hedge look right?', Owner: 'Painter', Asks: 'look', Of: 'B25', Advice: 'yes' })), 'partner')
   // main: a do a chat can carry out, from a worker, the partner or the main chat; never the Product owner's.
   assert.equal(routeOf(ask('Q28', { Title: 'Merge B21 into main', Owner: 'Painter', Asks: 'do' })), 'main')
   assert.equal(routeOf(ask('Q29', { Title: 'Run the map export', Owner: 'Partner', Asks: 'do' })), 'main')
@@ -138,7 +146,9 @@ test('the re-review\'s ruling: under a step, Autopilot On asks the person no mor
     const one = detail('Q90', title)
     assert.equal(off(one), true, title)
     assert.equal(routeOf(one), 'partner', title)
-    assert.equal(routeOf(detail('Q91', title, { Asks: 'look' })), 'partner', `look: ${title}`)
+    // A look of the focus goal's step waits for the recap (2026-11-02); the partner answers one of a step of another goal.
+    assert.equal(routeOf(detail('Q91', title, { Asks: 'look', Of: 'B25' })), 'partner', `look: ${title}`)
+    assert.equal(routeOf(detail('Q91', title, { Asks: 'look' })), 'recap', `look of the focus goal: ${title}`)
   }
   // Only these whole phrases make a decide or look under a step the person's.
   for (const [title, name, phrase] of [['Quit and reopen the Claude app to load it?', 'the Claude app', 'Quit and reopen the Claude app'], ['Sign in to the art shop for the pack?', 'a sign-in', 'Sign in'],
@@ -358,7 +368,8 @@ test('the last re-check (2026-10-31): a look or decide that accepts a result, le
   assert.equal(routeOf(ask('Q522', { Title: 'Send the moat back for a rounder edge?', Owner: 'Painter', Asks: 'decide', Options: 'A yes | B no', Advice: 'A', Of: 'B24' })), 'recap')
   // "Approve" only below its bar: at or above it, or with no score, it stays a detail for the partner.
   assert.equal(routeOf(ask('Q523', { Title: 'Approve the moat at 70 of 75?', Owner: 'Painter', Asks: 'look', Advice: 'yes' })), 'person')
-  assert.equal(routeOf(ask('Q524', { Title: 'Approve the new icons on the bar?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Of: 'B24' })), 'partner')
+  assert.equal(routeOf(ask('Q524', { Title: 'Approve the new icons on the bar?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Of: 'B25' })), 'partner')
+  assert.equal(routeOf(ask('Q525', { Title: 'Approve the new icons on the bar?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Of: 'B24' })), 'recap', 'a look of the focus goal waits for the recap (2026-11-02)')
 })
 
 test('2026-11-02 (the person: "if autopilot is turned on, the outstanding, needing for attentions get reevaluated and possible resolved if autopilot would answer them"): an ask the focus goal\'s recap asks already waits for the recap', () => {
@@ -391,8 +402,13 @@ test('2026-11-02 (the person: "if autopilot is turned on, the outstanding, needi
 
   // Its step (the live Q578, a look under no step whose picture is of B24): put under the step the recap names, first id of the words.
   assert.deepEqual(autopilotRoute(LOOSE_LOOK, withRows), { to: 'recap', why: 'its step\'s part of the goal\'s recap asks it already', step: 'B24' })
-  assert.deepEqual(autopilotRoute(LOOSE_LOOK, ctx), { to: 'person', why: 'a score below its target, under no step' }, 'no recap names B24: as before')
-  assert.equal(autopilotRoute(LOOSE_LOOK, { ...ctx, recapSteps: [{ step: 'B24', goal: 'G7', path: 'pictures/g7/recap/demo.json' }] }).to, 'person', 'B24 of another goal\'s recap')
+  // No row names B24 (the live Q590's shape: a worker's look, no Of, its picture of a step of the focus goal): it waits for the recap all the
+  // same, put under that step (2026-11-02, the person's "A"). The rows decide only the old why.
+  assert.deepEqual(autopilotRoute(LOOSE_LOOK, ctx), { to: 'recap', why: FOCUS_LOOK_WHY, step: 'B24' })
+  assert.deepEqual(autopilotRoute(LOOSE_LOOK, { ...ctx, recapSteps: [{ step: 'B24', goal: 'G7', path: 'pictures/g7/recap/demo.json' }] }), { to: 'recap', why: FOCUS_LOOK_WHY, step: 'B24' }, "a row of another goal's recap: the store says B24 is the focus goal's")
+  assert.deepEqual(autopilotRoute(LOOSE_LOOK, { ...ctx, focusHasDemo: true }), { to: 'recap', why: FOCUS_LOOK_WHY, step: 'B24' }, "the goal's demo exists already")
+  assert.equal(autopilotRoute(LOOSE_LOOK, { ...ctx, focusGoal: 'G7' }).to, 'person', 'B24 is no step of the focus goal G7: its old route')
+  assert.equal(autopilotRoute(LOOSE_LOOK, { ...ctx, focusGoal: null }).to, 'person', 'no focus goal')
   const named = (more, words = null) => ask('Q33', { Title: 'Is the moat good enough as it is?', Owner: 'Painter', Asks: 'look', Via: 'chat', ...more }, words)
   assert.equal(autopilotRoute(named({ Pictures: 'pictures/B99/a.png, pictures/B24/b.png' }), withRows).step, 'B24', 'the first id a part of the recap names')
   // Only its Pictures name the step (the review of 2026-11-02): a step named in its title or words is no reason to move it.
@@ -405,7 +421,11 @@ test('2026-11-02 (the person: "if autopilot is turned on, the outstanding, needi
   assert.equal(autopilotRoute(named({ Pictures: 'pictures/B23/a.png, pictures/B24/b.png' }), { ...ctx, recapSteps: odd }).step, 'B24', 'and the next id that fits is taken')
   assert.equal(autopilotRoute(named({ Pictures: 'pictures/B50/a.png' }), { ...ctx, recapSteps: [{ step: 'B50', goal: 'G29', path: 'pictures/g29/recap/demo.json' }] }).to, 'person', 'a step the store does not hold')
   assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Asks: 'provide' }), withRows).to, 'person', 'only a look or a decide')
-  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Owner: 'Partner' }), withRows).to, 'person', 'the partner\'s ask under no step stays the person\'s')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Owner: 'Partner', Asks: 'decide' }), withRows).to, 'person', "the partner's decide under no step stays the person's")
+  // A look of any role but the Product owner's (2026-11-02): the partner's too; the Product owner answers for the goal.
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Owner: 'Partner' }), { ...ctx, recapSteps: [] }).to, 'recap', "the partner's look of a step of the focus goal")
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Owner: 'Keeper' }), { ...ctx, recapSteps: [] }).to, 'person', "the Product owner's look stays the person's")
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Owner: 'Lead' }), { ...ctx, recapSteps: [] }).to, 'recap', "the main chat's")
   assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Of: 'B21' }), withRows).to, 'recap', 'under a step it goes as before (the checker\'s look)')
   assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Of: 'B21' }), withRows).step, undefined, 'and is put under no other step')
 })

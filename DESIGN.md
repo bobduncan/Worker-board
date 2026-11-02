@@ -6089,6 +6089,12 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    `routedAway` lists them with the main chat's. The goal demo's Send closes each one under a step of a judged part first
    (`recap-answered`: "Approved in the recap of G<n>, round <r>: ..." or "Sent back ...: "<comment>"", and `Recap verdict:
    approved|sent back (Q<n>)` beside the wait), then the Approve closes the step as accepted, a Send back as sent back (B878).
+   A new look of a step of the focus goal (any asker but the Product owner; its `Of`, else the first step its `Pictures` name)
+   waits for the recap whatever the recap names (the person's "A", 2026-11-02: autopilot.mjs `focusLookOf`); the partner's
+   `escalate` of one is kept there (Route line "Your partner hands this to you; Autopilot keeps it for the goal's recap", its why
+   in History), the pass moves one already handed over (`partnerHandOverOf`), the net keeps it there when no row names its step
+   (`isKeptLook`), the recap card lists it as a tile of its own (`recapCard.looks`, target `{ ask }`), the Product owner's card
+   names it ("Also a look: ... →") and the person answers it in its window (the work action `answer`).
 6. **Refine questions**: while on, a step's open refine questions with advice get it as their answer in the refine block
    (`answerRefine`, as "Take the advice"; History "autopilot: took the advice") and the board types the refine word; one
    without advice sends the refine back with the feedback "autopilot is on: decide it yourself and refine", once per step

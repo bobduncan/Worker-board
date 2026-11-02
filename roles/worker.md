@@ -405,8 +405,9 @@ new step because of the word. If you no longer hold the step (it is in review, d
 
 While Autopilot is on (the user's ⚙ panel, 2026-10-31), your asks are routed as you file them, and the tool's answer says
 where: a choice or a look with your advice goes to the partner, an action (a do) to the main chat, a look of a step
-below its target, or the one you ask as a step's checker, waits for the goal's recap (blocking no more: go on with your
-next work). None stands before the user then: do not put it in a "For you" block. The answer comes to your chat as the
+below its target, the one you ask as a step's checker, or any new look of a step of the focus goal (also one you file under
+no step whose picture is of such a step: the board puts it under that step), waits for the goal's recap (blocking no more:
+go on with your next work). None stands before the user then: do not put it in a "For you" block. The answer comes to your chat as the
 user's would; a recap's answer comes when the user judges the goal's recap, and your step stays as it is until then. Give
 your advice with every choice: without it a partner decides alone. What only the user's hands can do (the Claude app, a
 click, a sign-in, an account, money, an install, a permission, deleting a chat, file, folder or branch for good) and
