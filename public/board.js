@@ -127,6 +127,8 @@ const starting = new Set()
 const pictures = new Map()
 const drawn = {}
 let board = null
+/** Signals change 5 (G1): the board process the last answer came from (`processOf`). */
+let answeredBy = null
 let timer = null
 /** When the board stopped answering; null while it answers. */
 let awaySince = null
@@ -358,6 +360,16 @@ function keptBack(text) {
     focusWords: named(kept.focusWords),
     details: isPlain(kept.details) ? kept.details : null,
   }
+}
+
+/**
+ * Signals change 5 (2026-11-02, G1): which board process answered: its commit and since when it runs (`version.commit`,
+ * `version.since`), or null for a state that does not say. A board started again keeps the page's token, so the page no
+ * longer reloads on its return (which used to clear what the page had on its way, such as `sending` 'board-anew'): it
+ * sees the new process by this instead.
+ */
+function processOf(version) {
+  return typeof version?.commit === 'string' && Number.isFinite(version?.since) ? `${version.commit} ${version.since}` : null
 }
 
 /** B454: the short note after the page loaded itself, for a few seconds (`at`: when it did). */
@@ -1530,7 +1542,8 @@ $('update-note').addEventListener('click', async () => {
   try {
     const answer = await fetch('/api/restart', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: '{}' })
     if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
-    // The board ends and comes back with a new token: the page then loads itself anew (see `read`).
+    // The board ends and its keeper starts it again with the same token (signals change 5): the page goes on without a
+    // reload; the first answer of the new process clears 'board-anew' (see `read`).
   } catch (error) {
     sending.delete('board-anew')
     problems.set('board-anew', `Not started: ${error instanceof Error ? error.message : 'the board did not answer'}`)
@@ -20546,6 +20559,8 @@ const BACK_SHOWN_MS = 60_000
 const GAP_MS = 3 * MIN
 /** Why the board was off, as `board.lastStop.why` says it, in plain words. */
 const WHY_OFF = { restart: 'a new version started', stopped: 'stopped', crash: 'it crashed', unknown: 'the PC slept or the board was ended' }
+/** Signals change 5 (2026-11-02): how the board was started after it, as `board.lastStop.start` says it; nothing when it does not say. */
+const HOW_STARTED = { hand: 'started by hand', keeper: 'started again by itself' }
 
 /** What the banner knows: the last good answer, the failing asks since, a restart announced, and a return to explain. */
 const banner = {
@@ -20556,7 +20571,7 @@ const banner = {
   failure: null,
   /** { at: the board's clock } once the last good answer said the board is leaving, or this page asked for the restart. */
   leaving: null,
-  /** { from, to, why, until: the page's clock } while the line says why the board was off. */
+  /** { from, to, why, start, until: the page's clock } while the line says why the board was off. */
   back: null,
   /** The `to` of the last return explained, so a return is explained once. */
   explained: null,
@@ -20585,7 +20600,10 @@ function bannerOf({ good, failure, leaving, back, openedAt, now }) {
   }
   if (good === null) return { text: 'Reading…', tone: 'quiet' }
   if (good.loopAt !== null && good.boardNow - good.loopAt > GAP_MS) return { text: `Slow · the board answers, but it has not done its work since ${clock(good.loopAt)}`, tone: 'attention' }
-  if (back !== null && now < back.until) return { text: `Running · was off ${clock(back.from)} to ${clock(back.to)} (${WHY_OFF[back.why] ?? WHY_OFF.unknown})`, tone: 'quiet' }
+  if (back !== null && now < back.until) {
+    const how = Object.hasOwn(HOW_STARTED, back.start ?? '') ? `; ${HOW_STARTED[back.start]}` : ''
+    return { text: `Running · was off ${clock(back.from)} to ${clock(back.to)} (${WHY_OFF[back.why] ?? WHY_OFF.unknown}${how})`, tone: 'quiet' }
+  }
   return { text: `Running · updated ${clockSeconds(good.boardNow)}${demo}`, tone: 'quiet' }
 }
 
@@ -20609,7 +20627,7 @@ function bannerAnswered(state) {
   const stop = state.board?.lastStop
   if (stop !== null && stop !== undefined && stop.to !== banner.explained) {
     banner.explained = stop.to
-    banner.back = { from: stop.from, to: stop.to, why: stop.why, until: now + BACK_SHOWN_MS }
+    banner.back = { from: stop.from, to: stop.to, why: stop.why, start: stop.start ?? null, until: now + BACK_SHOWN_MS }
     setTimeout(drawBanner, BACK_SHOWN_MS)
   }
   drawBanner()
@@ -20634,10 +20652,11 @@ async function read() {
   let isAnswered = false
   try {
     const answer = await fetch('/api/state', { headers: { 'X-Board-Token': TOKEN }, cache: 'no-store', signal: limit.signal })
-    // The server was started again and has a new token: a fresh page has it, and every Send of this page fails until
-    // then. B519: so the page loads itself at once, and keeps the answers being typed in sessionStorage across it
-    // (B512 waited for idle, but Send failed on the old token meanwhile). At most once a minute, so a real refusal
-    // cannot make the page load itself over and over.
+    // The server was started cold (the Run pane, start-board.mjs, a chat's Workers mod) and has a new token: a fresh page
+    // has it, and every Send of this page fails until then. B519: so the page loads itself at once, and keeps what the
+    // person did in sessionStorage across it (B524's `keepForReload`). At most once a minute, so a real refusal cannot
+    // make the page load itself over and over. Signals change 5 (2026-11-02): a board its keeper started again (a new
+    // version, a crash) keeps the token, so its page is answered 200 and does not come here.
     if (reloadsOn403(answer.status, { lastAt: Number(sessionStorage.getItem('reloaded-at') ?? 0), now: Date.now() })) {
       sessionStorage.setItem('reloaded-at', String(Date.now()))
       reloadPage()
@@ -20646,6 +20665,14 @@ async function read() {
     if (!answer.ok) throw new Error(String(answer.status))
     const state = await answer.json()
     isAnswered = true
+    // Signals change 5 (G1): the first answer of a new board process ends the restart this page asked for: the note stops
+    // saying "starting", the page counts as idle again, and failing asks later are no "Restarting" any more.
+    const by = processOf(state?.version)
+    if (by !== null && answeredBy !== null && by !== answeredBy) {
+      sending.delete('board-anew')
+      problems.delete('board-anew')
+    }
+    if (by !== null) answeredBy = by
     bannerAnswered(state)
     // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
     if (state?.pause?.state === 'pausing') state.chats = pausedLanes(state.chats, state.pause)
@@ -20657,7 +20684,8 @@ async function read() {
     helpAtStart(state)
   } catch (error) {
     // The board is away (Claude was closed, or the board is being started again) or slow: the page keeps asking, and the
-    // banner says which (Signals change 1). When the board is back it has a new token, and the page loads itself anew.
+    // banner says which (Signals change 1). A board its keeper started again answers with the same token (signals change
+    // 5): the page goes on as it was; one started cold has a new token, and the page loads itself anew (the 403 above).
     if (awaySince === null) awaySince = Date.now()
     // An answer that came but could not be drawn is no silent board.
     if (!isAnswered) bannerFailed(error)

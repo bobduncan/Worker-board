@@ -25,9 +25,9 @@ const PUBLIC = join(HERE, '..', 'public')
 /** A made-up board process: the keeper only listens for its messages and its end. */
 function fakeBoards() {
   const started = []
-  const start = key => {
+  const start = ({ key, token }) => {
     const child = Object.assign(new EventEmitter(), { killed: false, kill() { this.killed = true } })
-    started.push({ key, child })
+    started.push({ key, token, child })
     return child
   }
   return { started, start }
@@ -42,10 +42,101 @@ test('the keeper starts the board anew when it ends asking for that, with the ke
   started[0].child.emit('exit', START_ANEW)
   assert.deepEqual(started.map(one => one.key), [null, 'k'.repeat(64)])
   assert.deepEqual(ended, [])
-  // A board that ends for another reason ends the keeper with its code: the port was taken, or it was stopped.
+  // A board that ends for another reason before it was up ends the keeper with its code: the port was taken, a broken config.
   started[1].child.emit('exit', 1)
   assert.deepEqual(ended, [1])
   assert.equal(started.length, 2)
+})
+
+// Signals change 5 (2026-11-02): on 2026-11-01 the board restarted eight times for landings, and each time the page reloaded
+// on the new token and the recap popup's text was lost. The keeper keeps the page's token as it keeps the chats' key.
+
+test("the keeper hands the page's token and the chats' key to the board it starts anew, and to one it starts after a crash", () => {
+  const { started, start } = fakeBoards()
+  const said = []
+  keep({ start, done: () => {}, say: line => said.push(line) })
+  assert.deepEqual([started[0].key, started[0].token], [null, null], 'a new keeper: the first board makes its own')
+  // The token comes on its own, also from the demo and a board that only shows (they send no key).
+  started[0].child.emit('message', { token: 't'.repeat(64) })
+  started[0].child.emit('message', { up: true })
+  started[0].child.emit('exit', START_ANEW)
+  assert.deepEqual([started[1].key, started[1].token], [null, 't'.repeat(64)])
+  started[1].child.emit('message', { key: 'k'.repeat(64) })
+  started[1].child.emit('message', { token: 't'.repeat(64) })
+  started[1].child.emit('message', { up: true })
+  started[1].child.emit('exit', 1)
+  assert.equal(started.length, 3, 'a board that was up and crashed is started again')
+  assert.deepEqual([started[2].key, started[2].token], ['k'.repeat(64), 't'.repeat(64)], 'with the same key and token')
+  assert.equal(said.length, 1)
+  assert.match(said[0], /crashed \(code 1\): the keeper starts it again/)
+})
+
+test('a cold start is a new keeper: its first board gets no token and makes a new one', () => {
+  const first = fakeBoards()
+  keep({ start: first.start, done: () => {} })
+  first.started[0].child.emit('message', { token: 't'.repeat(64) })
+  const second = fakeBoards()
+  keep({ start: second.start, done: () => {} })
+  assert.deepEqual([second.started[0].key, second.started[0].token], [null, null])
+})
+
+test('a board that crashed after it was up is started again at most 3 times in 10 minutes, then the keeper stops with one line', () => {
+  let now = 0
+  const { started, start } = fakeBoards()
+  const ended = []
+  const said = []
+  keep({ start, done: code => ended.push(code), now: () => now, say: line => said.push(line) })
+  const crash = (code = 1) => {
+    started.at(-1).child.emit('message', { up: true })
+    started.at(-1).child.emit('exit', code)
+  }
+  for (let i = 0; i < 3; i += 1) {
+    now += 60_000
+    crash(i === 1 ? 134 : 1)
+  }
+  assert.deepEqual([started.length, ended], [4, []], 'three crashes in three minutes: started again each time')
+  now += 60_000
+  crash(3221225477)
+  assert.deepEqual([started.length, ended], [4, [3221225477]], 'the fourth within 10 minutes: the keeper stops with the code')
+  assert.match(said.at(-1), /crashed \(code 3221225477\) more than 3 times within 10 minutes: the keeper stops/)
+  // Spread over more than 10 minutes, a crash now and then is started again for ever.
+  const slow = fakeBoards()
+  const slowEnded = []
+  keep({ start: slow.start, done: code => slowEnded.push(code), now: () => now })
+  for (let i = 0; i < 8; i += 1) {
+    now += 4 * 60_000
+    slow.started.at(-1).child.emit('message', { up: true })
+    slow.started.at(-1).child.emit('exit', 1)
+  }
+  assert.deepEqual([slow.started.length, slowEnded], [9, []])
+})
+
+test('a board that ends before it was up (a broken config, a syntax error, the port in use) is not started again', () => {
+  const { started, start } = fakeBoards()
+  const ended = []
+  const said = []
+  keep({ start, done: code => ended.push(code), say: line => said.push(line) })
+  started[0].child.emit('message', { token: 't'.repeat(64) })
+  started[0].child.emit('exit', 1)
+  assert.deepEqual([started.length, ended], [1, [1]])
+  assert.equal(said.length, 1)
+  assert.match(said[0], /ended with code 1 before it was up: the keeper does not start it again/)
+})
+
+test('a board that was stopped (code 0) or that the keeper stops is not started again', () => {
+  const stopped = fakeBoards()
+  const ended = []
+  keep({ start: stopped.start, done: code => ended.push(code) })
+  stopped.started[0].child.emit('message', { up: true })
+  stopped.started[0].child.emit('exit', 0)
+  assert.deepEqual([stopped.started.length, ended], [1, [0]])
+  const kept = fakeBoards()
+  const keptEnded = []
+  const keeper = keep({ start: kept.start, done: code => keptEnded.push(code) })
+  kept.started[0].child.emit('message', { up: true })
+  keeper.stop()
+  kept.started[0].child.emit('exit', null, 'SIGTERM')
+  assert.deepEqual([kept.started.length, keptEnded], [1, []])
 })
 
 test('a board that keeps asking to start anew without getting going makes the keeper give up', () => {
