@@ -876,6 +876,8 @@ const cardOf = task => (task === null ? null : {
 })
 
 const asAnswer = message => (message === undefined ? null : {
+  // The wait line (T22): the word's id, by which the page finds its line in the state's `waits`.
+  id: message.id ?? null,
   at: message.at, verdict: message.verdict ?? null, text: message.text ?? '', state: message.state, ...(message.isHeld === true ? { isHeld: true } : {}),
   // When its chat took it, and when it was typed there.
   takenAt: message.takenAt ?? null, deliveredAt: message.deliveredAt ?? null,

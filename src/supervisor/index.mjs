@@ -338,7 +338,7 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings }) {
       if (told?.ok !== true) return { ok: false, why: told?.why ?? 'no answer' }
       const note = told.started === true ? 'its chat does not run: the main chat was asked to start it'
         : told.copied === true ? 'no Workers mod takes the board\'s words: the word waits to be pasted' : null
-      return { ok: true, session: card.session ?? null, note }
+      return { ok: true, session: card.session ?? null, note, id: typeof told.id === 'string' ? told.id : null }
     },
     tokens: one => sweep.tokens(one),
     memory: sweep.memory ?? null,
@@ -350,7 +350,7 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings }) {
 
 /**
  * Part 2: the sweep as the section shows it: `lastSweep` (`{ at, asked, subject, ended, how, found, tokens, tokenParts, read,
- * note }`, or null; `how` is "told" when its chat's turn ended it, "quiet" when the board ended it because nothing took
+ * note, word }`, or null; `word` the id of its word (T22, the wait line); `how` is "told" when its chat's turn ended it, "quiet" when the board ended it because nothing took
  * its word or ran a turn, null while it runs: the page tells from `read` and `how` whether the chat of an asked sweep
  * started), `sweepNote` (why the newest sweep did not run, `{ at, why, asked }`, when newer than the last one),
  * `sweepEvery` (minutes; 0 for none) and `sweepsToday` (`{ count, tokens }`: the sweeps that ended in the last day and

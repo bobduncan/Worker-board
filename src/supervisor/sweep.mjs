@@ -113,6 +113,8 @@ function sweepOf(value) {
     read: value.read === true, tokens: number('tokens'), tokenParts: value.tokenParts !== null && typeof value.tokenParts === 'object' ? value.tokenParts : null,
     tokensRead: value.tokensRead === true, session: typeof value.session === 'string' ? value.session : null, from: number('from') ?? value.at,
     note: typeof value.note === 'string' ? value.note : null,
+    // The wait line (T22): the id of the sweep's word, by which the page finds its line in the state's `waits`.
+    word: typeof value.word === 'string' ? value.word : null,
     // Cheaper sweeps: what the sweep saw (`facts`: its odd lines and the rules tripped), so the next one by the clock waits for something new.
     // A file from before holds a hash: no facts known, so the next one runs.
     facts: factsOfFile(value.facts),
@@ -196,9 +198,10 @@ export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = asyn
     }
     // The review: the sweep before it is kept with its tokens before it gives way (a Check now right after its end).
     await readTokens(now, true)
-    last = { at: now, asked, subject, ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, tokensRead: false, session: woke.session ?? null, from: now, note: woke.note ?? null, facts: seen ?? null }
+    last = { at: now, asked, subject, ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, tokensRead: false, session: woke.session ?? null, from: now, note: woke.note ?? null, word: woke.id ?? null, facts: seen ?? null }
     await save()
-    return { started: true, why: null, note: last.note }
+    // The wait line (T22): the word's id, so the page draws the sweep's line from the press on.
+    return { started: true, why: null, note: last.note, ...(last.word === null ? {} : { said: last.word }) }
   }
   return {
     /** The schedule: a sweep when one is due and work runs; the end of one whose chat went quiet; its tokens. */

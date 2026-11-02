@@ -126,7 +126,9 @@ test('the Send on a goal demo: feedback.json, the words on the step once, one wo
 
   const sent = await send({ round: 1, parts: [{ key: '1. Lava', verdict: 'approved' }, { key: '2. Cliffs', verdict: 'approved', comment: 'good' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }] })
   assert.equal(sent.status, 200, sent.body)
-  assert.deepEqual(JSON.parse(sent.body), { round: 1, approved: 2, sentBack: 1, done: false, notedOn: 'B12', closed: [] })
+  // T22: with `said`, the id of the word to the partner, by which the page draws the Send's wait line.
+  const { said: firstSaid, ...sentResult } = JSON.parse(sent.body)
+  assert.deepEqual(sentResult, { round: 1, approved: 2, sentBack: 1, done: false, notedOn: 'B12', closed: [] })
   const kept = JSON.parse(await readFile(join(project, 'pictures', 'g6', 'feedback.json'), 'utf8'))
   assert.deepEqual(kept.rounds[0].parts, [{ key: '1. Lava', verdict: 'approved', comment: '' }, { key: '2. Cliffs', verdict: 'approved', comment: 'good' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }])
   // The step's "Your words" holds the round as one point (its history line quotes it too).
@@ -136,6 +138,10 @@ test('the Send on a goal demo: feedback.json, the words on the step once, one wo
   assert.match(yours, /Recap feedback, round 1: 2 approved, 1 sent back\./)
   const toldPartner = await until(async () => { const found = await toPartner(); return found.length > 0 ? found : null }, 'the word to the partner')
   assert.equal(toldPartner.length, 1)
+  assert.equal(firstSaid, toldPartner[0].id)
+  // T22: the state carries the Send's wait line by that id, until the partner's next tries are filed.
+  const state = await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
+  assert.deepEqual([state.waits?.[firstSaid]?.command, state.waits?.[firstSaid]?.about, state.waits?.[firstSaid]?.state], ['recap-feedback', 'G6', 'sent'])
   assert.match(toldPartner[0].text, /recap feedback: G6 The polish, round 1: 1 part sent back\nStep: B12\n/)
   assert.match(toldPartner[0].text, /- 3\. Round shapes: "still stepped"/)
 
@@ -149,7 +155,9 @@ test('the Send on a goal demo: feedback.json, the words on the step once, one wo
   const second = await demoPage()
   assert.deepEqual([second.feedback.round, rowsOf(second), second.sections[0].rows[0].said, second.feedback.folded.map(one => one.key)], [2, ['3. Round shapes'], { comment: 'still stepped', round: 1 }, ['1. Lava', '2. Cliffs']])
   const done = await send({ round: 2, parts: [{ key: '3. Round shapes', verdict: 'approved' }] })
-  assert.deepEqual(JSON.parse(done.body), { round: 2, approved: 1, sentBack: 0, done: true, notedOn: 'B12', closed: [] })
+  const { said: doneSaid, ...doneResult } = JSON.parse(done.body)
+  assert.deepEqual(doneResult, { round: 2, approved: 1, sentBack: 0, done: true, notedOn: 'B12', closed: [] })
+  assert.equal(typeof doneSaid, 'string')
   const finished = await demoPage()
   assert.deepEqual([finished.feedback.done, finished.feedback.canSend, rowsOf(finished)], [true, false, []])
 })

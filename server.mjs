@@ -97,12 +97,14 @@ import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } fro
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { waitsOf } from './src/waitLine.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
 import { handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn } from './src/supervisor/index.mjs'
+import { buildView } from './src/supervisor/view.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -1166,6 +1168,8 @@ async function main(args) {
       // B878 (X116): the person's Approve closes the steps the part shows that wait in review (done, their verdict in the
       // History); a step sent back gets their words, and the partner's word names it, so the partner makes its fix.
       const closed = []
+      // The wait line (T22): the steps of the parts sent back that wait in review: their next tries filed is this Send's own result.
+      const backSteps = []
       // Autopilot (2026-10-31): each ask that waits for this recap (Route: recap) under a step of a part they judged closes with
       // their verdict first, and its chat is told.
       if (workDir !== null) {
@@ -1184,15 +1188,20 @@ async function main(args) {
         for (const part of said.back) {
           for (const id of part.steps.filter(inReview)) {
             await workAction({ action: 'words', id, text: `Sent back in the recap of ${found.base.goal}, round ${checked.round}: ${part.title}: "${part.comment}"`, where: 'in the goal demo' }, 'person')
+            backSteps.push(id)
           }
         }
       }
       const left = after.sections.flatMap(section => section.rows).filter(row => row.said === undefined).length
-      await toPartner(recapFeedbackWords(state.advisor.name, {
-        goal: found.base.goal, title: found.base.title, step: notedOn ?? found.base.step, round: checked.round, approved: said.approved, back: said.back,
-        done: after.feedback.done, left, path: body.path, job: join(HERE, 'roles', 'partner.md'),
-      }), {}, state)
-      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, done: after.feedback.done, notedOn, closed } }
+      const told = await toPartner({
+        ...recapFeedbackWords(state.advisor.name, {
+          goal: found.base.goal, title: found.base.title, step: notedOn ?? found.base.step, round: checked.round, approved: said.approved, back: said.back,
+          done: after.feedback.done, left, path: body.path, job: join(HERE, 'roles', 'partner.md'),
+        }),
+        // T22: the steps whose next tries make this Send done (src/waitLine.mjs `recapDone`); the page finds its line by `said`.
+        ...(backSteps.length === 0 ? {} : { backSteps: [...new Set(backSteps)] }),
+      }, {}, state)
+      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, done: after.feedback.done, notedOn, closed, said: told.result?.said ?? null } }
     }
     const turn = demoTurn.then(run, run)
     // The caller has the turn itself, with its error; the next Send only waits for this one to end.
@@ -1221,6 +1230,27 @@ async function main(args) {
     const done = await workAction({ action: 'obsolete-check' }, 'person')
     if (!done.ok || done.result.obsoleteCheck === undefined) return done
     return toPartner(obsoleteWords(partner.name, { ids: done.result.obsoleteCheck.ids, job: join(HERE, 'roles', 'partner.md') }), done.result, state)
+  }
+  /**
+   * The wait line (T22): the state's `waits` (src/waitLine.mjs `waitsOf`) from the raw outbox (as rule 8 reads it), the board's
+   * kept turn reports, the store, the obsolete check's record and the supervisor's last sweep. `{}` on the demo, and when the
+   * view cannot be made (a line is information: it never stops the state).
+   */
+  const waitsNow = async (state, stored, supervised) => {
+    if (isDemo) return {}
+    try {
+      const now = clock()
+      const items = stored?.ok === true ? stored.items : new Map()
+      const outbox = store.outbox()
+      const view = buildView({ state, items, outbox, keep, settings: config.supervisor ?? {}, now })
+      const obsolete = workDir === null ? null : (await readObsoleteFile(workDir)).record
+      const waits = waitsOf({ state, outbox, view, reports, items, obsolete, sweep: supervised?.lastSweep ?? null })
+      loops.succeeded('waits')
+      return waits
+    } catch (error) {
+      loops.failed('waits', error)
+      return {}
+    }
   }
   /** B775: the check as the page draws it (src/work/obsolete.mjs `obsoleteView`), null where the board has no store. */
   const obsoleteNow = async state => {
@@ -2264,8 +2294,12 @@ async function main(args) {
       const advisor = refineGateNow === null ? state.advisor : { ...state.advisor, next: withRefineQueue(state.advisor.next, refineQueue(state, sentNow(), refineGateNow, clock()), state.advisor.on) }
       // The Product owner (2026-10-31): the talk partner as the page draws it, the Advisor with its whole queue when it is the one.
       const talkPartner = talkPartnerOf({ ...state, advisor })
+      // The wait line (T22, the person, 2026-11-02: "the status if its being picked up or not. I want to know whats going on"):
+      // the line of every word an action of the person typed in the last 24 h, by its id (src/waitLine.mjs), judged with
+      // the supervisor's own view of this moment, so a card's "Not picked up" and rule 8's alarm read one function.
+      const waits = await waitsNow(state, stored ?? (workDir === null ? undefined : await work()), supervised)
       // Light state (2026-10-31): the finished steps go light to the page (src/state.mjs lightState); `step` gives one whole.
-      return lightState({ ...state, advisor, talkPartner, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
+      return lightState({ ...state, advisor, talkPartner, waits, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
         // Signals change 1: the board's own clock, its work loop's last run, a restart on its way, and why it was off.
         board: boardView({ now: clock(), startedAt, aliveAt: store.aliveAt?.() ?? null, leaving, waiting: updateShown?.state === 'waiting' ? updateShown : null, lastStop: lastStopOf(store.startedGap ?? null, startedAt) }), mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.

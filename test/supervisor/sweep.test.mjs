@@ -62,7 +62,8 @@ function board({ working = true, pause = null, limits = {}, chat = { named: 'Wat
       const message = { id: `w${outbox.length + 1}`, at: now, ...words, state: 'waiting' }
       outbox.push(message)
       told.push(message)
-      return { ok: true, started: chat.card?.isRunning === false, copied: false }
+      // As the server's tell (server.mjs): the word's id with it (T22, the wait line).
+      return { ok: true, id: message.id, started: chat.card?.isRunning === false, copied: false }
     },
     sweep: {
       chat: async () => chat,
@@ -196,10 +197,11 @@ test('Check now runs the rules and sweeps at once, about the worker of its menu;
   const done = await b.supervisor.checkNow({ subject: 'Digger' })
   assert.equal(done.run.asked, true)
   assert.equal(done.run.subject, 'Digger')
-  assert.deepEqual(done.sweep, { started: true, why: null, note: null })
+  // T22: with the id of its word, by which the page draws the sweep's wait line.
+  assert.deepEqual(done.sweep, { started: true, why: null, note: null, said: b.sweeps()[0].id })
   assert.match(b.sweeps()[0].text, /then end your turn \(about Digger\)\n/)
   assert.equal(b.sweeps()[0].about, 'Digger')
-  assert.deepEqual({ ...b.view().lastSweep, at: 0 }, { at: 0, asked: true, subject: 'Digger', ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, note: null })
+  assert.deepEqual({ ...b.view().lastSweep, at: 0 }, { at: 0, asked: true, subject: 'Digger', ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, note: null, word: b.sweeps()[0].id })
   const again = await b.supervisor.checkNow({})
   assert.deepEqual([again.sweep.started, again.sweep.why], [false, 'the sweep asked at 12:00 still runs'])
   assert.ok(again.run !== null, 'the rules ran all the same')
@@ -229,7 +231,7 @@ test('Review Focus 4: with the supervisor\'s chat missing, Check now runs the ru
   assert.equal(whyNoSweep({ named: 'Watcher', card: WATCHER, withoutMod: false, mod: undefined }), null)
   // A chat that does not run is woken as any chat: the main chat is asked to start it, and the section says so.
   const stopped = board({ chat: { named: 'Watcher', title: 'Game - Watcher', card: { ...WATCHER, isRunning: false }, withoutMod: false, mod: undefined } })
-  assert.deepEqual((await stopped.supervisor.checkNow({})).sweep, { started: true, why: null, note: 'its chat does not run: the main chat was asked to start it' })
+  assert.deepEqual((await stopped.supervisor.checkNow({})).sweep, { started: true, why: null, note: 'its chat does not run: the main chat was asked to start it', said: stopped.sweeps().at(-1).id })
   // The person pauses, or a limit is full: said too.
   assert.equal((await board({ pause: { state: 'pausing', since: START } }).supervisor.checkNow({})).sweep.why, 'the person pauses all chats')
   assert.equal((await board({ limits: { week: { used: 100, level: 'full' } } }).supervisor.checkNow({})).sweep.why, 'a limit of the plan is full')
@@ -380,7 +382,7 @@ test('the review: a word left "taken" (its typing never reported) or "waiting" p
   taken.outbox[1].state = 'delivered'
   await taken.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START + 11 * MIN })
   taken.at(13)
-  assert.deepEqual((await taken.supervisor.checkNow({})).sweep, { started: true, why: null, note: null })
+  assert.deepEqual((await taken.supervisor.checkNow({})).sweep, { started: true, why: null, note: null, said: taken.sweeps().at(-1).id })
   // Never taken (its chat did not run): after its time the word is lost, the sweep ended, and the next one is asked.
   const lost = board()
   await lost.tick()
