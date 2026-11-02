@@ -16,7 +16,7 @@ import { parseAutopilotCleared, startedCleared, addedCleared, clearedItem, isLiv
 import { workApi } from '../src/work/api.mjs'
 import { routedAwayOf, storeNeeds } from '../src/work/lists.mjs'
 import { stamp } from '../src/work/migrate.mjs'
-import { readAutopilotClearedFile, readObsoleteFile, readStore } from '../src/work/store.mjs'
+import { readAutopilotClearedFile, readObsoleteFile, readStore, writeAutopilotClearedFile } from '../src/work/store.mjs'
 import { openItemsOf } from '../src/work/obsolete.mjs'
 
 const MIN = 60_000
@@ -35,7 +35,7 @@ const ask = (id, fields, words = null, { routed = false, route = [] } = {}) => t
   { Text: [words ?? fields.Title], ...(route.length === 0 ? {} : { Route: route }), History: [`- ${at(50)} ${fields.Owner ?? 'server'}: asked (${fields.Asks ?? 'decide'})`, ...(routed ? [`- ${at(5)} server: autopilot: routed to person`] : [])] },
 )
 const step = (id, fields, sections = {}) => text({ Id: id, Kind: 'step', Activity: 'Garden', Since: at(90), ...fields }, { ...sections, History: [`- ${at(90)} Lead: made`] })
-const incident = (id, title) => text({ Id: id, Kind: 'incident', Title: title, State: 'open', Since: at(300) }, { History: [`- ${at(300)} server: opened`] })
+const incident = (id, title, state = 'open') => text({ Id: id, Kind: 'incident', Title: title, State: state, Since: at(300) }, { History: [`- ${at(300)} server: opened`] })
 
 async function storeWith(files) {
   const dir = await mkdtemp(join(tmpdir(), 'autopilot-attention-'))
@@ -179,58 +179,64 @@ test('the Advisor\'s check by Autopilot judges only what stands for the person, 
     B60: step('B60', { Title: 'Plant the hedge', State: 'in progress', Owner: 'Painter', Goal: 'G30' }),
     B61: step('B61', { Title: 'Label the hedge', State: 'queued', Goal: 'G30' }),
     // Stands for the person: no route, and the board's own person route; one routed away is none of the check's.
-    Q10: ask('Q10', { Title: 'Which spade for the hedge?', Owner: 'Painter', Asks: 'provide', Of: 'B60', Via: 'chat' }),
+    Q10: ask('Q10', { Title: 'Which spade for the hedge?', Owner: 'Painter', Asks: 'provide', Of: 'B60', Via: 'chat', Blocking: 'yes' }),
     Q11: ask('Q11', { Title: 'Restart the board for the hedge popup?', Owner: 'Painter', Asks: 'provide', Via: 'chat', Route: 'person' }, null, { routed: true }),
     Q12: ask('Q12', { Title: 'Icons or words on the bar?', Owner: 'Painter', Asks: 'decide', Of: 'B60', Via: 'chat', Route: 'partner' }),
     Q13: ask('Q13', { Title: 'Shorter names on the hedge labels? A: yes B: no', Owner: 'Partner', Asks: 'decide', Of: 'B61', Via: 'refine' }),
-    X1: incident('X1', 'A watch rule fired twice'),
+    // An incident that came back: its Undo gives it that state again, not "open".
+    X1: incident('X1', 'A watch rule fired twice', 'came back'),
   })
   t.after(() => rm(dir, { recursive: true, force: true }))
   await pass(dir, { sweep: true })
-  // The check by Autopilot: the open asks that stand for the person, and the incident.
+  // The check by Autopilot: the open asks that stand for the person, and the incident; never a refine question (Q13: Autopilot
+  // answers those itself, and closing one would tick its step done).
   const checked = await person(dir, { action: 'obsolete-check', by: 'autopilot' }, NOW + MIN)
   assert.equal(checked.ok, true, checked.why)
-  assert.deepEqual(checked.result.obsoleteCheck.ids, ['Q10', 'Q11', 'Q13', 'X1'], 'not Q1 and Q2 (in the recap), not Q12 (the partner\'s)')
+  assert.deepEqual(checked.result.obsoleteCheck.ids, ['Q10', 'Q11', 'X1'], 'not Q1 and Q2 (in the recap), not Q12 (the partner\'s), not Q13 (a refine question)')
   const file = await readObsoleteFile(dir)
   assert.equal(file.record.by, 'autopilot')
-  // The Advisor's verdicts: Q10, Q13 and X1 are obsolete.
-  const verdicts = await chat(dir, 'Partner', { action: 'obsolete', points: ['obsolete: Q10 · the spade was chosen · B60 is in progress', 'open: Q11 · still needed', 'obsolete: Q13 · its step has been refined again', 'obsolete: X1 · a false alarm'] }, NOW + 2 * MIN)
+  // The Advisor's verdicts: Q10 and X1 are obsolete; a line for the refine question is refused (it is not in this check).
+  const stray = await chat(dir, 'Partner', { action: 'obsolete', points: ['obsolete: Q13 · its step has been refined again'] }, NOW + 2 * MIN)
+  assert.equal(stray.status, 400)
+  const verdicts = await chat(dir, 'Partner', { action: 'obsolete', points: ['obsolete: Q10 · the spade was chosen · B60 is in progress', 'open: Q11 · still needed', 'obsolete: X1 · a false alarm'] }, NOW + 2 * MIN)
   assert.equal(verdicts.ok, true, verdicts.why)
-  assert.deepEqual(verdicts.result.closed, ['Q10', 'Q13', 'X1'])
+  assert.deepEqual(verdicts.result.closed, ['Q10', 'X1'])
   const record = await cleared(dir)
-  assert.equal(record.at, NOW, 'the record of the switch-on holds the closes too')
-  assert.deepEqual(record.items.map(one => [one.id, one.how, one.why]), [
-    ['Q1', 'recap', 'moved into your recap'], ['Q2', 'recap', 'moved into your recap'],
-    ['Q10', 'closed', 'the spade was chosen'], ['Q13', 'closed', 'its step has been refined again'], ['X1', 'closed', 'a false alarm'],
+  assert.equal(record.at, NOW + 2 * MIN, 'the record holds the closes too, from the newest clear')
+  assert.deepEqual(record.items.map(one => [one.id, one.how, one.why, one.was]), [
+    ['Q1', 'recap', 'moved into your recap', undefined], ['Q2', 'recap', 'moved into your recap', undefined],
+    ['Q10', 'closed', 'the spade was chosen', undefined], ['X1', 'closed', 'a false alarm', 'came back'],
   ])
   assert.equal(record.items[2].title, 'Which spade for the hedge?')
   let items = await read(dir)
-  assert.deepEqual(['Q10', 'Q13'].map(id => field(items, id, 'State')), ['withdrawn', 'withdrawn'])
+  assert.equal(field(items, 'Q10', 'State'), 'withdrawn')
   assert.equal(field(items, 'X1', 'State'), 'closed')
-  // The refine question's step was ticked done with it (a step no chat holds): the Undo cannot open that question again.
-  assert.equal(field(items, 'B61', 'State'), 'done')
+  assert.equal(field(items, 'B61', 'State'), 'queued', 'no step is ticked done')
+  assert.equal(field(items, 'Q13', 'State'), 'open', 'the refine question is left alone')
 
   // Undo: the person's alone, once.
   assert.equal((await chat(dir, 'Painter', { action: 'autopilot-undo' })).status, 403)
   const undone = await person(dir, { action: 'autopilot-undo' }, NOW + 5 * MIN)
   assert.equal(undone.ok, true, undone.why)
   assert.deepEqual(undone.result.undone, ['Q1', 'Q2', 'Q10', 'X1'])
-  assert.deepEqual(undone.result.skipped, [{ id: 'Q13', why: 'its step is done' }])
-  assert.equal(undone.result.text, 'Undone 4: Q1, Q2, Q10, X1. Left as it is: Q13 (its step is done).')
+  assert.deepEqual(undone.result.skipped, [])
+  assert.equal(undone.result.text, 'Undone 4: Q1, Q2, Q10, X1.')
   items = await read(dir)
   // A closed ask: open again for the person, with the line that says they took it back, and its step told.
   assert.deepEqual([field(items, 'Q10', 'State'), field(items, 'Q10', 'Route'), field(items, 'Q10', 'Since')], ['open', 'person', stamp(NOW + 5 * MIN)])
   assert.deepEqual(items.get('Q10').sections.get('Route'), ['The person took it back from Autopilot (Undo)'])
-  assert.ok(history(items, 'Q10').at(-1).endsWith('person: reopened: the person\'s Undo of Autopilot\'s clear'))
+  // It was blocking its step, which went on when the ask was closed: it comes back non-blocking and the step is not moved.
+  assert.equal(field(items, 'Q10', 'Blocking'), 'no')
+  assert.deepEqual(history(items, 'Q10').slice(-2).map(line => line.replace(/^- [\d: -]+ /, '')), ['person: reopened: the person\'s Undo of Autopilot\'s clear', 'person: reopened non-blocking: its step went on'])
+  assert.equal(field(items, 'B60', 'State'), 'in progress', 'its step is not moved')
   assert.ok(items.get('B60').sections.get('Context').some(line => line.trim() === 'Q10 reopened by the person\'s Undo'))
-  // An incident: open again. The two moved into the recap: back to the person, with the same line.
-  assert.deepEqual([field(items, 'X1', 'State'), history(items, 'X1').at(-1).replace(/^- [\d: -]+ /, '')], ['open', 'person: reopened: the person\'s Undo of Autopilot\'s clear'])
+  // An incident: back in the state it had before the close. The two moved into the recap: back to the person, with the same line.
+  assert.deepEqual([field(items, 'X1', 'State'), history(items, 'X1').at(-1).replace(/^- [\d: -]+ /, '')], ['came back', 'person: reopened: the person\'s Undo of Autopilot\'s clear'])
   for (const id of ['Q1', 'Q2']) {
     assert.equal(field(items, id, 'Route'), 'person', id)
     assert.deepEqual(items.get(id).sections.get('Route'), ['The person took it back from Autopilot (Undo)'], id)
     assert.ok(history(items, id).at(-1).endsWith('person: autopilot: undone, back to the person'), id)
   }
-  assert.equal(field(items, 'Q13', 'State'), 'withdrawn', 'left as it is')
   assert.equal((await cleared(dir)).undoneAt, NOW + 5 * MIN)
   // They stand in Needs your attention again, and no later pass (the sweep too) routes them away.
   const later = await pass(dir, { sweep: true }, NOW + 8 * MIN)
@@ -284,7 +290,88 @@ test('the record: read as written, bad files are none, a live one is kept by a n
   assert.deepEqual(startedCleared(record, [one], NOW + MIN), { at: NOW + MIN, items: [...record.items, one], undoneAt: null })
   assert.deepEqual(startedCleared({ ...record, undoneAt: NOW }, [one], NOW + MIN).items, [one])
   assert.deepEqual(startedCleared(null, [one], NOW).items, [one])
-  assert.deepEqual(addedCleared(record, [one, one], NOW + MIN), { at: NOW, items: [...record.items, one], undoneAt: null }, 'each item once; the day of the switch-on stays')
+  // Every addition starts the day anew: the newest clear gets its full 24 h for the Undo.
+  assert.deepEqual(addedCleared(record, [one, one], NOW + MIN), { at: NOW + MIN, items: [...record.items, one], undoneAt: null }, 'each item once, from the newest clear')
   assert.deepEqual(addedCleared(null, [one], NOW + MIN), { at: NOW + MIN, items: [one], undoneAt: null })
+  assert.deepEqual(addedCleared({ ...record, undoneAt: NOW }, [one], NOW + MIN).items, [one], 'an undone record is not carried on')
+  // An incident keeps the state it had.
+  assert.equal(clearedItem('X1', 'A rule', 'closed', 'false alarm', 'came back').was, 'came back')
+  assert.equal(parseAutopilotCleared(JSON.stringify({ at: NOW, items: [clearedItem('X1', 'A rule', 'closed', 'false alarm', 'came back'), clearedItem('Q1', 'x', 'closed', 'y')], undoneAt: null })).items.map(item => item.was).join(','), 'came back,')
   assert.equal(openItemsOf(new Map()).length, 0)
+})
+
+test('the switch-on\'s check never replaces one the person started: still checking (late or not), or answered with items left, stays theirs', async t => {
+  const files = () => ({
+    Q20: ask('Q20', { Title: 'Which spade for the hedge?', Owner: 'Painter', Asks: 'provide', Via: 'chat' }),
+    Q21: ask('Q21', { Title: 'Which rake for the hedge?', Owner: 'Painter', Asks: 'provide', Via: 'chat' }),
+  })
+  const dir = await storeWith(files())
+  const dir2 = await storeWith(files())
+  t.after(() => Promise.all([dir, dir2].map(one => rm(one, { recursive: true, force: true }))))
+  const byAutopilot = (where, now) => person(where, { action: 'obsolete-check', by: 'autopilot' }, now)
+  // The person's check waits for the Advisor: refused at once, and when it is late too (a late check may be asked again, but not by Autopilot).
+  assert.equal((await person(dir, { action: 'obsolete-check' }, NOW)).ok, true)
+  const waiting = await byAutopilot(dir, NOW + MIN)
+  assert.equal(waiting.ok, false)
+  assert.equal(waiting.status, 409)
+  const late = await byAutopilot(dir, NOW + 20 * MIN)
+  assert.equal(late.ok, false, 'late: the person\'s to ask again')
+  assert.equal(late.status, 409)
+  assert.match(late.why, /^The person's own check is open/)
+  assert.equal((await readObsoleteFile(dir)).record.by, null, 'the person\'s check is as it was')
+  // Answered with an item left (Q21 stays open): still theirs.
+  const answered = await chat(dir, 'Partner', { action: 'obsolete', points: ['obsolete: Q20 · stale · none', 'unsure: Q21 · cannot tell · none'] }, NOW + 21 * MIN)
+  assert.equal(answered.ok, true, answered.why)
+  assert.equal((await byAutopilot(dir, NOW + 22 * MIN)).status, 409)
+  assert.deepEqual((await readObsoleteFile(dir)).record.items.map(one => one.id), ['Q21'])
+  // Answered with nothing left in it: Autopilot may start its own, and its own old answer is replaced.
+  assert.equal((await person(dir2, { action: 'obsolete-check' }, NOW)).ok, true)
+  assert.equal((await chat(dir2, 'Partner', { action: 'obsolete', points: ['obsolete: Q20 · stale · none', 'obsolete: Q21 · stale · none'] }, NOW + MIN)).ok, true)
+  assert.deepEqual((await readObsoleteFile(dir2)).record.items, [])
+  assert.equal((await byAutopilot(dir2, NOW + 2 * MIN)).result.none, true, 'nothing is open any more: it says so')
+  await writeFile(join(dir2, 'Q22.md'), ask('Q22', { Title: 'Which hoe for the hedge?', Owner: 'Painter', Asks: 'provide', Via: 'chat' }))
+  const own = await byAutopilot(dir2, NOW + 3 * MIN)
+  assert.equal(own.ok, true, own.why)
+  assert.equal((await readObsoleteFile(dir2)).record.by, 'autopilot')
+  assert.equal((await chat(dir2, 'Partner', { action: 'obsolete', points: ['unsure: Q22 · cannot tell · none'] }, NOW + 4 * MIN)).ok, true)
+  assert.equal((await byAutopilot(dir2, NOW + 5 * MIN)).ok, true, 'its own answered check, with an item left, is replaced')
+})
+
+test('Undo is for a day: a record from 24 h ago or more is refused, and the newest clear starts the day anew', async t => {
+  const dir = await storeWith({ ...live(), Q20: ask('Q20', { Title: 'Which spade for the hedge?', Owner: 'Painter', Asks: 'provide', Via: 'chat' }) })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await pass(dir, { sweep: true })
+  assert.equal((await cleared(dir)).at, NOW)
+  // The Advisor's check closes Q20 22 hours later: the record is from then.
+  const later = NOW + 22 * 60 * MIN
+  assert.equal((await person(dir, { action: 'obsolete-check', by: 'autopilot' }, later)).ok, true)
+  const closed = await chat(dir, 'Partner', { action: 'obsolete', points: ['obsolete: Q20 · stale · none'] }, later + MIN)
+  assert.deepEqual(closed.result.closed, ['Q20'])
+  assert.equal((await cleared(dir)).at, later + MIN)
+  // 24 h after the first clear it can still be undone; 24 h after the newest one it cannot.
+  const refused = await person(dir, { action: 'autopilot-undo' }, later + MIN + SHOWN_MS)
+  assert.equal(refused.ok, false)
+  assert.equal(refused.status, 409)
+  assert.equal(refused.why, 'Older than 24 h: nothing undone.')
+  assert.equal((await cleared(dir)).undoneAt, null, 'nothing is marked undone, nothing is opened')
+  assert.equal(field(await read(dir), 'Q20', 'State'), 'withdrawn')
+  const done = await person(dir, { action: 'autopilot-undo' }, NOW + SHOWN_MS + 60 * MIN)
+  assert.equal(done.ok, true, done.why)
+  assert.deepEqual(done.result.undone, ['Q1', 'Q2', 'Q20'])
+})
+
+test('Undo leaves a refine question whose step is done, and an incident or ask that is not as it was closed', async t => {
+  const dir = await storeWith({
+    B62: step('B62', { Title: 'Label the hedge', State: 'done', Goal: 'G30' }),
+    Q22: ask('Q22', { Title: 'Shorter names on the hedge labels? A: yes B: no', Owner: 'Partner', Asks: 'decide', Of: 'B62', Via: 'refine', State: 'withdrawn' }),
+    Q23: ask('Q23', { Title: 'Which spade?', Owner: 'Painter', Asks: 'provide', State: 'open' }),
+    X2: incident('X2', 'A watch rule fired', 'fix'),
+  })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const record = { at: NOW, undoneAt: null, items: [clearedItem('Q22', 'Shorter names?', 'closed', 'stale'), clearedItem('Q23', 'Which spade?', 'closed', 'stale'), clearedItem('X2', 'A watch rule fired', 'closed', 'false alarm', 'open'), clearedItem('Q99', 'Gone', 'closed', 'stale')] }
+  assert.equal((await writeAutopilotClearedFile(dir, record, undefined, { expected: null })).ok, true)
+  const undone = await person(dir, { action: 'autopilot-undo' }, NOW + MIN)
+  assert.equal(undone.ok, true, undone.why)
+  assert.deepEqual(undone.result.undone, [])
+  assert.deepEqual(undone.result.skipped, [{ id: 'Q22', why: 'its step is done' }, { id: 'Q23', why: 'it is open now' }, { id: 'X2', why: 'it is fix now' }, { id: 'Q99', why: 'it is not in the store any more' }])
 })

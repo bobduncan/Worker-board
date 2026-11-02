@@ -13,6 +13,7 @@ export const SHOWN_MS = 24 * 60 * 60_000
 export const HOWS = ['closed', 'recap']
 const TITLE_CHARS = 140
 const WHY_CHARS = 160
+const WAS_CHARS = 40
 
 /** The line on an ask's card that the person took it back from Autopilot (it is theirs now, and never routed again). */
 export const UNDO_ROUTE_LINE = 'The person took it back from Autopilot (Undo)'
@@ -20,13 +21,20 @@ export const UNDO_ROUTE_LINE = 'The person took it back from Autopilot (Undo)'
 export const REOPENED_WORDS = 'reopened: the person\'s Undo of Autopilot\'s clear'
 /** The History line of an ask the Undo took out of the recap. */
 export const UNDONE_WORDS = 'autopilot: undone, back to the person'
+/** The History line of a blocking ask the Undo opened again as a plain ask. */
+export const NON_BLOCKING_WORDS = 'reopened non-blocking: its step went on'
+/** The states an incident the Advisor closed can have had (obsolete.mjs: the ones a check judges): its Undo restores one of these. */
+export const INCIDENT_WAS = ['open', 'came back', 'with the advisor']
 /** The words of an item the switch-on moved into the recap. */
 export const MOVED_WORDS = 'moved into your recap'
 
 const oneLine = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 
-/** One cleared item: `{ id, title, how, why }`, the title and the why in one line each. */
-export const clearedItem = (id, title, how, why) => ({ id: String(id), title: oneLine(title, TITLE_CHARS), how, why: oneLine(why, WHY_CHARS) })
+/**
+ * One cleared item: `{ id, title, how, why }`, the title and the why in one line each; `was` (an incident the Advisor closed): the
+ * state it had before, which its Undo restores.
+ */
+export const clearedItem = (id, title, how, why, was = null) => ({ id: String(id), title: oneLine(title, TITLE_CHARS), how, why: oneLine(why, WHY_CHARS), ...(was === null || was === undefined ? {} : { was: oneLine(was, WAS_CHARS) }) })
 
 /** `autopilot-cleared.json` read: null for none; else `{ at, items: [{ id, title, how, why }], undoneAt }` (`undoneAt` null until the Undo). */
 export function parseAutopilotCleared(text) {
@@ -36,7 +44,7 @@ export function parseAutopilotCleared(text) {
     if (!Number.isFinite(raw?.at) || !Array.isArray(raw.items)) return null
     return {
       at: raw.at,
-      items: raw.items.filter(one => typeof one?.id === 'string' && HOWS.includes(one.how)).map(one => clearedItem(one.id, one.title, one.how, one.why)),
+      items: raw.items.filter(one => typeof one?.id === 'string' && HOWS.includes(one.how)).map(one => clearedItem(one.id, one.title, one.how, one.why, typeof one.was === 'string' && one.was !== '' ? one.was : null)),
       undoneAt: Number.isFinite(raw.undoneAt) ? raw.undoneAt : null,
     }
   } catch {
@@ -58,10 +66,13 @@ export function startedCleared(record, added, now) {
   return { at: now, items: withoutDuplicates([...kept, ...added]), undoneAt: null }
 }
 
-/** The record after the Advisor's closes: the live record with the `added` items, else a new one from `now`. */
+/**
+ * The record after the Advisor's closes: the live record with the `added` items, else a new one; from `now` either way (the
+ * newest clear gets its full SHOWN_MS for the Undo).
+ */
 export function addedCleared(record, added, now) {
-  const base = isLiveCleared(record, now) ? record : { at: now, items: [], undoneAt: null }
-  return { ...base, items: withoutDuplicates([...base.items, ...added]) }
+  const kept = isLiveCleared(record, now) ? record.items : []
+  return { at: now, items: withoutDuplicates([...kept, ...added]), undoneAt: null }
 }
 
 /** The words of the Undo's answer: what was undone and what was left. */

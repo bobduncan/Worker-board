@@ -9,7 +9,7 @@ import test from 'node:test'
 import { readFileSync } from 'node:fs'
 
 import { parseConfig } from '../src/config.mjs'
-import { askedStepsOf, isVerdictAsk, recapCardOf, scoreOf, standingAsksOf, tilePictureOf } from '../src/recapCard.mjs'
+import { askedStepsOf, isVerdictAsk, recapCardOf, scoreOf, standingAsksOf, tilePictureOf, wholeGoalAskOf } from '../src/recapCard.mjs'
 import { recapWaitsOf } from '../src/recaps.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { parseItem } from '../src/work/item.mjs'
@@ -421,4 +421,23 @@ test('2026-11-02 (Autopilot, switched on): the goal\'s own ask moved into the re
   const direct = recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], asked })
   assert.deepEqual([direct.count, direct.tiles.map(one => [one.title, one.picture]), direct.outside], [1, [['The whole goal: play it', 'pictures/g6/whole.png']], []])
   assert.deepEqual(recapCardOf({ goal: 'G6', recapPath: null, waits: [], asked }), null, 'with no recap file the ask is nothing to play')
+})
+
+test('2026-11-02 (review): only the first of the goal\'s own asks is the "play it" tile, every further one is listed outside the card; the link reads in any case and with any slashes', () => {
+  const link = file => `Open the recap and try it: [Open the recap](http://127.0.0.1:4314/#demo=${file}).`
+  const slash = String.fromCharCode(92)
+  const extra = [
+    open('Q23', { Title: link(PATH), Asks: 'do', Route: 'recap' }),
+    open('Q25', { Title: link(PATH.toUpperCase().replace('.JSON', '.json')), Asks: 'do', Route: 'recap' }),
+    open('Q26', { Title: link(PATH.replaceAll('/', slash)), Asks: 'look', Route: 'recap' }),
+  ]
+  const card = waiting(1, { extra }).recapCard
+  assert.equal(card.count, 2, 'Block 1 and one "play it" tile, not three')
+  assert.deepEqual(card.tiles.map(one => one.title), ['Block 1', 'The whole goal: play it'])
+  assert.deepEqual(card.outside, ['Q25', 'Q26'], 'the second and third are listed under the card')
+  // Given as routed asks only, the first is the tile and the rest are outside; a link in other case is the same file.
+  const asked = ['Q31', 'Q32'].map((id, at) => ({ id, of: null, asks: 'do', title: link(at === 0 ? PATH.toUpperCase().replace('.JSON', '.json') : PATH), text: '', pictures: [] }))
+  const direct = recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], asked })
+  assert.deepEqual([direct.count, direct.tiles.length, direct.outside], [1, 1, ['Q32']])
+  assert.equal(wholeGoalAskOf(asked, 'G6', PATH).id, 'Q31')
 })

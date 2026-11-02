@@ -158,7 +158,7 @@ test('switching Autopilot on moves the asks the focus recap asks into the recap,
   assert.equal(await head('Q3', 'State'), 'withdrawn')
   const closed = await file('autopilot-cleared.json')
   assert.deepEqual(closed.items.map(one => [one.id, one.how, one.why]), [['Q1', 'recap', 'moved into your recap'], ['Q2', 'recap', 'moved into your recap'], ['Q3', 'closed', 'the spade was chosen long ago']])
-  assert.equal(closed.at, record.at)
+  assert.ok(closed.at >= record.at, 'the newest clear starts the day anew')
   assert.deepEqual((await state()).autopilotCleared, closed)
 
   // Undo: all three are the person's again; once.
