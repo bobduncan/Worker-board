@@ -248,6 +248,25 @@ export async function readBoards(file) {
 const LOCK_WAIT_MS = 20_000
 const LOCK_OLD_MS = 15_000
 
+/**
+ * 2026-11-02 (the gate's flake "lock EPERM under load", test/twoBoards): on Windows the `wx` open of the lock answers EPERM,
+ * EBUSY or EACCES, not EEXIST, when another process removes or holds the file at that very instant (its own unlock, or the
+ * indexer). Those mean "locked right now" as EEXIST does: wait and try again, never fail the start.
+ */
+export const isLockedNow = error => ['EEXIST', 'EPERM', 'EBUSY', 'EACCES'].includes(error?.code)
+
+/** The lock's removal, tried again a few times when Windows still holds the file (the same EPERM/EBUSY as above). */
+async function removeLock(lock) {
+  for (let tries = 0; ; tries += 1) {
+    try {
+      return await removeFile(lock, undefined, { force: true })
+    } catch (error) {
+      if (!isLockedNow(error) || tries >= 5) throw error
+      await new Promise(done => setTimeout(done, 25 + 25 * tries))
+    }
+  }
+}
+
 /** Runs `work` while this process alone holds the list's lock, so two boards starting at once both stay in it. */
 async function withLock(file, work) {
   const lock = `${file}.lock`
@@ -259,10 +278,10 @@ async function withLock(file, work) {
       await handle.close()
       break
     } catch (error) {
-      if (error?.code !== 'EEXIST') throw error
+      if (!isLockedNow(error)) throw error
       // A lock left by a board that ended in the middle is taken away once it is old.
       const age = await stat(lock).then(found => Date.now() - found.mtimeMs, () => 0)
-      if (age > LOCK_OLD_MS) await removeFile(lock, undefined, { force: true })
+      if (age > LOCK_OLD_MS) await removeLock(lock)
       else if (Date.now() > until) throw new Error(`The list of boards ${file} stays locked (${lock}).`)
       else await new Promise(done => setTimeout(done, 25 + Math.random() * 50))
     }
@@ -270,7 +289,7 @@ async function withLock(file, work) {
   try {
     return await work()
   } finally {
-    await removeFile(lock, undefined, { force: true })
+    await removeLock(lock)
   }
 }
 

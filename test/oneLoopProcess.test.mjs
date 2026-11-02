@@ -215,7 +215,9 @@ test('two board processes on one project: each line goes out once, and the other
   await stop(mine.child)
   const endedAt = Date.now()
   await writeStore(store, steps(['B13', 'B14', 'B15'], ['B14'], ['B13']), undefined, { now: NOW })
-  await until(async () => (await sent(isLineOf('B15'))).length > 0, 'the line of B15, sent by the process that took over', 20_000)
+  // 2026-11-02 (a gate flake under load: "Not within 20 s"): the take-over comes within a run of the other's loop, and a run of
+  // two boards beside the whole gate takes seconds; the wait is the helper's usual 40 s, not a tighter 20.
+  await until(async () => (await sent(isLineOf('B15'))).length > 0, 'the line of B15, sent by the process that took over')
   assert.equal(JSON.parse(await readFile(lock, 'utf8')).pid, other.child.pid, 'the other holds the lock')
   const note = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   assert.equal(note.url, `http://127.0.0.1:${otherPort}`, 'the chats find the one that took over')
