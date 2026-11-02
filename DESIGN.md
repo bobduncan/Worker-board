@@ -1688,6 +1688,12 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   the backlog view again at every rebuild for the folders the steps mention (6% of a core): those folders are worked
   out once per read of the store (the keeper's answer, the same until a change through the board or its 30 s; tests:
   test/sources.test.mjs, B917).
+- **The state kept 5 s (B917 part 4, X93)**: `readState` (server.mjs, `STATE_MS`) keeps the built state 5 s instead
+  of 2 s; every change through the board still resets it, so a change shows at once. Logged on the live board
+  (2026-11-02, 152 s): 913 asks of the state (6 a second: the chats' pings, the page's polls, the loops) and 32 resets
+  (one every 4.8 s), 46 builds. Replayed with a build of 300 ms: 2 s keep 71 builds, 5 s keep 45 (−37%), the wait per
+  ask 118 → 78 ms. The resets bound it: at most about one build per reset. A chat's status pill counts its age at draw
+  time, so the longer keep does not age it (art-inbox/X93/cadence-1.json).
 - **What you see**: under the Backlog tab's head one line, "Store · 370 items · backlog.md is its view" (the problems
   on hover); in a step's window a part "Flow": the strip of states with the step's own marked, and the moves out of it
   with who makes each.
