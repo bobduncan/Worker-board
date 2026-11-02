@@ -512,14 +512,13 @@ export function launchArgv(board: BoardStart, cwd: string): string[] {
 }
 
 /**
- * B944 (X58, X108 x10, X109 x79: "this /clear of the Workers mod was let go before it ran"): every refusal came 9-25 ms after
- * the mod queued its own fresh /clear: the hook took the oldest ticket of a first-in-first-out list, whose head was stale (a
- * dropped clear never took its ticket out, nor did a /clear the app dropped), and refused the fresh one. Now each /clear of
- * the mod carries its own ticket in the command's args and is matched by it; the clear on its way is kept in the mod's
- * store (`PendingClear`), so a reload or a new process still settles its envelope.
+ * B944 (0.30.0, on top of 0.29.1's hooks/clearrun.ts, which runs the clear on its way at whichever /clear of the mod's comes
+ * first): the clear on its way is kept in the mod's store with its envelope, under a key of its own (`clearTicket`: the
+ * process's run and its ticket), so a reload or a new process that runs its /clear by the card's mark still types the
+ * envelope's line and settles it, and one whose /clear never comes settles it failed at the two-minute net.
  */
 export type PendingClear = { ticket: string; from: string; step: string | null; at: number; envelope: Envelope | null; outcome: Outcome | null }
-/** B944: a clear's ticket, unique across this chat's processes: the process's run (its start) and its count. */
+/** B944: the store's key of a clear, unique across this chat's processes: the process's run (its start) and its ticket. */
 export const clearTicket = (run: number, count: number): string => `clear-${Math.round(run)}-${count}`
 const TICKET = /^clear-\d{1,16}-\d{1,9}$/
 
@@ -528,18 +527,6 @@ export function parsePendingClear(raw: unknown): PendingClear | null {
   if (!isRecord(raw) || typeof raw.ticket !== 'string' || !TICKET.test(raw.ticket) || typeof raw.from !== 'string' || typeof raw.at !== 'number' || !Number.isFinite(raw.at)) return null
   const outcome = isRecord(raw.outcome) ? { ...NO_OUTCOME, ...raw.outcome } as Outcome : null
   return { ticket: raw.ticket, from: raw.from, step: typeof raw.step === 'string' && STEP_ID.test(raw.step) ? raw.step : null, at: raw.at, envelope: parseEnvelope(raw.envelope), outcome }
-}
-
-/**
- * B944: which /clear of the mod's this is, by the ticket in its args and the ticket of the clear on its way (null for none):
- * `pending` runs (when nothing came in since); `unnamed` is a /clear of an older process without a ticket (the card's mark
- * decides, as before); `another` and `none` are refused at once, with the true why.
- */
-export function clearFor(args: string, pending: string | null): { verdict: 'pending' | 'unnamed' | 'another' | 'none'; why: string | null } {
-  const ticket = String(args ?? '').trim()
-  if (ticket === '') return { verdict: 'unnamed', why: null }
-  if (pending !== null && ticket === pending) return { verdict: 'pending', why: null }
-  return pending !== null ? { verdict: 'another', why: "the mod's /clear ran for another ticket" } : { verdict: 'none', why: 'no clear was pending' }
 }
 
 /** Pause 2: a step's checkpoint as the board names it (`work step` with `commit` and `next`); null when it has none. */

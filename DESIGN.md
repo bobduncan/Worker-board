@@ -4352,10 +4352,20 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   finished when the board stops is finished at its next start, and once copied nothing needs the app to keep the old
   transcript. Logs go to `<project>/.claude/chat-logs/<chat>/<YYYY-MM-DD HHmm> <step>.txt`.
 - **The clear.** The mod marks the card (`clearing: { at, step, log }`), then queues /clear with a ticket; its own
-  `command.run` hook runs a /clear of the mod only as the one of the clear still on its way (its ticket), while no
-  prompt or turn came in since it was decided; any other is refused (a stale one after the clear was dropped, also
-  much later). A real turn on the same session drops the clear at its start, and its end is told to the board as any
-  turn's; a clear that has not run within two minutes is let go. A /clear queued before the mod was loaded anew runs
+  `command.run` hook runs the clear still on its way at a /clear of the mod, while that clear's session is this one, no
+  turn runs and no prompt or turn came in since it was decided; one after a prompt or turn drops it at once (its why to
+  the card, an envelope's to the board); one with no clear on its way is refused (a stale one after the clear was
+  dropped, also much later), and one whose clear was decided on a session cleared since never clears the fresh
+  conversation. B944 (mod 0.29.1, `hooks/clearrun.ts`): until 0.29.0 the /clear ran only when its ticket was the
+  oldest in the mod's queue; that queue lives in the hooks module and the /clear in the engine's queue, so once the
+  two fell out of step (a /clear the module never saw, or a hooks worker the engine replaced mid-session, its state
+  started over) every later clear of that process was refused as "let go" while still on its way, until the
+  two-minute let-go and the chat's restart (X108, X109, X134, X135: Worker 3 21:25, Worker 4 21:31 on 2026-11-02,
+  each /clear run and refused within 20 ms). Now whichever /clear of the mod's comes first runs it, and its ticket
+  and every older one are used up. Limits: what put the queues out of step is not seen in the logs (the engine's
+  rules allow both reasons above); a /clear that never comes at all is still let go after two minutes, its why on the
+  card and to the board. A real turn on the same session drops the clear at its start, and its end is told to the
+  board as any turn's; a clear that has not run within two minutes is let go. A /clear queued before the mod was loaded anew runs
   only on the card's fresh mark, with nothing come in since. Should the engine run the /clear or /compact as a turn,
   that turn is none of the chat's (no turn's end told, nothing decided). Nothing is typed into the chat while the clear
   is on its way (a line the board put out waits for the conversation after it). /clear ends the conversation
@@ -6291,6 +6301,21 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    `routedAway` lists them with the main chat's. The goal demo's Send closes each one under a step of a judged part first
    (`recap-answered`: "Approved in the recap of G<n>, round <r>: ..." or "Sent back ...: "<comment>"", and `Recap verdict:
    approved|sent back (Q<n>)` beside the wait), then the Approve closes the step as accepted, a Send back as sent back (B878).
+   A new look of a step of the focus goal (any asker but the Product owner; its `Of`, else the first step its `Pictures` name)
+   that the partner hands to the person waits for the recap whatever the recap names (the person's "A", 2026-11-02, narrowed by
+   the coordinator the same day: a worker's look still goes to the partner, which answers it; autopilot.mjs `focusLookOf`,
+   used only for a hand-over): the partner's `escalate` of one is kept there (Route line "Your partner hands this to you;
+   Autopilot keeps it for the goal's recap", its why in History), the pass moves one already handed over (`partnerHandOverOf`) and
+   keeps it for the Undo at every pass ("kept for your recap"). Such a kept look (`keptLook.mjs`, by that Route line) holds no
+   worker: the step its blocking ask held goes on (parked with its worker on another step) and its worker is woken ("Q<n> waits
+   for the goal's recap: go on"); it is no open ask for the rest rule and the "asks are answered" guard (the step's done still
+   waits for the look through the "no open look" guard). The net keeps only such a look when no row names its step; every other
+   recap wait has the net as before. The recap card lists it as a tile of its own wherever no recap part names its step
+   (`recapCard.looks`, target `{ ask }`; a block's card does not cover it), but shows it only while the card has another reason
+   (a part, a block or the goal's own ask waits) or every block is built (a step in review held only by its kept look counts as
+   built); mid-goal it waits quietly. The Product owner's card names
+   it ("Also a look: ... →") and the person answers it in its window (the work action `answer`, which also writes the step's
+   `Recap verdict: approved|sent back (Q<n>)`).
 6. **Refine questions**: while on, a step's open refine questions with advice get it as their answer in the refine block
    (`answerRefine`, as "Take the advice"; History "autopilot: took the advice") and the board types the refine word; one
    without advice sends the refine back with the feedback "autopilot is on: decide it yourself and refine", once per step

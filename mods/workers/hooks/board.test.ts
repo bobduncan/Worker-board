@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearFor, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
+import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -104,13 +104,8 @@ describe('F (0.30.0): the background work a call of the chat\'s own started, by 
   })
 })
 
-describe('B944: each /clear of the mod carries its ticket and is matched by it', () => {
-  test('the pending ticket runs; another is refused at once with its why; none pending says so; no ticket is an older process of the mod', () => {
-    expect(clearFor('clear-7-2', 'clear-7-2')).toEqual({ verdict: 'pending', why: null })
-    expect(clearFor(' clear-7-2 ', 'clear-7-2').verdict).toBe('pending')
-    expect(clearFor('clear-7-1', 'clear-7-2')).toEqual({ verdict: 'another', why: "the mod's /clear ran for another ticket" })
-    expect(clearFor('clear-7-1', null)).toEqual({ verdict: 'none', why: 'no clear was pending' })
-    expect(clearFor('', 'clear-7-2').verdict).toBe('unnamed')
+describe('B944 (0.30.0): the clear on its way, kept in the mod\'s store', () => {
+  test('its key is unique across the chat\'s processes', () => {
     expect(clearTicket(1730000000000.4, 3)).toBe('clear-1730000000000-3')
   })
 

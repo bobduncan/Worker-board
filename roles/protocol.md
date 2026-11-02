@@ -262,7 +262,8 @@ handover-held). Before that the mod decided it itself (a mod older than 0.27.0 s
 (`stepId`, the mod's own work call, never the model's: the board refuses it for the main chat, the partner, its helper
 and a chat with background work still running, B930: by its mod's fresh idle report, else its transcript), then the mark on the card, then /clear once the chat is idle (a
 prompt or turn that comes in first stops it: a real turn on the same session drops the clear, and a /clear of the mod
-runs only as the one of the clear still on its way). It is compacted instead, its card saying why (`clearNote`), when
+runs the clear still on its way, whichever of the mod's /clear commands comes first (B944, mod 0.29.1), while its
+session is this one and nothing came in since). It is compacted instead, its card saying why (`clearNote`), when
 the board does not answer that it is a worker (`role` in turn-ended's answer), the person pauses, its answer asks the
 person something the board did not file (`unfiled` in turn-ended's answer, which also counts the items past the nine
 the board files), it sent another chat a message in that turn, a subagent of it still runs, or the log could not be

@@ -2788,7 +2788,7 @@ describe('clear after each step', () => {
     expect(fileOf(w)?.clearNote?.why).toBe('a new turn started before the clear ran')
     expect(fileOf(w)?.clearing).toBeUndefined()
     const ran = await $.command.run(CLEAR_BY_MOD)
-    expect(ran.text).toBe('Not cleared: no clear was pending.')
+    expect(ran.text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
     expect(w.commanded).toEqual(['/clear by plugin workers'])
   })
 
@@ -2810,7 +2810,7 @@ describe('clear after each step', () => {
     // The real turn's end is told, also though a clear was on its way when it started.
     expect(ends()).toBe(2)
     // The /clear that was queued comes now, after the turn: refused; and the person's own /clear still runs.
-    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: no clear was pending.')
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
     await $.command.run({ ...CLEAR_ARGS, origin: { kind: 'composer' } } as never)
     expect(w.commanded).toEqual(['/clear by plugin workers', '/clear by composer'])
   })
@@ -2995,7 +2995,7 @@ describe('clear after each step', () => {
     expect(fileOf(w, 'units-2')?.cleared).toEqual({ at: clock.now(), step: 'B12', log: LOG })
   })
 
-  test('B944, the real shape: a /clear queued from a tick reaches no hook of the mod (its ticket was left in the old list); the next clear, at a turn\'s end, runs by its own ticket', async ($, on) => {
+  test('B944, the real shape: a /clear queued from a tick reaches no hook of the mod (its ticket was left in the old list); the next clear, at a turn\'s end, runs whatever the order of the queue', async ($, on) => {
     const clock = mock.clock(on)
     const w = await worker($, on, null)
     w.byAction['save-log'] = { status: 409, text: 'Background work it started is still running: its answer would come into a cleared conversation.' }
@@ -3011,7 +3011,7 @@ describe('clear after each step', () => {
     expect(w.commanded).toEqual(['/clear by plugin workers'])
     await cleared($, w)
     // The next step, reported in the fresh conversation; its turn's end queues a fresh /clear 9-25 ms later in the live case:
-    // matched by its ticket it runs (mutant "match by order": the stale first ticket refuses it, "let go before it ran").
+    // it runs whatever the order of the mod's queue (0.29.1's clearRun; before it, "let go before it ran").
     await $.turn.start({ text: 'go on', turnId: 't2' })
     await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'it is in' } as never)
     await $.turn.complete({ ...ENDED, turnId: 't2' })
@@ -3020,7 +3020,7 @@ describe('clear after each step', () => {
     expect(fileOf(w, 'units-2')?.clearNote).toBeUndefined()
   })
 
-  test('B944: the clear on its way is kept in the store; a new process runs its /clear by its ticket and the envelope\'s line follows; a stale ticket and a /clear with none pending are refused at once', async ($, on) => {
+  test('B944 (0.30.0): the clear on its way is kept in the store; a new process runs its /clear by the card\'s mark and the envelope\'s line follows and is settled', async ($, on) => {
     const clock = mock.clock(on, { now: 50 * MIN })
     const marked: ChatFile = { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 49 * MIN, clearing: { at: 49 * MIN, step: 'B12', log: LOG } }
     const w = world('units', { ...listed({ units: marked }), [BOARD]: board })
@@ -3030,12 +3030,8 @@ describe('clear after each step', () => {
     // What the earlier process kept before it was loaded anew: its clear's ticket, the envelope and its outcome so far.
     w.stored['clear-pending'] = { ticket: 'clear-7-2', from: 'units', step: 'B12', at: 49 * MIN, envelope: env, outcome: { cleared: null, set: null, typed: null, restarted: null, background: false, why: null } }
     await $.session.start(START)
-    // A stale ticket (an earlier clear of that process): refused at once with its why; the kept clear stays on its way.
-    expect((await $.command.run({ ...CLEAR_ARGS, args: 'clear-7-1' } as never)).text).toBe("Not cleared: the mod's /clear ran for another ticket.")
-    expect(w.commanded).toEqual([])
-    expect((w.stored['clear-pending'] as { ticket?: string } | null)?.ticket).toBe('clear-7-2')
-    // Its own /clear runs by its ticket (the app's /clear gets no args), and the store forgets it.
-    expect((await $.command.run({ ...CLEAR_ARGS, args: 'clear-7-2' } as never)).text).toBe('')
+    // Its /clear, queued by the earlier process, comes now: it runs (the card's fresh mark), and the store forgets it.
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('')
     expect(w.commanded).toEqual(['/clear by plugin workers'])
     await settle()
     expect(w.stored['clear-pending']).toBeNull()
@@ -3044,10 +3040,8 @@ describe('clear after each step', () => {
     for (let i = 0; i < 50 && !w.reported.some(body => body.includes('e944')); i++) await settle()
     expect(w.typedIn.some(one => one.endsWith('work: B13 is yours; run work next'))).toBe(true)
     const told = w.reported.map(body => JSON.parse(body) as { handover?: string; outcome?: Record<string, unknown> }).find(body => body.handover === 'e944')
+    // Mutant "no store": the line would never be typed and the envelope never settled (left to the board's net).
     expect([told?.outcome?.cleared, told?.outcome?.typed]).toEqual([true, true])
-    // Another /clear of the mod with nothing on its way: refused at once, "no clear was pending".
-    expect((await $.command.run({ ...CLEAR_ARGS, args: 'clear-7-3' } as never)).text).toBe('Not cleared: no clear was pending.')
-    expect(w.commanded).toEqual(['/clear by plugin workers'])
   })
 
   test('B944: a kept clear whose /clear never comes to the new process is settled at the net: its envelope failed with the why', async ($, on) => {
@@ -3075,10 +3069,10 @@ describe('clear after each step', () => {
     const w = world('units', { ...listed({ units: marked }), [BOARD]: board })
     stand(on, w)
     await $.session.start(START)
-    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: no clear was pending.')
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
     w.files[`${CHATS}/units.json`] = chatText({ ...marked, clearing: { at: 49 * MIN, step: 'B12', log: LOG } })
     await $.prompt.submit({ text: 'go on', origin: { kind: 'composer' } } as never)
-    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: no clear was pending.')
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
     expect(w.commanded).toEqual([])
   })
 
@@ -4295,6 +4289,53 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     for (let i = 0; i < 20; i++) await settle()
     expect(outcomes(w)).toEqual([{ chat: 'Units', session: 'units', handover: ID, outcome: { ...DONE, cleared: false, why: 'a new turn started before the clear ran' } }])
     expect(w.typedIn).toEqual([])
+  })
+
+  // B944 (X134, X135): the clear-only envelope of an idle worker ("free"), as Worker 3 and Worker 4 got it on 2026-11-02.
+  const CLEAR_ONLY = { kind: 'clear', step: null, line: null }
+
+  test('B944, the real case: an idle worker\'s clear whose /clear comes with the mod\'s queue out of step runs, never the two-minute let-go', async ($, on) => {
+    const { w, clock } = await worker($, on, handover(envelope(CLEAR_ONLY), 'free'))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    // The kit ran the queued /clear at once on the same session: the clear is still on its way, and the mod's queue holds no
+    // ticket for the /clear the engine runs now, as in the real chats (each refused it as "let go" within 8 to 19 ms).
+    expect(fileOf(w)?.clearing?.step).toBe('B12')
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('')
+    expect(w.commanded).toEqual(['/clear by plugin workers', '/clear by plugin workers'])
+    await $.session.end({ reason: 'clear', sessionId: w.id, resume: { id: w.id } } as never)
+    w.id = 'units-2'
+    await clock.advance(5000)
+    for (let i = 0; i < 50 && outcomes(w).length === 0; i++) await settle()
+    expect(outcomes(w)).toEqual([{ chat: 'Units', session: 'units-2', handover: ID, outcome: { ...DONE, cleared: true } }])
+    expect(fileOf(w, 'units-2')?.cleared?.step).toBe('B12')
+    await clock.advance(3 * MIN)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(fileOf(w, 'units-2')?.clearNote).toBeUndefined()
+  })
+
+  test('B944: a /clear of the mod after a prompt came in still drops the clear at once, its why told, never a wait', async ($, on) => {
+    const { w, clock } = await worker($, on, handover(envelope(CLEAR_ONLY), 'free'))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    await $.prompt.submit({ text: 'one more thing', origin: { kind: 'composer' } } as never)
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: a new prompt came in before the clear ran.')
+    for (let i = 0; i < 20; i++) await settle()
+    expect(outcomes(w)).toEqual([{ chat: 'Units', session: 'units', handover: ID, outcome: { ...DONE, cleared: false, why: 'a new prompt came in before the clear ran' } }])
+    expect(fileOf(w)?.clearing).toBeUndefined()
+    await clock.advance(3 * MIN)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(fileOf(w)?.clearNote?.why).toBe('a new prompt came in before the clear ran')
+  })
+
+  test('B944: a /clear of the mod after the chat was cleared already never clears the fresh conversation', async ($, on) => {
+    const { w } = await worker($, on, handover(envelope(CLEAR_ONLY), 'free'))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    await $.session.end({ reason: 'clear', sessionId: w.id, resume: { id: w.id } } as never)
+    w.id = 'units-2'
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: this chat was cleared already; this /clear of the Workers mod was let go.')
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
   })
 
   test('change 1: a `handover` with no envelope (the board checks the report): no clear of its own, no compaction, nothing told', async ($, on) => {

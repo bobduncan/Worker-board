@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearFor, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
 import type { Board, BoardStart, Envelope, Handover, Outcome, OwedClear, PauseState, PauseWhere, PendingClear, StopAsk, TurnReport, TurnWords, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -15,6 +15,7 @@ import {
   unfiledAsk, withDone, withPlan, withSend, withState, withStep, workCard,
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
+import { clearRun } from './clearrun'
 import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
 import { STUCK_SHOWN_MS, isShownForTime, popupText } from './popup'
 import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, NO_SESSION_MS, NO_SESSION_WHY, NOT_TRIED_WHY, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
@@ -116,7 +117,7 @@ let myself: { name: string; role: ChatRole } | null = null
  * and its full path), and what the chat had seen then (its prompts and turns), so a prompt that comes in before the
  * clear runs stops it.
  */
-type Clearing = { from: string; chat: ChatFile; step: string | null; log: string | null; file: string | null; at: number; prompts: number; turn: number; ticket: string }
+type Clearing = { from: string; chat: ChatFile; step: string | null; log: string | null; file: string | null; at: number; prompts: number; turn: number; ticket: number; kept?: string }
 /** The chat a /clear ended, with its card: the conversation that follows it is the same chat, under a new session id. */
 type Carried = { from: string; chat: ChatFile; clearing: Clearing | null }
 let carried: Carried | null = null
@@ -129,8 +130,15 @@ let promptCount = 0
 let restTurn = -1
 /** Clear after each step: the start's words for a conversation after a clear, for its first prompt. */
 let pendingStart: string[] = []
-/** Clear after each step: the count of the clears this process queued (each /clear carries its ticket, board.ts `clearTicket`). */
+/**
+ * Clear after each step: the /clear commands this process queued and its hook has not seen yet, oldest first, by
+ * their ticket. B944: a /clear of this mod runs the clear still on its way whatever the order (the engine's queue and
+ * this one fell out of step); its ticket and every older one are used up then.
+ */
+const queuedClears: number[] = []
 let clearTickets = 0
+/** B944 (0.30.0): the ticket of a clear an earlier process kept in the store and this one runs (its envelope comes with it). */
+const KEPT_TICKET = -1
 /** B944: where the mod's store keeps the clear on its way (board.ts `PendingClear`), for a reload or a new process. */
 const CLEAR_KEY = 'clear-pending'
 /** B944: the stored clear a new process found at its first look (`settleStoredClear`), until it is settled. */
@@ -154,7 +162,7 @@ const SETTLE_AGAIN_MS = 2000
  * T8.5: the envelope whose /clear is on its way (the ticket of that clear): once the clear has run, its line is typed into
  * the fresh conversation and it is settled; a clear that is dropped or does not run settles it as failed.
  */
-type Handing = { envelope: Envelope; outcome: Outcome; ticket: string }
+type Handing = { envelope: Envelope; outcome: Outcome; ticket: number }
 let handing: Handing | null = null
 /**
  * T8.5: an envelope whose /clear has run: its line waits for the next ping (`tick`), as a line after a clear always has: the
@@ -1179,7 +1187,8 @@ const CLEAR_WAIT_MS = 2 * 60_000
 /**
  * Clear after each step, at every tick: a clear whose new conversation started without a start this process heard (a
  * new session id, no hook) moves the card now, its start's words kept for the first prompt; a clear that neither ran nor
- * was stopped within two minutes is let go, and the card says so.
+ * was stopped within two minutes is let go, and the card says so. B944: a /clear of the mod's that came while the clear
+ * was on its way ran it or dropped it at once, so this let-go means no /clear came at all.
  */
 async function settleClear($: EngineInterface): Promise<void> {
   const decided = clearing
@@ -1202,7 +1211,7 @@ async function dropClear($: EngineInterface, why: string): Promise<void> {
   if (clearing === null) return
   const dropped = clearing
   clearing = null
-  void forgetClear($, dropped.ticket)
+  if (dropped.kept !== undefined) void forgetClear($, dropped.kept)
   // T8.5: the clear of an envelope that was dropped: the envelope is settled as failed, its line never typed.
   if (handing !== null && handing.ticket === dropped.ticket) void failEnvelope($, handing.envelope, handing.outcome, 'cleared', why).catch(() => null)
   try {
@@ -1217,7 +1226,7 @@ async function dropClear($: EngineInterface, why: string): Promise<void> {
 function markOf(chat: ChatFile, from: string, now: number, within = MARK_MS): Clearing | null {
   const mark = chat.clearing
   if (mark === undefined || now - mark.at >= within) return null
-  return { from, chat, step: mark.step, log: mark.log, file: null, at: mark.at, prompts: promptCount, turn: turnNumber, ticket: '' }
+  return { from, chat, step: mark.step, log: mark.log, file: null, at: mark.at, prompts: promptCount, turn: turnNumber, ticket: 0 }
 }
 
 /**
@@ -1413,29 +1422,32 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
 
 /**
  * Clear after each step: the /clear of a clear decided now (`c`, its mark on the card written), queued for when this chat
- * is idle, as /compact is; the command's own hook looks once more before it runs, and runs only the /clear of the clear
- * still on its way (its ticket). One that does not run is said through `instead`. T8.5: the clear of an envelope
+ * is idle, as /compact is; the command's own hook looks once more before it runs, and runs the clear still on its way
+ * (B944: whichever /clear of the mod's comes first, its guards holding). One that does not run is said through `instead`. T8.5: the clear of an envelope
  * (`handover`) is kept with its ticket (`handing`) before the command goes, so the line follows that very /clear.
  */
 function queueClear($: EngineInterface, c: Omit<Clearing, 'ticket'>, instead: (why: string) => Promise<void>, handover?: { envelope: Envelope; outcome: Outcome }): void {
   clearTickets += 1
-  // B944: the /clear carries its ticket in its args; the hook matches the clear on its way by it, never by order.
-  const ticket = clearTicket(reportRun, clearTickets)
-  clearing = { ...c, ticket }
+  const ticket = clearTickets
+  // B944 (0.30.0): the clear on its way is kept in the mod's store under a key of its own (this process's run and its
+  // ticket), with its envelope, so a reload or a new process still runs it and settles the envelope.
+  const key = clearTicket(reportRun, ticket)
+  clearing = { ...c, ticket, kept: key }
   if (handover !== undefined) handing = { ...handover, ticket }
-  const kept: PendingClear = { ticket, from: c.from, step: c.step, at: c.at, envelope: handover?.envelope ?? null, outcome: handover === undefined ? null : { ...handover.outcome } }
+  queuedClears.push(ticket)
+  const kept: PendingClear = { ticket: key, from: c.from, step: c.step, at: c.at, envelope: handover?.envelope ?? null, outcome: handover === undefined ? null : { ...handover.outcome } }
   void (async () => {
     await $.store.set(CLEAR_KEY, kept).catch(() => undefined)
-    return $.command.run({ command: 'clear', args: ticket })
+    return $.command.run({ command: 'clear' })
   })().then(() => {
-    // B944: the app answered the /clear: it ran (through the hook, or past it: a /clear queued from a tick reaches no hook of
-    // this mod's, which is how the old first-in-first-out list kept stale tickets) or the hook refused it. Either way it is no
-    // longer on its way in the app: the store forgets it (the clear itself is settled by the hook or by the new session).
-    void forgetClear($, ticket)
+    // The app answered the /clear: it ran or the hook refused it; either way the store no longer keeps it on its way.
+    void forgetClear($, key)
   }, async (err: unknown) => {
+    const at = queuedClears.indexOf(ticket)
+    if (at >= 0) queuedClears.splice(at, 1)
+    void forgetClear($, key)
     if (clearing?.ticket !== ticket) return
     clearing = null
-    void forgetClear($, ticket)
     await instead(`/clear did not run: ${reason(err)}`)
   }).catch(() => null)
 }
@@ -1770,7 +1782,7 @@ async function afterClear($: EngineInterface): Promise<Handing | null> {
     if (to === moving.from) return handed
     const done = moving.clearing ?? markOf(moving.chat, moving.from, await $.clock.now())
     // T8.5: the session is a new one: the /clear of the envelope on its way has run.
-    if (done !== null && handing !== null && done.ticket !== '' && handing.ticket === done.ticket) {
+    if (done !== null && handing !== null && done.ticket !== 0 && handing.ticket === done.ticket) {
       handed = handing
       handing = null
     }
@@ -2560,12 +2572,12 @@ const MOVE_WAIT_MS = 1_000
  * the chat and its card by the session id (`joinBySession`). At most PREPARE_MS; anything left is done at the first prompt,
  * as before.
  */
-/** B944: the mod's /clear of `ticket` ran (or the app refused it): the store no longer keeps it on its way. */
-async function ranClear<T>($: EngineInterface, ticket: string, ran: Promise<T>): Promise<T> {
+/** B944 (0.30.0): the mod's /clear ran (or the app refused it): the store no longer keeps that clear (its key) on its way. */
+async function ranClear<T>($: EngineInterface, key: string | null, ran: Promise<T>): Promise<T> {
   try {
     return await ran
   } finally {
-    void forgetClear($, ticket)
+    if (key !== null) void forgetClear($, key)
   }
 }
 
@@ -2901,51 +2913,33 @@ export const register: Register = on => {
   on('command.run', { command: 'clear' }, async ($, e, next) => {
     // The person's own /clear, or another plugin's, runs as it is.
     if (e.origin.kind !== 'plugin' || e.origin.name !== PLUGIN) return clearThenPrepare($, next(e))
-    // B944: this mod's, matched by the ticket in its args (the app's /clear gets none: they are taken off). It runs only as
-    // the /clear of the clear still on its way, while nothing came in; any other is refused at once, with the true why.
-    const ticket = e.args.trim()
-    const bare = { ...e, args: '' }
+    // This mod's: B944, it runs the clear still on its way, whatever the order of its queue (`clearRun`), while that
+    // clear's session is this one and nothing came in since it was decided.
+    const wasEmpty = queuedClears.length === 0
     const decided = clearing
-    const kept = decided === null ? await pendingClearKept($) : null
-    const which = clearFor(ticket, decided !== null && decided.ticket !== '' ? decided.ticket : kept?.ticket ?? null)
-    if (which.verdict === 'pending' && decided !== null) {
-      if (!isInTurn && promptCount === decided.prompts && turnNumber === decided.turn) return ranClear($, ticket, clearThenPrepare($, next(bare)))
+    const run = clearRun(queuedClears, decided, { session: await $.session.id(), isInTurn, prompts: promptCount, turn: turnNumber })
+    queuedClears.splice(0, queuedClears.length, ...run.left)
+    if (run.verdict === 'run') return ranClear($, decided?.kept ?? null, clearThenPrepare($, next(e)))
+    if (run.verdict === 'late') {
       await dropClear($, 'a new prompt came in before the clear ran')
       return { text: 'Not cleared: a new prompt came in before the clear ran.' }
     }
-    if (which.verdict === 'pending' && kept !== null) {
-      // B944: the clear an earlier process of this chat queued (a reload between): its card's fresh mark, nothing came in since;
-      // its envelope's line follows as it would have.
-      const marked = await pendingMark($)
-      if (marked === null) {
-        const why = isInTurn || promptCount !== 0 || turnNumber !== 0 ? 'a new prompt came in before the clear ran' : "its card's mark of the clear is gone or too old"
-        await failKeptClear($, kept, why)
-        return { text: `Not cleared: ${why}.` }
+    // Its session was cleared already: the move after that clear is the tick's (`settleClear`).
+    if (run.verdict === 'moved') return { text: 'Not cleared: this chat was cleared already; this /clear of the Workers mod was let go.' }
+    // Queued before the mod was loaded anew: its card's fresh mark, and nothing came in since.
+    const marked = wasEmpty && decided === null ? await pendingMark($) : null
+    if (marked !== null) {
+      clearing = marked
+      // B944 (0.30.0): the clear an earlier process of this chat queued (a reload, a new process) and kept in the mod's store:
+      // its envelope comes back with it, so its line follows in the fresh conversation and the envelope is settled.
+      const kept = await pendingClearKept($)
+      if (kept !== null && kept.from === marked.from) {
+        clearing = { ...marked, ticket: KEPT_TICKET, kept: kept.ticket }
+        if (kept.envelope !== null) handing = { envelope: kept.envelope, outcome: { ...NO_OUTCOME, ...(kept.outcome ?? {}) }, ticket: KEPT_TICKET }
       }
-      clearing = { ...marked, ticket }
-      if (kept.envelope !== null) handing = { envelope: kept.envelope, outcome: { ...NO_OUTCOME, ...(kept.outcome ?? {}) }, ticket }
-      return ranClear($, ticket, clearThenPrepare($, next(bare)))
+      return ranClear($, clearing.kept ?? null, clearThenPrepare($, next(e)))
     }
-    if (which.verdict === 'unnamed') {
-      // Queued by an older process without a ticket: its card's fresh mark, and nothing came in since (as before 0.30.0).
-      const marked = decided === null && kept === null ? await pendingMark($) : null
-      if (marked !== null) {
-        clearing = marked
-        return clearThenPrepare($, next(bare))
-      }
-      return { text: `Not cleared: ${decided !== null || kept !== null ? "the mod's /clear ran for another ticket" : 'no clear was pending'}.` }
-    }
-    // B944: a stale ticket while another clear is on its way leaves that one be (its own /clear is still to come); one with no
-    // clear on its way says so on the card.
-    if (which.verdict === 'none') {
-      try {
-        const now = await $.clock.now()
-        await changeMine($, mine => (mine.clearing === undefined ? { ...mine, clearNote: { at: now, why: 'no clear was pending' } } : null))
-      } catch {
-        // only the card does not learn of it
-      }
-    }
-    return { text: `Not cleared: ${which.why ?? 'this /clear of the Workers mod was not the one on its way'}.` }
+    return { text: 'Not cleared: this /clear of the Workers mod was let go before it ran.' }
   })
 
   on('command.run', { command: 'git' }, async $ => {
