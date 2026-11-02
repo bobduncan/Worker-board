@@ -165,7 +165,7 @@ test('wakeOf and noticeOf, decision 6: one text, what was tried with times; "nob
 
 test('rowOf: blocked, the newest launch failed, else by itself', () => {
   const record = emptyWakes()
-  assert.deepEqual(rowOf(record, {}), { key: 'wake', title: 'Wake a chat that has work', byCode: true, why: null })
+  assert.deepEqual(rowOf(record, {}), { key: 'launch', title: 'Wake a chat that has work', byCode: true, why: null })
   assert.equal(rowOf(record, { blocked: 'only on Windows' }).byCode, false)
   claim(record, { chat: 'Worker 4', spell: 7, path: 'launch', by: 'board', jobId: 'l', now: at(10, 53) })
   sent(record, 'Worker 4', 'l', at(10, 53))

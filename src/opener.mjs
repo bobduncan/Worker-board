@@ -12,35 +12,26 @@
 // request in its arguments; and a cooldown: when no hand checks in after a launch, the board stops and says so instead
 // of looping (a login whose guard keeps the mod from loading). Pure but for `openChat`, which starts the program (its
 // `spawn` is given in the tests).
+//
+// Signals change 4, B908 (2026-11-02, 10:32-11:08: nine launches of five sleeping workers, PowerShell ok each time, the
+// board logged "started", nothing started; a message from the running Advisor woke Worker 5 in six seconds): the launch
+// is the second path of the one wake procedure (src/wake.mjs), never the first while a running chat's mod can send, and
+// never a verdict. Its counters (OPEN_TRIES, the 3-minute spacing, the failures in a row, the asleep look's own opens and
+// its minute's wait) went into the wake record: one launch per chat and spell, a verdict from the chat's own report.
+// What stays here: whether the hands are gone, the chat the board-wide spell launches, and the launch itself.
 
 import { spawn as nodeSpawn } from 'node:child_process'
 
-import { shownChats } from './bridge.mjs'
-import { isAppId, maySend } from './hands.mjs'
-import { nobodyRunsOf } from './say.mjs'
-import { RESTART_COMMAND } from './work/modRollout.mjs'
+import { maySend } from './hands.mjs'
+import { isSessionId, nobodyRunsSpell, wakeNeeds } from './wake.mjs'
+
+export { isSessionId }
 
 /** No hand checked in for this long: no chat with the Workers mod runs (a running one claims every 20 s). */
 export const HANDS_GONE_MS = 60_000
-/** At most one open in this time. */
-export const OPEN_EVERY_MS = 3 * 60_000
-/** An open after which no hand checked in within this long brought no chat back: a failure. */
-export const OPEN_WAIT_MS = 2 * 60_000
-/** After this many failures in a row the board opens nothing more and says so, until a hand checks in. */
-export const OPEN_TRIES = 2
 /** The check runs once a minute, and once this long after the board starts. */
 export const OPEN_CHECK_MS = 60_000
 export const OPEN_FIRST_MS = 10_000
-/** The page's quiet line about an open stays this long. */
-export const OPEN_SHOWN_MS = 15 * 60_000
-/** OPEN_TRIES in words. */
-const TIMES = OPEN_TRIES === 2 ? 'twice' : `${OPEN_TRIES} times`
-
-/** The words in the outbox only a running chat's hands (or the main chat) carry: start, wake, resume, a new worker, a set, a restart, a remove. */
-export const HAND_WAITS = ['start', 'wake', 'resume', 'spawn', 'worker-effort', 'partner-effort', RESTART_COMMAND, 'remove']
-
-/** A chat's CLI session id as the app's list holds it: a UUID, and nothing else ever reaches the launch. */
-export const isSessionId = session => typeof session === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session)
 
 /**
  * The Claude app's program as the board found it (setup.mjs `findClaude`): an absolute Windows path to `claude.exe`
@@ -56,13 +47,13 @@ export const isFolder = cwd => typeof cwd === 'string' && cwd.length <= 400 && /
  * T14: the newest time a hand that may send claimed (`maySend`: its mod says 'send', or is older than the first that
  * says it), out of `claims`; a chat in Auto mode without the allow rule is no such hand: its sends are denied.
  */
-const newestSender = claims => [...claims.values()].reduce((best, claim) => (Number.isFinite(claim?.at) && claim.at > best && maySend(claim) ? claim.at : best), -Infinity)
+export const newestSender = claims => [...claims.values()].reduce((best, claim) => (Number.isFinite(claim?.at) && claim.at > best && maySend(claim) ? claim.at : best), -Infinity)
 
 /**
  * Whether the hands are gone: no chat that may send (T14) claimed them (`claims`, the server's `codeClaims`, `{ at, can,
  * mod }` by name) within HANDS_GONE_MS. A board younger than that has heard no claim yet from chats that run: then a call
  * of any chat since its start (`calls`, the bridge's `seen.shown`, time by name) says one runs, and the minute's check
- * decides.
+ * decides. Signals change 4: "no sender claims", the wake procedure's fact for its order (decision 8).
  */
 export function handsGone({ claims = new Map(), now, startedAt = -Infinity, calls = {} }) {
   const newest = newestSender(claims)
@@ -72,27 +63,18 @@ export function handsGone({ claims = new Map(), now, startedAt = -Infinity, call
 }
 
 /**
- * Whether something waits that only a hand carries: a waiting word of HAND_WAITS in `outbox` (the server leaves out the
- * late ones), a resume (pause state resuming) with a chat that has not started, or (part 3) an asleep chat whose turn
- * was cut and whose resume word no hand was given for this spell (`asleepSent`, the server's, `{ since }` by chat). Change 4a
- * (2026-10-31, after an hour of stand-still with every chat asleep): and whatever the page itself says waits for a chat that
- * is off (`nobodyRunsOf`, say.mjs: a refine or incident word to the partner, ...), so the banner and the opener read one rule.
+ * Whether something waits that a wake must bring a chat for: a chat that needs waking (src/wake.mjs `wakeNeeds`) or the
+ * board-wide "nobody runs" spell (`nobodyRunsSpell`). Signals change 4: the one rule the banner, the hands and the
+ * launch read.
  */
-export function handWorkWaits(state, outbox = [], { asleepSent = new Map() } = {}) {
-  if ((outbox ?? []).some(message => message?.state === 'waiting' && HAND_WAITS.includes(message.command))) return true
-  if (nobodyRunsOf(state ?? {}, outbox ?? []) !== null) return true
-  if (state?.pause?.state === 'resuming' && (state.pause.waiting ?? []).length > 0) return true
-  // The Product owner (2026-10-31): a talk word waits for its chat while it does not run (no chat runs to wake it by message).
-  const owner = state?.productOwner ?? null
-  if (typeof owner?.name === 'string' && owner.isRunning !== true && (outbox ?? []).some(message => message?.state === 'waiting' && message.to === owner.name)) return true
-  return shownChats(state ?? {}).some(lane => lane.asleep === true && lane.state === 'interrupted' && isAppId(lane.appSession)
-    && Number.isFinite(lane.asleepSince) && asleepSent.get(lane.name)?.since !== lane.asleepSince)
+export function handWorkWaits(state, outbox = [], { resumeList = [] } = {}) {
+  return wakeNeeds(state ?? {}, outbox ?? [], { resumeList }).length > 0 || nobodyRunsSpell(state ?? {}, outbox ?? []) !== null
 }
 
 /**
- * The chat to open, `{ chat, session }`: the main chat while the list has one on the board, else the partner, else the
- * supervisor's chat, else a worker; never a chat left behind or removed. The first of them whose CLI session id (the
- * board's own state, `session`) is a UUID; null when none is.
+ * The chat the board-wide spell launches, `{ chat, session }`: the main chat while the list has one on the board, else the
+ * partner, else the supervisor's chat, else a worker; never a chat left behind or removed. The first of them whose CLI
+ * session id (the board's own state, `session`) is a UUID; null when none is.
  */
 export function chatToOpen(state, outbox = []) {
   const lanes = (state?.chats ?? []).filter(lane => lane?.isLeftover !== true && (lane?.removedAt ?? null) === null)
@@ -103,76 +85,6 @@ export function chatToOpen(state, outbox = []) {
   const order = [ownerWaits ? owner : undefined, lanes.find(lane => lane.isMain === true), state?.advisor, state?.supervisorChat, ...lanes.filter(lane => lane.isMain !== true)]
   const found = order.find(lane => typeof lane?.name === 'string' && isSessionId(lane.session))
   return found === undefined ? null : { chat: found.name, session: found.session }
-}
-
-/**
- * How many opens in a row brought no hand back: the opens (`{ at, ok }`) since the newest claim, each once OPEN_WAIT_MS
- * passed without one (a launch that did not start at once). A hand checking in resets it; T14: a hand that may send, as
- * in `handsGone`, so the claims of Auto-mode workers do not keep the board opening a chat that does not come back.
- */
-export function failuresOf({ opens = [], claims = new Map(), now }) {
-  const back = newestSender(claims)
-  return opens.filter(one => one.at > back && (one.ok !== true || now - one.at >= OPEN_WAIT_MS)).length
-}
-
-/**
- * Change 4a: what one minute's check does, in order (server.mjs `openCheck`): 'main' when the none-runs plan opens a chat
- * (`plan.open` with a `target` from `chatToOpen`): that one launch is the whole check; else 'asleep': the look at the
- * asleep workers with work waiting, whatever the plan's why (nothing waits, cooldown, failures, hands present).
- */
-export function openOrder({ plan, target }) {
-  return plan?.open === true && target !== null && target !== undefined ? 'main' : 'asleep'
-}
-
-/**
- * Whether the board opens a chat now, `{ open, why }`: only while the hands are gone, hand work waits, the person does
- * not pause, the last open (`last`) is OPEN_EVERY_MS ago and fewer than OPEN_TRIES opens in a row brought no hand back.
- */
-export function openPlan({ now, handsGone: gone, waits, paused, last = -Infinity, failures = 0 }) {
-  if (!gone) return { open: false, why: 'a chat with the Workers mod runs' }
-  if (!waits) return { open: false, why: 'nothing waits for a running chat' }
-  if (paused) return { open: false, why: 'the person pauses the chats' }
-  if (failures >= OPEN_TRIES) return { open: false, why: `${failures} opens in a row brought no chat back` }
-  if (now - last < OPEN_EVERY_MS) return { open: false, why: 'a chat was opened less than 3 minutes ago' }
-  return { open: true, why: 'no chat runs and work waits for one' }
-}
-
-/**
- * The person, 2026-10-30 ("why cant the board connect directly to the chats using the same command, bypassing main?"):
- * while other chats run, a worker whose chat is asleep and has work waiting (a step queued for it, or a word of the
- * board's for it) is opened by the board itself, as it opens a chat when none runs. A message cannot wake a closed chat,
- * and a hand in an Auto chat may not send one (X1): seen 2026-10-30 20:16, B775, B774 and B770 queued for Workers 2, 4
- * and 5, all asleep, while Main ran.
- */
-/** Work has waited this long for an asleep worker before the board opens it: a wake by message gets that minute first. */
-export const ASLEEP_WAIT_MS = 60_000
-
-/**
- * The asleep workers with work waiting, `[{ chat, session, since }]`: `since` the start of its asleep spell. The Product owner
- * (2026-10-31) first: asleep with a talk word waiting for it, it is opened the same way, before any worker.
- */
-export function asleepWithWork(state, outbox = []) {
-  const words = new Set((outbox ?? []).filter(message => message?.state === 'waiting' && typeof message.to === 'string').map(message => message.to))
-  const owner = state?.productOwner ?? null
-  const ownerFirst = owner !== null && typeof owner?.name === 'string' && owner.asleep === true && isSessionId(owner.session) && words.has(owner.name) ? [owner] : []
-  return [...ownerFirst, ...(state?.chats ?? [])
-    .filter(lane => lane?.isLeftover !== true && (lane?.removedAt ?? null) === null && lane?.isMain !== true && lane?.asleep === true && isSessionId(lane.session))
-    .filter(lane => (lane.queue ?? []).length > 0 || words.has(lane.name))]
-    .map(lane => ({ chat: lane.name, session: lane.session, since: Number.isFinite(lane.asleepSince) ? lane.asleepSince : -Infinity }))
-}
-
-/**
- * Whether the board opens this asleep worker now, `{ open, why }`: the person does not pause, its work waited
- * ASLEEP_WAIT_MS (`waitingSince`, the server's first sight of it), its last open (`opens`, `{ at, chat, ok }`) is
- * OPEN_EVERY_MS ago, and fewer than OPEN_TRIES opens in this asleep spell (`since`) left it asleep.
- */
-export function asleepPlan({ now, chat, since = -Infinity, waitingSince, opens = [], paused }) {
-  const mine = opens.filter(one => one.chat === chat && one.at > since)
-  if (paused) return { open: false, why: 'the person pauses the chats' }
-  if (!(now - waitingSince >= ASLEEP_WAIT_MS)) return { open: false, why: 'its work waits less than a minute' }
-  if (mine.filter(one => one.ok !== true || now - one.at >= OPEN_WAIT_MS).length >= OPEN_TRIES) return { open: false, why: `${OPEN_TRIES} opens left it asleep` }
-  if (now - (mine.at(-1)?.at ?? -Infinity) < OPEN_EVERY_MS) return { open: false, why: 'it was opened less than 3 minutes ago' }
-  return { open: true, why: 'it is asleep and work waits for it' }
 }
 
 /**
@@ -226,27 +138,4 @@ export function openChat({ exe, session, cwd, spawn = nodeSpawn, waitMs = 30_000
       done(code === 0 ? { launched: true, ok: true, why: null } : { launched: true, ok: false, why: `PowerShell ended with ${code}` })
     })
   })
-}
-
-/**
- * The page's line about the opens, `{ tone, text }` or null: attention once OPEN_TRIES opens in a row brought no chat
- * back; else, for OPEN_SHOWN_MS after the newest open, a quiet line. `timeOf` writes HH:MM.
- */
-export function openerNote({ opens = [], failures = 0, now, timeOf }) {
-  const newest = opens.at(-1)
-  if (newest === undefined) return null
-  if (failures >= OPEN_TRIES) return { tone: 'attention', text: `Opened ${newest.chat} ${TIMES}, but no chat came back: open any chat of the project yourself.` }
-  if (now - newest.at < OPEN_SHOWN_MS) return { tone: 'quiet', text: `Opened ${newest.chat} at ${timeOf(newest.at)} to wake the chats.` }
-  return null
-}
-
-/**
- * The ⚙ panel's row of it among what the board does by itself (B767): by itself, or why not: the board cannot open a
- * chat here (`blocked`), or the last tries brought no chat back (`failed`, the chat of the newest open).
- */
-export function openerRow({ blocked = null, failed = null }) {
-  const row = { key: 'open', title: 'Wake the chats when none runs' }
-  if (blocked !== null) return { ...row, byCode: false, why: blocked }
-  if (failed !== null) return { ...row, byCode: false, why: `the last try failed: no chat came back after the board opened ${failed} ${TIMES}` }
-  return { ...row, byCode: true, why: null }
 }

@@ -18,7 +18,7 @@ import { answer, step, typed } from '../fixtures/lines.mjs'
 import { shownChats } from '../src/bridge.mjs'
 import { laneFromReport } from '../src/chatReport.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { ASLEEP_LINE, asleepOfJob, handJobs } from '../src/hands.mjs'
+import { ASLEEP_LINE } from '../src/hands.mjs'
 import { resumesDue } from '../src/say.mjs'
 import { memoryStore } from '../src/store.mjs'
 import { workApi } from '../src/work/api.mjs'
@@ -30,6 +30,7 @@ import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { storeFromText } from '../src/work/read.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
+import { claim, emptyWakes, nextPath, wakeJobId, wakeNeeds } from '../src/wake.mjs'
 import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
@@ -149,14 +150,17 @@ test('a board start with kept reports older than the start keeps each chat\'s ow
   assert.deepEqual(shown(state, 'Digger'), ['interrupted', false, true, earlier])
 })
 
+/** Signals change 4: the wake message a running chat's hands get for a need (server.mjs hands route), claimed once per spell. */
+const wakeJobs = (record, state, caller, now) => wakeNeeds(state, []).filter(need => need.chat !== caller && need.paths.includes('message')
+  && nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths }) === 'message'
+  && claim(record, { chat: need.chat, spell: need.spell, path: 'message', by: caller, jobId: wakeJobId(need.spell, need.chat), now, paths: need.paths }))
+  .map(need => ({ id: wakeJobId(need.spell, need.chat), to: need.appSession, chat: need.chat, text: need.text }))
+
 test('a chat whose session ended holding a step gets exactly one resume word, by a running chat\'s hands', () => {
   const state = build({ reports: [...REPORTS, report('Digger', 'ended', NOW - 3 * MIN)], appStartedAt: at(17, 0) })
-  const lanes = shownChats(state)
-  const sent = new Map()
-  const { jobs } = handJobs({ caller: 'Lead', lanes, now: NOW, asleepSent: sent })
-  assert.deepEqual(jobs, [{ id: `asleep:${NOW - 3 * MIN}:Digger`, to: 'local_Digger', chat: 'Digger', text: 'resume your step B12 from your checkpoint' }])
-  sent.set('Digger', asleepOfJob(jobs[0].id))
-  assert.deepEqual(handJobs({ caller: 'Lead', lanes, now: NOW + 20_000, asleepSent: sent }).jobs, [])
+  const record = emptyWakes()
+  assert.deepEqual(wakeJobs(record, state, 'Lead', NOW), [{ id: `wake:${NOW - 3 * MIN}:Digger`, to: 'local_Digger', chat: 'Digger', text: 'resume your step B12 from your checkpoint' }])
+  assert.deepEqual(wakeJobs(record, state, 'Lead', NOW + 20_000), [])
   assert.deepEqual(resumesDue(state, []), [])
 })
 
@@ -216,24 +220,21 @@ for (const [why, reports] of [
 
 test('a busy chat with a step gets exactly one resume word per app start: Resume all\'s line, as a hand\'s job', () => {
   const state = build()
-  const lanes = shownChats(state)
-  const sent = new Map()
-  const first = handJobs({ caller: 'Lead', lanes, now: NOW, asleepSent: sent })
-  assert.deepEqual(first.jobs, [{ id: `asleep:${APP}:Digger`, to: 'local_Digger', chat: 'Digger', text: 'resume your step B12 from your checkpoint' }])
-  assert.deepEqual(asleepOfJob(first.jobs[0].id), { since: APP, chat: 'Digger' })
-  // The server keeps what it gave (server.mjs `asleepWoken`): the next claims, every 20 s, give none for this app start.
-  sent.set('Digger', { since: APP, at: NOW })
-  for (const later of [NOW + 20_000, NOW + 40_000, NOW + 10 * MIN]) assert.deepEqual(handJobs({ caller: 'Lead', lanes, now: later, asleepSent: sent }).jobs, [])
+  const record = emptyWakes()
+  const first = wakeJobs(record, state, 'Lead', NOW)
+  assert.deepEqual(first, [{ id: `wake:${APP}:Digger`, to: 'local_Digger', chat: 'Digger', text: 'resume your step B12 from your checkpoint' }])
+  // The wake record keeps what was given: the next claims, every 20 s, give none for this app start.
+  for (const later of [NOW + 20_000, NOW + 40_000, NOW + 10 * MIN]) assert.deepEqual(wakeJobs(record, state, 'Lead', later), [])
   // Nor the board's older resume word after a crash: the asleep chat has its one.
   assert.deepEqual(resumesDue(state, []), [])
   // The next app start is another spell: one word again.
   const again = build({ appStartedAt: at(18, 20) })
-  assert.deepEqual(handJobs({ caller: 'Lead', lanes: shownChats(again), now: NOW, asleepSent: sent }).jobs.map(one => one.id), [`asleep:${at(18, 20)}:Digger`])
+  assert.deepEqual(wakeJobs(record, again, 'Lead', NOW).map(one => one.id), [`wake:${at(18, 20)}:Digger`])
 })
 
 test('while the person pauses no resume word goes, and the page shows the asleep chat Suspended as any paused one', async () => {
   const state = build({ work: storeWith({ pause: { state: 'pausing', since: at(18, 10) } }) })
-  assert.deepEqual(handJobs({ caller: 'Lead', lanes: shownChats(state), now: NOW, isPaused: true }).jobs, [])
+  assert.deepEqual(wakeNeeds(state, []), [])
   const page = {}
   vm.runInNewContext(`${script.match(/^function pausedLanes\([\s\S]*?^}$/m)[0]}\nthis.pausedLanes = pausedLanes`, page)
   // Also with no checkpoint since the pause: it was asleep, nothing of it ran to be cut.
@@ -248,7 +249,7 @@ test('the main chat, the partner and the supervisor: idle is Free, a cut turn ge
   assert.deepEqual([state.advisor.state, state.advisor.asleep], ['free', true])
   assert.deepEqual([state.supervisorChat.state, state.supervisorChat.asleep], ['interrupted', true])
   // Weeder runs and its hands send the words: a line each, no restart, no set.
-  const { jobs } = handJobs({ caller: 'Weeder', lanes: shownChats(state), now: NOW })
+  const jobs = wakeJobs(emptyWakes(), state, 'Weeder', NOW)
   assert.deepEqual(jobs.map(one => [one.chat, one.to, one.text]), [['Lead', 'local_Lead', ASLEEP_LINE], ['Watcher', 'local_Watcher', ASLEEP_LINE]])
   assert.ok(jobs.every(one => Object.keys(one).sort().join() === 'chat,id,text,to'))
 })

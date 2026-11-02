@@ -303,7 +303,8 @@ export function noticeOf(record, needs, now, timeOf, { senderClaims = false, sen
  * board cannot launch a chat here (`blocked`; the message path still runs), or its newest launch failed.
  */
 export function rowOf(record, { blocked = null, timeOf = String } = {}) {
-  const row = { key: 'wake', title: 'Wake a chat that has work' }
+  // Key 'launch': the setup check's own 'wake' row (src/codeJobs.mjs, the hands' send-message tool) has the key 'wake'.
+  const row = { key: 'launch', title: 'Wake a chat that has work' }
   if (blocked !== null) return { ...row, byCode: false, why: `${blocked}; a running chat's message still wakes one` }
   let newest = null
   for (const [chat, entries] of record?.wakes ?? []) {
@@ -314,6 +315,28 @@ export function rowOf(record, { blocked = null, timeOf = String } = {}) {
     return { ...row, byCode: false, why: `the last launch failed: the app did not start ${who} (launched ${timeOf(newest.attempt.at)})` }
   }
   return { ...row, byCode: true, why: null }
+}
+
+/**
+ * C.2 and C.3: what one minute's check launches, `{ key, chat, session, spell }` or null (one launch per check). The
+ * board-wide spell first (`nobody`, nobodyRunsSpell's, while no sender claims): its `target` (opener.mjs `chatToOpen`)
+ * once per spell, and while that launch is pending nothing else (one chat at a time); after it failed, or without it,
+ * the first need (`wakeNeeds`, in order) whose next path is the launch (decision 8: never first while a sender claims).
+ * `key` the record's chat: BOARD_KEY for the board-wide spell.
+ */
+export function launchPlan(record, { needs = [], nobody = null, senderClaims = false, target = null } = {}) {
+  if (senderClaims !== true && nobody !== null && isTime(nobody.since)) {
+    const board = statusOf(record, BOARD_KEY, nobody.since)
+    if (board.spell === nobody.since && board.state === 'launched') return null
+    if (target !== null && nextPath(record, { chat: BOARD_KEY, spell: nobody.since, senderClaims: false, paths: ['launch'] }) === 'launch') {
+      return { key: BOARD_KEY, chat: target.chat, session: target.session, spell: nobody.since }
+    }
+  }
+  for (const need of needs ?? []) {
+    if (!(need.paths ?? []).includes('launch') || !isTime(need.spell)) continue
+    if (nextPath(record, { chat: need.chat, spell: need.spell, senderClaims, paths: need.paths }) === 'launch') return { key: need.chat, chat: need.chat, session: need.session, spell: need.spell }
+  }
+  return null
 }
 
 /** The page's view of the record: the newest spell per chat (the whole record is the file's). */

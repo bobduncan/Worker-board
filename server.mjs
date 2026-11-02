@@ -61,7 +61,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, readDemo, writeFeedback, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { recapFeedbackWords, answerWords, checkSay, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { recapFeedbackWords, answerWords, boardLanes, checkSay, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakeFor, wakesDue, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -90,9 +90,10 @@ import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
-import { OWNER_JOB, OWNER_ROLE, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
-import { STOP_MOD, asleepOfJob, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
-import { OPEN_CHECK_MS, OPEN_FIRST_MS, OPEN_TRIES, asleepPlan, asleepWithWork, chatToOpen, failuresOf, handWorkWaits, handsGone, openChat, openOrder, openPlan, openerNote, openerRow } from './src/opener.mjs'
+import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
+import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
+import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, newestSender, openChat } from './src/opener.mjs'
+import { BOARD_KEY, WAKE_JOB, claim as claimWake, emptyWakes, launchPlan, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
@@ -1482,9 +1483,25 @@ async function main(args) {
   else if (savedReports?.unread != null) setAside.push({ file: basename(REPORTS_FILE), aside: null, why: savedReports.unread })
   const reports = savedReports === null ? null : savedReports.reports
   const reportsSave = reports === null ? null : reportsSaver({ file: REPORTS_FILE, reports, onError: error => loops.failed('reports-file', error), onSaved: () => loops.succeeded('reports-file') })
-  // T13 part 3: the asleep chats a hand was given the resume word for, by name: `{ since (its asleep spell), at }`. Once per
-  // spell (hands.mjs `handJobs`); the state reads it as when the chat was woken. In memory: after a restart it may go once more.
-  const asleepWoken = new Map()
+  // Signals change 4, B908 (2026-11-02): the one wake record (src/wake.mjs): every attempt to wake a chat, by chat and
+  // spell, with its verdict; in data/wakes.json, read here once and written a moment after a change (as reports.json).
+  const WAKES_FILE = join(HERE, 'data', 'wakes.json')
+  const savedWakes = bridgeKey === null || isShowOnly ? null : await readWakes(WAKES_FILE, clock())
+  if (savedWakes?.setAside != null) setAside.push({ file: basename(WAKES_FILE), aside: basename(savedWakes.setAside), why: null })
+  else if (savedWakes?.unread != null) setAside.push({ file: basename(WAKES_FILE), aside: null, why: savedWakes.unread })
+  const wakes = savedWakes?.record ?? emptyWakes()
+  const wakesSave = savedWakes === null ? null : wakesSaver({ file: WAKES_FILE, record: wakes, onError: error => loops.failed('wakes-file', error), onSaved: () => loops.succeeded('wakes-file') })
+  // B767: what each chat's mod said its code may do at its last claim of the hands (`{ can, at, mod, since }` by name; T14:
+  // with its mod's version, null for none said; change 4: `since`, when its claims began, for decision 8's "new sender").
+  const codeClaims = new Map()
+  // T13 part 4: only the board that delivers, on Windows, launches a chat (the wake's second path).
+  const canOpen = !isShowOnly && bridgeKey !== null && config.project !== '' && process.platform === 'win32'
+  /** Change 4: the facts the state reads the wake record with: whether a sender claims, and whether the board can launch. */
+  const wakeFacts = () => {
+    const now = clock()
+    const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
+    return { record: wakes, senderClaims: !gone, canLaunch: canOpen }
+  }
   // B736 (X73, X87, X89): when the board heard no chat at all, and the work calls it answered after the chat's mod gave up.
   const hearing = bridgeKey === null ? null : hearingLog({ startedAt, quietMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000 })
   /**
@@ -1505,6 +1522,16 @@ async function main(args) {
     if (before !== 'idle' && after === 'idle') {
       readState.reset()
       void reconcileSoon()
+    }
+    // Signals change 4 (C.4): the woken chat's own report after a wake attempt, from a new process: the verdict "woke".
+    // The hand-over decides for it once, so its task's net counts from the verdict (the 5-second ping is the earliest).
+    if (checked?.ok === true && entryAfter !== undefined) {
+      const woke = wakeHeard(wakes, checked.chat, entryAfter, clock())
+      if (woke !== null) {
+        sayVerdict(checked.chat, woke)
+        wakesChanged()
+        void decideFor(checked.chat, body?.mod, { kind: 'pass' }).catch(error => loops.failed('handover', error))
+      }
     }
     return answer
   }
@@ -1679,7 +1706,7 @@ async function main(args) {
       aliveAt: historyFrom === undefined ? store.aliveAt?.() ?? null : null,
       seen,
       reports,
-      asleepWakes: asleepWoken,
+      wakes: wakeFacts(),
       hearing: hearing?.view(clock()) ?? null,
       finishedSeen: finishedSeen ?? {},
       taskTimes: taskTimes.tasks,
@@ -1866,105 +1893,102 @@ async function main(args) {
   const freshFor = new Map()
   /** 2026-10-28: the same for the whoami call, kept apart: a session's whoami never uses up the read its first take needs. */
   const freshWho = new Map()
-  /** B753: when a hand last sent a resume line, by `<pause since>:<chat>`, so one goes again only after a while. */
-  const resumesSent = new Map()
   /** B847: when a word to archive a replaced chat last went, by the chat's app id, and why it went (for board.log). */
   const archiveGiven = new Map()
   const archiveWhy = new Map()
-  // B767: what each chat's mod said its code may do at its last claim of the hands (`{ can, at, mod }` by name; T14: with
-  // its mod's version, null for none said), and the last new worker that failed (`{ at, why }`), for the setup check.
-  const codeClaims = new Map()
+  // B767: the last new worker that failed (`{ at, why }`), for the setup check (the claims are above, with the wake record).
   let spawnFail = null
   // B768: when the last lookup of the limits was given to a hand.
   let usageGivenAt = -Infinity
-  // T13 part 4 (the person, 2026-10-28: after a restart work must come back by itself, without a timer that costs tokens):
-  // when no chat's hands checked in for a minute and work waits that only they carry, the board opens one chat in the
-  // Claude app (src/opener.mjs): its process starts and its Workers mod checks in, with no model turn. At most one open in
-  // 3 minutes; after two in a row that brought no hand back it stops, and the page says so. Only the board that delivers,
-  // on Windows. Each open goes into board.log, the last ten (`{ at, chat, ok }`) stay in memory for the page.
-  const canOpen = !isShowOnly && bridgeKey !== null && config.project !== '' && process.platform === 'win32'
-  const opens = []
-  /** T13 part 4: why the board could not launch the app's program at its last try (no program found), or null. */
+  // Signals change 4, B908 (2026-11-02): the wake's minute (in place of 4a's openCheck and openAsleep). On the board that
+  // owns the loops: 1. the verdicts by the clock (src/wake.mjs `pass`: a wake sent 2 minutes ago without the chat's own
+  // report failed) and the board-wide spell's (a hand that may send claimed after its launch); 2. on Windows, ONE launch per
+  // check: the board-wide spell first (nobody runs, no sender claims: the main chat first, `chatToOpen`), and while its
+  // launch is pending nothing else; else the first chat that needs a wake whose next path is the launch (decision 8: never
+  // first while a sender claims). The claim comes before the await of the launch; board.log says "launched", never
+  // "started": a launch is no verdict.
+  /** Why the board could not launch the app's program at its last try (no program found), or null. */
   let openBlocked = null
   let isOpening = false
-  // Change 4a (2026-10-31): the order of one minute's check (src/opener.mjs `openOrder`). 1. Nothing while the board closes or
-  // an open is under way. 2. While the hands are gone and this board owns the loops: the none-runs plan (work waits for a
-  // chat: a hand word, or whatever the page's own banner counts, `nobodyRunsOf`); when it opens a chat (the main chat first),
-  // that launch is the whole check, one per minute. 3. Otherwise, whatever the plan's why (nothing waits, cooldown, failures,
-  // hands present): the look at the asleep workers with work waiting (`openAsleep`), with the state already read.
-  const openCheck = async (given = null) => {
-    if (!canOpen || isClosing || isOpening) return
-    const now = clock()
-    // Next to nothing while a chat runs: its claims are in memory, nothing is read.
-    const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
-    let state = given
-    if (gone && await ownsLoops()) {
-      state = given ?? readState.last() ?? await readState()
-      const outbox = store.outbox().filter(message => !isLate(message, now, keep))
-      const waits = handWorkWaits(state, outbox, { asleepSent: asleepWoken })
-      const plan = openPlan({ now, handsGone: gone, waits, paused: isHolding(state.pause), last: opens.at(-1)?.at ?? -Infinity, failures: failuresOf({ opens, claims: codeClaims, now }) })
-      // The board's own list gives the chat and its session id; nothing of a request goes into the launch.
-      const target = chatToOpen(state, outbox)
-      if (openOrder({ plan, target }) === 'main') {
-        isOpening = true
-        try {
-          const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, config.project) })
-          if (!done.launched) {
-            if (openBlocked !== done.why) console.log(`T13: the board cannot open a chat when none runs: ${done.why}.`)
-            openBlocked = done.why
-            return
-          }
-          openBlocked = null
-          opens.push({ at: now, chat: target.chat, ok: done.ok })
-          if (opens.length > 10) opens.shift()
-          console.log(`T13: no chat ran and work waited: opened ${target.chat} (${target.session}) in the Claude app at ${timeOf(now)}: ${done.ok ? 'started' : done.why}.`)
-        } finally {
-          isOpening = false
-        }
-        return
-      }
-    }
-    return openAsleep(now, state)
+  /** Change 4: one board.log line per verdict, with what was tried. */
+  const sayVerdict = (chat, attempt) => {
+    const who = chat === BOARD_KEY ? 'the board-wide wake (nobody ran)' : chat
+    if (attempt.verdict === 'woke') console.log(`Wake: ${who} woke at ${timeOf(attempt.verdictAt)} (its own report after the ${attempt.path} of ${timeOf(attempt.at)}${attempt.path === 'message' ? ` by ${attempt.by}` : ''}).`)
+    else console.log(`Wake: could not wake ${who} at ${timeOf(attempt.verdictAt)}: ${triedWords([attempt], timeOf).join('; ')}.`)
   }
-  // The person, 2026-10-30: while other chats run, an asleep worker with work waiting is opened by the board itself
-  // (src/opener.mjs `asleepWithWork`, `asleepPlan`): a message does not wake a closed chat. When its work was first seen
-  // waiting, by chat; its opens go with the others into `opens`.
-  const asleepWaiting = new Map()
-  const openAsleep = async (now, given) => {
+  const wakesChanged = () => {
+    wakesSave?.changed()
+    readState.reset()
+  }
+  /** Change 4: the resume list while the person resumes (pause.mjs `pauseAnswer`), for the needs of case B.2. */
+  const resumeListOf = async state => {
+    if (workDir === null || state?.pause?.state !== 'resuming') return []
+    const read = await readStore(workDir)
+    const pause = read?.pause ?? null
+    if (pause?.state !== 'resuming') return []
+    return pauseAnswer({ pause, items: read.items, lanes: shownChats(state), prefix: state.chatPrefix ?? '', chat: state.restart?.main ?? '', role: 'main' }).resumeList
+  }
+  /** Change 4: one launch, claimed in the wake record before the await; `key` the record's chat (BOARD_KEY for the board-wide spell). */
+  const launchFor = async ({ target, key, spell, now }) => {
+    const jobId = `launch:${now}:${key}`
+    const attempt = claimWake(wakes, { chat: key, spell, path: 'launch', by: 'board', jobId, now, runBefore: key === BOARD_KEY ? null : reports?.get(key)?.run ?? null, paths: ['launch'] })
+    if (attempt === false) return false
+    wakesChanged()
+    isOpening = true
+    try {
+      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, config.project) })
+      if (!done.launched) {
+        // Nothing was launched: no try spent (the ⚙ row says why).
+        wakeGivenBack(wakes, key, jobId)
+        if (openBlocked !== done.why) console.log(`Wake: the board cannot launch a chat: ${done.why}.`)
+        openBlocked = done.why
+        return false
+      }
+      openBlocked = null
+      if (done.ok) wakeSent(wakes, key, jobId, clock())
+      else wakeFailedToSend(wakes, key, jobId, done.why, clock())
+      console.log(`Wake: launched ${target.chat} (${target.session}) at ${timeOf(now)}${key === BOARD_KEY ? ' (nobody ran)' : ''}${done.ok ? '; the verdict waits for its own report' : `: ${done.why}`}.`)
+      return true
+    } finally {
+      isOpening = false
+      wakesChanged()
+    }
+  }
+  const wakePass = async (given = null) => {
+    if (isClosing || isOpening || bridgeKey === null || isShowOnly) return
     if (!(await ownsLoops())) return
-    const state = given ?? readState.last()
-    if (!state) return
-    const waiting = asleepWithWork(state, store.outbox().filter(message => !isLate(message, now, keep)))
-    for (const name of asleepWaiting.keys()) if (!waiting.some(one => one.chat === name)) asleepWaiting.delete(name)
-    for (const one of waiting) {
-      if (!asleepWaiting.has(one.chat)) asleepWaiting.set(one.chat, now)
-      const plan = asleepPlan({ now, chat: one.chat, since: one.since, waitingSince: asleepWaiting.get(one.chat), opens, paused: isHolding(state.pause) })
-      if (!plan.open) continue
-      isOpening = true
-      try {
-        const done = await openChat({ exe: await findClaude(), session: one.session, cwd: resolve(HERE, config.project) })
-        if (!done.launched) {
-          if (openBlocked !== done.why) console.log(`T13: the board cannot open an asleep chat: ${done.why}.`)
-          openBlocked = done.why
-          return
-        }
-        openBlocked = null
-        opens.push({ at: now, chat: one.chat, ok: done.ok })
-        if (opens.length > 10) opens.shift()
-        console.log(`T13: ${one.chat} was asleep with work waiting: opened it (${one.session}) in the Claude app at ${timeOf(now)}: ${done.ok ? 'started' : done.why}.`)
-      } finally {
-        isOpening = false
-      }
-      // One open per check: the next waits for the next minute's look.
-      return
+    const now = clock()
+    let changed = false
+    for (const { chat, attempt } of wakeVerdicts(wakes, now)) {
+      sayVerdict(chat, attempt)
+      changed = true
     }
+    const board = wakeHeardClaim(wakes, newestSender(codeClaims), now)
+    if (board !== null) {
+      sayVerdict(BOARD_KEY, board)
+      changed = true
+    }
+    const state = given ?? readState.last() ?? await readState()
+    // Life came, or a new sleep began: a new spell entry for a chat the record knows.
+    for (const lane of boardLanes(state)) {
+      const spell = spellOf(lane)
+      if (spell !== null && wakes.wakes.has(lane.name) && newSpell(wakes, lane.name, spell)) changed = true
+    }
+    if (changed) wakesChanged()
+    if (!canOpen || isHolding(state.pause)) return
+    const outbox = store.outbox().filter(message => !isLate(message, now, keep))
+    const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
+    const nobody = gone ? nobodyRunsSpell(state, outbox) : null
+    const needs = wakeNeeds(state, outbox, { resumeList: await resumeListOf(state), canLaunch: true })
+    // One launch per check (src/wake.mjs `launchPlan`): the next waits for the next minute's look.
+    const plan = launchPlan(wakes, { needs, nobody, senderClaims: !gone, target: chatToOpen(state, outbox) })
+    if (plan !== null) await launchFor({ target: { chat: plan.chat, session: plan.session }, key: plan.key, spell: plan.spell, now })
   }
-  /** T13 part 4: the ⚙ panel's row of it, and the page's line about the last opens. */
-  const openerRowNow = () => openerRow({
-    blocked: !canOpen ? (isShowOnly ? 'only the board that delivers opens a chat' : 'only on Windows') : openBlocked,
-    failed: failuresOf({ opens, claims: codeClaims, now: clock() }) >= OPEN_TRIES ? opens.at(-1)?.chat ?? null : null,
+  /** The ⚙ panel's row of the wake (src/wake.mjs `rowOf`). */
+  const wakeRowNow = () => wakeRow(wakes, {
+    blocked: !canOpen ? (isShowOnly ? 'only the board that delivers launches a chat' : 'only on Windows can the board launch a chat') : openBlocked,
+    timeOf,
   })
-  const openerNoteNow = () => (canOpen ? openerNote({ opens, failures: failuresOf({ opens, claims: codeClaims, now: clock() }), now: clock(), timeOf }) : null)
   /** B767: the setup check as the page shows it; the files are read at most every 30 seconds. */
   let codeRead = { at: -Infinity, max: null, read: null }
   const codeJobsNow = async (prefix = '', owner = null) => {
@@ -1975,7 +1999,7 @@ async function main(args) {
     // The Product owner (2026-10-31): once the list names one, its own routine is checked and made the same way.
     const view = codeJobsView({ claims: codeClaims, ...codeRead.read, folder, maxWorkers: config.maxWorkers, spawnFail, now: clock(), owner: typeof owner === 'string' && owner !== '' })
     // T13 part 4: and the board's own opening of a chat when none runs.
-    return { ...view, rows: [...view.rows, openerRowNow()], canAllow: !isShowOnly, taskLine: view.needsTask ? taskWords({ folder, prefix, board: HERE, slots: view.missingRoutines, owner }) : null }
+    return { ...view, rows: [...view.rows, wakeRowNow()], canAllow: !isShowOnly, taskLine: view.needsTask ? taskWords({ folder, prefix, board: HERE, slots: view.missingRoutines, owner }) : null }
   }
   const checkFresh = async body => {
     // B736 (X73, X87: no chat's report was kept from 21:12 to 21:21 while each waited for a whole read of the board): a
@@ -2009,6 +2033,8 @@ async function main(args) {
     if (body?.action === 'turn-ended' && done.ok && await sequenceLane(checked.chat, mod) !== null) {
       const since = Number(body.since)
       const decided = await decideFor(checked.chat, mod, { kind: 'turn-ended', since })
+      // Change 4 (B.2): the woken chat's first turn end was seen, right after the decision that read it.
+      if (wakeTurnEnded(wakes, checked.chat, clock())) wakesChanged()
       if (decided !== null) {
         const envelope = await handOut(store, checked.chat, clock(), keep)
         if (envelope !== null) readState.reset()
@@ -2021,6 +2047,7 @@ async function main(args) {
     // once per step, chat and queueing (as the reconciler's delivery), and the mod takes it at once. Nothing for a chat
     // that is held by the limit or busy, as the board reads it anew now, or when the line went before. T8.5 step 6: never
     // for a worker: its line comes only in its hand-over's envelope (a worker not on the sequence is handed nothing).
+    if (body?.action === 'turn-ended' && done.ok && wakeTurnEnded(wakes, checked.chat, clock())) wakesChanged()
     const pulled = !done.ok ? null : body?.action === 'pull' ? done.result : done.result.pull ?? null
     if (pulled === null || (pulled.wake ?? null) === null) return done
     if (workerNames(readState.last() ?? await readState()).has(checked.chat)) {
@@ -2053,6 +2080,7 @@ async function main(args) {
       if (!inTime) console.log('Restart: the board did not wait longer than 10 s for its running work; the next start checks again.')
       // T13: the last reports are on disk before the new board reads them.
       await reportsSave?.flush()
+      await wakesSave?.flush()
       // Gap 2 of the live proof: the page asks every refreshSeconds, so the board keeps answering `leaving` for one refresh
       // and a second before it ends (in parallel with the wait above, not after it).
       const wait = exitAt({ leavingAt: leaving.at, workSettledAt: clock(), refreshSeconds: config.refreshSeconds, waitMs: RESTART_WAIT_MS }) - clock()
@@ -2111,8 +2139,6 @@ async function main(args) {
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
         codeJobs: await codeJobsNow(state.chatPrefix ?? '', state.ownerName ?? null),
-        // T13 part 4: the line about the chat the board opened when none ran (`{ tone, text }`), or null.
-        opener: openerNoteNow(),
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
         // job texts), the project's name and the Advisor's; only the board that delivers opens chats.
         openChats: isDemo || isShowOnly ? null : { board: HERE, name: config.name, advisor: typeof config.advisor === 'string' && config.advisor !== '' ? config.advisor : null } })
@@ -2525,8 +2551,8 @@ async function main(args) {
       // when it does not, the banner opens it, and its Workers mod reads the resume from pause.json.
       if (done.ok && body?.action === 'resume-all' && !isShowOnly) {
         const state = await readState()
-        // T13 part 4: and when no chat runs, the board opens one at once; its hands wake the rest.
-        void loops.run('opener', () => openCheck(state))
+        // T13 part 4, change 4: and the wake's minute at once (a launch when no chat runs; the hands wake the rest).
+        void loops.run('opener', () => wakePass(state))
         const main = resumeTypeTo(state)
         const typed = main === null ? null : await sayNow({ to: main, command: 'resume' })
         return { ok: true, result: { ...done.result, typed: typed?.ok === true } }
@@ -2620,9 +2646,20 @@ async function main(args) {
       // T14: the start, wake and resume lines only to a chat that may send by code (its mod says `can: ['send']`, or is
       // older than the first that says it): the app puts an Auto-mode chat's send to its classifier, which denies it.
       const can = new Set(Array.isArray(body?.can) ? body.can.filter(one => typeof one === 'string') : [])
-      const claim = { can: [...can].slice(0, 10), at: clock(), mod: typeof body?.mod === 'string' ? body.mod : null }
+      const before = codeClaims.get(checked.chat)
+      // Change 4: since when this chat claims without a break, for decision 8's "new sender".
+      const claimSince = Number.isFinite(before?.at) && clock() - before.at < HANDS_GONE_MS ? before.since ?? before.at : clock()
+      const claim = { can: [...can].slice(0, 10), at: clock(), mod: typeof body?.mod === 'string' ? body.mod : null, since: claimSince }
       codeClaims.set(checked.chat, claim)
       const canSend = maySend(claim)
+      // Change 4 (C.3): a hand that may send claims after the board-wide launch: that launch woke a chat.
+      if (canSend) {
+        const board = wakeHeardClaim(wakes, claim.at, clock())
+        if (board !== null) {
+          sayVerdict(BOARD_KEY, board)
+          wakesChanged()
+        }
+      }
       const workers = workerNames(state)
       // B880 (X2): a word a hand has held without a word of it for HAND_HOLD_MS goes back first (its call never answered, or
       // its process ended; the outbox sweep does it at every refresh too), and a start word for a chat on the board is no
@@ -2654,9 +2691,36 @@ async function main(args) {
       // B768: a lookup of the limits when the newest reading is old, to one chat that may (its mod says `can: ['usage']`).
       const usage = can.has('usage') && READINGS_FILE !== null && !isShowOnly && usageDue({ readings: state.limitReadings ?? [], givenAt: usageGivenAt, now: clock() })
       if (usage) usageGivenAt = clock()
-      // T13 part 3: and one resume word for each asleep chat whose turn was cut, once per spell, never while the person pauses.
       // The Product owner (2026-10-31): its start, wake and resume go first: the person waits for its talk.
-      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, resumeList, since: pause?.since ?? null, sentAt: resumesSent, now: clock(), spawn, usage, asleepSent: asleepWoken, isPaused: isHolding(state.pause), canSend, first: state.productOwner?.name ?? null })
+      const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, now: clock(), spawn, usage, canSend, first: state.productOwner?.name ?? null })
+      // Signals change 4, B.4: a start or wake word a hand took (the page's start, a closed worker's start, B577's wake of a
+      // stopped chat) is a message that wakes a chat: claimed in the wake record too, by the word's id. A word whose chat
+      // runs, or already has a wake on its way, still goes (it is the person's or B577's), unrecorded.
+      let wakeClaimed = false
+      for (const job of jobs) {
+        const word = taken.find(one => one.id === job.id && ['start', 'wake'].includes(one.command))
+        if (word === undefined || typeof job.text !== 'string') continue
+        const spell = spellOf(lanes.find(lane => lane.name === word.about))
+        if (spell === null) continue
+        if (claimWake(wakes, { chat: word.about, spell, path: 'message', by: checked.chat, jobId: word.id, now: clock(), runBefore: reports?.get(word.about)?.run ?? null, senderSince: claim.since, paths: ['message'] })) wakeClaimed = true
+      }
+      // Signals change 4 (C.1): the wake jobs. Every chat that needs a wake (src/wake.mjs `wakeNeeds`: its envelope, the
+      // pause's resume list, its cut turn, words for it, a queued step) and whose next path is the message gets one job,
+      // with the line it must act on first, claimed in the record in the same step as the job is made (no await between):
+      // a second hand in the same window finds the claim. Never the caller itself; only a caller that may send.
+      if (canSend && !isHolding(state.pause)) {
+        const outboxNow = store.outbox().filter(message => !isLate(message, clock(), keep))
+        for (const need of wakeNeeds(state, outboxNow, { resumeList, canLaunch: canOpen })) {
+          if (need.chat === checked.chat || !need.paths.includes('message') || !Number.isFinite(need.spell)) continue
+          if (wakeNextPath(wakes, { chat: need.chat, spell: need.spell, senderClaims: true, senderSince: claim.since, paths: need.paths }) !== 'message') continue
+          const id = wakeJobId(need.spell, need.chat)
+          if (!claimWake(wakes, { chat: need.chat, spell: need.spell, path: 'message', by: checked.chat, jobId: id, now: clock(), runBefore: reports?.get(need.chat)?.run ?? null, senderSince: claim.since, paths: need.paths })) continue
+          jobs.push({ id, to: need.appSession, chat: need.chat, text: need.text })
+          wakeClaimed = true
+          console.log(`Wake: a message to ${need.chat} given to ${checked.chat}'s hands at ${timeOf(clock())} (${need.why}): "${need.text}".`)
+        }
+      }
+      if (wakeClaimed) wakesChanged()
       for (const message of removed) {
         const lane = lanes.find(one => one.name === message.about)
         jobs.push({ id: message.id, ...(typeof lane?.appSession === 'string' && /^local_[\w-]{1,80}$/.test(lane.appSession) ? { to: lane.appSession } : {}), chat: message.about, remove: true })
@@ -2675,16 +2739,28 @@ async function main(args) {
       // spawn went should its call give no answer.
       const making = jobs.filter(job => job.spawn !== undefined).map(job => [job.id, prefix !== '' && job.chat.startsWith(prefix) ? job.chat.slice(prefix.length) : job.chat])
       if (making.length > 0) await store.handChats(making)
-      for (const job of jobs) if (job.id.startsWith('resume:')) resumesSent.set(job.id.slice('resume:'.length), clock())
-      const asleep = jobs.map(job => asleepOfJob(job.id)).filter(one => one !== null)
-      for (const one of asleep) asleepWoken.set(one.chat, { since: one.since, at: clock() })
-      if (taken.length > back.length || asleep.length > 0) readState.reset()
-      return { ok: true, result: { jobs } }
+      if (taken.length > back.length) readState.reset()
+      // The Product owner (2026-10-31): its jobs first, the wake job too.
+      return { ok: true, result: { jobs: ownerFirst(jobs, state.productOwner?.name ?? null) } }
     }),
     handsDone: counted(async body => {
       const { checked } = await checkFresh(body)
       if (!checked.ok) return checked
       const { sent, failed, back, doubt, why, texts } = handResults(body)
+      // Signals change 4: the hand's results of the wake messages (its wake jobs, and the start and wake words the record
+      // holds): sent, failed with why, or given back (B880: no try spent; B891: one in doubt may have gone, so it counts as sent).
+      const wakeChatOf = id => WAKE_JOB.exec(id)?.[2] ?? store.outbox().find(one => one.id === id && ['start', 'wake'].includes(one.command))?.about ?? null
+      let woke = false
+      for (const id of [...sent, ...failed, ...back]) {
+        const chat = wakeChatOf(id)
+        if (chat === null) continue
+        const done = sent.includes(id) || doubt.includes(id) ? wakeSent(wakes, chat, id, clock())
+          : failed.includes(id) ? wakeFailedToSend(wakes, chat, id, why[id], clock()) : (wakeGivenBack(wakes, chat, id) ? true : null)
+        if (done === null) continue
+        woke = true
+        if (failed.includes(id)) console.log(`Wake: the message to ${chat} could not go at ${timeOf(clock())} (${checked.chat}'s hands): ${why[id] ?? 'not sent'}.`)
+      }
+      if (woke) wakesChanged()
       // B880: the words this hand gives back unsent (the app gave no answer in time, or its process cannot call tools) wait again,
       // for another hand or their addressee; a word it gave back that the app sent after all is kept as delivered.
       // B891: one whose call gave no answer (`doubt`) waits in doubt first: no one else takes it while that answer may come.
@@ -2707,14 +2783,7 @@ async function main(args) {
         archiveWhy.delete(session)
         readState.reset()
       }
-      // A resume line that could not go may go again at the next claim.
-      for (const id of failed) if (id.startsWith('resume:')) resumesSent.delete(id.slice('resume:'.length))
-      // T13 part 3: so may an asleep chat's resume word: it was not woken.
-      for (const one of failed.map(asleepOfJob).filter(found => found !== null)) {
-        if (asleepWoken.get(one.chat)?.since === one.since) asleepWoken.delete(one.chat)
-        readState.reset()
-      }
-      const words = [...sent, ...failed].filter(id => !id.startsWith('resume:') && asleepOfJob(id) === null)
+      const words = [...sent, ...failed].filter(id => !WAKE_JOB.test(id))
       // B767: a new worker that failed shows on the setup check with its why, until one is started.
       // The Product owner's own routine (its spawn word names `routine`) is no new worker: its result leaves the row alone.
       for (const message of store.outbox().filter(one => one.command === 'spawn' && (one.routine ?? null) === null && words.includes(one.id))) {
@@ -2940,8 +3009,8 @@ async function main(args) {
 
   // T13 part 4: the board opens a chat when none runs and work waits: its own timer, once a minute and once 10 s after the
   // start (not at every refresh), and at once after Resume all (above). Never on the demo or a board that only shows.
-  if (!isDemo && canOpen) {
-    const lookToOpen = () => loops.run('opener', () => openCheck())
+  if (!isDemo && bridgeKey !== null && !isShowOnly) {
+    const lookToOpen = () => loops.run('opener', () => wakePass())
     setTimeout(lookToOpen, OPEN_FIRST_MS)
     setInterval(lookToOpen, OPEN_CHECK_MS)
   }

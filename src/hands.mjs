@@ -28,6 +28,12 @@
 // `can: ['send']` where the app allows its code the send-message tool with no question (an allow rule, or a mode that
 // allows it); only such a chat gets the jobs sent with it (`canSend`, `maySend`). A chat on an older mod never says it
 // and keeps today's share until its restart brings the new mod.
+//
+// Signals change 4, B908 (2026-11-02): the asleep and resume jobs went into the one wake procedure (src/wake.mjs): the
+// server adds a wake job (`wake:<spell>:<chat>`) for each chat that needs one, claimed in the wake record in the same tick,
+// so `handJobs` makes only the jobs of the hand words a chat took. A start or wake word is a hand's for ever: the
+// addressee's model turn (Main's in most cases) never carries it any more (decision 1); set, restart, spawn and stop keep
+// their windows.
 
 import { PARTNER_MODES, SWITCH_MODES } from './partnerEffort.mjs'
 import { isOlder, versionOf } from './oldMods.mjs'
@@ -140,21 +146,12 @@ export function maySend(claim) {
   return mine === null || isOlder(mine, versionOf(SEND_MOD))
 }
 
-/** A resume line goes again to a chat that has not started this long after the last one. */
-export const RESUME_AGAIN_MS = 5 * 60_000
-
 /**
  * T13 part 3 (the person, 2026-10-28: "interrupted is interrupted"): the line an asleep chat whose turn was cut gets when it
  * holds no step (the main chat, the partner, the supervisor, a worker on the person's words); one holding a step gets Resume
  * all's line, "resume your step B<id> from your checkpoint".
  */
 export const ASLEEP_LINE = 'Your chat stopped in the middle of your turn: go on from where you were.'
-
-/** T13 part 3: the chat and the asleep spell (its `asleepSince`) an asleep resume job's id names, `{ chat, since }`, or null. */
-export function asleepOfJob(id) {
-  const found = /^asleep:(\d{1,16}):(.{1,200})$/.exec(String(id ?? ''))
-  return found === null ? null : { since: Number(found[1]), chat: found[2] }
-}
 
 /** The app's id of a chat (local_...): the only one its send-message tool reaches. */
 export const isAppId = session => typeof session === 'string' && /^local_[\w-]{1,80}$/.test(session)
@@ -196,10 +193,12 @@ export function isHandWord(message, { canSend = true, canSet = false, canRestart
 
 /**
  * B755: whether a chat's own take leaves `message` to the hands still (`HANDS_FIRST_MS`); B766: a restart only of one of
- * the `workers`.
+ * the `workers`. Signals change 4 (decision 1, 2026-11-02): a start or wake word for ever: a wake is never a model turn
+ * (a word nobody can carry waits, and the outbox sweep closes it when its purpose went).
  */
 export const isForHandsYet = (message, now, workers = null) =>
-  (isHandWord(message, { canSend: true, canSet: true, canRestart: true, canSpawn: true, workers }) && now - message.at < HANDS_FIRST_MS)
+  (HAND_COMMANDS.includes(message?.command) && typeof message?.about === 'string')
+  || (isHandWord(message, { canSend: true, canSet: true, canRestart: true, canSpawn: true, workers }) && now - message.at < HANDS_FIRST_MS)
   || (isStopWord(message) && now - message.at < STOP_HANDS_MS)
 
 /**
@@ -258,26 +257,19 @@ export function nextSpawn(names, prefix, folder) {
 }
 
 /**
- * The jobs for the chat `caller` (its name) out of the hand words it took (`taken`, the outbox's) and the resume list
- * (`resumeList`, pause.mjs `pauseAnswer`'s while resuming: `{ chat, session, step, hasStarted }`): `{ jobs, back }`.
+ * The jobs for the chat `caller` (its name) out of the hand words it took (`taken`, the outbox's): `{ jobs, back }`.
  * A job is `{ id, to (the app id), chat, text }`, or for a set word (B755) `{ id, to, chat, set: { model, effort } }`;
  * for a restart (B766) `{ id, to, chat, restart: { keep } }` (`keep`: the app ids of the board's chats, which the hand
  * reopens when closing the worker closed them too), for a new worker `{ id, chat, spawn: { title, tasks } }` (`spawn`
  * the title and the task ids; one per claim, as the app runs the task once at a time). `back` the ids of taken words
  * that go back to waiting for the main chat: a chat with no app id the board knows, or the caller itself (the app
- * refuses a chat's own model and effort too), a second new worker, or one with no `spawn` to give. A resume line goes to
- * each chat that has not started and has an app id, unless one went to it within RESUME_AGAIN_MS (`sentAt`, by
- * `<since>:<chat>`). With `usage` (B768) one more job, `{ id: 'usage:<now>', chat, usage: true }`: look the limits up.
- * T13 part 3: one resume job, `asleep:<asleepSince>:<chat>`, for each board chat (`lanes`) that is asleep and interrupted
- * (its process ended while its turn ran or it held a task: chatReport.mjs `asleepLane`) and has an app id: its step's line
- * (the task it names first, else the oldest taken or in progress), or ASLEEP_LINE without one. Once per asleep spell: not
- * when `asleepSent` (by chat, `{ since }`) names that spell; none while the person pauses (`isPaused`), and none for a
- * chat Resume all's list wakes already.
- * T14: the jobs sent with the app's send-message tool (a taken start or wake word's line, the resume lines, the asleep
- * resume words) only for a caller that `canSend` (`maySend`; true unless told): for one that may not, a taken start or
- * wake word goes `back` and no resume line is made.
+ * refuses a chat's own model and effort too), a second new worker, or one with no `spawn` to give. With `usage` (B768)
+ * one more job, `{ id: 'usage:<now>', chat, usage: true }`: look the limits up. Signals change 4: the resume and asleep
+ * lines are the wake procedure's now (src/wake.mjs `wakeNeeds`, the server's hands route).
+ * T14: a taken start or wake word's line is sent with the app's send-message tool, so only for a caller that `canSend`
+ * (`maySend`; true unless told): for one that may not, it goes `back`.
  */
-export function handJobs({ caller, taken = [], lanes = [], resumeList = [], since = null, sentAt = new Map(), now, spawn = null, usage = false, asleepSent = new Map(), isPaused = false, canSend = true, first = null }) {
+export function handJobs({ caller, taken = [], lanes = [], now, spawn = null, usage = false, canSend = true, first = null }) {
   const jobs = []
   const back = []
   const laneOf = name => lanes.find(lane => lane.name === name)
@@ -304,22 +296,6 @@ export function handJobs({ caller, taken = [], lanes = [], resumeList = [], sinc
     else if (set !== null) jobs.push({ ...head, set })
     else if (canSend) jobs.push({ ...head, text: HAND_LINE })
     else back.push(message.id)
-  }
-  for (const one of canSend ? resumeList : []) {
-    if (one.hasStarted === true || one.chat === caller || !isAppId(one.session)) continue
-    const key = `${since ?? 0}:${one.chat}`
-    if (now - (sentAt.get(key) ?? -Infinity) < RESUME_AGAIN_MS) continue
-    jobs.push({ id: `resume:${key}`, to: one.session, chat: one.chat, text: `resume your step ${one.step} from your checkpoint` })
-  }
-  for (const lane of isPaused || !canSend ? [] : lanes) {
-    if (lane.asleep !== true || lane.state !== 'interrupted' || lane.name === caller || !isAppId(lane.appSession) || !Number.isFinite(lane.asleepSince)) continue
-    if (asleepSent.get(lane.name)?.since === lane.asleepSince || resumeList.some(one => one.chat === lane.name)) continue
-    const held = (lane.storeSteps ?? []).filter(one => one.state === 'taken' || one.state === 'in progress')
-    // Signals change 3: a holder on the hand-over's sequence gets its "go on" line from the hand-over (its envelope, which
-    // has the board open it), never this one too.
-    if (lane.onSequence === true && held.length > 0) continue
-    const step = held.find(one => one.id === lane.task?.stepId) ?? held[0] ?? null
-    jobs.push({ id: `asleep:${lane.asleepSince}:${lane.name}`, to: lane.appSession, chat: lane.name, text: step === null ? ASLEEP_LINE : `resume your step ${step.id} from your checkpoint` })
   }
   // B768: a lookup of the limits, when the board said one is due.
   if (usage) jobs.push({ id: `usage:${now}`, chat: caller, usage: true })

@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { HAND_LINE, HANDS_FIRST_MS, RESUME_AGAIN_MS, handJobs, handResults, isForHandsYet, isHandWord, nextSpawn, nextWorker, nextWorkerTitle, setOf, startTaskIds, workerNames, workerTaskIds } from '../src/hands.mjs'
+import { HAND_LINE, HANDS_FIRST_MS, handJobs, handResults, isForHandsYet, isHandWord, nextSpawn, nextWorker, nextWorkerTitle, setOf, startTaskIds, workerNames, workerTaskIds } from '../src/hands.mjs'
 import { memoryStore } from '../src/store.mjs'
 import { POST_ROUTES } from '../server.mjs'
 
@@ -32,18 +32,11 @@ test('the jobs: one per word with the target\'s app id and the one line; a chat 
   assert.deepEqual(back, ['b', 'c', 'd'])
 })
 
-test('while resuming, a resume line to each chat that has not started and has an app id, and again only after a while', () => {
-  const resumeList = [
-    { chat: 'Worker 1', session: 'local_w1', step: 'B12', hasStarted: false },
-    { chat: 'Worker 2', session: null, step: 'B14', hasStarted: false },
-    { chat: 'Advisor', session: 'local_adv', step: 'B15', hasStarted: true },
-    { chat: 'Main', session: 'local_main', step: 'B16', hasStarted: false },
-  ]
-  const first = handJobs({ caller: 'Main', resumeList, lanes: LANES, since: 100, now: 10 * MIN })
-  assert.deepEqual(first.jobs, [{ id: 'resume:100:Worker 1', to: 'local_w1', chat: 'Worker 1', text: 'resume your step B12 from your checkpoint' }])
-  const sentAt = new Map([['100:Worker 1', 10 * MIN]])
-  assert.deepEqual(handJobs({ caller: 'Main', resumeList, lanes: LANES, since: 100, sentAt, now: 10 * MIN + RESUME_AGAIN_MS - 1 }).jobs, [])
-  assert.equal(handJobs({ caller: 'Main', resumeList, lanes: LANES, since: 100, sentAt, now: 10 * MIN + RESUME_AGAIN_MS }).jobs.length, 1)
+// Signals change 4 (2026-11-02): the resume lines and the asleep resume words are the wake procedure's now (src/wake.mjs,
+// test/wakeNeeds.test.mjs and the server's hands route below): handJobs makes only the jobs of the words a hand took.
+test('handJobs makes no resume or asleep line of its own any more', () => {
+  const lanes = [...LANES, { name: 'Worker 3', appSession: 'local_w3', asleep: true, state: 'interrupted', asleepSince: 5, storeSteps: [{ id: 'B30', state: 'in progress' }] }]
+  assert.deepEqual(handJobs({ caller: 'Main', lanes, resumeList: [{ chat: 'Worker 1', session: 'local_w1', step: 'B12', hasStarted: false }], now: 10 * MIN }).jobs, [])
 })
 
 test('what a hand reports is read safely: sent and failed by id, each why kept short', () => {
@@ -111,7 +104,20 @@ test('B755: a chat\'s own take leaves a hand\'s word to the hands for a minute, 
   await store.say({ ...word('c', 'refine', 'Worker 1'), at: 0 })
   const only = now => message => !isForHandsYet(message, now)
   assert.deepEqual((await store.take('Main', HANDS_FIRST_MS - 1, keep, only(HANDS_FIRST_MS - 1))).map(one => one.id), ['c'])
-  assert.deepEqual((await store.take('Main', HANDS_FIRST_MS, keep, only(HANDS_FIRST_MS))).map(one => one.id), ['a', 'b'])
+  // Signals change 4 (decision 1): the set word after its minute; the start word never (a wake is never a model turn).
+  assert.deepEqual((await store.take('Main', HANDS_FIRST_MS, keep, only(HANDS_FIRST_MS))).map(one => one.id), ['a'])
+  assert.deepEqual((await store.take('Main', 600 * MIN, keep, only(600 * MIN))).map(one => one.id), [])
+})
+
+test('H.6: isForHandsYet never ends for a start or wake word; set, restart, spawn and stop keep their windows', () => {
+  for (const command of ['start', 'wake']) {
+    assert.equal(isForHandsYet(word('a', command, 'Worker 1'), 0), true, command)
+    assert.equal(isForHandsYet(word('a', command, 'Worker 1'), 10 * 24 * 60 * MIN), true, command)
+  }
+  assert.equal(isForHandsYet(setWord('s', 'Worker 1'), HANDS_FIRST_MS), false)
+  assert.equal(isForHandsYet(spawnWord('n'), HANDS_FIRST_MS), false)
+  assert.equal(isForHandsYet(restartWord('r', 'Worker 1'), HANDS_FIRST_MS, new Set(['Worker 1'])), false)
+  assert.equal(isForHandsYet(restartWord('r', 'Worker 1'), HANDS_FIRST_MS - 1, new Set(['Worker 1'])), true)
 })
 
 // B766: a worker's restart for a new mod, and a new worker, by code. Made-up chats.
@@ -267,10 +273,8 @@ test('T14: the start and wake words, the resume lines and the asleep resume word
   // The main chat's own take still leaves them to a hand for a minute.
   assert.equal(isForHandsYet(start, HANDS_FIRST_MS - 1), true)
 
-  const resumeList = [{ chat: 'Worker 1', session: 'local_w1', step: 'B12', hasStarted: false }]
-  const lanes = [...LANES, { name: 'Worker 3', appSession: 'local_w3', asleep: true, state: 'interrupted', asleepSince: 5, storeSteps: [{ id: 'B30', state: 'in progress' }] }]
-  const all = { caller: 'Advisor', taken: [start, set], lanes, resumeList, since: 100, now: 10 * MIN }
-  assert.deepEqual(handJobs({ ...all, canSend: true }).jobs.map(job => job.id), ['a', 's', 'resume:100:Worker 1', 'asleep:5:Worker 3'])
+  const all = { caller: 'Advisor', taken: [start, set], lanes: LANES, now: 10 * MIN }
+  assert.deepEqual(handJobs({ ...all, canSend: true }).jobs.map(job => job.id), ['a', 's'])
   const without = handJobs({ ...all, canSend: false })
   assert.deepEqual(without.jobs, [{ id: 's', to: 'local_w1', chat: 'Worker 1', set: { model: null, effort: 'high' } }])
   // A start or wake word such a caller took anyway goes back to waiting.
@@ -280,8 +284,39 @@ test('T14: the start and wake words, the resume lines and the asleep resume word
 test('T14: the server keeps the claim\'s mod and gives the send jobs by it', async () => {
   const { readFile } = await import('node:fs/promises')
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
-  assert.match(server, /const claim = \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\), mod: typeof body\?\.mod === 'string' \? body\.mod : null \}/)
+  assert.match(server, /const claim = \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\), mod: typeof body\?\.mod === 'string' \? body\.mod : null, since: claimSince \}/)
   assert.match(server, /const canSend = maySend\(claim\)/)
-  // The Product owner (2026-10-31): and its jobs first.
-  assert.match(server, /isPaused: isHolding\(state\.pause\), canSend, first: state\.productOwner\?\.name \?\? null \}\)/)
+  // The Product owner (2026-10-31): and its jobs first, the wake job too.
+  assert.match(server, /canSend, first: state\.productOwner\?\.name \?\? null \}\)/)
+  assert.match(server, /return \{ ok: true, result: \{ jobs: ownerFirst\(jobs, state\.productOwner\?\.name \?\? null\) \} \}/)
+})
+
+// Signals change 4, H.6 (2026-11-02, J: at 10:31 B855's envelope waited for an asleep Worker 2): the hands route makes one
+// wake job per need, claimed in the wake record in the same step as the job is made, never for the caller itself and
+// never for a caller that may not send. The route's code is the subject: the claim and the push have no await between.
+test('H.6: the hands route claims a wake job synchronously with the push; not for the caller, not for one that may not send', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  const route = server.slice(server.indexOf('// Signals change 4 (C.1): the wake jobs.'), server.indexOf('if (wakeClaimed) wakesChanged()'))
+  assert.match(route, /if \(canSend && !isHolding\(state\.pause\)\) \{/)
+  assert.match(route, /if \(need\.chat === checked\.chat \|\| !need\.paths\.includes\('message'\)/)
+  const loop = route.slice(route.indexOf('for (const need of wakeNeeds('))
+  assert.doesNotMatch(loop, /await /, 'no await between the claim and the push')
+  assert.ok(loop.indexOf('claimWake(wakes') < loop.indexOf('jobs.push('), 'the claim first')
+})
+
+test('H.6: two callers in one tick make one job: the second finds the claim', async () => {
+  const { claim, emptyWakes, nextPath, wakeJobId, wakeNeeds } = await import('../src/wake.mjs')
+  const record = emptyWakes()
+  const state = { chats: [{ name: 'Worker 2', isRunning: false, asleep: true, asleepSince: 7, state: 'free', appSession: 'local_w2', session: null, queue: [], onSequence: true }], chatPrefix: '' }
+  const outbox = [{ id: 'e', at: 8, to: 'Worker 2', command: 'handover', kind: 'task', step: 'B855', clear: null, state: 'waiting' }]
+  const made = []
+  for (const caller of ['Advisor', 'Main']) {
+    for (const need of wakeNeeds(state, outbox)) {
+      if (need.chat === caller || nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths }) !== 'message') continue
+      if (!claim(record, { chat: need.chat, spell: need.spell, path: 'message', by: caller, jobId: wakeJobId(need.spell, need.chat), now: 9, paths: need.paths })) continue
+      made.push({ caller, id: wakeJobId(need.spell, need.chat), text: need.text })
+    }
+  }
+  assert.deepEqual(made, [{ caller: 'Advisor', id: 'wake:7:Worker 2', text: 'take B855 in this turn: run work next' }])
 })
