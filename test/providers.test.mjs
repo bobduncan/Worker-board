@@ -328,11 +328,14 @@ test('the three ElevenLabs providers share one key check: the same answers, the 
   assert.equal(elevenlabsMusic.kinds.join(), 'music')
 })
 
-test('elevenlabs-images: a plan below Pro (free, starter, creator) needs the Pro plan; pro and above, or an unnamed plan, work', async () => {
+test('elevenlabs-images: a plan below Pro (free, starter, creator) needs the Pro plan; pro and above work; an unnamed plan needs too', async () => {
   const needs = { ok: false, state: 'needs', why: 'Needs the Pro plan', detail: 'Needs the Pro plan' }
   for (const tier of ['free', 'starter', 'creator', 'Creator']) assert.deepEqual(await elevenlabsImages.check({ key: KEY, fetch: answering(200, { tier }) }), needs, tier)
   for (const tier of ['pro', 'scale', 'business']) assert.equal((await elevenlabsImages.check({ key: KEY, fetch: answering(200, { tier }) })).ok, true, tier)
-  assert.equal((await elevenlabsImages.check({ key: KEY, fetch: answering(200, {}) })).ok, true)
+  // A plan the answer does not name (a key that may not read it) cannot be told from a free one: Verify does not pass.
+  const unknown = { ok: false, state: 'needs', why: 'Plan unknown: Pro needed', detail: 'Plan unknown: Pro needed' }
+  assert.deepEqual(await elevenlabsImages.check({ key: KEY, fetch: answering(200, {}) }), unknown)
+  assert.deepEqual(await elevenlabsImages.check({ key: KEY, fetch: answering(401, { detail: { status: 'missing_permissions' } }) }), unknown)
 })
 
 test('claude serves no kind: the settings refuse it for every kind, and it is only shown on visual', () => {
