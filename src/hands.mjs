@@ -4,7 +4,8 @@
 // resume as a job and the Workers mod of any running board chat claims it and sends it with the app's own send-message
 // tool, by code, with no model turn (proven on the work login, 2026-10-28, where the main chat's words no longer arrive:
 // the app's guard skips the mod's prompt and turn hooks, not its timers and tool calls). A job no chat claims stays a
-// word for the main chat, as before. Pure: it reads what it is given.
+// word for the main chat, as before (signals change 4: but for a start or wake word, which waits for a hand). Pure: it
+// reads what it is given.
 //
 // B755 (the person, 2026-10-28: "Add the permission so code may set model and effort, and build B755"): a worker's model
 // and effort (src/work/effort.mjs) and the partner's mode (src/partnerEffort.mjs) are set the same way, with the app's

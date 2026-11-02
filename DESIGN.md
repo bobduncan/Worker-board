@@ -4459,6 +4459,7 @@ timers. Now each chat says it (principle 3, know don't guess).
   and Interrupted "resumes by itself" in a quiet colour (`is-asleep`), never the alarm's; the restart banner names
   neither as cut off or not running, the head counts an asleep free chat free, the reconciler flags no asleep holder as
   "not running", and the Workers list (B738's `off`) leaves them out. Tests: `test/asleepAfterRestart.test.mjs`.
+- *Signals change 4 (2026-11-02): the counters below went into one wake record; see "Waking a chat (change 4)".*
 - **The board opens a chat when none runs (T13, part 4; the person, 2026-10-28: after a restart work must come back by
   itself, without a timer that costs tokens):** the hands (B753) carry every start, wake and resume, but only while a
   chat with the Workers mod runs; after an app or PC restart, or once every chat went idle and its process closed,
@@ -4669,6 +4670,8 @@ decides on, **status** is what the pill shows.
   `test/chatStatus.page.test.mjs` (every lane draws one status from the list, the views agree, the age at 11 s and not at 9 s).
 
 ## Any running chat wakes a chat words wait for (T9.4, 2026-10-25)
+
+*Signals change 4 (2026-11-02): the start words for a wake, their retries and `wakeFailedOf` went into "Waking a chat (change 4)" below; this part stays as the history.*
 
 The person: "once it's in the queue the worker can stay silent/off. the code aspect needs to wake the chat if it has
 replies in its message queue". On 2026-10-25 at 16:37, after a board restart, the main chat was off and its words (a start
@@ -5191,6 +5194,86 @@ the continuation, the page, the settings, the retired incidents; mutants: the li
 sweep dropping the line), `test/supervisor/staleCheckpoint.test.mjs` (mutant: the 'report' kind still filing),
 `test/supervisor/watch.test.mjs` (the retired rules file nothing for a stopped holder), `test/work/worktreeSweep.test.mjs`.
 
+
+## Waking a chat (change 4)
+
+Signals change 4, B908 (2026-11-02; the lead's brief "waking a chat is code only and honest", the code check and its
+Addendum of 15 decisions in `.claude/plans/2026-11-02-*`). It replaces the wake parts of T9.4 (start words), T13 part 3
+(the hands' asleep jobs), T13 part 4 and 4a (the opener's counters) above; their texts stay as the history.
+
+**The case.** 11-02 10:31 the hand-out gave B855 to Worker 2, asleep since 14:16 the day before. A task envelope was no wake
+word, so only the opener tried: it launched Worker 2 at 10:32 and 10:35, Worker 3 at 10:42 and 10:45, Worker 4 at 10:53
+and 10:56, Worker 5 at 11:03 and 11:06, Worker 1 at 11:08; PowerShell said ok each time, board.log said "started", nothing
+started. The net took B855 back every ten minutes (X119, X120, X121: one incident per envelope). At 11:06:50 the Advisor's
+model sent Worker 5 one message; its process started 11:06:56, its first take came 11:07:03 with the envelope; its first
+turn (begun by that message) ended 11:07:21 without a take and the hand-over counted it "did not take it in its turn",
+although the line was typed only at 11:07:22.
+
+**One record.** `src/wake.mjs` (pure) and `data/wakes.json` (kept as `data/reports.json` is: written a second after a change,
+a torn file set aside). Per chat, its spells (newest last, six kept): a spell is the chat's sleep (`asleepSince`; an off chat
+without one: its ended report's since, its report's time, when it was last active, else 0; a chat read Not running after a
+wake keeps its sleep's since, `sleepSince`). The key `*` holds the board-wide "nobody runs" spells. Each spell holds its
+attempts `{ path: message | launch, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why }`, `turnEndedAt` and `told`.
+Every old counter went into it: MAX_WAKE_TRIES, OPEN_TRIES, WAKE_AGAIN_MS, WAKE_PENDING_MS, WAKER_AGAIN_MS,
+RESUME_AGAIN_MS with `resumesSent`, `asleepWoken`, `opens[]` and `failuresOf`, the asleep look's minute.
+
+**What needs a wake** (`wakeNeeds`, one need per board chat that does not run, the first that holds): 1. its envelope waits
+(a task without a clear: "take B855 in this turn: run work next"; a resume envelope: its line; an envelope with a clear, or
+a worker that owes one: the plain line "The worker board holds words for you: run work next", decision 12); 2. the pause's
+resume list names it; 3. asleep with its turn cut (not a holder on the sequence); 4. a word waits for it that wakes a chat
+(`isWakeWord`, now every hand-over envelope; the Product owner's talk); 5. a step queued for a worker not on the sequence.
+The Product owner first, then the main chat, the partner, its helper, the supervisor, the workers. Nothing while the person
+pauses. A chat with neither an app id nor a CLI session id fails at once ("no id").
+
+**The two paths, in order** (decision 8). *Message first:* the hands route gives a running chat's Workers mod (one that may
+send, T14) a job `wake:<spell>:<chat>` with the need's line, claimed in the record in the same synchronous step as the push
+(two hands in one window: one job). The hand's ok is `sentAt`; its failure fails the attempt; a job it gives back unsent
+is erased (B880), one in doubt counts as sent. A start or wake word a hand carries (the page's start, B577) is recorded the
+same way, by the word's id. *Launch second* (`wakePass` on the minute, on Windows, the board that owns the loops,
+`launchPlan`): only when no sender claims, or after the message failed; claimed before the await of `openChat`; board.log
+says "Wake: launched Worker 2 (<uuid>) at 10:32", never "started". One launch per check. The board-wide spell launches
+`chatToOpen` (the main chat first) once per spell while nobody runs, and while that launch is pending no chat's own runs.
+One attempt per path per spell; after both failed nothing more until life (a new spell), the person, or a new sender (a
+chat that began to claim after the failed message: one message more).
+
+**The verdict.** Only the woken chat's own report: a report newer than the attempt from a new process (`run`), at its take
+or report (`keepReport`): "woke", and the hand-over decides for it once. No report within 2 minutes of `sentAt`: "failed"
+(`the app did not start it` for a launch, `no report within 2 minutes of the message`); an attempt not sent within 3
+minutes fails too ("held by X"). The model fallback ended: a start or wake word is a hand's for ever (`isForHandsYet`,
+decision 1), never the addressee's model turn; set, restart, spawn and stop keep their windows.
+
+**The hand-over around a wake** (`decide`, its facts `wake` and `runningFree`, handoverBoard.mjs `factsOf`). While the
+worker's chat is being woken (waits for a sender, on its way, sent, launched, or a first way failed with the other left) its
+task stays HANDING and the net does not run; once every way failed it goes back once ("could not wake it"), UNKNOWN, and
+the worker gets nothing at a pass until it shows life. The net counts from the "woke" verdict. A turn end takes the task
+back only once its line is settled typed, and never the woken chat's first turn end (decision 5, board-only). **4c:** the
+next Workers mod sends `typedAt` in the outcome; the rule then becomes `turnSince >= typedAt`. An envelope with a clear
+waits while the woken chat's first turn runs (`carryable`'s `holdClear`): its clear would fail "a turn is running".
+Decision 13: an asleep worker gets a task at a pass only when no running free worker of the sequence would take it; the
+pass and `match` put running lanes first.
+
+**The page.** One attention line under Needs your attention (`state.wakeNotice`, decision 6): per chat that could not be
+woken "could not wake Worker 2: the app did not start it (launched 10:32); no report after the message (sent 10:35 by
+Advisor); open its chat", and "nobody answers the board's wake-ups: open any chat" first when every chat that needs a wake
+failed and no sender claims, or the board-wide launch failed. Each lane's flags begin with its wake words ("waking ·
+message sent 11:06 by Advisor", "waking · launched 11:03", "waking · message on its way (held by Advisor)", "waking ·
+waits for a chat that can send", quiet; "could not wake: <why>", attention). The ⚙ row "Wake a chat that has work" (key
+`launch`, beside the setup check's `wake` row): by itself, "last launch failed", or "message only" where the board cannot
+launch. `/api/state` carries `wakes`, the newest spell per chat.
+
+**The alarms** (`src/supervisor/rules/watch.mjs`). `handover-unanswered` keys per worker and spell (the record's newest
+spell that began before the envelope, else the envelope's minute) and names every envelope of it; `wake-failed` once per
+chat and spell (`wake-failed <chat> <spell>`, what was tried with times); `nobody-answers-wakes` once per day when every
+chat with a need failed and the board-wide launch failed too; `undelivered` leaves out the words of a chat whose wake is
+pending or failed (they wait for the wake).
+
+**Not in it.** Why the Claude app ignores `claude.exe --desktop --resume` at times (outside the board; the record keeps every
+launch with its time and verdict for the pattern). 4c's `typedAt`. Change 6's alarm design beyond the keys above.
+
+Tests: `test/wake.test.mjs`, `test/wakeNeeds.test.mjs`, `test/opener.test.mjs` (the launch path), `test/hands.test.mjs` (the
+wake job and its claim), `test/work/handover.test.mjs` and `test/work/handoverBoard.test.mjs` (the hand-over around a wake,
+the real envelopes eb4fe8aada155b05 and 93ee0a904d02d2dc), `test/supervisor/handoverRules.test.mjs` (the alarms),
+`test/asleepAfterRestart.test.mjs` (the lane's words, the notice, the ⚙ row).
 
 ## What it does not do
 

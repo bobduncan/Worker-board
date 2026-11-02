@@ -2144,7 +2144,7 @@ export function buildState(raw, { lines = [], outbox = [], runs = [], board = nu
   // no clear are offered, so only what the facts say shows); the board's refresh and the worker's turn end carry it out.
   // Signals change 3: with `asked`, when its "go on" line of this stopped spell was written (the lane's "asked to go on at HH:MM").
   const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step, asked }) => ({ state, why, step, asked }))(decide({
-    ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' } }),
+    ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' }, wakes }),
     ready: [], owed: null,
   })))
   // Signals change 2 (the brief of 2026-10-31): every chat's ONE status, from one pure function (chatStatus.mjs), display only: `state`,
