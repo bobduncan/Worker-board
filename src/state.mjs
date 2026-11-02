@@ -1594,7 +1594,7 @@ export function buildState(raw, options) {
   return withLinks(raw?.work?.items, () => builtState(raw, options))
 }
 
-function builtState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, now, config }) {
+function builtState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -2506,6 +2506,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     deaf,
     deafNow,
     lateCalls: Array.isArray(hearing?.lateCalls) ? hearing.lateCalls : [],
+    // B934 (X93): the board's newest stalls (stalls.mjs), which the rule board-slow cites.
+    stalls: Array.isArray(stalls) ? stalls : [],
     restart,
     pause,
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many

@@ -191,7 +191,9 @@ Q<n>` with `why`, one line why no chat can. An ask you leave open 30 minutes goe
 routes to you what only the person's hands can do (quit, reopen or restart the Claude app; a click on Allow, a chip or a
 prompt; signing in, an account, money, an install, a permission; deleting for good: a chat, a file or folder, a
 launch.json entry, a branch, while archiving a chat stays yours), nor an ask that marks a step done, accepts it or sends it
-back: those stay the user's.
+back: those stay the user's. The one exception among installs: `npm ci` in the user's folder when its node_modules is
+missing or broken is a chat's own to run (it restores what the lock file says and changes nothing else; the person's
+word, 2026-11-02): never routed to the person.
 
 ## Words the board types into you
 

@@ -493,6 +493,10 @@ function needOf(lane, { state, waiting, prefix, resumeList, ownerName }) {
     if (resume !== undefined) return { why: 'envelope', text: resume.line, step: resume.step ?? null }
     return { why: 'envelope', text: WORDS_LINE, step: null }
   }
+  // The lead's live check (2026-11-02, order B): a worker HELD on a failed clear whose chat does not run is woken like any
+  // sleeper, with the plain line: its next idle report releases the hold (handover.mjs HELD_RETRY_MS) and the new clear
+  // envelope comes with its take. Without this, a held sleeper waited for a turn end that never came.
+  if (lane.handover?.state === 'held') return { why: 'held', text: WORDS_LINE, step: typeof lane.handover.step === 'string' ? lane.handover.step : null }
   const resuming = (resumeList ?? []).find(one => one.chat === lane.name && one.hasStarted !== true)
   if (resuming !== undefined) return { why: 'resume', text: `resume your step ${resuming.step} from your checkpoint`, step: resuming.step }
   if (lane.asleep === true && lane.state === 'interrupted' && isTime(lane.asleepSince)) {
