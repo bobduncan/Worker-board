@@ -1,6 +1,6 @@
 // B775, the page's part: "Find obsolete items" under Needs your attention. The button starts the check, reads "The Advisor
-// is checking" while the partner judges and "Try again" when it did not answer in 15 minutes; the answer is a list (verdict,
-// why, evidence, a tick, obsolete ones ticked) and "Close the N ticked" sends exactly the ticked ids. The page is only
+// is checking" while the partner judges and "Try again" when it did not answer in 15 minutes; the answer is one line, how
+// many it closed (2026-11-02: no list of what stays). The page is only
 // read and clicked through the DOM harness (test/README-page-tests.md). Made-up names only.
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -57,25 +57,29 @@ test('while the Advisor checks the button says so and is off; late, it says the 
   } finally { await late.close() }
 })
 
-test('the answer lists what the check left, each with its verdict, why and evidence; no ticks and no close button (the person, 2026-10-31)', async () => {
-  // The obsolete ones close on the board as the Advisor answers; a row can still say Obsolete when its close failed.
-  const page = await openPage({ state: garden(view({ state: 'done', at: 1, rows: ROWS, last: { at: 1, closed: 3 } })) })
+test('the answer says only how many it closed: no list of what stays, no count, no ticks (the person, 2026-11-02)', async () => {
+  // The person, 2026-11-02: "why am i seeing these stay? ... 'closed 6 obsolete' should be sufficient". What stays is the
+  // cards themselves; a row can still say Obsolete when its close failed, and only then the line counts it.
+  const page = await openPage({ state: garden(view({ state: 'done', at: 1, rows: ROWS.slice(2), last: { at: 1, closed: 3 } })) })
   try {
-    const rows = page.all('.obsolete-row')
-    assert.deepEqual(rows.map(row => row.querySelector('.task-code').textContent), ['Q1', 'Q5', 'Q4', 'Q6'])
-    assert.deepEqual(rows.map(row => row.querySelector('.obsolete-verdict').textContent), ['Obsolete', 'Obsolete', 'Unsure', 'Still open'])
-    assert.equal(rows[0].querySelector('.obsolete-why').textContent, 'B12 was built since')
-    assert.equal(rows[0].querySelector('.obsolete-evidence').textContent, 'commit abc1234 names B12')
-    assert.deepEqual(page.all('.obsolete-row input'), [], 'no tick')
+    assert.equal(page.text('.obsolete-none'), 'Closed 3 obsolete.')
+    assert.deepEqual(page.all('.obsolete-row'), [], 'no list')
+    assert.doesNotMatch(page.text('.obsolete-check'), /These stay|Still open|Unsure|open items here/)
+    assert.deepEqual(page.all('.obsolete-check input'), [], 'no tick')
     assert.deepEqual(page.all('.obsolete-close'), [], 'no close button')
-    assert.match(page.text('.obsolete-none'), /Closed 3 obsolete. These stay:/)
   } finally { await page.close() }
+  const failed = await openPage({ state: garden(view({ state: 'done', at: 1, rows: ROWS, last: { at: 1, closed: 3 } })) })
+  try {
+    assert.equal(failed.text('.obsolete-none'), 'Closed 3 obsolete. 2 could not be closed; they stay below.')
+  } finally { await failed.close() }
+  const nothing = await openPage({ state: garden(view({ state: 'done', at: 1, rows: ROWS.slice(2), last: null })) })
+  try { assert.equal(nothing.text('.obsolete-none'), 'Nothing was obsolete.') } finally { await nothing.close() }
 })
 
 test('after the check nothing is left: the part says how many obsolete ones closed', async () => {
   const page = await openPage({ state: garden(view({ state: 'done', at: 1, openCount: 0, rows: [], last: { at: 2, closed: 7 } })) })
   try {
-    assert.match(page.text('.obsolete-none'), /Closed 7 obsolete. Nothing is left to look at./)
+    assert.equal(page.text('.obsolete-none'), 'Closed 7 obsolete.')
     assert.equal(page.find('[data-obsolete="check"]').textContent, 'Check again')
   } finally { await page.close() }
 })
