@@ -39,7 +39,7 @@ import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withMo
 import { appendHistory, nextId, oneRead, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
 import { openNaming, renamedItem } from './names.mjs'
 import { readAutopilotClearedFile, readNamesFile, readObsoleteFile, readPartnerAnswersFile, readPauseFile, writeAutopilotClearedFile, writeNames, writeObsoleteFile, writePartnerAnswers, writePause } from './store.mjs'
-import { INCIDENT_WAS, KEPT_WORDS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
+import { KEPT_WORDS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { HANDED_KEPT_WORDS, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, partnerHandOverOf, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
@@ -3330,7 +3330,7 @@ async function obsoleteCheck(body, w) {
   if (file.record?.state === 'checking' && !isLate(file.record, w.now)) return refuse(409, 'The Advisor is checking already: one check at a time.')
   const by = body.by === 'autopilot' ? 'autopilot' : null
   if (by === 'autopilot' && file.record !== null && file.record.by !== 'autopilot' && (file.record.state === 'checking' || file.record.items.length > 0)) return refuse(409, 'The person\'s own check is open: Autopilot starts none beside it.')
-  const open = openItemsOf(w.store.items).filter(one => by === null || one.kind === 'incident' || (one.kind !== 'refine' && [null, 'person'].includes(valueOf(w.store.items.get(one.id), 'Route'))))
+  const open = openItemsOf(w.store.items).filter(one => by === null || (one.kind !== 'refine' && [null, 'person'].includes(valueOf(w.store.items.get(one.id), 'Route'))))
   if (open.length === 0) return { ok: true, result: { text: 'Nothing is open: nothing to check.', none: true, changed: false } }
   const evidence = await Promise.resolve(w.obsoleteEvidence?.(open, w.store.items)).catch(() => null)
   const record = {
@@ -3373,8 +3373,7 @@ async function obsolete(body, w) {
   let keptWhy = ''
   if (answered.by === 'autopilot' && gone.closed.length > 0) {
     const cleared = await readAutopilotClearedFile(w.dir, w.fs)
-    // An incident keeps the state it had (open, came back, with the advisor): its Undo restores that one.
-    const added = gone.closed.map(id => clearedItem(id, answered.items.find(one => one.id === id)?.title ?? id, 'closed', verdicts[id]?.why ?? '', kindOf(w.store.items.get(id)) === 'incident' ? stateOf(w.store.items.get(id)) : null))
+    const added = gone.closed.map(id => clearedItem(id, answered.items.find(one => one.id === id)?.title ?? id, 'closed', verdicts[id]?.why ?? ''))
     const saved = await writeAutopilotClearedFile(w.dir, addedCleared(cleared.record, added, w.now), w.fs, { expected: cleared.text })
     // The items are closed already: a record that could not be kept is told, not refused.
     if (!saved.ok) keptWhy = ` The list for Undo could not be updated: ${saved.why}.`
@@ -3485,13 +3484,8 @@ async function undoCleared(one, w) {
     const done = await save(item, found.text, w)
     return done.ok ? { ok: true } : { ok: false, why: done.why }
   }
-  if (kind === 'incident') {
-    if (state !== 'closed') return { ok: false, why: `it is ${state} now` }
-    const item = ordered(said(put(put(copy(found.item), 'State', INCIDENT_WAS.includes(one.was) ? one.was : 'open'), 'Since', stamp(w.now)), w, REOPENED_WORDS))
-    const done = await save(item, found.text, w)
-    return done.ok ? { ok: true } : { ok: false, why: done.why }
-  }
-  if (kind !== 'ask') return { ok: false, why: `${id} is neither an ask nor an incident` }
+  // Signals change 6: the check holds no incident (the Supervisor judges them), so the Undo opens asks only.
+  if (kind !== 'ask') return { ok: false, why: `${id} is no ask` }
   if (state !== 'withdrawn') return { ok: false, why: `it is ${state} now` }
   const of = valueOf(found.item, 'Of')
   const under = of !== null && STEP_ID.test(of) ? w.store.items.get(of) : undefined
