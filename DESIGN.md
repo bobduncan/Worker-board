@@ -3893,7 +3893,15 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (`deafMs`, the view's `deaf`: a stall or a restart of the board is no chat's fault). `board-deaf` (B736: the board heard no
   chat for over 10 min while chats wrote their conversations; the lanes read as before from then on, so a hung board is not
   hidden) and `board-slow` (B736, the rule X89's sweep wanted: two work calls within 2 min that the board answered after the
-  chat's Workers mod had given up, 10 s, read from each call's request id; one finding naming the longest wait).
+  chat's Workers mod had given up, 10 s, read from each call's request id; one finding naming the longest wait; B934: its
+  evidence cites the newest three stalls of the board's stall log in those 10 min, or says the log names none).
+  **The stall log** (B934, X93: after B917 the board stalled 6 to 13 s around the workers' hand-overs and nothing named
+  what it did; `src/stalls.mjs`, `src/stallWords.mjs`): a timer every 500 ms measures how late the event loop runs it; a
+  delay over 2 s is a stall of the loop, and a work call answered over 2 s after it reached the board is a stall of the
+  call (it waited on something while the loop ran). Each is written with the requests (every HTTP request, a work call by
+  its action and chat) and the board's own jobs (every loop run through `loops.run`, a state rebuild, a hand-over, a chat
+  log being written, the read of a cleared chat's left session) that ran during it, to `data/stalls.json` (the newest 50,
+  read again at a start); the state carries them (`stalls`) and board-slow cites them.
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
