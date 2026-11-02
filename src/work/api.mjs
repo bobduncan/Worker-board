@@ -57,7 +57,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'recap-answered', 'asset'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'recap-answered', 'asset'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -66,11 +66,11 @@ const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents
  */
 const GOAL_MAP = new Set(['definition-draft', 'vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'obsolete-check', 'obsolete', 'recheck-stuck', 'recheck-base'])
+const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'obsolete-check', 'obsolete', 'recheck-stuck', 'recheck-base'])
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'add-to-queue', 'remove-from-queue'])
-const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'autopilot', 'recap-answered'])
+const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'autopilot', 'recap-answered'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -4235,6 +4235,35 @@ async function incidentTold(body, w) {
 }
 
 /**
+ * Signals change 4's follow-up (2026-11-02): the board's own re-keying of standing incidents after a rule's key form changed
+ * (src/supervisor/rekey.mjs `rekeyPlan`): `moves` `[{ id, key, why }]` get the new Key with one History line; `closes`
+ * `[{ id, why }]` are closed as superseded (State closed, Since now, the why in the History). Only the board (`server`).
+ * Answers the ids `moved` and `closed`; an id that is no standing incident is left out.
+ */
+async function incidentsRekey(body, w) {
+  const moved = []
+  const closed = []
+  for (const one of Array.isArray(body.moves) ? body.moves : []) {
+    const loaded = await load(line(one?.id, 20), w, { kind: ['incident'] })
+    const key = line(one?.key, 200)
+    if (!loaded.ok || key === '' || !REKEY_STANDING.includes(stateOf(loaded.item))) continue
+    const next = ordered(said(put(copy(loaded.item), 'Key', key), w, line(one?.why, 300) || `re-keyed to "${key}"`))
+    const done = await save(next, loaded.text, w)
+    if (done.ok) moved.push(valueOf(next, 'Id'))
+  }
+  for (const one of Array.isArray(body.closes) ? body.closes : []) {
+    const loaded = await load(line(one?.id, 20), w, { kind: ['incident'] })
+    if (!loaded.ok || !REKEY_STANDING.includes(stateOf(loaded.item))) continue
+    const next = ordered(said(put(put(copy(loaded.item), 'State', 'closed'), 'Since', stamp(w.now)), w, `closed: ${line(one?.why, 300) || 'superseded: its rule\'s key form changed'}`))
+    const done = await save(next, loaded.text, w)
+    if (done.ok) closed.push(valueOf(next, 'Id'))
+  }
+  return { ok: true, result: { moved, closed, text: `${moved.length} re-keyed, ${closed.length} closed as superseded.`, changed: moved.length + closed.length > 0 } }
+}
+/** The incident states `incidents-rekey` touches: the standing ones (rekey.mjs STANDING). */
+const REKEY_STANDING = ['open', 'came back', 'with the advisor', 'with the supervisor', 'fix']
+
+/**
  * The supervisor: the board's own pass over the incidents being fixed (from its reconcile): one whose Fix step is done
  * is fixed; one whose Fix step was dropped, or is gone, is open again. Answers the ids `fixed` and `reopened`.
  */
@@ -4278,6 +4307,7 @@ const CHANGE = {
   'incident-fix': incidentFix,
   'incident-told': incidentTold,
   'incidents-fixed': incidentsFixed,
+  'incidents-rekey': incidentsRekey,
   take, step, ask, withdraw, note, words, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'add-to-queue': addToQueue, 'remove-from-queue': removeFromQueue, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,

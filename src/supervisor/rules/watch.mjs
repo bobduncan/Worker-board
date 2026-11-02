@@ -1040,6 +1040,23 @@ function handoverHeld(view, ctx) {
 /** T8.5 step 4: how far back a fired net still counts as a finding (one per envelope, so its incident counts it once). */
 const UNANSWERED_LOOK_MS = DAY
 
+/** A History line's stamp and who wrote it: "- 2026-11-02 11:10 server: queued → taken (for Worker 1)". */
+const HISTORY_WHO = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?) ([^:]{1,80}):\s*(.*)$/
+/**
+ * Change 4's follow-up: whether a step was handled after `since`: a History line after it that moves the step (" → "),
+ * gives it to a worker ("given by the board to", "given to"), or is the person's. Null item: not handled.
+ */
+function handledSince(item, since) {
+  if (item === null || item === undefined || !Number.isFinite(since)) return false
+  return (item.sections?.get('History') ?? []).some(entry => {
+    const found = HISTORY_WHO.exec(entry)
+    if (found === null) return false
+    const at = sinceMs(found[1])
+    if (!Number.isFinite(at) || at <= since) return false
+    return found[2].trim().toLowerCase() === 'person' || / → /.test(found[3]) || /\bgiven (?:by the board )?to\b/.test(found[3])
+  })
+}
+
 /**
  * 30. T8.5 step 4 (in place of not-taking for a worker on the sequence): the hand-over's one net fired: an envelope that
  * had no outcome, no take and no turn's end for `NET_MS` (10 min) of the board's running time (`netAt` on the envelope,
@@ -1047,32 +1064,26 @@ const UNANSWERED_LOOK_MS = DAY
  * envelope, for a day after the net. Only workers on the sequence.
  */
 function handoverUnanswered(view) {
-  const found = new Map()
+  const found = []
   for (const lane of workersOf(view).filter(one => one.onSequence === true)) {
-    // Signals change 4 (decision 7, X119-X121: one incident per envelope as B855 bounced): one finding per worker and
-    // spell: the newest spell of the wake record that began before the envelope (the chat slept when it went), else the
-    // envelope's minute. The finding names every envelope of the spell.
-    const spells = (view.wakes?.[lane.name]?.spells ?? []).filter(Number.isFinite)
     for (const envelope of envelopesOf(view.outbox, lane.name, view.prefix)) {
       if (!Number.isFinite(envelope.netAt) || view.now - envelope.netAt > UNANSWERED_LOOK_MS) continue
-      const slept = spells.filter(spell => spell <= envelope.at).at(-1)
-      const spell = slept ?? Math.floor(envelope.at / MIN) * MIN
-      const key = `handover-unanswered ${lane.name} ${spell}`
+      // Change 4's follow-up (2026-11-02, X119 counted 71 times hours after its net): a miss whose task was handled since
+      // (taken, given to another worker, moved or touched by the person) is not found again: its look ends at that move.
+      if (typeof envelope.step === 'string' && handledSince(view.items?.get(envelope.step), envelope.netAt)) continue
+      // The key (2026-11-02, the lead's defect note after change 4: a key with the wake record's spell took a lane or report
+      // time, so the same misses opened again at every lane change, X124-X130 in 17 minutes): the rule, the chat and the
+      // envelope's id, which never changes. One finding per envelope; a bounce through four workers is four misses.
+      const key = `handover-unanswered ${lane.name} ${envelope.id}`
       const step = typeof envelope.step === 'string' ? envelope.step : null
-      const one = `envelope ${envelope.id} (${envelope.kind ?? 'task'}${step === null ? '' : ` ${step}`}) out at ${clockOf(envelope.at)}, ${envelope.state}${envelope.clear ? `, with the clear after ${envelope.clear.step ?? 'its report'}` : ''}; the net fired at ${clockOf(envelope.netAt)}`
-      const before = found.get(key)
-      if (before !== undefined) {
-        before.envelopes.push(one)
-        continue
-      }
-      found.set(key, {
-        rule: 'handover-unanswered', key, subject: lane.name, since: envelope.at, envelopes: [one],
+      found.push({
+        rule: 'handover-unanswered', key, subject: lane.name, since: envelope.at,
         text: `${lane.name} ${UNANSWERED_WHY}${step === null ? '' : ` (${step})`} within ${minutes(NET_MS)} min${step === null ? '' : `; ${step} went back on the list`}`,
-        tail: `its lane now: ${lane.handover?.state ?? 'not known'}; its report: ${lane.report?.state ?? 'none'}${Number.isFinite(lane.report?.since) ? ` since ${clockOf(lane.report.since)}` : ''}${slept === undefined ? '' : `; asleep since ${clockOf(slept)}`}`,
+        evidence: `envelope ${envelope.id} (${envelope.kind ?? 'task'}${step === null ? '' : ` ${step}`}) out at ${clockOf(envelope.at)}, ${envelope.state}${envelope.clear ? `, with the clear after ${envelope.clear.step ?? 'its report'}` : ''}; the net fired at ${clockOf(envelope.netAt)}; its lane now: ${lane.handover?.state ?? 'not known'}; its report: ${lane.report?.state ?? 'none'}${Number.isFinite(lane.report?.since) ? ` since ${clockOf(lane.report.since)}` : ''}`,
       })
     }
   }
-  return [...found.values()].map(({ envelopes, tail, ...finding }) => ({ ...finding, evidence: `${envelopes.join('; ')}; ${tail}` }))
+  return found
 }
 
 /** The board's local date of a time, YYYY-MM-DD. */
