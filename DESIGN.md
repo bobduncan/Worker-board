@@ -1433,7 +1433,7 @@ board also ends its games when it is closed, and the card has a Stop button. The
 branch and the folder come from the board's own state, and starting needs what sending needs (the token, the
 board's own origin, JSON). The board switches no folder to another branch: a branch that is in no working folder
 cannot be started, and the card says so. Vite's cache for these games is kept in the board's `data/game-cache`,
-so nothing is written into a folder's `node_modules` while a worker runs the game from it too. The Overview has
+so nothing is written into a folder's `node_modules` while a worker runs the game from it too. A cache older than the folder's `node_modules/.package-lock.json`, or one that cannot be read, is rebuilt at the next start (B943: a `node_modules` emptied and restored kept a bundle made without `@pixi/colord`); a broken `node_modules` itself still fails. The Overview has
 a "Run game" button that is always there (the person, 2026-10-12: "lets add the run game button in the worker
 board"): it opens the game as it is on main the same way, and says which commit main is on and since when.
 
