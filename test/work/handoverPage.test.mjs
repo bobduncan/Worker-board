@@ -48,7 +48,10 @@ test('a worker on the sequence carries its state and a quiet line on its lane; o
   const on = lane(build({ handover: 'sequence', mod: '0.27.0', outbox: [failed] }))
   assert.equal(on.onSequence, true)
   assert.equal(on.handover.state, STATES.HELD)
-  assert.deepEqual(on.flags.filter(flag => flag.kind === 'handover').map(flag => flag.text), ['held: its clear did not run: background work it started still runs'])
+  const heldFlags = on.flags.filter(flag => flag.kind === 'handover').map(flag => flag.text)
+  assert.equal(heldFlags.length, 1)
+  // 2026-11-02: the hold names its next try (the board releases it after 10 min of running time).
+  assert.match(heldFlags[0], /^held: its clear did not run: background work it started still runs; next try \d\d:\d\d$/)
   for (const off of [build({ handover: 'timers', mod: '0.27.0', outbox: [failed] }), build({ handover: 'sequence', mod: '0.26.10', outbox: [failed] })]) {
     assert.equal(lane(off).onSequence, false)
     assert.equal(lane(off).handover, null)
