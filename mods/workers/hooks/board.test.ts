@@ -172,6 +172,13 @@ describe('B775: the partner judges the open items of Needs your attention with t
   })
 })
 
+describe('0.29.0: every chat asks the board for an asset with the work tool', () => {
+  test('asset is an action of the tool, with kind, text, pictures, of, follows and a library pick', () => {
+    expect(WORK_ACTIONS.at(-1)).toBe('asset')
+    for (const field of ['kind', 'text', 'pictures', 'of', 'follows', 'id', 'picked']) expect(WORK_FIELDS.includes(field)).toBe(true)
+  })
+})
+
 describe("B313: the main chat moves a renamed chat's work with the work tool", () => {
   test('rename is an action of the tool, with from and to', () => {
     expect(WORK_ACTIONS.includes('rename')).toBe(true)
@@ -268,7 +275,7 @@ describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
     // 0.27.3: the work tool says "goal definition" and takes definition-draft (this branch carried 0.27.1, the main branch is at 0.27.2).
-    expect(MOD_VERSION).toBe('0.28.0')
+    expect(MOD_VERSION).toBe('0.29.0')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {

@@ -61,8 +61,8 @@ test('every provider has the same face: its name, how it provides, the kinds it 
   for (const kind of ASSET_KINDS) assert.ok(PROVIDERS[DEFAULT_PROVIDERS[kind].provider].kinds.includes(kind), kind)
   // Only the sound library has a folder, and it names its own default.
   assert.deepEqual(Object.values(PROVIDERS).map(one => one.folder ?? null), [null, null, 'sound-library', null, null, null, null, null])
-  // Nothing asks a provider for an asset yet: part 2 adds `provide`.
-  assert.deepEqual(Object.values(PROVIDERS).filter(one => 'provide' in one), [])
+  // Part C: every provider that serves a kind provides (test/assets.test.mjs); Claude serves none and has no `provide`.
+  assert.deepEqual(Object.values(PROVIDERS).filter(one => typeof one.provide !== 'function').map(one => one.name), ['claude'])
 })
 
 test('codex: ok when Codex is found, where the Design tab\'s settings say or where the board looks; "Codex not found" otherwise', async t => {
