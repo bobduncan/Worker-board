@@ -379,16 +379,15 @@ test('change 4, decision 5: a turn end while the envelope is only taken (not set
   assert.equal(ended.state, STATES.HANDING)
 })
 
-test('change 4, D.5 (decision 13): an asleep worker gets nothing at a pass while a running free worker would take the task (mutant: the sleeper picked)', () => {
-  const running = worker('Worker 1', { since: day2(10, 0) })
-  const items = mapOf([step('B855', 'refined')])
-  const asleep = decide({ worker: asleepW5(), items, ready: ready('B855'), now: day2(10, 31), runningFree: [running] })
-  assert.deepEqual([asleep.state, asleep.why, asleep.give, asleep.envelope], [STATES.FREE, 'a running worker is free', null, null])
-  // No running worker free: the sleeper gets it (its envelope is the wake's need).
-  assert.equal(decide({ worker: asleepW5(), items, ready: ready('B855'), now: day2(10, 31), runningFree: [] }).give, 'B855')
-  // A running free worker that may not take it (pinned to the sleeper) holds nobody back.
-  const pinned = [{ id: 'B855', rank: 2, keptFor: W5, keptUntil: null, pinned: W5 }]
-  assert.equal(decide({ worker: asleepW5(), items, ready: pinned, now: day2(10, 31), runningFree: [running] }).give, 'B855')
-  // match prefers running lanes over asleep ones.
-  assert.equal(match({ ready: ready('B855'), idle: [asleepW5(), running], items })[0].chat, 'Worker 1')
+test('change 4, D.5 (decision 13) by the orderings alone: a running worker whose net fired takes nothing, the sleeper gets the step (the review of 2026-11-02)', () => {
+  const items = mapOf([step('B855', 'refined'), step('B700', 'queued', { Owner: 'Worker 1' })])
+  // Worker 1 runs, idle, but its hand-over is UNKNOWN after the net: it gets nothing.
+  const netted = { id: 'e0', at: day2(10, 0), to: 'Worker 1', command: HANDOVER_COMMAND, kind: 'task', step: 'B700', clear: null, set: null, line: lineFor('B700'), state: 'dropped', netAt: day2(10, 10) }
+  const running = decide({ worker: worker('Worker 1', { since: day2(9, 50) }), items, ready: ready('B855'), envelopes: [netted], now: day2(10, 31) })
+  assert.deepEqual([running.state, running.give], [STATES.UNKNOWN, null])
+  // The sleeper gets B855 (no rule holds it back for a running worker that would not take it).
+  const asleep = decide({ worker: asleepW5(), items, ready: ready('B855'), now: day2(10, 31) })
+  assert.deepEqual([asleep.state, asleep.give], [STATES.HANDING, 'B855'])
+  // The orderings keep decision 13: match puts running lanes first.
+  assert.equal(match({ ready: ready('B855'), idle: [asleepW5(), worker('Worker 2', { since: day2(10, 0) })], items })[0].chat, 'Worker 2')
 })

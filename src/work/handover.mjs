@@ -46,8 +46,6 @@ export const LIMIT_WHY = 'a usage limit is full'
 export const RESTART_LATE_WHY = 'its restart did not happen'
 /** Signals change 4 (D.2): the take-back's why when every way to wake the worker failed. */
 export const WAKE_FAILED_WHY = 'could not wake it'
-/** Signals change 4 (D.5, decision 13): why an asleep worker gets no task at a pass. */
-export const RUNNING_FREE_WHY = 'a running worker is free'
 /** Signals change 4: the states of a wake still on its way (src/wake.mjs WAKE_PENDING; kept here so decide stays pure of the record). */
 const WAKING = ['waiting-sender', 'on-its-way', 'sent', 'launched']
 
@@ -213,8 +211,7 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * - signals change 3: `pause` (the store's pause record), `stops` (the person's stop and remove words about it), `timers`
  *   `{ resumeMs, giveBackMs }` (the settings `resumeAfterMinutes` and `giveBackAfterMinutes`), `localOnly` (the ids of the
  *   given-back ready steps whose checkpoint commit is on no remote branch: their continuation line says so);
- * - signals change 4, B908: `wake` (src/wake.mjs `wakeFact`: `{ state, final, wokeAt, firstTurnEnd }`, or null) and
- *   `runningFree` (the lanes of the sequence's running free workers, idle report, no step held).
+ * - signals change 4, B908: `wake` (src/wake.mjs `wakeFact`: `{ state, final, wokeAt, firstTurnEnd }`, or null).
  *
  * In this order, the first that holds wins:
  * 1. the person pauses, or a limit is full: SUSPENDED, nothing sent; the task in flight goes back at once;
@@ -241,13 +238,16 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * give in the same call, the envelope to write, the envelope the net fired for (marked once), one that waits in the outbox
  * and is to be closed (its task went back).
  */
-export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, runningFree = [] }) {
+export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null }) {
   const name = worker.name
   const isTurnEnd = event?.kind === 'turn-ended'
   const turnSince = isTurnEnd && Number.isFinite(event.since) ? event.since : -Infinity
   // Signals change 4 (D.2, decision 10, 2026-11-02 10:31-11:01: B855 bounced Workers 2 → 3 → 4 → 5 by the net while no wake
   // reached any of them): a wake still on its way holds the net; one that failed on every path gives the task back once.
   // Only for a chat that does not run: a running one woke (its newest spell's `wokeAt` still sets the net's start).
+  // The review of 2026-11-02: a wake that waits for a chat that can send (no sender claims, no launch possible) holds the
+  // net for the whole spell; acceptable only because nothing runs then that could take the task, and the page says
+  // "nobody answers the board's wake-ups" (src/wake.mjs `noticeOf`).
   const isAsleepNow = worker.isRunning !== true
   const isWaking = isAsleepNow && wake !== null && (WAKING.includes(wake.state) || (wake.state === 'failed' && wake.final !== true))
   const isWakeFailed = isAsleepNow && wake !== null && wake.state === 'failed' && wake.final === true
@@ -376,12 +376,6 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
   const said = takenBack === null ? null : `${NOT_TAKEN_WHY.replace('it', takenBack.id)}`
   if (given === null) {
     return result(STATES.FREE, said, { takeBack: takenBack, envelope: clear === null ? null : { kind: 'clear', step: null, clear, restart: false, set: null, line: null, back: null } })
-  }
-  // Signals change 4, D.5 (decision 13): an asleep worker gets a task at a pass only when no running free worker of the
-  // sequence would take it: fewer wakes at all (2026-11-02 10:31: B855 went to an asleep Worker 2 while others ran).
-  if (!isTurnEnd && worker.asleep === true && worker.isRunning !== true && (runningFree ?? []).length > 0
-    && match({ ready: open, idle: runningFree, items: scratch, prefix }).some(one => one.id === given.id)) {
-    return result(STATES.FREE, RUNNING_FREE_WHY, { takeBack: takenBack })
   }
   const set = setFor(given.id) ?? null
   // Signals change 3: a step the board gave back goes to its next worker as a continuation from its checkpoint.

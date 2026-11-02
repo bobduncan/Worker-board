@@ -69,13 +69,6 @@ export function setterFor(lane, items, config) {
 const stopsOf = (sent, name) => (sent ?? []).filter(one => (one?.command === 'stop' || one?.command === 'remove') && one.byCode === true && one.about === name)
 
 /**
- * Signals change 4, D.5: the running free workers of the sequence beside `lane` (idle report, free, no step held), for the
- * rule that an asleep worker gets a task only when none of them would take it.
- */
-const runningFreeOf = (state, lane, config) => (state.chats ?? []).filter(one => one?.name !== lane.name && one.isLeftover !== true && one.isRunning === true
-  && one.state === 'free' && one.report?.state === 'idle' && onSequence(one, config))
-
-/**
  * The facts of one worker's decision, out of the state, a fresh read of the store and the outbox. Signals change 4: `wakes`
  * the server's wake facts (`{ record, senderClaims, canLaunch }`, src/wake.mjs), or null where none is kept.
  */
@@ -98,9 +91,9 @@ export function factsOf({ lane, state, items, pause, sent, config, installed = n
     stops: stopsOf(sent, lane.name),
     timers: { resumeMs: (config?.resumeAfterMinutes ?? RESUME_MINUTES) * MIN, giveBackMs: (config?.giveBackAfterMinutes ?? GIVE_BACK_MINUTES) * MIN },
     localOnly,
-    // Signals change 4 (D.1, D.5): the wake of its chat, and the running free workers.
+    // Signals change 4 (D.1): the wake of its chat. D.5 (decision 13) is the pass's order alone (running lanes first, and
+    // `match`'s): the review of 2026-11-02 found a sleeper held back for a running worker that would not take the task.
     wake: wakeFact(wakes, lane, event),
-    runningFree: runningFreeOf(state, lane, config),
   }
 }
 
