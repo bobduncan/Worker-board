@@ -103,8 +103,7 @@ import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
 import { handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
-import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn } from './src/supervisor/index.mjs'
-import { buildView } from './src/supervisor/view.mjs'
+import { REFUSED_MS, SUPERVISOR_RULES, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -1242,9 +1241,9 @@ async function main(args) {
       const now = clock()
       const items = stored?.ok === true ? stored.items : new Map()
       const outbox = store.outbox()
-      const view = buildView({ state, items, outbox, keep, settings: config.supervisor ?? {}, now })
+      const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, now })
       const obsolete = workDir === null ? null : (await readObsoleteFile(workDir)).record
-      const waits = waitsOf({ state, outbox, view, reports, items, obsolete, sweep: supervised?.lastSweep ?? null })
+      const waits = waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null })
       loops.succeeded('waits')
       return waits
     } catch (error) {

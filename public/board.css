@@ -3341,7 +3341,7 @@ ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 
 .q-change:hover:not(:disabled) { color: var(--text); border-color: #3a4a63; }
 .q-change:disabled { opacity: .6; cursor: default; }
 
-/* The wait line (T22, mock.png in art-inbox/focus-mocks/wait-rule; the person, 2026-11-02: "i always need clear visual
+/* The wait line (T22, the wait rule's mock of 2026-11-02; the person, 2026-11-02: "i always need clear visual
    indications, maybe a loader. and the status if its being picked up or not"): one line on the card of an action that waits
    for a chat. Sent a ring, Picked up a loader, Done a tick, all quiet cool tones; only Late is in the attention colour (the
    person's colour rule). The chat's own pill stands at its end, as every view draws it. */

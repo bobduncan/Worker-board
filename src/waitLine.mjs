@@ -1,4 +1,4 @@
-// The wait line (T22, spec art-inbox/focus-mocks/wait-rule/spec.md, the person's yes "Yes, both" of 2026-11-02). The person,
+// The wait line (T22, the wait rule's spec and mock, the person's yes "Yes, both" of 2026-11-02). The person,
 // 2026-11-02: "either the board responds immediately, e.g. via code. or we expect an ai chat todo something in which case i
 // always need clear visual indications, maybe a loader. and the status if its being picked up or not. I want to know whats
 // going on." Before it, an answered ask vanished at once, the recap's Send feedback said "Your partner makes the next tries"
@@ -17,12 +17,12 @@
 //    while it does not (condition 1).
 // The chat's status pill stays beside the line as it is (condition 3): the page draws it from the lane, never from here.
 //
-// PURE: every fact is passed in, `view.now` included. The server puts the lines in the state as `waits`, by word id
-// (`waitsOf`: only the words an action of the person typed, the last 24 h); the page draws a line where it finds a word id.
+// PURE: every fact is passed in, `now` included, and rule 8's judgement as `judge` (the supervisor's `wordJudge`: nothing
+// outside the supervisor imports its parts). The server puts the lines in the state as `waits`, by word id (`waitsOf`: only
+// the words an action of the person typed, the last 24 h); the page draws a line where it finds a word id.
 
 import { isHandTaken } from './hands.mjs'
 import { isLate } from './store.mjs'
-import { isUndelivered, undeliveredJudged, wordMatters } from './supervisor/rules/watch.mjs'
 import { WAKE_PENDING, triedWords } from './wake.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
 import { fixesOf } from './work/resultCheck.mjs'
@@ -63,21 +63,20 @@ export function arrivedAt(word) {
 
 /**
  * The line of one word: `{ state, lead, rest, at, chat, canSendAgain, link }`, or null when the word is no wait: closed,
- * dropped or superseded (watch.mjs `wordMatters` false), copied for the person to paste, or expired and not late by rule 8.
+ * dropped or superseded (`judge.matters` false), copied for the person to paste, or expired and not late by rule 8.
  * - `word`: the outbox record (`id`, `to`, `state`, `at`, `takenAt`, `deliveredAt`, ...), the copy that stands for it when retried;
  * - `lane`: the addressee as the state draws it (`name`, `isRunning`, `status`), or null when it is not on the board;
  * - `report`: its chat's last turn report (`{ state, since }`, chatReport.mjs), or null;
  * - `wake`: its wake as the state carries it (state.mjs `withWakes`: `{ state, final, at, by, why, attempts }`), or null;
  * - `done`: the action's own result when its source says so (`{ at, words, link }`), else null;
- * - `view`: the supervisor's view (supervisor/view.mjs `buildView`): `now`, `keep`, `settings` and what rule 8 reads;
- * - `queue`: how many of the addressee's waiting words came before it.
- * `facts` (optional) what `waitsOf` shares between words: `{ judged, matters }`.
+ * - `now`, `keep`: the board's clock and the outbox's keep (store.mjs `isLate`);
+ * - `queue`: how many of the addressee's waiting words came before it;
+ * - `judge`: rule 8's judgement of one word (supervisor/index.mjs `wordJudge`): `isUndelivered(word)`, watch.mjs's function that
+ *   `undeliveredWords` uses (the alarm's own: no second clock), and `matters(word)`, the outbox sweep's (`wordMatters`).
  */
-export function waitLineOf({ word, lane = null, report = null, wake = null, done = null, view, queue = 0 }, facts = {}) {
+export function waitLineOf({ word, lane = null, report = null, wake = null, done = null, now, keep = {}, queue = 0, judge }) {
   if (word === null || word === undefined || typeof word.to !== 'string' || !isTime(word.at)) return null
-  const now = view.now
-  const matters = facts.matters ?? wordMatters(view)
-  if (['dropped', 'stopped', 'copied'].includes(word.state) || !matters(word)) return null
+  if (['dropped', 'stopped', 'copied'].includes(word.state) || !judge.matters(word)) return null
   const chat = lane?.name ?? word.to
   const line = (state, lead, rest, at, more = {}) => ({ state, lead, rest, at, chat, canSendAgain: false, link: null, ...more })
   const arrived = arrivedAt(word)
@@ -91,7 +90,7 @@ export function waitLineOf({ word, lane = null, report = null, wake = null, done
   if (turn !== null && TURN_ENDED.includes(turn.state)) return line('done', `${chat} answered ${clockOf(turn.since)}`, '', turn.since, { isFallback: true })
   // 2. Late: rule 8's own judgement, or every way to wake the chat failed while the word was not in it.
   const isPending = WAKE_PENDING.includes(wake?.state)
-  const late = isUndelivered(view, word, facts.judged)
+  const late = judge.isUndelivered(word) === true
   const wakeFailed = arrived === null && wake?.final === true
   if (late || wakeFailed) {
     const tried = triedWords(wake?.attempts ?? [], clockOf)
@@ -101,7 +100,7 @@ export function waitLineOf({ word, lane = null, report = null, wake = null, done
     return line('late', `Not picked up after ${minutes(now - word.at)} min`, cause, word.at, { canSendAgain: lane?.isRunning === false && !isPending })
   }
   // An expired word that rule 8 no longer names (older than its look back, or the sweep's own word): no wait any more.
-  if (word.state === 'expired' || (word.state === 'waiting' && isLate(word, now, view.keep ?? {}))) return null
+  if (word.state === 'expired' || (word.state === 'waiting' && isLate(word, now, keep))) return null
   // 3. Picked up: it arrived and the turn that began on it runs.
   if (turn !== null && TURN_RUNS.includes(turn.state)) return line('picked-up', `${chat} is on it`, `since ${clockOf(turn.since)}`, turn.since)
   // 4. Sent: why it is not picked up yet, as far as the board knows.
@@ -209,19 +208,17 @@ function lanesOf(state) {
 
 /**
  * The state's `waits`: the line of every word an action of the person typed in the last 24 hours (`isPersonWord`), by its
- * id; a retried word by the copy that stands for it. `outbox` the board's raw outbox (as rule 8 reads it), `view` the
- * supervisor's view of the same moment (`buildView`), `reports` the board's kept turn reports by chat (a Map), `items` the
+ * id; a retried word by the copy that stands for it. `outbox` the board's raw outbox (as rule 8 reads it), `now` and `keep`
+ * the board's clock and the outbox's keep, `judge` rule 8's judgement of the same moment (the supervisor's `wordJudge`, made
+ * once for every word), `reports` the board's kept turn reports by chat (a Map), `items` the
  * work store's items, `obsolete` the obsolete check's record, `sweep` the supervisor's last sweep (`{ word, asked, ended, how,
  * found }`). Each line also carries what the page finds it by: `command` ('answer' for an answer), `about`, `ask`, `sentAt`, and
  * `title`, the word's first line.
  */
-export function waitsOf({ state, outbox = [], view, reports = null, items = null, obsolete = null, sweep = null }) {
-  const now = view.now
+export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = null, items = null, obsolete = null, sweep = null }) {
   const byId = new Map(outbox.filter(word => typeof word?.id === 'string').map(word => [word.id, word]))
   const lanes = lanesOf(state)
   const sweepWord = sweep?.asked === true && typeof sweep.word === 'string' ? sweep.word : null
-  // Rule 8's judgement and the outbox sweep's, made once for every word.
-  const facts = { matters: wordMatters(view), judged: undeliveredJudged(view) }
   const waits = {}
   for (const asked of outbox) {
     if (!isPersonWord(asked, { sweepWord }) || now - asked.at >= WAITS_KEPT_MS) continue
@@ -230,7 +227,7 @@ export function waitsOf({ state, outbox = [], view, reports = null, items = null
     const report = (reports instanceof Map ? reports.get(word.to) : null) ?? lane?.report ?? null
     const queue = outbox.filter(one => one.to === word.to && one.state === 'waiting' && one.isHeld !== true && one.id !== word.id && isTime(one.at) && one.at < word.at).length
     const done = word.command === 'recap-feedback' ? recapDone(word, items) : word.command === 'obsolete-check' ? obsoleteDone(word, obsolete) : word.command === 'sweep' ? sweepDone(word, sweep) : null
-    const line = waitLineOf({ word, lane, report, wake: lane?.wake ?? null, done, view, queue }, facts)
+    const line = waitLineOf({ word, lane, report, wake: lane?.wake ?? null, done, now, keep, queue, judge })
     if (line === null) continue
     const title = String(asked.text ?? '').split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 160)
     waits[asked.id] = { ...line, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command, about: asked.about ?? null, ask: asked.ask ?? null, sentAt: asked.at, title }

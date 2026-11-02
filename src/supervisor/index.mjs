@@ -12,7 +12,7 @@ import { healthSummary, oddLinesOf } from './health.mjs'
 import { SYNC_EVERY_MS, memoryOf, syncRunner } from './loop.mjs'
 import { buildView } from './view.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
-import { WATCH_RULES, isNearStop } from './rules/watch.mjs'
+import { WATCH_RULES, isNearStop, isUndelivered, undeliveredJudged, wordMatters } from './rules/watch.mjs'
 import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
 import { SWEEP_AT_LEAST_HOURS, SWEEP_MOD, sweepRunner, tokensOfTurn } from './sweep.mjs'
 
@@ -33,6 +33,19 @@ export { loopGate, loopOwner } from './loop.mjs'
 
 /** Part 2: the Workers mod the supervisor's chat needs for a sweep; what a sweep's turn cost, from its transcript. */
 export { SWEEP_MOD, tokensOfTurn }
+
+/**
+ * The wait line (T22, the board-dev chat's condition 2 of 2026-11-02: "Late uses the undelivered rule's own lateness ...
+ * never a second clock, so the card and the alarm agree"): rule 8's judgement of one word at a time, for src/waitLine.mjs,
+ * from a view of the board built as the rules build theirs (`buildView`, the server's state, store and outbox of the moment).
+ * `{ isUndelivered(word), matters(word) }`: watch.mjs `isUndelivered`, the function `undeliveredWords` uses, and `wordMatters`
+ * (the outbox sweep's judgement), each made once for the view. Only through here: nothing outside the supervisor imports its parts.
+ */
+export function wordJudge({ state, items, outbox, keep, settings, now }) {
+  const view = buildView({ state, items, outbox, keep, settings, now })
+  const judged = undeliveredJudged(view)
+  return { isUndelivered: word => isUndelivered(view, word, judged), matters: wordMatters(view) }
+}
 
 /** How often the board looks whether a sweep is due, and whether the last one ended. */
 const SWEEP_TICK_MS = 60_000

@@ -103,7 +103,7 @@ function statusLabel(found) {
 
 // waitline:start
 /**
- * The wait line (T22, spec art-inbox/focus-mocks/wait-rule/spec.md; the person, 2026-11-02: "either the board responds
+ * The wait line (T22, the wait rule's spec and mock of 2026-11-02; the person, 2026-11-02: "either the board responds
  * immediately, e.g. via code. or we expect an ai chat todo something in which case i always need clear visual indications,
  * maybe a loader. and the status if its being picked up or not. I want to know whats going on."): one line on the card of an
  * action that waits for a chat, through four states the server judges (src/waitLine.mjs, the state's `waits` by word id):
@@ -114,9 +114,12 @@ const WAIT_SIGNS = { sent: '○', done: '✓', late: '!' }
 /** How long a Done line stays on a card whose wait is over (a check's, a recap's): as long as the supervisor's head keeps "checked 15:26". */
 const WAIT_DONE_SHOWN_MS = 10 * 60_000
 
-/** The chat a line is about, as the state draws it: a lane, the partner, its helper, the supervisor's chat or the Product owner. */
-function waitLaneOf(state, name) {
-  return [...(state?.chats ?? []).filter(lane => lane?.isLeftover !== true), state?.advisor, state?.advisorHelper, state?.supervisorChat, state?.productOwner]
+/**
+ * The chat a line is about, as the state draws it: a lane, the partner, its helper, the supervisor's chat or the Product owner.
+ * `part` the whole state, or a part's slim copy of it (`waitsPart`: its lanes in `chats`).
+ */
+function waitLaneOf(part, name) {
+  return [...(part?.chats ?? []).filter(lane => lane?.isLeftover !== true), part?.advisor, part?.advisorHelper, part?.supervisorChat, part?.productOwner]
     .find(lane => typeof lane?.name === 'string' && lane.name === name) ?? null
 }
 
@@ -128,28 +131,25 @@ function waitPillOf(lane) {
 }
 
 /**
- * A word's line as a part draws it, from the state: the server's line (`state.waits[id]`) with its chat's pill, and `isShown`:
- * false once a Done line is older than WAIT_DONE_SHOWN_MS by the board's clock (`readAt`). Null for a word without a line.
- * Send again stands only where the board offers it (`state.waitAgain`).
+ * A word's line as a part draws it, from the state or a part's copy of it (`waitsPart`): the server's line (`waits[id]`) with
+ * its chat's pill, and `isShown`: false once a Done line is older than WAIT_DONE_SHOWN_MS by the board's clock (`readAt`).
+ * Null for a word without a line. Send again stands only where the board offers it (`waitAgain`).
  */
-function waitViewOf(state, id) {
-  const line = typeof id === 'string' && id !== '' ? state?.waits?.[id] ?? null : null
+function waitViewOf(part, id) {
+  const line = typeof id === 'string' && id !== '' ? part?.waits?.[id] ?? null : null
   if (line === null || typeof line !== 'object') return null
-  const now = Number.isFinite(state?.readAt) ? state.readAt : Date.now()
+  const now = Number.isFinite(part?.readAt) ? part.readAt : Date.now()
   const isShown = line.state !== 'done' || !Number.isFinite(line.at) || now - line.at < WAIT_DONE_SHOWN_MS
   return {
     id, state: line.state, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null,
     link: typeof line.link?.step === 'string' ? { step: line.link.step, text: String(line.link.text ?? line.link.step) } : null,
-    canSendAgain: line.canSendAgain === true && state?.waitAgain === true, isShown, pill: waitPillOf(waitLaneOf(state, line.chat)),
+    canSendAgain: line.canSendAgain === true && part?.waitAgain === true, isShown, pill: waitPillOf(waitLaneOf(part, line.chat)),
   }
 }
 
 /** The newest line of an action that keeps no word id (a reload, another tab), by its word's command and what it is about ('G6'). */
-function newestWaitOf(state, command, about = null) {
-  const found = Object.entries(state?.waits ?? {})
-    .filter(([, line]) => line?.command === command && (about === null || line.about === about))
-    .sort(([, a], [, b]) => (b.sentAt ?? 0) - (a.sentAt ?? 0))[0]
-  return found === undefined ? null : waitViewOf(state, found[0])
+function newestWaitOf(part, command, about = null) {
+  return waitViewOf(part, newestWaitId(part, command, about))
 }
 
 /** The line as drawn: its sign (a ring, a loader, a tick, "!"), its lead in bold, the rest, a link to what came of it, Send again, and the pill. */
@@ -4310,17 +4310,13 @@ const shownNeeds = (needs, withClosed) => (withClosed ? needs : needs.filter(nee
 /** How a card looks: ticked in the backlog (faded), answered here (dashed, its answer line says where it is), or open. */
 const needLook = need => (need.isClosed === true ? ' is-closed' : isAnswered(need) ? ' is-answered' : '')
 /**
- * The wait line (T22, the spec's "an answered question stays as a slim card until done, instead of vanishing"): the lines of
- * the answers on the cards, by the answer's word id (`need.answer.id`), as `waitViewOf` draws them.
+ * The wait line (T22, the spec's "an answered question stays as a slim card until done, instead of vanishing"): an answered
+ * card's line, by its answer's word id (`need.answer.id`), from the view's `waitPart`; null for an open card, a lost answer,
+ * or a word without a line.
  */
-function answerWaitsOf(state) {
-  const ids = [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])].map(need => need?.answer?.id).filter(id => typeof id === 'string')
-  return Object.fromEntries(ids.map(id => [id, waitViewOf(state, id)]).filter(([, line]) => line !== null))
-}
-/** An answered card's line (`lines` the view's `waitLines`), or null: none for an open card, a lost answer, or a word without a line. */
-const answerWaitOf = (need, lines) => (isAnswered(need) ? lines?.[need.answer?.id] ?? null : null)
+const answerWaitOf = (need, part) => (isAnswered(need) ? waitViewOf(part, need.answer?.id) : null)
 /** T22: an answered card that still waits for its chat (its line not Done): it stays as a slim card with its line, also without "Show closed". */
-const isWaitingAnswer = (need, lines) => need.isClosed !== true && (answerWaitOf(need, lines)?.state ?? 'done') !== 'done'
+const isWaitingAnswer = (need, part) => need.isClosed !== true && (answerWaitOf(need, part)?.state ?? 'done') !== 'done'
 // closed:end
 const showsClosed = () => $('needs-closed').checked
 
@@ -5268,7 +5264,7 @@ function drawNeed(need, state) {
   if (need.tried.length > 0) card.append(listBox('Already tried', need.tried))
   card.append(...answerPart(need, state, isStep(need)))
   // T22: an answered card, shown with "Show closed", carries its wait line under its answer.
-  const line = drawWaitLine(answerWaitOf(need, state.waitLines))
+  const line = drawWaitLine(answerWaitOf(need, state.waitPart))
   if (line !== null) card.append(line)
   return card
 }
@@ -5778,7 +5774,7 @@ function drawObsolete(state) {
   const isSending = sending.has('obsolete:check')
   // T22: the check's word has its wait line: "checking" said only once the Advisor's turn on it runs (the line's loader), not
   // from the moment its record was written; Done when the record is answered (src/waitLine.mjs `obsoleteDone`).
-  const wait = state.obsoleteWait ?? null
+  const wait = newestWaitOf(state.waitPart, 'obsolete-check')
   const line = wait !== null && wait.isShown && (isChecking || view.state === 'late' || wait.state === 'done') ? wait : null
   const isAsked = isChecking && line !== null
   const label = isSending ? 'Asking the Advisor…' : isAsked ? 'Asked' : isChecking ? 'The Advisor is checking' : view.state === 'late' ? 'Try again' : view.state === 'done' ? 'Check again' : 'Find obsolete items'
@@ -5846,8 +5842,8 @@ function drawNeeds(state) {
   const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   // T22: an answered card whose answer still waits for its chat stays as a slim card with its line, after the open cards (with
   // "Show closed" the whole card shows it).
-  const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitLines))
-  const cards = [...rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state)), ...slim.map(need => drawSlimNeed(need, answerWaitOf(need, state.waitLines)))]
+  const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart))
+  const cards = [...rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state)), ...slim.map(need => drawSlimNeed(need, answerWaitOf(need, state.waitPart)))]
   const hidden = answered - slim.length
   const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
@@ -5898,13 +5894,34 @@ function cardsView(state) {
   }
 }
 
+/** T22: the id of the newest line of an action (its word's command, and what it is about: 'G6'), or null: for a card that keeps no word id. */
+function newestWaitId(part, command, about = null) {
+  const found = Object.entries(part?.waits ?? {})
+    .filter(([, line]) => line?.command === command && (about === null || line.about === about))
+    .sort(([, a], [, b]) => (b.sentAt ?? 0) - (a.sentAt ?? 0))[0]
+  return found === undefined ? null : found[0]
+}
+
+/**
+ * T22: what a part's wait lines read, plain data for its key: the server's lines of these word ids (the state's `waits`), the
+ * chats they are about with their status (the pill beside each line), the minute while a line shows (a Done line goes after
+ * 10 minutes; no line, no minute: the Focus page is not drawn anew each minute), and whether Send again is offered.
+ */
+function waitsPart(state, ids) {
+  const waits = Object.fromEntries([...new Set(ids)].filter(id => typeof id === 'string' && (state.waits?.[id] ?? null) !== null).map(id => [id, state.waits[id]]))
+  const names = new Set(Object.values(waits).map(line => line.chat))
+  const chats = [...(state.chats ?? []), state.advisor, state.advisorHelper, state.supervisorChat, state.productOwner]
+    .filter(lane => typeof lane?.name === 'string' && lane.isLeftover !== true && names.has(lane.name))
+    .map(lane => ({ name: lane.name, status: lane.status ?? null, since: lane.since ?? null, state: lane.state ?? null, asleep: lane.asleep === true, isRunning: lane.isRunning ?? null }))
+  return { waits, chats, readAt: Object.keys(waits).length === 0 ? null : minuteOf(state.readAt), waitAgain: state.waitAgain === true }
+}
+
 /** Needs your attention as drawn (drawNeeds): its cards in the daily note's order, the log's lines, the partner's parts, Information. */
 function needsView(state, ui) {
   return {
     ...cardsView(state),
-    // The wait line (T22): the line of every answered card (by its answer's word id) and of the obsolete check, with their pills.
-    waitLines: answerWaitsOf(state),
-    obsoleteWait: newestWaitOf(state, 'obsolete-check'),
+    // The wait line (T22): the lines of the answered cards (by their answer's word id) and of the obsolete check.
+    waitPart: waitsPart(state, [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])].map(need => need?.answer?.id).concat(newestWaitId(state, 'obsolete-check'))),
     focus: { needs: (state.focus?.needs ?? []).map(need => ({ id: need.id })) },
     instructions: state.instructions ?? [],
     information: state.information ?? [],
@@ -5965,8 +5982,8 @@ function focusPageView(state, ui) {
     routedAway: (state.routedAway ?? []).filter(one => one.route === 'recap'),
     // 2026-11-01: the recap card (src/recapCard.mjs): the parts of the goal's recap that wait for the person's verdict.
     recapCard: state.recapCard ?? null,
-    // T22: the wait line of the focus goal's last recap Send, while no verdict waits (the card "feedback sent").
-    recapSent: focusRecapSentOf(state),
+    // T22: the wait line of the focus goal's last recap Send, for the card "feedback sent" while no verdict waits.
+    waitPart: waitsPart(state, typeof state.focus?.id === 'string' ? [newestWaitId(state, 'recap-feedback', state.focus.id)] : []),
     ui,
   }
 }
@@ -15560,7 +15577,7 @@ function focusRecapReady(view) {
  */
 function focusRecapSentOf(state) {
   const goal = state.focus?.id ?? null
-  const line = typeof goal === 'string' ? newestWaitOf(state, 'recap-feedback', goal) : null
+  const line = typeof goal === 'string' ? newestWaitOf(state.waitPart, 'recap-feedback', goal) : null
   return line !== null && line.isShown ? { goal, line } : null
 }
 
@@ -17241,7 +17258,7 @@ function drawFocus(state) {
     parts.push(focusRecapReady(recapReady))
     const outside = allRecapAsks.filter(one => recapReady.outside.includes(one.id))
     if (outside.length > 0) parts.push(focusRecapOutside(outside))
-  } else if (view.stage === 'run' && view.back === undefined && (state.recapSent ?? null) !== null) parts.push(focusRecapSent(state.recapSent))
+  } else if (view.stage === 'run' && view.back === undefined && focusRecapSentOf(state) !== null) parts.push(focusRecapSent(focusRecapSentOf(state)))
   // Work blocks (2026-10-31): the switch between All work blocks and Open now, under the head (no Done-when card any more).
   if ((view.blocks ?? null) !== null && view.back === undefined && view.stage === 'run') parts.push(focusBlocksSwitch(view))
   if (view.stage === 'pick' || view.stage === 'done' || view.back !== undefined) parts.push(focusPickCard(view))

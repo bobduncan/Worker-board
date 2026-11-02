@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { wordJudge } from '../src/supervisor/index.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { isUndelivered, undeliveredWords } from '../src/supervisor/rules/watch.mjs'
 import { arrivedAt, isPersonWord, obsoleteDone, recapDone, standingWord, sweepDone, waitLineOf, waitsOf } from '../src/waitLine.mjs'
@@ -23,7 +24,9 @@ const partner = (more = {}) => ({ name: 'Advisor', isRunning: true, status: 'Fre
 const view = ({ outbox = [], advisor = partner(), pause = null, now = NOW } = {}) => buildView({ state: { chats: [], advisor, pause, chatPrefix: '' }, outbox, settings: {}, now })
 /** A word of the person's to the partner: the recap's feedback. */
 const word = (more = {}) => ({ id: 'w1', to: 'Advisor', ask: null, command: 'recap-feedback', about: 'G6', text: 'recap feedback', at: at(3), state: 'waiting', ...more })
-const lineOf = (w, { advisor = partner(), report = null, done = null, queue = 0, outbox = [w] } = {}) => waitLineOf({ word: w, lane: advisor, report, wake: advisor.wake, done, view: view({ outbox, advisor }), queue })
+/** Rule 8's judgement as the server makes it (supervisor/index.mjs `wordJudge`, over the same view the rules build). */
+const judgeOf = ({ outbox = [], advisor = partner(), pause = null, now = NOW } = {}) => wordJudge({ state: { chats: [], advisor, pause, chatPrefix: '' }, outbox, settings: {}, now })
+const lineOf = (w, { advisor = partner(), report = null, done = null, queue = 0, outbox = [w] } = {}) => waitLineOf({ word: w, lane: advisor, report, wake: advisor.wake, done, now: NOW, keep: view().keep, queue, judge: judgeOf({ outbox, advisor }) })
 
 test('Sent: the chat runs and has not taken it: its place in the queue; asleep: what the wake record says', () => {
   const first = lineOf(word())
@@ -75,6 +78,7 @@ test('Late is rule 8\'s own judgement of this word (isUndelivered, the alarm\'s 
   // The person pauses: rule 8 names nothing, and neither does the line.
   const pause = { state: 'pausing', at: at(30) }
   assert.equal(isUndelivered(view({ outbox: [old], pause }), old), false)
+  assert.equal(judgeOf({ outbox: [old], pause }).isUndelivered(old), false, 'the judge the line reads says the same')
   // A chat in a pending wake leaves rule 8 (change 4, decision 7): the line reads the wake, not Late.
   const waking = partner({ isRunning: false, status: 'Asleep', wake: { state: 'sent', final: false, at: at(2), by: 'Lead', attempts: [] } })
   const line = lineOf(old, { advisor: waking })
@@ -102,7 +106,7 @@ test('no wait: a word the outbox sweep dropped or closed, one copied to paste, a
   // Superseded: a newer word of the same kind stands (watch.mjs wordMatters).
   const older = word({ id: 'w0', at: at(20), command: 'obsolete-check', about: 'obsolete' })
   const newer = word({ id: 'w1', at: at(2), command: 'obsolete-check', about: 'obsolete' })
-  assert.equal(waitLineOf({ word: older, lane: partner(), view: view({ outbox: [older, newer] }) }), null)
+  assert.equal(waitLineOf({ word: older, lane: partner(), now: NOW, judge: judgeOf({ outbox: [older, newer] }) }), null)
   // The sweep's own word expires in ten minutes by design and rule 8 leaves it out (X43): no Late, no line once expired.
   const sweep = word({ command: 'sweep', about: 'board', at: at(11) })
   assert.equal(lineOf(sweep), null)
@@ -145,7 +149,8 @@ test('waitsOf: the words an action of the person typed in the last 24 h, by id; 
   const sweep = { id: 's1', to: 'Supervisor', ask: null, command: 'sweep', about: 'board', text: 'sweep', at: at(1), state: 'waiting' }
   const outbox = [yesterday, failed, answer, copy, board, sweep]
   const state = { chats: [], advisor: partner(), supervisorChat: { name: 'Supervisor', isRunning: true, status: 'Free' } }
-  const waits = waitsOf({ state, outbox, view: buildView({ state, outbox, settings: {}, now: NOW }), reports: new Map([['Advisor', { state: 'busy', since: at(3) }]]), sweep: { word: 's1', asked: true, ended: null } })
+  const judge = wordJudge({ state, outbox, settings: {}, now: NOW })
+  const waits = waitsOf({ state, outbox, now: NOW, keep: view().keep, judge, reports: new Map([['Advisor', { state: 'busy', since: at(3) }]]), sweep: { word: 's1', asked: true, ended: null } })
   assert.deepEqual(Object.keys(waits).sort(), ['a0', 'a1', 'a2', 's1'], 'not the board\'s own refine word, not yesterday\'s answer')
   assert.equal(waits.a0.word, 'a2', 'the failed word reads its copy')
   assert.equal(waits.a0.state, 'picked-up')
