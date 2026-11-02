@@ -3793,7 +3793,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   case and not odd; a part sent back counts from the Send back; B883, X117: a step with the person's open card is kind 'accept', "waits
   for your Accept in Q<n>", no case and not odd; a Send back counts from the answer), `review-held` (B656, X8 again: a step in review whose chain of open fixes ends in a refined
   fix the ready list holds, for over 60 min from when the board first saw that hold (B660, X59: not from the fix's Since; a changed why
-  starts again; a hold that is the person's open ask, "waits for the answer to Q<n>", is no case and not odd); one case per chain, named by its first step, with the
+  starts again; a hold that is the person's open ask, "waits for the answer to Q<n>", is no case and not odd; B916, X123: nor is a hold
+  "blocked by B<n>, ..." when every blocker waits for the person alone, `waitsForPerson`: their answer, verdict in a recap or Accept, also at
+  the end of the blocker's chain of fixes with no link at work; one blocker that waits for a check or a worker keeps it a case; once their wait
+  ends the hold counts from then, as nothing was watched meanwhile); one case per chain, named by its first step, with the
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
   <why>" on the Backlog tab, in work next and list, and in the health summary, which counts review chains, not steps),
   `chain-long` (B664, X8 a third time: a chain of fixes with three tries or more, its first step and every fix under it
@@ -3805,8 +3808,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   BOARD_TRIES; its line reads "waits for its fix B<n>, not refined yet"; the refine gate types such a fix's word again
   after an hour, `FIX_RETRY_MS`, up to BOARD_TRIES; a round with questions waits for the person and is no case). B664: the health
   summary judges a step in review as review-stuck, dropped-fix and review-held do, through one helper (`reviewLateOf`,
-  with the supervisor's memory of when it first saw each key): a check whose QA task a worker is on, the person's open ask
-  and a hold the watch only just saw are not odd there either,
+  with the supervisor's memory of when it first saw each key): a check whose QA task a worker is on, the person's open ask,
+  a block by steps that all wait for the person alone (B916) and a hold the watch only just saw are not odd there either,
   `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose
   last checkpoint's next action is to report, written over 30 min ago; one finding per step and checkpoint; not while
   the person pauses, a limit is full or its worker is suspended for the limit, and its suspended time does not count; the health summary shows each step in progress with its
