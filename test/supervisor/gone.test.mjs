@@ -139,6 +139,7 @@ async function board(t, { paused = () => false } = {}) {
     at: minutes => { now = START + minutes * MIN },
     run: () => supervisor.run(),
     incident: async id => (await readStore(dir)).items.get(id),
+    notes: async () => [...(await readStore(dir)).items.values()].filter(one => one.head.get('Kind') === 'note' && one.head.get('Via') === 'supervisor'),
   }
 }
 
@@ -159,11 +160,14 @@ test('the loop: X1 not found for 59 min stays open, at 60 it is gone by itself w
   const gone = await b.incident('X1')
   assert.equal(gone.head.get('State'), 'gone')
   assert.match(gone.sections.get('History').at(-1), /server: gone by itself: not seen since 14:00 \(60 min of running time\)$/)
+  // The person was told once, when it opened; nothing for what went by itself.
+  assert.equal((await b.notes()).length, 1, 'no line to the person for a gone incident')
   b.stuck.value = true
   b.at(63)
   await b.run()
   const back = await b.incident('X1')
   assert.equal(back.head.get('State'), 'came back')
+  assert.equal((await b.notes()).length, 2, 'one line for its coming back')
   assert.match(back.sections.get('History').at(-1), /server: came back \(seen 2 times\)$/)
 })
 

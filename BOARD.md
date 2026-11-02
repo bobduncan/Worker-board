@@ -144,11 +144,13 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   about the missing mod, and **+ Add worker**. The supervisor (2026-10-24; `art-inbox/worker-board/supervisor/`):
   under the panel's head, after **Check now** (a wrench and the words, in the quiet button's own grey; "Out of sync?"
   before) or when something is new, the section "Supervisor · checked itself at HH:MM" with **Check now** and **×**:
-  its **Incidents** (a state chip, open, fix B<n>, fixed, closed, came back or with the advisor, the id, what was found, and
+  its **Incidents** (a state chip, open, fix B<n>, fixed, closed, gone by itself ("not seen since HH:MM", folded with the
+  fixed ones; signals change 6), came back or with the Supervisor (it judges every incident since change 6), the id, what was found, and
   "seen 5 times, since 10:27, last 10:42"), **Last check** (B465: a row per stuck state it found, each with **Fixed**,
   **Woke**, **Sent** or **For Main**, and a **Fine** row for the checks that found nothing; it stands for an hour;
   worktree clean-up: **Cleaned**, or a quiet **Left** with why, "held by B12", "not merged into main"), **Rules** (those
-  that tripped now or today with a dot and "2× today", a failed one with why; "Show the 16 other rules"), and the
+  that tripped now or today with a dot and "2× today", a failed one with why, and "owns its health lines" beside a rule
+  whose odd lines start no sweep; "Show the 16 other rules"), and the
   last sweep of the supervisor's chat (part 2): "Last sweep at 10:30 (by the clock): 2 findings, 31,200 tokens.",
   "Sweep at 10:41 (asked, about Worker 2): running.", or why none ran ("No sweep at 10:41: no chat ... is open in the
   app."), with the day's sweeps and tokens ("Today 7 sweeps, 201,300 tokens."); "No sweep yet." before the first.

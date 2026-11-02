@@ -126,6 +126,11 @@ export function whyClosed(message, ctx) {
       if (!['taken', 'in progress'].includes(state)) return { state: 'dropped', why: `the step is ${state} now` }
       if (plainName(value(item, 'Owner'), ctx.prefix ?? '') !== plainName(message.to, ctx.prefix ?? '')) return { state: 'dropped', why: `${message.to} no longer holds ${message.about}` }
     }
+  } else if (message.command === 'judge' && items !== null && Array.isArray(message.incidents)) {
+    // Signals change 6 (B915): the Supervisor's judge word: moot once none of its incidents waits any more (each closed, fixed,
+    // gone by itself or being fixed), so a chat that did not run for hours is not typed a judgment of nothing.
+    const waits = message.incidents.some(id => ['open', 'came back', 'with the supervisor'].includes(value(items.get(id), 'State')))
+    if (!waits) return { state: 'dropped', why: `none of ${message.incidents.join(', ')} waits for a judgment any more` }
   } else if (message.command === 'wake' && ctx.stopped instanceof Map) {
     // B577: the main chat's word to wake a stopped chat: not needed once that chat began a turn, or another session
     // stands under its name (a chat replaced), or nothing waits for it any more.

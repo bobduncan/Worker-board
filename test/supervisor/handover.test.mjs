@@ -327,3 +327,12 @@ test('the cards follow the hand-over: sending while the word waits, with the Sup
   const fresh = await cards()
   assert.deepEqual(fresh.map(one => [one.key, one.title, one.state.text, one.incidents.map(inc => inc.id)]), [['B12', 'Wake an unknown worker', 'queued for Digger', ['X1']]])
 })
+
+test('the outbox sweep drops a judge word that waits while none of its incidents waits any more (gone, closed, in fix)', async () => {
+  const { whyClosed } = await import('../../src/work/outboxSweep.mjs')
+  const items = new Map([['X1', { head: new Map([['State', 'gone']]) }], ['X2', { head: new Map([['State', 'with the supervisor']]) }]])
+  const ctx = { all: [], items, now: START, keep: { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN }, runs: new Map(), closing: new Map() }
+  const word = incidents => ({ id: 'j1', command: 'judge', kind: 'judge', to: 'Watcher', at: START - MIN, state: 'waiting', incidents })
+  assert.deepEqual(whyClosed(word(['X1']), ctx), { state: 'dropped', why: 'none of X1 waits for a judgment any more' })
+  assert.equal(whyClosed(word(['X1', 'X2']), ctx), null, 'one still waits')
+})

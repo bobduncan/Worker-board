@@ -657,3 +657,35 @@ test('the review: a turn\'s end told while the board asks whether the sweep stil
   await ticking
   assert.equal(runner.view().last.how, 'told')
 })
+
+test('signals change 6: through the board\'s own summary, an info line (a queue of three for an idle worker) starts no sweep; an unowned one does', async () => {
+  const b = board({ ownFacts: true })
+  assert.equal((await b.supervisor.checkNow({})).sweep.started, true)
+  await endSweep(b, 0)
+  b.state.chats.push(lane('Planter', { state: 'free', queue: [{ id: 'B1' }, { id: 'B2' }, { id: 'B3' }] }))
+  b.at(30)
+  await b.tick()
+  assert.equal(b.sweeps().length, 1, 'a queue is info')
+  b.state.chats.push(lane('Sower', { state: 'interrupted' }))
+  b.state.today = [{ chat: 'Sower', spans: [{ from: START, to: START + 31 * MIN, state: 'interrupted' }] }]
+  b.at(31)
+  await b.tick()
+  assert.equal(b.sweeps().length, 2, 'an interrupted worker no rule names')
+  assert.match(b.sweeps()[1].text, /\n- Sower \(worker\): interrupted/)
+})
+
+test('signals change 6 (4b.1): the end of a judgment turn never ends a sweep: the judge word\'s record takes it', async () => {
+  const b = board()
+  b.state.supervisorChat = WATCHER
+  assert.equal((await b.supervisor.checkNow({})).sweep.started, true)
+  b.outbox[0].state = 'delivered'
+  // A judge word that arrived in the same chat (a race the board otherwise holds off): its turn's end is the judgment's.
+  b.outbox.push({ id: 'j1', at: START, command: 'judge', kind: 'judge', to: 'Watcher', incidents: ['X1'], state: 'delivered', deliveredAt: START })
+  b.at(2)
+  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START + MIN })
+  assert.equal(b.view().lastSweep.ended, null, 'the sweep still runs')
+  assert.ok(Number.isFinite(b.outbox[1].endedAt), 'the judge word\'s turn ended')
+  // The sweep's own turn's end ends it.
+  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START + 2 * MIN })
+  assert.equal(b.view().lastSweep.how, 'told')
+})
