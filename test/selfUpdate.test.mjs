@@ -238,5 +238,5 @@ test('B524: every reload of the page goes through the one keeping helper, and th
   assert.match(script, /sessionStorage\.setItem\('reloaded-at', String\(Date\.now\(\)\)\)\s+reloadPage\(\)/)
   assert.match(script, /drafts, words: calmWords, picks: calmPicks, chosen, forms: openForms,\s+fields: boxesWithWords\(\), focusWords: focusUi\.words, details: detailsOf/)
   assert.match(script, /function draw\(state\) \{\s+board = state\s+restoreKept\(\)/)
-  assert.match(script, /drawDesign\(\)\s+finishRestore\(\)\s+\}/)
+  assert.match(script, /drawDesign\(\)\s+finishRestore\(\)\s+reopenKeptDemo\(\)\s+\}/ /* 2026-11-01: then the recap that was open opens again (keepDemoDraft) */)
 })
