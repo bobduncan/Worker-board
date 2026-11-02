@@ -35,6 +35,19 @@ export function instructionsOf(work, now) {
 }
 
 const KEEP_ANSWERED_MS = 10 * 60_000
+/**
+ * The wait line (T22, the review of 2026-11-02, 1): an answered ask stays in the list while its word's line is not Done or
+ * answered, up to this long (src/waitLine.mjs WAITS_KEPT_MS); the ten minutes count from that Done or answer, or from the
+ * answer itself for an ask with no word to a chat (or one whose word is closed, copied to paste, or expired: no line).
+ */
+const KEEP_FOR_LINE_MS = 24 * 60 * 60_000
+const NO_LINE = ['dropped', 'copied', 'expired', 'stopped']
+/** How long an answered ask stays in the list, from when: `{ from, ms }`. */
+function answeredKept(answer, since) {
+  const end = [answer?.doneAt, answer?.answeredAt].find(Number.isFinite)
+  if (answer === null || answer === undefined || !Number.isFinite(answer.at) || NO_LINE.includes(answer.state)) return { from: since, ms: KEEP_ANSWERED_MS }
+  return end !== undefined ? { from: end, ms: KEEP_ANSWERED_MS } : { from: answer.at, ms: KEEP_FOR_LINE_MS }
+}
 const plainName = (name, prefix = '') => {
   const words = String(name ?? '').trim()
   return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
@@ -135,11 +148,14 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     // Autopilot: an open ask routed away from the person (partner, advice, recap, main) stands nowhere here; while Autopilot is
     // on, neither one the board routes away at its next refresh (autopilot.mjs `standsForPerson`).
     if (state === 'open' && !standsForPerson(item, { autopilot, now, items, roleOf, focusGoal, focusHasDemo, recapSteps, prefix })) return []
-    // The review's findings: a partner's answer keeps its card (and its Undo) for 7 days.
-    if (state !== 'open' && !(state === 'answered' && Number.isFinite(since) && now - since < (byPartner ? TAKE_BACK_MS : KEEP_ANSWERED_MS))) return []
     const id = valueOf(item, 'Id')
-    const asks = valueOf(item, 'Asks') ?? 'decide'
     const owner = valueOf(item, 'Owner')
+    // The review of 2026-11-02 (7): the answer's word to the chat that asked.
+    const known = answerOf(`work:${id}`, owner === null ? null : nameOf(owner))
+    // The review's findings: a partner's answer keeps its card (and its Undo) for 7 days. T22: the person's while its line waits.
+    const kept = byPartner ? { from: since, ms: TAKE_BACK_MS } : answeredKept(known.answer, since)
+    if (state !== 'open' && !(state === 'answered' && Number.isFinite(kept.from) && now - kept.from < kept.ms)) return []
+    const asks = valueOf(item, 'Asks') ?? 'decide'
     const of = valueOf(item, 'Of')
     const step = of === null ? undefined : items.get(of)
     const advice = valueOf(item, 'Advice')
@@ -147,7 +163,6 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     const blocking = valueOf(item, 'Blocking') === 'yes'
     // B452: the title the card and the window lead with, and the context under it (an old ask's long line split).
     const { title, context } = askPartsOf(item)
-    const known = answerOf(`work:${id}`)
     // Answered with nobody to wake (or before the board kept it): the answer as the store holds it.
     const stored = { at: since, verdict: null, text: (item.sections.get('Answer') ?? []).join(' '), state: 'delivered', takenAt: null, deliveredAt: since }
     const why = byPartner ? (item.sections.get('Why') ?? []).join(' ').trim() || null : null

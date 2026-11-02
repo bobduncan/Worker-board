@@ -26,7 +26,7 @@ const view = ({ outbox = [], advisor = partner(), pause = null, now = NOW } = {}
 const word = (more = {}) => ({ id: 'w1', to: 'Advisor', ask: null, command: 'recap-feedback', about: 'G6', text: 'recap feedback', at: at(3), state: 'waiting', ...more })
 /** Rule 8's judgement as the server makes it (supervisor/index.mjs `wordJudge`, over the same view the rules build). */
 const judgeOf = ({ outbox = [], advisor = partner(), pause = null, now = NOW } = {}) => wordJudge({ state: { chats: [], advisor, pause, chatPrefix: '' }, outbox, settings: {}, now })
-const lineOf = (w, { advisor = partner(), report = null, done = null, queue = 0, outbox = [w] } = {}) => waitLineOf({ word: w, lane: advisor, report, wake: advisor.wake, done, now: NOW, keep: view().keep, queue, judge: judgeOf({ outbox, advisor }) })
+const lineOf = (w, { advisor = partner(), report = null, done = null, queue = 0, outbox = [w], paused = false } = {}) => waitLineOf({ word: w, lane: advisor, report, wake: advisor.wake, done, now: NOW, keep: view().keep, queue, judge: judgeOf({ outbox, advisor }), paused })
 
 test('Sent: the chat runs and has not taken it: its place in the queue; asleep: what the wake record says', () => {
   const first = lineOf(word())
@@ -45,14 +45,17 @@ test('Sent: the chat runs and has not taken it: its place in the queue; asleep: 
   assert.equal(lineOf(typed, { report: { state: 'busy', since: at(30) } }).rest, `in Advisor's chat since ${hhmm(at(2))}, waits for its turn`, 'a turn begun before it is not its turn')
 })
 
-test('Picked up: the word arrived and the turn that began on it runs; its since may be a moment before the typed report', () => {
+test('Picked up: the word arrived and the turn that began on it runs, the lane Working; its since may be a moment before the typed report', () => {
+  const working = partner({ status: 'Working', state: 'working' })
   const typed = word({ state: 'delivered', takenAt: at(2), deliveredAt: at(2) + 1500 })
-  const line = lineOf(typed, { report: { state: 'busy', since: at(2) + 500 } })
+  const line = lineOf(typed, { advisor: working, report: { state: 'busy', since: at(2) + 500 } })
   assert.deepEqual([line.state, line.lead, line.rest, line.at], ['picked-up', 'Advisor is on it', `since ${hhmm(at(2))}`, at(2) + 500])
-  assert.equal(lineOf(typed, { report: { state: 'asking', since: at(1) } }).state, 'picked-up', 'asking the person in its chat: its turn still runs')
+  // The review of 2026-11-02 (2b): a busy report alone is not "on it"; the lane's status must be Working (answer 2).
+  assert.equal(lineOf(typed, { report: { state: 'busy', since: at(2) + 500 } }).state, 'sent', 'a busy report with the lane not Working')
+  assert.equal(lineOf(typed, { advisor: partner({ status: 'Waiting for you', state: 'waiting' }), report: { state: 'asking', since: at(1) } }).state, 'sent')
   // Taken by its own chat inside a turn that runs: on it from the take.
   const taken = word({ state: 'taken', takenAt: at(1) })
-  assert.equal(lineOf(taken, { report: { state: 'busy', since: at(20) } }).state, 'picked-up')
+  assert.equal(lineOf(taken, { advisor: working, report: { state: 'busy', since: at(20) } }).state, 'picked-up')
   // A hand's take is no arrival: the word is still on its way.
   assert.equal(arrivedAt(word({ state: 'taken', takenAt: at(1), takenBy: 'Worker 2', handTakenAt: at(1) })), null)
 })
@@ -62,8 +65,23 @@ test('Done: the action\'s own result first; else "<Chat> answered HH:MM" once th
   const own = lineOf(typed, { done: { at: at(1), words: '1 new task for what you sent back', link: { step: 'B930', text: 'See B930 →' } } })
   assert.deepEqual([own.state, own.lead, own.rest, own.link], ['done', `Done ${hhmm(at(1))}`, '1 new task for what you sent back', { step: 'B930', text: 'See B930 →' }])
   const fallback = lineOf(typed, { report: { state: 'idle', since: at(4) } })
-  assert.deepEqual([fallback.state, fallback.lead, fallback.rest, fallback.isFallback], ['done', `Advisor answered ${hhmm(at(4))}`, '', true])
+  assert.deepEqual([fallback.state, fallback.lead, fallback.rest, fallback.isFallback, fallback.seen], ['done', `Advisor answered ${hhmm(at(4))}`, '', true, { answeredAt: at(4) }])
   assert.equal(lineOf(typed, { report: { state: 'idle', since: at(30) } }).state, 'sent', 'an idle that began before the word is no answer to it')
+  // The review of 2026-11-02 (2a): kept on the word, read first; a later turn changes nothing, and nothing new is seen.
+  const later = lineOf({ ...typed, answeredAt: at(4) }, { advisor: partner({ status: 'Working', state: 'working' }), report: { state: 'busy', since: at(1) } })
+  assert.deepEqual([later.state, later.lead, later.seen], ['done', `Advisor answered ${hhmm(at(4))}`, null])
+  // An action's own result is kept with its words, and read first: "Done" stays when the source no longer says it.
+  assert.deepEqual(own.seen, { doneAt: at(1), doneWords: '1 new task for what you sent back', doneStep: 'B930' })
+  const keptDone = lineOf({ ...typed, doneAt: at(1), doneWords: '1 new task for what you sent back', doneStep: 'B930' })
+  assert.deepEqual([keptDone.state, keptDone.lead, keptDone.rest, keptDone.link], ['done', `Done ${hhmm(at(1))}`, '1 new task for what you sent back', { step: 'B930', text: 'See B930 →' }])
+  // (2b) a session that ended after the word came is no answer: its wake words.
+  const ended = lineOf(typed, { advisor: partner({ isRunning: false, status: 'Asleep', wake: null }), report: { state: 'ended', since: at(4) } })
+  assert.deepEqual([ended.state, ended.rest, ended.seen], ['sent', 'Advisor is asleep; the board wakes it', null])
+  // (2c) an action with its own Done source: its turn ended without the result, quietly, never "answered".
+  const check = word({ command: 'obsolete-check', about: 'obsolete', state: 'delivered', takenAt: at(10), deliveredAt: at(10) })
+  const without = lineOf(check, { report: { state: 'idle', since: at(4) } })
+  assert.deepEqual([without.state, without.lead, without.isTurnEnded, without.seen], ['sent', `Advisor's turn ended at ${hhmm(at(4))} without it`, true, { answeredAt: at(4) }])
+  assert.equal(lineOf({ ...check, answeredAt: at(4) }).lead, `Advisor's turn ended at ${hhmm(at(4))} without it`)
 })
 
 test('Late is rule 8\'s own judgement of this word (isUndelivered, the alarm\'s function), never a second clock', () => {
@@ -98,6 +116,21 @@ test('Late when every way to wake the chat failed, with the cause from the recor
   assert.equal(line.canSendAgain, true)
   // Rule 8's late word to a chat that runs: nothing to wake, no Send again.
   assert.equal(lineOf(word({ at: at(12) })).canSendAgain, false)
+  // The review of 2026-11-02 (3): none while the person pauses the chats (the board wakes nobody then).
+  assert.equal(lineOf(word({ at: at(9) }), { advisor: failed, paused: true }).canSendAgain, false)
+  // (5): a chat the board has no id to reach: Send again could only be refused; the line says to open its chat.
+  const noId = partner({ isRunning: false, status: 'Not running', wake: { state: 'failed', final: true, why: 'no id', attempts: [] } })
+  const open = lineOf(word({ at: at(9) }), { advisor: noId })
+  assert.deepEqual([open.state, open.rest, open.canSendAgain], ['late', 'the board has no id to wake Advisor: open its chat', false])
+})
+
+test('the review of 2026-11-02 (4): a word that failed for good is Late, "could not be delivered", with no Send again; one the board tries again is Sent', () => {
+  const lost = word({ at: at(5), state: 'failed', failedAt: at(4), final: true, why: 'too long for the Workers mod' })
+  const line = lineOf(lost, { advisor: partner({ isRunning: false, status: 'Asleep', wake: { state: 'none', final: false, attempts: [] } }) })
+  assert.deepEqual([line.state, line.rest, line.canSendAgain], ['late', 'could not be delivered: too long for the Workers mod', false])
+  assert.equal(lineOf(word({ at: at(5), state: 'failed', failedAt: at(4), tries: 3, why: 'the app said no' })).state, 'late', 'its tries spent')
+  const again = lineOf(word({ at: at(3), state: 'failed', failedAt: at(2), tries: 1, why: 'the app said no' }))
+  assert.deepEqual([again.state, again.rest], ['sent', 'Advisor could not take it; the board tries again'])
 })
 
 test('no wait: a word the outbox sweep dropped or closed, one copied to paste, an expired one rule 8 no longer names', () => {
@@ -150,7 +183,7 @@ test('waitsOf: the words an action of the person typed in the last 24 h, by id; 
   const outbox = [yesterday, failed, answer, copy, board, sweep]
   const state = { chats: [], advisor: partner(), supervisorChat: { name: 'Supervisor', isRunning: true, status: 'Free' } }
   const judge = wordJudge({ state, outbox, settings: {}, now: NOW })
-  const waits = waitsOf({ state, outbox, now: NOW, keep: view().keep, judge, reports: new Map([['Advisor', { state: 'busy', since: at(3) }]]), sweep: { word: 's1', asked: true, ended: null } })
+  const waits = waitsOf({ state: { ...state, advisor: partner({ status: 'Working', state: 'working' }) }, outbox, now: NOW, keep: view().keep, judge, reports: new Map([['Advisor', { state: 'busy', since: at(3) }]]), sweep: { word: 's1', asked: true, ended: null } })
   assert.deepEqual(Object.keys(waits).sort(), ['a0', 'a1', 'a2', 's1'], 'not the board\'s own refine word, not yesterday\'s answer')
   assert.equal(waits.a0.word, 'a2', 'the failed word reads its copy')
   assert.equal(waits.a0.state, 'picked-up')

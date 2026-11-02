@@ -203,3 +203,23 @@ test('Send again: on a Late line whose chat could not be woken, where the board 
     } finally { await none.close() }
   }
 })
+
+test('the review of 2026-11-02 (5): a Send again on its way or refused shows in the recap\'s popup and under the supervisor\'s head too', async () => {
+  const refuse = request => (request.url === '/api/say' ? reply('You paused the chats: Resume all wakes them.', 409) : request.url.startsWith('/api/demo?') ? reply(shown()) : reply({}))
+  const lateRecap = line('late', 'Not picked up after 12 min', 'Advisor did not wake: the app did not start it (launched 09:50)', { chat: 'Advisor', command: 'recap-feedback', about: 'G6', ask: null, canSendAgain: true })
+  const popup = await openPage({ state: { ...asSent(build([], undefined)), waits: { r1: lateRecap }, waitAgain: true }, answers: refuse, hash: `demo=${PATH}` })
+  try {
+    await settle(10)
+    await popup.click('.demo-side .demo-wait [data-wait-again="r1"]')
+    await settle(10)
+    assert.match(words(popup.find('.demo-side .demo-wait .wait-line .wait-problem')), /You paused the chats: Resume all wakes them\./)
+  } finally { await popup.close() }
+  const supervisor = { run: null, checkedAt: NOW - MIN, rules: [], incidents: [], cards: [], lastSweep: { at: NOW - 12 * MIN, asked: true, subject: null, ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, note: null, word: 's1' }, sweepNote: null, sweepEvery: 10, sweepsToday: null }
+  const lateSweep = line('late', 'Not picked up after 12 min', 'Supervisor did not wake: the app did not start it (launched 12:50)', { chat: 'Supervisor', command: 'sweep', about: 'board', ask: null, canSendAgain: true })
+  const head = await openPage({ state: { ...asSent(build([], undefined)), supervisor, waits: { s1: lateSweep }, waitAgain: true }, answers: refuse })
+  try {
+    await head.click('#supervisor [data-wait-again="s1"]')
+    await settle(10)
+    assert.match(words(head.find('#supervisor .wait-line .wait-problem')), /You paused the chats/)
+  } finally { await head.close() }
+})

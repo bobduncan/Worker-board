@@ -97,7 +97,7 @@ import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } fro
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, personAgain, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
-import { AGAIN_BY, waitsOf } from './src/waitLine.mjs'
+import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
@@ -1240,12 +1240,21 @@ async function main(args) {
    */
   const wakeAgainNow = async body => {
     if (isShowOnly || bridgeKey === null) return { ok: false, status: 409, why: 'This board wakes no chat.' }
+    // The review of 2026-11-02 (3): as the wake pass, never while the board ends, never where another board process of the
+    // project runs the loops, and never while the person pauses the chats (the resume wakes them).
+    if (isClosing) return { ok: false, status: 503, why: 'The board restarts: try again in a moment.' }
+    if (!(await ownsLoops())) return { ok: false, status: 409, why: 'Another board process of this project wakes the chats: use its page.' }
     const state = await readState()
+    if (isHolding(state.pause) || state.pause?.state === 'resuming') return { ok: false, status: 409, why: 'You paused the chats: Resume all wakes them.' }
     const chat = typeof body?.chat === 'string' ? body.chat : ''
     const lane = boardLanes(state).find(one => one.name === chat && one.isLeftover !== true) ?? null
     if (lane === null) return { ok: false, status: 404, why: 'That chat is not on the board.' }
     const spell = spellOf(lane)
     if (spell === null) return { ok: false, status: 409, why: `${chat} runs: there is nothing to wake. Its word waits in its queue.` }
+    // The review of 2026-11-02 (6): only into the record's newest entry of the chat, the one the hands route and the pass read:
+    // an older kept spell (A, B, then A again) would hold the attempt where no hand ever finds it.
+    const newest = wakes.wakes.get(chat)?.at(-1) ?? null
+    if (newest !== null && newest.spell !== spell) return { ok: false, status: 409, why: `The board's wake record of ${chat} is on a newer sleep than its chat shows: open its chat.` }
     const facts = wakeFacts()
     const paths = wakePathsOf(lane, facts.canLaunch)
     const now = clock()
@@ -1270,14 +1279,24 @@ async function main(args) {
    * view cannot be made (a line is information: it never stops the state).
    */
   const waitsNow = async (state, stored, supervised) => {
-    if (isDemo) return {}
+    if (isDemo || state === null) return {}
     try {
       const now = clock()
       const items = stored?.ok === true ? stored.items : new Map()
       const outbox = store.outbox()
       const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, now })
       const obsolete = workDir === null ? null : (await readObsoleteFile(workDir)).record
-      const waits = waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null })
+      const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null }))
+      // The review of 2026-11-02 (2a): a turn seen ended, an action's own result seen, is kept on its word once and read first
+      // from then on (a later turn of the chat never makes it "on it" again). Only the board process that runs the loops of
+      // the board that delivers writes the outbox.
+      if (!isShowOnly && await ownsLoops()) {
+        for (const { id, fields } of seen) {
+          const word = outbox.find(one => one.id === id)
+          const isNew = Number.isFinite(fields.doneAt) ? !Number.isFinite(word?.doneAt) : !Number.isFinite(word?.answeredAt) && !Number.isFinite(word?.doneAt)
+          if (word !== undefined && isNew) await store.update(id, fields)
+        }
+      }
       loops.succeeded('waits')
       return waits
     } catch (error) {
@@ -3244,6 +3263,9 @@ async function main(args) {
     const lookToOpen = () => loops.run('opener', () => wakePass())
     setTimeout(lookToOpen, OPEN_FIRST_MS)
     setInterval(lookToOpen, OPEN_CHECK_MS)
+    // The wait line (T22, the review of 2026-11-02, 2a): the turns and results the lines see are kept on their words also while
+    // no page asks for the state (a turn that ended at night is still "answered" in the morning, never "on it" again).
+    setInterval(() => (isClosing ? null : waitsNow(readState.last() ?? null, work.last?.() ?? null, null).catch(() => null)), WAITS_KEEP_MS)
   }
 
   if (!isDemo && historyFrom === undefined) {

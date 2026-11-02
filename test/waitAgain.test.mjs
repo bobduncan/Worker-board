@@ -64,3 +64,25 @@ test('the server: Send again asks personAgain with the claim\'s job id, and the 
   assert.match(server, /if \(body\?\.command === 'wake-again'\) return wakeAgainNow\(body\)/)
   assert.match(server, /waitAgain: !isDemo && !isShowOnly && bridgeKey !== null/)
 })
+
+test('the review of 2026-11-02 (3, 6): Send again is refused while the board ends, where it does not run the loops, while the person pauses, and into a spell that is not the record\'s newest', async () => {
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  const route = server.slice(server.indexOf('const wakeAgainNow = async body => {'), server.indexOf('const waitsNow = async'))
+  const before = what => route.indexOf(what)
+  const acts = Math.min(before('personAgain('), before('launchFor('))
+  for (const guard of ['if (isClosing) return', 'if (!(await ownsLoops())) return', "if (isHolding(state.pause) || state.pause?.state === 'resuming') return", 'if (newest !== null && newest.spell !== spell) return']) {
+    assert.ok(before(guard) > 0 && before(guard) < acts, `${guard}, before any attempt`)
+  }
+  assert.match(route, /const newest = wakes\.wakes\.get\(chat\)\?\.at\(-1\) \?\? null/, 'the newest entry, as the hands route reads it')
+  // Why it matters (6): an attempt into an older kept entry is one the hands route never finds (it reads the newest entry).
+  const record = emptyWakes()
+  const A = SPELL
+  const B = SPELL + MIN
+  personAgain(record, { chat: 'Worker 2', spell: A, path: 'launch', by: 'board', jobId: 'l1', now: at(30) })
+  failedToSend(record, 'Worker 2', 'l1', 'the app did not start it', at(29))
+  personAgain(record, { chat: 'Worker 2', spell: B, path: 'launch', by: 'board', jobId: 'l2', now: at(20) })
+  failedToSend(record, 'Worker 2', 'l2', 'the app did not start it', at(19))
+  const older = personAgain(record, { chat: 'Worker 2', spell: A, path: 'message', by: AGAIN_BY, jobId: wakeJobId(A, 'Worker 2'), now: NOW })
+  assert.ok(older !== false, 'personAgain itself takes the older spell')
+  assert.equal(record.wakes.get('Worker 2').at(-1).attempts.some(one => one === older), false, 'and the newest entry, which the hands route reads, does not hold it')
+})

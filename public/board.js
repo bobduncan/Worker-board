@@ -144,7 +144,9 @@ function waitPillOf(lane) {
 /**
  * A word's line as a part draws it, from the state or a part's copy of it (`waitsPart`): the server's line (`waits[id]`) with
  * its chat's pill, and `isShown`: false once a Done line is older than WAIT_DONE_SHOWN_MS by the board's clock (`readAt`).
- * Null for a word without a line. Send again stands only where the board offers it (`waitAgain`).
+ * Null for a word without a line. Send again stands only where the board offers it (`waitAgain`); `again` says whether the
+ * person's Send again is on its way and why the board refused it (the review of 2026-11-02, 5): it is in every part's key, so
+ * the recap's popup and the supervisor's head draw it too.
  */
 function waitViewOf(part, id) {
   const line = typeof id === 'string' && id !== '' ? part?.waits?.[id] ?? null : null
@@ -155,6 +157,7 @@ function waitViewOf(part, id) {
     id, state: line.state, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null,
     link: typeof line.link?.step === 'string' ? { step: line.link.step, text: String(line.link.text ?? line.link.step) } : null,
     canSendAgain: line.canSendAgain === true && part?.waitAgain === true, isShown, pill: waitPillOf(waitLaneOf(part, line.chat)),
+    again: { isSending: sending.has(`wait-again:${id}`), problem: problems.get(`wait-again:${id}`) ?? null },
   }
 }
 
@@ -181,17 +184,17 @@ function drawWaitLine(view) {
   }
   line.append(sign, words)
   if (view.canSendAgain) {
-    const again = el('button', 'wait-again', sending.has(`wait-again:${view.id}`) ? 'Sending…' : 'Send again')
+    const again = el('button', 'wait-again', view.again?.isSending ? 'Sending…' : 'Send again')
     again.type = 'button'
     again.dataset.waitAgain = view.id
-    again.disabled = sending.has(`wait-again:${view.id}`)
+    again.disabled = view.again?.isSending === true
     again.dataset.waitChat = view.chat ?? ''
     again.title = `Tries to wake ${view.chat} once more, through the board's wake record`
     line.append(again)
   }
   if (view.pill !== null) line.append(el('span', `pill is-${view.pill.key}`, view.pill.label))
   // A refused Send again says why, under the line's words.
-  if (problems.has(`wait-again:${view.id}`)) words.append(el('span', 'wait-problem', ` · ${problems.get(`wait-again:${view.id}`)}`))
+  if (typeof view.again?.problem === 'string') words.append(el('span', 'wait-problem', ` · ${view.again.problem}`))
   return line
 }
 // waitline:end

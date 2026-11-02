@@ -7,14 +7,17 @@
 //
 // ONE line per word an action of the person typed, on the card itself, through four states (mock.png), the first that holds:
 // 1. Done: the action's own result (`done`, from its source: the recap's next tries filed, the obsolete check answered, the
-//    sweep's end), else the fallback "<Chat> answered HH:MM" once the turn that began on the word has ended (the board-dev
-//    chat's answer 3: never "Done" without a result);
-// 2. Late: rule 8's own lateness for this word (watch.mjs `isUndelivered`, the alarm's one function: no second clock, the
-//    board-dev chat's condition 2), or the wake failed on every path (wake.mjs `wakeOf(...).final`), with the cause from the
-//    record; "Send again" only while no wake is pending;
-// 3. Picked up: the word arrived and the addressee's turn that began on it runs (the board-dev chat's answer 2);
+//    sweep's end), else, for an action without such a source, the fallback "<Chat> answered HH:MM" once the turn that began on
+//    the word has ended (the board-dev chat's answer 3: never "Done" without a result). An action WITH its own source whose
+//    turn ended without the result says so, quietly: "<Chat>'s turn ended at HH:MM without it" (the review of 2026-11-02).
+//    Once seen, both are kept on the word (`doneAt`, `answeredAt`, written once by the server) and read first: a later turn
+//    never turns a word back into "is on it";
+// 2. Late: a word that could not be delivered for good, rule 8's own lateness for this word (watch.mjs `isUndelivered`, the
+//    alarm's one function: no second clock, the board-dev chat's condition 2), or the wake failed on every path (wake.mjs
+//    `wakeOf(...).final`), with the cause from the record; "Send again" only while no wake is pending and nobody pauses;
+// 3. Picked up: the word arrived and the turn that began on it runs: the lane's status Working (the board-dev chat's answer 2);
 // 4. Sent: anything else, with what the board knows of why not yet: the queue place while the chat runs, the wake record
-//    while it does not (condition 1).
+//    while it does not (condition 1). A chat whose session ended (closed or crashed mid-turn) did not answer: its wake words.
 // The chat's status pill stays beside the line as it is (condition 3): the page draws it from the lane, never from here.
 //
 // PURE: every fact is passed in, `now` included, and rule 8's judgement as `judge` (the supervisor's `wordJudge`: nothing
@@ -25,20 +28,22 @@ import { isHandTaken } from './hands.mjs'
 import { isLate } from './store.mjs'
 import { WAKE_PENDING, triedWords } from './wake.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
+import { TRIES, passesBySelf } from './work/passing.mjs'
+import { isHolding } from './work/pause.mjs'
 import { fixesOf } from './work/resultCheck.mjs'
 import { madeAtMs } from './work/qaTask.mjs'
 
 const MIN = 60_000
 /** The words a wait is drawn for: those an action of the person typed in the last 24 hours (the spec, "Where it shows"). */
 export const WAITS_KEPT_MS = 24 * 60 * MIN
+/** How often the server keeps what the lines saw (a turn ended, an action's result) while no page asks for the state. */
+export const WAITS_KEEP_MS = 30_000
 /** The four states, in the order the first that holds wins. */
 export const WAIT_STATES = ['done', 'late', 'picked-up', 'sent']
 /** The person's actions of wave 1 that type a word to a chat, by the word's command (an answer is any word with `ask`). */
 export const WAIT_COMMANDS = ['recap-feedback', 'obsolete-check', 'sweep']
-/** A report state in which the turn that began on a word still runs: at work, or asking the person in its chat. */
-const TURN_RUNS = ['busy', 'asking']
-/** A report state in which that turn has ended. */
-const TURN_ENDED = ['idle', 'ended']
+/** The commands of the actions with a Done source of their own (an all-approved recap Send names no step: it has none). */
+const OWN_DONE = ['obsolete-check', 'sweep', 'recap-feedback']
 /**
  * Who holds the person's Send again on the message way until a hand that may send takes it (server.mjs `wakeAgainNow`, the
  * attempt's `by`): the line then reads "waking X (message on its way, held by the board)".
@@ -66,9 +71,27 @@ export function arrivedAt(word) {
   return null
 }
 
+/** Whether the action of a word has a Done source of its own (`recapDone`, `obsoleteDone`, `sweepDone`): then the fallback "answered" is never used. */
+export function hasOwnDone(word) {
+  if (!OWN_DONE.includes(word?.command)) return false
+  return word.command !== 'recap-feedback' || (Array.isArray(word.backSteps) && word.backSteps.length > 0)
+}
+
 /**
- * The line of one word: `{ state, lead, rest, at, chat, canSendAgain, link }`, or null when the word is no wait: closed,
- * dropped or superseded (`judge.matters` false), copied for the person to paste, or expired and not late by rule 8.
+ * A word that failed and will not go again (as store.mjs `retryFailed` decides: refused for good, a why that never passes by
+ * itself, its tries spent, a work line or envelope, or late): it can never reach its chat (the review of 2026-11-02, 4).
+ */
+export function isLostForGood(word, now, keep = {}) {
+  if (word?.state !== 'failed' || word.retriedAs !== undefined) return false
+  return word.final === true || !passesBySelf(word.why) || ['work', 'handover'].includes(word.command) || (word.tries ?? 1) >= TRIES || isLate(word, now, keep)
+}
+
+const oneLine = (words, max = 120) => String(words ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
+
+/**
+ * The line of one word: `{ state, lead, rest, at, chat, canSendAgain, link, seen }`, or null when the word is no wait: closed,
+ * dropped or superseded (`judge.matters` false), copied for the person to paste, or expired and not late by rule 8. `seen`
+ * what the server keeps on the word once (`{ answeredAt }`, `{ doneAt, doneWords, doneStep }`), null when nothing new was seen.
  * - `word`: the outbox record (`id`, `to`, `state`, `at`, `takenAt`, `deliveredAt`, ...), the copy that stands for it when retried;
  * - `lane`: the addressee as the state draws it (`name`, `isRunning`, `status`), or null when it is not on the board;
  * - `report`: its chat's last turn report (`{ state, since }`, chatReport.mjs), or null;
@@ -77,42 +100,61 @@ export function arrivedAt(word) {
  * - `now`, `keep`: the board's clock and the outbox's keep (store.mjs `isLate`);
  * - `queue`: how many of the addressee's waiting words came before it;
  * - `judge`: rule 8's judgement of one word (supervisor/index.mjs `wordJudge`): `isUndelivered(word)`, watch.mjs's function that
- *   `undeliveredWords` uses (the alarm's own: no second clock), and `matters(word)`, the outbox sweep's (`wordMatters`).
+ *   `undeliveredWords` uses (the alarm's own: no second clock), and `matters(word)`, the outbox sweep's (`wordMatters`);
+ * - `paused`: the person pauses the chats (no Send again then: the board wakes nobody).
  */
-export function waitLineOf({ word, lane = null, report = null, wake = null, done = null, now, keep = {}, queue = 0, judge }) {
+export function waitLineOf({ word, lane = null, report = null, wake = null, done = null, now, keep = {}, queue = 0, judge, paused = false }) {
   if (word === null || word === undefined || typeof word.to !== 'string' || !isTime(word.at)) return null
   if (['dropped', 'stopped', 'copied'].includes(word.state) || !judge.matters(word)) return null
   const chat = lane?.name ?? word.to
-  const line = (state, lead, rest, at, more = {}) => ({ state, lead, rest, at, chat, canSendAgain: false, link: null, ...more })
+  const line = (state, lead, rest, at, more = {}) => ({ state, lead, rest, at, chat, canSendAgain: false, link: null, seen: null, ...more })
+  const own = hasOwnDone(word)
+  // 1. Done, as kept on the word first (the review of 2026-11-02, 2a: once seen, it stays), then as seen now.
+  if (isTime(word.doneAt)) {
+    const link = done?.link ?? (typeof word.doneStep === 'string' ? { step: word.doneStep, text: `See ${word.doneStep} →` } : null)
+    return line('done', `Done ${clockOf(word.doneAt)}`, done?.words ?? word.doneWords ?? '', word.doneAt, { link })
+  }
+  if (done !== null && done !== undefined) {
+    const at = isTime(done.at) ? done.at : now
+    return line('done', `Done ${clockOf(at)}`, done.words ?? '', at, { link: done.link ?? null, seen: { doneAt: at, doneWords: oneLine(done.words, 160), ...(typeof done.link?.step === 'string' ? { doneStep: done.link.step } : {}) } })
+  }
+  const ended = at => (own ? line('sent', `${chat}'s turn ended at ${clockOf(at)} without it`, '', at, { isTurnEnded: true }) : line('done', `${chat} answered ${clockOf(at)}`, '', at, { isFallback: true }))
+  if (isTime(word.answeredAt)) return ended(word.answeredAt)
   const arrived = arrivedAt(word)
   const hasReport = report !== null && report !== undefined && isTime(report.since) && arrived !== null
-  // The turn that began on the word: its report's since at or after the word arrived. A word its chat took inside a turn that
-  // runs (taken, never typed: the addressee's model has it) is on in that turn, from the take.
-  const turn = !hasReport ? null : report.since >= arrived ? report
-    : word.state === 'taken' && TURN_RUNS.includes(report.state) ? { state: report.state, since: arrived } : null
-  // 1. Done: the action's own result; else the fallback once the turn that began on the word has ended.
-  if (done !== null && done !== undefined) return line('done', isTime(done.at) ? `Done ${clockOf(done.at)}` : 'Done', done.words ?? '', done.at ?? null, { link: done.link ?? null })
-  if (turn !== null && TURN_ENDED.includes(turn.state)) return line('done', `${chat} answered ${clockOf(turn.since)}`, '', turn.since, { isFallback: true })
-  // 2. Late: rule 8's own judgement, or every way to wake the chat failed while the word was not in it.
+  // The turn that began on the word: its report's since at or after the word arrived. It ended: the report says idle (an
+  // `ended` report, the session closed or crashed mid-turn, is no answer). Kept from now on (`seen`).
+  if (hasReport && report.state === 'idle' && report.since >= arrived) return { ...ended(report.since), seen: { answeredAt: report.since } }
+  // 2. Late: a word that can never reach its chat; rule 8's own judgement; or every way to wake the chat failed while the word
+  // was not in it. Send again only for a chat that does not run, while no wake is pending, nobody pauses, and the board has
+  // an id to reach it (one without could only be refused: open its chat).
+  if (isLostForGood(word, now, keep)) {
+    return line('late', `Not picked up after ${minutes(now - word.at)} min`, `could not be delivered: ${oneLine(word.why) || 'the chat did not take it'}`, word.at)
+  }
   const isPending = WAKE_PENDING.includes(wake?.state)
   const late = judge.isUndelivered(word) === true
   const wakeFailed = arrived === null && wake?.final === true
   if (late || wakeFailed) {
+    const noId = wake?.why === 'no id' && (wake.attempts ?? []).length === 0
     const tried = triedWords(wake?.attempts ?? [], clockOf)
-    const cause = wakeFailed || tried.length > 0 ? `${chat} did not wake: ${tried.join('; ') || wake?.why || 'no way left to wake it'}`
-      : word.state === 'failed' && typeof word.why === 'string' && word.why.trim() !== '' ? `it could not be typed: ${word.why.replace(/\s+/g, ' ').trim().slice(0, 120)}`
-        : `it waits in ${chat}'s queue`
-    return line('late', `Not picked up after ${minutes(now - word.at)} min`, cause, word.at, { canSendAgain: lane?.isRunning === false && !isPending })
+    const cause = noId ? `the board has no id to wake ${chat}: open its chat`
+      : wakeFailed || tried.length > 0 ? `${chat} did not wake: ${tried.join('; ') || wake?.why || 'no way left to wake it'}`
+        : word.state === 'failed' && oneLine(word.why) !== '' ? `it could not be typed: ${oneLine(word.why)}`
+          : `it waits in ${chat}'s queue`
+    return line('late', `Not picked up after ${minutes(now - word.at)} min`, cause, word.at, { canSendAgain: lane?.isRunning === false && !isPending && !noId && paused !== true })
   }
   // An expired word that rule 8 no longer names (older than its look back, or the sweep's own word): no wait any more.
   if (word.state === 'expired' || (word.state === 'waiting' && isLate(word, now, keep))) return null
-  // 3. Picked up: it arrived and the turn that began on it runs.
-  if (turn !== null && TURN_RUNS.includes(turn.state)) return line('picked-up', `${chat} is on it`, `since ${clockOf(turn.since)}`, turn.since)
-  // 4. Sent: why it is not picked up yet, as far as the board knows.
+  // 3. Picked up: it arrived and the turn that began on it runs, the lane Working (a word its chat took inside a turn that
+  // runs, taken and never typed: on in that turn, from the take).
+  const runsOnIt = hasReport && lane?.status === 'Working' && (report.since >= arrived || word.state === 'taken')
+  if (runsOnIt) return line('picked-up', `${chat} is on it`, `since ${clockOf(Math.max(report.since, arrived))}`, Math.max(report.since, arrived))
+  // 4. Sent: why it is not picked up yet, as far as the board knows. A chat that does not run first: its wake words.
   const sent = `Sent ${clockOf(word.at)}`
-  if (arrived !== null) return line('sent', sent, `in ${chat}'s chat since ${clockOf(arrived)}, waits for its turn`, word.at)
   if (word.isHeld === true) return line('sent', sent, 'held while you pause the chats', word.at)
   if (lane?.isRunning === false) return line('sent', sent, wakingWords(chat, lane, wake), word.at)
+  if (arrived !== null) return line('sent', sent, `in ${chat}'s chat since ${clockOf(arrived)}, waits for its turn`, word.at)
+  if (word.state === 'failed') return line('sent', sent, `${chat} could not take it; the board tries again`, word.at)
   const place = queue > 0 ? [`${ordinal(queue + 1)} in its queue`] : lane?.isRunning === true ? ['next in its queue'] : []
   return line('sent', sent, [`waits for ${chat} to pick it up`, ...place].join(' · '), word.at)
 }
@@ -221,6 +263,7 @@ function lanesOf(state) {
  * `title`, the word's first line.
  */
 export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = null, items = null, obsolete = null, sweep = null }) {
+  const paused = isHolding(state?.pause) || state?.pause?.state === 'resuming'
   const byId = new Map(outbox.filter(word => typeof word?.id === 'string').map(word => [word.id, word]))
   const lanes = lanesOf(state)
   const sweepWord = sweep?.asked === true && typeof sweep.word === 'string' ? sweep.word : null
@@ -232,10 +275,25 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     const report = (reports instanceof Map ? reports.get(word.to) : null) ?? lane?.report ?? null
     const queue = outbox.filter(one => one.to === word.to && one.state === 'waiting' && one.isHeld !== true && one.id !== word.id && isTime(one.at) && one.at < word.at).length
     const done = word.command === 'recap-feedback' ? recapDone(word, items) : word.command === 'obsolete-check' ? obsoleteDone(word, obsolete) : word.command === 'sweep' ? sweepDone(word, sweep) : null
-    const line = waitLineOf({ word, lane, report, wake: lane?.wake ?? null, done, now, keep, queue, judge })
+    const line = waitLineOf({ word, lane, report, wake: lane?.wake ?? null, done, now, keep, queue, judge, paused })
     if (line === null) continue
     const title = String(asked.text ?? '').split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 160)
     waits[asked.id] = { ...line, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command, about: asked.about ?? null, ask: asked.ask ?? null, sentAt: asked.at, title }
   }
   return waits
+}
+
+/**
+ * The review of 2026-11-02 (2a): what the server keeps on the words once (`answeredAt`, `doneAt` with its words), out of the
+ * lines of `waitsOf` (each line's `seen`), and the lines as the page gets them (without `seen`). `{ waits, seen: [{ id, fields }] }`,
+ * `id` the word the line read (the copy that stands for a retried word), once per word.
+ */
+export function splitSeen(waits) {
+  const seen = new Map()
+  const shown = {}
+  for (const [id, { seen: fields, ...line }] of Object.entries(waits ?? {})) {
+    shown[id] = line
+    if (fields !== null && fields !== undefined && typeof line.word === 'string' && !seen.has(line.word)) seen.set(line.word, fields)
+  }
+  return { waits: shown, seen: [...seen].map(([id, fields]) => ({ id, fields })) }
 }
