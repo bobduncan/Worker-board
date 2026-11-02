@@ -633,7 +633,7 @@ The board holds you to it (B664): once a chain had two tries (the step and one f
 makes is open, not refined, its first point "Two rounds, then another way: the partner refines it another way (tried:
 B<n>, ...)", and no worker gets it; the board types its `refine step` into your chat first, saying so. Refine it as any
 step (`work refine`, then `work refined` with the what that starts with "Tried before:"). A newest fix of three tries
-or more at work without that line is an incident for you (the chain-long rule). An open fix you leave unrefined gets its
+or more at work without that line is an incident (the chain-long rule), which the Supervisor judges; its fix comes to you. An open fix you leave unrefined gets its
 word again after an hour, three words at most, and is an incident past an hour with its last word unanswered for 30 min
 (the open-fix rule, B667): the steps behind it wait in review until you refine it.
 
@@ -656,50 +656,13 @@ on the user's yes (2026-10-25: "yes" to running G60's separate aspects side by s
 Art below its target goes back to its worker for another try (the user, Q128, 2026-10-18), until the attempts stall; only then is
 it the user's call, with the gap named.
 
-## Incidents
+## Alarms are the Supervisor's
 
-The board checks itself (the supervisor, `DESIGN.md`): its code rules every 3 minutes, and a sweep by the supervisor's
-chat for what no rule knows. Each incident that is new, or came back after its fix, is handed to you once, as the
-board's word (never the user's; the user got one line about it): `incident: X<n> <title>`, `State:` (new, or came back
-after its fix), `Count:` (how often it was seen), `Source:` (the rule that found it, or the sweep), `Subject:` (the chat
-or step), `Evidence:`, `Rule wanted:` (the sweep's idea of a rule that could catch it) and `Your job: ...`. The board
-shows it "with the advisor" until you name its fix. Do it in the turn the word came; it needs no question to the user
-unless the fix changes what the user sees or decides.
-
-1. Decide what it needs:
-   - **a small tweak**: seen in one place, new, a clear cause (one rule's threshold or words, one check, one line of a
-     job text): the fix step changes that once.
-   - **a structural fix**: it came back, or Count 2 or more after an earlier fix, or it spans several parts (the board
-     and the Workers mod, several rules, the flow, a chat's job): the fix step starts with a deeper look (what caused
-     it, where else it shows, what was tried before) and only then changes the code.
-   An incident that is no fault (the board behaves as it should, a rule is too eager) is a small tweak of that rule.
-   A "came back" whose evidence predates its fix (the take, report or word it names is older than the fix step's
-   done) is the old case still standing, not a new one: no new step. The board keeps such a sighting fixed itself
-   (B584) when the rule names when its case began; it comes back only for a case newer than the fix, or when the old
-   case outlives the fix by 2 h ("old case outlived its fix": then it is a structural fix).
-2. File the fix step refined, as for any step you refine ("Refine a step"): `work new` with `title` "Fix of X<n>:
-   <what>", the `goal` it serves, `summary` and `what` (one part per line), `priority` fix (a fix for the worker board:
-   first on the board's list), and its model and effort (a structural fix: opus · high; a small tweak: sonnet ·
-   medium). Where it can, one part adds a rule to the supervisor (a repair or watch rule in `src/supervisor/rules/`,
-   with its test), so the same is caught by code next time and costs no sweep.
-   **No fault left (B685)**: an incident that was a false alarm, or was handled already with no step of its own, or that
-   the person agreed to close, is closed, not fixed: `work drop X<n>` with `why` (one line: what made it no fault).
-   **Never close an incident whose step still stands** (B883, X117): a step in review below its bar that you decided to
-   accept is not done until the person says so. Since B883 the board brings it to them itself, a card "Accept B<n> at <score>,
-   or send it back?" (see "Accept cards"); name that card under `needs` in your daily note, and never close the incident
-   while the step waits in review without it. The
-   board shows it closed and counts it as fixed; a sighting of a case newer than the close opens it again as came back
-   (an older one only counts). Only one open, came back or with the advisor can be closed; one being fixed or fixed is
-   answered by its fix step. Never close one whose fault still stands, and never to make a count smaller.
-   Since B736 a stretch in which the board heard no chat (its stall or restart) counts for none of holder-not-running
-   (retired since signals change 3: the board's two timers act on a stopped holder), working-not-running and not-cleared, and the rules board-deaf and board-slow name the board itself: such an incident
-   about a chat right after a board restart is a fault again, never closed as "a restart" (X73 was, and came back).
-3. Name it: `work incident-fix X<n>` with `fix` B<id>. The board marks the incident fixed once that step is done, and
-   open again (handing it to you anew) when the step is dropped.
-4. That is all: a fix stands first on the board's list (the redesign's Part 2), and the board gives it to the first
-   free worker once it is refined (ready) and nothing holds it. Do not ask the main chat to queue it, and write it no
-   "yours to queue" note. Never leave an incident without its fix step, except one with no fault left, which you close
-   (step 2, "No fault left").
+Since signals change 6 (B915, 2026-11-02) the board's incidents are not yours: the Supervisor's chat judges each one (a false
+alarm or no fault left: it closes it; a fault: it files "Fix of X<n>: ..." with `priority` fix and names it), so an alarm has
+one owner and you keep goals and refining. Its fix step reaches you as any new step: refine it ("Refine a step"; a
+structural fix: opus · high; a small tweak: sonnet · medium). The board no longer asks you about an incident, and refuses
+your `work drop X<n>` and `work incident-fix`.
 
 ## Accept cards
 
@@ -720,7 +683,8 @@ beside its bar, the evidence and why the fix was dropped. The step then "waits f
 The person clicked "Find obsolete items" under Needs your attention (B775). The board types one word, `obsolete check: N open
 items`, with the ids. It is one short turn: judge, answer once, change nothing else.
 
-1. `work obsolete` without `points` reads the check: every open item (a refine question, an ask, a Do, an incident), each
+1. `work obsolete` without `points` reads the check: every open item (a refine question, an ask, a Do; signals change 6: no
+   incident, the Supervisor judges those), each
    with the facts the board gathered by code: when and by whom it was asked, its step's state and last History line, the
    commits that name its step (before or after the item was made), its chat in the list and what it does, and whether the
    board restarted since. Read the facts, not your memory of the project.

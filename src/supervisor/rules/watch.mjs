@@ -367,7 +367,9 @@ function undelivered(view) {
     if (stop !== null) {
       const woken = view.outbox.findLast(one => one.command === 'wake' && one.about === chat && one.stoppedAt === stop.since)
       return {
-        rule: 'undelivered', key: `undelivered ${chat} stopped ${stop.since}`, subject: chat, since: oldest.at,
+        // Signals change 6 (Addendum 2): the key is the rule and the chat only, as for a chat not stopped: a stop's time in the
+        // key opened the same undelivered words again at every new stop, which made "gone" read a cure that was none.
+        rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: oldest.at,
         text: `${chat} was stopped at ${clockOf(stop.since)}: ${words.length} ${words.length === 1 ? 'word waits' : 'words wait'} for it, the oldest for ${minutes(view.now - oldest.at)} min`,
         evidence: woken === undefined ? 'the main chat is not asked to wake it yet' : `the main chat was asked to wake it at ${clockOf(woken.at)} (${woken.state})`,
       }
@@ -410,11 +412,42 @@ export function wordMatters(view) {
 /**
  * B571: the words rule 8 names, which the health summary marks "!" (and only those): waiting longer than
  * `undeliveredMinutes`, or expired or failed for good in the last two hours (UNDELIVERED_LOOK_MS), and still mattering.
- * None while the person pauses.
+ * None while the person pauses. The wait line (T22, 2026-11-02): each word is judged by `isUndelivered`, the one judgement
+ * the card's "Not picked up" reads too.
  */
 export function undeliveredWords(view) {
+  const judged = undeliveredJudged(view)
+  if (judged === null) return []
+  return view.outbox.filter(message => isUndelivered(view, message, judged))
+}
+
+/**
+ * The wait line (T22, the board-dev chat's answer 4 of 2026-11-02: "Export a per-word isUndelivered(view, message) from
+ * watch.mjs, same body as undeliveredWords' filter"): whether rule 8 names this ONE word, so a card's "Not picked up after
+ * N min" and the alarm read one function and never two clocks. `judged` what every word of the view shares
+ * (`undeliveredJudged`), made once by a caller that asks for many words; false for every word while the person pauses.
+ */
+export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   // The person pauses: the bridge holds every word until Resume all.
-  if (isPaused(view)) return []
+  if (judged === null) return false
+  const { limit, stillWaits, waking } = judged
+  if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to))) return false
+  // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
+  // hold before its release (B285).
+  const held = message.at + heldMs(message, view.now, view.pause)
+  const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
+  if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
+  // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
+  if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)
+  return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
+}
+
+/**
+ * What rule 8 judges every word of a view by (`isUndelivered`): its limit, whether a word still waits, the chats in a wake;
+ * null while the person pauses. Exported for a caller that judges many words of one view (src/waitLine.mjs `waitsOf`).
+ */
+export function undeliveredJudged(view) {
+  if (isPaused(view)) return null
   const limit = view.settings.undeliveredMinutes * MIN
   // A word that waited too long still counts (the sweep marks it expired, and so does this rule); one that no longer
   // matters (dropped: superseded, its step moved on, its goal evaluated since) does not, waiting or failed (B571).
@@ -427,16 +460,7 @@ export function undeliveredWords(view) {
   // Signals change 4 (decision 7): a word whose chat is in a pending or failed wake is not undelivered: it waits for the wake
   // (the rules wake-failed and nobody-answers-wakes name a wake that failed).
   const waking = new Set(wakeLanesOf(view).filter(lane => ['waiting-sender', 'on-its-way', 'sent', 'launched', 'failed'].includes(lane.wake?.state)).map(lane => lane.name))
-  return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to)).filter(message => {
-    // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
-    // hold before its release (B285).
-    const held = message.at + heldMs(message, view.now, view.pause)
-    const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
-    if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
-    // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
-    if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)
-    return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
-  })
+  return { limit, stillWaits, waking }
 }
 
 /** A History line's stamp. */
@@ -612,8 +636,10 @@ function reviewHeld(view, ctx) {
     // reviewLateOf, as the health summary judges it.
     const { late, key, ms } = reviewLateOf(view, item, wait, watchOf(ctx))
     if (!late) continue
+    // Signals change 6 (Addendum 2): the incident's key is the rule and the chain's first step only; the hold's why stays in
+    // the watch's own key (`key`, which times each why apart) and in the text, so a changed why counts the same incident.
     found.push({
-      rule: 'review-held', key, subject: id,
+      rule: 'review-held', key: `review-held ${id}`, subject: id,
       text: `${id} in review behind its fix ${wait.end}, held ${minutes(ms)} min: ${wait.held}`,
       evidence: `the chain ${[id, ...wait.chain].join(' → ')}; the ready list has held ${wait.end} since ${clockOf(view.now - ms)}: ${wait.held}`,
     })
@@ -792,8 +818,8 @@ function standingStillMs(view, name, from) {
 }
 
 /**
- * 13. B572: a step in progress with a stale checkpoint (checkpointLate): one finding for the main chat per step and
- * checkpoint, so a lasting one counts up as one incident and a newer stale checkpoint is a case of its own.
+ * 13. B572: a step in progress with a stale checkpoint (checkpointLate): one finding per step, so a lasting one counts up as
+ * one incident (signals change 6: a newer stale checkpoint of the same step counts the same one).
  */
 function staleCheckpoint(view) {
   const found = []
@@ -805,7 +831,9 @@ function staleCheckpoint(view) {
     const who = `${id} in progress for ${lasting(late.step)} (${valueOf(item, 'Owner') ?? 'nobody'})`
     const text = checkpoint === null ? `${who} with no checkpoint` : `${who} with no checkpoint for ${lasting(late.quiet)}`
     found.push({
-      rule: 'stale-checkpoint', key: `stale-checkpoint ${id} ${checkpoint?.line ?? 'none'}`, subject: id, text,
+      // Signals change 6 (Addendum 2; X75 'stale-checkpoint B670 none', X84): the key is the rule and the step only: a newer
+      // stale checkpoint of the same step is the same case, which must not read as gone and open again.
+      rule: 'stale-checkpoint', key: `stale-checkpoint ${id}`, subject: id, text,
       evidence: `in progress since ${clockOf(sinceMs(valueOf(item, 'Since')))}; ${checkpoint === null ? 'no checkpoint in its record'
         : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next} at ${Number.isFinite(checkpoint.at) ? clockOf(checkpoint.at) : 'a time not known'}`}`,
     })
@@ -854,7 +882,7 @@ export function switchOf(lane, item, view) {
 
 /**
  * 14. B576: a worker whose model or effort differs from its step's over `switchMinutes` after it took the step, with no
- * switch read back (switchOf): one finding for the main chat per chat and step, which counts up while it lasts.
+ * switch read back (switchOf): one finding per chat (signals change 6: its step in the text, not the key), which counts up while it lasts.
  */
 function effortMismatch(view) {
   const found = []
@@ -865,7 +893,8 @@ function effortMismatch(view) {
     if (at === null || !at.late) continue
     const id = idOf(item)
     found.push({
-      rule: 'effort-mismatch', key: `effort-mismatch ${lane.name} ${id}`, subject: lane.name,
+      // Signals change 6 (Addendum 2; X110 'effort-mismatch Worker 4 B810'): the key is the rule and the chat only; the step is in the text.
+      rule: 'effort-mismatch', key: `effort-mismatch ${lane.name}`, subject: lane.name,
       text: `${lane.name} runs ${at.runs} ${minutes(at.since)} min after it took ${id}, which wants ${at.wants}`,
       evidence: `took ${id} at ${clockOf(at.takenAt)}; ${at.state === 'asked' ? `switch asked ${clockOf(at.askedAt)} (${at.askState ?? 'not known'}), not read back` : 'no switch asked'}; the app's file says ${at.runs}`,
     })
@@ -1216,34 +1245,44 @@ function obsoleteWrong(view) {
   return found
 }
 
+/**
+ * Signals change 6 (Addendum 2): why a rule did not look in this run, or null when it looked. A rule that says nothing while
+ * the person pauses (or a limit is full) has not seen that its case went: such a run is `skipped` in the run's record and
+ * never counts as "not seen" for an incident's gone clock (gone.mjs). `skips` mirrors the rule's own first guard.
+ */
+const SKIPS_ON_PAUSE = view => (isPaused(view) ? 'the person pauses' : null)
+const SKIPS_ON_PAUSE_OR_LIMIT = view => (isPaused(view) ? 'the person pauses' : isFull(view) ? 'a limit is full' : null)
+/** review-held without a ready list in the view cannot see a hold at all. */
+const SKIPS_HELD = view => SKIPS_ON_PAUSE(view) ?? (Array.isArray(view.held) ? null : 'no ready list in the view')
+
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
-  { id: 'stale-suspended', kind: 'watch', says: 'a worker "suspended" after its limit came back', check: staleSuspended },
-  { id: 'ready-while-free', kind: 'watch', says: 'a ready task waits while a worker is free', check: readyWhileFree },
-  { id: 'working-not-running', kind: 'watch', says: 'a worker whose card says it works while its chat makes no call and writes nothing', check: workingNotRunning },
-  { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait },
+  { id: 'stale-suspended', kind: 'watch', says: 'a worker "suspended" after its limit came back', check: staleSuspended, skips: SKIPS_ON_PAUSE },
+  { id: 'ready-while-free', kind: 'watch', says: 'a ready task waits while a worker is free', check: readyWhileFree, skips: SKIPS_ON_PAUSE_OR_LIMIT },
+  { id: 'working-not-running', kind: 'watch', says: 'a worker whose card says it works while its chat makes no call and writes nothing', check: workingNotRunning, skips: SKIPS_ON_PAUSE_OR_LIMIT },
+  { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'skip-repeats', kind: 'watch', says: 'a compaction skipped for the same reason twice in a row', check: skipRepeats },
   { id: 'repair-repeats', kind: 'watch', says: 'the same repair three times or more in a day', check: repairRepeats },
-  { id: 'undelivered', kind: 'watch', says: 'a word to a chat not delivered', check: undelivered },
+  { id: 'undelivered', kind: 'watch', says: 'a word to a chat not delivered', check: undelivered, skips: SKIPS_ON_PAUSE },
   { id: 'report-check-twice', kind: 'watch', says: 'a step whose board check failed twice', check: reportCheckTwice },
   { id: 'old-mod', kind: 'watch', says: 'a chat idle on an older Workers mod than the one installed for over 30 min', check: oldMod },
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
-  { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long', check: reviewStuck },
-  { id: 'dropped-fix', kind: 'watch', says: 'a step in review whose fix was dropped, with no new fix, no new check and no block for over 30 min', check: fixDropped },
-  { id: 'review-held', kind: 'watch', says: 'a step in review whose chain of fixes ends in a fix the ready list holds, for too long', check: reviewHeld },
+  { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long', check: reviewStuck, skips: SKIPS_ON_PAUSE },
+  { id: 'dropped-fix', kind: 'watch', says: 'a step in review whose fix was dropped, with no new fix, no new check and no block for over 30 min', check: fixDropped, skips: SKIPS_ON_PAUSE },
+  { id: 'review-held', kind: 'watch', says: 'a step in review whose chain of fixes ends in a fix the ready list holds, for too long', check: reviewHeld, skips: SKIPS_HELD },
   { id: 'chain-long', kind: 'watch', says: 'a chain of three tries or more whose newest fix names no "Tried before:" (a patch of the same way again)', check: chainLong },
-  { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30', check: openFix },
-  { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress whose worker works on it for hours with no checkpoint', check: staleCheckpoint },
-  { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch },
-  { id: 'handover-held', kind: 'watch', says: 'a worker on the hand-over sequence held (its clear, set or restart did not run) for over 10 min of running time', check: handoverHeld },
+  { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30', check: openFix, skips: SKIPS_ON_PAUSE },
+  { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress whose worker works on it for hours with no checkpoint', check: staleCheckpoint, skips: SKIPS_ON_PAUSE_OR_LIMIT },
+  { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch, skips: SKIPS_ON_PAUSE_OR_LIMIT },
+  { id: 'handover-held', kind: 'watch', says: 'a worker on the hand-over sequence held (its clear, set or restart did not run) for over 10 min of running time', check: handoverHeld, skips: SKIPS_ON_PAUSE },
   { id: 'handover-unanswered', kind: 'watch', says: 'a worker on the hand-over sequence that did not answer its hand-over within 10 min (the net fired)', check: handoverUnanswered },
   { id: 'wake-failed', kind: 'watch', says: 'a chat the board could not wake: the app did not start it on a launch, and no message reached it', check: wakeFailed },
   { id: 'nobody-answers-wakes', kind: 'watch', says: 'nobody answers the board\'s wake-ups: every chat with work could not be woken, and the launch when nobody ran failed', check: nobodyAnswersWakes },
-  { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading },
-  { id: 'board-deaf', kind: 'watch', says: 'the board heard no chat for over 10 min while chats wrote their conversations', check: boardDeaf },
+  { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading, skips: SKIPS_ON_PAUSE },
+  { id: 'board-deaf', kind: 'watch', says: 'the board heard no chat for over 10 min while chats wrote their conversations', check: boardDeaf, skips: SKIPS_ON_PAUSE },
   { id: 'board-slow', kind: 'watch', says: 'two work calls within 2 min answered after the chat gave up on them', check: boardSlow },
-  { id: 'week-stop-ignored', kind: 'watch', says: 'the week at the stop line (98%), a worker told to stop still works 15 min later and no lane is suspended', check: weekStopIgnored },
-  { id: 'five-hour-stop-ignored', kind: 'watch', says: 'a step given or a worker started while the 5-hour limit is at its stop line (95%) with its reset over 10 min off', check: fiveHourStopIgnored },
+  { id: 'week-stop-ignored', kind: 'watch', says: 'the week at the stop line (98%), a worker told to stop still works 15 min later and no lane is suspended', check: weekStopIgnored, skips: SKIPS_ON_PAUSE },
+  { id: 'five-hour-stop-ignored', kind: 'watch', says: 'a step given or a worker started while the 5-hour limit is at its stop line (95%) with its reset over 10 min off', check: fiveHourStopIgnored, skips: SKIPS_ON_PAUSE },
   { id: 'pause-stale', kind: 'watch', says: 'a chat\'s clear skipped for the person\'s pause over a minute after the pause ended', check: pauseStale },
   { id: 'obsolete-wrong', kind: 'watch', says: 'something the person closed from "Find obsolete items" that its chat asked again, or an incident closed that way that came back', check: obsoleteWrong },
 ]

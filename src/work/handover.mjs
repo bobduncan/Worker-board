@@ -105,6 +105,30 @@ export function failedWhy(envelope) {
   return `its line could not be typed: ${said}`
 }
 
+/**
+ * B930: the lane's count of the background work its chat started (state.mjs, chatReport.mjs `backgroundOf`: the source the
+ * clear's refusal reads); a lane without one (none built by the state) by its report's flag.
+ */
+const backgroundCount = worker => (Number.isFinite(worker?.background) ? worker.background : worker?.report?.background === true ? 1 : 0)
+
+/** B930: the Workers mod's words for a call the board did not answer (its register.tsx `workOnce`), inside a clear's why. */
+const BOARD_DID_NOT_ANSWER = /\(The worker board (?:did not answer|is not running)\b/
+
+/**
+ * B930 (X131): whether an envelope's clear failed on the board's own time-out (its save-log went unanswered), not on a
+ * refusal of the board, the chat or its mod.
+ */
+export function isBoardTimeout(envelope) {
+  const outcome = envelope?.outcome ?? null
+  return envelope?.clear != null && outcome?.cleared === false && outcome.background !== true && BOARD_DID_NOT_ANSWER.test(outcome.why ?? '')
+}
+
+/** The step a clear envelope clears after (or the task it carries), or null. */
+const clearStepOf = envelope => envelope?.clear?.step ?? envelope?.step ?? null
+
+/** B930: the held line of a worker whose clear failed on the board's own time-out a second time for the same step. */
+export const timedOutTwiceWhy = step => `its clear${step === null ? '' : ` after ${step}`} failed twice on the board's own time-out: held until its turn ends (the board does not try a third time)`
+
 /** When an envelope was settled (its outcome), or failed. */
 const settledAt = envelope => [envelope?.settledAt, envelope?.deliveredAt, envelope?.failedAt].find(Number.isFinite) ?? envelope?.at ?? -Infinity
 
@@ -345,11 +369,18 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
   }
   // HELD: its last envelope failed; released by a turn end after it, or by its report (B: idle, nothing in the background)
   // when the background work or the set was what failed. Told once per report (the lane shows it; nothing is sent).
+  // B930 (X131): "nothing in the background" is the lane's count (`worker.background`, the source the clear's refusal reads:
+  // chatReport.mjs `backgroundOf`), so a release is never refused again for the same reading. And a clear that failed on the
+  // board's own time-out is released by the next report once per step; a second one for that step holds it.
   if (takenBack === null && last !== null && failedOf(last)) {
     const at = settledAt(last)
+    const isReported = report?.state === 'idle' && Number.isFinite(report?.at) && report.at > at
+    // X133: also an envelope the sweep closed since (its task taken back, state dropped): its outcome is the hold's cause.
+    const isTimedOutAgain = isBoardTimeout(last) && envelopes.some(one => one !== last && isBoardTimeout(one) && clearStepOf(one) === clearStepOf(last))
     const isReleased = turnSince >= at || (Number.isFinite(report?.since) && report.since > at)
-      || (report?.state === 'idle' && report.background !== true && Number.isFinite(report?.at) && report.at > at && (last.outcome?.background === true || last.outcome?.set === false))
-    if (!isReleased) return result(STATES.HELD, failedWhy(last), { step: typeof last.step === 'string' ? last.step : null })
+      || (isReported && backgroundCount(worker) === 0 && (last.outcome?.background === true || last.outcome?.set === false))
+      || (isReported && isBoardTimeout(last) && !isTimedOutAgain)
+    if (!isReleased) return result(STATES.HELD, isTimedOutAgain ? timedOutTwiceWhy(clearStepOf(last)) : failedWhy(last), { step: typeof last.step === 'string' ? last.step : null })
   }
   // UNKNOWN after the net: it gets nothing until its next event (a turn end or a report that changed).
   if (takenBack === null && last !== null && Number.isFinite(last.netAt)) {

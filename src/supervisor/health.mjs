@@ -76,8 +76,24 @@ function goOnSince(item, since, now) {
   return ` (the board asked ${hit[2]} to go on at ${dayClockOf(sinceMs(hit[1]), now)}, stopped since ${hit[3]}: its own timers, no incident)`
 }
 
-/** A line of the summary: its words, how much it must stay (0 always, 1 before the rest, 2 the rest), odd or not, and when. */
-const lineOf = (text, { tier = 2, odd = false, at = -Infinity, max = LINE_CHARS } = {}) => ({ text: `- ${oneLine(text, max)}`, tier, odd, at: Number.isFinite(at) ? at : -Infinity })
+/**
+ * A line of the summary: its words, how much it must stay (0 always, 1 before the rest, 2 the rest), odd or not, and when.
+ * Signals change 6 (B915, Addendum 5): an odd line's `owner`: the id of the code rule that watches what makes it odd (its
+ * key's first word), 'info' for what is no fault (a pause holding, a suspension at the limit, a queue, a step past its
+ * LONG_MS age), or null: no rule names it, and only such a line, new since the last sweep, starts a sweep (sweep.mjs).
+ */
+const lineOf = (text, { tier = 2, odd = false, at = -Infinity, max = LINE_CHARS, owner = null } = {}) => ({ text: `- ${oneLine(text, max)}`, tier, odd, at: Number.isFinite(at) ? at : -Infinity, owner: odd ? owner : null })
+
+/**
+ * Signals change 6: one owner for a line odd for several reasons (`owners`, one per reason that holds): none when one reason
+ * has none (that one needs a reader), else the first rule's, else 'info'.
+ */
+const ownerOf = owners => (owners.some(one => one === null) ? null : owners.find(one => one !== 'info') ?? 'info')
+
+/** Signals change 6: the rules whose keys own the health summary's odd lines (the page marks them in the rules list). */
+export const HEALTH_OWNERS = Object.freeze(['stale-suspended', 'effort-mismatch', 'review-stuck', 'dropped-fix', 'open-fix', 'review-held', 'owner-gone', 'stale-checkpoint', 'held-elsewhere', 'undelivered', 'working-not-running'])
+/** The rule of a key reviewLateOf names (watch.mjs): its first word, and the dropped fix's key that its rule dropped-fix files. */
+const RULE_OF_KEY = { 'review-stuck': 'review-stuck', 'fix-dropped': 'dropped-fix', 'open-fix': 'open-fix', 'review-held': 'review-held' }
 
 /** Each chat: the main chat and the workers, then the partner and its helper. */
 function chatLines(view, now) {
@@ -116,9 +132,19 @@ function chatLines(view, now) {
     const waitsForPartner = Array.isArray(lane.waitsForPartner) && lane.waitsForPartner.length > 0
     // X46: a chat that is off or unknown, does not run and holds no step is closed, which is normal.
     const isClosed = (lane.state === 'off' || lane.state === 'unknown') && lane.isRunning !== true && onId === null
-    const odd = (purpose === null && !isClosed && lane.asleep !== true && (ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null)))
-      || (lane.state === 'working' && onId === null && handed === null && role === 'worker' && !waitsForPartner) || (role === 'worker' && switching?.late === true)
-    return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS })
+    const stopped = purpose === null && !isClosed && lane.asleep !== true && (ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null))
+    const idle = lane.state === 'working' && onId === null && handed === null && role === 'worker' && !waitsForPartner
+    const late = role === 'worker' && switching?.late === true
+    const odd = stopped || idle || late
+    // Signals change 6: a suspension at a full limit is no fault; one past its limit is stale-suspended's; a stopped holder
+    // (`stoppedOwner`) is watched by changes 3 and 4; another stop no rule names; a worker working on no step is
+    // working-not-running's while its chat does not run, else no rule's; a switch not read back is effort-mismatch's.
+    const isFullNow = ['fiveHour', 'week'].some(key => view.limits?.[key]?.level === 'full')
+    const owner = ownerOf([
+      ...(stopped ? [lane.state === 'suspended' ? (isFullNow ? 'info' : 'stale-suspended') : onId !== null ? stoppedOwner(lane) : null] : []),
+      ...(idle ? [lane.isRunning === false ? 'working-not-running' : null] : []), ...(late ? ['effort-mismatch'] : []),
+    ])
+    return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS, owner })
   })
 }
 
@@ -345,15 +371,63 @@ function stepLines(view, now) {
     const tier = isChats && HELD.includes(state) ? 0 : isChats ? 1 : 2
     // B567: a step its worker holds while it is on another says so, with why it waits; none named is odd.
     const parked = parkedOf(item, view)
-    const odd = isLate(item, view, now) || (owner !== null && !isChats) || checkpointLate(item, { ...view, now }) !== null || (parked !== null && parked.why === null)
+    const late = isLate(item, view, now)
+    const gone = owner !== null && !isChats
+    const stale = checkpointLate(item, { ...view, now }) !== null
+    const unnamed = parked !== null && parked.why === null
+    const odd = late || gone || stale || unnamed
+    // Signals change 6: who watches each reason: a review wait the rules judge is that rule's, another state's age is info
+    // (LONG_MS), an owner gone is the repair owner-gone's, a stale checkpoint stale-checkpoint's, a parked step held-elsewhere's.
+    const lineOwner = ownerOf([...(late ? [lateOwner(item, view, now)] : []), ...(gone ? ['owner-gone'] : []), ...(stale ? ['stale-checkpoint'] : []), ...(unnamed ? ['held-elsewhere'] : [])])
     const parkedWords = parked === null ? '' : ` (parked: ${owner} is on ${parked.on}; ${parked.why ?? 'nothing names why it waits'})`
     // Signals change 3: the board's own record of a stopped holder (its "go on" line, a continuation after a give-back): no incident.
     const timerWords = goOnSince(item, since, now) + (back === null ? '' : ` (continues ${back.chat}'s checkpoint: given back at ${dayClockOf(back.at, now)})`)
-    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${off > 0 ? ` (PC off ${lasting(off)})` : ''}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${timerWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since }))
+    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${off > 0 ? ` (PC off ${lasting(off)})` : ''}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${timerWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since, owner: lineOwner }))
   }
-  if (review.steps > 0) lines.push(lineOf(`in review: ${review.steps} ${review.steps === 1 ? 'step' : 'steps'} in ${review.chains} ${review.chains === 1 ? 'chain' : 'chains'} of fixes${review.held > 0 ? `, ${review.held} behind a fix the ready list holds` : ''}`, { tier: 1, odd: review.late > 0 }))
+  if (review.steps > 0) lines.push(lineOf(`in review: ${review.steps} ${review.steps === 1 ? 'step' : 'steps'} in ${review.chains} ${review.chains === 1 ? 'chain' : 'chains'} of fixes${review.held > 0 ? `, ${review.held} behind a fix the ready list holds` : ''}`, { tier: 1, odd: review.late > 0, owner: 'review-held' }))
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined${refinedWords(view)}`, { tier: 1 }))
   return lines
+}
+
+/**
+ * Signals change 6: the rule that watches why a step is late (`isLate`): in review, the rule whose key reviewLateOf names for
+ * its wait (review-stuck, dropped-fix, open-fix, review-held), or none for a wait no rule judges (an open fix at work, a block);
+ * in any other state its LONG_MS age, which is info.
+ */
+function lateOwner(item, view, now, seen = new Set()) {
+  const wait = valueOf(item, 'State') === 'review' ? reviewWaitOf(item, view.items, view.held, now, view.recaps) : null
+  if (wait === null) return 'info'
+  const judged = reviewLateOf({ ...view, now }, item, wait, key => view.seen?.get(key))
+  if (judged !== null) return judged.key === null ? null : RULE_OF_KEY[judged.key.split(' ')[0]] ?? null
+  // The review of 2026-11-02 (2a): a step late only because what it waits for is late (its open fix at work, its blockers)
+  // takes that one's owner, as `isLate` (via `reviewLate`) takes its lateness: a fix past its age is info, a fix whose owner
+  // left the list owner-gone's. Only a loop of waits, which no rule names, is unowned.
+  const chain = new Set([...seen, valueOf(item, 'Id')])
+  if (wait.kind === 'fix') {
+    const fix = view.items.get(wait.fix)
+    if (chain.has(wait.fix)) return null
+    if (fix === undefined) return 'info'
+    const owners = [...(isLate(fix, view, now, chain) ? [lateOwner(fix, view, now, chain)] : []), ...(ownerGone(fix, view) ? ['owner-gone'] : [])]
+    return owners.length === 0 ? 'info' : ownerOf(owners)
+  }
+  if (wait.kind === 'blocked') {
+    if (wait.blockers.some(blocker => chain.has(blocker))) return null
+    const stalled = wait.blockers.map(blocker => view.items.get(blocker)).filter(blocker => blocker !== undefined && isLate(blocker, view, now, chain))
+    return stalled.length === 0 ? 'info' : ownerOf(stalled.map(blocker => lateOwner(blocker, view, now, chain)))
+  }
+  return null
+}
+
+/**
+ * Signals change 6 (the review of 2026-11-02, 2b): who watches a worker that stopped (off, unknown, interrupted, not running)
+ * while it holds a step: a wake that failed on every path is wake-failed's, a hand-over held is handover-held's (and its net,
+ * handover-unanswered's); otherwise the board's own holder timers act on it (signals change 3: one "go on" line, then the
+ * give-back; a wake on its way meanwhile), which is no fault to read: 'info'.
+ */
+function stoppedOwner(lane) {
+  if (lane.wake?.state === 'failed' && lane.wake.final === true) return 'wake-failed'
+  if (lane.handover?.state === 'held') return 'handover-held'
+  return 'info'
 }
 
 /** B656: a step in review that is the open fix its own step, in review too, waits for: a link of that one's chain. */
@@ -412,7 +486,7 @@ function queueLines(view) {
   return view.lanes.filter(lane => !lane.isLeftover && Array.isArray(lane.queue) && lane.queue.length > 0).map(lane => {
     const ids = lane.queue.map(step => step?.id ?? `"${oneLine(step?.title, 30)}"`)
     const why = lane.queue[0]?.why?.reason ?? null
-    return lineOf(`${lane.name}: ${ids.join(', ')}${why === null ? '' : ` (the first waits: ${why})`}`, { tier: 1, odd: lane.queue.length >= 3 && IDLE_STATES.includes(lane.state) })
+    return lineOf(`${lane.name}: ${ids.join(', ')}${why === null ? '' : ` (the first waits: ${why})`}`, { tier: 1, odd: lane.queue.length >= 3 && IDLE_STATES.includes(lane.state), owner: 'info' })
   })
 }
 const IDLE_STATES = ['free', 'unknown', 'off']
@@ -423,12 +497,12 @@ function dayLines(view, now) {
   const incidents = [...view.items.values()].filter(item => kindOf(item) === 'incident').flatMap(item => {
     const state = valueOf(item, 'State')
     const last = sinceMs(valueOf(item, 'Last seen'))
-    // B685: a closed incident (the partner found no fault left) is not listed at all.
-    if (state === 'closed' || (state === 'fixed' && !(now - last < DAY))) return []
+    // B685: a closed incident (no fault left) is not listed at all; signals change 6: nor one gone by itself.
+    if (state === 'closed' || state === 'gone' || (state === 'fixed' && !(now - last < DAY))) return []
     const fix = valueOf(item, 'Fix')
     const evidence = valueOf(item, 'Evidence')
     return [lineOf(`${valueOf(item, 'Id')} ${state === 'fix' && fix ? `fix ${fix}` : state}, from ${valueOf(item, 'Source') ?? 'not known'}, seen ${valueOf(item, 'Count') ?? '1'} times, first ${dayClockOf(sinceMs(valueOf(item, 'First seen')), now)}, last ${dayClockOf(last, now)}: ${valueOf(item, 'Title') ?? ''} [key: ${valueOf(item, 'Key') ?? ''}]${evidence === null ? '' : ` (evidence: ${oneLine(evidence, 80)})`}`,
-      { tier: 1, odd: state === 'open' || state === 'came back', at: last })]
+      { tier: 1, odd: state === 'open' || state === 'came back', at: last, owner: valueOf(item, 'Source') ?? 'sweep' })]
   })
   return [...incidents, ...repairs]
 }
@@ -445,7 +519,7 @@ function wordLines(view, now) {
     .filter(message => message.state === 'waiting' || message.state === 'held' || ((message.state === 'expired' || isFailedForGood(message)) && now - message.at < DAY))
     .filter(message => message.state === 'held' || matters(message))
     .map(message => lineOf(`${dayClockOf(message.at, now)} ${message.command ?? 'answer'}${message.about ? ` ${message.about}` : ''} to ${message.to}: ${message.state} for ${lasting(now - message.at)}`,
-      { tier: 1, odd: named.has(message.id), at: message.at }))
+      { tier: 1, odd: named.has(message.id), at: message.at, owner: 'undelivered' }))
 }
 
 /** The limits of the plan and the person's pause. */
@@ -457,8 +531,20 @@ function limitLines(view, now) {
   const pause = view.pause === null || view.pause === undefined ? 'pause: none known'
     : `pause: ${view.pause.state ?? 'not known'}${Number.isFinite(view.pause.since) ? ` since ${dayClockOf(view.pause.since, now)}` : ''}`
   return [
-    lineOf(`${limit('5-hour limit', view.limits?.fiveHour)}; ${limit('weekly limit', view.limits?.week)}`, { tier: 0, odd: ['fiveHour', 'week'].some(key => view.limits?.[key]?.level === 'full') }),
-    lineOf(pause, { tier: 0, odd: isHolding(view.pause) }),
+    lineOf(`${limit('5-hour limit', view.limits?.fiveHour)}; ${limit('weekly limit', view.limits?.week)}`, { tier: 0, odd: ['fiveHour', 'week'].some(key => view.limits?.[key]?.level === 'full'), owner: 'info' }),
+    lineOf(pause, { tier: 0, odd: isHolding(view.pause), owner: 'info' }),
+  ]
+}
+
+/** The summary's sections, each `{ title, lines }`, uncut. */
+function healthSections(view, now) {
+  return [
+    { title: 'Chats (state and since; model and effort beside the step\'s; last report; last clear and why)', lines: chatLines(view, now) },
+    { title: 'Steps under way (state, for how long, owner)', lines: stepLines(view, now) },
+    { title: 'Queues', lines: queueLines(view) },
+    { title: 'Incidents and repairs of the last day', lines: dayLines(view, now) },
+    { title: 'Words not delivered', lines: wordLines(view, now) },
+    { title: 'Limits and pause', lines: limitLines(view, now) },
   ]
 }
 
@@ -469,14 +555,7 @@ function limitLines(view, now) {
  * steps the chats hold, the limits), then the oddest and newest of the rest; a section says how many lines it left out.
  */
 export function healthSummary(view, now = view.now) {
-  const sections = [
-    { title: 'Chats (state and since; model and effort beside the step\'s; last report; last clear and why)', lines: chatLines(view, now) },
-    { title: 'Steps under way (state, for how long, owner)', lines: stepLines(view, now) },
-    { title: 'Queues', lines: queueLines(view) },
-    { title: 'Incidents and repairs of the last day', lines: dayLines(view, now) },
-    { title: 'Words not delivered', lines: wordLines(view, now) },
-    { title: 'Limits and pause', lines: limitLines(view, now) },
-  ]
+  const sections = healthSections(view, now)
   const head = `The board's health at ${clockOf(now)}, for the supervisor's sweep. Odd lines are marked with "!".`
   const rank = (a, b) => a.tier - b.tier || Number(b.odd) - Number(a.odd) || b.at - a.at
   const all = sections.flatMap((section, at) => section.lines.map(line => ({ ...line, section: at, text: line.odd ? `${line.text.slice(0, 2)}! ${line.text.slice(2)}` : line.text })))
@@ -513,4 +592,21 @@ export const withoutTimes = text => String(text).replace(/\b\d{1,2}:\d{2}\b|\b\d
 export function oddLinesOf(summary) {
   const lines = [...String(summary ?? '').matchAll(/^- ! (.+)$/gm)].map(one => withoutTimes(one[1]).trim())
   return [...new Set(lines)]
+}
+
+/**
+ * Signals change 6 (B915, Addendum 5): the odd lines of the whole summary, uncut (`healthSummary` may leave lines out to fit),
+ * each `{ text, owner }`: its words without times and counts (as `oddLinesOf` reads them) and its owner (`lineOf`: a rule's
+ * id, 'info', or null). What the sweep's trigger compares: only a line with no owner, new since the last sweep, starts one.
+ */
+export function oddLines(view, now = view.now) {
+  const seen = new Set()
+  const found = []
+  for (const line of healthSections(view, now).flatMap(section => section.lines).filter(one => one.odd)) {
+    const text = withoutTimes(line.text.slice(2)).trim()
+    if (seen.has(text)) continue
+    seen.add(text)
+    found.push({ text, owner: line.owner ?? null })
+  }
+  return found
 }

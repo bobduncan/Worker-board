@@ -150,7 +150,8 @@ test('the undelivered rule names a stopped chat once, with the main chat\'s wake
   const mine = found.find(one => one.subject === 'Worker 5')
   assert.equal(mine.text, 'Worker 5 was stopped at 21:42: 2 words wait for it, the oldest for 19 min')
   assert.equal(mine.evidence, 'the main chat was asked to wake it at 21:43 (waiting)')
-  assert.equal(mine.key, `undelivered Worker 5 stopped ${at(21, 42)}`)
+  // Signals change 6 (Addendum 2): the key is the rule and the chat only, so a new stop counts the same incident.
+  assert.equal(mine.key, 'undelivered Worker 5')
 })
 
 test('a work line whose word was dropped as stopped is not sent a second time: the word that went again stands for it', async () => {

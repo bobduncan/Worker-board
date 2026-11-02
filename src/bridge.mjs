@@ -204,7 +204,8 @@ const ROLE_WORDS = { main: 'the main chat', advisor: 'the partner', helper: "the
 /**
  * Clear after each step: why the board does not keep the log of a chat the Workers mod wants to clear (and the mod
  * then does not clear it), or null: only a worker is cleared, and not while background work it started runs on
- * (`background`, what its transcript shows running), whose answer would come into a cleared conversation.
+ * (`background`, how many pieces run: chatReport.mjs `backgroundOf`, its mod's fresh idle report, else its transcript; B930:
+ * the source the hold's release reads too), whose answer would come into a cleared conversation.
  */
 export function clearRefusal(state, chat, background) {
   const role = laneRole(state, chat)

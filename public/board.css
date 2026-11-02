@@ -395,15 +395,8 @@ a.focus-chip.is-verdict:hover { background: #2a2414; }
 .advisor-on-code:hover { text-decoration: underline; }
 .partner-ask-stand { margin: 0 0 4px; color: var(--text); }
 .decided-for-you h3 { font-size: 14px; margin: 6px 0 2px; }
-/* B775: "Find obsolete items": the button, then each item with its verdict, why and evidence; quiet tones, information, not attention. */
+/* B775: "Find obsolete items": the button and, after a check, how many it closed (2026-11-02: no list); quiet tones, information. */
 .obsolete-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.obsolete-rows { margin: 8px 0 6px; display: flex; flex-direction: column; gap: 6px; }
-.obsolete-row { display: flex; gap: 10px; align-items: flex-start; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); }
-.obsolete-row input { margin-top: 4px; flex: none; }
-.obsolete-words { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
-.obsolete-verdict { display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; white-space: nowrap; }
-.obsolete-row.is-obsolete .obsolete-verdict { color: var(--text); border-color: var(--free); }
-.obsolete-why, .obsolete-evidence { display: block; font-size: 12.5px; }
 /* B466: folded to one line with its count, under what needs you; opens on a click. */
 .decided-toggle { display: block; width: 100%; margin: 6px 0 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
 .decided-toggle:hover { color: var(--text); }
@@ -1338,6 +1331,8 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .rule.is-fine .rule-dot { background: #3f6b5a; }
 .rule-says { flex: 1 1 160px; }
 .rule-often { color: var(--muted); font-size: 12px; }
+/* Signals change 6 (B915): the rule owns its kind of the health summary's odd lines (no sweep for them): quiet, cool. */
+.rule-owns { color: var(--muted); font-size: 11.5px; font-style: italic; }
 .rule-why { flex-basis: 100%; padding-left: 16px; color: #c4b5fd; font-size: 12px; }
 .supervisor-more { margin: 8px 0 0; padding: 3px 10px; font-size: 12.5px; }
 .supervisor-sweep { margin: 12px 0 0; color: var(--muted); font-size: 12.5px; }
@@ -2804,7 +2799,7 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 /* Needs your attention as today, without the backlog, the instructions, what is closed, and the order and closed switches. */
 #view-overview[data-mode="simple"] .inbox-top,
 #view-overview[data-mode="simple"] #needs .need.is-closed,
-#view-overview[data-mode="simple"] #needs .need.is-answered { display: none !important; }
+#view-overview[data-mode="simple"] #needs .need.is-answered:not(.is-slim) { display: none !important; }
 #view-overview[data-mode="simple"] .needs { overflow: visible; padding: 0; }
 @media (max-width: 1100px) {
   #view-overview[data-mode="simple"]:not([hidden]) { grid-template-columns: 1fr; padding: 0 12px 16px; }
@@ -3367,6 +3362,35 @@ ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 
 .q-change:hover:not(:disabled) { color: var(--text); border-color: #3a4a63; }
 .q-change:disabled { opacity: .6; cursor: default; }
 
+/* The wait line (T22, the wait rule's mock of 2026-11-02; the person, 2026-11-02: "i always need clear visual
+   indications, maybe a loader. and the status if its being picked up or not"): one line on the card of an action that waits
+   for a chat. Sent a ring, Picked up a loader, Done a tick, all quiet cool tones; only Late is in the attention colour (the
+   person's colour rule). The chat's own pill stands at its end, as every view draws it. */
+.wait-line { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px 12px; border-radius: 8px; background: var(--inset); color: var(--muted); font-size: 14px; line-height: 1.35; }
+.wait-line .wait-sign { flex: none; width: 14px; text-align: center; color: #9db8dc; font-weight: 700; }
+.wait-line .wait-sign.calm-spinner { width: 14px; height: 14px; margin-right: 0; color: #7fb0ff; }
+.wait-line .wait-words { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.wait-line .wait-lead { display: inline; margin: 0; color: var(--text); font-weight: 700; }
+.wait-line .pill { flex: none; }
+.wait-line.is-done { background: rgba(63, 210, 127, 0.07); }
+.wait-line.is-done .wait-sign { color: var(--working); }
+.wait-line.is-late { background: rgba(246, 185, 59, 0.09); box-shadow: inset 0 0 0 1px rgba(246, 185, 59, 0.5); }
+.wait-line.is-late .wait-sign, .wait-line.is-late .wait-lead { color: var(--waiting); }
+.wait-link { color: #7fb0ff; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.wait-link:hover { text-decoration: underline; }
+.wait-again { flex: none; padding: 3px 12px; border: 0; border-radius: 6px; background: var(--waiting); color: #1c1403; font-weight: 700; cursor: pointer; }
+.wait-again:disabled { opacity: 0.6; cursor: default; }
+.wait-line .wait-problem { color: var(--warn); }
+/* An answered card that still waits for its chat: folded to its head and its line, in a quiet border (it asks nothing of the person). */
+.need.is-slim { gap: 4px; padding: 9px 12px 10px; border-left-color: #5b7fae; }
+.need.is-slim .wait-line { margin-top: 4px; }
+.need.is-slim .kind, .need.is-slim .tag { background: rgba(91, 127, 174, 0.16); color: #9db8dc; box-shadow: inset 0 0 0 1px rgba(91, 127, 174, 0.5); }
+/* The focus goal's last recap Send, where the recap card stood while no verdict waits. */
+.focus-recap-sent { margin: 0 4px 18px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.focus-recap-sent h3 { margin: 0; font-size: 17px; }
+.focus-recap-sent p { margin: 4px 0 0; font-size: 14px; }
+.demo-wait:empty { display: none; }
+.demo-wait .wait-line { margin-top: 0; }
 /* Asset providers, part D: the first-run setup of a new board. The cards are the Settings tab's, bigger. */
 .provider-setup { position: fixed; inset: 0; z-index: 50; overflow-y: auto; background: var(--bg); }
 .provider-setup[hidden] { display: none; }

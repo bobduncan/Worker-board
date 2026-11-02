@@ -186,34 +186,35 @@ test('the Advisor\'s check by Autopilot judges only what stands for the person, 
     Q11: ask('Q11', { Title: 'Restart the board for the hedge popup?', Owner: 'Painter', Asks: 'provide', Via: 'chat', Route: 'person' }, null, { routed: true }),
     Q12: ask('Q12', { Title: 'Icons or words on the bar?', Owner: 'Painter', Asks: 'decide', Of: 'B60', Via: 'chat', Route: 'partner' }),
     Q13: ask('Q13', { Title: 'Shorter names on the hedge labels? A: yes B: no', Owner: 'Partner', Asks: 'decide', Of: 'B61', Via: 'refine' }),
-    // An incident that came back: its Undo gives it that state again, not "open".
+    // An incident that came back: signals change 6 (B915, the lead's decision 8): the Supervisor judges it, never the Advisor's check.
     X1: incident('X1', 'A watch rule fired twice', 'came back'),
   })
   t.after(() => rm(dir, { recursive: true, force: true }))
   await pass(dir, { sweep: true })
-  // The check by Autopilot: the open asks that stand for the person, and the incident; never a refine question (Q13: Autopilot
-  // answers those itself, and closing one would tick its step done).
+  // The check by Autopilot: the open asks that stand for the person; never a refine question (Q13: Autopilot answers those itself,
+  // and closing one would tick its step done), and since signals change 6 no incident (X1 is the Supervisor's to judge).
   const checked = await person(dir, { action: 'obsolete-check', by: 'autopilot' }, NOW + MIN)
   assert.equal(checked.ok, true, checked.why)
-  assert.deepEqual(checked.result.obsoleteCheck.ids, ['Q10', 'Q11', 'X1'], 'not Q1 and Q2 (in the recap), not Q12 (the partner\'s), not Q13 (a refine question)')
+  assert.deepEqual(checked.result.obsoleteCheck.ids, ['Q10', 'Q11'], 'not Q1 and Q2 (in the recap), not Q12 (the partner\'s), not Q13 (a refine question), not X1 (an incident)')
   const file = await readObsoleteFile(dir)
   assert.equal(file.record.by, 'autopilot')
-  // The Advisor's verdicts: Q10 and X1 are obsolete; a line for the refine question is refused (it is not in this check).
+  // The Advisor's verdicts: Q10 is obsolete; a line for the refine question, or for the incident, is refused (not in this check).
   const stray = await chat(dir, 'Partner', { action: 'obsolete', points: ['obsolete: Q13 · its step has been refined again'] }, NOW + 2 * MIN)
   assert.equal(stray.status, 400)
-  const verdicts = await chat(dir, 'Partner', { action: 'obsolete', points: ['obsolete: Q10 · the spade was chosen · B60 is in progress', 'open: Q11 · still needed', 'obsolete: X1 · a false alarm'] }, NOW + 2 * MIN)
+  assert.equal((await chat(dir, 'Partner', { action: 'obsolete', points: ['obsolete: X1 · a false alarm'] }, NOW + 2 * MIN)).status, 400)
+  const verdicts = await chat(dir, 'Partner', { action: 'obsolete', points: ['obsolete: Q10 · the spade was chosen · B60 is in progress', 'open: Q11 · still needed'] }, NOW + 2 * MIN)
   assert.equal(verdicts.ok, true, verdicts.why)
-  assert.deepEqual(verdicts.result.closed, ['Q10', 'X1'])
+  assert.deepEqual(verdicts.result.closed, ['Q10'])
   const record = await cleared(dir)
   assert.equal(record.at, NOW + 2 * MIN, 'the record holds the closes too, from the newest clear')
   assert.deepEqual(record.items.map(one => [one.id, one.how, one.why, one.was]), [
     ['Q1', 'recap', 'moved into your recap', undefined], ['Q2', 'recap', 'moved into your recap', undefined],
-    ['Q10', 'closed', 'the spade was chosen', undefined], ['X1', 'closed', 'a false alarm', 'came back'],
+    ['Q10', 'closed', 'the spade was chosen', undefined],
   ])
   assert.equal(record.items[2].title, 'Which spade for the hedge?')
   let items = await read(dir)
   assert.equal(field(items, 'Q10', 'State'), 'withdrawn')
-  assert.equal(field(items, 'X1', 'State'), 'closed')
+  assert.equal(field(items, 'X1', 'State'), 'came back', 'the incident is left to the Supervisor')
   assert.equal(field(items, 'B61', 'State'), 'queued', 'no step is ticked done')
   assert.equal(field(items, 'Q13', 'State'), 'open', 'the refine question is left alone')
 
@@ -221,9 +222,9 @@ test('the Advisor\'s check by Autopilot judges only what stands for the person, 
   assert.equal((await chat(dir, 'Painter', { action: 'autopilot-undo' })).status, 403)
   const undone = await person(dir, { action: 'autopilot-undo' }, NOW + 5 * MIN)
   assert.equal(undone.ok, true, undone.why)
-  assert.deepEqual(undone.result.undone, ['Q1', 'Q2', 'Q10', 'X1'])
+  assert.deepEqual(undone.result.undone, ['Q1', 'Q2', 'Q10'])
   assert.deepEqual(undone.result.skipped, [])
-  assert.equal(undone.result.text, 'Undone 4: Q1, Q2, Q10, X1.')
+  assert.equal(undone.result.text, 'Undone 3: Q1, Q2, Q10.')
   items = await read(dir)
   // A closed ask: open again for the person, with the line that says they took it back, and its step told.
   assert.deepEqual([field(items, 'Q10', 'State'), field(items, 'Q10', 'Route'), field(items, 'Q10', 'Since')], ['open', 'person', stamp(NOW + 5 * MIN)])
@@ -233,8 +234,8 @@ test('the Advisor\'s check by Autopilot judges only what stands for the person, 
   assert.deepEqual(history(items, 'Q10').slice(-2).map(line => line.replace(/^- [\d: -]+ /, '')), ['person: reopened: the person\'s Undo of Autopilot\'s clear', 'person: reopened non-blocking: its step went on'])
   assert.equal(field(items, 'B60', 'State'), 'in progress', 'its step is not moved')
   assert.ok(items.get('B60').sections.get('Context').some(line => line.trim() === 'Q10 reopened by the person\'s Undo'))
-  // An incident: back in the state it had before the close. The two moved into the recap: back to the person, with the same line.
-  assert.deepEqual([field(items, 'X1', 'State'), history(items, 'X1').at(-1).replace(/^- [\d: -]+ /, '')], ['came back', 'person: reopened: the person\'s Undo of Autopilot\'s clear'])
+  // The incident was never closed by the check: it stands as it was. The two moved into the recap: back to the person, with the same line.
+  assert.equal(field(items, 'X1', 'State'), 'came back')
   for (const id of ['Q1', 'Q2']) {
     assert.equal(field(items, id, 'Route'), 'person', id)
     assert.deepEqual(items.get(id).sections.get('Route'), ['The person took it back from Autopilot (Undo)'], id)

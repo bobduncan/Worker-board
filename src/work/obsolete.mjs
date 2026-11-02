@@ -11,7 +11,6 @@ export const OBSOLETE_FILE = 'obsolete-check.json'
 /** A check the Advisor has not answered within this long is late: the page says so, with Try again (and a new check may start). */
 export const LATE_MS = 15 * 60_000
 export const VERDICTS = ['obsolete', 'unsure', 'open']
-const INCIDENT_OPEN = ['open', 'came back', 'with the advisor']
 const WHY_CHARS = 240
 const EVIDENCE_CHARS = 320
 const TITLE_CHARS = 140
@@ -56,8 +55,9 @@ export const isLate = (record, now) => record?.state === 'checking' && now - rec
 
 /**
  * The open items Needs your attention holds that a check judges, oldest id first: an ask for the person (a refine question,
- * a Do, any other; not one the partner has first) and an incident that is not fixed, closed or being fixed.
- * `{ id, kind: 'refine' | 'do' | 'ask' | 'incident', title, of, owner, at, state }`.
+ * a Do, any other; not one the partner has first). `{ id, kind: 'refine' | 'do' | 'ask', title, of, owner, at, state }`.
+ * Signals change 6 (B915, the lead's Addendum 8): no incident: the Supervisor judges every incident (its judge word, which
+ * lists each one that waits), and one that went by itself closes itself; the Advisor's check keeps the asks and steps.
  */
 export function openItemsOf(items) {
   const found = []
@@ -71,8 +71,6 @@ export function openItemsOf(items) {
         id, kind: valueOf(item, 'Via') === 'refine' ? 'refine' : asks === 'do' ? 'do' : 'ask', title: oneLine(valueOf(item, 'Title'), TITLE_CHARS),
         of: valueOf(item, 'Of'), owner: valueOf(item, 'Owner'), at: sinceMs(valueOf(item, 'Since')), state,
       })
-    } else if (kind === 'incident' && INCIDENT_OPEN.includes(state)) {
-      found.push({ id, kind: 'incident', title: oneLine(valueOf(item, 'Title'), TITLE_CHARS), of: valueOf(item, 'Subject'), owner: null, at: sinceMs(valueOf(item, 'First seen')), state })
     }
   }
   return found.sort(byId)

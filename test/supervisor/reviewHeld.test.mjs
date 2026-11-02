@@ -86,7 +86,8 @@ test('review-held: a chain behind a held fix for over the review minutes is one 
   // The board has seen the hold for 80 min (its why in the key): one case, however long ago the fix moved to refined.
   const key = `review-held B614 ${CHOICE_WHY}`
   const found = watch(view(HELD_STORE, HELD), new Map([[key, ago(80)]]))
-  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['review-held', key, 'B603']])
+  // Signals change 6 (Addendum 2): the incident's key is the rule and the chain's first step; the why stays in the watch's key.
+  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['review-held', 'review-held B603', 'B603']])
   assert.equal(found[0].text, `B603 in review behind its fix B614, held 80 min: ${CHOICE_WHY}`)
   assert.match(found[0].evidence, /^the chain B603 → B614; the ready list has held B614 since \d\d:\d\d: outside the focus goal/)
   // Under the review minutes, no ready list in the view, the person's pause: nothing.
@@ -99,7 +100,7 @@ test('review-held: a chain behind a held fix for over the review minutes is one 
   const deep = items(reviewed('B7', 200, 'B8'), reviewed('B8', 150, 'B9', { 'Fix of': 'B7' }), fixStep('B9', 'B8', 'refined', 90, { Refined: 'ready' }))
   const why = 'blocked by B5 (in progress)'
   const deepFound = watch(view(deep, [{ id: 'B9', why }]), new Map([[`review-held B9 ${why}`, ago(90)]]))
-  assert.deepEqual(deepFound.map(one => [one.key, one.subject]), [[`review-held B9 ${why}`, 'B7']])
+  assert.deepEqual(deepFound.map(one => [one.key, one.subject]), [['review-held B7', 'B7']])
   assert.match(deepFound[0].evidence, /^the chain B7 → B8 → B9;/)
 })
 

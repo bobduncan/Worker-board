@@ -44,8 +44,9 @@ import { holdsRefine, isBlockWritten } from './work/refineWait.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
 import { reconcile } from './work/reconcile.mjs'
-import { effortPlan, runSettings } from './work/effort.mjs'
+import { EFFORTS, effortPlan, runSettings } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
+import { isJudging } from './work/judgeWord.mjs'
 import { OWNER_LABEL, OWNER_SETTING, talkPartnerOf } from './talkPartner.mjs'
 import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
@@ -66,7 +67,7 @@ import { givenBackFrom } from './work/holderTimers.mjs'
 import { countsOf, statusOf } from './chatStatus.mjs'
 import { factsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
-import { laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
+import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -608,7 +609,11 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // B290: the app counts the main chat as waiting after every answer; that ended turn is free, and its own card does not
   // hold it either, as the main chat reports to nobody.
   const isMainIdle = chat.isMain && appState === 'waiting' && turn === 'ended'
-  const background = entries === null ? 0 : backgroundRunning(entries)
+  // B930: one source with the clear's refusal and the hold's release: its mod's fresh idle report, else the transcript.
+  const background = backgroundOf(reported?.entry ?? null, {
+    session: chat.cliSessionId ?? null, now, freshMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000,
+    transcript: () => (entries === null ? 0 : backgroundRunning(entries)),
+  })
   // Partner answers, the review's findings: a chat whose blocking ask waits for the partner's answer waits for the
   // partner, not for the person: held between two turns, its lane says so (`waitsForPartner`).
   const forPartner = waits.partner?.get(chat.name.toLowerCase()) ?? []
@@ -755,7 +760,10 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     resting: reported === null ? restingOf({ entries, turn, idle, isRunningOn: background > 0 && !isDone, isStopped: wasCutOff || paused !== null })
       : paused === null && ['free', 'interrupted', 'waiting'].includes(state) && reported.entry?.state === 'idle' && !reported.entry.background ? restedSince(entries, reported.entry.since) : null,
     // Redesign Part 1: the report the lane follows, or null where the board reads the chat's transcript instead.
-    report: reported?.entry == null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at, mod: reported.entry.mod ?? null },
+    // The wait line (T22): also the word its turn ran on (`word`, null for a turn that was no word's), that turn's own start (`turn`) and
+    // the board's receipt of its last turn start (`busyAt`), each only where the report has it (chatReport.mjs `parseReport`).
+    report: reported?.entry == null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at, mod: reported.entry.mod ?? null,
+      ...(reported.entry.word === undefined ? {} : { word: reported.entry.word }), ...(Number.isFinite(reported.entry.turn) ? { turn: reported.entry.turn } : {}), ...(Number.isFinite(reported.entry.busyAt) ? { busyAt: reported.entry.busyAt } : {}) },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
     offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
       : reported.why === 'silent' ? `silent since ${hourMinute(reported.entry.at)}`
@@ -940,9 +948,13 @@ const cardOf = task => (task === null ? null : {
 })
 
 const asAnswer = message => (message === undefined ? null : {
+  // The wait line (T22): the word's id, by which the page finds its line in the state's `waits`.
+  id: message.id ?? null,
   at: message.at, verdict: message.verdict ?? null, text: message.text ?? '', state: message.state, ...(message.isHeld === true ? { isHeld: true } : {}),
   // When its chat took it, and when it was typed there.
   takenAt: message.takenAt ?? null, deliveredAt: message.deliveredAt ?? null,
+  // The wait line (T22): when its chat's turn on it was seen ended, and the action's own result, as the board kept them.
+  ...(Number.isFinite(message.answeredAt) ? { answeredAt: message.answeredAt } : {}), ...(Number.isFinite(message.doneAt) ? { doneAt: message.doneAt } : {}),
 })
 
 /**
@@ -950,10 +962,13 @@ const asAnswer = message => (message === undefined ? null : {
  * for the request as it was then (`version`): one given to a step that has changed since is `earlier`, and the
  * step asks again.
  */
-function answerOf(outbox, id, version = null) {
+function answerOf(outbox, id, version = null, to = null) {
   const isCurrent = sent => version === null || (sent.version ?? null) === null || sent.version === version
+  // The review of 2026-11-02 (7): the word to the chat that asked (`to`, the ask's Owner), when there is one; an answer that
+  // frees a step also goes to its owner, with the same ask.
+  const toAsker = typeof to === 'string' ? outbox.findLast(sent => sent.ask === id && isCurrent(sent) && sent.to === to) : undefined
   return {
-    answer: asAnswer(outbox.findLast(sent => sent.ask === id && isCurrent(sent))),
+    answer: asAnswer(toAsker ?? outbox.findLast(sent => sent.ask === id && isCurrent(sent))),
     earlier: asAnswer(outbox.findLast(sent => sent.ask === id && !isCurrent(sent) && sent.state === 'delivered')),
   }
 }
@@ -2213,7 +2228,10 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   if (efforts) efforts.words = efforts.words.filter(word => chats.find(lane => lane.name === word.chat)?.onSequence !== true)
   // T7.5 (the person, 2026-10-28: "do B"): the Supervisor's chat is held at its own setting (`supervisorModel`, `supervisorEffort`:
   // Sonnet, low), by the same word and the same half-hour dedupe as a worker's: the plan above skips it, so its word is added.
-  const supervisorWants = supervisorSetting(config)
+  // Signals change 6 (B915, Addendum 7): while it judges incidents (a judge word in flight, or an incident waiting for one:
+  // work/judgeWord.mjs), at its judging effort (`supervisorJudgeEffort`, medium); its sweeps stay at its own (low).
+  const judging = workOk && supervisorLane !== null && supervisorLane !== undefined && isJudging({ items: raw.work.items, outbox: sent, to: supervisorLane.name, now })
+  const supervisorWants = judging ? { ...supervisorSetting(config), effort: EFFORTS.includes(config.supervisorJudgeEffort) ? config.supervisorJudgeEffort : 'medium' } : supervisorSetting(config)
   const supervisorWord = efforts === null ? null : supervisorEffortWord({ lane: supervisorLane, setting: supervisorWants, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix })
   if (supervisorWord !== null) efforts.words.push(supervisorWord)
   // The Product owner (2026-10-31): held at Opus, medium by code, by the same word and dedupe as the Supervisor's (src/talkPartner.mjs).
@@ -2393,7 +2411,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
       // Autopilot (2026-10-31): only what is routed to the person, while it is on (src/work/autopilot.mjs).
-      ...storeNeeds(raw.work, { now, names: chatNames, prefix, answerOf: id => answerOf(sent, id), autopilot: config.autopilot === true, roleOf: roleOfChat, focusGoal: goalMap?.focus ?? null, focusHasDemo: (focus?.demo ?? null) !== null, recapSteps: recapWaits })
+      ...storeNeeds(raw.work, { now, names: chatNames, prefix, answerOf: (id, to = null) => answerOf(sent, id, null, to), autopilot: config.autopilot === true, roleOf: roleOfChat, focusGoal: goalMap?.focus ?? null, focusHasDemo: (focus?.demo ?? null) !== null, recapSteps: recapWaits })
         .map(need => (oldAsks.has(need.id) ? { ...need, isOld: true } : need)),
     ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), [config.advisor ?? null, helperChat?.name ?? null, ownerChat?.name ?? null], prefix),
     // B299: notes and reports for the person.

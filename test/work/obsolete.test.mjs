@@ -57,13 +57,13 @@ const POINTS = [
   'unsure: Q4 · B3 is at work · its worker wrote an hour ago',
   'obsolete: Q5 · the outage ended · the board restarted since',
   'open: Q6 · its worker still waits · B4 is waiting on you',
-  'obsolete: X1 · it did not come back · last seen 3 days ago',
 ]
 
-test('the open items a check judges: asks for the person (refine questions and Do among them) and incidents not fixed, closed or being fixed', async t => {
+// Signals change 6 (B915, the lead's Addendum 8): the incidents are the Supervisor's to judge, never the Advisor's check.
+test('the open items a check judges: asks for the person (refine questions and Do among them); no incident (the Supervisor judges those)', async t => {
   const s = await garden(t)
   const open = openItemsOf((await readStore(s.dir)).items)
-  assert.deepEqual(open.map(one => [one.id, one.kind]), [['Q1', 'refine'], ['Q2', 'refine'], ['Q3', 'refine'], ['Q4', 'refine'], ['Q5', 'do'], ['Q6', 'ask'], ['X1', 'incident']])
+  assert.deepEqual(open.map(one => [one.id, one.kind]), [['Q1', 'refine'], ['Q2', 'refine'], ['Q3', 'refine'], ['Q4', 'refine'], ['Q5', 'do'], ['Q6', 'ask']])
 })
 
 test('Find obsolete items: the person starts a check with each item\'s evidence; the board then types it (result.obsoleteCheck); one at a time, late after 15 minutes', async t => {
@@ -71,10 +71,10 @@ test('Find obsolete items: the person starts a check with each item\'s evidence;
   const s = await garden(t, { evidence: async open => { asked.push(open.map(one => one.id)); return new Map(open.map(one => [one.id, [`evidence of ${one.id}`]])) } })
   const started = await s.person({ action: 'obsolete-check' })
   assert.equal(started.ok, true)
-  assert.deepEqual(started.result.obsoleteCheck.ids, ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'X1'])
+  assert.deepEqual(started.result.obsoleteCheck.ids, ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6'])
   // Never `check`: that field starts the board's own check of a reported step (server.mjs workAction).
   assert.equal(started.result.check, undefined)
-  assert.deepEqual(asked, [['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'X1']])
+  assert.deepEqual(asked, [['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6']])
   const record = await s.file()
   assert.equal(record.state, 'checking')
   assert.deepEqual(record.items.find(one => one.id === 'Q3').evidence, ['evidence of Q3'])
@@ -100,7 +100,6 @@ test('with nothing open there is nothing to check, and the person alone starts a
   assert.equal((await s.chat('Painter', { action: 'obsolete-check' })).ok, false, 'a worker')
   assert.equal((await s.chat('Partner', { action: 'obsolete-check' })).ok, false, 'the partner')
   for (const id of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6']) await s.person({ action: 'tick', id })
-  await s.chat('Partner', { action: 'drop', id: 'X1', why: 'handled' })
   const none = await s.person({ action: 'obsolete-check' })
   assert.equal(none.ok, true)
   assert.equal(none.result.none, true)
@@ -121,8 +120,8 @@ test('the Advisor reads the check with `work obsolete` and answers once; the obs
   assert.equal((await s.person({ action: 'obsolete', points: POINTS })).ok, false, 'nor does the person')
   const done = await s.chat('Partner', { action: 'obsolete', points: POINTS })
   assert.equal(done.ok, true)
-  assert.match(done.result.text, /Recorded 7 verdicts: 5 obsolete, 1 unsure, 1 open; closed 5 obsolete\. Unsure and open ones stay/)
-  assert.deepEqual(done.result.closed, ['Q1', 'Q2', 'Q3', 'Q5', 'X1'])
+  assert.match(done.result.text, /Recorded 6 verdicts: 4 obsolete, 1 unsure, 1 open; closed 4 obsolete\. Unsure and open ones stay/)
+  assert.deepEqual(done.result.closed, ['Q1', 'Q2', 'Q3', 'Q5'])
   assert.deepEqual(done.result.failed, [])
   // No wake of any chat: the answer carries no word to the asking chat or the step's owner.
   assert.equal(done.result.wake, undefined)
@@ -135,9 +134,7 @@ test('the Advisor reads the check with `work obsolete` and answers once; the obs
     assert.match(history(one).at(-1), /Partner: withdrawn: obsolete: B[12] was built since$/)
   }
   assert.equal(state(await s.item('Q5')), 'withdrawn')
-  const x1 = await s.item('X1')
-  assert.equal(state(x1), 'closed')
-  assert.match(history(x1).at(-1), /closed: obsolete: it did not come back$/)
+  assert.equal(state(await s.item('X1')), 'open', 'an incident is not the check\'s')
   // Unsure and open: untouched, and listed for the person.
   assert.equal(state(await s.item('Q4')), 'open', 'unsure')
   assert.equal(state(await s.item('Q6')), 'open', 'open')
@@ -145,7 +142,7 @@ test('the Advisor reads the check with `work obsolete` and answers once; the obs
   const view = obsoleteView(await s.file(), { now: NOW, openCount: 2 })
   assert.equal(view.state, 'done')
   assert.deepEqual(view.rows.map(row => [row.id, row.verdict]), [['Q4', 'unsure'], ['Q6', 'open']])
-  assert.deepEqual((await s.file()).last, { at: NOW, closed: 5 })
+  assert.deepEqual((await s.file()).last, { at: NOW, closed: 4 })
   // Once: a second answer is refused.
   assert.equal((await s.chat('Partner', { action: 'obsolete', points: POINTS })).status, 409)
 })

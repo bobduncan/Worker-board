@@ -20,6 +20,13 @@ export const REPORT_MOD = '0.19.0'
  * review of chat-reports: `seq` the count that rises with every report of the mod's process, `run` that process (each
  * null when not given): the order of two reports is told by them, never by a clock. Null for anything that is not a
  * report.
+ *
+ * The wait line (T22, the signals lead's decision of 2026-11-02, .claude/plans/2026-11-02-wait-line-turn-code-check.md): a
+ * mod of the release that knows which word it typed says `word`, the outbox id of the word the current turn runs on (busy)
+ * or the last turn ran on (idle), and `turn`, that turn's own start (an ask that opens and closes mid-turn leaves it as it
+ * is, which `since` does not). Each is kept only when given: `word` a string, or null for a turn that was no word's (a typed
+ * line, a hand's message, /clear); a report with no `word` at all is from a mod that does not say (the older rule applies,
+ * waitLine.mjs). `turn` a finite time not after `now`.
  */
 export function parseReport(value, now) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
@@ -27,7 +34,28 @@ export function parseReport(value, now) {
   const since = Number.isFinite(value.since) && value.since <= now ? value.since : now
   const seq = Number.isSafeInteger(value.seq) && value.seq >= 0 ? value.seq : null
   const run = Number.isFinite(value.run) || (typeof value.run === 'string' && value.run.length <= 64) ? value.run : null
-  return { state: value.state, since, background: value.background === true, run, seq }
+  return { state: value.state, since, background: value.background === true, run, seq, ...wordOf(value, now) }
+}
+
+/** The report's `word` and `turn` as kept: only what the mod gave, in a shape `savedEntry` accepts again. */
+function wordOf(value, now) {
+  const named = value.word === null || isWordId(value.word) ? { word: value.word } : {}
+  return { ...named, ...(Number.isFinite(value.turn) && value.turn <= now ? { turn: value.turn } : {}) }
+}
+
+/** An outbox id as the mod names it: a short, non-empty string. */
+export const isWordId = value => typeof value === 'string' && value !== '' && value.length <= 64
+
+/**
+ * Whether a chat's kept report moved in what the wait line reads (`before` the kept entry, `after` the new one, each
+ * undefined for none): its state, the board's receipt of its last turn start (`busyAt`), the word its turn runs on, the
+ * turn's own start. The 5-second ping repeats them unchanged (only `seq` and `at` move) and moves nothing: the server keeps
+ * what the lines saw on a move only, never on every ping.
+ */
+export function hasMoved(before, after) {
+  if (after === undefined || after === null) return false
+  if (before === undefined || before === null) return true
+  return before.state !== after.state || (before.busyAt ?? null) !== (after.busyAt ?? null) || before.word !== after.word || (before.turn ?? null) !== (after.turn ?? null)
 }
 
 /**
@@ -117,6 +145,19 @@ export function laneWithoutReport({ cardMod, cardAt = null, boardStartedAt, now,
   if (!modReports(cardMod) || !Number.isFinite(boardStartedAt) || now - boardStartedAt < unknownAfterMs) return null
   const from = Math.max(boardStartedAt, Number.isFinite(cardAt) ? cardAt : -Infinity)
   return now - from >= offAfterMs ? { state: 'off', isRunning: false, why: 'unreported' } : { state: 'unknown', isRunning: null }
+}
+
+/**
+ * B930 (X131, X109): how many pieces of background work a chat started still run, from one source for the clear's refusal
+ * (server.mjs save-log), the hold's release (work/handover.mjs) and the lane (state.mjs, read by say.mjs's B739 line): its
+ * mod's report (`report`, `{ state, background, at, session }`) while it is idle, of this session and no older than
+ * `freshMs` (the mod keeps the ids of what it started and stopped: 1 or 0), else what `transcript()` counts (called only
+ * then; it may answer a promise). A busy or asking report says nothing of the background (the mod sends it for idle only).
+ */
+export function backgroundOf(report, { session = null, now, freshMs, transcript }) {
+  const isFresh = report !== null && report !== undefined && report.state === 'idle' && Number.isFinite(report.at) && now - report.at <= freshMs
+    && (session === null || report.session === undefined || report.session === session)
+  return isFresh ? (report.background === true ? 1 : 0) : transcript()
 }
 
 /** Whether a Workers mod of this version reports its turn state: at least REPORT_MOD. */

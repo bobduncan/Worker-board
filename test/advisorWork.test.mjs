@@ -80,13 +80,14 @@ test('the item it is on: the newest board word it took whose item is still open'
   const on = outbox => plain(work(items, { questions, outbox }).on)
   assert.equal(on([]), null)
   assert.equal(on([word()]), null, 'a word that waits is not one it took')
-  assert.deepEqual(on([taken({ command: 'incident', about: 'X76' }, 9)]), { kind: 'incident', id: 'X76', title: 'Incident X76', since: ago(9) })
+  // Signals change 6 (B915, Addendum 7): an incident is the Supervisor's to judge: a word about one is never the Advisor's work.
+  assert.equal(on([taken({ command: 'incident', about: 'X76' }, 9)]), null)
   // A taken "check step" word of the board's old days names nothing it is on any more.
   assert.equal(on([taken({}, 12)]), null)
   assert.deepEqual(on([taken({ kind: 'partner-ask', command: 'work', about: 'Q423' }, 7)]), { kind: 'question', id: 'Q423', title: 'Merge the chain?', since: ago(7) })
   // The newest taken one wins.
   assert.equal(on([taken({ command: 'incident', about: 'X76' }, 9), taken({}, 12), taken({ kind: 'partner-ask', command: 'work', about: 'Q423' }, 7)]).id, 'Q423')
-  assert.equal(on([taken({ command: 'incident', about: 'X76' }, 5), taken({ kind: 'partner-ask', command: 'work', about: 'Q423' }, 12)]).id, 'X76')
+  assert.equal(on([taken({ command: 'incident', about: 'X76' }, 5), taken({ kind: 'partner-ask', command: 'work', about: 'Q423' }, 12)]).id, 'Q423')
   // Its item no longer open: a fixed incident, a step that is done, an ask that is answered.
   assert.equal(on([taken({ command: 'incident', about: 'X70' }, 9)]), null)
   assert.equal(on([taken({ about: 'B999' }, 9)]), null)

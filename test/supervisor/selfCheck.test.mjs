@@ -15,7 +15,7 @@ import { workApi } from '../../src/work/api.mjs'
 import { deliverWork } from '../../src/work/deliver.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
-import { AGAIN_MS, CHECKS, OWNER_GONE_MS, findStuck, leftoverFindings } from '../../src/supervisor/rules/repair.mjs'
+import { AGAIN_MS, CHECKS, OWNER_GONE_MS, RETIRED_RULES, findStuck, leftoverFindings } from '../../src/supervisor/rules/repair.mjs'
 import { LOOP_LOCK_MS, SYNC_SHOWN_MS, applySync, loopGate, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/supervisor/loop.mjs'
 
 const MIN = 60_000
@@ -33,7 +33,9 @@ const of = (found, check) => found.filter(one => one.check === check)
 const checkedPass = { History: [`- ${stamp(ago(30))} server: check passed: merged`] }
 
 test('the list names every check once, with its words', () => {
-  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'closed-worker', 'partner-ask', 'unchecked', 'refine-again', 'incident-again', 'held-elsewhere', 'base-equal', 'fix-dropped', 'worktrees'])
+  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'closed-worker', 'partner-ask', 'unchecked', 'refine-again', 'incident-again', 'held-elsewhere', 'base-equal', 'worktrees'])
+  // Signals change 6 (B915, Addendum 4): the repair fix-dropped is retired; the watch rule dropped-fix files the case once.
+  assert.ok(RETIRED_RULES.some(one => one.id === 'fix-dropped'))
   assert.ok(CHECKS.every(one => typeof one.words === 'string' && one.words.length > 0))
 })
 

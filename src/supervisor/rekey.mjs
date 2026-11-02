@@ -34,6 +34,35 @@ export const KEY_MIGRATIONS = Object.freeze([
     old: /^handover-unanswered (.+) (\d{12,14})$/,
     newKey: () => null,
   },
+  // Signals change 6 (B915, the lead's Addendum 2): four keys that changed while their fault stayed (a newer checkpoint line,
+  // another why of the hold, a stop's time, the step a worker is on) are the rule and the subject only, so "gone" never reads
+  // a new key as a cure. An open incident under the old form is re-keyed to the stable one (X75 'stale-checkpoint B670 none'
+  // → 'stale-checkpoint B670'; X110 'effort-mismatch Worker 4 B810' → 'effort-mismatch Worker 4').
+  {
+    rule: 'stale-checkpoint',
+    change: 'change 6 (B915): the key is the rule and the step',
+    old: /^stale-checkpoint (B\d+) (.+)$/,
+    newKey: match => `stale-checkpoint ${match[1]}`,
+  },
+  {
+    rule: 'review-held',
+    change: 'change 6 (B915): the key is the rule and the first step of the chain',
+    // The old key named the held fix and its why; the incident's Subject is the chain's first step, the new key's.
+    old: /^review-held (B\d+) (.+)$/,
+    newKey: (match, { subject }) => (typeof subject === 'string' && /^B\d+$/.test(subject) ? `review-held ${subject}` : null),
+  },
+  {
+    rule: 'undelivered',
+    change: 'change 6 (B915): the key is the rule and the chat, also for a stopped chat',
+    old: /^undelivered (.+) stopped (\d+)$/,
+    newKey: match => `undelivered ${match[1]}`,
+  },
+  {
+    rule: 'effort-mismatch',
+    change: 'change 6 (B915): the key is the rule and the chat',
+    old: /^effort-mismatch (.+) (B\d+)$/,
+    newKey: match => `effort-mismatch ${match[1]}`,
+  },
 ])
 
 const value = (item, key) => {

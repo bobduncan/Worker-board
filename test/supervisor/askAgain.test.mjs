@@ -65,7 +65,7 @@ const world = (more = {}) => ({
 })
 const of = (found, check) => found.filter(one => one.check === check)
 const refines = more => of(findStuck(world(more)), 'refine-again')
-const incidents = more => of(findStuck(world({ items: items(incident('X80', 'with the advisor', 0)), outbox: [incidentWord('X80')], ...more })), 'incident-again')
+const incidents = more => of(findStuck(world({ items: items(incident('X80', 'with the supervisor', 0)), outbox: [], ...more })), 'incident-again')
 
 test('the list: both rules stand in the repair rules, each with its words', () => {
   const ids = REPAIR_RULES.map(rule => rule.id)
@@ -291,51 +291,34 @@ test('the rule reads a step\'s refine block as the page does: the same key, the 
   assert.equal(refinedKey(refinedOfItem(store.items, store.items.get('B20'))), refinedKey(plain.refined))
 })
 
-test('incident-again: an incident with the Advisor and no fix is asked again every 30 minutes, three times, then told to the person', () => {
-  assert.deepEqual(incidents({ now: at(29) }), [])
-  const keys = []
-  let outbox = [incidentWord('X80')]
-  for (const [period, minutes] of [[1, 30], [2, 60], [3, 90]]) {
-    const found = incidents({ now: at(minutes), outbox })
-    assert.equal(found.length, 1, `period ${period}`)
-    assert.equal(found[0].subject, 'X80')
-    assert.deepEqual([found[0].fix.do, found[0].fix.chat, found[0].fix.id], ['wake', 'Partner', 'X80'])
-    assert.match(found[0].key, new RegExp(`^incident-again X80 ${period} \\d{4}-`))
-    // The incident's word as the board typed it first (its evidence and job), with the line that says it is asked again.
-    assert.ok(found[0].fix.text.startsWith('incident: X80 Lamps stay dark X80\nState: new\n'))
-    assert.match(found[0].fix.text, new RegExp(`\\nAsked again \\(${period} of 3\\): it still has no fix step; name its fix \\(work incident-fix X80\\) or, if no fault is left, close it \\(work drop X80\\)\\.$`))
-    keys.push(found[0].key)
-    outbox = [...outbox, sentFor(found[0], { at: at(minutes) })]
-    assert.deepEqual(incidents({ now: at(minutes + 3), outbox }), [], 'once per period')
-  }
-  assert.equal(new Set(keys).size, 3)
-  // Without its word in the outbox the words still say what to do.
-  assert.match(incidents({ now: at(30), outbox: [] })[0].fix.text, /^incident: X80 Lamps stay dark X80\nYour job: roles\/partner\.md, "Incidents"\nAsked again \(1 of 3\)/)
-  // Then the person, once.
-  const told = incidents({ now: at(120), outbox })
-  assert.deepEqual([told[0].fix.do, told[0].fix.id], ['person', 'X80'])
-  assert.deepEqual(told[0].fix.text, ['Incident X80 "Lamps stay dark X80" has been with the Advisor for over 2 hours without a fix, after 3 asks: look at it under Supervisor.'])
+// Signals change 6 (B915, the lead's Addendum 4): incident-again's asks again at 30, 60 and 90 minutes retire (a judgment
+// turn costs about a sweep); its one note to the person stays, re-aimed: with the Supervisor for over 2 hours without a close
+// or a fix.
+test('incident-again: an incident with the Supervisor and no close or fix is never asked again; after 2 hours the person is told once', () => {
+  for (const minutes of [29, 30, 60, 90, 119]) assert.deepEqual(incidents({ now: at(minutes) }), [], `${minutes} min: no ask again`)
+  const told = incidents({ now: at(120) })
+  assert.equal(told.length, 1)
+  assert.deepEqual([told[0].fix.do, told[0].fix.id, told[0].subject], ['person', 'X80', 'X80'])
+  assert.deepEqual(told[0].fix.text, ['Incident X80 "Lamps stay dark X80" has been with the Supervisor for over 2 hours without a close or a fix: look at it under Supervisor.'])
   const note = item({ Id: 'N1', Kind: 'note', Via: 'supervisor', To: 'you', State: 'unread', Since: stamp(at(125)), Text: told[0].fix.text[0] }, { About: ['X80'] })
-  assert.deepEqual(incidents({ now: at(160), outbox, items: items(incident('X80', 'with the advisor', 0), note) }), [])
+  assert.deepEqual(incidents({ now: at(160), items: items(incident('X80', 'with the supervisor', 0), note) }), [])
   // The incident's own line to the person ("Supervisor: ...", filed when it opened) is no such note.
   const own = item({ Id: 'N2', Kind: 'note', Via: 'supervisor', To: 'you', State: 'unread', Since: stamp(at(0)), Text: 'Supervisor: Lamps stay dark X80' }, { About: ['X80'] })
-  assert.equal(incidents({ now: at(160), outbox, items: items(incident('X80', 'with the advisor', 0), own) }).length, 1)
+  assert.equal(incidents({ now: at(160), items: items(incident('X80', 'with the supervisor', 0), own) }).length, 1)
 })
 
-test('incident-again: it stops by itself when the incident gets a fix, is fixed or closed, or is not with the Advisor', () => {
-  const at45 = state => incidents({ now: at(45), items: items(incident('X80', state, 0, state === 'fix' ? { Fix: 'B9' } : {})) })
-  assert.equal(at45('with the advisor').length, 1)
-  for (const state of ['fix', 'fixed', 'closed', 'open', 'came back']) assert.deepEqual(at45(state), [], state)
-  // A fix named while the state still reads "with the advisor" stops it too.
-  assert.deepEqual(incidents({ now: at(45), items: items(incident('X80', 'with the advisor', 0, { Fix: 'B9' })) }), [])
-  // Counted from when it got that state: a returning incident (a new Since) is a new wait.
-  assert.deepEqual(incidents({ now: at(45), items: items(incident('X80', 'with the advisor', 30)) }), [])
-  assert.equal(incidents({ now: at(60), items: items(incident('X80', 'with the advisor', 30)) }).length, 1)
-  // No partner, or the person pauses: nothing. The time they paused does not count.
-  assert.deepEqual(incidents({ now: at(45), partner: null }), [])
-  assert.deepEqual(incidents({ now: at(45), pause: { state: 'pausing', since: stamp(ago(5)) } }), [])
+test('incident-again: nothing for an incident with a fix, fixed, closed, gone, open or came back; counted from its state; a pause holds it', () => {
+  const at125 = state => incidents({ now: at(125), items: items(incident('X80', state, 0, state === 'fix' ? { Fix: 'B9' } : {})) })
+  assert.equal(at125('with the supervisor').length, 1)
+  for (const state of ['fix', 'fixed', 'closed', 'gone', 'open', 'came back', 'with the advisor']) assert.deepEqual(at125(state), [], state)
+  assert.deepEqual(incidents({ now: at(125), items: items(incident('X80', 'with the supervisor', 0, { Fix: 'B9' })) }), [])
+  // Counted from when it got that state.
+  assert.deepEqual(incidents({ now: at(125), items: items(incident('X80', 'with the supervisor', 30)) }), [])
+  assert.equal(incidents({ now: at(150), items: items(incident('X80', 'with the supervisor', 30)) }).length, 1)
+  // The person pauses: nothing; the time they paused does not count.
+  assert.deepEqual(incidents({ now: at(125), pause: { state: 'pausing', since: stamp(ago(5)) } }), [])
   assert.deepEqual(incidents({ now: at(130), pause: { state: 'running', since: at(110) } }), [])
-  assert.equal(incidents({ now: at(140), pause: { state: 'running', since: at(110) } })[0].fix.do, 'wake')
+  assert.equal(incidents({ now: at(230), pause: { state: 'running', since: at(110) } })[0].fix.do, 'person')
 })
 
 test('the person fix: a note of the board\'s Via supervisor about the item, one row Sent; one the store refuses goes to Main once', async () => {
@@ -373,8 +356,8 @@ test('the board\'s words that ask again hold while their item is open, and are w
   assert.equal(why(word('refine-again B712 1 2026-10-26 11:00', 'B712'), step('B712', 'new')), null)
   assert.equal(why(word('refine-again B712 1 2026-10-26 11:00', 'B712'), step('B712', 'refined')), 'B712 is refined')
   assert.equal(why(word('refine-again B712 1 2026-10-26 11:00', 'B712')), 'B712 is gone')
-  // An incident: while it is with the Advisor (the sync lines of other checks keep their reading: an incident is not "open" for them).
-  assert.equal(why(word('incident-again X80 1 2026-10-26 11:00', 'X80'), incident('X80', 'with the advisor', 0)), null)
+  // An incident: while it is with the Supervisor (signals change 6; the sync lines of other checks keep their reading: an incident is not "open" for them).
+  assert.equal(why(word('incident-again X80 1 2026-10-26 11:00', 'X80'), incident('X80', 'with the supervisor', 0)), null)
   assert.equal(why(word('incident-again X80 1 2026-10-26 11:00', 'X80'), incident('X80', 'fix', 0)), 'X80 is fix')
   assert.equal(why(word('incident-again X80 1 2026-10-26 11:00', 'X80'), incident('X80', 'closed', 0)), 'X80 is closed')
   // Like every word of the sync check: the check decides anew after half an hour.
@@ -390,8 +373,9 @@ test('the Advisor\'s list: the word it took stands for the step on it, and the b
   assert.deepEqual([again.on.kind, again.on.id, again.on.since], ['refine', 'B712', NOW - 2 * MIN])
   const incidentAsk = { ...asked, syncKey: 'incident-again X80 1 2026-10-26 11:00', about: 'X80' }
   assert.deepEqual([list([incidentAsk], []).on], [null], 'an incident that is not open is nothing it is on')
-  const open80 = advisorWorkOf({ items: items(incident('X80', 'with the advisor', 0)), outbox: [incidentAsk], refines: [], titleOf: () => null })
-  assert.deepEqual([open80.on.kind, open80.on.id], ['incident', 'X80'])
+  // Signals change 6 (B915, Addendum 7): an incident is the Supervisor's to judge: no word about one is the Advisor's work.
+  const open80 = advisorWorkOf({ items: items(incident('X80', 'with the supervisor', 0)), outbox: [incidentAsk, incidentWord('X80')], refines: [], titleOf: () => null })
+  assert.equal(open80.on, null)
 })
 
 // ---- the state: the Advisor's waiting list ----

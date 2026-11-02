@@ -52,11 +52,13 @@ test('X24: the rule names B522 to the main chat, once for that checkpoint', () =
   // Signals change 3: no 'report' kind any more; its worker works on it, and the checkpoint is over 2 h old ('old').
   assert.equal(found[0].text, 'B522 in progress for 2 h 36 min (Picker) with no checkpoint for 2 h 19 min')
   assert.match(found[0].evidence, /checkpoint 36a6b6e · report B522 at 19:07/)
-  // the same checkpoint keeps its key (one incident that counts up); a newer stale one is a new case
+  // the same checkpoint keeps its key (one incident that counts up); signals change 6 (Addendum 2, X75): so does a newer
+  // stale one of the same step: the key is the rule and the step
   const later = check(view(items(step('B522', 'in progress', { Checkpoint: checkpoint('36a6b6e', 'report B522', at(19, 7)) }))))
   assert.equal(later[0].key, found[0].key)
   const other = check(view(items(step('B522', 'in progress', { Checkpoint: checkpoint('77aa001', 'report B522', at(19, 20)) }))))
-  assert.notEqual(other[0].key, found[0].key)
+  assert.equal(other[0].key, 'stale-checkpoint B522')
+  assert.equal(other[0].key, found[0].key)
 })
 
 test('signals change 3: the \'report\' kind never files: a checkpoint that said to report 31 or 90 min ago is quiet while its worker works', () => {

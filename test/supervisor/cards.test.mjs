@@ -114,31 +114,31 @@ test('each state word comes from the step\'s record and its worker\'s lane', () 
   assert.deepEqual([unread[0].title, unread[0].state.text], [null, 'task not read yet'])
 })
 
-test('the card without a fix step says what is happening: sending to the Advisor, with the Advisor, or came back', () => {
+test('the card without a fix step says what is happening (signals change 6: the Supervisor judges): sending to the Supervisor, with the Supervisor, or came back', () => {
   const of = (state, word, hasPartner) => plain(noFixState({ state }, word, hasPartner))
   // Its word waits, or was just taken: sending. Delivered, or taken long ago, or the store's own state: with the Advisor.
-  assert.deepEqual(of('open', 'on its way'), { text: 'sending to the Advisor…', tone: 'sending' })
-  assert.deepEqual(of('open', undefined), { text: 'sending to the Advisor…', tone: 'sending' }, 'its word is made at the next check')
-  assert.deepEqual(of('open', 'lost'), { text: 'sending to the Advisor…', tone: 'sending' }, 'sent again')
-  assert.deepEqual(of('open', 'arrived'), { text: 'with the Advisor', tone: 'advisor' })
-  assert.deepEqual(of('with the advisor', undefined), { text: 'with the Advisor', tone: 'advisor' })
+  assert.deepEqual(of('open', 'on its way'), { text: 'sending to the Supervisor…', tone: 'sending' })
+  assert.deepEqual(of('open', undefined), { text: 'sending to the Supervisor…', tone: 'sending' }, 'its word is made at the next check')
+  assert.deepEqual(of('open', 'lost'), { text: 'sending to the Supervisor…', tone: 'sending' }, 'sent again')
+  assert.deepEqual(of('open', 'arrived'), { text: 'with the Supervisor', tone: 'advisor' })
+  assert.deepEqual(of('with the advisor', undefined), { text: 'with the Supervisor', tone: 'advisor' })
   assert.deepEqual(of('came back', undefined), { text: 'came back', tone: 'back' })
   assert.deepEqual(of('came back', 'lost'), { text: 'came back', tone: 'back' })
   assert.deepEqual(of('came back', 'on its way'), { text: 'came back · sending…', tone: 'back' })
-  assert.deepEqual(of('came back', 'arrived'), { text: 'with the Advisor', tone: 'advisor' })
-  assert.deepEqual(of('open', undefined, false), { text: 'no Advisor on the board', tone: 'wait' })
+  assert.deepEqual(of('came back', 'arrived'), { text: 'with the Supervisor', tone: 'advisor' })
+  assert.deepEqual(of('open', undefined, false), { text: 'no Supervisor on the board', tone: 'wait' })
   // On the card: its chip shows the state that needs the most attention; each incident keeps its own.
   const words = new Map([['X8', 'arrived'], ['X10', 'on its way']])
   const cards = incidentCards({ incidents: [incident('X8', { state: 'open' }), incident('X9', { state: 'with the advisor' }), incident('X10', { state: 'open' })], words })
   assert.equal(cards.length, 1)
-  assert.deepEqual([cards[0].key, cards[0].step, cards[0].title, cards[0].state], ['nofix', null, 'Open, no fix task yet', { text: 'sending to the Advisor…', tone: 'sending' }])
+  assert.deepEqual([cards[0].key, cards[0].step, cards[0].title, cards[0].state], ['nofix', null, 'Open, no fix task yet', { text: 'sending to the Supervisor…', tone: 'sending' }])
   // 2026-10-26 (the person: "it says 9 open but i only see 3 fixed, where are the open ones?"): the card says what it holds
   // ("Open, ..."); the page adds the count of the incidents it lists (public/board.js incidentCardOf), so the title here has none.
-  assert.deepEqual(plain(cards[0].incidents), [{ id: 'X8', word: 'with the Advisor' }, { id: 'X9', word: 'with the Advisor' }, { id: 'X10', word: 'sending to the Advisor…' }])
+  assert.deepEqual(plain(cards[0].incidents), [{ id: 'X8', word: 'with the Supervisor' }, { id: 'X9', word: 'with the Supervisor' }, { id: 'X10', word: 'sending to the Supervisor…' }])
   const back = incidentCards({ incidents: [incident('X1', { state: 'came back' }), incident('X2', { state: 'open' })], words: new Map([['X2', 'on its way']]) })
   assert.equal(back[0].state.text, 'came back', 'a returning incident is said first')
   const quiet = incidentCards({ incidents: [incident('X8'), incident('X9')] })
-  assert.equal(quiet[0].state.text, 'with the Advisor')
+  assert.equal(quiet[0].state.text, 'with the Supervisor')
 })
 
 test('newest activity first, the card without a fix step last; a count that grows moves nothing', () => {
@@ -188,7 +188,7 @@ test('the day the layout was drawn on: nine incidents become five fix cards and 
     ['B542', 'refined · on the list', ['X7']],
     ['B543', 'refined · on the list', ['X8']],
     ['B544', 'refined · on the list', ['X9']],
-    ['nofix', 'sending to the Advisor…', ['X5', 'X6', 'X10']],
+    ['nofix', 'sending to the Supervisor…', ['X5', 'X6', 'X10']],
   ])
   // The Advisor links them: X4-X6 together, and the card without a fix step has only the new one.
   const linked = list.map(one => (['X4', 'X5', 'X6'].includes(one.id) ? { ...one, state: 'fix', fix: 'B541' } : one))

@@ -84,19 +84,25 @@ export function stepState(step, { lanes = [], steps = new Map(), items = steps }
 }
 
 /**
- * What an incident with no fix step yet is doing, `{ text, tone }`, from its state and what became of its word to the
- * partner (`word`: arrived, on its way, lost, or undefined for none yet; supervisor/index.mjs wordsOf):
- * "sending to the Advisor…" while the word waits or was just taken, "with the Advisor" once it arrived (typed, copied,
- * or taken long ago, which is also the store's state "with the advisor"), "came back" for a fixed one seen again (with
- * "· sending…" while its word is on its way), "no Advisor on the board" when nobody could take the word.
+ * What an incident with no fix step yet is doing, `{ text, tone }`, from its state and what became of the judge word that
+ * lists it (`word`: arrived, on its way, lost, or undefined for none yet; supervisor/index.mjs wordsOf). Signals change 6
+ * (B915): the Supervisor judges the incidents, not the Advisor: "sending to the Supervisor…" while the word waits or was just
+ * taken, "with the Supervisor" once it arrived (typed, copied, or taken long ago, which is also the store's state "with the
+ * supervisor"; "with the advisor" of the records before the change reads the same), "came back" for an ended one seen again
+ * (with "· sending…" while its word is on its way), "no Supervisor on the board" when nobody could take the word. The tone
+ * stays 'advisor' for the page's colour of a chat at work on it.
  */
-export function noFixState(incident, word, hasPartner = true) {
-  if (incident.state === 'with the advisor' || word === 'arrived') return { text: 'with the Advisor', tone: 'advisor' }
+export function noFixState(incident, word, hasSupervisor = true) {
+  if (incident.state === 'with the supervisor' || incident.state === 'with the advisor' || word === 'arrived') return { text: 'with the Supervisor', tone: 'advisor' }
   const back = incident.state === 'came back'
-  if (word === 'on its way') return back ? { text: 'came back · sending…', tone: 'back' } : { text: 'sending to the Advisor…', tone: 'sending' }
+  if (word === 'on its way') return back ? { text: 'came back · sending…', tone: 'back' } : { text: 'sending to the Supervisor…', tone: 'sending' }
   if (back) return { text: 'came back', tone: 'back' }
-  return hasPartner ? { text: 'sending to the Advisor…', tone: 'sending' } : { text: 'no Advisor on the board', tone: 'wait' }
+  return hasSupervisor ? { text: 'sending to the Supervisor…', tone: 'sending' } : { text: 'no Supervisor on the board', tone: 'wait' }
 }
+
+const pad = n => String(n).padStart(2, '0')
+/** "HH:MM" of a time, or "a time not known". */
+const clockWords = ms => (Number.isFinite(ms) ? `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}` : 'a time not known')
 
 /** Which incident's state the card's chip shows when they differ: what needs the most attention first. */
 const CHIP_FIRST = ['back', 'sending', 'wait', 'advisor']
@@ -121,12 +127,12 @@ function fixStepOf(incident, named, steps) {
  * got their state; not how often an incident is seen again, which would move the cards at every check), and last one
  * card "Open, no fix task yet" for the incidents with none (the page adds how many it lists to the title).
  * `incidents` as incidents.mjs `incidentsOf` gives them; `items` the store's items (a Map; null when it could not be read); `lanes` the board's chats; `words` a Map of an incident's id to
- * what became of its word to the partner; `hasPartner` whether the board has an Advisor to send to. Each card:
+ * what became of its judge word to the Supervisor; `hasSupervisor` whether the board has a Supervisor to send to. Each card:
  * `{ key, step, title, state: { text, tone }, phase, incidents: [{ id, word }], at }`; `phase` the fix step's own State
  * (B573: what the section counts as in work; null without a step in the store), `word` the incident's own state, said
  * for the card without a fix step (the others carry null).
  */
-export function incidentCards({ incidents = [], items = null, lanes = [], words = new Map(), hasPartner = true } = {}) {
+export function incidentCards({ incidents = [], items = null, lanes = [], words = new Map(), hasSupervisor = true } = {}) {
   const steps = items instanceof Map ? items : new Map()
   const stepsOnly = new Map([...steps].filter(([, item]) => valueOf(item, 'Kind') === 'step'))
   const named = new Map()
@@ -135,12 +141,14 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
   }
   const groups = new Map()
   const loose = []
-  // B685: an incident the partner closed (no fault left) has no fix step and needs none.
+  // B685: an incident closed (no fault left) has no fix step and needs none; signals change 6: nor one gone by itself.
   const closed = []
+  const gone = []
   for (const incident of [...incidents].filter(one => typeof one?.id === 'string').sort((a, b) => numeric(a.id, b.id))) {
     const fix = fixStepOf(incident, named, stepsOnly)
     if (fix !== null) groups.set(fix, [...(groups.get(fix) ?? []), incident])
     else if (incident.state === 'closed') closed.push(incident)
+    else if (incident.state === 'gone') gone.push(incident)
     else loose.push(incident)
   }
   const latest = list => Math.max(...list.map(one => (Number.isFinite(one.since) ? one.since : -Infinity)))
@@ -152,7 +160,7 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
     return { key: id, step: id, title: step === undefined ? null : valueOf(step, 'Title'), state, phase: step === undefined ? null : valueOf(step, 'State'), incidents: list.map(one => ({ id: one.id, word: null })), at: Number.isFinite(at) ? at : 0 }
   }).sort((a, b) => b.at - a.at || numeric(a.step, b.step))
   if (loose.length > 0) {
-    const each = loose.map(one => ({ id: one.id, ...noFixState(one, words.get(one.id), hasPartner) }))
+    const each = loose.map(one => ({ id: one.id, ...noFixState(one, words.get(one.id), hasSupervisor) }))
     const chip = [...each].sort((a, b) => CHIP_FIRST.indexOf(a.tone) - CHIP_FIRST.indexOf(b.tone))[0]
     const at = latest(loose)
     cards.push({
@@ -163,6 +171,14 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
   if (closed.length > 0) {
     const at = latest(closed)
     cards.push({ key: 'closed', step: null, title: 'Closed, no fix needed', state: { text: 'closed · no fix needed', tone: 'done' }, phase: 'done', incidents: closed.map(one => ({ id: one.id, word: null })), at: Number.isFinite(at) ? at : 0 })
+  }
+  // Signals change 6 (B915): what went by itself folds into the older cards as a fixed one does; each says since when it was not seen.
+  if (gone.length > 0) {
+    const at = latest(gone)
+    cards.push({
+      key: 'gone', step: null, title: 'Gone by itself, no fix needed', state: { text: 'gone by itself', tone: 'done' }, phase: 'done',
+      incidents: gone.map(one => ({ id: one.id, word: `not seen since ${clockWords(one.lastSeen)}` })), at: Number.isFinite(at) ? at : 0,
+    })
   }
   return cards
 }

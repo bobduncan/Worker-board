@@ -70,7 +70,8 @@ test('X123: the wait ends, the hold counts from then: the alarm comes only after
   assert.equal(waitsForPerson(answered.get('B871'), answered, HELD, NOW), false)
   assert.deepEqual(watch(view(answered), new Map([[KEY, ago(10)]])), [], 'seen 10 minutes: not yet')
   const late = watch(view(answered), new Map([[KEY, ago(70)]]))
-  assert.deepEqual(late.map(one => [one.rule, one.key, one.subject]), [['review-held', KEY, 'B851']])
+  // Signals change 6 (Addendum 2): the incident's key is the rule and the chain's first step; the why stays in the watch's key.
+  assert.deepEqual(late.map(one => [one.rule, one.key, one.subject]), [['review-held', 'review-held B851', 'B851']])
   // Never seen before: the sighting starts now, so no case.
   const first = []
   assert.deepEqual(watch(view(answered), new Map(), first), [])
