@@ -2234,6 +2234,8 @@ function copiedLine(copied, { main, isModThere }) {
 
 const about = minutes => (minutes === null ? null : `~ ${span(minutes * MIN)}`)
 
+
+// lanetime:start
 // heldrow:start
 /**
  * Signals change 7 (B914, 2026-11-02, the person's choice of "the simplest row"): a worker's row is drawn from the step the
@@ -2280,8 +2282,6 @@ function heldHover(held, now) {
   return lines
 }
 // heldrow:end
-
-// lanetime:start
 /**
  * B95: what a lane's time column says. For a worker that works, the time left is the main figure ("24 min left")
  * and the clock time it ends at the small one. A time that is not the worker's own estimate says where it is from
