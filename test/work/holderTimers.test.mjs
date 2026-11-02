@@ -161,6 +161,13 @@ test('never for a step with an open ask (B308: any of that worker, or under the 
   assert.equal(decideAt(30, { items: mapOf(held(), ask()) }).envelope, null)
   assert.equal(decideAt(30, { items: mapOf(held(), ask({ Owner: 'Worker 2', Of: 'B12' })) }).envelope, null)
   assert.equal(decideAt(30, { items: mapOf(held(), ask({ Owner: 'Worker 2', Of: 'B7' })) }).envelope?.kind, RESUME_KIND, 'another chat\'s ask on another step is no bar')
+  // 2026-11-02 (the person's "A"): a look the partner handed over that Autopilot keeps for the recap holds no worker, so it is no bar
+  // (its own, or under the step); the same ask without the kept line is.
+  const KEPT = 'Your partner hands this to you; Autopilot keeps it for the goal\'s recap'
+  const keptAsk = (more = {}, route = [KEPT]) => item({ Id: 'Q1', Kind: 'ask', Title: 'Which hinge?', State: 'open', Owner: 'Worker 1', Since: stamp(at(-5)), Asks: 'look', Blocking: 'no', Route: 'recap', ...more }, route.length === 0 ? {} : { Route: route })
+  assert.equal(decideAt(30, { items: mapOf(held(), keptAsk()) }).envelope?.kind, RESUME_KIND)
+  assert.equal(decideAt(30, { items: mapOf(held(), keptAsk({ Owner: 'Worker 2', Of: 'B12' })) }).envelope?.kind, RESUME_KIND)
+  assert.equal(decideAt(30, { items: mapOf(held(), keptAsk({}, [])) }).envelope, null, 'a recap wait of the old routes still bars it')
   // The person's answer at 10:10 starts the clock anew (the answer is on its way to it).
   const answered = mapOf(held(), ask({ State: 'answered', Since: stamp(at(10)) }))
   assert.equal(decideAt(15, { items: answered }).envelope, null)

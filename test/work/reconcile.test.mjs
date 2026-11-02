@@ -12,6 +12,7 @@ import { reconcile } from '../../src/work/reconcile.mjs'
 
 const NOW = new Date(2026, 9, 17, 12, 0).getTime()
 const MIN = 60_000
+const KEPT = 'Your partner hands this to you; Autopilot keeps it for the goal\'s recap'
 const TIMES = { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }
 
 /** An item file's text from its head and its sections. */
@@ -143,6 +144,11 @@ test('B308: a worker that holds steps, has ended its turn with nothing running a
   assert.deepEqual(idle(run([...held, ask('open', 'no')], [resting(NOW - 30 * MIN)]).flags), [])
   assert.deepEqual(idle(run([...held, ask('open', 'yes')], [resting(NOW - 30 * MIN)]).flags), [])
   assert.equal(idle(run([...held, ask('answered', 'no')], [resting(NOW - 30 * MIN)]).flags).length, 1)
+  // 2026-11-02 (the person's "A"): a look the partner handed over that Autopilot keeps for the recap holds no worker, so it silences no
+  // hint (the worker's own ask, or one under a step it holds); a recap wait of the old routes without the kept line still does.
+  const keptAsk = (route = [KEPT]) => file({ Id: 'Q7', Kind: 'ask', Title: 'Look at it', State: 'open', Owner: 'Team - Board', Since: '2026-10-17 11:42', Asks: 'look', Blocking: 'no', Of: 'B269', Route: 'recap' }, route.length === 0 ? {} : { Route: route })
+  assert.equal(idle(run([...held, keptAsk()], [resting(NOW - 30 * MIN)]).flags).length, 1)
+  assert.deepEqual(idle(run([...held, keptAsk([])], [resting(NOW - 30 * MIN)]).flags), [])
 })
 
 test('B305: a step blocked by an ask that is answered or withdrawn is delivered, as after a step done or dropped; an open ask still holds it', () => {

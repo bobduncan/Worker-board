@@ -13,6 +13,7 @@ import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partne
 import { isHolding } from './pause.mjs'
 import { REST_GUARD, REST_MS, flowRests, openAskIds, restsFree } from './parked.mjs'
 import { givenBackOf } from './holderTimers.mjs'
+import { isKeptLook } from './keptLook.mjs'
 import { NOT_MERGED, backWordsOf } from './resultCheck.mjs'
 
 /** The states in which a step is its Owner's work now. */
@@ -172,14 +173,15 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // answer is on its way to the chat, which goes on once it has it. Seen live at 08:24: the person answered Q153, the
   // only ask of Worker 2, and the hint stood at once, before the answer had reached it.
   const allAsks = [...items.values()].filter(item => kindOf(item) === 'ask')
-  const asking = new Set(allAsks.filter(item => stateOf(item) === 'open' && valueOf(item, 'Owner') !== null).map(item => plain(valueOf(item, 'Owner'), prefix)))
+  // A look the partner handed over that Autopilot keeps for the recap holds no worker (2026-11-02): it silences no hint.
+  const asking = new Set(allAsks.filter(item => stateOf(item) === 'open' && !isKeptLook(item) && valueOf(item, 'Owner') !== null).map(item => plain(valueOf(item, 'Owner'), prefix)))
   for (const lane of live) {
     // Signals change 3: replaced for a worker on the hand-over's sequence by its "asked to go on" line (holderTimers.mjs).
     if (lane.isMain === true || lane.onSequence === true || lane.state === 'suspended' || lane.isRunning === false || !Number.isFinite(lane.resting?.since) || asking.has(plain(lane.name, prefix))) continue
     const mine = ok.filter(item => ['taken', 'in progress'].includes(stateOf(item)) && laneOf(valueOf(item, 'Owner')) === lane)
     if (mine.length === 0) continue
     const ids = mine.map(item => valueOf(item, 'Id'))
-    if (allAsks.some(item => stateOf(item) === 'open' && ids.includes(valueOf(item, 'Of')))) continue
+    if (allAsks.some(item => stateOf(item) === 'open' && !isKeptLook(item) && ids.includes(valueOf(item, 'Of')))) continue
     const answered = allAsks.filter(item => stateOf(item) === 'answered' && laneOf(valueOf(item, 'Owner')) === lane).map(askAnsweredMs)
     const since = Math.max(lane.resting.since, ...[...mine.map(item => sinceMs(valueOf(item, 'Since'))), ...answered].filter(Number.isFinite))
     if (now - since < times.idleMs) continue
