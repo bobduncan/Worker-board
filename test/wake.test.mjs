@@ -62,6 +62,14 @@ test('T22 personAgain: the person\'s "Send again" makes one attempt outside the 
   // The mark survives the file.
   const read = wakesOfFile(JSON.parse(textOfWakes(record)))
   assert.equal(read.wakes.get('Worker 2').at(-1).attempts.at(-1).again, 'person')
+  // Only the newest spell (the goal chat's wait-line test: spells A, B, then A again): an older kept entry takes no attempt,
+  // since the hands route reads the newest entry alone and the message would never go.
+  const spells = emptyWakes()
+  newSpell(spells, 'Worker 2', 100)
+  newSpell(spells, 'Worker 2', 200)
+  assert.equal(personAgain(spells, { chat: 'Worker 2', spell: 100, path: 'message', by: 'Main', jobId: 'old', now: 300 }), false)
+  assert.equal(spells.wakes.get('Worker 2')[0].attempts.length, 0)
+  assert.ok(personAgain(spells, { chat: 'Worker 2', spell: 200, path: 'message', by: 'Main', jobId: 'new', now: 300 }))
 })
 
 const at = (h, m, s = 0) => new Date(2026, 10, 2, h, m, s).getTime()
