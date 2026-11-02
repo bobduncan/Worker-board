@@ -56,6 +56,7 @@ import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog } from './src/hearing.mjs'
+import { stallLog, watchLoop } from './src/stalls.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
@@ -145,6 +146,14 @@ const TICK_MS = Number(process.env.WORKER_BOARD_TICK_MS) > 0 ? Number(process.en
  */
 const READ_DELAY_MS = Number(process.env.WORKER_BOARD_READ_DELAY_MS) > 0 ? Number(process.env.WORKER_BOARD_READ_DELAY_MS) : 0
 const slowRead = () => (READ_DELAY_MS > 0 ? new Promise(done => setTimeout(done, READ_DELAY_MS)) : undefined)
+/**
+ * B934: a test's state rebuild that holds the event loop this long (as the stalls of 2026-11-02 did, X93), so a copy of the
+ * board shows end to end that its stall log names the rebuild. 0 (none) on a real board.
+ */
+const READ_BLOCK_MS = Number(process.env.WORKER_BOARD_READ_BLOCK_MS) > 0 ? Number(process.env.WORKER_BOARD_READ_BLOCK_MS) : 0
+const blockRead = () => {
+  for (const end = Date.now() + READ_BLOCK_MS; Date.now() < end;) { /* held, as a long synchronous read holds it */ }
+}
 /** T9.3 part 1: how often the board checks whether each kind of asset's provider can work. */
 const PROVIDERS_MS = 10 * 60_000
 /** Part C of the asset providers: how often the board looks at the asset requests (a `work asset` looks at once too). */
@@ -332,6 +341,8 @@ export function createBoard({
   project = '',
   mayWrite = async () => null,
   heardActive = () => {},
+  // B934: runs each request, so the stall log (src/stalls.mjs) names the requests that ran during a stall.
+  track = (words, fn) => fn(),
 }) {
   // B529: what the page or a chat's mod writes into the project or sends to the chats is taken only by the board process
   // that runs the loops; another one on the project names where that one is. B539: the routes say it in POST_ROUTES.
@@ -595,7 +606,7 @@ export function createBoard({
   }
 
   return createServer((req, res) => {
-    handle(req, res).then(() => {
+    track(`${req.method} ${String(req.url ?? '').split('?')[0].slice(0, 60)}`, () => handle(req, res)).then(() => {
       try { onAnswered() } catch { /* the record is no reason to fail the answer */ }
     }, error => {
       // B404: the error goes to the board's log; the answer has no details, as the error may quote a chat.
@@ -759,7 +770,29 @@ async function main(args) {
   const timeOf = at => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
   // B404: every background loop runs through the record: its last success and error, and a log file of the errors
   // in the project's .claude folder (none for the demo).
-  const loops = loopRecord({ now: clock, write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')) })
+  // B934 (X93): the board's stall log (src/stalls.mjs): every delay of the event loop over 2 s, and every work call answered
+  // after 2 s, with the requests and the board's own jobs that ran then, in data/stalls.json; the rule board-slow cites it.
+  const stalls = stallLog({ now: clock, file: isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'stalls.json') })
+  const trackJob = (words, fn) => stalls.track('job', words, fn)
+  /** B934: a chat's work call as the stall log names it (by its chat once checked); one answered after 2 s is a stall. */
+  const callStall = (action, session) => {
+    const begun = clock()
+    const what = by => `work ${String(action ?? 'call').slice(0, 30)} by ${by}`
+    let words = what(`session ${String(session).slice(0, 8)}`)
+    const end = stalls.begin('request', words)
+    return {
+      by: chat => end.as(words = what(chat)),
+      done: () => {
+        end()
+        stalls.slowCall(words, begun, clock())
+      },
+    }
+  }
+  if (!isDemo && historyFrom === undefined) {
+    await stalls.load()
+    watchLoop(stalls)
+  }
+  const loops = loopRecord({ now: clock, write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')), track: trackJob })
   /** B404: the checks after a report that run now, by step id; a restart waits for them, the stuck-check pass skips them. */
   const runningChecks = new Map()
   /** B404: set once a restart was asked: the board takes no more work and its loops start nothing new. */
@@ -1978,8 +2011,9 @@ async function main(args) {
   // Signals change 7 (B914, 2026-11-02): the board's own memory of when each worker's plan words changed (state.mjs
   // `planLineOf`), in memory as the asleep map was kept: a restart forgets it, which only makes the words look new.
   let planSeen = {}
-  const readState = cached(async () => {
+  const readState = cached(() => trackJob('state rebuild', async () => {
     await slowRead()
+    blockRead()
     const raw = await readRaw()
     const keptReadings = await readingsOnDisk()
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
@@ -1996,6 +2030,8 @@ async function main(args) {
       reports,
       wakes: wakeFacts(),
       hearing: hearing?.view(clock()) ?? null,
+      // B934: the newest stalls of the board's own loop and calls (src/stalls.mjs), for the rule board-slow.
+      stalls: stalls.recent(),
       finishedSeen: finishedSeen ?? {},
       taskTimes: taskTimes.tasks,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
@@ -2023,7 +2059,7 @@ async function main(args) {
     const shownAside = []
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
     return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside }
-  }, STATE_MS)
+  }), STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
   // at the first look. Tasks a worker reported are added to the list, and the list the chats read is written anew.
@@ -2065,7 +2101,7 @@ async function main(args) {
         const scan = taskTimes.scans[one.session] ?? freshScan(one.name)
         scan.worker = one.name
         taskTimes.scans[one.session] = scan
-        added.push(...await readOn(path, scan, stepOf))
+        added.push(...await trackJob(`reading the left session of ${one.name}`, () => readOn(path, scan, stepOf)))
         const size = await stat(path).then(file => file.size, () => null)
         if (isReadOut({ size, taskOffset: scan.offset, spendingOffset: spending.offsetOf(one.session) })) await chatLogs?.readOut(one.session)
       }
@@ -2132,6 +2168,7 @@ async function main(args) {
   const chatLogs = isDemo || isShowOnly || config.project === '' ? null : chatLogKeeper({
     file: join(HERE, 'data', 'chat-logs.json'), project: config.project, transcripts: config.transcripts, clock,
     failed: job => console.error(`A chat log was given up: ${job.log} (${job.why ?? 'unknown'}).`),
+    track: trackJob,
   })
   /** Clear after each step: the mod asks to keep the conversation before it clears a worker (`save-log`, `stepId`). */
   const saveLog = async (body, checked, state) => {
@@ -2171,7 +2208,7 @@ async function main(args) {
    */
   const decideFor = async (chat, mod, event) => {
     if (workDir === null || isShowOnly || workWriters === null) return null
-    return handoverTurn(workDir, async () => {
+    return handoverTurn(workDir, () => trackJob(`hand-over ${chat} (${String(event?.kind ?? 'turn').slice(0, 30)})`, async () => {
       readState.reset()
       const state = await readState()
       const lane = (state.chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
@@ -2182,7 +2219,7 @@ async function main(args) {
         readState.reset()
       }
       return done
-    })
+    }))
   }
   /**
    * Clear after each step: a session the state shows under no name may be a chat that went on under a new id a moment
@@ -2853,6 +2890,7 @@ async function main(args) {
     },
     onError: error => loops.failed('request', error),
     onAnswered: () => loops.succeeded('request'),
+    track: (words, fn) => stalls.track('request', words, fn),
     isClosing: () => isClosing,
     heardActive: header => pagesActive.heard(header, clock()),
     restart: restartNow,
@@ -2897,16 +2935,19 @@ async function main(args) {
       const session = String(body?.session ?? '')
       const kept = await requests.known(session, request)
       if (kept !== undefined) return kept
+      const stall = callStall(asked.action, session)
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
       try {
         const { checked, state } = await checkFresh(body)
         noteRefused(body, checked)
         noteMod(body, checked)
         if (!checked.ok) return checked
+        stall.by(checked.chat)
         if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
         if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, checked)
         return await requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
       } finally {
+        stall.done()
         hearing?.answered(request, clock())
       }
     }),

@@ -3,6 +3,7 @@
 // that shows it has been closed for a while. The board never switches a folder to another branch.
 
 import { spawn } from 'node:child_process'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { GAME_PAGES } from './places.mjs'
@@ -126,6 +127,22 @@ const lastLine = text => text.split('\n').map(line => line.trim()).filter(line =
  * Starts a folder's game with the runner, as a process of its own. The runner ends by itself (see `idleWatch`),
  * so a game never outlives the person's interest in it, also when the board is closed.
  */
+/**
+ * B943: whether vite must rebuild its cache for a folder. The cache (`<cache>/deps/_metadata.json`) is keyed on the
+ * lock file and the config, so a `node_modules` emptied and restored with the same lock file kept a bundle made
+ * without some packages. Packages newer than the cache, or a cache that cannot be read, mean a rebuild; no cache
+ * yet, or no `node_modules/.package-lock.json`, means vite goes on as it would.
+ */
+export async function cacheIsStale(folder, cacheDir) {
+  const mtime = async path => { try { return (await stat(path)).mtimeMs } catch { return null } }
+  const packages = await mtime(join(folder, 'node_modules', '.package-lock.json'))
+  if (packages === null) return false
+  const cacheFolder = await mtime(join(cacheDir, 'deps'))
+  if (cacheFolder === null) return false
+  const cache = await mtime(join(cacheDir, 'deps', '_metadata.json'))
+  return cache === null || packages > cache
+}
+
 /** B197: the start command's words with `{folder}`, `{port}` and the others filled in; an unknown one stays as it is. */
 export const commandFor = (words, values) => words.map(word => word.replace(/\{(\w+)\}/g, (whole, key) => (values[key] === undefined ? whole : String(values[key]))))
 
