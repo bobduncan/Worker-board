@@ -1,13 +1,13 @@
 // B412: a work call recorded once, also when its answer is slow or cut off. The Workers mod sends each call of the work
 // tool with a request id of its own; the board keeps the answer under the chat's session and that id, in memory and in a small
 // file, and gives the same answer to a repeat of the id, also after a restart. A repeat that comes while the first is
-// still being worked on waits for that one: the call is made once. An answer that says the store could not be reached
+// still being worked on waits for that one: the call is made once. B934: the answer does not wait for the file. An answer that says the store could not be reached
 // (a status of 500 or more) or asks to come back later (408, 423, 429) is not kept: a repeat tries again.
 
 import { open, readFile, rename, rm, writeFile, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { writeAtomic } from '../write.mjs'
+import { writeUnflushed } from '../write.mjs'
 
 /** How many answers are kept, and for how long: long enough for a repeat after a restart. */
 export const MOST_KEPT = 300
@@ -59,7 +59,7 @@ export function requestKeeper({ file = null, clock = Date.now, fs = FILES, most 
       try {
         await fs.mkdir(dirname(file), { recursive: true })
         // B406: flushed beside and put in place, tried again while Windows holds the file.
-        await writeAtomic(file, JSON.stringify({ answers }), fs)
+        await writeUnflushed(file, JSON.stringify({ answers }), fs)
       } catch {
         // kept in memory all the same; a restart forgets it
       }
@@ -88,7 +88,9 @@ export function requestKeeper({ file = null, clock = Date.now, fs = FILES, most 
       if (done?.ok === true || (Number.isFinite(done?.status) && done.status < 500 && !LATER.has(done.status))) {
         kept.set(key, { at: clock(), answer: done })
         prune(clock())
-        await save()
+        // B934 (X93): the answer goes out at once: it is kept in memory, and the file follows (a repeat meanwhile gets it
+        // from memory; only a restart in that moment forgets it).
+        void save()
       }
       return done
     })()

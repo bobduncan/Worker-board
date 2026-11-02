@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { pipeline } from 'node:stream/promises'
 
-import { writeAtomic } from './write.mjs'
+import { writeUnflushed } from './write.mjs'
 
 /** Where the logs go, in the project's folder. */
 export const LOGS_FOLDER = '.claude/chat-logs'
@@ -249,7 +249,8 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
     const text = `${JSON.stringify({ jobs: jobs ?? [], left }, null, 2)}\n`
     const write = journal.catch(() => {}).then(async () => {
       await mkdir(dirname(file), { recursive: true })
-      await writeAtomic(file, text)
+      // B934: the journal, written at every save-log and step of a log: no flush (a power cut may lose its last entry).
+      await writeUnflushed(file, text)
     })
     journal = write.catch(() => {})
     return write

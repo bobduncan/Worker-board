@@ -23,7 +23,7 @@ import { ASLEEP_LINE, isAppId } from './hands.mjs'
 import { boardLanes, isWakeWord, wakeWordOf, wakerOrder } from './say.mjs'
 import { envelopesOf } from './work/handover.mjs'
 import { isHolding } from './work/pause.mjs'
-import { moveInPlace, readKept, stampOf, writeAtomic } from './write.mjs'
+import { moveInPlace, readKept, stampOf, writeUnflushed } from './write.mjs'
 
 /** A wake attempt sent this long ago without the woken chat's report is failed. */
 export const WAKE_VERDICT_MS = 2 * 60_000
@@ -591,7 +591,7 @@ export async function readWakes(file, now, fs = undefined) {
 }
 
 /** The file's writer, as `reportsSaver`: `changed()` after every change of the record, `flush()` before the board stops. */
-export function wakesSaver({ file, record, waitMs = WAKES_SAVE_MS, write = writeAtomic, onError = () => {}, onSaved = () => {}, setTimer = setTimeout, clearTimer = clearTimeout }) {
+export function wakesSaver({ file, record, waitMs = WAKES_SAVE_MS, write = writeUnflushed, onError = () => {}, onSaved = () => {}, setTimer = setTimeout, clearTimer = clearTimeout }) {
   let timer = null
   let isDirty = false
   let writing = Promise.resolve()
