@@ -18,7 +18,10 @@
 // - `recap`: a look the step's checker asks, a look of a step below its target, and the board's "Accept or send back" card, of
 //   a step of the focus goal whose recap will name it: it waits for the goal's recap (the Focus page lists it; its step reads
 //   `Recap verdict: waits (Q<n>)`, so the goal demo is asked with the step in review and gives it its own row); the person's
-//   verdict on that row closes it. With Autopilot off it stands in Needs your attention again.
+//   verdict on that row closes it. With Autopilot off it stands in Needs your attention again. So does an ask the focus goal's
+//   recap asks already (2026-11-02): the goal's "open the recap and try it" (a `#demo=` link to that recap, closed by the
+//   person's Send), and a look of a worker's about a step that the recap names (its picture or words name the step: it is put
+//   under that step first, `recapAskOf`).
 // - `main`: an action (a do ask) a chat can do: the main chat does it, else hands it to the person (`escalate`).
 // - `person`: everything goal level (a stuck goal's rebuild too: Autopilot approves no rebuild), what only the person's hands
 //   can do (PERSONS_HANDS), what marks a step done, accepts it or sends it back, an ask under no step from the partner, and
@@ -60,11 +63,49 @@ const historyOf = item => (item?.sections?.get('History') ?? []).map(String)
 export const isAutopilotRouted = item => historyOf(item).some(one => / autopilot: routed to \w+$/.test(one))
 
 /**
+ * Whether an ask's `Route: person` is only the board's own route: its History says "autopilot: routed to person" and nothing
+ * is written on its card (no chat handed it on, the person took no answer back). The switch-on's sweep judges such an ask anew
+ * (the person, 2026-11-02: "if autopilot is turned on, the outstanding, needing for attentions get reevaluated and possible
+ * resolved if autopilot would answer them"); an ask somebody handed to the person is never judged again.
+ */
+export const isBoardRoutedPerson = item => valueOf(item, 'Route') === 'person' && isAutopilotRouted(item) && !(item?.sections?.get('Route') ?? []).some(one => one.trim() !== '')
+
+/**
  * Whether an ask's `Route: person` is somebody's word: a line on its card (the partner or the main chat handed it on, the
  * board's timeout, the person took an answer back) or the board's own route. A bare `Route: person` is the default, which the
  * board may route again.
  */
 export const isExplicitPerson = item => valueOf(item, 'Route') === 'person' && ((item?.sections?.get('Route') ?? []).some(one => one.trim() !== '') || isAutopilotRouted(item))
+
+/** The focus goal's recap file: the path of a row of its recap (src/recaps.mjs `recapWaitsOf`), or null for none. */
+export const focusRecapPathOf = (recapSteps, focusGoal) => (focusGoal === null || focusGoal === undefined ? null
+  : (recapSteps ?? []).find(one => one.goal === focusGoal && typeof one.path === 'string' && one.path !== '')?.path ?? null)
+const slashed = path => String(path ?? '').replace(/\\/g, '/').toLowerCase()
+/** Whether words link a recap file: they hold `demo=<its path>` (the link the board's page opens the recap with). */
+export const linksRecap = (words, path) => typeof path === 'string' && path !== '' && slashed(words).includes(`demo=${slashed(path)}`)
+/** The step ids words name: `B<n>`, not inside a longer word ("art-inbox/B889/evidence.png", "B889's"). */
+const stepIdsIn = words => String(words ?? '').match(/(?<!\w)B\d+(?!\w)/g) ?? []
+
+/**
+ * An ask the focus goal's recap asks already (the person, 2026-11-02, on a 47-hour-old Do card "Open the recap and try it": "if
+ * autopilot is turned on, the outstanding, needing for attentions get reevaluated and possible resolved if autopilot would
+ * answer them"), for an ask under no step: `{ to: 'recap', why }`, or null. The whole goal (the live Q569): its words link the
+ * recap (`demo=<the recap's path>`); the person's Send in the recap closes it. Its step (the live Q578, a look with the picture
+ * `art-inbox/B889/evidence.png`): a worker's look or decide whose picture, title or words name a step that a part of the recap
+ * names; the ask is put under that step (`step`, the first such id) and waits for the recap as any ask of a step does. The
+ * partner's and the Product owner's asks under no step stay the person's (they answer for the goal), as does any ask of a
+ * recap of a goal that is not the focus. `recapSteps`: src/recaps.mjs `recapWaitsOf`.
+ */
+export function recapAskOf(item, { focusGoal = null, recapSteps = [] } = {}, role = null) {
+  const path = focusRecapPathOf(recapSteps, focusGoal)
+  if (path === null || valueOf(item, 'Of') !== null) return null
+  const words = `${title(item)} ${text(item)}`
+  if (linksRecap(words, path)) return { to: 'recap', why: 'the goal\'s recap asks it already' }
+  if (!['look', 'decide'].includes(valueOf(item, 'Asks') ?? 'decide') || !['worker', 'main'].includes(role)) return null
+  const named = new Set((recapSteps ?? []).filter(one => one.goal === focusGoal).map(one => one.step))
+  const step = stepIdsIn(`${valueOf(item, 'Pictures') ?? ''} ${words}`).find(id => named.has(id)) ?? null
+  return step === null ? null : { to: 'recap', why: 'its step\'s part of the goal\'s recap asks it already', step }
+}
 
 /** The options of an ask: its Options field, else the lettered options of its words ("A: ... B: ..."); `[{ letter, words }]`. */
 export function optionsOf(item) {
@@ -284,11 +325,12 @@ export function isByChecker(item, items, prefix = '') {
  * one did. `ctx`: `roleOf(owner)` the asking chat's role ('main', 'worker', 'advisor', 'helper', 'owner', 'supervisor', or null
  * for none or one no longer on the list), `items` the store's items by id, `focusGoal` the focus goal's id (or null),
  * `focusHasDemo` whether it has its Demo line already, `recapSteps` the steps an undecided part of a recap names
- * (src/recaps.mjs `recapWaitsOf`: `[{ step, goal }]`), `prefix` the chats' title start.
+ * (src/recaps.mjs `recapWaitsOf`: `[{ step, goal, path }]`), `prefix` the chats' title start, `again` that the switch-on's
+ * sweep judges an ask the board itself routed to the person anew. `step` in the answer: the step a recap ask is put under.
  * A recap wait (the person's "A", 2026-10-31) only for a step of the focus goal whose recap will name it: the goal demo is
  * still to be asked (its words then ask for the step's own row), or a recap of the goal names the step already.
  */
-export function autopilotRoute(item, { roleOf = () => null, items = new Map(), focusGoal = null, focusHasDemo = false, recapSteps = [], prefix = '' } = {}) {
+export function autopilotRoute(item, { roleOf = () => null, items = new Map(), focusGoal = null, focusHasDemo = false, recapSteps = [], prefix = '', again = false } = {}) {
   const owner = valueOf(item, 'Owner')
   const role = owner === null || plain(owner) === 'server' ? 'board' : roleOf(owner) ?? 'worker'
   const kind = valueOf(item, 'Asks') ?? 'decide'
@@ -303,7 +345,8 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
     const named = (recapSteps ?? []).some(one => one.step === of && (one.goal ?? focusGoal) === focusGoal)
     return !focusHasDemo || named ? { to: 'recap', why } : { to: 'person', why: `${why}, and the goal's demo is made without its step` }
   }
-  if (isExplicitPerson(item)) return { to: 'person', why: 'handed to the person' }
+  // `again`: the switch-on's sweep judges the asks the board itself routed to the person anew (isBoardRoutedPerson).
+  if (isExplicitPerson(item) && !(again && isBoardRoutedPerson(item))) return { to: 'person', why: 'handed to the person' }
   if (via === 'form') return { to: 'person', why: 'the app\'s question form is answered in its chat' }
   // An action: a do, or a yes/no chore the main chat would carry out.
   const isAction = kind === 'do' || (isChore(item) && role !== 'owner')
@@ -311,6 +354,9 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   // step; for a detail decide or look under a step only its phrases.
   const hands = handsMatchOf(item, isAction || !isUnderStep ? PERSONS_HANDS : UNDER_STEP_HANDS)
   if (hands !== null) return { to: 'person', why: `only the person's hands: ${hands.name} ("${hands.phrase}")` }
+  // The focus goal's recap asks it already: the ask waits for the recap (before the goal-level words: its `#demo=` link is one).
+  const recapAsk = recapAskOf(item, { focusGoal, recapSteps }, role)
+  if (recapAsk !== null) return recapAsk
   const goal = goalLevelOf(item, role)
   if (goal !== null) return { to: 'person', why: `goal level ("${goal}")` }
   if (via === 'accept') return recapOr('an accept or send back below its target')

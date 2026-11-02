@@ -403,3 +403,22 @@ test('2026-11-02 (the person: "Yes, fix it"): the recap\'s bar is amber, not the
   assert.ok(green >= 0 && amber > green, 'the amber rule outweighs the green one and stands after it')
   assert.doesNotMatch(css, /\.focus-bar\.is-recap span/, 'no lighter amber rule the green one overrides')
 })
+
+test('2026-11-02 (Autopilot, switched on): the goal\'s own ask moved into the recap still makes the "play it" tile, and is no ask outside the card', () => {
+  const link = `Open the recap and try it: [Open the recap](http://127.0.0.1:4314/#demo=${PATH}).`
+  const state = waiting(1, { extra: [open('Q23', { Title: link, Asks: 'do', Route: 'recap' }), open('Q24', { Title: 'Is the whole goal there?', Asks: 'look', Route: 'recap' })] })
+  assert.deepEqual(state.routedAway.map(one => [one.id, one.route, one.of, one.asks]), [['Q1', 'recap', 'B1', 'look'], ['Q23', 'recap', null, 'do'], ['Q24', 'recap', null, 'look']])
+  const card = state.recapCard
+  assert.equal(card.count, 2, 'Block 1 and the whole goal')
+  assert.deepEqual(card.tiles.map(one => [one.title, one.target]), [['Block 1', { path: PATH, key: 'Block 1' }], ['The whole goal: play it', { path: PATH }]])
+  // Q23 links the recap, so it is the goal's own ask; Q24 (a step-less ask of no link) is listed under the card, as an ask of no block was.
+  assert.deepEqual(state.recapCard.outside, ['Q24'])
+  // Off, they stand in Needs your attention, not in the card.
+  const off = waiting(1, { extra: [open('Q23', { Title: link, Asks: 'do', Route: 'recap' })], config: parseConfig('{}', {}) })
+  assert.equal(off.recapCard.tiles.some(one => one.title === 'The whole goal: play it'), false)
+  // The card itself, given the ask as an `asked` entry only (not a standing one).
+  const asked = [{ id: 'Q23', of: null, asks: 'do', title: link, text: '', pictures: ['pictures/g6/whole.png'] }]
+  const direct = recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], asked })
+  assert.deepEqual([direct.count, direct.tiles.map(one => [one.title, one.picture]), direct.outside], [1, [['The whole goal: play it', 'pictures/g6/whole.png']], []])
+  assert.deepEqual(recapCardOf({ goal: 'G6', recapPath: null, waits: [], asked }), null, 'with no recap file the ask is nothing to play')
+})
