@@ -73,7 +73,7 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   in the store: your checkpoint (`work step` with `commit` and `next`), the report itself (what the user gets now,
   where the work is), and every question for the user as an ask (`work ask`). A question left only in your answer's
   words keeps you from being cleared, and so does a subagent or background command still running when your turn ends
-  (B739: after your report the board types you one line about it, once: `B<n> is reported; your background work still runs:
+  (one you stopped with TaskStop no longer counts, B930; B739: after your report the board types you one line about it, once: `B<n> is reported; your background work still runs:
   stop it or wait for it, then end your turn`; do that, and you are cleared).
 - Write to the user as the project's `CLAUDE.md` says, when it has one, else as the board's `examples/CLAUDE.md` says (a
   new project gets it as its own, B320). The board reads your answer's closing block
@@ -111,7 +111,8 @@ step therefore says what it touches ("Touches: ...").
   subfolder logs?").
 - The step's end, before `work report`: remove its worktree. First stop everything you started in it: your test server,
   and every background command and monitor of yours still running (a Monitor's `sleep` or `until` loop, a background
-  gate or test run, a command moved to the background after its timeout: stop each with TaskStop). Each one keeps the
+  gate or test run, a command moved to the background after its timeout: stop each with TaskStop; the board counts a stopped
+  one ended, B930). Each one keeps the
   worktree as its working folder, and Windows refuses that folder for as long as it runs: past your report and past a
   restart of your chat (B844: B821's folder stayed busy 20 minutes, held by its chat's own `sleep 1500` monitor). Then
   leave it: `cd` to the main checkout in a command of its own, so your chat's working folder is no longer the worktree

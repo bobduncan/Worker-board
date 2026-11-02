@@ -4320,11 +4320,24 @@ B739 (X91, 2026-10-27: Worker 1 reported B720 at 21:39 and ended its turn with b
 refused and its next step held, and nothing told it): the board types such a worker one line, once for each report (`reportedBackgroundDue`
 in `src/say.mjs`, the server's pass beside the resume words; command `report-background`, typed as the board's own word): `B720 is
 reported; your background work still runs: stop it or wait for it, then end your turn`. It is given while the worker's turn has ended,
-the lane's `background` count (the transcript's, what the clear is refused for) is above 0, its clear is owed with a mod that can clear,
+the lane's `background` count (what the clear is refused for: B930, one source, below) is above 0, its clear is owed with a mod that can clear,
 its step is not dropped and the person does not pause; never again for the same report (chat, step and report time), a report again is
 another. The held step and the clear after it stay as they were; a worker that ignores the line stays held, and `not-cleared` opens its
 incident after `notClearedMinutes`. Test: `test/reportedBackground.test.mjs`, and `test/reportedBackgroundBoard.test.mjs` through a
 running board.
+B930 (X131, X109, 2026-11-02: Worker 4 stopped its two background commands with TaskStop, 15:52 and 16:16; the app writes no
+notification for a stopped task, so the transcript counted both running for ever; the clear's refusal read that count and the
+hold's release the mod's report, idle with nothing in the background: 33 clears refused 16:17-16:23, each released by the next
+report, then one that failed on the board's 5-second time-out, Held with nothing to end it): (1) the transcript's count
+(`backgroundRunning`) ends a launched call when a later TaskStop (or KillShell) answer says it stopped the task id that call's
+answer named ("Command running in background with ID: <id>", "agentId: <id>"); a failed stop, or one of a task not seen here,
+ends nothing. (2) One source: the save-log refusal, the hold's release and the lane's `background` (this B739 line) read
+`chatReport.mjs` `backgroundOf`: the mod's report while it is idle, of that session and no older than `unknownAfterSeconds`
+(its flag, 1 or 0), else the transcript. A busy or asking report says nothing of the background. (3) A clear that failed on
+the board's own time-out (the mod's why "The worker board did not answer", not a refusal) is released by the worker's next
+idle report, once per step: a second time-out for the same step keeps it Held (the back-off is part 4, not built). Test:
+`test/work/stoppedBackground.test.mjs` (the real case's shapes, `fixtures/stoppedBackground.mjs`) and
+`test/stoppedBackgroundBoard.test.mjs` through a running board.
 B737 (X86, 2026-10-27: Worker 3 reported B727 at 21:02, the board's check failed at 21:03, Worker 3 rightly stayed in its
 turn to fix it; `not-cleared` counted from 21:02, and the board gave it B729 at 21:28 over the failed check): a report
 whose board check failed (the newest `server: check failed` after it, no `check passed` since) is handed back to its
@@ -4431,7 +4444,7 @@ timers. Now each chat says it (principle 3, know don't guess).
   Interrupted, never Free, so it is handed no new work ("idle with its task open" in the main chat's words); with a
   blocking ask on the person open (or the step waiting on the person) it waits. A blocking ask routed to the partner
   keeps it Working between two turns, waiting for the partner (B392: `waitsForPartner`; health counts that as no odd
-  state). Idle with background work is Working, "background work it started is still running", unless it moved a step to
+  state). Idle with background work (its report's flag; B930: the same count the clear's refusal reads) is Working, "background work it started is still running", unless it moved a step to
   review or done during its last turn (the step's Since at or after `busyAt`) and holds no other (B148). A chat that reports runs. The report takes the place of the reading of its transcript, card and timers (the turn, cut off,
   quiet, held by its card or branch). Suspended (the plan's limit) stays the board's own fact, whatever it reports.
 - **Unknown and off:** no report for `unknownAfterSeconds` (30 unless set, at least 5: the mod pings every 5 s) is
@@ -4988,7 +5001,9 @@ this order, the first that holds wins:
 4. Its newest report's check has not ended: **checking**; its end decides again.
 5. Its mod is older than the installed one: **restarting**, the envelope `restart` once; **unknown** "its restart did
    not happen" 15 minutes after it. Here too: **held** (its last envelope failed; released by a turn end after it, or by
-   its report saying idle with nothing in the background when the background work or the set was what failed) and
+   its report saying idle with nothing in the background when the background work or the set was what failed: B930, the
+   lane's count, the one the clear's refusal reads; or, once per step, by its next idle report when its clear failed on the
+   board's own time-out) and
    **unknown** after the net (released by its next turn end or a report that changed).
 6. Otherwise the clear when one is owed (`clearOwed`, as before) and the ready list's first task this worker may take
    (`match` for this one worker: pins, QA's `notBy`, Touches), given in the same call, with `set` when the chat runs
@@ -5100,7 +5115,8 @@ Then it settles it once: `POST /api/bridge/typed` with
 ```
 
 each flag true (done), false (it failed) or null (not asked); `background` true when background work it started was
-why the clear could not run; `why` the reason of the first that failed. The answer is `{ settled: true }`, or
+why the clear could not run (the board's 409, which reads the one source of B930: the mod's fresh idle report, else the
+transcript); `why` the reason of the first that failed. The answer is `{ settled: true }`, or
 `{ settled: false }` for an id that is not its envelope or was settled before. The board then decides at once: an
 outcome where nothing failed leaves the worker offered (a line) or free; a failed clear, set, line or restart takes the
 task back at once and holds the worker with the why.
