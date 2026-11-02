@@ -14128,7 +14128,7 @@ function recapAttentionView(card, goal = null) {
 }
 
 /** T20: how long the "Autopilot cleared" line stays (the plan: 24 hours), and how many of the cleared items it names before "and N more". */
-const CLEARED_SHOWN_MS = 24 * HOUR
+const CLEARED_SHOWN_MS = 24 * 60 * 60_000
 const CLEARED_NAMED = 3
 
 /**
