@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { LAST_STOP_SHOWN_MS, boardView, exitAt, lastStopOf, leavingNoticeMs, parseStop, stopWhy, takeStop, writeStop } from '../src/boardSelf.mjs'
+import { LAST_STOP_SHOWN_MS, boardView, exitAt, keptStart, lastStopOf, leavingNoticeMs, parseStop, stopWhy, takeStop, writeStop } from '../src/boardSelf.mjs'
 import { GAP_MS, gapsOf, startGap } from '../src/history.mjs'
 import { START_ANEW } from '../src/keeper.mjs'
 import { fileStore, tick } from '../src/store.mjs'
@@ -73,7 +73,7 @@ test('fileStore and tick: the second outage of a board whose chats write no line
     writeStop(join(dir, 'stop.json'), { at: 46 * MIN, why: 'restart' })
     const third = await fileStore(dir, 90 * MIN)
     assert.deepEqual(third.startedGap, { at: 45 * MIN, gap: true, why: 'restart' })
-    assert.deepEqual(lastStopOf(third.startedGap, 90 * MIN), { from: 45 * MIN, to: 90 * MIN, why: 'restart' })
+    assert.deepEqual(lastStopOf(third.startedGap, 90 * MIN), { from: 45 * MIN, to: 90 * MIN, why: 'restart', start: null })
     assert.deepEqual(third.lines().filter(line => line.gap === true).map(line => line.at), [10 * MIN, 45 * MIN])
     assert.equal((await readFile(join(dir, 'history.jsonl'), 'utf8')).split(String.fromCharCode(10)).filter(line => line.includes('"gap":true')).length, 2)
 
@@ -162,13 +162,49 @@ test('boardView: lastStop shows for 15 minutes after a start that found a gap, a
   const started = 100 * MIN
   const gap = { at: 80 * MIN, gap: true, why: 'crash' }
   const stop = lastStopOf(gap, started)
-  assert.deepEqual(stop, { from: 80 * MIN, to: started, why: 'crash' })
+  assert.deepEqual(stop, { from: 80 * MIN, to: started, why: 'crash', start: null })
   assert.deepEqual(boardView({ now: started + MIN, startedAt: started, lastStop: stop }).lastStop, stop)
   assert.deepEqual(boardView({ now: started + LAST_STOP_SHOWN_MS - 1, startedAt: started, lastStop: stop }).lastStop, stop)
   assert.equal(boardView({ now: started + LAST_STOP_SHOWN_MS, startedAt: started, lastStop: stop }).lastStop, null)
   assert.equal(lastStopOf(null, started), null, 'a start without a gap')
   assert.equal(boardView({ now: started + MIN, startedAt: started, lastStop: lastStopOf(null, started) }).lastStop, null)
   assert.equal(lastStopOf({ at: 80 * MIN, gap: true }, started).why, 'unknown', 'a gap line from before this change has no why')
+})
+
+// Signals change 5 (2026-11-02): the page's token and how the board was started, from what its keeper handed it.
+
+test('keptStart: a token the keeper handed on is kept; a cold start makes a new one; anything else is not taken', () => {
+  const token = 'a1'.repeat(32)
+  const key = 'b2'.repeat(32)
+  assert.deepEqual(keptStart({ token, key }), { token, start: 'keeper' })
+  assert.deepEqual(keptStart({ token, key: '' }), { token, start: 'keeper' }, 'the demo and a board that only shows hand on no key')
+  assert.deepEqual(keptStart({ token: '', key }), { token: null, start: 'keeper' }, 'a keeper of before this change hands on the key only')
+  assert.deepEqual(keptStart({}), { token: null, start: 'hand' })
+  for (const odd of ['A1'.repeat(32), 'a1'.repeat(31), `${'a1'.repeat(32)}\n`, 'not hex at all', 42]) {
+    assert.deepEqual(keptStart({ token: odd }), { token: null, start: 'hand' }, String(odd))
+  }
+})
+
+test('fileStore and lastStopOf: the gap line says how the board that wrote it was started; why stays why it was off', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'board-start-'))
+  try {
+    const first = await fileStore(dir, 0)
+    await tick(first, { chats: [{ name: 'Units', state: 'working', task: null }] }, 10 * MIN)
+    writeStop(join(dir, 'stop.json'), { at: 11 * MIN, why: 'crash' })
+    const second = await fileStore(dir, 40 * MIN, { start: 'keeper' })
+    assert.deepEqual(second.startedGap, { at: 10 * MIN, gap: true, why: 'crash', start: 'keeper' })
+    assert.deepEqual(lastStopOf(second.startedGap, 40 * MIN), { from: 10 * MIN, to: 40 * MIN, why: 'crash', start: 'keeper' })
+    await tick(second, { chats: [{ name: 'Units', state: 'free', task: null }] }, 41 * MIN)
+    const third = await fileStore(dir, 90 * MIN, { start: 'hand' })
+    assert.deepEqual(lastStopOf(third.startedGap, 90 * MIN), { from: 41 * MIN, to: 90 * MIN, why: 'unknown', start: 'hand' })
+    assert.match(await readFile(join(dir, 'history.jsonl'), 'utf8'), /"gap":true,"why":"unknown","start":"hand"/)
+    await tick(third, { chats: [{ name: 'Units', state: 'working', task: null }] }, 91 * MIN)
+    const fourth = await fileStore(dir, 200 * MIN, { start: 'by a chat' })
+    assert.equal(Object.hasOwn(fourth.startedGap, 'start'), false, 'a word that is not one of the two is left out')
+    assert.equal(lastStopOf(fourth.startedGap, 200 * MIN).start, null)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 test('boardView: the board\'s clock, when its work loop last ran, and the restart on its way', () => {

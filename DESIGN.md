@@ -1159,7 +1159,9 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   of chats names the launch entries to keep running (`.claude\chats\list.json`, "boards"); every chat in the list
   looks every 15 seconds whether each answers and starts the one that does not, as a child of its own process
   (the Workers mod, `keepBoards`). So the first game chat that opens after a restart brings the boards back, and
-  a chat that closes hands its board on to the next one within seconds. Nothing is set up in Windows.
+  a chat that closes hands its board on to the next one within seconds. Nothing is set up in Windows. (5c, the next
+  Workers mod release: `keepBoards` goes, or starts a board only after two failed pings; until then the board takes
+  its port first and a second process ends before it opens the board's files: "A restart costs nothing" below.)
 - *A new version, on the person's click (B142).* The person, 2026-10-14: "i want the board to show a little
   notification on top that a new version is available and I click it to start it. dont auto refresh. i want this
   notification visiually distinct, like the yellow we use somethwere." Whatever starts `node server.mjs` (the Run
@@ -1171,8 +1173,8 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   board is available. Click to start it." A click (`POST /api/restart`, from the board's own page only) first loads
   the new version once in a process of its own, and refuses with the reason when it does not load; else the board
   answers, ends with code 75, and its keeper starts it again, with the key the chats' mod knows, so nothing waits
-  for a chat in vain. The page then loads itself anew. A newer page alone needs no new start: its note loads the
-  page. (Nothing started anew by itself until B454, below.) The top bar says which version runs: "Board 9beb081 · since 09:48". A board
+  for a chat in vain, and (signals change 5) with the page's token, so the open page goes on without a reload (see
+  "A restart costs nothing"). A newer page alone needs no new start: its note loads the page. (Nothing started anew by itself until B454, below.) The top bar says which version runs: "Board 9beb081 · since 09:48". A board
   started without the keeper (one from before B142) says so and has to be started anew by hand once. The picture:
   `art-inbox/worker-board/b142/2026-10-14-b142-new-version-note.png`.
 - *A new version, by itself (B454).* The person, 2026-10-20 (Q259 A, G11's re-check): nine of 65 questions in two days
@@ -1184,14 +1186,17 @@ choices: the mod starts the board, the workers carry on on their click, no compa
   taken by a chat and not yet typed (an outbox line in `taken`, under 2 minutes old), no result check and no reconcile
   pass running, no chat log being written (`chatLogs.pending`), no call of a chat (`take`, `typed`, `work`) being
   answered, not within 30 seconds of the last `save-log` (a chat being cleared after its step, and its fresh
-  conversation's first calls), and no Pause all standing. The start is the one the click makes (`restartNow`: the
+  conversation's first calls), no Pause all standing, and (signals change 5) the person not busy on the page, for at
+  most 3 minutes ("A restart costs nothing", C). The start is the one the click makes (`restartNow`: the
   settings file and the new version are checked first, B404's 10-second settle follows), so a start the board refuses
   is not tried again for 10 minutes. The note on top says what the board waits for in a quiet cool tone
   (`version.selfUpdate`); after 10 minutes without a safe moment it turns into the yellow "Click to start it" of
   before, the fallback, and a safe moment after that still starts the new version. Not in it: the chats (the Workers
   mod reaches a chat only when its process starts anew).
-- *The page keeps asking.* While the board is away the page asks every 5 seconds; a board that is back has a new token,
-  and the page loads itself anew. What the top line says meanwhile, and why the board was off, is the banner (signals
+- *The page keeps asking.* While the board is away the page asks every 5 seconds. A board its keeper started again
+  (a new version, a crash) answers with the same token (signals change 5), and the page goes on as it was; one started
+  cold (the Run pane, start-board.mjs, a chat's Workers mod) has a new token, and the page loads itself anew (B519),
+  keeping what the person did (B524). What the top line says meanwhile, and why the board was off, is the banner (signals
   change 1, 2026-10-31: "The board's own banner" below); the old "The board has not answered since ..." text and the
   restart box's "The board was off from X to Y" line are gone.
 - *Interrupted.* A chat whose transcript shows an open turn while its own file says otherwise was cut off
@@ -5785,7 +5790,8 @@ numbers looking fresh), wrote "has not answered since" with its own clock only a
    - **Running · updated HH:MM:SS**: the `board.now` of the last answer, not the page's clock. Quiet tone. For
      `BACK_SHOWN_MS` (60 s) after the first answer that carries `board.lastStop` it reads **Running · was off HH:MM to HH:MM
      (<why>)** (restart: "a new version started", stopped: "stopped", crash: "it crashed", unknown: "the PC slept or the board
-     was ended"); a return is told once per `lastStop.to`, so the next reads do not tell it again.
+     was ended"), and since signals change 5 how it was started after it: **(it crashed; started again by itself)** or
+     **(...; started by hand)** (`lastStop.start`); a return is told once per `lastStop.to`, so the next reads do not tell it again.
    - **Slow · the board has not answered for N s · showing HH:MM's data**: from the first ask that did not settle within
      `BANNER_WAIT_MS` (5 s, an `AbortController` on every poll of /api/state) until an answer comes; N counts from the last
      good answer (the page's clock: it is a length of time), HH:MM is that answer's `board.now`. Also **Slow · the board
@@ -5793,7 +5799,9 @@ numbers looking fresh), wrote "has not answered since" with its own clock only a
      the history's; a `null` `lastTickAt` is no judgement). Attention tone (`is-stale`, the page's own).
    - **Off since HH:MM**: any other failure (connection refused, a non-2xx other than the 403 reload); HH:MM is the last good
      answer's `board.now`. Attention tone. The page keeps asking every `AWAY_MS` (5 s) as before; the 403 reload on the
-     board's return (B519) stays.
+     return of a board started cold (B519) stays; a board its keeper started again keeps the token and answers 200
+     (signals change 5, "A restart costs nothing"). A board that is starting answers 503 "starting" (it holds its port
+     from its first moment), which reads as a failed ask too.
    - **Restarting · a new version starts, usually back within 30 s**: the last good answer had `board.restart.state ===
      'leaving'`, or this page asked for the restart (the update note's click, `sending` `board-anew`), and the asks fail.
      Quiet tone. After `RESTART_GIVE_UP_MS` (60 s) of failures it is **Off since HH:MM** with the time the board left.
@@ -5833,6 +5841,85 @@ numbers looking fresh), wrote "has not answered since" with its own clock only a
    (a running board: the state's `board`, a restart ending with code 75 and its record, the keeper's disconnect ending with 0).
    Mutants, each caught: the fetch without the abort limit, Off with the page's clock, Restarting that never gives up, the stop
    record not removed after use.
+## A restart costs nothing (signals change 5, 2026-11-02, B913)
+
+The person, 2026-11-02 ("Yes to both"; the signals plan): on 2026-11-01 the board restarted eight times for landings, and
+each time the page reloaded itself on the board's new token and threw away what the person had typed in the recap popup.
+Now a board restart costs the person nothing: the page keeps running through the board's own restart, the board waits
+with it while the person is busy on the page, a reload that cannot be avoided keeps everything half-done, and one process
+starts the board again. The code check of the brief (`.claude/plans/2026-11-02-restart-brief-code-check.md`) and the lead's
+seven decisions on it shaped what follows.
+
+- **A. The token survives every keeper restart.** The keeper (`src/keeper.mjs`) keeps the page's token as it keeps the
+  chats' key (B142) and hands both to every board it starts (`start({ key, token })`), after a restart for a new version
+  and after a crash alike: the env's `WORKER_BOARD_TOKEN`, read by the board like `WORKER_BOARD_KEY` (64 hex characters,
+  else a new one; `keptStart` in `src/boardSelf.mjs`) and taken out of the env at the first line of `main`, before anything
+  is started. The board sends `{ token }` at once, also the demo and a board that only shows (they send no key). A new
+  token comes only with a new keeper: a cold start (the Run pane, start-board.mjs, a chat's Workers mod, a command). So the
+  page's next ask after a restart is answered 200: the banner says Restarting, then Running; nothing reloads, nothing typed
+  is touched. The first answer of a new board process (`version.commit` and `version.since`, `processOf` in
+  `public/board.js`) clears what the page's own click on "Click to start it" left on its way (`sending` 'board-anew'): the
+  note stops saying "Starting…", the page counts as idle again, a later failure is "Off since", not "Restarting". **G3:**
+  an old page now runs against a new server until it is idle and B454's reload of a newer page comes; the page and the
+  server of one landing are meant to work together for that while.
+- **The port first.** The board takes its port before it opens its files (`holdPort` in `server.mjs`) and answers 503
+  "The board is starting" until its own server takes the asks. In the seconds between a board that ends for a restart and
+  the next one, a chat's Workers mod found no board and started one of its own with a new token (a 403, a reload); now the
+  port is taken within the start of node itself (G4; the mod's side is 5c). A second process on the port ends with one line
+  ("Port 4310 is in use: the board may be running already. This one ends before it opens its files.") before it takes
+  data/stop.json or writes a gap line, which it did until now.
+- **B. Everything half-done survives a reload.** B524's keep (below) adds the "Add a note" boxes (`noteDrafts`), the
+  popup that was open besides the details and the recap (the file view, a picture, the help on its card, New project,
+  Change this goal: `popupOf`, opened again by `reopenPopup` after the first draw) and where each open popup was scrolled
+  (`scrollOf`, `putScrollBack`). The recap's unsent answers stay in localStorage and its reopen stays as it landed
+  (2026-11-01, `keepDemoDraft`). Nothing is sent by itself after a reload.
+- **C. The restart waits for the person.** The page's poll of /api/state carries `X-Board-Active: <page id> <ms>` while the
+  person is busy on the page: a key or click in the last minute, or a field with the focus (`hasFocusedField`, as
+  `isPageIdle` has it), in a tab that is shown (`personBusy`); the number is how long already, a length of time, so the
+  page's clock never counts; no words go with it. Not a popup left open or words left in a field: those may stand for hours
+  (G7). One page id per page load; the server keeps each page's word for 90 s (`activePages` in `src/selfUpdate.mjs`, OR'ed
+  over every page that asks: a tab, the app's pane, a headless shot). The self-updater's `blockersOf` names it "the person
+  is busy on the page"; `selfUpdater` lets it hold the start for at most `PERSON_WAIT_MS` (3 minutes) from the first look at
+  which only the person holds it, and the note on top is never "late" meanwhile. A restart the person asks for (the
+  note's click, `/api/restart`) goes straight to `restartNow` and waits for nothing of this.
+- **D. One starter, honest.** The keeper starts a board again only when it was up (`{ up: true }`, sent once the board's
+  own server takes the asks): a board that ends before (a broken settings file, a syntax error, the port in use) ends the
+  keeper with its code and one line ("The board ended with code 1 before it was up: the keeper does not start it again.").
+  A board that was up and ends with any code but 75 (START_ANEW) or 0 (stopped) crashed and is started again, with the same
+  key and token, at most 3 times within 10 minutes (`CRASHES`, `CRASH_WITHIN_MS`, apart from the restarts' 5 within 60 s),
+  then the keeper stops with one line; the page then says Off since, and the reason (`crash`) shows with the next start.
+  start-board.mjs and the keeper start the board with an env without `WORKER_BOARD_CHILD`, `_KEY` and `_TOKEN`
+  (`startEnv`), so a cold start is always a keeper with a new token. The gap line and `board.lastStop` say how the board
+  that wrote it was started: `start: 'hand' | 'keeper'` (a kept token or key in its env means its keeper started it); `why`
+  stays why the board was off. The banner says "started by hand" or "started again by itself" after the reason.
+- **Not in it**: the chats' restarts (change 4), what restarts for a landing (one landing at a time stays a rule), the
+  Workers mod's `keepBoards` (5c), alarms (change 6).
+- **Tests**: `test/restartKeepsToken.test.mjs` (a copy of the board under its own keeper: a restart answers the old page 200
+  all the way, the same token after; a second process on the port takes no stop record and writes no gap line, and its keeper
+  does not start it again), `test/startAnew.test.mjs` (the keeper: key and token to the next board and after a crash, a cold
+  start's new token, 3 crashes in 10 minutes then a stop, a board that never came up not started again, a stopped one not
+  either), `test/startBoard.test.mjs` (run from inside a board's process the script still starts a keeper with a new token),
+  `test/boardSelf.test.mjs` (`keptStart`, the gap line's `start`), `test/personWaits.test.mjs` (the header, the pages, the
+  blocker, the 3-minute cap, never late while only the person holds it, the route, the click that does not wait),
+  `test/restartCostsNothing.page.test.mjs` (the DOM harness: Restarting then Running with no reload and 'board-anew'
+  cleared; each popup back after a reload, scrolled, nothing sent; the header after a key, while a field has the focus, not
+  from a hidden tab, not for a popup left open), `test/keepOnReload.test.mjs`, `test/boardBanner.page.test.mjs`.
+
+## Keeping what the person did across a reload (B524)
+
+The page loads itself anew in three ways: the 403 after a board started cold (B519), a newer page when the page is idle
+(B454), and the click on the note's "Click to load it". One helper serves all three: `reloadPage` first calls
+`keepForReload`, which writes `keptState` into sessionStorage (`kept-state`): the answers being typed (`drafts`), a popup's
+note and pick (`calmWords`, `calmPicks`), the option chosen, the forms left open, the words in every text box with an id
+(`boxesWithWords`: the Talk to Main and Advisor boxes, the Goals and Design boxes, ...), the Focus page's boxes, what the
+open details popup is about (`detailsOf`), and since signals change 5 the "Add a note" boxes, the other open popup and
+the popups' scroll. The page that loads reads it once (`keptBack`: every part well-formed, else left out) and removes it;
+the first draw puts it back before anything is drawn (`restoreKept`) and, after that draw, tells the boxes of their words
+and opens the popups again (`finishRestore`). A reload before the first draw keeps what the last one kept. Storage that is
+full or blocked does not stop the page. The selected tab survives through the address (`#...`) and localStorage
+`side-tab`; the recap's answers through localStorage (`demo-draft`, which survives a closed tab). Tests:
+`test/keepOnReload.test.mjs`, `test/selfUpdate.test.mjs` (the B524 helpers), `test/restartCostsNothing.page.test.mjs`,
+`test/demoFeedbackPage.test.mjs`.
 
 ## Autopilot: the work runs until a goal is ready (2026-10-31)
 

@@ -13,6 +13,19 @@ export const REPORTED_BLOCKS_MS = 2 * 60_000
 /** A line taken longer ago than this and not confirmed typed is no turn being typed into any more (a chat that ended). */
 export const TAKEN_BLOCKS_MS = 2 * 60_000
 
+// Signals change 5 (2026-11-02, C of B913): the restart waits for the person. On 2026-11-01 the board restarted eight times
+// for landings while the person typed. A restart no longer reloads the page (the keeper keeps its token), but the board still
+// waits while the person is busy on the page: a key or click in the last minute, or a field with the focus, in a visible tab
+// (the page's poll says so in a header, X-Board-Active). Never longer than PERSON_WAIT_MS from the first look at which only
+// the person keeps it waiting: a page left with the focus in a field cannot hold a new version off for ever.
+
+/** How long the board waits for the person alone before it starts its new version anyway. */
+export const PERSON_WAIT_MS = 3 * 60_000
+/** How long a page's word that the person is busy counts: the page asks every refresh (30 s), a hidden one once a minute. */
+export const ACTIVE_KEPT_MS = 90_000
+/** The blocker's words while the person is busy on the page. */
+export const PERSON_BUSY = 'the person is busy on the page'
+
 import { sinceMs, valueOf } from './work/item.mjs'
 
 const list = names => {
@@ -27,7 +40,7 @@ const list = names => {
  * asked for), `isPaused` (Pause all stands or is resuming), `reported` (the chats whose step was reported a moment ago and
  * whose log is not kept yet: see `reportedNotLogged`).
  */
-export function blockersOf({ now, outbox = [], checks = 0, isReconciling = false, logs = 0, calls = 0, lastLogAt = null, isPaused = false, reported = [] }) {
+export function blockersOf({ now, outbox = [], checks = 0, isReconciling = false, logs = 0, calls = 0, lastLogAt = null, isPaused = false, reported = [], personActive = null }) {
   const blocked = []
   if (isPaused) blocked.push('Pause all stands')
   const typing = outbox.filter(one => one?.state === 'taken' && Number.isFinite(one.takenAt) && now - one.takenAt < TAKEN_BLOCKS_MS).map(one => one.to)
@@ -38,7 +51,40 @@ export function blockersOf({ now, outbox = [], checks = 0, isReconciling = false
   if (logs > 0) blocked.push(logs === 1 ? 'a chat log is written' : 'chat logs are written')
   if (calls > 0) blocked.push('a chat\'s call is answered')
   if (Number.isFinite(lastLogAt) && now - lastLogAt < AFTER_LOG_MS) blocked.push('a chat is cleared')
+  if (personActive !== null && personActive !== undefined) blocked.push(PERSON_BUSY)
   return blocked
+}
+
+/**
+ * Signals change 5: a page's X-Board-Active header, `<page id> <ms>`: which page load says the person is busy on it, and for
+ * how long already (a length of time, so the page's clock, which may be hours off, never counts). Null for anything else.
+ */
+export function readActive(header) {
+  const found = /^([A-Za-z0-9-]{1,40}) (\d{1,10})$/.exec(typeof header === 'string' ? header.trim() : '')
+  return found === null ? null : { page: found[1], forMs: Number(found[2]) }
+}
+
+/**
+ * Signals change 5: what the pages said about the person, by page id (a tab, the app's pane, a headless shot may all ask).
+ * `heard(header, now)` takes a poll's header; `personActive(now)` is `{ since }` (the board's clock) while any page said so
+ * within `keptMs`, else null; a page that went quiet is forgotten.
+ */
+export function activePages({ keptMs = ACTIVE_KEPT_MS } = {}) {
+  const pages = new Map()
+  return {
+    heard(header, now) {
+      const told = readActive(header)
+      if (told !== null) pages.set(told.page, { at: now, since: now - told.forMs })
+    },
+    personActive(now) {
+      let since = null
+      for (const [page, one] of pages) {
+        if (now - one.at > keptMs) pages.delete(page)
+        else since = since === null ? one.since : Math.min(since, one.since)
+      }
+      return since === null ? null : { since }
+    },
+  }
 }
 
 /**
@@ -68,23 +114,31 @@ export function reportedNotLogged({ items = [], now, loggedAt = new Map() }) {
  * nothing waits: `{ state: 'waiting' | 'late', since, line }`. `late` (the wait passed `waitMs`, or a start was refused)
  * leaves the note on top to the person. `refused(why)` is told when a start was refused (a settings file broken, a
  * version that does not load): the board does not try again for another `waitMs`.
+ * Signals change 5: the person busy on the page (PERSON_BUSY) holds the start for `personWaitMs` from the first look at
+ * which only the person holds it, then no longer; while only the person holds it the note is never `late` (the person is
+ * there, and the start comes by itself within minutes).
  */
-export function selfUpdater({ now = Date.now, waitMs = SELF_UPDATE_WAIT_MS } = {}) {
+export function selfUpdater({ now = Date.now, waitMs = SELF_UPDATE_WAIT_MS, personWaitMs = PERSON_WAIT_MS } = {}) {
   let since = null
   let refusal = null
+  let personFrom = null
   return {
     look({ isNewer, canRestart = true, blockers = [] }) {
       if (!isNewer || !canRestart) {
         since = null
         refusal = null
+        personFrom = null
         return { restart: false, shown: null }
       }
       const at = now()
       since ??= at
       if (refusal !== null && at - refusal.at >= waitMs) refusal = null
       if (refusal !== null) return { restart: false, shown: { state: 'late', since, line: `The board could not start itself anew: ${refusal.why}` } }
+      const isOnlyPerson = blockers.length > 0 && blockers.every(one => one === PERSON_BUSY)
+      if (isOnlyPerson) personFrom ??= at
+      if (isOnlyPerson && at - personFrom >= personWaitMs) blockers = []
       if (blockers.length === 0) return { restart: true, shown: { state: 'waiting', since, line: 'The board starts the new version now.' } }
-      const state = at - since >= waitMs ? 'late' : 'waiting'
+      const state = !isOnlyPerson && at - since >= waitMs ? 'late' : 'waiting'
       return { restart: false, shown: { state, since, line: `The new version of the board starts by itself at a safe moment; waiting: ${list(blockers)}.` } }
     },
     refused(why) {

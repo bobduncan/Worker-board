@@ -212,6 +212,9 @@ test('B524: one pair of helpers keeps everything the person did across a reload,
     fields: { 'main-text': 'do it', 'say-text': '  ', 'goals-ask-text': 'why?' },
     focusWords: { talk: 'hello', notYet: '', new: '', bar: 'b' },
     details: { need: 'Q20' },
+    notes: new Map([['B7', 'look at the edges'], ['B8', '']]),
+    popup: { kind: 'change-goal', goal: 'G4' },
+    scroll: [['details', [[0, 120], [7, 40]]], ['bad', [[0, 'x']]]],
   })
   assert.deepEqual(plain(page.keptBack(kept)), {
     drafts: [['Q12', 'yes, A'], ['refine:B7:feedback', 'shorter']],
@@ -222,12 +225,18 @@ test('B524: one pair of helpers keeps everything the person did across a reload,
     fields: [['main-text', 'do it'], ['say-text', '  '], ['goals-ask-text', 'why?']],
     focusWords: [['talk', 'hello'], ['bar', 'b']],
     details: { need: 'Q20' },
+    notes: [['B7', 'look at the edges']],
+    popup: { kind: 'change-goal', goal: 'G4' },
+    scroll: [['details', [[0, 120], [7, 40]]]],
   })
   assert.equal(page.keptBack(null), null)
   assert.equal(page.keptBack('not json'), null)
   assert.equal(page.keptBack('[1]'), null)
-  const odd = plain(page.keptBack('{"drafts":[["ok","x"],["bad",3],"junk"],"forms":[1,"F"],"details":{"a":{"b":1}},"fields":5}'))
-  assert.deepEqual(odd, { drafts: [['ok', 'x']], words: [], picks: [], chosen: [], forms: ['F'], fields: [], focusWords: [], details: null })
+  const odd = plain(page.keptBack('{"drafts":[["ok","x"],["bad",3],"junk"],"forms":[1,"F"],"details":{"a":{"b":1}},"fields":5,"popup":{"goal":"G4"},"scroll":[["x",[[0.5,1]]]]}'))
+  assert.deepEqual(odd, { drafts: [['ok', 'x']], words: [], picks: [], chosen: [], forms: ['F'], fields: [], focusWords: [], details: null, notes: [], popup: null, scroll: [] })
+  // A text kept before signals change 5 reads as before, with nothing of the new parts.
+  const older = plain(page.keptBack('{"drafts":[["Q1","a"]],"words":[],"picks":[],"chosen":[],"forms":[],"fields":{},"focusWords":{},"details":null}'))
+  assert.deepEqual([older.drafts, older.notes, older.popup, older.scroll], [[['Q1', 'a']], [], null, []])
 })
 
 test('B524: every reload of the page goes through the one keeping helper, and the first draw puts it back', () => {
@@ -236,7 +245,7 @@ test('B524: every reload of the page goes through the one keeping helper, and th
   assert.match(script, /if \(shown\.action === 'reload'\) return reloadPage\(\)/)
   assert.match(script, /sessionStorage\.setItem\('page-updated-at', String\(Date\.now\(\)\)\)\s+reloadPage\(\)/)
   assert.match(script, /sessionStorage\.setItem\('reloaded-at', String\(Date\.now\(\)\)\)\s+reloadPage\(\)/)
-  assert.match(script, /drafts, words: calmWords, picks: calmPicks, chosen, forms: openForms,\s+fields: boxesWithWords\(\), focusWords: focusUi\.words, details: detailsOf/)
+  assert.match(script, /drafts, words: calmWords, picks: calmPicks, chosen, forms: openForms,\s+fields: boxesWithWords\(\), focusWords: focusUi\.words, details: detailsOf,\s+notes: noteDrafts, popup: popupOf\(\), scroll: scrollOf\(\)/)
   assert.match(script, /function draw\(state\) \{\s+board = state\s+restoreKept\(\)/)
   assert.match(script, /drawDesign\(\)\s+finishRestore\(\)\s+reopenKeptDemo\(\)\s+\}/ /* 2026-11-01: then the recap that was open opens again (keepDemoDraft) */)
 })

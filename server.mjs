@@ -41,8 +41,8 @@ import { BrokenConfig, configProblem, readProviders, firstStart, followApp, isOw
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
-import { boardView, exitAt, lastStopOf, stopWhy, writeStop } from './src/boardSelf.mjs'
-import { START_ANEW, keep } from './src/keeper.mjs'
+import { boardView, exitAt, keptStart, lastStopOf, stopWhy, writeStop } from './src/boardSelf.mjs'
+import { START_ANEW, keep, startEnv } from './src/keeper.mjs'
 import { boardAddress, gamePortFor, workerPort, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
 import { findClaude, marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
 import { dayRecaps } from './src/dayRecap.mjs'
@@ -114,7 +114,7 @@ import { obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
 import { giveBackHeld, stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
-import { blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
+import { activePages, blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
 import { findGameFile } from './src/gameFile.mjs'
 import { absentAs, readKept, writeAtomic } from './src/write.mjs'
 import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
@@ -290,6 +290,7 @@ export const POST_ROUTES = Object.freeze({
  *   `cpu(body)`        B311: the level of "CPU for Claude" ({ level }), the same shape
  *   `codeJobs(body)`   B767: the setup check's Allow ({ action: 'allow' }), the same shape
  *   `mayWrite()`       B529: null while this process may take the page's writes, else why not (refused with 409)
+ *   `heardActive(h)`   signals change 5: the X-Board-Active header of the page's poll of /api/state (null when none)
  */
 export function createBoard({
   token, getState, say, picture = async () => null, demo = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
@@ -320,6 +321,7 @@ export function createBoard({
   step = async () => null,
   project = '',
   mayWrite = async () => null,
+  heardActive = () => {},
 }) {
   // B529: what the page or a chat's mod writes into the project or sends to the chats is taken only by the board process
   // that runs the loops; another one on the project names where that one is. B539: the routes say it in POST_ROUTES.
@@ -516,6 +518,8 @@ export function createBoard({
 
     if (pathname === '/api/state') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
+      // Signals change 5: the poll says whether the person is busy on the page; the self-updater waits for that.
+      heardActive(req.headers['x-board-active'] ?? null)
       return json(res, await getState())
     }
     // Light state (2026-10-31): a finished step comes light in the state; its window reads its full row here.
@@ -583,6 +587,54 @@ export function createBoard({
   })
 }
 
+/**
+ * Signals change 5 (2026-11-02, G4 and D2 of the code check): takes the board's port before the board opens its files and
+ * answers every ask with 503 "starting" until `serve(server)` hands the requests to the board's own server (createBoard's,
+ * which then never listens itself). Until now a second process on the port opened the store first (it took data/stop.json
+ * and could write a second gap line) and only then failed on the port; and in the seconds between a board that ends for a
+ * restart and the next one listening, a chat's Workers mod found no board and started one of its own, with a new token (a
+ * 403 and a reload of the open page). The port is now taken within the start of node itself. Fails as `listen` does
+ * (EADDRINUSE: the caller says it in one line and ends).
+ * The lead's review (2026-11-02): a start that hangs after it took the port (a git call, a store read) would answer 503
+ * for ever, and nobody would start another board: the keeper acts only on an exit, and the mod's keepBoards counts any
+ * answer as a board. So when `serve` has not come within `timeoutMs` (START_TIMEOUT_MS), `onLate()` runs: the board says so
+ * and ends with 1 (not up: its keeper ends with its line, and the mod's next refused ping starts a fresh keeper).
+ * `setTimer`/`clearTimer` are the clock's, handed in for the tests.
+ */
+export function holdPort({ port, host, timeoutMs = START_TIMEOUT_MS, onLate = () => lateStart(port, timeoutMs), setTimer = setTimeout, clearTimer = clearTimeout }) {
+  let board = null
+  const server = createServer((req, res) => {
+    if (board !== null) return board.emit('request', req, res)
+    req.resume()
+    return send(res, 503, 'text/plain; charset=utf-8', 'The board is starting: ask again in a moment.\n', { 'Retry-After': '2' })
+  })
+  return new Promise((done, fail) => {
+    server.once('error', fail)
+    server.listen(port, host, () => {
+      server.off('error', fail)
+      server.on('error', error => console.error(`The board's port: ${error?.code ?? 'unknown error'}.`))
+      const late = setTimer(() => { if (board === null) onLate() }, timeoutMs)
+      late?.unref?.()
+      done({
+        server,
+        serve: own => {
+          clearTimer(late)
+          board = own
+        },
+      })
+    })
+  })
+}
+
+/** The lead's review (2026-11-02): how long a board may take from its port to serving before it ends (see `holdPort`). */
+export const START_TIMEOUT_MS = 4 * 60_000
+
+/** A start that did not come up in time: one line, and the board ends with 1 so its keeper and the chats see it off. */
+function lateStart(port, timeoutMs) {
+  console.error(`The board did not come up within ${Math.round(timeoutMs / 60_000)} minutes after taking port ${port}: it ends so its keeper and the chats see it off.`)
+  process.exit(1)
+}
+
 /** B404: how long a restart waits for the reconciler's pass and the running checks before the board ends. */
 const RESTART_WAIT_MS = 10_000
 
@@ -599,6 +651,15 @@ const parses = text => {
 
 async function main(args) {
   const isDemo = args.includes('--demo')
+  // Signals change 5 (2026-11-02): the page's token the keeper kept from the board before, taken out of the env first, before
+  // anything is started (git, a game, a chat), so it goes no further than this process. A board its keeper started again
+  // goes on with it, so the open page is answered 200 and does not reload (eight restarts on 2026-11-01, the recap popup's
+  // text lost each time); a cold start makes a new one. Sent to the keeper at once, also by the demo and a board that only
+  // shows (they send no key). How it was started goes into the gap line (`start`).
+  const handed = keptStart({ token: process.env.WORKER_BOARD_TOKEN ?? '', key: process.env.WORKER_BOARD_KEY ?? '' })
+  delete process.env.WORKER_BOARD_TOKEN
+  const pageToken = handed.token ?? randomBytes(32).toString('hex')
+  process.send?.({ token: pageToken })
   // B127: a new copy of the board makes its settings file and stops, to have its paths filled in. The demo needs none.
   const made = isDemo ? null : await firstStart(join(HERE, 'config.json'), join(HERE, 'examples', 'config.json'))
   if (made !== null) {
@@ -649,6 +710,14 @@ async function main(args) {
     await writeAtomic(file, withEntry(before, entry))
     return console.log(`Launch entry "${entry.name}" in ${file}: ${entry.url}/`)
   }
+  // Signals change 5 (2026-11-02, G4 and D2): the port first, before the board opens its files (see `holdPort`). A second
+  // process on the port ends here, with one line, before it takes data/stop.json or writes a gap line.
+  const held = await holdPort({ port: config.port, host: HOST }).catch(error => {
+    console.error(error?.code === 'EADDRINUSE'
+      ? `Port ${config.port} is in use: the board may be running already. This one ends before it opens its files.`
+      : `The board could not start (${error?.code ?? 'unknown error'}).`)
+    process.exit(1)
+  })
   const historyFrom = argAfter(args, '--history-from')
   const clock = Date.now
 
@@ -1430,7 +1499,7 @@ async function main(args) {
       return readSources(config, folders, undefined, branches, work)
     }
     if (historyFrom === undefined) {
-      store = await fileStore(join(HERE, 'data'), clock())
+      store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start })
       // B406: a file torn by a restart or a power cut is set aside, and the board starts without it (the page says so).
       finishedSeen = await kept(FINISHED_FILE)
       roundsKept = await kept(ROUNDS_FILE)
@@ -1474,6 +1543,8 @@ async function main(args) {
   // B454: a new server version is started by the board itself at a safe moment (src/selfUpdate.mjs): what it waits for
   // is shown on the page's note; the calls of the chats being answered now and the last chat log asked for are counted here.
   const selfUpdate = selfUpdater({ now: clock })
+  // Signals change 5: what the pages' polls said about the person (X-Board-Active), by page.
+  const pagesActive = activePages()
   let updateShown = null
   // Signals change 1: set where the exit for a new version is decided (restartNow), before the wait; the state says it.
   let leaving = null
@@ -2162,7 +2233,7 @@ async function main(args) {
     } }
   }
   const server = createBoard({
-    token: randomBytes(32).toString('hex'),
+    token: pageToken,
     // B319: the demo is no project's.
     project: isDemo ? '' : home ?? '',
     getState: async () => {
@@ -2606,6 +2677,7 @@ async function main(args) {
     onError: error => loops.failed('request', error),
     onAnswered: () => loops.succeeded('request'),
     isClosing: () => isClosing,
+    heardActive: header => pagesActive.heard(header, clock()),
     restart: restartNow,
     // The page's own version goes into the page, so it can tell when the folder holds a newer one.
     pageVersion: async () => {
@@ -2978,12 +3050,6 @@ async function main(args) {
     if (typeof making?.dir === 'string' && making.dir.includes('worker-board-design-')) rmSync(making.dir, { recursive: true, force: true })
   })
 
-  server.on('error', error => {
-    console.error(error.code === 'EADDRINUSE'
-      ? `Port ${config.port} is in use: the board may be running already.`
-      : `The board could not start (${error.code ?? 'unknown error'}).`)
-    process.exit(1)
-  })
   // Where the mod finds the board. The file goes when the board does, so no chat asks a board that is gone.
   const noteFile = join(config.project, '.claude', 'board.json')
   process.on('exit', () => {
@@ -3046,8 +3112,12 @@ async function main(args) {
     }
     await claimBridge()
   }
-  server.listen(config.port, HOST, async () => {
+  // Signals change 5: the port was held since the start (`holdPort`); from here the board's own server answers, and the
+  // keeper hears that this board is up: only a board that was up is started again after a crash.
+  held.serve(server)
+  void (async () => {
     isUp = true
+    process.send?.({ up: true })
     // B529: the loops' first owner finishes the open chat logs; one that gains the loops later does it then.
     const owns = await ownsLoops()
     if (owns) void chatLogs?.resume().catch(error => loops.failed('chat-logs', error))
@@ -3063,7 +3133,7 @@ async function main(args) {
     // B135: which of the Claude app's folders it reads, found by itself or set.
     if (!isDemo) console.log(`  The Claude app's chats: ${config.appSessions || '(none found: set "appSessions")'}${typeof config.appFolder === 'string' ? ' (found by itself)' : ''}`)
     if (chosen.why === 'own' || chosen.why === 'new') console.log(`  Port ${config.port} is this folder's own (data/port.json); the board in the main folder has ${homePort}.`)
-  })
+  })()
 
   // B454: a new server version is started by the board itself at a safe moment; until then the page says what it waits for,
   // and after 10 minutes without one the note on top asks for the person's click as before (B142).
@@ -3076,6 +3146,7 @@ async function main(args) {
         now: clock(), outbox: store.outbox(), checks: runningChecks.size, isReconciling: reconciling !== null,
         logs: chatLogs === null ? 0 : (await chatLogs.pending()).length, calls: callsNow, lastLogAt, isPaused: isHolding(state.pause),
         reported: reportedNotLogged({ items: itemsOf(await work()), now: clock(), loggedAt }),
+        personActive: pagesActive.personActive(clock()),
       })
       const seen = selfUpdate.look({ isNewer: version.isServerNewer === true, canRestart, blockers })
       updateShown = seen.shown
@@ -3448,12 +3519,15 @@ async function main(args) {
  */
 function keepBoard(args) {
   const keeper = keep({
-    start: key => spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), ...args], {
+    // Signals change 5 (2026-11-02): the page's token goes to the next board as the chats' key does, so the open page is
+    // answered 200 after a restart and does not reload (eight restarts on 2026-11-01, the recap popup's text lost each time).
+    start: ({ key, token }) => spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), ...args], {
       stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-      env: { ...process.env, WORKER_BOARD_CHILD: '1', ...(key === null ? {} : { WORKER_BOARD_KEY: key }) },
+      env: { ...startEnv(process.env), WORKER_BOARD_CHILD: '1', ...(key === null ? {} : { WORKER_BOARD_KEY: key }), ...(token === null ? {} : { WORKER_BOARD_TOKEN: token }) },
       windowsHide: true,
     }),
     done: code => process.exit(code),
+    say: line => console.error(line),
   })
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(signal, () => {

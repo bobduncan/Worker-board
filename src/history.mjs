@@ -59,6 +59,9 @@ export function changes(last, chats, now) {
   return lines
 }
 
+/** Signals change 5 (2026-11-02): how a board was started, as the gap line and `board.lastStop` say it (`keptStart`). */
+export const START_HOWS = ['hand', 'keeper']
+
 /** The board watches once a minute. Longer than this without a look means it was off or the PC slept. */
 export const GAP_MS = 3 * 60_000
 
@@ -68,15 +71,17 @@ export const GAP_MS = 3 * 60_000
  * the gap, else `unknown` (the PC slept, the board was killed, or the power went). Readers of gap lines ignore `why`.
  * No gap after a gap, unless the board ran again in between: a last line that is a gap line older than `aliveAt` means the
  * board was alive after it (a board whose chats write no lines), so its next outage is a new gap, from `aliveAt`.
+ * Signals change 5 (2026-11-02): `start` says how the board that writes the line was started, `hand` or `keeper`
+ * (`keptStart` in src/boardSelf.mjs); `why` stays why it was off. Left out when not given (the tick's gap line).
  */
-export function startGap(lines, aliveAt, now, stop = null) {
+export function startGap(lines, aliveAt, now, stop = null, start = null) {
   const last = lines.at(-1)
   if (last === undefined) return null
   if (last.gap === true && !(Number.isFinite(aliveAt) && aliveAt > last.at)) return null
   const at = Math.max(last.at, Number.isFinite(aliveAt) ? aliveAt : last.at)
   if (now - at <= GAP_MS) return null
   const isInside = stop !== null && Number.isFinite(stop.at) && stop.at >= at && stop.at <= now && typeof stop.why === 'string'
-  return { at, gap: true, why: isInside ? stop.why : 'unknown' }
+  return { at, gap: true, why: isInside ? stop.why : 'unknown', ...(START_HOWS.includes(start) ? { start } : {}) }
 }
 
 /**

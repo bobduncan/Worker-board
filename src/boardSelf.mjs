@@ -5,6 +5,7 @@
 
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 
+import { START_HOWS } from './history.mjs'
 import { START_ANEW } from './keeper.mjs'
 
 /** The reasons a board ends, as the stop record and the gap line say them. */
@@ -37,6 +38,20 @@ export const leavingNoticeMs = refreshSeconds => (Number.isFinite(refreshSeconds
 export function exitAt({ leavingAt, workSettledAt, refreshSeconds, waitMs }) {
   const notice = leavingNoticeMs(refreshSeconds)
   return Math.min(Math.max(workSettledAt, leavingAt + notice), leavingAt + waitMs + notice)
+}
+
+/** The shape of the page's token and the chats' key: 32 random bytes as hex. */
+export const KEPT_SHAPE = /^[0-9a-f]{64}$/
+
+/**
+ * Signals change 5 (2026-11-02): what a board's keeper handed it from the board before (`token`: WORKER_BOARD_TOKEN, `key`:
+ * WORKER_BOARD_KEY, '' when not set): the page's token to go on with (null: a new one is made), and how this board was
+ * started: `keeper` (started again by its keeper, after a restart or a crash: it hands on at least one of them) or `hand`
+ * (a cold start: the Run pane, start-board.mjs, a command, a chat's Workers mod). Anything not of the shape is not kept.
+ */
+export function keptStart({ token = '', key = '' } = {}) {
+  const kept = typeof token === 'string' && KEPT_SHAPE.test(token) ? token : null
+  return { token: kept, start: kept !== null || (typeof key === 'string' && KEPT_SHAPE.test(key)) ? 'keeper' : 'hand' }
 }
 
 /** A stop record as the file holds it, or null when it is not one. */
@@ -74,10 +89,13 @@ export function takeStop(file) {
   return parseStop(text)
 }
 
-/** What a start that found a gap tells: `{ from, to, why }`, or null for a start without one. */
+/**
+ * What a start that found a gap tells: `{ from, to, why, start }`, or null for a start without one. `start` (signals change
+ * 5): how this board was started, `hand` or `keeper`, null for a gap line that does not say.
+ */
 export function lastStopOf(gap, startedAt) {
   if (gap === null || gap === undefined || !Number.isFinite(gap.at)) return null
-  return { from: gap.at, to: startedAt, why: STOP_WHYS.includes(gap.why) ? gap.why : 'unknown' }
+  return { from: gap.at, to: startedAt, why: STOP_WHYS.includes(gap.why) ? gap.why : 'unknown', start: START_HOWS.includes(gap.start) ? gap.start : null }
 }
 
 /**

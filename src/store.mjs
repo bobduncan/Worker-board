@@ -350,8 +350,11 @@ async function read(file) {
   }
 }
 
-/** The store over the files in `dir`. It marks the time the board was off as a gap. */
-export async function fileStore(dir, now) {
+/**
+ * The store over the files in `dir`. It marks the time the board was off as a gap. `start` (signals change 5): how this
+ * board was started, `hand` or `keeper`, for the gap line.
+ */
+export async function fileStore(dir, now, { start = null } = {}) {
   await mkdir(dir, { recursive: true })
   const files = { history: join(dir, 'history.jsonl'), outbox: join(dir, 'outbox.jsonl'), alive: join(dir, 'alive.json'), stop: join(dir, 'stop.json') }
   const lines = parseHistory(await read(files.history))
@@ -368,7 +371,7 @@ export async function fileStore(dir, now) {
     outbox: changed => appendLines(files.outbox, jsonLines(changed)),
   })
   // Signals change 1: why the board ended last (data/stop.json), taken once: the file is removed at this start.
-  const gap = startGap(lines, aliveAt, now, takeStop(files.stop))
+  const gap = startGap(lines, aliveAt, now, takeStop(files.stop), start)
   if (gap !== null) await store.record([gap])
   return {
     ...store,

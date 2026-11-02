@@ -62,9 +62,11 @@ function fakeClock(window, start) {
  * the body already parsed from JSON. `hash` is the address after #. `now` (a number of milliseconds) gives the page a fake
  * clock: its `Date` reads that time and its timers (`setTimeout`, `setInterval`) run only when `page.advance(ms)` moves the
  * clock on, so a test of a wait, a pause or an age never waits for real.
+ * `session` is what the tab's sessionStorage holds at the load (what a reload kept). A reload the page asks for is counted
+ * (`reloads()`), not made.
  * Returns the page's `window` and `document`, the `requests` made, `click`, `change`, `type`, `advance`, `text` and `close`.
  */
-export async function openPage({ state, answers = () => reply({}), hash = '', now = null, storage = {} } = {}) {
+export async function openPage({ state, answers = () => reply({}), hash = '', now = null, storage = {}, session = {} } = {}) {
   const window = new Window({ url: `http://127.0.0.1:4310/${hash === '' ? '' : `#${hash}`}`, settings: { disableJavaScriptFileLoading: true, disableCSSFileLoading: true, errorCapture: 'processLevel' } })
   const { document } = window
   document.write(html.replace(/<script[^>]*><\/script>/g, '').replace('{{token}}', TOKEN).replace('{{page}}', 'test'))
@@ -88,6 +90,11 @@ export async function openPage({ state, answers = () => reply({}), hash = '', no
   }
   // 2026-11-01: what the browser kept from before (localStorage), as a reload finds it.
   for (const [key, value] of Object.entries(storage)) window.localStorage.setItem(key, value)
+  // Signals change 5 (2026-11-02): what this tab kept (sessionStorage: B524's keep), as a reload of the tab finds it.
+  for (const [key, value] of Object.entries(session)) window.sessionStorage.setItem(key, value)
+  // A reload is counted, not made: a test reads `reloads()`, and opens a new page with what was kept to go on after one.
+  let reloads = 0
+  window.location.reload = () => { reloads += 1 }
   // The page's own constants, so a test never copies them (MIN, STATES): read from inside the page after it ran.
   window.eval(`${script}
 ;globalThis.__pageConstants = { MIN, HOUR, STATES, STATUS_VIEW, KINDS, AWAY_MS, GAP_MS, BANNER_WAIT_MS, RESTART_GIVE_UP_MS, BACK_SHOWN_MS }`)
@@ -96,6 +103,8 @@ export async function openPage({ state, answers = () => reply({}), hash = '', no
     window,
     document,
     requests,
+    /** How often the page asked the browser to load it anew. */
+    reloads: () => reloads,
     /** MIN, HOUR, STATES, KINDS and the banner's AWAY_MS, GAP_MS, BANNER_WAIT_MS, RESTART_GIVE_UP_MS, BACK_SHOWN_MS as the page defines them. */
     constants: window.__pageConstants,
     /** The requests to one address, optionally of one `action` in their body. */

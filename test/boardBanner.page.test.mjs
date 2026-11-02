@@ -161,6 +161,20 @@ test('Back: each reason is said in plain words', async () => {
   }
 })
 
+test('Back (signals change 5): the line says whether the board was started by hand or again by itself', async () => {
+  const words = { hand: 'started by hand', keeper: 'started again by itself' }
+  for (const [start, said] of Object.entries(words)) {
+    const page = await openPage({ state: stateAt(BOARD_NOW, { lastStop: { from: BOARD_NOW - 20 * MIN, to: BOARD_NOW - MIN, why: 'crash', start } }), now: PAGE_CLOCK })
+    try {
+      assert.equal(banner(page), `Running · was off ${hhmm(BOARD_NOW - 20 * MIN)} to ${hhmm(BOARD_NOW - MIN)} (it crashed; ${said})`)
+    } finally { await page.close() }
+  }
+  const unsaid = await openPage({ state: stateAt(BOARD_NOW, { lastStop: { from: BOARD_NOW - 20 * MIN, to: BOARD_NOW - MIN, why: 'crash', start: null } }), now: PAGE_CLOCK })
+  try {
+    assert.match(banner(unsaid), /\(it crashed\)$/, 'a board that does not say how it was started: only why it was off')
+  } finally { await unsaid.close() }
+})
+
 test('Slow: an answer comes but the work loop has not run for over the gap: the line says so, with the loop\'s last time', async () => {
   const { GAP_MS } = (await openPage({ state: {} }).then(async page => { try { return page.constants } finally { await page.close() } }))
   const quiet = BOARD_NOW - GAP_MS - 1_000

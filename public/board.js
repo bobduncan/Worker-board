@@ -116,6 +116,9 @@ try {
 } catch { /* no sessionStorage: nothing was kept */ }
 /** The boxes `restoreKept` filled: told about it after the first draw, so what listens to them reads the words. */
 let restoredBoxes = []
+/** Signals change 5: the popup a reload kept (`popupOf`), opened again once after the first draw, and the popups' scroll. */
+let keptPopup = null
+let keptScroll = new Map()
 const chosen = new Map()
 const problems = new Map()
 const sending = new Set()
@@ -127,6 +130,18 @@ const starting = new Set()
 const pictures = new Map()
 const drawn = {}
 let board = null
+/** Signals change 5 (G1): the board process the last answer came from (`processOf`). */
+let answeredBy = null
+/** Signals change 5 (C): this page load's own id for X-Board-Active, and the person's last key or click on it. */
+const PAGE_ID = Math.random().toString(36).slice(2, 12) || 'page'
+const activity = { lastAt: null, since: null }
+for (const kind of ['keydown', 'input', 'click']) {
+  document.addEventListener(kind, () => {
+    const now = Date.now()
+    if (!(Number.isFinite(activity.lastAt) && now - activity.lastAt < ACTIVE_MS)) activity.since = now
+    activity.lastAt = now
+  }, true)
+}
 let timer = null
 /** When the board stopped answering; null while it answers. */
 let awaySince = null
@@ -321,8 +336,12 @@ function reloadsOn403(status, { lastAt = 0, now = 0 }) {
  * option chosen); `forms`: the ids of the forms left open; `fields`: the words in the page's own boxes (the Talk to
  * Main and Advisor boxes, ...) by their element id; `focusWords`: the Focus page's boxes; `details`: what the open
  * popup is about (`detailsOf`). Empty words and anything of another shape are left out.
+ * Signals change 5 (2026-11-02): also `notes` (the "Add a note" boxes, [id, text]), `popup` (the other popup that was open,
+ * as `popupOf` says it: the file view, a picture, the help, New project, Change this goal) and `scroll` (where each open
+ * popup was scrolled: [popup id, [[node, top], ...]], `scrollOf`). A cold start of the board (a new token) still reloads
+ * the page; nothing the person had half-done is lost by it.
  */
-function keptState({ drafts = [], words = [], picks = [], chosen = [], forms = [], fields = {}, focusWords = {}, details = null }) {
+function keptState({ drafts = [], words = [], picks = [], chosen = [], forms = [], fields = {}, focusWords = {}, details = null, notes = [], popup = null, scroll = [] }) {
   const pairs = list => [...list].filter(([name, text]) => typeof name === 'string' && typeof text === 'string' && text !== '')
   return JSON.stringify({
     drafts: pairs(drafts),
@@ -333,7 +352,16 @@ function keptState({ drafts = [], words = [], picks = [], chosen = [], forms = [
     fields: Object.fromEntries(pairs(Object.entries(fields))),
     focusWords: Object.fromEntries(pairs(Object.entries(focusWords))),
     details,
+    notes: pairs(notes),
+    popup,
+    scroll: [...scroll].filter(isScroll),
   })
+}
+
+/** Signals change 5: one popup's scroll as `scrollOf` gives it: [its id, [[node, top], ...]] with whole numbers. */
+function isScroll(entry) {
+  return Array.isArray(entry) && typeof entry[0] === 'string' && Array.isArray(entry[1])
+    && entry[1].every(pair => Array.isArray(pair) && Number.isInteger(pair[0]) && Number.isFinite(pair[1]))
 }
 
 /** B524: what `keptState` wrote, back from the text, every part present and well-formed; anything unreadable gives null. */
@@ -357,7 +385,35 @@ function keptBack(text) {
     fields: named(kept.fields),
     focusWords: named(kept.focusWords),
     details: isPlain(kept.details) ? kept.details : null,
+    notes: pairs(kept.notes),
+    popup: isPlain(kept.popup) && typeof kept.popup.kind === 'string' ? kept.popup : null,
+    scroll: Array.isArray(kept.scroll) ? kept.scroll.filter(isScroll) : [],
   }
+}
+
+/**
+ * Signals change 5 (2026-11-02, G1): which board process answered: its commit and since when it runs (`version.commit`,
+ * `version.since`), or null for a state that does not say. A board started again keeps the page's token, so the page no
+ * longer reloads on its return (which used to clear what the page had on its way, such as `sending` 'board-anew'): it
+ * sees the new process by this instead.
+ */
+function processOf(version) {
+  return typeof version?.commit === 'string' && Number.isFinite(version?.since) ? `${version.commit} ${version.since}` : null
+}
+
+/** Signals change 5: how long after a key or a click the person counts as busy on the page. */
+const ACTIVE_MS = MIN
+
+/**
+ * Signals change 5: whether the person is busy on the page at `now`: a key or click within ACTIVE_MS (`lastAt`) or a field
+ * with the focus (`isFocused`), in a tab that is shown (`isShown`). `{ since, forMs }` (since when, as `since` kept it or from
+ * now), or null. Not a popup left open, not words left in a field: those may stand for hours.
+ */
+function personBusy({ now, lastAt = null, since = null, isFocused = false, isShown = true }) {
+  const isBusy = isShown && (isFocused || (Number.isFinite(lastAt) && now - lastAt < ACTIVE_MS))
+  if (!isBusy) return null
+  const from = Number.isFinite(since) ? since : Number.isFinite(lastAt) && now - lastAt < ACTIVE_MS ? lastAt : now
+  return { since: from, forMs: Math.max(0, Math.round(now - from)) }
 }
 
 /** B454: the short note after the page loaded itself, for a few seconds (`at`: when it did). */
@@ -797,16 +853,20 @@ function newProjectDone(result) {
 
 /** B320: the New project form. The folder follows the name until the person types a folder of their own. */
 let isFolderTyped = false
-$('new-project-button').addEventListener('click', () => {
+/** Opens the form; `isFresh` empties it (the ⚙ menu's New project…), else it keeps its words (a reload put them back). */
+function openNewProject(isFresh) {
   $('settings').open = false
-  isFolderTyped = false
-  $('new-project-form').reset()
+  if (isFresh) {
+    isFolderTyped = false
+    $('new-project-form').reset()
+  }
   $('new-project-status').textContent = ''
   $('new-project-make').disabled = false
   $('new-project-cancel').textContent = 'Cancel'
-  $('new-project').showModal()
+  if (!$('new-project').open) $('new-project').showModal()
   $('new-project-name').focus()
-})
+}
+$('new-project-button').addEventListener('click', () => openNewProject(true))
 $('new-project-name').addEventListener('input', () => {
   const name = $('new-project-name').value.trim()
   $('new-project-prefix').placeholder = name === '' ? '' : `${name} - `
@@ -1449,14 +1509,88 @@ function drawLoopsNote(state) {
 function isPageIdle() {
   if (document.querySelector('dialog[open]') !== null || sending.size > 0) return false
   const isText = field => field.matches('textarea, input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="number"]')
-  if (document.activeElement !== null && document.activeElement !== document.body && document.activeElement.matches('input, textarea, select, [contenteditable]')) return false
+  if (hasFocusedField()) return false
   return ![...document.querySelectorAll('textarea, input')].some(field => isText(field) && field.value.trim() !== '')
+}
+
+/** B454, signals change 5: a field of the page has the focus (the person is in it). */
+function hasFocusedField() {
+  return document.activeElement !== null && document.activeElement !== document.body && document.activeElement.matches('input, textarea, select, [contenteditable]')
+}
+
+/**
+ * Signals change 5 (2026-11-02, C of B913): the X-Board-Active header of the page's poll while the person is busy on it, so
+ * the board waits with a restart of its own (at most 3 minutes, src/selfUpdate.mjs): `{ 'X-Board-Active': '<page id> <ms>' }`,
+ * else nothing. Busy: a key or click within ACTIVE_MS, or a field with the focus, in a tab that is shown (`personBusy`).
+ */
+function activeHeader(now) {
+  const busy = personBusy({ now, lastAt: activity.lastAt, since: activity.since, isFocused: hasFocusedField(), isShown: document.visibilityState !== 'hidden' })
+  activity.since = busy === null ? null : busy.since
+  return busy === null ? {} : { 'X-Board-Active': `${PAGE_ID} ${busy.forMs}` }
 }
 
 /** B524: the words in the page's own boxes, by element id (the Talk to Main and Advisor boxes, the Goals and Design boxes, ...). */
 function boxesWithWords() {
   const isText = field => field.matches('textarea, input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="number"]')
   return Object.fromEntries([...document.querySelectorAll('textarea[id], input[id]')].filter(field => isText(field) && field.value.trim() !== '').map(field => [field.id, field.value]))
+}
+
+/**
+ * Signals change 5 (2026-11-02, B of B913): the popup open besides the details and the recap (they keep their own), as
+ * `reopenPopup` opens it again after a reload: `{ kind: 'file', path, alt }` (the file view, or a picture of the game's
+ * folder), `{ kind: 'picture', path, caption }`, `{ kind: 'help', card }`, `{ kind: 'new-project', folderTyped }` (its words are
+ * boxes with ids: kept as fields), `{ kind: 'change-goal', goal }` (its words alike); null when none is open.
+ */
+function popupOf() {
+  const isOpen = id => $(id)?.open === true
+  if (isOpen('lightbox') && shownPicture !== null) return { ...shownPicture }
+  if (isOpen('file-view') && shownFile !== null) return { kind: 'file', ...shownFile }
+  if (isOpen('help')) return { kind: 'help', card: helpAt }
+  if (isOpen('new-project')) return { kind: 'new-project', folderTyped: isFolderTyped }
+  if (isOpen('change-goal') && changeGoalUi.goal !== null) return { kind: 'change-goal', goal: changeGoalUi.goal }
+  return null
+}
+
+/** Signals change 5: where each open popup is scrolled: [its id, [[node, top], ...]], node 0 the popup itself, then its nodes in order. */
+function scrollOf() {
+  return [...document.querySelectorAll('dialog[open]')].filter(box => typeof box.id === 'string' && box.id !== '').map(box => {
+    const tops = [box, ...box.querySelectorAll('*')].map((node, at) => [at, Math.round(node.scrollTop ?? 0)]).filter(([, top]) => top > 0)
+    return [box.id, tops]
+  }).filter(([, tops]) => tops.length > 0)
+}
+
+/** Signals change 5: puts back where the popup `id` was scrolled before the reload, once, when it is open with its nodes drawn. */
+function putScrollBack(id) {
+  const tops = keptScroll.get(id)
+  const box = $(id)
+  if (tops === undefined || box === null || !box.open) return
+  keptScroll.delete(id)
+  const nodes = [box, ...box.querySelectorAll('*')]
+  for (const [at, top] of tops) if (nodes[at] !== undefined) nodes[at].scrollTop = top
+}
+
+/** Signals change 5: opens the popup `popupOf` kept again, as the person had it; nothing is sent by it. */
+async function reopenPopup(popup) {
+  if (popup.kind === 'file' && typeof popup.path === 'string') {
+    await openGameFile(popup.path, typeof popup.alt === 'string' ? popup.alt : null)
+    return putScrollBack('file-view')
+  }
+  if (popup.kind === 'picture' && typeof popup.path === 'string') return openPicture(popup.path, typeof popup.caption === 'string' ? popup.caption : '')
+  if (popup.kind === 'help') {
+    openHelp()
+    if (Number.isInteger(popup.card) && popup.card > 0) moveHelp(popup.card)
+    return putScrollBack('help')
+  }
+  if (popup.kind === 'new-project') {
+    openNewProject(false)
+    return putScrollBack('new-project')
+  }
+  if (popup.kind === 'change-goal' && typeof popup.goal === 'string') {
+    // The words in its box were put back with the fields: the same goal keeps them.
+    changeGoalUi.goal = popup.goal
+    openChangeGoal(popup.goal)
+    return putScrollBack('change-goal')
+  }
 }
 
 /** B524: writes what the person did on the page into sessionStorage, for `restoreKept` after the reload. */
@@ -1467,6 +1601,7 @@ function keepForReload() {
     sessionStorage.setItem(KEPT_KEY, keptState({
       drafts, words: calmWords, picks: calmPicks, chosen, forms: openForms,
       fields: boxesWithWords(), focusWords: focusUi.words, details: detailsOf,
+      notes: noteDrafts, popup: popupOf(), scroll: scrollOf(),
     }))
   } catch { /* full or blocked: the page still loads */ }
 }
@@ -1496,12 +1631,25 @@ function restoreKept() {
     }
   }
   detailsOf = back.details
+  // Signals change 5: the "Add a note" boxes, the other popup that was open, and where the popups were scrolled.
+  for (const [id, text] of back.notes) noteDrafts.set(id, text)
+  // Before the boxes hear of their words: a folder the person typed into New project is not replaced by a suggestion.
+  if (back.popup?.kind === 'new-project') isFolderTyped = back.popup.folderTyped === true
+  keptPopup = back.popup
+  keptScroll = new Map(back.scroll)
 }
 
 /** B524: after the first draw: the boxes hear of their words, and the popup that was open opens again. */
 function finishRestore() {
   for (const box of restoredBoxes.splice(0)) box.dispatchEvent(new Event('input', { bubbles: true }))
-  if (detailsOf !== null && !$('details').open && $('details').childNodes.length > 0) $('details').showModal()
+  if (detailsOf !== null && !$('details').open && $('details').childNodes.length > 0) {
+    $('details').showModal()
+    putScrollBack('details')
+  }
+  // Signals change 5: the other popup that was open opens again, once, over the details when both were.
+  const popup = keptPopup
+  keptPopup = null
+  if (popup !== null) void reopenPopup(popup)
 }
 
 /** The note on top (see `updateView`). B454: a newer page loads itself when the page is idle; a short note says so after. */
@@ -1531,7 +1679,8 @@ $('update-note').addEventListener('click', async () => {
   try {
     const answer = await fetch('/api/restart', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: '{}' })
     if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
-    // The board ends and comes back with a new token: the page then loads itself anew (see `read`).
+    // The board ends and its keeper starts it again with the same token (signals change 5): the page goes on without a
+    // reload; the first answer of the new process clears 'board-anew' (see `read`).
   } catch (error) {
     sending.delete('board-anew')
     problems.set('board-anew', `Not started: ${error instanceof Error ? error.message : 'the board did not answer'}`)
@@ -9559,8 +9708,12 @@ function showPicture(url, caption, problem = null) {
   if (url !== null && image.complete && !PHONE.matches) place()
 }
 
+/** Signals change 5: what the picture popup shows, for `popupOf`: `{ kind: 'picture', path, caption }` or `{ kind: 'file', path, alt }`. */
+let shownPicture = null
+
 /** A picture the board may show, large, with its caption; a plain line when it may not (too big), nothing otherwise. */
 function openPicture(path, caption) {
+  shownPicture = { kind: 'picture', path, caption: caption ?? '' }
   pictureUrl(path).then(url => {
     if (url !== null) return showPicture(url, caption || path)
     const problem = pictureProblems.get(path)
@@ -17658,6 +17811,9 @@ $('advice-text').addEventListener('toggle', event => {
   else planOpen.delete(part.dataset.planPart)
 }, true)
 
+/** Signals change 5: the file the file view shows, for `popupOf`: `{ path, alt }`. */
+let shownFile = null
+
 /** B218: a file of the game's folder, read-only, in a window of its own; a picture in the picture popup. */
 async function openGameFile(path, alt = null) {
   const query = `path=${encodeURIComponent(path)}${alt === null ? '' : `&alt=${encodeURIComponent(alt)}`}`
@@ -17673,8 +17829,10 @@ async function openGameFile(path, alt = null) {
   head.append(el('h2', '', shown), close)
   if (answer !== null && answer.ok && (answer.headers.get('Content-Type') ?? '').startsWith('image/')) {
     showPicture(URL.createObjectURL(await answer.blob()), shown)
+    shownPicture = { kind: 'file', path, alt }
     return
   }
+  shownFile = { path, alt }
   const body = el('div', 'file-view-body advice')
   if (answer === null) body.append(el('p', 'problem', 'The board\'s server does not answer.'))
   else if (!answer.ok) body.append(el('p', 'problem', (await answer.text()).trim() || 'This file is not shown.'))
@@ -20778,6 +20936,8 @@ const BACK_SHOWN_MS = 60_000
 const GAP_MS = 3 * MIN
 /** Why the board was off, as `board.lastStop.why` says it, in plain words. */
 const WHY_OFF = { restart: 'a new version started', stopped: 'stopped', crash: 'it crashed', unknown: 'the PC slept or the board was ended' }
+/** Signals change 5 (2026-11-02): how the board was started after it, as `board.lastStop.start` says it; nothing when it does not say. */
+const HOW_STARTED = { hand: 'started by hand', keeper: 'started again by itself' }
 
 /** What the banner knows: the last good answer, the failing asks since, a restart announced, and a return to explain. */
 const banner = {
@@ -20788,7 +20948,7 @@ const banner = {
   failure: null,
   /** { at: the board's clock } once the last good answer said the board is leaving, or this page asked for the restart. */
   leaving: null,
-  /** { from, to, why, until: the page's clock } while the line says why the board was off. */
+  /** { from, to, why, start, until: the page's clock } while the line says why the board was off. */
   back: null,
   /** The `to` of the last return explained, so a return is explained once. */
   explained: null,
@@ -20817,7 +20977,10 @@ function bannerOf({ good, failure, leaving, back, openedAt, now }) {
   }
   if (good === null) return { text: 'Reading…', tone: 'quiet' }
   if (good.loopAt !== null && good.boardNow - good.loopAt > GAP_MS) return { text: `Slow · the board answers, but it has not done its work since ${clock(good.loopAt)}`, tone: 'attention' }
-  if (back !== null && now < back.until) return { text: `Running · was off ${clock(back.from)} to ${clock(back.to)} (${WHY_OFF[back.why] ?? WHY_OFF.unknown})`, tone: 'quiet' }
+  if (back !== null && now < back.until) {
+    const how = Object.hasOwn(HOW_STARTED, back.start ?? '') ? `; ${HOW_STARTED[back.start]}` : ''
+    return { text: `Running · was off ${clock(back.from)} to ${clock(back.to)} (${WHY_OFF[back.why] ?? WHY_OFF.unknown}${how})`, tone: 'quiet' }
+  }
   return { text: `Running · updated ${clockSeconds(good.boardNow)}${demo}`, tone: 'quiet' }
 }
 
@@ -20841,7 +21004,7 @@ function bannerAnswered(state) {
   const stop = state.board?.lastStop
   if (stop !== null && stop !== undefined && stop.to !== banner.explained) {
     banner.explained = stop.to
-    banner.back = { from: stop.from, to: stop.to, why: stop.why, until: now + BACK_SHOWN_MS }
+    banner.back = { from: stop.from, to: stop.to, why: stop.why, start: stop.start ?? null, until: now + BACK_SHOWN_MS }
     setTimeout(drawBanner, BACK_SHOWN_MS)
   }
   drawBanner()
@@ -20865,11 +21028,13 @@ async function read() {
   const stopAt = setTimeout(() => limit.abort(), BANNER_WAIT_MS)
   let isAnswered = false
   try {
-    const answer = await fetch('/api/state', { headers: { 'X-Board-Token': TOKEN }, cache: 'no-store', signal: limit.signal })
-    // The server was started again and has a new token: a fresh page has it, and every Send of this page fails until
-    // then. B519: so the page loads itself at once, and keeps the answers being typed in sessionStorage across it
-    // (B512 waited for idle, but Send failed on the old token meanwhile). At most once a minute, so a real refusal
-    // cannot make the page load itself over and over.
+    // Signals change 5: the poll says whether the person is busy on the page (no words, only that and for how long).
+    const answer = await fetch('/api/state', { headers: { 'X-Board-Token': TOKEN, ...activeHeader(Date.now()) }, cache: 'no-store', signal: limit.signal })
+    // The server was started cold (the Run pane, start-board.mjs, a chat's Workers mod) and has a new token: a fresh page
+    // has it, and every Send of this page fails until then. B519: so the page loads itself at once, and keeps what the
+    // person did in sessionStorage across it (B524's `keepForReload`). At most once a minute, so a real refusal cannot
+    // make the page load itself over and over. Signals change 5 (2026-11-02): a board its keeper started again (a new
+    // version, a crash) keeps the token, so its page is answered 200 and does not come here.
     if (reloadsOn403(answer.status, { lastAt: Number(sessionStorage.getItem('reloaded-at') ?? 0), now: Date.now() })) {
       sessionStorage.setItem('reloaded-at', String(Date.now()))
       reloadPage()
@@ -20878,6 +21043,14 @@ async function read() {
     if (!answer.ok) throw new Error(String(answer.status))
     const state = await answer.json()
     isAnswered = true
+    // Signals change 5 (G1): the first answer of a new board process ends the restart this page asked for: the note stops
+    // saying "starting", the page counts as idle again, and failing asks later are no "Restarting" any more.
+    const by = processOf(state?.version)
+    if (by !== null && answeredBy !== null && by !== answeredBy) {
+      sending.delete('board-anew')
+      problems.delete('board-anew')
+    }
+    if (by !== null) answeredBy = by
     bannerAnswered(state)
     // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
     if (state?.pause?.state === 'pausing') state.chats = pausedLanes(state.chats, state.pause)
@@ -20889,7 +21062,8 @@ async function read() {
     helpAtStart(state)
   } catch (error) {
     // The board is away (Claude was closed, or the board is being started again) or slow: the page keeps asking, and the
-    // banner says which (Signals change 1). When the board is back it has a new token, and the page loads itself anew.
+    // banner says which (Signals change 1). A board its keeper started again answers with the same token (signals change
+    // 5): the page goes on as it was; one started cold has a new token, and the page loads itself anew (the 403 above).
     if (awaySince === null) awaySince = Date.now()
     // An answer that came but could not be drawn is no silent board.
     if (!isAnswered) bannerFailed(error)
@@ -21291,7 +21465,8 @@ function helpAtStart(state) {
   helpLooked = true
   let seen = true
   try { seen = localStorage.getItem('help-seen') === 'yes' } catch { /* seen stays true */ }
-  if (helpOpensAtStart({ seen, hash: helpStartHash, isDemo: state?.isDemo === true })) openHelp()
+  // Signals change 5: a tour a reload opened again (on the card it was on) is not started over.
+  if (helpOpensAtStart({ seen, hash: helpStartHash, isDemo: state?.isDemo === true }) && !$('help').open) openHelp()
 }
 
 // The person, 2026-10-31: the reload icon spins while the board reads again (at least a moment, so a quick read shows too).
