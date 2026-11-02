@@ -38,6 +38,19 @@ test('B.1 an envelope with a clear, or a worker that owes a clear, gives the pla
   assert.deepEqual(needs.map(one => [one.chat, one.text]), [['Worker 5', WORDS_LINE], ['Worker 4', WORDS_LINE], ['Worker 3', 'go on with B700 from your checkpoint']])
 })
 
+test('order B (the lead\'s live check, 2026-11-02): a worker held on a failed clear whose chat does not run is a need with the plain line; one whose chat runs is none', () => {
+  const since = new Date(2026, 10, 2, 21, 27).getTime()
+  const held = lane('Worker 3', { asleepSince: since, handover: { state: 'held', why: 'its clear did not run: /clear did not run within two minutes; next try 21:37', step: 'B930' } })
+  const state = stateOf([lane('Main', { isMain: true, isRunning: true, asleep: false }), held])
+  const needs = wakeNeeds(state, [])
+  assert.deepEqual(needs.map(one => [one.chat, one.why, one.text, one.step]), [['Worker 3', 'held', 'The worker board holds words for you: run work next', 'B930']])
+  // Its chat runs: the hold is released by its own report; no wake.
+  assert.deepEqual(wakeNeeds(stateOf([lane('Main', { isMain: true, isRunning: true, asleep: false }), { ...held, isRunning: true, asleep: false }]), []), [])
+  // A waiting envelope still comes first (case 1), the hold second.
+  const envelope = { id: 'e1', at: since, to: 'Worker 3', command: 'handover', about: 'Worker 3', kind: 'clear', step: null, clear: { step: 'B930', reportedAt: since - 60_000 }, restart: false, set: null, line: null, state: 'waiting' }
+  assert.equal(wakeNeeds(state, [envelope])[0].why, 'envelope')
+})
+
 test('B.2 the pause\'s resume list; B.3 asleep and interrupted; B.4 a word that wakes; B.5 a queued step of a worker not on the sequence', () => {
   const state = stateOf([
     lane('Worker 1'),
