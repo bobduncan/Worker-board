@@ -111,7 +111,7 @@ import { itemsOf, storeKeeper } from './src/work/read.mjs'
 import { requestKeeper } from './src/work/requests.mjs'
 import { readAutopilotClearedFile, readObsoleteFile, readStore } from './src/work/store.mjs'
 import { obsoleteView, openItemsOf } from './src/work/obsolete.mjs'
-import { obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
+import { evidenceLanes, obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
 import { giveBackHeld, stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
@@ -1382,7 +1382,8 @@ async function main(args) {
       recaps: state.recapWaits ?? null,
       // B775: the facts the obsolete check hands the Advisor for each open item: its step, the commits naming it since, its chat.
       obsoleteEvidence: async (open, items) => obsoleteEvidence(open, {
-        items, lanes: lanes.map(lane => ({ name: lane.name, state: lane.state ?? null, task: lane.task ?? null, isRunning: lane.isRunning ?? null })),
+        // 2026-11-02: every chat of the roles map (the Advisor, Supervisor and Product owner too), with what it holds by the store.
+        items, lanes: evidenceLanes(state),
         prefix: state.chatPrefix ?? '', repos: knownRepos(), run: gitRunner(), board: { startedAt }, mod: (await modNow())?.installed ?? null,
       }),
     }
