@@ -20747,6 +20747,36 @@ function providerCardModels(kinds, ui = {}) {
 }
 // providerCards:end
 
+// providerSetup:start
+/**
+ * Asset providers, part D: the first-run setup of a new board. `kinds` is what GET /api/providers answers, `setup` what GET
+ * /api/setup answers (`{ done: [kinds], finished }`), `at` the step the person went to (null: the first not done), `now`
+ * the clock, `ui` the cards' busy and problems (as providerCardModels). It is shown only for a setup not finished. Next unlocks only when the provider in use for the kind has a
+ * Verify that works (and, with a clock time in it, is at most ten minutes old); the last step's button is Finish.
+ */
+const SETUP_FRESH_MS = 10 * 60_000
+function providerSetupSteps(kinds, setup, at = null, now = Date.now(), ui = {}) {
+  const rows = providerCardModels(kinds, ui)
+  if (setup === null || setup === undefined || setup.finished !== false || rows.length === 0) return { visible: false, steps: [], index: 0 }
+  const done = Array.isArray(setup.done) ? setup.done : []
+  const firstOpen = rows.findIndex(row => !done.includes(row.kind))
+  const index = Number.isInteger(at) && at >= 0 && at < rows.length ? at : firstOpen === -1 ? rows.length - 1 : firstOpen
+  const steps = rows.map((row, number) => ({ kind: row.kind, title: row.title, state: done.includes(row.kind) ? 'done' : number === index ? 'now' : 'later' }))
+  const row = rows[index]
+  const picked = (kinds[index].cards ?? []).find(one => kinds[index].inUse === one.name) ?? null
+  const last = picked?.last ?? null
+  const isFresh = last !== null && last.state === 'works' && (typeof last.at !== 'number' || now - last.at <= SETUP_FRESH_MS)
+  const isLast = index === rows.length - 1
+  const library = row.kind === 'sound effect' && picked?.name === 'sound-library' && isFresh ? `Free library: ${last.detail || 'ready'}. You pick and hear the sounds on the sound board.` : ''
+  return {
+    visible: true, steps, index, kind: row.kind, title: row.title, about: row.about, cards: row.cards,
+    label: `Step ${index + 1} of ${rows.length}`,
+    nextEnabled: isFresh, nextLabel: isLast ? 'Finish' : 'Next', isLast, sample: library,
+    hint: isFresh ? `${row.title}: verified. ${isLast ? 'Finish opens the board.' : 'Go on to the next step.'}` : 'Next unlocks once the picked provider verifies.',
+  }
+}
+// providerSetup:end
+
 const providersUi = { kinds: null, busy: new Set(), problems: new Map(), note: null }
 
 async function providersCall(method, body) {
@@ -20851,6 +20881,7 @@ function providerCardNode(card) {
 }
 
 function drawProviderRows() {
+  drawProviderSetup()
   const note = $('providers-note')
   note.hidden = providersUi.note === null
   note.textContent = providersUi.note ?? ''
@@ -20870,6 +20901,71 @@ function drawProviderRows() {
     section.append(heading, grid)
     return section
   }))
+}
+
+// Asset providers, part D: the first-run setup page (the pure steps are above, between providerSetup:start and :end).
+const providerSetupUi = { setup: null, at: null, busy: false, problem: null }
+
+/** Asks the board where the setup stands; a new board's page shows it, every other board's never does. */
+async function providerSetupStart() {
+  try {
+    const answer = await fetch('/api/setup', { headers: { 'X-Board-Token': TOKEN } })
+    if (!answer.ok) return
+    providerSetupUi.setup = await answer.json()
+  } catch { return }
+  if (providerSetupUi.setup?.finished === false) await providersLoad()
+  drawProviderSetup()
+}
+
+/** Next / Finish: the board marks the step done only when the provider in use verified lately; then the page goes on. */
+async function providerSetupNext(step) {
+  if (providerSetupUi.busy || !step.nextEnabled) return
+  providerSetupUi.busy = true
+  providerSetupUi.problem = null
+  drawProviderSetup()
+  const post = async body => {
+    const answer = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(body) })
+    if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
+    return answer.json()
+  }
+  try {
+    let state = await post({ action: 'done', kind: step.kind })
+    if (step.isLast) state = await post({ action: 'finish' })
+    providerSetupUi.setup = state
+    providerSetupUi.at = step.isLast ? null : step.index + 1
+  } catch (error) {
+    providerSetupUi.problem = error instanceof Error ? error.message : 'the board did not answer'
+  }
+  providerSetupUi.busy = false
+  drawProviderSetup()
+}
+
+function drawProviderSetup() {
+  const page = $('provider-setup')
+  const step = providerSetupSteps(providersUi.kinds, providerSetupUi.setup, providerSetupUi.at, Date.now(), providersUi)
+  page.hidden = !step.visible
+  document.body.classList.toggle('is-in-setup', step.visible)
+  if (!step.visible) return
+  // A key being typed is kept: a redraw while a key box holds text would lose it.
+  if ([...page.querySelectorAll('.provider-key-input')].some(input => input.value !== '')) return
+  const bar = el('ol', 'setup-progress')
+  for (const one of step.steps) {
+    const item = el('li', `setup-step is-${one.state}`)
+    item.append(el('span', 'setup-step-bar'), el('span', 'setup-step-name', one.title))
+    bar.append(item)
+  }
+  const grid = el('div', 'provider-cards')
+  grid.append(...step.cards.map(providerCardNode))
+  const next = el('button', 'provider-button is-pick setup-next', providerSetupUi.busy ? 'Saving…' : step.nextLabel)
+  next.type = 'button'
+  next.disabled = !step.nextEnabled || providerSetupUi.busy
+  next.addEventListener('click', () => providerSetupNext(step))
+  const bottom = el('div', 'setup-bottom')
+  bottom.append(el('span', 'setup-hint', providerSetupUi.problem ?? step.hint), next)
+  const parts = [el('p', 'setup-count', `${step.label} · New board`), bar, el('h2', 'setup-title', step.title), el('p', 'muted setup-about', `Who makes your ${step.about}? Pick one and verify it.`), grid]
+  if (step.sample !== '') parts.push(el('p', 'setup-sample', step.sample))
+  parts.push(bottom)
+  fill($('provider-setup-body'), parts)
 }
 
 // Tabs
@@ -21559,3 +21655,4 @@ document.addEventListener('visibilitychange', () => {
 
 show(tabOfAddress(location.hash) ?? 'overview')
 read()
+providerSetupStart()

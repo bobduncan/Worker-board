@@ -80,6 +80,7 @@ import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { modAtLeast } from './src/clearOwed.mjs'
 import { ARCHIVE_MOD, archiveJobId, archivedBy, hasNothingUncommitted, replacedChats } from './src/replacedChats.mjs'
 import { keptReadingsOf, newestPerWindow, readingOfAnswer } from './src/limits.mjs'
+import { readSetup, setupAction, startSetup, FINISHED as SETUP_FINISHED } from './src/providers/setup.mjs'
 import { providerCards, mayUse as mayUseProvider, verifyOne, checkKey } from './src/providers/choose.mjs'
 import { KEY_VARIABLE, keyChecked, saveKey } from './src/providers/elevenlabs-key.mjs'
 import { ASSET_KINDS, PROVIDERS, checkProvidersFull, providerFor } from './src/providers/index.mjs'
@@ -259,6 +260,8 @@ export const POST_ROUTES = Object.freeze({
   '/api/settings': { kind: 'json', guard: 'lock' },
   // Asset providers (spec 2026-11-01, part A): Verify, use and the key of a provider, on the Settings tab.
   '/api/providers': { kind: 'json', guard: 'lock' },
+  // Asset providers, part D: the new board's first-run setup (src/providers/setup.mjs).
+  '/api/setup': { kind: 'json', guard: 'lock' },
   '/api/game': { kind: 'json', guard: 'free', why: 'starts or stops a game process of this board\'s own; writes nothing of the project' },
   '/api/cpu': { kind: 'json', guard: 'free', why: 'the CPU level kept in this board folder\'s own data, not the project\'s' },
   // B767: the setup check's Allow: the missing tool rules into the project's own settings, on the person's click.
@@ -316,6 +319,8 @@ export function createBoard({
   settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   providers = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   providerList = async () => [],
+  setup = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  setupRead = async () => ({ done: [], finished: true }),
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   recap = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   step = async () => null,
@@ -409,7 +414,7 @@ export function createBoard({
     }
 
     // /api/providers is both: GET reads the Settings tab's cards, POST changes a provider.
-    if (routeKind(pathname) === 'json' && !(pathname === '/api/providers' && req.method === 'GET')) {
+    if (routeKind(pathname) === 'json' && !((pathname === '/api/providers' || pathname === '/api/setup') && req.method === 'GET')) {
       // Three things another website's page cannot do: know the token, carry this origin, and send JSON unasked.
       const maySend = mayUse && req.headers.origin === `http://${self}`
       const isJson = /^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')
@@ -467,6 +472,10 @@ export function createBoard({
       }
       if (pathname === '/api/providers') {
         const done = await providers(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/setup') {
+        const done = await setup(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/new-project') {
@@ -534,6 +543,11 @@ export function createBoard({
     if (pathname === '/api/providers') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       return json(res, await providerList())
+    }
+    // Asset providers, part D: where the new board's first-run setup stands (finished on every board that is not new).
+    if (pathname === '/api/setup') {
+      if (!mayUse) return refuse(res, 403, "Only the board's own page may read.")
+      return json(res, await setupRead())
     }
     // B579: a day of the Backlog tab's Completed by day, with its recap (src/dayRecap.mjs).
     if (pathname === '/api/recap') {
@@ -1666,6 +1680,13 @@ async function main(args) {
   // Spec 2026-11-01, part A: the last check of each provider the Settings tab asked about, in memory, keyed `${kind}|${name}`
   // (src/providers/choose.mjs). The loop's checks of the providers in use land here too.
   const providerChecks = new Map()
+  // Part D: a board with no `providers` in its settings and no setup.json is new: its setup starts now.
+  const setupFile = join(HERE, 'data', 'setup.json')
+  if (!isDemo && !isShowOnly) {
+    // The settings were read already (loadConfig); a file it cannot read now simply names no providers, and the setup starts.
+    const rawConfig = JSON.parse((await readFile(join(HERE, 'config.json'), 'utf8').catch(absentAs('{}'))) || '{}')
+    await startSetup(setupFile, { hasProvidersKey: Object.hasOwn(rawConfig ?? {}, 'providers') }).catch(error => loops.failed('setup', error))
+  }
   const providerTools = () => ({ project: config.project, codexPath: settings.codex })
   const lookAtProviders = () => loops.run('providers', async () => {
     const rows = await checkProvidersFull(config, providerTools())
@@ -2404,6 +2425,13 @@ async function main(args) {
       return { ok: true, result: providerCards(config, providerChecks) }
     }),
     providerList: async () => providerCards(config, providerChecks),
+    // Part D: the first-run setup. Only a board that records, not the demo, keeps one.
+    setupRead: async () => (isDemo || isShowOnly ? { ...SETUP_FINISHED, done: [...SETUP_FINISHED.done] } : readSetup(setupFile)),
+    setup: body => settingsTurn(async () => {
+      if (historyFrom !== undefined) return { ok: false, status: 409, why: SETTINGS_WHY_NOT }
+      if (isDemo || isShowOnly) return { ok: false, status: 409, why: 'This board keeps no setup.' }
+      return setupAction(setupFile, body, { config, checks: providerChecks, now: clock() })
+    }),
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
     // B767: the setup check's Allow: only the tool rules the check finds missing, into the project's own settings.
     codeJobs: async body => {
