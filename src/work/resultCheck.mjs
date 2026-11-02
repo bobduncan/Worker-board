@@ -4,6 +4,7 @@
 // standard; nothing of the project's work is named here.
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
+import { linksOf } from './links.mjs'
 import { standardOf } from './standard.mjs'
 
 const VERDICTS = ['pass', 'fail', 'ask']
@@ -169,8 +170,12 @@ export function gitCheckAtMs(item) {
   return line === undefined ? Number.NaN : sinceMs(line.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/)?.[1])
 }
 
-/** The steps of the store (`items`) made as fixes of the step `id`. */
-export const fixesOf = (id, items) => [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'step' && valueOf(one, 'Fix of') === id)
+/** The steps of the store (`items`) made as fixes of the step `id`. B917: from the rebuild's index while one runs (links.mjs). */
+export function fixesOf(id, items) {
+  const links = typeof id === 'string' ? linksOf(items) : null
+  if (links !== null) return [...(links.fixes.get(id) ?? [])]
+  return [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'step' && valueOf(one, 'Fix of') === id)
+}
 
 /**
  * The review of B356: a step whose result check failed counts as checked once the fix that check made is done, and no

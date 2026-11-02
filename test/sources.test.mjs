@@ -89,6 +89,20 @@ test('readSources reads a project\'s files into the shape buildState takes, and 
   assert.equal('backlogText' in raw, false)
 })
 
+// B917 (X93): the folders the steps mention are worked out once per read of the store, and anew for a new read.
+test('B917: the picture lists follow a change of the store at its next read, never a kept one', async t => {
+  const { config, put } = await project(t)
+  const dir = join(config.project, '.claude', 'work')
+  const keeper = storeKeeper({ dir })
+  const read = async () => (await readSources(config, async () => null, NOW, undefined, keeper)).pictureLists
+  assert.deepEqual(await read(), { 'art-inbox/archer': ['art-inbox/archer/sheet.png'] })
+  assert.deepEqual(await read(), { 'art-inbox/archer': ['art-inbox/archer/sheet.png'] })
+  await put('project/art-inbox/knight/walk.png', 'made-up picture')
+  await writeStore(dir, migrateBacklog('## Art #focus\n- [ ] Say whether the knight is right (pictures in art-inbox/knight) @you\n', { now: NOW }), undefined, { now: NOW })
+  keeper.reset()
+  assert.deepEqual(await read(), { 'art-inbox/knight': ['art-inbox/knight/walk.png'] })
+})
+
 test('B255: readSources reads the goal map beside the backlog, where the setting goals says', async t => {
   const { config, put } = await project(t)
   assert.equal((await readSources(config, async () => null, NOW)).goalsText, null)

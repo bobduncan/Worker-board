@@ -100,12 +100,27 @@ export function oneAtATime(read, ttlMs) {
 
 const earlier = oneAtATime(readDeep, EARLIER_MS)
 const picturesIn = new Map()
+/**
+ * B917 (X93): the paths each read of the store mentions, per read: the board's store keeper hands out the same read until
+ * a change through the board or its 30 s, and the backlog view each rebuild made again for this took 6% of a core.
+ */
+const pathsOfRead = new WeakMap()
 
-/** The pictures in the folders the store's steps for the person and its queued steps point to, per mentioned path. */
-async function pictureLists(config, work, now) {
+/** The paths the store's steps for the person and its queued steps mention, at most MOST_FOLDERS. */
+function mentionedOf(config, work) {
+  const key = `${config.pictureRoots}`
+  const was = work !== null && typeof work === 'object' ? pathsOfRead.get(work) : undefined
+  if (was?.key === key && was.size === work.items?.size) return was.paths
   const { backlog } = storeBacklog(work)
   const steps = [...forYou(backlog), ...queue(backlog)]
   const paths = [...new Set(steps.flatMap(step => mentionedPaths(allWords(step), config.pictureRoots)))].slice(0, MOST_FOLDERS)
+  if (work !== null && typeof work === 'object') pathsOfRead.set(work, { key, size: work.items?.size, paths })
+  return paths
+}
+
+/** The pictures in the folders the store's steps for the person and its queued steps point to, per mentioned path. */
+async function pictureLists(config, work, now) {
+  const paths = mentionedOf(config, work)
   const lists = {}
   await Promise.all(paths.map(async path => {
     const key = `${config.project}|${path}`
