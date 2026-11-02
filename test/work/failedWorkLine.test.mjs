@@ -137,6 +137,8 @@ const GONE = {
   'fix-held': step('B40', 'queued'),
   'held-twice': step('B40', 'taken'),
   'partner-ask': ['B40', head({ Id: 'B40', Kind: 'ask', State: 'answered', Route: 'partner' })],
+  // B949: an asset word is judged by its request, not the store: with no request folder it is gone whatever the store holds.
+  asset: step('B40', 'done'),
 }
 
 test('the guard: every kind of work line, waiting or failed, whose purpose is gone is closed at a refresh; none is without a judge', async t => {

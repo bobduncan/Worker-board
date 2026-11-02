@@ -2488,6 +2488,21 @@ or failed, whose purpose is gone closes at a refresh; every other command (scann
 past its keep is closed by the sweep, and failed is judged. A failed word of minutes (not `waitsLong`) is judged by
 its time: rule 8 names it for its two hours, the summary for a day.
 
+### An asset word is the asset's, not the work store's (B949)
+
+On 2026-11-02 five of eighteen "asset A<n> ready" words (A7, A9, A15, A17, A18) were dropped 0.6 s after the board wrote
+them, as "A17 is gone": `withdrawStale` judged every waiting work line by the work store, which holds no A-ids, so the
+step branch of `workLineWhy` read each asset word as gone, and Worker 1 sat waiting for A17 on B923. Now a line of kind
+`asset` is judged by its request (`.claude/assets/A<n>/request.json`, `assetLineWhy` in `src/work/workLines.mjs`), never by the
+store: a ready word is dropped when its request is gone or failed, a failed word when its request is gone, either when the
+step the request was made for (`of`) is done, dropped or another chat's; a request still being made holds its word. The
+callers pass the requests as `assets` (`withdrawStale` reads them; the supervisor's view and `wordJudge` carry them through
+the `assets` port, so the health summary and rule 8 judge the same way); without them (`undefined`/null) an asset word
+holds, for the board cannot tell. A ready word the sweep dropped as "gone" (the fault above) is written once more
+(`assetResends`, key `asset-again <A-id> <chat>`, sent once ever) while its request is ready, its step is in progress and
+still that chat's, and no later word to that chat names the asset (one typed by hand counts). `test/assetWordJudge.test.mjs`
+replays the real case; the mutant that sends an asset word to the work store's branch fails seven of its nine tests.
+
 ### A failure that passes by itself (B813)
 
 X2 came back after B532 (count 25): the word of 2026-10-30 23:13 that set Worker 4 back to its usual setting failed
@@ -5688,6 +5703,53 @@ the rule dropped-fix raised it a minute later; and the recap's Approve and Send 
 Tests: test/supervisor/recapVerdict.test.mjs (B821's case: a block ended by done a minute ago is no case, 31 min later it is;
 waiting for the verdict is none, also after 10 h; a Send back counts from the Send), test/recapVerdictBoard.test.mjs (on a
 running board: the Backlog line, a Send back's words, an Approve that closes the steps in review only).
+
+## The recap's next round shows the evidence of the person's feedback (T17.1)
+
+The person, 2026-11-02, after sending round 1 of G60's recap with 8 rows sent back: "the new recap, after round 1 is not finetuned to my
+feedback. the same pictures are provided and i see no evidence of what i asked it to fix/change. i need this before i can evaluate and
+preferably also have a link to open the game so i can see it myself". Round 2 stood right after the Send with the old demo.json, so the
+same pictures sat beside their words and the popup asked for a verdict again; the Product owner's card said "1 verdict waits".
+
+1. A round being made (src/demoFeedback.mjs `makingOf`, `roundPage`): after a Send that sent rows back, round N+1 is "being made" until
+   demo.json was written again in a later minute than that Send (the test `recapWaitsOf` already used; `readDemo` gives `changedAt`).
+   The popup (`GET /api/demo`) then holds only the rows that Send sent back, each as `reworking` with the person's words and no
+   note or picture, `feedback.making` and `feedback.answerable` 0; `canSend` is false and `checkSend` refuses with 409. A caller with no
+   file time (`roundPage(page, feedback)`) never says "being made".
+2. A row's new try shows the change (src/demo.mjs, tools/demo.mjs): every row the person's last word on was Send back carries
+   `"changed": "<their words -> what changed>"` and at least one picture written after that round's Send, else `"pending": "<why>"`
+   (shown as being reworked: no verdict asked, no part of the Send, refused by `checkSend`). `checkList(list, { feedback, mtimeOf })`
+   (`checkTries`) throws one line per row that does neither; tools/demo.mjs reads the feedback.json beside the demo it writes and
+   writes nothing when it throws. The board itself reads any demo.json: only the tool enforces it.
+3. Play: a row may carry `"play": "<arena>"` (letters, digits, dashes, at most 60); the popup draws "Play it ↗" beside the pictures,
+   a link `/#play=main&arena=<name>` in a new tab, the way every `#play=` link starts the game.
+4. The popup's row from round 2: the title, the note, "Your words: ...", "What changed: ...", the pictures, Play it, then Approve / Send
+   back. A being-made popup has one line on top ("Round 2 is being made: your partner is building the next tries").
+5. The cards (src/recapCard.mjs `recapMakingOf`, state `recapMaking`: `{ goal, path, round, done, total }`): while a round is being made
+   no part of that recap is a verdict that waits (`recapWaitsOf` flags `making`, a `pending` part stays sent back), so the recap card is
+   null, and the Product owner's card (Needs your attention) and the Focus page say "G60 · <title>: round 2 of your recap is being made"
+   with the quiet line "<k> of <m> next tries done" and a link to the recap. No attention colour; it is not counted.
+
+The coordinator's review of the first build (same day) added:
+
+6. The board itself, not only the tool, treats a row sent back with no `changed` line as being reworked (`roundPage`, and `recapWaitsOf`'s
+   `tried`: a part counts as tried only with `changed`), whatever the file's time: a demo.json written by hand shows no old pictures as a new try.
+7. tools/demo.mjs also refuses a list in which a row the person sent back no longer matches any row (a renamed title: keep it, or give the
+   row `"id": "<its old title>"`), and checks a row's `play` against the game's arenas (`arenaCheckOf`: `<gameRepo>/src/content/arenas` and its
+   `dev` folder, from the board's config.json; no `gameRepo`, no lookup). An arena name may hold `_`. The board's read never refuses a recap
+   for a bad `changed`, `pending` or `play`: `demoPage` leaves that field out.
+8. While the focus goal's round is being made the state has no `recapCard` (the quiet card is always drawn, in Needs your attention and on the
+   Focus page, whatever else waits), and a step a part of that recap names does not read "Waits for your verdict" (its block is not
+   `verdict`, its step says "Waits for the next round").
+9. The next tries (`nextTriesOf`): the goal's steps filed or reopened (a History line out of done, closed or dropped) at or after the Send's
+   minute, without Quality Assurance tasks (`Checks`). When one of them is done while the round is being made, the loop `recap-round`
+   (server.mjs `recapRoundNow`) sends the partner one word, once for each step (`recapRoundDue`, from the kept outbox): "recap: G<n> round
+   <N+1>: B<id> is done; write the round with its row, `pending` for the rest".
+10. An answer in words passes the tool without a new picture when its note differs from the note the demo.json it replaces had for the row
+    (or the same list is taken a second time); roles/partner.md says to write the round as soon as one row's try is in.
+
+Tests: test/recapRounds.test.mjs (data, the list, tools/demo.mjs, the state), test/recapRoundsPage.test.mjs (the popup, both cards),
+test/demoFeedbackBoard.test.mjs and test/recapVerdictBoard.test.mjs (on a running board: being made, then the rewrite).
 
 ## A step nothing else closes goes to the person: Accept or Send back (B883)
 

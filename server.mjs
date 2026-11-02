@@ -64,7 +64,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, readDemo, writeFeedback, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { recapFeedbackWords, answerWords, boardLanes, checkSay, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { recapFeedbackWords, recapRoundWords, answerWords, boardLanes, checkSay, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -87,9 +87,10 @@ import { readSetup, setupAction, startSetup, FINISHED as SETUP_FINISHED } from '
 import { providerCards, mayUse as mayUseProvider, verifyOne, checkKey } from './src/providers/choose.mjs'
 import { KEY_VARIABLE, keyChecked, saveKey } from './src/providers/elevenlabs-key.mjs'
 import { ASSET_KINDS, PROVIDERS, checkProvidersFull, providerFor } from './src/providers/index.mjs'
-import { assetsFolderOf } from './src/assets.mjs'
+import { assetsFolderOf, listAssets } from './src/assets.mjs'
 import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
 import { titleProblem } from './src/work/askWords.mjs'
+import { recapRoundDue } from './src/recapCard.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
@@ -924,6 +925,15 @@ async function main(args) {
   // Part C of the asset providers: where the chats' asset requests are kept (`.claude/assets`, beside the work store); none on a
   // board that only shows.
   const assetsDir = workDir === null || isShowOnly ? null : resolve(HERE, assetsFolderOf(workDir))
+  /** B949: the asset requests by id, for the judges of the asset words (workLines.mjs); null when there is no folder or it cannot be read: such a word then holds. */
+  const assetRequests = async () => {
+    if (assetsDir === null) return null
+    try {
+      return new Map((await listAssets(assetsDir)).map(record => [record.id, record]))
+    } catch {
+      return null
+    }
+  }
   const viewFile = workDir === null ? null : !isShowOnly ? join(config.project, ...config.backlog.split('/')) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
   /**
@@ -1157,6 +1167,18 @@ async function main(args) {
     for (const one of words) await toPartner(one, {}, state)
   }
   /**
+   * T17.1 (the coordinator's review of 6f197a4): while the focus goal's recap has its next round being made, each next try (a step of
+   * the goal filed or reopened after the person's Send, no Quality Assurance task) that turned done is told to the partner, once per
+   * step: it writes the round with that row and `pending` for the rest, so the person can judge what is ready. Not while the person pauses.
+   */
+  const recapRoundNow = async state => {
+    const making = state.recapMaking ?? null
+    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause) || making === null) return
+    for (const step of recapRoundDue(making, store.outbox())) {
+      await toPartner(recapRoundWords(state.advisor.name, { goal: making.goal, round: making.round, step, path: making.path, job: join(HERE, 'roles', 'partner.md') }), {}, state)
+    }
+  }
+  /**
    * Autopilot (2026-10-31, src/work/autopilot.mjs): the board's pass over the asks (the work API's `autopilot`), then what it
    * names: the chats an answer wakes, the Advisor's refine word for a step whose questions it answered or sent back (as the
    * page's "Take the advice" does), and the main chat's word for each ask routed to it. `sweep` (the switch-on only, 2026-11-02):
@@ -1221,7 +1243,7 @@ async function main(args) {
       const found = await readDemo(state.project, shownRoots(config), body?.path)
       if (found === null) return { ok: false, status: 404, why: 'No such goal demo.' }
       if (found.why !== undefined) return { ok: false, status: 422, why: found.why }
-      const checked = checkSend(roundPage(found.base, found.feedback), body)
+      const checked = checkSend(roundPage(found.base, found.feedback, { changedAt: found.changedAt }), body)
       if (!checked.ok) return checked
       await writeFeedback(found.file, withRound(found.feedback, checked.round, checked.parts, stampOf(clock())))
       readState.reset()
@@ -1353,7 +1375,7 @@ async function main(args) {
       const now = clock()
       const items = stored?.ok === true ? stored.items : new Map()
       const outbox = store.outbox()
-      const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, now })
+      const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, assets: await assetRequests(), now })
       const obsolete = workDir === null ? null : (await readObsoleteFile(workDir)).record
       const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null }))
       // The review of 2026-11-02 (2a): a turn seen ended, an action's own result seen, is kept on its word once and read first
@@ -2800,7 +2822,8 @@ async function main(args) {
       const found = await findDemo((await readState()).project, shownRoots(config), path)
       if (found?.page === undefined) return found
       const whyNot = await demoFeedbackWhyNot()
-      return { page: { ...found.page, feedback: { ...found.page.feedback, canSend: whyNot === null && found.page.feedback.parts > 0 && !found.page.feedback.done, whyNot } } }
+      // T17.1: nothing to send while the next round is being made, or while every part left is still being reworked.
+      return { page: { ...found.page, feedback: { ...found.page.feedback, canSend: whyNot === null && found.page.feedback.parts > 0 && !found.page.feedback.done && found.page.feedback.making === null && found.page.feedback.answerable > 0, whyNot } } }
     },
     demoFeedback: async body => demoFeedbackNow(body),
     picture: async path => {
@@ -3607,6 +3630,8 @@ async function main(args) {
         await loops.run('evaluate-again', () => evaluateAgainNow(state))
         // B677: the goal demo asked of the partner once every part of the focus is done.
         await loops.run('goal-demo', () => demoNow(state))
+        // T17.1: a next try of the recap's round that turned done is told to the partner (once per step).
+        await loops.run('recap-round', () => recapRoundNow(state))
         // B404: a step that has stood on "check pending" for more than 2 minutes (a restart right after a report ended
         // its check) is checked again; the checks that run now are skipped.
         await loops.run('stuck-checks', async () => {
@@ -3644,6 +3669,7 @@ async function main(args) {
           return (await readStore(workDir)).items
         },
         // B736 (X89: work health timed out twice while the board was busy): the health summary reads what the board has.
+        assets: () => assetRequests(),
         keptState: () => readState.last() ?? null,
         keptItems: () => work.last?.()?.items ?? null,
         outbox: () => store.outbox(),

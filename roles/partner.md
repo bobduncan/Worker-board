@@ -970,6 +970,10 @@ most, and again when the user presses "Ask your partner again". Make it at once,
   demo (`g60/demo/` in the picture folder) is the example, its FOLLOW-UP too. The list's form is in the head of
   `src/demo.mjs`; the tool refuses a picture that is not there, one over the board's limit, a bullet with several items on
   one line, and puts every row's pictures in the right order itself.
+- A row that shows a map in the game gets `"play": "<arena name>"` (letters, digits, dashes and underscores, at most 60: the arena the game
+  opens with `arena=<name>`, e.g. `ring`, `moat-keep`, `g60-stairs-sizes`): the popup draws "Play it ↗" beside its pictures, which
+  starts the game on that map from `main` in a new tab. The user (2026-11-02): "preferably also have a link to open the game so i
+  can see it myself". The tool refuses any other name, and a name the game has no arena for (its arenas folder and the dev folder in it).
 - Three sections, each visually apart: **Reached** (green titles), **Not reached** with what went wrong (red titles),
   **Still open** (grey). In every row: the target first, then the state before this goal, then the results in between,
   and the final result in the game last. Every picture labelled plainly (target, before this goal, in between, final in
@@ -996,10 +1000,23 @@ the user's comment, the parts approved and how many are not decided yet. Act on 
 - Each part sent back is a try of its own: file a step for it (or reopen its step) with the user's comment as the point to
   fix, as for any feedback (`work new`, the comment word for word), and add it to the work block it belongs to (`work
   how-draft`, " · steps B<id>"), or a new block with its done-when line. Never answer the user in a chat: they read the board.
-- When the new tries are made, change the demo's list: replace the pictures of the rows that came back with the new try
-  (same row title or `"id"`: the board keys a part by it), and write `demo.json` again with `node tools/demo.mjs`. Leave the
-  other rows as they are: the board shows round 2 with only the parts sent back, each with the user's comment beside its new
-  try, and folds the approved ones.
+- Write the next round as soon as the try of one row sent back is in, not when all are (the user, 2026-11-02, after round 1 of G60's
+  recap: "the same pictures are provided and i see no evidence of what i asked it to fix/change"): the rows whose try is in get their
+  evidence and every other row sent back gets `"pending"`, so the user can judge what is ready. The board tells you once for each next
+  try that turns done ("recap: G<n> round <N+1>: B<id> is done; write the round with its row, `pending` for the rest"); until
+  `demo.json` is written again, in a later minute than their Send, the popup and the cards say "round N+1 is being made" with how
+  many of the next tries are done: that is right. Never write the demo again with the old pictures to end it: the board shows
+  a row sent back without a `changed` line as being reworked, whatever the file says. Change the demo's list and write `demo.json`
+  again with `node tools/demo.mjs`. Keep every row sent back by its title, or give it `"id": "<its old title>"` when you rename it:
+  the board keys a part by it, and a row that no longer matches loses their words (the tool refuses a list without it). Every row
+  sent back gets `"changed": "<the user's words → what changed>"` in one line and evidence of the new try: at least one picture
+  file written after their Send (the tool compares the file times with the round in `feedback.json`), or, for an answer in words
+  (a study, guidelines), a new `"note"` that differs from the one the demo.json you replace had for the row. For a map
+  `"play": "<arena name>"` (see "The goal demo"). A row whose try is not in yet (a step not started, blocked) gets `"pending": "<why,
+  one line, e.g. B925 not started>"` instead: the popup shows it as being reworked beside their words and asks nothing of it. The
+  tool refuses the list otherwise (one line per row) and writes nothing, so old pictures can never stand as a new try. A row they did
+  not send back needs none of this. Leave the other rows as they are: the board shows round 2 with only the parts sent back, each
+  with the user's comment, what changed and the new try (then Play it, Approve, Send back), and folds the approved ones.
 - Never write or change `feedback.json`: it is the user's. A word saying every part is approved needs no new try: the
   recap is done; go on with the goal's Demo line as before.
 - B878: give every row the steps it shows, `"steps": ["B689", "B821"]` (the part's step and its fixes), whenever a step

@@ -44,8 +44,8 @@ export { SWEEP_MOD, tokensOfTurn }
  * `{ isUndelivered(word), matters(word) }`: watch.mjs `isUndelivered`, the function `undeliveredWords` uses, and `wordMatters`
  * (the outbox sweep's judgement), each made once for the view. Only through here: nothing outside the supervisor imports its parts.
  */
-export function wordJudge({ state, items, outbox, keep, settings, now }) {
-  const view = buildView({ state, items, outbox, keep, settings, now })
+export function wordJudge({ state, items, outbox, keep, settings, assets = null, now }) {
+  const view = buildView({ state, items, outbox, keep, settings, assets, now })
   const judged = undeliveredJudged(view)
   return { isUndelivered: word => isUndelivered(view, word, judged), matters: wordMatters(view) }
 }
@@ -155,9 +155,10 @@ export function createSupervisor(ports) {
     // B736 (X89): the state and the store the board has when it has them, so a busy board still answers within seconds.
     const state = runnerPorts.keptState?.() ?? await runnerPorts.state()
     const items = runnerPorts.keptItems?.() ?? await runnerPorts.items()
+    const assets = typeof runnerPorts.assets === 'function' ? await runnerPorts.assets() : null
     const view = buildView({
       state, items, outbox: runnerPorts.outbox(), repairs: memoryOf(kept).repairs, seen: memoryOf(kept).seen,
-      settings: settings.supervisor ?? {}, now,
+      settings: settings.supervisor ?? {}, assets, now,
     })
     return { view, now }
   }
