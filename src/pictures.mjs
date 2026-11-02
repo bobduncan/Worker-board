@@ -93,8 +93,9 @@ export async function findPicture(project, roots, value) {
 
 /**
  * B699: the goal demo a `demo.json` in a shown folder holds, with the person's rounds of feedback beside it (B860): null when no
- * such file is there; `{ why }` in plain words when it is there but cannot be drawn; else `{ file, base, feedback }`: the demo's
- * real file, its whole page (src/demo.mjs demoPage) and the content of its feedback.json (null before the first round).
+ * such file is there; `{ why }` in plain words when it is there but cannot be drawn; else `{ file, base, feedback, changedAt }`: the demo's
+ * real file, its whole page (src/demo.mjs demoPage), the content of its feedback.json (null before the first round) and when the
+ * demo was last written (ms).
  */
 export async function readDemo(project, roots, value) {
   if (typeof value !== 'string') return null
@@ -111,7 +112,8 @@ export async function readDemo(project, roots, value) {
     try { list = JSON.parse((await readFile(file, 'utf8')).replace(/^﻿/, '')) } catch { return { why: 'The demo list is not valid JSON.' } }
     let base
     try { base = demoPage(list, parts.slice(0, -1).join('/')) } catch (error) { return { why: error.message } }
-    return { file, base, feedback: await readFeedback(file) }
+    // T17.1: `changedAt`, when the demo was last written (ms): the round after a Send is being made until it was written again.
+    return { file, base, feedback: await readFeedback(file), changedAt: info.mtimeMs }
   } catch {
     return null
   }
@@ -139,7 +141,7 @@ export async function writeFeedback(demoFile, content) {
 /** B699: the page of a demo for the person: the round they answer now (src/demoFeedback.mjs roundPage). Same answers as `readDemo`, else `{ page }`. */
 export async function findDemo(project, roots, value) {
   const found = await readDemo(project, roots, value)
-  return found === null || found.why !== undefined ? found : { page: roundPage(found.base, found.feedback) }
+  return found === null || found.why !== undefined ? found : { page: roundPage(found.base, found.feedback, { changedAt: found.changedAt }) }
 }
 
 /** The size of a picture in a shown folder that is too big to show, or null (B676: the popup says so, never an empty window). */
