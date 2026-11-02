@@ -9,7 +9,6 @@ import test from 'node:test'
 
 import { STOPPED_WHY, assetQueue, providerAskTitle } from '../src/assetQueue.mjs'
 import { assetFolder, assetsFolderOf, changeAsset, droppedFiles, listAssets, newAsset, readAsset } from '../src/assets.mjs'
-import { claude } from '../src/providers/claude.mjs'
 import { codex } from '../src/providers/codex.mjs'
 import { elevenlabs } from '../src/providers/elevenlabs.mjs'
 import { elevenlabsImages } from '../src/providers/elevenlabs-images.mjs'
@@ -285,7 +284,6 @@ test('elevenlabs-music provide: Eleven Music compose with the prompt; elevenlabs
   assert.equal(calls[0].url, 'https://api.elevenlabs.io/v1/music?output_format=mp3_44100_128')
   assert.deepEqual(JSON.parse(calls[0].options.body), { prompt: 'calm lava cave' })
   assert.deepEqual(elevenlabsImages.provide({ text: 'x', folder }), { failed: 'ElevenLabs Images is not wired yet' })
-  assert.equal(claude.provide, undefined)
 })
 
 test('person-suno, manual and sound-library provide: an ask for the person, or the library folder to pick from', async t => {

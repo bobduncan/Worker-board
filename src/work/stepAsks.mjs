@@ -5,6 +5,7 @@
 // Advisor's next round, as an answered question in the block does. PURE.
 
 import { valueOf } from './item.mjs'
+import { linksOf } from './links.mjs'
 
 /** A History line of the Advisor's write of the block: a round (`refine`) or the ready form (`refined`). */
 const WRITTEN = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d)\s+[^:]+:\s+refined(?:, round \d+| is ready)\s*$/
@@ -29,11 +30,13 @@ function isHowDecision(ask, step) {
   return String(valueOf(ask, 'Owner') ?? '').trim().toLowerCase() === head[2].trim().toLowerCase()
 }
 
-/** The ask items under a step (`Of: <id>`), by id. */
+/** The ask items under a step (`Of: <id>`), by id. B917: from the rebuild's index while one runs (links.mjs). */
 export function asksOfStep(items, stepId) {
-  return [...(items?.values() ?? [])]
-    .filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === stepId)
-    .sort((a, b) => numberOf(valueOf(a, 'Id')) - numberOf(valueOf(b, 'Id')))
+  const links = typeof stepId === 'string' ? linksOf(items) : null
+  const under = links !== null
+    ? [...(links.asks.get(stepId) ?? [])]
+    : [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === stepId)
+  return under.sort((a, b) => numberOf(valueOf(a, 'Id')) - numberOf(valueOf(b, 'Id')))
 }
 
 /**

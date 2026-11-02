@@ -127,9 +127,15 @@ export function carryable(sent, chat, now, keep, { holdClear = false } = {}) {
 }
 
 /** Hands the carryable envelope of `chat` out (marked taken, as a take marks a word): its contract, or null. */
-export async function handOut(outbox, chat, now, keep, { holdClear = false } = {}) {
+export async function handOut(outbox, chat, now, keep, { holdClear = false, waiveLine = () => false } = {}) {
   const found = carryable(outbox.outbox(), chat, now, keep, { holdClear })
   if (found === null) return null
+  // X107 and X3 again (2026-11-02, Workers 5 and 2): the chat was woken by a message that carried this step's take line, so
+  // the envelope's own line is waived: typed too, it waited behind the wake turn and started a stale turn after the report,
+  // in which the owed clear failed. The clear and the set of the envelope still go; the mod types nothing (`line` null).
+  if (typeof found.line === 'string' && typeof found.step === 'string' && waiveLine(found.step) === true) {
+    await outbox.update(found.id, { line: null, lineWaived: 'the wake message carried its take line' })
+  }
   const taken = await outbox.take(chat, now, keep, message => message.id === found.id)
   return taken.length === 0 ? null : contractOf(taken[0])
 }

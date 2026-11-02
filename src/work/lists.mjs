@@ -248,7 +248,7 @@ export function routedAwayOf(work, { names = [], prefix = '', limitMs = PARTNER_
     const at = askFiledMs(item)
     const routed = routedAt(item, route)
     return {
-      id, route, from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), title: askPartsOf(item).title, of,
+      id, route, asks: valueOf(item, 'Asks') ?? 'decide', from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), title: askPartsOf(item).title, of,
       ofTitle: step === undefined ? null : valueOf(step, 'Title'), goal: step === undefined ? null : valueOf(step, 'Goal'),
       text: askPartsOf(item).context.join('\n'), advice,
       options: (valueOf(item, 'Options') ?? '').split(' | ').filter(one => one.trim() !== '').map(label => ({ label, isRecommended: isAdvised(label, advice) })),

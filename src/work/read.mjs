@@ -6,6 +6,7 @@
 import { storeAsBacklog, storeProblems } from './adapter.mjs'
 import { DEFAULT_FLOW, nextMoves, statesOf } from './flow.mjs'
 import { isFix, valueOf } from './item.mjs'
+import { withLinks } from './links.mjs'
 import { migrateBacklog } from './migrate.mjs'
 import { stepWaitsForPartner } from './partnerAnswers.mjs'
 import { effortOf, modelOf } from './effort.mjs'
@@ -82,7 +83,8 @@ export function storeBacklog(work, rules, { backlog = null } = {}) {
   if (fault !== null) return { backlog: empty, store: { ok: false, dir: work.dir ?? null, items: 0, problems: [], why: fault } }
   const problems = [...new Set([...work.problems.map(one => one.line), ...storeProblems(work.items, work.activities)])]
   const kept = work.viewKept ?? null
-  return { backlog: withStepAsks(storeAsBacklog(work.items, work.activities, rules), work.items), store: { ok: true, dir: work.dir ?? null, items: work.items.size, problems, why: null, ...(kept === null ? {} : { kept }) } }
+  // B917 (X93): the asks of every step from one index of the store (links.mjs).
+  return { backlog: withLinks(work.items, () => withStepAsks(storeAsBacklog(work.items, work.activities, rules), work.items)), store: { ok: true, dir: work.dir ?? null, items: work.items.size, problems, why: null, ...(kept === null ? {} : { kept }) } }
 }
 
 /**

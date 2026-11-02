@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { PERSONS_HANDS, UNDER_STEP_HANDS, REFINE_BACK_WORDS, SENT_BACK, adviceAnswerOf, adviceOf, autopilotRoute, belowTarget, handsOf, isChore, isExplicitPerson, isGoalLevel, letteredOptions, recapVerdictWords, recapWaitIds, optionsOf, recapWaitOf, refineAdviceOf, routedWords, standsForPerson, waitsForRecap } from '../src/work/autopilot.mjs'
+import { PERSONS_HANDS, UNDER_STEP_HANDS, REFINE_BACK_WORDS, SENT_BACK, adviceAnswerOf, adviceOf, autopilotRoute, belowTarget, handsOf, isBoardRoutedPerson, isChore, isExplicitPerson, isGoalLevel, letteredOptions, recapVerdictWords, recapWaitIds, optionsOf, recapWaitOf, refineAdviceOf, routedWords, standsForPerson, waitsForRecap } from '../src/work/autopilot.mjs'
 import { routesToPartner } from '../src/work/partnerAnswers.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
@@ -359,4 +359,70 @@ test('the last re-check (2026-10-31): a look or decide that accepts a result, le
   // "Approve" only below its bar: at or above it, or with no score, it stays a detail for the partner.
   assert.equal(routeOf(ask('Q523', { Title: 'Approve the moat at 70 of 75?', Owner: 'Painter', Asks: 'look', Advice: 'yes' })), 'person')
   assert.equal(routeOf(ask('Q524', { Title: 'Approve the new icons on the bar?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Of: 'B24' })), 'partner')
+})
+
+test('2026-11-02 (the person: "if autopilot is turned on, the outstanding, needing for attentions get reevaluated and possible resolved if autopilot would answer them"): an ask the focus goal\'s recap asks already waits for the recap', () => {
+  const rows = [{ step: 'B24', goal: 'G29', path: 'pictures/g29/recap/demo.json', key: 'Moat', title: 'The moat', verdict: null, at: null }]
+  const withRows = { ...ctx, recapSteps: rows }
+  // The whole goal (the live Q569, a Do with a `#demo=` link): it waits for the person's Send in that recap.
+  assert.deepEqual(autopilotRoute(RECAP_DO, withRows), { to: 'recap', why: 'the goal\'s recap asks it already' })
+  // Before: no recap row of the focus goal, or the same words for the recap of a goal that is not the focus: as before, goal level.
+  assert.deepEqual(autopilotRoute(RECAP_DO, ctx), { to: 'person', why: 'goal level ("#demo=")' })
+  assert.equal(autopilotRoute(RECAP_DO, { ...ctx, recapSteps: [{ step: 'B23', goal: 'G7', path: 'pictures/g7/recap/demo.json' }] }).to, 'person')
+  assert.equal(autopilotRoute(RECAP_DO, { ...ctx, recapSteps: [{ step: 'B24', goal: 'G29', path: 'pictures/g29/other/demo.json' }] }).to, 'person', 'another recap file of the goal')
+  assert.equal(autopilotRoute(RECAP_DO, { ...withRows, focusGoal: null }).to, 'person')
+  // A link in other case or with backslashes is the same file (the folder of a goal is lower case, its id upper case).
+  const backslashed = ['Pictures', 'G29', 'recap', 'demo.json'].join('\\')
+  assert.equal(autopilotRoute(ask('Q30', { Title: `Open the recap: [recap](http://127.0.0.1:4999/#demo=${backslashed})`, Owner: 'Painter', Asks: 'do', Via: 'chat' }), withRows).to, 'recap')
+  // Only a Do, or a look with no options and no advice, is a "try it" the recap's Send answers. Any other ask that links the recap
+  // keeps its old route, the person's (the live Q550: a worker's decide, advice yes, "Is the recap page what you wanted to see
+  // before approving G60?": the Send must not close it unanswered).
+  const linked = (id, more) => ask(id, { Title: 'Is the recap page what you wanted to see before approving G29? [recap](http://127.0.0.1:4999/#demo=pictures/g29/recap/demo.json)', Owner: 'Painter', Via: 'chat', ...more })
+  assert.deepEqual(autopilotRoute(linked('Q550', { Asks: 'decide', Advice: 'yes' }), withRows), { to: 'person', why: 'goal level ("#demo=")' })
+  assert.equal(autopilotRoute(linked('Q551', { Asks: 'decide' }), withRows).to, 'person', 'a decide')
+  assert.equal(autopilotRoute(linked('Q552', { Asks: 'look', Advice: 'yes' }), withRows).to, 'person', 'a look with advice')
+  assert.equal(autopilotRoute(linked('Q553', { Asks: 'look', Options: 'A yes | B no' }), withRows).to, 'person', 'a look with options')
+  assert.equal(autopilotRoute(linked('Q554', { Asks: 'look', Pictures: 'pictures/B24/a.png' }), withRows).to, 'recap', 'a plain look')
+  assert.equal(autopilotRoute(linked('Q555', { Asks: 'look', Pictures: 'pictures/B24/a.png' }), withRows).step, undefined, 'a plain look of the whole goal is put under no step')
+  assert.equal(autopilotRoute(linked('Q556', { Asks: 'do' }), withRows).to, 'recap', 'a Do')
+  // An ask of a step or of a goal with that link keeps its rule (the goal's recap is no step's), and the person's hands still win.
+  assert.equal(autopilotRoute(ask('Q31', { Title: 'Open the recap and try it: [recap](http://127.0.0.1:4999/#demo=pictures/g29/recap/demo.json).', Owner: 'Partner', Asks: 'decide', Of: 'G29', Advice: 'yes' }), withRows).to, 'person')
+  assert.equal(autopilotRoute(ask('Q32', { Title: 'Click Approve in the recap: [recap](http://127.0.0.1:4999/#demo=pictures/g29/recap/demo.json).', Owner: 'Painter', Asks: 'do', Via: 'chat' }), withRows).to, 'person', 'a click is the person\'s hands')
+
+  // Its step (the live Q578, a look under no step whose picture is of B24): put under the step the recap names, first id of the words.
+  assert.deepEqual(autopilotRoute(LOOSE_LOOK, withRows), { to: 'recap', why: 'its step\'s part of the goal\'s recap asks it already', step: 'B24' })
+  assert.deepEqual(autopilotRoute(LOOSE_LOOK, ctx), { to: 'person', why: 'a score below its target, under no step' }, 'no recap names B24: as before')
+  assert.equal(autopilotRoute(LOOSE_LOOK, { ...ctx, recapSteps: [{ step: 'B24', goal: 'G7', path: 'pictures/g7/recap/demo.json' }] }).to, 'person', 'B24 of another goal\'s recap')
+  const named = (more, words = null) => ask('Q33', { Title: 'Is the moat good enough as it is?', Owner: 'Painter', Asks: 'look', Via: 'chat', ...more }, words)
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B99/a.png, pictures/B24/b.png' }), withRows).step, 'B24', 'the first id a part of the recap names')
+  // Only its Pictures name the step (the review of 2026-11-02): a step named in its title or words is no reason to move it.
+  assert.equal(autopilotRoute(named({}, 'Is the moat good enough as it is? B24 shows it.'), withRows).to, 'person', 'its words name it: no')
+  assert.equal(autopilotRoute(named({ Title: 'Is B24 good enough as it is?' }), withRows).to, 'person', 'its title names it: no')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B240/a.png' }), withRows).to, 'person', 'a longer id is no match')
+  // The step must be of the focus goal in the store too (B23 is G7's), else the pass would move the ask and hand it back at once.
+  const odd = [{ step: 'B23', goal: 'G29', path: 'pictures/g29/recap/demo.json' }, { step: 'B24', goal: 'G29', path: 'pictures/g29/recap/demo.json' }]
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B23/a.png' }), { ...ctx, recapSteps: odd }).to, 'person', 'a step of another goal in the store')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B23/a.png, pictures/B24/b.png' }), { ...ctx, recapSteps: odd }).step, 'B24', 'and the next id that fits is taken')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B50/a.png' }), { ...ctx, recapSteps: [{ step: 'B50', goal: 'G29', path: 'pictures/g29/recap/demo.json' }] }).to, 'person', 'a step the store does not hold')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Asks: 'provide' }), withRows).to, 'person', 'only a look or a decide')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Owner: 'Partner' }), withRows).to, 'person', 'the partner\'s ask under no step stays the person\'s')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Of: 'B21' }), withRows).to, 'recap', 'under a step it goes as before (the checker\'s look)')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Of: 'B21' }), withRows).step, undefined, 'and is put under no other step')
+})
+
+test('2026-11-02: the sweep judges an ask the board itself routed to the person anew; one somebody handed on is never judged again', () => {
+  const routedBy = (extra = {}) => item({ Id: 'Q41', Kind: 'ask', Title: 'Icons or words on the bar?', State: 'open', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', Via: 'chat', Route: 'person', Since: at(60), Filed: String(NOW - 60 * MIN), Blocking: 'no' },
+    { Text: ['Icons or words on the bar?'], ...extra, History: [`- ${at(60)} Painter: asked (decide)`, `- ${at(50)} server: autopilot: routed to person`] })
+  const own = routedBy()
+  assert.equal(isBoardRoutedPerson(own), true)
+  assert.equal(isExplicitPerson(own), true, 'the board\'s own route is a person route as it stands')
+  assert.equal(autopilotRoute(own, ctx).to, 'person')
+  assert.equal(autopilotRoute(own, { ...ctx, again: true }).to, 'partner', 'judged anew, a detail question goes to the partner')
+  const handed = routedBy({ Route: ['Your partner hands this to you: a new look is yours'] })
+  assert.equal(isBoardRoutedPerson(handed), false)
+  assert.equal(autopilotRoute(handed, { ...ctx, again: true }).to, 'person', 'handed on: never judged again')
+  const taken = routedBy({ Route: ['The person took it back from Autopilot (Undo)'] })
+  assert.equal(autopilotRoute(taken, { ...ctx, again: true }).to, 'person', 'taken back by the person: never judged again')
+  // A bare Route: person without the board's line is the default, which the pass routes anyway.
+  assert.equal(isBoardRoutedPerson(ask('Q42', { Title: 'Icons or words?', Owner: 'Painter', Asks: 'decide', Route: 'person' })), false)
 })

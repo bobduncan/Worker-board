@@ -13,6 +13,12 @@ coverage and child controls are verified. Contracts, conservative model floors a
 are foundations for that later guarded workflow. See `docs/model-routing.md` and `docs/model-routing-pilot.md` for
 the implemented boundary and remaining prerequisites. A missing prerequisite never relaxes a quality gate.
 
+**A summary is kept (B917, X93).** Every rebuild of the board's state asks five summaries (1, 7, 30 days, all, today),
+each over the whole ledger (50 000 events): 374 ms per rebuild, 13% of a core on 2026-11-02. The collector
+(`src/work/routing/collector.mjs`) keeps one per period while the ledger's events and the outcomes are the same ones (a
+scan that adds events, or a load, replaces them) and the period's window starts in the same minute; a kept one gets the
+time and the coverage anew. Five summaries 416 ms → 2 ms on the live ledger (tests: test/work/routingCollector.test.mjs).
+
 > **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
 > settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on any tie; its list of
@@ -1670,6 +1676,24 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   whole again, also one the call left running. A hand edit made during a call is seen by the next call. On today's
   store (2987 items) a `note` lists the folder once instead of three times, with half the stats (tests:
   test/work/oneRead.test.mjs).
+- **One index per rebuild (B917, X93)**: the live board spent 67% of a core on 2026-11-02 (work calls answered after
+  up to 48 s): it rebuilt its state about every 3 s, and in each rebuild every step asked for its fixes (`fixesOf`,
+  through its window's tries) and its asks (`asksOfStep`), each asking a walk over all 3000 items (110 of every 600 s).
+  `withLinks(items, work)` (src/work/links.mjs) runs a synchronous rebuild (`buildState`, the backlog view of
+  `storeBacklog`) with an index of that store, made in one walk on first use (steps by `Fix of`, asks by `Of`) and
+  dropped when the rebuild returns: never kept across reads. Outside it, for another Map, or once the Map's size changed
+  within it, both scan as before; each answer is a list of its own. On the live store (3138 items, 903 steps): the
+  backlog view 396 → 81 ms, every step's window 677 → 20 ms (tests: test/work/links.test.mjs; `node
+  tools/bench-x93.mjs <board> <work folder> <spending.json>` times both). The picture lists (src/sources.mjs) built
+  the backlog view again at every rebuild for the folders the steps mention (6% of a core): those folders are worked
+  out once per read of the store (the keeper's answer, the same until a change through the board or its 30 s; tests:
+  test/sources.test.mjs, B917).
+- **The state kept 5 s (B917 part 4, X93)**: `readState` (server.mjs, `STATE_MS`) keeps the built state 5 s instead
+  of 2 s; every change through the board still resets it, so a change shows at once. Logged on the live board
+  (2026-11-02, 152 s): 913 asks of the state (6 a second: the chats' pings, the page's polls, the loops) and 32 resets
+  (one every 4.8 s), 46 builds. Replayed with a build of 300 ms: 2 s keep 71 builds, 5 s keep 45 (−37%), the wait per
+  ask 118 → 78 ms. The resets bound it: at most about one build per reset. A chat's status pill counts its age at draw
+  time, so the longer keep does not age it (art-inbox/X93/cadence-1.json).
 - **What you see**: under the Backlog tab's head one line, "Store · 370 items · backlog.md is its view" (the problems
   on hover); in a step's window a part "Flow": the strip of states with the step's own marked, and the moves out of it
   with who makes each.
