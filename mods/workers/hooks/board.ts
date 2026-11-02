@@ -492,7 +492,7 @@ export function boardStarts(listText: string, launchText: string): BoardStart[] 
 export const BOARD_LAUNCHER = [
   "const { spawn } = require('node:child_process'); const fs = require('node:fs'); const path = require('node:path');",
   'const [log, cwd, cmd, ...args] = process.argv.slice(1);',
-  "let out = 'ignore'; try { if (log !== '') { fs.mkdirSync(path.dirname(log), { recursive: true }); out = fs.openSync(log, 'a') } } catch { out = 'ignore' }",
+  "let out = 'ignore'; try { if (log !== '-') { fs.mkdirSync(path.dirname(log), { recursive: true }); out = fs.openSync(log, 'a') } } catch { out = 'ignore' }",
   "const child = spawn(cmd, args, { cwd, detached: true, stdio: ['ignore', out, out], windowsHide: true });",
   "child.once('error', () => process.exit(1)); child.once('spawn', () => { child.unref(); process.exit(0) });",
 ].join(' ')
@@ -504,11 +504,14 @@ export function boardLogOf(argv: readonly string[]): string | null {
   return `${script.replace(/[\\/][^\\/]*$/, '')}/data/board.log`
 }
 
-/** 5c: the command that starts a kept board through the launcher: the board's own node when it runs on node, else node. */
+/**
+ * 5c: the command that starts a kept board through the launcher: the board's own node when it runs on node, else node. `--`
+ * ends node's own options, so no argument after the script (one starting with "-") is read as one; `-` stands for no log.
+ */
 export function launchArgv(board: BoardStart, cwd: string): string[] {
   const [cmd = 'node', ...args] = board.argv
   const node = /(?:^|[\\/])node(?:\.exe)?$/i.test(cmd) ? cmd : 'node'
-  return [node, '-e', BOARD_LAUNCHER, boardLogOf(board.argv) ?? '', cwd, cmd, ...args]
+  return [node, '-e', BOARD_LAUNCHER, '--', boardLogOf(board.argv) ?? '-', cwd, cmd, ...args]
 }
 
 /**
@@ -518,7 +521,11 @@ export function launchArgv(board: BoardStart, cwd: string): string[] {
  * envelope's line and settles it, and one whose /clear never comes settles it failed at the two-minute net.
  */
 export type PendingClear = { ticket: string; from: string; step: string | null; at: number; envelope: Envelope | null; outcome: Outcome | null }
-/** B944: the store's key of a clear, unique across this chat's processes: the process's run (its start) and its ticket. */
+/**
+ * B944: the store's key of a clear, unique across this chat's processes: the process's run (its start) and its ticket. The
+ * record itself is kept under its session (`pendingClearKey`): `$.store` is one file for every chat of the plugin.
+ */
+export const pendingClearKey = (session: string): string => `clear-pending:${session}`
 export const clearTicket = (run: number, count: number): string => `clear-${Math.round(run)}-${count}`
 const TICKET = /^clear-\d{1,16}-\d{1,9}$/
 

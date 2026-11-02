@@ -242,6 +242,11 @@ function stand(on: On, w: World): void {
 
     return { value: undefined }
   })
+  on('store.delete', (_$, e) => {
+    delete w.stored[e.key]
+
+    return { value: undefined }
+  })
   on('fs.read', (_$, e) => {
     const text = w.files[slashed(e.path)]
 
@@ -262,11 +267,11 @@ function stand(on: On, w: World): void {
     return names.length === 0 ? { deny: 'no such folder' } : { value: entries }
   })
   on('process.run', (_$, e) => {
-    // 5c (0.30.0): the board's launcher (node -e, then the log, the folder and the board's own command): it starts the board
+    // 5c (0.30.0): the board's launcher (node -e, `--`, then the log, the folder and the board's own command): it starts the board
     // detached, its output to the log, and exits at once.
     if (e.argv[1] === '-e') {
-      w.spawned.push(e.argv.slice(5).join(' '))
-      w.launched.push({ log: e.argv[3] ?? '', cwd: e.argv[4] ?? '' })
+      w.spawned.push(e.argv.slice(6).join(' '))
+      w.launched.push({ log: e.argv[4] ?? '', cwd: e.argv[5] ?? '' })
       if (w.comesUp) w.up?.push('http://127.0.0.1:4310/')
       return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
@@ -3028,13 +3033,13 @@ describe('clear after each step', () => {
     w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [] }) }
     const env = { id: 'e944', kind: 'task', step: 'B13', clear: { step: 'B12', reportedAt: 5 }, restart: false, set: null, line: 'work: B13 is yours; run work next', version: null }
     // What the earlier process kept before it was loaded anew: its clear's ticket, the envelope and its outcome so far.
-    w.stored['clear-pending'] = { ticket: 'clear-7-2', from: 'units', step: 'B12', at: 49 * MIN, envelope: env, outcome: { cleared: null, set: null, typed: null, restarted: null, background: false, why: null } }
+    w.stored['clear-pending:units'] = { ticket: 'clear-7-2', from: 'units', step: 'B12', at: 49 * MIN, envelope: env, outcome: { cleared: null, set: null, typed: null, restarted: null, background: false, why: null } }
     await $.session.start(START)
     // Its /clear, queued by the earlier process, comes now: it runs (the card's fresh mark), and the store forgets it.
     expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('')
     expect(w.commanded).toEqual(['/clear by plugin workers'])
     await settle()
-    expect(w.stored['clear-pending']).toBeNull()
+    expect(w.stored['clear-pending:units']).toBeUndefined()
     await cleared($, w)
     await clock.advance(5000)
     for (let i = 0; i < 50 && !w.reported.some(body => body.includes('e944')); i++) await settle()
@@ -3051,7 +3056,10 @@ describe('clear after each step', () => {
     stand(on, w)
     w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [] }) }
     const env = { id: 'e945', kind: 'task', step: 'B13', clear: { step: 'B12', reportedAt: 5 }, restart: false, set: null, line: 'work: B13 is yours; run work next', version: null }
-    w.stored['clear-pending'] = { ticket: 'clear-7-2', from: 'units', step: 'B12', at: 49 * MIN, envelope: env, outcome: null }
+    w.stored['clear-pending:units'] = { ticket: 'clear-7-2', from: 'units', step: 'B12', at: 49 * MIN, envelope: env, outcome: null }
+    // The round-2 review: another chat's record, as old, in the same store (one file for every chat of the plugin).
+    const foreign = { ticket: 'clear-9-1', from: 'main', step: null, at: 40 * MIN, envelope: { ...env, id: 'e999' }, outcome: null }
+    w.stored['clear-pending:main'] = foreign
     await $.session.start(START)
     await clock.advance(30_000)
     await settle()
@@ -3060,7 +3068,29 @@ describe('clear after each step', () => {
     for (let i = 0; i < 50 && !w.reported.some(body => body.includes('e945')); i++) await settle()
     const told = w.reported.map(body => JSON.parse(body) as { handover?: string; outcome?: Record<string, unknown> }).find(body => body.handover === 'e945')
     expect([told?.outcome?.cleared, told?.outcome?.why]).toEqual([false, '/clear did not run within two minutes'])
-    expect(w.stored['clear-pending']).toBeNull()
+    expect(w.stored['clear-pending:units']).toBeUndefined()
+    // Mutant "one key for every chat": this chat would read, settle or delete the Main chat's record.
+    expect(w.stored['clear-pending:main']).toEqual(foreign)
+    expect(w.reported.some(body => body.includes('e999'))).toBe(false)
+  })
+
+  test('the round-2 review, B944: a record of the same session that is not the clear the card\'s mark stands for (another time or step) brings no envelope back', async ($, on) => {
+    const clock = mock.clock(on, { now: 50 * MIN })
+    const marked: ChatFile = { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 49 * MIN, clearing: { at: 49 * MIN, step: 'B12', log: LOG } }
+    const w = world('units', { ...listed({ units: marked }), [BOARD]: board })
+    stand(on, w)
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [] }) }
+    const env = { id: 'e946', kind: 'task', step: 'B9', clear: { step: 'B8', reportedAt: 5 }, restart: false, set: null, line: 'work: B9 is yours; run work next', version: null }
+    // An older clear of this session (B8, 20 minutes ago), left in the store.
+    w.stored['clear-pending:units'] = { ticket: 'clear-7-1', from: 'units', step: 'B8', at: 30 * MIN, envelope: env, outcome: null }
+    await $.session.start(START)
+    expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('')
+    await cleared($, w)
+    await clock.advance(5000)
+    for (let i = 0; i < 20; i++) await settle()
+    // Mutant "the session alone": B9's line would be typed into the fresh conversation.
+    expect(w.typedIn.some(one => one.includes('work: B9 is yours'))).toBe(false)
+    expect(w.reported.some(body => body.includes('e946'))).toBe(false)
   })
 
   test('review 5: a /clear of the mod with only a mark older than two minutes, or after a prompt, does not run', async ($, on) => {

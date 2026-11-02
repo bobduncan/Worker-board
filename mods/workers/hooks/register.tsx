@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
 import type { Board, BoardStart, Envelope, Handover, Outcome, OwedClear, PauseState, PauseWhere, PendingClear, StopAsk, TurnReport, TurnWords, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -139,8 +139,6 @@ const queuedClears: number[] = []
 let clearTickets = 0
 /** B944 (0.30.0): the ticket of a clear an earlier process kept in the store and this one runs (its envelope comes with it). */
 const KEPT_TICKET = -1
-/** B944: where the mod's store keeps the clear on its way (board.ts `PendingClear`), for a reload or a new process. */
-const CLEAR_KEY = 'clear-pending'
 /** B944: the stored clear a new process found at its first look (`settleStoredClear`), until it is settled. */
 let storedClear: PendingClear | null = null
 let isStoreLooked = false
@@ -1211,7 +1209,7 @@ async function dropClear($: EngineInterface, why: string): Promise<void> {
   if (clearing === null) return
   const dropped = clearing
   clearing = null
-  if (dropped.kept !== undefined) void forgetClear($, dropped.kept)
+  if (dropped.kept !== undefined) void forgetClear($, dropped.kept, dropped.from)
   // T8.5: the clear of an envelope that was dropped: the envelope is settled as failed, its line never typed.
   if (handing !== null && handing.ticket === dropped.ticket) void failEnvelope($, handing.envelope, handing.outcome, 'cleared', why).catch(() => null)
   try {
@@ -1437,34 +1435,39 @@ function queueClear($: EngineInterface, c: Omit<Clearing, 'ticket'>, instead: (w
   queuedClears.push(ticket)
   const kept: PendingClear = { ticket: key, from: c.from, step: c.step, at: c.at, envelope: handover?.envelope ?? null, outcome: handover === undefined ? null : { ...handover.outcome } }
   void (async () => {
-    await $.store.set(CLEAR_KEY, kept).catch(() => undefined)
+    await $.store.set(pendingClearKey(c.from), kept).catch(() => undefined)
     return $.command.run({ command: 'clear' })
   })().then(() => {
     // The app answered the /clear: it ran or the hook refused it; either way the store no longer keeps it on its way.
-    void forgetClear($, key)
+    void forgetClear($, key, c.from)
   }, async (err: unknown) => {
     const at = queuedClears.indexOf(ticket)
     if (at >= 0) queuedClears.splice(at, 1)
-    void forgetClear($, key)
+    void forgetClear($, key, c.from)
     if (clearing?.ticket !== ticket) return
     clearing = null
     await instead(`/clear did not run: ${reason(err)}`)
   }).catch(() => null)
 }
 
-/** B944: the clear the mod's store keeps as on its way; null for none. */
+/**
+ * B944: the clear the mod's store keeps as on its way for this session (the round-2 review: one key per session, since the
+ * store is one file for every chat of the plugin and a shared key let chats overwrite and delete each other's); null for none.
+ */
 async function pendingClearKept($: EngineInterface): Promise<PendingClear | null> {
   try {
-    return parsePendingClear(await $.store.get(CLEAR_KEY))
+    const kept = parsePendingClear(await $.store.get(pendingClearKey(await $.session.id())))
+    return kept !== null && kept.from === (await $.session.id()) ? kept : null
   } catch {
     return null
   }
 }
 
 /** B944: the store no longer keeps the clear of `ticket` on its way (it ran, was dropped or settled). */
-async function forgetClear($: EngineInterface, ticket: string): Promise<void> {
+async function forgetClear($: EngineInterface, ticket: string, from: string): Promise<void> {
   try {
-    if ((await pendingClearKept($))?.ticket === ticket) await $.store.set(CLEAR_KEY, null)
+    const key = pendingClearKey(from)
+    if (parsePendingClear(await $.store.get(key))?.ticket === ticket) await $.store.delete(key)
     if (storedClear?.ticket === ticket) storedClear = null
   } catch {
     // the next process finds it and settles it by the net
@@ -1473,9 +1476,9 @@ async function forgetClear($: EngineInterface, ticket: string): Promise<void> {
 
 /**
  * B944: at a tick with no clear of its own on its way, a process looks once at the clear the store keeps (one an earlier
- * process of this chat queued before a reload). Its /clear may still come (the hook runs it by its ticket); one that has not
- * come within two minutes is settled: its envelope failed with the why, the store emptied. A session that changed since
- * means the clear ran in the earlier process: the entry is only forgotten.
+ * process of this chat queued before a reload), under this session's key. Its /clear may still come (the hook runs it by the
+ * card's mark); one that has not come within two minutes is settled: its envelope failed with the why, the record deleted.
+ * Another session's record is never read here, nor deleted.
  */
 async function settleStoredClear($: EngineInterface): Promise<void> {
   if (!isStoreLooked) {
@@ -1484,14 +1487,13 @@ async function settleStoredClear($: EngineInterface): Promise<void> {
   }
   const kept = storedClear
   if (kept === null) return
-  if ((await $.session.id()) !== kept.from) return forgetClear($, kept.ticket)
   if ((await $.clock.now()) - kept.at < CLEAR_WAIT_MS) return
   await failKeptClear($, kept, '/clear did not run within two minutes')
 }
 
 /** B944: a kept clear that will not run: its envelope settled as failed with the why, the card told, the store emptied. */
 async function failKeptClear($: EngineInterface, kept: PendingClear, why: string): Promise<void> {
-  await forgetClear($, kept.ticket)
+  await forgetClear($, kept.ticket, kept.from)
   if (kept.envelope !== null) void failEnvelope($, kept.envelope, { ...NO_OUTCOME, ...(kept.outcome ?? {}) }, 'cleared', why).catch(() => null)
   try {
     const now = await $.clock.now()
@@ -1617,8 +1619,9 @@ async function typeLine($: EngineInterface, envelope: Envelope, outcome: Outcome
           // The review of 0.30.0: the submit resolves once the line entered and its turn started, so the clock now may be a few
           // ms past that turn's start, and the board's take-back (`turnSince >= enteredAt`) would never count the line's own
           // turn. When that turn has begun on this very line, its start (read before the busy) is the entry, at the latest.
-          const now = await Promise.resolve($.clock.now()).catch(() => typedAt ?? 0)
-          outcome.enteredAt = turnWords.word === envelope.id && turnWords.turn !== null ? Math.min(turnWords.turn, now) : now
+          // The round-2 review: a clock read that fails leaves enteredAt out (0 would let any turn's end take the task back).
+          const now = await Promise.resolve($.clock.now()).catch(() => null)
+          if (now !== null) outcome.enteredAt = turnWords.word === envelope.id && turnWords.turn !== null ? Math.min(turnWords.turn, now) : now
         } else outcome.why = typedWhy(entered.drop, 'a hook dropped it')
       } catch (err) {
         turnWords = wordSettled(turnWords, envelope.id, false)
@@ -2573,11 +2576,11 @@ const MOVE_WAIT_MS = 1_000
  * as before.
  */
 /** B944 (0.30.0): the mod's /clear ran (or the app refused it): the store no longer keeps that clear (its key) on its way. */
-async function ranClear<T>($: EngineInterface, key: string | null, ran: Promise<T>): Promise<T> {
+async function ranClear<T>($: EngineInterface, cleared: Clearing | null, ran: Promise<T>): Promise<T> {
   try {
     return await ran
   } finally {
-    if (key !== null) void forgetClear($, key)
+    if (cleared?.kept !== undefined) void forgetClear($, cleared.kept, cleared.from)
   }
 }
 
@@ -2919,7 +2922,7 @@ export const register: Register = on => {
     const decided = clearing
     const run = clearRun(queuedClears, decided, { session: await $.session.id(), isInTurn, prompts: promptCount, turn: turnNumber })
     queuedClears.splice(0, queuedClears.length, ...run.left)
-    if (run.verdict === 'run') return ranClear($, decided?.kept ?? null, clearThenPrepare($, next(e)))
+    if (run.verdict === 'run') return ranClear($, decided, clearThenPrepare($, next(e)))
     if (run.verdict === 'late') {
       await dropClear($, 'a new prompt came in before the clear ran')
       return { text: 'Not cleared: a new prompt came in before the clear ran.' }
@@ -2932,12 +2935,14 @@ export const register: Register = on => {
       clearing = marked
       // B944 (0.30.0): the clear an earlier process of this chat queued (a reload, a new process) and kept in the mod's store:
       // its envelope comes back with it, so its line follows in the fresh conversation and the envelope is settled.
+      // The round-2 review: only the very clear the card's mark stands for (its session, its time, its step), never an older
+      // record of the same session, whose envelope's line would go into the fresh conversation.
       const kept = await pendingClearKept($)
-      if (kept !== null && kept.from === marked.from) {
+      if (kept !== null && kept.from === marked.from && kept.at === marked.at && kept.step === marked.step) {
         clearing = { ...marked, ticket: KEPT_TICKET, kept: kept.ticket }
         if (kept.envelope !== null) handing = { envelope: kept.envelope, outcome: { ...NO_OUTCOME, ...(kept.outcome ?? {}) }, ticket: KEPT_TICKET }
       }
-      return ranClear($, clearing.kept ?? null, clearThenPrepare($, next(e)))
+      return ranClear($, clearing, clearThenPrepare($, next(e)))
     }
     return { text: 'Not cleared: this /clear of the Workers mod was let go before it ran.' }
   })

@@ -123,10 +123,13 @@ describe('5c (0.30.0): a kept board starts through a launcher, detached, its out
     const board = { name: 'worker-board', argv: ['D:/Tools/node/node.exe', 'D:/Work/project/worker-board/server.mjs'], url: 'http://127.0.0.1:4310/' }
     const argv = launchArgv(board, 'D:/Work/project')
     expect(argv.slice(0, 2)).toEqual(['D:/Tools/node/node.exe', '-e'])
-    expect(argv.slice(3)).toEqual(['D:/Work/project/worker-board/data/board.log', 'D:/Work/project', 'D:/Tools/node/node.exe', 'D:/Work/project/worker-board/server.mjs'])
+    // The round-2 review: `--` ends node's options, so a board argument starting with "-" is never read as one.
+    expect(argv.slice(3)).toEqual(['--', 'D:/Work/project/worker-board/data/board.log', 'D:/Work/project', 'D:/Tools/node/node.exe', 'D:/Work/project/worker-board/server.mjs'])
     expect(argv[2]).toContain("detached: true, stdio: ['ignore', out, out]")
     expect(argv[2]).toContain('unref()')
-    expect(launchArgv({ ...board, argv: ['deno', 'run', 'x.ts'] }, 'D:/Work/project').slice(0, 5)).toEqual(['node', '-e', BOARD_LAUNCHER, '', 'D:/Work/project'])
+    // No script to name a log by: "-" (never an empty argument).
+    expect(launchArgv({ ...board, argv: ['deno', 'run', 'x.ts', '--port', '1'] }, 'D:/Work/project')).toEqual(['node', '-e', BOARD_LAUNCHER, '--', '-', 'D:/Work/project', 'deno', 'run', 'x.ts', '--port', '1'])
+    expect(BOARD_LAUNCHER).toContain("log !== '-'")
     expect(boardLogOf(['node', 'server.mjs'])).toBeNull()
     expect(boardLogOf(['node', 'D:\\b\\server.mjs'])).toBe('D:\\b/data/board.log')
   })
