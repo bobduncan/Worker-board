@@ -134,7 +134,7 @@ let board = null
 let answeredBy = null
 /** Signals change 5 (C): this page load's own id for X-Board-Active, and the person's last key or click on it. */
 const PAGE_ID = Math.random().toString(36).slice(2, 12) || 'page'
-const activity = { lastAt: null, since: null }
+const activity = { lastAt: null, since: null, said: false }
 for (const kind of ['keydown', 'input', 'click']) {
   document.addEventListener(kind, () => {
     const now = Date.now()
@@ -1526,7 +1526,15 @@ function hasFocusedField() {
 function activeHeader(now) {
   const busy = personBusy({ now, lastAt: activity.lastAt, since: activity.since, isFocused: hasFocusedField(), isShown: document.visibilityState !== 'hidden' })
   activity.since = busy === null ? null : busy.since
-  return busy === null ? {} : { 'X-Board-Active': `${PAGE_ID} ${busy.forMs}` }
+  if (busy !== null) {
+    activity.said = true
+    return { 'X-Board-Active': `${PAGE_ID} ${busy.forMs}` }
+  }
+  // 2026-11-02 (the lead's check: a wait ran to the cap after the person had left the field): the first poll after busy ended
+  // says "off", so the board drops this page's word at once instead of after its 90 s (src/selfUpdate.mjs ACTIVE_KEPT_MS).
+  if (activity.said !== true) return {}
+  activity.said = false
+  return { 'X-Board-Active': `${PAGE_ID} off` }
 }
 
 /** B524: the words in the page's own boxes, by element id (the Talk to Main and Advisor boxes, the Goals and Design boxes, ...). */
