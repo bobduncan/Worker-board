@@ -60,8 +60,12 @@ export function blockersOf({ now, outbox = [], checks = 0, isReconciling = false
  * how long already (a length of time, so the page's clock, which may be hours off, never counts). Null for anything else.
  */
 export function readActive(header) {
-  const found = /^([A-Za-z0-9-]{1,40}) (\d{1,10})$/.exec(typeof header === 'string' ? header.trim() : '')
-  return found === null ? null : { page: found[1], forMs: Number(found[2]) }
+  const found = /^([A-Za-z0-9-]{1,40}) (\d{1,10}|off)$/.exec(typeof header === 'string' ? header.trim() : '')
+  if (found === null) return null
+  // 2026-11-02 (the lead's check of change 5: a wait ran to the 3-minute cap although the person had left the field after
+  // 20 s): the page's first poll after it stopped being busy says `<page> off`, so the board drops its word at once; the 90 s
+  // of ACTIVE_KEPT_MS stay only for a tab that fell silent.
+  return found[2] === 'off' ? { page: found[1], forMs: null, off: true } : { page: found[1], forMs: Number(found[2]), off: false }
 }
 
 /**
@@ -74,7 +78,9 @@ export function activePages({ keptMs = ACTIVE_KEPT_MS } = {}) {
   return {
     heard(header, now) {
       const told = readActive(header)
-      if (told !== null) pages.set(told.page, { at: now, since: now - told.forMs })
+      if (told === null) return
+      if (told.off) pages.delete(told.page)
+      else pages.set(told.page, { at: now, since: now - told.forMs })
     },
     personActive(now) {
       let since = null

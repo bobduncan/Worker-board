@@ -1485,6 +1485,13 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .workers-panel .now, .workers-panel .note, .workers-panel .needs-you { font-size: 13.5px; }
 .progress-cell { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .progress-cell .bar { flex: none; width: 100%; height: 7px; }
+/* Signals change 7 (B914): a worker's bar is the share of its held step's size used, thin; overdue in the attention tone,
+   the same moment its time turns (B185). The time reads "1 h 56" with "of its 2 h" beside it. */
+.lane .fill.is-overdue, .simple-track > span.is-overdue { background: var(--warn); }
+.eta .eta-line { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.eta .eta-of { font-size: 13px; color: var(--muted); font-weight: 400; }
+.simple-left.is-overdue { color: var(--warn); }
+.simple-of { color: var(--muted); font-weight: 400; font-size: 12px; }
 .progress-count { color: var(--muted); font-size: 13px; text-align: right; }
 .lane.is-suspended .fill, .lane.is-paused .fill { background: var(--suspended); }
 .lane.is-interrupted .fill, .lane.is-held .fill, .lane.is-noanswer .fill { background: var(--warn); }

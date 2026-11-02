@@ -89,9 +89,11 @@ const app = (name, more = {}) => JSON.stringify({
 const card = text => JSON.stringify({ name: 'Support', role: 'worker', state: 'working', task: { text, step: 1, steps: 2, left: 20 * MIN, isReported: false, names: ['Read', 'Build'], stepLeft: 8 * MIN, since: NOW - 30 * MIN }, at: NOW - 2 * MIN })
 const STORE = '## A\n- [ ] B29 See tall walls (for Support; not handed out) (branch feature/stone)\n- [ ] B85 Refine before the queue (for Support) (branch feature/refine)\n'
 
-function support({ plan, tail, summary = null, since = null, store = STORE }) {
+function support({ plan, tail, summary = null, since = null, store = STORE, active = {} }) {
   const work = storeFromText(store, { now: NOW - 60 * MIN })
   if (since !== null && work.items.has('B85')) work.items.get('B85').head.set('Since', since)
+  // A History line of its holder on a step: its newest activity there.
+  for (const [id, line] of Object.entries(active)) if (line !== null && work.items.has(id)) work.items.get(id).sections.set('History', [...(work.items.get(id).sections.get('History') ?? []), line])
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: [app('Main'), app('Support', summary === null ? {} : { postTurnSummary: { status_category: summary, status_detail: 'x', summarizes_uuid: 'u-1' } })],
@@ -103,15 +105,17 @@ function support({ plan, tail, summary = null, since = null, store = STORE }) {
 }
 const running = [typed(NOW - 30 * MIN, 'Go on.'), toolStep(NOW - 2 * MIN, 'Build'), toolResult(NOW - MIN)]
 
-test('of two steps its worker holds, the lane shows the one its card names, else the newest', () => {
-  assert.equal(support({ plan: card('B85 Refine before the queue'), tail: running }).task.stepId, 'B85')
-  assert.equal(support({ plan: card('B29 See tall walls'), tail: running }).task.stepId, 'B29')
-  // The first it names: "B85 ... after B29" is on B85.
-  assert.equal(support({ plan: card('B85 Refine, after B29'), tail: running }).task.stepId, 'B85')
+test('of two steps its worker holds, the lane shows the store\'s pick, whatever its card names (signals change 7)', () => {
+  // Signals change 7 (B914, 2026-11-02): no longer the step the card's words name, nor the newest head Since (every move
+  // rewrites it): of two in progress, the one with its holder's newest History line (work/held.mjs `pickHeld`).
+  const active = { 'B29': null, 'B85': '- 2026-10-17 11:50 Support: step 1/2' }
+  for (const words of ['B85 Refine before the queue', 'B29 See tall walls', 'B85 Refine, after B29', 'Refining']) {
+    const lane = support({ plan: card(words), tail: running, active })
+    assert.equal(lane.task.stepId, 'B85', words)
+    assert.equal(lane.held.id, 'B85', words)
+  }
   // The store's title of the step reaches the page without its note.
-  assert.equal(support({ plan: card('B29 See tall walls'), tail: running }).task.title, 'See tall walls')
-  // A card that names none: the step it took last.
-  assert.equal(support({ plan: card('Refining'), tail: running, since: '2026-10-17 23:50' }).task.stepId, 'B85')
+  assert.equal(support({ plan: card('B29 See tall walls'), tail: running, active: { 'B29': '- 2026-10-17 11:50 Support: step 1/2' } }).task.title, 'See tall walls')
 })
 
 test('a worker whose answer closed "Done: partly" is not free, whatever the app calls its turn', () => {

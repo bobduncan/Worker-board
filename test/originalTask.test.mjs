@@ -127,13 +127,17 @@ test('the window shows the card\'s task in its head, the task as it was given, i
   assert.equal(view.given, null)
   assert.deepEqual(plain(page.laneWindowOf(lane(working, { backlogText: '' }), NOW, 'Game - Main')).given, { from: `Typed by you, ${page.clock(NOW - 50 * MIN)}`, text: HAND_OVER })
   assert.deepEqual({ ...view.step, brief: undefined }, { id: 'B12', title: 'The zebracorn\'s walk', about: null, brief: undefined })
-  assert.deepEqual(view.standing, ['Step 2 of 3: Views, 6 min left', `ETA: 18 min left, until ${page.clock(NOW + 18 * MIN)}`, 'Now: Draw the sheet'])
+  // Signals change 7 (B914): a worker's window stands on the store's records: since its take, its checkpoint, the time of its
+  // size; B12 here is a step from before B832 (no refine Size, no Taken for, no take line), so it says so. The card's plan
+  // and times are no longer the board's facts in it.
+  assert.deepEqual(view.standing, ['Since its take (no take line in the store) · no checkpoint yet', 'No time', 'Now: Draw the sheet'])
 })
 
 test('typed by the person, unknown, or a lane whose window this is not', () => {
   const units = lane([typed(NOW - 40 * MIN, 'Make the quokkaberry glow.'), step(NOW - 2 * MIN, 'Draw the sheet'), toolResult(NOW - MIN)], { plan: card.replace(`"since":${NOW - 49 * MIN}`, `"since":${NOW - 39 * MIN}`), backlogText: '' })
   assert.equal(page.laneWindowOf(units, NOW, 'Game - Main').given.from, `Typed by you, ${page.clock(NOW - 40 * MIN)}`)
+  // Signals change 7: without the words that gave it, the window still shows the step the store says it holds.
   const lost = plain(page.laneWindowOf({ ...lane(working), givenTask: null }, NOW, 'Game - Main'))
-  assert.deepEqual([lost.given, lost.code, lost.step], [null, 'B12', null])
+  assert.deepEqual([lost.given, lost.code, lost.step], [null, 'B12', { id: 'B12', title: 'The zebracorn\'s walk', about: null, brief: null }])
   for (const [state, word] of [['free', 'Free'], ['waiting', 'Waiting for you'], ['unknown', 'Unknown']]) assert.equal(page.laneWindowOf({ ...lane(working), state, status: word }, NOW, 'Game - Main'), null, state)
 })

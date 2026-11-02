@@ -1,5 +1,5 @@
 // Own data: what changed per chat over time. A line is written when a chat's state, task or step changes:
-//   { at, chat, state, task, step, steps, leftMs, estimateAt, startedAt, source, by }
+//   { at, chat, state, task, step, steps, leftMs, estimateAt, startedAt, source, by } (source: 'step' or null since change 7)
 // and a gap line, { at, gap: true }, marks the moment from which the board was not running, so the time it was
 // off is drawn as unknown and not as the state it last saw.
 
@@ -30,10 +30,15 @@ export function lastByChat(lines) {
   return last
 }
 
-/** The lines to add for the chats as they are now. `chats` holds `{ name, state, task }`. */
+/**
+ * The lines to add for the chats as they are now. `chats` holds `{ name, state, task, held }`. Signals change 7 (B914,
+ * 2026-11-02): `source` says where the row's task comes from: 'step' when the store holds a step for the chat (`held`),
+ * null otherwise; 'plan' and 'unrecorded' (the card's text, a working chat without one) are no longer written, as the card
+ * no longer sets the row's task. Lines written before still read (state.mjs `taskOf` reads `before.source`).
+ */
 export function changes(last, chats, now) {
   const lines = []
-  for (const { name, state, task } of chats) {
+  for (const { name, state, task, held = null } of chats) {
     const line = {
       at: now,
       chat: name,
@@ -44,7 +49,7 @@ export function changes(last, chats, now) {
       leftMs: task?.leftMs ?? null,
       estimateAt: task?.estimateAt ?? null,
       startedAt: task?.startedAt ?? null,
-      source: task?.source ?? null,
+      source: held === null ? null : 'step',
       by: task?.by ?? null,
     }
     const before = last.get(name)

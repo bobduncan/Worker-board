@@ -74,7 +74,8 @@ test('a step\'s time is the first "about <time>" of its note', () => {
 test('B301: a hand-over gives no time: a working worker without a time of its own and without a step has none', () => {
   const handOver = fromChat(NOW - 10 * MIN, 'Game - Main', 'Task from Game - Main: the zebracorn check. About 45 minutes.')
   const units = lane(build({ tails: { Units: tail([handOver, ...busy]) } }), 'Units')
-  assert.deepEqual([units.task.source, units.task.stepId, units.task.handMinutes, units.eta, units.isWithoutTime], ['unrecorded', null, undefined, null, true])
+  // Signals change 7 (B914, G7): a worker that holds no store step is never "No time": it shows its status alone.
+  assert.deepEqual([units.task.source, units.task.stepId, units.task.handMinutes, units.eta, units.isWithoutTime, units.held], ['unrecorded', null, undefined, null, false, null])
 })
 
 test('the worker\'s own time wins, then its step\'s in the store; a hand-over\'s time counts for nothing', () => {
@@ -92,7 +93,8 @@ test('the worker\'s own time wins, then its step\'s in the store; a hand-over\'s
 
 test('a worker that works without a time from anywhere is marked; the main chat and a chat that does not work are not', () => {
   const state = build({ tails: { Units: tail(running), Main: tail(running) } })
-  assert.deepEqual([lane(state, 'Units').state, lane(state, 'Units').eta, lane(state, 'Units').isWithoutTime], ['working', null, true])
+  // Signals change 7 (B914, G7): only a held step without a size is "No time" (the B13 case above); a worker holding none is not.
+  assert.deepEqual([lane(state, 'Units').state, lane(state, 'Units').eta, lane(state, 'Units').isWithoutTime], ['working', null, false])
   assert.deepEqual([lane(state, 'Main').state, lane(state, 'Main').eta, lane(state, 'Main').isWithoutTime], ['working', null, false])
   assert.equal(lane(state, 'Levels').isWithoutTime, false)
 })

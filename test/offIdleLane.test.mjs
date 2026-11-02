@@ -57,7 +57,8 @@ test('the lane draws the quiet view: no alert, no task, no bar, an empty Process
   assert.match(script, /const offWork = offWorkOf\(lane, state, main\)/)
   assert.match(script, /const isQuietOff = offWork\?\.isIdle === true/)
   // No "Task not recorded yet" and no progress bar for the quiet one.
-  assert.match(script, /const task = isQuietOff \? null : lane\.task/)
+  // Signals change 7: and a worker's row never draws its card's task (it draws its held step).
+  assert.match(script, /const task = isQuietOff \|\| isHeld \? null : lane\.task/)
   // Its line is muted; the alarm, for one that holds work, names what waits.
   assert.match(script, /if \(offWork !== null\) what\.append\(el\('p', isQuietOff \? 'off-idle' : 'alert', offWork\.text\)\)/)
   assert.doesNotMatch(script, /Its chat is not running: it does nothing until its chat is opened/)
