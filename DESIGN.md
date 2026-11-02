@@ -188,7 +188,8 @@ correct". Both windows of B151 and B149 open with a part set apart, a header in 
   of one), nor after the worker finished the task before them (it reported, or said "Done: yes"): those words are
   its new task. A task without a step keeps the words above, with the same part.
 - In the window of a working worker, *Its plan*: its steps by name, done ones with ✓ and the current one with ▶, and
-  "Step 4 of 5 · 13 min left" (`planOf`). In the window of a finished worker, *What I did*: the plain sentences of its
+  "Step 4 of 5 · 13 min left" (`planOf`). Since signals change 7 a worker's window shows its plan as its own words, with their
+  age and no time ("Its own words: 4 of 4 · Report · 2 min ago"; "A worker's row from the board's records"). In the window of a finished worker, *What I did*: the plain sentences of its
   "What I did" line (`plainWords`).
 - Plain words only: a step or a sentence with code, a file or a path, an address setting, a function or a
   programmer's word is left out of this part (`TECHNICAL`), so it shows less rather than technical words.
@@ -1500,7 +1501,8 @@ read as finished. The demo's Cleanup is this case; the picture is
 `art-inbox/worker-board/b148/2026-10-14-b148-before-after.png`.
 
 A lane read as free, by "Done: yes" or by the app's own summary, shows no task, step or time from a card left
-behind: only one dim line, "Last task: <text>, finished" (the person, 10:14: "units worker is in an incorrect
+behind: only one dim line, "Last task: <text>, finished" (since signals change 7, for a worker, <text> is the step the store
+says it reported last, never the card's words) (the person, 10:14: "units worker is in an incorrect
 state", of Units shown free beside its old card's task and "22 min over its first estimate"). A chat that waits
 for the person keeps its card's task: that is the work it waits on. The picture is
 `art-inbox/worker-board/b148/2026-10-14-b148-free-lane.png`.
@@ -1560,7 +1562,9 @@ in `art-inbox/worker-board/b262/`.
   that has run out says by how much ("12 min over").
 - A working worker always has a time: its own, else the estimate of its step in the store, counted from the task's
   start and saying where it is from (B301: a hand-over's time is no longer read). A worker that works with neither is
-  a fault, shown in the warning colour ("No time"). The main chat has no task to time.
+  a fault, shown in the warning colour ("No time"). The main chat has no task to time. Since signals change 7 a worker's
+  row times the step the store says it holds by its size (refine Size, else the take's `Taken for`) from its take; "No time"
+  only for a held step without a size, never for a worker that holds none ("A worker's row from the board's records").
 - **A task's plan and time stay with the task (T13, part 2; the person, 2026-10-28: "still no ETA per task"):** a worker's
   plan (its parts, the part it is on, the minutes left) lived only on its chat's card, so a task that moved to a new chat
   showed "no steps given" and "No time" until the worker recorded a plan again. Now the work tool's `step` call also saves it
@@ -2540,7 +2544,9 @@ make Information smaller or bigger. Nothing is gone: what leaves a row is in its
    line: the step it is about, who sent it, its words without "Report from ...:" (`infoLine`); a click opens the whole
    note with its Read button; "Mark all read" reads each new one in turn. All read and hidden, the box is one line.
    Since the calm panel (2026-10-19) this box is the log, folded by default behind one quiet line.
-2. One line per worker: its task, or "free since 13:01" (`freeShort`). "Now:" and "Between turns" are in the task's
+2. One line per worker: its task, or "free since 13:01" (`freeShort`). Since signals change 7 a worker's task is the step
+   the store says it holds, with the time left of its size and a thin bar; since, checkpoint and plan on hover ("A worker's
+   row from the board's records"). "Now:" and "Between turns" are in the task's
    tooltip and its details; the compaction note shows only when it warns, else on hovering the name; "No active task"
    and "Ready for a new task" go, and so does the empty bar of a worker without a task. Alerts, flags, a held or cut-off
    worker and "Needs your decision" stay on the row: they say something is wrong. The Advisor's card follows: its task,
@@ -3793,7 +3799,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   case and not odd; a part sent back counts from the Send back; B883, X117: a step with the person's open card is kind 'accept', "waits
   for your Accept in Q<n>", no case and not odd; a Send back counts from the answer), `review-held` (B656, X8 again: a step in review whose chain of open fixes ends in a refined
   fix the ready list holds, for over 60 min from when the board first saw that hold (B660, X59: not from the fix's Since; a changed why
-  starts again; a hold that is the person's open ask, "waits for the answer to Q<n>", is no case and not odd); one case per chain, named by its first step, with the
+  starts again; a hold that is the person's open ask, "waits for the answer to Q<n>", is no case and not odd; B916, X123: nor is a hold
+  "blocked by B<n>, ..." when every blocker waits for the person alone, `waitsForPerson`: their answer, verdict in a recap or Accept, also at
+  the end of the blocker's chain of fixes with no link at work; one blocker that waits for a check or a worker keeps it a case; once their wait
+  ends the hold counts from then, as nothing was watched meanwhile); one case per chain, named by its first step, with the
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
   <why>" on the Backlog tab, in work next and list, and in the health summary, which counts review chains, not steps),
   `chain-long` (B664, X8 a third time: a chain of fixes with three tries or more, its first step and every fix under it
@@ -3805,8 +3814,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   BOARD_TRIES; its line reads "waits for its fix B<n>, not refined yet"; the refine gate types such a fix's word again
   after an hour, `FIX_RETRY_MS`, up to BOARD_TRIES; a round with questions waits for the person and is no case). B664: the health
   summary judges a step in review as review-stuck, dropped-fix and review-held do, through one helper (`reviewLateOf`,
-  with the supervisor's memory of when it first saw each key): a check whose QA task a worker is on, the person's open ask
-  and a hold the watch only just saw are not odd there either,
+  with the supervisor's memory of when it first saw each key): a check whose QA task a worker is on, the person's open ask,
+  a block by steps that all wait for the person alone (B916) and a hold the watch only just saw are not odd there either,
   `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose
   last checkpoint's next action is to report, written over 30 min ago; one finding per step and checkpoint; not while
   the person pauses, a limit is full or its worker is suspended for the limit, and its suspended time does not count; the health summary shows each step in progress with its
@@ -3858,6 +3867,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   limit reading's "(old: N min)" and the clock times in the findings' texts (they say what the clock showed), and in the rules whose
   words wait on a chat (`undelivered`, `unknown-lane`), which the chat's own clock decides. How long a thing
   lasted comes from the timeline (`state.today`), else from the supervisor's own watch.
+  Signals change 7: a worker's row times its held step this way from its take (`held.eta`, "A worker's row from the board's
+  records"); the card's own times below stay for the card's readers.
   B793 (the person, 2026-10-30: the Left column read "45 h 33 over" on Worker 1's B781, which had been paused, restarted and the board
   off since its plan of 28 Oct): the same rule holds for a lane's time left. RUNNING TIME = what the chat worked on its task, from
   the history's lines (`history.mjs notWorkedCounter`: a pause, the limit's stop, a closed or asleep chat, the wait for the person and
@@ -5904,6 +5915,67 @@ seven decisions on it shaped what follows.
   `test/restartCostsNothing.page.test.mjs` (the DOM harness: Restarting then Running with no reload and 'board-anew'
   cleared; each popup back after a reload, scrolled, nothing sent; the header after a key, while a field has the focus, not
   from a hidden tab, not for a popup left open), `test/keepOnReload.test.mjs`, `test/boardBanner.page.test.mjs`.
+
+## A worker's row from the board's records (signals change 7, 2026-11-02, B914)
+
+The person, 2026-11-02 ("Yes to both"; the signals plan): the status pill is accurate since change 2, but the rest of a
+worker's row (its task, "step 3 of 5", its time left) came from the line the chat types on its own card, which can be stale,
+wrong or missing. The case: B855, taken by Worker 1 at 11:10 for 90 minutes with a refine size of about 2 hours, showed
+"step 4/4, about 40 min left" at 11:14 from its card; its head Since read 11:52 after later moves; the take's 90 minutes were
+gone from the Plan line at 11:14. Since this change a worker's row claims only what the store records. The brief is
+`.claude/plans/2026-11-02-row-task-time-brief.md`, its code check and the lead's 11 decisions are in
+`.claude/plans/2026-11-02-row-brief-code-check.md`; the row as the person chose it ("the simplest row", after "too much
+text") is `art-inbox/B914/row-chosen.png`.
+
+- **The row**: one line with exactly three things: the status pill (change 2), the task (`B855 <its title>` from the store)
+  and the time left of its size ("1 h 56 of its 2 h"; past it "12 min over its 2 h"), and in the Progress cell a thin bar
+  without words of the same fact (the share of its size worked; full once past it). The overdue tone (time and bar together)
+  only by B185's rule: past twice its size and by at least 10 minutes. "No time" only for a held step without a size. A worker
+  that holds no step shows its status alone (a free one its "Last task" line). Since, the last checkpoint and the chat's own
+  plan words show on hover over the task and in its window ("Where it stands"), never on the row. The Simple view's row says
+  the same three, with the same bar. The rows of the main chat, the Advisor, its helper and the Product owner are as before
+  (their card's task).
+- **The field `held`** (`src/work/held.mjs` `heldOf`, put on the lane by `src/state.mjs` `withHeld`): `{ id, title, state,
+  since, size, checkpoint, plan, eta, planLine }`, null for a worker that holds no step (none for the main chat or a leftover).
+  The page reads it for the row, the lane window, the details list and the Simple view; `cardStepOf` and so B689's "on it"
+  (`workerOn`) and the Quality Assurance task's "held" kind read `held.id` first.
+- **Which step is held**: a step taken, in progress or waiting on you with the worker as Owner, and one in review that the
+  board's check handed back to it (`clearOwed.mjs handedBackOf`). Of several: the hand-over's step first (`lane.handover.step`,
+  decided once per read, `handovers`), else in progress over waiting on you over taken, else the worker's newest History line
+  on it (`pickHeld`; X23, 24 Oct 21:15: Worker 3 held B547 and B534 in progress, its newest activity was on B534). The lane's
+  card step (`stepOfChat`) uses the same pick without the hand-over: the ids a card's words name no longer choose it.
+- **Since**: the newest History line of the current Owner that says `→ taken`, `taken → in progress` or `claimed` (or the
+  server's `→ taken (for <Owner>)`), `takenAtOf`; never the head Since, which every move rewrites.
+- **Size**: the refine's `Size:` in minutes (`sizeMinutes`), else the take's fixed record: `take` writes `Taken for: <N> min`
+  in the head (a key of a step since this change), and nothing later rewrites it (`work step minutes` moves the Plan's
+  `until` only; a continuation's take writes it anew); else none. The Plan's `until` and `step until` are never the row's time.
+- **Time left**: `etaOf`'s refine branch, generalised: the moment the size runs out is the take plus the size plus the time not
+  worked since the take, as B793 counts it (`notWorkedCounter`, per chat, not per step: every history state other than
+  working counts as not worked, waiting, Stopped, asleep, suspended, off, free and unknown alike, and the board's gaps; time
+  before the chat's first line counts as worked; a wait for the partner is working). `held.eta = { at, leftMs, isOver,
+  isOverdue, from: 'size' }`, null without a size or a take line.
+- **The checkpoint**: `checkpointOf` of the step: commit, next (cut to 120 characters) and time; one older than the take
+  belongs to an earlier run and counts as none ("no checkpoint yet").
+- **Its plan** (`planLine`): the chat's own step n of N and its names, from its card when the card's plan is on that step,
+  else the Plan saved with the step; shown as "Its plan: 4 of 4 · Report · 2 min ago". Its age: the store Plan's `at` when it
+  says the same step, else when the board first saw these words (`planSeen`, kept by the server in memory between reads as
+  the asleep map was: a restart only makes the words young again). Stale after 30 minutes (`PLAN_STALE_MS`), gone once the
+  step is reported. Never the row's task, time or bar.
+- **What `lane.task` (the card) still does**: the card flag of the reconciler ("card says Bx but ..."), the sync check's
+  "Card:" line and `workerState`'s words to the main chat, Stop task, the Supervisor rules that read `lane.task.stepId`
+  (health, builderHolds, parkedOf, heldElsewhere, cards), an ask's step, the queue's `onNow`, `aheadOf`, `whyNot` and the
+  rows of the main chat and the partner's chats. `lane.eta` is the card's time for those readers. `lastTask` (B148) and
+  `isWithoutTime` are the store's for a worker: the step it reported last (its newest `→ review` line) and a held step without
+  a size; a worker holding no step is never "No time" (G7).
+- **History**: a line's `source` is 'step' when the worker holds a step, else null; 'plan' and 'unrecorded' are no longer
+  written, and old lines still read (`taskOf`'s `before.source`, `today()`).
+- **Not in it (7c)**: the Workers mod's pane still draws the card's task text; with the next Workers mod release the take
+  answer's `statuses` can carry `held`, and the pane reads it. The status (change 2), the hand-over, the chat tool's `plan` and
+  `step` calls, ETAs on the Focus page beyond `etaOf`, and the task-times page (it reads transcripts) are unchanged.
+- **Tests**: test/heldRow.test.mjs (B855 at 11:16, 31 Oct's "QA of B813" against B827, X23 and the hand-over, the handed-back
+  review step, Taken for surviving `work step minutes`, overdue at 2x and 10 minutes with a pause and a board gap, the plan's
+  age and staleness, Last task, the history source), test/heldRow.page.test.mjs (the row draws exactly pill, task and time,
+  the bar's width and tone, the hover, the window, "No time" only without a size, the main chat's row unchanged).
 
 ## Keeping what the person did across a reload (B524)
 

@@ -25,8 +25,10 @@ test('lastByChat: the last line of each chat, and nothing from before a gap', ()
 
 test('changes: a chat seen for the first time is recorded', () => {
   assert.deepEqual(changes(new Map(), [seen('Units', 'working', plan('Archer', { step: 1, steps: 4, leftMs: 9 }))], 5 * MIN), [
-    { at: 5 * MIN, chat: 'Units', state: 'working', task: 'Archer', step: 1, steps: 4, leftMs: 9, estimateAt: null, startedAt: null, source: 'plan', by: null },
+    { at: 5 * MIN, chat: 'Units', state: 'working', task: 'Archer', step: 1, steps: 4, leftMs: 9, estimateAt: null, startedAt: null, source: null, by: null },
   ])
+  // Signals change 7 (B914): the source is 'step' for a chat that holds a store step, else null; never 'plan'.
+  assert.equal(changes(new Map(), [{ ...seen('Units', 'working', plan('Archer', { step: 1, steps: 4, leftMs: 9 })), held: { id: 'B1' } }], 5 * MIN)[0].source, 'step')
 })
 
 test('changes: nothing is recorded while nothing changed', () => {

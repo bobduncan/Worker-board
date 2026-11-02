@@ -14,6 +14,7 @@ import { buildView } from './view.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
 import { WATCH_RULES, isNearStop } from './rules/watch.mjs'
 import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
+import { rekeyPlan } from './rekey.mjs'
 import { SWEEP_AT_LEAST_HOURS, SWEEP_MOD, sweepRunner, tokensOfTurn } from './sweep.mjs'
 
 import { incidentWords, sweepWords } from '../say.mjs'
@@ -160,6 +161,10 @@ export function createSupervisor(ports) {
   const afterRun = async answer => {
     if (answer === null || answer === undefined) return answer
     await loops.run('incidents', async () => {
+      // Change 4's follow-up (2026-11-02): a rule whose key form changed re-keys or supersedes its standing incidents
+      // first (rekey.mjs), so the new form never files the same case twice (X119-X122 → X124-X127).
+      const plan = rekeyPlan({ items: runnerPorts.keptItems?.() ?? await runnerPorts.items(), outbox: runnerPorts.outbox(), wakes: (runnerPorts.keptState?.() ?? null)?.wakes ?? null })
+      if (plan.moves.length + plan.closes.length > 0) await runnerPorts.apply({ action: 'incidents-rekey', ...plan })
       const done = await recordFindings(answer.findings ?? [], { work: runnerPorts.apply, now: answer.at })
       throwFailed([...done.failed.map(one => `${one.key}: ${one.why}`), ...await tellOwedNow()])
     })

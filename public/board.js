@@ -99,6 +99,17 @@ function statusLabel(found) {
   if (found.age !== null && found.age > AGE_SHOWN_MS) return `${found.status} · ${ageSpan(found.age)} ago`
   return found.status
 }
+
+/**
+ * Signals change 7 (B914, 2026-11-02, the person's choice of "the simplest row"): a worker's row is drawn from the step the
+ * store records it holds (`lane.held`, state.mjs `withHeld`), never from the line the chat typed on its card (B855 at 11:16:
+ * its card said "step 4/4, 40 min left" while it had worked 4 of its 2 hours). Whether a lane is such a row: a worker's lane
+ * the state gave `held` (null when it holds none); the main chat, the Advisor, its helper and the Product owner keep their
+ * card's task as before.
+ */
+function isHeldRow(lane) {
+  return lane !== null && typeof lane === 'object' && Object.hasOwn(lane, 'held') && lane.isMain !== true && lane.isLeftover !== true
+}
 // chatstatus:end
 
 // What the person did on the page and a redraw must not undo.
@@ -134,7 +145,7 @@ let board = null
 let answeredBy = null
 /** Signals change 5 (C): this page load's own id for X-Board-Active, and the person's last key or click on it. */
 const PAGE_ID = Math.random().toString(36).slice(2, 12) || 'page'
-const activity = { lastAt: null, since: null }
+const activity = { lastAt: null, since: null, said: false }
 for (const kind of ['keydown', 'input', 'click']) {
   document.addEventListener(kind, () => {
     const now = Date.now()
@@ -1526,7 +1537,15 @@ function hasFocusedField() {
 function activeHeader(now) {
   const busy = personBusy({ now, lastAt: activity.lastAt, since: activity.since, isFocused: hasFocusedField(), isShown: document.visibilityState !== 'hidden' })
   activity.since = busy === null ? null : busy.since
-  return busy === null ? {} : { 'X-Board-Active': `${PAGE_ID} ${busy.forMs}` }
+  if (busy !== null) {
+    activity.said = true
+    return { 'X-Board-Active': `${PAGE_ID} ${busy.forMs}` }
+  }
+  // 2026-11-02 (the lead's check: a wait ran to the cap after the person had left the field): the first poll after busy ended
+  // says "off", so the board drops this page's word at once instead of after its 90 s (src/selfUpdate.mjs ACTIVE_KEPT_MS).
+  if (activity.said !== true) return {}
+  activity.said = false
+  return { 'X-Board-Active': `${PAGE_ID} off` }
 }
 
 /** B524: the words in the page's own boxes, by element id (the Talk to Main and Advisor boxes, the Goals and Design boxes, ...). */
@@ -1718,9 +1737,10 @@ function drawSimpleOverview(state) {
 }
 
 /** A thin bar filled to `percent`, as the simple view draws its bars. */
-function simpleTrack(percent, isSmall = false) {
+function simpleTrack(percent, isSmall = false, isOverdue = false) {
   const track = el('div', `simple-track${isSmall ? ' is-small' : ''}`)
-  const fillBar = el('span', '')
+  // Signals change 7: the overdue tone of a held step's bar, the same moment its time turns (B185).
+  const fillBar = el('span', isOverdue ? 'is-overdue' : '')
   fillBar.style.width = `${percent}%`
   track.append(fillBar)
   return track
@@ -1764,13 +1784,16 @@ function fillSimpleColumns(steps, workers) {
       const what = el('span', 'simple-what clip')
       if (row.code !== null) what.append(el('b', 'task-code', row.code), ' ')
       what.append(row.task)
-      what.title = row.code === null ? row.task : `${row.code} ${row.task}`
+      what.title = row.hover ?? (row.code === null ? row.task : `${row.code} ${row.task}`)
       middle.append(what)
-      if (row.percent !== null) middle.append(simpleTrack(row.percent, true))
+      if (row.percent !== null) middle.append(simpleTrack(row.percent, true, row.isOverdue === true))
     }
     // The time (or nothing, for a chat without a task) with the model chip under it.
     const end = el('div', 'simple-end')
-    end.append(el('b', 'simple-left', row.task === null ? '' : row.left))
+    const left = el('b', `simple-left${row.isOverdue === true ? ' is-overdue' : ''}`, row.task === null ? '' : row.left)
+    // Signals change 7: "1 h 56" with "of its 2 h" beside it, quieter.
+    if (row.task !== null && typeof row.leftOf === 'string' && row.leftOf !== '') left.append(' ', el('small', 'simple-of', row.leftOf))
+    end.append(left)
     const chip = drawRunChip(row.run ?? null)
     if (chip !== null) end.append(chip)
     line.append(el('b', 'simple-name', row.name), middle, end)
@@ -2230,7 +2253,43 @@ function copiedLine(copied, { main, isModThere }) {
 
 const about = minutes => (minutes === null ? null : `~ ${span(minutes * MIN)}`)
 
+
 // lanetime:start
+// heldrow:start
+/**
+ * Signals change 7: the time of a held step, one fact for the text and the bar: left of its size ("1 h 56" "of its 2 h"),
+ * over it ("12 min over" "its 2 h", in the overdue tone only when B185's rule holds: over twice its size and by 10 minutes,
+ * `eta.isOverdue`), or "No time" when the store has no size for it. `share` is the part of the size used (worked over size,
+ * full once over; null without a size): the bar's width. Null for a lane that holds no step.
+ */
+function heldTime(held, now) {
+  if (held === null || held === undefined) return null
+  if (!Number.isFinite(held.size)) return { main: 'No time', of: '', tone: 'fault', share: null, isOverdue: false, title: `The store has no size for ${held.id}: no refine size and no minutes at its take.` }
+  const size = held.size * MIN
+  const its = `its ${span(size)}`
+  const eta = held.eta ?? null
+  if (eta === null) return { main: '–', of: `of ${its}`, tone: 'muted', share: null, isOverdue: false, title: `The store records no take of ${held.id}: the time it worked is not known.` }
+  const left = eta.at - now
+  if (left > 0) return { main: span(left), of: `of ${its}`, tone: 'time', share: Math.max(0, Math.min(1, (size - left) / size)), isOverdue: false, title: `${span(left)} left of ${its}, until ${clock(eta.at)} (working time)` }
+  const isOverdue = eta.isOverdue === true
+  return { main: `${span(-left)} over`, of: its, tone: isOverdue ? 'bad' : 'time', share: 1, isOverdue, title: `${span(-left)} over ${its} of working time${isOverdue ? ': overdue, over twice its size' : ''}` }
+}
+
+/**
+ * Signals change 7: what a held step's hover and its window add: since when it is held (its take), its last checkpoint and
+ * the chat's own plan words ("Its plan: 4 of 4 · Report · 2 min ago", marked stale after 30 min, gone once reported).
+ */
+function heldHover(held, now) {
+  if (held === null || held === undefined) return []
+  const since = Number.isFinite(held.since) ? `Since ${clock(held.since)}` : 'Since its take (no take line in the store)'
+  const point = held.checkpoint ?? null
+  const lines = point === null ? [`${since} · no checkpoint yet`]
+    : [`${since} · last checkpoint${Number.isFinite(point.at) ? ` ${clock(point.at)} (${ago(point.at, now)})` : ''}:`, point.next]
+  const plan = held.planLine ?? null
+  if (plan !== null) lines.push(`Its plan: ${plan.text} · ${ago(plan.at, now)}${plan.isStale ? ' (stale: not changed for over 30 min)' : ''}`)
+  return lines
+}
+// heldrow:end
 /**
  * B95: what a lane's time column says. For a worker that works, the time left is the main figure ("24 min left")
  * and the clock time it ends at the small one. A time that is not the worker's own estimate says where it is from
@@ -2264,6 +2323,12 @@ function timeOf(lane, now) {
   if (found.status === 'Free') return plain('Free')
   if (found.status === 'Unknown') return plain('Unknown')
   if (found.status !== 'Working') return { ...plain(found.status), small: found.why === null ? [] : [found.why] }
+  // Signals change 7: a worker's time is its held step's, of its size; one that holds no step shows no time.
+  if (isHeldRow(lane)) {
+    const held = heldTime(lane.held, now)
+    if (held === null) return { label: '', main: '', tone: 'muted', small: [], from: null }
+    return { label: '', main: held.main, tone: held.tone, small: [], of: held.of, from: null, title: held.title }
+  }
   if (lane.state !== 'working' && (lane.eta ?? null) === null) return plain('Working')
   const eta = lane.eta ?? null
   // B793: the time worked, not the time since: a pause, a stop or a restart is no time spent.
@@ -2313,6 +2378,8 @@ function asleepWords(lane) {
 function leftView(lane, now) {
   if (lane.state === 'free') return null
   const time = timeOf(lane, now)
+  // Signals change 7: a worker's time is its held step's (timeOf), never its card's estimate.
+  if (isHeldRow(lane)) return time
   const eta = lane.eta ?? null
   if (lane.state !== 'working') return time
   if (eta === null) return { ...time, label: '', main: time.tone === 'fault' ? time.main : time.small[0] ?? time.main, small: [], title: time.title ?? time.small.join(' · ') }
@@ -2576,6 +2643,19 @@ function simpleIdle(lane) {
 function simpleWorkers(chats = [], counts = {}, now = Date.now(), partners = []) {
   const all = chatsCounted(counts)
   const rowOf = lane => {
+    // Signals change 7: a worker's row is its held step: id and title, the bar of its size used, the time left of it.
+    if (isHeldRow(lane)) {
+      const held = lane.held ?? null
+      const time = heldTime(held, now)
+      const isWorking = laneStatus(lane)?.status === 'Working'
+      const run = runChipOf(lane)
+      return {
+        name: lane.name, code: held?.id ?? null, task: held === null ? null : held.title, percent: time?.share == null ? null : Math.round(time.share * 100),
+        left: held === null || !isWorking ? simpleIdle(lane) : time.main, leftOf: held === null || !isWorking ? '' : time.of, isOverdue: time?.isOverdue === true,
+        hover: [held === null ? null : `${held.id} ${held.title}`, ...heldHover(held, now)].filter(Boolean).join('\n'),
+        tone: laneStatus(lane)?.key ?? lane.state, ...(run === null ? {} : { run }),
+      }
+    }
     const task = lane.task ?? null
     const { code, text } = task === null ? { code: null, text: null } : laneTaskOf(lane)
     const hasSteps = task !== null && Number.isFinite(task.step) && Number.isFinite(task.steps) && task.steps > 0
@@ -2684,7 +2764,13 @@ function drawEta(lane, now) {
   const box = el('div', `eta is-${time.tone}`)
   if (time.title !== undefined) box.title = time.title
   if (time.label !== '') box.append(el('small', '', time.label))
-  box.append(el(time.tone === 'time' ? 'b' : 'span', time.tone === 'time' ? '' : `state${time.tone === 'bad' ? ' is-blocked' : time.tone === 'fault' ? ' is-fault' : ''}`, time.main))
+  const figure = el(time.tone === 'time' ? 'b' : 'span', time.tone === 'time' ? '' : `state${time.tone === 'bad' ? ' is-blocked' : time.tone === 'fault' ? ' is-fault' : ''}`, time.main)
+  // Signals change 7: a held step's time with "of its 2 h" on the same line, quieter.
+  if (typeof time.of === 'string' && time.of !== '') {
+    const line = el('span', 'eta-line')
+    line.append(figure, ' ', el('small', 'eta-of', time.of))
+    box.append(line)
+  } else box.append(figure)
   for (const line of time.small) box.append(el('small', '', line))
   if (time.from !== null) {
     const note = el('small', 'from-step', time.from.text)
@@ -2704,6 +2790,9 @@ function alertsOf(lane, state) {
   // The step "Now:" names already is "it".
   const step = waits === null ? null : waits.doing === lane.doingNow ? 'it' : `its step "${waits.doing}"`
   if (lane.isQuiet) alerts.push(step === null ? `no sign of life for ${span(lane.quietMs)}` : `no answer to ${step} for ${span(state.readAt - waits.since)}: it may wait for your approval in its chat`)
+  // Signals change 7 (B914: one line, the status, the task, the time): a worker's first estimate is its held step's size,
+  // and over it is what its time says ("12 min over its 2 h"); its plan's age is on its hover. No line of the card's estimate.
+  if (isHeldRow(lane)) return alerts
   // B508: one signal per problem. "No time" (B95: no worker works without a time) and "over" already stand in the column
   // Left (timeOf, leftView), so no line under the task repeats them.
   const leftSaysOver = lane.eta != null && (lane.eta.isOverdue === true || lane.eta.isOver === true)
@@ -2747,7 +2836,9 @@ function drawMore(lane, state) {
   const details = el('div')
   details.append(el('h4', '', 'Details'))
   const list = el('ul')
-  const task = lane.task
+  const task = isHeldRow(lane) ? null : lane.task
+  // Signals change 7: a worker's details from the store's records: its step, its take, its size, worked time, checkpoint, plan.
+  if (isHeldRow(lane)) for (const line of heldDetails(lane.held ?? null, now)) list.append(el('li', line.muted ? 'muted' : '', line.text))
   if (task !== null) {
     const waited = task.waitedMs >= MIN ? `, ${span(task.waitedMs)} of it waiting for you` : ''
     list.append(el('li', '', `Started ${clock(task.startedAt)}: ${span(now - task.startedAt - (task.offStartMs ?? 0))} worked so far${waited}`))
@@ -2782,6 +2873,20 @@ function drawMore(lane, state) {
 
   more.append(queue, details)
   return more
+}
+
+/** Signals change 7: the details list's lines of a held step ("From the store: B851, taken 11:10, size about 2 h", ...). */
+function heldDetails(held, now) {
+  if (held === null) return [{ text: 'It holds no step in the work store.', muted: true }]
+  const size = Number.isFinite(held.size) ? `size about ${span(held.size * MIN)}` : 'no size'
+  const lines = [{ text: `From the store: ${held.id}, ${Number.isFinite(held.since) ? `taken ${clock(held.since)}` : 'no take line'}, ${size}`, muted: false }]
+  const time = heldTime(held, now)
+  if (time !== null && time.share !== null) lines.push({ text: `${time.main} ${time.of} (working time, as the board counts it)`, muted: false })
+  const point = held.checkpoint ?? null
+  lines.push(point === null ? { text: 'No checkpoint yet', muted: true }
+    : { text: `Last checkpoint${Number.isFinite(point.at) ? ` ${clock(point.at)} (${ago(point.at, now)})` : ''}: ${point.next}`, muted: false })
+  for (const one of heldHover(held, now).filter(line => line.startsWith('Its plan:'))) lines.push({ text: one, muted: true })
+  return lines
 }
 
 function folderLine(folder, now) {
@@ -2954,12 +3059,27 @@ function drawLane(lane, state) {
   // An off worker that holds no work is quiet: no task, no bar, no alert, nothing red in its Process column.
   const offWork = offWorkOf(lane, state, main)
   const isQuietOff = offWork?.isIdle === true
-  const task = isQuietOff ? null : lane.task
+  // Signals change 7: a worker's row draws its held step, never its card's task (B914).
+  const isHeld = isHeldRow(lane)
+  const task = isQuietOff || isHeld ? null : lane.task
   const more = [
     lane.state === 'working' && (lane.doingNow ?? null) !== null ? `Now: ${lane.doingNow}` : null,
     lane.state === 'working' && (lane.between ?? null) !== null ? `Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}` : null,
   ].filter(Boolean)
-  if (task === null) {
+  if (isHeld && !isQuietOff && (lane.held ?? null) !== null) {
+    // The task: its id and title from the store; since, its checkpoint and its plan words only on hover (and in its window).
+    const title = el('p', 'task clip held-task')
+    title.append(el('span', 'task-code', lane.held.id), ' ', lane.held.title)
+    title.title = [`${lane.held.id} ${lane.held.title}`, ...heldHover(lane.held, state.readAt)].join('\n')
+    what.append(title)
+  } else if (isHeld) {
+    const free = freeShort(lane, clock)
+    if (free !== null) {
+      const line = el('p', 'note free-since', free)
+      line.title = freeLine(lane, clock)
+      what.append(line)
+    }
+  } else if (task === null) {
     if (lane.state === 'working') {
       const none = el('p', 'task is-none', 'Task not recorded yet')
       if (more.length > 0) none.title = more.join('\n')
@@ -2985,6 +3105,13 @@ function drawLane(lane, state) {
   bar.append(done)
   // B307: a worker without a task has no bar either.
   if (task !== null) progress.append(bar)
+  // Signals change 7: a worker's bar is the share of its held step's size used, no words; none without a size.
+  const heldShare = !isHeld || isQuietOff ? null : heldTime(lane.held ?? null, state.readAt)
+  if (heldShare !== null && heldShare.share !== null) {
+    done.style.width = `${Math.round(heldShare.share * 1000) / 10}%`
+    if (heldShare.isOverdue) done.classList.add('is-overdue')
+    progress.append(bar)
+  }
   const steps = task === null ? null : stepLine(lane, state.readAt)
   if (steps !== null) progress.append(drawStepLine(lane, steps))
   else if (hasSteps) progress.append(el('small', 'progress-count', `${task.step} of ${task.steps}`))
@@ -7378,7 +7505,7 @@ function laneWindowChip(lane) {
   const found = laneStatus(lane)
   if (found === null) return undefined
   if (found.status === 'Working' || found.status === 'Stopped') return found.status
-  if (found.status === 'Paused' && (lane.state === 'suspended' || (lane.task ?? null) !== null)) return found.status
+  if (found.status === 'Paused' && (lane.state === 'suspended' || (isHeldRow(lane) ? (lane.held ?? null) !== null : (lane.task ?? null) !== null))) return found.status
   if (found.status === 'Not running' && lane.state === 'off') return found.status
   return undefined
 }
@@ -7530,6 +7657,8 @@ function planOf(lane, now) {
 function laneWindowOf(lane, now, mainTitle) {
   const chip = laneWindowChip(lane)
   if (chip === undefined) return null
+  // Signals change 7: a worker's window is its held step's: its brief, since, checkpoint and its plan words, no card words.
+  if (isHeldRow(lane)) return heldWindowOf(lane, now, chip)
   const task = lane.task ?? null
   const given = lane.givenTask ?? null
   const step = given?.step ?? null
@@ -7575,6 +7704,52 @@ function laneWindowOf(lane, now, mainTitle) {
     standing: [
       ...(line === null ? [] : [line.label]),
       `${time.label === '' ? '' : `${time.label}: `}${time.main}${time.small.length > 0 ? `, ${time.small.join(', ')}` : ''}`,
+      ...(typeof lane.doingNow === 'string' && lane.doingNow !== '' ? [`Now: ${lane.doingNow}`] : []),
+      ...(typeof lane.between === 'string' && lane.between !== '' ? [`Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}`] : []),
+    ],
+  }
+}
+
+/**
+ * Signals change 7 (B914): the window of a worker's lane from the step the store records it holds: its id and title, its
+ * brief (the step its turn was given, else the one `held.brief` carries), and where it stands: since, the last checkpoint,
+ * the chat's own plan words with their age (stale after 30 min) and the time of its size. None of the card's words.
+ */
+function heldWindowOf(lane, now, chip) {
+  const held = lane.held ?? null
+  const given = lane.givenTask ?? null
+  const step = held === null ? null : given?.step?.id === held.id ? given.step : { id: held.id, title: held.title, about: null, brief: held.brief ?? null }
+  const brief = step?.brief ?? null
+  const hasPicture = typeof brief?.picture === 'string' && !/^none\b/i.test(brief.picture.trim())
+  const refined = brief === null || (brief.summary.length === 0 && brief.what.length === 0 && !hasPicture) ? null
+    : { summary: brief.summary.join(' '), picture: hasPicture ? brief.picture : null, what: brief.what }
+  const time = heldTime(held, now)
+  const plan = held?.planLine ?? null
+  return {
+    code: held?.id ?? null,
+    title: held === null ? 'No step held in the work store' : shortTitle(held.title),
+    fullTitle: held?.title ?? null,
+    chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }, ...((brief?.goal ?? null) === null ? [] : [{ text: brief.goal, tone: 'goal' }]),
+      ...((brief?.effort ?? null) === null ? [] : [{ text: `${(brief.model ?? null) === null ? 'Effort: ' : `${LANE_MODELS[brief.model.family] ?? brief.model.family} · `}${brief.effort.level}${lane.effortRun?.step === step?.id && lane.effortRun.isSet === false && lane.effortRun.asked != null ? ', not set yet' : ''}`, tone: 'plain' }])],
+    given: given === null || given.by !== 'you' ? null : { from: `Typed by you, ${clock(given.at)}`, text: given.text },
+    step,
+    refined,
+    task: step === null ? '' : refined !== null && refined.summary !== '' ? twoLines(refined.summary) : (brief?.about ?? []).length > 0 ? twoLines(brief.about.join(' ')) : stepTask('', step),
+    details: step === null ? null : {
+      step: `${step.id} · ${step.title}`,
+      context: (brief?.context ?? []).filter(one => !/^Touches:/.test(one)),
+      touches: brief?.touches ?? [],
+      history: brief?.history ?? [],
+    },
+    feedback: (lane.feedback ?? null) === null ? null : { title: `Now on your feedback (${clock(lane.feedback.at)})`, text: lane.feedback.text },
+    // Its plan: the chat's own words, marked so, with their age.
+    plan: plan === null ? null : {
+      steps: (plan.names ?? []).filter(name => !isTechnical(name)).map((name, index) => ({ name, state: !Number.isInteger(plan.step) || index > plan.step - 1 ? 'next' : index === plan.step - 1 ? 'now' : 'done' })),
+      line: `Its own words: ${plan.text} · ${ago(plan.at, now)}${plan.isStale ? ' (stale: not changed for over 30 min)' : ''}`,
+    },
+    standing: [
+      ...heldHover(held, now).filter(line => !line.startsWith('Its plan:')),
+      ...(time === null ? [] : [`${time.main} ${time.of}`.trim()]),
       ...(typeof lane.doingNow === 'string' && lane.doingNow !== '' ? [`Now: ${lane.doingNow}`] : []),
       ...(typeof lane.between === 'string' && lane.between !== '' ? [`Between turns: ${lane.between.replace(/^Its turn has ended; /, '')}`] : []),
     ],

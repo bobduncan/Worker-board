@@ -68,7 +68,9 @@ test('the time left counts the working time only: a pause of 44 hours is not tim
   const one = lane({ own: { text: 'Archer', left: 2 * H }, ownAt: GIVEN, lines: worked(seen(GIVEN + H, 'suspended')) })
   // 2 hours planned, 1 hour and the last 10 minutes worked: 50 minutes left, not "43 h over".
   assert.deepEqual(one.eta, { at: NOW + 50 * MIN, leftMs: 50 * MIN, isOverdue: false, isOver: false, isOwn: true, from: 'own' })
-  assert.equal(one.isWithoutTime, false)
+  // Signals change 7 (B914): the card's time stays on `eta` for its readers; the row's "No time" is the store's word (its held
+  // step has no refine Size and no Taken for).
+  assert.equal(one.isWithoutTime, one.held !== null && one.held.size === null)
 })
 
 test('the same over the board being off, a chat that did not run, an asleep chat and a wait for the person', () => {

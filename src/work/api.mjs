@@ -45,6 +45,7 @@ import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, route
 import { RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, linksRecap, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
+import { takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
 import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
@@ -57,7 +58,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'autopilot-undo', 'recap-answered', 'asset'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'autopilot-undo', 'recap-answered', 'asset'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -66,11 +67,11 @@ const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents
  */
 const GOAL_MAP = new Set(['definition-draft', 'vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'obsolete-check', 'obsolete', 'recheck-stuck', 'recheck-base'])
+const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'obsolete-check', 'obsolete', 'recheck-stuck', 'recheck-base'])
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'autopilot-undo', 'add-to-queue', 'remove-from-queue'])
-const SERVER = new Set(['incidents-fixed', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'autopilot', 'recap-answered'])
+const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'autopilot', 'recap-answered'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -614,7 +615,8 @@ async function take(body, w) {
   const minutes = planMinutes(body.minutes)
   if (!(state === 'in progress' && owner === null) && minutes === null) return refuse(400, `${id}: say how long it takes: "minutes" is the time left for the whole step (1 to 1440), e.g. work take ${id} minutes 45.`)
   if (state === 'in progress' && owner === null) {
-    const claimed = ordered(said(put(copy(item), 'Owner', w.who), w, 'claimed (in progress)'))
+    // Signals change 7 (B914): a claim that names its minutes keeps them as the take's fixed record too.
+    const claimed = ordered(said(put(put(copy(item), 'Owner', w.who), 'Taken for', minutes === null ? null : takenForLine(minutes)), w, 'claimed (in progress)'))
     const done = await save(claimed, found.text, w)
     return done.ok ? changed(claimed, undefined, { title: valueOf(claimed, 'Title') }) : done
   }
@@ -638,6 +640,9 @@ async function take(body, w) {
   // Signals change 3: a continuation (a step the board gave back, taken anew) keeps its plan, on the part it stood on.
   const kept = continuationOf(found.item) === null ? null : planOf(started.item)
   item = put(copy(clearedAtTake(started.item, w)), 'Plan', null)
+  // Signals change 7 (B914, 2026-11-02): the take's minutes as a fixed record (`Taken for`), the size of a step without a
+  // refine Size; nothing later overwrites it (`work step minutes` moves the Plan's `until` only). A continuation writes it anew.
+  put(item, 'Taken for', takenForLine(minutes))
   const timed = nextPlan(kept, { minutes, step: kept?.on ?? null }, w.now)
   if (timed !== null) put(item, 'Plan', planText(timed))
   const branch = line(body.branch, 120)
@@ -4371,6 +4376,35 @@ async function incidentTold(body, w) {
 }
 
 /**
+ * Signals change 4's follow-up (2026-11-02): the board's own re-keying of standing incidents after a rule's key form changed
+ * (src/supervisor/rekey.mjs `rekeyPlan`): `moves` `[{ id, key, why }]` get the new Key with one History line; `closes`
+ * `[{ id, why }]` are closed as superseded (State closed, Since now, the why in the History). Only the board (`server`).
+ * Answers the ids `moved` and `closed`; an id that is no standing incident is left out.
+ */
+async function incidentsRekey(body, w) {
+  const moved = []
+  const closed = []
+  for (const one of Array.isArray(body.moves) ? body.moves : []) {
+    const loaded = await load(line(one?.id, 20), w, { kind: ['incident'] })
+    const key = line(one?.key, 200)
+    if (!loaded.ok || key === '' || !REKEY_STANDING.includes(stateOf(loaded.item))) continue
+    const next = ordered(said(put(copy(loaded.item), 'Key', key), w, line(one?.why, 300) || `re-keyed to "${key}"`))
+    const done = await save(next, loaded.text, w)
+    if (done.ok) moved.push(valueOf(next, 'Id'))
+  }
+  for (const one of Array.isArray(body.closes) ? body.closes : []) {
+    const loaded = await load(line(one?.id, 20), w, { kind: ['incident'] })
+    if (!loaded.ok || !REKEY_STANDING.includes(stateOf(loaded.item))) continue
+    const next = ordered(said(put(put(copy(loaded.item), 'State', 'closed'), 'Since', stamp(w.now)), w, `closed: ${line(one?.why, 300) || 'superseded: its rule\'s key form changed'}`))
+    const done = await save(next, loaded.text, w)
+    if (done.ok) closed.push(valueOf(next, 'Id'))
+  }
+  return { ok: true, result: { moved, closed, text: `${moved.length} re-keyed, ${closed.length} closed as superseded.`, changed: moved.length + closed.length > 0 } }
+}
+/** The incident states `incidents-rekey` touches: the standing ones (rekey.mjs STANDING). */
+const REKEY_STANDING = ['open', 'came back', 'with the advisor', 'with the supervisor', 'fix']
+
+/**
  * The supervisor: the board's own pass over the incidents being fixed (from its reconcile): one whose Fix step is done
  * is fixed; one whose Fix step was dropped, or is gone, is open again. Answers the ids `fixed` and `reopened`.
  */
@@ -4414,6 +4448,7 @@ const CHANGE = {
   'incident-fix': incidentFix,
   'incident-told': incidentTold,
   'incidents-fixed': incidentsFixed,
+  'incidents-rekey': incidentsRekey,
   take, step, ask, withdraw, note, words, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'add-to-queue': addToQueue, 'remove-from-queue': removeFromQueue, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,

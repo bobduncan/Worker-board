@@ -131,6 +131,22 @@ export function claim(record, { chat, spell, path, by, jobId, now, runBefore = n
   return attempt
 }
 
+/**
+ * T22 (the goal chat's wait line, 2026-11-02: the person's "Send again" click on a chat the board could not wake): ONE
+ * new attempt on the person's word, outside the per-path cap of decision 8, only while no attempt of that spell is
+ * pending (a click during a wake changes nothing). It is counted in the record as any attempt (`again: 'person'`) and
+ * gets its verdict by the same rules (`sent`, `heard`, `pass`). The attempt, or false.
+ */
+export function personAgain(record, { chat, spell, path, by, jobId, now, runBefore = null }) {
+  if (!['message', 'launch'].includes(path) || !isTime(spell) || !isTime(now) || typeof chat !== 'string' || chat === '') return false
+  newSpell(record, chat, spell)
+  const entry = entryOf(record, chat, spell)
+  if (entry === null || entry.attempts.some(isPending)) return false
+  const attempt = { path, at: now, by: String(by ?? (path === 'launch' ? 'board' : '')), jobId: String(jobId ?? ''), sentAt: null, runBefore: runBefore ?? null, verdict: null, verdictAt: null, why: null, again: 'person' }
+  entry.attempts.push(attempt)
+  return attempt
+}
+
 /** The pending attempt of `chat` with this job id, newest spell first, or null. */
 function pendingOf(record, chat, jobId) {
   for (const entry of [...entriesOf(record, chat)].reverse()) {
@@ -509,7 +525,8 @@ function savedAttempt(value) {
   if (!(value.verdictAt === null || isTime(value.verdictAt)) || !(value.why === null || (typeof value.why === 'string' && WHYS.test(value.why)))) return null
   if (!(value.runBefore === null || isTime(value.runBefore) || (typeof value.runBefore === 'string' && value.runBefore.length <= 64))) return null
   const { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why } = value
-  return { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why }
+  // T22: an attempt the person asked for ("Send again") keeps that mark.
+  return { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why, ...(value.again === 'person' ? { again: 'person' } : {}) }
 }
 
 /** One saved spell entry, or null when it is none (an attempt that is no attempt is left out). */
