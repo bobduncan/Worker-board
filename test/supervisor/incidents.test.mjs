@@ -69,14 +69,18 @@ test('incident-fix X1 B12 (the partner) sets its Fix and its state; B12 done mak
   assert.match(fixing.sections.get('History').at(-1), /Partner: fix B12$/)
   // Not done yet: nothing changes.
   assert.equal((await s.board({ action: 'incidents-fixed' })).result.changed, false)
-  // B12 done: the board's reconcile marks X1 fixed.
+  // B12 done: signals change 6 (Addendum 3): the reconcile does not mark an incident of a rule fixed on its done step alone;
+  // the supervisor's loop does, once its key went unseen for the gone time (`incident-gone`, gone.mjs).
   assert.equal((await s.person({ action: 'tick', id: 'B12' })).ok, true)
   s.tick(5)
   const fixed = await s.board({ action: 'incidents-fixed' })
-  assert.deepEqual([fixed.ok, fixed.result.fixed], [true, ['X1']])
+  assert.deepEqual([fixed.ok, fixed.result.fixed], [true, []])
+  assert.equal(head(await s.item('X1'), 'State'), 'fix')
+  const gone = await s.board({ action: 'incident-gone', fixed: [{ id: 'X1', notSeenSince: NOW }], minutes: 60 })
+  assert.deepEqual([gone.ok, gone.result.fixed], [true, ['X1']])
   const x1 = await s.item('X1')
   assert.equal(head(x1, 'State'), 'fixed')
-  assert.match(x1.sections.get('History').at(-1), /server: fixed: B12 is done$/)
+  assert.match(x1.sections.get('History').at(-1), /server: fixed: B12 is done and not seen since 09:00 \(60 min of running time\)$/)
   // Seen again: it came back.
   s.tick(30)
   const back = await recordFindings([finding()], { work: s.board, now: NOW + 35 * MIN })
@@ -229,7 +233,8 @@ test('the review: a chat of role supervisor may end its turns (turn-ended), read
 
 // B584 (X29): the old case still standing after its fix only counts; a case newer than the fix, one with no since, or
 // the old case 2 h after the fix comes back.
-test('B584: a fixed incident seen again for its old case (since before the fix was done) stays fixed and counts, once said', async t => {
+// Signals change 6 (Addendum 3): a done fix step does not make the incident fixed while its key is still found: it stays in fix.
+test('B584: an incident whose fix step is done, seen again for its old case (since before the fix was done), stays in fix and counts, once said', async t => {
   const s = await store(t)
   const began = NOW - 30 * MIN
   await recordFindings([finding({ since: began })], { work: s.board })
@@ -241,12 +246,12 @@ test('B584: a fixed incident seen again for its old case (since before the fix w
   const seen = await recordFindings([finding({ since: began })], { work: s.board })
   assert.deepEqual(seen, { opened: [], returned: [], counted: ['X1'], failed: [] })
   let x1 = await s.item('X1')
-  assert.deepEqual([head(x1, 'State'), head(x1, 'Count')], ['fixed', '2'])
+  assert.deepEqual([head(x1, 'State'), head(x1, 'Count')], ['fix', '2'])
   assert.match(x1.sections.get('History').at(-1), /server: old case still standing \(began 08:30, before B12 was done at 09:10\)$/)
   s.tick(3)
   await recordFindings([finding({ since: began })], { work: s.board })
   x1 = await s.item('X1')
-  assert.deepEqual([head(x1, 'State'), head(x1, 'Count')], ['fixed', '3'])
+  assert.deepEqual([head(x1, 'State'), head(x1, 'Count')], ['fix', '3'])
   assert.equal(x1.sections.get('History').filter(entry => /old case still standing/.test(entry)).length, 1, 'said once')
 })
 

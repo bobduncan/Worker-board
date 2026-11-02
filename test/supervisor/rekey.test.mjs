@@ -76,7 +76,8 @@ test('rekeyPlan: only standing incidents; a fixed or closed one under the old fo
   await s.chat('Partner', { action: 'drop', id: 'X1', why: 'handled' })
   assert.deepEqual(rekeyPlan({ items: await s.items(), outbox: [envelope('83c1a7be1feab83b', 'Painter', 0)] }), { moves: [], closes: [] })
   assert.deepEqual(STANDING, ['open', 'came back', 'with the advisor', 'with the supervisor', 'fix'])
-  assert.deepEqual(KEY_MIGRATIONS.map(one => one.rule), ['handover-unanswered', 'handover-unanswered'])
+  // Signals change 6 (B915): the four keys made stable carry their entries too.
+  assert.deepEqual(KEY_MIGRATIONS.map(one => one.rule), ['handover-unanswered', 'handover-unanswered', 'stale-checkpoint', 'review-held', 'undelivered', 'effort-mismatch'])
   assert.equal((await s.chat('Partner', { action: 'incidents-rekey', moves: [{ id: 'X1', key: 'x' }] })).ok, false)
   assert.equal((await s.chat('Lead', { action: 'incidents-rekey', closes: [{ id: 'X1', why: 'x' }] })).ok, false)
 })

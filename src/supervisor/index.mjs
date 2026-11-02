@@ -15,6 +15,7 @@ import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
 import { WATCH_RULES, isNearStop } from './rules/watch.mjs'
 import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
 import { rekeyPlan } from './rekey.mjs'
+import { GONE_MINUTES, gonePlan } from './gone.mjs'
 import { SWEEP_AT_LEAST_HOURS, SWEEP_MOD, sweepRunner, tokensOfTurn } from './sweep.mjs'
 
 import { incidentWords, sweepWords } from '../say.mjs'
@@ -88,6 +89,10 @@ function throwFailed(failed) {
 
 /** Every rule of the supervisor, as the page names them: `{ id, kind, says }` (the demo's section draws them too). */
 export const SUPERVISOR_RULES = [...REPAIR_RULES, ...WATCH_RULES].map(({ id, kind, says }) => ({ id, kind, says }))
+/** Signals change 6: the ids of the rules the loop runs; an incident whose Source is one of them has a gone clock. */
+const RULE_IDS = new Set([...REPAIR_RULES, ...WATCH_RULES].map(rule => rule.id))
+/** Signals change 6: the minutes an incident's key must stay unseen before it is gone (config `incidentGoneMinutes`, 60). */
+const goneMinutes = settings => (Number.isFinite(settings?.incidentGoneMinutes) && settings.incidentGoneMinutes > 0 ? settings.incidentGoneMinutes : GONE_MINUTES)
 
 /** Task 4: the person's line about an incident that opened or came back: one note of the board's, read on the board. */
 const personWords = (incident, isBack) => `Supervisor: ${isBack ? `${incident.id} came back: ` : ''}${incident.title ?? incident.id}`
@@ -166,9 +171,23 @@ export function createSupervisor(ports) {
       const plan = rekeyPlan({ items: runnerPorts.keptItems?.() ?? await runnerPorts.items(), outbox: runnerPorts.outbox(), wakes: (runnerPorts.keptState?.() ?? null)?.wakes ?? null })
       if (plan.moves.length + plan.closes.length > 0) await runnerPorts.apply({ action: 'incidents-rekey', ...plan })
       const done = await recordFindings(answer.findings ?? [], { work: runnerPorts.apply, now: answer.at })
-      throwFailed([...done.failed.map(one => `${one.key}: ${one.why}`), ...await tellOwedNow()])
+      throwFailed([...done.failed.map(one => `${one.key}: ${one.why}`), ...await goneNow(answer), ...await tellOwedNow()])
     })
     return answer
+  }
+  /**
+   * Signals change 6 (B915, Addendum 2 and 3): after a run's findings are filed, what went by itself closes itself: an
+   * incident of a rule its rule did not find for `incidentGoneMinutes` of running time (gone.mjs `gonePlan`) is gone, one in
+   * fix whose step is done and that is not seen as long is fixed, through the board's own action `incident-gone`. Answers
+   * what could not be done, one line.
+   */
+  const goneNow = async answer => {
+    const items = await runnerPorts.items()
+    const minutes = goneMinutes(settings)
+    const plan = gonePlan({ incidents: incidentsOf(items, answer.at), steps: items, runs: answer.runs ?? {}, rules: RULE_IDS, now: answer.at, gaps: answer.gaps ?? [], goneMs: minutes * MIN })
+    if (plan.gone.length + plan.fixed.length === 0) return []
+    const done = await runnerPorts.apply({ action: 'incident-gone', gone: plan.gone, fixed: plan.fixed, minutes })
+    return done?.ok === true ? [] : [`gone ${[...plan.gone, ...plan.fixed].map(one => one.id).join(', ')}: ${done?.why ?? 'no answer'}`]
   }
   /**
    * The review: one `tellOwed` at a time (a run of the rules and a sweep's turn's end may come together), each reading

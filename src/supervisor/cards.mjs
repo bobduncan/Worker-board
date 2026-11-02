@@ -98,6 +98,10 @@ export function noFixState(incident, word, hasPartner = true) {
   return hasPartner ? { text: 'sending to the Advisor…', tone: 'sending' } : { text: 'no Advisor on the board', tone: 'wait' }
 }
 
+const pad = n => String(n).padStart(2, '0')
+/** "HH:MM" of a time, or "a time not known". */
+const clockWords = ms => (Number.isFinite(ms) ? `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}` : 'a time not known')
+
 /** Which incident's state the card's chip shows when they differ: what needs the most attention first. */
 const CHIP_FIRST = ['back', 'sending', 'wait', 'advisor']
 
@@ -135,12 +139,14 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
   }
   const groups = new Map()
   const loose = []
-  // B685: an incident the partner closed (no fault left) has no fix step and needs none.
+  // B685: an incident closed (no fault left) has no fix step and needs none; signals change 6: nor one gone by itself.
   const closed = []
+  const gone = []
   for (const incident of [...incidents].filter(one => typeof one?.id === 'string').sort((a, b) => numeric(a.id, b.id))) {
     const fix = fixStepOf(incident, named, stepsOnly)
     if (fix !== null) groups.set(fix, [...(groups.get(fix) ?? []), incident])
     else if (incident.state === 'closed') closed.push(incident)
+    else if (incident.state === 'gone') gone.push(incident)
     else loose.push(incident)
   }
   const latest = list => Math.max(...list.map(one => (Number.isFinite(one.since) ? one.since : -Infinity)))
@@ -163,6 +169,14 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
   if (closed.length > 0) {
     const at = latest(closed)
     cards.push({ key: 'closed', step: null, title: 'Closed, no fix needed', state: { text: 'closed · no fix needed', tone: 'done' }, phase: 'done', incidents: closed.map(one => ({ id: one.id, word: null })), at: Number.isFinite(at) ? at : 0 })
+  }
+  // Signals change 6 (B915): what went by itself folds into the older cards as a fixed one does; each says since when it was not seen.
+  if (gone.length > 0) {
+    const at = latest(gone)
+    cards.push({
+      key: 'gone', step: null, title: 'Gone by itself, no fix needed', state: { text: 'gone by itself', tone: 'done' }, phase: 'done',
+      incidents: gone.map(one => ({ id: one.id, word: `not seen since ${clockWords(one.lastSeen)}` })), at: Number.isFinite(at) ? at : 0,
+    })
   }
   return cards
 }

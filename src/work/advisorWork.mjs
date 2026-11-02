@@ -15,7 +15,7 @@ const isIncidentWord = message => message?.command === 'incident' || String(mess
 const kindOfWord = message => (isPartnerAskWord(message) ? 'question' : isRefineWord(message) ? 'refine' : isIncidentWord(message) ? 'incident' : null)
 const isTaken = message => message.state === 'taken' || message.state === 'delivered'
 const takenAt = message => message.takenAt ?? message.deliveredAt ?? message.at
-const isOpenIncident = item => item !== undefined && valueOf(item, 'Kind') === 'incident' && !['fixed', 'closed'].includes(valueOf(item, 'State'))
+const isOpenIncident = item => item !== undefined && valueOf(item, 'Kind') === 'incident' && !['fixed', 'closed', 'gone'].includes(valueOf(item, 'State'))
 
 /**
  * `{ waiting, on }`:
@@ -52,7 +52,7 @@ export function advisorWorkOf({ items = new Map(), outbox = [], task = null, isW
 
 const ITEM_ID = /^[BQIXG]\d+$/
 /** The states of a store item that say a word about it is stale, by its kind (a step without a Kind is a step). */
-const ENDED = { incident: ['fixed', 'closed'], step: ['done', 'dropped'], ask: ['answered', 'withdrawn'], instruction: ['closed'] }
+const ENDED = { incident: ['fixed', 'closed', 'gone'], step: ['done', 'dropped'], ask: ['answered', 'withdrawn'], instruction: ['closed'] }
 const isEnded = item => item !== undefined && (ENDED[valueOf(item, 'Kind') ?? 'step'] ?? []).includes(valueOf(item, 'State'))
 /** A word of the board's clock (a round, a re-check): no row, only counted. */
 const isRoundWord = message => message.command === 'round' || message.command === 'recheck'

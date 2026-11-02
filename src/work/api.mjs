@@ -57,7 +57,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'recap-answered', 'asset'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'recap-answered', 'asset'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -66,11 +66,11 @@ const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents
  */
 const GOAL_MAP = new Set(['definition-draft', 'vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'obsolete-check', 'obsolete', 'recheck-stuck', 'recheck-base'])
+const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'obsolete-check', 'obsolete', 'recheck-stuck', 'recheck-base'])
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'add-to-queue', 'remove-from-queue'])
-const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'autopilot', 'recap-answered'])
+const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'autopilot', 'recap-answered'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -4150,9 +4150,14 @@ async function incident(body, w) {
   let next = put(put(put(copy(loaded.item), 'Title', title), 'Last seen', stamp(w.now)), 'Count', String(count))
   if (evidence !== '') put(next, 'Evidence', evidence)
   if (wanted !== '') put(next, 'Rule wanted', wanted)
-  // B685: a closed incident comes back like a fixed one: a case that began after the close is a new one.
-  const wasEnded = stateOf(loaded.item) === 'fixed' || stateOf(loaded.item) === 'closed'
-  const old = wasEnded ? oldCaseOf(loaded.item, sinceOf(body.since), w) : null
+  // B685: a closed incident comes back like a fixed one: a case that began after the close is a new one. Signals change 6
+  // (Addendum 3): so does one in fix whose fix step is done (it waits there for its 60 min unseen): found again, it came back
+  // unless its case began before the step was done (B584's old case, for two hours); and one gone by itself, always.
+  const state = stateOf(loaded.item)
+  const isGone = state === 'gone'
+  const fixDone = state === 'fix' && stateOf(w.store.items.get(valueOf(loaded.item, 'Fix') ?? '') ?? { head: new Map() }) === 'done'
+  const wasEnded = state === 'fixed' || state === 'closed' || fixDone || isGone
+  const old = wasEnded && !isGone ? oldCaseOf(loaded.item, sinceOf(body.since), w) : null
   const isBack = wasEnded && old?.standing !== true
   if (old?.standing === true) {
     const why = `old case still standing (began ${clock(old.since)}, before ${old.fix === null ? 'it was closed' : `${old.fix} was done`} at ${clock(old.doneAt)})`
@@ -4210,6 +4215,7 @@ async function incidentFix(body, w) {
   const id = valueOf(loaded.item, 'Id')
   if (stateOf(loaded.item) === 'fixed') return refuse(409, `${id} is fixed already; when it comes back, name its fix then.`)
   if (stateOf(loaded.item) === 'closed') return refuse(409, `${id} is closed already; when it comes back, name its fix then.`)
+  if (stateOf(loaded.item) === 'gone') return refuse(409, `${id} went by itself; when it comes back, name its fix then.`)
   const step = w.store.items.get(fix)
   if (step === undefined || kindOf(step) !== 'step') return refuse(404, `${fix}: no such step in the store.`)
   const next = ordered(said(put(put(put(copy(loaded.item), 'Fix', fix), 'State', 'fix'), 'Since', stamp(w.now)), w, `fix ${fix}`))
@@ -4260,6 +4266,40 @@ async function incidentsRekey(body, w) {
   }
   return { ok: true, result: { moved, closed, text: `${moved.length} re-keyed, ${closed.length} closed as superseded.`, changed: moved.length + closed.length > 0 } }
 }
+/**
+ * Signals change 6 (B915, the lead's Addendum 2 and 3): the board's own close of what went by itself (src/supervisor/gone.mjs
+ * `gonePlan`): `gone` `[{ id, notSeenSince }]`, an incident not judged yet, or judged and waiting, whose key its rule has not
+ * found for `minutes` of running time: State gone, Since now, History "gone by itself: not seen since HH:MM (60 min of running
+ * time)"; `fixed` `[{ id, notSeenSince }]`, an incident in fix whose step is done and whose key is not seen as long: fixed,
+ * with both in its line. Only the board (`server`). An id in another state is left out; answers the ids `gone` and `fixed`.
+ */
+async function incidentGone(body, w) {
+  const minutes = Number.isFinite(body.minutes) && body.minutes > 0 ? body.minutes : 60
+  const when = ms => (Number.isFinite(ms) ? (stamp(ms).slice(0, 10) === stamp(w.now).slice(0, 10) ? clock(ms) : stamp(ms)) : 'a time not known')
+  const gone = []
+  const fixed = []
+  for (const one of Array.isArray(body.gone) ? body.gone : []) {
+    const loaded = await load(line(one?.id, 20), w, { kind: ['incident'] })
+    if (!loaded.ok || !GONE_FROM.includes(stateOf(loaded.item))) continue
+    const next = ordered(said(put(put(copy(loaded.item), 'State', 'gone'), 'Since', stamp(w.now)), w, `gone by itself: not seen since ${when(sinceOf(one?.notSeenSince))} (${minutes} min of running time)`))
+    const done = await save(next, loaded.text, w)
+    if (done.ok) gone.push(valueOf(next, 'Id'))
+  }
+  for (const one of Array.isArray(body.fixed) ? body.fixed : []) {
+    const loaded = await load(line(one?.id, 20), w, { kind: ['incident'] })
+    if (!loaded.ok || stateOf(loaded.item) !== 'fix') continue
+    const fix = valueOf(loaded.item, 'Fix')
+    if (stateOf(w.store.items.get(fix ?? '') ?? { head: new Map() }) !== 'done') continue
+    const next = ordered(said(put(put(copy(loaded.item), 'State', 'fixed'), 'Since', stamp(w.now)), w, `fixed: ${fix} is done and not seen since ${when(sinceOf(one?.notSeenSince))} (${minutes} min of running time)`))
+    const done = await save(next, loaded.text, w)
+    if (done.ok) fixed.push(valueOf(next, 'Id'))
+  }
+  const all = [...gone, ...fixed]
+  return { ok: true, result: { gone, fixed, text: all.length === 0 ? 'No incident changed.' : `Gone by itself: ${gone.join(', ') || 'none'}; fixed: ${fixed.join(', ') || 'none'}.`, changed: all.length > 0 } }
+}
+/** Signals change 6: the states an incident goes gone from (src/supervisor/gone.mjs GONE_FROM): never `fix`, whose step answers for it. */
+const GONE_FROM = ['open', 'came back', 'with the supervisor', 'with the advisor']
+
 /** The incident states `incidents-rekey` touches: the standing ones (rekey.mjs STANDING). */
 const REKEY_STANDING = ['open', 'came back', 'with the advisor', 'with the supervisor', 'fix']
 
@@ -4277,6 +4317,10 @@ async function incidentsFixed(body, w) {
     const step = fix === null ? undefined : w.store.items.get(fix)
     const state = step === undefined ? null : stateOf(step)
     if (state !== 'done' && state !== 'dropped' && step !== undefined) continue
+    // Signals change 6 (Addendum 3): an incident of a rule is fixed only once its step is done AND its key went unseen for
+    // the gone time: the supervisor's loop marks that (`incident-gone`). Only a sweep's (no rule looks for it) is fixed here
+    // on its done step alone, as before.
+    if (state === 'done' && (valueOf(item, 'Source') ?? 'sweep') !== 'sweep') continue
     const loaded = await load(valueOf(item, 'Id'), w, { kind: ['incident'] })
     if (!loaded.ok) continue
     const isDone = state === 'done'
@@ -4288,7 +4332,7 @@ async function incidentsFixed(body, w) {
   // Signals change 3: an incident of a watch rule that is retired (unknown-lane, holder-not-running) and still open is
   // closed, with one line: the hand-over's own timers act on what it named.
   const closed = []
-  const retired = [...w.store.items.values()].filter(item => kindOf(item) === 'incident' && RETIRED_WATCH_RULES.includes(valueOf(item, 'Source')) && !['fixed', 'closed'].includes(stateOf(item)))
+  const retired = [...w.store.items.values()].filter(item => kindOf(item) === 'incident' && RETIRED_WATCH_RULES.includes(valueOf(item, 'Source')) && !['fixed', 'closed', 'gone'].includes(stateOf(item)))
     .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   for (const item of retired) {
     const loaded = await load(valueOf(item, 'Id'), w, { kind: ['incident'] })
@@ -4308,6 +4352,7 @@ const CHANGE = {
   'incident-told': incidentTold,
   'incidents-fixed': incidentsFixed,
   'incidents-rekey': incidentsRekey,
+  'incident-gone': incidentGone,
   take, step, ask, withdraw, note, words, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'add-to-queue': addToQueue, 'remove-from-queue': removeFromQueue, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,

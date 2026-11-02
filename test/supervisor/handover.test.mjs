@@ -120,7 +120,8 @@ test('a returned one gives both again, naming its count; the partner\'s fix in b
   assert.equal((await b.chat('Partner', { action: 'incident-fix', id: 'X1', fix: 'B12' })).ok, true)
   assert.equal((await b.person({ action: 'tick', id: 'B12' })).ok, true)
   b.at(5)
-  assert.deepEqual((await b.server({ action: 'incidents-fixed' })).result.fixed, ['X1'])
+  // Signals change 6: fixed once its step is done and its key went unseen for the gone time (the loop's `incident-gone`).
+  assert.deepEqual((await b.server({ action: 'incident-gone', fixed: [{ id: 'X1', notSeenSince: START }] })).result.fixed, ['X1'])
   // Seen again: it came back.
   b.at(10)
   await b.run()

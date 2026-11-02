@@ -73,7 +73,8 @@ test('an incident with the advisor or one that came back can be closed too; one 
   // Fixed: refused.
   s.tick(10)
   await s.person({ action: 'tick', id: 'B12' })
-  await s.board({ action: 'incidents-fixed' })
+  // Signals change 6: fixed once its step is done and its key went unseen (the supervisor's loop, `incident-gone`).
+  await s.board({ action: 'incident-gone', fixed: [{ id: 'X2', notSeenSince: NOW }] })
   assert.equal(head(await s.item('X2'), 'State'), 'fixed')
   assert.equal((await s.chat('Partner', { action: 'drop', id: 'X2', why: 'no fault left' })).status, 409)
 

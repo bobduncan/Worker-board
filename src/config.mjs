@@ -234,19 +234,29 @@ export const DEFAULTS = {
    */
   supervisorModel: 'sonnet',
   supervisorEffort: 'low',
+  /**
+   * Signals change 6 (B915, Addendum 7): the effort the Supervisor's chat runs at while it judges incidents (a judge word is
+   * due or on its way); its sweeps stay at `supervisorEffort`. An effort level of the app's.
+   */
+  supervisorJudgeEffort: 'medium',
+  /**
+   * Signals change 6 (B915, Addendum 2): an incident of a rule closes itself (state gone) once its key was not seen for this
+   * many minutes of the board's running time while its rule looked (a number of minutes above 0).
+   */
+  incidentGoneMinutes: 60,
   /** The supervisor's thresholds (SUPERVISOR_DEFAULTS). */
   supervisor: SUPERVISOR_DEFAULTS,
   /**
-   * The supervisor's Part 2: how often, in minutes, the board wakes the supervisor's chat for a sweep while work runs
-   * (0: no sweep by the clock, only on Check now). Lower it to save tokens. A sweep by the clock runs only when something
-   * odd is new since the last one (an odd line of the health summary, a rule that tripped).
+   * The supervisor's Part 2: the fewest minutes between two sweeps the board starts by itself while work runs (0: none
+   * by itself, only on Check now). Signals change 6 (B915, Addendum 5): never by the clock: one starts only on a trigger
+   * (a new odd line of the health summary that no rule owns, the daily read after 09:00, an old limit reading near a stop).
    */
   supervisorSweepMinutes: 10,
   /**
-   * Cheaper sweeps (2026-10-26): the safety net: whatever the board looks like, a sweep by the clock runs at least once in
-   * this many hours while work runs (a number of hours above 0).
+   * Cheaper sweeps (2026-10-26): the safety net: a sweep at least once in this many hours while work runs. Signals change 6
+   * (Addendum 5): 0 by default, no net (0 or a number of hours).
    */
-  supervisorSweepAtLeastHours: 4,
+  supervisorSweepAtLeastHours: 0,
   /**
    * T9.3 part 1 (spec 2026-10-25): who provides each kind of asset, `{ provider, folder? }` per kind (src/providers). The
    * setting `providers` is an object from kind to a provider's name, or to `{ provider, folder? }`; `readProviders`.
@@ -497,6 +507,8 @@ export function parseConfig(text, env) {
   if (typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase())) config.usualEffort = raw.usualEffort.trim().toLowerCase()
   if (typeof raw.supervisorModel === 'string' && MODELS.includes(raw.supervisorModel.trim().toLowerCase())) config.supervisorModel = raw.supervisorModel.trim().toLowerCase()
   if (typeof raw.supervisorEffort === 'string' && EFFORTS.includes(raw.supervisorEffort.trim().toLowerCase())) config.supervisorEffort = raw.supervisorEffort.trim().toLowerCase()
+  if (typeof raw.supervisorJudgeEffort === 'string' && EFFORTS.includes(raw.supervisorJudgeEffort.trim().toLowerCase())) config.supervisorJudgeEffort = raw.supervisorJudgeEffort.trim().toLowerCase()
+  if (Number.isFinite(raw.incidentGoneMinutes) && raw.incidentGoneMinutes > 0) config.incidentGoneMinutes = raw.incidentGoneMinutes
   config.routing = parseRoutingPolicy(raw.routing)
   config.providers = readProviders(raw.providers).providers
   // The supervisor: each threshold given as a number above 0 replaces its default; others are left alone.
@@ -505,7 +517,7 @@ export function parseConfig(text, env) {
     .map(([key, value]) => [key, Number.isFinite(given[key]) && given[key] > 0 ? given[key] : value])))
   // Part 2: a number of minutes, 0 or more (0: no sweep by the clock).
   if (Number.isFinite(raw.supervisorSweepMinutes) && raw.supervisorSweepMinutes >= 0) config.supervisorSweepMinutes = raw.supervisorSweepMinutes
-  if (Number.isFinite(raw.supervisorSweepAtLeastHours) && raw.supervisorSweepAtLeastHours > 0) config.supervisorSweepAtLeastHours = raw.supervisorSweepAtLeastHours
+  if (Number.isFinite(raw.supervisorSweepAtLeastHours) && raw.supervisorSweepAtLeastHours >= 0) config.supervisorSweepAtLeastHours = raw.supervisorSweepAtLeastHours
   return config
 }
 
@@ -552,7 +564,9 @@ export function configProblem(fileText) {
   if (has('supervisorModel') && !(typeof raw.supervisorModel === 'string' && MODELS.includes(raw.supervisorModel.trim().toLowerCase()))) return wrong('supervisorModel', MODELS.map(one => `"${one}"`).join(' or '))
   if (has('supervisorEffort') && !(typeof raw.supervisorEffort === 'string' && EFFORTS.includes(raw.supervisorEffort.trim().toLowerCase()))) return wrong('supervisorEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
   if (has('supervisorSweepMinutes') && !(Number.isFinite(raw.supervisorSweepMinutes) && raw.supervisorSweepMinutes >= 0)) return wrong('supervisorSweepMinutes', 'a number of minutes, 0 or more (0: no sweep by the clock)')
-  if (has('supervisorSweepAtLeastHours') && !(Number.isFinite(raw.supervisorSweepAtLeastHours) && raw.supervisorSweepAtLeastHours > 0)) return wrong('supervisorSweepAtLeastHours', 'a number of hours above 0')
+  if (has('supervisorSweepAtLeastHours') && !(Number.isFinite(raw.supervisorSweepAtLeastHours) && raw.supervisorSweepAtLeastHours >= 0)) return wrong('supervisorSweepAtLeastHours', 'a number of hours, 0 or more (0: no safety net)')
+  if (has('supervisorJudgeEffort') && !(typeof raw.supervisorJudgeEffort === 'string' && EFFORTS.includes(raw.supervisorJudgeEffort.trim().toLowerCase()))) return wrong('supervisorJudgeEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
+  if (has('incidentGoneMinutes') && !(Number.isFinite(raw.incidentGoneMinutes) && raw.incidentGoneMinutes > 0)) return wrong('incidentGoneMinutes', 'a number of minutes above 0')
   if (has('supervisor')) {
     const given = raw.supervisor
     if (given === null || typeof given !== 'object' || Array.isArray(given)) return wrong('supervisor', `an object of numbers above 0: ${Object.keys(SUPERVISOR_DEFAULTS).join(', ')}`)

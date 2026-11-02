@@ -172,6 +172,7 @@ export const SYNC_SHOWN_MS = 60 * MIN
 const NOTED_KEPT = 500
 /** The supervisor's own memory keeps its repairs and the times each rule tripped this long. */
 const DAY = 24 * 60 * MIN
+const DAY_MS = DAY
 /** The times a rule tripped, kept at most this many (the newest). */
 const TRIPS_KEPT = 500
 /** A repair rule's row that says the board did something: a fix, a wake, a note to the main chat, a clean-up. */
@@ -180,17 +181,24 @@ const REPAIRED = ['Fixed', 'Woke', 'Sent', 'Cleaned']
 /**
  * The supervisor (Review Focus 1): the rules run one by one over the view; a rule that throws (bad data, a missing file)
  * is one finding of its own, `rule <id> failed: <why>`, and the others still run. Answers `{ findings, failed, states }`:
- * what the rules found, the failures, and per rule what it found (`{ rule, found, failed }`).
+ * what the rules found, the failures, and per rule what it found (`{ rule, found, failed, skipped }`). Signals change 6
+ * (Addendum 2): a rule whose `skips(view)` names a reason (the person pauses, a limit is full) does not look in this run:
+ * its state says `skipped` (the reason), so its silence is never read as "not seen" by an incident's gone clock.
  */
 export function runRules(rules, view, ctx) {
   const findings = []
   const failed = []
   const states = []
   for (const rule of rules) {
+    const skipped = typeof rule.skips === 'function' ? rule.skips(view) ?? null : null
+    if (skipped !== null) {
+      states.push({ rule, found: [], failed: null, skipped })
+      continue
+    }
     try {
       const found = rule.check(view, ctx)
       findings.push(...found)
-      states.push({ rule, found, failed: null })
+      states.push({ rule, found, failed: null, skipped: null })
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error)
       const one = {
@@ -198,21 +206,42 @@ export function runRules(rules, view, ctx) {
         evidence: String(error?.stack ?? why).split('\n').slice(0, 2).map(line => line.trim()).join(' '), failed: true,
       }
       failed.push(one)
-      states.push({ rule, found: [], failed: one })
+      states.push({ rule, found: [], failed: one, skipped: null })
     }
   }
   return { findings, failed, states }
 }
 
-/** The supervisor's own memory as its file keeps it: `{ seen, repairs, trips }`, anything else left out. */
+/** The supervisor's own memory as its file keeps it: `{ seen, repairs, trips, runs }`, anything else left out. */
 export function memoryOf(value) {
   const seen = value?.seen !== null && typeof value?.seen === 'object' ? Object.entries(value.seen).filter(([, at]) => Number.isFinite(at)) : []
   const repairs = Array.isArray(value?.repairs) ? value.repairs.filter(one => Number.isFinite(one?.at) && typeof one?.rule === 'string') : []
   const trips = value?.trips !== null && typeof value?.trips === 'object'
     ? Object.entries(value.trips).filter(([, times]) => Array.isArray(times)).map(([id, times]) => [id, times.filter(Number.isFinite)]) : []
-  return { seen: new Map(seen), repairs, trips: new Map(trips) }
+  const runs = value?.runs !== null && typeof value?.runs === 'object'
+    ? Object.entries(value.runs).filter(([, spans]) => Array.isArray(spans)).map(([id, spans]) => [id, spans.filter(isSpan)]) : []
+  return { seen: new Map(seen), repairs, trips: new Map(trips), runs: new Map(runs) }
 }
-const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.seen), repairs: memory.repairs, trips: Object.fromEntries(memory.trips) })
+const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.seen), repairs: memory.repairs, trips: Object.fromEntries(memory.trips), runs: Object.fromEntries(memory.runs) })
+
+/** Signals change 6: how a rule stood in one run, for the gone clock: it looked (`complete`), it did not (`skipped`), or it threw. */
+const RUN_STATES = ['complete', 'skipped', 'failed']
+const isSpan = one => Number.isFinite(one?.from) && Number.isFinite(one?.to) && one.to >= one.from && RUN_STATES.includes(one.status)
+/** The spans kept per rule: the last RUNS_KEPT_MS of them, at most RUNS_KEPT (an incident older than that counts from the oldest). */
+const RUNS_KEPT_MS = 3 * DAY_MS
+const RUNS_KEPT = 200
+
+/**
+ * Signals change 6 (Addendum 2): a rule's runs as the supervisor keeps them, run-length spans `{ from, to, status }`, oldest
+ * first: this run (`now`, `status`) lengthens the newest span when it stood the same, else starts one; spans older than
+ * RUNS_KEPT_MS go. PURE.
+ */
+export function withRun(spans, now, status) {
+  const kept = (spans ?? []).filter(one => now - one.to < RUNS_KEPT_MS)
+  const last = kept.at(-1)
+  const next = last !== undefined && last.status === status && now >= last.to ? [...kept.slice(0, -1), { ...last, to: now }] : [...kept, { from: now, to: now, status }]
+  return next.slice(-RUNS_KEPT)
+}
 
 /**
  * The board's runner of the list: one run at a time, in turn (a click while a run goes waits for it, then runs). `ports`:
@@ -316,6 +345,8 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     // Each rule as it stood in this run, and how often it tripped in the last day.
     const isTripped = ({ rule, found }) => (rule.kind === 'repair' ? found.some(one => one.fix?.do !== 'list') : found.length > 0)
     const states = [...repairs.states, ...watched.states]
+    // Signals change 6: each rule's run (looked, skipped or failed) for the gone clock of its incidents (gone.mjs).
+    for (const one of states) memory.runs.set(one.rule.id, withRun(memory.runs.get(one.rule.id), now, one.failed !== null ? 'failed' : one.skipped ? 'skipped' : 'complete'))
     for (const one of states) {
       const times = (memory.trips.get(one.rule.id) ?? []).filter(at => now - at < DAY)
       if (one.failed === null && isTripped(one)) times.push(now)
@@ -327,11 +358,15 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
       rules: states.map(one => ({
         id: one.rule.id, kind: one.rule.kind, says: one.rule.says,
         state: one.failed !== null ? 'failed' : isTripped(one) ? 'tripped' : 'fine',
-        why: one.failed?.text ?? null, trips: (memory.trips.get(one.rule.id) ?? []).length,
+        why: one.failed?.text ?? (one.skipped ? `did not look: ${one.skipped}` : null), trips: (memory.trips.get(one.rule.id) ?? []).length,
       })),
     }
     if (typeof ports.memory?.save === 'function' && memoryText(memory) !== memoryBefore) await ports.memory.save(JSON.parse(memoryText(memory)))
-    const answer = { at: now, asked, subject, rows: done.rows, fine: done.fine, newAt, findings: [...repairs.failed, ...watched.failed, ...watched.findings] }
+    // Signals change 6: the rules' runs and the board's off time go with the answer, for the incidents' gone clock (index.mjs).
+    const answer = {
+      at: now, asked, subject, rows: done.rows, fine: done.fine, newAt, findings: [...repairs.failed, ...watched.failed, ...watched.findings],
+      runs: Object.fromEntries(memory.runs), gaps: view.gaps ?? [], skipped: states.filter(one => one.skipped).map(one => one.rule.id),
+    }
     // The review: a later run that finds nothing clears what the board found by itself; the button's answer stays.
     if (asked || answer.rows.some(row => row.status !== 'Left')) shownRun = answer
     else if (shownRun !== null && !shownRun.asked) shownRun = null

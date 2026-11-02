@@ -9,6 +9,8 @@ import { sinceMs } from '../work/item.mjs'
 const DAY = 24 * 60 * 60_000
 /** How long a fixed incident stays in the view: the section counts the last 24 h and the 24 h before it (page: `supervisorCounts`). */
 const FIXED_KEPT = 2 * DAY
+/** The states in which an incident ended: fixed, closed (no fault left, B685), gone by itself (signals change 6). */
+export const ENDED = ['fixed', 'closed', 'gone']
 /** A History line's stamp and what it says: "- 2026-10-24 18:38 board: came back (seen 3 times)". */
 const BACK_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?)\s.*:\s+came back\b/
 
@@ -75,7 +77,8 @@ export function incidentsOf(items, now) {
       lastSeen: sinceMs(value(item, 'Last seen')), since: sinceMs(value(item, 'Since')), evidence: value(item, 'Evidence'), ruleWanted: value(item, 'Rule wanted'),
       foundAt: foundAtOf(item, sinceMs(value(item, 'First seen'))),
     }))
-    .filter(one => (one.state !== 'fixed' && one.state !== 'closed') || !(now - one.lastSeen > FIXED_KEPT))
+    // Signals change 6: one gone by itself ends as a fixed one does.
+    .filter(one => !ENDED.includes(one.state) || !(now - one.lastSeen > FIXED_KEPT))
     .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0) || String(b.id).localeCompare(String(a.id), 'en', { numeric: true }))
 }
 
