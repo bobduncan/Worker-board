@@ -10,42 +10,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { answer, step as toolStep, typed } from '../fixtures/lines.mjs'
-import { parseConfig } from '../src/config.mjs'
 import { changes } from '../src/history.mjs'
-import { buildState } from '../src/state.mjs'
-import { storeFromText } from '../src/work/read.mjs'
-import { valueOf, parseItem } from '../src/work/item.mjs'
+import { valueOf } from '../src/work/item.mjs'
 import { heldOf, lastReportedOf, sizeOf, takenAtOf } from '../src/work/held.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
-
-const MIN = 60_000
-const at = (h, m, s = 0) => new Date(2026, 10, 2, h, m, s).getTime()
-const two = n => String(n).padStart(2, '0')
-const stamp = ms => { const d = new Date(ms); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}` }
-const stampSec = ms => `${stamp(ms)}:${two(new Date(ms).getSeconds())}`
-
-/** A step of the store as its file reads, with `head` lines, `history` lines and a refine `size`. */
-export function stepItem(id, { title = `Title of ${id}`, state = 'in progress', owner = 'Worker 1', since = at(11, 52), size = null, history = [], head = [] } = {}) {
-  return parseItem([
-    `Id: ${id}`, 'Kind: step', `Title: ${title}`, `State: ${state}`, ...(owner === null ? [] : [`Owner: ${owner}`]), `Since: ${stamp(since)}`, ...head, '',
-    ...(size === null ? [] : ['## Refined', '  Refined (round 1, by Advisor; ready):', `  Size: ${size}`, '']),
-    '## History', ...history.map(([when, who, words]) => `- ${stamp(when)} ${who}: ${words}`), '',
-  ].join('\n'))
-}
-const itemsOf = (...items) => new Map(items.map(one => [valueOf(one, 'Id'), one]))
-
-/** B855 as the store held it on 2 Nov: taken 11:10, a checkpoint 11:14, its head Since rewritten to 11:52 by a later move. */
-export const b855 = (more = {}) => stepItem('B855', {
-  title: 'A walkable tile always shows its whole move/target square', size: 'about 2 h', since: at(11, 52),
-  head: [`Checkpoint: 1a2b3c4 · committed on b855-whole-move-squares; gate running · ${stampSec(at(11, 14))}`, 'Taken for: 90 min',
-    `Plan: step 4/4 | parts Read; Build; Test; Report | until ${stampSec(at(11, 54))} | at ${stampSec(at(11, 14))}`],
-  history: [[at(11, 10), 'server', 'queued → taken (for Worker 1)'], [at(11, 10), 'Worker 1', 'taken → in progress'], [at(11, 14), 'Worker 1', 'step 4/4, about 40 min left'],
-    [at(11, 30), 'server', 'in progress → waiting on you'], [at(11, 52), 'server', 'waiting on you → in progress']],
-  ...more,
-})
+import { B855_CARD, B855_LINES, MIN, at, b855, b855d, cardOf, digger, itemsOf, stamp, stampSec, stateAt, stepItem } from './heldFixtures.mjs'
 
 // The store's records: since, size, checkpoint, plan
 
@@ -160,46 +131,6 @@ test('a history line says source step for a worker that holds a step, null other
 
 const GOALS_WITH = id => ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '    Done when: you judge a fight fun', '    Goal definition: every fight reads at a glance',
   '    Goal definition agreed: 2026-10-18 10:00', `    Part: Show the squares · about 2 h · steps ${id}`, '    How agreed: 2026-10-18 11:00', ''].join('\n')
-const appChat = name => JSON.stringify({ title: `Garden · ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: 'C:\\garden', isArchived: false, createdAt: name.length, lastActivityAt: at(11, 0), lastAssistantUuid: 'u-1' })
-/** The card a chat typed: its task's words, the step of how many, the time it said was left (ms) and when. */
-export const cardOf = (text, { step = null, steps = null, names = null, left = null, at: when = at(11, 14) } = {}) => JSON.stringify({ name: 'Digger', role: 'worker', state: 'working', at: when, task: { text, step, steps, names, left } })
-
-/**
- * The garden on 2 Nov at `now`: Lead (main), Digger (the worker) and the Advisor. Digger's turn runs (a tool call a minute
- * ago) unless `isFree`; `card` is its card, `items` the store's steps, `lines` the history.
- */
-export function stateAt(now, { items = [], card = null, lines = [], isFree = false, planSeen = null, goals = null } = {}) {
-  const work = storeFromText('## Garden\n- [ ] B12 Plant the hedge\n', { now: at(9, 0) })
-  for (const one of items) work.items.set(valueOf(one, 'Id'), one)
-  const tailOf = entries => ({ text: entries.join('\n'), isCut: false, modifiedAt: now - MIN })
-  const raw = {
-    listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [appChat('Lead'), appChat('Digger'), appChat('Advisor')],
-    tails: {
-      'cli-Lead': tailOf([answer(now - 30 * MIN, 'ok')]),
-      'cli-Digger': tailOf(isFree ? [typed(now - 40 * MIN, 'go'), answer(now - 20 * MIN, DONE_YES)] : [typed(now - 9 * MIN, 'go on'), toolStep(now - MIN, 'Running the tests')]),
-      'cli-Advisor': tailOf([answer(now - 12 * MIN, 'ok')]),
-    },
-    planLineTexts: card === null ? {} : { 'cli-Digger': card }, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work, ...(goals === null ? {} : { goalsText: goals }),
-  }
-  return buildState(raw, { lines, outbox: [], runs: [], board: null, seen: null, now, planSeen, config: { ...parseConfig('{}', {}), project: 'C:\\garden' } })
-}
-const digger = state => state.chats.find(lane => lane.name === 'Digger')
-/** An answer that closes its turn finished (B148). */
-const DONE_YES = ['Sown.', '', '---', '', '```diff', '  Prompt: sow', '  Who:    Digger', '+ Done:   yes', '```'].join('\n')
-/** B855 held by Digger (the garden's worker). */
-export const b855d = (more = {}) => {
-  const one = b855(more)
-  one.head.set('Owner', 'Digger')
-  one.sections.set('History', (one.sections.get('History') ?? []).map(line => line.replace('Worker 1', 'Digger')))
-  return one
-}
-/** Digger's history: working from 11:10, interrupted 11:14-11:16 (B855's case), working since. */
-export const B855_LINES = [
-  { at: at(11, 10), chat: 'Digger', state: 'working', task: null, source: 'step' },
-  { at: at(11, 14), chat: 'Digger', state: 'interrupted', task: null, source: 'step' },
-  { at: at(11, 16), chat: 'Digger', state: 'working', task: null, source: 'step' },
-]
-export const B855_CARD = cardOf('QA of B813: check the strip', { step: 4, steps: 4, names: ['Read', 'Build', 'Test', 'Report'], left: 40 * MIN })
 
 test('B855 at 11:16: the row\'s task is the store\'s B855 whatever the card names; 1 h 56 of its 2 h; the card stays as it was', () => {
   const state = stateAt(at(11, 16), { items: [b855d()], card: B855_CARD, lines: B855_LINES, goals: GOALS_WITH('B855') })
