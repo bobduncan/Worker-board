@@ -1040,6 +1040,23 @@ function handoverHeld(view, ctx) {
 /** T8.5 step 4: how far back a fired net still counts as a finding (one per envelope, so its incident counts it once). */
 const UNANSWERED_LOOK_MS = DAY
 
+/** A History line's stamp and who wrote it: "- 2026-11-02 11:10 server: queued → taken (for Worker 1)". */
+const HISTORY_WHO = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?) ([^:]{1,80}):\s*(.*)$/
+/**
+ * Change 4's follow-up: whether a step was handled after `since`: a History line after it that moves the step (" → "),
+ * gives it to a worker ("given by the board to", "given to"), or is the person's. Null item: not handled.
+ */
+function handledSince(item, since) {
+  if (item === null || item === undefined || !Number.isFinite(since)) return false
+  return (item.sections?.get('History') ?? []).some(entry => {
+    const found = HISTORY_WHO.exec(entry)
+    if (found === null) return false
+    const at = sinceMs(found[1])
+    if (!Number.isFinite(at) || at <= since) return false
+    return found[2].trim().toLowerCase() === 'person' || / → /.test(found[3]) || /\bgiven (?:by the board )?to\b/.test(found[3])
+  })
+}
+
 /**
  * 30. T8.5 step 4 (in place of not-taking for a worker on the sequence): the hand-over's one net fired: an envelope that
  * had no outcome, no take and no turn's end for `NET_MS` (10 min) of the board's running time (`netAt` on the envelope,
@@ -1055,6 +1072,9 @@ function handoverUnanswered(view) {
     const spells = (view.wakes?.[lane.name]?.spells ?? []).filter(Number.isFinite)
     for (const envelope of envelopesOf(view.outbox, lane.name, view.prefix)) {
       if (!Number.isFinite(envelope.netAt) || view.now - envelope.netAt > UNANSWERED_LOOK_MS) continue
+      // Change 4's follow-up (2026-11-02, X119 counted 71 times hours after its net): a miss whose task was handled since
+      // (taken, given to another worker, moved or touched by the person) is not found again: its look ends at that move.
+      if (typeof envelope.step === 'string' && handledSince(view.items?.get(envelope.step), envelope.netAt)) continue
       const slept = spells.filter(spell => spell <= envelope.at).at(-1)
       const spell = slept ?? Math.floor(envelope.at / MIN) * MIN
       const key = `handover-unanswered ${lane.name} ${spell}`

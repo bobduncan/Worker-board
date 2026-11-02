@@ -92,6 +92,18 @@ test('handover-unanswered: the net fired: one finding per worker and spell (no w
   assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e5', 25 * 60 + 12, 25 * 60)] })), [])
   // Mutant "the rule firing for a timers worker".
   assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, onTimers('Digger', 'unknown')], outbox: [sent('e1', 12, 2)] })), [])
+  // Change 4's follow-up (X119 counted 71 times hours after its net): a miss whose task was handled since the net (taken by
+  // another worker, given on, moved, or touched by the person) is not found again; one handled before the net still is.
+  const stamp = minutes => { const d = new Date(NOW - minutes * MIN); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
+  const b13 = lines => ({ head: new Map([['Id', 'B13'], ['Kind', 'step'], ['State', 'in progress'], ['Owner', 'Weeder']]), sections: new Map([['History', lines]]) })
+  const taken = b13([`- ${stamp(1)} server: queued → taken (for Weeder)`])
+  assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e1', 12, 2)], items: new Map([['B13', taken]]) })), [])
+  const given = b13([`- ${stamp(1)} server: refined → queued (given by the board to Weeder)`])
+  assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e1', 12, 2)], items: new Map([['B13', given]]) })), [])
+  const person = b13([`- ${stamp(1)} person: dropped: not needed`])
+  assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e1', 12, 2)], items: new Map([['B13', person]]) })), [])
+  const before = b13([`- ${stamp(5)} server: queued → taken (for Weeder)`, `- ${stamp(1)} Weeder: step 2/4, about 20 min left`])
+  assert.equal(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e1', 12, 2)], items: new Map([['B13', before]]) })).length, 1, 'a move before the net, and a plan line after it: still found')
 })
 
 // Signals change 4, B908 (decision 7): X119-X121 were one incident per envelope as B855 bounced between sleepers. Now the key
