@@ -584,8 +584,13 @@ export function createBoard({
  * restart and the next one listening, a chat's Workers mod found no board and started one of its own, with a new token (a
  * 403 and a reload of the open page). The port is now taken within the start of node itself. Fails as `listen` does
  * (EADDRINUSE: the caller says it in one line and ends).
+ * The lead's review (2026-11-02): a start that hangs after it took the port (a git call, a store read) would answer 503
+ * for ever, and nobody would start another board: the keeper acts only on an exit, and the mod's keepBoards counts any
+ * answer as a board. So when `serve` has not come within `timeoutMs` (START_TIMEOUT_MS), `onLate()` runs: the board says so
+ * and ends with 1 (not up: its keeper ends with its line, and the mod's next refused ping starts a fresh keeper).
+ * `setTimer`/`clearTimer` are the clock's, handed in for the tests.
  */
-export function holdPort({ port, host }) {
+export function holdPort({ port, host, timeoutMs = START_TIMEOUT_MS, onLate = () => lateStart(port, timeoutMs), setTimer = setTimeout, clearTimer = clearTimeout }) {
   let board = null
   const server = createServer((req, res) => {
     if (board !== null) return board.emit('request', req, res)
@@ -597,9 +602,26 @@ export function holdPort({ port, host }) {
     server.listen(port, host, () => {
       server.off('error', fail)
       server.on('error', error => console.error(`The board's port: ${error?.code ?? 'unknown error'}.`))
-      done({ server, serve: own => { board = own } })
+      const late = setTimer(() => { if (board === null) onLate() }, timeoutMs)
+      late?.unref?.()
+      done({
+        server,
+        serve: own => {
+          clearTimer(late)
+          board = own
+        },
+      })
     })
   })
+}
+
+/** The lead's review (2026-11-02): how long a board may take from its port to serving before it ends (see `holdPort`). */
+export const START_TIMEOUT_MS = 4 * 60_000
+
+/** A start that did not come up in time: one line, and the board ends with 1 so its keeper and the chats see it off. */
+function lateStart(port, timeoutMs) {
+  console.error(`The board did not come up within ${Math.round(timeoutMs / 60_000)} minutes after taking port ${port}: it ends so its keeper and the chats see it off.`)
+  process.exit(1)
 }
 
 /** B404: how long a restart waits for the reconciler's pass and the running checks before the board ends. */

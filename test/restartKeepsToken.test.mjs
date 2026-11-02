@@ -165,3 +165,48 @@ test('a second process on the board\'s port ends with one line before it opens t
   assert.equal([...keeper.out.matchAll(/is in use/g)].length, 1, 'one board was started, once')
   assert.equal(await readFile(join(board, 'data', 'history.jsonl'), 'utf8'), history)
 })
+
+// The lead's review (2026-11-02): a start that hangs after it took the port must not hold the port with 503 for ever.
+
+/** A clock whose one timer runs only when the test says so. */
+function fakeTimers() {
+  const timers = { set: [], cleared: [] }
+  return {
+    timers,
+    setTimer: (run, ms) => { const timer = { run, ms }; timers.set.push(timer); return timer },
+    clearTimer: timer => { timers.cleared.push(timer) },
+  }
+}
+
+test('holdPort: a board that does not serve within START_TIMEOUT_MS (4 minutes) after taking its port ends; one that serves in time does not', async t => {
+  const { START_TIMEOUT_MS, holdPort } = await import('../server.mjs')
+  assert.equal(START_TIMEOUT_MS, 4 * MIN)
+  const hung = fakeTimers()
+  let late = 0
+  const stuck = await holdPort({ port: 0, host: '127.0.0.1', onLate: () => { late += 1 }, setTimer: hung.setTimer, clearTimer: hung.clearTimer })
+  t.after(() => new Promise(done => stuck.server.close(done)))
+  assert.equal(hung.timers.set.length, 1)
+  assert.equal(hung.timers.set[0].ms, START_TIMEOUT_MS)
+  const answer = await fetch(`http://127.0.0.1:${stuck.server.address().port}/api/state`)
+  assert.equal(answer.status, 503, 'while it starts it says so')
+  assert.match(await answer.text(), /starting/)
+  hung.timers.set[0].run()
+  assert.equal(late, 1, 'serve never came: the board ends')
+
+  const quick = fakeTimers()
+  let quickLate = 0
+  const fine = await holdPort({ port: 0, host: '127.0.0.1', onLate: () => { quickLate += 1 }, setTimer: quick.setTimer, clearTimer: quick.clearTimer })
+  t.after(() => new Promise(done => fine.server.close(done)))
+  fine.serve(createServer((_req, res) => res.end('the board')))
+  assert.deepEqual(quick.timers.cleared, [quick.timers.set[0]], 'serve clears the timer')
+  quick.timers.set[0].run()
+  assert.equal(quickLate, 0, 'a board that serves is never ended by it')
+  assert.equal(await fetch(`http://127.0.0.1:${fine.server.address().port}/`).then(reply => reply.text()), 'the board')
+})
+
+test('the late start says why in one line and ends with 1, not up, so its keeper does not start it again', async () => {
+  const server = await readFile(join(ROOT, 'server.mjs'), 'utf8')
+  const late = server.slice(server.indexOf('function lateStart('), server.indexOf('function lateStart(') + 400)
+  assert.match(late, /The board did not come up within \$\{Math\.round\(timeoutMs \/ 60_000\)\} minutes after taking port \$\{port\}: it ends so its keeper and the chats see it off\./)
+  assert.match(late, /process\.exit\(1\)/)
+})
