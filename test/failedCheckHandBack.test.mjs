@@ -18,8 +18,11 @@ import { workApi } from '../src/work/api.mjs'
 import { parseItem, serializeItem } from '../src/work/item.mjs'
 import { migrateBacklog, stamp } from '../src/work/migrate.mjs'
 import { storeFromText } from '../src/work/read.mjs'
-import { readStore, writeStore } from '../src/work/store.mjs'
+import { readStore, share, writeStore } from '../src/work/store.mjs'
 import { buildState } from './withStore.mjs'
+
+// B917: these tests edit store files by hand and read at once; on the board a hand edit shows within share.ms.
+share.ms = 0
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 27, 21, 30).getTime()

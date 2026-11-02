@@ -16,8 +16,11 @@ import { parseAutopilotCleared, startedCleared, addedCleared, clearedItem, isLiv
 import { workApi } from '../src/work/api.mjs'
 import { routedAwayOf, storeNeeds } from '../src/work/lists.mjs'
 import { stamp } from '../src/work/migrate.mjs'
-import { readAutopilotClearedFile, readObsoleteFile, readStore, writeAutopilotClearedFile } from '../src/work/store.mjs'
+import { readAutopilotClearedFile, readObsoleteFile, readStore, share, writeAutopilotClearedFile } from '../src/work/store.mjs'
 import { openItemsOf } from '../src/work/obsolete.mjs'
+
+// B917: these tests edit store files by hand and read at once; on the board a hand edit shows within share.ms.
+share.ms = 0
 
 const MIN = 60_000
 const NOW = new Date(2026, 10, 2, 12, 27).getTime()

@@ -1688,6 +1688,15 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   the backlog view again at every rebuild for the folders the steps mention (6% of a core): those folders are worked
   out once per read of the store (the keeper's answer, the same until a change through the board or its 30 s; tests:
   test/sources.test.mjs, B917).
+- **One listing shared for 1.5 s (B917 part 2b, X93)**: after the index the main thread was half free and the store
+  reads showed on the pool threads: 2.4 whole reads a second, each stating all 3138 item files (about a quarter of a
+  core). A whole read now shares the listing and stats of one taken within `share.ms` (1.5 s, src/work/store.mjs) and
+  states nothing; every write and remove the board makes drops the shared listing at once with the file's copy
+  (`forget`, also for writeStore's take-away of a step without an id), and a read that a write of the board overtook
+  between its listing and its stats keeps nothing to share. So whatever is written through the board shows at the very
+  next read, as before; a hand edit outside the board shows within 1.5 s. No folder watcher (Windows watchers are the
+  flakier path). Tests that edit store files by hand and read at once set `share.ms = 0` (tests:
+  test/work/storeCache.test.mjs, B917).
 - **The state kept 5 s (B917 part 4, X93)**: `readState` (server.mjs, `STATE_MS`) keeps the built state 5 s instead
   of 2 s; every change through the board still resets it, so a change shows at once. Logged on the live board
   (2026-11-02, 152 s): 913 asks of the state (6 a second: the chats' pings, the page's polls, the loops) and 32 resets
@@ -5409,6 +5418,59 @@ Tests: `test/wake.test.mjs`, `test/wakeNeeds.test.mjs`, `test/opener.test.mjs` (
 wake job and its claim), `test/work/handover.test.mjs` and `test/work/handoverBoard.test.mjs` (the hand-over around a wake,
 the real envelopes eb4fe8aada155b05 and 93ee0a904d02d2dc), `test/supervisor/handoverRules.test.mjs` (the alarms),
 `test/asleepAfterRestart.test.mjs` (the lane's words, the notice, the ⚙ row).
+
+## The wait line (T22, wave 1, 2026-11-02)
+
+The person, 2026-11-02: "either the board responds immediately, e.g. via code. or we expect an ai chat todo something in
+which case i always need clear visual indications, maybe a loader. and the status if its being picked up or not. I want to
+know whats going on." Spec, mock and the board-dev chat's conditions: `art-inbox/focus-mocks/wait-rule/` (spec.md,
+conditions.md, mock.png, audit.md).
+
+**One line per word an action of the person typed** (`src/waitLine.mjs`, pure), the first state that holds: **Done** (the
+action's own result: the recap's next tries filed after the Send, the obsolete check's record answered, the asked sweep
+ended by its chat's turn; for an action without such a source the fallback "<Chat> answered HH:MM" once the turn that began
+on the word ended (an `idle` report; an `ended` one, closed or crashed mid-turn, is no answer); an action with its own source
+whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it"), **Late** (a word failed for
+good, "could not be delivered: <why>"; rule 8's own judgement of this word, `watch.mjs isUndelivered`, the one function
+`undeliveredWords` uses, so the card and the alarm never disagree; or every way to wake the chat failed,
+`wakeOf(...).final`, with `triedWords`), **Picked up** (the word arrived, delivered or taken by its own chat, the lane's status
+Working and its report's since at or after the take: the take, not `deliveredAt`, because the mod's "typed" comes a moment
+after the turn it began reported), **Sent** (the wake record while the chat does not run; the queue place while it does).
+**Kept once** (the review of 2026-11-02): a turn seen ended (`answeredAt`) and an action's own result (`doneAt`, its words and
+step) are written on the word by `waitsNow` (on every state read, and every 30 s while no page asks), and read first: a later
+turn never makes a word "on it" again. Closed, dropped, superseded (`wordMatters`) or
+copied words have none. The chat's status pill stands beside the line as every view draws it; Late is the only state in
+the attention colour.
+
+**The state's `waits`** (server.mjs `waitsNow`): every person's word of the last 24 h (an answer, `recap-feedback`,
+`obsolete-check`, the asked sweep's word `lastSweep.word`) by its id, judged by `wordJudge` (src/supervisor/index.mjs: a view
+built as the rules build theirs, `isUndelivered` and `wordMatters` made once; the boundary holds, nothing outside the
+supervisor imports its parts); a retried word by the copy that stands for it. An answer carries its word's id (`need.answer.id`), the recap's Send answers
+`said` and names its `backSteps`, Check now answers `said`.
+
+**On the page**: an answered ask stays as a slim card with its line until Done (it used to vanish at once; storeNeeds keeps
+an answered ask in the list while its word's line is not Done, up to 24 h, then ten minutes from its Done or answer, or from
+the answer when it has no word; its line follows the word to the chat that asked); Find obsolete
+items says "Asked" and draws the line (it said "checking" from the moment its record was written); a Check now sweep's line
+stands under the supervisor's head; the recap's Send draws its line in the popup (following the state) and as the Focus
+page's card "G6 · Your recap · feedback sent" while no verdict waits. A Done line's link opens its step; a Done line goes
+after 10 minutes.
+
+**Send again** (a Late line whose chat does not run, while no wake is pending; only where the state says `waitAgain`): the
+page posts `wake-again` to /api/say; `wakeAgainNow` (refused while the board ends, where it does not run the loops, while the person
+pauses, and for a spell that is not the record's newest entry of the chat) makes ONE attempt through the record (wake.mjs
+`personAgain`, change 7, outside the cap of one try per path): the message way when a chat that may send claims (the record holds it `by` "the board"
+until the next hand takes it, with the job id `wakeJobId` the hands route gives a claim), else a launch at once (`launchFor`
+with `again`). A refusal stands under the line, in Needs your attention, the recap's popup and the supervisor's head. A
+word failed for good, and a chat the board has no id to reach, get none (the line says to open the chat). **Not in it yet**: the incident judgment's line (change 6), wave 2 (a refine,
+Go, Change this goal, a goal ask, Overturn, Stop or Remove a worker, the Focus talk).
+
+Tests: `test/waitLine.test.mjs` (the four states, rule 8's one judgement, the wake record, the actions' own results,
+`waitsOf`), `test/waitLineState.test.mjs` (through the board's own state: the answered ask kept for its line, Done kept,
+Working, an ended session, a turn without the result, the asking chat's word), `test/waitAgain.test.mjs` (Send again through
+the record, held for the next hand, its refusals), `test/waitLinePage.test.mjs`
+(the DOM harness: the slim card, the signs, the obsolete check, the sweep, the recap's popup and Focus card, the link, Send
+again), `test/demoFeedbackBoard.test.mjs` (the Send's line in a running board's state, a refused Send again).
 
 ## What it does not do
 

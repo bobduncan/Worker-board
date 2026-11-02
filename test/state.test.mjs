@@ -178,7 +178,7 @@ test('a request shows the answer that was sent for it, until it is delivered or 
       { id: 'm3', at: NOW - MIN, to: 'Units', ask: 'other', verdict: null, text: 'Hello', state: 'waiting' },
     ],
   })
-  assert.deepEqual(state.forYou[0].answer, { at: NOW - MIN, verdict: 'approve', text: '', state: 'waiting', takenAt: null, deliveredAt: null })
+  assert.deepEqual(state.forYou[0].answer, { id: 'm2', at: NOW - MIN, verdict: 'approve', text: '', state: 'waiting', takenAt: null, deliveredAt: null })
 })
 
 test('a running turn without a sign of life is raised for you, and cannot be answered on the board', () => {
@@ -380,7 +380,7 @@ test('a step for you in the backlog is a card of its kind, answered to the worke
   assert.equal(withIds('the walk is smooth now').id, 'backlog:B14')
   // The answer that was sent for a step is shown with it; without a main chat nobody can be told.
   const answered = build({ apps: [app('Main')], backlog, outbox: [{ id: 'm1', at: NOW, to: 'Main', ask: state.backlogForYou[3].id, verdict: 'done', text: '', state: 'waiting' }] })
-  assert.deepEqual(answered.backlogForYou[3].answer, { at: NOW, verdict: 'done', text: '', state: 'waiting', takenAt: null, deliveredAt: null })
+  assert.deepEqual(answered.backlogForYou[3].answer, { id: 'm1', at: NOW, verdict: 'done', text: '', state: 'waiting', takenAt: null, deliveredAt: null })
   assert.deepEqual(build({ apps: [app('Units')], backlog }).backlogForYou.map(step => [step.from, step.canAnswer])[1], [null, false])
 })
 
@@ -832,7 +832,7 @@ test('an answer carries when it was handed to its chat and when it was typed; a 
   const first = build({ apps: [app('Main')], backlog }).backlogForYou[0]
   const typed = { id: 'm1', at: NOW - 9 * MIN, to: 'Main', ask: first.id, version: first.version, verdict: 'approve', text: '', state: 'delivered', takenAt: NOW - 8 * MIN, deliveredAt: NOW - 7 * MIN }
   const state = build({ apps: [app('Main'), app('Advisor')], backlog, outbox: [typed] })
-  assert.deepEqual(state.backlogForYou[0].answer, { at: NOW - 9 * MIN, verdict: 'approve', text: '', state: 'delivered', takenAt: NOW - 8 * MIN, deliveredAt: NOW - 7 * MIN })
+  assert.deepEqual(state.backlogForYou[0].answer, { id: 'm1', at: NOW - 9 * MIN, verdict: 'approve', text: '', state: 'delivered', takenAt: NOW - 8 * MIN, deliveredAt: NOW - 7 * MIN })
   assert.deepEqual([state.chats[0].appSession, state.advisor.appSession], ['local_Main', 'local_Advisor'])
 })
 

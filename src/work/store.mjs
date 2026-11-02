@@ -9,6 +9,10 @@
 // B867: one folder read per call: within `oneRead` (a work call) the first read lists the folder with stats; every later
 // read of that call (its view, recap, the close of fixes, a new id) takes that listing and reads anew only the item files
 // the call itself wrote or removed.
+// B917 (X93): one listing with its stats shared by the whole reads within `share.ms`: on 2026-11-02 the board read the
+// store 2.4 times a second, each stating all 3138 item files (a quarter of a core on the pool threads). Every write or
+// remove the board makes drops the shared listing at once (as B741 drops the file's copy), so nothing written through
+// the board is ever read old; a hand edit shows within `share.ms`.
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
@@ -78,11 +82,31 @@ const keptOf = (fs, dir) => {
   return byDir.get(key)
 }
 
+/**
+ * B917: per fs and folder, the listing and the stats of the last whole read (`{ at, names, marks }`), and a count of
+ * the board's writes there (`writes`), so a read that a write overtook does not share what it saw.
+ */
+const shared = new WeakMap()
+/** B917: how long a whole read's listing and stats are shared, and the clock (the tests set both). */
+export const share = { ms: 1_500, now: () => Date.now() }
+
+const sharedOf = (fs, dir) => {
+  if (!shared.has(fs)) shared.set(fs, new Map())
+  const byDir = shared.get(fs)
+  const key = resolve(dir)
+  if (!byDir.has(key)) byDir.set(key, { listing: null, writes: 0 })
+  return byDir.get(key)
+}
+
 /** B741: the board's own write of an item file: its parsed copy goes, so the next read reads the file anew. */
 function forget(fs, file) {
   const name = file.split(/[\\/]/).at(-1)
   if (!ITEM_FILE.test(name)) return
   kept.get(fs)?.get(resolve(file, '..'))?.delete(name)
+  // B917: and the shared listing goes, so the next read lists and states the folder anew.
+  const one = sharedOf(fs, resolve(file, '..'))
+  one.listing = null
+  one.writes += 1
   // B867: and the call that wrote it reads it anew on its next read.
   callOf(fs, resolve(file, '..'))?.touched.add(name)
 }
@@ -132,7 +156,7 @@ function parsedFile(name, text) {
  * B741: the item files of `dir` in id order, each `{ name, item, id, problem }`: a file kept from an earlier read while
  * its stats are the same, else read and parsed anew; a file that is gone leaves the kept ones.
  */
-async function itemFiles(dir, names, fs, { fromCall = false } = {}) {
+async function itemFiles(dir, names, fs, { fromCall = false, given = null, took = () => {} } = {}) {
   const listed = names.filter(one => ITEM_FILE.test(one)).sort(byId.compare)
   const key = resolve(dir)
   const readOne = async name => {
@@ -148,7 +172,9 @@ async function itemFiles(dir, names, fs, { fromCall = false } = {}) {
   if (fromCall) return (await inBatches(listed, name => known.get(name) ?? readOne(name))).filter(Boolean)
   const there = new Set(listed)
   for (const name of [...known.keys()]) if (!there.has(name)) known.delete(name)
-  const marks = await inBatches(listed, name => fs.stat(join(dir, name)).then(markOf, error => (error?.code === 'ENOENT' ? null : '')))
+  // B917: the stats of a whole read within `share.ms` (`given`), else taken now and handed back (`took`).
+  const marks = given ?? await inBatches(listed, name => fs.stat(join(dir, name)).then(markOf, error => (error?.code === 'ENOENT' ? null : '')))
+  if (given === null) took(marks)
   const found = await inBatches(listed, async (name, at) => {
     const mark = marks[at]
     if (mark === null) {
@@ -187,17 +213,29 @@ export async function readStore(dir, fs = files) {
   const call = callOf(fs, dir)
   let names = namesOf(call)
   const fromCall = names !== null
+  // B917: a whole read shares the listing and stats of one taken within `share.ms` while no write of the board came since.
+  const one = !fromCall && typeof fs.stat === 'function' ? sharedOf(fs, dir) : null
+  const now = share.now()
+  const reuse = one?.listing != null && now - one.listing.at >= 0 && now - one.listing.at < share.ms ? one.listing : null
+  const writesBefore = one?.writes ?? 0
   if (!fromCall) {
-    try {
-      names = await fs.readdir(dir)
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error
-      return { exists: false, items: new Map(), activities: [], preamble: [], lastIds: {}, flow: DEFAULT_FLOW, problems }
+    if (reuse !== null) names = reuse.names
+    else {
+      try {
+        names = await fs.readdir(dir)
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+        return { exists: false, items: new Map(), activities: [], preamble: [], lastIds: {}, flow: DEFAULT_FLOW, problems }
+      }
     }
     if (call !== null) call.names = names
   }
+  // Kept only when no write of the board fell between the listing and its stats: what it saw may be from before one.
+  const took = marks => {
+    if (one !== null && one.writes === writesBefore) one.listing = { at: now, names, marks }
+  }
   const items = new Map()
-  for (const { name, item, id, problem } of await itemFiles(dir, names, fs, { fromCall })) {
+  for (const { name, item, id, problem } of await itemFiles(dir, names, fs, { fromCall, given: reuse?.marks ?? null, took })) {
     if (problem !== null) problems.push({ file: name, line: `${name}: ${problem}` })
     if (items.has(id)) problems.push({ file: name, line: `${name}: the id ${id} stands twice` })
     else items.set(id, copyItem(item))
@@ -365,7 +403,10 @@ export async function writeStore(dir, { items, activities, preamble = [] }, fs =
   // with an id given by the backlog or the store is never removed.
   for (const name of await fs.readdir(dir)) {
     const id = name.match(ITEM_FILE)?.[1]
-    if (id !== undefined && isLegacyId(id) && !items.has(id)) await removeFile(join(dir, name), fs, { force: true })
+    if (id !== undefined && isLegacyId(id) && !items.has(id)) {
+      await removeFile(join(dir, name), fs, { force: true })
+      forget(fs, join(dir, name))
+    }
   }
   const onDisk = (await fs.readdir(dir)).map(name => name.match(ITEM_FILE)?.[1]).filter(Boolean)
   // last-ids.json only grows: the higher of what it holds (value by value) and the files.

@@ -941,9 +941,13 @@ const cardOf = task => (task === null ? null : {
 })
 
 const asAnswer = message => (message === undefined ? null : {
+  // The wait line (T22): the word's id, by which the page finds its line in the state's `waits`.
+  id: message.id ?? null,
   at: message.at, verdict: message.verdict ?? null, text: message.text ?? '', state: message.state, ...(message.isHeld === true ? { isHeld: true } : {}),
   // When its chat took it, and when it was typed there.
   takenAt: message.takenAt ?? null, deliveredAt: message.deliveredAt ?? null,
+  // The wait line (T22): when its chat's turn on it was seen ended, and the action's own result, as the board kept them.
+  ...(Number.isFinite(message.answeredAt) ? { answeredAt: message.answeredAt } : {}), ...(Number.isFinite(message.doneAt) ? { doneAt: message.doneAt } : {}),
 })
 
 /**
@@ -951,10 +955,13 @@ const asAnswer = message => (message === undefined ? null : {
  * for the request as it was then (`version`): one given to a step that has changed since is `earlier`, and the
  * step asks again.
  */
-function answerOf(outbox, id, version = null) {
+function answerOf(outbox, id, version = null, to = null) {
   const isCurrent = sent => version === null || (sent.version ?? null) === null || sent.version === version
+  // The review of 2026-11-02 (7): the word to the chat that asked (`to`, the ask's Owner), when there is one; an answer that
+  // frees a step also goes to its owner, with the same ask.
+  const toAsker = typeof to === 'string' ? outbox.findLast(sent => sent.ask === id && isCurrent(sent) && sent.to === to) : undefined
   return {
-    answer: asAnswer(outbox.findLast(sent => sent.ask === id && isCurrent(sent))),
+    answer: asAnswer(toAsker ?? outbox.findLast(sent => sent.ask === id && isCurrent(sent))),
     earlier: asAnswer(outbox.findLast(sent => sent.ask === id && !isCurrent(sent) && sent.state === 'delivered')),
   }
 }
@@ -2397,7 +2404,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
       // Autopilot (2026-10-31): only what is routed to the person, while it is on (src/work/autopilot.mjs).
-      ...storeNeeds(raw.work, { now, names: chatNames, prefix, answerOf: id => answerOf(sent, id), autopilot: config.autopilot === true, roleOf: roleOfChat, focusGoal: goalMap?.focus ?? null, focusHasDemo: (focus?.demo ?? null) !== null, recapSteps: recapWaits })
+      ...storeNeeds(raw.work, { now, names: chatNames, prefix, answerOf: (id, to = null) => answerOf(sent, id, null, to), autopilot: config.autopilot === true, roleOf: roleOfChat, focusGoal: goalMap?.focus ?? null, focusHasDemo: (focus?.demo ?? null) !== null, recapSteps: recapWaits })
         .map(need => (oldAsks.has(need.id) ? { ...need, isOld: true } : need)),
     ].sort((a, b) => Number(b.isOld === true) - Number(a.isOld === true) || (b.at ?? 0) - (a.at ?? 0)), [config.advisor ?? null, helperChat?.name ?? null, ownerChat?.name ?? null], prefix),
     // B299: notes and reports for the person.

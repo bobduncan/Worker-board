@@ -112,6 +112,109 @@ function isHeldRow(lane) {
 }
 // chatstatus:end
 
+// waitline:start
+/**
+ * The wait line (T22, the wait rule's spec and mock of 2026-11-02; the person, 2026-11-02: "either the board responds
+ * immediately, e.g. via code. or we expect an ai chat todo something in which case i always need clear visual indications,
+ * maybe a loader. and the status if its being picked up or not. I want to know whats going on."): one line on the card of an
+ * action that waits for a chat, through four states the server judges (src/waitLine.mjs, the state's `waits` by word id):
+ * Sent (a ring), Picked up (a loader), Done (a tick) and Late, the only one in the attention colour. The chat's own status pill
+ * stands beside it as every view draws it (the board-dev chat's condition 3): never a second status. A code answer has no line.
+ */
+const WAIT_SIGNS = { sent: '○', done: '✓', late: '!' }
+/** How long a Done line stays on a card whose wait is over (a check's, a recap's): as long as the supervisor's head keeps "checked 15:26". */
+const WAIT_DONE_SHOWN_MS = 10 * 60_000
+
+/**
+ * The chat a line is about, as the state draws it: a lane, the partner, its helper, the supervisor's chat or the Product owner.
+ * `part` the whole state, or a part's slim copy of it (`waitsPart`: its lanes in `chats`).
+ */
+function waitLaneOf(part, name) {
+  return [...(part?.chats ?? []).filter(lane => lane?.isLeftover !== true), part?.advisor, part?.advisorHelper, part?.supervisorChat, part?.productOwner]
+    .find(lane => typeof lane?.name === 'string' && lane.name === name) ?? null
+}
+
+/** The pill beside a line: the chat's own status (`laneStatus`), its words without the age, which would draw the card anew every few seconds. */
+function waitPillOf(lane) {
+  const found = laneStatus(lane)
+  if (found === null) return null
+  return { key: found.key, label: found.status === 'Asleep' && found.since !== null ? `Asleep · since ${clock(found.since)}` : found.status }
+}
+
+/**
+ * A word's line as a part draws it, from the state or a part's copy of it (`waitsPart`): the server's line (`waits[id]`) with
+ * its chat's pill, and `isShown`: false once a Done line is older than WAIT_DONE_SHOWN_MS by the board's clock (`readAt`).
+ * Null for a word without a line. Send again stands only where the board offers it (`waitAgain`); `again` says whether the
+ * person's Send again is on its way and why the board refused it (the review of 2026-11-02, 5): it is in every part's key, so
+ * the recap's popup and the supervisor's head draw it too.
+ */
+function waitViewOf(part, id) {
+  const line = typeof id === 'string' && id !== '' ? part?.waits?.[id] ?? null : null
+  if (line === null || typeof line !== 'object') return null
+  const now = Number.isFinite(part?.readAt) ? part.readAt : Date.now()
+  const isShown = line.state !== 'done' || !Number.isFinite(line.at) || now - line.at < WAIT_DONE_SHOWN_MS
+  return {
+    id, state: line.state, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null,
+    link: typeof line.link?.step === 'string' ? { step: line.link.step, text: String(line.link.text ?? line.link.step) } : null,
+    canSendAgain: line.canSendAgain === true && part?.waitAgain === true, isShown, pill: waitPillOf(waitLaneOf(part, line.chat)),
+    again: { isSending: sending.has(`wait-again:${id}`), problem: problems.get(`wait-again:${id}`) ?? null },
+  }
+}
+
+/** The newest line of an action that keeps no word id (a reload, another tab), by its word's command and what it is about ('G6'). */
+function newestWaitOf(part, command, about = null) {
+  return waitViewOf(part, newestWaitId(part, command, about))
+}
+
+/** The line as drawn: its sign (a ring, a loader, a tick, "!"), its lead in bold, the rest, a link to what came of it, Send again, and the pill. */
+function drawWaitLine(view) {
+  if (view === null || view === undefined) return null
+  const line = el('div', `wait-line is-${view.state}`)
+  line.dataset.wait = view.id
+  const sign = view.state === 'picked-up' ? el('span', 'wait-sign calm-spinner') : el('span', 'wait-sign', WAIT_SIGNS[view.state] ?? '')
+  sign.setAttribute('aria-hidden', 'true')
+  const words = el('span', 'wait-words')
+  words.append(el('b', 'wait-lead', view.lead))
+  if (view.rest !== '') words.append(el('span', 'wait-rest', ` · ${view.rest}`))
+  if (view.link !== null) {
+    const link = el('a', 'wait-link', view.link.text)
+    link.href = `#details=${encodeURIComponent(view.link.step)}`
+    link.dataset.waitStep = view.link.step
+    words.append(' ', link)
+  }
+  line.append(sign, words)
+  if (view.canSendAgain) {
+    const again = el('button', 'wait-again', view.again?.isSending ? 'Sending…' : 'Send again')
+    again.type = 'button'
+    again.dataset.waitAgain = view.id
+    again.disabled = view.again?.isSending === true
+    again.dataset.waitChat = view.chat ?? ''
+    again.title = `Tries to wake ${view.chat} once more, through the board's wake record`
+    line.append(again)
+  }
+  if (view.pill !== null) line.append(el('span', `pill is-${view.pill.key}`, view.pill.label))
+  // A refused Send again says why, under the line's words.
+  if (typeof view.again?.problem === 'string') words.append(el('span', 'wait-problem', ` · ${view.again.problem}`))
+  return line
+}
+// waitline:end
+
+// T22: a Done line's link opens the step it names at once (the recap's popup closes first, or the step's window stands behind it).
+// Send again asks the board for one more wake of the chat, through its wake record (server.mjs `wakeAgainNow`); the line then
+// reads the record, and a refusal stands under the line.
+document.addEventListener('click', event => {
+  const again = event.target.closest?.('[data-wait-again]')
+  if (again !== null && again !== undefined) {
+    if (again.disabled) return
+    return send({ command: 'wake-again', chat: again.dataset.waitChat, word: again.dataset.waitAgain }, `wait-again:${again.dataset.waitAgain}`)
+  }
+  const link = event.target.closest?.('[data-wait-step]')
+  if (link === null || link === undefined || board === null) return
+  event.preventDefault()
+  if ($('demo-page')?.open) $('demo-page').close()
+  openStepWindow(board, link.dataset.waitStep)
+})
+
 // What the person did on the page and a redraw must not undo.
 const openLanes = new Set()
 const openBubbles = new Set()
@@ -1398,6 +1501,18 @@ function drawIncidentCard(card, isOpen) {
   return box
 }
 
+/**
+ * The wait line (T22, the board-dev chat's addition of 2026-11-02: "a Check now sweep" takes the line): the line of the asked
+ * sweep's word (`lastSweep.word`) while the sweep runs, and its Done (the sweep's end by its chat's turn) for a while after.
+ * A sweep the board ended because nothing took its word has none: the head says "the supervisor's chat did not start".
+ */
+function sweepWaitOf(state) {
+  const sweep = state.supervisor?.lastSweep ?? null
+  if (sweep?.asked !== true || typeof sweep.word !== 'string') return null
+  const line = waitViewOf(state, sweep.word)
+  return line !== null && line.isShown && (!Number.isFinite(sweep.ended) || line.state === 'done') ? line : null
+}
+
 /** The supervisor's section under the Workers panel's head (see `supervisorOf`). B573: folded to one head line with its
  * counts until the person opens it; open, the New tags stand against the opening before (`shownSince`). */
 function drawSupervisor(state) {
@@ -1408,7 +1523,8 @@ function drawSupervisor(state) {
   // What a Check now is doing or came to stands in the signature: the word changes, and goes 10 minutes after, by itself.
   const isPressed = isCheckPressed()
   const status = shown ? checkStatusOf(view, { isPressed, now: Date.now() }) : null
-  once('supervisor', [view, shown, isOpen, supervisorUi.seenAt, supervisorUi.shownSince, supervisorUi.showsRules, supervisorUi.showsOlder, [...supervisorUi.openCards], main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board'), status], () => {
+  const sweepLine = shown ? sweepWaitOf(state) : null
+  once('supervisor', [view, shown, isOpen, supervisorUi.seenAt, supervisorUi.shownSince, supervisorUi.showsRules, supervisorUi.showsOlder, [...supervisorUi.openCards], main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board'), status, sweepLine], () => {
     const box = $('supervisor')
     box.hidden = !shown
     box.classList.toggle('is-folded', !isOpen)
@@ -1424,8 +1540,10 @@ function drawSupervisor(state) {
     fill(toggle, [el('span', 'supervisor-caret', isOpen ? '▾' : '▸'), wrench, el('span', 'supervisor-title', part.head), checkStatusPart(part.status)])
     const head = el('header', 'supervisor-head')
     head.append(toggle, el('span', 'grow'), ...(main === null ? [] : [boardSyncButton(state)]))
-    if (!isOpen) return fill(box, [head])
-    const parts = [head, el('p', 'supervisor-note', part.note)]
+    // T22: a Check now's sweep has its wait line under the head, folded or open: whether the supervisor's chat took its word.
+    const wait = drawWaitLine(sweepLine)
+    if (!isOpen) return fill(box, [head, wait])
+    const parts = [head, ...(wait === null ? [] : [wait]), el('p', 'supervisor-note', part.note)]
     const cards = supervisorUi.showsOlder ? [...part.cards, ...part.older] : part.cards
     if (cards.length > 0) {
       const list = el('div', 'supervisor-cards')
@@ -4355,6 +4473,14 @@ const isClosed = need => need.isClosed === true || isAnswered(need)
 const shownNeeds = (needs, withClosed) => (withClosed ? needs : needs.filter(need => !isClosed(need)))
 /** How a card looks: ticked in the backlog (faded), answered here (dashed, its answer line says where it is), or open. */
 const needLook = need => (need.isClosed === true ? ' is-closed' : isAnswered(need) ? ' is-answered' : '')
+/**
+ * The wait line (T22, the spec's "an answered question stays as a slim card until done, instead of vanishing"): an answered
+ * card's line, by its answer's word id (`need.answer.id`), from the view's `waitPart`; null for an open card, a lost answer,
+ * or a word without a line.
+ */
+const answerWaitOf = (need, part) => (isAnswered(need) ? waitViewOf(part, need.answer?.id) : null)
+/** T22: an answered card that still waits for its chat (its line not Done): it stays as a slim card with its line, also without "Show closed". */
+const isWaitingAnswer = (need, part) => need.isClosed !== true && (answerWaitOf(need, part)?.state ?? 'done') !== 'done'
 // closed:end
 const showsClosed = () => $('needs-closed').checked
 
@@ -5301,6 +5427,27 @@ function drawNeed(need, state) {
   if (need.checks.length > 0) card.append(listBox('Key points to check', need.checks))
   if (need.tried.length > 0) card.append(listBox('Already tried', need.tried))
   card.append(...answerPart(need, state, isStep(need)))
+  // T22: an answered card, shown with "Show closed", carries its wait line under its answer.
+  const line = drawWaitLine(answerWaitOf(need, state.waitPart))
+  if (line !== null) card.append(line)
+  return card
+}
+
+/**
+ * The wait line (T22, the spec: "an answered question stays as a slim card until done, instead of vanishing"): an answered card
+ * whose answer still waits for its chat, folded to its head and its line (Sent, Picked up, Late); it goes once the line is
+ * Done. Its head opens the details, as a card's does.
+ */
+function drawSlimNeed(need, line) {
+  const card = el('article', `need is-answered is-slim is-${need.kind}`)
+  card.dataset.id = need.id
+  const head = el('div', 'need-head')
+  head.dataset.details = need.id
+  head.title = 'Show the details'
+  const top = el('header', 'need-top')
+  top.append(el('span', 'kind', '✓'), el('b', '', isStep(need) ? need.step ?? need.activity ?? '' : need.from ?? 'the board'), el('span', 'tag', 'Answered'))
+  head.append(top, el('h4', '', need.title))
+  card.append(head, drawWaitLine(line))
   return card
 }
 
@@ -5769,9 +5916,6 @@ function drawPartnerNeeds(cards, open) {
 }
 
 // obsolete:start
-/** B775: the verdicts' words on the page. */
-const OBSOLETE_WORDS = { obsolete: 'Obsolete', unsure: 'Unsure', open: 'Still open' }
-
 /** B775: the check's rows with the person's ticks: a row they changed keeps their tick, any other is ticked when obsolete. */
 function obsoleteRows(view, set = obsoleteUi.set) {
   return (view?.rows ?? []).map(row => ({ ...row, ticked: set.has(row.id) ? set.get(row.id) === true : row.ticked }))
@@ -5791,34 +5935,31 @@ function drawObsolete(state) {
   const isChecking = view.state === 'checking'
   const head = el('div', 'obsolete-head')
   const isSending = sending.has('obsolete:check')
-  const label = isSending ? 'Asking the Advisor…' : isChecking ? 'The Advisor is checking' : view.state === 'late' ? 'Try again' : view.state === 'done' ? 'Check again' : 'Find obsolete items'
+  // T22: the check's word has its wait line: "checking" said only once the Advisor's turn on it runs (the line's loader), not
+  // from the moment its record was written; Done when the record is answered (src/waitLine.mjs `obsoleteDone`).
+  const wait = newestWaitOf(state.waitPart, 'obsolete-check')
+  const line = wait !== null && wait.isShown && (isChecking || view.state === 'late' || wait.state === 'done') ? wait : null
+  const isAsked = isChecking && line !== null
+  const label = isSending ? 'Asking the Advisor…' : isAsked ? 'Asked' : isChecking ? 'The Advisor is checking' : view.state === 'late' ? 'Try again' : view.state === 'done' ? 'Check again' : 'Find obsolete items'
   const button = el('button', 'choice', label)
   // The person, 2026-10-31: a press shows at once: a spinner and the button greyed while it is sent and while the partner checks.
-  if (isSending || isChecking) button.prepend(el('span', 'calm-spinner'))
+  if (isSending || (isChecking && !isAsked)) button.prepend(el('span', 'calm-spinner'))
   button.type = 'button'
   button.dataset.obsolete = 'check'
   button.disabled = isChecking || sending.has('obsolete:check') || view.canCheck === false
   button.title = view.canCheck === false ? view.whyNot : 'Your partner judges every open item here against what happened since it was made; the obsolete ones close by themselves'
   head.append(button)
-  if (view.state === 'late') head.append(el('small', 'muted', 'The Advisor did not answer in 15 minutes.'))
-  else if (view.state === 'none' || view.state === 'done') head.append(el('small', 'muted', `${view.openCount} open item${view.openCount === 1 ? '' : 's'} here`))
+  if (view.state === 'late' && line === null) head.append(el('small', 'muted', 'The Advisor did not answer in 15 minutes.'))
+  else if (view.state === 'none') head.append(el('small', 'muted', `${view.openCount} open item${view.openCount === 1 ? '' : 's'} here`))
   part.append(head)
+  if (line !== null) part.append(drawWaitLine(line))
   if (problems.has('obsolete:check')) part.append(el('p', 'problem', problems.get('obsolete:check')))
+  // The person, 2026-11-02 ("why am i seeing these stay? ... i can just assume what stays by seeing what stays ... 'closed 6
+  // obsolete' should be sufficient"): after the check only how many it closed; what stays is the cards themselves.
   if (view.state === 'done') {
-    const closed = view.last === null ? '' : `Closed ${view.last.closed} obsolete. `
-    part.append(el('p', 'muted obsolete-none', rows.length === 0 ? `${closed}Nothing is left to look at.` : `${closed}These stay:`))
-  }
-  if (rows.length > 0) {
-    part.append(fill(el('ul', 'obsolete-rows'), rows.map(row => {
-      const item = el('li', `obsolete-row is-${row.verdict}`)
-      const words = el('div', 'obsolete-words')
-      const line = el('div', 'obsolete-line')
-      line.append(el('b', 'task-code', row.id), ' ', row.title, ' ', el('span', 'obsolete-verdict', OBSOLETE_WORDS[row.verdict] ?? row.verdict))
-      words.append(line, el('small', 'muted obsolete-why', row.why))
-      if (row.evidence !== '') words.append(el('small', 'muted obsolete-evidence', row.evidence))
-      item.append(words)
-      return item
-    })))
+    const left = rows.filter(row => row.verdict === 'obsolete').length
+    const closed = view.last === null ? 'Nothing was obsolete.' : `Closed ${view.last.closed} obsolete.`
+    part.append(el('p', 'muted obsolete-none', left === 0 ? closed : `${closed} ${left} could not be closed; they stay below.`))
   }
   return part
 }
@@ -5892,8 +6033,12 @@ function drawNeeds(state) {
   const partnerCards = partner.map(need => drawNeed(need, state))
   // B300: a blocking ask that waited too long stands first, above the refine lines too.
   const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
-  const cards = rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state))
-  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', answered > 0 && !showsClosed() ? `Nothing waits for you. ${answered} answered, hidden.` : 'Nothing waits for you.')
+  // T22: an answered card whose answer still waits for its chat stays as a slim card with its line, after the open cards (with
+  // "Show closed" the whole card shows it).
+  const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart))
+  const cards = [...rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state)), ...slim.map(need => drawSlimNeed(need, answerWaitOf(need, state.waitPart)))]
+  const hidden = answered - slim.length
+  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
   fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
@@ -5945,10 +6090,34 @@ function cardsView(state) {
   }
 }
 
+/** T22: the id of the newest line of an action (its word's command, and what it is about: 'G6'), or null: for a card that keeps no word id. */
+function newestWaitId(part, command, about = null) {
+  const found = Object.entries(part?.waits ?? {})
+    .filter(([, line]) => line?.command === command && (about === null || line.about === about))
+    .sort(([, a], [, b]) => (b.sentAt ?? 0) - (a.sentAt ?? 0))[0]
+  return found === undefined ? null : found[0]
+}
+
+/**
+ * T22: what a part's wait lines read, plain data for its key: the server's lines of these word ids (the state's `waits`), the
+ * chats they are about with their status (the pill beside each line), the minute while a line shows (a Done line goes after
+ * 10 minutes; no line, no minute: the Focus page is not drawn anew each minute), and whether Send again is offered.
+ */
+function waitsPart(state, ids) {
+  const waits = Object.fromEntries([...new Set(ids)].filter(id => typeof id === 'string' && (state.waits?.[id] ?? null) !== null).map(id => [id, state.waits[id]]))
+  const names = new Set(Object.values(waits).map(line => line.chat))
+  const chats = [...(state.chats ?? []), state.advisor, state.advisorHelper, state.supervisorChat, state.productOwner]
+    .filter(lane => typeof lane?.name === 'string' && lane.isLeftover !== true && names.has(lane.name))
+    .map(lane => ({ name: lane.name, status: lane.status ?? null, since: lane.since ?? null, state: lane.state ?? null, asleep: lane.asleep === true, isRunning: lane.isRunning ?? null }))
+  return { waits, chats, readAt: Object.keys(waits).length === 0 ? null : minuteOf(state.readAt), waitAgain: state.waitAgain === true }
+}
+
 /** Needs your attention as drawn (drawNeeds): its cards in the daily note's order, the log's lines, the partner's parts, Information. */
 function needsView(state, ui) {
   return {
     ...cardsView(state),
+    // The wait line (T22): the lines of the answered cards (by their answer's word id) and of the obsolete check.
+    waitPart: waitsPart(state, [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])].map(need => need?.answer?.id).concat(newestWaitId(state, 'obsolete-check'))),
     focus: { needs: (state.focus?.needs ?? []).map(need => ({ id: need.id })) },
     instructions: state.instructions ?? [],
     information: state.information ?? [],
@@ -6013,6 +6182,8 @@ function focusPageView(state, ui) {
     routedAway: (state.routedAway ?? []).filter(one => one.route === 'recap'),
     // 2026-11-01: the recap card (src/recapCard.mjs): the parts of the goal's recap that wait for the person's verdict.
     recapCard: state.recapCard ?? null,
+    // T22: the wait line of the focus goal's last recap Send, for the card "feedback sent" while no verdict waits.
+    waitPart: waitsPart(state, typeof state.focus?.id === 'string' ? [newestWaitId(state, 'recap-feedback', state.focus.id)] : []),
     ui,
   }
 }
@@ -10052,6 +10223,52 @@ function demoBody(page, draft = null) {
 
 /** B860: the person's unsent answers on the goal demo that is open: kept while the popup is closed and opened again, dropped once sent or when the round moves on. */
 let demoDraft = null
+/** T22: the word the last Send typed to the partner (`{ path, id }`, the answer's `said`), whose wait line the popup draws. */
+let demoSaid = null
+
+/**
+ * The wait line (T22, the spec: "the goal recap's Send feedback"): the line of the recap's last Send, by the word id this page
+ * kept, else (after a reload, another tab) the newest Send of the same goal. Null when there is none, or its Done is old.
+ */
+function demoWaitOf(state, path, goal) {
+  const line = demoSaid !== null && demoSaid.path === path ? waitViewOf(state, demoSaid.id) : typeof goal === 'string' ? newestWaitOf(state, 'recap-feedback', goal) : null
+  return line !== null && line.isShown ? line : null
+}
+
+/** T22: the popup's box for that line, drawn now and again with every state the page reads (`drawDemoWait`). */
+function demoWaitBox(state, path, goal) {
+  const box = el('div', 'demo-wait')
+  box.dataset.path = path ?? ''
+  box.dataset.goal = goal ?? ''
+  const line = state === null ? null : demoWaitOf(state, path, goal)
+  box.dataset.drawn = JSON.stringify(line)
+  if (line !== null) box.append(drawWaitLine(line))
+  return box
+}
+
+/**
+ * T22: the side panel (`demoSide`) with the last Send's wait line under its notice: whether the partner took the feedback, is
+ * on it, or filed its next tries.
+ */
+function withDemoWait(side, draft, page) {
+  if (side === null || draft === null) return side
+  const box = demoWaitBox(board, draft.path, page.goal)
+  const after = side.querySelector('.demo-notice') ?? side.querySelector('h3')
+  if (after !== null) after.after(box)
+  else side.prepend(box)
+  return side
+}
+
+/** T22: the open popup's line follows the state: drawn anew when it changed (Sent, then Picked up, then Done). */
+function drawDemoWait(state) {
+  const box = $('demo-page')?.open ? $('demo-page').querySelector('.demo-wait') : null
+  if (box === null || box === undefined) return
+  const line = demoWaitOf(state, box.dataset.path, box.dataset.goal)
+  const drawn = JSON.stringify(line)
+  if (box.dataset.drawn === drawn) return
+  box.dataset.drawn = drawn
+  fill(box, [drawWaitLine(line)])
+}
 
 /**
  * 2026-11-01 (the person: "everytime i try to approve, the fucking board reloads. losing all my progress"): a board
@@ -10082,7 +10299,7 @@ function drawDemo(page) {
   const box = $('demo-page')
   const scroll = box.querySelector('.demo-scroll')
   const at = scroll === null ? 0 : scroll.scrollTop
-  const side = page.feedback === undefined ? null : demoSide(page, demoDraft)
+  const side = page.feedback === undefined ? null : withDemoWait(demoSide(page, demoDraft), demoDraft, page)
   const body = el('div', 'demo-scroll')
   body.append(demoBody(page, demoDraft))
   const layout = el('div', side === null ? 'demo-layout' : 'demo-layout has-side')
@@ -10133,7 +10350,7 @@ async function openDemo(path, notice = '', part = '') {
 /** B860: the side panel again after an answer or a word typed (the rows' buttons are set by the caller). */
 function redrawDemoSide() {
   const old = $('demo-page').querySelector('.demo-side')
-  if (old !== null && demoDraft !== null && demoDraft.page !== null) old.replaceWith(demoSide(demoDraft.page, demoDraft))
+  if (old !== null && demoDraft !== null && demoDraft.page !== null) old.replaceWith(withDemoWait(demoSide(demoDraft.page, demoDraft), demoDraft, demoDraft.page))
 }
 
 /** B860: the click on Send feedback: what the person decided goes to the board (each part Approve or Send back); the popup then shows the next round. */
@@ -10159,6 +10376,8 @@ async function sendDemoFeedback() {
   }
   const sent = await answer.json().catch(() => ({}))
   const path = draft.path
+  // T22: the word to the partner, whose wait line the popup draws from now on.
+  demoSaid = typeof sent.said === 'string' ? { path, id: sent.said } : null
   dropDemoDraft()
   demoDraft = null
   openDemo(path, sent.done === true ? 'Sent. Every part is approved: the recap is done.' : `Sent: ${sent.approved ?? 0} approved, ${sent.sentBack ?? 0} sent back. Your partner makes the next tries; round ${(sent.round ?? 0) + 1} shows only what you sent back.`)
@@ -15657,6 +15876,26 @@ function focusRecapReady(view) {
   return card
 }
 
+/**
+ * The wait line (T22, mock.png's card "G60 · Your recap · feedback sent"): the focus goal's last Send of recap feedback, with its
+ * line, while the line is not Done or its Done is new (`waitViewOf` isShown). Null for none.
+ */
+function focusRecapSentOf(state) {
+  const goal = state.focus?.id ?? null
+  const line = typeof goal === 'string' ? newestWaitOf(state.waitPart, 'recap-feedback', goal) : null
+  return line !== null && line.isShown ? { goal, line } : null
+}
+
+/** T22: the card of that Send, where the recap card stood: its goal, what was sent, and the line with the partner's pill. */
+function focusRecapSent(sent) {
+  const card = el('section', 'focus-recap-sent')
+  card.setAttribute('aria-label', `${sent.goal} · Your recap · feedback sent`)
+  card.append(el('h3', '', `${sent.goal} · Your recap · feedback sent`))
+  if (typeof sent.line.title === 'string' && sent.line.title !== '') card.append(el('p', 'muted', sent.line.title.replace(/^recap feedback:\s*/, '')))
+  card.append(drawWaitLine(sent.line))
+  return card
+}
+
 /** 2026-11-01: the asks routed to the recap whose step no recap part names yet, as Autopilot lists them, in a quiet line under the card. */
 function focusRecapOutside(asks) {
   const box = el('div', 'focus-recap-outside')
@@ -17324,7 +17563,7 @@ function drawFocus(state) {
     parts.push(focusRecapReady(recapReady))
     const outside = allRecapAsks.filter(one => recapReady.outside.includes(one.id))
     if (outside.length > 0) parts.push(focusRecapOutside(outside))
-  }
+  } else if (view.stage === 'run' && view.back === undefined && focusRecapSentOf(state) !== null) parts.push(focusRecapSent(focusRecapSentOf(state)))
   // Work blocks (2026-10-31): the switch between All work blocks and Open now, under the head (no Done-when card any more).
   if ((view.blocks ?? null) !== null && view.back === undefined && view.stage === 'run') parts.push(focusBlocksSwitch(view))
   if (view.stage === 'pick' || view.stage === 'done' || view.back !== undefined) parts.push(focusPickCard(view))
@@ -21174,6 +21413,7 @@ function draw(state) {
   // B579: the day of Completed by day, read anew with the page's own refresh.
   refreshDoneDay()
   drawDetails(state)
+  drawDemoWait(state)
   openFromAddress(state)
   // B129: the project's own name from the settings, on the page and in the tab.
   once('name', state.name ?? '', () => {

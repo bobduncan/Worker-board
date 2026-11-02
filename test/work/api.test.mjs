@@ -12,7 +12,10 @@ import { workApi } from '../../src/work/api.mjs'
 import { queueFor } from '../queueFor.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { readStore, writeStore } from '../../src/work/store.mjs'
+import { readStore, share, writeStore } from '../../src/work/store.mjs'
+
+// B917: these tests edit store files by hand and read at once; on the board a hand edit shows within share.ms.
+share.ms = 0
 
 const NOW = new Date(2026, 9, 17, 11, 5).getTime()
 const BACKLOG = [

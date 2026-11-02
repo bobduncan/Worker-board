@@ -12,7 +12,7 @@ import { HEALTH_OWNERS, healthSummary, oddLines } from './health.mjs'
 import { SYNC_EVERY_MS, memoryOf, syncRunner } from './loop.mjs'
 import { buildView } from './view.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
-import { WATCH_RULES, isNearStop } from './rules/watch.mjs'
+import { WATCH_RULES, isNearStop, isUndelivered, undeliveredJudged, wordMatters } from './rules/watch.mjs'
 import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
 import { rekeyPlan } from './rekey.mjs'
 import { GONE_MINUTES, gonePlan } from './gone.mjs'
@@ -36,6 +36,19 @@ export { loopGate, loopOwner } from './loop.mjs'
 
 /** Part 2: the Workers mod the supervisor's chat needs for a sweep; what a sweep's turn cost, from its transcript. */
 export { SWEEP_MOD, tokensOfTurn }
+
+/**
+ * The wait line (T22, the board-dev chat's condition 2 of 2026-11-02: "Late uses the undelivered rule's own lateness ...
+ * never a second clock, so the card and the alarm agree"): rule 8's judgement of one word at a time, for src/waitLine.mjs,
+ * from a view of the board built as the rules build theirs (`buildView`, the server's state, store and outbox of the moment).
+ * `{ isUndelivered(word), matters(word) }`: watch.mjs `isUndelivered`, the function `undeliveredWords` uses, and `wordMatters`
+ * (the outbox sweep's judgement), each made once for the view. Only through here: nothing outside the supervisor imports its parts.
+ */
+export function wordJudge({ state, items, outbox, keep, settings, now }) {
+  const view = buildView({ state, items, outbox, keep, settings, now })
+  const judged = undeliveredJudged(view)
+  return { isUndelivered: word => isUndelivered(view, word, judged), matters: wordMatters(view) }
+}
 
 /** How often the board looks whether a sweep is due, and whether the last one ended. */
 const SWEEP_TICK_MS = 60_000
@@ -494,7 +507,7 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings, judging }
       if (told?.ok !== true) return { ok: false, why: told?.why ?? 'no answer' }
       const note = told.started === true ? 'its chat does not run: the main chat was asked to start it'
         : told.copied === true ? 'no Workers mod takes the board\'s words: the word waits to be pasted' : null
-      return { ok: true, session: card.session ?? null, note }
+      return { ok: true, session: card.session ?? null, note, id: typeof told.id === 'string' ? told.id : null }
     },
     tokens: one => sweep.tokens(one),
     memory: sweep.memory ?? null,
@@ -507,7 +520,7 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings, judging }
 
 /**
  * Part 2: the sweep as the section shows it: `lastSweep` (`{ at, asked, subject, ended, how, found, tokens, tokenParts, read,
- * note }`, or null; `how` is "told" when its chat's turn ended it, "quiet" when the board ended it because nothing took
+ * note, word }`, or null; `word` the id of its word (T22, the wait line); `how` is "told" when its chat's turn ended it, "quiet" when the board ended it because nothing took
  * its word or ran a turn, null while it runs: the page tells from `read` and `how` whether the chat of an asked sweep
  * started), `sweepNote` (why the newest sweep did not run, `{ at, why, asked }`, when newer than the last one),
  * `sweepEvery` (minutes; 0 for none) and `sweepsToday` (`{ count, tokens }`: the sweeps that ended in the last day and

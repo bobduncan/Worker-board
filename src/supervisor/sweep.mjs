@@ -135,6 +135,8 @@ function sweepOf(value) {
     // Signals change 6: what started it (TRIGGER_WORDS' keys) and the unowned lines its word listed; null in a file from before.
     trigger: typeof value.trigger === 'string' ? value.trigger : null,
     lines: Array.isArray(value.lines) ? value.lines.filter(one => typeof one === 'string') : [],
+    // The wait line (T22): the id of the sweep's word, by which the page finds its line in the state's `waits`.
+    word: typeof value.word === 'string' ? value.word : null,
     // Cheaper sweeps: what the sweep saw (`facts`: the odd lines no rule owns), so the next one waits for a line that is new.
     // A file from before holds a hash: no facts known, so the next one runs.
     facts: factsOfFile(value.facts),
@@ -234,9 +236,10 @@ export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = asyn
     }
     // The review: the sweep before it is kept with its tokens before it gives way (a Check now right after its end).
     await readTokens(now, true)
-    last = { at: now, asked, subject, ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, tokensRead: false, session: woke.session ?? null, from: now, note: woke.note ?? null, facts: seen ?? null, trigger, lines }
+    last = { at: now, asked, subject, ended: null, how: null, found: 0, read: false, tokens: null, tokenParts: null, tokensRead: false, session: woke.session ?? null, from: now, note: woke.note ?? null, word: woke.id ?? null, facts: seen ?? null, trigger, lines }
     await save()
-    return { started: true, why: null, note: last.note }
+    // The wait line (T22): the word's id, so the page draws the sweep's line from the press on.
+    return { started: true, why: null, note: last.note, ...(last.word === null ? {} : { said: last.word }) }
   }
   return {
     /** The schedule: a sweep when one is due and work runs; the end of one whose chat went quiet; its tokens. */

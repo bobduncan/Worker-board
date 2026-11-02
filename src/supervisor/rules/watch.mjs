@@ -412,11 +412,42 @@ export function wordMatters(view) {
 /**
  * B571: the words rule 8 names, which the health summary marks "!" (and only those): waiting longer than
  * `undeliveredMinutes`, or expired or failed for good in the last two hours (UNDELIVERED_LOOK_MS), and still mattering.
- * None while the person pauses.
+ * None while the person pauses. The wait line (T22, 2026-11-02): each word is judged by `isUndelivered`, the one judgement
+ * the card's "Not picked up" reads too.
  */
 export function undeliveredWords(view) {
+  const judged = undeliveredJudged(view)
+  if (judged === null) return []
+  return view.outbox.filter(message => isUndelivered(view, message, judged))
+}
+
+/**
+ * The wait line (T22, the board-dev chat's answer 4 of 2026-11-02: "Export a per-word isUndelivered(view, message) from
+ * watch.mjs, same body as undeliveredWords' filter"): whether rule 8 names this ONE word, so a card's "Not picked up after
+ * N min" and the alarm read one function and never two clocks. `judged` what every word of the view shares
+ * (`undeliveredJudged`), made once by a caller that asks for many words; false for every word while the person pauses.
+ */
+export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   // The person pauses: the bridge holds every word until Resume all.
-  if (isPaused(view)) return []
+  if (judged === null) return false
+  const { limit, stillWaits, waking } = judged
+  if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to))) return false
+  // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
+  // hold before its release (B285).
+  const held = message.at + heldMs(message, view.now, view.pause)
+  const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
+  if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
+  // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
+  if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)
+  return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
+}
+
+/**
+ * What rule 8 judges every word of a view by (`isUndelivered`): its limit, whether a word still waits, the chats in a wake;
+ * null while the person pauses. Exported for a caller that judges many words of one view (src/waitLine.mjs `waitsOf`).
+ */
+export function undeliveredJudged(view) {
+  if (isPaused(view)) return null
   const limit = view.settings.undeliveredMinutes * MIN
   // A word that waited too long still counts (the sweep marks it expired, and so does this rule); one that no longer
   // matters (dropped: superseded, its step moved on, its goal evaluated since) does not, waiting or failed (B571).
@@ -429,16 +460,7 @@ export function undeliveredWords(view) {
   // Signals change 4 (decision 7): a word whose chat is in a pending or failed wake is not undelivered: it waits for the wake
   // (the rules wake-failed and nobody-answers-wakes name a wake that failed).
   const waking = new Set(wakeLanesOf(view).filter(lane => ['waiting-sender', 'on-its-way', 'sent', 'launched', 'failed'].includes(lane.wake?.state)).map(lane => lane.name))
-  return view.outbox.filter(message => typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to)).filter(message => {
-    // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
-    // hold before its release (B285).
-    const held = message.at + heldMs(message, view.now, view.pause)
-    const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
-    if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
-    // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
-    if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)
-    return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
-  })
+  return { limit, stillWaits, waking }
 }
 
 /** A History line's stamp. */

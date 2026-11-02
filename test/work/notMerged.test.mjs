@@ -17,9 +17,12 @@ import { parseItem, serializeItem } from '../../src/work/item.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { storeFromText } from '../../src/work/read.mjs'
 import { reviewWaitOf } from '../../src/work/resultCheck.mjs'
-import { readStore, writeStore } from '../../src/work/store.mjs'
+import { readStore, share, writeStore } from '../../src/work/store.mjs'
 import { buildState } from '../withStore.mjs'
 import { decide } from '../../src/work/handover.mjs'
+
+// B917: these tests edit store files by hand and read at once; on the board a hand edit shows within share.ms.
+share.ms = 0
 
 const SAID = 'Context: The list of pages was hard to read. Change: The page list has a mockup now. Details: src/pages/list.mjs and pages/list-mock.html.'
 const DIR = '/projects/board'
