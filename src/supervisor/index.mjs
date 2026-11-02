@@ -202,7 +202,7 @@ export function createSupervisor(ports) {
       // Idempotent: a second run finds none.
       for (const id of advisorIncidents(items)) await runnerPorts.apply({ action: 'incident-told', id, migrate: true })
       const done = await recordFindings(answer.findings ?? [], { work: runnerPorts.apply, now: answer.at })
-      throwFailed([...done.failed.map(one => `${one.key}: ${one.why}`), ...await goneNow(answer), ...await tellOwedNow()])
+      throwFailed([...done.failed.map(one => `${one.key}: ${one.why}`), ...await tellOwedNow(answer)])
     })
     return answer
   }
@@ -212,21 +212,28 @@ export function createSupervisor(ports) {
    * fix whose step is done and that is not seen as long is fixed, through the board's own action `incident-gone`. Answers
    * what could not be done, one line.
    */
-  const goneNow = async answer => {
-    const items = await runnerPorts.items()
+  const goneNow = async (answer, items) => {
     const minutes = goneMinutes(settings)
     const plan = gonePlan({ incidents: incidentsOf(items, answer.at), steps: items, runs: answer.runs ?? {}, rules: RULE_IDS, now: answer.at, gaps: answer.gaps ?? [], goneMs: minutes * MIN })
-    if (plan.gone.length + plan.fixed.length === 0) return []
+    if (plan.gone.length + plan.fixed.length === 0) return { failed: [], changed: false }
     const done = await runnerPorts.apply({ action: 'incident-gone', gone: plan.gone, fixed: plan.fixed, minutes })
-    return done?.ok === true ? [] : [`gone ${[...plan.gone, ...plan.fixed].map(one => one.id).join(', ')}: ${done?.why ?? 'no answer'}`]
+    return done?.ok === true ? { failed: [], changed: done.result?.changed !== false } : { failed: [`gone ${[...plan.gone, ...plan.fixed].map(one => one.id).join(', ')}: ${done?.why ?? 'no answer'}`], changed: false }
   }
   /**
    * The review: one `tellOwed` at a time (a run of the rules and a sweep's turn's end may come together), each reading
    * the store anew once the one before is done, so no incident gets two lines or two words.
    */
   let telling = Promise.resolve()
-  const tellOwedNow = () => {
-    const run = telling.then(async () => tellOwed(await readIncidents()))
+  // The review of 2026-11-02 (6): after a run of the rules (`answer`), the gone pass reads the store once with tellOwed, in the
+  // same turn of the chain (one whole read every 3 minutes, as before change 6; a second only when something went), never
+  // the board's kept copy, which may not hold the Last seen just written.
+  const tellOwedNow = (answer = null) => {
+    const run = telling.then(async () => {
+      const items = await readIncidents()
+      if (answer === null) return tellOwed(items)
+      const gone = await goneNow(answer, items)
+      return [...gone.failed, ...await tellOwed(gone.changed ? await readIncidents() : items)]
+    })
     telling = run.catch(() => {})
     return run
   }
@@ -275,7 +282,9 @@ export function createSupervisor(ports) {
       .sort((x, y) => String(x.id).localeCompare(String(y.id), 'en', { numeric: true }))
     if (ready.length === 0) return failed
     const effort = judgeEffort(settings)
-    const isSet = card.setting === undefined || card.setting === null || card.setting.effort !== effort || card.setting.isSet === true
+    // The review of 2026-11-02 (3): set only when the board's setting is the judging effort AND read back; a stale card setting
+    // (still low) is not set, so the word never goes at low effort while it says medium (it waits, then says so).
+    const isSet = card.setting === undefined || card.setting === null || (card.setting.effort === effort && card.setting.isSet === true)
     const oldest = Math.min(...ready.map(one => (Number.isFinite(one.since) ? one.since : now)))
     if (!isSet && now - oldest < JUDGE_SET_WAIT_MS) return failed
     const done = await tell(judgeWords(supervisor, ready, { job: supervisorJob, effort, isSet })).catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
@@ -301,7 +310,9 @@ export function createSupervisor(ports) {
     if (name === null) return false
     const word = judgeWordOf(runnerPorts.outbox(), name)
     const now = runnerPorts.now()
-    if (word === null || Number.isFinite(word.endedAt) || arrivedAt(word, now, keep) === null) return false
+    // The review of 2026-11-02 (4): only a word still in flight (arrived within JUDGE_LONGEST_MS): an old one never swallows
+    // the end of a later sweep's turn.
+    if (word === null || Number.isFinite(word.endedAt) || arrivedAt(word, now, keep) === null || !judgeInFlight(runnerPorts.outbox(), name, now, keep)) return false
     // The turn's session and start too, so its tokens are read from its transcript a moment later (`judgeTokens`).
     const turn = Number(call.since)
     const fields = { endedAt: now, ...(typeof call.session === 'string' && call.session !== '' ? { session: call.session } : {}), ...(Number.isFinite(turn) ? { from: turn } : {}) }

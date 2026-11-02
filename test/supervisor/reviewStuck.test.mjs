@@ -259,3 +259,23 @@ test('the Backlog line says what a step in review waits for: on the Backlog tab 
   assert.match(listed.result.text, /^B7 · step · review \(waits for its fix B8\) · Painter/m)
   assert.match(listed.result.text, /^B8 · step · queued · Painter/m)
 })
+
+// The review of change 6 (2026-11-02, 2a): a step in review late only because the fix it waits for is late (no rule judges
+// that wait) takes the fix's owner on its health line: a fix past its age is info, a fix whose owner left the list
+// owner-gone's; only a loop of waits stays unowned (the sweep's to read).
+test('change 6: the owner of a review line late by its fix: the fix past its age is info, its owner gone is owner-gone, a loop is unowned', async () => {
+  const { oddLines } = await import('../../src/supervisor/health.mjs')
+  const lanes = [LEAD, { name: 'Painter', isMain: false, isLeftover: false, state: 'working', isRunning: true }]
+  const ownerOf = (store, id) => {
+    const board = buildView({ state: { chats: lanes, today: [], limits: {}, pause: null, chatPrefix: '' }, items: store, outbox: [], settings: {}, now: NOW })
+    return oddLines(board, NOW).find(one => one.text.startsWith(`${id} review`))?.owner
+  }
+  const late = items(reviewed('B7', 300, [failed(290, 'B8')]), fixStep('B8', 'B7', 'queued', 150))
+  assert.equal(reviewWaitOf(late.get('B7'), late).kind, 'fix')
+  assert.equal(ownerOf(late, 'B7'), 'info')
+  const gone = items(reviewed('B7', 300, [failed(290, 'B8')]), item({ ...Object.fromEntries(fixStep('B8', 'B7', 'queued', 20).head), Owner: 'Ghost' }))
+  assert.equal(ownerOf(gone, 'B7'), 'owner-gone')
+  const loop = items(reviewed('B7', 300, [failed(290, 'B8')], { 'Fix of': 'B8' }), reviewed('B8', 280, [failed(270, 'B7')], { 'Fix of': 'B7' }))
+  assert.deepEqual([reviewWaitOf(loop.get('B7'), loop)?.kind, reviewWaitOf(loop.get('B8'), loop)?.kind], ['fix', 'fix'])
+  assert.equal(ownerOf(loop, 'B7') ?? null, null)
+})

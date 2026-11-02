@@ -72,12 +72,16 @@ export function awaitingJudgment(items, outbox, to) {
 }
 
 /**
- * Whether the Supervisor `to` judges now, or is about to: a judge word in flight, or an incident waiting for one. The board
- * holds its chat at the judging effort meanwhile (state.mjs, config `supervisorJudgeEffort`), and starts no sweep (sweep.mjs).
+ * Whether the Supervisor `to` judges now, or is about to: a judge word in flight, or an incident open or came back. The board
+ * holds its chat at the judging effort meanwhile (state.mjs, config `supervisorJudgeEffort`). The review of 2026-11-02 (1):
+ * never from "with the supervisor, no judge word listed it" (`awaitingJudgment`'s migration clause): the state's outbox
+ * (store.mjs outboxNow) keeps a delivered command word only COMMAND_KNOWN_MS (2 h), after which every incident still with
+ * the Supervisor would read as unlisted and hold the chat at medium for good. The sweep's own check (supervisor/index.mjs)
+ * reads the raw outbox and uses `awaitingJudgment`.
  */
 export function isJudging({ items, outbox, to, now, keep = KEEP }) {
   if (typeof to !== 'string' || to === '') return false
-  return judgeInFlight(outbox, to, now, keep) || awaitingJudgment(items, outbox, to).length > 0
+  return judgeInFlight(outbox, to, now, keep) || [...(items?.values() ?? [])].some(item => valueOf(item, 'Kind') === 'incident' && TO_JUDGE.includes(valueOf(item, 'State')))
 }
 
 /** When an incident began to wait (its Since), for how long the board waits for the judging effort before the word goes. */

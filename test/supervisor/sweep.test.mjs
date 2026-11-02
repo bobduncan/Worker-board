@@ -547,14 +547,21 @@ test('signals change 6: only an unowned line triggers: an info line (a pause, a 
     ['B7', item({ Id: 'B7', Kind: 'step', State: 'in progress', Owner: 'Digger', Since: stamp(START - 150 * MIN), Title: 'Paint the beds' })],
     ['B8', item({ Id: 'B8', Kind: 'step', State: 'taken', Owner: 'Weeder', Since: stamp(START - 45 * MIN), Title: 'Weed the beds' })],
   ])
-  const chats = [lane('Lead', { isMain: true }), lane('Digger', { state: 'working' }), lane('Weeder', { state: 'working', task: { stepId: 'B8' } }), lane('Sower', { state: 'interrupted', task: { stepId: 'B9' } })]
+  const chats = [lane('Lead', { isMain: true }), lane('Digger', { state: 'working' }), lane('Weeder', { state: 'working', task: { stepId: 'B8' } }), lane('Sower', { state: 'interrupted', task: { stepId: 'B9' } }),
+    lane('Reaper', { state: 'interrupted' }), lane('Hoer', { state: 'off', isRunning: false, task: { stepId: 'B10' }, wake: { state: 'failed', final: true } }),
+    lane('Raker', { state: 'unknown', task: { stepId: 'B11' }, handover: { state: 'held' } })]
   const viewOf = limits => buildView({ state: { chats, today: [], limits, pause: null, chatPrefix: '' }, items: steps, outbox: [], settings: {}, now: START })
   const ownerIn = limits => text => oddLines(viewOf(limits), START).find(one => one.text.startsWith(text))?.owner
   assert.equal(ownerIn({ fiveHour: { used: 100, level: 'full', at: START } })('5-hour limit'), 'info', 'a full limit is no fault')
   const owner = ownerIn({})
   assert.equal(owner('B8 taken'), 'info', 'a step past its LONG_MS age')
   assert.equal(owner('B7 in progress'), 'stale-checkpoint', 'a stale checkpoint is the rule\'s')
-  assert.equal(owner('Sower (worker)'), null, 'an interrupted worker no rule names: the sweep\'s to read')
+  // The review of 2026-11-02 (2b): a stopped holder is watched by changes 3 and 4: the holder timers ('info'), wake-failed,
+  // handover-held; a stopped worker with no step no rule names.
+  assert.equal(owner('Sower (worker)'), 'info', 'an interrupted holder: the board\'s holder timers act on it')
+  assert.equal(owner('Hoer (worker)'), 'wake-failed')
+  assert.equal(owner('Raker (worker)'), 'handover-held')
+  assert.equal(owner('Reaper (worker)'), null, 'an interrupted worker with no step no rule names: the sweep\'s to read')
 })
 
 test('cheaper sweeps: the near-stop limit exception sweeps although nothing odd is new; a fresh reading does not; Check now does', async () => {
@@ -702,4 +709,18 @@ test('signals change 6: a rule that trips is no trigger: its odd line is that ru
   b.at(31)
   await b.tick()
   assert.equal(b.sweeps().length, 1, 'no sweep for what a rule owns')
+})
+
+test('the review of change 6 (4): a judge word that arrived long ago with no end never takes the end of a later sweep\'s turn', async () => {
+  const b = board()
+  b.state.supervisorChat = WATCHER
+  // Pasted by hand 40 min ago, no turn's end came: out of flight after 30 min.
+  b.outbox.push({ id: 'j1', at: START - 41 * MIN, command: 'judge', kind: 'judge', to: 'Watcher', incidents: ['X1'], state: 'copied', deliveredAt: START - 40 * MIN })
+  assert.equal((await b.supervisor.checkNow({})).sweep.started, true)
+  b.outbox.find(one => one.command === 'sweep').state = 'delivered'
+  await b.supervisor.heard({ action: 'health', ok: true })
+  b.at(2)
+  await b.supervisor.heard({ action: 'turn-ended', ok: true, session: 'cli-watcher', since: START + MIN })
+  assert.equal(b.view().lastSweep.how, 'told', 'the sweep ended by its own turn')
+  assert.equal(b.outbox[0].endedAt, undefined, 'the old judge word is not claimed')
 })

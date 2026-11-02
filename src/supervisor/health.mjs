@@ -136,12 +136,12 @@ function chatLines(view, now) {
     const idle = lane.state === 'working' && onId === null && handed === null && role === 'worker' && !waitsForPartner
     const late = role === 'worker' && switching?.late === true
     const odd = stopped || idle || late
-    // Signals change 6: a suspension at a full limit is no fault; one past its limit is stale-suspended's; another stop no
-    // rule names; a worker working on no step is working-not-running's while its chat does not run, else no rule's; a
-    // switch not read back is effort-mismatch's.
+    // Signals change 6: a suspension at a full limit is no fault; one past its limit is stale-suspended's; a stopped holder
+    // (`stoppedOwner`) is watched by changes 3 and 4; another stop no rule names; a worker working on no step is
+    // working-not-running's while its chat does not run, else no rule's; a switch not read back is effort-mismatch's.
     const isFullNow = ['fiveHour', 'week'].some(key => view.limits?.[key]?.level === 'full')
     const owner = ownerOf([
-      ...(stopped ? [lane.state === 'suspended' ? (isFullNow ? 'info' : 'stale-suspended') : null] : []),
+      ...(stopped ? [lane.state === 'suspended' ? (isFullNow ? 'info' : 'stale-suspended') : onId !== null ? stoppedOwner(lane) : null] : []),
       ...(idle ? [lane.isRunning === false ? 'working-not-running' : null] : []), ...(late ? ['effort-mismatch'] : []),
     ])
     return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS, owner })
@@ -394,11 +394,40 @@ function stepLines(view, now) {
  * its wait (review-stuck, dropped-fix, open-fix, review-held), or none for a wait no rule judges (an open fix at work, a block);
  * in any other state its LONG_MS age, which is info.
  */
-function lateOwner(item, view, now) {
+function lateOwner(item, view, now, seen = new Set()) {
   const wait = valueOf(item, 'State') === 'review' ? reviewWaitOf(item, view.items, view.held, now, view.recaps) : null
   if (wait === null) return 'info'
   const judged = reviewLateOf({ ...view, now }, item, wait, key => view.seen?.get(key))
-  return judged === null || judged.key === null ? null : RULE_OF_KEY[judged.key.split(' ')[0]] ?? null
+  if (judged !== null) return judged.key === null ? null : RULE_OF_KEY[judged.key.split(' ')[0]] ?? null
+  // The review of 2026-11-02 (2a): a step late only because what it waits for is late (its open fix at work, its blockers)
+  // takes that one's owner, as `isLate` (via `reviewLate`) takes its lateness: a fix past its age is info, a fix whose owner
+  // left the list owner-gone's. Only a loop of waits, which no rule names, is unowned.
+  const chain = new Set([...seen, valueOf(item, 'Id')])
+  if (wait.kind === 'fix') {
+    const fix = view.items.get(wait.fix)
+    if (chain.has(wait.fix)) return null
+    if (fix === undefined) return 'info'
+    const owners = [...(isLate(fix, view, now, chain) ? [lateOwner(fix, view, now, chain)] : []), ...(ownerGone(fix, view) ? ['owner-gone'] : [])]
+    return owners.length === 0 ? 'info' : ownerOf(owners)
+  }
+  if (wait.kind === 'blocked') {
+    if (wait.blockers.some(blocker => chain.has(blocker))) return null
+    const stalled = wait.blockers.map(blocker => view.items.get(blocker)).filter(blocker => blocker !== undefined && isLate(blocker, view, now, chain))
+    return stalled.length === 0 ? 'info' : ownerOf(stalled.map(blocker => lateOwner(blocker, view, now, chain)))
+  }
+  return null
+}
+
+/**
+ * Signals change 6 (the review of 2026-11-02, 2b): who watches a worker that stopped (off, unknown, interrupted, not running)
+ * while it holds a step: a wake that failed on every path is wake-failed's, a hand-over held is handover-held's (and its net,
+ * handover-unanswered's); otherwise the board's own holder timers act on it (signals change 3: one "go on" line, then the
+ * give-back; a wake on its way meanwhile), which is no fault to read: 'info'.
+ */
+function stoppedOwner(lane) {
+  if (lane.wake?.state === 'failed' && lane.wake.final === true) return 'wake-failed'
+  if (lane.handover?.state === 'held') return 'handover-held'
+  return 'info'
 }
 
 /** B656: a step in review that is the open fix its own step, in review too, waits for: a link of that one's chain. */

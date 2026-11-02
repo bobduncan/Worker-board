@@ -72,7 +72,7 @@ async function board(t, { supervisor = watcher(), keep = undefined, two = false,
   })
   const items = async () => [...(await readStore(dir)).items.values()]
   return {
-    supervisor: sup, outbox, dir, failures, refuse, chat,
+    supervisor: sup, outbox, dir, failures, refuse, card: chat,
     /** The Supervisor's chat took and typed every word that waits for it. */
     deliver: () => outbox.filter(one => one.state === 'waiting').forEach(one => { Object.assign(one, { state: 'delivered', deliveredAt: now }) }),
     /** Its turn after the word ended. */
@@ -359,4 +359,15 @@ test('the morning-after count (decision 10): a judgment turn\'s session, start a
   const [word] = b.words()
   assert.deepEqual([word.session, word.from, Number.isFinite(word.endedAt)], ['s-Watcher', START + MIN, true])
   assert.deepEqual(b.supervisor.view(START + 3 * MIN).judgmentsToday, { count: 1, tokens: 0 })
+})
+
+test('the review of change 6 (3): a stale card setting (still low, read back) is not the judging effort: the word waits, then says it was not set', async t => {
+  const b = await board(t, { supervisor: watcher({ setting: { model: 'sonnet', effort: 'low', isSet: true } }) })
+  await b.run()
+  assert.equal(b.words().length, 0, 'the board has not turned it to medium yet: no word at low')
+  b.card.value = watcher({ setting: { model: 'sonnet', effort: 'medium', isSet: true } })
+  b.at(3)
+  await b.run()
+  assert.equal(b.words().length, 1)
+  assert.match(b.words()[0].text, /\nJudge at medium effort\.\n/)
 })

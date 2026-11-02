@@ -12,7 +12,7 @@ import { answer, typed } from '../../fixtures/lines.mjs'
 import { shownChats } from '../../src/bridge.mjs'
 import { parseConfig } from '../../src/config.mjs'
 import { handJobs, isHandWord } from '../../src/hands.mjs'
-import { memoryStore } from '../../src/store.mjs'
+import { memoryStore, outboxNow } from '../../src/store.mjs'
 import { deliverWork } from '../../src/work/deliver.mjs'
 import { AGAIN_MS, effortWords } from '../../src/work/effort.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
@@ -128,12 +128,14 @@ const app = (name, effort, model) => JSON.stringify({
   createdAt: name.length, lastActivityAt: NOW - 5 * MIN, lastAssistantUuid: 'u-1', effort, model,
 })
 const quiet = { text: [typed(NOW - 20 * MIN, 'Sweep.'), answer(NOW - 5 * MIN, 'Nothing looks wrong.')].join('\n'), isCut: false, modifiedAt: NOW - 5 * MIN }
-function build({ effort = 'high', model = IDS.opus, outbox = [], settings = config, now = NOW, list = '{"prefix":"Team - ","main":"Lead","supervisor":"Watcher"}' } = {}) {
+function build({ effort = 'high', model = IDS.opus, outbox = [], settings = config, now = NOW, list = '{"prefix":"Team - ","main":"Lead","supervisor":"Watcher"}', incidents = [] } = {}) {
+  const work = storeFromText('## Board\n', { now: NOW - 60 * MIN })
+  for (const [id, state] of incidents) work.items.set(id, { head: new Map([['Id', id], ['Kind', 'incident'], ['Title', `Finding ${id}`], ['State', state], ['Since', '2026-10-28 08:00']]), sections: new Map(), problem: null })
   const raw = {
     listText: list,
     appChatTexts: [app('Lead', 'medium', IDS.sonnet), app('Digger', 'medium', IDS.sonnet), app('Watcher', effort, model)],
     tails: { 'cli-Lead': quiet, 'cli-Digger': quiet, 'cli-Watcher': quiet },
-    planLineTexts: {}, work: storeFromText('## Board\n', { now: NOW - 60 * MIN }), adviceText: null, folders: null, askTexts: [], pictureLists: {},
+    planLineTexts: {}, work, adviceText: null, folders: null, askTexts: [], pictureLists: {},
     appStartedAt: NOW - 3 * 60 * MIN,
   }
   return buildState(raw, {
@@ -208,4 +210,18 @@ test('the delivery sends the word once to the main chat, as it does a worker\'s'
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+// Signals change 6 (B915, Addendum 7) and its review (2026-11-02, 1): the Supervisor runs at supervisorJudgeEffort while it
+// judges (an incident open or came back, or a judge word in flight), and back at its own setting after. A judge word of 3 h
+// ago that the state's outbox no longer holds (COMMAND_KNOWN_MS) never keeps it at medium for an incident with the supervisor.
+test('the state: medium while an incident waits for judgment; low again with a judge word 3 h old and the incident with the supervisor', () => {
+  const judging = build({ effort: 'low', model: IDS.sonnet, incidents: [['X1', 'open']] })
+  assert.deepEqual(judging.supervisorChat.setting, { model: 'sonnet', effort: 'medium', isSet: false })
+  assert.deepEqual(wordsOf(judging), [['Lead', 'Watcher', 'medium', IDS.sonnet, null, 'local_Watcher']])
+  const old = { id: 'j1', at: NOW - 180 * MIN, to: 'Watcher', command: 'judge', kind: 'judge', about: 'X1', incidents: ['X1'], state: 'delivered', deliveredAt: NOW - 179 * MIN, endedAt: NOW - 170 * MIN }
+  // As the server gives the state its outbox (store.mjs outboxNow): the 3 h old command word is not kept.
+  const after = build({ effort: 'low', model: IDS.sonnet, incidents: [['X1', 'with the supervisor']], outbox: outboxNow([old], NOW, { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN }) })
+  assert.deepEqual(after.supervisorChat.setting, { model: 'sonnet', effort: 'low', isSet: true })
+  assert.deepEqual(wordsOf(after), [])
 })
