@@ -21449,7 +21449,9 @@ function show(tab) {
   const group = groupOfTab(tab)
   if (group !== null) try { localStorage.setItem(`tab-${group}`, tab) } catch {}
   for (const button of document.querySelectorAll('.tab')) button.classList.toggle('is-active', button.dataset.tab === tab || (group !== null && button.dataset.group === group))
-  for (const button of document.querySelectorAll('.subtab')) button.classList.toggle('is-active', button.dataset.tab === tab)
+  // The Focus tab's parts stand in the Plan row too: the one open is marked by its own aria-pressed, and only while Focus shows.
+  for (const button of document.querySelectorAll('.subtab')) button.classList.toggle('is-active', button.dataset.tab === tab && button.dataset.advisorPane === undefined)
+  $('subtabs-plan').dataset.on = tab
   for (const name of Object.keys(TAB_GROUPS)) $(`subtabs-${name}`).hidden = name !== group
   $('view-overview').hidden = tab !== 'overview'
   $('view-advice').hidden = tab !== 'advice'

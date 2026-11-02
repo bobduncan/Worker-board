@@ -72,7 +72,8 @@ button, textarea, select { font: inherit; color: inherit; }
 .tab.is-active { background: var(--inset); color: var(--text); border-bottom-color: var(--free); }
 .tab .count { margin-left: 8px; }
 /* The two parts of the Plan and New tabs: a quiet switch right under the tabs. */
-.subtabs { flex: none; display: flex; gap: 4px; padding: 10px 16px 0; }
+.subtabs { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 12px 16px 0; }
+.subtabs-gap { width: 1px; height: 18px; margin: 0 6px; background: var(--line); }
 .subtabs[hidden] { display: none; }
 .subtab { padding: 5px 14px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
 .subtab:hover { color: var(--text); }
@@ -148,7 +149,8 @@ button, textarea, select { font: inherit; color: inherit; }
 #view-advice[data-pane="focus"] > .advisor-focus, #view-advice[data-pane="way"] > .advisor-way, #view-advice[data-pane="goals"] > .advisor-goals, #view-advice[data-pane="brainstorm"] > .advisor-brainstorm, #view-advice[data-pane="refine"] > .advisor-refine, #view-advice[data-pane="plan"] > .advice-panel, #view-advice[data-pane="suggestions"] > .advice-panel { display: block; flex: 1; min-height: 0; overflow-y: auto; }
 #view-advice[data-pane="chat"] > .talk { display: flex; flex: 1; width: min(900px, calc(100% - 36px)); }
 #view-advice[data-pane="plan"] .advice-part-suggestions, #view-advice[data-pane="suggestions"] .advice-part-plan { display: none; }
-.advisor-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 18px 0; flex: none; }
+/* The Focus tab's parts stand in the Plan row, beside Vision (the person, 2026-11-02: one row, no menu under a menu). */
+.advisor-tabs { display: contents; }
 /* B288: "Re-check the goals now" in the Next milestone part's head. */
 .way-recheck-line { margin-top: 8px; }
 .way-recheck { align-self: flex-start; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
@@ -162,9 +164,8 @@ button, textarea, select { font: inherit; color: inherit; }
 .refine-row:hover, .refine-row:focus-visible { background: #16294a; }
 .refine-row span { min-width: 0; overflow-wrap: anywhere; }
 .refine-row small { margin-left: auto; flex: none; }
-.advisor-tabs button { padding: 6px 14px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }
-.advisor-tabs button[aria-pressed="true"] { color: var(--text); border-color: var(--free); background: #16294a; font-weight: 600; }
-.advisor-tabs button:focus-visible { outline: 2px solid var(--free); outline-offset: 1px; }
+#subtabs-plan[data-on="advice"] .subtab[aria-pressed="true"] { border-color: var(--free); background: var(--inset); color: var(--text); }
+.subtab:focus-visible { outline: 2px solid var(--free); outline-offset: 1px; }
 .advisor-tabs small { color: var(--muted); margin-left: 4px; }
 .advisor-way { margin: 14px 18px 16px; max-width: 1240px; }
 /* Focus 1 (spec 2026-10-18, section 4, and its mockups): the Focus page, one goal and where it stands. */
