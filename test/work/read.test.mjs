@@ -14,7 +14,10 @@ import { parseConfig } from '../../src/config.mjs'
 import { buildState } from '../../src/state.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
 import { flowOfStep, itemOfStep, storeBacklog, storeFault, storeFromText, storeKeeper } from '../../src/work/read.mjs'
-import { writeStore } from '../../src/work/store.mjs'
+import { share, writeStore } from '../../src/work/store.mjs'
+
+// B917: these tests edit store files by hand and read at once; on the board a hand edit shows within share.ms.
+share.ms = 0
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const BACKLOG = await readFile(join(HERE, 'fixtures', 'backlog-small.md'), 'utf8')

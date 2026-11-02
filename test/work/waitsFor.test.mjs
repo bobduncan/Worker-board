@@ -16,7 +16,10 @@ import { DEFAULT_FLOW, mayMove } from '../../src/work/flow.mjs'
 import { GUARDS } from '../../src/work/guards.mjs'
 import { parseItem, valueOf } from '../../src/work/item.mjs'
 import { reconcile } from '../../src/work/reconcile.mjs'
-import { readStore, writeStore } from '../../src/work/store.mjs'
+import { readStore, share, writeStore } from '../../src/work/store.mjs'
+
+// B917: these tests edit store files by hand and read at once; on the board a hand edit shows within share.ms.
+share.ms = 0
 
 const NOW = new Date(2026, 9, 17, 12, 0).getTime()
 const MIN = 60_000

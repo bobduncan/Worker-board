@@ -18,7 +18,10 @@ import { workApi } from '../src/work/api.mjs'
 import { storeNeeds } from '../src/work/lists.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { ACCEPT_GRACE_MS, acceptCardDue, acceptReading, reviewWaitOf } from '../src/work/resultCheck.mjs'
-import { readStore } from '../src/work/store.mjs'
+import { readStore, share } from '../src/work/store.mjs'
+
+// B917: these tests edit store files by hand and read at once; on the board a hand edit shows within share.ms.
+share.ms = 0
 
 const MIN = 60_000
 /** 13:30 on a made-up day: the fix B875 was dropped at 12:48, 42 minutes ago. */
