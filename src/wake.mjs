@@ -120,15 +120,30 @@ export function nextPath(record, { chat, spell, senderClaims, senderSince = -Inf
  * false when `nextPath` does not give this path now (one attempt per path per spell, never two pending at once).
  * `runBefore` the chat's report's `run` at the attempt; `by` the hand's chat for a message, 'board' for a launch.
  */
-export function claim(record, { chat, spell, path, by, jobId, now, runBefore = null, senderSince = -Infinity, paths = ['message', 'launch'] }) {
+export function claim(record, { chat, spell, path, by, jobId, now, runBefore = null, senderSince = -Infinity, paths = ['message', 'launch'], step = null }) {
   if (!['message', 'launch'].includes(path) || !isTime(spell) || !isTime(now)) return false
   if (nextPath(record, { chat, spell, senderClaims: path === 'message', senderSince, paths: path === 'message' ? ['message'] : ['launch'] }) !== path) return false
   newSpell(record, chat, spell)
   const entry = entryOf(record, chat, spell)
   if (entry === null) return false
-  const attempt = { path, at: now, by: String(by ?? (path === 'launch' ? 'board' : '')), jobId: String(jobId ?? ''), sentAt: null, runBefore: runBefore ?? null, verdict: null, verdictAt: null, why: null }
+  // `step`: the step whose take line the message carries (wakeNeeds case 1 or 5), so the envelope's own line is not typed
+  // a second time (`wakeCarriedTake`); null for any other text.
+  const attempt = { path, at: now, by: String(by ?? (path === 'launch' ? 'board' : '')), jobId: String(jobId ?? ''), sentAt: null, runBefore: runBefore ?? null, verdict: null, verdictAt: null, why: null, step: typeof step === 'string' && /^[A-Z]\d{1,6}$/.test(step) ? step : null }
   entry.attempts.push(attempt)
   return attempt
+}
+
+/**
+ * X107 and X3 again (2026-11-02 14:45-15:13, Workers 5 and 2): the wake message carried the take line ("take B916 in this
+ * turn: run work next") and the chat took B916 in that turn; its envelope's own line ("work: B916 is yours; run work next"),
+ * handed at its first take, waited behind the running turn and was submitted after the step was reported, starting a stale
+ * turn in which the owed clear failed twice. Whether `chat`'s newest spell woke by a message that carried the take line of
+ * `step`: then the envelope's line is waived at the hand-out (handoverBoard.mjs `handOut`); the chat was told once.
+ */
+export function wakeCarriedTake(record, chat, step) {
+  if (typeof step !== 'string') return false
+  const entry = newestOf(record, chat)
+  return entry !== null && entry.attempts.some(one => one.path === 'message' && one.verdict === 'woke' && one.step === step)
 }
 
 /**
@@ -525,8 +540,8 @@ function savedAttempt(value) {
   if (!(value.verdictAt === null || isTime(value.verdictAt)) || !(value.why === null || (typeof value.why === 'string' && WHYS.test(value.why)))) return null
   if (!(value.runBefore === null || isTime(value.runBefore) || (typeof value.runBefore === 'string' && value.runBefore.length <= 64))) return null
   const { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why } = value
-  // T22: an attempt the person asked for ("Send again") keeps that mark.
-  return { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why, ...(value.again === 'person' ? { again: 'person' } : {}) }
+  // T22: an attempt the person asked for ("Send again") keeps that mark; the step whose take line it carried too.
+  return { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why, ...(value.again === 'person' ? { again: 'person' } : {}), step: typeof value.step === 'string' && /^[A-Z]\d{1,6}$/.test(value.step) ? value.step : null }
 }
 
 /** One saved spell entry, or null when it is none (an attempt that is no attempt is left out). */

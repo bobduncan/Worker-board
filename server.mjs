@@ -96,7 +96,7 @@ import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/code
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, WAKE_JOB, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { BOARD_KEY, WAKE_JOB, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
@@ -2177,7 +2177,7 @@ async function main(args) {
       // Change 4 (B.2): the woken chat's first turn end was seen, right after the decision that read it.
       if (wakeTurnEnded(wakes, checked.chat, clock())) wakesChanged()
       if (decided !== null) {
-        const envelope = await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null) })
+        const envelope = await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null), waiveLine: step => wakeCarriedTake(wakes, checked.chat, step) })
         if (envelope !== null) readState.reset()
         const { pull: _pull, ...rest } = done.result
         const waits = envelope === null && decided.envelope !== null && typeof decided.envelope.waitsFor === 'string' ? 'set' : null
@@ -2764,7 +2764,7 @@ async function main(args) {
       // release for a mod older than 0.28.0.
       const { envelope, statuses } = await handedWithStatuses({
         // Signals change 4, D.4: an envelope with a clear waits while the chat's first turn after a wake runs.
-        hand: async () => (!onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null) })),
+        hand: async () => (!onIt || isHolding((await readState()).pause) ? null : await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null), waiveLine: step => wakeCarriedTake(wakes, checked.chat, step) })),
         readState,
       })
       return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }), ...(statuses.length === 0 ? {} : { statuses }) } }
@@ -2861,7 +2861,9 @@ async function main(args) {
           if (need.chat === checked.chat || !need.paths.includes('message') || !Number.isFinite(need.spell)) continue
           if (wakeNextPath(wakes, { chat: need.chat, spell: need.spell, senderClaims: true, senderSince: claim.since, paths: need.paths }) !== 'message') continue
           const id = wakeJobId(need.spell, need.chat)
-          if (!claimWake(wakes, { chat: need.chat, spell: need.spell, path: 'message', by: checked.chat, jobId: id, now: clock(), runBefore: reports?.get(need.chat)?.run ?? null, senderSince: claim.since, paths: need.paths })) continue
+          // X107/X3 (2026-11-02): the step whose take line the message carries, so the envelope's own line is not typed a second time.
+          const carries = typeof need.step === 'string' && need.text === takeLine(need.step) ? need.step : null
+          if (!claimWake(wakes, { chat: need.chat, spell: need.spell, path: 'message', by: checked.chat, jobId: id, now: clock(), runBefore: reports?.get(need.chat)?.run ?? null, senderSince: claim.since, paths: need.paths, step: carries })) continue
           jobs.push({ id, to: need.appSession, chat: need.chat, text: need.text })
           wakeClaimed = true
           console.log(`Wake: a message to ${need.chat} given to ${checked.chat}'s hands at ${timeOf(clock())} (${need.why}): "${need.text}".`)
