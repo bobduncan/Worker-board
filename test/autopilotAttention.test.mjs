@@ -207,9 +207,9 @@ test('the Advisor\'s check by Autopilot judges only what stands for the person, 
   assert.deepEqual(verdicts.result.closed, ['Q10'])
   const record = await cleared(dir)
   assert.equal(record.at, NOW + 2 * MIN, 'the record holds the closes too, from the newest clear')
-  assert.deepEqual(record.items.map(one => [one.id, one.how, one.why, one.was]), [
-    ['Q1', 'recap', 'moved into your recap', undefined], ['Q2', 'recap', 'moved into your recap', undefined],
-    ['Q10', 'closed', 'the spade was chosen', undefined],
+  assert.deepEqual(record.items.map(one => [one.id, one.how, one.why]), [
+    ['Q1', 'recap', 'moved into your recap'], ['Q2', 'recap', 'moved into your recap'],
+    ['Q10', 'closed', 'the spade was chosen'],
   ])
   assert.equal(record.items[2].title, 'Which spade for the hedge?')
   let items = await read(dir)
@@ -298,9 +298,8 @@ test('the record: read as written, bad files are none, a live one is kept by a n
   assert.deepEqual(addedCleared(record, [one, one], NOW + MIN), { at: NOW + MIN, items: [...record.items, one], undoneAt: null }, 'each item once, from the newest clear')
   assert.deepEqual(addedCleared(null, [one], NOW + MIN), { at: NOW + MIN, items: [one], undoneAt: null })
   assert.deepEqual(addedCleared({ ...record, undoneAt: NOW }, [one], NOW + MIN).items, [one], 'an undone record is not carried on')
-  // An incident keeps the state it had.
-  assert.equal(clearedItem('X1', 'A rule', 'closed', 'false alarm', 'came back').was, 'came back')
-  assert.equal(parseAutopilotCleared(JSON.stringify({ at: NOW, items: [clearedItem('X1', 'A rule', 'closed', 'false alarm', 'came back'), clearedItem('Q1', 'x', 'closed', 'y')], undoneAt: null })).items.map(item => item.was).join(','), 'came back,')
+  // Signals change 6: no incident is cleared any more, so an item keeps no earlier state (an old record's `was` is dropped).
+  assert.deepEqual(parseAutopilotCleared(JSON.stringify({ at: NOW, items: [{ ...clearedItem('Q1', 'x', 'closed', 'y'), was: 'came back' }], undoneAt: null })).items, [clearedItem('Q1', 'x', 'closed', 'y')])
   assert.equal(openItemsOf(new Map()).length, 0)
 })
 
@@ -364,7 +363,7 @@ test('Undo is for a day: a record from 24 h ago or more is refused, and the newe
   assert.deepEqual(done.result.undone, ['Q1', 'Q2', 'Q20'])
 })
 
-test('Undo leaves a refine question whose step is done, and an incident or ask that is not as it was closed', async t => {
+test('Undo leaves a refine question whose step is done, an ask that is not as it was closed, and an incident (no ask since change 6)', async t => {
   const dir = await storeWith({
     B62: step('B62', { Title: 'Label the hedge', State: 'done', Goal: 'G30' }),
     Q22: ask('Q22', { Title: 'Shorter names on the hedge labels? A: yes B: no', Owner: 'Partner', Asks: 'decide', Of: 'B62', Via: 'refine', State: 'withdrawn' }),
@@ -372,10 +371,10 @@ test('Undo leaves a refine question whose step is done, and an incident or ask t
     X2: incident('X2', 'A watch rule fired', 'fix'),
   })
   t.after(() => rm(dir, { recursive: true, force: true }))
-  const record = { at: NOW, undoneAt: null, items: [clearedItem('Q22', 'Shorter names?', 'closed', 'stale'), clearedItem('Q23', 'Which spade?', 'closed', 'stale'), clearedItem('X2', 'A watch rule fired', 'closed', 'false alarm', 'open'), clearedItem('Q99', 'Gone', 'closed', 'stale')] }
+  const record = { at: NOW, undoneAt: null, items: [clearedItem('Q22', 'Shorter names?', 'closed', 'stale'), clearedItem('Q23', 'Which spade?', 'closed', 'stale'), clearedItem('X2', 'A watch rule fired', 'closed', 'false alarm'), clearedItem('Q99', 'Gone', 'closed', 'stale')] }
   assert.equal((await writeAutopilotClearedFile(dir, record, undefined, { expected: null })).ok, true)
   const undone = await person(dir, { action: 'autopilot-undo' }, NOW + MIN)
   assert.equal(undone.ok, true, undone.why)
   assert.deepEqual(undone.result.undone, [])
-  assert.deepEqual(undone.result.skipped, [{ id: 'Q22', why: 'its step is done' }, { id: 'Q23', why: 'it is open now' }, { id: 'X2', why: 'it is fix now' }, { id: 'Q99', why: 'it is not in the store any more' }])
+  assert.deepEqual(undone.result.skipped, [{ id: 'Q22', why: 'its step is done' }, { id: 'Q23', why: 'it is open now' }, { id: 'X2', why: 'X2 is no ask' }, { id: 'Q99', why: 'it is not in the store any more' }])
 })

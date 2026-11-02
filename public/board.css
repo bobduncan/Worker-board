@@ -1668,6 +1668,12 @@ a.recap-checked:hover { text-decoration: underline; }
 .recap-attention-open { align-self: flex-start; margin-top: 4px; padding: 11px 24px; border: 0; border-radius: 9px; background: var(--attn); color: #1a1305; font-size: 16px; font-weight: 700; text-decoration: none; white-space: nowrap; cursor: pointer; }
 .recap-attention-open:hover { background: #f0b53a; }
 .recap-attention-open:focus-visible { outline: 2px solid var(--attn-text); outline-offset: 2px; }
+/* The person's "A" (2026-11-02): the looks that wait for their answer, one quiet line each under the card's line: link-styled, cool tones, never amber. */
+.recap-attention-looks { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; font-size: 13.5px; }
+.recap-attention-look { max-width: 100%; padding: 0; border: 0; background: none; color: #8ab4ff; font: inherit; text-align: left; text-decoration: underline; text-decoration-color: #3b5a85; text-underline-offset: 2px; cursor: pointer; overflow-wrap: anywhere; }
+.recap-attention-look:hover, .recap-attention-look:focus-visible { color: #c3d6ff; }
+/* The answer form of a look in its window (the Product owner's card and the recap card name it): a note and two buttons. */
+.look-answer-note { width: 100%; box-sizing: border-box; }
 /* T20: "Autopilot cleared n: ..." under the recap card: information, so quiet cool tones, dashed, never amber; its Undo is a link. */
 .autopilot-cleared { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 10px 14px; border: 1px dashed var(--line); border-radius: 9px; color: var(--muted); font-size: 13.5px; }
 .autopilot-cleared-words { flex: 1 1 18em; min-width: 0; overflow-wrap: anywhere; }

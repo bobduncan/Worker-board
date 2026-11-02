@@ -11,6 +11,7 @@
 //   hour, to the main chat (the repair rule held-elsewhere).
 
 import { sinceMs, valueOf } from './item.mjs'
+import { isKeptLook } from './keptLook.mjs'
 
 const MIN = 60_000
 /** A worker resting this long on an open ask of the step it holds in progress: the step moves to waiting on you. */
@@ -37,9 +38,9 @@ const stepsIn = items => [...(items?.values?.() ?? items ?? [])].filter(one => (
 export const flowRests = flow => (flow?.step?.moves ?? []).some(move => move.from === 'in progress' && move.to === 'waiting on you'
   && (Array.isArray(move.by) ? move.by : [move.by]).includes('server') && move.when === REST_GUARD)
 
-/** The open asks under a step, by id. */
+/** The open asks under a step, by id: not a look the partner handed over that Autopilot keeps for the goal's recap (it holds no worker, 2026-11-02). */
 export const openAskIds = (items, id) => [...(items?.values?.() ?? [])]
-  .filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === id && stateOf(one) === 'open').map(idOf)
+  .filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === id && stateOf(one) === 'open' && !isKeptLook(one)).map(idOf)
   .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
 
 /** The step the owner of `item` works on now (taken or in progress), other than `item`, newest first: its id, or null. */

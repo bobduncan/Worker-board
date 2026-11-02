@@ -4523,15 +4523,26 @@ function standWords(stand) {
 function partnerAskWindowOf(ask) {
   // Autopilot (2026-10-31): an ask the board routed to the main chat or to the goal's recap opens here too, its route named.
   const route = ask.route ?? 'partner'
+  const answer = lookAnswerOf(ask)
   return {
     code: ask.id, title: ask.title ?? '', fullTitle: ask.title ?? '', route,
     chips: [{ text: ROUTE_CHIPS[route] ?? ROUTE_CHIPS.partner, tone: 'kind' }, ...(ask.from == null ? [] : [{ text: `From: ${ask.from}`, tone: 'to' }])],
     at: ask.at ?? null,
     stand: route === 'main' ? `the main chat does it if a chat can${Number.isFinite(ask.toYouAt) ? ` · comes to you at ${clock(ask.toYouAt)}` : ''}`
-      : route === 'recap' ? "waits for the goal's recap: you judge it there" : standWords(ask.stand),
+      : route === 'recap' ? (answer === null ? "waits for the goal's recap: you judge it there" : "waits for the goal's recap: you can answer it here") : standWords(ask.stand),
+    answer,
     text: String(ask.text ?? ''), options: ask.options ?? [], advice: ask.advice ?? null,
     step: ask.of == null ? null : [ask.of, ask.ofTitle].filter(Boolean).join(' '),
   }
+}
+
+/**
+ * The person's "A" (2026-11-02): a look the partner handed over that Autopilot keeps for the goal's recap (`isKept`: the state's
+ * `routedAway`, src/work/keptLook.mjs) is answered in its window, as any look is: Looks right or Send back with a note, whether the
+ * recap card shows it yet or not. `{ id }`, or null for every other ask (it is judged in the recap, or it is not the person's yet).
+ */
+function lookAnswerOf(ask) {
+  return ask?.route === 'recap' && ask.asks === 'look' && ask.isKept === true ? { id: ask.id } : null
 }
 
 /** Autopilot (2026-10-31): the chip of an ask's route in its window, and the line under where it stands. */
@@ -4545,7 +4556,9 @@ const ROUTE_STANDS = {
 /** The window of a question with the partner (the details dialog): quiet, with where it stands first. */
 function drawPartnerAskWindow(box, ask, state) {
   const view = partnerAskWindowOf(ask)
-  const showing = JSON.stringify([detailsOf, view])
+  // The answer form's own state (its note is kept while the window is drawn again; a refusal stands under the buttons).
+  const answerUi = view.answer === null ? null : { isSending: sending.has(`look:${view.answer.id}`), problem: problems.get(`look:${view.answer.id}`) ?? null }
+  const showing = JSON.stringify([detailsOf, view, answerUi])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
   const scroll = box.querySelector('.details-body')?.scrollTop ?? 0
@@ -4563,6 +4576,7 @@ function drawPartnerAskWindow(box, ask, state) {
     parts.push(section('Options', [...(view.options.length > 0 ? [list] : []), ...(view.advice === null ? [] : [el('p', 'muted', `Advice: ${view.advice}`)])]))
   }
   if (view.step !== null) parts.push(section('Its step', [el('p', '', view.step)]))
+  if (view.answer !== null) parts.push(drawLookAnswer(view.answer, answerUi))
   const main = el('div', 'details-main')
   main.append(...parts)
   const body = el('div', 'details-body is-single')
@@ -4573,6 +4587,54 @@ function drawPartnerAskWindow(box, ask, state) {
   body.scrollTop = scroll
 }
 // askstand:end
+
+/**
+ * The person's "A" (2026-11-02): the answer form of a look Autopilot keeps for the goal's recap (lookAnswerOf), in its window: a note,
+ * "Looks right" (the work action `answer` with the verdict approve) and "Send back" (reject, which needs the note), sent as any look's
+ * answer is; the chat that asked is woken with it. `ui`: whether it is sending, and the refusal that stands under the buttons.
+ */
+function drawLookAnswer(answer, ui) {
+  const note = el('textarea', 'look-answer-note')
+  note.rows = 2
+  note.maxLength = board?.maxMessageChars ?? 4000
+  note.placeholder = 'A note (optional when it looks right; say what is wrong to send it back)…'
+  note.value = drafts.get(`look:${answer.id}`) ?? ''
+  note.dataset.lookOf = answer.id
+  note.setAttribute('aria-label', `Your note on ${answer.id}`)
+  const button = (label, className, verdict, title) => {
+    const node = el('button', `button ${className}`, ui.isSending ? 'Sending…' : label)
+    node.type = 'button'
+    node.dataset.lookAnswer = verdict
+    node.dataset.lookOf = answer.id
+    node.disabled = ui.isSending
+    node.title = title
+    return node
+  }
+  const buttons = el('div', 'buttons is-split')
+  buttons.append(
+    button('↺  Send back', 'is-reject', 'reject', 'Sends it back to the chat that asked, with your note'),
+    button('✓  Looks right', 'is-seen', 'approve', 'Approves it; the chat that asked is told'),
+  )
+  return section('Your answer', [note, buttons, ...(ui.problem === null ? [] : [el('p', 'problem', ui.problem)])])
+}
+
+$('details').addEventListener('input', event => {
+  if (event.target.matches('.look-answer-note')) drafts.set(`look:${event.target.dataset.lookOf}`, event.target.value)
+})
+$('details').addEventListener('click', event => {
+  const button = event.target.closest('[data-look-answer]')
+  if (button === null || board === null) return
+  const id = button.dataset.lookOf
+  const key = `look:${id}`
+  if (sending.has(key)) return
+  const verdict = button.dataset.lookAnswer
+  const text = ($('details').querySelector('.look-answer-note')?.value ?? '').trim()
+  if (verdict === 'reject' && text === '') {
+    problems.set(key, 'Say what is wrong: the worker needs to know what to change.')
+    return redrawNeeds()
+  }
+  return sendWork({ action: 'answer', id, verdict, text }, key)
+})
 
 // partner-answers:start
 /**
@@ -5976,6 +6038,16 @@ function drawRecapAttention(view) {
   const top = el('header', 'need-top')
   top.append(el('span', 'kind', '★'), el('b', '', 'Product owner'), el('span', 'tag', 'Your recap'))
   card.append(top, el('h4', '', view.heading), el('p', '', view.line))
+  // The looks that wait for the person's answer: quiet lines, each a link to the ask's window.
+  if (view.looks.named.length > 0) {
+    const looks = el('div', 'recap-attention-looks')
+    for (const one of view.looks.named) {
+      const link = targetLink(one.target, 'recap-attention-look', one.words)
+      link.title = `Open ${one.target.ask}: ${one.title}`
+      looks.append(link)
+    }
+    card.append(looks)
+  }
   if (view.open !== null) {
     const open = targetLink(view.open.target, 'recap-attention-open', view.open.label)
     open.title = view.open.target?.path !== undefined ? 'Open the recap: approve each part, or send it back with a note' : `Open ${view.open.target?.step ?? view.open.target?.ask}: the card or question that waits for you stands there`
@@ -6135,7 +6207,7 @@ function needsView(state, ui) {
     // B775: the obsolete check (its rows come with the ticks in `ui`).
     obsolete: state.obsolete ?? null,
     // T20: the Product owner's recap card (the focus goal's recap while verdicts wait, src/recapCard.mjs) and what Autopilot cleared at switch-on.
-    recapCard: state.recapCard == null ? null : { goal: state.recapCard.goal ?? null, open: state.recapCard.open ?? null, count: state.recapCard.count ?? 0, isBuilt: state.recapCard.isBuilt === true },
+    recapCard: state.recapCard == null ? null : { goal: state.recapCard.goal ?? null, open: state.recapCard.open ?? null, count: state.recapCard.count ?? 0, isBuilt: state.recapCard.isBuilt === true, looks: (state.recapCard.looks ?? []).map(one => ({ title: one.title, target: one.target })) },
     focusGoal: state.focus == null ? null : { id: state.focus.id ?? null, title: state.focus.title ?? null },
     autopilotCleared: state.autopilotCleared ?? null,
     // B541: the card of chats on an older Workers mod says how the pause stands.
@@ -14697,7 +14769,21 @@ function recapAttentionView(card, goal = null) {
     heading: name === '' ? ready.title : `${name}: ${ready.title.charAt(0).toLowerCase()}${ready.title.slice(1)}`,
     line: ready.line,
     open: ready.open.target === null ? null : { label: `${ready.open.label} →`, target: ready.open.target },
+    looks: recapLooksView(card),
   }
+}
+
+/**
+ * The person's "A" (2026-11-02): under the Product owner's line, one quiet line per look the recap card lists as a tile of its own
+ * (the card's `looks`: src/recapCard.mjs), "Also a look: <its title, cut at 60> →", which opens the ask's window (the same target
+ * the Focus card's tiles use). Every one is named, no cap (the coordinator's ruling the same day: a fourth would be unreachable; the
+ * Focus card's tiles stay cut at its three). `{ named: [{ words, title, target }] }`.
+ */
+function recapLooksView(card) {
+  const oneLine = text => String(text ?? '').replace(/\s+/g, ' ').trim()
+  const looks = (Array.isArray(card?.looks) ? card.looks : []).filter(one => typeof one?.target?.ask === 'string' && one.target.ask !== '')
+  const named = looks.map(one => ({ words: `Also a look: ${cutWords(oneLine(one.title) || one.target.ask, 60)} →`, title: oneLine(one.title) || one.target.ask, target: { ask: one.target.ask } }))
+  return { named }
 }
 
 /** T20: how long the "Autopilot cleared" line stays (the plan: 24 hours), and how many of the cleared items it names before "and N more". */
