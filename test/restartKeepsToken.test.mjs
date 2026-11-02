@@ -178,6 +178,28 @@ function fakeTimers() {
   }
 }
 
+test('holdPort (2026-11-02, the landing\'s port race): a port still in use is tried again until it frees within BIND_RETRY_MS; one that stays in use fails as before', async t => {
+  const { BIND_EVERY_MS, BIND_RETRY_MS, holdPort } = await import('../server.mjs')
+  assert.equal(BIND_RETRY_MS, 8_000)
+  assert.equal(BIND_EVERY_MS, 100)
+  // A board that ends 300 ms after the new keeper began to bind: the keeper takes the port, no chat's mod gets the second.
+  const old = createServer((_req, res) => res.end('old')).listen(0, '127.0.0.1')
+  await new Promise(done => old.once('listening', done))
+  const port = old.address().port
+  setTimeout(() => old.close(), 300)
+  const held = await holdPort({ port, host: '127.0.0.1', bindMs: 3_000, bindEveryMs: 50 })
+  t.after(() => new Promise(done => held.server.close(done)))
+  assert.equal(held.server.address().port, port)
+  assert.equal((await fetch(`http://127.0.0.1:${port}/`)).status, 503, 'the new keeper holds the port')
+  // A port that stays in use: the start fails with EADDRINUSE once BIND_RETRY_MS passed (the caller says it and ends).
+  const busy = createServer((_req, res) => res.end('busy')).listen(0, '127.0.0.1')
+  await new Promise(done => busy.once('listening', done))
+  t.after(() => new Promise(done => busy.close(done)))
+  const began = Date.now()
+  await assert.rejects(holdPort({ port: busy.address().port, host: '127.0.0.1', bindMs: 400, bindEveryMs: 50 }), error => error?.code === 'EADDRINUSE')
+  assert.ok(Date.now() - began >= 350, 'it tried for the whole window')
+})
+
 test('holdPort: a board that does not serve within START_TIMEOUT_MS (4 minutes) after taking its port ends; one that serves in time does not', async t => {
   const { START_TIMEOUT_MS, holdPort } = await import('../server.mjs')
   assert.equal(START_TIMEOUT_MS, 4 * MIN)

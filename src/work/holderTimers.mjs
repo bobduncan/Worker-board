@@ -199,8 +199,12 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   if (finite(worker.removedAt) || worker.removal?.isOpen === true || (worker.suspended ?? null) !== null) return null
   if (PAUSE_STATES.includes(pause?.state)) return null
   const asks = [...items.values()].filter(item => valueOf(item, 'Kind') === 'ask')
-  // A look the partner handed over that Autopilot keeps for the recap holds no worker (2026-11-02): it silences nothing.
-  if (asks.some(ask => valueOf(ask, 'State') === 'open' && !isKeptLook(ask) && (isMine(ask, name, prefix) || valueOf(ask, 'Of') === id))) return null
+  // The lead's live check (2026-11-02, change 3 BROKEN): the timers paused for ANY open ask of the worker (its own, under
+  // any step, blocking or not), so a holder with one old question somewhere was never nudged nor given back. Only a
+  // BLOCKING ask of the held step pauses them: that is the one wait that is the person's, not the holder's. A look the
+  // partner handed over that Autopilot keeps for the recap (keptLook.mjs, the person's "A" of 2026-11-02) holds no worker
+  // either: it is never blocking, so this rule covers it.
+  if (asks.some(ask => valueOf(ask, 'State') === 'open' && valueOf(ask, 'Of') === id && valueOf(ask, 'Blocking') === 'yes')) return null
   const changedAt = sinceMs(valueOf(holding, 'Since'))
   const took = lastTakenAt(holding)
   const takenAt = finite(took) ? took : changedAt
