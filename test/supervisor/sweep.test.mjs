@@ -555,7 +555,12 @@ test('signals change 6: only an unowned line triggers: an info line (a pause, a 
     // 2026-11-02 (the lead's yes; the 21:13 sweep on "working on no step; cleared at # after B931"): a worker working on no
     // step within 5 minutes after its clear runs its first turn: 'info'; past that, no rule names it.
     lane('Tiller', { state: 'working', compaction: { kind: 'cleared', at: START - 2 * MIN, step: 'B931' } }),
-    lane('Mower', { state: 'working', compaction: { kind: 'cleared', at: START - 20 * MIN, step: 'B930' } })]
+    lane('Mower', { state: 'working', compaction: { kind: 'cleared', at: START - 20 * MIN, step: 'B930' } }),
+    // The lead's live check (23:2x): the same within 5 min after the chat's own last report (the turn that reported runs on).
+    lane('Baler', { state: 'working' }), lane('Thresher', { state: 'working' })]
+  const reported = (id, who, minutesAgo) => ({ head: new Map(Object.entries({ Id: id, Kind: 'step', State: 'review', Owner: who, Since: stamp(START - minutesAgo * MIN), Title: `Task ${id}` })), sections: new Map([['History', [`- ${stamp(START - minutesAgo * MIN)} ${who}: in progress → review`]]]) })
+  steps.set('B12', reported('B12', 'Baler', 2))
+  steps.set('B13', reported('B13', 'Thresher', 20))
   const viewOf = limits => buildView({ state: { chats, today: [], limits, pause: null, chatPrefix: '' }, items: steps, outbox: [], settings: {}, now: START })
   const ownerIn = limits => text => oddLines(viewOf(limits), START).find(one => one.text.startsWith(text))?.owner
   assert.equal(ownerIn({ fiveHour: { used: 100, level: 'full', at: START } })('5-hour limit'), 'info', 'a full limit is no fault')
@@ -570,6 +575,8 @@ test('signals change 6: only an unowned line triggers: an info line (a pause, a 
   assert.equal(owner('Reaper (worker)'), null, 'an interrupted worker with no step no rule names: the sweep\'s to read')
   assert.equal(owner('Tiller (worker)'), 'info', 'working on no step 2 min after its clear: its first turn')
   assert.equal(owner('Mower (worker)'), null, 'working on no step 20 min after its clear: the sweep\'s to read')
+  assert.equal(owner('Baler (worker)'), 'info', 'working on no step 2 min after its own report: the reporting turn runs on')
+  assert.equal(owner('Thresher (worker)'), null, 'working on no step 20 min after its report: the sweep\'s to read')
 })
 
 test('cheaper sweeps: the near-stop limit exception sweeps although nothing odd is new; a fresh reading does not; Check now does', async () => {
