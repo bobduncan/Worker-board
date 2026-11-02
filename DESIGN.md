@@ -1680,7 +1680,10 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   dropped when the rebuild returns: never kept across reads. Outside it, for another Map, or once the Map's size changed
   within it, both scan as before; each answer is a list of its own. On the live store (3138 items, 903 steps): the
   backlog view 396 → 81 ms, every step's window 677 → 20 ms (tests: test/work/links.test.mjs; `node
-  tools/bench-x93.mjs <board> <work folder> <spending.json>` times both).
+  tools/bench-x93.mjs <board> <work folder> <spending.json>` times both). The picture lists (src/sources.mjs) built
+  the backlog view again at every rebuild for the folders the steps mention (6% of a core): those folders are worked
+  out once per read of the store (the keeper's answer, the same until a change through the board or its 30 s; tests:
+  test/sources.test.mjs, B917).
 - **What you see**: under the Backlog tab's head one line, "Store · 370 items · backlog.md is its view" (the problems
   on hover); in a step's window a part "Flow": the strip of states with the step's own marked, and the moves out of it
   with who makes each.
