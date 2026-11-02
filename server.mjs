@@ -1820,6 +1820,9 @@ async function main(args) {
       return []
     }
   }
+  // Signals change 7 (B914, 2026-11-02): the board's own memory of when each worker's plan words changed (state.mjs
+  // `planLineOf`), in memory as the asleep map was kept: a restart forgets it, which only makes the words look new.
+  let planSeen = {}
   const readState = cached(async () => {
     await slowRead()
     const raw = await readRaw()
@@ -1846,9 +1849,12 @@ async function main(args) {
       modsLately: isDemo ? demoMods() : await modsNow(),
       keptReadings,
       providers,
+      // Signals change 7 (B914): when each worker's own plan words last changed, as the last read saw them (memory only).
+      planSeen,
       now: clock(),
       config: { ...config, project },
     })
+    planSeen = state.planSeen ?? {}
     // Only the board that runs the loops writes; a copy beside it reads what that one kept.
     if (READINGS_FILE !== null && !isShowOnly && JSON.stringify(state.limitReadings) !== JSON.stringify(keptReadings)) {
       await writeAtomic(READINGS_FILE, JSON.stringify(state.limitReadings)).catch(error => loops.failed('limit-readings', error))
