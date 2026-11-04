@@ -23,6 +23,7 @@
 import { spawn as nodeSpawn } from 'node:child_process'
 
 import { maySend } from './hands.mjs'
+import { wakeIdsOf } from './ownChat.mjs'
 import { isSessionId, nobodyRunsSpell, wakeNeeds } from './wake.mjs'
 
 export { isSessionId }
@@ -83,8 +84,9 @@ export function chatToOpen(state, outbox = []) {
   const owner = state?.productOwner ?? null
   const ownerWaits = typeof owner?.name === 'string' && (outbox ?? []).some(message => message?.state === 'waiting' && message.to === owner.name)
   const order = [ownerWaits ? owner : undefined, lanes.find(lane => lane.isMain === true), state?.advisor, state?.supervisorChat, ...lanes.filter(lane => lane.isMain !== true)]
-  const found = order.find(lane => typeof lane?.name === 'string' && isSessionId(lane.session))
-  return found === undefined ? null : { chat: found.name, session: found.session }
+  // B986: by each lane's own chat (ownChat.mjs), never the title's; one not in the app's list is not launched.
+  const found = order.find(lane => typeof lane?.name === 'string' && wakeIdsOf(lane).isListed !== false && isSessionId(wakeIdsOf(lane).session))
+  return found === undefined ? null : { chat: found.name, session: wakeIdsOf(found).session }
 }
 
 /**

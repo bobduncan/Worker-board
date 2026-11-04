@@ -20,6 +20,7 @@
 // attempt in the same tick it makes the job (the code check's "two carriers" risk).
 
 import { ASLEEP_LINE, isAppId } from './hands.mjs'
+import { NOT_LISTED_WHY, isNotListedAnswer, wakeIdsOf } from './ownChat.mjs'
 import { boardLanes, isWakeWord, wakeWordOf, wakerOrder } from './say.mjs'
 import { envelopesOf } from './work/handover.mjs'
 import { isHolding } from './work/pause.mjs'
@@ -104,6 +105,8 @@ export function newSpell(record, chat, spell) {
 export function nextPath(record, { chat, spell, senderClaims, senderSince = -Infinity, paths = ['message', 'launch'] }) {
   const attempts = entryOf(record, chat, spell)?.attempts ?? []
   if (attempts.some(one => isPending(one) || one.verdict === 'woke')) return null
+  // B986: the app answered that it has no such chat (not found, archived): no launch, no other try in this spell.
+  if (attempts.some(one => one.unlisted === true)) return null
   const messages = attempts.filter(one => one.path === 'message')
   const launches = attempts.filter(one => one.path === 'launch')
   const mayMessage = senderClaims === true && paths.includes('message')
@@ -187,6 +190,8 @@ export function failedToSend(record, chat, jobId, why, now) {
   attempt.verdict = 'failed'
   attempt.verdictAt = now
   attempt.why = String(why ?? 'not sent').replace(/\s+/g, ' ').trim().slice(0, 200) || 'not sent'
+  // B986 (X140, 11:34: "session local_cce12d1f is archived"): the app has no such chat; the spell tries nothing more.
+  if (isNotListedAnswer(attempt.why)) attempt.unlisted = true
   return attempt
 }
 
@@ -281,8 +286,18 @@ export function inFirstTurn(record, chat, report = null) {
   return !(['idle', 'ended'].includes(report?.state) && isTime(report?.at) && report.at > woke.verdictAt)
 }
 
-/** The ways a lane's ids allow: 'message' (an app id), 'launch' (a CLI session id, and `canLaunch`). */
-export const pathsOf = (lane, canLaunch) => [...(isAppId(lane?.appSession) ? ['message'] : []), ...(canLaunch === true && isSessionId(lane?.session) ? ['launch'] : [])]
+/**
+ * The ways a lane's ids allow: 'message' (an app id), 'launch' (a CLI session id, and `canLaunch`). B986 (X140): the ids of
+ * the lane's own chat (ownChat.mjs `wakeIdsOf`), never the chat its title matches; none when that chat is not in the app's list.
+ */
+export const pathsOf = (lane, canLaunch) => {
+  const ids = wakeIdsOf(lane)
+  if (ids.isListed === false) return []
+  return [...(isAppId(ids.appSession) ? ['message'] : []), ...(canLaunch === true && isSessionId(ids.session) ? ['launch'] : [])]
+}
+
+/** B986: whether a lane's own chat is not in the app's list (a wake fails at once: `wakeOf`, NOT_LISTED_WHY). */
+export const isNotListed = lane => wakeIdsOf(lane).isListed === false
 
 /** The review of 2026-11-02 (5): whether a wake of `chat` is on its way or done in this spell: a start or wake word is not sent beside it. */
 export function isWakeOnItsWay(record, chat, spell) {
@@ -316,7 +331,8 @@ export function statusOf(record, chat, spell = null) {
 export function wakeOf(record, need, { senderClaims = false, senderSince = -Infinity } = {}) {
   const paths = need?.paths ?? []
   const status = statusOf(record, need.chat, need.spell ?? null)
-  if (paths.length === 0) return { ...status, state: 'failed', why: 'no id', next: null, final: true }
+  // B986: a chat not in the app's list fails at once, with no message, no launch and no two-minute wait.
+  if (paths.length === 0) return { ...status, state: 'failed', why: need?.notListed === true ? NOT_LISTED_WHY : 'no id', next: null, final: true }
   const next = nextPath(record, { chat: need.chat, spell: need.spell, senderClaims, senderSince, paths })
   if (status.state === 'none' && next === null) return { ...status, state: 'waiting-sender', next, final: false }
   return { ...status, next, final: status.state === 'failed' && next === null }
@@ -344,7 +360,8 @@ export function noticeOf(record, targets, now, timeOf, { senderClaims = false, s
   const wakes = (targets ?? []).map(need => ({ need, wake: wakeOf(record, need, { senderClaims, senderSince }) }))
   const failed = wakes.filter(one => one.wake.final)
   const lines = failed.map(({ need, wake }) => {
-    const tried = wake.why === 'no id' && wake.attempts.length === 0 ? ['the board has no id to reach it'] : triedWords(wake.attempts, timeOf)
+    const tried = wake.why === NOT_LISTED_WHY ? [NOT_LISTED_WHY, ...triedWords(wake.attempts, timeOf)]
+      : wake.why === 'no id' && wake.attempts.length === 0 ? ['the board has no id to reach it'] : triedWords(wake.attempts, timeOf)
     return `could not wake ${need.chat}: ${tried.join('; ') || wake.why}; open its chat`
   })
   const board = nobody === null ? null : statusOf(record, BOARD_KEY, nobody.since ?? null)
@@ -407,7 +424,7 @@ export function wakeFact(facts, lane, event = null) {
   if (record === null || lane === null || lane === undefined || typeof lane.name !== 'string') return null
   const spell = spellOf(lane)
   const paths = pathsOf(lane, facts.canLaunch === true)
-  const wake = spell === null ? { ...statusOf(record, lane.name, null), final: false } : wakeOf(record, { chat: lane.name, spell, paths }, { senderClaims: facts.senderClaims === true })
+  const wake = spell === null ? { ...statusOf(record, lane.name, null), final: false } : wakeOf(record, { chat: lane.name, spell, paths, notListed: isNotListed(lane) }, { senderClaims: facts.senderClaims === true })
   return {
     state: wake.state, final: wake.final === true, path: wake.path, at: wake.at, by: wake.by, why: wake.why, wokeAt: wake.wokeAt ?? null,
     firstTurnEnd: event?.kind === 'turn-ended' && inFirstTurn(record, lane.name, lane.report ?? null),
@@ -476,7 +493,9 @@ export function wakeNeeds(state, outbox = [], { resumeList = [], canLaunch = tru
     const need = needOf(lane, { state, waiting, prefix, resumeList, ownerName })
     if (need === null) continue
     const paths = pathsOf(lane, canLaunch === true)
-    needs.push({ chat: lane.name, appSession: lane.appSession ?? null, session: lane.session ?? null, spell: spellOf(lane), ...need, paths })
+    // B986: the ids of its own chat (ownChat.mjs), never the title's.
+    const ids = wakeIdsOf(lane)
+    needs.push({ chat: lane.name, appSession: ids.appSession ?? null, session: ids.session ?? null, spell: spellOf(lane), ...need, paths, ...(ids.isListed === false ? { notListed: true } : {}) })
   }
   const rank = orderOf(state)
   return needs.map((need, index) => ({ need, index })).sort((a, b) => rank(a.need.chat) - rank(b.need.chat) || a.index - b.index).map(one => one.need)
@@ -547,7 +566,7 @@ function savedAttempt(value) {
   if (!(value.runBefore === null || isTime(value.runBefore) || (typeof value.runBefore === 'string' && value.runBefore.length <= 64))) return null
   const { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why } = value
   // T22: an attempt the person asked for ("Send again") keeps that mark; the step whose take line it carried too.
-  return { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why, ...(value.again === 'person' ? { again: 'person' } : {}), step: typeof value.step === 'string' && /^[A-Z]\d{1,6}$/.test(value.step) ? value.step : null }
+  return { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why, ...(value.again === 'person' ? { again: 'person' } : {}), ...(value.unlisted === true ? { unlisted: true } : {}), step: typeof value.step === 'string' && /^[A-Z]\d{1,6}$/.test(value.step) ? value.step : null }
 }
 
 /** One saved spell entry, or null when it is none (an attempt that is no attempt is left out). */

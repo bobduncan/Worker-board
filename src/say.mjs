@@ -6,6 +6,7 @@ import { refinedKey } from './backlog.mjs'
 import { doneWhenText } from './goals.mjs'
 import { blockTitlesFor, brainstormFixWords, brainstormStrandedWords, leftOutKey } from './brainstorm.mjs'
 export { brainstormFixWords, brainstormStrandedWords }
+import { wakeIdsOf } from './ownChat.mjs'
 import { SWITCH_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
 import { stoppedOf } from './stopped.mjs'
@@ -642,8 +643,10 @@ function startCheck(body, state, text) {
   if (body.to !== (state.restart?.main ?? null) && lanes.find(chat => chat.name === body.to)?.isRunning !== true) return refuse(409, 'That chat does not run, so it cannot start another.')
   const target = lanes.find(chat => chat.name === body.chat)
   if (target === undefined || target.name === body.to || target.isRunning !== false) return refuse(409, 'That chat runs, or is not on the board.')
-  const hasId = typeof target.appSession === 'string' && /^[\w-]{1,80}$/.test(target.appSession)
-  const id = hasId ? `Its session id: ${target.appSession}.` : 'The board does not know its session id: find its session by the chat\'s name in the app\'s list of sessions.'
+  // B986 (X140): the chat its reports name (ownChat.mjs), never the one its title matches.
+  const own = wakeIdsOf(target).appSession
+  const hasId = typeof own === 'string' && /^[\w-]{1,80}$/.test(own)
+  const id = hasId ? `Its session id: ${own}.` : 'The board does not know its session id: find its session by the chat\'s name in the app\'s list of sessions.'
   const words = [
     `start "${plainLine(target.name)}"`,
     'Its chat is not running, and words from the worker board wait for it. Start it now: send it one line with SendMessage to its session id (load it with ToolSearch when it is deferred): "The worker board holds something for you." Nothing else, no reply needed; then go on with your own work.',
@@ -908,7 +911,9 @@ export async function sayStopWords(state, store, sent, now, newId) {
  * the chat's stop (src/stopped.mjs `stoppedOf`), `clock` says a time as "21:40".
  */
 export const wakeStoppedWords = (main, lane, stop, clock) => {
-  const id = typeof lane.appSession === 'string' && /^[\w-]{1,80}$/.test(lane.appSession) ? ` Its session id: ${lane.appSession}.` : ''
+  // B986 (X140): the chat its reports name (ownChat.mjs), never the one its title matches.
+  const own = wakeIdsOf(lane).appSession
+  const id = typeof own === 'string' && /^[\w-]{1,80}$/.test(own) ? ` Its session id: ${own}.` : ''
   const count = `${stop.words} ${stop.words === 1 ? 'word' : 'words'}`
   return {
     to: main, ask: null, step: null, title: null, version: null, verdict: null, command: 'wake', about: lane.name, stoppedAt: stop.since,
