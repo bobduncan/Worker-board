@@ -9,7 +9,7 @@
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { hasChanged, isPending, makingOf, roundsOf, standOf } from './demoFeedback.mjs'
+import { hasChanged, isPending, makingOf, roundsOf, showsCheck, standOf } from './demoFeedback.mjs'
 import { parseGoals } from './goals.mjs'
 import { readDemo, shownFolders, shownRoots } from './pictures.mjs'
 import { sinceMs } from './work/item.mjs'
@@ -45,7 +45,7 @@ export async function readRecaps(config, goalsText) {
     const found = await readDemo(config.project, shownRoots(config), path)
     if (found === null || found.why !== undefined) continue
     const every = found.base.sections.flatMap(section => section.rows)
-    const parts = every.filter(row => row.steps.length > 0).map(row => ({ key: row.key, title: row.title, steps: row.steps, pending: isPending(row), changed: hasChanged(row) }))
+    const parts = every.filter(row => row.steps.length > 0).map(row => ({ key: row.key, title: row.title, steps: row.steps, pending: isPending(row), changed: hasChanged(row), shows: row.shows ?? null }))
     // "Yes, clear them" (2026-11-04): every row, also one that shows no step, for the asks whose words name a row (`recapVerdictsOf`).
     if (parts.length > 0) recaps.push({ path, goal: found.base.goal, parts, rows: every.map(row => ({ key: row.key, title: row.title, steps: row.steps })), rounds: roundsOf(found.feedback), changedAt: found.changedAt ?? null })
   }
@@ -57,7 +57,8 @@ export async function readRecaps(config, goalsText) {
  * verdict null while they have not judged the part, 'sent-back' (`at`, ms, their Send) when the last round sent it back and
  * the demo was not written since (`changedAt` a minute after the Send or later: the new try waits for their verdict, null).
  * T17.1: a part whose row says its new try is not in yet (`pending`), or says nothing of what changed (`changed` not true: a demo.json
- * written by hand with the old pictures), stays 'sent-back' also after the demo was written; `making`:
+ * written by hand with the old pictures), stays 'sent-back' also after the demo was written; T17.2: so does a part whose close-up no checker
+ * has said, after the Send, shows their words (`shows`, src/demoFeedback.mjs `showsCheck`); `making`:
  * the recap's next round is being made (src/demoFeedback.mjs `makingOf`): the person can judge nothing of it yet, so no part of
  * it counts as a verdict that waits (src/recapCard.mjs).
  * An approved part is left out: its steps are closed by the Approve (or wait as any other step, when that did not take).
@@ -75,7 +76,7 @@ export function recapWaitsOf(recaps, reworkOf = null) {
       if (said?.verdict === 'approved') return []
       const back = said?.verdict === 'sent-back' ? sent.get(said.round) ?? null : null
       // The Send is stamped to its minute: a demo written in a later minute holds the partner's new try.
-      const tried = Number.isFinite(back) && Number.isFinite(recap.changedAt) && recap.changedAt >= back + 60_000 && part.pending !== true && part.changed === true
+      const tried = Number.isFinite(back) && Number.isFinite(recap.changedAt) && recap.changedAt >= back + 60_000 && part.pending !== true && part.changed === true && showsCheck(part.shows, back).state === 'yes'
       const verdict = said?.verdict === 'sent-back' && !tried ? 'sent-back' : null
       const at = verdict === null ? null : back
       const rework = typeof reworkOf === 'function' ? reworkOf(recap, part) ?? null : null

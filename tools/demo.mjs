@@ -24,7 +24,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PICTURE_BYTES } from '../src/pictures.mjs'
-import { checkList, orderedPictures } from '../src/demo.mjs'
+import { checkList, filesOfPicture, orderedPictures } from '../src/demo.mjs'
 import { FEEDBACK_BYTES, FEEDBACK_FILE } from '../src/demoFeedback.mjs'
 
 const BOARD = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -42,10 +42,10 @@ export function arenaCheckOf(gameRepo, exists = existsSync) {
   return folders.length === 0 ? undefined : name => folders.some(folder => exists(join(folder, `${name}.json`)))
 }
 
-/** Every picture file the list names, as a path (absolute, or from `base`). */
+/** Every picture file the list names, as a path (absolute, or from `base`); T17.2: a close-up's before picture and a clip's frames too. */
 export function pictureFiles(list, base) {
   const at = path => (isAbsolute(path) ? path : resolve(base, path))
-  return (list.sections ?? []).flatMap(section => (section.rows ?? []).flatMap(row => [...(row.pictures ?? []), ...(row.grid ?? [])].map(one => at(one.path))))
+  return (list.sections ?? []).flatMap(section => (section.rows ?? []).flatMap(row => [...(row.pictures ?? []), ...(row.grid ?? [])].flatMap(one => filesOfPicture(one).map(file => at(file.path)))))
 }
 
 /** Pictures that are not there, by their paths: the demo shows only files that exist. */
@@ -86,7 +86,14 @@ export function writtenAt(path, base, stat = file => statSync(file).mtimeMs) {
 /** The list as demo.json holds it: each row's pictures in the demo's order, every path relative to `outDir` (from `base`). Pure. */
 export function demoFile(list, base, outDir) {
   const at = path => (isAbsolute(path) ? path : resolve(base, path))
-  const keep = one => ({ ...one, path: relative(outDir, at(one.path)).replace(/\\/g, '/') })
+  const from = path => relative(outDir, at(path)).replace(/\\/g, '/')
+  // T17.2: a close-up's before picture and a clip's frames are paths too (a clip may have no `path`: the board takes its last frame).
+  const keep = one => ({
+    ...one,
+    ...(typeof one.path === 'string' ? { path: from(one.path) } : {}),
+    ...(typeof one.before === 'string' ? { before: from(one.before) } : {}),
+    ...(Array.isArray(one.frames) ? { frames: one.frames.map(from) } : {}),
+  })
   return {
     ...list,
     sections: list.sections.map(section => ({
