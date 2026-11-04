@@ -61,6 +61,10 @@ export function refineAsksOf(items, step) {
     if (state === 'open') return [{ ...shown, answer: null }]
     // The refine's own question (`Via: refine`) stands in the block with its answer: answered, it counts there only.
     if (state !== 'answered' || valueOf(ask, 'Via') === 'refine') return []
+    // A do asks for an action, not a choice: its answer (a go, "after B986, on chat 1's go") changes no part of the refine, so it
+    // waits for no fold round. Seen live 2026-11-04 (chat 1): B986 sat 4 h on "waits for the partner to fold in the answer to Q637"
+    // after Main had answered its do, and three steps waited behind it, with nothing to fold.
+    if (valueOf(ask, 'Asks') === 'do') return []
     const said = history.findLastIndex(one => one.endsWith(`: ${id} answered`))
     let isAfter
     if (said >= 0 && last >= 0) isAfter = said > last

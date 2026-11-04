@@ -94,3 +94,37 @@ test('a refined step whose asks are all answered and folded in is given at once'
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+test('an answered do needs no fold round: the step is given once it is answered (B986 / Q637, 2026-11-04)', async () => {
+  const { dir, kite, oracle, person, server } = await fresh()
+  try {
+    await oracle({ action: 'refine', id: 'B3', summary: 'One knot per kite.' })
+    assert.equal((await oracle({ action: 'refined', size: '30 min', id: 'B3', what: ['the knot'] })).ok, true)
+    assert.equal((await kite({ action: 'ask', of: 'B3', kind: 'do', blocking: true, text: 'Give the go to land after the other step.' })).ok, true)
+    // Open, it still holds the step: the worker waits for the action.
+    assert.match((await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })).why, /waits for the answer to Q1$/)
+    await person({ action: 'answer', id: 'Q1', text: 'After B1, on the lead\'s go.' })
+    // Answered, nothing is left to fold in: no "waits for the partner to fold in the answer to Q1".
+    const given = await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })
+    assert.equal(given.ok, true, given.why)
+    assert.equal(await state(dir, 'B3'), 'queued')
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('an answered decide still waits for the fold round, beside an answered do', async () => {
+  const { dir, kite, oracle, person, server } = await fresh()
+  try {
+    await oracle({ action: 'refine', id: 'B3', summary: 'One knot per kite.' })
+    assert.equal((await oracle({ action: 'refined', size: '30 min', id: 'B3', what: ['the knot'] })).ok, true)
+    await kite({ action: 'ask', of: 'B3', kind: 'do', text: 'Give the go.' })
+    await kite({ action: 'ask', of: 'B3', kind: 'decide', text: 'Red string or blue?' })
+    await person({ action: 'answer', id: 'Q1', text: 'Go.' })
+    await person({ action: 'answer', id: 'Q2', text: 'Blue.' })
+    const held = await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })
+    assert.match(held.why, /waits for the partner to fold in the answer to Q2$/)
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
