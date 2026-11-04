@@ -69,7 +69,9 @@ const NAME = 'Worker 4'
 const file = (head, history) => parseItem(`${Object.entries(head).map(([key, value]) => `${key}: ${value}`).join('\n')}\n\n## History\n${history.join('\n')}\n`)
 const items = () => new Map([['B917', file({ Id: 'B917', Kind: 'step', Title: 'Task B917', State: 'review', Owner: NAME, Since: stamp(REPORTED_AT) }, [
   `- ${stamp(REPORTED_AT - 60 * MIN)} ${NAME}: queued → taken`, `- ${stamp(REPORTED_AT)} ${NAME}: in progress → review`, `- ${stamp(REPORTED_AT)} server: check passed`,
-])]])
+])], ['B918', file({ Id: 'B918', Kind: 'step', Title: 'Task B918', State: 'refined', Refined: 'ready', Since: stamp(REPORTED_AT - 60 * MIN) }, [`- ${stamp(REPORTED_AT - 60 * MIN)} Advisor: made`])]])
+// The lazy clear (Workers mod 0.31.0): no clear goes alone, so these cases have a next task ready (B918) that the clear rides.
+const READY = [{ id: 'B918', rank: 2, keptFor: null, keptUntil: null, pinned: null }]
 const STATE = { chats: [{ name: 'Main', isMain: true, session: 'm' }, { name: NAME, isMain: false, session: 'w4' }] }
 const laneAt = (now, entries, { background = false } = {}) => {
   const report = { state: 'idle', since: cet(16, 17, 0), background, at: now, session: 'w4' }
@@ -82,7 +84,7 @@ function handOver(entries, { from = cet(16, 17, 1), to = cet(16, 24, 30), backgr
   for (let now = from; now <= to; now += 5000) {
     const lane = laneAt(now, entries, { background })
     const owed = clearOwed({ lane, items: items(), afterStep: 'clear' })
-    const decision = decide({ worker: lane, items: items(), ready: [], owed, envelopes, now })
+    const decision = decide({ worker: lane, items: items(), ready: READY, owed, envelopes, now })
     if (decision.envelope?.clear == null) continue
     const refused = clearRefusal(STATE, NAME, lane.background)
     const outcome = refused === null ? { cleared: true, set: null, typed: null, restarted: null, background: false, why: null }
@@ -122,10 +124,10 @@ test('Part 3: a clear that failed on the board\'s own time-out is released by th
   assert.equal(isBoardTimeout({ ...first, outcome: { ...first.outcome, why: 'a new prompt came in before the clear' } }), false, 'nor is the chat\'s own reason')
   const at = now => {
     const lane = laneAt(now, entries)
-    return decide({ worker: lane, items: items(), ready: [], owed: clearOwed({ lane, items: items(), afterStep: 'clear' }), envelopes: [first], now })
+    return decide({ worker: lane, items: items(), ready: READY, owed: clearOwed({ lane, items: items(), afterStep: 'clear' }), envelopes: [first], now })
   }
   // Before a report after the failure: HELD (the report that came before it does not count).
-  const before = decide({ worker: { ...laneAt(failedAt, entries), report: { ...laneAt(failedAt, entries).report, at: failedAt - 1000 } }, items: items(), ready: [], owed: clearOwed({ lane: laneAt(failedAt, entries), items: items(), afterStep: 'clear' }), envelopes: [first], now: failedAt })
+  const before = decide({ worker: { ...laneAt(failedAt, entries), report: { ...laneAt(failedAt, entries).report, at: failedAt - 1000 } }, items: items(), ready: READY, owed: clearOwed({ lane: laneAt(failedAt, entries), items: items(), afterStep: 'clear' }), envelopes: [first], now: failedAt })
   assert.equal(before.state, STATES.HELD)
   // Its next report: released, the clear sent again.
   const next = at(failedAt + 5000)
@@ -135,7 +137,7 @@ test('Part 3: a clear that failed on the board\'s own time-out is released by th
   const second = timedOut('e34', failedAt + 5000)
   for (const now of [failedAt + 30_000, failedAt + 60_000, failedAt + 10 * MIN]) {
     const lane = laneAt(now, entries)
-    const still = decide({ worker: lane, items: items(), ready: [], owed: clearOwed({ lane, items: items(), afterStep: 'clear' }), envelopes: [first, second], now })
+    const still = decide({ worker: lane, items: items(), ready: READY, owed: clearOwed({ lane, items: items(), afterStep: 'clear' }), envelopes: [first, second], now })
     assert.equal(still.state, STATES.HELD, `still HELD at ${new Date(now).toISOString()}`)
     // Its lane says why it stays held (until part 4's back-off exists).
     assert.ok(laneWords(still).startsWith(`held: ${timedOutTwiceWhy('B917')}; next try `), laneWords(still)) // 2026-11-02: the hold names its next try
@@ -144,7 +146,7 @@ test('Part 3: a clear that failed on the board\'s own time-out is released by th
   // A time-out of another step's clear does not count against this one.
   const other = timedOut('e20', cet(15, 0), 'B900')
   const lane = laneAt(failedAt + 5000, entries)
-  assert.equal(decide({ worker: lane, items: items(), ready: [], owed: clearOwed({ lane, items: items(), afterStep: 'clear' }), envelopes: [other, first], now: failedAt + 5000 }).envelope?.clear?.step, 'B917')
+  assert.equal(decide({ worker: lane, items: items(), ready: READY, owed: clearOwed({ lane, items: items(), afterStep: 'clear' }), envelopes: [other, first], now: failedAt + 5000 }).envelope?.clear?.step, 'B917')
 })
 
 // The lane (state.mjs), read by say.mjs's B739 line: the same one source.

@@ -205,3 +205,85 @@ test('review (7): nobody-answers-wakes only for the board-wide spell of now, or 
   const nowSpell = buildView({ state: { chats, today: [], limits: {}, pause: null, chatPrefix: '', readyList: null, gaps: [], wakes: old, wakeBoardSince: ago(3 * 24 * 60) }, items: new Map(), outbox: [], settings: {}, now: NOW })
   assert.equal(check('nobody-answers-wakes', nowSpell).length, 1)
 })
+
+// ---- The lazy clear (Workers mod 0.31.0, brief Task 4 with D4, D6, D7): the Supervisor's rules and the health line.
+
+/** A hand-over of Digger's that asked a clear, settled `minutes` ago with the outcome `more` (0.31.0's: the line typed). */
+const handed = (n, minutes, more = {}) => ({
+  id: `h${n}`, at: ago(minutes + 1), to: 'Digger', command: 'handover', about: 'Digger', kind: 'task', step: `B${20 + n}`, clear: { step: `B${19 + n}`, reportedAt: ago(minutes + 5) },
+  restart: false, set: null, line: `work: B${20 + n} is yours; run work next`, state: 'delivered', deliveredAt: ago(minutes), settledAt: ago(minutes),
+  outcome: { cleared: false, set: null, typed: true, restarted: null, background: false, why: null, clearWhy: 'a prompt came first' }, ...more,
+})
+const PAUSE_REFUSAL = { state: 'failed', outcome: { cleared: false, set: null, typed: null, restarted: null, background: false, why: null, clearWhy: 'the person pauses the chats' } }
+const owing = (more = {}) => onIt('Digger', 'working', { handover: { state: 'working', why: null, step: 'B23' }, clearOwed: { step: 'B22', reportedAt: ago(5) }, ...more })
+
+test('the lazy clear, clear-owed-repeat: three hand-overs in a row whose clear did not run open one incident per chat; two open none (mutant: the rule trips on two)', () => {
+  const three = [handed(1, 30), handed(2, 20, { outcome: { ...handed(2, 20).outcome, clearWhy: 'the board did not answer in 5 s' } }), handed(3, 10, { outcome: { ...handed(3, 10).outcome, clearWhy: 'not run in 20 s' } })]
+  const found = check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: three }))
+  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject, one.since]), [['clear-owed-repeat', 'clear-owed-repeat Digger', 'Digger', ago(30)]])
+  assert.equal(found[0].text, "Digger's clear did not run at its last 3 hand-overs in a row: not run in 20 s")
+  assert.match(found[0].evidence, /^envelope h1 \(B21, its clear after B20\) settled \d\d:\d\d: a prompt came first; envelope h2 .*: the board did not answer in 5 s; envelope h3 .*: not run in 20 s$/)
+  // Two in a row: none.
+  assert.deepEqual(check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: three.slice(1) })), [])
+  // A clear that ran ends the run.
+  assert.deepEqual(check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: [...three, handed(4, 5, { outcome: { ...handed(4, 5).outcome, cleared: true, clearWhy: undefined } })] })), [])
+  // A worker not on the sequence: none.
+  assert.deepEqual(check('clear-owed-repeat', view({ chats: [LEAD, owing({ onSequence: false })], outbox: three })), [])
+})
+
+test('the lazy clear, clear-owed-repeat (D7): a refusal in the person\'s pause is never counted, nor a 0.30.0 failed clear without its clearWhy', () => {
+  // Two refusals and a pause refusal between: none (the pause's is not the third).
+  const withPause = [handed(1, 30), handed(2, 20, PAUSE_REFUSAL), handed(3, 10)]
+  assert.deepEqual(check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: withPause })), [])
+  // Three pause refusals: none.
+  assert.deepEqual(check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: [1, 2, 3].map(n => handed(n, 40 - 10 * n, PAUSE_REFUSAL)) })), [])
+  // Tonight's old failed clears (0.30.0: no clearWhy) cannot trip it at landing.
+  const old = n => handed(n, 40 - 10 * n, { state: 'failed', outcome: { cleared: false, set: null, typed: null, restarted: null, background: false, why: '/clear did not run within two minutes' } })
+  assert.deepEqual(check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: [old(1), old(2), old(3)] })), [])
+  // A third real refusal after the pause refusal: three that count, one finding.
+  assert.equal(check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: [...withPause, handed(4, 5)] })).length, 1)
+})
+
+test('the lazy clear, handover-held (D4, the Task 4 review): a clear outcome holds nobody (decide says so, the lane carries it); a hold after one, on a later failed envelope, is named (mutant: the rule skipping on the newest settled outcome)', () => {
+  // E1 (B21) settled a clear owed with its line typed; E2 (B22) failed with no outcome (the store's failed or refused path,
+  // its line too long): decide holds the worker on E2, and the rule names it.
+  const lineFailed = handed(2, 20, { state: 'failed', failedAt: ago(20), outcome: undefined, deliveredAt: undefined, settledAt: undefined, why: 'too long: 9000 > 8000 characters' })
+  const held = onIt('Digger', 'held', { handover: { state: 'held', why: 'its line could not be typed: too long: 9000 > 8000 characters', step: 'B22' } })
+  const found = check('handover-held', view({ chats: [LEAD, held], outbox: [handed(1, 30), lineFailed] }))
+  assert.deepEqual(found.map(one => [one.key, one.since]), [['handover-held Digger', ago(20)]])
+  // A set that failed still holds and trips it.
+  const setFailed = handed(1, 30, { state: 'failed', set: { model: 'claude-opus-5-5', effort: 'high' }, outcome: { ...handed(1, 30).outcome, set: false, typed: null, why: 'the app refused the model' } })
+  assert.equal(check('handover-held', view({ chats: [LEAD, held], outbox: [setFailed] })).length, 1)
+  // A worker whose lane is not HELD (a clear owed, its line typed: decide says working or offered) is never named.
+  assert.deepEqual(check('handover-held', view({ chats: [LEAD, owing()], outbox: [handed(1, 30)] })), [])
+})
+
+test('the lazy clear, health (R6): a worker that owes its clear says so with its last why, an odd line owned by \'info\' (no sweep)', async () => {
+  const { oddLines } = await import('../../src/supervisor/health.mjs')
+  const board = view({ chats: [LEAD, owing({ state: 'free', handover: { state: 'free', why: null, step: null } })], outbox: [handed(1, 30)] })
+  const line = oddLines(board, NOW).find(one => one.text.startsWith('Digger (worker)'))
+  assert.ok(line !== undefined, JSON.stringify(oddLines(board, NOW)))
+  assert.match(line.text, /; clear owed after B22 \(its last: a prompt came first\);/)
+  assert.equal(line.owner, 'info')
+  // Owed and no refusal known yet: its words say so.
+  const none = view({ chats: [LEAD, owing({ state: 'free', handover: { state: 'free', why: null, step: null } })], outbox: [] })
+  assert.match(oddLines(none, NOW).find(one => one.text.startsWith('Digger (worker)')).text, /clear owed after B22 \(its last: none tried yet\)/)
+})
+
+test('the Task 4 review: clear-owed-repeat only while the clear is still owed; a settled task that asked no clear (the clear met) breaks the run', () => {
+  const three = [handed(1, 30), handed(2, 20), handed(3, 10)]
+  // The person's /clear or a late `cleared` stage met it: no clear owed, no finding.
+  assert.deepEqual(check('clear-owed-repeat', view({ chats: [LEAD, owing({ clearOwed: null })], outbox: three })), [])
+  // R, R, a task with no clear (nothing owed then), R: no run of three.
+  const met = handed(9, 15, { clear: null, step: 'B30', outcome: { cleared: null, set: null, typed: true, restarted: null, background: false, why: null } })
+  assert.deepEqual(check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: [handed(1, 30), handed(2, 20), met, handed(3, 10)] })), [])
+  assert.equal(check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: three })).length, 1)
+})
+
+test('the Task 4 review: the health line clips the clear\'s why so the line keeps its trailing words', async () => {
+  const { oddLines } = await import('../../src/supervisor/health.mjs')
+  const long = handed(1, 30, { outcome: { ...handed(1, 30).outcome, clearWhy: `the board refused the log: ${'x'.repeat(300)}` } })
+  const board = view({ chats: [LEAD, owing({ state: 'free', handover: { state: 'free', why: null, step: null } })], outbox: [long] })
+  const line = oddLines(board, NOW).find(one => one.text.startsWith('Digger (worker)')).text
+  assert.match(line, /\(its last: the board refused the log: x+…\); no clear known/)
+})

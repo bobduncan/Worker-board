@@ -19,6 +19,7 @@ import { DRAFTED_FOR_GO, NO_ROUND, focusStage, goWaitsForLines, goalAskList, goa
 import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
+import { keptFor, ownChatOf } from './ownChat.mjs'
 import { partnerEffort } from './partnerEffort.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
@@ -53,8 +54,8 @@ import { routingHolds } from './work/routing/assignments.mjs'
 import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { withLinks } from './work/links.mjs'
-import { clearOwed, modAtLeast } from './clearOwed.mjs'
-import { newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
+import { clearOwed, clearedStageOf, modAtLeast } from './clearOwed.mjs'
+import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, standingAsksOf } from './recapCard.mjs'
@@ -63,7 +64,7 @@ import { guardOf, rebuildHoldsOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
 import { chatsByRole } from './oldMods.mjs'
-import { decide, laneWords, onSequence } from './work/handover.mjs'
+import { clearingOf, decide, envelopesOf, lastClearWhyOf, laneWords, onSequence } from './work/handover.mjs'
 import { givenBackFrom } from './work/holderTimers.mjs'
 import { countsOf, statusOf } from './chatStatus.mjs'
 import { factsOf } from './work/handoverBoard.mjs'
@@ -1557,6 +1558,8 @@ const isAdvisedOption = (option, advice) => advice !== null && (option === advic
 
 /** B547: a clear owed, with whether the chat's Workers mod (its version, or null) can run a clear the board names. */
 const withMod = (owed, version) => (owed === null ? null : { ...owed, canClear: modAtLeast(version ?? null) })
+/** The lazy clear (Task 4, D6): an owed clear with its last why (the newest hand-over's clearWhy), when there is one. */
+const withLastWhy = (owed, lastWhy) => (owed === null || lastWhy === null ? owed : { ...owed, lastWhy })
 
 /**
  * Focus 3 (spec 2026-10-18, sections 3 to 5, the run): what the partner (the chat `partner` names, the setting
@@ -2149,17 +2152,33 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   // T8.5 (spec 2026-10-31, part 4): the one predicate per worker: on the sequence (the setting "sequence" and the Workers mod
   // 0.27.0 or newer). Since step 6 the old path is gone: a worker not on it is handed nothing.
   const withSequence = lane => ({ ...lane, onSequence: onSequence(lane, config) })
+  // B986 (X140): the report the board keeps under the lane's name, whatever chat the app's list shows under that title now,
+  // while it is still the lane's (ownChat.mjs `keptFor`: not when the title's chat is newer than it, nor when the chat it
+  // names is shown under another name, the review of B986).
+  const shownChatOf = name => found.find(chat => !chat.isLeftover && chat.name === name) ?? null
+  const keptOf = lane => (lane.isLeftover || !(reports instanceof Map) ? null
+    : keptFor({ name: lane.name, kept: reports.get(lane.name) ?? null, chat: shownChatOf(lane.name), chats: found }))
+  const appFiles = Array.isArray(raw.appFiles) ? new Set(raw.appFiles.filter(id => typeof id === 'string')) : null
   const sequenced = lanes.map(lane => withSequence({
     ...lane,
     // T8.5: the Workers mod its last call said (else its kept report's), for the one predicate of the hand-over (`onSequence`).
-    mod: mods?.[lane.name] ?? lane.report?.mod ?? null,
+    // B986 (X140): after the board's own restart (no call heard yet) and with the lane's title on another chat of the app's
+    // list, the kept report's mod still counts: the worker on the sequence keeps change 3's timers, never the old resume word.
+    mod: mods?.[lane.name] ?? lane.report?.mod ?? keptOf(lane)?.mod ?? null,
+    // B986 (X140): the lane's own chat, the one its kept report names (src/ownChat.mjs): every wake goes by it, never by the title.
+    own: lane.isLeftover ? null : ownChatOf({ lane, kept: keptOf(lane), apps, appFiles }),
+    // B986 (the review, 7): the kept report the wake's spell is read from when the title's chat has none (wake.mjs `spellOf`),
+    // so the spell does not flip between that report and none, and the woken chat's own report is heard in it.
+    ownReport: lane.isLeftover || lane.report != null ? null : (({ state, since, at }) => ({ state, since, at }))(keptOf(lane) ?? {}),
     isRunning: lane.isLeftover ? null : lane.state === 'off' ? false : runningOf(lane.name),
     // B143: the newest ask to remove this worker; the main chat and a leftover have none.
     removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
     // B547: the clear it owes (its last report newer than its last clear), and whether its Workers mod (`mods`, the
     // version its last call said) can run the clear the board names; null when it owes none.
     // B547 (X48, X49, X61-X64): with when its conversation began, which counts as a clear its card may have lost.
-    clearOwed: lane.isLeftover || lane.isMain || !workOk ? null : withMod(clearOwed({ lane, items: raw.work.items, prefix, afterStep: list.afterStep ?? null, conversationAt: raw.conversationAt?.[lane.session] ?? null }), mods?.[lane.name]),
+    // The lazy clear (D1): with the newest `cleared` stage its Workers mod posted on its envelopes, the card as the fallback.
+    // Task 4 (D6): with the clearWhy of its newest hand-over whose clear did not run (`lastWhy`), for the page's quiet mark.
+    clearOwed: lane.isLeftover || lane.isMain || !workOk ? null : withLastWhy(withMod(clearOwed({ lane, items: raw.work.items, prefix, afterStep: list.afterStep ?? null, conversationAt: raw.conversationAt?.[lane.session] ?? null, clearedStage: clearedStageOf(envelopesOf(sent, lane.name, prefix)) }), mods?.[lane.name]), lastClearWhyOf(envelopesOf(sent, lane.name, prefix))),
     // B577: its session was stopped and words wait for it (`{ since, words }`): the app drops them until it gets input.
     stopped: stoppedOf(sent, lane),
   }))
@@ -2167,7 +2186,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   // T8.5: a worker on the sequence: its state now, as the one decision reads it. Nothing is decided here (no ready task and
   // no clear are offered, so only what the facts say shows); the board's refresh and the worker's turn end carry it out.
   // Signals change 3: with `asked`, when its "go on" line of this stopped spell was written (the lane's "asked to go on at HH:MM").
-  const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step, asked }) => ({ state, why, step, asked }))(decide({
+  const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step, asked, kind }) => ({ state, why, step, asked, ...(typeof kind === 'string' ? { kind } : {}) }))(decide({
     ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' }, wakes }),
     ready: [], owed: null,
   })))
@@ -2263,7 +2282,9 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     // The moved card keeps `cleared.at` after a clear (register.tsx): a new conversation that has not reported reads Restarting.
     const cleared = lane.compaction?.lastCleared?.at ?? (lane.compaction?.kind === 'cleared' ? lane.compaction.at : null)
     const isUnsaved = isPersonPause && (pause.unsaved ?? []).some(one => one?.chat === lane.name && ((lane.task?.stepId ?? null) === null || one.id === lane.task.stepId))
-    return statusOf({ lane, handover, modRun, clearedAt: Number.isFinite(cleared) ? cleared : null, isPersonPause, isUnsaved, now, unknownAfterMs })
+    // The lazy clear (R3, D6): the clear stage of its envelope in flight, for the Handing pill's why.
+    const clearing = handover?.state === 'handing' ? clearingOf(envelopesOf(sent, lane.name, prefix)) : null
+    return statusOf({ lane, handover, modRun, clearedAt: Number.isFinite(cleared) ? cleared : null, isPersonPause, isUnsaved, clearing, now, unknownAfterMs })
   }
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
@@ -2735,7 +2756,7 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now }) {
     const need = byChat.get(lane.name)
     if (need !== undefined) return { ...need, need: true }
     if (lane.isRunning !== false) return null
-    const target = { chat: lane.name, spell: spellOf(lane), paths: pathsOf(lane, wakes.canLaunch === true), need: false }
+    const target = { chat: lane.name, spell: spellOf(lane), paths: pathsOf(lane, wakes.canLaunch === true), cannot: cannotWakeWhy(lane), need: false }
     const kept = wakeStatusOf(record, lane.name, target.spell)
     return kept.spell === target.spell && kept.attempts.length > 0 ? target : null
   }

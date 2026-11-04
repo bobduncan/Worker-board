@@ -58,7 +58,7 @@ test('the state carries the recaps and where they show; a recap is no line of In
   }
 })
 
-const page = { HOUR, MIN }
+const page = { HOUR, MIN, placeWaitOf: () => null }
 /** The page's values come from another realm: compared as plain data. */
 const plain = value => JSON.parse(JSON.stringify(value))
 vm.runInNewContext(`${script.slice(script.indexOf('// recaps:start'), script.indexOf('// recaps:end'))}
@@ -108,7 +108,7 @@ function node(tag, className = '', text = null) {
   }
 }
 const nodesOf = card => (typeof card === 'string' ? [] : [card, ...card.children.flatMap(nodesOf)])
-const card = vm.createContext({ HOUR, MIN, drafts: new Map(), sending: new Set(), problems: new Map(), openForms: new Set(), el: node, since: () => node('time'), picture: () => node('figure') })
+const card = vm.createContext({ HOUR, MIN, drafts: new Map(), sending: new Set(), problems: new Map(), openForms: new Set(), el: node, since: () => node('time'), picture: () => node('figure'), overturnWaitLine: () => null })
 vm.runInContext(`${script.slice(script.indexOf('// recaps:start'), script.indexOf('// recaps:end'))}
 ${script.slice(script.indexOf('// recapCard:start'), script.indexOf('// recapCard:end'))}
 this.drawRecap = drawRecap`, card)

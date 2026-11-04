@@ -61,7 +61,10 @@ test('a worker on the sequence carries its state and a quiet line on its lane; o
 
 test('the words of each state, and the page shows them quiet (no amber, no button)', async () => {
   assert.equal(laneWords({ state: STATES.HANDING, step: 'B12', why: null }), 'handing over B12')
-  assert.equal(laneWords({ state: STATES.HANDING, step: null, why: null }), 'handing over: its clear')
+  // The lazy clear: an envelope without a task is the back words, or a clear alone an older board wrote.
+  assert.equal(laneWords({ state: STATES.HANDING, step: null, why: null, kind: 'back' }), 'handing over its words')
+  assert.equal(laneWords({ state: STATES.HANDING, step: null, why: null, kind: 'clear' }), 'handing over: its clear')
+  assert.equal(laneWords({ state: STATES.HANDING, step: null, why: null }), 'handing over')
   assert.equal(laneWords({ state: STATES.OFFERED, step: 'B12', why: null }), 'offered B12, not taken yet')
   assert.equal(laneWords({ state: STATES.UNKNOWN, step: 'B12', why: 'did not answer its hand-over (B12)' }), 'did not answer its hand-over (B12)')
   assert.equal(laneWords({ state: STATES.UNKNOWN, step: null, why: 'its turn runs' }), null)

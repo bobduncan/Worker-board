@@ -22,7 +22,7 @@
 
 import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs'
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { answerReport, answerWhoami, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession } from './src/bridge.mjs'
+import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession } from './src/bridge.mjs'
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
@@ -103,11 +103,12 @@ import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } fro
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, personAgain, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { wakeIdsOf } from './src/ownChat.mjs'
 import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
-import { handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
+import { HANDOVER_COMMAND, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
+import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, SUPERVISOR_RULE_KEYS, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
@@ -134,7 +135,12 @@ const PICTURE_BYTES = REFERENCE_BYTES
 const FOLDERS_MS = 60_000
 // B917 (X93): 2 s rarely covered the chats' 5-second pings and the page's 10-second polls (207 rebuilds in 10 min on
 // 2026-11-02); every change through the board still resets it, so a change shows at once.
-const STATE_MS = 5_000
+const STATE_MS = Number(process.env.WORKER_BOARD_STATE_MS) > 0 ? Number(process.env.WORKER_BOARD_STATE_MS) : 5_000
+/**
+ * B1011: a test's file that gets one line for each rebuild of the state, so a copy of the board shows end to end what forces a
+ * rebuild (with WORKER_BOARD_STATE_MS long, only a reset does). '' (none) on a real board.
+ */
+const READ_LOG = process.env.WORKER_BOARD_READ_LOG ?? ''
 /** Light state: what `GET /api/step?id=` takes, a step's key: its id (B12), or "<activity>:<place>" for an old line without one. */
 const STEP_KEY = /^(?:[A-Za-z][A-Za-z0-9-]{0,40}|\d{1,4}:\d{1,5})$/
 /** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */
@@ -1201,7 +1207,7 @@ async function main(args) {
     for (const wake of done.result.wakes ?? []) await sendWakes({ ok: true, result: { wake } })
     const advisor = state.advisor?.name ?? null
     for (const one of done.result.refines ?? []) {
-      if (advisor !== null && sayNow !== null) await sayNow({ to: advisor, command: 'refine', step: one.step })
+      if (advisor !== null && sayNow !== null) await sayNow({ to: advisor, command: 'refine', step: one.step, isAuto: true })
     }
     await mainAsksNow(await readState(), done.result.mainAsks ?? [])
     return done
@@ -1412,7 +1418,8 @@ async function main(args) {
     }
     if (paths.includes('launch')) {
       if (isOpening) return { ok: false, status: 409, why: 'The board is launching a chat now: try again in a moment.' }
-      const launched = await launchFor({ target: { chat, session: lane.session }, key: chat, spell, now, again: true })
+      // B986: the lane's own chat (ownChat.mjs), never the title's.
+      const launched = await launchFor({ target: { chat, session: wakeIdsOf(lane).session }, key: chat, spell, now, again: true })
       if (!launched) return { ok: false, status: 409, why: openBlocked === null ? `A wake of ${chat} is on its way already.` : `The board cannot launch ${chat}: ${openBlocked}. Open its chat.` }
       return { ok: true, message: { command: 'wake-again', chat, path: 'launch' } }
     }
@@ -1423,6 +1430,9 @@ async function main(args) {
    * kept turn reports, the store, the obsolete check's record and the supervisor's last sweep. `{}` on the demo, and when the
    * view cannot be made (a line is information: it never stops the state).
    */
+  // T22 wave 2 (the review of 2026-11-04): the first moment each result without a time of its own was seen (a stop, a remove), so a line never
+  // reads the clock of each draw, also on a board process that does not write the outbox.
+  const waitsFirstSeen = new Map()
   const waitsNow = async (state, stored, supervised) => {
     if (isDemo || state === null) return {}
     try {
@@ -1431,7 +1441,7 @@ async function main(args) {
       const outbox = store.outbox()
       const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, assets: await assetRequests(), now })
       const obsolete = workDir === null ? null : (await readObsoleteFile(workDir)).record
-      const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null }))
+      const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null, firstSeen: waitsFirstSeen }))
       // The review of 2026-11-02 (2a): a turn seen ended, an action's own result seen, is kept on its word once and read first
       // from then on (a later turn of the chat never makes it "on it" again). Only the board process that runs the loops of
       // the board that delivers writes the outbox.
@@ -1735,6 +1745,9 @@ async function main(args) {
     }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start })
+      // The lazy clear (D8): no clear goes alone since Workers mod 0.31.0; one an older board left waiting is closed with its
+      // reason at every start (the landing's sweep: the first start on this version closes them, later ones find none).
+      if (!isShowOnly) await closeClearOnly(store, clock()).catch(error => loops.failed('clear-only-sweep', error))
       // B406: a file torn by a restart or a power cut is set aside, and the board starts without it (the page says so).
       finishedSeen = await kept(FINISHED_FILE)
       roundsKept = await kept(ROUNDS_FILE)
@@ -2081,6 +2094,7 @@ async function main(args) {
   // `planLineOf`), in memory as the asleep map was kept: a restart forgets it, which only makes the words look new.
   let planSeen = {}
   const readState = cached(() => trackJob('state rebuild', async () => {
+    if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
     blockRead()
     const raw = await readRaw()
@@ -3032,14 +3046,14 @@ async function main(args) {
       }
     }),
     take: counted(async body => {
-      const { checked } = await checkFresh(body)
+      const { checked, state: takeState } = await checkFresh(body)
       // Who asks runs, also a chat the board shows another session for.
       if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
       noteRefused(body, checked)
       noteMod(body, checked)
       if (!checked.ok) return checked
       // Redesign Part 1: the take is the mod's 5-second ping, and carries its report (from 0.19.0). Part 2: an idle one hands out.
-      keepReport(body, checked, () => noteReport(reports, body, checked, clock()))
+      keepReport(body, checked, () => noteReport(reports, body, checked, clock(), appOfShown(takeState, checked)))
       // The review of Pause 2: while the person pauses no chat takes what would start a turn; only the board's own
       // "resume" to the main chat goes. The rest waits in the outbox, held until the resume (2026-10-19: Resume all, no
       // longer running: while resuming every line goes, so an answer to a chat that has not started reaches it).
@@ -3184,13 +3198,15 @@ async function main(args) {
         for (const [chat, entries] of wakes.wakes) {
           const attempt = (entries.at(-1)?.attempts ?? []).find(one => one.again === 'person' && one.path === 'message' && one.verdict === null && one.sentAt === null && one.by === AGAIN_BY)
           const lane = lanes.find(one => one.name === chat)
-          if (attempt === undefined || chat === checked.chat || typeof lane?.appSession !== 'string') continue
+          // B986: the lane's own chat (ownChat.mjs), never the title's.
+          const to = wakeIdsOf(lane).appSession
+          if (attempt === undefined || chat === checked.chat || typeof to !== 'string') continue
           attempt.by = checked.chat
           // X107/X3: never a take line here (`personAgain` records no carried step, so the envelope's own line would be typed a
           // second time): the plain line, and the chat takes its envelope with `work next`.
           const need = wakeNeeds(state, outboxNow, { resumeList, canLaunch: canLaunchNow() }).find(one => one.chat === chat)
           const text = need === undefined || (typeof need.step === 'string' && need.text === takeLine(need.step)) ? WORDS_LINE : need.text
-          jobs.push({ id: attempt.jobId, to: lane.appSession, chat, text })
+          jobs.push({ id: attempt.jobId, to, chat, text })
           wakeClaimed = true
           console.log(`Wake: the person's Send again to ${chat} given to ${checked.chat}'s hands at ${timeOf(clock())}: "${text}".`)
         }
@@ -3277,11 +3293,11 @@ async function main(args) {
     }),
     // Redesign Part 1: the mod's report of its turn state the moment it changes; refused as a take is.
     report: counted(async body => {
-      const { checked } = await checkFresh(body)
+      const { checked, state: reportState } = await checkFresh(body)
       if (seen !== null && typeof body?.chat === 'string' && (checked.ok || checked.status === 409)) (checked.ok ? seen.shown : seen.other)[body.chat.trim().slice(0, 80)] = clock()
       noteRefused(body, checked)
       noteMod(body, checked)
-      return keepReport(body, checked, () => answerReport(reports, body, checked, clock()))
+      return keepReport(body, checked, () => answerReport(reports, body, checked, clock(), appOfShown(reportState, checked)))
     }),
     // 2026-10-28 (the person: "'which chat you' are by session id even seems more robust"): a chat's mod asks by its session
     // id who it is: the name and role the board shows it under (the app's chat list, as a refused take names it), and the
@@ -3322,17 +3338,21 @@ async function main(args) {
       noteMod(body, checked)
       if (!checked.ok) return checked
       if (await store.settle(checked.chat, checked, clock()) > 0) readState.reset()
-      // T8.5: an envelope's outcome, once (D): settled, and the worker's decision runs at once (a failed clear or set takes
-      // its task back now, not after a clock).
+      // T8.5: an envelope's outcome, once (D): settled, and the worker's decision runs at once (a failed set takes its task
+      // back now, not after a clock). The lazy clear (D1): the clear's stages as they happen (`stages`, top-level beside
+      // `handover`), alone or with the outcome, merged in the same turn as the settle, so two quick posts never lose each other.
       const outcome = outcomeOf(body?.outcome)
-      if (typeof body?.handover === 'string' && outcome !== null) {
-        const settled = await handoverTurn(workDir ?? HERE, () => settleEnvelope(store, checked.chat, body.handover, outcome, clock()))
-        if (settled) {
-          readState.reset()
-          await decideFor(checked.chat, body?.mod ?? null, { kind: 'pass' })
-          return { ok: true, result: { settled: true } }
-        }
-        return { ok: true, result: { settled: false } }
+      // Whenever `stages` came as a list the answer says `staged` (false: none taken), so the mod tells "dropped" from an older board.
+      const hasStages = Array.isArray(body?.stages)
+      const stages = stagesOf(body?.stages, clock())
+      if (typeof body?.handover === 'string' && (outcome !== null || hasStages)) {
+        const done = await handoverTurn(workDir ?? HERE, async () => ({
+          staged: stages === null ? false : await addStages(store, checked.chat, body.handover, stages),
+          settled: outcome === null ? false : await settleEnvelope(store, checked.chat, body.handover, outcome, clock()),
+        }))
+        if (done.staged || done.settled) readState.reset()
+        if (done.settled) await decideFor(checked.chat, body?.mod ?? null, { kind: 'pass' })
+        return { ok: true, result: { settled: done.settled, ...(hasStages ? { staged: done.staged } : {}) } }
       }
       return { ok: true, result: {} }
     }),

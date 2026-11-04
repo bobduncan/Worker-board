@@ -160,9 +160,11 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const plan = home === '' ? null : join(home, ...config.gamePlan.split('/'))
   // Plan (2026-10-19): the product plan beside it, for the Vision tab.
   const productPlan = home === '' ? null : join(home, ...config.productPlan.split('/'))
+  const appFiles = new Set()
   const [listText, appChatTexts, adviceText, folders, askTexts, goalsText, work, threadTexts, productPlanText] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
-    readAppChats(config.appSessions),
+    // B986: and the app id of every chat file read, for a lane's own chat (ownChat.mjs).
+    readAppChats(config.appSessions, appFiles),
     plan === null ? null : readText(plan),
     readFolders().catch(() => null),
     readAsks(join(claude, 'asks')),
@@ -225,7 +227,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const recaps = (await readRecaps(config, goalsText).catch(() => [])).filter(one => goalRecap === null || one.goal !== goalRecap.goal || one.path === goalRecap.path)
 
   return {
-    listText, appChatTexts, moved, planLineTexts, planLineAt, tails, conversationAt: conversationAts, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
+    listText, appChatTexts, appFiles: [...appFiles], moved, planLineTexts, planLineAt, tails, conversationAt: conversationAts, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
     pictureLists: await pictureLists(config, work, now),
     recaps,
     // 2026-11-01: the focus goal's recap file and the picture of each of its rows, for the recap card on the Focus page (src/recapCard.mjs).

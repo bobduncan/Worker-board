@@ -258,11 +258,12 @@ test('the live shape, end to end: the line at 5, at 20 the step goes back on the
   const dropped = { ...stopped(at(22)), state: 'free', report: { state: 'idle', since: at(21), background: false, at: at(22) } }
   const owed = clearOwed({ lane: dropped, items, afterStep: 'clear' })
   assert.deepEqual([owed?.step, owed?.reportedAt], ['B12', at(20)])
-  // The dropped worker, free, is not given B12 again (it gets its clear alone); the next free worker gets the continuation.
+  // The dropped worker, free, is not given B12 again (the lazy clear: nothing at all, its clear stays owed for its next task);
+  // the next free worker gets the continuation.
   const ready = readyList(items, { now: at(22), beyondFocus: true }).ready
   assert.deepEqual(ready.map(entry => entry.id), ['B12'])
   const again = await one.pass({ ...dropped, clearOwed: owed }, at(22), { ready })
-  assert.deepEqual([again.decision.give, again.envelope?.kind, again.envelope?.clear], [null, 'clear', { step: 'B12', reportedAt: at(20) }])
+  assert.deepEqual([again.decision.state, again.decision.give, again.envelope], ['free', null, null])
   const next = { ...dropped, name: 'Worker 2', report: { state: 'idle', since: at(19), background: false, at: at(22) } }
   const given = await one.pass(next, at(23), { ready, isPushed: async () => false })
   assert.equal(given.decision.give, 'B12')
