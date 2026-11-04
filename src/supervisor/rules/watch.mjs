@@ -177,7 +177,7 @@ const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
  * once, so it failed to. Gap 3: only what the board hands out counts: the list's `ready` (a fix, the focus goal's, a
  * pinned one), never its `held` (a task outside the focus goal waits for the person by design); a kept task (its pin, its
  * follow-up) only while its own worker is free. A task whose Touches overlap one given or under way waits by design; a QA
- * task waits by design while only the chats in its `notBy` (the builders) are free. One finding per task. Not while the
+ * task waits by design while only the chats in its `notBy` (the builders) are free. One finding per free worker (key `ready-while-free <worker>`), its waiting tasks in the text and evidence, never one per task. Not while the
  * person pauses or a limit is full.
  */
 function readyWhileFree(view, ctx) {
@@ -187,23 +187,25 @@ function readyWhileFree(view, ctx) {
   const free = workersOf(view).filter(lane => lane.onSequence === true && lane.handover?.state === STATES.FREE)
   if (free.length === 0) return []
   const found = []
-  for (const one of view.ready) {
-    const kept = one.keptFor ?? null
-    // T9.1.1: a free worker the entry is never given to (a QA task's `notBy`: it built the step or a fix of it) is no free worker for it.
-    const may = free.filter(lane => !(one.notBy ?? []).some(name => plain(name, view.prefix) === plain(lane.name, view.prefix)))
-    const waiting = kept === null ? may : may.filter(lane => plain(lane.name, view.prefix) === plain(kept, view.prefix))
+  for (const lane of free) {
+    const mine = plain(lane.name, view.prefix)
+    // The tasks this worker could have been given: not one it is named off (notBy), a kept task only for its own worker, no Touches overlap.
+    const waiting = view.ready.filter(one => {
+      if ((one.notBy ?? []).some(name => plain(name, view.prefix) === mine)) return false
+      if ((one.keptFor ?? null) !== null && plain(one.keptFor, view.prefix) !== mine) return false
+      const item = view.items.get(one.id)
+      return item !== undefined && overlapIn(view.items, item, GIVEN_OR_UNDER_WAY) === null
+    })
     if (waiting.length === 0) continue
-    const item = view.items.get(one.id)
-    if (item === undefined || overlapIn(view.items, item, GIVEN_OR_UNDER_WAY) !== null) continue
-    const freeSince = Math.min(...waiting.map(lane => (Number.isFinite(lane.report?.since) ? lane.report.since : view.since.get(lane.name) ?? view.now)))
-    const key = `ready-while-free ${one.id}`
+    const freeSince = Number.isFinite(lane.report?.since) ? lane.report.since : view.since.get(lane.name) ?? view.now
+    const key = `ready-while-free ${lane.name}`
     const ms = Math.min(lasted(view, ctx, key), view.now - afterPause(view, freeSince))
     if (ms <= view.settings.idleMinutes * MIN) continue
-    const names = waiting.map(lane => lane.name)
+    const ids = waiting.map(task => task.id)
     found.push({
-      rule: 'ready-while-free', key, subject: one.id,
-      text: `${one.id} ready for ${minutes(ms)} min while ${names.length === 1 ? `${names[0]} is` : `${names.join(', ')} are`} free`,
-      evidence: `ready list: ${view.ready.map(task => task.id).slice(0, 8).join(', ')}; free by their reports: ${waiting.map(lane => `${lane.name} since ${Number.isFinite(lane.report?.since) ? clockOf(lane.report.since) : 'a time not known'}${lane.onSequence === true ? ' (its hand-over: free)' : ''}`).join(', ')}`,
+      rule: 'ready-while-free', key, subject: lane.name,
+      text: `${lane.name} free for ${minutes(ms)} min while ${ids.length} ready task${ids.length === 1 ? '' : 's'} wait${ids.length === 1 ? 's' : ''}: ${ids.slice(0, 8).join(', ')}${ids.length > 8 ? ', ...' : ''}`,
+      evidence: `waiting tasks: ${ids.slice(0, 8).join(', ')}${ids.length > 8 ? ` (and ${ids.length - 8} more)` : ''}; free by its report: ${lane.name} since ${Number.isFinite(lane.report?.since) ? clockOf(lane.report.since) : 'a time not known'} (its hand-over: free)`,
     })
   }
   return found

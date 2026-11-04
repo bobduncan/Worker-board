@@ -85,7 +85,7 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   again, its check failing again) is odd.
 - The board hands out all work (redesign Part 2, 2026-10-25; since T8.5 by one hand-over at the worker's turn end): a
   task it gives a worker is taken in the turn its line started, or the board takes it back at once; a ready task that
-  waits while a worker is free (the rule ready-while-free) is odd. Ready means what the board hands out: a fix, a task of the focus
+  waits while a worker is free (the rule ready-while-free: one incident per free worker, naming its waiting tasks) is odd. Ready means what the board hands out: a fix, a task of the focus
   goal or of a goal under it, a fix of a step the person queued or pinned (not a dropped one; the rule: the comment above `readyList` in `src/work/handOut.mjs`), or a pinned one (the backlog line's "ready to hand out"). Refined tasks outside the focus goal (the rule: `readyList` in `src/work/handOut.mjs`) wait for the
   person's pin or a focus switch by design (the backlog line's "outside the focus goal, waiting for the person by
   design"), and so do those "held otherwise": workers idle while only such tasks wait is no incident. A task pinned to a

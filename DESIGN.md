@@ -5215,7 +5215,8 @@ for another, and since step 6 the old rules are gone for every worker:
 - `handover-unanswered`: the net fired (`netAt` on an envelope of its): one finding per envelope, for a day after the net.
   In place of not-taking.
 - `ready-while-free`: such a worker is free only in the hand-over's own **free** (its lane's `handover.state`), never by
-  the hand-out's older reading (R7, X111).
+  the hand-out's older reading (R7, X111). B1008 (X142-X147): one finding per free worker, key `ready-while-free <worker>`,
+  its waiting tasks in text and evidence, never one per ready task (one cause made six incidents).
 - `review-stuck`: its report part (a failed check not reported again) is gone since step 6, for every worker (the
   decision tells it at its first turn's end); the result-check part stays.
 

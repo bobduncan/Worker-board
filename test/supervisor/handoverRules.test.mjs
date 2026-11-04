@@ -163,10 +163,10 @@ test('ready-while-free reads the hand-over FREE only (R7, X111): held, handing o
   const B5 = parseItem(`Id: B5\nKind: step\nTitle: Step B5\nState: refined\nRefined: ready\nSince: ${stamp(ago(60))}\n`)
   const ready = { ready: [{ id: 'B5', rank: 2, keptFor: null, keptUntil: null, pinned: null }], held: [] }
   const board = chats => view({ chats: [LEAD, ...chats], items: new Map([['B5', B5]]), readyList: ready })
-  const seen = new Map([['ready-while-free B5', ago(30)]])
+  const seen = new Map([['ready-while-free Digger', ago(30)]])
   const found = check('ready-while-free', board([onIt('Digger', 'free')]), seen)
-  assert.deepEqual(found.map(one => [one.rule, one.key]), [['ready-while-free', 'ready-while-free B5']])
-  assert.equal(found[0].text, 'B5 ready for 30 min while Digger is free')
+  assert.deepEqual(found.map(one => [one.rule, one.key]), [['ready-while-free', 'ready-while-free Digger']])
+  assert.equal(found[0].text, 'Digger free for 30 min while 1 ready task waits: B5')
   assert.match(found[0].evidence, /Digger since \d\d:\d\d \(its hand-over: free\)/)
   // Idle by its report, but its hand-over is not free: no free worker (the old reading would have named it).
   for (const state of ['held', 'handing', 'offered', 'checking', 'unknown', 'restarting', 'suspended', 'working']) {
