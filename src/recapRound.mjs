@@ -119,7 +119,7 @@ export function keptLooksOf(routed, goal) {
   return (Array.isArray(routed) ? routed : [])
     .filter(one => one.route === 'recap' && one.isKept === true && KEPT_ASKS.includes(one.asks) && /^B\d+$/.test(one.of ?? '') && one.goal === goal)
     .map(one => ({
-      ask: one.id, asks: one.asks, key: lookKey(one.id), title: String(one.title ?? ''), text: String(one.text ?? ''), advice: one.advice ?? null, step: one.of,
+      ask: one.id, asks: one.asks, key: lookKey(one.id), title: String(one.title ?? ''), text: String(one.text ?? ''), advice: one.advice ?? null, step: one.of, about: String(one.about ?? ''),
       pictures: Array.isArray(one.pictures) ? one.pictures : [],
       // The look's own `## Play` (the work tool's `play`), else, for a do that links another ask, that ask's (`routedAwayOf`), else a #play= in its words.
       play: typeof one.play === 'string' && one.play.trim() !== '' ? one.play.trim() : playOf(`${one.title ?? ''} ${one.text ?? ''}`),

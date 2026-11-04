@@ -38,6 +38,7 @@ import { backgroundOf } from './src/chatReport.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
+import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
@@ -338,6 +339,7 @@ export function createBoard({
   setupRead = async () => ({ done: [], finished: true }),
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   recap = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  askCard = async () => null,
   step = async () => null,
   project = '',
   mayWrite = async () => null,
@@ -574,6 +576,12 @@ export function createBoard({
     }
     // B319: whose board this is, for another board starting on this PC (src/ports.mjs, boardProject).
     if (pathname === '/api/board') return json(res, { board: 'worker-board', project })
+    // B993: any ask by its id, whatever its state, for the window a link to it opens (an answered one is on no list of the state).
+    if (pathname === '/api/ask') {
+      if (!mayUse) return refuse(res, 403, "Only the board's own page may read.")
+      const card = await askCard(searchParams.get('id') ?? '')
+      return card === null ? refuse(res, 404, 'No such ask.') : json(res, card)
+    }
     if (pathname === '/api/picture') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       const found = await picture(searchParams.get('path') ?? '')
@@ -2552,6 +2560,10 @@ async function main(args) {
     step: async key => fullStepOf(await readState(), key),
     // B579: a day of Completed by day: its finished steps, the last days with their counts, and its recap. Only the board
     // that runs the loops calls for a recap, never while the person paused all chats or a limit is near.
+    askCard: async id => {
+      const stored = await work()
+      return stored?.ok === true ? askCardOf(stored, id) : null
+    },
     recap: async asked => {
       const stored = await work()
       if (stored?.ok !== true) return { ok: false, status: 409, why: 'The work store cannot be read.' }

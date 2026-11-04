@@ -254,6 +254,53 @@ function playOfAsk(item, items) {
   return null
 }
 
+/** The title of an ask as a line says it: no trailing "(advice: yes)" and no final stop. */
+const plainTitle = title => String(title ?? '').replace(/\s*\(advice: [^)]*\)\.?$/, '').replace(/\.$/, '').trim()
+
+/**
+ * B993 (the person, 2026-11-04: "I do not know what Q600 is about when i only look at the recap/demo"): the line that says what an ask is
+ * about on its own: for each ask its words link, "About Q600: <its title> (<its step>)"; with no linked ask, "About <its step>: <the
+ * step's title>"; "" when it names neither.
+ */
+function aboutOf(item, items, step) {
+  const own = valueOf(item, 'Id')
+  const words = `${valueOf(item, 'Title') ?? ''} ${(item.sections.get('Text') ?? []).join(' ')}`
+  const linked = [...new Set([...words.matchAll(ASK_LINK)].map(found => found[1]))].filter(id => id !== own && items.has(id))
+  if (linked.length > 0) {
+    return linked.map(id => {
+      const of = valueOf(items.get(id), 'Of')
+      return `About ${id}: ${plainTitle(askPartsOf(items.get(id)).title)}${of === null ? '' : ` (${of})`}`
+    }).join(' · ')
+  }
+  const of = valueOf(item, 'Of')
+  return of === null ? '' : `About ${of}${step === undefined ? '' : `: ${plainTitle(valueOf(step, 'Title'))}`}`
+}
+
+/**
+ * B993: any ask of the store by its id, whatever its state (an answered one has no card among the asks for you), as the plain card its
+ * window shows: `{ id, route: 'ref', state, from, title, of, ofTitle, text, advice, options, pictures, play, at }`, or null for an id
+ * the store does not hold. An answer stands in the text, after the question.
+ */
+export function askCardOf(work, id, { names = [], prefix = '' } = {}) {
+  const items = new Map(itemsOf(work).map(item => [valueOf(item, 'Id'), item]))
+  const item = items.get(String(id))
+  if (item === undefined || valueOf(item, 'Kind') !== 'ask') return null
+  const nameOf = nameFinder(names, prefix)
+  const of = valueOf(item, 'Of')
+  const step = of === null ? undefined : items.get(of)
+  const advice = valueOf(item, 'Advice')
+  const answer = (item.sections.get('Answer') ?? []).join('\n').trim()
+  const at = askFiledMs(item)
+  return {
+    id: valueOf(item, 'Id'), route: 'ref', state: valueOf(item, 'State'), from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')),
+    title: plainTitle(askPartsOf(item).title), of, ofTitle: step === undefined ? null : valueOf(step, 'Title'),
+    text: [...askPartsOf(item).context, ...(answer === '' ? [] : [`The answer: ${answer.slice(0, 600)}`])].join('\n'), advice,
+    options: (valueOf(item, 'Options') ?? '').split(' | ').filter(one => one.trim() !== '').map(label => ({ label, isRecommended: isAdvised(label, advice) })),
+    pictures: (valueOf(item, 'Pictures') ?? '').split(',').map(one => one.trim()).filter(Boolean),
+    play: PLAY_OF(item), at: Number.isFinite(at) ? at : null,
+  }
+}
+
 /**
  * Autopilot (2026-10-31): the open asks the board routed to the main chat or to a goal's recap, for the window a click on
  * one opens (they stand in no list of Needs your attention) and the Focus page's "For your recap": `[{ id, route, from,
@@ -281,6 +328,7 @@ export function routedAwayOf(work, { names = [], prefix = '', limitMs = PARTNER_
       // The review of 2026-11-04: the ask's own `## Play` (a map to open the game on), else the one of the ask its words link
       // (`#details=Q<n>`: Q616 "reopen the Q600 play link" carries Q600's), else null.
       play: playOfAsk(item, items),
+      about: aboutOf(item, items, step),
       at: Number.isFinite(at) ? at : null, toYouAt: route === 'main' && Number.isFinite(routed) ? routed + limitMs : null,
     }
   }).sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
