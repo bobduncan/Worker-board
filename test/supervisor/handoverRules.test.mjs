@@ -89,6 +89,8 @@ test('handover-unanswered: the net fired: one finding per envelope, keyed by the
   assert.equal(found[1].since, ago(12))
   // A clear alone (no step): named all the same, without a step.
   assert.equal(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e4', 15, 3, { step: null, kind: 'clear', clear: { step: 'B12', reportedAt: ago(20) } })] }))[0].text, 'Digger did not answer its hand-over within 10 min')
+  // B1033 (X141 counted 111 times on a take that never settled): the envelope settled delivered after the net was answered, however late: none.
+  assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e6', 15, 3, { step: null, kind: 'clear', clear: { step: 'B12', reportedAt: ago(20) }, state: 'delivered' })] })), [])
   // Over a day after the net: no longer.
   assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e5', 25 * 60 + 12, 25 * 60)] })), [])
   // Mutant "the rule firing for a timers worker".
@@ -163,10 +165,10 @@ test('ready-while-free reads the hand-over FREE only (R7, X111): held, handing o
   const B5 = parseItem(`Id: B5\nKind: step\nTitle: Step B5\nState: refined\nRefined: ready\nSince: ${stamp(ago(60))}\n`)
   const ready = { ready: [{ id: 'B5', rank: 2, keptFor: null, keptUntil: null, pinned: null }], held: [] }
   const board = chats => view({ chats: [LEAD, ...chats], items: new Map([['B5', B5]]), readyList: ready })
-  const seen = new Map([['ready-while-free B5', ago(30)]])
+  const seen = new Map([['ready-while-free Digger', ago(30)]])
   const found = check('ready-while-free', board([onIt('Digger', 'free')]), seen)
-  assert.deepEqual(found.map(one => [one.rule, one.key]), [['ready-while-free', 'ready-while-free B5']])
-  assert.equal(found[0].text, 'B5 ready for 30 min while Digger is free')
+  assert.deepEqual(found.map(one => [one.rule, one.key]), [['ready-while-free', 'ready-while-free Digger']])
+  assert.equal(found[0].text, 'Digger free for 30 min while 1 ready task waits: B5')
   assert.match(found[0].evidence, /Digger since \d\d:\d\d \(its hand-over: free\)/)
   // Idle by its report, but its hand-over is not free: no free worker (the old reading would have named it).
   for (const state of ['held', 'handing', 'offered', 'checking', 'unknown', 'restarting', 'suspended', 'working']) {

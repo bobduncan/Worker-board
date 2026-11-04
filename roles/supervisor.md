@@ -87,7 +87,7 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   again, its check failing again) is odd.
 - The board hands out all work (redesign Part 2, 2026-10-25; since T8.5 by one hand-over at the worker's turn end): a
   task it gives a worker is taken in the turn its line started, or the board takes it back at once; a ready task that
-  waits while a worker is free (the rule ready-while-free) is odd. Ready means what the board hands out: a fix, a task of the focus
+  waits while a worker is free (the rule ready-while-free: one incident per free worker, naming its waiting tasks) is odd. Ready means what the board hands out: a fix, a task of the focus
   goal or of a goal under it, a fix of a step the person queued or pinned (not a dropped one; the rule: the comment above `readyList` in `src/work/handOut.mjs`), or a pinned one (the backlog line's "ready to hand out"). Refined tasks outside the focus goal (the rule: `readyList` in `src/work/handOut.mjs`) wait for the
   person's pin or a focus switch by design (the backlog line's "outside the focus goal, waiting for the person by
   design"), and so do those "held otherwise": workers idle while only such tasks wait is no incident. A task pinned to a
@@ -116,7 +116,7 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   names and report it again"), once per failed check; no rule watches it by the clock. The
   review-stuck rule watches a check not filed within the review minutes; the dropped-fix rule a dropped fix with no new
   fix, no new check and no block for over 30 min. A fix the board does not hand out leaves its step waiting for nothing
-  that moves: "waits for its fix B<n>, held: <why>" (B656) is odd past the review minutes and the review-held rule's, unless the hold is the person's open ask (B660) or a block by steps that all wait for the person alone (B916).
+  that moves: "waits for its fix B<n>, held: <why>" (B656) is odd past the review minutes and the review-held rule's, unless the hold is the person's open ask (B660) or a block by steps that all wait for the person alone (B916) or a block by steps that all move (B1021, X148: with a worker, or behind a chain at work or ending in a refined fix not held); nothing is said while the 5-hour or weekly limit is full, and the hold counts again from the limit's reset at the earliest.
   A "!" on a review line means what the rules mean (B664): the summary judges review as they do, so a fresh check word or
   the person's open ask is never odd there. A chain of three tries or more whose newest fix names no "Tried before:" is
   the chain-long rule's: a patch of the same way again, for the partner. "waits for its fix B<n>, not refined yet" is
