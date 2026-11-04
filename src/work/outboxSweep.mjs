@@ -198,15 +198,22 @@ export const UNCONFIRMED_MS = 15 * 60_000
 export const UNCONFIRMED_WHY = 'delivered-unconfirmed: its chat ran a turn after it and never said'
 
 /**
+ * B1033 (X141: Worker 3's clear after B981, taken at 12:24 and never settled): a clear-only hand-over (a clear, no task, no line,
+ * no restart) that an older board wrote. No clear goes alone since Workers mod 0.31.0, so no outcome of its own is coming for
+ * one still taken: the net judges it as a plain word. A task envelope keeps its own outcome.
+ */
+const isClearOnly = message => (message.clear ?? null) !== null && typeof message.step !== 'string' && typeof message.line !== 'string' && message.restart !== true
+
+/**
  * The reason, and the time, a taken word counts as delivered, or null: a word its own chat took (never a hand's take, B880's
- * own net; never a hand-over envelope, whose outcome is its own), the chat's report (the lane's `report.turn`: the start of its
+ * own net; never a task hand-over envelope, whose outcome is its own; a clear-only one is judged, B1033), the chat's report (the lane's `report.turn`: the start of its
  * last turn, from a mod that says it) names a turn that began after the take, the chat is IDLE since that turn (`report.state`
  * idle, its `since` not before the turn's start: a busy, asking or ended chat is not judged), and the idle is UNCONFIRMED_MS
  * old. `deliveredAt` is that turn's start. A chat with no report, or one that does not name its turn, is not judged: the board
  * does not guess it.
  */
 export function unconfirmedOf(message, lane, now) {
-  if (message?.state !== 'taken' || isHandTaken(message) || message.command === 'handover') return null
+  if (message?.state !== 'taken' || isHandTaken(message) || (message.command === 'handover' && !isClearOnly(message))) return null
   const { turn, state, since } = lane?.report ?? {}
   if (!Number.isFinite(turn) || !Number.isFinite(message.takenAt) || turn <= message.takenAt) return null
   if (state !== 'idle' || !Number.isFinite(since) || since < turn || now - since < UNCONFIRMED_MS) return null

@@ -5751,6 +5751,10 @@ resolves; the earlier ones never resolve or reject, so the mod never said them t
   `delivered` already and untouched. Limits: the turn is the chat's LAST turn (a chat with back-to-back turns closes it only
   once the chat has rested 15 minutes after the last), and a chat whose session was replaced after the take also runs a turn
   after it: such a word (lost with the old session) is closed with the same honest "never said". No Supervisor rule.
+  B1033 (X141, envelope ba127291: Worker 3's clear after B981, taken at 12:24 and never settled, counted 111 times): the one hand-over
+  envelope the net judges is a clear-only one an older board left (`clear` set, no `step`, no `line`, no `restart`): no clear goes
+  alone since 0.31.0, so no outcome of its own is coming, and it closes like a plain word. The rule `handover-unanswered` skips an
+  envelope settled `delivered` after its net fired (answered, however late); a `dropped` or `failed` one is still found.
 Tests: `test/mergedWords.test.mjs` (the net: closed at 15 minutes, not at 14; a turn before the take, a hand's take, an envelope, no
 report: left), `mods/workers/hooks/board.test.ts` and `chatlist.test.ts` (the three real batches: each word told once, the turn
 named by the first; the person's own line; the envelope's line apart; the order of the last submit's resolve).

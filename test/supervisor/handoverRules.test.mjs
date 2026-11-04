@@ -89,6 +89,8 @@ test('handover-unanswered: the net fired: one finding per envelope, keyed by the
   assert.equal(found[1].since, ago(12))
   // A clear alone (no step): named all the same, without a step.
   assert.equal(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e4', 15, 3, { step: null, kind: 'clear', clear: { step: 'B12', reportedAt: ago(20) } })] }))[0].text, 'Digger did not answer its hand-over within 10 min')
+  // B1033 (X141 counted 111 times on a take that never settled): the envelope settled delivered after the net was answered, however late: none.
+  assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e6', 15, 3, { step: null, kind: 'clear', clear: { step: 'B12', reportedAt: ago(20) }, state: 'delivered' })] })), [])
   // Over a day after the net: no longer.
   assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e5', 25 * 60 + 12, 25 * 60)] })), [])
   // Mutant "the rule firing for a timers worker".

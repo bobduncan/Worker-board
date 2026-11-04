@@ -1208,6 +1208,9 @@ function handoverUnanswered(view) {
   for (const lane of workersOf(view).filter(one => one.onSequence === true)) {
     for (const envelope of envelopesOf(view.outbox, lane.name, view.prefix)) {
       if (!Number.isFinite(envelope.netAt) || view.now - envelope.netAt > UNANSWERED_LOOK_MS) continue
+      // B1033 (X141 counted 111 times on a take that never settled): an envelope settled delivered after the net (a late
+      // answer, or the outbox sweep's net for a clear that went alone) was answered: it is no miss any more.
+      if (envelope.state === 'delivered') continue
       // Change 4's follow-up (2026-11-02, X119 counted 71 times hours after its net): a miss whose task was handled since
       // (taken, given to another worker, moved or touched by the person) is not found again: its look ends at that move.
       if (typeof envelope.step === 'string' && handledSince(view.items?.get(envelope.step), envelope.netAt)) continue
