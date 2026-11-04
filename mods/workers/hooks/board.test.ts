@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn } from './board'
+import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -132,6 +132,28 @@ describe('Task 6 (0.31.0): words the app merged into one prompt have all entered
     expect({ word: began.word, turn: began.turn, ids: began.typed.map(one => one.id) }).toEqual({ word: null, turn: 3000, ids: ['7a972772', 'cf04b25b'] })
     // The merged prompt of the two comes after the person's line: they enter then.
     expect(turnBegan(began, [textOf('7a972772'), textOf('cf04b25b')].join('\n\n'), 4000).word).toBe('7a972772')
+  })
+
+  test('the whole-branch review: a short word inside a longer prompt is never entered; the bound is MERGED_MIN_CHARS normalised characters, below it only the whole prompt matches', () => {
+    expect(MERGED_MIN_CHARS).toBe(24)
+    const inside = (own: string): string => `what about ${own} and the lava?`
+    // One below the bound: inside the person's line it is not held; as the whole prompt it still is (a take's own prompt).
+    const short = wordTyping(NO_TURN_WORDS, 'w', 'x'.repeat(MERGED_MIN_CHARS - 1))
+    expect(wordsIn(short, inside('x'.repeat(MERGED_MIN_CHARS - 1)))).toEqual([])
+    expect(turnBegan(short, inside('x'.repeat(MERGED_MIN_CHARS - 1)), 1).word).toBeNull()
+    expect(wordsIn(short, 'x'.repeat(MERGED_MIN_CHARS - 1))).toEqual(['w'])
+    expect(wordsIn(short, `  ${'x'.repeat(MERGED_MIN_CHARS - 1)}
+`)).toEqual(['w'])
+    // At the bound: one part of a merged prompt.
+    const long = wordTyping(NO_TURN_WORDS, 'w', 'x'.repeat(MERGED_MIN_CHARS))
+    expect(wordsIn(long, inside('x'.repeat(MERGED_MIN_CHARS)))).toEqual(['w'])
+    expect(turnBegan(long, inside('x'.repeat(MERGED_MIN_CHARS)), 1).word).toBe('w')
+    // The length is the normalised text's: 31 characters with a run of spaces that normalise to 23 stay below the bound.
+    const spaced = wordTyping(NO_TURN_WORDS, 'w', `${'x'.repeat(11)}        ${'y'.repeat(11)}`)
+    expect(wordsIn(spaced, inside(`${'x'.repeat(11)} ${'y'.repeat(11)}`))).toEqual([])
+    // The real short words of the board: a take's text inside the person's own line is not entered.
+    const approved = wordTyping(NO_TURN_WORDS, 'w1', 'B13: approved')
+    expect(wordsIn(approved, 'B13: approved, but wait')).toEqual([])
   })
 
   test('a word with no text enters nothing (an empty text is "in" every prompt)', () => {

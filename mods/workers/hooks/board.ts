@@ -77,13 +77,21 @@ const normal = (value: unknown): string => String(value ?? '').replace(/\s+/g, '
  * while its chat is busy, and after the turn dequeues them all at once MERGED into one user message; only the last submit
  * resolves, the earlier ones never resolve or reject. The ids of the words of ours on their way whose text the turn's prompt
  * holds (whitespace-normalised: the exact text, or one part of a merged prompt), in outbox order; none for a prompt that holds
- * none of them (the person's own line).
+ * none of them (the person's own line). The whole-branch review: the "one part of a longer prompt" reading is for a word whose
+ * normalised text is MERGED_MIN_CHARS or longer; a shorter text counts only as the whole prompt, so a short word that happens to
+ * stand inside the person's own line is never counted entered.
  */
 export function wordsIn(words: TurnWords, text: string): string[] {
   const prompt = normal(text)
   if (prompt === '') return []
-  return words.typed.filter(one => normal(one.text) !== '' && (sameWords(one.text, text) || prompt.includes(normal(one.text)))).map(one => one.id)
+  return words.typed.filter(one => {
+    const own = normal(one.text)
+    return own !== '' && (sameWords(one.text, text) || (own.length >= MERGED_MIN_CHARS && prompt.includes(own)))
+  }).map(one => one.id)
 }
+
+/** Task 6, the whole-branch review: the shortest normalised word text that counts as one part of a longer merged prompt. */
+export const MERGED_MIN_CHARS = 24
 
 /** 8c: a /clear: the new conversation runs no word of the old one's queue, and no turn has run on a word in it yet. */
 export function wordsCleared(words: TurnWords): TurnWords {

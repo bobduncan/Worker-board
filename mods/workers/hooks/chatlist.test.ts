@@ -121,6 +121,8 @@ type World = {
   storeDeleteFails?: boolean
   holdClear?: Promise<void> | null
   storedAtClear?: Record<string, unknown>[]
+  /** The whole-branch review: the next call of `$.session.id()` (only that one) resolves once this does, then it is taken out. */
+  holdNextId?: Promise<void> | null
 }
 
 /** The review of chat-reports: a report as the board reads what it says, without its order (`run`, `seq`); 8c's `word` and `turn` are tested apart. */
@@ -174,7 +176,14 @@ function fileOf(w: World, id = w.id): ChatFile | null {
 /** The engine beneath the mod: a folder of files, a clock the test moves, and the session's own answers. */
 function stand(on: On, w: World): void {
   on('session.root', () => ({ value: w.root ?? ROOT }))
-  on('session.id', () => ({ value: w.id }))
+  on('session.id', async () => {
+    const hold = w.holdNextId
+    if (hold !== undefined && hold !== null) {
+      w.holdNextId = null
+      await hold
+    }
+    return { value: w.id }
+  })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
@@ -4245,6 +4254,33 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     expect(untimed(outcomes(w)).length).toBe(1)
   })
 
+  test('the whole-branch review, D2: a late /clear whose session id comes only after the 20 s net fired reads the clear on its way after that await: it was dropped meanwhile, so it finds nothing to run (mutant: the clear read before the await)', async ($, on) => {
+    const { w, clock } = await worker($, on, handover(envelope()))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
+    // The app runs another /clear of the mod's late; the hook waits for the session's id, which comes slowly.
+    let release = (): void => {}
+    w.holdNextId = new Promise<void>(done => { release = done })
+    const late = $.command.run(CLEAR_BY_MOD)
+    await settle()
+    expect(w.holdNextId).toBeNull()
+    // Meanwhile the 20 s net comes due: the clear is dropped completely and the line goes, once.
+    await clock.advance(20_000)
+    for (let i = 0; i < 50 && outcomes(w).length === 0; i++) await settle()
+    expect(w.typedIn).toEqual([`plugin:as the person:${LINE}`])
+    expect(finalStages(w)).toEqual(['log-saved', 'clear-queued', 'clear-refused'])
+    // The id comes: the hook reads the clear on its way now, and finds none (mutant: it read it before the await, found the clear
+    // and ran it into the conversation that has the task: a second /clear, a 'cleared' stage).
+    release()
+    expect((await late).text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
+    for (let i = 0; i < 20; i++) await settle()
+    expect(w.commanded).toEqual(['/clear by plugin workers'])
+    expect(finalStages(w)).not.toContain('cleared')
+    expect(stagesAlone(w).map(one => one.stage)).not.toContain('cleared')
+    expect(w.typedIn.length).toBe(1)
+  })
+
   test('the Task 2 review (1, D3): the person pauses while the /clear waits: at 20 s no line, settled typed null with exactly the board\'s PAUSED_WHY; the net\'s own words stay in the stage', async ($, on) => {
     const { w, clock } = await worker($, on, handover(envelope()))
     await $.turn.complete({ ...ENDED, turnId: 't1' })
@@ -4521,9 +4557,9 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     stand(on, w)
     await startedAs($, w, 'Units')
     await take(clock, w, { handover: envelope({ clear: null }) })
-    await take(clock, w, { messages: [{ id: 'm9', text: 'B13: approved' }] })
+    await take(clock, w, { messages: [{ id: 'm9', text: 'B13: approved, go on with the next part' }] })
     await clock.advance(1000)
-    await $.turn.start({ text: `${LINE}\n\nB13: approved`, turnId: 't1' })
+    await $.turn.start({ text: `${LINE}\n\nB13: approved, go on with the next part`, turnId: 't1' })
     for (let i = 0; i < 5; i++) await settle()
     const typed = w.reported.map(body => JSON.parse(body) as { typed?: string[]; handover?: string }).flatMap(body => body.typed ?? [])
     // Mutant "the envelope's line is confirmed too": the envelope's id would be told typed (its outcome comes from its own submit).

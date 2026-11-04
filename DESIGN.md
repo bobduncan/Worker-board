@@ -4494,7 +4494,7 @@ a clear alone, a clear that holds the worker and "the line is never typed before
   forgotten. Only then is the line typed. So a /clear the app runs later finds nothing to run (`hooks/clearrun.ts` refuses
   a /clear with no clear on its way or a prompt since it was decided, and the /clear hook re-reads `clearing` after its
   `await $.session.id()`), and a late clear never clears mid-task, nor is the line ever typed twice. The two-minute
-  `CLEAR_WAIT_MS` stays the net of a clear nobody ran (a kept one a reload found), which also types the line once.
+  `CLEAR_WAIT_MS` stays the net of a clear that carries no line (the card's own mark, or a kept one whose line went already): it types none. A kept envelope found after a reload has its line typed once at the 20 s net like any (`settleStoredClear`, the record marked `lineTyped` first).
 - **Stages, told at once** (D1, D9). Every stage of a clear, dated by the mod's clock when it happens, goes to the board
   through the settle route: `log-saved`, `clear-queued`, `cleared` (posted from `afterClear`, where the new session's id is
   known: `session`), `clear-refused` (`why`); `ticket` is the clear's key (`clear-<run>-<n>`, a string). A post is
@@ -5669,22 +5669,25 @@ a /compact) dequeues ALL the queued prompts at once and MERGES them into one use
 resolves; the earlier ones never resolve or reject, so the mod never said them typed and the board kept them `taken` for ever
 (in each batch only the last went `delivered`). Two parts:
 - **The mod** (`hooks/board.ts` `wordsIn`, `turnBegan`; `register.tsx` `reportEntered`): at a turn of the chat's own, every word
-  of ours on its way whose text the turn's prompt holds (whitespace-normalised: the exact text, or one part of a merged prompt)
-  has entered. Each taken word not yet reported is told typed to the board now, once per id (`reportedWords`: a later resolve of
+  of ours on its way whose text the turn's prompt holds (whitespace-normalised: the exact text, or, for a text of `MERGED_MIN_CHARS` = 24
+  characters or more, one part of a merged prompt) has entered. Each taken word not yet reported is told typed to the board now, once per id (`reportedWords`: a later resolve of
   its own submit, or a rejection, tells nothing again), it leaves the queue, and the turn's `word` is the FIRST of them in outbox
   order. A prompt that holds none of them (the person's own line, a task notification) keeps the 8c rule: `word` null, nothing
   reported, the words still on their way. An envelope's line is NOT confirmed by this rule (its outcome is the envelope's own,
   from its submit); it still names a turn when its text is in the prompt. A board file that cannot be read tells nothing and
-  marks nothing told. The risk is a word whose text is short and also inside the person's own line (it would count as entered):
-  the board's words carry their request in them, so a clash is not expected.
+  marks nothing told. A text shorter than 24 normalised characters counts only as the whole prompt (the whole-branch review: a short
+  word that stands inside the person's own line is never counted entered); the board's words carry their request in them and are
+  longer, so the merged batches are read; two short words merged into one prompt are not.
 - **The board's net** (`src/work/outboxSweep.mjs` `unconfirmedOf`, `unconfirmedWords`; `store.mjs` `deliverUnconfirmed`; the sweep
   that already runs at every refresh and every take): a word its own chat took (`isHandTaken` false: B880's hands have their own
   net; never a hand-over envelope; the lane has a report that names its last turn, `report.turn`), still `taken` 15 minutes
-  (`UNCONFIRMED_MS`) after the start of a turn of that chat that came AFTER the take (`report.turn` > `takenAt`), is closed
+  (`UNCONFIRMED_MS`) after the chat went IDLE from a turn that came AFTER the take (`report.turn` > `takenAt`; `report.state` idle with its
+  `since` not before that turn: a busy, asking or ended chat is not judged, because that turn may not carry the word at all, the person's
+  line or a task notification that started while the word was still queued), is closed
   `delivered` with `why: "delivered-unconfirmed: its chat ran a turn after it and never said"` and `deliveredAt` = that
   turn's start. It is for a mod older than 0.31.0 and for a report that failed; a word the mod said typed meanwhile is
   `delivered` already and untouched. Limits: the turn is the chat's LAST turn (a chat with back-to-back turns closes it only
-  once one has run 15 minutes or the chat rests 15), and a chat whose session was replaced after the take also runs a turn
+  once the chat has rested 15 minutes after the last), and a chat whose session was replaced after the take also runs a turn
   after it: such a word (lost with the old session) is closed with the same honest "never said". No Supervisor rule.
 Tests: `test/mergedWords.test.mjs` (the net: closed at 15 minutes, not at 14; a turn before the take, a hand's take, an envelope, no
 report: left), `mods/workers/hooks/board.test.ts` and `chatlist.test.ts` (the three real batches: each word told once, the turn

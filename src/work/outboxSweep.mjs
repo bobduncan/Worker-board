@@ -189,8 +189,10 @@ const expired = (message, keep) => ({ state: 'expired', why: `waited longer than
  * 0.31.0, Task 6 (the Advisor's case of 2026-11-04: 09:31:48, 10:06:48, 11:19:40): the app dequeues the words the mod typed while
  * its chat was busy all at once, MERGED into one prompt, and only the last submit resolves: a mod before 0.31.0 never says the
  * earlier ones typed, and they stayed `taken` for ever. The mod of 0.31.0 confirms them itself (a turn whose prompt holds a word
- * has entered it); this is the board's net for the rest: how long after the start of a turn that came after the take, a word its
- * own chat took is still `taken` before it is closed `delivered`, unconfirmed.
+ * has entered it); this is the board's net for the rest: how long a word its own chat took is still `taken` after the chat went
+ * idle from a turn that came after the take, before it is closed `delivered`, unconfirmed. The whole-branch review: counted from
+ * the idle, never from the turn's start: a turn that came after the take may not carry the word at all (the person's line or a
+ * task notification that started while the word was still queued), and while it runs the word is not in it yet.
  */
 export const UNCONFIRMED_MS = 15 * 60_000
 export const UNCONFIRMED_WHY = 'delivered-unconfirmed: its chat ran a turn after it and never said'
@@ -198,14 +200,16 @@ export const UNCONFIRMED_WHY = 'delivered-unconfirmed: its chat ran a turn after
 /**
  * The reason, and the time, a taken word counts as delivered, or null: a word its own chat took (never a hand's take, B880's
  * own net; never a hand-over envelope, whose outcome is its own), the chat's report (the lane's `report.turn`: the start of its
- * last turn, from a mod that says it) names a turn that began after the take, and that start is UNCONFIRMED_MS past. A chat
- * with no report, or one that does not name its turn, is not judged: the board does not guess it.
+ * last turn, from a mod that says it) names a turn that began after the take, the chat is IDLE since that turn (`report.state`
+ * idle, its `since` not before the turn's start: a busy, asking or ended chat is not judged), and the idle is UNCONFIRMED_MS
+ * old. `deliveredAt` is that turn's start. A chat with no report, or one that does not name its turn, is not judged: the board
+ * does not guess it.
  */
 export function unconfirmedOf(message, lane, now) {
   if (message?.state !== 'taken' || isHandTaken(message) || message.command === 'handover') return null
-  const turn = lane?.report?.turn
+  const { turn, state, since } = lane?.report ?? {}
   if (!Number.isFinite(turn) || !Number.isFinite(message.takenAt) || turn <= message.takenAt) return null
-  if (now - turn < UNCONFIRMED_MS) return null
+  if (state !== 'idle' || !Number.isFinite(since) || since < turn || now - since < UNCONFIRMED_MS) return null
   return { state: 'delivered', why: UNCONFIRMED_WHY, deliveredAt: turn }
 }
 

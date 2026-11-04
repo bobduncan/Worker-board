@@ -1,7 +1,8 @@
 // Workers mod 0.31.0, Task 6 (the Advisor's case of 2026-11-04): the app dequeues the words the mod typed while its chat was busy
 // all at once, MERGED into one prompt, and only the last submit resolves; a mod before 0.31.0 never says the earlier ones typed
 // and they stayed `taken` for ever. The mod of 0.31.0 confirms them itself; this is the board's net for the rest: a word its own
-// chat took, still taken 15 min after a turn start of that chat that came after the take, is closed `delivered`, unconfirmed.
+// chat took, still taken 15 min after the chat went idle from a turn that came after the take, is closed `delivered`, unconfirmed
+// (the whole-branch review: counted from the idle, never from the turn's start: that turn may not carry the word).
 // Made-up chats; the ids of the real batches (09:31:48, 10:06:48, 11:19:40), the times of the first.
 
 import assert from 'node:assert/strict'
@@ -16,9 +17,11 @@ const TURN = new Date(2026, 10, 4, 9, 31, 48).getTime()
 const keep = { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN }
 /** Three hours on: a hand's word held that long is given back (B880's net, 3 min) in doubt for 5 min, the chat's own take comes after. */
 const AFTER = TURN + 3 * 60 * MIN
+/** The chat went idle five minutes into its turn: the net counts its 15 min from here. */
+const IDLE = TURN + 5 * MIN
 
 /** The board's state as the sweep reads it: the chat, with the last turn its report names (none: a report without a turn, or no report). */
-const board = (report = { state: 'idle', since: TURN + 5 * MIN, turn: TURN }) => ({ restart: { main: 'Main' }, chats: [
+const board = (report = { state: 'idle', since: IDLE, turn: TURN }) => ({ restart: { main: 'Main' }, chats: [
   { name: 'Main', isMain: true, isLeftover: false, report: null },
   { name: 'Advisor', isMain: false, isLeftover: false, ...(report === null ? { report: null } : { report }) },
 ] })
@@ -31,14 +34,14 @@ async function taken(store, id, { by = null, command = null, to = 'Advisor' } = 
 }
 const stateOf = (store, id) => store.outbox().find(one => one.id === id)
 
-test('the real batch of 09:31:48: two words taken, a turn began after the take: still taken at 14 min, closed delivered at 15, at that turn\'s start', async () => {
+test('the real batch of 09:31:48: two words taken, a turn began after the take and the chat went idle: still taken 14 min after the idle, closed delivered at 15, at that turn\'s start', async () => {
   const store = memoryStore()
   await taken(store, '7a972772')
   await taken(store, 'cf04b25b')
   assert.equal(UNCONFIRMED_MS, 15 * MIN)
-  assert.deepEqual(await sweep(store, TURN + 14 * MIN), [])
+  assert.deepEqual(await sweep(store, IDLE + 14 * MIN), [])
   assert.deepEqual(store.outbox().map(one => one.state), ['taken', 'taken'])
-  const closed = await sweep(store, TURN + 15 * MIN)
+  const closed = await sweep(store, IDLE + 15 * MIN)
   assert.deepEqual(closed.map(one => one.id), ['7a972772', 'cf04b25b'])
   for (const id of ['7a972772', 'cf04b25b']) {
     const word = stateOf(store, id)
@@ -48,7 +51,27 @@ test('the real batch of 09:31:48: two words taken, a turn began after the take: 
     assert.equal(word.why, UNCONFIRMED_WHY)
   }
   // Closed once: a later look finds nothing to close.
-  assert.deepEqual(await sweep(store, TURN + 60 * MIN), [])
+  assert.deepEqual(await sweep(store, IDLE + 60 * MIN), [])
+})
+
+test('the whole-branch review: a turn after the take that runs 20 min leaves the word taken (it may be the person\'s line, the word still queued); the net counts 15 min from the chat\'s idle after it', async () => {
+  const store = memoryStore()
+  await taken(store, 'e747d01f')
+  // The turn began after the take and still runs 20 min on (an hour, a day): busy, asking or ended is not judged.
+  for (const state of ['busy', 'asking', 'ended']) {
+    for (const at of [TURN + 20 * MIN, TURN + 60 * MIN, TURN + 24 * 60 * MIN]) {
+      assert.deepEqual(await sweep(store, at, board({ state, since: TURN, turn: TURN })), [], `${state} at ${(at - TURN) / MIN} min`)
+    }
+  }
+  assert.equal(stateOf(store, 'e747d01f').state, 'taken')
+  // An idle older than the turn it names is no idle after it.
+  assert.deepEqual(await sweep(store, TURN + 60 * MIN, board({ state: 'idle', since: TURN - MIN, turn: TURN })), [])
+  // It rests from TURN + 20 min: the word is judged from there, not from the turn's start (20 min back).
+  const rested = board({ state: 'idle', since: TURN + 20 * MIN, turn: TURN })
+  assert.deepEqual(await sweep(store, TURN + 20 * MIN + 14 * MIN, rested), [])
+  assert.equal(stateOf(store, 'e747d01f').state, 'taken')
+  const closed = await sweep(store, TURN + 20 * MIN + 15 * MIN, rested)
+  assert.deepEqual(closed.map(one => [one.id, one.deliveredAt]), [['e747d01f', TURN]])
 })
 
 test('mutant "no turn-after-the-take condition": a chat whose last turn began BEFORE the take leaves the word taken, however long after', async () => {
@@ -79,8 +102,8 @@ test('mutant "the net closes a hand\'s take": a word a hand took is never closed
   const [again] = await store.take('Advisor', AFTER + 6 * MIN, { ...keep }, () => true)
   assert.equal(again.id, 'e747d01f')
   const later = board({ state: 'idle', since: AFTER + 10 * MIN, turn: AFTER + 8 * MIN })
-  assert.deepEqual(await sweep(store, AFTER + 8 * MIN + 14 * MIN, later), [])
-  assert.deepEqual((await sweep(store, AFTER + 8 * MIN + 15 * MIN, later)).map(one => one.id), ['e747d01f'])
+  assert.deepEqual(await sweep(store, AFTER + 10 * MIN + 14 * MIN, later), [])
+  assert.deepEqual((await sweep(store, AFTER + 10 * MIN + 15 * MIN, later)).map(one => one.id), ['e747d01f'])
 })
 
 test('a hand-over envelope, a chat with no report, a report that names no turn, and a word already told typed are left alone', async () => {
@@ -109,14 +132,15 @@ test('unconfirmedOf: its conditions one by one, and a dry replay writes nothing'
   const store = memoryStore()
   await taken(store, 'w1')
   const word = stateOf(store, 'w1')
-  const lane = { name: 'Advisor', report: { state: 'idle', since: TURN, turn: TURN } }
-  assert.equal(unconfirmedOf(word, lane, TURN + 15 * MIN - 1), null)
-  assert.deepEqual(unconfirmedOf(word, lane, TURN + 15 * MIN), { state: 'delivered', why: UNCONFIRMED_WHY, deliveredAt: TURN })
-  assert.equal(unconfirmedOf({ ...word, state: 'waiting' }, lane, TURN + 15 * MIN), null)
-  assert.equal(unconfirmedOf({ ...word, takenAt: undefined }, lane, TURN + 15 * MIN), null)
-  assert.equal(unconfirmedOf(word, { ...lane, report: null }, TURN + 15 * MIN), null)
-  assert.equal(unconfirmedOf(word, undefined, TURN + 15 * MIN), null)
-  const dry = await sweepOutbox({ dir: null, outbox: store, state: board(), now: TURN + 15 * MIN, keep, fs: null, dry: true })
+  const lane = { name: 'Advisor', report: { state: 'idle', since: IDLE, turn: TURN } }
+  assert.equal(unconfirmedOf(word, lane, IDLE + 15 * MIN - 1), null)
+  assert.deepEqual(unconfirmedOf(word, lane, IDLE + 15 * MIN), { state: 'delivered', why: UNCONFIRMED_WHY, deliveredAt: TURN })
+  assert.equal(unconfirmedOf({ ...word, state: 'waiting' }, lane, IDLE + 15 * MIN), null)
+  assert.equal(unconfirmedOf({ ...word, takenAt: undefined }, lane, IDLE + 15 * MIN), null)
+  assert.equal(unconfirmedOf(word, { ...lane, report: null }, IDLE + 15 * MIN), null)
+  assert.equal(unconfirmedOf(word, { ...lane, report: { ...lane.report, state: 'busy' } }, IDLE + 15 * MIN), null)
+  assert.equal(unconfirmedOf(word, undefined, IDLE + 15 * MIN), null)
+  const dry = await sweepOutbox({ dir: null, outbox: store, state: board(), now: IDLE + 15 * MIN, keep, fs: null, dry: true })
   assert.deepEqual(dry.map(one => one.id), ['w1'])
   assert.equal(stateOf(store, 'w1').state, 'taken')
 })
@@ -126,7 +150,7 @@ test('a chat\'s own take sweeps only its own words, and the net is written to th
   await taken(store, 'mine')
   await taken(store, 'theirs', { to: 'Worker 3' })
   const state = { ...board(), chats: [...board().chats, { name: 'Worker 3', isMain: false, isLeftover: false, report: { state: 'idle', since: TURN, turn: TURN } }] }
-  const closed = await sweepOutbox({ dir: null, outbox: store, state, now: TURN + 20 * MIN, keep, fs: null, to: 'Advisor' })
+  const closed = await sweepOutbox({ dir: null, outbox: store, state, now: IDLE + 20 * MIN, keep, fs: null, to: 'Advisor' })
   assert.deepEqual(closed.map(one => one.id), ['mine'])
   assert.equal(stateOf(store, 'theirs').state, 'taken')
 })
