@@ -40,8 +40,8 @@ const ask = (...args) => parseItem(askText(...args))
 // Twins of the live asks.
 const Q626_WORDS = 'Nothing is required. The board\'s debug port 9229 stays open on this PC only (not reachable from outside) until the board restarts.'
 const Q626 = (fields = {}, more = {}) => ask('Q626', { Title: 'Nothing is required.', Owner: 'Main', Asks: 'do', Via: 'chat', Route: 'person', ...fields }, { words: Q626_WORDS, history: ['main'], ...more })
-const POPUP_WORDS = 'A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (lava-tactics-project) for over a minute. Open its chat and look.'
-const POPUP_TITLE = 'A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (lava-tactics-project) for over a minute.'
+const POPUP_WORDS = 'A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (garden) for over a minute. Open its chat and look.'
+const POPUP_TITLE = 'A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (garden) for over a minute.'
 const Q629 = (fields = {}, more = {}) => ask('Q629', { Title: POPUP_TITLE, Owner: 'Worker 5', Asks: 'do', Of: 'B966', Via: 'form', Route: 'person', ...fields }, { words: POPUP_WORDS, history: ['person'], ...more })
 
 const ROLES = { Main: 'main', 'Worker 5': 'worker', 'Worker 6': 'worker', Advisor: 'advisor' }
@@ -201,7 +201,7 @@ test('the same form of the same chat while its ask stands open is not filed agai
   assert.deepEqual(await ids(), ['Q629.md'])
   assert.equal(history(await read(dir), 'Q629').filter(line => line.includes('asked again')).length, 2)
   // Other words of the same chat, or the same words of another chat: filed.
-  const other = await chat(dir, 'Worker 5', { ...popup, text: POPUP_WORDS.replace('ccd directory (change directory) (lava-tactics-project)', 'change a file (board.js)') }, NOW + 8 * MIN, { autopilot: true })
+  const other = await chat(dir, 'Worker 5', { ...popup, text: POPUP_WORDS.replace('ccd directory (change directory) (garden)', 'change a file (board.js)') }, NOW + 8 * MIN, { autopilot: true })
   assert.equal(other.result.id, 'Q630')
   const another = await chat(dir, 'Worker 6', popup, NOW + 9 * MIN, { autopilot: true })
   assert.equal(another.result.id, 'Q631')

@@ -497,7 +497,7 @@ const POPUP_ASK = /^A popup in its chat may wait for you: it has tried to (.+?) 
 const cutAt = (words, max) => (words.length > max ? `${words.slice(0, max - 1).trimEnd()}…` : words)
 /**
  * What the app's form says to the person that only they can do (T20.1, the live Q629 and Q632: "A popup in its chat may wait for you: it has
- * tried to use ccd directory (change directory) (lava-tactics-project) for over a minute."): answer in the chat. `{ name, words }`, the name
+ * tried to use ccd directory (change directory) (garden) for over a minute."): answer in the chat. `{ name, words }`, the name
  * of what only their hands can do and the words of its entry in the hands line ("Worker 5's chat waits on a popup: change directory"),
  * or null for an ask that is no form's. `chat`: the asking chat's name as the board shows it.
  */
@@ -506,7 +506,7 @@ export function formHandsOf(item, chat = null) {
   const who = chat ?? valueOf(item, 'Owner') ?? 'A chat'
   const tried = (text(item) || title(item)).match(POPUP_ASK)?.[1] ?? null
   if (tried === null) return { name: 'a question in its chat', words: `${who} asks in its chat: ${cutAt(title(item), 40)}` }
-  // "use ccd directory (change directory) (lava-tactics-project)": the tool's own action is the first bracket; "change a file (board.js)": the action alone.
+  // "use ccd directory (change directory) (garden)": the tool's own action is the first bracket; "change a file (board.js)": the action alone.
   const brackets = [...tried.matchAll(/\(([^)]*)\)/g)].map(one => one[1])
   const base = tried.replace(/\s*\([^)]*\)/g, '').trim()
   return { name: 'a popup in its chat', words: `${who}'s chat waits on a popup: ${base.startsWith('use ') && brackets.length > 0 ? brackets[0] : base}` }

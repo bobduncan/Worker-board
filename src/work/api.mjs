@@ -820,6 +820,22 @@ async function ask(body, w, { alone = false } = {}) {
   // A step the board found that refuses the ask (it cannot be read): the ask stands alone, as before.
   if (!of.ok && !isGiven) [isAlone, of] = [true, { ok: true, item: null, text: null }]
   if (!of.ok) return of
+  // T20.1 (the board's signals lead, 2026-11-04: Q621 showed B966's picture but was filed of B942, another step its worker held, so the
+  // person's "no" counted against the wrong step): a worker's ask whose pictures all sit under one step's folder in the project's picture
+  // folder (`pictureStepOf`) is filed of that step when the chat holds, or held, it; when it holds neither step, it is refused.
+  let placed = null
+  const named = !isAlone && w.role === 'worker' ? pictureStepOf(body.pictures, w.shownFolders?.[0]) : null
+  if (named !== null && named !== valueOf(of.item, 'Id')) {
+    const that = w.store.items.get(named)
+    if (that !== undefined && kindOf(that) === 'step' && heldByChat(that, w)) {
+      const moved = await load(named, w, { kind: ['step'] })
+      if (!moved.ok) return moved
+      placed = { from: valueOf(of.item, 'Id'), to: named }
+      of = moved
+    } else if (!heldByChat(of.item, w)) {
+      return refuse(409, `Its pictures are ${named}'s but you ask under ${valueOf(of.item, 'Id')}, and you hold neither: ask under the step you hold, with its own pictures.`)
+    }
+  }
   const holder = isAlone ? null : valueOf(of.item, 'Owner')
   // T9.1.1: and the worker that checks the step (it holds, or held, its Quality Assurance task) asks the person under it, for a
   // point only they can judge.
@@ -946,7 +962,7 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
   }
   // A worker's look with pictures of a step of the focus goal (the ruling on v2, 2026-11-02) is a kept look from its filing: its kept line.
   const card = route === 'recap' && pilot?.kept === true ? KEPT_LOOK_WORDS : pilot?.earlier === undefined ? null : earlierCardWords(pilot.earlier)
-  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route, pilot: pilot !== null, freed: isFreed, card })
+  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route, pilot: pilot !== null, freed: isFreed, card, placedWhy: placed === null ? null : `filed of ${placed.to}, the step its pictures name (${placed.from} was given)` })
   if (!made.ok) return made
   const { question, id, title } = made
   const stepId = isAlone ? null : valueOf(of.item, 'Id')
@@ -968,7 +984,8 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
   if (!done.ok) return done
   // Your words: the step holds the person's words: the answer ends saying so, so the chat reads them before it goes on.
   const words = yourWordsLine(of.item)
-  return changed(question, `${block}${moved}${unlinkedNote}${words === '' ? '' : `\n${words}`}`, { ...routed, ...(isGiven ? {} : { of: stepId }) })
+  const placedNote = placed === null ? '' : `\n\nNote: its pictures are ${placed.to}'s, so it is filed of ${placed.to}, not ${placed.from}: the person's answer counts for ${placed.to}.`
+  return changed(question, `${block}${moved}${unlinkedNote}${placedNote}${words === '' ? '' : `\n${words}`}`, { ...routed, ...(isGiven ? {} : { of: stepId }), ...(placed === null ? {} : { placed }) })
 }
 
 /**
@@ -1066,6 +1083,37 @@ function askShape({ owner, kind, of = null, options = [], advice = '', via = nul
 }
 
 /**
+ * T20.1 (the board's signals lead, 2026-11-04, the live Q621): the step whose folder in the project's picture folder (`folder`, the first of the
+ * settings' shown folders, as the picture links use it) holds all of an ask's `pictures` ("<folder>/B966/first-look.png"), or null: none
+ * given, a picture elsewhere, or pictures of two steps.
+ */
+function pictureStepOf(pictures, folder) {
+  if (typeof folder !== 'string' || folder === '') return null
+  const given = (Array.isArray(pictures) ? pictures : typeof pictures === 'string' ? pictures.split(',') : []).filter(one => typeof one === 'string' && one.trim() !== '')
+  const start = `${folder.replace(/\/+$/, '')}/`.toLowerCase()
+  const steps = new Set()
+  for (const one of given) {
+    const path = one.trim().replace(/\\/g, '/').toLowerCase()
+    const found = path.startsWith(start) ? path.slice(start.length).match(/^(b\d+)\//) : null
+    if (found === null) return null
+    steps.add(found[1].toUpperCase())
+  }
+  return steps.size === 1 ? [...steps][0] : null
+}
+
+/**
+ * T20.1: whether the chat holds the step (its owner, or the worker that checks it) or held it (its History has a take by the chat, and
+ * nobody else owns it now: an ask under a step another chat holds is refused as it always was).
+ */
+function heldByChat(step, w) {
+  if (valueOf(step, 'Owner') !== null) return isOwner(step, w.who, w.prefix) || isCheckerOf(step, w)
+  return (step.sections.get('History') ?? []).some(one => {
+    const took = one.match(/^-\s+\d{4}-\d\d-\d\d \d\d:\d\d (.+?): .*\btaken\b/)
+    return took !== null && plain(took[1], w.prefix) === plain(w.who, w.prefix)
+  })
+}
+
+/**
  * T20.1 (the person's "Yes, fold them", 2026-11-04), while Autopilot is on: the open ask of the app's form of the same chat with the same
  * words and options (the live Q629 and Q632), or undefined. The oldest, so the first stays the one that is kept.
  */
@@ -1127,7 +1175,7 @@ function autopilotFiledWords(id, route) {
 }
 
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
-async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null, owner = undefined, pilot = false, freed = false, card = null, closedWhy = null }) {
+async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null, owner = undefined, pilot = false, freed = false, card = null, closedWhy = null, placedWhy = null }) {
   const id = await nextId(w.dir, 'Q', w.fs)
   // B452: the question its words lead with (a title over 12 words came from the mod's form or a "For you" block).
   // B462: a refine question gives its own, found before its advice.
@@ -1144,6 +1192,7 @@ async function makeAsk(w, { of = null, kind, blocking = false, text, options = [
   // Autopilot: the route's one line, as the board's sweep writes it.
   if (pilot && route !== null) question = appendHistory(question, 'server', routedWords(route), w.now)
   if (freed) question = appendHistory(question, 'server', RECAP_GOES_ON, w.now)
+  if (placedWhy !== null) question = appendHistory(question, 'server', placedWhy, w.now)
   // T20.1: an ask that asks nothing is filed closed at once (withdrawn, with its why), in the one write.
   if (closedWhy !== null) question = ordered(appendHistory(put(question, 'State', 'withdrawn'), 'server', `withdrawn: ${closedWhy}`, w.now))
   const wrote = await save(question, null, w)
