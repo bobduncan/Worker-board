@@ -309,46 +309,80 @@ export const dropsStep = (question, stepId) => new RegExp(`\\bdrop (?:it|this st
  * goal's definition, its work blocks or plan, a change of the goal, the goal map (which goals there are), or which goal comes next.
  * Whole phrases ("the new goal steps panel" of the board is no goal's start). Its Go is `GOAL_GO`.
  */
-export const GOAL_START = /\bgoal definition\b|\bwork blocks?\b|\bnew plan\b|\bChange this goal\b|\bnext (?:focus|goal)\b|\bswitch(?:es|ed|ing)? (?:the |your |its )?focus\b|\bfocus switch\b|\bwhich goal\b|\bgoal map\b|\bnew goal\b(?!\s+steps?\b)/i
+export const GOAL_START = /\bgoal definition\b|\bwork blocks?\b|\bnew plan\b|\bnew how\b|\bChange this goal\b|\bwhich goal\b|\bgoal map\b|\bnew goal\b(?!\s+steps?\b)/i
 /** A goal's Go, as the Goals page names the person's button ("your Go", "the Go"): case kept, so "your go-ahead" is none. */
 export const GOAL_GO = /\b(?:your|the|its) Go\b/
+/** A switch of focus (the review of v2, 2026-11-04: "Switch to G29 as the focus once B900 lands?"), in every chat's words. */
+export const FOCUS_SWITCH = /\bnext (?:focus|goal)\b|\bswitch(?:es|ed|ing)?\b[^.?!]{0,40}\bfocus\b(?!\s+(?:ring|outline|state|style|colou?r)\b)|\bas the focus\b|\bfocus switch\b|\bthe focus (?:to|on) G\d+\b/i
+/**
+ * The goal's recap and a recap row's verdict, under a step too (the review of v2, 2026-11-04: the live Q595 "give your verdict on
+ * row 9 in G60's recap", a do under a step linking its window; "Approve row 4 of G60's recap?"): its `#demo=` link or demo.json,
+ * "the goal's recap", "Did we reach the goal?", "G60's recap", a recap row, a row's verdict in the recap.
+ */
+export const RECAP_WORDS = /#demo=|\bdemo\.json\b|\bgoal(?:'s)? (?:recap|demo)\b|\bDid we reach the goal\b|\bG\d+'s recap\b|\brecap(?:'s)? rows?\b|\brow \d+\b[^.?!]*\brecap\b|\bverdict\b[^.?!]*\brecap\b|\brecap\b[^.?!]*\bverdict\b/i
+/** The focus goal's own verdict (the review of v2: its re-check asks a look of `G<focus>`): whether the goal is reached or done. */
+const GOAL_VERDICT = /\breach(?:ed|es)? (?:the|this|its) goal\b|\b(?:goal|G\d+)\b[^.?!]*\b(?:reached|done|met|finished|complete)\b|\bverdict\b|\bre-?check\b|\bmark G\d+ done\b/i
+/**
+ * The person's decision (2026-11-04, a default until they say otherwise: they overruled the advice on 2 of the last 4 rebuilds,
+ * Q583, Q598, Q605): a goal's rebuild ("Rebuild G<n>: ...") is theirs, never the board's advice. One constant, a one-line change.
+ */
+export const REBUILD_IS_PERSONS = true
+/** An ask about what the person meant or said (the live Q603, Q604): never the board's advice; the partner reads their words. */
+const ASKS_MEANING = /\b(?:do|did) you (?:mean|say)\b/i
 
 /**
- * Goal level under Autopilot v2 (the person's "B", 2026-11-02): what of a goal still reaches the person, `{ phrase, part }` (`part`
- * 'recap' or 'start'), or null. The goal's recap: its `#demo=` link or demo.json, and under no step "the goal's recap" or "Did we
- * reach the goal?". A goal's start or a focus switch, under no step: an ask of a goal that is not the focus (`Of: G<n>`), a title that
- * names such a goal, and (every chat's but a worker's: a worker plans no goal) the words of GOAL_START and GOAL_GO. The coordinator's
- * ruling (2026-10-31) stands: under a step none of these words count. Everything else of a goal is decided for the person now: an
- * ask of the focus goal (its rebuild too, "Rebuild G60: which way", the live Q605), an approach, a setting, a standard, a licence.
+ * Goal level under Autopilot v2 (the person's "B", 2026-11-02, and the review's rulings of 2026-11-04): what of a goal still reaches
+ * the person, `{ phrase, part }`, or null. `part`:
+ * - 'recap': the goal's recap or a recap row's verdict (RECAP_WORDS), under a step too (the route then lets the recap take it).
+ * - 'rebuild': a goal's rebuild ("Rebuild G<n>"), while REBUILD_IS_PERSONS.
+ * - 'verdict': the focus goal's own verdict: an ask of it (`Of: G<focus>`) that is a look, or whose words ask whether it is reached.
+ * - 'start': a goal's start or a focus switch: FOCUS_SWITCH in every chat's words, GOAL_START and GOAL_GO in every chat's but a
+ *   worker's (a worker plans no goal), under a step too; and under no step an ask of a goal that is not the focus (`Of: G<n>`) or a
+ *   title that names such a goal.
+ * Everything else of a goal is decided for the person: an ask of the focus goal mid-goal, an approach, a setting, a standard.
  * `focusGoal` null: every goal is "not the focus".
  */
 export function goalLevelOf(item, role = null, focusGoal = null) {
   const of = valueOf(item, 'Of')
   const words = `${title(item)} ${text(item)}`
   const isUnderStep = STEP.test(of ?? '')
-  const recap = words.match(/#demo=|\bdemo\.json\b/i)?.[0] ?? (isUnderStep ? null : words.match(/\bgoal(?:'s)? (?:recap|demo)\b|\bDid we reach the goal\b/i)?.[0] ?? null)
+  const recap = words.match(RECAP_WORDS)?.[0] ?? null
   if (recap !== null) return { phrase: recap, part: 'recap' }
-  if (isUnderStep) return null
+  const rebuild = REBUILD_IS_PERSONS ? title(item).match(/^Rebuild G\d+\b/)?.[0] ?? null : null
+  if (rebuild !== null) return { phrase: rebuild, part: 'rebuild' }
+  if (focusGoal !== null && of === focusGoal) {
+    const verdict = (valueOf(item, 'Asks') ?? 'decide') === 'look' ? `a look of ${of}` : words.match(GOAL_VERDICT)?.[0] ?? null
+    if (verdict !== null) return { phrase: verdict, part: 'verdict' }
+  }
+  const start = words.match(FOCUS_SWITCH)?.[0] ?? (role === 'worker' ? null : words.match(GOAL_START)?.[0] ?? words.match(GOAL_GO)?.[0] ?? null)
+  if (isUnderStep) return start === null ? null : { phrase: start, part: 'start' }
   if (GOAL.test(of ?? '') && of !== focusGoal) return { phrase: `of ${of}`, part: 'start' }
   const other = (title(item).match(/(?<![-\w])G\d+\b/g) ?? []).find(id => id !== focusGoal) ?? null
   if (other !== null) return { phrase: other, part: 'start' }
-  const start = role === 'worker' ? null : words.match(GOAL_START)?.[0] ?? words.match(GOAL_GO)?.[0] ?? null
   return start === null ? null : { phrase: start, part: 'start' }
 }
 /** Whether an ask is goal level (`goalLevelOf`). */
 export const isGoalLevel = (item, role = null, focusGoal = null) => goalLevelOf(item, role, focusGoal) !== null
 
 /**
- * The pattern of a permanent delete: a chat, a file or folder, a launch.json entry, a branch. A cache is none (Autopilot v2, the
- * live Q601 "May I stop the game on port 5300 and delete the board's old game cache?": "It rebuilds by itself"): a delete, or an
- * `rm -r`, whose own sentence names a cache after it is a chat's to do.
+ * The pattern of a permanent delete: a chat, a file or folder, a launch.json entry, a branch (the review of v2, 2026-11-04: a cache
+ * too, the exemption is gone; `git branch -D`; a remove for good or permanently).
  */
-const DELETES = /\bdelet(?:e|es|ed|ing|ion)\b(?![^.?!]*\bcaches?\b)|\berase[sd]?\b|\bwipe[sd]?\b|\brmdir\b|\brm -r(?![^.?!]*cache)/i
+const DELETES = /\bdelet(?:e|es|ed|ing|ion)\b|\berase[sd]?\b|\bwipe[sd]?\b|\brmdir\b|\brm -r|\bbranch -D\b|\bremov(?:e|es|ed|ing)\b[^.?!]*\b(?:for good|permanently)\b|\bpermanently\b/i
+/**
+ * Money (the review of v2, 2026-11-04: advice is an automatic yes now): pay, billing, buy or purchase, a price in a currency or $,
+ * credits (not a game's credits screen), extra usage, a subscription.
+ */
+const MONEY = /\bpay(?:s|ing|ment|ments)?\b(?!\s+attention)|\bpaid\b|\bbilling\b|\bmoney\b|\bbuy(?:s|ing)?\b|\bbought\b|\bpurchas(?:e|es|ed|ing)\b|\bsubscriptions?\b|\bcredits\b(?!\s+(?:screen|roll|scene|page)\b)|\bextra usage\b|[$€£]\s?\d|\b\d+(?:[.,]\d+)?\s?(?:USD|EUR|dollars?|euros?)\b|\bprice\b[^.?!]*(?:[$€£]|\bUSD\b|\bEUR\b|\bdollars?\b|\beuros?\b)/i
 /**
  * The pattern of what publishes or makes public (the coordinator's ruling on Autopilot v2, 2026-11-02: "Publishing stays the
- * person's"): publish, make public or open-source, a public repository, a release, a post on a site, a licence, sharing outside the PC.
+ * person's"): publish, make public (a repository, the game, a build, a page, the code; not a function made public in the code) or
+ * open-source, a public repository, a release, a post on a site, a licence, sharing outside the PC; and (the review, 2026-11-04) an
+ * upload, itch.io, Steam (`STEAM`, its case kept: steam in a lava game is none), a store page.
  */
-const PUBLISHES = /\bpublish(?:es|ed|ing)?\b|\bmake\b[^.?!]{0,40}?\bpublic\b|\bopen[- ]source\b|\bpublic(?:ly)? (?:repo(?:sitory)?|release|post)\b|\b(?:a|the|new|public|github) release\b|\bpost(?:s|ed|ing)?\b[^.?!]{0,40}?\b(?:on|to) (?:twitter|x|reddit|discord|github|itch(?:\.io)?|steam|the (?:web|internet)|social media|a forum)\b|\blicen[cs]e[sd]?\b|\bshar(?:e|es|ed|ing)\b[^.?!]*\b(?:outside (?:the|this) PC|publicly|online|with the (?:public|world))\b/i
+const PUBLISHES = /\bpublish(?:es|ed|ing)?\b|\bmake (?:it|them|this|that|(?:the |our |my |this )?(?:\w+ )?(?:repo(?:sitory)?|game|build|project|site|page|code|source))\b[^.?!]{0,20}?\bpublic\b|\bopen[- ]source\b|\bupload(?:s|ed|ing)?\b|\bitch(?:\.io)?\b|\bstore page\b|\bpublic(?:ly)? (?:repo(?:sitory)?|release|post)\b|\b(?:a|the|new|public|github) release\b|\bpost(?:s|ed|ing)?\b[^.?!]{0,40}?\b(?:on|to) (?:twitter|x|reddit|discord|github|itch(?:\.io)?|steam|the (?:web|internet)|social media|a forum)\b|\blicen[cs]e[sd]?\b|\bshar(?:e|es|ed|ing)\b[^.?!]*\b(?:outside (?:the|this) PC|publicly|online|with the (?:public|world))\b/i
+/** Steam, the store, its case kept (steam rising from a lava vent is no publish): on Steam, a Steam page, store, release, build or key. */
+const STEAM = /\b(?:[Oo]n|[Tt]o|[Ff]or|[Tt]he) Steam\b|\bSteam (?:page|store|release|build|keys?)\b|\b[Ss]teamworks\b/
 
 /**
  * What only the person's own hands can do, one list (the review of 2026-10-31: Q104, Q559, Q345, Q113, Q539 went to the main
@@ -365,16 +399,17 @@ export const PERSONS_HANDS = [
   // "Allow" as the app's button (quoted, or on a prompt), never the verb ("Allow the outline to cut a cell?", the live Q401).
   ['a click', /["“']Allow["”']|\bAllow\b[^.?!]*\b(?:prompt|popup|dialog)\b/],
   ['a button of the board', /\badd (?:it |them )?to the queue\b|\bpin(?:s|ned)?\b[^.?!]*\bto\b|\bthe Backlog tab\b/i],
-  ['a sign-in', /\bsign(?:ed|ing)?[- ]?(?:in|up)\b|\blog(?:ged|ging)?[- ]?in\b/i],
-  ['an account', /\baccounts?\b/i],
-  ['money', /\bpay(?:s|ing|ment|ments)?\b|\bpaid\b|\bbilling\b|\bmoney\b|\bpurchase\b|\bsubscription\b/i],
+  ['a sign-in', /\bsign(?:ed|ing)?[- ]?(?:in|up)\b|\blog(?:ged|ging)?[- ]?in(?:to)?\b/i],
+  ['an account', /(?<!\binto )\baccounts?\b/i],
+  ['money', MONEY],
   ['an install', /\b(?:re-?)?install(?:s|ed|ing|ation)?\b/i],
   ['a change of a mod', /\b(?:update|change|upgrade)\b[^.?!]*\bmods?\b/i],
-  ['a permission', /\bpermissions?\b/i],
+  ['a permission', /\bpermissions?\b|\ballow rules?\b/i],
   ['a password', /\bpasswords?\b|\bAPI keys?\b/i],
   ['the week\'s limit', /\bweekly limit\b|\bweek's limit\b/i],
   ['a permanent delete', DELETES],
   ['a publish', PUBLISHES],
+  ['a publish', STEAM],
 ]
 /**
  * The coordinator's ruling (2026-10-31): for a decide or a look under a step, only these whole phrases make it the person's
@@ -384,13 +419,14 @@ export const PERSONS_HANDS = [
  */
 export const UNDER_STEP_HANDS = [
   ['the Claude app', /\b(?:quit|re-?open|restart)\b[^.?!]*\bClaude(?: app)?\b|\bClaude app\b[^.?!]*\b(?:quit|re-?open|restart)\b/i],
-  ['a sign-in', /\bsign(?:ed|ing)? in\b|\blog(?:ged|ging)? in\b/i],
+  ['a sign-in', /\bsign(?:ed|ing)? in\b|\blog(?:ged|ging)? in(?:to)?\b/i],
   ['an account', /\b(?:an?|your|the|my|our|their|this|that)\s+accounts?\b/i],
   ['a password', /\bpasswords?\b/i],
-  ['money', /\bpay(?:s|ing|ment|ments)?\b(?!\s+attention)|\bmoney\b/i],
+  ['money', MONEY],
   ['a permanent delete', DELETES],
   ['an install', /\b(?:re-?)?install(?:s|ed|ing)?\b[^.?!]*\b(?:mod|app)\b/i],
   ['a publish', PUBLISHES],
+  ['a publish', STEAM],
 ]
 /**
  * A do that only the person's own eyes, ears or words can carry out (its title: "Look at the picture.", "Play the painted
@@ -489,28 +525,34 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   const isUnderStep = STEP.test(of ?? '')
   const step = isUnderStep ? items.get(of) : undefined
   const advice = adviceOf(item)
+  const hasPictures = String(valueOf(item, 'Pictures') ?? '').trim() !== ''
   // The coordinator's ruling on v2 (2026-11-02): a worker's or the main chat's look with pictures of a step of the focus goal (its
   // Of, else the step its Pictures name) is no detail: an art or map look waits for the goal's recap as a kept look, with or without
   // advice, where it would else be decided for the person. Without pictures, or of another goal, it is decided as any look.
   const keptLook = ['worker', 'main'].includes(role) && kind === 'look' && handedWhy === null && String(valueOf(item, 'Pictures') ?? '').trim() !== ''
     ? focusLookOf(item, { focusGoal, items }, role) : null
-  // Decided for the person (v2): the advice of a decide or look is taken (never on the board's Accept card, whose answer ticks
-  // the step: the partner judges it); anything else the partner decides. The Product owner's own ask stays the person's (the
-  // goal's recap is its job), but its advice under a step is taken, as before.
+  // Decided for the person (v2): the advice of a decide or look is taken; anything else the partner decides. The Product owner's own
+  // ask stays the person's (the goal's recap is its job), but its advice under a step is taken, as before. The review's rulings
+  // (2026-11-04: advice is an automatic yes now): no advice is taken for an ask that names what only the person's hands can do in
+  // the whole list (PERSONS_HANDS, under a step too: it is theirs), for a look with pictures (art: of another goal the partner
+  // judges it and hands it on), nor for an ask about what the person meant or said (the partner reads their words).
   const decided = why => {
     if (keptLook !== null) return { to: 'recap', why: KEPT_LOOK_WHY, kept: true, ...(keptLook.isInferred ? { step: keptLook.step } : {}) }
-    const takes = advice !== null && ['decide', 'look'].includes(kind) && via !== 'accept'
+    const advised = advice !== null && ['decide', 'look'].includes(kind) && via !== 'accept'
+    const hands = advised ? handsMatchOf(item, PERSONS_HANDS) : null
+    if (hands !== null) return { to: 'person', why: `only the person's hands: ${hands.name} ("${hands.phrase}")`, hands: hands.name }
+    const takes = advised && !(kind === 'look' && hasPictures) && !ASKS_MEANING.test(`${title(item)} ${text(item)}`)
     if (role === 'owner') return takes && isUnderStep ? { to: 'advice', why: 'the Product owner\'s own advice on a step' } : { to: 'person', why: `the Product owner's: it answers for the goal (${why})` }
     return takes ? { to: 'advice', why: `${why}: its advice is taken` } : { to: 'partner', why: `${why}: the partner decides it` }
   }
-  // A verdict on a result (an accept, a send back, a mark done) decided for the person: when they answered an ask naming its step
-  // lately (`earlierAnswerOf`), the partner's card and word name that answer (plan-earlier's "B", now a hint, not a condition).
+  // A verdict on a result (an accept, a send back, a mark done) decided for the person: always the partner's, never the advice (the
+  // review's ruling, 2026-11-04: an answer that ticks a step is judged by the step's check); when they answered an ask naming its
+  // step lately (`earlierAnswerOf`), the partner's card and word name that answer (plan-earlier's "B", a hint, not a condition).
   const verdictOf = why => {
+    if (keptLook !== null) return decided(why)
     if (role === 'owner') return { to: 'person', why: `the Product owner's: it answers for the goal (${why})` }
-    const route = decided(why)
-    if (route.to !== 'partner') return route
     const earlier = earlierAnswerOf(item, items, now)
-    return earlier === null ? route : { to: 'partner', why: `the person's earlier answer on ${earlier.id} names ${of}`, earlier: earlier.id }
+    return earlier === null ? { to: 'partner', why: `${why}: the partner decides it` } : { to: 'partner', why: `the person's earlier answer on ${earlier.id} names ${of}`, earlier: earlier.id }
   }
   // A verdict of a step of the focus goal waits for its recap (rule 1: the goal's recap and its verdicts reach the person there).
   const recapOr = (why, otherwise = decided) => {
@@ -538,7 +580,13 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   const recapAsk = recapAskOf(item, { focusGoal, recapSteps, items }, role)
   if (recapAsk !== null) return recapAsk
   const goal = goalLevelOf(item, role, focusGoal)
-  if (goal !== null) return { to: 'person', why: goal.part === 'recap' ? `the goal's recap ("${goal.phrase}")` : `a goal's start or a focus switch ("${goal.phrase}")` }
+  if (goal !== null) {
+    const why = { recap: 'the goal\'s recap', rebuild: 'a rebuild of a goal', verdict: 'the focus goal\'s own verdict', start: 'a goal\'s start or a focus switch' }[goal.part]
+    // Under a step the goal's recap takes it when it can (its step of the focus goal, the demo still to come or naming it), else the person.
+    const said = `${why} ("${goal.phrase.length > 60 ? `${goal.phrase.slice(0, 59)}…` : goal.phrase}")`
+    if (goal.part === 'recap' && isUnderStep) return recapOr(said, reason => ({ to: 'person', why: reason }))
+    return { to: 'person', why: said }
+  }
   // The partner's hand-over of a new look of the focus goal waits for its recap, whatever the recap names (the person's "A",
   // 2026-11-02): before the rules of a look. A worker's look is no hand-over: the partner answers it, as before.
   const look = handedWhy === null ? null : focusLookOf(item, { focusGoal, items }, role)

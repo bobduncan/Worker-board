@@ -81,12 +81,13 @@ test('the switch-on\'s sweep puts the asks the focus recap asks already into the
     Q6: ask('Q6', { Title: 'Is 70 beside the other map\'s 64 good enough, or should the 75 target be reset?', Owner: 'Painter', Asks: 'look', Via: 'chat', Route: 'person', Pictures: 'pictures/B60/evidence.png' }, null, { routed: true }),
   })
   t.after(() => rm(dir, { recursive: true, force: true }))
-  const before = await Promise.all(['Q4', 'Q5'].map(id => readFile(join(dir, `${id}.md`), 'utf8')))
+  const before = await Promise.all(['Q3', 'Q4', 'Q5'].map(id => readFile(join(dir, `${id}.md`), 'utf8')))
   // The switch-on. (Autopilot v2: every pass judges anew what the board routed to the person, so a refresh would do the same.)
   const swept = await pass(dir, { sweep: true })
   assert.equal(swept.ok, true, swept.why)
-  assert.deepEqual(swept.result.routed, [{ id: 'Q1', to: 'recap' }, { id: 'Q2', to: 'recap' }, { id: 'Q3', to: 'advice' }, { id: 'Q6', to: 'partner' }])
-  assert.deepEqual(swept.result.answered, ['Q3'])
+  // Q3, a rebuild, stays the person's (the person's decision of 2026-11-04, REBUILD_IS_PERSONS, on purpose: its advice was taken).
+  assert.deepEqual(swept.result.routed, [{ id: 'Q1', to: 'recap' }, { id: 'Q2', to: 'recap' }, { id: 'Q6', to: 'partner' }])
+  assert.deepEqual(swept.result.answered, [])
   const items = await read(dir)
   // The goal's own ask: routed to the recap, under no step; one more route line in its History, the board's own.
   assert.deepEqual([field(items, 'Q1', 'Route'), field(items, 'Q1', 'Of')], ['recap', undefined])
@@ -97,11 +98,11 @@ test('the switch-on\'s sweep puts the asks the focus recap asks already into the
   assert.ok(items.get('B50').sections.get('Context').some(line => line.trim() === 'Recap verdict: waits (Q2)'))
   assert.equal(field(items, 'B50', 'State'), 'review', 'the step stays as it is')
   // The rest stays as it was, byte for byte.
-  assert.deepEqual(await Promise.all(['Q4', 'Q5'].map(id => readFile(join(dir, `${id}.md`), 'utf8'))), before)
+  assert.deepEqual(await Promise.all(['Q3', 'Q4', 'Q5'].map(id => readFile(join(dir, `${id}.md`), 'utf8'))), before)
   // Out of Needs your attention, in the recap's lists.
   const work = { ok: true, items }
   const needs = storeNeeds(work, { now: NOW + 2 * MIN, autopilot: true, roleOf: name => ROLES[name] ?? null, focusGoal: 'G29', focusHasDemo: true, recapSteps: RECAPS }).filter(one => one.answer === null).map(one => one.workId)
-  assert.deepEqual(needs.sort(), ['Q4', 'Q5'])
+  assert.deepEqual(needs.sort(), ['Q3', 'Q4', 'Q5'])
   assert.deepEqual(routedAwayOf(work).map(one => [one.id, one.route, one.of, one.asks]), [['Q1', 'recap', null, 'do'], ['Q2', 'recap', 'B50', 'look']])
   // The record: each item moved into the recap, in the words of the page's line.
   const record = await cleared(dir)

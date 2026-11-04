@@ -1619,6 +1619,9 @@ async function autopilot(body, w) {
       if (!isAgain && (isAutopilotRouted(item) || (route !== null && !(route === 'person' && !isExplicitPerson(item))))) continue
       const decided = autopilotRoute(item, isAgain ? { ...ctx, again: true } : ctx)
       if (isAgain && decided.to === 'person') continue
+      // The review's ruling (2026-11-04): a pass never answers with the advice an ask that stood for the person (they may have it
+      // open, as Q598 after a focus switch); the advice is taken only at the filing and at the switch-on's sweep.
+      if (isAgain && !isSweep && decided.to === 'advice') continue
       // A worker's look with pictures of the focus goal (the ruling on v2, 2026-11-02) is kept as the partner's hand-over is: its kept
       // line, put under the step its picture names, its step goes on; read anew, as the hand-overs below are.
       let done = decided.kept === true
@@ -1879,6 +1882,16 @@ async function takeBack(ask, body, w) {
     if (stateOf(ask.item) === 'open' && routeLines.some(one => / you took it back$/.test(one))) return { ok: true, result: { id, text: 'Taken back already.', changed: false, asked: true } }
     return refuse(409, `${id} is no answer of your partner's: there is nothing to take back.`)
   }
+  // The review of Autopilot v2 (2026-11-04: the Undo of the partner's Accept led nowhere, its step stayed done and the reopened card
+  // was withdrawn a minute later): the Undo of an Accept that ticked the card's step moves the step back to review, so the card
+  // stands for the person again; when the flow lets nobody move it back, the Undo refuses with one line and changes nothing.
+  const of = valueOf(ask.item, 'Of')
+  const ticked = w.store.items.get(of ?? '')
+  const reopens = valueOf(ask.item, 'Via') === ACCEPT_VIA && acceptReading(ask.item.sections.get('Answer') ?? []) === 'accept' && ticked !== undefined && stateOf(ticked) === 'done'
+  if (reopens) {
+    const back = move(ticked, 'review', 'person', w, flowCtx(w, [ticked]))
+    if (!back.ok) return refuse(409, `${id} cannot be taken back: its Accept closed ${of}, and the flow lets nobody move a done step back to review (${back.why}). Nothing changed.`)
+  }
   if (body.check === true) return { ok: true, result: { id, text: 'It may be taken back.', changed: false, asked: false, undo: { ask: id, note: noteId } } }
   // The review's findings: the note's line is marked first; a note that cannot be marked fails the take-back loudly,
   // and nothing changes, so its Undo stays.
@@ -1907,9 +1920,13 @@ async function takeBack(ask, body, w) {
   item.sections.delete('Why')
   item.sections.set('Route', [`${had}: ${answered}; you took it back`])
   item = ordered(said(item, w, `took back the ${by === 'autopilot' ? 'board\'s Autopilot' : by === 'main' ? 'main chat\'s' : 'partner\'s'} answer: ${answered}; open for the person`))
-  const of = valueOf(ask.item, 'Of')
   const done = await answerStep(w, item, ask.text, of, step => {
     let mine = said(underStep(step, [`${id}: the person took back the partner's answer on ${at(w.now)}; it waits for their answer`]), w, `${id} taken back`)
+    // Its Accept undone: back to review, as the flow allowed above (the step read anew; one no longer done stays as it is). Its line
+    // is no "done → review": every reader of a report (a move to review) would take it for a new report and ask its check anew.
+    if (reopens && stateOf(mine) === 'done' && move(mine, 'review', 'person', w, flowCtx(w, [item, mine])).ok) {
+      mine = appendHistory(put(put(copy(mine), 'State', 'review'), 'Since', stamp(w.now)), w.who, `back in review: the Accept in ${id} is undone`, w.now)
+    }
     // A step its holder blocked on this ask waits on the person again, as when it asked.
     const owner = valueOf(mine, 'Owner')
     if (valueOf(ask.item, 'Blocking') === 'yes' && stateOf(mine) === 'in progress' && owner !== null && asker !== null && plain(owner, w.prefix) === plain(asker, w.prefix)) {

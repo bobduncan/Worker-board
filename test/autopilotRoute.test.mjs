@@ -77,7 +77,9 @@ test('the recap: only for a step of the focus goal whose demo is still to come o
   assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusHasDemo: true }).to, 'partner')
   assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B21', goal: 'G29' }] }).to, 'recap')
   // The checker's look carries a picture of B21, a step of the focus goal: kept for the recap (the ruling on v2, on purpose).
-  assert.deepEqual(autopilotRoute(CHECKER_LOOK, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B99', goal: 'G29' }] }), { to: 'recap', why: KEPT_LOOK_WHY, kept: true })
+  // Its words name "the goal recap": the recap's words count under a step too (the review, 2026-11-04, on purpose: it was kept for the
+  // recap as a look with pictures); the demo is made without its step, so it is the person's.
+  assert.deepEqual(autopilotRoute(CHECKER_LOOK, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B99', goal: 'G29' }] }), { to: 'person', why: 'the goal\'s recap ("goal recap"), and the goal\'s demo is made without its step' })
   assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusGoal: null }).to, 'partner')
 })
 
@@ -149,13 +151,19 @@ test('the re-review\'s ruling: under a step, Autopilot On asks the person no mor
   const off = one => routesToPartner({ setting: { on: true }, role: 'worker', kind: one.head.get('Asks'), options: optionsOf(one).map(o => o.words), advice: adviceOf(one) ?? '', via: null })
   // Twins of the live Q125, Q234, Q401 and words like them: the partner's with Autopilot off, the partner's with it on.
   for (const title of ['Do the settings page\'s previews work the way you meant?', 'New approach for the crumbling tiles and vents?', 'Allow the painted outline to cut a cell by up to half?',
-    'Should the focus ring be gold?', 'Press the edge in by one pixel?', 'Click through the shop: does it read?', 'Take the old lava into account?', 'Pay attention to the moat\'s edge?',
-    'Keep the chip art for the cards?', 'Update the map to the G28 levels?']) {
+    'Should the focus ring be gold?', 'Take the old lava into account?', 'Pay attention to the moat\'s edge?', 'Update the map to the G28 levels?']) {
     const one = detail('Q90', title)
     assert.equal(off(one), true, title)
     // v2, on purpose: the board takes the advice the partner took (it went to the partner).
     assert.equal(routeOf(one), 'advice', title)
     assert.equal(routeOf(detail('Q91', title, { Asks: 'look' })), 'advice', `look: ${title}`)
+    assert.equal(routeOf(detail('Q91', title, { Advice: undefined })), 'partner', `no advice: ${title}`)
+  }
+  // The review of v2 (2026-11-04, on purpose: these took the advice): advice is an automatic yes, so the whole list of the person's
+  // hands is read first, under a step too: a click, a press, a chip are theirs; without advice the partner judges them, as Off.
+  for (const title of ['Press the edge in by one pixel?', 'Click through the shop: does it read?', 'Keep the chip art for the cards?']) {
+    assert.equal(routeOf(detail('Q90', title)), 'person', title)
+    assert.equal(autopilotRoute(detail('Q90', title), ctx).hands, 'a click', title)
     assert.equal(routeOf(detail('Q91', title, { Advice: undefined })), 'partner', `no advice: ${title}`)
   }
   // Only these whole phrases make a decide or look under a step the person's.
@@ -165,7 +173,7 @@ test('the re-review\'s ruling: under a step, Autopilot On asks the person no mor
     ['Reinstall the Workers mod?', 'an install', 'Reinstall the Workers mod'], ['Install the paint app?', 'an install', 'Install the paint app']]) {
     assert.deepEqual(autopilotRoute(detail('Q92', title), ctx), { to: 'person', why: `only the person's hands: ${name} ("${phrase}")`, hands: name }, title)
   }
-  assert.deepEqual(UNDER_STEP_HANDS.map(([name]) => name), ['the Claude app', 'a sign-in', 'an account', 'a password', 'money', 'a permanent delete', 'an install', 'a publish'])
+  assert.deepEqual(UNDER_STEP_HANDS.map(([name]) => name), ['the Claude app', 'a sign-in', 'an account', 'a password', 'money', 'a permanent delete', 'an install', 'a publish', 'a publish'])
   // A do under a step keeps the whole list: a click is the person's.
   assert.equal(routeOf(detail('Q93', 'Click Allow on the prompt', { Asks: 'do', Options: undefined, Advice: undefined })), 'person')
 })
@@ -187,7 +195,7 @@ test('what only the person\'s hands can do never goes to the main chat (twins of
   }
   // One list: a board button only the person presses, sign-in, an account, money, an install, a mod's change, a permission,
   // a password, the week's limit (the live store's closed asks of the week showed the board's buttons, a reinstall and a mod).
-  assert.deepEqual(PERSONS_HANDS.map(([name]) => name), ['the Claude app', 'a click', 'a click', 'a button of the board', 'a sign-in', 'an account', 'money', 'an install', 'a change of a mod', 'a permission', 'a password', 'the week\'s limit', 'a permanent delete', 'a publish'])
+  assert.deepEqual(PERSONS_HANDS.map(([name]) => name), ['the Claude app', 'a click', 'a click', 'a button of the board', 'a sign-in', 'an account', 'money', 'an install', 'a change of a mod', 'a permission', 'a password', 'the week\'s limit', 'a permanent delete', 'a publish', 'a publish'])
   for (const [title, hands] of [['Log in to the seed shop', 'a sign-in'], ['Pay the hosting bill', 'money'], ['Install the image tool on this PC', 'an install'], ['Reinstall the packages in your game folder?', 'an install'],
     ['Grant the folder permission', 'a permission'], ['Raise the weekly limit', 'the week\'s limit'], ['In Painter\'s chat, press "Turn them on" for the test mod', 'a click'],
     ['B80 waits until you add it to the queue on the Backlog tab.', 'a button of the board'], ['Pin B59 to Painter on the worker board', 'a button of the board'], ['Update the Workers mod to 0.30 so this goes live?', 'a change of a mod']]) {
@@ -305,8 +313,8 @@ test('Needs your attention: a routed ask stands nowhere (a recap wait again once
   const fresh = ask('Q51', { Title: 'Icons or words?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', age: 1 })
   assert.equal(sp(fresh), false)
   assert.equal(sp(ask('Q52', { Title: 'Rebuild G7: which way?', Owner: 'Partner', Asks: 'decide', Of: 'G7', age: 1 })), true)
-  // v2: a rebuild of the focus goal the partner decides (it has no advice here): it stands nowhere either.
-  assert.equal(sp(ask('Q52', { Title: 'Rebuild G29: which way?', Owner: 'Partner', Asks: 'decide', Of: 'G29', age: 1 })), false)
+  // The person's decision of 2026-11-04 (REBUILD_IS_PERSONS, on purpose: the partner decided it): a rebuild of the focus goal too.
+  assert.equal(sp(ask('Q52', { Title: 'Rebuild G29: which way?', Owner: 'Partner', Asks: 'decide', Of: 'G29', age: 1 })), true)
   // One the board could not route in ten minutes stands, so nothing is lost.
   assert.equal(sp(ask('Q53', { Title: 'Icons or words?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', age: 11 })), true)
   assert.equal(sp(ask('Q54', { Title: 'x', Owner: 'Painter', Asks: 'decide', Route: 'person' })), true)
@@ -363,23 +371,25 @@ test('the last re-check\'s probe5 (2026-10-31): every action, a yes/no chore und
       assert.ok(route.why.startsWith(`only the person's hands: ${name} ("`), route.why)
     }
   }
-  // A chore no hands are needed for still goes to the main chat; a detail decide under a step keeps the short list.
+  // A chore no hands are needed for still goes to the main chat; a detail decide under a step takes its advice (v2), after the whole
+  // list of the person's hands was read (the review, 2026-11-04).
   assert.equal(routeOf(chore('Restart the board so it shows the popup?')), 'main')
-  assert.equal(routeOf(ask('Q8', { Title: 'Keep the chip art on the cards?', Owner: 'Painter', Asks: 'decide', Options: 'A keep | B drop', Advice: 'A', Of: 'B24' })), 'advice')
+  assert.equal(routeOf(ask('Q8', { Title: 'Keep the gold frame on the cards?', Owner: 'Painter', Asks: 'decide', Options: 'A keep | B drop', Advice: 'A', Of: 'B24' })), 'advice')
 })
 
 test('the last re-check (2026-10-31) under Autopilot v2: a look or decide that accepts a result, leaves its gap, approves it below its bar or sends it back waits for the focus goal\'s recap, else is decided for the person', () => {
-  // The live Q520, a look under no step from a "For you" block: v2, on purpose (it was the person's), its advice is taken.
+  // The live Q520, a look under no step from a "For you" block: v2, on purpose (it was the person's), the partner judges it; an
+  // accept never takes the advice (the review, 2026-11-04).
   const q520 = ask('Q520', { Title: 'Do you accept this look for now and leave the rest of the gap as a later step?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Via: 'chat' })
-  assert.deepEqual(autopilotRoute(q520, ctx), { to: 'advice', why: 'a verdict on a result ("accept"): its advice is taken' })
+  assert.deepEqual(autopilotRoute(q520, ctx), { to: 'partner', why: 'a verdict on a result ("accept"): the partner decides it' })
   assert.deepEqual(autopilotRoute(ask('Q520', { Title: 'Do you accept this look for now?', Owner: 'Painter', Asks: 'look', Via: 'chat' }), ctx), { to: 'partner', why: 'a verdict on a result ("accept"): the partner decides it' })
   // Under a step of the focus goal: at its recap, by the recap's rule (of another goal: decided for the person).
   const under = more => ask('Q521', { Title: 'Leave the rest of the gap as a later step?', Owner: 'Painter', Asks: 'decide', Advice: 'yes', Of: 'B24', ...more })
   assert.deepEqual(autopilotRoute(under(), ctx), { to: 'recap', why: 'a verdict on a result ("Leave the rest of the gap")' })
-  assert.equal(autopilotRoute(under({ Of: 'B23' }), ctx).to, 'advice')
+  assert.equal(autopilotRoute(under({ Of: 'B23' }), ctx).to, 'partner')
   assert.equal(routeOf(ask('Q522', { Title: 'Send the moat back for a rounder edge?', Owner: 'Painter', Asks: 'decide', Options: 'A yes | B no', Advice: 'A', Of: 'B24' })), 'recap')
-  // "Approve" only below its bar is a verdict; either way the advice is taken now.
-  assert.equal(routeOf(ask('Q523', { Title: 'Approve the moat at 70 of 75?', Owner: 'Painter', Asks: 'look', Advice: 'yes' })), 'advice')
+  // "Approve" only below its bar is a verdict (the partner's); at or above it, or with no score, a detail that takes its advice.
+  assert.equal(routeOf(ask('Q523', { Title: 'Approve the moat at 70 of 75?', Owner: 'Painter', Asks: 'look', Advice: 'yes' })), 'partner')
   assert.equal(routeOf(ask('Q524', { Title: 'Approve the new icons on the bar?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Of: 'B24' })), 'advice')
 })
 

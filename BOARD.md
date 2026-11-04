@@ -522,15 +522,20 @@ Undo."; Off, "Questions come to you as before."
   them first, and its Yes waits until the recap's approve or send back of those rows answered them. With Autopilot off
   they stand in Needs your attention again.
 - **Always yours** (Autopilot v2, the person's "B", 2026-11-02: "everything except the goal recap/verdict"): the goal's recap
-  and its verdicts, a goal's start (its goal definition, work blocks and Go; anything of a goal that is not the focus) and a
-  switch of focus, what only your hands can do (the Claude app, a click, a sign-in, an account, money, an install, a
-  permission, anything deleted for good: a chat, a file or folder, a launch.json entry, a branch; archiving and clearing a
-  cache stay the main chat's; anything published or made public: a repository, a release, a post, a licence, sharing
-  outside the PC), a question about Fable, and what the partner or the main chat hands to you. Everything else
-  is decided for you, with Undo: a question with advice takes it (a rebuild of the focus goal too), the rest your partner
-  decides (a look without advice, a "look at it" do, an Accept card or a mark done that no recap of the focus goal takes); the board
-  judges anew at every pass what it had routed to you itself. A worker's or the main chat's look with pictures of a step of
-  the focus goal (an art or map look) is never decided: it is kept for the goal's recap, with or without advice.
+  and its verdicts (a recap row's verdict and the focus goal's own re-check too), a goal's start (its goal definition, work
+  blocks and Go; anything of a goal that is not the focus) and a switch of focus, under a step too, a goal's rebuild (your
+  decision of 2026-11-04), what only your hands can do (the Claude app, a click, a sign-in, an account, money: buying, a
+  price, credits, extra usage, a subscription; an install, a permission or allow rule, anything deleted or removed for good,
+  a cache too: a chat, a file or folder, a launch.json entry, a branch, archiving stays the main chat's; anything published
+  or made public: a repository, a release, a post, a licence, an upload, itch.io or Steam, sharing outside the PC), a
+  question about Fable, and what the partner or the main chat hands to you. Everything else is decided for you, with Undo: a
+  question with advice takes it when it is filed or at the switch-on (never an accept, a look with pictures, or what you
+  meant or said), the rest your partner decides (a look without advice, a "look at it" do, an Accept card or a mark done
+  that no recap of the focus goal takes); the board judges anew at every pass what it had routed to you itself, but never
+  answers such an ask with its advice then. A worker's or the main chat's look with pictures of a step of the focus goal (an
+  art or map look) is never decided: it is kept for the goal's recap, with or without advice. The Undo of your partner's
+  Accept puts its step back in review and the card back with you (a project's own flow.json needs the move done → review by
+  the person for it; without it the Undo says so and changes nothing).
 - **The task window** of an ask with the main chat or waiting for the recap names its route ("With the main chat
   (Autopilot)", "For your recap (Autopilot)") and where it stands.
 - The Focus page's switch "Your partner answers detail questions" reads "covered by Autopilot" while it is on.

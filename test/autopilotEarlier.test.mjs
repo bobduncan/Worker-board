@@ -122,9 +122,9 @@ test('the route: the card of Q608\'s shape goes to the partner, with the earlier
 test('the route: a verdict a worker files (a look or decide that accepts, an action that marks done) goes the same way; with advice (v2) its advice is taken', () => {
   const look = item({ Id: 'Q53', Kind: 'ask', Title: 'Do you accept B91 as it is?', State: 'open', Owner: 'Painter', Asks: 'look', Of: 'B91', Options: 'A yes | B no', Via: 'chat', Since: at(0), Filed: String(NOW) }, { Text: ['Do you accept B91 as it is?'], History: [`- ${at(0)} Painter: asked (look)`] })
   assert.deepEqual(autopilotRoute(look, ctxOf()), { to: 'partner', why: 'the person\'s earlier answer on Q50 names B91', earlier: 'Q50' })
-  // v2, on purpose (it went to the partner on the earlier answer): with the worker's advice, the board takes it.
+  // With the worker's advice too: an accept never takes the advice (the review of v2, 2026-11-04, on purpose: it took it).
   const advised = item({ ...Object.fromEntries(look.head), Advice: 'A' }, { Text: ['Do you accept B91 as it is?'], History: [`- ${at(0)} Painter: asked (look)`] })
-  assert.deepEqual(autopilotRoute(advised, ctxOf()), { to: 'advice', why: 'a verdict on a result ("accept"), and its step is of no focus goal: its advice is taken' })
+  assert.deepEqual(autopilotRoute(advised, ctxOf()), { to: 'partner', why: 'the person\'s earlier answer on Q50 names B91', earlier: 'Q50' })
   const mark = item({ Id: 'Q54', Kind: 'ask', Title: 'Mark B91 done on the board.', State: 'open', Owner: 'Lead', Asks: 'do', Of: 'B91', Via: 'chat', Since: at(0), Filed: String(NOW) }, { Text: ['Mark B91 done on the board.'], History: [`- ${at(0)} Lead: asked (do)`] })
   assert.equal(autopilotRoute(mark, ctxOf()).earlier, 'Q50')
   // Not a verdict: a detail question takes its advice (v2, on purpose: it went to the partner), with no earlier answer named.
@@ -364,7 +364,8 @@ test('the board\'s line to the partner names the earlier answer too: the deliver
 test('the partner\'s own verdict ask is decided for the person (Autopilot v2, on purpose: it kept its old route, the person\'s); the Product owner\'s stays the person\'s', () => {
   const ownAsk = (id, owner, more = {}) => item({ Id: id, Kind: 'ask', Title: 'Do you accept B91 as it is?', State: 'open', Owner: owner, Asks: 'look', Of: 'B91', Options: 'A yes | B no', Advice: 'A', Via: 'chat', Since: at(0), Filed: String(NOW), ...more }, { Text: ['Do you accept B91 as it is?'], History: [`- ${at(0)} ${owner}: asked (look)`] })
   const roles = ctxOf({ roleOf: name => ({ ...ROLES, Keeper: 'owner' })[name] ?? null })
-  assert.equal(autopilotRoute(ownAsk('Q59', 'Partner'), roles).to, 'advice', 'its advice is taken')
+  // An accept never takes the advice (the review of v2, 2026-11-04, on purpose: it took it): the partner decides it.
+  assert.equal(autopilotRoute(ownAsk('Q59', 'Partner'), roles).to, 'partner', 'with its advice too')
   assert.deepEqual([autopilotRoute(ownAsk('Q59', 'Partner', { Advice: '-' }), roles).to, autopilotRoute(ownAsk('Q59', 'Partner', { Advice: '-' }), roles).earlier], ['partner', 'Q50'], 'without advice it decides it, with the earlier answer as its hint')
   const keeper = autopilotRoute(ownAsk('Q59', 'Keeper'), roles)
   assert.deepEqual([keeper.to, keeper.earlier], ['person', undefined], 'the Product owner answers for the goal')

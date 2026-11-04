@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import vm from 'node:vm'
 
-import { KEPT_LOOK_WHY, KEPT_LOOK_WORDS, adviceAnswerOf, autopilotRoute, isBoardRoutedPerson, isKeptLook } from '../src/work/autopilot.mjs'
+import { KEPT_LOOK_WHY, KEPT_LOOK_WORDS, REBUILD_IS_PERSONS, adviceAnswerOf, autopilotRoute, isBoardRoutedPerson, isKeptLook } from '../src/work/autopilot.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { parseItem } from '../src/work/item.mjs'
@@ -76,18 +76,18 @@ test('the route of each live example of 2026-11-02 under v2: a look to the partn
   assert.equal(isBoardRoutedPerson(Q593), true)
   // Q602, a do a chat can carry out: the main chat, as before.
   assert.equal(autopilotRoute(Q602, ctx()).to, 'main')
-  // Q601, a worker's decide with advice under a step (it was the person's: "delete" made it a permanent delete): a cache rebuilds
-  // by itself, so it is no delete for good, and the board takes the advice. A delete for good stays the person's hands.
-  assert.deepEqual(autopilotRoute(Q601, again), { to: 'advice', why: 'a detail question: its advice is taken' })
+  // Q601, a worker's decide with advice under a step: the review's ruling (2026-11-04, on purpose: the cache exemption sent it to
+  // advice) makes every delete the person's hands, a cache's too: the hands line.
+  assert.deepEqual(autopilotRoute(Q601, again), { to: 'person', why: 'only the person\'s hands: a permanent delete ("delete")', hands: 'a permanent delete' })
   const folder = ask('Q609', { Title: 'May I delete the old save folder of the game?', Owner: 'Worker 5', Asks: 'decide', Of: 'B821', Advice: 'yes', Via: 'chat' }, { history: [] })
   assert.deepEqual(autopilotRoute(folder, ctx()), { to: 'person', why: 'only the person\'s hands: a permanent delete ("delete")', hands: 'a permanent delete' })
-  // Q605, the partner's rebuild of the focus goal with advice A (it was the person's: "Autopilot approves no rebuild"): taken.
-  assert.deepEqual(autopilotRoute(Q605, again), { to: 'advice', why: 'a detail question: its advice is taken' })
+  // Q605, the partner's rebuild of the focus goal with advice A: the person's decision of 2026-11-04 (REBUILD_IS_PERSONS, on purpose:
+  // the advice was taken): a rebuild is theirs, of any goal.
+  assert.deepEqual(autopilotRoute(Q605, again), { to: 'person', why: 'a rebuild of a goal ("Rebuild G60")' })
   assert.equal(adviceAnswerOf(Q605), 'A: A thick ring, the round pool kept (about 3 h)')
-  // ... while a rebuild of a goal that is not the focus is a goal's start: the person's.
-  assert.deepEqual(autopilotRoute(Q605, ctx({ again: true, focusGoal: 'G29' })), { to: 'person', why: 'a goal\'s start or a focus switch ("of G60")' })
-  // "Accept B944 as it is?", Main's decide with advice yes (it was the person's): the advice is taken.
-  assert.deepEqual(autopilotRoute(Q612, again), { to: 'advice', why: 'a verdict on a result ("Accept"): its advice is taken' })
+  assert.deepEqual(autopilotRoute(Q605, ctx({ again: true, focusGoal: 'G29' })), { to: 'person', why: 'a rebuild of a goal ("Rebuild G60")' })
+  // "Accept B944 as it is?", Main's decide with advice yes: an accept never takes the advice (the review's ruling, on purpose).
+  assert.deepEqual(autopilotRoute(Q612, again), { to: 'partner', why: 'a verdict on a result ("Accept"): the partner decides it' })
   // Q608, the board's Accept card of a step of a goal that is not the focus (it was the person's, unless an earlier answer named
   // it): the partner judges it; the person's earlier answer on Q588 is its hint, not its condition.
   assert.deepEqual(autopilotRoute(Q608, again), { to: 'partner', why: 'the person\'s earlier answer on Q588 names B891', earlier: 'Q588' })
@@ -147,24 +147,132 @@ test('every pass (not only the switch-on\'s sweep) judges anew a Q593-shaped ask
       { history: ['main'], card: 'The main chat hands this to you: opening the game in your browser is yours' }),
     Q612: askText('Q612', { Title: 'Accept B944 as it is (branch unmerged)?', Owner: 'Main', Asks: 'decide', Advice: 'yes', Via: 'chat', Route: 'person' }),
     Q621: askText('Q621', { Title: 'Sign in the Claude command line once', Owner: 'Worker 5', Asks: 'do', Via: 'chat', Route: 'person' }),
+    // The review's ruling (2026-11-04): a pass never answers with the advice an ask that stood for the person; the sweep may.
+    Q622: askText('Q622', { Title: 'Icons or words on the shop bar?', Owner: 'Worker 5', Asks: 'decide', Of: 'B821', Options: 'A icons | B words', Advice: 'A', Via: 'chat', Route: 'person' }),
   })
   t.after(() => rm(dir, { recursive: true, force: true }))
   const pass = await workApi({ action: 'autopilot', on: true }, apiCtx(dir, NOW))
   assert.equal(pass.ok, true, pass.why)
-  assert.deepEqual(pass.result.routed, [{ id: 'Q593', to: 'partner' }, { id: 'Q612', to: 'advice' }])
-  assert.deepEqual(pass.result.answered, ['Q612'], 'the advice is taken in the same pass')
-  const store = (await readStore(dir)).items
-  assert.deepEqual(['Q593', 'Q594', 'Q612', 'Q621'].map(id => store.get(id).head.get('Route')), ['partner', 'person', 'advice', 'person'])
-  assert.equal(store.get('Q612').head.get('Answered by'), 'autopilot')
+  // An accept goes to the partner, never to the advice (the review's ruling, on purpose: Q612 took the advice).
+  assert.deepEqual(pass.result.routed, [{ id: 'Q593', to: 'partner' }, { id: 'Q612', to: 'partner' }])
+  assert.deepEqual(pass.result.answered, [])
+  let store = (await readStore(dir)).items
+  assert.deepEqual(['Q593', 'Q594', 'Q612', 'Q621', 'Q622'].map(id => store.get(id).head.get('Route')), ['partner', 'person', 'partner', 'person', 'person'])
   assert.deepEqual(store.get('Q594').sections.get('Route'), ['The main chat hands this to you: opening the game in your browser is yours'], 'the hand-over stands')
   assert.equal((store.get('Q593').sections.get('History') ?? []).filter(line => line.includes('autopilot: routed to partner')).length, 1)
   // The next pass routes nothing again.
   const next = await workApi({ action: 'autopilot', on: true }, apiCtx(dir, NOW + 5 * MIN))
   assert.deepEqual(next.result.routed, [])
+  // The switch-on's sweep takes the advice of what stood for the person.
+  const swept = await workApi({ action: 'autopilot', on: true, sweep: true }, apiCtx(dir, NOW + 6 * MIN))
+  assert.deepEqual([swept.result.routed, swept.result.answered], [[{ id: 'Q622', to: 'advice' }], ['Q622']])
+  store = (await readStore(dir)).items
+  assert.equal(store.get('Q622').head.get('Answered by'), 'autopilot')
   // Off: nothing is judged anew.
   const offDir = await storeWith({ Q593: askText('Q593', { Title: 'Look at the whole ring in the game.', Owner: 'Worker 5', Asks: 'do', Via: 'chat', Route: 'person' }) })
   t.after(() => rm(offDir, { recursive: true, force: true }))
   assert.deepEqual((await workApi({ action: 'autopilot', on: false }, apiCtx(offDir, NOW))).result.routed, [])
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The review of v2 (2026-11-04): its probes' cases, each routed so before.
+
+test('the review\'s probes: the person\'s hands in the whole list before any advice, the goal\'s start and a focus switch and the recap\'s words under a step too, the focus goal\'s own verdict, a rebuild, an accept never advice', () => {
+  const review = new Map([B821, B891, ...[['B900', 'G60', 'in progress'], ['B901', 'G29', 'in progress'], ['B921', 'G60', 'done']].map(([id, goal, state]) => parseItem(stepText(id, { Title: `Step ${id}`, State: state, Owner: 'Worker 1', Goal: goal })))].map(one => [one.head.get('Id'), one]))
+  const roles = { ...ROLES, 'Worker 1': 'worker' }
+  const rctx = (more = {}) => ({ roleOf: name => roles[name] ?? null, items: review, focusGoal: 'G60', focusHasDemo: true, recapSteps: [], now: NOW, ...more })
+  const probe = ({ owner = 'Worker 1', kind = 'decide', of = 'B900', title, advice = 'yes', pictures = null }) => ask('Q700', { Title: title, Owner: owner, Asks: kind, Of: of ?? undefined, Advice: advice ?? undefined, Pictures: pictures ?? undefined, Via: 'chat' }, { history: [] })
+  const route = shape => autopilotRoute(probe(shape), rctx())
+  // 4: advice is a yes now, so the whole list of the person's hands is read first, with the words that were missing.
+  for (const [title, hands] of [['May I add the permission for set_session_model to settings.local.json?', 'a permission'], ['May I add an allow rule for set_session_model to the project settings?', 'a permission'],
+    ['Should I click "Allow" on the prompt in Worker 2?', 'a click'], ['Switch on extra usage so B900 can finish tonight?', 'money'], ['Buy the sound pack for $12 so the map has its ambience?', 'money'],
+    ['Remove the old b944 branch and its worktree for good?', 'a permanent delete'], ['Run git branch -D b944 to clean up?', 'a permanent delete'], ['Upload the build to itch.io so testers can play it?', 'a publish'],
+    ['Log into the asset store with the shared login?', 'a sign-in'], ['Put the game on Steam next week?', 'a publish']]) {
+    assert.equal(route({ title }).hands, hands, title)
+  }
+  assert.equal(route({ title: 'Buy the sound pack for $12?', of: null }).hands, 'money', 'under no step too')
+  assert.equal(route({ title: 'Take the old lava into account?' }).to, 'advice', 'into account is no account')
+  assert.equal(route({ title: 'Add steam above the lava vents?' }).to, 'advice', 'steam in a lava game is no Steam')
+  assert.equal(route({ title: 'Should I make drawNeeds public so the test can import it?' }).to, 'advice', 'a function made public in the code is no publish')
+  // 5: a delete of a cache is a delete too (the exemption is gone): the hands line.
+  assert.equal(route({ title: 'May I delete the old wt-* worktrees and the board\'s game cache?' }).hands, 'a permanent delete')
+  assert.equal(autopilotRoute(Q601, ctx({ again: true })).hands, 'a permanent delete', 'the live Q601 reaches the hands line')
+  // 4: a goal's start and a focus switch under a step too.
+  assert.equal(route({ owner: 'Advisor', title: 'Switch to G29 as the focus once B900 lands?' }).to, 'person')
+  assert.equal(route({ owner: 'Advisor', title: 'Switch the focus to G29 once B900 lands?' }).to, 'person')
+  assert.equal(route({ owner: 'Advisor', title: 'Approve G29\'s new work blocks?' }).to, 'person')
+  assert.equal(route({ owner: 'Main', of: null, title: 'Approve G60\'s new how with 3 parts?' }).to, 'person')
+  assert.equal(route({ title: 'Switch the focus ring to gold?' }).to, 'advice', 'the focus ring is no focus switch')
+  // 2: a recap row's verdict under a step (the live Q595, a do linking the step's window): the recap's when it takes it, else the person's.
+  const q595 = { kind: 'do', of: 'B921', advice: null, title: 'Look at the three pictures and give your verdict on row 9 in G60\'s recap: [B921](http://127.0.0.1:4310/#details=B921)' }
+  assert.equal(route(q595).to, 'person')
+  assert.equal(autopilotRoute(probe(q595), rctx({ focusHasDemo: false })).to, 'recap')
+  assert.equal(route({ title: 'Approve row 4 of G60\'s recap?' }).to, 'person')
+  // 1: the focus goal's own verdict: a look of it, or words asking whether it is reached; never advice or the partner.
+  const recheck = (title, advice = null, kind = 'look') => route({ owner: 'Advisor', kind, of: 'G60', title, advice, pictures: 'pictures/g60/recheck.png' })
+  assert.deepEqual(recheck('G60\'s re-check: does the Ring read as round in the game?'), { to: 'person', why: 'the focus goal\'s own verdict ("a look of G60")' })
+  assert.equal(recheck('G60\'s re-check: does the Ring read as round in the game?', 'yes').to, 'person')
+  assert.equal(recheck('Is G60 reached now?', 'yes', 'decide').to, 'person')
+  assert.equal(recheck('Which part of G60 first?', 'A', 'decide').to, 'advice', 'a detail of the focus goal mid-goal')
+  // 6: a rebuild of a goal is the person's (REBUILD_IS_PERSONS), the focus goal's too.
+  assert.equal(REBUILD_IS_PERSONS, true)
+  assert.deepEqual(autopilotRoute(Q605, ctx({ again: true })), { to: 'person', why: 'a rebuild of a goal ("Rebuild G60")' })
+  // 3: an accept, a mark done or a send back never takes the advice: the partner judges it.
+  assert.deepEqual(autopilotRoute(Q612, ctx({ again: true })), { to: 'partner', why: 'a verdict on a result ("Accept"): the partner decides it' })
+  assert.equal(route({ kind: 'do', title: 'Mark B900 done on the board.', advice: 'yes' }).to, 'partner')
+  // 8: a look with pictures never takes the advice: of another goal the partner judges it (it hands art to the person).
+  assert.equal(route({ kind: 'look', of: 'B901', title: 'Approve the Causeway painting as final?', pictures: 'pictures/B901/final.png' }).to, 'partner')
+  // What the person meant or said: the partner reads their words.
+  assert.equal(route({ owner: 'Main', of: null, title: 'Did you mean the north ring or the south ring?', advice: 'the north ring' }).to, 'partner')
+  assert.equal(route({ title: 'Do you mean the shop bar or the map bar?', advice: 'the shop bar' }).to, 'partner')
+})
+
+test('the Undo of the partner\'s Accept puts the step back in review and the card stays for the person; a flow that lets nobody move it back refuses the Undo and changes nothing', async t => {
+  const stepFile = [
+    'Id: B851', 'Kind: step', 'Title: Break up the cliff walls\' stripes', 'State: review', 'Owner: Worker 5', 'Activity: Board', 'Goal: G29', `Since: ${at(49)}`, 'Branch: b851-walls', '',
+    '## Context', '  The walls show even stripes.', '',
+    '## Standard', 'ground look · pictures/walls.png · target 75', '',
+    '## What we build', '- uneven rock walls', '- judged beside the painting, target 75', '',
+    '## Checked', 'Evidence: pictures/B851/evidence.png', 'Score: 72 of 75', '- pass: uneven rock walls', '- fail: judged beside the painting, target 75', '',
+    '## History', `- ${at(49)} Worker 5: in progress → review`, `- ${at(49)} server: check passed: work in garden; result named`, `- ${at(44)} Checker: result check failed: 1 of 2 points pass, score 72 of 75; fix B875 for Worker 5`, '',
+  ].join('\n')
+  const fixFile = [
+    'Id: B875', 'Kind: step', 'Title: Fix: judged beside the painting', 'State: dropped', 'Owner: Worker 5', 'Activity: Board', 'Goal: G29', `Since: ${at(42)}`, 'Fix of: B851', '',
+    '## Context', '  Fix of B851: the result check failed on one point.', '  Dropped by Main: the partner accepts B851 at 74', '',
+    '## History', `- ${at(44)} Checker: made by the result check of B851`, `- ${at(42)} Main: in progress → dropped`, '',
+  ].join('\n')
+  const flowless = JSON.stringify({ ...JSON.parse(readFileSync(new URL('../examples/work/flow.json', import.meta.url), 'utf8')) }, (key, value) => (Array.isArray(value) ? value.filter(one => !(one?.from === 'done' && one?.to === 'review')) : value), 1)
+  const run = async files => {
+    const dir = await storeWith({ B851: stepFile, B875: fixFile })
+    t.after(() => rm(dir, { recursive: true, force: true }))
+    for (const [name, body] of Object.entries(files)) await writeFile(join(dir, name), body)
+    const as = (role, now) => ({ ...apiCtx(dir, now), as: role })
+    const cards = await workApi({ action: 'accept-cards' }, as('server', NOW))
+    const card = cards.result.filed[0]
+    assert.equal(typeof card, 'string', JSON.stringify(cards))
+    assert.deepEqual((await workApi({ action: 'autopilot', on: true }, as('server', NOW + MIN))).result.routed, [{ id: card, to: 'partner' }])
+    const answered = await workApi({ action: 'partner-answer', chat: 'Advisor', id: card, text: 'A Accept: done as it is', why: 'judged by its check' }, { ...apiCtx(dir, NOW + 2 * MIN), as: undefined })
+    assert.equal(answered.ok, true, answered.why)
+    assert.equal((await readStore(dir)).items.get('B851').head.get('State'), 'done')
+    return { dir, card, as }
+  }
+  // The flow lets the person move a done step back to review (examples/work/flow.json): the Undo does, and the card stays.
+  const { dir, card, as } = await run({})
+  const undone = await workApi({ action: 'undo', id: card }, as('person', NOW + 3 * MIN))
+  assert.equal(undone.ok, true, undone.why)
+  let store = (await readStore(dir)).items
+  assert.deepEqual([store.get(card).head.get('State'), store.get(card).head.get('Route'), store.get('B851').head.get('State')], ['open', 'person', 'review'])
+  await workApi({ action: 'accept-cards' }, as('server', NOW + 4 * MIN))
+  assert.equal((await readStore(dir)).items.get(card).head.get('State'), 'open', 'the board\'s pass leaves the card for the person')
+  const back = await workApi({ action: 'answer', id: card, text: ['B Send back', 'round the edge'] }, as('person', NOW + 5 * MIN))
+  assert.equal(back.ok, true, back.why)
+  // A project's flow without that move: the Undo refuses with one line, and nothing changes.
+  const old = await run({ 'flow.json': flowless })
+  const refused = await workApi({ action: 'undo', id: old.card }, old.as('person', NOW + 3 * MIN))
+  assert.equal(refused.ok, false)
+  assert.match(refused.why, /cannot be taken back: its Accept closed B851, and the flow lets nobody move a done step back to review/)
+  store = (await readStore(old.dir)).items
+  assert.deepEqual([store.get(old.card).head.get('State'), store.get('B851').head.get('State')], ['answered', 'done'])
 })
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -177,8 +285,10 @@ test('a worker\'s or the main chat\'s look with pictures of a step of the focus 
   assert.equal(autopilotRoute(map({ Owner: 'Main' }), ctx()).kept, true, 'the main chat\'s')
   assert.deepEqual(autopilotRoute(map({ Of: undefined }), ctx()), { to: 'recap', why: KEPT_LOOK_WHY, kept: true, step: 'B821' }, 'under no step: put under the step its picture names')
   assert.equal(autopilotRoute(map({ Pictures: undefined }), ctx()).to, 'advice', 'without pictures: its advice is taken')
-  assert.equal(autopilotRoute(map({ Of: 'B891', Pictures: 'pictures/B891/ring.png' }), ctx()).to, 'advice', 'of another goal: its advice is taken')
-  assert.equal(autopilotRoute(map({ Owner: 'Advisor' }), ctx()).to, 'advice', 'the partner\'s own look is no worker\'s')
+  // A look with pictures never takes the advice (the review's ruling of 2026-11-04, on purpose: these took it): of another goal, or
+  // the partner's own, the partner judges it.
+  assert.equal(autopilotRoute(map({ Of: 'B891', Pictures: 'pictures/B891/ring.png' }), ctx()).to, 'partner', 'of another goal: the partner judges it')
+  assert.equal(autopilotRoute(map({ Owner: 'Advisor' }), ctx()).to, 'partner', 'the partner\'s own look is no worker\'s')
   // The person's hands still come first.
   assert.equal(autopilotRoute(map({ Title: 'Sign in to the map site: does the ring read round now?' }), ctx()).to, 'person')
 })

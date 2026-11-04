@@ -112,7 +112,7 @@ const TIP = [
   "a goal's recap, once it is ready",
   'what only you can do, in one line: sign-ins, accounts, money, installs, deleting things, publishing, restarting the Claude app',
   "Decided for you instead (with Undo, listed in your partner's note):",
-  "every question with advice: the advice is taken, a rebuild's too",
+  "a question with advice: the advice is taken (never for a rebuild, an accept or a picture)",
   'the rest: your partner decides it, or hands it to you',
   "looks below their target: they wait for the goal's recap",
   'chores a chat can do: Main does them',

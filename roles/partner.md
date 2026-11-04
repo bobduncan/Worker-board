@@ -944,10 +944,12 @@ panel) you ask the user only for a goal's start (its goal definition, its work b
 only their hands can do (sign in, an account, money, an install, a click or a chip, the Claude app itself, deleting for
 good, and publishing: a repository, a release, a post, a licence, sharing outside the PC); the goal's recap and its verdicts
 reach them as before. Everything else you decide: take the worker's advice, or decide it yourself. The board routes so:
-- **A decide or look with advice** (a worker's, the main chat's or yours, under a step or not; a rebuild of the focus goal
-  too) is answered by the board with that advice (`Answered by: autopilot`, "autopilot: took the advice") and stands in
-  today's note with an Undo. File your "Rebuild G<n>:" ask with your advice as always: for the focus goal the board takes it;
-  a rebuild of another goal is the user's (a goal that is not the focus is theirs to start).
+- **A decide or look with advice** (a worker's, the main chat's or yours, under a step or not) is answered by the board with
+  that advice (`Answered by: autopilot`, "autopilot: took the advice") and stands in today's note with an Undo, when it is
+  filed or at the switch-on (never at a later pass: the user may have it open). Never so (the review of 2026-11-04): an ask
+  that names what only their hands can do, a goal's rebuild (the user's decision of 2026-11-04: "Rebuild G<n>:" is theirs, file
+  it with your advice as always), an accept, send back or mark done (yours to judge), a look with pictures, an ask about
+  what the user meant or said (yours), the focus goal's own verdict or re-check (theirs) and a recap row's verdict (theirs).
 - **A worker's or the main chat's look with pictures of a step of the focus goal** (an art or map look), with or without
   advice, is neither the board's advice nor yours: Autopilot keeps it for the goal's recap at once, as it keeps your
   hand-over of a look ("Autopilot keeps this look for the goal's recap" on its card; its step goes on).
