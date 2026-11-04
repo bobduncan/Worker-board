@@ -81,7 +81,9 @@ test('rework: the newest step under way among a row\'s steps and every fix in th
 
 const goals = count => ['Last id: G6', 'Focus: G6', '', '- [~] G6 Garden', '    Done when: you walk it at night', '    Goal definition: calm',
   '    Goal definition agreed: 2026-10-18 10:00', ...Array.from({ length: count }, (_, n) => `    Part: Block ${n + 1} · about 1 h · steps B${n + 1} · done when: line ${n + 1}`), '    How agreed: 2026-10-18 11:00', ''].join('\n')
-const row = (key, steps, more = {}) => ({ key, title: key, steps, pending: false, changed: true, ...more })
+/** T17.2: a checker's word on a row's close-up, written after every Send of these tests: a row sent back with its `changed` line is the new try only with it. */
+const CHECKED = { verdict: 'yes', by: 'Checker', at: at(100), why: 'the pond reads round' }
+const row = (key, steps, more = {}) => ({ key, title: key, steps, pending: false, changed: true, shows: CHECKED, ...more })
 
 /** Rows 11, 12 and 13 of G60's shape: the Ring is ready; the Ground has a fix new at the end of its chain; the Cliffs too. Sent back in round 1, the recap written since. */
 const live = (more = {}) => {
@@ -141,7 +143,7 @@ test('readGoalRecap carries every row of the file, with its steps and whether it
   await mkdir(join(dir, 'pictures', 'g6', 'recap'), { recursive: true })
   const list = { goal: 'G6', title: 'The polish', sections: [{ kind: 'open', rows: [
     { title: '1. Loose', pictures: [{ kind: 'final', caption: 'x', path: 'a.png' }] },
-    { title: '2. Named', steps: ['B1', 'B2'], changed: 'asked -> done', pictures: [{ kind: 'final', caption: 'x', path: 'a.png' }] },
+    { title: '2. Named', steps: ['B1', 'B2'], changed: 'asked -> done', shows: { verdict: 'yes', by: ' Checker ', at: '2026-11-04 12:00', why: 'it  reads round' }, pictures: [{ kind: 'final', caption: 'x', path: 'a.png' }] },
     { title: '3. Later', pending: 'B3 not started', pictures: [{ kind: 'final', caption: 'x', path: 'a.png' }] },
   ] }] }
   await writeFile(join(dir, 'pictures', 'g6', 'recap', 'demo.json'), JSON.stringify(list))
@@ -149,9 +151,9 @@ test('readGoalRecap carries every row of the file, with its steps and whether it
   const read = await readGoalRecap({ ...parseConfig('{}', {}), project: dir }, goalsText)
   assert.equal(read.path, 'pictures/g6/recap/demo.json')
   assert.deepEqual(read.rows, [
-    { key: '1. Loose', title: '1. Loose', steps: [], changed: false, pending: false },
-    { key: '2. Named', title: '2. Named', steps: ['B1', 'B2'], changed: true, pending: false },
-    { key: '3. Later', title: '3. Later', steps: [], changed: false, pending: true },
+    { key: '1. Loose', title: '1. Loose', steps: [], changed: false, pending: false, shows: null },
+    { key: '2. Named', title: '2. Named', steps: ['B1', 'B2'], changed: true, pending: false, shows: { verdict: 'yes', by: 'Checker', at: '2026-11-04 12:00', why: 'it reads round' } },
+    { key: '3. Later', title: '3. Later', steps: [], changed: false, pending: true, shows: null },
   ])
 })
 
