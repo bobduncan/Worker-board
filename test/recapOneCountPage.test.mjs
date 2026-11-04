@@ -227,15 +227,15 @@ test('a block being reworked names the worker whose card shows its step', async 
 
 test('a block made in this round is being built, not reworked: it keeps its own chip', async () => {
   const state = live()
-  // Block 5 is new in this round.
+  // Block 5 is new in this round (the page never calls a block made in the round "reworked", whatever it is handed).
   const open = state.focus.openNow.find(one => one.title === 'Block 5')
   open.kind = 'new'
-  delete open.rework
   const page = await opened(state, {})
   try {
     await page.click('[data-tab="advice"]')
     await page.click('[data-focus-blocks="open"]')
     assert.match(words(page.find('.focus-round')), /· 1 of 5 done · 1 waits for your verdict · 2 being reworked · /)
     assert.doesNotMatch(words(page.all('.focus-open-block')[4]), /Being reworked/)
+    assert.equal(words(page.all('.focus-open-block')[4].querySelector('.focus-chip')), 'Digger is on it')
   } finally { await page.close() }
 })
