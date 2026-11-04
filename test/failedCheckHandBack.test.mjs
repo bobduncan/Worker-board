@@ -46,7 +46,7 @@ const app = name => JSON.stringify({
 /** The report of a chat whose turn ended: idle and running. */
 const idle = { state: 'idle', since: ago(20), busyAt: ago(28), background: false, at: ago(0.1), session: 'cli-Digger', mod: '0.20.0' }
 
-function build(items, { afterStep = 'clear' } = {}) {
+function build(items, { afterStep = 'clear', outbox = [] } = {}) {
   const work = storeFromText('## Board\n', { now: ago(120) })
   for (const item of items) work.items.set(item.head.get('Id'), item)
   const raw = {
@@ -55,7 +55,7 @@ function build(items, { afterStep = 'clear' } = {}) {
     planLineTexts: {}, work, adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: ago(180),
   }
   return buildState(raw, {
-    lines: [], outbox: [], runs: [], now: NOW, config, seen: { shown: { Lead: NOW - 5_000 }, other: {} },
+    lines: [], outbox, runs: [], now: NOW, config, seen: { shown: { Lead: NOW - 5_000 }, other: {} },
     board: { startedAt: ago(60), offSince: null }, reports: new Map([['Digger', idle]]),
   })
 }
@@ -66,6 +66,20 @@ test('B727\'s lines (report, check failed, no report again): no clear is owed an
   assert.equal(digger(state).state, 'free')
   assert.equal(digger(state).clearOwed, null)
   assert.deepEqual(state.reconciled.handedBack, ['Digger'])
+})
+
+test('the lazy clear (D1) through the state: a `cleared` stage on its envelope newer than the report stands for the clear its card does not show (mutant: the stage not passed)', () => {
+  const passed = () => stepItem('B1', 'review', [line(28, 'Digger', 'in progress → review'), line(28, 'server', 'check pending'), line(27, 'server', 'check passed')])
+  const envelope = stages => ({ id: 'e1', at: ago(10), to: 'Digger', command: 'handover', about: 'Digger', kind: 'task', step: 'B2', clear: { step: 'B1', reportedAt: ago(28) }, restart: false, set: null, line: 'work: B2 is yours; run work next', back: null, state: 'delivered', deliveredAt: ago(9), outcome: { cleared: true, typed: true }, stages })
+  // The card carries no mark of a clear: without the stage the clear is owed.
+  assert.equal(digger(build([passed()], { outbox: [envelope([{ stage: 'log-saved', at: ago(10) }])] })).clearOwed.step, 'B1')
+  assert.equal(digger(build([passed()], { outbox: [envelope([{ stage: 'log-saved', at: ago(10) }, { stage: 'cleared', at: ago(9), session: 'cli-Digger-2' }])] })).clearOwed, null)
+  // A `cleared` stage older than the report clears nothing.
+  assert.equal(digger(build([passed()], { outbox: [envelope([{ stage: 'cleared', at: ago(40) }])] })).clearOwed.step, 'B1')
+  // Task 4 (D6): the owed clear carries the clearWhy of its newest hand-over whose clear did not run, for the page's mark.
+  const refused = { ...envelope([{ stage: 'clear-refused', at: ago(9), why: 'a prompt came first' }]), outcome: { cleared: false, typed: true, clearWhy: 'a prompt came first' } }
+  assert.equal(digger(build([passed()], { outbox: [refused] })).clearOwed.lastWhy, 'a prompt came first')
+  assert.equal(digger(build([passed()], { outbox: [] })).clearOwed.lastWhy, undefined)
 })
 
 test('the same lines with a check that passed: the clear is owed from the report and nothing holds the worker back', () => {

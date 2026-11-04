@@ -23,6 +23,8 @@ test('stop: only a worker on a task, only after the person confirmed once, and t
   const ok = say({ command: 'stop', chat: 'Worker 1', sure: true })
   assert.equal(ok.ok, true)
   assert.deepEqual([ok.message.command, ok.message.about, ok.message.text], ['stop', 'Worker 1', 'stop task\nName: Worker 1\nTask: B201 "The zebracorn sings"\nWhy: stopped with the button'])
+  // T22 wave 2: and the task it stops and how the worker stood, which the line's Done reads.
+  assert.deepEqual([ok.message.taskStep, ok.message.taskText, ok.message.laneState], ['B201', 'The zebracorn sings', 'working'])
   assert.equal(say({ command: 'stop', chat: 'Worker 1' }).status, 409, 'not confirmed')
   assert.equal(say({ command: 'stop', chat: 'Worker 2', sure: true }).status, 409, 'nothing to stop')
   assert.equal(say({ command: 'stop', chat: 'Lead', sure: true }).status, 409, 'the main chat')

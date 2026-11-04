@@ -511,7 +511,9 @@ function needOf(lane, { state, waiting, prefix, resumeList, ownerName }) {
   if (envelopes.length > 0) {
     const task = envelopes.find(one => (one.kind ?? 'task') === 'task' && typeof one.step === 'string')
     const resume = envelopes.find(one => one.kind === 'resume' && typeof one.line === 'string' && one.line !== '')
-    const isClear = envelopes.some(one => one.clear !== null && one.clear !== undefined) || (lane.clearOwed ?? null) !== null
+    // The lazy clear (Task 4, D7): an owed clear counts only for a worker that holds no step (one on its next step owes the
+    // clear of its last one, which goes with its next task's envelope).
+    const isClear = envelopes.some(one => one.clear !== null && one.clear !== undefined) || ((lane.clearOwed ?? null) !== null && (lane.held ?? null) === null)
     if (isClear) return { why: 'envelope', text: WORDS_LINE, step: task?.step ?? null }
     if (task !== undefined) return { why: 'envelope', text: takeLine(task.step), step: task.step }
     if (resume !== undefined) return { why: 'envelope', text: resume.line, step: resume.step ?? null }

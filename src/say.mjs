@@ -293,7 +293,8 @@ function refineCheck(body, state) {
   if (step === undefined || step.status === 'done') return refuse(409, 'That step is not on the backlog, or it is finished.')
   if (step.refineAsk?.isOpen === true) return refuse(409, 'The Advisor is refining this step already.')
   // B285: the ask remembers the block it is about, so a block that changed since answers it (state.mjs `refineAsk`).
-  return { ok: true, message: { ...refineWords(body.to, step, (step.refined?.round ?? 0) + 1), before: refinedKey(step.refined) } }
+  // T22 wave 2: Autopilot's refine (server.mjs `autopilotNow`) is no action of the person's: it carries no wait line (`isAuto`).
+  return { ok: true, message: { ...refineWords(body.to, step, (step.refined?.round ?? 0) + 1), before: refinedKey(step.refined), ...(body.isAuto === true ? { isAuto: true } : {}) } }
 }
 
 /**
@@ -560,7 +561,9 @@ export function checkSay(body, state, maxChars) {
       if (state.changeAsks?.stop?.[lane.name]?.isOpen === true) return refuse(409, 'An earlier ask to stop this task is still open.')
       if (body.sure !== true) return refuse(409, 'Confirm first: the worker stops at a safe point.')
       const task = [lane.task.stepId ?? null, lane.task.text ? `"${plainLine(lane.task.text)}"` : null].filter(Boolean).join(' ') || 'its task'
-      return { ok: true, message: stopWords(body.to, plainLine(lane.name), task) }
+      // T22 wave 2 (the review of 2026-11-04): the word names the task it stops and how the worker stood, so its line is Done once the lane
+      // no longer holds that task (src/waitLine.mjs `workerDone`), not only when it is free.
+      return { ok: true, message: { ...stopWords(body.to, plainLine(lane.name), task), taskStep: lane.task.stepId ?? null, taskText: String(lane.task.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200), laneState: lane.state } }
     }
     // B124: the person asks for one more worker, or for three when there is none. One ask at a time.
     if (body.command === 'spawn') {
@@ -824,6 +827,9 @@ export function reportedBackgroundDue(state, outbox) {
     const owed = lane.clearOwed ?? null
     if (lane.isLeftover === true || lane.isMain === true || owed === null || owed.canClear !== true || owed.isDropped === true) continue
     if (lane.isRunning === false || lane.isTurnOpen === true || !(lane.background > 0)) continue
+    // The lazy clear (Task 4, D7): a worker on its next step owes the clear of its last one while its background work is that
+    // step's own: only a worker that holds no step is told to stop it.
+    if ((lane.held ?? null) !== null) continue
     const isTold = (outbox ?? []).some(sent => sent.command === 'report-background' && sent.to === lane.name && sent.about === owed.step && sent.reportedAt === owed.reportedAt)
     if (!isTold) words.push(reportedBackgroundWords(lane.name, owed.step, owed.reportedAt))
   }

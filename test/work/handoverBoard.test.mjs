@@ -339,3 +339,110 @@ test('review (2): a launch-woken chat with a clear envelope gets it at its first
   const keep = { messageMs: 60 * 60_000, answerMs: 24 * 60 * 60_000 }
   assert.equal(carryable([withClear], 'Worker 2', T + 40_000, keep, { holdClear: inFirstTurn(record, 'Worker 2', report) })?.id, 'e1')
 })
+
+// ---- The lazy clear (Workers mod 0.31.0, brief Task 1 with D1, D4, D8) on a real work store and an outbox.
+
+test('the lazy clear, the real case of 2026-11-02 21:25 on the board: a free worker that owes a clear gets no envelope at its turn end nor at the passes; its next task carries the clear (mutant: a clear-only envelope written)', async () => {
+  const one = await garden(reported())
+  try {
+    const lane = await one.lane()
+    assert.equal(lane.clearOwed.step, 'B12')
+    const ended = await one.decide(lane, NOW, { kind: 'turn-ended', since: NOW - 20 * MIN })
+    assert.deepEqual([ended.decision.state, ended.envelope], [STATES.FREE, null])
+    const passed = await handoverPass({ state: await one.state([lane]), dir: one.dir, outbox: one.outbox, apply: one.apply(NOW + MIN), config: CONFIG, now: NOW + MIN, newId: one.newId })
+    assert.deepEqual(passed, { decided: [{ chat: 'Digger', state: STATES.FREE }], wrote: 0 })
+    assert.deepEqual(one.outbox.outbox(), [])
+    // B13 becomes ready: the next pass gives it with the owed clear in one envelope.
+    const now = (await readStore(one.dir)).items
+    await writeStore(one.dir, { items: new Map([...now, ['B13', step('B13', 'refined')]]), activities: [{ name: 'Garden', isFocus: false, steps: [...now.keys(), 'B13'], notes: [], loose: [] }] }, undefined, { now: NOW + 2 * MIN })
+    const given = await one.decide(await one.lane(), NOW + 3 * MIN)
+    assert.deepEqual([given.envelope.kind, given.envelope.clear?.step, given.envelope.step], ['task', 'B12', 'B13'])
+    assert.deepEqual(one.outbox.outbox().map(message => message.kind), ['task'])
+  } finally {
+    await cleanUp(one.dir)
+  }
+})
+
+test('the lazy clear, D4 at the settle: cleared:false with the line typed is delivered, not failed; no take-back, no hold; settled once (mutants: HELD on cleared:false; takeBack on a clear failure; settle twice)', async () => {
+  const one = await garden(reported(), step('B13', 'refined'))
+  try {
+    const lane = await one.lane()
+    const first = await one.decide(lane, NOW, { kind: 'turn-ended', since: NOW - 20 * MIN })
+    await handOut(one.outbox, 'Digger', NOW, KEEP)
+    const outcome = { cleared: false, set: null, typed: true, restarted: null, background: false, why: null, clearWhy: 'the board did not answer in 5 s', typedAt: NOW + 6_000, enteredAt: NOW + 6_500 }
+    assert.equal(await settle(one.outbox, 'Digger', first.envelope.id, outcome, NOW + 7_000), true)
+    const message = one.outbox.outbox().find(one => one.id === first.envelope.id)
+    assert.deepEqual([message.state, message.deliveredAt, message.failedAt, message.outcome.clearWhy], ['delivered', NOW + 7_000, undefined, 'the board did not answer in 5 s'])
+    // Settled once: a second outcome changes nothing.
+    assert.equal(await settle(one.outbox, 'Digger', first.envelope.id, { ...outcome, cleared: true }, NOW + 8_000), false)
+    assert.equal(one.outbox.outbox().find(one => one.id === first.envelope.id).outcome.cleared, false)
+    const after = await one.decide(await one.lane(), NOW + 8_000)
+    assert.deepEqual([after.decision.state, after.decision.takeBack, after.envelope], [STATES.OFFERED, null, null])
+    assert.deepEqual([valueOf(await one.read('B13'), 'State'), valueOf(await one.read('B13'), 'Owner')], ['queued', 'Digger'])
+    assert.doesNotMatch(await historyOf(one, 'B13'), /taken back/)
+    // The clear is still owed: no clear ran.
+    assert.equal((await one.lane()).clearOwed.step, 'B12')
+    // The set still fails an envelope (D4): failed, its why.
+    const two = await garden(reported(), step('B14', 'refined'))
+    try {
+      const firstTwo = await two.decide(await two.lane(), NOW, { kind: 'turn-ended', since: NOW - 20 * MIN })
+      await settle(two.outbox, 'Digger', firstTwo.envelope.id, { ...outcome, set: false, why: 'the app refused the model' }, NOW + 7_000)
+      assert.equal(two.outbox.outbox().find(one => one.id === firstTwo.envelope.id).state, 'failed')
+      assert.equal((await two.decide(await two.lane(), NOW + 8_000)).decision.state, STATES.HELD)
+    } finally {
+      await cleanUp(two.dir)
+    }
+  } finally {
+    await cleanUp(one.dir)
+  }
+})
+
+test('the lazy clear, D1: the stages on the envelope, merged in the turn: two quick posts both kept, a repeat ignored, taken in any state and after the outcome; another chat\'s or no envelope: not taken (mutant: a stage lost between two quick posts)', async () => {
+  const { addStages, inTurn } = await import('../../src/work/handoverBoard.mjs')
+  const one = await garden(reported(), step('B13', 'refined'))
+  try {
+    const first = await one.decide(await one.lane(), NOW, { kind: 'turn-ended', since: NOW - 20 * MIN })
+    const id = first.envelope.id
+    await handOut(one.outbox, 'Digger', NOW, KEEP)
+    const stagesNow = () => one.outbox.outbox().find(message => message.id === id).stages.map(stage => stage.stage)
+    // Two posts at once, each in the one turn per store (as the server's typed route runs them).
+    const [a, b] = await Promise.all([
+      inTurn(one.dir, () => addStages(one.outbox, 'Digger', id, [{ stage: 'log-saved', at: NOW + 1_000, log: 'logs/B12.md' }])),
+      inTurn(one.dir, () => addStages(one.outbox, 'Digger', id, [{ stage: 'clear-queued', at: NOW + 1_100, ticket: 'clear-1-1' }])),
+    ])
+    assert.deepEqual([a, b], [true, true])
+    assert.deepEqual(stagesNow(), ['log-saved', 'clear-queued'])
+    // The mod's retry of the same stage: taken (true), not written twice; the first entry stays.
+    assert.equal(await addStages(one.outbox, 'Digger', id, [{ stage: 'log-saved', at: NOW + 9_000, log: 'other.md' }]), true)
+    assert.deepEqual(one.outbox.outbox().find(message => message.id === id).stages[0], { stage: 'log-saved', at: NOW + 1_000, log: 'logs/B12.md' })
+    // The final outcome; then a late stage is still taken; the settle never touches the stages.
+    await addStages(one.outbox, 'Digger', id, [{ stage: 'clear-refused', at: NOW + 21_000, why: 'not run in 20 s' }])
+    assert.equal(await settle(one.outbox, 'Digger', id, { cleared: false, typed: true, clearWhy: 'not run in 20 s' }, NOW + 22_000), true)
+    assert.equal(await addStages(one.outbox, 'Digger', id, [{ stage: 'cleared', at: NOW + 30_000, session: 'new-id' }]), true)
+    assert.deepEqual(stagesNow(), ['log-saved', 'clear-queued', 'clear-refused', 'cleared'])
+    // In any state: also a closed one.
+    await one.outbox.update(id, { state: 'dropped' })
+    assert.equal(await addStages(one.outbox, 'Digger', id, [{ stage: 'cleared', at: NOW + 40_000 }]), true)
+    // Another chat's envelope, or none: not taken.
+    assert.equal(await addStages(one.outbox, 'Mower', id, [{ stage: 'cleared', at: NOW + 40_000 }]), false)
+    assert.equal(await addStages(one.outbox, 'Digger', 'nope', [{ stage: 'cleared', at: NOW + 40_000 }]), false)
+  } finally {
+    await cleanUp(one.dir)
+  }
+})
+
+test('the lazy clear, D8: the landing sweep closes every clear-only envelope still waiting, with its reason; a taken one, a task\'s and a restart stay', async () => {
+  const { CLEAR_ONLY_CLOSED_WHY, closeClearOnly } = await import('../../src/work/handoverBoard.mjs')
+  const outbox = memoryStore()
+  const base = { to: 'Digger', command: HANDOVER_COMMAND, restart: false, set: null, back: null }
+  await outbox.say({ ...base, id: 'c1', at: NOW - 5 * MIN, kind: 'clear', step: null, clear: { step: 'B12', reportedAt: NOW - 6 * MIN }, line: null, state: 'waiting' })
+  await outbox.say({ ...base, id: 'c2', at: NOW - 5 * MIN, to: 'Mower', kind: 'clear', step: null, clear: { step: 'B10', reportedAt: NOW - 6 * MIN }, line: null, state: 'taken' })
+  await outbox.say({ ...base, id: 't1', at: NOW - 4 * MIN, kind: 'task', step: 'B13', clear: { step: 'B12', reportedAt: NOW - 6 * MIN }, line: 'work: B13 is yours; run work next', state: 'waiting' })
+  await outbox.say({ ...base, id: 'r1', at: NOW - 4 * MIN, kind: 'restart', step: null, clear: null, restart: true, line: null, version: '0.31.0', state: 'waiting' })
+  assert.equal(await closeClearOnly(outbox, NOW), 1)
+  const of = id => outbox.outbox().find(message => message.id === id)
+  assert.deepEqual([of('c1').state, of('c1').why, of('c1').closedAt], ['dropped', CLEAR_ONLY_CLOSED_WHY, NOW])
+  assert.deepEqual([of('c2').state, of('t1').state, of('r1').state], ['taken', 'waiting', 'waiting'])
+  // Again (every start): nothing more.
+  assert.equal(await closeClearOnly(outbox, NOW + MIN), 0)
+})

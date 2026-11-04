@@ -172,7 +172,7 @@ test('Back to #advice/brainstorm shows the Focus tab at that part', () => {
 
 test('a G id in a Needs your attention card is a link: the card view carries the goal-map ids', () => {
   // T22: the view carries the cards' wait lines too (waitsPart, newestWaitId).
-  const page = harness(['needsView', 'linkedWords', 'waitsPart', 'newestWaitId'], 'const cardsView = () => ({}); const stepKeysOf = () => []; const minuteOf = at => at')
+  const page = harness(['needsView', 'linkedWords', 'waitsPart', 'newestWaitId', 'placeWaitIds', 'recapWaitIds'], 'const cardsView = () => ({}); const stepKeysOf = () => []; const minuteOf = at => at')
   const view = page.sandbox.exports.needsView({ goals: { nodes: [{ id: 'G33' }, { id: 'G7' }] }, backlog: [] }, {})
   assert.deepEqual(plain(view.goalIds), ['G33', 'G7'])
   const nodes = page.sandbox.exports.linkedWords('Look at G33 and G999.', view)

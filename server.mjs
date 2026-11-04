@@ -38,6 +38,7 @@ import { backgroundOf } from './src/chatReport.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
+import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
@@ -106,8 +107,8 @@ import { wakeIdsOf } from './src/ownChat.mjs'
 import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
-import { handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
+import { HANDOVER_COMMAND, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
+import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, SUPERVISOR_RULE_KEYS, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
@@ -339,6 +340,7 @@ export function createBoard({
   setupRead = async () => ({ done: [], finished: true }),
   newProject = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   recap = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  askCard = async () => null,
   step = async () => null,
   project = '',
   mayWrite = async () => null,
@@ -575,6 +577,12 @@ export function createBoard({
     }
     // B319: whose board this is, for another board starting on this PC (src/ports.mjs, boardProject).
     if (pathname === '/api/board') return json(res, { board: 'worker-board', project })
+    // B993: any ask by its id, whatever its state, for the window a link to it opens (an answered one is on no list of the state).
+    if (pathname === '/api/ask') {
+      if (!mayUse) return refuse(res, 403, "Only the board's own page may read.")
+      const card = await askCard(searchParams.get('id') ?? '')
+      return card === null ? refuse(res, 404, 'No such ask.') : json(res, card)
+    }
     if (pathname === '/api/picture') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       const found = await picture(searchParams.get('path') ?? '')
@@ -1194,7 +1202,7 @@ async function main(args) {
     for (const wake of done.result.wakes ?? []) await sendWakes({ ok: true, result: { wake } })
     const advisor = state.advisor?.name ?? null
     for (const one of done.result.refines ?? []) {
-      if (advisor !== null && sayNow !== null) await sayNow({ to: advisor, command: 'refine', step: one.step })
+      if (advisor !== null && sayNow !== null) await sayNow({ to: advisor, command: 'refine', step: one.step, isAuto: true })
     }
     await mainAsksNow(await readState(), done.result.mainAsks ?? [])
     return done
@@ -1210,19 +1218,25 @@ async function main(args) {
   const mainAsksNow = async (state, ids) => {
     const main = (state.chats ?? []).find(lane => lane.isMain && !lane.isLeftover) ?? null
     const runs = main !== null && main.isRunning === true
+    // B978: the state is read anew only when this pass changed the outbox: it runs on every server tick, and an unconditional
+    // reset forced a whole rebuild each time (103 of 372 rebuilds in 16 min on the live board).
+    let changed = 0
     for (const message of store.outbox().filter(one => one.kind === MAIN_ASK && one.state === 'waiting' && (!runs || one.to !== main.name))) {
       await store.update(message.id, { state: 'dropped', why: 'the main chat does not run: Autopilot asks it again once it is free', closedAt: clock() })
+      changed += 1
     }
-    if (!runs || !mayWake(state, main.name)) return
-    for (const id of ids) {
-      const words = store.outbox().filter(one => one.kind === MAIN_ASK && one.about === id)
-      if (words.length >= 2 || words.some(one => ['waiting', 'taken', 'delivered'].includes(one.state))) continue
-      await sendOnce({
-        dir: workDir, key: `main-ask ${id} ${main.name}${words.length > 0 ? ' again' : ''}`, words: { ...workWords(main.name, id, mainAskWords(id)), kind: MAIN_ASK },
-        outbox: store, state, now: clock(), maxChars: config.maxMessageChars, newId: () => randomBytes(8).toString('hex'), keep,
-      })
+    if (runs && mayWake(state, main.name)) {
+      for (const id of ids) {
+        const words = store.outbox().filter(one => one.kind === MAIN_ASK && one.about === id)
+        if (words.length >= 2 || words.some(one => ['waiting', 'taken', 'delivered'].includes(one.state))) continue
+        const sent = await sendOnce({
+          dir: workDir, key: `main-ask ${id} ${main.name}${words.length > 0 ? ' again' : ''}`, words: { ...workWords(main.name, id, mainAskWords(id)), kind: MAIN_ASK },
+          outbox: store, state, now: clock(), maxChars: config.maxMessageChars, newId: () => randomBytes(8).toString('hex'), keep,
+        })
+        if (sent !== null) changed += 1
+      }
     }
-    readState.reset()
+    if (changed > 0) readState.reset()
   }
   /**
    * T20.1 (the person, 2026-11-04: "These numbers are all over the place and non consistent"): what the board knows of a recap beyond its file,
@@ -1411,6 +1425,9 @@ async function main(args) {
    * kept turn reports, the store, the obsolete check's record and the supervisor's last sweep. `{}` on the demo, and when the
    * view cannot be made (a line is information: it never stops the state).
    */
+  // T22 wave 2 (the review of 2026-11-04): the first moment each result without a time of its own was seen (a stop, a remove), so a line never
+  // reads the clock of each draw, also on a board process that does not write the outbox.
+  const waitsFirstSeen = new Map()
   const waitsNow = async (state, stored, supervised) => {
     if (isDemo || state === null) return {}
     try {
@@ -1419,7 +1436,7 @@ async function main(args) {
       const outbox = store.outbox()
       const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, assets: await assetRequests(), now })
       const obsolete = workDir === null ? null : (await readObsoleteFile(workDir)).record
-      const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null }))
+      const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null, firstSeen: waitsFirstSeen }))
       // The review of 2026-11-02 (2a): a turn seen ended, an action's own result seen, is kept on its word once and read first
       // from then on (a later turn of the chat never makes it "on it" again). Only the board process that runs the loops of
       // the board that delivers writes the outbox.
@@ -1723,6 +1740,9 @@ async function main(args) {
     }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start })
+      // The lazy clear (D8): no clear goes alone since Workers mod 0.31.0; one an older board left waiting is closed with its
+      // reason at every start (the landing's sweep: the first start on this version closes them, later ones find none).
+      if (!isShowOnly) await closeClearOnly(store, clock()).catch(error => loops.failed('clear-only-sweep', error))
       // B406: a file torn by a restart or a power cut is set aside, and the board starts without it (the page says so).
       finishedSeen = await kept(FINISHED_FILE)
       roundsKept = await kept(ROUNDS_FILE)
@@ -2286,6 +2306,8 @@ async function main(args) {
   const freshFor = new Map()
   /** 2026-10-28: the same for the whoami call, kept apart: a session's whoami never uses up the read its first take needs. */
   const freshWho = new Map()
+  /** B978: since when a session's whoami finds it under no name (its reads anew slow down after FRESH_MS). */
+  const whoMissSince = new Map()
   /** B847: when a word to archive a replaced chat last went, by the chat's app id, and why it went (for board.log). */
   const archiveGiven = new Map()
   const archiveWhy = new Map()
@@ -2554,6 +2576,10 @@ async function main(args) {
     step: async key => fullStepOf(await readState(), key),
     // B579: a day of Completed by day: its finished steps, the last days with their counts, and its recap. Only the board
     // that runs the loops calls for a recap, never while the person paused all chats or a limit is near.
+    askCard: async id => {
+      const stored = await work()
+      return stored?.ok === true ? askCardOf(stored, id) : null
+    },
     recap: async asked => {
       const stored = await work()
       if (stored?.ok !== true) return { ok: false, status: 409, why: 'The work store cannot be read.' }
@@ -3279,12 +3305,20 @@ async function main(args) {
       // The person's test (2026-10-28 11:08): a chat started anew asked at its start, 0.3 s before its first prompt, while the
       // app had not yet written the new session into its list; a second read only 30 s on left that prompt unnamed. A session
       // the board shows under no name is read anew at most once a second.
-      if (session !== null && whoamiOf(state, session) === null && clock() - (freshWho.get(session) ?? -Infinity) >= WHO_FRESH_MS) {
-        freshWho.set(session, clock())
-        for (const [one, at] of freshWho) if (clock() - at >= FRESH_MS) freshWho.delete(one)
-        readState.reset()
-        state = await readState()
-      }
+      // B978: for its first 30 s unnamed; after that at most once in 30 s (a side chat outside the board's list asks on every
+      // tool call: 122 of 372 rebuilds in 16 min on the live board). And a state read less than a second ago, or about to be
+      // read, is new enough: it is not thrown away for everyone else.
+      if (session !== null && whoamiOf(state, session) === null) {
+        const since = whoMissSince.get(session) ?? clock()
+        whoMissSince.set(session, since)
+        const every = clock() - since < FRESH_MS ? WHO_FRESH_MS : FRESH_MS
+        if (clock() - (freshWho.get(session) ?? -Infinity) >= every) {
+          freshWho.set(session, clock())
+          for (const [one, at] of freshWho) if (clock() - at >= 2 * FRESH_MS) { freshWho.delete(one); whoMissSince.delete(one) }
+          if (clock() - readState.readAt() >= WHO_FRESH_MS && readState.readAt() !== -Infinity) readState.reset()
+          state = await readState()
+        }
+      } else if (session !== null) whoMissSince.delete(session)
       const name = session === null ? null : whoamiOf(state, session)
       if (session !== null) {
         if (name !== null) noteMod(body, { ok: true, chat: name })
@@ -3298,17 +3332,21 @@ async function main(args) {
       noteMod(body, checked)
       if (!checked.ok) return checked
       if (await store.settle(checked.chat, checked, clock()) > 0) readState.reset()
-      // T8.5: an envelope's outcome, once (D): settled, and the worker's decision runs at once (a failed clear or set takes
-      // its task back now, not after a clock).
+      // T8.5: an envelope's outcome, once (D): settled, and the worker's decision runs at once (a failed set takes its task
+      // back now, not after a clock). The lazy clear (D1): the clear's stages as they happen (`stages`, top-level beside
+      // `handover`), alone or with the outcome, merged in the same turn as the settle, so two quick posts never lose each other.
       const outcome = outcomeOf(body?.outcome)
-      if (typeof body?.handover === 'string' && outcome !== null) {
-        const settled = await handoverTurn(workDir ?? HERE, () => settleEnvelope(store, checked.chat, body.handover, outcome, clock()))
-        if (settled) {
-          readState.reset()
-          await decideFor(checked.chat, body?.mod ?? null, { kind: 'pass' })
-          return { ok: true, result: { settled: true } }
-        }
-        return { ok: true, result: { settled: false } }
+      // Whenever `stages` came as a list the answer says `staged` (false: none taken), so the mod tells "dropped" from an older board.
+      const hasStages = Array.isArray(body?.stages)
+      const stages = stagesOf(body?.stages, clock())
+      if (typeof body?.handover === 'string' && (outcome !== null || hasStages)) {
+        const done = await handoverTurn(workDir ?? HERE, async () => ({
+          staged: stages === null ? false : await addStages(store, checked.chat, body.handover, stages),
+          settled: outcome === null ? false : await settleEnvelope(store, checked.chat, body.handover, outcome, clock()),
+        }))
+        if (done.staged || done.settled) readState.reset()
+        if (done.settled) await decideFor(checked.chat, body?.mod ?? null, { kind: 'pass' })
+        return { ok: true, result: { settled: done.settled, ...(hasStages ? { staged: done.staged } : {}) } }
       }
       return { ok: true, result: {} }
     }),

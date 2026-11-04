@@ -14,6 +14,7 @@ import { openQaTaskOf, qaStandOf } from '../work/qaTask.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
 import { ACTIVE, heldReason, openAskIds, workingOnOther } from '../work/parked.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
+import { envelopesOf, lastClearWhyOf } from '../work/handover.mjs'
 import { boardOffMs, checkpointLate, familyOf, reviewLateOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
 
 const MIN = 60_000
@@ -137,7 +138,10 @@ function chatLines(view, now) {
     const stopped = purpose === null && !isClosed && lane.asleep !== true && (ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null))
     const idle = lane.state === 'working' && onId === null && handed === null && role === 'worker' && !waitsForPartner
     const late = role === 'worker' && switching?.late === true
-    const odd = stopped || idle || late
+    // The lazy clear (Task 4, R6): a worker that owes its clear says so with its last why (the envelope's clearWhy): no fault, 'info'.
+    const owes = role === 'worker' && (lane.clearOwed ?? null) !== null
+    const owedWords = owes ? `; clear owed after ${lane.clearOwed.step} (its last: ${oneLine(lastClearWhyOf(envelopesOf(view.outbox, lane.name, view.prefix)) ?? 'none tried yet', 80)})` : ''
+    const odd = stopped || idle || late || owes
     // Signals change 6: a suspension at a full limit is no fault; one past its limit is stale-suspended's; a stopped holder
     // (`stoppedOwner`) is watched by changes 3 and 4; another stop no rule names; a worker working on no step is
     // working-not-running's while its chat does not run, else no rule's; a switch not read back is effort-mismatch's.
@@ -151,8 +155,9 @@ function chatLines(view, now) {
       ...(idle ? [lane.isRunning === false ? 'working-not-running'
         : (lane.compaction?.kind === 'cleared' && Number.isFinite(lane.compaction.at) && now - lane.compaction.at <= AFTER_CLEAR_MS)
           || (reports.length > 0 && now - reports[0].at <= AFTER_CLEAR_MS) ? 'info' : null] : []), ...(late ? ['effort-mismatch'] : []),
+      ...(owes ? ['info'] : []),
     ])
-    return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS, owner })
+    return lineOf(`${lane.name} (${role}): ${state}${suspended}${running}; ${runs}${wants}${onWords}${report}${owedWords}; ${clearWords(lane.compaction, now)}`, { tier: 0, odd, at: since, max: CHAT_CHARS, owner })
   })
 }
 
