@@ -6608,3 +6608,24 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
     in the recap under a step when every row naming the step is approved. The rows come from the state's `recapRows`
     (src/recaps.mjs `recapVerdictsOf`: every row, also one with no step). Never an ask the person took back, the app's form or a refine
     question. Tests: test/autopilotNoise.test.mjs.
+
+### B993: links that open, and a kept look that says what it is about (2026-11-04)
+
+The person, on Q616 in the recap: "I do not know what Q600 is about when i only look at the recap/demo. also the link doesnt work."
+Three rules, the person's of 2026-11-02 (instant, or a visible wait) applied to three places:
+
+- *A `#play=` tab is never silent.* `play()` (public/board.js) shows `Starting the game…` at once (`showPlayNotice`, `playNoticeOf`): in the
+  tab opened with the click, or over the board's page for a `#play=` address that makes this tab the game. A start the board refused (409),
+  a server that does not answer, a tab the browser stopped and a board with no game each show `Not started: <why>` with "Back to the board";
+  the tab is no longer closed without a word. The game's own page replaces the words once it runs.
+- *A link to an ask opens its window whatever its state.* An answered ask (Q600) stands on no list of the state, so the page asks the store:
+  `GET /api/ask?id=Q<n>` (server.mjs, `askCardOf` in src/work/lists.mjs: the title without "(advice: ...)", its text, its answer, step and
+  play map) and shows it as an ask of the board (route `ref`). The window opens at once with `Opening it…`, then the card, or `Q<n> is not on
+  the board any more`. This covers the `[Q600]` button of a kept look or a row, a link in a For you line and `#details=Q600` in the address
+  (`askCards`, `openAskCard`). An ask a list holds opens its own window as before.
+- *A kept look says on its own what it is about.* `routedAwayOf` gives each ask `about`: for every ask its words link (`#details=Q<n>`),
+  `About Q600: <its title> (B924)`; with none, `About B924: <the step's title>`. The kept look (`keptLooksOf`) carries it to the popup's
+  page (`lookOf`), which draws it as the first line of the card (`.demo-row-about`).
+
+Tests: test/askAbout.test.mjs (the real case Q616 and Q600; mutants: the play problem not drawn, the click path dropped, the About line
+dropped, the linked ask's id in place of its title, the address of a Q id not opened).

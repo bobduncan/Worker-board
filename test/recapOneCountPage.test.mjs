@@ -120,13 +120,13 @@ test('the popup: a row being reworked says which step and who, with no picture, 
     const section = page.find('.demo-section.is-looks')
     assert.equal(words(section.querySelector('.demo-band')), 'Looks kept for your recap')
     const [first, second] = [...section.querySelectorAll('.demo-row')]
-    assert.deepEqual(classesOf(first), ['demo-row-title', 'demo-row-note', 'demo-row-note', 'demo-pictures', 'demo-play', 'demo-feedback'], 'title, its words, its pictures, its Play link, Approve / Send back')
+    assert.deepEqual(classesOf(first), ['demo-row-title', 'demo-row-about', 'demo-row-note', 'demo-row-note', 'demo-pictures', 'demo-play', 'demo-feedback'], 'title, its words, its pictures, its Play link, Approve / Send back')
     assert.match(words(first.querySelector('.demo-row-title')), /Does the wizard's move range look right\?/)
     assert.deepEqual([...first.querySelectorAll('.demo-row-note')].map(words), ['It stands a little low.', 'See the second picture.'])
     assert.equal(first.querySelectorAll('.demo-picture').length, 1)
     assert.equal(first.querySelector('.demo-play').getAttribute('href'), '/#play=main&arena=ring')
     assert.deepEqual([...first.querySelectorAll('.demo-feedback button')].map(words), ['Approve', 'Send back'])
-    assert.deepEqual(classesOf(second), ['demo-row-title', 'demo-pictures', 'demo-feedback'], 'a look with no words and no play link draws neither')
+    assert.deepEqual(classesOf(second), ['demo-row-title', 'demo-row-about', 'demo-pictures', 'demo-feedback'], 'a look with no words and no play link draws neither')
     // The side panel lists what can be answered: the ready row and the two looks, never a row being reworked.
     assert.deepEqual(page.all('.demo-answer-jump').map(words), ['Row 1', 'Does the wizard\'s move range look right?', 'Does the bridge look right?'])
     // One Send: the row and the looks, the looks keyed by their ask.
