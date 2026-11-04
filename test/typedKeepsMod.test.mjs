@@ -53,9 +53,11 @@ test('mutant "noteMod writing null": a call without a version erases nothing (ki
 test('mutant "the header merge removed for typed": the server passes every bridge body through withModHeader, never skipping the typed route', async () => {
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.ok(server.includes("parsed = withModHeader(parsed, req.headers['x-workers-mod'])"))
-  // No route is left out of the merge: the call stands outside any `pathname !== ...` condition.
-  const at = server.indexOf("parsed = withModHeader(parsed, req.headers['x-workers-mod'])")
-  assert.ok(!/pathname !== '[^']+'[^\n]*\n[^\n]*withModHeader/.test(server.slice(at - 300, at + 100)))
+  // No route is left out of the merge: the call is a statement of its own, under no condition on the route (neither on its line nor the one before).
+  const rows = server.split('\n')
+  const at = rows.findIndex(row => row.includes("withModHeader(parsed, req.headers['x-workers-mod'])"))
+  assert.ok(rows[at].trim().startsWith('parsed = withModHeader('), rows[at])
+  assert.ok(rows[at - 1].trim().startsWith('//'), rows[at - 1])
   assert.ok(server.includes('modSaid(modOf, body, checked, clock())'))
   // The typed route's own call still notes the mod and hands it to the decision.
   const typed = server.slice(server.indexOf('    typed: counted('), server.indexOf('    game: async body'))
