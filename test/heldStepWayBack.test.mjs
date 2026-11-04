@@ -249,6 +249,12 @@ test('cases: a chat listed again at the next read is no case; an old chat with t
   // Its hand job and its launch go to the report's chat, never the title's (mutants: by title).
   assert.deepEqual(handJobs({ caller: 'Main', taken: [{ id: 'w4', command: 'wake', about: 'Worker 4', text: 'wake' }], lanes: rewriting.chats, now: at(10, 59) }).jobs.map(one => one.to), [OWN_CHAT])
   assert.equal(chatToOpen({ ...rewriting, chats: rewriting.chats.filter(one => one.name === 'Worker 4') }, [])?.session, OWN_CLI)
+  // ... and so do the main chat's start and wake words (the review's nit).
+  const said = checkSay({ to: 'Main', command: 'start', chat: 'Worker 4', text: '' }, { ...rewriting, restart: { main: 'Main' } })
+  assert.match(said.message?.text ?? '', new RegExp(`Its session id: ${OWN_CHAT}\\.`))
+  assert.doesNotMatch(said.message?.text ?? '', new RegExp(OLD_CHAT))
+  const woken = wakesStopped({ ...rewriting, restart: { main: 'Main' } }, new Map([['Worker 4', { since: at(10, 59), words: 1 }]]), [], hhmm)
+  assert.match(woken[0]?.text ?? '', new RegExp(`Its session id: ${OWN_CHAT}\\.`))
 })
 
 test('the app\'s own answer that a session is not found ends the spell\'s tries: no launch after it; "archived" keeps the launch', () => {
