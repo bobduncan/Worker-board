@@ -168,7 +168,10 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     const stored = { at: since, verdict: null, text: (item.sections.get('Answer') ?? []).join(' '), state: 'delivered', takenAt: null, deliveredAt: since }
     const why = byPartner ? (item.sections.get('Why') ?? []).join(' ').trim() || null : null
     // Partner answers: the partner's answer as the store holds it, with where its word to the chat is.
-    const answer = byPartner ? { ...stored, ...(known.answer === null ? {} : { state: known.answer.state, takenAt: known.answer.takenAt ?? null, deliveredAt: known.answer.deliveredAt ?? since }), by: valueOf(item, 'Answered by'), why }
+    // Autopilot noise (the person's "Yes, clear them", 2026-11-04): a decided answer carries its word's id so that its wait line stays
+    // reachable from the ask's own window, but it is never a slim "Answered" card of Needs your attention: only the person's own
+    // answer (no `Answered by`, or `person`) stands there while its line waits (the page's `slim`).
+    const answer = byPartner ? { ...stored, ...(known.answer === null ? {} : { id: known.answer.id ?? null, state: known.answer.state, takenAt: known.answer.takenAt ?? null, deliveredAt: known.answer.deliveredAt ?? since }), by: valueOf(item, 'Answered by'), why }
       : known.answer ?? (state === 'open' ? null : stored)
     const routeNote = (item.sections.get('Route') ?? []).join(' ').trim()
     // Autopilot v2 (the person's "B", 2026-11-02): an open ask only the person's hands can do (and nobody handed on) is no card but

@@ -142,6 +142,27 @@ test('the popup: a row being reworked says which step and who, with no picture, 
   } finally { await page.close() }
 })
 
+test('a kept do is a row of the section like a look, with "Done" in place of "Approve", and counts with the looks', async () => {
+  const state = withLooks(1)
+  state.recapRound.looks[1] = { ...state.recapRound.looks[1], asks: 'do', title: 'Reopen the Q600 play link' }
+  const give = popupOf(state, ['Row 1'])
+  const page = await opened(state, give)
+  try {
+    await page.click('[data-tab="advice"]')
+    await page.click('.focus-recap-open')
+    await settle(10)
+    assert.equal(words(page.find('.demo-round')), 'Round 1 · 3 to judge', '1 ready row + a kept look + a kept do')
+    const [look, todo] = page.all('.demo-section.is-looks .demo-row')
+    assert.deepEqual([[...look.querySelectorAll('.demo-feedback button')].map(words), words(look.querySelector('.demo-verdict'))], [['Approve', 'Send back'], 'A look'])
+    assert.deepEqual([[...todo.querySelectorAll('.demo-feedback button')].map(words), words(todo.querySelector('.demo-verdict'))], [['Done', 'Send back'], 'To do'])
+    await page.click('[data-demo-verdict="approved"][data-demo-key="look:Q591"]')
+    assert.equal(words(page.all('.demo-answer')[2].querySelector('.demo-answer-words')), 'done', 'the side panel says done for a do')
+    await page.click('[data-demo-send]')
+    await settle(10)
+    assert.deepEqual(page.sent('/api/demo-feedback').map(one => one.body.parts), [[{ key: 'look:Q591', verdict: 'approved', comment: '' }]])
+  } finally { await page.close() }
+})
+
 test('a Send of looks alone is a Send; a look sent back needs its note; with every row approved the looks are still to answer', async () => {
   const state = withLooks(1)
   const give = popupOf(state, ['Row 1'])

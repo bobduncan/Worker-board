@@ -26,6 +26,8 @@ export const TILE_LINE = 'approve or send back'
 const BUILT_STATES = ['done', 'dropped', 'stopped', 'verdict']
 const FINISHED = ['done', 'closed', 'dropped']
 const IMAGE = /\.(?:png|jpe?g|gif|webp)$/i
+/** The asks a kept look can be: a look, or an own-senses do the main chat or the partner handed on (src/work/keptLook.mjs). */
+const KEPT_ASKS = ['look', 'do']
 /** The advice on a look's tile is cut at this many characters (it is one small line). */
 const LOOK_ADVICE_MOST = 60
 
@@ -263,7 +265,7 @@ export function recapCardOf({ goal, recapPath = null, rows = [], looks: kept = [
   for (const ask of Array.isArray(asked) ? asked : []) {
     if (whole !== null && ask.id === whole.id) continue
     // A kept look is a row of the recap, never an ask outside it.
-    if (ask.isKept === true && ask.asks === 'look' && /^B\d+$/.test(ask.of ?? '')) continue
+    if (ask.isKept === true && KEPT_ASKS.includes(ask.asks) && /^B\d+$/.test(ask.of ?? '')) continue
     // An ask of a step a row names waits with that row (the person's verdict on the row closes it, or the row is being reworked).
     if (!named.has(ask.of)) outside.push(ask.id)
   }

@@ -194,6 +194,10 @@ test('the kept looks are rows of the round: each with its title, words, pictures
   assert.match(checkSend(shown, { round: 1, parts: [{ key: 'look:Q591', verdict: 'sent-back', comment: ' ' }] }).why, /"Second look" is sent back without a comment/)
   assert.match(checkSend(shown, { round: 1, parts: [{ key: 'look:Q999', verdict: 'approved' }] }).why, /no part "look:Q999"/)
   assert.match(checkSend(shown, { round: 1, parts: [{ key: 'look:Q590', verdict: 'approved' }, { key: 'look:Q590', verdict: 'approved' }] }).why, /twice/)
+  // A kept do is a row of the round like a look, and counts with them (one count includes the kept dos).
+  const withDo = roundPage(demoPage(list(), 'pictures/g6/recap'), null, { looks: [lookOf('Q590'), lookOf('Q616', { asks: 'do', title: 'Reopen the Q600 play link' })] })
+  assert.deepEqual([withDo.looks.map(one => [one.ask, one.asks]), withDo.feedback.toJudge], [[['Q590', 'look'], ['Q616', 'do']], 5])
+  assert.deepEqual(checkSend(withDo, { round: 1, parts: [{ key: 'look:Q616', verdict: 'approved' }] }).looks, [{ ask: 'Q616', verdict: 'approved', comment: '' }])
   // A look alone is a Send.
   assert.deepEqual(checkSend(shown, { round: 1, parts: [{ key: 'look:Q590', verdict: 'approved' }] }), { ok: true, round: 1, parts: [], looks: [{ ask: 'Q590', verdict: 'approved', comment: '' }] })
   // Every row approved: the looks are still to answer (the Send is refused only when nothing is left).
@@ -216,8 +220,11 @@ test('keptLooksOf: only the looks Autopilot keeps for the recap, of a step of th
     { id: 'Q8', route: 'recap', isKept: true, asks: 'look', of: 'B9', goal: 'G7', title: 'Another goal', text: '', pictures: [] },
     { id: 'Q9', route: 'main', isKept: true, asks: 'look', of: 'B9', goal: 'G6', title: 'The main chat\'s', text: '', pictures: [] },
     { id: 'Q10', route: 'recap', isKept: true, asks: 'look', of: null, goal: null, title: 'Of no step', text: '', pictures: [] },
+    // A kept do (an own-senses do the main chat or the partner handed on) is a row too, "Done" in place of "Approve".
+    { id: 'Q11', route: 'recap', isKept: true, asks: 'do', of: 'B9', goal: 'G6', title: 'Reopen the Q5 play link', text: '', pictures: [] },
+    { id: 'Q12', route: 'recap', isKept: true, asks: 'provide', of: 'B9', goal: 'G6', title: 'A provide', text: '', pictures: [] },
   ]
-  assert.deepEqual(keptLooksOf(routed, 'G6').map(one => [one.ask, one.key, one.play, one.pictures]), [['Q5', 'look:Q5', 'main&arena=ring', ['a.png']]])
+  assert.deepEqual(keptLooksOf(routed, 'G6').map(one => [one.ask, one.asks, one.key, one.play, one.pictures]), [['Q5', 'look', 'look:Q5', 'main&arena=ring', ['a.png']], ['Q11', 'do', 'look:Q11', null, []]])
   assert.equal(playOf('Play it: #play=main&sandbox&unit=wizard now'), 'main&sandbox&unit=wizard')
   assert.equal(playOf('nothing to play'), null)
   assert.equal(playOf('#play=<script>'), null, 'only plain characters')

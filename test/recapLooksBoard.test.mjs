@@ -68,6 +68,9 @@ async function until(check, what) {
 
 const KEPT = 'Your partner hands this to you; Autopilot keeps it for the goal\'s recap'
 /** A look Autopilot keeps for the goal's recap (the partner handed it over): routed to the recap, with the kept line in its Route section. */
+/** The line a do carries that the main chat or the partner handed on to the person and Autopilot keeps for the recap. */
+const HANDED_ON = 'Kept for the goal\'s recap: the main chat handed it on'
+const keptDo = (n, title, of = 'B19') => keptLook(n, title, of).replace('Asks: look', 'Asks: do').replace(KEPT, HANDED_ON).replace(/^Pictures: .*\n/m, '')
 const keptLook = (n, title, of = 'B19') => [
   `Id: Q${n}`, 'Kind: ask', `Title: ${title}`, 'State: open', 'Owner: Digger', `Since: ${stamp(NOW - 40 * MIN)}`, `Filed: ${NOW - 40 * MIN}`, `Pictures: art/B19/after${n}.jpg`,
   'Asks: look', 'Blocking: no', 'Advice: yes', `Of: ${of}`, 'Route: recap', '', '## Route', KEPT, '',
@@ -108,6 +111,8 @@ test('the recap\'s Send answers the kept looks it holds: Looks right (your recap
   for (const [n, title] of [[590, 'Does the wizard\'s move range look right?'], [591, 'Does the bridge look right?'], [592, 'Does the ring look right?']]) await writeFile(join(work, `Q${n}.md`), keptLook(n, title))
   // A kept look of the step the recap's row names (B15): the verdict on that row does not answer it.
   await writeFile(join(work, 'Q593.md'), keptLook(593, 'Does the lava glow right?', 'B15'))
+  // A kept do (Main handed on: reopen the play link): a row of the same section, answered Done.
+  await writeFile(join(work, 'Q594.md'), keptDo(594, 'After the step in Q590, reopen the Q590 play link.'))
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'recap', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), autopilot: true }))
   await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc') })
@@ -125,20 +130,23 @@ test('the recap\'s Send answers the kept looks it holds: Looks right (your recap
   const file = join(project, 'pictures', 'g6', 'recap')
   const send = body => asPerson('/api/demo-feedback', { path: 'pictures/g6/recap/demo.json', ...body })
 
-  // The board holds the one count: 1 ready row + 4 kept looks.
-  const now = await until(async () => { const state = await get('/api/state'); return state.recapRound?.looks?.length === 4 ? state : null }, 'the state with the four kept looks')
-  assert.deepEqual([now.recapRound.ready, now.recapRound.toJudge, now.recapCard.count], [1, 5, 5])
+  // The board holds the one count: 1 ready row + 4 kept looks + 1 kept do.
+  const now = await until(async () => { const state = await get('/api/state'); return state.recapRound?.looks?.length === 5 ? state : null }, 'the state with the five kept looks and dos')
+  assert.deepEqual([now.recapRound.ready, now.recapRound.toJudge, now.recapCard.count], [1, 6, 6])
   const shown = await get('/api/demo?path=pictures/g6/recap/demo.json')
-  assert.deepEqual([shown.looks.map(one => one.key), shown.feedback.toJudge, shown.feedback.canSend], [['look:Q590', 'look:Q591', 'look:Q592', 'look:Q593'], 5, true])
+  assert.deepEqual([shown.looks.map(one => one.key), shown.feedback.toJudge, shown.feedback.canSend], [['look:Q590', 'look:Q591', 'look:Q592', 'look:Q593', 'look:Q594'], 6, true])
+  assert.deepEqual(shown.looks.map(one => one.asks), ['look', 'look', 'look', 'look', 'do'])
 
   // A look the popup does not hold is refused, and nothing is written.
   const unknown = await send({ round: 1, parts: [{ key: 'look:Q999', verdict: 'approved' }] })
   assert.equal(unknown.status, 400, unknown.body)
 
   // The Send: the row approved, one look right, one look sent back.
-  const first = await send({ round: 1, parts: [{ key: '1. Lava', verdict: 'approved' }, { key: 'look:Q590', verdict: 'approved' }, { key: 'look:Q591', verdict: 'sent-back', comment: 'the bridge is too long' }] })
+  const first = await send({ round: 1, parts: [{ key: '1. Lava', verdict: 'approved' }, { key: 'look:Q590', verdict: 'approved' }, { key: 'look:Q591', verdict: 'sent-back', comment: 'the bridge is too long' }, { key: 'look:Q594', verdict: 'approved' }] })
   assert.equal(first.status, 200, first.body)
-  assert.equal(JSON.parse(first.body).looks, 2)
+  assert.equal(JSON.parse(first.body).looks, 3)
+  assert.match(await askText('Q594'), /^State: answered$/m)
+  assert.match(await askText('Q594'), /## Answer\nDone\. Marked done in your recap, round 1/)
   assert.match(await askText('Q590'), /^State: answered$/m)
   assert.match(await askText('Q590'), /## Answer\nApproved\. Looks right \(your recap, round 1\)/)
   assert.match(await askText('Q591'), /^State: answered$/m)

@@ -71,7 +71,7 @@ export const rowsOf = page => page.sections.flatMap((section, at) => section.row
 
 /** One look kept for the recap as the popup draws it (T20.1): `looks` of `roundPage`'s options, cleaned: its key, title, words, pictures and play link. */
 const lookOf = look => ({
-  key: String(look.key), ask: String(look.ask ?? ''), title: oneLine(look.title, 300), text: String(look.text ?? '').trim(),
+  key: String(look.key), ask: String(look.ask ?? ''), asks: look.asks === 'do' ? 'do' : 'look', title: oneLine(look.title, 300), text: String(look.text ?? '').trim(),
   pictures: (Array.isArray(look.pictures) ? look.pictures : []).filter(path => typeof path === 'string' && path !== '').map(path => ({ path, caption: path.split('/').at(-1) })),
   play: typeof look.play === 'string' && look.play !== '' ? look.play : null,
 })

@@ -56,7 +56,7 @@ import { withLinks } from './work/links.mjs'
 import { clearOwed, modAtLeast } from './clearOwed.mjs'
 import { newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
-import { recapWaitsOf } from './recaps.mjs'
+import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, standingAsksOf } from './recapCard.mjs'
 import { recapRoundOf, reworkOf } from './recapRound.mjs'
 import { guardOf } from './goalGuard.mjs'
@@ -2380,6 +2380,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     // Signals change 7: when the board saw each worker's own plan words change, for the server to hand back at the next read.
     planSeen: Object.fromEntries(planKept),
     recapWaits,
+    // The person's "Yes, clear them" (2026-11-04): where every row of the recaps stands, for the work API (src/recaps.mjs).
+    recapRows: recapVerdictsOf(raw.recaps),
     // Clear after each step: the sessions the chats went on from, while the app still names them (read on to their ends).
     movedFrom: found.filter(chat => !chat.isLeftover && movedBack.has(chat.cliSessionId)).map(chat => ({ session: movedBack.get(chat.cliSessionId), name: chat.name })),
     spendingSubjects: found.filter(chat => !chat.isLeftover).map(chat => ({ session: chat.cliSessionId, appSession: chat.appSessionId, name: chat.name, model: chat.model, effort: chat.effort, role: chat.isMain ? 'main' : isAdvisor(chat) ? 'advisor' : isHelper(chat) ? 'helper' : isSupervisor(chat) ? 'supervisor' : isOwner(chat) ? 'owner' : 'worker' })),

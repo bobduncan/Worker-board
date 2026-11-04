@@ -17,6 +17,8 @@ export const WAITING_FOR_A_WORKER = 'waiting for a worker'
 /** The key a kept look has among the rows of the popup's round (the answers of one Send are keyed by it). */
 export const LOOK_PREFIX = 'look:'
 export const lookKey = ask => `${LOOK_PREFIX}${ask}`
+/** The asks a kept look can be: a look, or an own-senses do the main chat or the partner handed on (src/work/keptLook.mjs); the do is judged "Done". */
+export const KEPT_ASKS = ['look', 'do']
 
 const numberOf = id => Number(String(id).slice(1))
 
@@ -87,15 +89,16 @@ export function playOf(words) {
 
 /**
  * The kept looks of the focus goal (the asks the board routed to the recap, `routedAway` of src/work/lists.mjs; only while Autopilot is
- * on) as rows of its recap: `[{ ask, key, title, text, advice, step, pictures, play }]`, oldest first. A kept look is a look the partner
- * handed over or a worker filed with pictures that Autopilot keeps for the goal's recap (src/work/keptLook.mjs): the person judges it
- * there, in the section "Looks kept for your recap", as any row.
+ * on) as rows of its recap: `[{ ask, asks, key, title, text, advice, step, pictures, play }]`, oldest first. A kept look is a look the
+ * partner handed over or a worker filed with pictures, or an own-senses do the main chat or the partner handed on (`asks` 'do'), that
+ * Autopilot keeps for the goal's recap (src/work/keptLook.mjs): the person judges it there, in the section "Looks kept for your recap",
+ * as any row (a do with "Done" in place of "Approve").
  */
 export function keptLooksOf(routed, goal) {
   return (Array.isArray(routed) ? routed : [])
-    .filter(one => one.route === 'recap' && one.isKept === true && one.asks === 'look' && /^B\d+$/.test(one.of ?? '') && one.goal === goal)
+    .filter(one => one.route === 'recap' && one.isKept === true && KEPT_ASKS.includes(one.asks) && /^B\d+$/.test(one.of ?? '') && one.goal === goal)
     .map(one => ({
-      ask: one.id, key: lookKey(one.id), title: String(one.title ?? ''), text: String(one.text ?? ''), advice: one.advice ?? null, step: one.of,
+      ask: one.id, asks: one.asks, key: lookKey(one.id), title: String(one.title ?? ''), text: String(one.text ?? ''), advice: one.advice ?? null, step: one.of,
       pictures: Array.isArray(one.pictures) ? one.pictures : [], play: playOf(`${one.title ?? ''} ${one.text ?? ''}`),
     }))
 }
