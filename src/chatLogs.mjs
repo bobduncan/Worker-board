@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { pipeline } from 'node:stream/promises'
 
-import { writeAtomic } from './write.mjs'
+import { writeUnflushed } from './write.mjs'
 
 /** Where the logs go, in the project's folder. */
 export const LOGS_FOLDER = '.claude/chat-logs'
@@ -219,9 +219,9 @@ const isJob = job => job !== null && typeof job === 'object' && ['copy', 'text']
  * folder of the app's transcripts. `save({ chat, session, step })` puts a log in the journal and starts it (the copy
  * runs on after the answer); `resume()` starts every log the journal names (at the board's start, B529: only in the
  * board process that runs the loops); `reload()` forgets what was read, so the next call reads the journal again; `idle()` waits
- * until the logs started are written; `failed` hears a log given up.
+ * until the logs started are written; `failed` hears a log given up; `track(words, fn)` runs each log's writing (B934).
  */
-export function chatLogKeeper({ file, project, transcripts, clock = Date.now, failed = () => {} }) {
+export function chatLogKeeper({ file, project, transcripts, clock = Date.now, failed = () => {}, track = (words, fn) => fn() }) {
   let jobs = null
   /** The sessions cleared chats left, still to be read to their ends (`leftSubjects`). */
   let left = []
@@ -249,7 +249,8 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
     const text = `${JSON.stringify({ jobs: jobs ?? [], left }, null, 2)}\n`
     const write = journal.catch(() => {}).then(async () => {
       await mkdir(dirname(file), { recursive: true })
-      await writeAtomic(file, text)
+      // B934: the journal, written at every save-log and step of a log: no flush (a power cut may lose its last entry).
+      await writeUnflushed(file, text)
     })
     journal = write.catch(() => {})
     return write
@@ -283,8 +284,10 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
       await rm(`${job.txt}.part`, { force: true }).catch(() => {})
     }
   }
+  // B934: each log's writing is a job of the board, for its stall log (stalls.mjs).
+  const tracked = job => track(`chat log of ${job.chat} (${job.state})`, () => work(job))
   const run = job => {
-    queue = queue.then(() => work(job), () => work(job))
+    queue = queue.then(() => tracked(job), () => tracked(job))
     return queue
   }
 

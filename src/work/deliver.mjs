@@ -5,7 +5,7 @@
 // the outbox; one send at a time per store, so the chat's pull and the refresh never send it twice. A line that
 // expired untaken goes once more. A waiting line whose step is no longer that chat's is withdrawn.
 
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { checkSay, spawnWords, workWords } from '../say.mjs'
 import { isLate } from '../store.mjs'
@@ -14,7 +14,8 @@ import { sinceMs } from './item.mjs'
 import { readDeliveredFile, readStore, writeDelivered } from './store.mjs'
 import { isHolding } from './pause.mjs'
 import { isFailedForGood, sweepOutbox } from './outboxSweep.mjs'
-import { SYNC_LINE_MS, workLineWhy } from './workLines.mjs'
+import { assetsFolderOf, listAssets } from '../assets.mjs'
+import { SYNC_LINE_MS, assetResends, workLineWhy } from './workLines.mjs'
 import { PARTNER_AGAIN_MS, isPartnerAskWord, partnerAskWords } from './partnerAnswers.mjs'
 import { AGAIN_MS, effortWords, goesAgain, lastWord, sameTarget } from './effort.mjs'
 import { RESTART_AGAIN_MS, RESTART_COMMAND, restartWords } from './modRollout.mjs'
@@ -152,6 +153,15 @@ export async function pullFor({ dir, result, state, outbox, now, maxChars, newId
   return sent === null ? none : result
 }
 
+/** B949: the asset requests by id (the asset words are judged by them), or undefined when they cannot be read: the words then hold. */
+async function assetsOf(dir) {
+  try {
+    return new Map((await listAssets(assetsFolderOf(dir))).map(record => [record.id, record]))
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * The work lines whose step is no longer that chat's (another owner, done, dropped, gone; a check's line once the step
  * left review; workLines.mjs) are withdrawn with their why, and the start they asked of the main chat when it still
@@ -162,9 +172,10 @@ async function withdrawStale({ dir, outbox, prefix, fs, now = Date.now() }) {
   const lines = outbox.outbox().filter(message => message.command === 'work' && (message.state === 'waiting' || isFailedForGood(message)))
   if (lines.length === 0) return []
   const items = (await readStore(dir, fs)).items
+  const assets = lines.some(message => message.kind === 'asset') ? await assetsOf(dir) : undefined
   const gone = []
   for (const message of lines) {
-    const why = workLineWhy(message, items, { prefix, now })
+    const why = workLineWhy(message, items, { prefix, now, assets })
     if (why === null) continue
     await outbox.update(message.id, { state: 'dropped', why, closedAt: now })
     gone.push(message)
@@ -290,6 +301,11 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const notOff = workers.filter(lane => lane.state !== 'off' && lane.isRunning !== false).length
     // The review: the word says how many workers had reported then, so the next passes count its worker as on its way.
     lines.push({ key: startKey(start, notOff, now), words: { ...startWord, reported: workers.filter(lane => lane.report != null).length } })
+  }
+  // B949: the ready words the sweep dropped as "gone" (its fault) go once more, while their step is still that chat's.
+  const resends = assetResends(outbox.outbox(), (await readStore(dir, fs)).items, await assetsOf(dir), { prefix: state.chatPrefix ?? '' })
+  for (const one of resends) {
+    lines.push({ key: one.key, words: { ...workWords(one.chat, one.id, `asset ${one.id} ready: ${join(assetsFolderOf(dir), one.id)}`), kind: 'asset' } })
   }
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })

@@ -40,15 +40,15 @@ export const absentAs = value => error => {
 export const besideOf = file => `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
 
 /**
- * Writes `data` to `beside`, a file that must not be there yet, and flushes it to disk. Without `fs.open` (a test's
- * files in memory) it is written plainly.
+ * Writes `data` to `beside`, a file that must not be there yet, and flushes it to disk (`flush` false: not, B934).
+ * Without `fs.open` (a test's files in memory) it is written plainly.
  */
-export async function writeNew(beside, data, fs = files) {
+export async function writeNew(beside, data, fs = files, { flush = true } = {}) {
   if (typeof fs.open !== 'function') return fs.writeFile(beside, data, { flag: 'wx' })
   const handle = await fs.open(beside, 'wx')
   try {
     await handle.writeFile(data)
-    await handle.sync()
+    if (flush) await handle.sync()
   } finally {
     await handle.close()
   }
@@ -62,18 +62,27 @@ export const removeFile = (file, fs = files, options = undefined) => again(() =>
 
 /**
  * `data` as the whole of `file`, or the file as it was: written beside, flushed, put in place. Throws when it could
- * not be written, and leaves nothing beside it.
+ * not be written, and leaves nothing beside it. `flush` false: see `writeUnflushed`.
  */
-export async function writeAtomic(file, data, fs = files) {
+export async function writeAtomic(file, data, fs = files, { flush = true } = {}) {
   const beside = besideOf(file)
   try {
-    await writeNew(beside, data, fs)
+    await writeNew(beside, data, fs, { flush })
     await moveInPlace(beside, file, fs)
   } catch (error) {
     await removeFile(beside, fs, { force: true }).catch(() => {})
     throw error
   }
 }
+
+/**
+ * B934 (X93: on 2026-11-02 the board's flushes of its own bookkeeping files took up to 6 s each while the workers handed
+ * over, and held node's file threads, so every work call waited behind them): a file the board keeps for itself and
+ * writes often (the loop lock's heartbeat, the chats' reports, the work calls' answers, ...) is written beside and put in
+ * place WITHOUT the flush. A board cut off mid-write still leaves it whole (the rename); a power cut may lose its last
+ * seconds, which the board makes again. The work store, the goal map and what the person writes keep the flush.
+ */
+export const writeUnflushed = (file, data, fs = files) => writeAtomic(file, data, fs, { flush: false })
 
 /** Whether `file` ends a line: not there, empty, or its last byte a line end. */
 async function endsLine(file, fs) {

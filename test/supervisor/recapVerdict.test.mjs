@@ -131,7 +131,8 @@ test('recap parts name their steps; where each stands with the person; Approve c
   assert.throws(() => checkList({ ...list, sections: [{ kind: 'open', rows: [{ title: 'x', steps: ['821'], pictures: [{ kind: 'final', path: 'a.png' }] }] }] }), /"steps" lists step ids/)
   const page = demoPage(list, 'pictures/g60/recap')
   assert.deepEqual(page.sections[0].rows.map(row => row.steps), [[], ['B689', 'B821'], ['B671']])
-  const recap = rounds => ({ path: 'pictures/g60/recap/demo.json', goal: 'G60', parts: page.sections[0].rows.filter(row => row.steps.length > 0).map(row => ({ key: row.key, title: row.title, steps: row.steps })), rounds })
+  // T17.1: a part whose row says what changed (`changed`) is the new try once the demo was written again.
+  const recap = rounds => ({ path: 'pictures/g60/recap/demo.json', goal: 'G60', parts: page.sections[0].rows.filter(row => row.steps.length > 0).map(row => ({ key: row.key, title: row.title, steps: row.steps, changed: true })), rounds })
   // Nothing judged yet: every named step waits for the verdict.
   assert.deepEqual(recapWaitsOf([recap([])]).map(one => [one.step, one.verdict]), [['B689', null], ['B821', null], ['B671', null]])
   // Round 1: props approved (left out), round shapes sent back at 13:05.

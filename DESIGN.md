@@ -1433,7 +1433,7 @@ board also ends its games when it is closed, and the card has a Stop button. The
 branch and the folder come from the board's own state, and starting needs what sending needs (the token, the
 board's own origin, JSON). The board switches no folder to another branch: a branch that is in no working folder
 cannot be started, and the card says so. Vite's cache for these games is kept in the board's `data/game-cache`,
-so nothing is written into a folder's `node_modules` while a worker runs the game from it too. The Overview has
+so nothing is written into a folder's `node_modules` while a worker runs the game from it too. A cache older than the folder's `node_modules/.package-lock.json`, or one that cannot be read, is rebuilt at the next start (B943: a `node_modules` emptied and restored kept a bundle made without `@pixi/colord`); a broken `node_modules` itself still fails. The Overview has
 a "Run game" button that is always there (the person, 2026-10-12: "lets add the run game button in the worker
 board"): it opens the game as it is on main the same way, and says which commit main is on and since when.
 
@@ -2143,6 +2143,12 @@ step on "check pending" for good.
   that: a step in review whose last check failed only on such lines is checked again once each base equals its remote's
   (the view's `bases`, `basesNow`; the server-only action `recheck-base`, History "check run again: main of <repo>
   equals origin/main now"), once per failed check, without a new report. Tests: `test/supervisor/baseEqual.test.mjs`.
+- **Work on a branch not merged, merged later** (B962, the fix of X137: B944's check failed twice on 2 Nov because its branch was kept on
+  purpose; its commit reached main that night and nothing checked again for 33 hours): the repair rule `merged-now` checks a step
+  in review again, through the same `recheck-base` action (History "check run again: <branch> is on <base> now"), when its last
+  check failed only on "not merged" lines and the branch is no longer among the branches the base lacks (`basesNow`'s
+  `unmerged`: merged, or gone with its commits on the base). Once per failed check; git silent, a branch still unmerged or a
+  second fault leaves the step. Tests: `test/supervisor/mergedNow.test.mjs`.
 - **A restart** stops taking work (the Workers mod gets 503 "The board restarts: try again in a moment."), starts no
   new look, pass or check, and waits up to 10 s for the reconciler's pass and the running checks before it ends; it
   also ends when the page's connection drops before the answer is out.
@@ -2487,6 +2493,21 @@ summary and rule 8 no longer name a line whose step moved on, even before the re
 or failed, whose purpose is gone closes at a refresh; every other command (scanned as `command: '<x>'` in src) waiting
 past its keep is closed by the sweep, and failed is judged. A failed word of minutes (not `waitsLong`) is judged by
 its time: rule 8 names it for its two hours, the summary for a day.
+
+### An asset word is the asset's, not the work store's (B949)
+
+On 2026-11-02 five of eighteen "asset A<n> ready" words (A7, A9, A15, A17, A18) were dropped 0.6 s after the board wrote
+them, as "A17 is gone": `withdrawStale` judged every waiting work line by the work store, which holds no A-ids, so the
+step branch of `workLineWhy` read each asset word as gone, and Worker 1 sat waiting for A17 on B923. Now a line of kind
+`asset` is judged by its request (`.claude/assets/A<n>/request.json`, `assetLineWhy` in `src/work/workLines.mjs`), never by the
+store: a ready word is dropped when its request is gone or failed, a failed word when its request is gone, either when the
+step the request was made for (`of`) is done, dropped or another chat's; a request still being made holds its word. The
+callers pass the requests as `assets` (`withdrawStale` reads them; the supervisor's view and `wordJudge` carry them through
+the `assets` port, so the health summary and rule 8 judge the same way); without them (`undefined`/null) an asset word
+holds, for the board cannot tell. A ready word the sweep dropped as "gone" (the fault above) is written once more
+(`assetResends`, key `asset-again <A-id> <chat>`, sent once ever) while its request is ready, its step is in progress and
+still that chat's, and no later word to that chat names the asset (one typed by hand counts). `test/assetWordJudge.test.mjs`
+replays the real case; the mutant that sends an asset word to the work store's branch fails seven of its nine tests.
 
 ### A failure that passes by itself (B813)
 
@@ -3375,7 +3396,15 @@ someone deleted it.
    the settings, the launch entry, the list of boards, the work store (`putInPlace`, `removeItem`), the goal map and
    its daily copy, the ideas, the backlog view, the CPU level, the port file, a new project's files and Codex's
    pictures. A module that takes its file functions as `fs` (the tests' files in memory) keeps them; without `open` a
-   file is written plainly.
+   file is written plainly. B934 (X93, 2026-11-02): `writeUnflushed(file, data)` writes beside and renames the same way
+   but without the flush, for the bookkeeping files the board writes often and can make again: the loop lock's
+   heartbeat (`.claude/sync-loop.json`), `data/reports.json`, `data/alive.json`, `data/work-requests.json`,
+   `data/task-times.json` and the task list, `data/wakes.json`, `data/stalls.json` and the chat logs' journal. On the
+   live board a flush took 0.7 to 6 s on the busy disk at the workers' hand-overs, the loop lock alone flushed 119 times
+   in 4.7 min, and the flushes held node's four file threads, so every work call queued behind them. A board cut off
+   mid-write still leaves each file whole (the rename); a power cut may lose its last seconds. The work store, the goal
+   map and what the person writes keep the flush. A work call's answer (B412's `requestKeeper`) goes out once it is kept
+   in memory; its file follows. Node's file threads stay at 4: a bench with 16 helped only while the flushes stayed.
 2. `appendLines` ends a line torn by a power cut before it appends, so the next record of the outbox or the history
    never runs into it.
 3. At the start (`readKept`), finished.json, rounds.json, refine-gate.json, task-times.json, reports.json (T13) and ideas.json that do
@@ -3893,7 +3922,15 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   (`deafMs`, the view's `deaf`: a stall or a restart of the board is no chat's fault). `board-deaf` (B736: the board heard no
   chat for over 10 min while chats wrote their conversations; the lanes read as before from then on, so a hung board is not
   hidden) and `board-slow` (B736, the rule X89's sweep wanted: two work calls within 2 min that the board answered after the
-  chat's Workers mod had given up, 10 s, read from each call's request id; one finding naming the longest wait).
+  chat's Workers mod had given up, 10 s, read from each call's request id; one finding naming the longest wait; B934: its
+  evidence cites the newest three stalls of the board's stall log in those 10 min, or says the log names none).
+  **The stall log** (B934, X93: after B917 the board stalled 6 to 13 s around the workers' hand-overs and nothing named
+  what it did; `src/stalls.mjs`, `src/stallWords.mjs`): a timer every 500 ms measures how late the event loop runs it; a
+  delay over 2 s is a stall of the loop, and a work call answered over 2 s after it reached the board is a stall of the
+  call (it waited on something while the loop ran). Each is written with the requests (every HTTP request, a work call by
+  its action and chat) and the board's own jobs (every loop run through `loops.run`, a state rebuild, a hand-over, a chat
+  log being written, the read of a cleared chat's left session) that ran during it, to `data/stalls.json` (the newest 50,
+  read again at a start); the state carries them (`stalls`) and board-slow cites them.
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
@@ -4352,10 +4389,20 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   finished when the board stops is finished at its next start, and once copied nothing needs the app to keep the old
   transcript. Logs go to `<project>/.claude/chat-logs/<chat>/<YYYY-MM-DD HHmm> <step>.txt`.
 - **The clear.** The mod marks the card (`clearing: { at, step, log }`), then queues /clear with a ticket; its own
-  `command.run` hook runs a /clear of the mod only as the one of the clear still on its way (its ticket), while no
-  prompt or turn came in since it was decided; any other is refused (a stale one after the clear was dropped, also
-  much later). A real turn on the same session drops the clear at its start, and its end is told to the board as any
-  turn's; a clear that has not run within two minutes is let go. A /clear queued before the mod was loaded anew runs
+  `command.run` hook runs the clear still on its way at a /clear of the mod, while that clear's session is this one, no
+  turn runs and no prompt or turn came in since it was decided; one after a prompt or turn drops it at once (its why to
+  the card, an envelope's to the board); one with no clear on its way is refused (a stale one after the clear was
+  dropped, also much later), and one whose clear was decided on a session cleared since never clears the fresh
+  conversation. B944 (mod 0.29.1, `hooks/clearrun.ts`): until 0.29.0 the /clear ran only when its ticket was the
+  oldest in the mod's queue; that queue lives in the hooks module and the /clear in the engine's queue, so once the
+  two fell out of step (a /clear the module never saw, or a hooks worker the engine replaced mid-session, its state
+  started over) every later clear of that process was refused as "let go" while still on its way, until the
+  two-minute let-go and the chat's restart (X108, X109, X134, X135: Worker 3 21:25, Worker 4 21:31 on 2026-11-02,
+  each /clear run and refused within 20 ms). Now whichever /clear of the mod's comes first runs it, and its ticket
+  and every older one are used up. Limits: what put the queues out of step is not seen in the logs (the engine's
+  rules allow both reasons above); a /clear that never comes at all is still let go after two minutes, its why on the
+  card and to the board. A real turn on the same session drops the clear at its start, and its end is told to the
+  board as any turn's; a clear that has not run within two minutes is let go. A /clear queued before the mod was loaded anew runs
   only on the card's fresh mark, with nothing come in since. Should the engine run the /clear or /compact as a turn,
   that turn is none of the chat's (no turn's end told, nothing decided). Nothing is typed into the chat while the clear
   is on its way (a line the board put out waits for the conversation after it). /clear ends the conversation
@@ -4578,7 +4625,7 @@ timers. Now each chat says it (principle 3, know don't guess).
 - **A restart of the board keeps each chat's state (T13, part 1; the person, 2026-10-28: "the goal is to not have
   'Unknown' or unintentionally 'Not running'"):** every board restart read all lanes Unknown for minutes, then Not
   running, although the chats had not changed, because the reports lived in memory only. Now `src/reportsKept.mjs`
-  keeps them in `data/reports.json` (`{ "reports": { "<chat>": entry } }`): written with `writeAtomic` a second after a
+  keeps them in `data/reports.json` (`{ "reports": { "<chat>": entry } }`): written with `writeUnflushed` (B934) a second after a
   report is kept (one write for the changes within that second, never two at once, flushed before the board starts
   itself anew; a crash loses at most that second), read once at the start. A file that does not parse, or is no file of
   reports, is set aside like the other data files (`setAside`, the page says so); an entry that is no report (a state
@@ -5023,7 +5070,7 @@ makes the outcome: each fact is `pass`, `warn`, `back` or `fail` (`ACTIONS`), an
 |---|---|---|---|---|
 | `merged` | a `merged` commit a repository the board knows holds (several commits: each in its repository) | in every repository of the commits: its base equals its remote, the step's branch is gone (local and remote), no worktree of the step left; a result | the commit(s) in `merged` (one per repository, space between), what the person gets | base differs from its remote: **fail** (the repair `base-equal` checks again by itself once equal); branch or worktree left, a named commit no repository holds: **back**; git silent: **fail** |
 | `branch` | no commit named; the step's branch is, or was (reflog, remote), in one repository, and merged | as `merged`, in that repository | what the person gets (the commit is better) | as `merged` |
-| `unmerged` | the step's own branch, or a branch whose commits name the step, or one that adds the files the report names, is not merged into its base | none: it is not finished | - | **back**: "not merged: Your work for B<id> is on branch <name> (<n> commits) but not on <base>: merge it into <base>, then report again." |
+| `unmerged` | the step's own branch, or a branch whose commits name the step, or one that adds the files the report names, is not merged into its base | none: it is not finished | - | **back**: "not merged: Your work for B<id> is on branch <name> (<n> commits) but not on <base>: merge it into <base>, then report again." (the repair `merged-now` checks again by itself once the branch is merged or gone) |
 | `outside` | no branch of its own (none, the base, or one no repository ever had: B580), no commit a repository holds, and a file it names is there outside every repository | a file the result or Touches names is there, outside every repository | `merged` none; the files by their paths in the project | none there, a file in a repository, no file named: **back**; a Touches path or a path in the prose not there beside one that is: **warn** |
 | `moot` | no commit held, no branch of its own in a repository, and the result says nothing was changed: "No change: <why>" opening it or its Change ("Nothing new built:", "No change made:", "No new work:", "No file made:", "Moot:" read the same) | the reason; the result check judges it, never git or files | `merged` none; "No change: <the steps that built it, or the decision that made it moot>" | reason named: **warn** (it passes; the warning tells the result check "no change made: judge whether nothing was needed"); no reason: **back** |
 | `unknown` | none of the above: no repository holds the commit, the branch is in none, git did not answer | - | - | **fail**: "could not tell which repository B<id>'s work is in" (Principle 3: never a silent pass) |
@@ -5680,6 +5727,53 @@ the rule dropped-fix raised it a minute later; and the recap's Approve and Send 
 Tests: test/supervisor/recapVerdict.test.mjs (B821's case: a block ended by done a minute ago is no case, 31 min later it is;
 waiting for the verdict is none, also after 10 h; a Send back counts from the Send), test/recapVerdictBoard.test.mjs (on a
 running board: the Backlog line, a Send back's words, an Approve that closes the steps in review only).
+
+## The recap's next round shows the evidence of the person's feedback (T17.1)
+
+The person, 2026-11-02, after sending round 1 of G60's recap with 8 rows sent back: "the new recap, after round 1 is not finetuned to my
+feedback. the same pictures are provided and i see no evidence of what i asked it to fix/change. i need this before i can evaluate and
+preferably also have a link to open the game so i can see it myself". Round 2 stood right after the Send with the old demo.json, so the
+same pictures sat beside their words and the popup asked for a verdict again; the Product owner's card said "1 verdict waits".
+
+1. A round being made (src/demoFeedback.mjs `makingOf`, `roundPage`): after a Send that sent rows back, round N+1 is "being made" until
+   demo.json was written again in a later minute than that Send (the test `recapWaitsOf` already used; `readDemo` gives `changedAt`).
+   The popup (`GET /api/demo`) then holds only the rows that Send sent back, each as `reworking` with the person's words and no
+   note or picture, `feedback.making` and `feedback.answerable` 0; `canSend` is false and `checkSend` refuses with 409. A caller with no
+   file time (`roundPage(page, feedback)`) never says "being made".
+2. A row's new try shows the change (src/demo.mjs, tools/demo.mjs): every row the person's last word on was Send back carries
+   `"changed": "<their words -> what changed>"` and at least one picture written after that round's Send, else `"pending": "<why>"`
+   (shown as being reworked: no verdict asked, no part of the Send, refused by `checkSend`). `checkList(list, { feedback, mtimeOf })`
+   (`checkTries`) throws one line per row that does neither; tools/demo.mjs reads the feedback.json beside the demo it writes and
+   writes nothing when it throws. The board itself reads any demo.json: only the tool enforces it.
+3. Play: a row may carry `"play": "<arena>"` (letters, digits, dashes, at most 60); the popup draws "Play it ↗" beside the pictures,
+   a link `/#play=main&arena=<name>` in a new tab, the way every `#play=` link starts the game.
+4. The popup's row from round 2: the title, the note, "Your words: ...", "What changed: ...", the pictures, Play it, then Approve / Send
+   back. A being-made popup has one line on top ("Round 2 is being made: your partner is building the next tries").
+5. The cards (src/recapCard.mjs `recapMakingOf`, state `recapMaking`: `{ goal, path, round, done, total }`): while a round is being made
+   no part of that recap is a verdict that waits (`recapWaitsOf` flags `making`, a `pending` part stays sent back), so the recap card is
+   null, and the Product owner's card (Needs your attention) and the Focus page say "G60 · <title>: round 2 of your recap is being made"
+   with the quiet line "<k> of <m> next tries done" and a link to the recap. No attention colour; it is not counted.
+
+The coordinator's review of the first build (same day) added:
+
+6. The board itself, not only the tool, treats a row sent back with no `changed` line as being reworked (`roundPage`, and `recapWaitsOf`'s
+   `tried`: a part counts as tried only with `changed`), whatever the file's time: a demo.json written by hand shows no old pictures as a new try.
+7. tools/demo.mjs also refuses a list in which a row the person sent back no longer matches any row (a renamed title: keep it, or give the
+   row `"id": "<its old title>"`), and checks a row's `play` against the game's arenas (`arenaCheckOf`: `<gameRepo>/src/content/arenas` and its
+   `dev` folder, from the board's config.json; no `gameRepo`, no lookup). An arena name may hold `_`. The board's read never refuses a recap
+   for a bad `changed`, `pending` or `play`: `demoPage` leaves that field out.
+8. While the focus goal's round is being made the state has no `recapCard` (the quiet card is always drawn, in Needs your attention and on the
+   Focus page, whatever else waits), and a step a part of that recap names does not read "Waits for your verdict" (its block is not
+   `verdict`, its step says "Waits for the next round").
+9. The next tries (`nextTriesOf`): the goal's steps filed or reopened (a History line out of done, closed or dropped) at or after the Send's
+   minute, without Quality Assurance tasks (`Checks`). When one of them is done while the round is being made, the loop `recap-round`
+   (server.mjs `recapRoundNow`) sends the partner one word, once for each step (`recapRoundDue`, from the kept outbox): "recap: G<n> round
+   <N+1>: B<id> is done; write the round with its row, `pending` for the rest".
+10. An answer in words passes the tool without a new picture when its note differs from the note the demo.json it replaces had for the row
+    (or the same list is taken a second time); roles/partner.md says to write the round as soon as one row's try is in.
+
+Tests: test/recapRounds.test.mjs (data, the list, tools/demo.mjs, the state), test/recapRoundsPage.test.mjs (the popup, both cards),
+test/demoFeedbackBoard.test.mjs and test/recapVerdictBoard.test.mjs (on a running board: being made, then the rewrite).
 
 ## A step nothing else closes goes to the person: Accept or Send back (B883)
 

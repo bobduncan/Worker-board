@@ -515,6 +515,13 @@ Undo."; Off, "Questions come to you as before."
   waits for your verdict" when every open block does; "Waiting, nobody on it now" stays for work that waits for another task.
   While the card shows, "Did we reach the goal?" is not drawn: the recap comes first, and the question comes back once no
   verdict waits.
+- **Round 2 of your recap is being made** (T17.1, 2026-11-02): after a Send that sent rows back and until your partner wrote the recap
+  again, the recap card and the Product owner's card read "G60 · <title>: round 2 of your recap is being made" with one quiet line ("2 of
+  5 next tries done": the goal's steps filed or reopened after your Send, without Quality Assurance tasks, done or dropped), a link to the
+  recap and no attention colour; it asks nothing and is not counted, and it stands in place of the verdict card whatever else waits. The recap's popup says the same on top, shows each part you sent back with your words and "Being
+  reworked" (no old pictures) and has nothing to send. Once it is written, each part you sent back shows "Your words", "What
+  changed", the new pictures and, for a map, "Play it ↗" (the game on that map), then Approve / Send back; a part whose try is not in
+  yet, or whose row says nothing of what changed, stays "Being reworked" (with the partner's reason) and is no part of your Send.
 - **For your recap (n)**, the asks routed to the recap whose step no part and no block of the card covers, stand in one line under the card
   (without a card, where they stood: under the goal, or in "Did we reach the goal?"): the looks below their target and the "Accept or send back"
   cards, one line each (its question, its picture, its step). Their steps read "Recap verdict: waits (Q<n>)" and count as

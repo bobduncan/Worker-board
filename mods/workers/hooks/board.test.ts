@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, stopLine, typedWhy } from './board'
+import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
+import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
 
@@ -19,6 +20,131 @@ describe('the boards the mod keeps running', () => {
     expect(boardStarts('{"prefix":"Game - ","main":"Main"}', launch)).toEqual([])
     expect(boardStarts('{"boards":"worker-board"}', launch)).toEqual([])
     expect(boardStarts('{"boards":["worker-board"]}', 'not json')).toEqual([])
+  })
+})
+
+describe('8c (0.30.0): every report says the word its turn runs on and the turn\'s own start', () => {
+  const BUSY: TurnReport = { state: 'busy', since: 1000, background: false }
+  /** The report's word and turn after these steps, as the board reads them. */
+  const said = (words: TurnWords): { word: string | null; turn: number | null } => ({ word: words.word, turn: words.turn })
+
+  test('idle -> busy with a word of ours: the word and the turn are set; asking -> busy keeps both; busy -> idle keeps both', () => {
+    let words = wordTyping(NO_TURN_WORDS, 'w1', 'B13: approved')
+    words = wordSettled(words, 'w1', true)
+    words = turnBegan(words, 'B13: approved', 1000)
+    expect(said(words)).toEqual({ word: 'w1', turn: 1000 })
+    // An ask that opens and closes is no turn start (the mod does not call turnBegan): the state's since moves, the turn not.
+    const asked = reportBody({ ...BUSY, since: 4000 }, words, 7, 3)
+    expect(asked).toEqual({ state: 'busy', since: 4000, background: false, run: 7, seq: 3, word: 'w1', turn: 1000 })
+    expect(reportBody({ state: 'idle', since: 9000, background: false }, words, 7, 4)).toMatchObject({ word: 'w1', turn: 1000 })
+  })
+
+  test('a new turn with no word of ours (a line the person typed, a hand\'s message): word null, the turn its own', () => {
+    let words = turnBegan(wordSettled(wordTyping(NO_TURN_WORDS, 'w1', 'yes'), 'w1', true), 'yes', 1000)
+    words = turnBegan(words, 'what about the lava?', 5000)
+    expect(said(words)).toEqual({ word: null, turn: 5000 })
+  })
+
+  test('two words of one take run one per turn, in outbox order, whatever order their submits resolve in', () => {
+    let words = wordTyping(wordTyping(NO_TURN_WORDS, 'w1', 'first'), 'w2', 'second')
+    words = wordSettled(words, 'w2', true)
+    // The app may start a turn before the submit's promise resolved: the text decides.
+    words = turnBegan(words, 'first', 1000)
+    expect(said(words)).toEqual({ word: 'w1', turn: 1000 })
+    words = turnBegan(words, 'second', 2000)
+    expect(said(words)).toEqual({ word: 'w2', turn: 2000 })
+    expect(words.typed).toEqual([])
+    // A word typed while the person's own line waits: the person's turn is not the word's.
+    words = wordTyping(words, 'w3', 'third')
+    words = turnBegan(words, 'my own line', 3000)
+    expect(said(words)).toEqual({ word: null, turn: 3000 })
+    words = turnBegan(wordSettled(words, 'w3', true), 'third', 4000)
+    expect(said(words)).toEqual({ word: 'w3', turn: 4000 })
+  })
+
+  test('a turn whose text is none of ours is no word\'s, also with one of ours entered (no guess); a dropped word never runs', () => {
+    let words = wordSettled(wordTyping(NO_TURN_WORDS, 'w1', 'go'), 'w1', true)
+    // Mutant "the queue's head": a task notification's turn would be given w1.
+    words = turnBegan(words, '<task-notification>done</task-notification>', 1000)
+    expect(said(words)).toEqual({ word: null, turn: 1000 })
+    words = turnBegan(words, 'go', 1500)
+    expect(words.word).toBe('w1')
+    expect(turnBegan(words, undefined as never, 1600).word).toBeNull()
+    words = wordSettled(wordTyping(words, 'w2', 'more'), 'w2', false)
+    words = turnBegan(words, 'more', 2000)
+    expect(said(words)).toEqual({ word: null, turn: 2000 })
+  })
+
+  test('a /clear empties the queue: the word is null, the new conversation\'s first turn is no word\'s', () => {
+    let words = turnBegan(wordTyping(NO_TURN_WORDS, 'w1', 'go'), 'go', 1000)
+    words = wordTyping(words, 'w2', 'next')
+    words = wordsCleared(words)
+    expect(words).toEqual({ typed: [], word: null, turn: 1000 })
+    expect(turnBegan(words, 'next', 2000).word).toBeNull()
+  })
+})
+
+describe('F (0.30.0): the background work a call of the chat\'s own started, by the result\'s own id', () => {
+  test('a background command, one the app moved there itself, and a Monitor count; a plain command does not', () => {
+    expect(backgroundStartOf('Bash', { run_in_background: true }, { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bx1' } })).toBe('bx1')
+    expect(backgroundStartOf('PowerShell', {}, { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'px2', timedOutAfterMs: 120000 } })).toBe('px2')
+    expect(backgroundStartOf('Monitor', { description: 'gate' } as never, { result: { taskId: 'mon3', timeoutMs: 0, persistent: true } })).toBe('mon3')
+    expect(backgroundStartOf('Bash', { run_in_background: true }, { result: { stdout: 'Command running in background with ID: b4zduzypn. Output is being written to: x' } })).toBe('b4zduzypn')
+    expect(backgroundStartOf('Bash', {}, { result: { stdout: 'ok', stderr: '', interrupted: false } })).toBeNull()
+    expect(backgroundStartOf('Bash', {}, { result: { stdout: 'Command running in background with ID: b4zduzypn' } })).toBeNull()
+    expect(backgroundStartOf('Read', { run_in_background: true }, { result: { backgroundTaskId: 'r1' } })).toBeNull()
+  })
+
+  test('the review: a Monitor ends by its deadline (capped at 30 min); a persistent one has none', () => {
+    expect(monitorEndsAt({ result: { taskId: 'm1', timeoutMs: 300000 } }, 1000)).toBe(301000)
+    expect(monitorEndsAt({ result: { taskId: 'm1', timeoutMs: 9_000_000 } }, 0)).toBe(1_800_000)
+    expect(monitorEndsAt({ result: { taskId: 'm1', timeoutMs: 0 } }, 0)).toBeNull()
+    expect(monitorEndsAt({ result: { taskId: 'm1', timeoutMs: 300000, persistent: true } }, 0)).toBeNull()
+    expect(monitorEndsAt({ result: { stdout: '' } }, 0)).toBeNull()
+  })
+})
+
+describe('B944 (0.30.0): the clear on its way, kept in the mod\'s store', () => {
+  test('its key is unique across the chat\'s processes', () => {
+    expect(clearTicket(1730000000000.4, 3)).toBe('clear-1730000000000-3')
+  })
+
+  test('the pending clear the store keeps, read safely', () => {
+    const env = { id: 'e1', kind: 'task', step: 'B13', clear: null, restart: false, set: null, line: 'go', version: null }
+    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: env, outcome: { typed: null } })).toEqual({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: parseEnvelope(env), outcome: { ...NO_OUTCOME } })
+    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: '../x', at: 5, envelope: null, outcome: null })).toEqual({ ticket: 'clear-7-2', from: 'units', step: null, at: 5, envelope: null, outcome: null })
+    expect(parsePendingClear({ ticket: '7', from: 'units', at: 5 })).toBeNull()
+    expect(parsePendingClear(null)).toBeNull()
+  })
+})
+
+describe('5c (0.30.0): a kept board starts through a launcher, detached, its output to its log', () => {
+  test('the launcher runs on the node of the board, names the log beside its script, then the command of the board', () => {
+    const board = { name: 'worker-board', argv: ['D:/Tools/node/node.exe', 'D:/Work/project/worker-board/server.mjs'], url: 'http://127.0.0.1:4310/' }
+    const argv = launchArgv(board, 'D:/Work/project')
+    expect(argv.slice(0, 2)).toEqual(['D:/Tools/node/node.exe', '-e'])
+    // The round-2 review: `--` ends node's options, so a board argument starting with "-" is never read as one.
+    expect(argv.slice(3)).toEqual(['--', 'D:/Work/project/worker-board/data/board.log', 'D:/Work/project', 'D:/Tools/node/node.exe', 'D:/Work/project/worker-board/server.mjs'])
+    expect(argv[2]).toContain("detached: true, stdio: ['ignore', out, out]")
+    expect(argv[2]).toContain('unref()')
+    // No script to name a log by: "-" (never an empty argument).
+    expect(launchArgv({ ...board, argv: ['deno', 'run', 'x.ts', '--port', '1'] }, 'D:/Work/project')).toEqual(['node', '-e', BOARD_LAUNCHER, '--', '-', 'D:/Work/project', 'deno', 'run', 'x.ts', '--port', '1'])
+    expect(BOARD_LAUNCHER).toContain("log !== '-'")
+    expect(boardLogOf(['node', 'server.mjs'])).toBeNull()
+    expect(boardLogOf(['node', 'D:\\b\\server.mjs'])).toBe('D:\\b/data/board.log')
+  })
+})
+
+describe('5c (0.30.0): a kept board is started only at its second missed look in a row', () => {
+  const RETRY = 60000
+  test('one miss starts nothing; two do; an answer between resets; the retry waits a minute after the last try', () => {
+    const first = boardLook({ missed: 0, isUp: false, triedAt: -Infinity, now: 15000, retryMs: RETRY })
+    expect(first).toEqual({ missed: 1, isStart: false })
+    expect(boardLook({ missed: 1, isUp: false, triedAt: -Infinity, now: 30000, retryMs: RETRY })).toEqual({ missed: 2, isStart: true })
+    expect(boardLook({ missed: 1, isUp: true, triedAt: -Infinity, now: 30000, retryMs: RETRY })).toEqual({ missed: 0, isStart: false })
+    expect(boardLook({ missed: 0, isUp: false, triedAt: -Infinity, now: 45000, retryMs: RETRY }).isStart).toBe(false)
+    expect(boardLook({ missed: 2, isUp: false, triedAt: 30000, now: 45000, retryMs: RETRY })).toEqual({ missed: 3, isStart: false })
+    expect(boardLook({ missed: 5, isUp: false, triedAt: 30000, now: 90000, retryMs: RETRY })).toEqual({ missed: 6, isStart: true })
   })
 })
 
@@ -67,7 +193,7 @@ describe('the worker board, as the mod reads it', () => {
     expect(parseTaken('{"messages":[],"stop":{"id":"../x","kind":"stop"}}').stop).toBeNull()
     // 2c (0.28.0): the board's statuses, kept with their caps; an older board's answer (none) is told apart from no answer.
     const entry = { name: 'Worker 1', status: 'Working', why: 'waits for the partner', tone: 'quiet', since: 5, reportAt: 9 }
-    expect(parseTaken(JSON.stringify({ messages: [], statuses: [entry] })).statuses).toEqual([entry])
+    expect(parseTaken(JSON.stringify({ messages: [], statuses: [entry] })).statuses).toEqual([{ ...entry, held: null }])
     expect(parseTaken(JSON.stringify({ messages: [] })).statuses).toBeNull()
     expect(parseTaken('{"messages":[],"statuses":"x"}').statuses).toBeNull()
     expect(parseTaken('{"messages":[]}').isAnswer).toBe(true)
@@ -83,9 +209,23 @@ describe('the worker board, as the mod reads it', () => {
       { name: 'D', status: 'Not running', tone: 'attention', since: 1, reportAt: 2 },
     ]
     expect(parseTaken(JSON.stringify({ messages: [], statuses: odd })).statuses).toEqual([
-      { name: 'C', status: 'Held', why: 'w'.repeat(120), tone: 'quiet', since: null, reportAt: null },
-      { name: 'D', status: 'Not running', why: null, tone: 'attention', since: 1, reportAt: 2 },
+      { name: 'C', status: 'Held', why: 'w'.repeat(120), tone: 'quiet', since: null, reportAt: null, held: null },
+      { name: 'D', status: 'Not running', why: null, tone: 'attention', since: 1, reportAt: 2, held: null },
     ])
+  })
+
+  test('7c: a status entry\'s held step: a step id, a title up to 60, the row\'s time up to 40 or null; anything else null', () => {
+    const held = { id: 'B855', title: 'The walk', time: '1 h 56 of its 2 h' }
+    expect(parseTaken(JSON.stringify({ messages: [], statuses: [{ name: 'Worker 5', status: 'Working', held }] })).statuses?.[0]?.held).toEqual(held)
+    expect(parseHeld({ ...held, time: null })).toEqual({ ...held, time: null })
+    expect(parseHeld({ ...held, time: 't'.repeat(41) })).toEqual({ ...held, time: null })
+    expect(parseHeld({ ...held, time: ' 1 h 56\n of its   2 h ' })).toEqual(held)
+    expect(parseHeld({ ...held, title: '  The   walk ' })).toEqual(held)
+    expect(parseHeld({ ...held, title: 'x'.repeat(61) })).toBeNull()
+    expect(parseHeld({ ...held, id: '../B1' })).toBeNull()
+    expect(parseHeld({ ...held, title: 3 })).toBeNull()
+    expect(parseHeld('B855')).toBeNull()
+    expect(parseHeld(null)).toBeNull()
   })
 
   test('why a word was not typed is one short line', () => {
@@ -275,7 +415,7 @@ describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
     // 0.27.3: the work tool says "goal definition" and takes definition-draft (this branch carried 0.27.1, the main branch is at 0.27.2).
-    expect(MOD_VERSION).toBe('0.29.0')
+    expect(MOD_VERSION).toBe('0.30.0')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {

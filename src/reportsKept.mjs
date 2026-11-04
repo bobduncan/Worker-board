@@ -1,11 +1,11 @@
 // T13 (the person, 2026-10-28: after a restart each chat keeps its status; "the goal is to not have 'Unknown' or
 // unintentionally 'Not running'"): the chats' last reports (bridge.mjs `noteReport`) were in memory only, so a restarted
 // board had none and read every lane Unknown for minutes, then Not running, although no chat had changed. They are kept in
-// `data/reports.json` now: written a moment after a change (at most once a second, src/write.mjs `writeAtomic`), read once at
+// `data/reports.json` now: written a moment after a change (at most once a second, src/write.mjs `writeUnflushed`, B934), read once at
 // the board's start. A file that does not parse is set aside like the other data files; an entry that is no report is left out.
 
 import { REPORT_STATES, isWordId } from './chatReport.mjs'
-import { moveInPlace, readKept, stampOf, writeAtomic } from './write.mjs'
+import { moveInPlace, readKept, stampOf, writeUnflushed } from './write.mjs'
 
 /** How long after a change the file is written: one write for every change within this time (a crash loses at most this much). */
 export const REPORTS_SAVE_MS = 1000
@@ -71,7 +71,7 @@ export async function readReports(file, now, fs = undefined) {
  * is waiting (before the board stops itself); both are safe to call without a change. `onError(error)` hears a write
  * that failed (the next change tries again), `onSaved()` one that worked. `write`, `setTimer` and `clearTimer` are for tests.
  */
-export function reportsSaver({ file, reports, waitMs = REPORTS_SAVE_MS, write = writeAtomic, onError = () => {}, onSaved = () => {}, setTimer = setTimeout, clearTimer = clearTimeout }) {
+export function reportsSaver({ file, reports, waitMs = REPORTS_SAVE_MS, write = writeUnflushed, onError = () => {}, onSaved = () => {}, setTimer = setTimeout, clearTimer = clearTimeout }) {
   let timer = null
   let isDirty = false
   let writing = Promise.resolve()

@@ -23,7 +23,7 @@ import { ASLEEP_LINE, isAppId } from './hands.mjs'
 import { boardLanes, isWakeWord, wakeWordOf, wakerOrder } from './say.mjs'
 import { envelopesOf } from './work/handover.mjs'
 import { isHolding } from './work/pause.mjs'
-import { moveInPlace, readKept, stampOf, writeAtomic } from './write.mjs'
+import { moveInPlace, readKept, stampOf, writeUnflushed } from './write.mjs'
 
 /** A wake attempt sent this long ago without the woken chat's report is failed. */
 export const WAKE_VERDICT_MS = 2 * 60_000
@@ -493,6 +493,10 @@ function needOf(lane, { state, waiting, prefix, resumeList, ownerName }) {
     if (resume !== undefined) return { why: 'envelope', text: resume.line, step: resume.step ?? null }
     return { why: 'envelope', text: WORDS_LINE, step: null }
   }
+  // The lead's live check (2026-11-02, order B): a worker HELD on a failed clear whose chat does not run is woken like any
+  // sleeper, with the plain line: its next idle report releases the hold (handover.mjs HELD_RETRY_MS) and the new clear
+  // envelope comes with its take. Without this, a held sleeper waited for a turn end that never came.
+  if (lane.handover?.state === 'held') return { why: 'held', text: WORDS_LINE, step: typeof lane.handover.step === 'string' ? lane.handover.step : null }
   const resuming = (resumeList ?? []).find(one => one.chat === lane.name && one.hasStarted !== true)
   if (resuming !== undefined) return { why: 'resume', text: `resume your step ${resuming.step} from your checkpoint`, step: resuming.step }
   if (lane.asleep === true && lane.state === 'interrupted' && isTime(lane.asleepSince)) {
@@ -591,7 +595,7 @@ export async function readWakes(file, now, fs = undefined) {
 }
 
 /** The file's writer, as `reportsSaver`: `changed()` after every change of the record, `flush()` before the board stops. */
-export function wakesSaver({ file, record, waitMs = WAKES_SAVE_MS, write = writeAtomic, onError = () => {}, onSaved = () => {}, setTimer = setTimeout, clearTimer = clearTimeout }) {
+export function wakesSaver({ file, record, waitMs = WAKES_SAVE_MS, write = writeUnflushed, onError = () => {}, onSaved = () => {}, setTimer = setTimeout, clearTimer = clearTimeout }) {
   let timer = null
   let isDirty = false
   let writing = Promise.resolve()

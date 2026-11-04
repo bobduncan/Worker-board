@@ -22,6 +22,8 @@ export const LOOP_WORDS = {
   // B528: an evaluation that has not ended, asked of the partner again.
   'evaluate-again': 'asking an evaluation again',
   'goal-demo': 'asking the partner for the goal demo',
+  // T17.1: a next try of the recap's round that turned done, told to the partner.
+  'recap-round': 'telling the partner a next try of the recap is done',
   picture: 'making a picture',
   // B467: reads that were taken for "nothing there" when they failed. `evaluations` runs on a move on the Focus page
   // and shows until the next move reads them; the last three are read once, at the start, and show until the board
@@ -100,8 +102,9 @@ export function fileLog(file, { maxBytes = LOG_MAX_BYTES } = {}) {
  * The record of the loops. `now` is the clock; `write(line)` takes a log line (fileLog, or a test's list). A failing
  * loop's line is written when its error is new (another message than the last, its random part aside: `errorKey`), so
  * a loop failing every refresh writes once, not every few seconds; after a success, its next failure is new again.
+ * B934: `track(name, fn)` runs each run, so the stall log (stalls.mjs) names the loops that ran during a stall.
  */
-export function loopRecord({ now = Date.now, write = () => {} } = {}) {
+export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn) => fn() } = {}) {
   const loops = new Map()
   // B446: the words (without their random part) of each loop's last line in the log, until it succeeds again.
   const logged = new Map()
@@ -136,7 +139,7 @@ export function loopRecord({ now = Date.now, write = () => {} } = {}) {
   async function run(name, fn) {
     of(name).runs += 1
     try {
-      const value = await fn()
+      const value = await track(name, fn)
       succeeded(name)
       return value
     } catch (error) {

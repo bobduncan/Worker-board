@@ -161,7 +161,7 @@ test('round 2 of the popup: the round line, the folded approved parts, the perso
   assert.equal(wordsOf(withClass(body, 'demo-round')[0]), 'Round 2: only what you sent back or did not decide yet.')
   assert.equal(wordsOf(withClass(body, 'demo-folded')[0]), 'Approved, folded away: 1. Lava · 2. Cliffs')
   assert.deepEqual(withClass(body, 'demo-row').map(row => row.dataset.demoRow), ['3. Round shapes', '4. Ground'])
-  assert.equal(wordsOf(withClass(body, 'demo-said')[0]), 'You said (round 1): "still stepped"')
+  assert.equal(wordsOf(withClass(body, 'demo-said')[0]), 'Your words: "still stepped"')
   assert.equal(withClass(body, 'demo-section').filter(one => one.className.includes('is-follow-up')).length, 0)
   const all = roundPage(page(), withRound(feedback, 2, [{ key: '3. Round shapes', verdict: 'approved', comment: '' }, { key: '4. Ground', verdict: 'approved', comment: '' }], 'y'))
   const done = drawn.demoSide(canSend(all), draft())

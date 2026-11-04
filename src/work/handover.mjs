@@ -333,9 +333,11 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
     if (isWaking) return result(STATES.HANDING, null, { step: id })
     // Decision 5 (board-only, the 11:07 case: Worker 5's first turn began 11:06:56 with the wake message, its line was typed
     // 11:07:22 after that turn ended): a turn end counts only once the line is settled typed, and never the woken chat's
-    // first. 4c: once the Workers mod sends `typedAt` in the outcome, the rule becomes `turnSince >= typedAt`.
+    // first. 4c (done, Workers mod 0.30.0): the mod sends the line's exact times in the outcome, so the turn is compared with
+    // the moment the line entered the chat (`enteredAt`, else `typedAt`), the envelope's hand-out only for an older mod.
     const isSettledTyped = inFlight.outcome?.typed === true || inFlight.state === 'delivered'
-    if (isTurnEnd && isCarried && isSettledTyped && turnSince >= inFlight.at && wake?.firstTurnEnd !== true) {
+    const lineAt = inFlight.outcome?.enteredAt ?? inFlight.outcome?.typedAt ?? inFlight.at
+    if (isTurnEnd && isCarried && isSettledTyped && turnSince >= lineAt && wake?.firstTurnEnd !== true) {
       takenBack = { id, why: NOT_TAKEN_WHY }
     } else if (runningMs(Math.max(inFlight.at, wokeAt)) >= NET_MS) {
       return result(STATES.UNKNOWN, `${UNANSWERED_WHY} (${id})`, { step: id, takeBack: { id, why: UNANSWERED_WHY }, net: inFlight.id, close: closeOf(inFlight) })
@@ -452,13 +454,16 @@ export function contractOf(message) {
 
 /**
  * The outcome the Workers mod posts through `typed` (`body.outcome`), checked: `{ cleared, set, typed, restarted,
- * background, why }`, each true, false or null (not asked), `why` one short line or null; null for no object.
+ * background, why, typedAt, enteredAt }`, each flag true, false or null (not asked), `why` one short line or null; null for no
+ * object. 4c (Workers mod 0.30.0): `typedAt` the mod's clock just before the line's submit, `enteredAt` when the line entered
+ * the chat, each a finite time or null (an older mod, no line typed).
  */
 export function outcomeOf(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
   const flag = one => (one === true || one === false ? one : null)
+  const time = one => (Number.isFinite(one) ? one : null)
   const why = typeof value.why === 'string' && value.why.trim() !== '' ? value.why.replace(/\s+/g, ' ').trim().slice(0, 200) : null
-  return { cleared: flag(value.cleared), set: flag(value.set), typed: flag(value.typed), restarted: flag(value.restarted), background: value.background === true, why }
+  return { cleared: flag(value.cleared), set: flag(value.set), typed: flag(value.typed), restarted: flag(value.restarted), background: value.background === true, why, typedAt: time(value.typedAt), enteredAt: time(value.enteredAt) }
 }
 
 /** The lane's words for a state of the sequence (quiet: information, never amber), or null where the lane says enough. */

@@ -54,7 +54,8 @@ test('handover-held: a worker on the sequence held 11 min of running time after 
   const digger = onIt('Digger', 'held', { handover: { state: 'held', why: HELD_WHY, step: 'B13' }, clearOwed: { step: 'B12', reportedAt: ago(13) } })
   const board = (minutes, more = {}) => view({ chats: [LEAD, digger], outbox: [failedEnvelope('Digger', minutes)], ...more })
   const found = check('handover-held', board(11))
-  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['handover-held', 'handover-held Digger B12', 'Digger']])
+  // Order C (2026-11-02): the key is the rule and the chat: the same worker held anew on another step reopens its one alarm.
+  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['handover-held', 'handover-held Digger', 'Digger']])
   assert.equal(found[0].text, `Digger held 11 min: ${HELD_WHY}`)
   assert.match(found[0].evidence, new RegExp(`envelope e-Digger-11 \\(task B13\\) out at ${clockOf(12)}, failed at ${clockOf(11)}: cleared no, background work ran; the Workers mod's why: its conversation could not be saved`))
   assert.match(found[0].evidence, /last report B12; its report now: idle; released by its next turn's end/)
