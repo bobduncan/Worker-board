@@ -6433,3 +6433,20 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
     (`acceptAnswer`: Accept ticks the step, "accepted for you by your partner in Q<n>"; Send back makes the next try from the
     note, refused first without one); the Undo opens the ask for the person again and leaves the step as it is. Tests:
     test/autopilotEarlier.test.mjs.
+11. **The last three kinds of noise** (the person's "Yes, clear them", 2026-11-04, after v2 went live: Main's Q616 "After the step in
+    Q600, reopen the Q600 play link", Worker 1's Q595 "give your verdict on row 9 in G60's recap", and two "Answered" slim cards of asks
+    others answered). (a) A slim "Answered" card (the wait line) is the person's own answer only: an answer the partner, Autopilot or the
+    main chat gave (`Answered by`) carries its word's id, so its line shows in the ask's own window (Show closed), and is never a slim
+    card, Autopilot on or off. (b) An own-senses do or look (`isOwnSenses`: any look; a do of looking, playing, trying, checking or opening
+    a play link, a lead-in "After ..., " cut) that the main chat or the partner hands on (`escalate`; the pass moves one already handed
+    on, `handOverOf` reads who from its Route line) and whose step is a step of the focus goal is kept for the recap like a kept look
+    (`handedOnOf`: its `Of`, else the step its `Pictures` name, else the `Of` of the first ask it links by `#details=Q<n>`; Route recap,
+    Route line "Kept for the goal's recap: the main chat|your partner handed it on", the step marked, a tile under "Also a look", answered
+    in its window: Done or Send back for a do). The partner's own look keeps its line; a step of another goal, none found, the person's
+    hands and the Product owner's ask stay the person's card. (c) A question the recap has answered closes (`recapClosesAsk`, while
+    Autopilot is on, the focus goal's recap only): an open look, do or Accept card whose words name one row of it ("row 9 in G60's
+    recap", `recapRowNumberOf`) closes at the Send (approved or sent back) and at every pass (approved only: a row sent back is judged
+    anew) with the recap's words ("Approved in the recap of G60, round 2: 9. Tall props ..."), its chat woken; so does an ask waiting
+    in the recap under a step when every row naming the step is approved. The rows come from the state's `recapRows`
+    (src/recaps.mjs `recapVerdictsOf`: every row, also one with no step). Never an ask the person took back, the app's form or a refine
+    question. Tests: test/autopilotNoise.test.mjs.

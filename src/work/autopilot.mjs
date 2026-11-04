@@ -43,12 +43,12 @@
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
 import { chainWaitOf, checkedOf, fixesOf } from './resultCheck.mjs'
-import { HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, isKeptLook } from './keptLook.mjs'
+import { HANDED_KEPT_WORDS, HANDED_ON_WHO, KEPT_LOOK_WORDS, handedOnKeptWords, isKeptLook } from './keptLook.mjs'
 import { standardOf } from './standard.mjs'
 
 // A look the partner handed over, or a worker's look with pictures, that Autopilot keeps for the recap (src/work/keptLook.mjs): its
 // Route lines and its test.
-export { HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, isKeptLook }
+export { HANDED_KEPT_WORDS, HANDED_ON_WHO, KEPT_LOOK_WORDS, handedOnKeptWords, isKeptLook }
 
 export const ROUTES = ['partner', 'advice', 'recap', 'main', 'person']
 /** The routes that take an ask away from Needs your attention while it is open. */
@@ -213,18 +213,54 @@ export function focusLookOf(item, { focusGoal = null, items = new Map() } = {}, 
   return step === null ? null : { step, isInferred: true }
 }
 
+/** The why of a hand-over of an own-senses do or look of the focus goal that waits for its recap (`handedOnOf`). */
+export const HANDED_ON_WHY = 'a do or look handed on for the person\'s own senses waits for the recap'
+/** The "put under" line's words when the step of a handed-on do was found by the ask it links. */
+export const PLACED_BY_LINK = 'the step of the ask it links'
+const ASK_LINKS = /#details=(Q\d+)\b/g
+
 /**
- * The partner's own hand-over of an ask to the person (the work API's `escalate`, 2026-10-19): the why it gave, or null. Its
- * History holds "to the person: <why>" by a chat (never the board's: the board's timeout and the main chat's hand-over are other
- * reasons), and its Route section is the partner's one line, "Your partner hands this to you: <why>". Never an ask the person took
- * back (the Undo writes its own line there) nor one the board handed back (its own words).
+ * The last three kinds of noise (the person's "Yes, clear them", 2026-11-04, the live Q616: Main handed on its do "After the step in Q600,
+ * reopen the Q600 play link": "Opening a play link is the person's own action; no chat can do it"): the step of the focus goal an
+ * own-senses ask (`isOwnSenses`: a look, or a do of looking, playing, trying, checking, opening a play link) that the main chat or the
+ * partner handed to the person belongs to, `{ step, isInferred, by }`, or null. Its `Of` when that is a step of the focus goal (a step
+ * of another goal, or a goal, is none); else (an ask under no step) the first step its `Pictures` name that is one (`by`: 'picture'); else
+ * the `Of` of the first ask it links (`#details=Q<n>`) when that is a step of the focus goal (`by`: 'link'). Any role but the Product
+ * owner's and the board's. `items`: the store's, for each step's goal.
  */
-export function partnerHandOverOf(item) {
+export function handedOnOf(item, { focusGoal = null, items = new Map() } = {}, role = null) {
+  if (focusGoal === null || focusGoal === undefined || NOT_LOOKERS.includes(role) || !isOwnSenses(item)) return null
+  const isFocusStep = id => STEP.test(id ?? '') && items?.get?.(id) !== undefined && valueOf(items.get(id), 'Goal') === focusGoal
+  const of = valueOf(item, 'Of')
+  if (of !== null) return isFocusStep(of) ? { step: of, isInferred: false, by: null } : null
+  const byPicture = stepIdsIn(valueOf(item, 'Pictures')).find(isFocusStep) ?? null
+  if (byPicture !== null) return { step: byPicture, isInferred: true, by: 'picture' }
+  const linked = [...`${title(item)} ${text(item)}`.matchAll(ASK_LINKS)].map(one => items?.get?.(one[1])).filter(linked => linked !== undefined).map(linked => valueOf(linked, 'Of')).find(isFocusStep) ?? null
+  return linked === null ? null : { step: linked, isInferred: true, by: 'link' }
+}
+
+/** The Route lines of the partner's and the main chat's hand-overs (the work API's `escalate`), by who handed it on. */
+const HANDS_LINES = [['partner', PARTNER_HANDS_LINE], ['main', /^The main chat hands this to you: (.*)$/]]
+/**
+ * A chat's own hand-over of an ask to the person (the work API's `escalate`, 2026-10-19): `{ by, why }` (`by`: 'partner' or 'main'), or
+ * null. Its History holds "to the person: <why>" by a chat (never the board's: the board's timeout is another reason), and its Route
+ * section is the chat's one line, "Your partner hands this to you: <why>" or "The main chat hands this to you: <why>". Never an ask the
+ * person took back (the Undo writes its own line there) nor one the board handed back (its own words).
+ */
+export function handOverOf(item) {
   if (valueOf(item, 'Route') !== 'person') return null
   const card = (item?.sections?.get('Route') ?? []).map(one => one.trim()).filter(Boolean)
-  const why = card.length === 1 ? card[0].match(PARTNER_HANDS_LINE)?.[1] ?? null : null
-  if (why === null) return null
-  return historyOf(item).some(one => /^-\s+[\d: -]+? (?!server:)[^:]+: to the person: /.test(one)) ? why : null
+  if (card.length !== 1 || !historyOf(item).some(one => /^-\s+[\d: -]+? (?!server:)[^:]+: to the person: /.test(one))) return null
+  for (const [by, pattern] of HANDS_LINES) {
+    const why = card[0].match(pattern)?.[1]
+    if (why !== undefined) return { by, why }
+  }
+  return null
+}
+/** The partner's own hand-over of an ask to the person (`handOverOf`): the why it gave, or null. */
+export function partnerHandOverOf(item) {
+  const handed = handOverOf(item)
+  return handed?.by === 'partner' ? handed.why : null
 }
 
 /** The options of an ask: its Options field, else the lettered options of its words ("A: ... B: ..."); `[{ letter, words }]`. */
@@ -399,6 +435,51 @@ export function goalLevelOf(item, role = null, focusGoal = null) {
 export const isGoalLevel = (item, role = null, focusGoal = null) => goalLevelOf(item, role, focusGoal) !== null
 
 /**
+ * A question the recap has answered (the person's "Yes, clear them", 2026-11-04: the live Q595, Worker 1's "give your verdict on row 9 in
+ * G60's recap", still open 36 hours after they approved row 9 in the recap's round 2). The number of the recap row an ask's words name
+ * ("row 9 in G60's recap", "G60's recap, rows 9"), or null: a sentence that holds "recap" and "row <n>"; none when the words name two
+ * rows, or a goal other than the focus goal's.
+ */
+export function recapRowNumberOf(words, focusGoal = null) {
+  if ((String(words ?? '').match(/\bG\d+\b/g) ?? []).some(id => id !== focusGoal)) return null
+  const rows = new Set()
+  for (const sentence of sentencesOf(words).filter(one => /\brecap\b/i.test(one))) {
+    for (const found of sentence.matchAll(/\brows? (\d+(?:\s*(?:,|and|&|or)\s*\d+)*)\b/gi)) for (const number of found[1].match(/\d+/g)) rows.add(Number(number))
+  }
+  return rows.size === 1 ? [...rows][0] : null
+}
+/** The number a recap row's title starts with ("9. Tall props in front of units (Terraces)" is row 9), or null. */
+export const rowNumberOfTitle = title => {
+  const found = String(title ?? '').match(/^\s*(\d+)\./)
+  return found === null ? null : Number(found[1])
+}
+/** Whether an ask is the person's verdict on a result (a look, a do, the board's Accept card), which the recap's verdict answers; not a question of the app's form or a refine. */
+export const isRecapVerdictAsk = item => !['form', 'refine'].includes(valueOf(item, 'Via')) && (['look', 'do'].includes(valueOf(item, 'Asks') ?? 'decide') || valueOf(item, 'Via') === 'accept')
+/** An ask the person took back from a decider (the Undo writes "you took it back" or "took it back from Autopilot" on its card): theirs, never closed by the board. */
+export const isTakenBack = item => (item?.sections?.get('Route') ?? []).some(one => /\btook it back\b/i.test(one))
+/**
+ * The row of the focus goal's recap that has answered an open ask, `{ goal, path, key, title, steps, verdict, round }`, or null (the
+ * pass, for an ask approved before it was filed or routed). `rows`: every row of the recaps with where it stands
+ * (src/recaps.mjs `recapVerdictsOf`); only the focus goal's recap, and only when the row's standing verdict is approved (a row sent back
+ * is reworked and judged anew: its question stays). Two ways to the row: the row an open look, do or Accept card names in its words
+ * (`recapRowNumberOf`: one row, in a recap of the focus goal); and an ask already routed to the recap under a step that rows name, when
+ * every row naming the step is approved. Never an ask the person took back, nor one of the app's form or a refine question.
+ */
+export function recapClosesAsk(item, { focusGoal = null, rows = [] } = {}) {
+  if (focusGoal === null || focusGoal === undefined || valueOf(item, 'Kind') !== 'ask' || valueOf(item, 'State') !== 'open') return null
+  if (isTakenBack(item) || ['form', 'refine'].includes(valueOf(item, 'Via'))) return null
+  const mine = (Array.isArray(rows) ? rows : []).filter(one => one.goal === focusGoal)
+  if (isRecapVerdictAsk(item)) {
+    const number = recapRowNumberOf(`${title(item)} ${text(item)}`, focusGoal)
+    const named = number === null ? [] : mine.filter(one => rowNumberOfTitle(one.title) === number)
+    if (named.length === 1) return named[0].verdict === 'approved' ? named[0] : null
+  }
+  if (valueOf(item, 'Route') !== 'recap') return null
+  const parts = mine.filter(one => (one.steps ?? []).includes(valueOf(item, 'Of')))
+  return parts.length > 0 && parts.every(one => one.verdict === 'approved') ? parts[0] : null
+}
+
+/**
  * The pattern of a permanent delete: a chat, a file or folder, a launch.json entry, a branch (the review of v2, 2026-11-04: a cache
  * too, the exemption is gone; `git branch -D`; and, the re-review of the same day, a remove for good or permanently: "permanently"
  * only with a remove or delete verb).
@@ -490,6 +571,20 @@ export const UNDER_STEP_HANDS = [
  * map.", "Pick the sound by ear", "Check the result", "If you want it the other way, tell me ..."): never the main chat's.
  */
 export const OWN_SENSES = /^(?:if [^,]*,\s*)?(?:look|play|listen|watch|try|pick|check|tell me|type|say)\b|\bby ear\b/i
+/**
+ * The last three kinds of noise (the person's "Yes, clear them", 2026-11-04, the live Q616 "After the step in Q600, reopen the Q600 play
+ * link"): a do of opening a play link is the person's own eyes at work too, and a lead-in clause ("After the step in Q600, ...") does not
+ * change what the do asks. Read only by the hand-over rule (`handedOnOf`), so a do's route at its filing stays as it was.
+ */
+const PLAY_LINK = /\b(?:re-?)?open(?:ing)?\b[^.?!]*\bplay links?\b/i
+const LEAD_IN = /^(?:after|once|when|then|before)\b[^,.?!]*,\s*/i
+/** Whether an ask is of the person's own senses: any look, and a do that looks, plays, tries, checks ... or opens a play link (`OWN_SENSES`, `PLAY_LINK`). */
+export function isOwnSenses(item) {
+  if ((valueOf(item, 'Asks') ?? 'decide') === 'look') return true
+  if ((valueOf(item, 'Asks') ?? 'decide') !== 'do') return false
+  const words = title(item)
+  return [words, words.replace(LEAD_IN, '')].some(one => OWN_SENSES.test(one) || PLAY_LINK.test(one))
+}
 /** What of a list of the person's hands an ask's words need: `{ name, phrase }` (the words that matched), or null. */
 export function handsMatchOf(item, list = PERSONS_HANDS) {
   const words = `${title(item)} ${text(item)}`
@@ -561,7 +656,10 @@ export function isByChecker(item, items, prefix = '') {
  * judges an ask it routed to the person itself anew (the switch-on's sweep and, under v2, every pass), `handedWhy` the why of
  * the partner's hand-over of a look (the work API's `escalate`, `partnerHandOverOf`), which is judged as if nobody had handed it
  * on: a new look of the focus goal waits for its recap (and only then; a worker's look goes its old way), as long as the ask's
- * words and that why name nothing only the person's hands can do.
+ * words and that why name nothing only the person's hands can do. `handedBy` ('main' or 'partner'; with `handedWhy`, the work API's
+ * `escalate` and the pass): who handed it on. The main chat's or the partner's hand-over of an own-senses do or look of a step of the
+ * focus goal (`handedOnOf`: the main chat's look, and any do) is kept for the recap too, `handedOn` in the answer (the person's "Yes,
+ * clear them", 2026-11-04: the live Q616); `placedBy` says how an inferred `step` was found.
  * `step` in the answer: the step a recap ask is put under. `kept` (true): a worker's or the main chat's look with pictures of the
  * focus goal, kept for the recap as the partner's hand-over is (its card line KEPT_LOOK_WORDS, its step goes on).
  * `now` (ms): a verdict on a result routed to `partner` names the person's earlier answer on its step, when they answered an
@@ -575,7 +673,7 @@ export function isByChecker(item, items, prefix = '') {
  * decided for them: a decide or look with advice takes it (`advice`; the Product owner's only under a step: it answers for the
  * goal, as before), anything else goes to the partner, which decides it or hands it on.
  */
-export function autopilotRoute(item, { roleOf = () => null, items = new Map(), focusGoal = null, focusHasDemo = false, recapSteps = [], prefix = '', again = false, handedWhy = null, now = Number.NaN } = {}) {
+export function autopilotRoute(item, { roleOf = () => null, items = new Map(), focusGoal = null, focusHasDemo = false, recapSteps = [], prefix = '', again = false, handedWhy = null, handedBy = null, now = Number.NaN } = {}) {
   const owner = valueOf(item, 'Owner')
   const role = owner === null || plain(owner) === 'server' ? 'board' : roleOf(owner) ?? 'worker'
   const kind = valueOf(item, 'Asks') ?? 'decide'
@@ -653,6 +751,10 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   }
   // The partner's hand-over of a new look of the focus goal waits for its recap, whatever the recap names (the person's "A",
   // 2026-11-02): before the rules of a look. A worker's look is no hand-over: the partner answers it, as before.
+  // The same for an own-senses do or look the main chat handed on, and a do the partner did (Q616: Main's "reopen the Q600 play link"):
+  // its step is its own, else the one its picture names, else the one of the ask it links. The partner's look is the rule below.
+  const handedOn = handedWhy === null || handedBy === null || (handedBy === 'partner' && kind === 'look') ? null : handedOnOf(item, { focusGoal, items }, role)
+  if (handedOn !== null) return { to: 'recap', why: HANDED_ON_WHY, handedOn: handedBy, ...(handedOn.isInferred ? { step: handedOn.step, placedBy: handedOn.by } : {}) }
   const look = handedWhy === null ? null : focusLookOf(item, { focusGoal, items }, role)
   if (look !== null) return { to: 'recap', why: FOCUS_LOOK_WHY, ...(look.isInferred ? { step: look.step } : {}) }
   // Anything else the partner handed over stays handed over: it judged it already, so it is never decided back to it.

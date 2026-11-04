@@ -26,6 +26,8 @@ export const TILE_LINE = 'approve or send back'
 const BUILT_STATES = ['done', 'dropped', 'stopped', 'verdict']
 const FINISHED = ['done', 'closed', 'dropped']
 const IMAGE = /\.(?:png|jpe?g|gif|webp)$/i
+/** The asks a kept look can be: a look, or an own-senses do the main chat or the partner handed on (src/work/keptLook.mjs). */
+const KEPT_ASKS = ['look', 'do']
 /** The advice on a look's tile is cut at this many characters (it is one small line). */
 const LOOK_ADVICE_MOST = 60
 
@@ -286,13 +288,15 @@ export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {},
   // The goal's own ask: open the recap and play it.
   if (whole !== null) tiles.push({ title: 'The whole goal: play it', line: `is ${goal} reached?`, picture: whole.pictures[0] ?? null, target: recapPath !== null ? { path: recapPath } : { ask: whole.id } })
   // A kept look no recap part covers is a tile of its own, also when a block covers its step; it is no ask outside.
-  const keptLooks = (Array.isArray(asked) ? asked : []).filter(ask => ask.isKept === true && ask.asks === 'look' && /^B\d+$/.test(ask.of ?? '') && outside.includes(ask.id))
+  // (`isKept` says it: a look, or since the person's "Yes, clear them" of 2026-11-04 an own-senses do that the main chat or the partner
+  // handed on, src/work/keptLook.mjs.)
+  const keptLooks = (Array.isArray(asked) ? asked : []).filter(ask => ask.isKept === true && KEPT_ASKS.includes(ask.asks) && /^B\d+$/.test(ask.of ?? '') && outside.includes(ask.id))
   for (const ask of keptLooks) outside.splice(outside.indexOf(ask.id), 1)
   for (const ask of Array.isArray(asked) ? asked : []) if (outside.includes(ask.id) && covered.has(ask.of)) outside.splice(outside.indexOf(ask.id), 1)
   // A block is built when its state says so, or when what is left of it is a step in review held only by its kept look (nothing else of it
   // is open: no check, no failed check, no other ask): that step is built, and only the person's answer to the look is missing. Else the
   // goal's last kept look could never show on the card.
-  const keptSteps = new Set((Array.isArray(asked) ? asked : []).filter(ask => ask.isKept === true && ask.asks === 'look' && /^B\d+$/.test(ask.of ?? '')).map(ask => ask.of))
+  const keptSteps = new Set((Array.isArray(asked) ? asked : []).filter(ask => ask.isKept === true && KEPT_ASKS.includes(ask.asks) && /^B\d+$/.test(ask.of ?? '')).map(ask => ask.of))
   const hasOtherAsk = id => [...(Array.isArray(standing) ? standing : []), ...(Array.isArray(asked) ? asked : [])].some(ask => ask.of === id && ask.isKept !== true)
   const isHeldByKept = step => keptSteps.has(step.id) && steps.get(step.id) !== undefined && valueOf(steps.get(step.id), 'State') === 'review' && !isOpenCheck(step.id) && step.isFailed !== true && !hasOtherAsk(step.id)
   const isBlockBuilt = block => BUILT_STATES.includes(block.state)

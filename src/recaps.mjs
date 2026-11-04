@@ -44,8 +44,10 @@ export async function readRecaps(config, goalsText) {
   for (const path of await recapFiles(config, goalsText)) {
     const found = await readDemo(config.project, shownRoots(config), path)
     if (found === null || found.why !== undefined) continue
-    const parts = found.base.sections.flatMap(section => section.rows).filter(row => row.steps.length > 0).map(row => ({ key: row.key, title: row.title, steps: row.steps, pending: isPending(row), changed: hasChanged(row) }))
-    if (parts.length > 0) recaps.push({ path, goal: found.base.goal, parts, rounds: roundsOf(found.feedback), changedAt: found.changedAt ?? null })
+    const every = found.base.sections.flatMap(section => section.rows)
+    const parts = every.filter(row => row.steps.length > 0).map(row => ({ key: row.key, title: row.title, steps: row.steps, pending: isPending(row), changed: hasChanged(row) }))
+    // "Yes, clear them" (2026-11-04): every row, also one that shows no step, for the asks whose words name a row (`recapVerdictsOf`).
+    if (parts.length > 0) recaps.push({ path, goal: found.base.goal, parts, rows: every.map(row => ({ key: row.key, title: row.title, steps: row.steps })), rounds: roundsOf(found.feedback), changedAt: found.changedAt ?? null })
   }
   return recaps
 }
@@ -78,3 +80,19 @@ export function recapWaitsOf(recaps) {
   })
 }
 
+
+/**
+ * The person's "Yes, clear them" (2026-11-04, the live Q595): where every row of the recaps stands with the person, whether or not it
+ * shows a step, `[{ goal, path, key, title, steps, verdict, round }]`: `verdict` their standing one ('approved' or 'sent-back', the last
+ * round that judged the row; null while they have not) and its `round`. The work API closes the open asks that name an approved row
+ * (autopilot.mjs `recapClosesAsk`).
+ */
+export function recapVerdictsOf(recaps) {
+  return (Array.isArray(recaps) ? recaps : []).flatMap(recap => {
+    const stand = standOf(recap.rounds ?? [])
+    return (recap.rows ?? recap.parts ?? []).map(row => {
+      const said = stand.get(row.key)
+      return { goal: recap.goal, path: recap.path, key: row.key, title: row.title, steps: row.steps ?? [], verdict: said?.verdict ?? null, round: said?.round ?? null }
+    })
+  })
+}

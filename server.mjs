@@ -1541,6 +1541,8 @@ async function main(args) {
       readyHeld: state.readyList?.held ?? null,
       // B878: the steps the goals' recaps show, so a step whose part waits for the person's verdict says so in work next and list.
       recaps: state.recapWaits ?? null,
+      // The person's "Yes, clear them" (2026-11-04): every row of the recaps and its standing verdict (src/recaps.mjs `recapVerdictsOf`), for the asks the recap has answered.
+      recapRows: state.recapRows ?? null,
       // Signals change 6 (B915 4b.4): the first words of the keys the code rules file: a sweep's finding under one is refused.
       ruleKeys: SUPERVISOR_RULE_KEYS,
       // B775: the facts the obsolete check hands the Advisor for each open item: its step, the commits naming it since, its chat.

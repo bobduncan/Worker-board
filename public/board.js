@@ -4564,10 +4564,11 @@ function partnerAskWindowOf(ask) {
 /**
  * The person's "A" (2026-11-02): a look the partner handed over that Autopilot keeps for the goal's recap (`isKept`: the state's
  * `routedAway`, src/work/keptLook.mjs) is answered in its window, as any look is: Looks right or Send back with a note, whether the
- * recap card shows it yet or not. `{ id }`, or null for every other ask (it is judged in the recap, or it is not the person's yet).
+ * recap card shows it yet or not. Since "Yes, clear them" (2026-11-04) an own-senses do the main chat or the partner handed on is kept the
+ * same way and answered "Done" (`isDo`). `{ id, isDo }`, or null for every other ask (it is judged in the recap, or it is not the person's yet).
  */
 function lookAnswerOf(ask) {
-  return ask?.route === 'recap' && ask.asks === 'look' && ask.isKept === true ? { id: ask.id } : null
+  return ask?.route === 'recap' && ['look', 'do'].includes(ask.asks) && ask.isKept === true ? { id: ask.id, isDo: ask.asks === 'do' } : null
 }
 
 /** Autopilot (2026-10-31): the chip of an ask's route in its window, and the line under where it stands. */
@@ -4638,7 +4639,7 @@ function drawLookAnswer(answer, ui) {
   const buttons = el('div', 'buttons is-split')
   buttons.append(
     button('↺  Send back', 'is-reject', 'reject', 'Sends it back to the chat that asked, with your note'),
-    button('✓  Looks right', 'is-seen', 'approve', 'Approves it; the chat that asked is told'),
+    answer.isDo === true ? button('✓  Done', 'is-seen', 'done', 'Marks it done; the chat that asked is told') : button('✓  Looks right', 'is-seen', 'approve', 'Approves it; the chat that asked is told'),
   )
   return section('Your answer', [note, buttons, ...(ui.problem === null ? [] : [el('p', 'problem', ui.problem)])])
 }
@@ -6207,8 +6208,10 @@ function drawNeeds(state) {
   const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   // T22: an answered card whose answer still waits for its chat stays as a slim card with its line, after the open cards (with
   // "Show closed" the whole card shows it).
-  // Autopilot v2: what was decided for the person is never shown here while it is on (the line on top counts it).
-  const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart) && !(isPilot && isDecidedAnswer(need.answer)))
+  // Autopilot v2: what was decided for the person is never shown here while it is on (the line on top counts it). The person's "Yes,
+  // clear them" (2026-11-04): and an answer the partner, Autopilot or the main chat gave is never a slim card, on or off; its wait line is
+  // in the ask's own window (Show closed).
+  const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart) && !isDecidedAnswer(need.answer))
   const cards = [...rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state)), ...slim.map(need => drawSlimNeed(need, answerWaitOf(need, state.waitPart)))]
   const hidden = answered - slim.length
   const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || handsLine !== null || supervised?.isHanded === true || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
