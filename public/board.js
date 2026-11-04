@@ -4729,16 +4729,21 @@ function handsNeedsOf(needs, isAutopilotOn) {
 /**
  * The hands line's view (the plan's "Needs your hands: <title cut at 40> · <title> →"): each title cut at 40 characters and
  * opening its ask's window; `isBlocking` when one holds up a step (only then in the attention colour). Null for none.
+ * T20.1 (the person's "Yes, fold them", 2026-11-04): the app's form (a popup, a question in a chat) comes with its own words
+ * (`handsWords`: "Worker 5's chat waits on a popup: change directory"), and a chat's identical words stand once, even when the
+ * mod filed them twice before the board folded them (the live Q629 and Q632).
  */
 function handsLineView(list) {
   if (!Array.isArray(list) || list.length === 0) return null
-  return {
-    items: list.map(need => {
-      const id = need.workId ?? need.id
-      return { id, words: cutWords(String(need.title ?? id), 40), title: `Open ${id}: ${need.title ?? ''} (only you can: ${need.hands})`, href: `#details=${id}` }
-    }),
-    isBlocking: list.some(need => need.blocking === true),
-  }
+  const seen = new Set()
+  const items = list.flatMap(need => {
+    const id = need.workId ?? need.id
+    const own = typeof need.handsWords === 'string' && need.handsWords !== '' ? need.handsWords : null
+    if (own !== null && seen.has(own)) return []
+    if (own !== null) seen.add(own)
+    return [{ id, words: own ?? cutWords(String(need.title ?? id), 40), title: `Open ${id}: ${need.title ?? ''} (only you can: ${need.hands})`, href: `#details=${id}` }]
+  })
+  return { items, isBlocking: list.some(need => need.blocking === true) }
 }
 // handsline:end
 

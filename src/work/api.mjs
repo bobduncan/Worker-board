@@ -42,7 +42,7 @@ import { readAutopilotClearedFile, readNamesFile, readObsoleteFile, readPartnerA
 import { KEPT_WORDS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
-import { HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
+import { ASKS_NOTHING_WHY, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, asksNothingOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
@@ -875,6 +875,15 @@ async function ask(body, w, { alone = false } = {}) {
     return keepAsAskPoint(qaHeld, of.item, text, w)
   }
   const options = lines(body.options, LINE_CHARS).slice(0, 8)
+  // T20.1 (the person's "Yes, fold them", 2026-11-04), while Autopilot is on: the app's form is not filed again while the chat's own ask
+  // with the same words stands open (the live Q629 and Q632: the mod filed the same popup twice, 46 minutes apart): the first is kept.
+  const isChatAsk = w.autopilot === true && !['person', 'server'].includes(w.role)
+  const repeated = isChatAsk && via === 'form' ? formRepeatOf(w, text, options) : undefined
+  if (repeated !== undefined) return askedAgain(repeated, w)
+  // And an ask that asks nothing (the live Q626, "Nothing is required.") is no ask: filed closed, its words kept as information.
+  if (isChatAsk && asksNothingOf(askShape({ owner: w.who, kind, of: isAlone ? goal : valueOf(of.item, 'Id'), options, advice: line(body.advice, 120), via, text })) !== null) {
+    return askedNothing({ of: of.item, kind, text, options, play: line(body.play, 300), via, goal }, w)
+  }
   const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
   // 2026-10-24: a picture the board cannot show is refused here, with where to put it, so the person never meets a
   // link that opens nothing (Worker 1 linked one in its worktree). The mod's own asks (`via`) keep theirs as they came.
@@ -1056,6 +1065,57 @@ function askShape({ owner, kind, of = null, options = [], advice = '', via = nul
   }
 }
 
+/**
+ * T20.1 (the person's "Yes, fold them", 2026-11-04), while Autopilot is on: the open ask of the app's form of the same chat with the same
+ * words and options (the live Q629 and Q632), or undefined. The oldest, so the first stays the one that is kept.
+ */
+function formRepeatOf(w, text, options) {
+  const same = words => String(words ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+  const mine = same(text.join(' '))
+  return [...w.store.items.values()]
+    .filter(one => kindOf(one) === 'ask' && stateOf(one) === 'open' && valueOf(one, 'Via') === 'form' && isOwner(one, w.who, w.prefix)
+      && same((one.sections.get('Text') ?? []).join(' ')) === mine && same(valueOf(one, 'Options') ?? '') === same(options.join(' | ')))
+    .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))[0]
+}
+
+/** T20.1: the app's form asked the same again: the first ask is kept and its History notes "asked again HH:MM" (the mod may file it every time). */
+async function askedAgain(first, w) {
+  const id = valueOf(first, 'Id')
+  const found = await load(id, w, { kind: ['ask'] })
+  if (!found.ok) return found
+  const next = said(copy(found.item), w, `asked again ${stamp(w.now).slice(-5)}`)
+  const done = await save(next, found.text, w)
+  return done.ok ? changed(next, `${id} asks this already: it stays the one ask, nothing new was filed.`, { merged: id }) : done
+}
+
+/**
+ * T20.1: the words of an ask that asks nothing go to the Information list once, from the chat that wrote them, about the ask
+ * (a note to the person, `makeNote`): the ask is closed already, so a note the board could not write is the only loss.
+ */
+async function informNote(w, id, owner, text) {
+  return makeNote(w, 'you', text.slice(0, 6), id, null, owner === null ? w.who : bare(owner, w.prefix ?? ''))
+}
+
+/** T20.1 (the live Q626, "Nothing is required."): an ask that asks nothing is filed closed (withdrawn: "it asks nothing: information only"), its words in the Information list. */
+async function askedNothing({ of, kind, text, options, play, via, goal }, w) {
+  const made = await makeAsk(w, { of, kind, blocking: false, text, options, play, via, goal, closedWhy: ASKS_NOTHING_WHY })
+  if (!made.ok) return made
+  await informNote(w, made.id, w.who, text)
+  return changed(made.question, `${made.id} asks nothing, so the board kept your words as information for the person and closed it. Nothing is for the person now: do not ask it again.`, { informed: true })
+}
+
+/**
+ * T20.1: an open ask that asks nothing, closed by the board's pass (withdrawn, the why "it asks nothing: information only"), and its words
+ * put in the Information list. The ask first, then its note: a note that fails to write leaves the words in the closed ask. True when closed.
+ */
+async function closeAsksNothing(item, w) {
+  const id = valueOf(item, 'Id')
+  const done = await withdraw({ id, why: ASKS_NOTHING_WHY }, { ...w, role: 'person' })
+  if (!done.ok) return false
+  await informNote(w, id, valueOf(item, 'Owner'), item.sections.get('Text') ?? [valueOf(item, 'Title') ?? id])
+  return true
+}
+
 /** Autopilot: what the routing reads of the board: each chat's role, the store's items, the focus goal, the chats' title start. */
 const routeCtx = w => ({ roleOf: name => w.roleOf?.(name) ?? null, items: w.store.items, focusGoal: w.focusGoal ?? null, focusHasDemo: w.focusHasDemo === true, recapSteps: w.recaps ?? [], prefix: w.prefix ?? '', now: w.now })
 
@@ -1067,7 +1127,7 @@ function autopilotFiledWords(id, route) {
 }
 
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
-async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null, owner = undefined, pilot = false, freed = false, card = null }) {
+async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null, owner = undefined, pilot = false, freed = false, card = null, closedWhy = null }) {
   const id = await nextId(w.dir, 'Q', w.fs)
   // B452: the question its words lead with (a title over 12 words came from the mod's form or a "For you" block).
   // B462: a refine question gives its own, found before its advice.
@@ -1084,6 +1144,8 @@ async function makeAsk(w, { of = null, kind, blocking = false, text, options = [
   // Autopilot: the route's one line, as the board's sweep writes it.
   if (pilot && route !== null) question = appendHistory(question, 'server', routedWords(route), w.now)
   if (freed) question = appendHistory(question, 'server', RECAP_GOES_ON, w.now)
+  // T20.1: an ask that asks nothing is filed closed at once (withdrawn, with its why), in the one write.
+  if (closedWhy !== null) question = ordered(appendHistory(put(question, 'State', 'withdrawn'), 'server', `withdrawn: ${closedWhy}`, w.now))
   const wrote = await save(question, null, w)
   return wrote.ok ? { ok: true, question, id, title } : wrote
 }
@@ -1613,8 +1675,15 @@ async function autopilot(body, w) {
   const kept = []
   // Autopilot v2: the asks this pass judged anew (they stood for the person): one it moved into the recap is kept for the Undo too.
   const judgedAgain = new Set()
+  // The person's "Yes, fold them" (2026-11-04, the live Q626 "Nothing is required.", routed to Main, then to the person after 30 minutes): at
+  // every pass an open ask that asks nothing closes first, its words in the Information list; the loops below leave it out.
+  const informed = new Set()
+  const open = () => openAsksAll(w).filter(one => !informed.has(valueOf(one, 'Id')))
   if (on) {
     for (const item of openAsksAll(w)) {
+      if (asksNothingOf(item) !== null && await closeAsksNothing(item, w)) informed.add(valueOf(item, 'Id'))
+    }
+    for (const item of open()) {
       const route = valueOf(item, 'Route')
       // Autopilot v2 (the person's "B", 2026-11-02: "autopilot doesnt help me enough i still get way too many signels"): every pass,
       // not only the switch-on's sweep, judges anew an ask the board itself routed to the person (`isBoardRoutedPerson`), so what
@@ -1652,7 +1721,7 @@ async function autopilot(body, w) {
     // until the other is kept, so the last one frees it.
     // The person's "Yes, clear them" (2026-11-04, the live Q616): the same for an own-senses do or look the main chat or the partner handed on
     // (their Route line says who: `handOverOf`); the main chat's look and any do carry the hand-on line.
-    for (const item of openAsksAll(w)) {
+    for (const item of open()) {
       const handed = handOverOf(item)
       if (handed === null || !['look', 'do'].includes(valueOf(item, 'Asks'))) continue
       const decided = autopilotRoute(item, { ...ctx, handedWhy: handed.why, handedBy: handed.by })
@@ -1763,15 +1832,16 @@ async function autopilot(body, w) {
     // The asks are routed already: a record that could not be kept is told, not refused.
     if (!saved.ok) clearedWhy = saved.why
   }
-  const count = routed.length + answered.length + escalated.length + refines.length + recapClosed.length
+  const count = routed.length + answered.length + escalated.length + refines.length + recapClosed.length + informed.size
   const text = count === 0 ? 'Nothing to route.' : [
     routed.length === 0 ? null : `Routed ${routed.map(one => `${one.id} to ${one.to}`).join(', ')}`,
     answered.length === 0 ? null : `answered with the advice: ${answered.join(', ')}`,
     escalated.length === 0 ? null : `to the person: ${escalated.join(', ')}`,
     refines.length === 0 ? null : `refine questions: ${refines.map(one => one.step).join(', ')}`,
     recapClosed.length === 0 ? null : `closed by the recap: ${recapClosed.join(', ')}`,
+    informed.size === 0 ? null : `closed as information only: ${[...informed].join(', ')}`,
   ].filter(Boolean).join('; ')
-  return { ok: true, result: { text: `${text}.`, changed: count > 0, routed, answered, escalated, mainAsks, refines, recapClosed, wakes, ...(clearedWhy === null ? {} : { clearedWhy }) } }
+  return { ok: true, result: { text: `${text}.`, changed: count > 0, routed, answered, escalated, mainAsks, refines, recapClosed, informed: [...informed], wakes, ...(clearedWhy === null ? {} : { clearedWhy }) } }
 }
 
 /**
@@ -2032,10 +2102,10 @@ async function partnerSetting(body, w) {
   return { ok: true, result: { text: words, partnerAnswers: record, changed: true } }
 }
 
-async function makeNote(w, to, text, of, via = null) {
+async function makeNote(w, to, text, of, via = null, from = w.who) {
   const id = await nextId(w.dir, 'N', w.fs)
   const item = said({
-    head: new Map([['Id', id], ['Kind', 'note'], ['From', w.who], ['To', to], ...(via === null ? [] : [['Via', via]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', line(text.join(' '), LINE_CHARS)]]),
+    head: new Map([['Id', id], ['Kind', 'note'], ['From', from], ['To', to], ...(via === null ? [] : [['Via', via]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', line(text.join(' '), LINE_CHARS)]]),
     sections: new Map([['Text', text], ...(of === null ? [] : [['About', [of]]])]),
     problem: null,
   }, w, 'noted')

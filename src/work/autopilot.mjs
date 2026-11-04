@@ -39,7 +39,7 @@
 // - `person`: a goal's recap (its demo, "Did we reach the goal?", the Product owner's asks), a goal's start or a focus switch
 //   (`goalLevelOf`: an ask of a goal that is not the focus, or about a goal's definition, work blocks, plan, Go or which goal
 //   comes next), what only the person's hands can do (PERSONS_HANDS; the route carries `hands`, and the page draws it as one
-//   line), the app's question form, and an ask the partner or the main chat handed on or the person took back.
+//   line), the app's form (a question or a popup in its chat: also an entry of that line, `formHandsOf`), and an ask the partner or the main chat handed on or the person took back.
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
 import { chainWaitOf, checkedOf, fixesOf } from './resultCheck.mjs'
@@ -457,6 +457,60 @@ export const rowNumberOfTitle = title => {
 export const isRecapVerdictAsk = item => !['form', 'refine'].includes(valueOf(item, 'Via')) && (['look', 'do'].includes(valueOf(item, 'Asks') ?? 'decide') || valueOf(item, 'Via') === 'accept')
 /** An ask the person took back from a decider (the Undo writes "you took it back" or "took it back from Autopilot" on its card): theirs, never closed by the board. */
 export const isTakenBack = item => (item?.sections?.get('Route') ?? []).some(one => /\btook it back\b/i.test(one))
+
+/**
+ * An ask that asks nothing (T20.1, the person's "Yes, fold them", 2026-11-04: the live Q626, a line of Main's "For you" block, "Nothing
+ * is required. The board's debug port 9229 stays open on this PC only ..." filed as a do; Autopilot routed it to Main, Main did not do
+ * it in 30 minutes, and it went to the person): its title or its first sentence starts by saying that nothing is asked ("Nothing is
+ * required", "No action needed", "Nothing to do", "Nothing for you", "No need to do anything", "FYI", "For your information").
+ */
+const NOTHING_ASKED = [
+  /^nothing(?: else)? (?:is |was )?(?:required|needed|necessary|to do|to answer|for you)\b/i,
+  /^no (?:further |more )?(?:action|answer|reply|response|decision|input)s?(?: is| are)? (?:needed|required|necessary|from you)\b/i,
+  /^no need (?:to (?:do|act|answer|reply|respond|decide)|for (?:you|an? (?:action|answer|reply|response)))\b/i,
+  /^(?:fyi|for your (?:information|info))\b/i,
+]
+/** Words that ask something after all: a question mark, "please", "can you" (and its kin). */
+const ASKS_MORE = /\?|\bplease\b|\b(?:can|could|would|will|do|did) you\b/i
+/** The History why of an ask the board closed because it asked nothing. */
+export const ASKS_NOTHING_WHY = 'it asks nothing: information only'
+/**
+ * The words of an open ask that says nothing is asked (`NOTHING_ASKED`), or null. Never when the words also ask something (a "?", "please",
+ * "can you"), when it carries options or advice, for the app's form, a refine question or the board's Accept card, nor for one the person
+ * took back. Its words then go to the Information list once, and the ask closes (the work API: `askedNothing`, `closeAsksNothing`).
+ */
+export function asksNothingOf(item) {
+  if (valueOf(item, 'State') !== 'open' || ['form', 'refine', 'accept'].includes(valueOf(item, 'Via')) || isTakenBack(item)) return null
+  if (optionsOf(item).length > 0 || adviceOf(item) !== null || ASKS_MORE.test(`${title(item)} ${text(item)}`)) return null
+  const lead = words => words.replace(/^[\s*_`>"'“-]+/, '')
+  for (const words of [title(item), sentencesOf(text(item))[0] ?? '']) {
+    for (const pattern of NOTHING_ASKED) {
+      const found = lead(words).match(pattern)
+      if (found !== null) return found[0]
+    }
+  }
+  return null
+}
+
+/** The words a popup ask of the Workers mod starts with (mods/workers/hooks/popup.ts `popupText`); `1`: what the chat tried. */
+const POPUP_ASK = /^A popup in its chat may wait for you: it has tried to (.+?) for over a minute\b/
+const cutAt = (words, max) => (words.length > max ? `${words.slice(0, max - 1).trimEnd()}…` : words)
+/**
+ * What the app's form says to the person that only they can do (T20.1, the live Q629 and Q632: "A popup in its chat may wait for you: it has
+ * tried to use ccd directory (change directory) (lava-tactics-project) for over a minute."): answer in the chat. `{ name, words }`, the name
+ * of what only their hands can do and the words of its entry in the hands line ("Worker 5's chat waits on a popup: change directory"),
+ * or null for an ask that is no form's. `chat`: the asking chat's name as the board shows it.
+ */
+export function formHandsOf(item, chat = null) {
+  if (valueOf(item, 'Via') !== 'form') return null
+  const who = chat ?? valueOf(item, 'Owner') ?? 'A chat'
+  const tried = (text(item) || title(item)).match(POPUP_ASK)?.[1] ?? null
+  if (tried === null) return { name: 'a question in its chat', words: `${who} asks in its chat: ${cutAt(title(item), 40)}` }
+  // "use ccd directory (change directory) (lava-tactics-project)": the tool's own action is the first bracket; "change a file (board.js)": the action alone.
+  const brackets = [...tried.matchAll(/\(([^)]*)\)/g)].map(one => one[1])
+  const base = tried.replace(/\s*\([^)]*\)/g, '').trim()
+  return { name: 'a popup in its chat', words: `${who}'s chat waits on a popup: ${base.startsWith('use ') && brackets.length > 0 ? brackets[0] : base}` }
+}
 /**
  * The review of 2026-11-04: whether an ask belongs to the recap's goal (`goal`, the focus goal), so that a row's number in its words means that
  * goal's recap row. Its own step (`Of`) is a step of that goal (`items`: the store's by id; a step the store does not hold, or a missing `items`,
@@ -738,7 +792,8 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   }
   // `again`: the board judges the asks it routed to the person itself anew (isBoardRoutedPerson).
   if (isExplicitPerson(item) && !(again && isBoardRoutedPerson(item)) && handedWhy === null) return { to: 'person', why: 'handed to the person' }
-  if (via === 'form') return { to: 'person', why: 'the app\'s question form is answered in its chat' }
+  // T20.1: the app's form (a question, a popup) is answered in its chat, so it is the person's hands: one entry of the hands line, not a card.
+  if (via === 'form') return { to: 'person', why: 'the app\'s question form is answered in its chat', hands: formHandsOf(item).name }
   // An action: a do, or a yes/no chore the main chat would carry out.
   const isAction = kind === 'do' || (isChore(item) && role !== 'owner')
   // The person's hands: the whole list for an action (the last re-check: a chore under a step too, Q556) and an ask under no
