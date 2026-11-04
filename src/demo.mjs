@@ -7,13 +7,20 @@
 //   { "goal": "G12", "title": "How we build good maps", "intro": "optional line under the title", "step": "B674" (B860: the step the person's feedback is written on),
 //     "sections": [ { "kind": "reached" | "not-reached" | "open", "intro": ["a line"], "items": ["one bullet each"],
 //                     "rows": [ { "id": "optional: a part's key for feedback, else its title", "steps": ["B689", "B821"] (B878, optional: the steps the part shows, its fixes too), "title": "1. The row", "note": "one line", "pictures": [ { "kind": "target", "caption": "Concept B", "path": "a.png" } ],
-//                                 "changed": "T17.1, one line: <the person's words -> what changed>", "pending": "T17.1, one line: why the new try is not in yet", "play": "T17.1: an arena name (letters, digits, dashes, underscores, at most 60): a link that opens the game on that map" },
+//                                 "changed": "T17.1, one line: <the person's words -> what changed>", "pending": "T17.1, one line: why the new try is not in yet", "play": "T17.1: an arena name (letters, digits, dashes, underscores, at most 60): a link that opens the game on that map",
+//                                 "shows": { "verdict": "yes" | "no", "by": "T17.2: who checked (never the chat or helper that made the picture)", "at": "YYYY-MM-DD HH:MM", "why": "one line: does the close-up show their words?" } },
 //                               { "title": "6. A grid", "note": "...", "grid": [ { "caption": "A", "path": "b.png" } ] } ] } ],
+//   T17.2 (the person, 2026-11-04: "i expect that when i promide feedback i get new tailored demo on the aspects i asked for"): two more picture kinds,
+//   the spot their words name, up close, and where something moves, a clip:
+//     { "kind": "closeup", "caption": "...", "path": "<the after picture>", "before": "<the before picture>", "box": [x, y, w, h],
+//       "beforeBox": [x, y, w, h] (optional, else box), "beforeCaption": "Before your words", "afterCaption": "Now" }
+//     { "kind": "clip", "caption": "...", "frames": ["a.png", "b.png"] (2 to 12), "box": [x, y, w, h] (optional), "ms": 900 (300 to 3000, optional), "path": (optional, else the last frame) }
+//   A box is in the picture's own pixels: whole numbers, x and y from 0, w and h at least 16.
 //     "followUp": { "fixedForGood": ["..."], "fixedOnce": ["..."], "backlog": ["..."], "noStep": ["..."], "escalate": ["..."] } }
 
 import { isAbsolute, posix } from 'node:path'
 
-import { isAfterSend, roundsOf, standOf } from './demoFeedback.mjs'
+import { isAfterSend, roundsOf, showsCheck, standOf } from './demoFeedback.mjs'
 import { sinceMs } from './work/item.mjs'
 
 /** A section's kind: the band's words and the verdict the page shows. */
@@ -24,6 +31,9 @@ export const SECTIONS = {
 }
 /** The pictures of a row in this order: the target first, the final last; `label` is the plain word above the picture. */
 export const PICTURES = {
+  // T17.2: what the person's words asked, up close and moving, before every other picture.
+  closeup: { rank: -2, label: 'YOUR WORDS, UP CLOSE' },
+  clip: { rank: -1, label: 'YOUR WORDS, MOVING' },
   target: { rank: 0, label: 'TARGET' },
   before: { rank: 1, label: 'BEFORE THIS GOAL' },
   between: { rank: 2, label: 'IN BETWEEN' },
@@ -45,6 +55,16 @@ const DEFAULT_INTRO = 'In every row: target first, then before this goal, then r
 export const DEMO_BYTES = 1024 * 1024
 /** T17.1: a row's `play`: the name of an arena (the game's `arena=<name>` setting): letters, digits, dashes and underscores, at most 60. */
 export const ARENA_NAME = /^[A-Za-z0-9_-]{1,60}$/
+/** T17.2: a close-up's or clip's box is at least this many pixels wide and high (a smaller spot is no close-up of anything). */
+export const BOX_MIN = 16
+/** T17.2: a clip has this many frames at most and at least, and shows each for `ms` of this range (default CLIP_MS). */
+export const CLIP_FRAMES = { min: 2, max: 12 }
+export const CLIP_MS = { min: 300, max: 3000, default: 900 }
+/** T17.2: the words under a close-up's two sides when the list gives none. */
+export const CLOSEUP_CAPTIONS = { before: 'Before your words', after: 'Now' }
+/** T17.2: a checker's verdict on a row, and the moment it was written ("YYYY-MM-DD HH:MM"). */
+export const SHOWS_VERDICTS = ['yes', 'no']
+const SHOWS_AT = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]) (?:[01]\d|2[0-3]):[0-5]\d$/
 
 /** One bullet's words: one item, never several on one line. */
 function bulletOf(item, where) {
@@ -65,6 +85,55 @@ function keyer() {
     return key
   }
 }
+
+/** T17.2: why a box is none (the words after "box"), or null for a good one: `[x, y, w, h]`, whole numbers, x and y from 0, w and h at least BOX_MIN. */
+function boxProblem(box) {
+  if (!Array.isArray(box) || box.length !== 4 || !box.every(value => Number.isInteger(value))) return 'is [x, y, w, h]: four whole numbers'
+  if (box[0] < 0 || box[1] < 0) return 'starts at x and y of 0 or more'
+  if (box[2] < BOX_MIN || box[3] < BOX_MIN) return `is at least ${BOX_MIN} wide and ${BOX_MIN} high (w and h)`
+  return null
+}
+
+/** T17.2: one picture's own fields: a close-up has its after and before pictures and a box, a clip its frames; the other kinds a path. It throws one line. */
+function checkPicture(one, name) {
+  const isFile = value => typeof value === 'string' && value !== ''
+  if (one.kind === 'closeup') {
+    if (!isFile(one.path)) throw new Error(`${name}: a close-up has no path (the after picture).`)
+    if (!isFile(one.before)) throw new Error(`${name}: a close-up has no "before" (the before picture).`)
+    for (const field of ['box', 'beforeBox']) {
+      if (field === 'beforeBox' && one.beforeBox === undefined) continue
+      const bad = boxProblem(one[field])
+      if (bad !== null) throw new Error(`${name}: a close-up's "${field}" ${bad}.`)
+    }
+    return
+  }
+  if (one.kind === 'clip') {
+    const frames = one.frames
+    if (!Array.isArray(frames) || frames.length < CLIP_FRAMES.min || frames.length > CLIP_FRAMES.max || !frames.every(isFile)) throw new Error(`${name}: a clip has ${CLIP_FRAMES.min} to ${CLIP_FRAMES.max} frames, each a picture's path.`)
+    if (one.path !== undefined && !isFile(one.path)) throw new Error(`${name}: a clip's "path" is a picture's path (or none: the last frame).`)
+    if (one.box !== undefined) {
+      const bad = boxProblem(one.box)
+      if (bad !== null) throw new Error(`${name}: a clip's "box" ${bad}.`)
+    }
+    if (one.ms !== undefined && !(Number.isInteger(one.ms) && one.ms >= CLIP_MS.min && one.ms <= CLIP_MS.max)) throw new Error(`${name}: a clip's "ms" is ${CLIP_MS.min} to ${CLIP_MS.max} (milliseconds for each frame).`)
+    return
+  }
+  if (!isFile(one.path)) throw new Error(`${name}: a picture has no path.`)
+}
+
+/** T17.2: why a row's `shows` is none (the words after "shows"), or null for a good one: the checker's verdict, who, when and why, in one line each. */
+function showsProblem(shows) {
+  if (shows === null || typeof shows !== 'object' || Array.isArray(shows)) return 'is { "verdict": "yes" or "no", "by": "<who checked>", "at": "YYYY-MM-DD HH:MM", "why": "<one line>" }'
+  if (!SHOWS_VERDICTS.includes(shows.verdict)) return `has a "verdict" of ${SHOWS_VERDICTS.join(' or ')}, not "${String(shows.verdict).slice(0, 20)}"`
+  for (const field of ['by', 'why']) {
+    if (!(typeof shows[field] === 'string' && shows[field].trim() !== '' && !/[\r\n]/.test(shows[field]))) return `has a "${field}" of one line of words`
+  }
+  if (!(typeof shows.at === 'string' && SHOWS_AT.test(shows.at) && Number.isFinite(sinceMs(shows.at)))) return 'has an "at" of the form "YYYY-MM-DD HH:MM"'
+  return null
+}
+
+/** T17.2: a row's `shows` as the page keeps it (its words squeezed to one line), or null for none. */
+const cleanShows = shows => (showsProblem(shows) === null ? { verdict: shows.verdict, by: lineOf(shows.by), at: shows.at, why: lineOf(shows.why) } : null)
 
 /**
  * The list's words as the page draws them; it throws with the reason on a list it cannot draw. Pure: no file is read. T17.1: with
@@ -90,9 +159,14 @@ export function checkList(list, tries = null) {
       if (hasPictures === hasGrid) throw new Error(`${name} has pictures or a grid, one of the two.`)
       for (const one of row.pictures ?? []) {
         if (PICTURES[one?.kind] === undefined) throw new Error(`${name}: a picture's kind is ${Object.keys(PICTURES).join(', ')}.`)
-        if (typeof one.path !== 'string' || one.path === '') throw new Error(`${name}: a picture has no path.`)
+        checkPicture(one, name)
       }
       for (const one of row.grid ?? []) if (typeof one?.path !== 'string' || one.path === '') throw new Error(`${name}: a grid picture has no path.`)
+      // T17.2: the checker's word on the row, wherever the row stands.
+      if (row.shows !== undefined) {
+        const bad = showsProblem(row.shows)
+        if (bad !== null) throw new Error(`${name}: "shows" ${bad}.`)
+      }
     }
   }
   for (const [key] of GROUPS) for (const item of list.followUp?.[key] ?? []) bulletOf(item, `The follow-up (${key})`)
@@ -166,10 +240,26 @@ export function checkTries(list, { feedback = null, mtimeOf, previous = null }) 
       }
       const note = lineOf(row.note)
       const old = before?.get(key)
-      const hasPicture = [...(row.pictures ?? []), ...(row.grid ?? [])].some(one => isAfterSend(mtimeOf(one.path), sent))
+      const hasPicture = [...(row.pictures ?? []), ...(row.grid ?? [])].some(one => filesOfPicture(one).some(file => isAfterSend(mtimeOf(file.path), sent)))
       const hasWords = old !== undefined && note !== '' && note !== old.note
       const isRerun = old !== undefined && isAfterSend(previous.writtenAt, sent) && old.changed === lineOf(row.changed)
-      if (!hasPicture && !hasWords && !isRerun) problems.push(`${own}: no picture was written after that Send and its note is the old one, so this is the old try: put in the new try's picture (or, for an answer in words, its new note), or give "pending": "<why the new try is not in yet>".`)
+      if (!hasPicture && !hasWords && !isRerun) {
+        problems.push(`${own}: no picture was written after that Send and its note is the old one, so this is the old try: put in the new try's picture (or, for an answer in words, its new note), or give "pending": "<why the new try is not in yet>".`)
+        continue
+      }
+      // T17.2: the new try shows the spot their words name, up close, and a checker who did not make it says so. An answer in words (it passed
+      // on a new note or the list taken again alone, with no picture written after the Send) is no spot of a picture: it needs no close-up, but
+      // the same check. Nor does a grid row (a row has pictures or a grid, never both: a grid cannot carry a close-up). A row with new pictures
+      // needs its close-up even when its note changed too (the review: a rewritten note let row 7's whole-screen shots pass without one).
+      const isWords = !hasPicture || (row.pictures ?? []).length === 0
+      const closeups = (row.pictures ?? []).filter(one => one?.kind === 'closeup')
+      const hasCloseup = closeups.some(one => isAfterSend(mtimeOf(one.path), sent))
+      const checked = showsCheck(row.shows, sent)
+      const needs = []
+      if (!isWords && !hasCloseup) needs.push(closeups.length === 0 ? 'no close-up' : "its close-up's after picture was written before that Send, so it is the old try")
+      if (checked.state === 'no') needs.push(`its check says it does not show their words yet: "${checked.why}"`)
+      else if (checked.state === 'waits') needs.push(row.shows === undefined ? 'no "shows" (the check)' : 'its "shows" is dated before that Send, so it checked an older try')
+      if (needs.length > 0) problems.push(`${own}: ${needs.join('; ')}. Make the close-up: the before and after pictures and the box of the spot their words name, a clip when it moves; then have a checker who did not make it write "shows": { "verdict": "yes", "by": "<the checker>", "at": "YYYY-MM-DD HH:MM", "why": "<one line>" }; or give "pending": "<why the new try is not in yet>".`)
     }
   }
   for (const [key, said] of stand) {
@@ -181,8 +271,22 @@ export function checkTries(list, { feedback = null, mtimeOf, previous = null }) 
 /** The pictures of a row in the demo's order; equal ranks keep the order they were listed in. */
 export const orderedPictures = pictures => pictures.map((one, at) => ({ one, at })).sort((a, b) => PICTURES[a.one.kind].rank - PICTURES[b.one.kind].rank || a.at - b.at).map(({ one }) => one)
 
-/** Every picture the list names, in the order the page shows them: `{ path, caption }`. */
-export const picturesOf = list => (list.sections ?? []).flatMap(section => (section.rows ?? []).flatMap(row => [...orderedPictures(row.pictures ?? []), ...(row.grid ?? [])]))
+/**
+ * T17.2: every file one picture of the list names: its `path` (a clip without one: its last frame), a close-up's `before` and a clip's frames.
+ * `{ path, caption }` each; a clip's frames and a close-up's before picture follow the picture that names them.
+ */
+export function filesOfPicture(one) {
+  const caption = String(one.caption ?? '')
+  const files = []
+  const add = (path, words = caption) => { if (typeof path === 'string' && path !== '') files.push({ path, caption: words }) }
+  add(one.path ?? (Array.isArray(one.frames) ? one.frames.at(-1) : undefined))
+  add(one.before, String(one.beforeCaption ?? ''))
+  for (const frame of Array.isArray(one.frames) ? one.frames : []) add(frame)
+  return files
+}
+
+/** Every picture the list names, in the order the page shows them: `{ path, caption }`; T17.2: with the before picture of a close-up and the frames of a clip. */
+export const picturesOf = list => (list.sections ?? []).flatMap(section => (section.rows ?? []).flatMap(row => [...orderedPictures(row.pictures ?? []).flatMap(filesOfPicture), ...(row.grid ?? [])]))
 
 /** A picture's path from the folder of the file that names it, in the form the board asks for ("a/b/c.png"); an absolute path stays as it is. */
 export function pathFrom(folder, path) {
@@ -197,7 +301,18 @@ export function pathFrom(folder, path) {
  */
 export function demoPage(input, folder = '') {
   const demo = checkList(input)
-  const place = one => ({ path: pathFrom(folder, one.path), caption: String(one.caption ?? '') })
+  const place = one => ({ path: pathFrom(folder, one.path ?? one.frames.at(-1)), caption: String(one.caption ?? '') })
+  // T17.2: a close-up's before picture and boxes, a clip's frames, box and pace: every path resolved as `path` is.
+  const detail = one => {
+    if (one.kind === 'closeup') {
+      return {
+        before: pathFrom(folder, one.before), box: [...one.box], beforeBox: [...(one.beforeBox ?? one.box)],
+        beforeCaption: lineOf(one.beforeCaption) || CLOSEUP_CAPTIONS.before, afterCaption: lineOf(one.afterCaption) || CLOSEUP_CAPTIONS.after,
+      }
+    }
+    if (one.kind === 'clip') return { frames: one.frames.map(frame => pathFrom(folder, frame)), box: one.box === undefined ? null : [...one.box], ms: one.ms ?? CLIP_MS.default }
+    return {}
+  }
   const keyOf = keyer()
   const sections = demo.sections.map(section => ({
     kind: section.kind,
@@ -216,9 +331,11 @@ export function demoPage(input, folder = '') {
       pending: lineOf(row.pending) || null,
       // The board reads whatever the partner wrote: a name that is none is left out, never the whole recap.
       play: typeof row.play === 'string' && ARENA_NAME.test(row.play) ? row.play : null,
+      // T17.2: the checker's word on the row (who, when, why), null for none.
+      shows: cleanShows(row.shows),
       pictures: Array.isArray(row.grid) && row.grid.length > 0
         ? row.grid.map(one => ({ kind: null, label: null, ...place(one) }))
-        : orderedPictures(row.pictures).map(one => ({ kind: one.kind, label: PICTURES[one.kind].label, ...place(one) })),
+        : orderedPictures(row.pictures).map(one => ({ kind: one.kind, label: PICTURES[one.kind].label, ...place(one), ...detail(one) })),
     })),
   }))
   const groups = GROUPS.map(([key, title]) => ({ key, title, items: (demo.followUp?.[key] ?? []).map(item => bulletOf(item, 'A bullet')) })).filter(group => group.items.length > 0)

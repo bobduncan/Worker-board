@@ -6029,6 +6029,52 @@ The coordinator's review of the first build (same day) added:
 Tests: test/recapRounds.test.mjs (data, the list, tools/demo.mjs, the state), test/recapRoundsPage.test.mjs (the popup, both cards),
 test/demoFeedbackBoard.test.mjs and test/recapVerdictBoard.test.mjs (on a running board: being made, then the rewrite).
 
+## Recap close-ups (T17.2, 2026-11-04)
+
+The person, 2026-11-04, looking at G60's recap row 7 (tall props fade while a unit stands behind them): "This demo never really updates
+it's images in the demo: I expect that when i promide feedback i get new tailored demo on the aspects i asked for.. e.g. a picture of a
+tall prop that is transparent like i asked for in this case." The fix was built (the crystal fades for the wizard), but the row showed five
+whole-screen shots, the old ones first, and the fade is a few pixels. Zoomed in it is plain.
+
+Their answers (2026-11-04): 1 C: a close-up before/after of the exact spot their words name, always, plus a clip where something moves (a
+fade, lava, a crumbling cell). 2 A: the new close-up first, the old pictures folded under "Earlier pictures". 3 yes: a row comes back to
+them only when its new picture was made after their words and a separate checker says "this shows what you asked"; else "Being reworked".
+4 yes: Play at the spot where the game's settings allow (they do not yet: no setting places a unit or the camera; nothing built for it).
+5 yes: the rows now in the recap get this before they judge (the coordinator does that after landing).
+
+1. Two picture kinds (src/demo.mjs `PICTURES`, `checkList`): `closeup` (`path` the after picture, `before`, `box` and optional `beforeBox`
+   in each picture's own pixels, whole numbers, w and h at least 16, `beforeCaption` and `afterCaption`, default "Before your words" and
+   "Now") labelled "YOUR WORDS, UP CLOSE", and `clip` (2 to 12 `frames`, optional `box`, `ms` 300 to 3000, default 900, `path` the last
+   frame when left out) labelled "YOUR WORDS, MOVING"; they rank before every other kind. A row's `shows` is the checker's word:
+   `{ verdict: "yes" | "no", by, at: "YYYY-MM-DD HH:MM", why }`. A bad box, frame count, `ms` or `shows` refuses the list in one line (the
+   board reading a demo.json refuses the whole recap then, as for a bad picture kind). tools/demo.mjs also checks `before` and every frame
+   (exists, a picture type, under the board's size limit) and writes their paths relative to demo.json.
+2. The tool's gate (`checkTries`): a row the person sent back, with a `changed` line and no `pending`, needs besides what it needed in T17.1:
+   a `closeup` whose `path` (the after picture) was written after their Send, unless it is an answer in words (a new note, or the same list
+   taken again with no picture) or a grid row (a grid has no close-up to carry); and a `shows` with verdict yes whose `at` is not before
+   their Send. One line per row says what to do: make the close-up (before, after, the box of the spot their words name, a clip when it
+   moves), then have a checker who did not make it write `shows`, or give `pending`.
+3. The board's gate (`roundPage`, `showsCheck`): a row sent back that has `changed`, is not `pending` and not under way is still "being
+   reworked" when its `shows` is missing, says no or is older than the Send: "Being reworked: the close-up of your words waits for its
+   check" / "Being reworked: the check says it does not show your words yet: <why>". It asks nothing and is counted nowhere: the one
+   count (src/recapRound.mjs, the card, the Needs count) reads `roundPage`, and the recap's waits (`recapWaitsOf`) read the same word. A
+   demo.json written by hand cannot skip the check; the checker's name cannot be checked by the board (the partner's rule: never the chat
+   or helper that made the picture).
+4. The popup (public/board.js): in a row they sent back whose new try is in, right under "What changed", the block "Your words, up close":
+   each close-up as the spot before and now side by side, its box scaled up to the frame with crisp pixels (the picture is placed by
+   percentages of its frame once it is loaded; `image-rendering: pixelated`); each clip one frame at a time, looping every `ms`, with "1 / N"
+   under it (with reduced motion its frames stand side by side and nothing moves; its timer stops on every redraw and when the popup
+   closes); a click on a side or on the frame shown opens that whole picture in the picture window. Under it a quiet line "Checked by <by>:
+   <why>" (cool tones), then `<details>` "Earlier pictures (N)", closed, with every other picture as before. A sent-back row with no
+   close-up (an answer in words) shows the checker's line and its pictures as before; a row not sent back is drawn as before.
+5. The partner's rule (roles/partner.md "Recap feedback"): for every row sent back, the close-up of the spot their words name and a clip when
+   the change moves, made by the worker of the fix (its report names the before and after pictures, the box and, when it moves, the frames;
+   ask for them when it does not) and checked by a helper that did not make it ("does this close-up show <their words>?"), written as
+   `shows`; without a yes the row is `pending`.
+
+Tests: test/recapCloseups.test.mjs (the shape, the tool's gate, the board's gate, tools/demo.mjs), test/recapCloseupsPage.test.mjs (the popup),
+and the fixtures of test/recapRounds.test.mjs, test/recapRoundsPage.test.mjs and test/recapOneCount.test.mjs, whose rows now carry a `shows`.
+
 ## A step nothing else closes goes to the person: Accept or Send back (B883)
 
 X117 (X54 and X116 before): B851 sat in review after its fix B875 was dropped on the partner's decision to accept it at 74 of

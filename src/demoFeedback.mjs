@@ -61,6 +61,23 @@ export function makingOf(rounds, changedAt) {
   return Number.isFinite(at) && !isAfterSend(changedAt, at) ? { round: last.n + 1, at } : null
 }
 
+const VERDICT_SHOWS = ['yes', 'no']
+
+/**
+ * T17.2 (the person, 2026-11-04, on G60's recap row 7: "i expect that when i promide feedback i get new tailored demo on the aspects i
+ * asked for"): where a row's own check stands for the Send at `sentAt` (ms). The row's `shows` is a checker's word on its close-up
+ * ("this shows what you asked"; src/demo.mjs). `{ state: 'yes' }` when a checker said yes at or after the Send; `{ state: 'no', why }` when
+ * a checker said no at or after the Send (their words); else `{ state: 'waits' }`: no word, an unreadable one, or one written before
+ * the Send, which checked an older try. A Send with no readable time cannot date a word: only its presence and verdict then count.
+ */
+export function showsCheck(shows, sentAt) {
+  const waits = { state: 'waits', why: '' }
+  if (shows === null || typeof shows !== 'object' || !VERDICT_SHOWS.includes(shows.verdict)) return waits
+  const at = sinceMs(shows.at)
+  if (!Number.isFinite(at) || (Number.isFinite(sentAt) && at < sentAt)) return waits
+  return { state: shows.verdict === 'yes' ? 'yes' : 'no', why: oneLine(shows.why, COMMENT_CHARS) }
+}
+
 /** Whether a row (of the page model) says what changed for the person's words. */
 export const hasChanged = row => typeof row?.changed === 'string' && row.changed.trim() !== ''
 /** Whether a row (of the page model) says its new try is not in yet. */
@@ -87,6 +104,10 @@ const lookOf = look => ({
  * note and no controls to answer; after the partner wrote the demo again a sent-back row that carries `pending`, or that has no `changed`
  * line, is `reworking` too (its new try is not in, whatever the file's time says), one that has is the new try (its `changed` line and
  * pictures). Pure.
+ *
+ * T17.2: a sent-back row with a `changed` line and no `pending` is the new try only when its `shows` (the checker's word on its close-up, `showsCheck`) says
+ * yes in a minute not before that Send; else it is `reworking` with `reworkWhy` ("the close-up of your words waits for its check", or "the check says it does
+ * not show your words yet: <why>"), asks nothing and is counted nowhere.
  *
  * T20.1 (the person, 2026-11-04: "These numbers are all over the place and non consistent"): `options.rework`, `Map(row key → { step,
  * worker })` (src/recapRound.mjs): a row whose steps, or a fix in their chains, are under way is `reworking` with that `rework` and asks
@@ -127,9 +148,16 @@ export function roundPage(page, input, options = {}) {
         // Being made: only what the last Send sent back, without the old try.
         if (making !== null) return said.round === last.n ? [{ ...reworked(row), pending: null, said: { comment: said.comment, round: said.round } }] : []
         const kept = { ...row, said: { comment: said.comment, round: said.round } }
+        if (rework.has(row.key)) return [{ ...reworked(kept), rework: rework.get(row.key) }]
         // A row sent back is the new try only when its row says what changed (and is not pending): a demo.json written by hand, with the old
         // pictures and no `changed` line, never passes for one, whatever the file's time (the coordinator's review of 6f197a4).
-        return [rework.has(row.key) ? { ...reworked(kept), rework: rework.get(row.key) } : hasChanged(row) && !isPending(row) ? kept : reworked(kept)]
+        if (!hasChanged(row) || isPending(row)) return [reworked(kept)]
+        // T17.2 (the person, 2026-11-04: "i expect that when i promide feedback i get new tailored demo on the aspects i asked for"): and only when
+        // a checker who did not make its close-up says, after their Send, that it shows their words; until then it is being reworked, whatever the
+        // file says (a demo.json written by hand cannot skip the check). It asks nothing and is not counted.
+        const checked = showsCheck(row.shows, sinceMs(rounds[said.round - 1]?.at))
+        if (checked.state === 'yes') return [kept]
+        return [{ ...reworked(kept), reworkWhy: checked.state === 'no' ? `the check says it does not show your words yet: ${checked.why}` : 'the close-up of your words waits for its check' }]
       }),
     }))
     .filter(section => section.rows.length > 0)

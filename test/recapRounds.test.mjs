@@ -40,6 +40,12 @@ const round1 = () => withRound(null, 1, [
   { key: '4. Ring', verdict: 'sent-back', comment: 'not round enough' },
 ], SENT)
 const page = (more = {}) => demoPage(list(more), 'pictures/g6')
+/** T17.2: a checker's word on a row's close-up, written after the Send of these tests (16:17): "this shows what you asked". */
+const OK = { verdict: 'yes', by: 'Checker', at: '2026-11-02 16:30', why: 'the tall props fade behind the wizard' }
+/** A close-up of the spot their words name: the after picture `path`, the before picture beside it, the box in each picture's own pixels. */
+const closeup = (path = 'PA.png') => ({ kind: 'closeup', caption: 'the prop, up close', path, before: 'PB.png', box: [40, 24, 64, 48] })
+/** A row's words when its new try is in and checked: the whole-screen shot `whole` beside the close-up `path`, `changed`, the checker's yes. */
+const tried = (whole, path = 'PA.png', more = {}) => ({ changed: 'limit kept', shows: OK, pictures: [{ kind: 'final', caption: 'in the game', path: whole }, closeup(path)], ...more })
 const rowsOf = shown => shown.sections.flatMap(section => section.rows)
 const keysOf = shown => rowsOf(shown).map(one => one.key)
 
@@ -62,8 +68,8 @@ test('after a Send that sent rows back, round 2 is being made until the demo is 
 
 test('after the rewrite round 2 is ready: a row sent back shows its new try; one that is pending stays being reworked and is no part of the Send', () => {
   const written = { changedAt: SENT_MS + 60_000 }
-  const tried = page({ props: { changed: 'tall props -> limit kept, see-through behind a unit' }, ring: { pending: 'B925 not started' } })
-  const shown = roundPage(tried, round1(), written)
+  const next = page({ props: { changed: 'tall props -> limit kept, see-through behind a unit', shows: OK }, ring: { pending: 'B925 not started' } })
+  const shown = roundPage(next, round1(), written)
   assert.equal(shown.feedback.making, null)
   assert.deepEqual(keysOf(shown), ['2. Cliffs', '3. Props', '4. Ring', '5. Bridges'], 'the undecided rows come back with the rows sent back')
   const [cliffs, props, ring] = rowsOf(shown)
@@ -99,7 +105,7 @@ test('being made needs a Send that sent rows back and a date to compare: approva
 test('the recap\'s waits: a part pending, or with no "changed" line, stays sent back after the rewrite; while being made no part of it is a verdict', () => {
   const recap = (changedAt, more = {}) => ({
     path: 'pictures/g6/demo.json', goal: 'G6', changedAt, rounds: roundsOf(round1()),
-    parts: [['2. Cliffs', 'B2'], ['3. Props', 'B3'], ['4. Ring', 'B4']].map(([key, step]) => ({ key, title: key, steps: [step], pending: false, changed: true, ...(more[key] ?? {}) })),
+    parts: [['2. Cliffs', 'B2'], ['3. Props', 'B3'], ['4. Ring', 'B4']].map(([key, step]) => ({ key, title: key, steps: [step], pending: false, changed: true, shows: OK, ...(more[key] ?? {}) })),
   })
   const before = recapWaitsOf([recap(SENT_MS - MIN)])
   assert.deepEqual(before.map(one => [one.step, one.verdict, one.making]), [['B2', null, true], ['B3', 'sent-back', true], ['B4', 'sent-back', true]], 'the undecided Cliffs is no verdict while the round is being made')
@@ -108,6 +114,10 @@ test('the recap\'s waits: a part pending, or with no "changed" line, stays sent 
   // The coordinator's review of 6f197a4: a demo.json written by hand (a later minute, the old pictures, no "changed" line) is no new try, whatever the file's time.
   const hand = recapWaitsOf([recap(SENT_MS + 90 * MIN, { '3. Props': { changed: false }, '4. Ring': { changed: false } })])
   assert.deepEqual(hand.map(one => [one.step, one.verdict]), [['B2', null], ['B3', 'sent-back'], ['B4', 'sent-back']], 'the undecided Cliffs still waits; the two sent back do not')
+  // T17.2: a part whose close-up no checker said shows their words, after the Send, stays sent back: no word, a no, or a yes of before the Send.
+  for (const [what, shows] of [['no word', null], ['a no', { ...OK, verdict: 'no' }], ['a yes of before the Send', { ...OK, at: '2026-11-02 16:10' }]]) {
+    assert.deepEqual(recapWaitsOf([recap(SENT_MS + 90 * MIN, { '3. Props': { shows } })]).map(one => [one.step, one.verdict]), [['B2', null], ['B3', 'sent-back'], ['B4', null]], what)
+  }
 })
 
 test('a demo.json written by hand, a later minute and the old pictures, no "changed" line: the rows sent back stay being reworked, whatever the file\'s time', () => {
@@ -122,7 +132,7 @@ test('a demo.json written by hand, a later minute and the old pictures, no "chan
   // The same wording without the changed line, whatever "changed" holds that is no words.
   for (const changed of [undefined, '', '   ']) assert.equal(roundPage(page({ props: { changed } }), round1(), written).sections.at(-1).rows[0].reworking, true, JSON.stringify(changed))
   // With the line it is the new try; a row sent back in an older round without it is no different.
-  assert.equal(roundPage(page({ props: { changed: 'limit kept' } }), round1(), written).sections.at(-1).rows[0].reworking ?? false, false)
+  assert.equal(roundPage(page({ props: { changed: 'limit kept', shows: OK } }), round1(), written).sections.at(-1).rows[0].reworking ?? false, false)
   const second = withRound(round1(), 2, [{ key: '3. Props', verdict: 'approved', comment: '' }], '2026-11-02 18:30')
   assert.deepEqual(rowsOf(roundPage(page(), second, { changedAt: SENT_MS + 300 * MIN })).filter(one => one.said).map(one => [one.key, one.reworking === true]), [['4. Ring', true]], 'Ring was sent back in round 1 and is still owed its line')
 })
@@ -147,14 +157,16 @@ test('the list: a row sent back without "changed", or with only pictures older t
   // "changed" with the old pictures: the pictures are the old try's.
   assert.throws(() => checkList(list({ props: { changed: 'limit kept' }, ring: { changed: 'rounder' } }), { feedback, mtimeOf: old }), /"3\. Props".*no picture was written after that Send[^]*"4\. Ring".*no picture was written after that Send/)
   // A picture written in the Send's own minute is not after it; the next minute is.
-  const same = mtimes({ 'P.png': SENT_MS + 30_000, 'R.png': SENT_MS + 60_000 })
-  assert.throws(() => checkList(list({ props: { changed: 'limit kept' }, ring: { changed: 'rounder' } }), { feedback, mtimeOf: same }), error => /"3\. Props"/.test(error.message) && !/"4\. Ring"/.test(error.message))
+  const same = mtimes({ 'P.png': SENT_MS + 30_000, 'PA.png': SENT_MS + 30_000, 'R.png': SENT_MS + 60_000, 'RA.png': SENT_MS + 60_000 })
+  assert.throws(() => checkList(list({ props: tried('P.png'), ring: tried('R.png', 'RA.png', { changed: 'rounder' }) }), { feedback, mtimeOf: same }), error => /"3\. Props"/.test(error.message) && !/"4\. Ring"/.test(error.message))
   // One new picture among old ones is enough; "pending" needs neither changed nor pictures newer than the Send; grids count too.
-  const fresh = mtimes({ 'P.png': SENT_MS - MIN, 'P2.png': SENT_MS + 5 * MIN, 'R.png': SENT_MS - MIN })
-  const both = list({ props: { changed: 'limit kept', pictures: [{ kind: 'final', path: 'P.png' }, { kind: 'final', path: 'P2.png' }] }, ring: { pending: 'B925 not started' } })
+  const fresh = mtimes({ 'P.png': SENT_MS - MIN, 'P2.png': SENT_MS + 5 * MIN, 'PA.png': SENT_MS + 5 * MIN, 'R.png': SENT_MS - MIN })
+  const both = list({ props: tried('P.png', 'PA.png', { pictures: [{ kind: 'final', path: 'P.png' }, { kind: 'final', path: 'P2.png' }, closeup()] }), ring: { pending: 'B925 not started' } })
   assert.equal(checkList(both, { feedback, mtimeOf: fresh }), both)
-  const grid = list({ props: { changed: 'limit kept', pictures: undefined, grid: [{ caption: 'A', path: 'P2.png' }] }, ring: { pending: 'B925 not started' } })
+  // T17.2: a grid row has no close-up to carry: it needs the checker's word only.
+  const grid = list({ props: { changed: 'limit kept', shows: OK, pictures: undefined, grid: [{ caption: 'A', path: 'P2.png' }] }, ring: { pending: 'B925 not started' } })
   assert.doesNotThrow(() => checkList(grid, { feedback, mtimeOf: fresh }))
+  assert.throws(() => checkList(list({ props: { changed: 'limit kept', pictures: undefined, grid: [{ caption: 'A', path: 'P2.png' }] }, ring: { pending: 'B925 not started' } }), { feedback, mtimeOf: fresh }), /"3\. Props".*no "shows"/)
   // No feedback yet, or no tries given: the shape only.
   assert.doesNotThrow(() => checkList(list(), { feedback: null, mtimeOf: old }))
   assert.doesNotThrow(() => checkList(list()))
@@ -162,7 +174,11 @@ test('the list: a row sent back without "changed", or with only pictures older t
   const later = withRound(feedback, 2, [{ key: '3. Props', verdict: 'approved', comment: '' }, { key: '4. Ring', verdict: 'sent-back', comment: 'still a square' }], '2026-11-02 18:30')
   const sentTwice = sinceMs('2026-11-02 18:30')
   assert.throws(() => checkTries(list({ ring: { changed: 'rounder' } }), { feedback: later, mtimeOf: mtimes({ 'R.png': sentTwice - MIN }) }), /"4\. Ring" \(sent back in round 2, 2026-11-02 18:30\)/)
-  assert.doesNotThrow(() => checkTries(list({ ring: { changed: 'rounder' } }), { feedback: later, mtimeOf: mtimes({ 'R.png': sentTwice + 2 * MIN }) }))
+  const secondTry = tried('R.png', 'RA.png', { changed: 'rounder', shows: { ...OK, at: '2026-11-02 18:40' } })
+  const written = mtimes({ 'R.png': sentTwice + 2 * MIN, 'RA.png': sentTwice + 2 * MIN })
+  assert.doesNotThrow(() => checkTries(list({ ring: secondTry }), { feedback: later, mtimeOf: written }))
+  // The checker's word of round 1 (16:30) is of the first Send: it does not stand for the second.
+  assert.throws(() => checkTries(list({ ring: { ...secondTry, shows: OK } }), { feedback: later, mtimeOf: written }), /"4\. Ring" \(sent back in round 2, 2026-11-02 18:30\): its "shows" is dated before that Send/)
 })
 
 const tool = { feedback: null, mtimeOf: () => null }
@@ -205,9 +221,11 @@ test('the game\'s arenas: its arenas folder and the dev folder in it, from the b
 })
 
 test('the list keeps every row the person sent back: a renamed row is refused (it would lose their words); its title kept, or an "id", passes', () => {
-  const old = mtimes({ 'P.png': SENT_MS + 5 * MIN, 'R.png': SENT_MS + 5 * MIN })
+  const old = mtimes({ 'P.png': SENT_MS + 5 * MIN, 'R.png': SENT_MS + 5 * MIN, 'PA.png': SENT_MS + 5 * MIN, 'RA.png': SENT_MS + 5 * MIN })
   const tries = { feedback, mtimeOf: old }
-  const renamed = list({ props: { changed: 'limit kept' }, ring: { changed: 'rounder', title: '4. A round pool' } })
+  const props = tried('P.png')
+  const ring = tried('R.png', 'RA.png', { changed: 'rounder' })
+  const renamed = list({ props, ring: { ...ring, title: '4. A round pool' } })
   renamed.sections[1].rows[1].title = '4. A round pool'
   assert.throws(() => checkList(renamed, tries), error => {
     const lines = error.message.split('\n')
@@ -216,29 +234,34 @@ test('the list keeps every row the person sent back: a renamed row is refused (i
     return true
   })
   // Given its old key as an id it is the same part: its words stay, and the page keys it by it.
-  const kept = list({ props: { changed: 'limit kept' }, ring: { changed: 'rounder', id: '4. Ring' } })
+  const kept = list({ props, ring: { ...ring, id: '4. Ring' } })
   kept.sections[1].rows[1].title = '4. A round pool'
   assert.doesNotThrow(() => checkList(kept, tries))
   assert.deepEqual(rowsOf(roundPage(demoPage(kept), feedback, { changedAt: SENT_MS + 5 * MIN })).filter(one => one.said).map(one => [one.key, one.title, one.said.comment]), [
     ['3. Props', '3. Props', 'keep the limit for tall props'], ['4. Ring', '4. A round pool', 'not round enough'],
   ])
   // A part dropped from the list is refused as much as a renamed one; a row approved since may go.
-  const dropped = list({ props: { changed: 'limit kept' }, ring: { changed: 'rounder' } })
+  const dropped = list({ props, ring })
   dropped.sections[1].rows.splice(1, 1)
   assert.throws(() => checkList(dropped, tries), /"4\. Ring" .* is in no row of the list/)
   const approved = withRound(feedback, 2, [{ key: '4. Ring', verdict: 'approved', comment: '' }], '2026-11-02 18:30')
-  assert.doesNotThrow(() => checkList(dropped, { feedback: approved, mtimeOf: mtimes({ 'P.png': SENT_MS + 5 * MIN }) }))
+  assert.doesNotThrow(() => checkList(dropped, { feedback: approved, mtimeOf: mtimes({ 'P.png': SENT_MS + 5 * MIN, 'PA.png': SENT_MS + 5 * MIN }) }))
 })
 
 test('an answer in words passes on a new note: the row says what changed and its note differs from the demo it replaces; the same list taken twice passes again', () => {
   const stale = mtimes({ 'P.png': SENT_MS - MIN, 'R.png': SENT_MS - MIN })
-  const row = (note, changed = 'asked for guidelines -> the study is written out') => list({ props: { note, changed }, ring: { pending: 'B925 not started' } })
+  const row = (note, changed = 'asked for guidelines -> the study is written out', shows = OK) => list({ props: { note, changed, ...(shows === false ? {} : { shows }) }, ring: { pending: 'B925 not started' } })
   const replaced = (note, changed, writtenAt) => ({ list: row(note, changed), writtenAt })
   // No new picture and the note as it was: refused. A different note: passes. An empty note is no answer.
   assert.throws(() => checkList(row('the old note'), { feedback, mtimeOf: stale, previous: replaced('the old note', 'x', SENT_MS - 4 * 60 * MIN) }), /"3\. Props".*the old one, so this is the old try/)
   assert.throws(() => checkList(row('the old note'), { feedback, mtimeOf: stale, previous: null }), /"3\. Props"/, 'nothing to compare with: the pictures decide')
   assert.doesNotThrow(() => checkList(row('Guidelines: 1. two ways up every floor. 2. a fight fits the view.'), { feedback, mtimeOf: stale, previous: replaced('the old note', 'x', SENT_MS - 4 * 60 * MIN) }))
   assert.throws(() => checkList(row(''), { feedback, mtimeOf: stale, previous: replaced('the old note', 'x', SENT_MS - 4 * 60 * MIN) }), /"3\. Props"/)
+  // T17.2 (row 8 of G60's recap): an answer in words needs no close-up, but the same check: a checker's yes dated at or after the Send.
+  const words = { feedback, mtimeOf: stale, previous: replaced('the old note', 'x', SENT_MS - 4 * 60 * MIN) }
+  assert.throws(() => checkList(row('Guidelines: two ways up every floor.', undefined, false), words), /"3\. Props".*no "shows"/)
+  assert.throws(() => checkList(row('Guidelines: two ways up every floor.', undefined, { ...OK, verdict: 'no', why: 'it says nothing of the stairs' }), words), /"3\. Props".*does not show their words yet: "it says nothing of the stairs"/)
+  assert.throws(() => checkList(row('Guidelines: two ways up every floor.', undefined, { ...OK, at: '2026-11-02 16:00' }), words), /"3\. Props".*dated before that Send/)
   // The demo about to be replaced was taken after the Send with the same "changed" line: the tool run again passes (words only).
   const again = { feedback, mtimeOf: stale, previous: replaced('Guidelines: 1. two ways up every floor.', 'asked for guidelines -> the study is written out', SENT_MS + 30 * MIN) }
   assert.doesNotThrow(() => checkList(row('Guidelines: 1. two ways up every floor.'), again))
@@ -256,10 +279,14 @@ test('tools/demo.mjs reads the feedback beside the demo it writes: old pictures 
   const stamp = new Date(sentAt)
   const two = value => String(value).padStart(2, '0')
   const at = `${stamp.getFullYear()}-${two(stamp.getMonth() + 1)}-${two(stamp.getDate())} ${two(stamp.getHours())}:${two(stamp.getMinutes())}`
+  // T17.2: a checker's word dated 30 minutes after the Send.
+  const checked = new Date(sentAt.getTime() + 30 * MIN)
+  const shows = { verdict: 'yes', by: 'Checker', at: `${checked.getFullYear()}-${two(checked.getMonth() + 1)}-${two(checked.getDate())} ${two(checked.getHours())}:${two(checked.getMinutes())}`, why: 'the tall props fade behind the unit' }
   await writeFile(file('feedback.json'), JSON.stringify(withRound(null, 1, [{ key: '3. Props', verdict: 'sent-back', comment: 'keep the limit' }], at)))
-  for (const name of ['L.png', 'C.png', 'P.png', 'R.png', 'B.png']) await writeFile(file(name), 'x')
+  const names = ['L.png', 'C.png', 'P.png', 'R.png', 'B.png', 'PA.png', 'PB.png']
+  for (const name of names) await writeFile(file(name), 'x')
   const old = new Date(sentAt.getTime() - 10 * MIN)
-  for (const name of ['L.png', 'C.png', 'P.png', 'R.png', 'B.png']) await utimes(file(name), old, old)
+  for (const name of names) await utimes(file(name), old, old)
   const write = async more => {
     await writeFile(file('list.json'), JSON.stringify(list(more)))
     return writeDemo({ listFile: file('list.json'), out: file('demo.json') })
@@ -271,19 +298,30 @@ test('tools/demo.mjs reads the feedback beside the demo it writes: old pictures 
   // The new try's picture is written after the Send: it passes, and the demo keeps the words and the map.
   const fresh = new Date(sentAt.getTime() + 20 * MIN)
   await utimes(file('P.png'), fresh, fresh)
-  const done = await write({ props: { changed: 'tall props -> limit kept', play: 'ring' } })
-  assert.equal(done.pictures, 5)
+  // T17.2: a whole-screen shot alone is not enough: it needs the close-up (its after picture written after the Send) and a checker's word.
+  const props = { changed: 'tall props -> limit kept', play: 'ring', pictures: [{ kind: 'final', caption: 'in the game', path: 'P.png' }, { kind: 'closeup', caption: 'the crystal', path: 'PA.png', before: 'PB.png', box: [40, 24, 64, 48] }] }
+  await assert.rejects(write({ props: { changed: 'tall props -> limit kept', play: 'ring' } }), /"3. Props".*no close-up; no "shows"/)
+  await assert.rejects(write({ props: { ...props, shows } }), /"3. Props".*written before that Send, so it is the old try/)
+  await utimes(file('PA.png'), fresh, fresh)
+  await assert.rejects(write({ props }), /"3. Props".*no "shows"/)
+  const done = await write({ props: { ...props, shows } })
+  assert.equal(done.pictures, 7, 'the before picture counts')
   const written = JSON.parse(await readFile(file('demo.json'), 'utf8'))
   assert.deepEqual(written.sections[1].rows[0].changed, 'tall props -> limit kept')
   assert.equal(written.sections[1].rows[0].play, 'ring')
+  // The demo.json holds the close-up first, its paths from demo.json's own folder, and the checker's word.
+  assert.deepEqual(written.sections[1].rows[0].pictures.map(one => [one.kind, one.path, one.before ?? null]), [['closeup', 'PA.png', 'PB.png'], ['final', 'P.png', null]])
+  assert.equal(written.sections[1].rows[0].shows.by, 'Checker')
   // Or the row says it is pending: no picture needed.
   await utimes(file('P.png'), old, old)
+  await utimes(file('PA.png'), old, old)
   assert.equal((await write({ props: { pending: 'B925 not started' } })).pictures, 5)
   // An answer in words: no new picture, but a note that differs from the demo.json it replaces; taken again as it is, it passes again.
   await write({ props: { pending: 'B925 not started', note: 'the old note' } })
-  await assert.rejects(write({ props: { changed: 'asked for guidelines -> written out', note: 'the old note' } }), /the old one, so this is the old try/)
-  await write({ props: { changed: 'asked for guidelines -> written out', note: 'Guidelines: two ways up every floor.' } })
-  await write({ props: { changed: 'asked for guidelines -> written out', note: 'Guidelines: two ways up every floor.' } })
+  await assert.rejects(write({ props: { changed: 'asked for guidelines -> written out', note: 'the old note', shows } }), /the old one, so this is the old try/)
+  await assert.rejects(write({ props: { changed: 'asked for guidelines -> written out', note: 'Guidelines: two ways up every floor.' } }), /"3. Props".*no "shows"/)
+  await write({ props: { changed: 'asked for guidelines -> written out', note: 'Guidelines: two ways up every floor.', shows } })
+  await write({ props: { changed: 'asked for guidelines -> written out', note: 'Guidelines: two ways up every floor.', shows } })
   // The arena must be one the game has; without a way to look it up the name is taken as it is.
   const has = name => name === 'ring'
   const arena = play => (async () => {
@@ -304,10 +342,12 @@ const goals = ['Last id: G6', 'Focus: G6', '', '- [~] G6 Garden', '    Done when
 const step = (id, state, minutes) => parseItem(`Id: ${id}\nKind: step\nTitle: Task ${id}\nState: ${state}\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - minutes * MIN)}\n`)
 const sent = (minutes, parts) => [{ n: 1, at: sinceOf(NOW - minutes * MIN), parts }]
 const SENT_BACK = [{ key: 'Block 1', verdict: 'sent-back', comment: 'still stepped' }]
+/** T17.2: a checker's word on the close-up of a row, 30 minutes ago: after the Send of an hour ago. */
+const CHECKED = { verdict: 'yes', by: 'Checker', at: sinceOf(NOW - 30 * MIN), why: 'the ring reads round' }
 /** The garden recap: Block 1 sent back an hour ago, Block 2 not decided; B1 and B2 older than the Send, B5 B6 B7 made after it. */
 const stateOf = ({ changedAt, pending = false, items = [], rounds = sent(60, SENT_BACK), config = ON }) => asSent(build(
   [step('B1', 'review', 300), step('B2', 'review', 300), ...items], undefined, goals,
-  { recaps: [{ path: PATH, goal: 'G6', changedAt, rounds, parts: ['Block 1', 'Block 2'].map((key, at) => ({ key, title: key, steps: [`B${at + 1}`], pending: pending && at === 0, changed: true })) }], goalRecap: { goal: 'G6', path: PATH, pictures: {}, changedAt, rounds }, config },
+  { recaps: [{ path: PATH, goal: 'G6', changedAt, rounds, parts: ['Block 1', 'Block 2'].map((key, at) => ({ key, title: key, steps: [`B${at + 1}`], pending: pending && at === 0, changed: true, shows: CHECKED })) }], goalRecap: { goal: 'G6', path: PATH, pictures: {}, changedAt, rounds }, config },
 ))
 
 test('the focus recap while round 2 is being made: no verdict card at all (not for the undecided part either), and the quiet card says how many next tries are done', () => {
@@ -411,7 +451,7 @@ test('the card function itself gives none while the recap\'s round is being made
   assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, rows: [], blocks, making: { round: 2 } }), null)
   // The round itself (src/recapRound.mjs): the Send sent Block 1 back and the recap was not written since: nothing to judge, no look either.
   const look = { route: 'recap', isKept: true, asks: 'look', of: 'B9', goal: 'G6', id: 'Q5', title: 'A look', text: '', pictures: [] }
-  const recap = changedAt => ({ path: PATH, goal: 'G6', changedAt, rounds: roundsOf(round1ish), parts: [{ key: 'Block 1', title: 'Block 1', steps: ['B821'], pending: false, changed: true }, { key: 'Block 2', title: 'Block 2', steps: ['B2'], pending: false, changed: true }] })
+  const recap = changedAt => ({ path: PATH, goal: 'G6', changedAt, rounds: roundsOf(round1ish), parts: [{ key: 'Block 1', title: 'Block 1', steps: ['B821'], pending: false, changed: true, shows: { ...CHECKED, at: '2026-11-02 16:30' } }, { key: 'Block 2', title: 'Block 2', steps: ['B2'], pending: false, changed: true }] })
   const made = recapRoundOf({ goal: 'G6', goalRecap: { goal: 'G6', path: PATH, pictures: {} }, recaps: [recap(SENT_MS - MIN)], routed: [look] })
   assert.deepEqual([made.making, made.toJudge, made.ready.length, made.looks.length], [{ round: 2 }, 0, 0, 0])
   const written = recapRoundOf({ goal: 'G6', goalRecap: { goal: 'G6', path: PATH, pictures: {} }, recaps: [recap(SENT_MS + 2 * MIN)], routed: [look] })

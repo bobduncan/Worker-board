@@ -10541,6 +10541,142 @@ function demoLooksSection(looks, feedback, draft) {
   return part
 }
 
+/** T17.2: the clips on screen: the timer of each, cleared on every redraw of the popup and when it closes (a redraw makes new ones). */
+const demoClipTimers = new Set()
+function stopDemoClips() {
+  for (const timer of demoClipTimers) clearInterval(timer)
+  demoClipTimers.clear()
+}
+
+/** T17.2: whether the person asks for no motion (their system's setting): a clip then stands as its frames side by side. */
+function isReducedMotion() {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+/**
+ * T17.2 (the person, 2026-11-04: "when i promide feedback i get new tailored demo on the aspects i asked for"): the box `[x, y, w, h]` of a
+ * picture (its own pixels) scaled up to its frame, every pixel crisp (a few pixels are what they asked about). A click opens the whole picture,
+ * as any picture does. Without a box (a clip may have none) it is the whole picture at its width.
+ */
+function demoCrop(path, box, caption = '') {
+  const frame = picture(path, caption)
+  if (box === null || box === undefined) {
+    frame.className += ' demo-picture'
+    return frame
+  }
+  const [x, y, w, h] = box
+  frame.className += ' demo-crop'
+  frame.style.aspectRatio = `${w} / ${h}`
+  // At most 60 % of the window high, however tall the spot.
+  frame.style.maxWidth = `calc(60vh * ${w} / ${h})`
+  const image = frame.querySelector('img')
+  const size = () => {
+    if (!(image.naturalWidth > 0)) return
+    // The picture scaled so that the box fills the frame, then moved so that the box's corner is the frame's: percentages of the frame, so it follows its width.
+    image.style.width = `${(image.naturalWidth / w) * 100}%`
+    image.style.left = `${(-x / w) * 100}%`
+    image.style.top = `${(-y / h) * 100}%`
+    frame.classList.add('is-sized')
+  }
+  image.addEventListener('load', size)
+  size()
+  return frame
+}
+
+/** T17.2: a close-up: the spot before their words and now, side by side, each box scaled up to the same frame; a click on a side opens that whole picture. */
+function demoCloseup(one) {
+  const wrap = el('div', 'demo-closeup')
+  if (one.caption !== '') wrap.append(el('p', 'demo-closeup-caption', one.caption))
+  const sides = el('div', 'demo-closeup-sides')
+  for (const [words, path, box, side] of [[one.beforeCaption, one.before, one.beforeBox, 'is-before'], [one.afterCaption, one.path, one.box, 'is-after']]) {
+    const figure = el('figure', `demo-figure demo-closeup-side ${side}`)
+    figure.append(el('figcaption', '', words), demoCrop(path, box, words))
+    sides.append(figure)
+  }
+  wrap.append(sides)
+  return wrap
+}
+
+/**
+ * T17.2: a clip: where something moves, one frame at a time, looping every `ms`, with "1 / N" under it; a click opens the frame shown. With reduced
+ * motion its frames stand side by side and nothing moves. The timer is registered (`demoClipTimers`) and ends by itself when its clip is no longer on the page.
+ */
+function demoClip(one) {
+  const wrap = el('div', 'demo-clip')
+  if (one.caption !== '') wrap.append(el('p', 'demo-closeup-caption', one.caption))
+  const total = one.frames.length
+  const frames = one.frames.map((path, at) => demoCrop(path, one.box, `${one.caption === '' ? 'Clip' : one.caption}, frame ${at + 1} / ${total}`))
+  if (isReducedMotion()) {
+    wrap.className += ' is-still'
+    const strip = el('div', 'demo-clip-strip')
+    frames.forEach((frame, at) => {
+      const figure = el('figure', 'demo-figure demo-clip-still')
+      figure.append(frame, el('figcaption', '', `${at + 1} / ${total}`))
+      strip.append(figure)
+    })
+    wrap.append(strip)
+    return wrap
+  }
+  const stack = el('div', 'demo-clip-stack')
+  const count = el('p', 'demo-clip-count', `1 / ${total}`)
+  let at = 0
+  const show = next => {
+    at = next
+    frames.forEach((frame, index) => frame.classList.toggle('is-on', index === at))
+    count.textContent = `${at + 1} / ${total}`
+  }
+  stack.append(...frames)
+  show(0)
+  wrap.append(stack, count)
+  const timer = setInterval(() => {
+    if (!wrap.isConnected) {
+      clearInterval(timer)
+      demoClipTimers.delete(timer)
+      return
+    }
+    show((at + 1) % total)
+  }, one.ms)
+  demoClipTimers.add(timer)
+  return wrap
+}
+
+/** T17.2: the quiet line under a row's close-ups: who checked that they show the person's words, and what they said. Cool tones: nothing here asks anything. */
+function demoChecked(shows) {
+  return el('p', 'demo-checked', `Checked by ${shows.by}: ${shows.why}`)
+}
+
+/** T17.2: the pictures of a row in `demo-pictures`, each with its label and caption as the page model has them; a click opens one at its own size. */
+function demoShots(pictures) {
+  const shots = el('div', 'demo-pictures')
+  for (const one of pictures) {
+    const figure = el('figure', one.kind === null ? 'demo-figure' : `demo-figure is-${one.kind}`)
+    if (one.label !== null) figure.append(el('div', 'demo-kind', one.label))
+    figure.append(el('figcaption', '', one.caption))
+    const frame = picture(one.path, one.caption)
+    frame.className += ' demo-picture'
+    figure.append(frame)
+    shots.append(figure)
+  }
+  return shots
+}
+
+/**
+ * T17.2: the block "Your words, up close" of a row the person sent back whose new try is in: its close-ups and clips, large, and under them the
+ * checker's word; the row's other pictures stand under "Earlier pictures (N)", closed.
+ */
+function demoUpClose(row, close, others) {
+  const block = el('section', 'demo-upclose')
+  block.append(el('h4', 'demo-upclose-title', 'Your words, up close'))
+  for (const one of close) block.append(one.kind === 'clip' ? demoClip(one) : demoCloseup(one))
+  if (row.shows) block.append(demoChecked(row.shows))
+  if (others.length > 0) {
+    const earlier = el('details', 'demo-earlier')
+    earlier.append(el('summary', '', `Earlier pictures (${others.length})`), demoShots(others))
+    block.append(earlier)
+  }
+  return block
+}
+
 /** B699: the goal demo's page body from the board's page model (src/demo.mjs demoPage): the verdict of each part, its labelled pictures at their own size (a click opens the picture window), the follow-up last. Words, order and labels are the model's. B860: with the person's feedback on each part (Approve, Send back, a comment) when the board takes it. */
 function demoBody(page, draft = null) {
   const body = el('div', 'demo-body')
@@ -10580,22 +10716,21 @@ function demoBody(page, draft = null) {
       if (row.said !== undefined) card.append(el('p', 'demo-said', `Your words: "${row.said.comment}"`))
       if (row.reworking === true) {
         // T20.1: a row a step of which is under way in the store says which step and who is on it; else the partner's own line.
-        card.append(el('p', 'demo-reworking', row.rework ? `Being reworked: ${row.rework.words}` : row.pending ? `Being reworked: ${row.pending}` : 'Being reworked'))
+        card.append(el('p', 'demo-reworking', row.rework ? `Being reworked: ${row.rework.words}` : row.pending ? `Being reworked: ${row.pending}` : row.reworkWhy ? `Being reworked: ${row.reworkWhy}` : 'Being reworked'))
         part.append(card)
         continue
       }
       if (row.said !== undefined && typeof row.changed === 'string' && row.changed !== '') card.append(el('p', 'demo-changed', `What changed: ${row.changed}`))
-      const shots = el('div', 'demo-pictures')
-      for (const one of row.pictures) {
-        const figure = el('figure', one.kind === null ? 'demo-figure' : `demo-figure is-${one.kind}`)
-        if (one.label !== null) figure.append(el('div', 'demo-kind', one.label))
-        figure.append(el('figcaption', '', one.caption))
-        const frame = picture(one.path, one.caption)
-        frame.className += ' demo-picture'
-        figure.append(frame)
-        shots.append(figure)
+      // T17.2 (the person: "i expect that when i promide feedback i get new tailored demo on the aspects i asked for"): in a row they sent back
+      // whose new try is in, right under what changed, the block of the spot their words name (close-ups, clips) and who checked it; the other
+      // pictures, the old shots first, fold under "Earlier pictures". A row they did not send back, and a sent-back row with no close-up (an
+      // answer in words), draw their pictures as before.
+      const close = row.said === undefined ? [] : row.pictures.filter(one => one.kind === 'closeup' || one.kind === 'clip')
+      if (close.length > 0) card.append(demoUpClose(row, close, row.pictures.filter(one => !close.includes(one))))
+      else {
+        if (row.said !== undefined && row.shows) card.append(demoChecked(row.shows))
+        card.append(demoShots(row.pictures))
       }
-      card.append(shots)
       if (typeof row.play === 'string' && row.play !== '' && (typeof board === 'undefined' || board?.hasGame !== false)) {
         // T17.1: opens the game on that map in a new tab, as the board's `#play=` links do.
         const play = el('a', 'demo-play', 'Play it ↗')
@@ -10715,6 +10850,8 @@ function reopenKeptDemo() {
 
 /** B860: the popup's body and its side panel from the demo's page and the draft, drawn into the open window (the scroll place stays). */
 function drawDemo(page) {
+  // T17.2: a redraw makes new clips: the old timers stop first.
+  stopDemoClips()
   const box = $('demo-page')
   const scroll = box.querySelector('.demo-scroll')
   const at = scroll === null ? 0 : scroll.scrollTop
@@ -10731,6 +10868,7 @@ function drawDemo(page) {
 
 /** B699: the goal demo of a demo.json as a page of its own: each picture stays its own file, opened at its own size with a click. */
 async function openDemo(path, notice = '', part = '') {
+  stopDemoClips()
   const box = $('demo-page')
   const head = el('header', 'file-view-head')
   const close = el('button', 'icon-button', '✕')
@@ -10849,6 +10987,8 @@ document.addEventListener('input', event => {
 })
 // 2026-11-01: closing the recap keeps the draft, and that it is closed (a reload then does not open it again).
 $('demo-page').addEventListener('close', keepDemoDraft)
+// T17.2: a clip stops with the popup, not a timer left to run.
+$('demo-page').addEventListener('close', stopDemoClips)
 
 // B208: a phone is a screen up to 600 px wide, as the style sheet has it.
 const PHONE = matchMedia('(max-width: 600px)')
