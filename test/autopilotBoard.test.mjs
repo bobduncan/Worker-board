@@ -169,7 +169,13 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
   assert.equal(await head(mergeId, 'Answered by'), 'main')
 
   // The recap's Send: the part that shows B12 sent back closes the checker's look with the person's words.
-  const sent = await asPerson('/api/demo-feedback', { path: 'pictures/g6/demo.json', round: 1, parts: [{ key: '1. Hedge', verdict: 'sent-back', comment: 'taller, please' }] })
+  // T20.1: a row whose step is under way asks nothing; B12 is reported (in review) before the person judges its row, and the board has to see it.
+  assert.equal((await asPerson('/api/demo-feedback', { path: 'pictures/g6/demo.json', round: 1, parts: [{ key: '1. Hedge', verdict: 'sent-back', comment: 'taller, please' }] })).status, 400, 'B12 is taken: its row is being reworked')
+  await writeFile(join(work, 'B12.md'), (await readFile(join(work, 'B12.md'), 'utf8')).replace(/^State: .*$/m, 'State: review'))
+  const sent = await until(async () => {
+    const answered = await asPerson('/api/demo-feedback', { path: 'pictures/g6/demo.json', round: 1, parts: [{ key: '1. Hedge', verdict: 'sent-back', comment: 'taller, please' }] })
+    return answered.status === 400 ? null : answered
+  }, 'the row of the reported step is open to the person')
   assert.equal(sent.status, 200, sent.body)
   assert.equal(await head(lookId, 'State'), 'answered')
   assert.match(await readFile(join(work, `${lookId}.md`), 'utf8'), /## Answer\nSent back in the recap of G6, round 1: 1\. Hedge: "taller, please"/)

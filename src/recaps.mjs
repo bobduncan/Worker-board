@@ -59,8 +59,11 @@ export async function readRecaps(config, goalsText) {
  * the recap's next round is being made (src/demoFeedback.mjs `makingOf`): the person can judge nothing of it yet, so no part of
  * it counts as a verdict that waits (src/recapCard.mjs).
  * An approved part is left out: its steps are closed by the Approve (or wait as any other step, when that did not take).
+ * T20.1 (the person, 2026-11-04: "5 verdicts wait while of the 5 open now, only 1 is done"): `reworkOf(recap, part)`, when given, says
+ * whether a step of the part (or a fix in its chains) is under way (src/recapRound.mjs `reworkOf`: `{ step, worker }` or null): the part is
+ * then being reworked, its waits carry that `rework` and none of them is a verdict that waits.
  */
-export function recapWaitsOf(recaps) {
+export function recapWaitsOf(recaps, reworkOf = null) {
   return (Array.isArray(recaps) ? recaps : []).flatMap(recap => {
     const stand = standOf(recap.rounds ?? [])
     const sent = new Map((recap.rounds ?? []).map(round => [round.n, sinceMs(round.at)]))
@@ -73,7 +76,8 @@ export function recapWaitsOf(recaps) {
       const tried = Number.isFinite(back) && Number.isFinite(recap.changedAt) && recap.changedAt >= back + 60_000 && part.pending !== true && part.changed === true
       const verdict = said?.verdict === 'sent-back' && !tried ? 'sent-back' : null
       const at = verdict === null ? null : back
-      return part.steps.map(step => ({ step, goal: recap.goal, path: recap.path, key: part.key, title: part.title, verdict, at, making }))
+      const rework = typeof reworkOf === 'function' ? reworkOf(recap, part) ?? null : null
+      return part.steps.map(step => ({ step, goal: recap.goal, path: recap.path, key: part.key, title: part.title, verdict, at, making, rework }))
     })
   })
 }

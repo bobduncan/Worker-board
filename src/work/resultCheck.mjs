@@ -161,6 +161,16 @@ export function warningLines(warnings) {
 }
 
 /**
+ * T17.1 / T20.1 (one count for the recap, the person's "These numbers are all over the place"): whether the board's own check of a
+ * step's report is still running: its newest board check line says "check pending". A step with no such line (a fixture, a step
+ * reported before the board kept the lines) has none to wait for.
+ */
+export function boardCheckPending(item) {
+  const last = historyOf(item).map(wordsOf).filter(one => BOARD_CHECK_LINE.test(one)).at(-1)
+  return last !== undefined && last.startsWith('check pending')
+}
+
+/**
  * B585 (X33: B522 read as waiting 39 min for its first check, counted from its move to review at 21:41, while its
  * board check passed only at 22:04, when the check word went to the partner): when the board's own check last passed
  * (ms), or NaN: the History line's own minute.
@@ -217,7 +227,8 @@ export function unblockedOf(item) {
  */
 export function recapPartOf(recaps, id) {
   const parts = (Array.isArray(recaps) ? recaps : []).filter(one => one?.step === id)
-  return parts.find(one => one.verdict === null) ?? parts.find(one => one.verdict === 'sent-back') ?? null
+  // T20.1: a part being reworked (a step of it, or a fix in its chains, is under way: `rework`) waits for no verdict.
+  return parts.find(one => one.verdict === null && !one.rework) ?? parts.find(one => one.verdict === 'sent-back') ?? null
 }
 
 /**

@@ -1223,6 +1223,17 @@ async function main(args) {
     }
     readState.reset()
   }
+  /**
+   * T20.1 (the person, 2026-11-04: "These numbers are all over the place and non consistent"): what the board knows of a recap beyond its file,
+   * for the page of its popup: the rows being reworked (a step of the row, or a fix in its chains, is under way) and the kept looks of the
+   * goal, from the state's one reading of the focus goal's recap round (src/recapRound.mjs). null for any other recap.
+   */
+  const recapStoreOf = (state, goal, path) => {
+    const round = state.recapRound ?? null
+    const same = value => String(value ?? '').replaceAll('\\', '/')
+    if (round === null || round.goal !== goal || same(round.path) !== same(path)) return null
+    return { rework: new Map(Object.entries(round.rework ?? {})), looks: round.looks ?? [] }
+  }
   /** B860: why the person's feedback on a goal demo cannot be taken here, or null. */
   const demoFeedbackWhyNot = async () => {
     if (isDemo) return 'This is the demo: it keeps no feedback.'
@@ -1244,12 +1255,30 @@ async function main(args) {
       const found = await readDemo(state.project, shownRoots(config), body?.path)
       if (found === null) return { ok: false, status: 404, why: 'No such goal demo.' }
       if (found.why !== undefined) return { ok: false, status: 422, why: found.why }
-      const checked = checkSend(roundPage(found.base, found.feedback, { changedAt: found.changedAt }), body)
+      const store = recapStoreOf(state, found.base.goal, body?.path)
+      const checked = checkSend(roundPage(found.base, found.feedback, { changedAt: found.changedAt, rework: store?.rework, looks: store?.looks }), body)
       if (!checked.ok) return checked
+      // T20.1: the kept looks the person judged in this Send are answered as their window's form answers them (approve: "Looks right
+      // (your recap, round N)"; send back: "Send back: <note>"), and the chat that asked is woken with it. A Send of looks alone writes no round.
+      const looked = []
+      const lookFailed = []
+      for (const look of checked.looks) {
+        const note = look.comment === '' ? '' : `: ${look.comment}`
+        const text = look.verdict === 'approved' ? `Looks right (your recap, round ${checked.round})${note}` : `Send back: ${look.comment}`
+        const answered = workDir === null ? { ok: false } : await workAction({ action: 'answer', id: look.ask, verdict: look.verdict === 'approved' ? 'approve' : 'reject', text }, 'person')
+        if (answered.ok) {
+          looked.push(look.ask)
+          await sendWakes(answered)
+        } else lookFailed.push(look.ask)
+      }
+      if (checked.parts.length === 0) {
+        readState.reset()
+        return { ok: true, result: { round: checked.round, approved: 0, sentBack: 0, looks: looked.length, lookFailed, done: false, notedOn: null, closed: [], said: null } }
+      }
       await writeFeedback(found.file, withRound(found.feedback, checked.round, checked.parts, stampOf(clock())))
       readState.reset()
       const said = wordsOfRound(found.base, checked.round, checked.parts)
-      const after = roundPage(found.base, withRound(found.feedback, checked.round, checked.parts, ''))
+      const after = roundPage(found.base, withRound(found.feedback, checked.round, checked.parts, ''), { rework: store?.rework })
       // The person's words stand on the demo's step; a step that is gone does not stop the feedback (it is kept and the partner has it).
       let notedOn = null
       if (found.base.step !== null && workDir !== null) {
@@ -1292,7 +1321,7 @@ async function main(args) {
         // T22: the steps whose next tries make this Send done (src/waitLine.mjs `recapDone`); the page finds its line by `said`.
         ...(backSteps.length === 0 ? {} : { backSteps: [...new Set(backSteps)] }),
       }, {}, state)
-      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, done: after.feedback.done, notedOn, closed, said: told.result?.said ?? null } }
+      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, looks: looked.length, lookFailed, done: after.feedback.done, notedOn, closed, said: told.result?.said ?? null } }
     }
     const turn = demoTurn.then(run, run)
     // The caller has the turn itself, with its error; the next Send only waits for this one to end.
@@ -2821,11 +2850,14 @@ async function main(args) {
     gameFile: (path, alt) => findGameFile(config, path, alt),
     // B860: the page of the round the person answers, with whether they may send feedback (and why not).
     demo: async path => {
-      const found = await findDemo((await readState()).project, shownRoots(config), path)
+      const state = await readState()
+      const found = await findDemo(state.project, shownRoots(config), path, { of: (goal, at) => recapStoreOf(state, goal, at) })
       if (found?.page === undefined) return found
       const whyNot = await demoFeedbackWhyNot()
+      const feedback = found.page.feedback
       // T17.1: nothing to send while the next round is being made, or while every part left is still being reworked.
-      return { page: { ...found.page, feedback: { ...found.page.feedback, canSend: whyNot === null && found.page.feedback.parts > 0 && !found.page.feedback.done && found.page.feedback.making === null && found.page.feedback.answerable > 0, whyNot } } }
+      // T20.1: a kept look is something to answer too, also when every row is approved.
+      return { page: { ...found.page, feedback: { ...feedback, canSend: whyNot === null && (feedback.parts > 0 || feedback.looks > 0) && (!feedback.done || feedback.looks > 0) && feedback.making === null && feedback.toJudge > 0, whyNot } } }
     },
     demoFeedback: async body => demoFeedbackNow(body),
     picture: async path => {

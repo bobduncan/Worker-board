@@ -226,7 +226,7 @@ test('the Focus page: the switch reads "covered by Autopilot"; the asks that wai
     // 2026-11-01: the list "For your recap (n)" is folded into the recap card: the block whose step waits for the person is one
     // verdict there (its tile opens the step), and no second list stands on the page.
     assert.equal(page.all('.focus-recap-wait').length, 0)
-    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 verdict waits')
+    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 to judge')
     const tile = page.find('.focus-recap-tile')
     assert.deepEqual([tile.querySelector('b').textContent, tile.dataset.askLink], ['Show damage', 'B1'])
   } finally { await page.close() }
@@ -251,7 +251,7 @@ test('the recap moment (the coordinator\'s ruling, 2026-10-31): a step that wait
     await page.click('[data-tab="advice"]')
     // 2026-11-01: while a verdict waits the recap card shows and "Did we reach the goal?" is not drawn (it was drawn with the asks
     // first, "For your recap (1)", and a Yes that waited); the asks are counted in the card.
-    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 verdict waits')
+    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 to judge')
     assert.equal(page.all('.focus-there').length, 0)
     assert.equal(page.all('.focus-recap-wait, .focus-recap-head').length, 0, 'listed once, in the card')
   } finally { await page.close() }

@@ -36,16 +36,16 @@ const card = (more = {}) => ({ goal: 'G60', open: { path: PATH }, count: 3, isBu
 test('the card\'s view: null while no verdict waits; else the goal\'s words, the recap card\'s own line, and one link that opens the recap', () => {
   for (const none of [null, undefined, card({ count: 0 }), {}]) assert.equal(recapAttentionView(none, { id: 'G60', title: 'How we build good maps' }), null)
   assert.deepEqual(plain(recapAttentionView(card(), { id: 'G60', title: 'How we build good maps' })), {
-    goal: 'G60', count: 3, heading: 'G60 · How we build good maps: your recap is ready · 3 verdicts wait',
+    goal: 'G60', count: 3, heading: 'G60 · How we build good maps: your recap is ready · 3 to judge',
     line: 'Everything is built. Judge each part: approve it, or send it back with a note.', open: { label: 'Open the recap →', target: { path: PATH } },
     looks: { named: [] },
   })
-  assert.equal(recapAttentionView(card({ count: 1 }), { id: 'G60', title: 'Maps' }).heading, 'G60 · Maps: your recap is ready · 1 verdict waits')
+  assert.equal(recapAttentionView(card({ count: 1 }), { id: 'G60', title: 'Maps' }).heading, 'G60 · Maps: your recap is ready · 1 to judge')
   assert.equal(recapAttentionView(card({ isBuilt: false }), { id: 'G60', title: 'Maps' }).line, 'Judge what is ready: approve it, or send it back with a note.')
   // Without a title, or with another goal's title, only the id; without both, the recap card's own words.
-  assert.equal(recapAttentionView(card(), { id: 'G60', title: ' ' }).heading, 'G60: your recap is ready · 3 verdicts wait')
-  assert.equal(recapAttentionView(card(), { id: 'G7', title: 'Not this goal' }).heading, 'G60: your recap is ready · 3 verdicts wait')
-  assert.equal(recapAttentionView(card({ goal: null }), null).heading, 'Your recap is ready · 3 verdicts wait')
+  assert.equal(recapAttentionView(card(), { id: 'G60', title: ' ' }).heading, 'G60: your recap is ready · 3 to judge')
+  assert.equal(recapAttentionView(card(), { id: 'G7', title: 'Not this goal' }).heading, 'G60: your recap is ready · 3 to judge')
+  assert.equal(recapAttentionView(card({ goal: null }), null).heading, 'Your recap is ready · 3 to judge')
   // A step or an ask opens as the Focus page's card does; nowhere to open: no link (never a dead arrow).
   assert.deepEqual(plain(recapAttentionView(card({ open: { step: 'B2' } }), null).open), { label: 'Open the recap →', target: { step: 'B2' } })
   assert.equal(recapAttentionView(card({ open: null }), null).open, null)
@@ -97,7 +97,7 @@ const waiting = (count, extra = []) => asSent(build(
 const quiet = () => asSent(build([plainAsk], undefined, goals(1), { recaps: [], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
 const CLEARED = { at: NOW - 2 * HOUR, items: [{ id: 'Q569', title: 'Open the recap and try it', how: 'closed', why: "it's live now" }, { id: 'Q578', title: 'Is 68 good enough', how: 'recap', why: 'moved into your recap' }], undoneAt: null }
 
-test('the card: first in Needs your attention, as the mock has it: Product owner, "Your recap", the goal\'s words, the line and one link; it counts as one', async () => {
+test('the card: first in Needs your attention, as the mock has it: Product owner, "Your recap", the goal\'s words, the line and one link; it counts as many as it says to judge', async () => {
   const state = waiting(3, [plainAsk])
   assert.equal(state.recapCard.count, 3)
   const page = await openPage({ state })
@@ -106,15 +106,15 @@ test('the card: first in Needs your attention, as the mock has it: Product owner
     assert.equal(cards[0], page.find('#needs .is-recap-ready'), 'the first card')
     assert.equal(page.all('#needs .is-recap-ready').length, 1)
     assert.equal(page.text('#needs .is-recap-ready .need-top'), '★Product ownerYour recap')
-    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 3 verdicts wait')
+    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 3 to judge')
     assert.equal(page.text('#needs .is-recap-ready p'), 'Everything is built. Judge each part: approve it, or send it back with a note.')
     const open = page.find('#needs .is-recap-ready .recap-attention-open')
     assert.deepEqual([open.tagName, open.textContent, open.dataset.demo, open.getAttribute('href')], ['A', 'Open the recap →', PATH, `#demo=${encodeURIComponent(PATH)}`])
     // No Done, no close, no tick, no answer form: the card holds one link and nothing to press.
     assert.equal(page.all('#needs .is-recap-ready button, #needs .is-recap-ready input, #needs .is-recap-ready textarea').length, 0)
     assert.equal(page.all('#needs .is-recap-ready a').length, 1)
-    // The count: the card and the plain question (the recap's own asks wait in the recap, not as cards).
-    assert.equal(page.text('#needs-count'), String(1 + page.all('#needs .need:not(.is-recap-ready)').filter(one => !one.classList.contains('is-answered')).length))
+    // The count (T20.1: one count for the recap): the card stands for as many as it says to judge, and the plain question counts as one (the recap's own asks wait in the recap, not as cards).
+    assert.equal(page.text('#needs-count'), String(3 + page.all('#needs .need:not(.is-recap-ready)').filter(one => !one.classList.contains('is-answered')).length))
     assert.ok(page.all('#needs .need').some(one => one.textContent.includes('Mark B851 done on the board')))
     assert.equal(page.all('#needs .empty').length, 0, '"Nothing waits for you" is not said while the card shows')
   } finally { await page.close() }
@@ -132,7 +132,7 @@ test('the card: its link opens the recap in place, as the Focus page\'s card doe
   } finally { await page.close() }
 })
 
-test('the card goes by itself: no card while no verdict waits (the plain question alone), and 1 verdict reads "1 verdict waits"', async () => {
+test('the card goes by itself: no card while no verdict waits (the plain question alone), and 1 to judge reads "1 to judge"', async () => {
   const none = await openPage({ state: quiet() })
   try {
     assert.equal(none.all('#needs .is-recap-ready').length, 0)
@@ -140,7 +140,7 @@ test('the card goes by itself: no card while no verdict waits (the plain questio
   } finally { await none.close() }
   const one = await openPage({ state: waiting(1) })
   try {
-    assert.equal(one.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 1 verdict waits')
+    assert.equal(one.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 1 to judge')
     assert.equal(one.text('#needs-count'), '1', 'the card alone')
   } finally { await one.close() }
   // It comes and goes with the state, in the page that is open (the board is read again every few seconds).
@@ -166,7 +166,8 @@ test('the line: dashed, under the card, the mock\'s words; Undo posts autopilot-
     assert.equal(page.find('.autopilot-cleared').title, "Q569 Open the recap and try it (obsolete: it's live now)\nQ578 Is 68 good enough (moved into your recap)")
     const undo = page.find('.autopilot-cleared .autopilot-undo')
     assert.deepEqual([undo.tagName, undo.textContent, undo.disabled], ['BUTTON', 'Undo', false])
-    assert.equal(page.text('#needs-count'), String(page.all('#needs .need').filter(one => !one.classList.contains('is-answered')).length), 'the line is information: it is never counted')
+    // The recap card stands for its 3 to judge (T20.1); the plain question is one; the line is information: it is never counted.
+    assert.equal(page.text('#needs-count'), String(page.all('#needs .need').filter(one => !one.classList.contains('is-answered')).length - 1 + 3), 'the line is information: it is never counted')
     await page.click('.autopilot-undo')
     assert.deepEqual(page.sent('/api/work').map(one => one.body), [{ action: 'autopilot-undo' }])
     assert.equal(page.all('.autopilot-cleared').length, 0, 'read again: undone, so the line is gone')
@@ -263,7 +264,7 @@ test('the Product owner\'s card names the look under its line; the link opens th
   assert.equal(state.recapCard.count, 2)
   const page = await openPage({ state })
   try {
-    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 2 verdicts wait')
+    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 2 to judge')
     const looks = page.all('#needs .is-recap-ready .recap-attention-look')
     assert.deepEqual(looks.map(link => [link.tagName, link.textContent, link.dataset.askLink]), [['BUTTON', 'Also a look: Does the wizard\'s move range on the terraces look right? →', 'Q590']])
     // Under the card's line, above the one link that opens the recap; no Done, no close, no tick, no field.
@@ -272,9 +273,9 @@ test('the Product owner\'s card names the look under its line; the link opens th
     assert.deepEqual(page.all('#needs .is-recap-ready button').map(node => node.className), ['recap-attention-look'], 'the only button is the link to the look')
     assert.doesNotMatch(page.text('#needs .is-recap-ready'), /\b(?:Done|Close|OK)\b/i)
     assert.equal(page.all('#needs .is-recap-ready a').length, 1, 'one link to the recap')
-    // The ask is out of Needs your attention: the card counts as one, the look is not a second card.
+    // The ask is out of Needs your attention: the look is not a second card; the card counts the row and the look, the 2 it says to judge.
     assert.equal(page.all('#needs .need:not(.is-recap-ready)').length, 0)
-    assert.equal(page.text('#needs-count'), '1')
+    assert.equal(page.text('#needs-count'), '2')
     // The link opens the ask's window.
     assert.equal(page.find('#details').open, false)
     await page.click('#needs .recap-attention-look')
@@ -307,7 +308,7 @@ test('the goal\'s last step in review held only by its kept look: the Product ow
   assert.equal(state.recapCard.count, 1)
   const page = await openPage({ state })
   try {
-    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 1 verdict waits')
+    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 1 to judge')
     assert.deepEqual(page.all('#needs .recap-attention-look').map(link => link.dataset.askLink), ['Q590'])
   } finally { await page.close() }
 })
@@ -316,7 +317,7 @@ test('the look lines: every kept look is listed, the fourth and fifth too; a car
   const extra = [2, 3, 4, 5].map(n => lookOf(590 + n, `Look number ${n}?`))
   const many = await openPage({ state: withLook(extra) })
   try {
-    assert.equal(many.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 6 verdicts wait')
+    assert.equal(many.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 6 to judge')
     assert.equal(many.all('#needs .recap-attention-look').length, 5)
     assert.deepEqual(many.all('#needs .recap-attention-look').map(link => link.dataset.askLink), ['Q590', 'Q592', 'Q593', 'Q594', 'Q595'], 'each opens its own ask')
     assert.equal(many.all('#needs .recap-attention-looks small').length, 0, 'no "and N more"')
@@ -347,7 +348,7 @@ test('answering the look in its window as any ask: Looks right sends the answer,
     assert.deepEqual(page.sent('/api/work').map(one => one.body).at(-1), { action: 'answer', id: 'Q590', verdict: 'approve', text: '' })
     // The board answers with the look gone from the recap: the window closes and the card counts one verdict less.
     assert.equal(page.find('#details').open, false)
-    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 1 verdict waits')
+    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 1 to judge')
     assert.equal(page.all('#needs .recap-attention-look').length, 0)
   } finally { await page.close() }
   // Only a look that is a tile of the card has the form; the window of an ask the recap judges (a part's own) stays read-only.

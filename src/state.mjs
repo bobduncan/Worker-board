@@ -58,6 +58,7 @@ import { newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as 
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, standingAsksOf } from './recapCard.mjs'
+import { recapRoundOf, reworkOf } from './recapRound.mjs'
 import { guardOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
@@ -1262,7 +1263,11 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
   const carrierState = valueOf(all.get(carrier), 'State')
   // Only a step whose result is built (in review) waits for a verdict: a worker's question mid-build ('waiting on you') is none.
   const isAskedOf = carrierState === 'review' && (verdictAsks.asked.get(carrier)?.length ?? 0) > 0 && !verdictAsks.openChecks.has(carrier)
-  const forVerdict = isCarried && state === 'review' && (['recap', 'accept'].includes(formKind) || isAskedRecap || isAskedOf)
+  // T20.1 (the person, 2026-11-04: "5 verdicts wait while of the 5 open now, only 1 is done"): a step a row of the recap names while the row is
+  // being reworked (the person sent it back and its new try is not in, or a step of the row, or a fix in its chains, is under way) waits for no
+  // verdict: whatever form its ask has, the row asks nothing until it is ready.
+  const inRework = (Array.isArray(recaps) ? recaps : []).some(one => (one.rework != null || one.verdict === 'sent-back') && (one.step === id || one.step === carrier))
+  const forVerdict = !inRework && isCarried && state === 'review' && (['recap', 'accept'].includes(formKind) || isAskedRecap || isAskedOf)
   // T17.1 (the coordinator's ruling): while the recap's next round is being made the person can judge none of its parts: a step a part of it
   // names waits for that round, it does not "wait for your verdict" (its chip and its arrow are not shown).
   const inMaking = forVerdict && (Array.isArray(recaps) ? recaps : []).some(one => one.making === true && (one.step === carrier || one.step === id))
@@ -1446,7 +1451,10 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const owner = busy === undefined ? null : list.find(one => one.onIt !== null)?.onIt ?? null
     // Work blocks: a block that is not dropped and open in this round is in Open now, made in it ('new') or not ('rework').
     const kind = round === null || state === 'dropped' ? null : openKindOf(known, round.ms, round.n === 1)
-    if (kind !== null) openNow.push({ index, title: part.title, kind })
+    // T20.1 (the person, 2026-11-04: "of the 5 open now, only 1 is done ... Waiting, nobody on it now"): a block that had work before the round
+    // and has a step under way (its steps, or a fix in their chains) is being reworked: the newest such step and its worker.
+    const rework = kind !== 'rework' || ['done', 'dropped', 'stopped'].includes(state) ? null : reworkOf(part.steps, all, { openChecks: verdictAsks.openChecks, workerOf: id => workerOn(id, all, lanes, prefix), now })
+    if (kind !== null) openNow.push({ index, title: part.title, kind, ...(rework === null ? {} : { rework }) })
     // Work blocks: the block's done-when line, only where it has one.
     const line = typeof part.doneWhen === 'string' && part.doneWhen.trim() !== '' ? { doneWhen: part.doneWhen.trim() } : {}
     return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...line, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }), ...(state === 'verdict' ? { verdictAt: verdictStep.verdictAt } : {}) }
@@ -1598,8 +1606,6 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
-  // B878 (X116): where each step a goal's recap shows stands with the person (src/recaps.mjs), for what a step in review waits for.
-  const recapWaits = recapWaitsOf(raw.recaps)
   const sent = (Array.isArray(outbox) ? outbox : [])
     .map(message => (isPaused && message.state === 'waiting' && message.command !== 'resume' ? { ...message, isHeld: true } : message))
   const started = Array.isArray(runs) ? runs : []
@@ -2263,6 +2269,14 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))
   // 2026-10-31 (B689): with the workers' cards, so the Focus page names a worker only where its card shows the step.
   // Work blocks (2026-10-31): with the goal recaps, whose rounds the person sent start a new round of the goal's work.
+  // T20.1 (the person, 2026-11-04: "These numbers are all over the place and non consistent"): the store's steps by id, the steps a check
+  // is open on, and the worker whose card shows a step: what says whether a row of a recap is being reworked (src/recapRound.mjs).
+  const itemsById = new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one]))
+  const checksOpen = openChecksOf(itemsById)
+  const workerOfStep = id => workerOn(id, itemsById, chats, prefix)
+  // B878 (X116): where each step a goal's recap shows stands with the person (src/recaps.mjs), for what a step in review waits for.
+  // T20.1: a part a step of which (or a fix in its chains) is under way is being reworked: it waits for no verdict (`rework`).
+  const recapWaits = recapWaitsOf(raw.recaps, (recap, part) => reworkOf(part.steps, itemsById, { openChecks: checksOpen, workerOf: workerOfStep, now }))
   const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits, raw.recaps ?? null, { autopilot: config.autopilot === true })
   // The chats on the board by name, for a store's owner (with or without the list's prefix).
   const chatNames = [...names, ...[advisorChat, helperChat, ownerChat].filter(one => one !== undefined).map(one => one.name)]
@@ -2357,7 +2371,10 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   // 2026-11-01: the open asks that stand with the person, for the recap card (src/recapCard.mjs).
   const standingNow = standingAsksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one])), { autopilot: config.autopilot === true, now })
   // T17.1: the focus goal's recap while its next round is being made (src/recapCard.mjs `recapMakingOf`).
-  const recapMaking = focus === null ? null : recapMakingOf({ goal: focus.id, recap: raw.goalRecap ?? null, items: new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one])) })
+  const recapMaking = focus === null ? null : recapMakingOf({ goal: focus.id, recap: raw.goalRecap ?? null, items: itemsById })
+  // T20.1: the focus goal's recap round as ONE reading (src/recapRound.mjs): the rows the person can judge, the rows being reworked, the
+  // kept looks (Autopilot on only): the popup, the cards, the Needs count and the work blocks' chips all take their numbers from it.
+  const recapRound = focus === null ? null : recapRoundOf({ goal: focus.id, goalRecap: raw.goalRecap ?? null, recaps: raw.recaps ?? [], items: itemsById, openChecks: checksOpen, workerOf: workerOfStep, now, routed: config.autopilot === true ? routedAway : [] })
   const built = {
     readAt: now,
     // Signals change 7: when the board saw each worker's own plan words change, for the server to hand back at the next read.
@@ -2435,10 +2452,17 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     // T17.1 (the coordinator's ruling): while the goal's round is being made the card is the quiet one (`recapMaking`), never a count of verdicts.
     recapCard: focus === null ? null : recapCardOf({
       making: recapMaking,
-      goal: focus.id, recapPath: raw.goalRecap?.goal === focus.id ? raw.goalRecap.path : null, waits: recapWaits, pictures: raw.goalRecap?.goal === focus.id ? raw.goalRecap.pictures : {},
-      steps: new Map(itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step').map(one => [one.head.get('Id'), one])), blocks: focus.parts,
-      standing: standingNow, openChecks: openChecksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one]))), asked: config.autopilot === true ? routedAway.filter(one => one.route === 'recap' && (one.goal === focus.id || one.of === null)) : [],
+      goal: focus.id, recapPath: raw.goalRecap?.goal === focus.id ? raw.goalRecap.path : null, rows: recapRound.rows.map(row => ({ ...row, path: recapRound.path })), looks: recapRound.looks,
+      pictures: raw.goalRecap?.goal === focus.id ? raw.goalRecap.pictures : {},
+      steps: new Map([...itemsById].filter(([, one]) => one.head.get('Kind') === 'step')), blocks: focus.parts,
+      standing: standingNow, openChecks: checksOpen, asked: config.autopilot === true ? routedAway.filter(one => one.route === 'recap' && (one.goal === focus.id || one.of === null)) : [],
     }),
+    // T20.1: the focus goal's recap round for the popup (the rows being reworked with their step and worker, the kept looks) and the one count.
+    recapRound: recapRound === null ? null : {
+      goal: recapRound.goal, path: recapRound.path, round: recapRound.round, making: recapRound.making, toJudge: recapRound.toJudge,
+      ready: recapRound.ready.length, reworking: recapRound.reworking.map(row => ({ key: row.key, title: row.title, rework: row.rework })),
+      rework: recapRound.rework, looks: recapRound.looks,
+    },
     // T17.1 (the person: "the new recap, after round 1 is not finetuned to my feedback"): the focus goal's recap while its next round is being
     // made, `{ goal, path, round, done, total, doneSteps }`, or null. It asks no verdict: the page draws a quiet card and counts nothing.
     recapMaking,

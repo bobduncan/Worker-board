@@ -140,7 +140,8 @@ const gardenTasks = [
 test('Open now, the person\'s example: 10 blocks, 3 reworked after an evaluation are 3 lines; 2 of them done keep their tick', () => {
   const focus = focusState(parseGoals(garden()), gardenTasks, [], '')
   assert.deepEqual(focus.round, { n: 2, since: '2026-10-17 10:00', why: 'the evaluation of 2026-10-17' })
-  assert.deepEqual(focus.openNow, [{ index: 2, title: 'Block 3', kind: 'rework' }, { index: 4, title: 'Block 5', kind: 'rework' }, { index: 7, title: 'Block 8', kind: 'rework' }])
+  // T20.1: Block 8 had work before the round and its task B28 is under way: it is being reworked (nobody's card shows B28).
+  assert.deepEqual(focus.openNow, [{ index: 2, title: 'Block 3', kind: 'rework' }, { index: 4, title: 'Block 5', kind: 'rework' }, { index: 7, title: 'Block 8', kind: 'rework', rework: { step: 'B28', worker: null, words: 'B28 · waiting for a worker' } }])
   assert.deepEqual(focus.openNow.map(one => focus.parts[one.index].state), ['done', 'done', 'now'])
   assert.deepEqual(focus.progress, { done: 9, total: 10, minutesLeft: 60 })
   // Each block has its done-when line in the state.
@@ -366,12 +367,13 @@ test('the Focus page: the switch with its counts; All work blocks with each bloc
     assert.equal(page.window.localStorage.getItem('focus-blocks-view'), 'open', 'the pick is kept')
     assert.equal(page.all('.focus-run').length, 0)
     assert.equal(page.text('.focus-open-now h3'), 'Open now')
-    assert.equal(page.text('.focus-round'), 'Round 2 · opened by the evaluation of 17 Oct · 2 of 3 done · the next evaluation starts round 3')
+    // T20.1: the line counts the blocks the way their chips read: Block 8 is being reworked.
+    assert.equal(page.text('.focus-round'), 'Round 2 · opened by the evaluation of 17 Oct · 2 of 3 done · 1 being reworked · the next evaluation starts round 3')
     const rows = page.all('.focus-open-block').map(one => [one.querySelector('.focus-bullet-mark').getAttribute('aria-label'), one.querySelector('.focus-bullet-text').textContent, one.querySelector('.focus-open-line').textContent, one.querySelector('.focus-chip')?.textContent ?? null])
     assert.deepEqual(rows, [
       ['done', 'Block 3', 'Rework: line 3', null],
       ['done', 'Block 5', 'Rework: line 5', null],
-      ['not done yet', 'Block 8', 'Rework: line 8', 'In progress'],
+      ['not done yet', 'Block 8', 'Rework: line 8', 'Being reworked: B28 · waiting for a worker'],
     ])
     assert.equal(page.find('[data-focus-blocks="open"]').getAttribute('aria-pressed'), 'true')
     // And back.

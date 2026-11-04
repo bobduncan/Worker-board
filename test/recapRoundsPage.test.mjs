@@ -73,7 +73,7 @@ test('round 2 once the try is in: the row reads your words, what changed, the ne
   const page = await opened(shown(more, SENT_MS + 90 * MIN))
   try {
     assert.equal(page.all('.demo-making').length, 0)
-    assert.equal(words(page.find('.demo-round')), 'Round 2: only what you sent back or did not decide yet.')
+    assert.equal(words(page.find('.demo-round')), 'Round 2 · 3 to judge: only what you sent back or did not decide yet.')
     assert.deepEqual(page.all('.demo-row').map(one => one.dataset.demoRow), ['2. Cliffs', '3. Props', '4. Ring', '5. Bridges'])
     const props = page.all('.demo-row')[1]
     assert.deepEqual(classesOf(props), ['demo-row-title', 'demo-row-note', 'demo-said', 'demo-changed', 'demo-pictures', 'demo-play', 'demo-feedback'])
@@ -159,7 +159,7 @@ test('the Focus page while round 2 is being made: a quiet card with the same wor
   try {
     await written.click('[data-tab="advice"]')
     assert.equal(written.all('#advisor-focus .focus-recap-making').length, 0)
-    assert.match(words(written.find('#advisor-focus .focus-recap-ready h3')), /Your recap is ready · 2 verdicts wait/)
+    assert.match(words(written.find('#advisor-focus .focus-recap-ready h3')), /Your recap is ready · 2 to judge/)
     assert.match(words(written.find('#needs .is-recap-ready h4')), /your recap is ready/)
     assert.equal(written.all('#needs .is-recap-making').length, 0)
   } finally { await written.close() }

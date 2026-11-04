@@ -1053,7 +1053,10 @@ the user's comment, the parts approved and how many are not decided yet. Act on 
   file written after their Send (the tool compares the file times with the round in `feedback.json`), or, for an answer in words
   (a study, guidelines), a new `"note"` that differs from the one the demo.json you replace had for the row. For a map
   `"play": "<arena name>"` (see "The goal demo"). A row whose try is not in yet (a step not started, blocked) gets `"pending": "<why,
-  one line, e.g. B925 not started>"` instead: the popup shows it as being reworked beside their words and asks nothing of it. The
+  one line, e.g. B925 not started>"` instead: the popup shows it as being reworked beside their words and asks nothing of it. (T20.1: the
+  board also shows a row as being reworked, whatever the file says, while a step it names, or a fix in their chains, is under way
+  in the store: "Being reworked: B981 · waiting for a worker". Name the steps of every row, `"steps"`, so the popup and the cards
+  count the row only when nothing more is done on it.) The
   tool refuses the list otherwise (one line per row) and writes nothing, so old pictures can never stand as a new try. A row they did
   not send back needs none of this. Leave the other rows as they are: the board shows round 2 with only the parts sent back, each
   with the user's comment, what changed and the new try (then Play it, Approve, Send back), and folds the approved ones.

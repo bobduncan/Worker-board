@@ -104,7 +104,7 @@ test('a recap part names its steps: waits for the verdict, Send back words them,
   const demo = {
     goal: 'G6', title: 'The polish', step: 'B12',
     sections: [
-      { kind: 'reached', rows: [{ title: '1. Lava', steps: ['B15'], pictures: [{ kind: 'target', caption: 't', path: 'a.png' }] }] },
+      { kind: 'reached', rows: [{ title: '1. Lava', steps: ['B15'], pictures: [{ kind: 'target', caption: 't', path: 'a.png' }] }, { title: '2. Lava glow', steps: ['B18'], pictures: [{ kind: 'target', caption: 't', path: 'a.png' }] }] },
       { kind: 'not-reached', rows: [{ title: '3. Round shapes', steps: ['B13', 'B14'], pictures: [{ kind: 'final-not', caption: 'last', path: 'c.png' }] }] },
     ],
   }
@@ -112,8 +112,9 @@ test('a recap part names its steps: waits for the verdict, Send back words them,
   await put(join(project, 'pictures', 'g6', 'recap', 'demo.json'), JSON.stringify(demo))
   const work = join(project, '.claude', 'work')
   const backlog = ['## Garden', '- [ ] B12 The recap (for Digger; about 1 h)', '- [ ] B13 Round pool (for Digger; about 1 h)', '- [ ] B14 Round ring (for Digger; about 1 h)',
-    '- [ ] B15 Lava flows (for Digger; about 1 h)', '- [ ] B16 Fix: B13 (for Digger; about 1 h)', '- [ ] B17 Fix: B14 (for Digger; about 1 h)', ''].join('\n')
+    '- [x] B15 Lava flows (for Digger; about 1 h)', '- [ ] B16 Fix: B13 (for Digger; about 1 h)', '- [ ] B17 Fix: B14 (for Digger; about 1 h)', ''].join('\n')
   await writeStore(work, migrateBacklog(backlog, { now: NOW }), undefined, { now: NOW })
+  await writeFile(join(work, 'B18.md'), ['Id: B18', 'Kind: step', 'Title: Lava glows', 'State: new', 'Owner: Digger', 'Activity: Garden', `Since: ${stamp(NOW - 30 * MIN)}`, ''].join('\n'))
   await writeFile(join(work, 'B13.md'), reviewStep('B13', 'Round pool', 'B16'))
   await writeFile(join(work, 'B14.md'), reviewStep('B14', 'Round ring', 'B17'))
   await writeFile(join(work, 'B16.md'), droppedFix('B16', 'B13'))
@@ -139,11 +140,16 @@ test('a recap part names its steps: waits for the verdict, Send back words them,
   await until(async () => (await waitOf('B13')) === 'waits for your verdict in the recap of G6', 'the recap wait on the Backlog')
   assert.equal(await waitOf('B14'), 'waits for your verdict in the recap of G6')
 
-  // Round 1: the round shapes sent back, lava approved (B15 is not in review: it stays as it is).
+  // T20.1: a row whose step is under way asks nothing: B18 is still new, so its row cannot be answered yet and nothing is written.
+  const early = await send({ round: 1, parts: [{ key: '2. Lava glow', verdict: 'approved' }] })
+  assert.equal(early.status, 400, early.body)
+  assert.match(early.body, /"2\. Lava glow" is being reworked/)
+
+  // Round 1: the round shapes sent back, lava approved (B15 is done already: it stays as it is, its row closes nothing).
   const first = await send({ round: 1, parts: [{ key: '1. Lava', verdict: 'approved' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }] })
   assert.equal(first.status, 200, first.body)
   assert.deepEqual(JSON.parse(first.body).closed, [])
-  assert.doesNotMatch(await stepText('B15'), /^State: done$/m)
+  assert.match(await stepText('B15'), /^State: done$/m)
   for (const id of ['B13', 'B14']) {
     const text = await stepText(id)
     assert.match(text, /^State: review$/m)

@@ -1814,7 +1814,9 @@ async function recapAnswered(body, w) {
       ? `Approved in the recap of ${goal}${round === null ? '' : `, round ${round}`}${part.title ? `: ${line(part.title, 120)}` : ''}.`
       : `Sent back in the recap of ${goal}${round === null ? '' : `, round ${round}`}${part.title ? `: ${line(part.title, 120)}` : ''}: "${line(part.comment, 600)}"`
     for (const stepId of (Array.isArray(part.steps) ? part.steps : []).filter(one => STEP_ID.test(String(one)))) {
-      const waiting = openAsksAll(w).filter(one => valueOf(one, 'Route') === 'recap' && valueOf(one, 'Of') === stepId && !closed.includes(valueOf(one, 'Id')))
+      // T20.1: a kept look is a row of the recap of its own (src/recapRound.mjs): the person judges it there, a verdict on the row of its step
+      // does not answer it.
+      const waiting = openAsksAll(w).filter(one => valueOf(one, 'Route') === 'recap' && valueOf(one, 'Of') === stepId && !closed.includes(valueOf(one, 'Id')) && !isKeptLook(one))
       for (const ask of waiting) {
         const id = valueOf(ask, 'Id')
         const found = await load(id, w, { kind: ['ask'] })
