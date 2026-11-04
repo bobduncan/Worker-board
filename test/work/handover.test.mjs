@@ -318,14 +318,15 @@ test('an older mod than the installed one: one restart envelope, restarting, unk
   assert.equal(decide({ worker: { ...lane, mod: '0.27.1' }, items, ready: ready('B40'), installed: '0.27.1', envelopes: [envelope], now: at(29, 9, 6) }).give, 'B40')
 })
 
-test('a free worker with no task: the clear alone; nothing at all when none is owed; the clear envelope is waited for, not sent twice', () => {
+test('a free worker with no task: no clear alone (the lazy clear, R1), nothing at all; a clear envelope of an older board still on its way is waited for, not sent twice', () => {
   const name = 'Worker 1'
   const items = mapOf([reported('B50', name, at(29, 9, 0))])
   const lane = worker(name, { since: at(29, 9, 1) })
   const owed = owedOf(lane, items)
-  const clear = decide({ worker: lane, items, owed, now: at(29, 9, 1), event: { kind: 'turn-ended', since: at(29, 8, 30) } })
-  assert.deepEqual([clear.state, clear.envelope.kind, clear.envelope.clear.step, clear.give], [STATES.FREE, 'clear', 'B50', null])
-  const out = { id: 'c1', at: at(29, 9, 1), to: name, command: HANDOVER_COMMAND, state: 'taken', ...clear.envelope }
+  const free = decide({ worker: lane, items, owed, now: at(29, 9, 1), event: { kind: 'turn-ended', since: at(29, 8, 30) } })
+  assert.deepEqual([free.state, free.envelope, free.give], [STATES.FREE, null, null])
+  // A clear-only envelope written before the lazy clear (the landing's sweep closes those still waiting; one taken stays).
+  const out = { id: 'c1', at: at(29, 9, 1), to: name, command: HANDOVER_COMMAND, state: 'taken', kind: 'clear', step: null, clear: { step: 'B50', reportedAt: owed.reportedAt }, restart: false, set: null, line: null, back: null }
   const waiting = decide({ worker: lane, items: mapOf([...items.values(), step('B51', 'refined')]), ready: ready('B51'), owed, envelopes: [out], now: at(29, 9, 2) })
   assert.deepEqual([waiting.state, waiting.envelope, waiting.give], [STATES.HANDING, null, null])
   assert.deepEqual(decide({ worker: lane, items: new Map(), now: at(29, 9, 1) }).envelope, null)
@@ -337,7 +338,7 @@ test('a free worker with no task: the clear alone; nothing at all when none is o
 test('the envelope as the mod reads it, the outcome as the board takes it, and the worker\'s envelopes', () => {
   const message = { id: 'e9', at: 5, to: 'Game - Worker 1', command: HANDOVER_COMMAND, state: 'waiting', kind: 'task', step: 'B9', clear: { step: 'B8', reportedAt: 4 }, restart: false, set: { model: 'claude-opus-5-5', effort: 'high' }, line: lineFor('B9'), back: null }
   assert.deepEqual(contractOf(message), { id: 'e9', kind: 'task', step: 'B9', clear: { step: 'B8', reportedAt: 4 }, restart: false, set: { model: 'claude-opus-5-5', effort: 'high' }, line: 'work: B9 is yours; run work next' })
-  assert.deepEqual(outcomeOf({ cleared: true, set: 'yes', typed: true, why: '  ok\n then ' }), { cleared: true, set: null, typed: true, restarted: null, background: false, why: 'ok then', typedAt: null, enteredAt: null })
+  assert.deepEqual(outcomeOf({ cleared: true, set: 'yes', typed: true, why: '  ok\n then ' }), { cleared: true, set: null, typed: true, restarted: null, background: false, why: 'ok then', clearWhy: null, typedAt: null, enteredAt: null })
   // 4c (Workers mod 0.30.0): the line's exact times, finite or null.
   assert.deepEqual([outcomeOf({ typed: true, typedAt: 5, enteredAt: 7 })].map(one => [one.typedAt, one.enteredAt]), [[5, 7]])
   assert.deepEqual([outcomeOf({ typed: true, typedAt: 'soon', enteredAt: Infinity })].map(one => [one.typedAt, one.enteredAt]), [[null, null]])
@@ -446,4 +447,109 @@ test('change 4, D.5 (decision 13) by the orderings alone: a running worker whose
   assert.deepEqual([asleep.state, asleep.give], [STATES.HANDING, 'B855'])
   // The orderings keep decision 13: match puts running lanes first.
   assert.equal(match({ ready: ready('B855'), idle: [asleepW5(), worker('Worker 2', { since: day2(10, 0) })], items })[0].chat, 'Worker 2')
+})
+
+// ---- The lazy clear (Workers mod 0.31.0, the brief .claude/plans/2026-11-03-lazy-clear-brief.md, Task 1 with D1, D4, D6):
+// a worker owes its clear and is never held for it. The real case first, then the mutants the brief names.
+
+test('the lazy clear, the real case of 2026-11-02 21:25: Worker 3 after B936 with no task ready is FREE, no envelope and no lane word; B937 given later carries the clear (mutant: a clear-only envelope written)', () => {
+  const name = 'Worker 3'
+  const reportAt = day2(21, 23)
+  const items = mapOf([reported('B936', name, reportAt)])
+  const lane = worker(name, { since: day2(21, 25), heard: day2(21, 25) })
+  const owed = owedOf(lane, items)
+  assert.equal(owed.step, 'B936')
+  // Its turn end at 21:25 (where the board wrote the lone clear that failed and held it an hour): FREE, nothing sent.
+  const ended = decide({ worker: lane, items, ready: ready(), owed, now: day2(21, 25), event: { kind: 'turn-ended', since: day2(21, 0) } })
+  assert.deepEqual([ended.state, ended.envelope, ended.give, ended.takeBack], [STATES.FREE, null, null, null])
+  assert.equal(laneWords(ended), null)
+  // The passes after it change nothing: the clear stays owed, nothing goes alone.
+  for (const now of [day2(21, 26), day2(21, 31), day2(21, 39)]) {
+    const pass = decide({ worker: worker(name, { since: day2(21, 25), heard: now }), items, ready: ready(), owed, now })
+    assert.deepEqual([pass.state, pass.envelope], [STATES.FREE, null])
+  }
+  assert.notEqual(owedOf(lane, items), null)
+  // B937 becomes ready at 21:40: the pass gives it, the owed clear in the same envelope (clear, then the line).
+  const withNext = mapOf([...items.values(), step('B937', 'refined')])
+  const given = decide({ worker: worker(name, { since: day2(21, 25), heard: day2(21, 40) }), items: withNext, ready: ready('B937'), owed, now: day2(21, 40) })
+  assert.deepEqual([given.state, given.give, given.envelope.kind, given.envelope.clear, given.envelope.line], [STATES.HANDING, 'B937', 'task', { step: 'B936', reportedAt: reportAt }, lineFor('B937')])
+})
+
+test('the lazy clear, D4: a clear that did not run while its line was typed is no failure: no HELD, no take-back, the clear still owed, the lane quiet (mutants: HELD on cleared:false; takeBack on a clear failure)', async () => {
+  const { failedOf, isClearOwedOnly } = await import('../../src/work/handover.mjs')
+  const name = 'Worker 3'
+  const reportAt = day2(21, 23)
+  const queued = mapOf([reported('B936', name, reportAt), step('B937', 'queued', { Owner: name })])
+  const lane = worker(name, { since: day2(21, 40), heard: day2(21, 41) })
+  const owed = owedOf(lane, queued)
+  const outcome = { cleared: false, set: null, typed: true, restarted: null, background: false, why: null, clearWhy: 'a prompt came first', typedAt: day2(21, 40, 21), enteredAt: day2(21, 40, 22) }
+  const envelope = { id: 'e937', at: day2(21, 40), to: name, command: HANDOVER_COMMAND, kind: 'task', step: 'B937', clear: { step: 'B936', reportedAt: reportAt }, restart: false, set: null, line: lineFor('B937'), state: 'delivered', settledAt: day2(21, 40, 22), outcome }
+  assert.equal(isClearOwedOnly(envelope), true)
+  assert.equal(failedOf(envelope), false)
+  // Settled cleared:false, typed:true: offered (the line is in), nothing back, not held.
+  const offered = decide({ worker: lane, items: queued, ready: ready(), owed, envelopes: [envelope], now: day2(21, 41) })
+  assert.deepEqual([offered.state, offered.takeBack, offered.close, offered.envelope], [STATES.OFFERED, null, null, null])
+  assert.equal(laneWords(offered), 'offered B937, not taken yet')
+  // It takes B937: WORKING on it, no word on the lane; the clear is still owed (no clear ran) and rides its next task.
+  const taken = mapOf([reported('B936', name, reportAt), step('B937', 'in progress', { Owner: name })])
+  const working = decide({ worker: worker(name, { since: day2(21, 42), state: 'busy' }), items: taken, ready: ready(), owed, envelopes: [envelope], now: day2(21, 45) })
+  assert.deepEqual([working.state, working.step, working.takeBack], [STATES.WORKING, 'B937', null])
+  assert.equal(laneWords(working), null)
+  assert.equal(owedOf(lane, taken).step, 'B936')
+  // A waived line (the wake message carried it, handoverBoard.mjs handOut): nothing to type, so no failure either.
+  const waived = { ...envelope, line: null, lineWaived: 'the wake message carried its take line', outcome: { ...outcome, typed: null } }
+  assert.equal(failedOf(waived), false)
+  // Still a failure: the set (D4 keeps it holding), the line not typed, and a 0.30.0 worker's old-style settle (typed not true).
+  const setFailed = { ...envelope, state: 'failed', outcome: { ...outcome, set: false, why: 'the app refused the model' } }
+  assert.equal(failedOf(setFailed), true)
+  const held = decide({ worker: lane, items: queued, ready: ready(), owed, envelopes: [setFailed], now: day2(21, 41) })
+  assert.deepEqual([held.state, held.takeBack?.id], [STATES.HELD, 'B937'])
+  assert.equal(failedOf({ ...envelope, state: 'failed', outcome: { ...outcome, typed: false, why: 'the chat did not take it' } }), true)
+  const old = { ...envelope, state: 'failed', outcome: { cleared: false, set: null, typed: null, restarted: null, background: false, why: '/clear did not run within two minutes' } }
+  assert.equal(failedOf(old), true)
+  assert.equal(decide({ worker: lane, items: queued, ready: ready(), owed, envelopes: [old], now: day2(21, 41) }).state, STATES.HELD)
+})
+
+test('the lazy clear, D1: the clear stages as the board takes them (one per name, the first kept) and the newest `cleared` stage as the clear the card may not show yet', async () => {
+  const { stagesOf, mergeStages } = await import('../../src/work/handover.mjs')
+  const { clearedStageOf } = await import('../../src/clearOwed.mjs')
+  const T = day2(21, 40)
+  assert.deepEqual(stagesOf([
+    { stage: 'log-saved', at: T, log: 'logs/B936.md', extra: 1 },
+    { stage: 'clear-queued', at: T + 1, ticket: 'clear-3-1' },
+    { stage: 'cleared', at: T + 2, session: 'new-session', ticket: 7 },
+    { stage: 'clear-refused', at: T + 3, why: '  a prompt\n came first ' },
+    { stage: 'compacted', at: T }, { stage: 'cleared', at: 'soon' }, null, 'cleared',
+  ]), [
+    { stage: 'log-saved', at: T, log: 'logs/B936.md' },
+    { stage: 'clear-queued', at: T + 1, ticket: 'clear-3-1' },
+    { stage: 'cleared', at: T + 2, session: 'new-session', ticket: '7' },
+    { stage: 'clear-refused', at: T + 3, why: 'a prompt came first' },
+  ])
+  assert.equal(stagesOf('cleared'), null)
+  assert.equal(stagesOf([]), null)
+  const first = [{ stage: 'log-saved', at: T }]
+  // A repeat is ignored (the mod's retry): the first entry stays; a new name is added in arrival order.
+  assert.deepEqual(mergeStages(first, [{ stage: 'log-saved', at: T + 9 }, { stage: 'clear-queued', at: T + 1 }]), [{ stage: 'log-saved', at: T }, { stage: 'clear-queued', at: T + 1 }])
+  assert.equal(mergeStages(first, [{ stage: 'log-saved', at: T + 9 }]), null)
+  assert.deepEqual(mergeStages(undefined, first), first)
+  // The newest `cleared` stage over the worker's envelopes; none: null.
+  const envelopes = [
+    { id: 'a', at: T - 60 * MIN, clear: { step: 'B930' }, stages: [{ stage: 'cleared', at: T - 59 * MIN, session: 's1' }] },
+    { id: 'b', at: T, clear: { step: 'B936' }, stages: [{ stage: 'log-saved', at: T }, { stage: 'cleared', at: T + 5_000, session: 's2' }] },
+    { id: 'c', at: T + MIN, clear: null },
+  ]
+  assert.deepEqual(clearedStageOf(envelopes), { at: T + 5_000, step: 'B936', session: 's2' })
+  assert.equal(clearedStageOf([envelopes[2]]), null)
+  // clearOwed: the stage stands for the clear, the card as the fallback, the newer of the two wins; nothing is written.
+  const name = 'Worker 3'
+  const items = mapOf([reported('B936', name, day2(21, 23))])
+  const lane = worker(name, { since: day2(21, 25), compaction: { lastCleared: { at: day2(20, 0), step: 'B930' } } })
+  assert.equal(clearOwed({ lane, items, afterStep: 'clear' }).step, 'B936')
+  assert.equal(clearOwed({ lane, items, afterStep: 'clear', clearedStage: clearedStageOf(envelopes) }), null)
+  assert.equal(clearOwed({ lane, items, afterStep: 'clear', clearedStage: { at: day2(21, 0), step: 'B930', session: 's1' } }).step, 'B936', 'a stage older than the report clears nothing')
+  const card = worker(name, { since: day2(21, 25), compaction: { lastCleared: { at: day2(21, 50), step: 'B936' } } })
+  assert.equal(clearOwed({ lane: card, items, afterStep: 'clear', clearedStage: { at: day2(21, 0), step: 'B930' } }), null, 'the card newer than the stage (the person\'s own /clear)')
+  // outcomeOf keeps 0.30.0's times and takes clearWhy.
+  assert.deepEqual(outcomeOf({ cleared: false, typed: true, clearWhy: ' not run\nin 20 s ', typedAt: 5, enteredAt: 6 }), { cleared: false, set: null, typed: true, restarted: null, background: false, why: null, clearWhy: 'not run in 20 s', typedAt: 5, enteredAt: 6 })
 })

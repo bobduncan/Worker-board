@@ -86,19 +86,37 @@ export const envelopesOf = (sent, name, prefix = '') => (sent ?? [])
   .filter(message => message?.command === HANDOVER_COMMAND && plain(message.to, prefix) === plain(name, prefix) && Number.isFinite(message.at))
   .sort((a, b) => a.at - b.at)
 
+/**
+ * The lazy clear (Workers mod 0.31.0, the brief's D4): a clear that did not run is no failure when the rest of the envelope
+ * went: `cleared` false, the set not failed, and its line typed (`typed` true) or no line to type because the wake message
+ * carried it (a task's envelope whose line the hand-out waived, `handOut`). The worker is not held and its task not taken
+ * back; the clear stays owed and rides its next task. An old-style settle (a 0.30.0 worker: the clear failed, its line not
+ * typed) is still a failure, released as B930 and HELD_RETRY_MS say, until every worker runs 0.31.0.
+ */
+export function isClearOwedOnly(envelope, outcome = envelope?.outcome ?? null) {
+  if (envelope === null || envelope === undefined || outcome === null || outcome === undefined) return false
+  if (envelope.restart === true || outcome.cleared !== false || outcome.set === false || outcome.restarted === false) return false
+  const isWaived = typeof envelope.line !== 'string' && typeof envelope.step === 'string'
+  return outcome.typed === true || isWaived
+}
+
 /** Whether an envelope's outcome failed: the clear, the set or the line did not happen (or the message failed as a whole). */
 export function failedOf(envelope) {
   if (envelope === null || envelope === undefined) return false
   const outcome = envelope.outcome ?? null
   if (outcome === null) return envelope.state === 'failed'
   if (envelope.restart === true) return outcome.restarted === false
+  // The lazy clear (D4): a clear owed while the line went in is no failure.
+  if (isClearOwedOnly(envelope, outcome)) return false
   return outcome.cleared === false || outcome.set === false || (outcome.typed === false && typeof envelope.line === 'string')
 }
 
 /** The why of a failed envelope, in the board's words, for the lane and the History. */
 export function failedWhy(envelope) {
   const outcome = envelope?.outcome ?? null
-  const said = typeof outcome?.why === 'string' && outcome.why.trim() !== '' ? outcome.why.replace(/\s+/g, ' ').trim().slice(0, 160) : typeof envelope?.why === 'string' ? envelope.why.slice(0, 160) : 'no reason given'
+  // The lazy clear: a 0.31.0 mod says the clear's why in `clearWhy` (the person's pause, a full limit: the line not typed).
+  const own = [outcome?.why, outcome?.clearWhy].find(one => typeof one === 'string' && one.trim() !== '')
+  const said = own !== undefined ? own.replace(/\s+/g, ' ').trim().slice(0, 160) : typeof envelope?.why === 'string' ? envelope.why.slice(0, 160) : 'no reason given'
   if (outcome?.cleared === false) return `its clear did not run: ${said}`
   if (outcome?.set === false) return `its model and effort could not be set: ${said}`
   if (envelope?.restart === true) return `its restart did not run: ${said}`
@@ -267,7 +285,7 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * 5. its mod is older than the installed one: RESTARTING, the envelope `restart` once (UNKNOWN after RESTART_NET_MS);
  *    HELD (a failed envelope not yet released by a turn end or its report) and UNKNOWN (after the net) come here;
  * 6. otherwise the clear when one is owed, and the ready list's first task this worker may take with its `set` and `line`:
- *    HANDING; none: FREE (the envelope may still hold the clear).
+ *    HANDING; none: FREE, nothing sent (the lazy clear: the clear stays owed for the next task's envelope).
  *
  * At a pass the worker is handed nothing while its turn runs, nor while its chat does not run. The answer:
  * `{ state, why, step, takeBack: { id, why } | null, give: id | null, envelope: { kind, step, clear, restart, set, line,
@@ -346,7 +364,7 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
       return result(isTyped ? STATES.OFFERED : STATES.HANDING, null, { step: id })
     }
   }
-  // An envelope without a task (the clear alone, the back words, a restart) still on its way: nothing new beside it.
+  // An envelope without a task (the back words, a restart, or a clear alone an older board wrote) still on its way: nothing new beside it.
   // A turn that ended after it was carried ends it; the net marks one that never answered, once.
   if (last !== null && takenBack === null && last.netAt === undefined && ['waiting', 'taken'].includes(last.state) && (last.outcome ?? null) === null && typeof last.step !== 'string'
     && !(isTurnEnd && last.state !== 'waiting' && turnSince >= last.at) && last.restart !== true) {
@@ -428,9 +446,9 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
   const given = match({ ready: open, idle: [worker], items: scratch, prefix })[0] ?? null
   const clear = owed === null || owed === undefined ? null : { step: owed.step, reportedAt: owed.reportedAt }
   const said = takenBack === null ? null : `${NOT_TAKEN_WHY.replace('it', takenBack.id)}`
-  if (given === null) {
-    return result(STATES.FREE, said, { takeBack: takenBack, envelope: clear === null ? null : { kind: 'clear', step: null, clear, restart: false, set: null, line: null, back: null } })
-  }
+  // The lazy clear (R1, 2026-11-03): no clear is ever sent alone. A free worker that owes one stays FREE and uncleared (an
+  // idle chat costs no tokens); the clear rides its next task's envelope. Its lane says nothing of it (D6).
+  if (given === null) return result(STATES.FREE, said, { takeBack: takenBack })
   const set = setFor(given.id) ?? null
   // Signals change 3: a step the board gave back goes to its next worker as a continuation from its checkpoint.
   const item = items.get(given.id)
@@ -452,18 +470,56 @@ export function contractOf(message) {
   }
 }
 
+/** One short line of a chat's words, or null. */
+const lineOf = (value, most = 200) => (typeof value === 'string' && value.trim() !== '' ? value.replace(/\s+/g, ' ').trim().slice(0, most) : null)
+
 /**
  * The outcome the Workers mod posts through `typed` (`body.outcome`), checked: `{ cleared, set, typed, restarted,
- * background, why, typedAt, enteredAt }`, each flag true, false or null (not asked), `why` one short line or null; null for no
+ * background, why, clearWhy, typedAt, enteredAt }`, each flag true, false or null (not asked), `why` one short line or null; null for no
  * object. 4c (Workers mod 0.30.0): `typedAt` the mod's clock just before the line's submit, `enteredAt` when the line entered
- * the chat, each a finite time or null (an older mod, no line typed).
+ * the chat, each a finite time or null (an older mod, no line typed). The lazy clear (0.31.0): `clearWhy`, why its clear did
+ * not run (one short line), or null.
  */
 export function outcomeOf(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
   const flag = one => (one === true || one === false ? one : null)
   const time = one => (Number.isFinite(one) ? one : null)
-  const why = typeof value.why === 'string' && value.why.trim() !== '' ? value.why.replace(/\s+/g, ' ').trim().slice(0, 200) : null
-  return { cleared: flag(value.cleared), set: flag(value.set), typed: flag(value.typed), restarted: flag(value.restarted), background: value.background === true, why, typedAt: time(value.typedAt), enteredAt: time(value.enteredAt) }
+  return { cleared: flag(value.cleared), set: flag(value.set), typed: flag(value.typed), restarted: flag(value.restarted), background: value.background === true, why: lineOf(value.why), clearWhy: lineOf(value.clearWhy), typedAt: time(value.typedAt), enteredAt: time(value.enteredAt) }
+}
+
+/** The lazy clear (D1): the stages of a clear at a hand-over, in the order they happen. */
+export const CLEAR_STAGES = Object.freeze(['log-saved', 'clear-queued', 'cleared', 'clear-refused'])
+/** At most this many stages in one post (each name once). */
+const MOST_STAGES = 8
+
+/**
+ * The lazy clear (D1): the stages the Workers mod posts through `typed` (`body.stages`, top-level beside `handover`), checked:
+ * `[{ stage, at, why?, log?, ticket?, session? }]`, `stage` one of CLEAR_STAGES, `at` the mod's finite time, `ticket` a
+ * string (D9: 'clear-<run>-<n>'), the rest short lines; an entry that is not one is left out. Null when none is left.
+ */
+export function stagesOf(value) {
+  if (!Array.isArray(value)) return null
+  const stages = []
+  for (const one of value.slice(0, MOST_STAGES)) {
+    if (one === null || typeof one !== 'object' || !CLEAR_STAGES.includes(one.stage) || !Number.isFinite(one.at)) continue
+    const ticket = typeof one.ticket === 'string' || Number.isFinite(one.ticket) ? lineOf(String(one.ticket), 80) : null
+    const more = { why: lineOf(one.why), log: lineOf(one.log, 400), ticket, session: lineOf(one.session, 200) }
+    stages.push({ stage: one.stage, at: one.at, ...Object.fromEntries(Object.entries(more).filter(([, given]) => given !== null)) })
+  }
+  return stages.length === 0 ? null : stages
+}
+
+/**
+ * The lazy clear (D1): the envelope's stages with the new ones added, one entry per stage name (a repeat, as the mod's retry
+ * sends, is ignored: the first stays), in the order they came; null when nothing is new.
+ */
+export function mergeStages(had, incoming) {
+  const merged = Array.isArray(had) ? [...had] : []
+  const before = merged.length
+  for (const one of incoming ?? []) {
+    if (!merged.some(stage => stage.stage === one.stage)) merged.push(one)
+  }
+  return merged.length === before ? null : merged
 }
 
 /** The lane's words for a state of the sequence (quiet: information, never amber), or null where the lane says enough. */

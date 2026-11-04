@@ -157,7 +157,25 @@ test('the sequence on a running board: T answers the envelope, D takes back at o
   const after = await ping('Units', 'units-id', NEW, { state: 'idle', since: Date.now() - 1000, background: false })
   assert.equal(after.body.clear, undefined)
   assert.deepEqual([again.clear?.step, again.step], ['B12', 'B13'])
-  assert.equal(await call('typed', { chat: 'Units', session: 'units-id', handover: again.id, outcome: { cleared: true, typed: true } }, NEW).then(reply => reply.body.settled), true)
+  // The lazy clear (D1): the clear's stages through the same route as they happen: two quick posts at once both kept, the
+  // outcome with the last stage settles once, a stage after it is still taken; nothing else in the body is needed.
+  const stage = (name, at, more = {}) => ({ stage: name, at, ...more })
+  const posts = await Promise.all([
+    call('typed', { chat: 'Units', session: 'units-id', handover: again.id, stages: [stage('log-saved', Date.now(), { log: 'logs/B12.md' })] }, NEW),
+    call('typed', { chat: 'Units', session: 'units-id', handover: again.id, stages: [stage('clear-queued', Date.now(), { ticket: 'clear-1-1' })] }, NEW),
+  ])
+  assert.deepEqual(posts.map(reply => [reply.status, reply.body.staged, reply.body.settled]), [[200, true, false], [200, true, false]])
+  const final = await call('typed', { chat: 'Units', session: 'units-id', handover: again.id, stages: [stage('cleared', Date.now(), { session: 'units-new' })], outcome: { cleared: true, typed: true } }, NEW)
+  assert.deepEqual([final.body.settled, final.body.staged], [true, true])
+  const twice = await call('typed', { chat: 'Units', session: 'units-id', handover: again.id, stages: [stage('clear-refused', Date.now(), { why: 'late' })], outcome: { cleared: false, typed: true } }, NEW)
+  assert.deepEqual([twice.body.settled, twice.body.staged], [false, true])
+  const folded = new Map()
+  for (const line of (await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8')).trim().split('\n')) {
+    const one = JSON.parse(line)
+    folded.set(one.id, { ...(folded.get(one.id) ?? {}), ...one })
+  }
+  const kept = folded.get(again.id)
+  assert.deepEqual([kept.state, kept.outcome.cleared, kept.stages.map(one => one.stage).sort()], ['delivered', true, ['clear-queued', 'clear-refused', 'cleared', 'log-saved']])
 
   // T after the line, no take: B13 back ("did not take it in its turn"), B14 in the same answer.
   const untaken = await call('work', { action: 'turn-ended', chat: 'Units', session: 'units-id', since: Date.now() }, NEW)

@@ -4,8 +4,9 @@
 // refused the log while its background work ran. Each then took its next step on the old conversation. So the board,
 // which sees both ends, keeps the account: a worker whose last report is newer than its last clear owes a clear. Since
 // T8.5 step 6 that clear is the first field of the worker's hand-over envelope (handover.mjs `decide`): the line of its
-// next step follows the clear in the same envelope, and a clear that cannot run holds the worker with its why (the
-// supervisor's rule handover-held). B737 (X86, 2026-10-27): a report whose board check failed counts for none of this:
+// next step follows the clear in the same envelope. The lazy clear (Workers mod 0.31.0, 2026-11-03): no clear goes alone,
+// and a clear that cannot run never holds the worker: its line goes anyway and the clear stays owed for the next task.
+// B737 (X86, 2026-10-27): a report whose board check failed counts for none of this:
 // the board hands the step back, its worker rightly stays in its turn to fix it (Worker 3 and B727, 21:02-21:28), so it
 // owes no clear and is given no new step (handedBackOf) until it reports again and that check passes. PURE.
 
@@ -96,6 +97,22 @@ export function handedBackOf(items, chat, prefix = '') {
 }
 
 /**
+ * The lazy clear (Workers mod 0.31.0, the brief's D1): the newest `cleared` stage on a worker's hand-over envelopes (the
+ * outbox's messages, its own: handover.mjs `envelopesOf`), `{ at, step, session }` (the step its envelope cleared after,
+ * the new session's id), or null. Derived, never written: the card stays the fallback (clearOwed).
+ */
+export function clearedStageOf(envelopes) {
+  let newest = null
+  for (const envelope of envelopes ?? []) {
+    for (const stage of Array.isArray(envelope?.stages) ? envelope.stages : []) {
+      if (stage?.stage !== 'cleared' || !Number.isFinite(stage.at) || (newest !== null && stage.at <= newest.at)) continue
+      newest = { at: stage.at, step: envelope.clear?.step ?? null, session: typeof stage.session === 'string' ? stage.session : null }
+    }
+  }
+  return newest
+}
+
+/**
  * The clear a worker owes (`lane`: the board's chat, state.mjs, with its card's `compaction`): its last report is newer
  * than its last clear, with "afterStep": "clear" in the list of chats. `{ step, reportedAt, clearedAt, why, isDropped }`: the step
  * reported (`isDropped`: it was dropped since), when, the last clear (null for none), and the Workers mod's last word why it did not clear when that word
@@ -103,8 +120,9 @@ export function handedBackOf(items, chat, prefix = '') {
  * since. B547 (X48, X49, X61-X64): or its conversation began since (`conversationAt`, its transcript's start): the card's
  * mark of a clear is written anew every few seconds while the chat works, and a crash of the PC left such cards
  * unreadable; the mod wrote them anew without the mark, and the board held the next step of a worker cleared before it.
+ * The lazy clear (D1): `clearedStage`, the newest `cleared` stage of its envelopes (clearedStageOf), counts as its last clear.
  */
-export function clearOwed({ lane, items, prefix = '', afterStep = null, conversationAt = null }) {
+export function clearOwed({ lane, items, prefix = '', afterStep = null, conversationAt = null, clearedStage = null }) {
   if (afterStep !== 'clear' || lane === null || lane === undefined || lane.isMain === true || lane.isLeftover === true) return null
   // Signals change 3: a step the board gave back from it ends its work on that step as a report does: it owes a clear too,
   // as of the give-back's time (its History line, holderTimers.mjs `GIVEN_BACK`).
@@ -113,7 +131,10 @@ export function clearOwed({ lane, items, prefix = '', afterStep = null, conversa
   const report = back !== null && (reported === null || back.at > reported.at) ? back : reported
   if (report === null) return null
   const compaction = lane.compaction ?? null
-  const cleared = compaction?.lastCleared ?? (compaction?.kind === 'cleared' ? { at: compaction.at, step: compaction.step ?? null } : null)
+  const card = compaction?.lastCleared ?? (compaction?.kind === 'cleared' ? { at: compaction.at, step: compaction.step ?? null } : null)
+  // The lazy clear (D1): the newest `cleared` stage the Workers mod posted on its envelopes (`clearedStage`, clearedStageOf),
+  // the card as the fallback; the newer of the two stands (the person's own /clear after it moves only the card).
+  const cleared = [clearedStage, card].filter(one => Number.isFinite(one?.at)).sort((a, b) => b.at - a.at)[0] ?? null
   const clearedAt = Number.isFinite(cleared?.at) ? cleared.at : null
   if (clearedAt !== null && clearedAt >= report.at) return null
   // A conversation that began at or after the report (to the minute, as the card's clear) is not that report's.
