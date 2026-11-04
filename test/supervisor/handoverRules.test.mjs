@@ -244,16 +244,18 @@ test('the lazy clear, clear-owed-repeat (D7): a refusal in the person\'s pause i
   assert.equal(check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: [...withPause, handed(4, 5)] })).length, 1)
 })
 
-test('the lazy clear, handover-held (D4): never on a clear outcome: a worker whose last hand-over settled cleared:false with its line typed is no hold, whatever its lane says', () => {
-  const stale = onIt('Digger', 'held', { handover: { state: 'held', why: 'its clear did not run: a prompt came first', step: 'B21' } })
-  // An older failed envelope (a 0.30.0 settle 40 min ago) and then the newest, a clear owed with its line typed: no finding.
-  const olderFailed = handed(0, 40, { state: 'failed', outcome: { cleared: false, set: null, typed: null, restarted: null, background: false, why: '/clear did not run within two minutes' } })
-  assert.deepEqual(check('handover-held', view({ chats: [LEAD, stale], outbox: [olderFailed, handed(1, 30)] })), [])
-  // Without the newer clear-owed outcome, that older failure is a hold as before (the mutant's view).
-  assert.equal(check('handover-held', view({ chats: [LEAD, stale], outbox: [olderFailed] })).length, 1)
+test('the lazy clear, handover-held (D4, the Task 4 review): a clear outcome holds nobody (decide says so, the lane carries it); a hold after one, on a later failed envelope, is named (mutant: the rule skipping on the newest settled outcome)', () => {
+  // E1 (B21) settled a clear owed with its line typed; E2 (B22) failed with no outcome (the store's failed or refused path,
+  // its line too long): decide holds the worker on E2, and the rule names it.
+  const lineFailed = handed(2, 20, { state: 'failed', failedAt: ago(20), outcome: undefined, deliveredAt: undefined, settledAt: undefined, why: 'too long: 9000 > 8000 characters' })
+  const held = onIt('Digger', 'held', { handover: { state: 'held', why: 'its line could not be typed: too long: 9000 > 8000 characters', step: 'B22' } })
+  const found = check('handover-held', view({ chats: [LEAD, held], outbox: [handed(1, 30), lineFailed] }))
+  assert.deepEqual(found.map(one => [one.key, one.since]), [['handover-held Digger', ago(20)]])
   // A set that failed still holds and trips it.
   const setFailed = handed(1, 30, { state: 'failed', set: { model: 'claude-opus-5-5', effort: 'high' }, outcome: { ...handed(1, 30).outcome, set: false, typed: null, why: 'the app refused the model' } })
-  assert.equal(check('handover-held', view({ chats: [LEAD, stale], outbox: [setFailed] })).length, 1)
+  assert.equal(check('handover-held', view({ chats: [LEAD, held], outbox: [setFailed] })).length, 1)
+  // A worker whose lane is not HELD (a clear owed, its line typed: decide says working or offered) is never named.
+  assert.deepEqual(check('handover-held', view({ chats: [LEAD, owing()], outbox: [handed(1, 30)] })), [])
 })
 
 test('the lazy clear, health (R6): a worker that owes its clear says so with its last why, an odd line owned by \'info\' (no sweep)', async () => {
@@ -266,4 +268,22 @@ test('the lazy clear, health (R6): a worker that owes its clear says so with its
   // Owed and no refusal known yet: its words say so.
   const none = view({ chats: [LEAD, owing({ state: 'free', handover: { state: 'free', why: null, step: null } })], outbox: [] })
   assert.match(oddLines(none, NOW).find(one => one.text.startsWith('Digger (worker)')).text, /clear owed after B22 \(its last: none tried yet\)/)
+})
+
+test('the Task 4 review: clear-owed-repeat only while the clear is still owed; a settled task that asked no clear (the clear met) breaks the run', () => {
+  const three = [handed(1, 30), handed(2, 20), handed(3, 10)]
+  // The person's /clear or a late `cleared` stage met it: no clear owed, no finding.
+  assert.deepEqual(check('clear-owed-repeat', view({ chats: [LEAD, owing({ clearOwed: null })], outbox: three })), [])
+  // R, R, a task with no clear (nothing owed then), R: no run of three.
+  const met = handed(9, 15, { clear: null, step: 'B30', outcome: { cleared: null, set: null, typed: true, restarted: null, background: false, why: null } })
+  assert.deepEqual(check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: [handed(1, 30), handed(2, 20), met, handed(3, 10)] })), [])
+  assert.equal(check('clear-owed-repeat', view({ chats: [LEAD, owing()], outbox: three })).length, 1)
+})
+
+test('the Task 4 review: the health line clips the clear\'s why so the line keeps its trailing words', async () => {
+  const { oddLines } = await import('../../src/supervisor/health.mjs')
+  const long = handed(1, 30, { outcome: { ...handed(1, 30).outcome, clearWhy: `the board refused the log: ${'x'.repeat(300)}` } })
+  const board = view({ chats: [LEAD, owing({ state: 'free', handover: { state: 'free', why: null, step: null } })], outbox: [long] })
+  const line = oddLines(board, NOW).find(one => one.text.startsWith('Digger (worker)')).text
+  assert.match(line, /\(its last: the board refused the log: x+…\); no clear known/)
 })

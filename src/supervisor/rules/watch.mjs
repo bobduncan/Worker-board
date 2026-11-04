@@ -23,7 +23,7 @@ import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '..
 import { chainTries, hasTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
 import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
-import { NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf, isClearOwedOnly } from '../../work/handover.mjs'
+import { NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '../../work/handover.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
 import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
@@ -1073,11 +1073,9 @@ function handoverHeld(view, ctx) {
   if (isPaused(view)) return found
   for (const lane of workersOf(view).filter(one => one.onSequence === true)) {
     if (lane.handover?.state !== STATES.HELD) continue
-    const envelopes = envelopesOf(view.outbox, lane.name, view.prefix)
-    // The lazy clear (Task 4, D4): never on a clear outcome: a clear owed while its line went in holds nobody.
-    const settled = envelopes.filter(one => (one.outcome ?? null) !== null).at(-1) ?? null
-    if (settled !== null && isClearOwedOnly(settled)) continue
-    const failed = envelopes.filter(one => one.state === 'failed').at(-1) ?? null
+    // The lazy clear (Task 4, D4; the Task 4 review): never on a clear outcome, by decide itself: it holds only on a failed
+    // envelope (failedOf), and a clear owed while its line went in is none (isClearOwedOnly): the lane's HELD is the fact.
+    const failed = envelopesOf(view.outbox, lane.name, view.prefix).filter(one => one.state === 'failed').at(-1) ?? null
     const since = [failed?.settledAt, failed?.failedAt, failed?.at].find(Number.isFinite) ?? null
     const report = lane.clearOwed?.step ?? failed?.clear?.step ?? failed?.step ?? failed?.id ?? 'its last report'
     // The lead's live check (2026-11-02, order C): the key is the rule and the chat, not the step: the same fault (a worker
@@ -1107,6 +1105,8 @@ function handoverHeld(view, ctx) {
 function clearOwedRepeat(view) {
   const found = []
   for (const lane of workersOf(view).filter(one => one.onSequence === true)) {
+    // The Task 4 review: only while the clear is still owed (the person's /clear or a late `cleared` stage met it: none).
+    if ((lane.clearOwed ?? null) === null) continue
     const last = clearOutcomesOf(envelopesOf(view.outbox, lane.name, view.prefix)).slice(-CLEAR_OWED_RUN)
     if (last.length < CLEAR_OWED_RUN || last.some(one => one.isCleared)) continue
     const settled = one => [one.envelope.settledAt, one.envelope.deliveredAt, one.envelope.failedAt, one.envelope.at].find(Number.isFinite) ?? null

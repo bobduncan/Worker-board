@@ -140,7 +140,7 @@ function chatLines(view, now) {
     const late = role === 'worker' && switching?.late === true
     // The lazy clear (Task 4, R6): a worker that owes its clear says so with its last why (the envelope's clearWhy): no fault, 'info'.
     const owes = role === 'worker' && (lane.clearOwed ?? null) !== null
-    const owedWords = owes ? `; clear owed after ${lane.clearOwed.step} (its last: ${lastClearWhyOf(envelopesOf(view.outbox, lane.name, view.prefix)) ?? 'none tried yet'})` : ''
+    const owedWords = owes ? `; clear owed after ${lane.clearOwed.step} (its last: ${oneLine(lastClearWhyOf(envelopesOf(view.outbox, lane.name, view.prefix)) ?? 'none tried yet', 80)})` : ''
     const odd = stopped || idle || late || owes
     // Signals change 6: a suspension at a full limit is no fault; one past its limit is stale-suspended's; a stopped holder
     // (`stoppedOwner`) is watched by changes 3 and 4; another stop no rule names; a worker working on no step is

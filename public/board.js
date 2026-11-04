@@ -7752,7 +7752,9 @@ function compactionLine(compaction, clockOf) {
 function clearOwedLine(owed, clockOf) {
   if (owed === null || owed === undefined) return null
   const text = `clear owed · its last: ${owed.lastWhy ?? 'none tried yet'}`
-  return { text, title: `${text}. Reported ${owed.step} at ${clockOf(owed.reportedAt)}; its clear goes with its next task.` }
+  // The Task 4 review: a Workers mod too old to clear (or not known) gets no clear with its next task: its chat needs the restart.
+  const then = owed.canClear === true ? 'its clear goes with its next task' : 'its Workers mod is too old to clear it: restart its chat (Pause all, restart the app, Resume all)'
+  return { text, title: `${text}. Reported ${owed.step} at ${clockOf(owed.reportedAt)}; ${then}.` }
 }
 
 /**

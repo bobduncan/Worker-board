@@ -562,9 +562,11 @@ export function mergeStages(had, incoming) {
  * failed clear without clearWhy (its words are not the clear's alone): neither counts. `{ envelope, isCleared, clearWhy }`.
  */
 export function clearOutcomesOf(envelopes) {
-  return (envelopes ?? []).filter(one => (one?.clear ?? null) !== null && (one.outcome ?? null) !== null && !isPauseRefusal(one)
-    && (one.outcome.cleared === true || (one.outcome.cleared === false && typeof one.outcome.clearWhy === 'string' && one.outcome.clearWhy !== '')))
-    .map(envelope => ({ envelope, isCleared: envelope.outcome.cleared === true, clearWhy: envelope.outcome.cleared === true ? null : envelope.outcome.clearWhy }))
+  // The Task 4 review: a settled task envelope that asked no clear (none was owed then: the clear had been met) counts as met.
+  const isMet = one => (one?.clear ?? null) === null && typeof one?.step === 'string' && (one.outcome ?? null) !== null
+  return (envelopes ?? []).filter(one => isMet(one) || ((one?.clear ?? null) !== null && (one.outcome ?? null) !== null && !isPauseRefusal(one)
+    && (one.outcome.cleared === true || (one.outcome.cleared === false && typeof one.outcome.clearWhy === 'string' && one.outcome.clearWhy !== ''))))
+    .map(envelope => (isMet(envelope) || envelope.outcome.cleared === true ? { envelope, isCleared: true, clearWhy: null } : { envelope, isCleared: false, clearWhy: envelope.outcome.clearWhy }))
 }
 
 /** The lazy clear (D6): the clearWhy of the worker's newest hand-over that asked a clear and did not clear, or null. */

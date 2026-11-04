@@ -40,7 +40,7 @@ const check = (id, board, seen = new Map()) => {
   return Object.defineProperty(found, 'observed', { value: observed, enumerable: false })
 }
 
-test('the watch rules: twenty-eight, report only, each with what it says (signals change 4: wake-failed and nobody-answers-wakes)', () => {
+test('the watch rules: twenty-nine, report only, each with what it says (signals change 4: wake-failed and nobody-answers-wakes)', () => {
   assert.deepEqual(WATCH_RULES.map(one => one.id), ['stale-suspended', 'ready-while-free', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'handover-held', 'handover-unanswered', 'clear-owed-repeat', 'wake-failed', 'nobody-answers-wakes', 'old-limit-reading', 'board-deaf', 'board-slow', 'week-stop-ignored', 'five-hour-stop-ignored', 'pause-stale', 'obsolete-wrong'])
   // Redesign Part 2: the rules of Main's queues are gone.
   // T8.5 step 6: the old hand-over rules are gone (their findings are handover-held and handover-unanswered now).

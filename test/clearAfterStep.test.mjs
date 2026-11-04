@@ -223,6 +223,8 @@ test('the lane says "cleared after B12 · log", the log opening in the file view
   const owed = { step: 'B12', reportedAt: 1, clearedAt: null, why: 'the card\'s own note', canClear: true, lastWhy: 'a prompt came first' }
   assert.deepEqual({ ...part.clearOwedLine(owed, () => '14:05') }, { text: 'clear owed · its last: a prompt came first', title: 'clear owed · its last: a prompt came first. Reported B12 at 14:05; its clear goes with its next task.' })
   assert.equal(part.clearOwedLine({ ...owed, lastWhy: undefined }, () => '14:05').text, 'clear owed · its last: none tried yet')
+  // The Task 4 review: a mod too old to clear gets the restart words, not the next task's.
+  assert.ok(part.clearOwedLine({ ...owed, canClear: false }, () => '14:05').title.endsWith('; its Workers mod is too old to clear it: restart its chat (Pause all, restart the app, Resume all).'))
   assert.equal(part.clearOwedLine(null, () => '14:05'), null)
   // The row: no amber line for it any more, only the name's hover (mutant: the old row line kept).
   assert.equal(script.includes("el('small', 'compaction is-warning', owed.text)"), false)
