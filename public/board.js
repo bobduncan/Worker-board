@@ -166,6 +166,49 @@ function newestWaitOf(part, command, about = null) {
   return waitViewOf(part, newestWaitId(part, command, about))
 }
 
+/** T22 wave 2, place 5: the line of the answer that overturned a recap (its `ask` is `work:<the recap's id>`), as drawn under the recap's status; null for none. */
+function overturnWaitLine(recap, state) {
+  if (recap.state !== 'overturned' || typeof recap.workId !== 'string') return null
+  const view = placeWaitOf(state.waitPart, 'overturn', { ask: `work:${recap.workId}` })
+  return view === null || !view.isShown ? null : drawWaitLine(view)
+}
+
+/** T22 wave 2, place 6: the line of the newest Stop or Remove the person asked of the main chat for this worker, as drawn on its row; null for none (a stop done in code has none). */
+function workerWaitLine(lane, state) {
+  const view = lane.isLeftover === true || lane.isMain === true ? null : placeWaitOf(state, 'worker', { about: lane.name })
+  return view === null || !view.isShown ? null : drawWaitLine(view)
+}
+
+/**
+ * T22 wave 2, place 8: the lines of the incidents that wait for the Supervisor's judgment, by incident (the newest word that lists
+ * it, `judgeLinesOf`), as the section draws them: those still shown (a Done line goes after ten minutes).
+ */
+function incidentWaitsOf(state) {
+  const found = new Map()
+  const seen = new Set()
+  for (const id of placeWaitIds(state, 'judge')) {
+    const incident = state.waits[id].about
+    if (typeof incident !== 'string' || seen.has(incident)) continue
+    seen.add(incident)
+    const view = waitViewOf(state, id)
+    if (view !== null && view.isShown) found.set(incident, view)
+  }
+  return found
+}
+
+/** The newest line of a place for what it is about (`placeWaitIds`), as a part draws it; null for none. */
+function placeWaitOf(part, place, about = {}) {
+  return waitViewOf(part, placeWaitIds(part, place, about)[0] ?? null)
+}
+
+/**
+ * A line as a view's key reads it: plain data, null for none. A line that is not shown any more (a Done one past its 10 minutes)
+ * reads as none, so the card draws again when it goes.
+ */
+function waitKeyOf(view) {
+  return view === null || view === undefined || view.isShown !== true ? null : [view.id, view.state, view.lead, view.rest, view.canSendAgain, view.pill?.label ?? null, view.again?.isSending ?? null, view.again?.problem ?? null]
+}
+
 /** The line as drawn: its sign (a ring, a loader, a tick, "!"), its lead in bold, the rest, a link to what came of it, Send again, and the pill. */
 function drawWaitLine(view) {
   if (view === null || view === undefined) return null
@@ -1491,7 +1534,7 @@ function checkNowButton(about, state, title) {
  * One incident card (see `incidentCardOf`): the step's id (a link that opens it) and title, the chip with its live state,
  * the one quiet line, and, once the person clicked the card, each incident's evidence, times and count.
  */
-function drawIncidentCard(card, isOpen) {
+function drawIncidentCard(card, isOpen, waits = new Map()) {
   const box = el('article', `inc-card is-${card.tone}${card.isNew ? ' is-new' : ''}${isOpen ? ' is-open' : ''}`)
   box.dataset.supervisorCard = card.key
   const top = el('div', 'inc-top')
@@ -1512,6 +1555,18 @@ function drawIncidentCard(card, isOpen) {
   line.setAttribute('aria-expanded', String(isOpen))
   line.title = isOpen ? 'Fold the evidence away' : 'Click for the evidence, the times and the counts'
   box.append(top, line)
+  // T22 wave 2, place 8: an incident that waits for the Supervisor's judgment (or was judged a moment ago) has its line on its row.
+  const waiting = card.details.filter(one => waits.has(one.id))
+  if (waiting.length > 0) {
+    const rows = el('div', 'inc-waits')
+    for (const one of waiting) {
+      const row = el('div', 'inc-wait')
+      row.dataset.incidentWait = one.id
+      row.append(el('small', 'muted', one.id), drawWaitLine(waits.get(one.id)))
+      rows.append(row)
+    }
+    box.append(rows)
+  }
   if (isOpen) {
     const details = el('div', 'inc-details')
     for (const one of card.details) {
@@ -1549,7 +1604,9 @@ function drawSupervisor(state) {
   const isPressed = isCheckPressed()
   const status = shown ? checkStatusOf(view, { isPressed, now: Date.now() }) : null
   const sweepLine = shown ? sweepWaitOf(state) : null
-  once('supervisor', [view, shown, isOpen, supervisorUi.seenAt, supervisorUi.shownSince, supervisorUi.showsRules, supervisorUi.showsOlder, [...supervisorUi.openCards], main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board'), status, sweepLine], () => {
+  // T22 wave 2, place 8: the lines of the incidents that wait for the Supervisor's judgment stand on their rows here, nowhere else.
+  const incidentWaits = shown ? incidentWaitsOf(state) : new Map()
+  once('supervisor', [view, shown, isOpen, supervisorUi.seenAt, supervisorUi.shownSince, supervisorUi.showsRules, supervisorUi.showsOlder, [...supervisorUi.openCards], main, state.changeAsks?.sync?.board ?? null, sending.has('sync:board'), status, sweepLine, [...incidentWaits].map(([id, wait]) => [id, waitKeyOf(wait)])], () => {
     const box = $('supervisor')
     box.hidden = !shown
     box.classList.toggle('is-folded', !isOpen)
@@ -1572,7 +1629,7 @@ function drawSupervisor(state) {
     const cards = supervisorUi.showsOlder ? [...part.cards, ...part.older] : part.cards
     if (cards.length > 0) {
       const list = el('div', 'supervisor-cards')
-      for (const card of cards) list.append(drawIncidentCard(card, supervisorUi.openCards.has(card.key)))
+      for (const card of cards) list.append(drawIncidentCard(card, supervisorUi.openCards.has(card.key), incidentWaits))
       parts.push(el('h4', 'supervisor-sub', 'Incidents and what is being done about them'), list)
       if (part.older.length > 0) {
         const older = el('button', 'quiet-button supervisor-more', supervisorUi.showsOlder ? 'Hide the older fixed ones' : `Show ${part.older.length} older fixed`)
@@ -3319,7 +3376,10 @@ function drawLane(lane, state) {
     if (problems.has(`recheck:${flag.button?.recheck}`)) line.append(' ', el('span', 'lane-flag-problem', problems.get(`recheck:${flag.button.recheck}`)))
     what.append(line)
   }
-  if (removal.line !== null) what.append(el('p', `remove-line is-${removal.line.tone}`, removal.line.text))
+  // T22 wave 2, place 6: Stop and Remove, as the main chat does them, say where they stand: the line replaces the older "asked" sentence.
+  const wait = workerWaitLine(lane, state)
+  if (removal.line !== null && !(wait !== null && removal.line.tone === 'asked' && !Number.isFinite(lane.removedAt))) what.append(el('p', `remove-line is-${removal.line.tone}`, removal.line.text))
+  if (wait !== null) what.append(wait)
   if (problems.has(`remove:${lane.name}`)) what.append(el('p', 'remove-line is-problem', problems.get(`remove:${lane.name}`)))
   // B438: what became of its last sync check, on the row itself: asked, or the main chat's answer in one line.
   const syncLine = syncLineOf(state.changeAsks?.sync?.[lane.name] ?? null, main)
@@ -5592,9 +5652,12 @@ function drawSlimNeed(need, line) {
 // recaps:start
 /**
  * B360: the recaps Needs your attention shows, each as a card of its own: none while they gather in the daily note
- * (`recapsShow` "daily": Autopilot is on); else the open ones, and with "Show closed" those closed within the last day too.
+ * (`recapsShow` "daily": Autopilot is on); else the open ones, and with "Show closed" those closed within the last day too. T22 wave 2
+ * (place 5): and an overturned one while its fix waits for the partner (`isOverturnWaiting`), so the person sees where it stands.
  */
-const shownRecaps = (state, withClosed) => (state.recapsShow === 'daily' ? [] : (state.recaps ?? []).filter(recap => withClosed || !recap.isClosed))
+const shownRecaps = (state, withClosed) => (state.recapsShow === 'daily' ? [] : (state.recaps ?? []).filter(recap => withClosed || !recap.isClosed || isOverturnWaiting(recap, state)))
+/** T22 wave 2, place 5: an overturned recap stays, closed, while the line of its Overturn is not Done, or Done less than ten minutes ago. */
+const isOverturnWaiting = (recap, state) => recap.state === 'overturned' && typeof recap.workId === 'string' && (placeWaitOf(state.waitPart, 'overturn', { ask: `work:${recap.workId}` })?.isShown ?? false)
 /** B360: the open recaps the daily note gathers, while they gather there. */
 const gatheredRecaps = state => (state.recapsShow === 'daily' ? (state.recaps ?? []).filter(recap => !recap.isClosed) : [])
 /** B360: a time left, as a card says it: hours from an hour on, else minutes. */
@@ -5655,6 +5718,9 @@ function drawRecap(recap, state) {
     card.append(checked)
   }
   card.append(el('p', 'muted recap-status', recapStatus(recap, state.readAt)))
+  // T22 wave 2, place 5: an overturned recap says where its fix stands (Sent, "<Chat> is on it", Done with the step made, Late).
+  const wait = overturnWaitLine(recap, state)
+  if (wait !== null) card.append(wait)
   if (recap.isClosed) return card
   const button = (label, className, title) => {
     const node = el('button', `button ${className}`, label)
@@ -6287,6 +6353,17 @@ function newestWaitId(part, command, about = null) {
 }
 
 /**
+ * Wave 2 (plan-wave2.md): the ids of the lines of a place (`place` of the server's line: 'refine', 'go', 'change', 'goal-ask',
+ * 'overturn', 'worker', 'talk', 'judge'), newest first, for what it is about: its `about` (a step, an ask, a worker, a thread, an
+ * incident), its `goal` (G<n>), the ask it answers (`ask`, an Overturn's recap) or its word's `command`. Each filter only when given.
+ */
+function placeWaitIds(part, place, { about = null, goal = null, ask = null, command = null } = {}) {
+  return Object.entries(part?.waits ?? {})
+    .filter(([, line]) => line?.place === place && (about === null || line.about === about) && (goal === null || line.goal === goal) && (ask === null || line.ask === ask) && (command === null || line.command === command))
+    .sort(([, a], [, b]) => (b.sentAt ?? 0) - (a.sentAt ?? 0)).map(([id]) => id)
+}
+
+/**
  * T22: what a part's wait lines read, plain data for its key: the server's lines of these word ids (the state's `waits`), the
  * chats they are about with their status (the pill beside each line), the minute while a line shows (a Done line goes after
  * 10 minutes; no line, no minute: the Focus page is not drawn anew each minute), and whether Send again is offered.
@@ -6305,7 +6382,7 @@ function needsView(state, ui) {
   return {
     ...cardsView(state),
     // The wait line (T22): the lines of the answered cards (by their answer's word id) and of the obsolete check.
-    waitPart: waitsPart(state, [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])].map(need => need?.answer?.id).concat(newestWaitId(state, 'obsolete-check'))),
+    waitPart: waitsPart(state, [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])].map(need => need?.answer?.id).concat(newestWaitId(state, 'obsolete-check'), recapWaitIds(state))),
     focus: { needs: (state.focus?.needs ?? []).map(need => ({ id: need.id })) },
     instructions: state.instructions ?? [],
     information: state.information ?? [],
@@ -6375,10 +6452,18 @@ function focusPageView(state, ui) {
     // T17.1: the same while round N+1 of the recap is being made.
     recapMaking: state.recapMaking ?? null,
     // T22: the wait line of the focus goal's last recap Send, for the card "feedback sent" while no verdict waits.
-    waitPart: waitsPart(state, typeof state.focus?.id === 'string' ? [newestWaitId(state, 'recap-feedback', state.focus.id)] : []),
+    waitPart: waitsPart(state, [...(typeof state.focus?.id === 'string' ? [newestWaitId(state, 'recap-feedback', state.focus.id), ...FOCUS_WAIT_PLACES.map(place => placeWaitIds(state, place, { goal: state.focus.id })[0])] : []), ...recapWaitIds(state)]),
     ui,
   }
 }
+
+/** T22 wave 2, place 5: the ids of the lines of the answers that overturned the state's recaps (each recap's own, by the ask it answers). */
+function recapWaitIds(state) {
+  return (state.recaps ?? []).filter(recap => recap?.state === 'overturned' && typeof recap.workId === 'string').map(recap => placeWaitIds(state, 'overturn', { ask: `work:${recap.workId}` })[0])
+}
+
+/** T22 wave 2: the places whose lines the Focus page draws for its goal: Go (place 2), Change this goal (3), the talk (7). */
+const FOCUS_WAIT_PLACES = ['go', 'change', 'talk']
 
 /** B408: what the person does in Needs your attention, for its view: the order, Show closed, what is picked, sent, open. */
 const needsUi = () => ({ obsoleteSet: [...obsoleteUi.set], showsClosed: showsClosed(), order: $('needs-order').value, withPartnerOpen: withPartnerUi.isOpen, decidedOpen: decidedUi.isOpen, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
@@ -8700,7 +8785,7 @@ function drawDetails(state) {
   const calmIds = isCalm(need) ? calmGroup(need, everyNeed(state)).map(one => one.id) : null
   // B397: and the ask it points to, shown inline.
   const pointed = need !== null && !isStep(need) ? pointedAsk(need, everyNeed(state)) : null
-  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null, state.advisor?.name ?? null, calmIds, pointed, need === null ? null : nudged.get(need.id) ?? null, isTask ? [taskItem, taskAsks.map(one => [one.id, one.question ?? one.title, one.options, one.advice])] : null, subject.step !== undefined && !isTask && taskItem !== null && taskItem !== undefined ? [taskAsksOf(taskItem.id, everyNeed(state), null).map(one => [one.id, one.question ?? one.title, one.text, one.options, one.advice, one.pictures]), [...pictureAsked]] : null])
+  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], waitKeyOf(placeWaitOf(state, 'refine', { about: subject.step?.id ?? step?.id ?? 'none' })), [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null, state.advisor?.name ?? null, calmIds, pointed, need === null ? null : nudged.get(need.id) ?? null, isTask ? [taskItem, taskAsks.map(one => [one.id, one.question ?? one.title, one.options, one.advice])] : null, subject.step !== undefined && !isTask && taskItem !== null && taskItem !== undefined ? [taskAsksOf(taskItem.id, everyNeed(state), null).map(one => [one.id, one.question ?? one.title, one.text, one.options, one.advice, one.pictures]), [...pictureAsked]] : null])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
   const focused = focusedNeed(box)
@@ -11070,6 +11155,11 @@ function goalCounter(counts) {
   return parts.length === 0 ? 'no steps yet' : parts.join(' · ')
 }
 
+/** T22 wave 2, place 4: the lines of the goal asks as the goals' key reads them (a ask's line moves: the box draws again). */
+function goalAskWaitKeys(state) {
+  return Object.keys(state.waits ?? {}).filter(id => state.waits[id]?.place === 'goal-ask').map(id => waitKeyOf(waitViewOf(state, id)))
+}
+
 /** B258: where an ask stands: the Advisor has not answered it, answered and the person has not read it, or read. */
 function goalAskState(ask) { return ask.answer === null ? 'pending' : ask.readAt === null ? 'answered' : 'read' }
 
@@ -11582,7 +11672,7 @@ const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, u
 
 function goalsData(state) {
   const editing = goalsUi.editing === null ? null : { kind: goalsUi.editing.kind, id: goalsUi.editing.id }
-  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, goalsHideDone, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null]
+  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, goalsHideDone, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null, goalAskWaitKeys(state)]
 }
 
 const canEditGoals = state => state?.goalsEdit?.canWrite === true
@@ -12097,6 +12187,9 @@ function goalAskBlockNode(node, block, canEdit) {
   const head = el('p', 'goal-ask-head')
   head.append(el('b', '', `? Ask ${block.id}`), el('small', 'muted', ` · ${block.at} · ${ASK_STATES[block.state]}`))
   box.append(head, el('p', 'goal-ask-question', block.question))
+  // T22 wave 2, place 4: where the question stands with the partner (Sent, "<Chat> is on it", Done "answered under G<n>", Late).
+  const wait = placeWaitOf(board, 'goal-ask', { goal: node.id, about: block.id })
+  if (wait !== null && wait.isShown) box.append(drawWaitLine(wait))
   if (block.answer !== null) {
     const answer = el('div', 'goal-ask-answer')
     answer.append(el('small', 'muted', `Answer · ${block.answer.at} · ${block.answer.by}`), el('p', '', block.answer.text))
@@ -13576,7 +13669,17 @@ function brainstormData(state) {
     brainstormUi.notQuite, [...brainstormUi.agreed], [...brainstormUi.dropsTicked].map(([path, keys]) => [path, [...keys]]), Object.entries(brainstormTitles(state)),
     brainstormUi.menu, [...brainstormUi.opening], [...brainstormUi.why], brainstormUi.chip,
     // 2026-10-31: where the new tasks of a created proposal stand now (the Result card).
-    (state.brainstorms?.threads ?? []).filter(thread => thread.path === brainstormChosen(state.brainstorms?.threads ?? [], brainstormUi.open) && (thread.proposal?.created ?? null) !== null).map(thread => brainstormResultOf(thread, state))]
+    (state.brainstorms?.threads ?? []).filter(thread => thread.path === brainstormChosen(state.brainstorms?.threads ?? [], brainstormUi.open) && (thread.proposal?.created ?? null) !== null).map(thread => brainstormResultOf(thread, state)),
+    // T22 wave 2: the line of the chosen thread's last word, and the minute while it shows (a Done line goes after 10 minutes).
+    (state.brainstorms?.threads ?? []).filter(thread => thread.path === brainstormChosen(state.brainstorms?.threads ?? [], brainstormUi.open)).map(thread => waitKeyOf(threadWaitView(state, thread)))]
+}
+
+/** T22 wave 2, places 3 and 7: the line of the newest word of the person's about a thread (a change of a goal, or a talk), as a part draws it; null for none or one past its Done. */
+function threadWaitView(state, thread) {
+  const ids = [...placeWaitIds(state, 'change', { about: thread.path }), ...placeWaitIds(state, 'talk', { about: thread.path })]
+    .sort((a, b) => (state.waits[b].sentAt ?? 0) - (state.waits[a].sentAt ?? 0))
+  const view = waitViewOf(state, ids[0] ?? null)
+  return view !== null && view.isShown ? view : null
 }
 
 /** "Change this goal": the titles of the backlog's steps by their ids, for the re-plan's covered steps and drops. */
@@ -13664,6 +13767,9 @@ function brainstormCard(thread, state) {
   const canWrite = canBrainstorm(state)
   const isLive = thread.state === 'running' || thread.state === 'wrapping up'
   const parts = [brainstormHead(thread, view, canWrite, isLive), ...(brainstormChips(thread, view) ?? [])]
+  // T22 wave 2, places 3 and 7: where the thread's last word of the person's stands (its Done: the partner's next stage of the thread).
+  const wait = threadWaitView(state, thread)
+  if (wait !== null) parts.push(drawWaitLine(wait))
   if (view.question !== null) parts.push(brainstormAsk(thread, view, canWrite))
   // "Change this goal": the partner's "what I understand you want", with "Yes, that's it" and "Not quite…".
   else if (view.understood !== null && view.understood.canAnswer) {
@@ -16101,6 +16207,9 @@ function focusTalkCard(state, can) {
   const picked = focusUi.picked !== null && ask.question?.options.some(one => one.key === focusUi.picked) ? focusUi.picked : null
   const placeholder = ask.question === null ? 'Your partner has the turn…' : picked !== null ? `Words to go with ${picked} (if any)…` : 'Write to your partner…'
   card.append(focusSay(placeholder, 'focus-say', { box: 'focus-talk-words', act: 'talk', isEnabled: can.canWrite && ask.question !== null, title: can.canWrite ? 'Your partner has the turn' : can.whyNot }))
+  // T22 wave 2, place 7: where the last word of the talk stands (the board says "thinking" whenever the chat runs, not whether it took the word).
+  const talkLine = focusTalkLine(state)
+  if (talkLine !== null) card.append(talkLine)
   card.append(effortSwitch(state, can))
   return card
 }
@@ -16307,6 +16416,32 @@ function focusRecapSentOf(state) {
   const goal = state.focus?.id ?? null
   const line = typeof goal === 'string' ? newestWaitOf(state.waitPart, 'recap-feedback', goal) : null
   return line !== null && line.isShown ? { goal, line } : null
+}
+
+/**
+ * T22 wave 2, places 2 and 3 (plan-wave2.md): the lines of the focus goal's Go (once its run shows) and Change this goal, each with
+ * the action's name, in one quiet strip under the head. Null for none (a Done line is shown for 10 minutes, `waitViewOf`).
+ */
+function focusWaitStrip(state, view) {
+  const goal = state.focus?.id ?? null
+  if (typeof goal !== 'string' || view.back !== undefined) return null
+  const rows = [['Go', view.stage === 'run' ? placeWaitOf(state.waitPart, 'go', { goal }) : null], ['Change this goal', placeWaitOf(state.waitPart, 'change', { goal })]].filter(([, one]) => one !== null && one.isShown)
+  if (rows.length === 0) return null
+  const strip = el('section', 'focus-waits')
+  strip.setAttribute('aria-label', 'What your partner was asked')
+  for (const [label, one] of rows) {
+    const row = el('div', 'focus-wait-row')
+    row.append(el('small', 'muted', label), drawWaitLine(one))
+    strip.append(row)
+  }
+  return strip
+}
+
+/** T22 wave 2, place 7: the line of the talk's last word (the talk bar, Not yet, a brainstorm of the goal) for the card or bar it was typed in; null for none. */
+function focusTalkLine(state) {
+  const goal = state.focus?.id ?? null
+  const one = typeof goal === 'string' ? placeWaitOf(state.waitPart, 'talk', { goal }) : null
+  return one !== null && one.isShown ? drawWaitLine(one) : null
 }
 
 /** T22: the card of that Send, where the recap card stood: its goal, what was sent, and the line with the partner's pill. */
@@ -17982,6 +18117,9 @@ function drawFocus(state) {
     head.append(title, side)
     parts.push(head)
   }
+  // T22 wave 2: what Go and Change this goal asked of the partner, with where it stands.
+  const waitStrip = focusWaitStrip(state, view)
+  if (waitStrip !== null) parts.push(waitStrip)
   // 2026-11-01: the recap card, under the head and above the work blocks; the asks for the recap whose step no part names yet stand
   // under it as before, and with no card (nothing waits) every one of them stays where Autopilot put it.
   const allRecapAsks = recapAsksFor(state, view.head?.id ?? null)
@@ -17999,7 +18137,7 @@ function drawFocus(state) {
     const body = el('div', 'focus-body')
     if (view.stage === 'run') {
       const left = el('div', 'focus-column')
-      left.append(view.blocks?.chosen === 'open' && view.openNow !== null ? focusOpenNowCard(view) : focusRunCard(view), focusSay(view.talkBar.placeholder, 'focus-say is-slim', { box: 'focus-bar-words', act: view.talkBar.act, isEnabled: view.talkBar.isEnabled, title: view.talkBar.title }))
+      left.append(view.blocks?.chosen === 'open' && view.openNow !== null ? focusOpenNowCard(view) : focusRunCard(view), focusSay(view.talkBar.placeholder, 'focus-say is-slim', { box: 'focus-bar-words', act: view.talkBar.act, isEnabled: view.talkBar.isEnabled, title: view.talkBar.title }), ...[focusTalkLine(state)].filter(one => one !== null))
       const right = el('div', 'focus-column')
       if (view.guard !== null && view.guard !== undefined) right.append(focusGuardCard(view.guard))
       if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck))
@@ -18312,6 +18450,9 @@ function recheckPart(state) {
   const part = el('div', 'way-recheck-line')
   part.append(button)
   if (problems.has('recheck')) part.append(el('p', 'problem', problems.get('recheck')))
+  // T22 wave 2, place 7: where the round that was asked for stands with the Advisor (the button alone says "A round runs" or nothing).
+  const wait = placeWaitOf(state, 'talk', { command: 'recheck' })
+  if (wait !== null && wait.isShown) part.append(drawWaitLine(wait))
   return part
 }
 // recheck:end
@@ -20170,7 +20311,10 @@ function holding(tag, className, ...children) {
 function refinePart(step, state, isItemShown = false, { skipOpen = false, skipAnswered = false } = {}) {
   const advisor = state.advisor?.name ?? null
   const view = refineView(step, advisor)
-  const working = view?.working == null ? null
+  // T22 wave 2, place 1: the step's wait line in its place (Sent, "<Chat> is on it", Done "refined", Late), also its Done for ten minutes;
+  // the older sentence stands for a refine the board asked for itself, which has no line.
+  const waitLine = refineWaitLine(step, state)
+  const working = waitLine !== null ? waitLine : view?.working == null ? null
     : el('p', 'refine-working', `Asked at ${clock(view.working.at)}: ${advisor} ${view.working.isDelivered ? 'is refining it' : 'gets it when its chat takes it'}. It shows here once written.`)
   // A ready description stays, also once the step is finished; so does a finished step's summary, without its questions.
   const isDescribed = step.refined?.ready === true || (step.status === 'done' && hasNewForm(step.refined))
@@ -20216,6 +20360,12 @@ function refinePart(step, state, isItemShown = false, { skipOpen = false, skipAn
   }
   if (working !== null) box.append(working)
   return box
+}
+
+/** T22 wave 2, place 1: the line of the person's last refine word of a step (Send answers, Refine again, Ask for pictures), as drawn; null for none. */
+function refineWaitLine(step, state) {
+  const view = typeof step?.id === 'string' ? placeWaitOf(state, 'refine', { about: step.id }) : null
+  return view === null || !view.isShown ? null : drawWaitLine(view)
 }
 
 /**
@@ -21868,7 +22018,7 @@ function draw(state) {
   })
   once('advice', [state.advice, state.gamePlan ?? null], () => drawAdvice(state))
   // B195: the way to the next milestone, also when an answer to its recommendation is on its way or refused.
-  once('way', [state.milestone ?? null, state.goalsFile ?? null, state.workers?.main ?? null, state.goalsEdit?.canWrite ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null, state.advisor?.roundRuns ?? null, sending.has('recheck'), problems.get('recheck') ?? null], () => drawWay(state))
+  once('way', [state.milestone ?? null, state.goalsFile ?? null, state.workers?.main ?? null, state.goalsEdit?.canWrite ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null, state.advisor?.roundRuns ?? null, sending.has('recheck'), problems.get('recheck') ?? null, waitKeyOf(placeWaitOf(state, 'talk', { command: 'recheck' }))], () => drawWay(state))
   once('advice-suggestions', [state.suggestions ?? [], state.rounds?.group ?? null], () => drawSuggestions(state))
   // B286: the steps by where their refine stands, drawn anew only when the list changes.
   const refining = refineGroups(state.backlog)

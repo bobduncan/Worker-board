@@ -3428,6 +3428,17 @@ ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 
 .focus-recap-sent p { margin: 4px 0 0; font-size: 14px; }
 .demo-wait:empty { display: none; }
 .demo-wait .wait-line { margin-top: 0; }
+/* T22 wave 2: what Go and Change this goal asked of the partner, one quiet row each under the Focus head; the talk's line under its box; the lines of the other places. */
+.focus-waits { display: flex; flex-direction: column; gap: 2px; margin: 0 4px 14px; }
+.focus-wait-row { display: flex; align-items: baseline; gap: 10px; }
+.focus-wait-row > small { flex: none; min-width: 96px; }
+.focus-wait-row .wait-line { flex: 1; margin-top: 4px; }
+.focus-talk .wait-line, .focus-column > .wait-line { margin-top: 6px; }
+.details-part.refine .wait-line, .goal-ask-block .wait-line, #brainstorm-card .wait-line, .what .wait-line, .need.is-recap .wait-line, .way-recheck-line .wait-line { margin-top: 6px; }
+.inc-waits { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.inc-wait { display: flex; align-items: baseline; gap: 8px; }
+.inc-wait > small { flex: none; }
+.inc-wait .wait-line { flex: 1; margin-top: 2px; }
 /* Asset providers, part D: the first-run setup of a new board. The cards are the Settings tab's, bigger. */
 .provider-setup { position: fixed; inset: 0; z-index: 50; overflow-y: auto; background: var(--bg); }
 .provider-setup[hidden] { display: none; }
