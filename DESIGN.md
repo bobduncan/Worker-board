@@ -4124,6 +4124,9 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
 - **The Workers mod's version** (0.16.0): every call to the board carries `X-Workers-Mod` (`board.ts MOD_VERSION`, the
   same as plugin.json, a test checks it); the server keeps it per chat (`noteMod`), which makes the watch rule `old-mod`
   live and lets Check now say that the supervisor's chat runs a mod too old to sweep. A mod older than 0.16.0 sends none.
+  Fix 0.31.0: the header is merged into the body of every bridge route, the typed one too (`bridge.mjs withModHeader`; the
+  mod posts the clear's stages through typed), and a call that says no version keeps the one the board knows (`modSaid`: it
+  moves `at`, never `version`), so no call erases a known mod; one whose mod never said a version stays null.
 - **The hand-over to the Advisor** (Task 7, `index.mjs tellOwed`, after every run of the rules and at the end of each
   sweep's turn): each incident that opened or came back gets, from the store (so also one the sweep filed, and after a
   restart), first the person's line (part 1), then, once that line is filed, one board word to the partner through
@@ -6714,3 +6717,17 @@ Three rules, the person's of 2026-11-02 (instant, or a visible wait) applied to 
 
 Tests: test/askAbout.test.mjs (the real case Q616 and Q600; mutants: the play problem not drawn, the click path dropped, the About line
 dropped, the linked ask's id in place of its title, the address of a Q id not opened).
+
+## Fix 0.31.0: the double give after a lazy clear (2026-11-04, branch fix-031-handover)
+
+The real case (Worker 1, B1013 after B982, 21:21:56-21:37:57, the first lazy-clear hand-over after 0.31.0 went live; the lead's
+trace): the mod posted the clear's `cleared` stage through `/api/bridge/typed`, whose `X-Workers-Mod` header the server did not
+merge, so `noteMod` stored Worker 1's mod as null; the card moved to the new session at that moment, so no report counted either;
+the lane read as off the sequence; the refresh's `strandedGives` took B1013 back ("Worker 1 is not on the hand-over") while its
+envelope was in flight; and the next pass gave it again (envelope a0a187c1, clear null): a stale line waited 15 minutes in the
+app's queue, cost a turn after the report and made the next hand-over's clear read "refused". It repeated at every hand-over with
+a clear. Tests: `test/lazyClearReplay.test.mjs` (the real records, `test/fixtures/lazy-clear-2026-11-04.json`).
+
+1. **A typed call never erases a known mod** (`bridge.mjs` `withModHeader`, `modSaid`; server.mjs). The header is merged into every
+   bridge body; `noteMod` keeps the last known version when a call carries none (only `at` moves). Tests:
+   `test/typedKeepsMod.test.mjs`.

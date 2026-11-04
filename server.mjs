@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession } from './src/bridge.mjs'
+import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, modSaid, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession, withModHeader } from './src/bridge.mjs'
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
@@ -402,12 +402,8 @@ export function createBoard({
         parsed = { ...rest, ...(typeof req.headers['x-work-request'] === 'string' ? { request: req.headers['x-work-request'] } : {}) }
       }
       // The supervisor's Part 2: the Workers mod says its version in its header (X-Workers-Mod, since 0.16.0); null for
-      // an older one. A body's own is not taken.
-      if (pathname !== '/api/bridge/typed' && typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        const given = req.headers['x-workers-mod']
-        const { mod: _ignored, ...rest } = parsed
-        parsed = { ...rest, ...(typeof given === 'string' && /^\d{1,4}(?:\.\d{1,4}){0,3}$/.test(given.trim()) ? { mod: given.trim() } : {}) }
-      }
+      // an older one. A body's own is not taken. Fix 0.31.0: on every route, the typed one too (bridge.mjs `withModHeader`).
+      parsed = withModHeader(parsed, req.headers['x-workers-mod'])
       const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : pathname === '/api/bridge/report' ? report : pathname === '/api/bridge/whoami' ? whoami
         : pathname === '/api/bridge/hands' ? hands : pathname === '/api/bridge/hands-done' ? handsDone : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
@@ -1886,7 +1882,8 @@ async function main(args) {
   // said it (null: a mod older than 0.16.0, which says none), for the rule old-mod and the supervisor's own chat.
   const modOf = new Map()
   const noteMod = (body, checked) => {
-    if (checked.ok && typeof checked.chat === 'string') modOf.set(checked.chat, { version: typeof body?.mod === 'string' ? body.mod : null, at: clock() })
+    // Fix 0.31.0: a call that says no version keeps the one known (bridge.mjs `modSaid`).
+    modSaid(modOf, body, checked, clock())
     // B566 (X22): every accepted call of a chat says it runs, not its take alone (bridge.mjs `noteCall`).
     noteCall(seen, body, checked, clock())
   }
