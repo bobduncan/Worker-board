@@ -29,7 +29,9 @@ export function savedEntry(value, now) {
   // from before has neither and stays as it was.
   if (!(value.word === undefined || value.word === null || isWordId(value.word)) || !(value.turn === undefined || isTime(value.turn))) return null
   const { state, since, background, run, seq, at, session, mod, busyAt } = value
-  return { state, since, background, run, seq, at, session, mod, busyAt, ...(value.word === undefined ? {} : { word: value.word }), ...(value.turn === undefined ? {} : { turn: value.turn }) }
+  // B986: the app's id of the chat the report came from (`app`), when the board knew it: a lane's own chat (ownChat.mjs).
+  const app = typeof value.app === 'string' && /^local_[\w-]{1,80}$/.test(value.app) ? value.app : undefined
+  return { state, since, background, run, seq, at, session, mod, busyAt, ...(value.word === undefined ? {} : { word: value.word }), ...(value.turn === undefined ? {} : { turn: value.turn }), ...(app === undefined ? {} : { app }) }
 }
 
 /** The reports as the file holds them: `{ "reports": { "<chat>": entry } }`. */

@@ -19,6 +19,7 @@ import { DRAFTED_FOR_GO, NO_ROUND, focusStage, goWaitsForLines, goalAskList, goa
 import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
+import { keptFor, ownChatOf } from './ownChat.mjs'
 import { partnerEffort } from './partnerEffort.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
@@ -54,7 +55,7 @@ import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { withLinks } from './work/links.mjs'
 import { clearOwed, clearedStageOf, modAtLeast } from './clearOwed.mjs'
-import { newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
+import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, standingAsksOf } from './recapCard.mjs'
@@ -2151,10 +2152,24 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   // T8.5 (spec 2026-10-31, part 4): the one predicate per worker: on the sequence (the setting "sequence" and the Workers mod
   // 0.27.0 or newer). Since step 6 the old path is gone: a worker not on it is handed nothing.
   const withSequence = lane => ({ ...lane, onSequence: onSequence(lane, config) })
+  // B986 (X140): the report the board keeps under the lane's name, whatever chat the app's list shows under that title now,
+  // while it is still the lane's (ownChat.mjs `keptFor`: not when the title's chat is newer than it, nor when the chat it
+  // names is shown under another name, the review of B986).
+  const shownChatOf = name => found.find(chat => !chat.isLeftover && chat.name === name) ?? null
+  const keptOf = lane => (lane.isLeftover || !(reports instanceof Map) ? null
+    : keptFor({ name: lane.name, kept: reports.get(lane.name) ?? null, chat: shownChatOf(lane.name), chats: found }))
+  const appFiles = Array.isArray(raw.appFiles) ? new Set(raw.appFiles.filter(id => typeof id === 'string')) : null
   const sequenced = lanes.map(lane => withSequence({
     ...lane,
     // T8.5: the Workers mod its last call said (else its kept report's), for the one predicate of the hand-over (`onSequence`).
-    mod: mods?.[lane.name] ?? lane.report?.mod ?? null,
+    // B986 (X140): after the board's own restart (no call heard yet) and with the lane's title on another chat of the app's
+    // list, the kept report's mod still counts: the worker on the sequence keeps change 3's timers, never the old resume word.
+    mod: mods?.[lane.name] ?? lane.report?.mod ?? keptOf(lane)?.mod ?? null,
+    // B986 (X140): the lane's own chat, the one its kept report names (src/ownChat.mjs): every wake goes by it, never by the title.
+    own: lane.isLeftover ? null : ownChatOf({ lane, kept: keptOf(lane), apps, appFiles }),
+    // B986 (the review, 7): the kept report the wake's spell is read from when the title's chat has none (wake.mjs `spellOf`),
+    // so the spell does not flip between that report and none, and the woken chat's own report is heard in it.
+    ownReport: lane.isLeftover || lane.report != null ? null : (({ state, since, at }) => ({ state, since, at }))(keptOf(lane) ?? {}),
     isRunning: lane.isLeftover ? null : lane.state === 'off' ? false : runningOf(lane.name),
     // B143: the newest ask to remove this worker; the main chat and a leftover have none.
     removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
@@ -2741,7 +2756,7 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now }) {
     const need = byChat.get(lane.name)
     if (need !== undefined) return { ...need, need: true }
     if (lane.isRunning !== false) return null
-    const target = { chat: lane.name, spell: spellOf(lane), paths: pathsOf(lane, wakes.canLaunch === true), need: false }
+    const target = { chat: lane.name, spell: spellOf(lane), paths: pathsOf(lane, wakes.canLaunch === true), cannot: cannotWakeWhy(lane), need: false }
     const kept = wakeStatusOf(record, lane.name, target.spell)
     return kept.spell === target.spell && kept.attempts.length > 0 ? target : null
   }

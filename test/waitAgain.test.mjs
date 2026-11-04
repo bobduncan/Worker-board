@@ -54,7 +54,7 @@ test('the server: Send again asks personAgain with the claim\'s job id, and the 
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   const route = server.slice(server.indexOf('const wakeAgainNow = async body => {'), server.indexOf('const waitsNow = async'))
   assert.match(route, /personAgain\(wakes, \{ chat, spell, path: 'message', by: AGAIN_BY, jobId: wakeJobId\(spell, chat\), now, runBefore: reports\?\.get\(chat\)\?\.run \?\? null \}\)/)
-  assert.match(route, /launchFor\(\{ target: \{ chat, session: lane\.session \}, key: chat, spell, now, again: true \}\)/)
+  assert.match(route, /launchFor\(\{ target: \{ chat, session: wakeIdsOf\(lane\)\.session \}, key: chat, spell, now, again: true \}\)/)
   assert.match(server, /again \? personAgain\(wakes, \{ chat: key, spell, path: 'launch', by: 'board', jobId, now, runBefore \}\)/)
   const hands = server.slice(server.indexOf("// T22: the person's Send again on the message way"), server.indexOf('if (wakeClaimed) wakesChanged()'))
   assert.ok(hands.length > 0)

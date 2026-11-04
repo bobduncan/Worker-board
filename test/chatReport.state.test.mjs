@@ -99,10 +99,14 @@ test('Review Focus 3: right after the board started no chat has reported yet: ea
 })
 
 test('a chat on mod 0.18.1, or a report from a session the board does not show under that name, keeps today\'s reading', () => {
+  // B986: the reading is today's; only the kept report's mod (the hand-over's predicate), the lane's own chat and its kept report (its wakes) differ.
+  const reading = one => (({ mod, own, ownReport, onSequence, ...rest }) => rest)(one)
   const today = build()
-  assert.deepEqual(lane(build({ reports: [report('Board', 'idle', { mod: '0.18.1' })] }), 'Board'), lane(today, 'Board'))
-  assert.deepEqual(lane(build({ reports: [report('Board', 'idle', { mod: null })] }), 'Board'), lane(today, 'Board'))
-  assert.deepEqual(lane(build({ reports: [report('Board', 'idle', { session: 'cli-old' })] }), 'Board'), lane(today, 'Board'))
+  assert.deepEqual(reading(lane(build({ reports: [report('Board', 'idle', { mod: '0.18.1' })] }), 'Board')), reading(lane(today, 'Board')))
+  assert.deepEqual(reading(lane(build({ reports: [report('Board', 'idle', { mod: null })] }), 'Board')), reading(lane(today, 'Board')))
+  const old = lane(build({ reports: [report('Board', 'idle', { session: 'cli-old' })] }), 'Board')
+  assert.deepEqual(reading(old), reading(lane(today, 'Board')))
+  assert.equal(old.own.isListed, false, 'its reports name a chat the app does not list')
 })
 
 test('Review Focus 5: idle while the store holds its step in progress is interrupted, never free; with a blocking ask open, waiting', () => {

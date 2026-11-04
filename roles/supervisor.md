@@ -164,8 +164,12 @@ You look for what is really wrong, nothing else.
   back by the board ... no incident". The board acts on these by itself; the dropped worker's later calls on that step are
   refused with "was given back by the board".
 - What a code rule already covers: unknown lanes (X65: the board wakes a chat by itself; since signals change 3 a holder
-  that stopped is the board's two timers'), limit readings (X47, X55, X56), clears and checks. File what the rules do not name,
-  not a second copy of what they do.
+  that stopped is the board's two timers', B986 also after the board's restart and an account switch), limit readings (X47,
+  X55, X56), clears and checks. File what the rules do not name, not a second copy of what they do.
+- `wake-failed` "could not wake Worker N: its chat is not in the app's list" (B986, X140): the chat its reports name is not
+  in the Claude app's list (an account switch, an archived chat). The board tried no message and no launch, and the held
+  step goes back by the timers (go on after 5 minutes, back 15 after); a fault only when the step is still held 20 minutes
+  after the chat stopped.
 
 An incident that turns out to be one of these is closed in your judgment (`work drop X<n>` with its why, B685), so it
 leaves the lists; in a sweep you file a new finding only for a case that really is new.
