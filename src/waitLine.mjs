@@ -29,8 +29,8 @@
 // older rule, narrowed: an idle answers only when the turn it ended began at or after the word arrived.
 // The chat's status pill stays beside the line as it is (condition 3): the page draws it from the lane, never from here.
 //
-// WAVE 2 (T22, 2026-11-04, art-inbox/focus-mocks/wait-rule/plan-wave2.md): the same line for every other action of the person that
-// waits on a chat, eight places, each with the Done source of its own (`placeOfWord`, `doneOfPlace`): a refine (its block written
+// WAVE 2 (T22, 2026-11-04, the wait rule's plan-wave2.md, beside its spec.md): the same line for every other action of the person that
+// waits on a chat, eight places, each with the Done source of its own (`placeOfWord`, the `*Done` functions): a refine (its block written
 // after the word), Go (the work blocks' tasks filed), Change this goal (the partner's next stage of the thread: its new goal
 // definition), a goal ask (its answer under the goal), an Overturn (the fix step made), Stop or Remove a worker (its lane
 // stopped or gone), the Focus talk (no result of its own: the fallback "answered"), and an incident that waits for the
@@ -144,9 +144,10 @@ const oneLine = (words, max = 120) => String(words ?? '').replace(/\s+/g, ' ').t
  * - wave 2: `own` whether the action has a Done source of its own (else `hasOwnDone(word)`: the places say it, `OWN_PLACES`);
  *   `outlives` a result that ends the reason for the word (a refine written: the sweep drops the word as no longer needed) still
  *   reads as Done; `needsPill` false for the Supervisor's judge word (the coordinator's rule 2 of 2026-11-04: "on it" reads the word's
- *   own state and the mod's `report.word`, never the chat's status pill).
+ *   own state and the mod's `report.word`, never the chat's status pill); `exact` too: only the turn the mod says ran on this very word
+ *   ends it, never "answered by" a later turn on another word.
  */
-export function waitLineOf({ word, lane = null, report = null, ahead = false, wake = null, done = null, now, keep = {}, queue = 0, judge, paused = false, own: ownGiven = undefined, outlives = false, needsPill = true }) {
+export function waitLineOf({ word, lane = null, report = null, ahead = false, wake = null, done = null, now, keep = {}, queue = 0, judge, paused = false, own: ownGiven = undefined, outlives = false, needsPill = true, exact = false }) {
   if (word === null || word === undefined || typeof word.to !== 'string' || !isTime(word.at)) return null
   if (['stopped', 'copied'].includes(word.state)) return null
   const hasResult = isTime(word.doneAt) || (done !== null && done !== undefined)
@@ -178,7 +179,9 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
   const isOurs = isNamed && report.word === word.id
   // The turn that ran on the word has ended, seen now; kept from now on (`seen`). An `ended` report (the session closed or crashed
   // mid-turn) is no answer.
-  const answer = hasReport ? turnAnswer({ word, report, arrived, isNamed, isOurs, ahead }) : null
+  // `exact` (the judge word): only the turn the mod says ran on this very word ends it, never a later turn on another word ("answered by").
+  const found = hasReport ? turnAnswer({ word, report, arrived, isNamed, isOurs, ahead }) : null
+  const answer = exact && found?.isBound === true ? null : found
   if (answer !== null) return { ...ended(answer.at, answer.isBound), seen: { answeredAt: answer.at, ...(answer.isBound ? { answeredBound: true } : {}) } }
   // 2. Late: a word that can never reach its chat; rule 8's own judgement; or every way to wake the chat failed while the word
   // was not in it. Send again only for a chat that does not run, while no wake is pending, nobody pauses, and the board has
@@ -521,7 +524,7 @@ export function judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, 
     const queue = outbox.filter(one => one.to === word.to && one.state === 'waiting' && one.isHeld !== true && one.id !== word.id && isTime(one.at) && one.at < word.at).length
     const line = waitLineOf({
       word, lane, report, wake: lane?.wake ?? null, done: judgment === null ? null : { at: since, words: judgment.words, link: judgment.link }, now, keep, queue, judge, paused,
-      own: true, outlives: true, needsPill: false,
+      own: true, outlives: true, needsPill: false, exact: true,
     })
     if (line === null) continue
     out[`${word.id}#${id}`] = { ...line, seen: line.seen?.doneAt === undefined ? line.seen : null, place: 'judge', word: word.id, command: 'judge', about: id, ask: null, goal: null, sentAt: word.at, title: String(valueOf(item, 'Title') ?? '').slice(0, 160) }

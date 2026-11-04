@@ -200,6 +200,9 @@ test('place 8, an incident that waits for the Supervisor\'s judgment: a line of 
   // Its turn ended (the word's `endedAt`) and the incident still waits: it says so, quietly.
   const ended = waitsFor({ state, outbox: [{ ...judgeWord, ...typed({ at: at(10) }), endedAt: at(1) }], items: new Map([['X5', items.get('X5')]]) })['j1#X5']
   assert.deepEqual([ended.state, ended.lead], ['sent', `Supervisor's turn ended at ${hhmm(at(1))} without it`])
+  // A later turn of its chat on another word never ends the judgment ("answered by" is for the words that have no turn of their own).
+  const later = waitsFor({ state, outbox: [{ ...judgeWord, ...typed({ at: at(10), takenAt: at(8), deliveredAt: at(8) }) }], items: new Map([['X5', items.get('X5')]]), reports: new Map([['Supervisor', said('busy', at(1), { word: 'other', turn: at(2) })]]) })['j1#X5']
+  assert.deepEqual([later.state, later.lead], ['sent', `Sent ${hhmm(at(10))}`])
   // The newest word that lists an incident is its line; one moot word the sweep dropped keeps its Done.
   const newer = { ...judgeWord, id: 'j2', incidents: ['X5'], about: 'X5', ...sentWord({ at: at(4) }) }
   assert.deepEqual(Object.keys(waitsFor({ state, outbox: [judgeWord, newer], items: new Map([['X5', items.get('X5')]]) })), ['j2#X5'])

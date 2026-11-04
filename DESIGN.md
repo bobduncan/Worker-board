@@ -5573,8 +5573,40 @@ pauses, and for a spell that is not the record's newest entry of the chat) makes
 `personAgain`, change 7, outside the cap of one try per path): the message way when a chat that may send claims (the record holds it `by` "the board"
 until the next hand takes it, with the job id `wakeJobId` the hands route gives a claim), else a launch at once (`launchFor`
 with `again`). A refusal stands under the line, in Needs your attention, the recap's popup and the supervisor's head. A
-word failed for good, and a chat the board has no id to reach, get none (the line says to open the chat). **Not in it yet**: the incident judgment's line (change 6), wave 2 (a refine,
-Go, Change this goal, a goal ask, Overturn, Stop or Remove a worker, the Focus talk).
+word failed for good, and a chat the board has no id to reach, get none (the line says to open the chat).
+
+### Wave 2 (T22, 2026-11-04)
+
+Spec and plan: `art-inbox/focus-mocks/wait-rule/` (spec.md, plan-wave2.md). The same one line, the same states and rules (the chat's
+status pill beside it, amber for Late only, Send again only through the wake record, a Done line hides after 10 minutes, one source
+per fact), at every other place where an action of the person waits on a chat. The person, 2026-11-02: "I want to know whats going
+on." Each place has the Done source of its own, read from what the board's state already holds (`src/waitLine.mjs`, `placeOfWord`
+and the `*Done` functions, pure); without such a result the fallback stays "<Chat> answered HH:MM", and an action with its own
+source whose turn ended without it says so quietly ("<Chat>'s turn ended at HH:MM without it"). Every line carries `place`,
+`about` and `goal`, by which the page finds it (`placeWaitIds`, `placeWaitOf`).
+
+| Place | The word | Done = | Where the page draws it |
+|---|---|---|---|
+| 1. A refine (Send answers, Refine again, Ask for pictures) | `refine`, `about` the step; not the gate's (`board`), the supervisor's repeat (`syncKey`) nor Autopilot's (`isAuto`) | the step's refine block written after the word (refineWait.mjs `isBlockWritten`, the state's own refine ask) → "refined" | the Refine part of the step's window, in place of the older "Asked at ..." sentence |
+| 2. Go on a goal | `how-go`, `about` the goal | every work block of the goal has a task filed after the word → "<n> steps", linked | under the Focus head (the run), with its name |
+| 3. Change this goal | a word of a thread with `Kind: change` | the partner's next stage of the thread after the word: a new goal definition (the proposal's draft), else its next question, else what it understood → "new definition" | under the Focus head, and in the thread's card on the Brainstorm part |
+| 4. A goal ask | `goal-ask`, `goal`, `about` the ask | the answer under that goal → "answered under G<n>" | the ask's box under the goal |
+| 5. Overturn | the answer to a recap the person overturned (`ask` `work:<recap>`, `Recap: overturned`) | the fix step made from the words, filed after (`Fix of` the recap's step, or a step of its goal) → "B<n>", linked | the overturned recap's card, which stays (closed) while its line is not Done |
+| 6. Stop / Remove a worker | `stop`, `remove` to the main chat; a stop the board does in code (`byCode`) has no word and no line | its lane free with no task → "stopped"; its lane gone from the list, or marked removed → "removed" | the worker's row |
+| 7. The Focus talk | `talk`, `vibe-not-yet`, `how-not-yet`, `recheck`, and the words of a brainstorm that changes no goal | none: the fallback "<Chat> answered" | under the talk bar and in the talk card; under "Re-check the goals now"; the thread's card |
+| 8. An incident waiting for the Supervisor's judgment | the judge word (`incidents`, `endedAt`), one line per incident under `<word>#<incident>` | the incident ended (closed: false alarm, fixed, gone by itself, the 60-minute rule included) or given a fix step | the incident's row in the Supervisor's part, nowhere else |
+
+A result that ends the very reason for the word (a refine written leaves the step no longer new: the outbox sweep drops the word, and
+the judge word is moot once its incidents ended) still reads as Done: `waitLineOf` `outlives`, and the board keeps it on the word
+(`doneAt`) as before. Place 8 (the signals lead's rules of 2026-11-04): Done also when code ends the incident; a repeat of an
+incident's key only counts it and never starts a wait nor moves the clock (the line's clock is the judge word's); "on it" reads the word's
+own state and the mod's `report.word`, never the Supervisor's pill (`needsPill` false; the outbox record's `wordsIn`, a word whose text
+sat in a merged prompt, plugs in at `arrivedAt` once the board has it); and its line is never in the hands line or in Needs your
+attention. The judge word's own turn end (`endedAt`) is read as it stands.
+
+Wave 2 tests: `test/waitLineWave2.test.mjs` (the places, each Sent, on it and Done from its own source), `test/waitLinePageWave2.test.mjs` (the
+DOM harness: each place's line where its action was taken, Done gone after 10 minutes), `test/waitLineRefineBoard.test.mjs` (a refine
+on a running board: Sent, the block written, Done, kept on the word).
 
 Tests: `test/waitLine.test.mjs` (the four states, rule 8's one judgement, the wake record, the actions' own results,
 `waitsOf`, the turn rule: the live case of Q587, an older mod, a word typed into a busy chat, a question inside the word's
