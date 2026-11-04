@@ -64,7 +64,7 @@ export const CLIP_MS = { min: 300, max: 3000, default: 900 }
 export const CLOSEUP_CAPTIONS = { before: 'Before your words', after: 'Now' }
 /** T17.2: a checker's verdict on a row, and the moment it was written ("YYYY-MM-DD HH:MM"). */
 export const SHOWS_VERDICTS = ['yes', 'no']
-const SHOWS_AT = /^\d{4}-\d\d-\d\d \d\d:\d\d$/
+const SHOWS_AT = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]) (?:[01]\d|2[0-3]):[0-5]\d$/
 
 /** One bullet's words: one item, never several on one line. */
 function bulletOf(item, where) {
