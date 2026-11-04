@@ -128,3 +128,17 @@ test('an answered decide still waits for the fold round, beside an answered do',
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+test('a do answered no still waits for the fold round: the answer may change the work (the review)', async () => {
+  const { dir, kite, oracle, person, server } = await fresh()
+  try {
+    await oracle({ action: 'refine', id: 'B3', summary: 'One knot per kite.' })
+    assert.equal((await oracle({ action: 'refined', size: '30 min', id: 'B3', what: ['the knot'] })).ok, true)
+    await kite({ action: 'ask', of: 'B3', kind: 'do', text: 'Give the go to land after B1.' })
+    await person({ action: 'answer', id: 'Q1', text: 'No, merge it into B1 instead.' })
+    const held = await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })
+    assert.match(held.why, /waits for the partner to fold in the answer to Q1$/)
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
