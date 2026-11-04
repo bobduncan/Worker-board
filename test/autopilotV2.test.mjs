@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import vm from 'node:vm'
 
-import { adviceAnswerOf, autopilotRoute, isBoardRoutedPerson } from '../src/work/autopilot.mjs'
+import { KEPT_LOOK_WHY, KEPT_LOOK_WORDS, adviceAnswerOf, autopilotRoute, isBoardRoutedPerson, isKeptLook } from '../src/work/autopilot.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { parseItem } from '../src/work/item.mjs'
@@ -165,6 +165,46 @@ test('every pass (not only the switch-on\'s sweep) judges anew a Q593-shaped ask
   const offDir = await storeWith({ Q593: askText('Q593', { Title: 'Look at the whole ring in the game.', Owner: 'Worker 5', Asks: 'do', Via: 'chat', Route: 'person' }) })
   t.after(() => rm(offDir, { recursive: true, force: true }))
   assert.deepEqual((await workApi({ action: 'autopilot', on: false }, apiCtx(offDir, NOW))).result.routed, [])
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The coordinator's ruling on v2 (2026-11-02): an art or map look waits for the recap, never decided by advice or the partner.
+
+test('a worker\'s or the main chat\'s look with pictures of a step of the focus goal is kept for the recap, with or without advice; without pictures, or of another goal, it is decided as any look', () => {
+  const map = more => ask('Q640', { Title: 'Does the ring map read round now?', Owner: 'Worker 5', Asks: 'look', Of: 'B821', Advice: 'yes', Pictures: 'pictures/B821/ring.png', Via: 'chat', ...more }, { history: [] })
+  assert.deepEqual(autopilotRoute(map(), ctx()), { to: 'recap', why: KEPT_LOOK_WHY, kept: true }, 'with pictures and advice under a step of the focus goal')
+  assert.equal(autopilotRoute(map({ Advice: undefined }), ctx()).kept, true, 'without advice too')
+  assert.equal(autopilotRoute(map({ Owner: 'Main' }), ctx()).kept, true, 'the main chat\'s')
+  assert.deepEqual(autopilotRoute(map({ Of: undefined }), ctx()), { to: 'recap', why: KEPT_LOOK_WHY, kept: true, step: 'B821' }, 'under no step: put under the step its picture names')
+  assert.equal(autopilotRoute(map({ Pictures: undefined }), ctx()).to, 'advice', 'without pictures: its advice is taken')
+  assert.equal(autopilotRoute(map({ Of: 'B891', Pictures: 'pictures/B891/ring.png' }), ctx()).to, 'advice', 'of another goal: its advice is taken')
+  assert.equal(autopilotRoute(map({ Owner: 'Advisor' }), ctx()).to, 'advice', 'the partner\'s own look is no worker\'s')
+  // The person's hands still come first.
+  assert.equal(autopilotRoute(map({ Title: 'Sign in to the map site: does the ring read round now?' }), ctx()).to, 'person')
+})
+
+test('the pass and the filing keep such a look as the partner\'s hand-over is: its kept line, under its step, the step marked and going on, its worker woken', async t => {
+  const dir = await storeWith({
+    B821: stepText('B821', { Title: 'Fix: the ring reads round', State: 'waiting on you', Owner: 'Worker 5', Goal: 'G60', Branch: 'b821' }),
+    Q641: askText('Q641', { Title: 'Does the ring map read round now?', Owner: 'Worker 5', Asks: 'look', Of: 'B821', Advice: 'yes', Blocking: 'yes', Pictures: 'pictures/B821/ring.png', Via: 'chat', Route: 'person' }),
+  })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const pass = await workApi({ action: 'autopilot', on: true }, apiCtx(dir, NOW))
+  assert.equal(pass.ok, true, pass.why)
+  assert.deepEqual(pass.result.routed, [{ id: 'Q641', to: 'recap' }])
+  assert.deepEqual(pass.result.wakes.map(one => [one.to, one.kind]), [['Worker 5', 'recap-kept']])
+  let store = (await readStore(dir)).items
+  assert.deepEqual([store.get('Q641').head.get('Route'), store.get('Q641').head.get('Blocking'), store.get('Q641').sections.get('Route')], ['recap', 'no', [KEPT_LOOK_WORDS]])
+  assert.equal(isKeptLook(store.get('Q641')), true)
+  assert.ok(store.get('B821').sections.get('Context').some(line => line.trim() === 'Recap verdict: waits (Q641)'))
+  assert.equal(store.get('B821').head.get('State'), 'in progress', 'the step it held goes on')
+  // Filed while Autopilot is on: kept at once, with its line.
+  const filed = await workApi({ action: 'ask', chat: 'Worker 5', of: 'B821', kind: 'look', text: ['Is the lava shore\'s colour right beside the painting?'], advice: 'yes', pictures: ['pictures/B821/shore.png'] }, { ...apiCtx(dir, NOW + MIN), as: undefined, autopilot: true })
+  assert.equal(filed.ok, true, filed.why)
+  assert.equal(filed.result.route, 'recap')
+  store = (await readStore(dir)).items
+  assert.deepEqual(store.get(filed.result.id).sections.get('Route'), [KEPT_LOOK_WORDS])
+  assert.equal(isKeptLook(store.get(filed.result.id)), true)
 })
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -529,7 +529,8 @@ Undo."; Off, "Questions come to you as before."
   outside the PC), a question about Fable, and what the partner or the main chat hands to you. Everything else
   is decided for you, with Undo: a question with advice takes it (a rebuild of the focus goal too), the rest your partner
   decides (a look without advice, a "look at it" do, an Accept card or a mark done that no recap of the focus goal takes); the board
-  judges anew at every pass what it had routed to you itself.
+  judges anew at every pass what it had routed to you itself. A worker's or the main chat's look with pictures of a step of
+  the focus goal (an art or map look) is never decided: it is kept for the goal's recap, with or without advice.
 - **The task window** of an ask with the main chat or waiting for the recap names its route ("With the main chat
   (Autopilot)", "For your recap (Autopilot)") and where it stands.
 - The Focus page's switch "Your partner answers detail questions" reads "covered by Autopilot" while it is on.

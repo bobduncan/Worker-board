@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { PERSONS_HANDS, UNDER_STEP_HANDS, REFINE_BACK_WORDS, SENT_BACK, adviceAnswerOf, adviceOf, autopilotRoute, belowTarget, handsOf, isBoardRoutedPerson, isChore, isExplicitPerson, isGoalLevel, letteredOptions, recapVerdictWords, recapWaitIds, optionsOf, recapWaitOf, refineAdviceOf, routedWords, standsForPerson, waitsForRecap } from '../src/work/autopilot.mjs'
+import { KEPT_LOOK_WHY, PERSONS_HANDS, UNDER_STEP_HANDS, REFINE_BACK_WORDS, SENT_BACK, adviceAnswerOf, adviceOf, autopilotRoute, belowTarget, handsOf, isBoardRoutedPerson, isChore, isExplicitPerson, isGoalLevel, letteredOptions, recapVerdictWords, recapWaitIds, optionsOf, recapWaitOf, refineAdviceOf, routedWords, standsForPerson, waitsForRecap } from '../src/work/autopilot.mjs'
 import { routesToPartner } from '../src/work/partnerAnswers.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
@@ -66,7 +66,8 @@ test('the eleven asks of the day, by the rulings of 2026-10-31 and Autopilot v2 
   assert.equal(routeOf(ACCEPT), 'recap', 'an accept or send back below its target waits for the recap')
   assert.equal(routeOf(CHECKER_LOOK), 'recap', 'a look the step\'s checker asks waits for the recap')
   assert.equal(routeOf(BUILDER_LOOK), 'recap', 'a look of a step below its target waits for the recap')
-  assert.equal(routeOf(LOOSE_LOOK), 'advice', 'a look below its target under no step takes its advice')
+  // The ruling on v2 (2026-11-02), on purpose: a worker's look with a picture of a step of the focus goal (B24) is kept for the recap.
+  assert.equal(routeOf(LOOSE_LOOK), 'recap', 'a look with a picture of the focus goal is kept for the recap')
   assert.equal(routeOf(PLAY_LOOK), 'advice', 'a look with advice takes it (it went to the partner)')
 })
 
@@ -75,7 +76,8 @@ test('the recap: only for a step of the focus goal whose demo is still to come o
   // on purpose: it was theirs): the Accept card goes to the partner, a look with advice takes it.
   assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusHasDemo: true }).to, 'partner')
   assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B21', goal: 'G29' }] }).to, 'recap')
-  assert.equal(autopilotRoute(CHECKER_LOOK, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B99', goal: 'G29' }] }).to, 'advice')
+  // The checker's look carries a picture of B21, a step of the focus goal: kept for the recap (the ruling on v2, on purpose).
+  assert.deepEqual(autopilotRoute(CHECKER_LOOK, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B99', goal: 'G29' }] }), { to: 'recap', why: KEPT_LOOK_WHY, kept: true })
   assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusGoal: null }).to, 'partner')
 })
 
@@ -411,9 +413,10 @@ test('2026-11-02 (the person: "if autopilot is turned on, the outstanding, needi
 
   // Its step (the live Q578, a look under no step whose picture is of B24): put under the step the recap names, first id of the words.
   assert.deepEqual(autopilotRoute(LOOSE_LOOK, withRows), { to: 'recap', why: 'its step\'s part of the goal\'s recap asks it already', step: 'B24' })
-  // No recap names B24: decided for the person (v2, on purpose: it was theirs, "a score below its target, under no step").
-  assert.deepEqual(autopilotRoute(LOOSE_LOOK, ctx), { to: 'advice', why: 'a look: its advice is taken' }, 'no recap names B24')
-  assert.equal(autopilotRoute(LOOSE_LOOK, { ...ctx, recapSteps: [{ step: 'B24', goal: 'G7', path: 'pictures/g7/recap/demo.json' }] }).to, 'advice', 'B24 of another goal\'s recap')
+  // No recap names B24: its picture is of a step of the focus goal, so it is kept for the recap, put under B24 (the ruling on v2,
+  // 2026-11-02, on purpose: it was the person's, "a score below its target, under no step").
+  assert.deepEqual(autopilotRoute(LOOSE_LOOK, ctx), { to: 'recap', why: KEPT_LOOK_WHY, kept: true, step: 'B24' }, 'no recap names B24')
+  assert.equal(autopilotRoute(LOOSE_LOOK, { ...ctx, recapSteps: [{ step: 'B24', goal: 'G7', path: 'pictures/g7/recap/demo.json' }] }).kept, true, 'B24 of another goal\'s recap: B24 is the focus goal\'s in the store')
   const named = (more, words = null) => ask('Q33', { Title: 'Is the moat good enough as it is?', Owner: 'Painter', Asks: 'look', Via: 'chat', ...more }, words)
   assert.equal(autopilotRoute(named({ Pictures: 'pictures/B99/a.png, pictures/B24/b.png' }), withRows).step, 'B24', 'the first id a part of the recap names')
   // Only its Pictures name the step (the review of 2026-11-02): a step named in its title or words is no reason to move it. Not

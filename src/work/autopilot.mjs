@@ -43,11 +43,12 @@
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
 import { chainWaitOf, checkedOf, fixesOf } from './resultCheck.mjs'
-import { HANDED_KEPT_WORDS, isKeptLook } from './keptLook.mjs'
+import { HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, isKeptLook } from './keptLook.mjs'
 import { standardOf } from './standard.mjs'
 
-// A look the partner handed over that Autopilot keeps for the recap (src/work/keptLook.mjs): its Route line and its test.
-export { HANDED_KEPT_WORDS, isKeptLook }
+// A look the partner handed over, or a worker's look with pictures, that Autopilot keeps for the recap (src/work/keptLook.mjs): its
+// Route lines and its test.
+export { HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, isKeptLook }
 
 export const ROUTES = ['partner', 'advice', 'recap', 'main', 'person']
 /** The routes that take an ask away from Needs your attention while it is open. */
@@ -186,6 +187,8 @@ export function recapAskOf(item, { focusGoal = null, recapSteps = [], items = ne
 
 /** The why of a partner's hand-over of a new look of the focus goal that goes to the recap instead (`focusLookOf`). */
 export const FOCUS_LOOK_WHY = 'a new look of the focus goal waits for its recap'
+/** The why of a worker's or the main chat's look with pictures of the focus goal that Autopilot keeps for its recap (`kept` in the route). */
+export const KEPT_LOOK_WHY = 'a look with pictures of the focus goal waits for its recap'
 /** The askers whose looks are not a worker's detail: the Product owner's (it answers for the goal) and the board's own cards. */
 const NOT_LOOKERS = ['owner', 'board']
 const PARTNER_HANDS_LINE = /^Your partner hands this to you: (.*)$/
@@ -464,7 +467,8 @@ export function isByChecker(item, items, prefix = '') {
  * the partner's hand-over of a look (the work API's `escalate`, `partnerHandOverOf`), which is judged as if nobody had handed it
  * on: a new look of the focus goal waits for its recap (and only then; a worker's look goes its old way), as long as the ask's
  * words and that why name nothing only the person's hands can do.
- * `step` in the answer: the step a recap ask is put under.
+ * `step` in the answer: the step a recap ask is put under. `kept` (true): a worker's or the main chat's look with pictures of the
+ * focus goal, kept for the recap as the partner's hand-over is (its card line KEPT_LOOK_WORDS, its step goes on).
  * `now` (ms): a verdict on a result routed to `partner` names the person's earlier answer on its step, when they answered an
  * ask naming it in the last 24 hours (`earlierAnswerOf`), as `earlier` (that ask's id): a hint for the partner (Autopilot v2: no
  * longer the condition of the route). Without `now`, never.
@@ -485,10 +489,16 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   const isUnderStep = STEP.test(of ?? '')
   const step = isUnderStep ? items.get(of) : undefined
   const advice = adviceOf(item)
+  // The coordinator's ruling on v2 (2026-11-02): a worker's or the main chat's look with pictures of a step of the focus goal (its
+  // Of, else the step its Pictures name) is no detail: an art or map look waits for the goal's recap as a kept look, with or without
+  // advice, where it would else be decided for the person. Without pictures, or of another goal, it is decided as any look.
+  const keptLook = ['worker', 'main'].includes(role) && kind === 'look' && handedWhy === null && String(valueOf(item, 'Pictures') ?? '').trim() !== ''
+    ? focusLookOf(item, { focusGoal, items }, role) : null
   // Decided for the person (v2): the advice of a decide or look is taken (never on the board's Accept card, whose answer ticks
   // the step: the partner judges it); anything else the partner decides. The Product owner's own ask stays the person's (the
   // goal's recap is its job), but its advice under a step is taken, as before.
   const decided = why => {
+    if (keptLook !== null) return { to: 'recap', why: KEPT_LOOK_WHY, kept: true, ...(keptLook.isInferred ? { step: keptLook.step } : {}) }
     const takes = advice !== null && ['decide', 'look'].includes(kind) && via !== 'accept'
     if (role === 'owner') return takes && isUnderStep ? { to: 'advice', why: 'the Product owner\'s own advice on a step' } : { to: 'person', why: `the Product owner's: it answers for the goal (${why})` }
     return takes ? { to: 'advice', why: `${why}: its advice is taken` } : { to: 'partner', why: `${why}: the partner decides it` }

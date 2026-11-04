@@ -948,6 +948,9 @@ reach them as before. Everything else you decide: take the worker's advice, or d
   too) is answered by the board with that advice (`Answered by: autopilot`, "autopilot: took the advice") and stands in
   today's note with an Undo. File your "Rebuild G<n>:" ask with your advice as always: for the focus goal the board takes it;
   a rebuild of another goal is the user's (a goal that is not the focus is theirs to start).
+- **A worker's or the main chat's look with pictures of a step of the focus goal** (an art or map look), with or without
+  advice, is neither the board's advice nor yours: Autopilot keeps it for the goal's recap at once, as it keeps your
+  hand-over of a look ("Autopilot keeps this look for the goal's recap" on its card; its step goes on).
 - **Anything else that is not the user's comes to you** (`Route: partner`), whatever the Focus page's switch says: a decide,
   look or provide without advice, a worker's do of the user's own eyes ("Look at the whole ring in the game", "Play the
   map"), every verdict on a result that no recap of the focus goal takes (the board's Accept card, an accept, send back or

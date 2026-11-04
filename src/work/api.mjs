@@ -42,7 +42,7 @@ import { readAutopilotClearedFile, readNamesFile, readObsoleteFile, readPartnerA
 import { KEPT_WORDS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
-import { HANDED_KEPT_WORDS, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, earlierCardWords, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, partnerHandOverOf, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords, shortAnswer } from './autopilot.mjs'
+import { HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, earlierCardWords, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, partnerHandOverOf, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords, shortAnswer } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
@@ -935,7 +935,9 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
     const joined = await joinOpenAskOf(w, of.item, kind, text, { anyKind: qaHeld !== null, options, advice, pictures, play, qa: qaHeld !== null })
     if (joined.found) return joined.done
   }
-  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route, pilot: pilot !== null, freed: isFreed, card: pilot?.earlier === undefined ? null : earlierCardWords(pilot.earlier) })
+  // A worker's look with pictures of a step of the focus goal (the ruling on v2, 2026-11-02) is a kept look from its filing: its kept line.
+  const card = route === 'recap' && pilot?.kept === true ? KEPT_LOOK_WORDS : pilot?.earlier === undefined ? null : earlierCardWords(pilot.earlier)
+  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route, pilot: pilot !== null, freed: isFreed, card })
   if (!made.ok) return made
   const { question, id, title } = made
   const stepId = isAlone ? null : valueOf(of.item, 'Id')
@@ -1617,14 +1619,21 @@ async function autopilot(body, w) {
       if (!isAgain && (isAutopilotRouted(item) || (route !== null && !(route === 'person' && !isExplicitPerson(item))))) continue
       const decided = autopilotRoute(item, isAgain ? { ...ctx, again: true } : ctx)
       if (isAgain && decided.to === 'person') continue
-      let done = await routeAsk(valueOf(item, 'Id'), decided.to, w, decided.earlier === undefined ? null : earlierCardWords(decided.earlier), decided.step ?? null)
+      // A worker's look with pictures of the focus goal (the ruling on v2, 2026-11-02) is kept as the partner's hand-over is: its kept
+      // line, put under the step its picture names, its step goes on; read anew, as the hand-overs below are.
+      let done = decided.kept === true
+        ? await routeAsk(valueOf(item, 'Id'), 'recap', await freshOf(w), KEPT_LOOK_WORDS, decided.step ?? null, { placed: PLACED_BY_PICTURE, freesStep: true })
+        : await routeAsk(valueOf(item, 'Id'), decided.to, w, decided.earlier === undefined ? null : earlierCardWords(decided.earlier), decided.step ?? null)
       // A step the recap names that the store cannot give: the ask is the person's, as before.
       if (!done.ok && decided.step !== undefined) {
         decided.to = 'person'
         done = await routeAsk(valueOf(item, 'Id'), 'person', w)
       }
       if (done.ok) routed.push({ id: valueOf(item, 'Id'), to: decided.to })
-      if (done.ok && isAgain) judgedAgain.add(valueOf(item, 'Id'))
+      if (done.ok && decided.kept === true && done.wake !== null && done.wake !== undefined) wakes.push(done.wake)
+      // One that stood for the person is kept for the Undo: a kept look as "kept for your recap", any other recap move as moved.
+      if (done.ok && isAgain && decided.kept === true && decided.to === 'recap') kept.push(valueOf(item, 'Id'))
+      else if (done.ok && isAgain) judgedAgain.add(valueOf(item, 'Id'))
     }
     // The partner's hand-over of a look (the person's "A", 2026-11-02, the live Q590: "Why is he asking me for it. this is autopilot
     // is turned on correct?"), at every pass: one that stands for the person because the partner escalated it, and that a new look
