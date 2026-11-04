@@ -219,11 +219,15 @@ test('the lane says "cleared after B12 · log", the log opening in the file view
   // B547: the mod's newest word is why it did not clear: a warning on the row, its words in the tooltip.
   assert.deepEqual({ ...part.compactionLine({ kind: 'not-cleared', at: 1, why: 'a subagent it started still runs (1)' }, () => '14:05') },
     { text: 'not cleared after its step', title: 'Workers mod at 14:05: not cleared: a subagent it started still runs (1)', isWarning: true })
-  // B547: a clear owed says so, with what happens next: the mod clears it, or an older one needs the restart.
-  const owed = { step: 'B12', reportedAt: 1, clearedAt: null, why: null, canClear: true }
-  assert.deepEqual({ ...part.clearOwedLine(owed, () => '14:05') }, { text: 'not cleared after B12', title: 'Reported B12 at 14:05, no clear known: its next step waits until its Workers mod clears it, as soon as the chat is idle.' })
-  assert.match(part.clearOwedLine({ ...owed, canClear: false, clearedAt: 0, why: 'no answer' }, () => '14:05').title, /its last clear at 14:05: its Workers mod is too old to clear it now: restart its chat \(Pause all, restart the app, Resume all\)\. Why not cleared: no answer\.$/)
+  // The lazy clear (Task 4, D6): a clear owed is a quiet mark with its last why (the envelope's clearWhy), never amber.
+  const owed = { step: 'B12', reportedAt: 1, clearedAt: null, why: 'the card\'s own note', canClear: true, lastWhy: 'a prompt came first' }
+  assert.deepEqual({ ...part.clearOwedLine(owed, () => '14:05') }, { text: 'clear owed · its last: a prompt came first', title: 'clear owed · its last: a prompt came first. Reported B12 at 14:05; its clear goes with its next task.' })
+  assert.equal(part.clearOwedLine({ ...owed, lastWhy: undefined }, () => '14:05').text, 'clear owed · its last: none tried yet')
   assert.equal(part.clearOwedLine(null, () => '14:05'), null)
+  // The row: no amber line for it any more, only the name's hover (mutant: the old row line kept).
+  assert.equal(script.includes("el('small', 'compaction is-warning', owed.text)"), false)
+  assert.ok(script.includes("if (owed !== null) names.title = [owed.title, compacted?.title ?? ''].filter(one => one !== '').join('\\n')"))
+  assert.ok(script.includes("if (owedClear !== null) list.append(el('li', 'muted', owedClear.title))"))
   // The row and the lane's window put the line with its "log" button where the compaction's line stands.
   assert.ok(script.includes("} else if (compacted !== null && compacted.log !== undefined) names.append(clearedNote(compacted))"))
   assert.ok(script.includes('open.dataset.gameFile = line.log'))

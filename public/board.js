@@ -2999,7 +2999,7 @@ function drawMore(lane, state) {
   const free = freeLine(lane, clock)
   if (free !== null) list.append(el('li', '', free))
   const owedClear = clearOwedLine(lane.clearOwed ?? null, clock)
-  if (owedClear !== null) list.append(el('li', '', owedClear.title))
+  if (owedClear !== null) list.append(el('li', 'muted', owedClear.title))
   const stopped = stoppedLine(lane.stopped ?? null, clock)
   if (stopped !== null) list.append(el('li', '', stopped.title))
   const compacted = compactionLine(lane.compaction ?? null, clock)
@@ -3147,13 +3147,8 @@ function drawLane(lane, state) {
   if (runChip !== null) names.append(runChip)
   // B235: whether the Workers mod compacted it after its last report, or why not. B307: on the row only when something
   // is wrong; else on hovering the name.
-  // B547: a worker that owes a clear says so on its row, before the mod's last word.
+  // B547, the lazy clear (D6): a worker that owes a clear is no fault: its quiet mark is on hovering its name (below), no row line.
   const owed = clearOwedLine(lane.clearOwed ?? null, clock)
-  if (owed !== null) {
-    const note = el('small', 'compaction is-warning', owed.text)
-    note.title = owed.title
-    names.append(note)
-  }
   // B577: a chat whose session was stopped takes no word until it gets input: its row says since when.
   const stopped = stoppedLine(lane.stopped ?? null, clock)
   if (stopped !== null) {
@@ -3162,7 +3157,7 @@ function drawLane(lane, state) {
     names.append(note)
   }
   const compacted = compactionLine(lane.compaction ?? null, clock)
-  if (owed !== null) names.title = compacted?.title ?? ''
+  if (owed !== null) names.title = [owed.title, compacted?.title ?? ''].filter(one => one !== '').join('\n')
   else if (compacted !== null && compacted.isWarning) {
     const note = el('small', 'compaction is-warning', compacted.text)
     note.title = compacted.title
@@ -7749,15 +7744,15 @@ function compactionLine(compaction, clockOf) {
 }
 
 /**
- * B547: the line of a worker that owes a clear (its last report newer than its last clear, state.mjs `clearOwed`): its
- * next step waits for the clear its Workers mod runs once the chat is idle; an older mod cannot, and its chat needs the
- * restart that brings the new one. Null when nothing is owed.
+ * B547, the lazy clear (Task 4, D6): the quiet mark of a worker that owes a clear (its last report newer than its last
+ * clear, state.mjs `clearOwed`): no fault, never amber, only on hovering its name and in its window. Its last why is the
+ * clearWhy of its newest hand-over whose clear did not run (`lastWhy`, the envelope's, never the card's note); the clear
+ * goes with its next task. Null when nothing is owed.
  */
 function clearOwedLine(owed, clockOf) {
   if (owed === null || owed === undefined) return null
-  const last = Number.isFinite(owed.clearedAt) ? `its last clear at ${clockOf(owed.clearedAt)}` : 'no clear known'
-  const then = owed.canClear === true ? 'its next step waits until its Workers mod clears it, as soon as the chat is idle' : 'its Workers mod is too old to clear it now: restart its chat (Pause all, restart the app, Resume all)'
-  return { text: `not cleared after ${owed.step}`, title: `Reported ${owed.step} at ${clockOf(owed.reportedAt)}, ${last}: ${then}.${owed.why === null || owed.why === undefined ? '' : ` Why not cleared: ${owed.why}.`}` }
+  const text = `clear owed · its last: ${owed.lastWhy ?? 'none tried yet'}`
+  return { text, title: `${text}. Reported ${owed.step} at ${clockOf(owed.reportedAt)}; its clear goes with its next task.` }
 }
 
 /**

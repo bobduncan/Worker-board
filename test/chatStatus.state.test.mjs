@@ -70,6 +70,18 @@ test('a chat that reported idle and runs is Free: a worker on the hand-over by i
   assert.equal(lane(state, 'Lead').status, STATUSES.FREE)
 })
 
+test('the lazy clear (Task 4, D6) through the state: a worker whose clear is on its way reads Handing with "clearing… <stage> HH:MM:SS" (mutant: the stage not passed)', () => {
+  const stageAt = NOW - 5 * SEC
+  const two = n => String(n).padStart(2, '0')
+  const clock = `${two(new Date(stageAt).getHours())}:${two(new Date(stageAt).getMinutes())}:${two(new Date(stageAt).getSeconds())}`
+  const clearing = { id: 'c1', at: NOW - 10 * SEC, to: 'Worker 2', command: HANDOVER_COMMAND, text: 'hand-over', state: 'taken', kind: 'clear', step: null, clear: { step: 'B12', reportedAt: NOW - 3 * MIN }, restart: false, set: null, line: null, stages: [{ stage: 'log-saved', at: stageAt - SEC }, { stage: 'clear-queued', at: stageAt }] }
+  const handing = lane(build({ reports: [report('Worker 2', 'idle')], mods: { 'Worker 2': '0.27.0' }, outbox: [clearing] }), 'Worker 2')
+  assert.deepEqual([handing.handover.state, handing.status, handing.why], ['handing', STATUSES.HANDING, `clearing… clear-queued ${clock}`])
+  // Its clear ran: the stage is no longer pending, the why is the hand-over's again.
+  const ran = lane(build({ reports: [report('Worker 2', 'idle')], mods: { 'Worker 2': '0.27.0' }, outbox: [{ ...clearing, stages: [...clearing.stages, { stage: 'cleared', at: stageAt + SEC }] }] }), 'Worker 2')
+  assert.equal(ran.why, null)
+})
+
 test('a worker the hand-out skips (its envelope failed: HELD) is Held, never Free, and its why is the board\'s', () => {
   const state = build({ reports: [report('Worker 2', 'idle')], mods: { 'Worker 2': '0.27.0' }, outbox: [failed] })
   const held = lane(state, 'Worker 2')

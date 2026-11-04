@@ -38,6 +38,14 @@ test('B.1 an envelope with a clear, or a worker that owes a clear, gives the pla
   assert.deepEqual(needs.map(one => [one.chat, one.text]), [['Worker 5', WORDS_LINE], ['Worker 4', WORDS_LINE], ['Worker 3', 'go on with B700 from your checkpoint']])
 })
 
+test('the lazy clear (Task 4, D7): an owed clear makes the wake line the plain one only for a worker that holds no step; a holder\'s waiting resume envelope keeps its own line (mutant: the owed term for a holder)', () => {
+  const resume = { id: 'r1', at: at(10, 31), to: 'Worker 4', command: 'handover', kind: 'resume', step: null, clear: null, line: 'go on with B700 from your checkpoint', state: 'waiting' }
+  const holder = lane('Worker 4', { clearOwed: { step: 'B699' }, storeSteps: [{ id: 'B700', state: 'in progress' }] })
+  assert.deepEqual(wakeNeeds(stateOf([holder]), [resume]).map(one => one.text), ['go on with B700 from your checkpoint'])
+  // Holding nothing: the plain line, as decision 12 has it.
+  assert.deepEqual(wakeNeeds(stateOf([{ ...holder, storeSteps: [] }]), [resume]).map(one => one.text), [WORDS_LINE])
+})
+
 test('order B (the lead\'s live check, 2026-11-02): a worker held on a failed clear whose chat does not run is a need with the plain line; one whose chat runs is none', () => {
   const since = new Date(2026, 10, 2, 21, 27).getTime()
   const held = lane('Worker 3', { asleepSince: since, handover: { state: 'held', why: 'its clear did not run: /clear did not run within two minutes; next try 21:37', step: 'B930' } })

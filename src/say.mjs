@@ -818,6 +818,9 @@ export function reportedBackgroundDue(state, outbox) {
     const owed = lane.clearOwed ?? null
     if (lane.isLeftover === true || lane.isMain === true || owed === null || owed.canClear !== true || owed.isDropped === true) continue
     if (lane.isRunning === false || lane.isTurnOpen === true || !(lane.background > 0)) continue
+    // The lazy clear (Task 4, D7): a worker on its next step owes the clear of its last one while its background work is that
+    // step's own: only a worker that holds no step is told to stop it.
+    if ((lane.held ?? null) !== null) continue
     const isTold = (outbox ?? []).some(sent => sent.command === 'report-background' && sent.to === lane.name && sent.about === owed.step && sent.reportedAt === owed.reportedAt)
     if (!isTold) words.push(reportedBackgroundWords(lane.name, owed.step, owed.reportedAt))
   }

@@ -221,3 +221,21 @@ test('every input gives a status of the list (a sweep over the lane states and h
     assert.ok(STATUS_LIST.includes(found.status), `${state} ${asleep} ${hand?.state} ${person}`)
   }
 })
+
+test('the lazy clear (Task 4, D6): while its clear is on its way the Handing pill\'s why says "clearing… <stage> HH:MM:SS"; once settled, the step again; the pill set stays', async () => {
+  const { clearingOf } = await import('../src/work/handover.mjs')
+  const idle = lane('free', { report: report('idle') })
+  const stageAt = Date.parse('2026-10-31T11:59:52')
+  const why = status(idle, { handover: handover('handing', null, 'B13'), clearing: { stage: 'clear-queued', at: stageAt } })
+  assert.deepEqual([why.status, why.why], [STATUSES.HANDING, 'clearing… clear-queued 11:59:52'])
+  assert.equal(status(idle, { handover: handover('handing', null, 'B13'), clearing: null }).why, 'B13')
+  // Only the Handing pill: an Offered worker with a stale stage is not reworded.
+  assert.equal(status(idle, { handover: handover('offered', null, 'B13'), clearing: { stage: 'log-saved', at: stageAt } }).why, 'B13')
+  // From the envelope in flight: pending while its newest stage is log-saved or clear-queued; none once cleared, refused or settled.
+  const env = (stages, more = {}) => ({ id: 'e1', at: stageAt - 5 * SEC, to: 'Worker', command: 'handover', kind: 'task', step: 'B13', clear: { step: 'B12' }, state: 'taken', stages, ...more })
+  assert.deepEqual(clearingOf([env([{ stage: 'log-saved', at: stageAt - 2 * SEC }, { stage: 'clear-queued', at: stageAt }])]), { stage: 'clear-queued', at: stageAt })
+  assert.equal(clearingOf([env([{ stage: 'clear-queued', at: stageAt }, { stage: 'cleared', at: stageAt + SEC }])]), null)
+  assert.equal(clearingOf([env([{ stage: 'clear-queued', at: stageAt }, { stage: 'clear-refused', at: stageAt + SEC }])]), null)
+  assert.equal(clearingOf([env([{ stage: 'clear-queued', at: stageAt }], { state: 'delivered', outcome: { cleared: true } })]), null)
+  assert.equal(clearingOf([env(undefined)]), null)
+})

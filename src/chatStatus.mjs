@@ -62,6 +62,7 @@ export const STATUS_OF_STATE = Object.freeze({
 
 const LIMIT_NAMES = { fiveHour: 'session limit', week: 'weekly limit' }
 const hourMinute = ms => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
+const hourMinuteSecond = ms => `${hourMinute(ms)}:${String(new Date(ms).getSeconds()).padStart(2, '0')}`
 const finite = value => Number.isFinite(value)
 
 /** Why a suspended lane is paused, in a few words: the limit (and until when), or the steps it is parked behind. */
@@ -80,12 +81,14 @@ function pausedWhy(held) {
  *   the Free of such a worker are the hand-over's; with null (the escape hatch, the main chat, the partner...) they do not apply;
  * - `modRun`: the Workers-mod rollout's entry for the chat (`status`), or null; `clearedAt`: when its card says it was cleared
  *   (null: never); `isPersonPause`: the person pauses all chats now; `isUnsaved`: it holds a step with no checkpoint since;
+ *   the lazy clear: `clearing`, the stage of the clear still on its way in its envelope in flight (`{ stage, at }`,
+ *   work/handover.mjs `clearingOf`), or null;
  * - `now`, `unknownAfterMs`: the board's clock and the report's age limit.
  * Output `{ status, why, since, reportAt, age }`: `why` a few plain words (or null), `since` when the state began (apart from
  * the age), `reportAt` the report's time, `age` how old the information is (`now - reportAt`; for an Unknown chat that has
  * not reported since its clear, counted from the clear; null where nothing is known).
  */
-export function statusOf({ lane, handover = null, modRun = null, clearedAt = null, isPersonPause = false, isUnsaved = false, now, unknownAfterMs = 30_000 }) {
+export function statusOf({ lane, handover = null, modRun = null, clearedAt = null, isPersonPause = false, isUnsaved = false, clearing = null, now, unknownAfterMs = 30_000 }) {
   const report = lane.report ?? null
   const reportAt = finite(report?.at) ? report.at : null
   const out = (status, why = null, since = null, age = reportAt === null ? null : Math.max(0, now - reportAt)) => ({ status, why, since: finite(since) ? since : null, reportAt, age })
@@ -106,7 +109,9 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
   // 3 to 6, a worker on the hand-over: its report's check runs, a task is being handed or offered, the hand-over is held, or it
   // did not answer.
   if (hand === 'checking') return out(STATUSES.CHECKING, handover.step ?? null)
-  if (hand === 'handing') return out(STATUSES.HANDING, handover.step ?? null)
+  // The lazy clear (R3, D6): while its clear is on its way, the pill's why says the clear's stage and its time (the pill set
+  // stays change 2's).
+  if (hand === 'handing') return out(STATUSES.HANDING, clearing !== null ? `clearing… ${clearing.stage} ${hourMinuteSecond(clearing.at)}` : handover.step ?? null)
   if (hand === 'offered') return out(STATUSES.OFFERED, handover.step ?? null)
   if (hand === 'held') return out(STATUSES.HELD, handover.why ?? null)
   if (hand === 'unknown' && typeof handover.why === 'string' && handover.why.startsWith(UNANSWERED_WHY)) return out(STATUSES.NO_ANSWER, handover.step ?? null)

@@ -169,7 +169,7 @@ const isRestartCut = (envelope, boardStartedAt) => isBoardTimeout(envelope) && (
  * failed, and the clear's why the board's own pause words (PAUSED_WHY: the Workers mod sends exactly these, its chats.ts
  * `clearWhy`). The mod knows no limit, so no refusal names LIMIT_WHY; one that did would hold as any.
  */
-const isPauseRefusal = envelope => envelope?.outcome?.cleared === false && envelope.outcome.typed == null && envelope.outcome.set !== false
+export const isPauseRefusal = envelope => envelope?.outcome?.cleared === false && envelope.outcome.typed == null && envelope.outcome.set !== false
   && envelope.outcome.clearWhy === PAUSED_WHY
 /**
  * Whether the board's own pause record (pause.json: pausing since `since`; resuming or running, from `pausedSince` to the
@@ -551,6 +551,37 @@ export function mergeStages(had, incoming) {
     if (!merged.some(stage => stage.stage === one.stage)) merged.push(one)
   }
   return merged.length === before ? null : merged
+}
+
+/**
+ * The lazy clear (Task 4, D7): a worker's hand-over outcomes that asked a clear, oldest first (`envelopesOf`): every envelope
+ * with a clear and an outcome, but a refusal under the person's pause (no clear owed for the worker's sake) and a 0.30.0
+ * failed clear without clearWhy (its words are not the clear's alone): neither counts. `{ envelope, isCleared, clearWhy }`.
+ */
+export function clearOutcomesOf(envelopes) {
+  return (envelopes ?? []).filter(one => (one?.clear ?? null) !== null && (one.outcome ?? null) !== null && !isPauseRefusal(one)
+    && (one.outcome.cleared === true || (one.outcome.cleared === false && typeof one.outcome.clearWhy === 'string' && one.outcome.clearWhy !== '')))
+    .map(envelope => ({ envelope, isCleared: envelope.outcome.cleared === true, clearWhy: envelope.outcome.cleared === true ? null : envelope.outcome.clearWhy }))
+}
+
+/** The lazy clear (D6): the clearWhy of the worker's newest hand-over that asked a clear and did not clear, or null. */
+export function lastClearWhyOf(envelopes) {
+  const last = clearOutcomesOf(envelopes).at(-1) ?? null
+  return last === null || last.isCleared ? null : last.clearWhy
+}
+
+/** The stages of a clear still on its way: the clear has neither run nor been refused. */
+const PENDING_STAGES = ['log-saved', 'clear-queued']
+
+/**
+ * The lazy clear (R3, D6): the clear stage of the worker's envelope in flight (no outcome yet, waiting or taken) while its clear
+ * is still on its way (its newest stage `log-saved` or `clear-queued`): `{ stage, at }`, else null.
+ */
+export function clearingOf(envelopes) {
+  const last = (envelopes ?? []).filter(one => one?.kind !== RESUME_KIND).at(-1) ?? null
+  if (last === null || (last.outcome ?? null) !== null || !['waiting', 'taken'].includes(last.state) || !Array.isArray(last.stages)) return null
+  const newest = [...last.stages].filter(one => Number.isFinite(one?.at)).sort((a, b) => a.at - b.at).at(-1) ?? null
+  return newest === null || !PENDING_STAGES.includes(newest.stage) ? null : { stage: newest.stage, at: newest.at }
 }
 
 /** The lane's words for a state of the sequence (quiet: information, never amber), or null where the lane says enough. */
