@@ -455,6 +455,33 @@ test('a dirty main checkout is refused (an untracked .claude/ does not count); a
   assert.equal(world.worktrees(), 1)
 })
 
+test('nothing to land, a main checkout on another branch and a trial copy that cannot fast-forward are each refused before the gate', LONG, async t => {
+  const world = await makeWorld(t)
+  world.branch('feat')
+  git(world.main, 'branch', 'same')
+  const nothing = await world.land('same')
+  assert.equal(nothing.status, 1)
+  assert.equal(lines(nothing.out).at(-1), `refused: nothing to land: same is at main's head (${world.before.slice(0, 7)}) already`)
+  git(world.main, 'switch', '-q', 'feat')
+  const elsewhere = await world.land('feat')
+  assert.equal(lines(elsewhere.out).at(-1), "refused: the main checkout is on 'feat', not main")
+  git(world.main, 'switch', '-q', 'main')
+  // The trial copy has a file of its own, then a commit main does not have.
+  writeFileSync(join(world.trial, 'junk.txt'), 'left over\n')
+  const dirty = await world.land('feat')
+  assert.equal(lines(dirty.out).at(-1), `refused: the trial copy ${world.trial} is not clean: ?? junk.txt`)
+  await rm(join(world.trial, 'junk.txt'))
+  git(world.trial, 'commit', '-q', '--allow-empty', '-m', 'only here')
+  const diverged = await world.land('feat')
+  assert.equal(diverged.status, 1)
+  assert.match(lines(diverged.out).at(-1), new RegExp(`^refused: the trial copy .* is at [0-9a-f]{7}, which main with this branch does not contain: it cannot fast-forward$`))
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), world.before)
+  assert.equal(git(world.remote, 'rev-parse', 'main'), world.before)
+  assert.equal(existsSync(join(world.data, 'landings')), false, 'no gate ran for any of them')
+  assert.deepEqual(world.landings().map(line => line.result), ['refused', 'refused', 'refused', 'refused'])
+  assert.deepEqual(readdirSync(world.tmp), [])
+})
+
 // The script's own text.
 
 const text = () => readFileSync(SCRIPT, 'utf8')

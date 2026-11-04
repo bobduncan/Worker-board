@@ -409,7 +409,7 @@ function Invoke-Gate {
     }
     if ($added -and -not (Test-Path -LiteralPath "$temp\node_modules")) {
       $removed = Invoke-Git $mainDir @('worktree', 'remove', $temp)
-      if ($removed.code -ne 0) { Say "note: the gate worktree $temp was left ($(Git-Line $removed)): remove it by hand without --force once you looked" }
+      if ($removed.code -ne 0) { Say "note: the gate worktree $temp was left ($(Git-Line $removed)): remove it by hand once you looked, never with the force flag" }
       Invoke-Git $mainDir @('worktree', 'prune') | Out-Null
     }
   }

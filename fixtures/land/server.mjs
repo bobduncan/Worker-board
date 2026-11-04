@@ -54,5 +54,13 @@ server.on('error', error => {
 server.listen(PORT, '127.0.0.1', () => {
   mkdirSync(join(HERE, 'data'), { recursive: true })
   writeFileSync(join(HERE, 'data', 'pid.txt'), String(process.pid))
-  appendFileSync(join(HERE, 'data', 'board.log'), `a made-up board listens on ${PORT} at ${state.commit}\n`)
+  // Said on stdout as the real board does (a cold start appends it to data/board.log through cmd, which holds that file open
+  // for itself: opening it here as well would fail with EBUSY); written to the file too when nothing holds it.
+  const said = `a made-up board listens on ${PORT} at ${state.commit}`
+  console.log(said)
+  try {
+    appendFileSync(join(HERE, 'data', 'board.log'), `${said}\n`)
+  } catch {
+    // Held by the redirect: the line is in the file already.
+  }
 })
