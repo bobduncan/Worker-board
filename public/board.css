@@ -3015,6 +3015,24 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .demo-figure figcaption { padding: 1px 0 4px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 .picture.demo-picture { display: block; width: 100%; }
 .picture.demo-picture img { width: 100%; height: auto; aspect-ratio: auto; object-fit: contain; }
+/* T17.2 (the person, 2026-11-04: "i expect that when i promide feedback i get new tailored demo on the aspects i asked for"): the spot their words name,
+   up close, and where it moves. A crop is the picture scaled by the board's script so that the box fills the frame; the pixels stay crisp. Cool tones only: nothing here is amber. */
+.demo-upclose { margin-top: 10px; padding: 10px 12px; border: 1px solid #3b5a85; border-radius: 10px; background: rgba(120, 167, 255, 0.06); }
+.demo-upclose-title { margin: 0 0 6px; font-size: 13px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #8fb6ff; }
+.demo-closeup-caption { margin: 0 0 6px; color: var(--muted); font-size: 13.5px; }
+.demo-closeup-sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; align-items: start; }
+.picture.demo-crop { position: relative; display: block; width: 100%; }
+.picture.demo-crop img { position: absolute; display: block; max-width: none; height: auto; aspect-ratio: auto; object-fit: fill; image-rendering: pixelated; visibility: hidden; }
+.picture.demo-crop.is-sized img { visibility: visible; }
+.demo-clip-stack { display: grid; }
+.demo-clip-stack > .picture { grid-area: 1 / 1; visibility: hidden; }
+.demo-clip-stack > .picture.is-on { visibility: visible; }
+.demo-clip-count { margin: 4px 0 0; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.demo-clip-strip { display: flex; flex-wrap: wrap; gap: 10px; }
+.demo-clip-still { flex: 1 1 140px; max-width: 280px; }
+.demo-checked { margin: 8px 0 0; color: var(--muted); font-size: 13.5px; }
+.demo-earlier { margin-top: 10px; }
+.demo-earlier > summary { cursor: pointer; color: var(--muted); font-size: 13.5px; }
 .demo-group { margin: 12px 0 0 4px; padding-left: 12px; border-left: 4px solid #8fb6ff; }
 .demo-group.is-fixedForGood { border-left-color: #5ad19a; }
 .demo-group.is-escalate { border-left-color: #ff8278; }

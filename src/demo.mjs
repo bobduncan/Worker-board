@@ -248,8 +248,9 @@ export function checkTries(list, { feedback = null, mtimeOf, previous = null }) 
         continue
       }
       // T17.2: the new try shows the spot their words name, up close, and a checker who did not make it says so. An answer in words (a new
-      // note, or the list taken again with no picture) is no spot of a picture: it needs no close-up, but the same check.
-      const isWords = hasWords || (isRerun && !hasPicture)
+      // note, or the list taken again with no picture) is no spot of a picture: it needs no close-up, but the same check. Nor does a grid row
+      // (a row has pictures or a grid, never both: a grid cannot carry a close-up).
+      const isWords = hasWords || (isRerun && !hasPicture) || (row.pictures ?? []).length === 0
       const closeups = (row.pictures ?? []).filter(one => one?.kind === 'closeup')
       const hasCloseup = closeups.some(one => isAfterSend(mtimeOf(one.path), sent))
       const checked = showsCheck(row.shows, sent)
