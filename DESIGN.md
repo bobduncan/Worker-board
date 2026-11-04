@@ -5505,6 +5505,47 @@ wake job and its claim), `test/work/handover.test.mjs` and `test/work/handoverBo
 the real envelopes eb4fe8aada155b05 and 93ee0a904d02d2dc), `test/supervisor/handoverRules.test.mjs` (the alarms),
 `test/asleepAfterRestart.test.mjs` (the lane's words, the notice, the ⚙ row).
 
+## A lane's own chat, and one way back for a held step (B986, X140, 2026-11-04)
+
+**The case.** Worker 4 paused for the week's limit at 10:13 holding B968 (checkpoint c3186b6). The board was off
+10:54-10:58 while the person switched account; the new account's list held an old "Worker 4" of 28 Oct (local_800a5b00)
+and not the chat that held B968 (its reports' session 0c8d674a). The lane was bound to the old chat by its title, so no
+kept report matched it; after its own restart the board knew no Workers mod for the worker (its memory of calls is empty
+then), so the worker fell off the hand-over's sequence (`onSequence`): `resumesDue` sent its old `resume-step` word at
+10:58 and the holder timers (change 3) never ran, so no give-back came. Main's message (11:03) and the launch (11:06)
+went to the old chat, "could not wake Worker 4" at 11:10 (X140). The person brought the chat back into the app at 11:34.
+The deeper look also found the 10:23 lift of its pause: the note "paused for the limit until 20:00" names no window, so
+`pauseLimit` reads it as a five-hour pause, lifted by the 5-hour reading (40%) while the week stood at 100% (its own fix).
+
+**One way back.** The kept report's Workers mod counts for the lane (`mod`: the mod's last call, else the lane's matched
+report, else the report kept under its name): a worker on the sequence stays on it after the board's restart and with its
+title on another chat, so whatever stopped it (the limit, its chat closed, its chat gone after an account switch) its
+step gets change 3's "go on" after 5 minutes and the give-back 15 minutes after that, from its checkpoint, branch and
+plan. A lifted pause starts those timers; the old resume word is never sent for it (`resumesDue` skips a lane on the
+sequence).
+
+**The lane's own chat** (`src/ownChat.mjs`, `lane.own` `{ session, appSession, isListed, by }`). The chat its kept report
+names: by the report's session, or by the app id the report now keeps (`app`, the shown chat's at the report: bridge.mjs
+`noteReport`, `appOfShown`; saved in `data/reports.json`), which finds it again after a clear or an import gave it a new
+session; the title's chat when no report is kept. Every wake goes by it, never by the title: the wake's paths and needs
+(wake.mjs `pathsOf`, `wakeNeeds`), the hands' jobs about a chat (hands.mjs `handJobs`: start, wake, set, restart), the
+launches (`chatToOpen`, the person's Send again), and the main chat's start and wake words (say.mjs). The lane itself, its
+card and its transcript stay the title's chat, and the bridge serves the session it shows.
+
+**Not in the app's list.** When the list holds no open chat its report names (`isListed` false), the wake has no path: "could
+not wake Worker 4: its chat is not in the app's list; open its chat" at once (the lane's "could not wake: its chat is not
+in the app's list"), with no message, no launch and no two-minute wait; the held step goes on to the give-back by the timers.
+A read that sees the app id's file but no chat in it (the app rewrites it) is not known (`isListed` null): no case. The
+app's own answer to a wake message, "not found" or "archived" (`isNotListedAnswer`), ends the spell's tries too: no launch
+after it.
+
+**Not in it.** The reimport of chats after an account switch (chat 1 fixes it with the person); the pause note's window
+(its own fix).
+
+Tests: `test/heldStepWayBack.test.mjs` (X140 replayed with its ids and times, 10:58 to 11:13: on the sequence, no
+resume-step, could not wake at once, one go on line, B968 given back from c3186b6 with its branch and plan; the cases and
+the 5 and 15 minutes; the kept app id).
+
 ## The wait line (T22, wave 1, 2026-11-02)
 
 The person, 2026-11-02: "either the board responds immediately, e.g. via code. or we expect an ai chat todo something in

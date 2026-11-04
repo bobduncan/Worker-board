@@ -1299,7 +1299,7 @@ export const WATCH_RULES = [
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'handover-held', kind: 'watch', says: 'a worker on the hand-over sequence held (its clear, set or restart did not run) for over 10 min of running time', check: handoverHeld, skips: SKIPS_ON_PAUSE },
   { id: 'handover-unanswered', kind: 'watch', says: 'a worker on the hand-over sequence that did not answer its hand-over within 10 min (the net fired)', check: handoverUnanswered },
-  { id: 'wake-failed', kind: 'watch', says: 'a chat the board could not wake: the app did not start it on a launch, and no message reached it', check: wakeFailed },
+  { id: 'wake-failed', kind: 'watch', says: 'a chat the board could not wake: the app did not start it on a launch, and no message reached it; or (B986) the chat its reports name is not in the app's list', check: wakeFailed },
   { id: 'nobody-answers-wakes', kind: 'watch', says: 'nobody answers the board\'s wake-ups: every chat with work could not be woken, and the launch when nobody ran failed', check: nobodyAnswersWakes },
   { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading, skips: SKIPS_ON_PAUSE },
   { id: 'board-deaf', kind: 'watch', says: 'the board heard no chat for over 10 min while chats wrote their conversations', check: boardDeaf, skips: SKIPS_ON_PAUSE },

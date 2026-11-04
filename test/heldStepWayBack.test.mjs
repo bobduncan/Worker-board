@@ -29,7 +29,7 @@ import { GIVE_BACK_MINUTES, RESUME_MINUTES, continuationLine, continuationOf } f
 import { parseItem, valueOf } from '../src/work/item.mjs'
 import { storeFromText } from '../src/work/read.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
-import { claim, emptyWakes, failedToSend, launchPlan, nextPath, noticeOf, wakeNeeds, wakeOf, wakeWords } from '../src/wake.mjs'
+import { claim, emptyWakes, failedToSend, launchPlan, nextPath, noticeOf, pathsOf, wakeNeeds, wakeOf, wakeWords } from '../src/wake.mjs'
 import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
@@ -219,6 +219,9 @@ test('cases: a chat listed again at the next read is no case; an old chat with t
   assert.equal(ownChatOf({ lane: title, kept, apps: [...apps, { sessionId: OWN_CHAT, cliSessionId: OWN_CLI, isArchived: true }] }).isListed, false)
   // No kept report: the title's chat is all the board knows.
   assert.deepEqual(ownChatOf({ lane: title, kept: null, apps }), { ...title, isListed: true, by: 'title' })
+  // A lane whose own chat is not listed has no way at all, whatever ids it carries (mutant: a message and its 2-minute wait).
+  assert.deepEqual(pathsOf({ own: { session: OWN_CLI, appSession: OWN_CHAT, isListed: false } }, true), [])
+  assert.deepEqual(pathsOf({ own: { session: OWN_CLI, appSession: OWN_CHAT, isListed: null } }, true), ['message', 'launch'])
 
   // Through the state: a read where the own chat's file is being rewritten keeps the wake's ids unknown, not failed.
   const rewriting = build({ now: at(10, 59), work: { ...storeWith(), ok: true }, reports: [...reportsAt(at(10, 59)).slice(0, 2), [WORKER4[0], { ...WORKER4[1], app: OWN_CHAT }]], appFiles: ['local_Main', 'local_Worker3', OLD_CHAT, OWN_CHAT] })
