@@ -956,8 +956,8 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   and the bar's "(full)" follow. At the stop line the board types each working worker once per week (`say.mjs`
   `weekStopDue`, command `week-stop`, the board's own word): "The weekly limit reached the stop line (98%): bring your
   work to a safe point (commit, checkpoint), then send the paused note"; the worker's paused note then makes its lane
-  Suspended as before. The watch rule `week-stop-ignored` (`rules/watch.mjs`) opens one incident when the week is at the
-  line, a worker still works 15 min of running time after its word, and no lane is suspended. *Whom the word goes to (B771, the
+  Suspended as before. The watch rule `week-stop-ignored` (`rules/watch.mjs`) opens an incident for each worker that, with the week at the
+  line, still works 20 min of running time after this week's word reached it (B984, X138: timed from `deliveredAt`, a key for each word; an older week's word or an undelivered one is no case; another lane being suspended silences nobody). *Whom the word goes to (B771, the
   fix of X98).* Only a worker that holds a step not yet reported (`say.mjs` `holdsOpenStep`: taken or in progress in the store,
   or one the board's check handed back, which the worker stays in its turn to fix). At 22:50 on 2026-10-27 Worker 2 reported
   B742 and, 15 s later, was typed the stop word: it started a new turn before the worker's clear ran, and the worker stayed
