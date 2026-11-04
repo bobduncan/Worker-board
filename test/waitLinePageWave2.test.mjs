@@ -300,3 +300,68 @@ test('place 8, an incident waiting for the Supervisor\'s judgment: its line stan
     assert.match(words(second.find('#supervisor .inc-wait[data-incident-wait="X1"] .wait-words')), /^Sent 13:30/)
   } finally { await second.close() }
 })
+
+// ---- the review of 2026-11-04 ----
+test('review 1, Overturn with Autopilot on (recaps gather in the daily note): the overturned recap stays listed there with its line until Done + 10 minutes', async () => {
+  const recap = { id: 'recap:N4', workId: 'N4', about: 'B2', isGoal: false, title: 'B2 Light the lamps is done', heading: 'Light the lamps', line: 'Every path has a lamp.', evidence: 'none', state: 'overturned', at: NOW - 30 * MIN, approvesAt: null, words: 'Too dim.', isClosed: true }
+  const open = { ...recap, id: 'recap:N5', workId: 'N5', state: 'open', isClosed: false, approvesAt: NOW + 20 * MIN, heading: 'Water the hedge' }
+  const answerLine = more => line('overturn', 'sent', `Sent ${hhmm(NOW - 3 * MIN)}`, 'waits for Advisor to pick it up · next in its queue', { command: 'answer', ask: 'work:N4', ...more })
+  const state = (waits, recaps = [recap]) => ({ ...asSent(build([], undefined, RUN_GOALS)), recaps, recapsShow: 'daily', waits })
+  const sent = await openPage({ state: state({ w1: answerLine() }) })
+  try {
+    await sent.click('[data-tab="advice"]')
+    const card = sent.find('#advisor-focus .need.is-recap')
+    assert.match(words(card.querySelector('.recap-status')), /^Overturned: "Too dim"\./)
+    assert.equal(words(card.querySelector('.wait-line .wait-words')), `Sent ${hhmm(NOW - 3 * MIN)} · waits for Advisor to pick it up · next in its queue`)
+    assert.equal(words(sent.find('#advisor-focus .focus-recaps h3')), 'Overturned: your partner makes the fix')
+    assert.equal(sent.all('#needs .need.is-recap').length, 0, 'in the daily note\'s part, not in Needs your attention')
+  } finally { await sent.close() }
+  const done = await openPage({ state: state({ w1: answerLine({ state: 'done', lead: `Done ${hhmm(NOW - MIN)}`, rest: 'B30', at: NOW - MIN, link: { step: 'B30', text: 'See B30 →' } }) }, [recap, open]) })
+  try {
+    await done.click('[data-tab="advice"]')
+    assert.equal(done.all('#advisor-focus .need.is-recap').length, 2, 'the open recap, and the overturned one with its Done line')
+    assert.equal(words(done.find('#advisor-focus .focus-recaps h3')), 'Finished: 1', 'only the open one counts as finished')
+    assert.equal(done.find('#advisor-focus .need.is-recap.is-closed [data-wait-step="B30"]').dataset.waitStep, 'B30')
+  } finally { await done.close() }
+  for (const waits of [{}, { w1: answerLine({ state: 'done', lead: 'Done 12:00', rest: 'B30', at: NOW - 20 * MIN }) }]) {
+    const gone = await openPage({ state: state(waits) })
+    try {
+      await gone.click('[data-tab="advice"]')
+      assert.equal(gone.all('#advisor-focus .need.is-recap').length, 0, 'no line to show: gone, as before')
+    } finally { await gone.close() }
+  }
+})
+
+test('review 6, Stop and Remove: each word of a worker keeps its own line, by its word id; the older "asked" sentence of a remove gives way to its line only', async () => {
+  const base = asSent(build([], undefined))
+  const word = (id, command, state, lead, rest, more = {}) => ({ ...line('worker', state, lead, rest, { chat: 'Lead', command, about: 'Digger' }), ...more })
+  const waits = {
+    s1: word('s1', 'stop', 'done', `Done ${hhmm(NOW - 2 * MIN)}`, 'stopped', { at: NOW - 2 * MIN, sentAt: NOW - 9 * MIN }),
+    m1: word('m1', 'remove', 'sent', `Sent ${hhmm(NOW - MIN)}`, 'waits for Lead to pick it up · next in its queue', { sentAt: NOW - MIN }),
+  }
+  const page = await openPage({ state: { ...base, waits } })
+  try {
+    const row = page.all('#lanes .lane').find(one => /Digger/.test(one.textContent))
+    const lines = [...row.querySelectorAll('.wait-line')]
+    assert.deepEqual(lines.map(one => one.dataset.wait), ['s1', 'm1'], 'both, oldest first, each by its own word id')
+    assert.deepEqual(lines.map(one => words(one.querySelector('.wait-words'))), [`Done ${hhmm(NOW - 2 * MIN)} · stopped`, `Sent ${hhmm(NOW - MIN)} · waits for Lead to pick it up · next in its queue`])
+  } finally { await page.close() }
+})
+
+test('review 7, a refine: the person\'s older line never hides a newer refine of the same step that runs now (the board\'s own, Autopilot\'s); the newest activity shows', async () => {
+  const board = { id: 'b9', to: 'Advisor', ask: null, step: null, title: null, version: null, verdict: null, command: 'refine', about: 'B20', round: 1, text: 'refine step', at: NOW - MIN, state: 'waiting', board: true }
+  const older = line('refine', 'done', `Done ${hhmm(NOW - 4 * MIN)}`, 'refined', { command: 'refine', about: 'B20', at: NOW - 4 * MIN, sentAt: NOW - 5 * MIN })
+  const page = await openPage({ state: gardenState(storeWith(B20), { waits: { r1: older } }, { outbox: [board] }), hash: 'details=B20' })
+  try {
+    assert.equal(page.all('#details .wait-line').length, 0, 'the older Done line does not hide the refine that runs now')
+    assert.match(words(page.find('#details .refine-working')), /^Asked at \d\d:\d\d: Advisor /)
+  } finally { await page.close() }
+  // The person's own refine is the newest one: its line stands, never two.
+  const mine = { ...board, board: undefined, at: NOW - 3 * MIN }
+  const own = line('refine', 'sent', `Sent ${hhmm(NOW - 3 * MIN)}`, 'waits for Advisor to pick it up · next in its queue', { command: 'refine', about: 'B20', sentAt: NOW - 3 * MIN })
+  const second = await openPage({ state: gardenState(storeWith(B20), { waits: { r1: own } }, { outbox: [mine] }), hash: 'details=B20' })
+  try {
+    assert.equal(second.all('#details .wait-line').length, 1)
+    assert.equal(second.all('#details .refine-working').length, 0)
+  } finally { await second.close() }
+})

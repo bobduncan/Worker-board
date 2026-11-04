@@ -85,7 +85,8 @@ test('place 2, Go: Done once every work block of the goal has a task filed after
   const sent = waitsFor({ state: stateOf([[], []]), outbox: [word], items }).g1
   assert.deepEqual([sent.state, sent.rest, sent.place, sent.goal], ['sent', 'waits for Advisor to pick it up · next in its queue', 'go', 'G6'])
   assert.equal(waitsFor({ state: stateOf([['B1'], []]), outbox: [word], items }).g1.state, 'sent', 'one block still has no task')
-  assert.equal(waitsFor({ state: stateOf([['B0'], ['B2']]), outbox: [word], items }).g1.state, 'sent', 'a task from before Go is no result of it')
+  assert.equal(waitsFor({ state: stateOf([['B0'], []]), outbox: [word], items }).g1.state, 'sent', 'a block that had a task is carried; the one with none still waits for its task')
+  assert.equal(waitsFor({ state: stateOf([['B0'], ['B0']]), outbox: [word], items }).g1.state, 'sent', 'every block carried and no task made after the word: nothing was done yet')
   assert.equal(waitsFor({ state: stateOf([['B404'], ['B2']]), outbox: [word], items }).g1.state, 'sent', 'a task the store does not hold yet is not filed, and breaks no line')
   const done = waitsFor({ state: stateOf([['B1'], ['B2']]), outbox: [word], items }).g1
   assert.deepEqual([done.state, done.lead, done.rest, done.link], ['done', `Done ${hhmm(at(1))}`, '2 steps', { step: 'B1', text: 'See B1 →' }])
@@ -93,20 +94,57 @@ test('place 2, Go: Done once every work block of the goal has a task filed after
   assert.equal(onIt.lead, 'Advisor is on it')
 })
 
-test('place 3, Change this goal: its new goal definition is Done; a question or what it understood is its next stage; a talk that is no change has no result of its own', () => {
+test('place 2 in a next round (the review of 2026-11-04): Go is Done when each block that is open in the new round has a task made after the word; a block carried as done or kept does not count', () => {
   const advisor = lane('Advisor')
-  const thread = (more = {}) => ({ path: 'brainstorms/change.md', kind: 'change', goal: { id: 'G6', title: 'Garden' }, latest: null, understood: null, proposal: null, ...more })
+  const made = (id, madeAt, state = 'new') => step(id, state, madeAt, 'Goal: G6\n')
+  const node = { id: 'G6', title: 'Garden', parts: [{ title: 'Beds', steps: ['B1'] }, { title: 'Hedge', steps: ['B9'] }, { title: 'Pond', steps: [] }], partsDropped: [] }
+  const word = { id: 'g1', to: 'Advisor', command: 'how-go', about: 'G6', ...typed({ at: at(10), takenAt: at(9), deliveredAt: at(9) }) }
+  const idle = new Map([['Advisor', said('idle', at(1), { word: 'g1', turn: at(9) })]])
+  const items = new Map([['B1', made('B1', at(600), 'done')], ['B9', made('B9', at(1))]])
+  // The review's probe: Beds kept its round-1 task, Hedge got a new one. Pond has none yet, so it is not Done.
+  assert.equal(waitsFor({ state: { chats: [], advisor, goals: { nodes: [node] } }, outbox: [word], items, reports: idle }).g1.state, 'sent', 'Pond still waits for its task')
+  const two = { ...node, parts: node.parts.slice(0, 2) }
+  const done = waitsFor({ state: { chats: [], advisor, goals: { nodes: [two] } }, outbox: [word], items, reports: idle }).g1
+  assert.deepEqual([done.state, done.lead, done.rest], ['done', `Done ${hhmm(at(1))}`, '1 step'])
+  // The state says which blocks are open in the round (focus.openNow, by their place in the goal's parts): Pond is carried, it is none.
+  const focus = { id: 'G6', openNow: [{ index: 1, title: 'Hedge', kind: 'new' }] }
+  assert.equal(waitsFor({ state: { chats: [], advisor, goals: { nodes: [node] }, focus }, outbox: [word], items, reports: idle }).g1.state, 'done')
+  // Every block carried and no task made after the word: nothing done yet.
+  assert.equal(waitsFor({ state: { chats: [], advisor, goals: { nodes: [{ ...two, parts: [two.parts[0], { title: 'Hedge', steps: ['B1'] }] }] } }, outbox: [word], items: new Map([['B1', items.get('B1')]]), reports: idle }).g1.state, 'sent')
+})
+
+test('place 3, Change this goal: only a new goal-definition draft, written after the word (full date-times), is Done; a next question or what it understood is progress, "<Partner> answered: ..."; a talk that is no change has no result of its own', () => {
+  const advisor = lane('Advisor')
+  // The thread's lines carry HH:MM only; it began an hour ago, on the same day.
+  const thread = (more = {}) => ({ path: 'brainstorms/change.md', kind: 'change', goal: { id: 'G6', title: 'Garden' }, started: stamp(at(60)), latest: null, earlier: [], understood: null, proposal: null, ...more })
   const stateOf = threads => ({ chats: [], advisor, brainstorms: { threads } })
   const word = { id: 'c1', to: 'Advisor', command: 'brainstorm', about: 'brainstorms/change.md', ...sentWord() }
   const sent = waitsFor({ state: stateOf([thread()]), outbox: [word] }).c1
   assert.deepEqual([sent.state, sent.rest, sent.place, sent.goal], ['sent', 'waits for Advisor to pick it up · next in its queue', 'change', 'G6'])
   const draft = waitsFor({ state: stateOf([thread({ proposal: { at: hhmm(at(1)), objective: 'Plant the hedge', created: null } })]), outbox: [word] }).c1
   assert.deepEqual([draft.state, draft.lead, draft.rest], ['done', `Done ${hhmm(at(1))}`, 'new definition'])
-  const understood = waitsFor({ state: stateOf([thread({ understood: { at: hhmm(at(1)), text: 'x', answer: null } })]), outbox: [word] }).c1
-  assert.deepEqual([understood.state, understood.rest], ['done', 'what it understood, for your yes'])
-  const question = waitsFor({ state: stateOf([thread({ latest: { n: 1, at: hhmm(at(1)), answer: null } })]), outbox: [word] }).c1
-  assert.deepEqual([question.state, question.rest], ['done', 'a question for you'])
   assert.equal(waitsFor({ state: stateOf([thread({ proposal: { at: hhmm(at(10)), objective: 'Old draft', created: null } })]), outbox: [word] }).c1.state, 'sent', 'a draft from before the word is no result of it')
+  assert.equal(waitsFor({ state: stateOf([thread({ proposal: { at: hhmm(at(3)), objective: 'Same minute', created: null } })]), outbox: [word] }).c1.state, 'sent', 'nor one of the word\'s own minute')
+  assert.equal(waitsFor({ state: stateOf([thread({ proposal: { at: hhmm(at(1)), objective: '', created: null } })]), outbox: [word] }).c1.state, 'sent', 'a proposal with no objective is no new definition')
+  // A time still to come (a draft stamped later than now): never Done.
+  assert.equal(waitsFor({ state: stateOf([thread({ proposal: { at: '23:59', objective: 'Later', created: null } })]), outbox: [word] }).c1.state, 'sent')
+  // Progress, not a result: the next question or what it understood, written after the word and not answered yet.
+  const question = waitsFor({ state: stateOf([thread({ latest: { n: 1, at: hhmm(at(1)), answer: null } })]), outbox: [word] }).c1
+  assert.deepEqual([question.state, question.lead, question.rest, question.isFallback], ['done', `Advisor answered ${hhmm(at(1))}`, 'a question for you', true])
+  const understood = waitsFor({ state: stateOf([thread({ understood: { at: hhmm(at(1)), text: 'x', answer: null, after: 0 } })]), outbox: [word] }).c1
+  assert.deepEqual([understood.state, understood.lead, understood.rest], ['done', `Advisor answered ${hhmm(at(1))}`, 'what it understood, for your yes'])
+  // The review's probe: the person answers a question the partner asked yesterday at 18:00, the same minute or later: never Done, no progress.
+  const yesterday = thread({ started: stamp(at(60 * 18)), latest: { n: 2, at: '18:00', answer: { key: 'A' } }, earlier: [] })
+  assert.equal(waitsFor({ state: stateOf([yesterday]), outbox: [{ ...word, command: 'brainstorm-answer' }] }).c1.state, 'sent', 'the question answered is not a new one')
+  const sameMinute = thread({ latest: { n: 2, at: hhmm(at(3)), answer: { key: 'A' } } })
+  assert.equal(waitsFor({ state: stateOf([sameMinute]), outbox: [{ ...word, command: 'brainstorm-answer' }] }).c1.state, 'sent')
+  const yes = thread({ latest: null, understood: { at: hhmm(at(3)), text: 'x', answer: { yes: true }, after: 0 } })
+  assert.equal(waitsFor({ state: stateOf([yes]), outbox: [{ ...word, command: 'brainstorm-understood' }] }).c1.state, 'sent', 'the yes to what it understood is not its next stage')
+  // Past midnight: the thread began at 23:50, the partner's draft is stamped 00:10 (the next day), the word was sent at 00:05.
+  const late = new Date(2026, 10, 4, 0, 20).getTime()
+  const midnight = thread({ started: '2026-11-03 23:50', latest: { n: 1, at: '23:55', answer: { key: 'A' } }, proposal: { at: '00:10', objective: 'After midnight', created: null } })
+  const ofMidnight = waitsOf({ state: stateOf([midnight]), outbox: [{ ...word, at: new Date(2026, 10, 4, 0, 5).getTime() }], now: late, keep, judge: wordJudge({ state: stateOf([midnight]), items: new Map(), outbox: [], settings: {}, now: late }), items: new Map() }).c1
+  assert.deepEqual([ofMidnight.state, ofMidnight.rest], ['done', 'new definition'])
   // A brainstorm that changes no goal: the Focus talk, no result of its own.
   const free = thread({ kind: null, latest: { n: 1, at: hhmm(at(1)), answer: null } })
   const talk = waitsFor({ state: stateOf([free]), outbox: [word], reports: new Map([['Advisor', said('idle', at(1), { word: 'c1', turn: at(2) })]]) })
@@ -139,9 +177,15 @@ test('place 5, Overturn: the answer to an overturned recap is Done once the fix 
   assert.equal(waitsFor({ state, outbox: [word], items: new Map([['N1', recap('B12')], ['B30', fix(at(60))]]) }).o1.state, 'sent', 'a fix from before the Overturn')
   const done = waitsFor({ state, outbox: [word], items: new Map([['N1', recap('B12')], ['B30', fix(at(1))]]) }).o1
   assert.deepEqual([done.state, done.lead, done.rest, done.link], ['done', `Done ${hhmm(at(1))}`, 'B30', { step: 'B30', text: 'See B30 →' }])
-  // A goal's recap: a step of that goal.
-  const goalFix = step('B31', 'new', at(1), 'Goal: G6\n')
-  assert.equal(waitsFor({ state, outbox: [word], items: new Map([['N1', recap('G6')], ['B31', goalFix]]) }).o1.rest, 'B31')
+  // A goal's recap (the review of 2026-11-04): only a step made from the person's overturn words, naming the recap or holding their words,
+  // never any step of the goal.
+  const goalRecap = item(`Id: N1\nKind: note\nTitle: recap\nState: read\nRecap: overturned\nSince: ${stamp(at(3))}\n\n## About\nG6\n\n## Answer\nthe path is too dark near the pond\n`)
+  const other = step('B31', 'new', at(1), 'Goal: G6\n')
+  assert.equal(waitsFor({ state, outbox: [word], items: new Map([['N1', goalRecap], ['B31', other]]) }).o1.state, 'sent', 'a step of the goal made for something else is no result of the overturn')
+  const fromWords = item(`Id: B32\nKind: step\nTitle: Light the path near the pond\nState: new\nGoal: G6\nSince: ${stamp(at(1))}\n\n## Summary\nThe path is too dark near the pond.\n\n## History\n- ${stamp(at(1))} made\n`)
+  assert.equal(waitsFor({ state, outbox: [word], items: new Map([['N1', goalRecap], ['B31', other], ['B32', fromWords]]) }).o1.rest, 'B32', 'a step holding their words')
+  const names = item(`Id: B33\nKind: step\nTitle: Another try\nState: new\nGoal: G6\nSince: ${stamp(at(1))}\n\n## Context\nFrom the overturn of N1.\n\n## History\n- ${stamp(at(1))} made\n`)
+  assert.equal(waitsFor({ state, outbox: [word], items: new Map([['N1', goalRecap], ['B33', names]]) }).o1.rest, 'B33', 'a step naming the recap')
   // An answer to something that is no recap stays an answer, the fallback.
   assert.equal(waitsFor({ state, outbox: [{ ...word, ask: 'work:Q5' }], items: new Map() }).o1.place, 'answer')
 })
@@ -161,6 +205,53 @@ test('place 6, Stop or Remove a worker: Done when its lane is stopped, or gone; 
   const removedAt = at(1)
   assert.equal(waitsFor({ state: { chats: [lead, worker({ removedAt })], advisor: null }, outbox: [remove] }).m1.lead, `Done ${hhmm(removedAt)}`, 'its lane says it was removed')
   assert.deepEqual(Object.keys(waitsFor({ state: { chats: [lead, worker()], advisor: null }, outbox: [{ ...stop, byCode: true }] })), [])
+})
+
+test('place 6 (the review of 2026-11-04): a stop is Done when the lane no longer holds the task it was told to stop; a code stop handed to the main chat after STOP_HANDS_MS has its line', () => {
+  const lead = lane('Lead')
+  const worker = more => lane('Worker 2', { task: { stepId: 'B12', text: 'dig' }, state: 'working', status: 'Working', ...more })
+  const stop = { id: 's1', to: 'Lead', command: 'stop', about: 'Worker 2', text: 'stop task', taskStep: 'B12', taskText: 'dig', laneState: 'working', ...typed({ at: at(20), takenAt: at(19), deliveredAt: at(19) }) }
+  const stateOf = w => ({ chats: [lead, w], advisor: null })
+  const idle = new Map([['Lead', said('idle', at(10), { word: 's1', turn: at(19) })]])
+  const lineOf = (w, word = stop) => waitsFor({ state: stateOf(w), outbox: [word], reports: idle }).s1
+  assert.equal(lineOf(worker()).state, 'sent', 'the worker still holds the task: the main chat\'s turn ended without it')
+  // The review's probe: the task is gone but the worker is not "free" (off, suspended, interrupted): it holds nothing.
+  for (const state of ['off', 'suspended', 'interrupted', 'free']) assert.deepEqual([state, lineOf(worker({ task: null, state })).state], [state, 'done'])
+  // The task changed (a short free moment was missed, the worker took another): done.
+  assert.equal(lineOf(worker({ task: { stepId: 'B13', text: 'water' } })).rest, 'stopped')
+  assert.equal(lineOf(worker({ task: { stepId: null, text: 'water' } }), { ...stop, taskStep: undefined }).rest, 'stopped', 'a task with no id is told by its words')
+  // It was working when told and now does not work (no longer running the task): done; one that waits for the person still holds it.
+  assert.equal(lineOf(worker({ state: 'suspended' })).state, 'done')
+  assert.equal(lineOf(worker({ state: 'waiting' })).state, 'sent')
+  assert.equal(lineOf(worker({ state: 'suspended' }), { ...stop, laneState: 'waiting' }).state, 'sent', 'it was not working when told: only the task decides')
+  // A word from before the board named the task: the task gone is the result.
+  assert.equal(lineOf(worker({ task: null, state: 'suspended' }), { ...stop, taskStep: undefined, taskText: undefined, laneState: undefined }).state, 'done')
+  // A stop or remove the board carries out by code has no line for STOP_HANDS_MS (15 min); the main chat that takes it after all gets one.
+  const code = { ...stop, byCode: true, state: 'waiting', takenAt: undefined, deliveredAt: undefined }
+  assert.deepEqual(Object.keys(waitsFor({ state: stateOf(worker()), outbox: [{ ...code, at: at(14) }] })), [], 'instant: the worker\'s mod tells it')
+  assert.deepEqual(Object.keys(waitsFor({ state: stateOf(worker()), outbox: [{ ...code, at: at(16) }] })), ['s1'], 'handed to the main chat after 15 minutes')
+  assert.deepEqual(Object.keys(waitsFor({ state: stateOf(worker()), outbox: [{ ...code, at: at(16), state: 'dropped' }] })), [], 'one the board settled itself has none')
+  const removeByCode = { id: 'm1', to: 'Lead', command: 'remove', about: 'Worker 2', text: 'remove worker', byCode: true, ...sentWord({ at: at(20) }) }
+  assert.equal(waitsFor({ state: stateOf(worker()), outbox: [removeByCode] }).m1.place, 'worker')
+  // Each word keeps its own line, by its id (a stop and a remove of one worker).
+  const both = waitsFor({ state: stateOf(worker()), outbox: [stop, { id: 'm2', to: 'Lead', command: 'remove', about: 'Worker 2', text: 'remove worker', ...sentWord({ at: at(2) }) }], reports: idle })
+  assert.deepEqual(Object.keys(both).sort(), ['m2', 's1'])
+})
+
+test('a result with no time of its own (a stop, a remove) is dated by the first moment the board saw it, kept, never by the clock of each draw', () => {
+  const lead = lane('Lead')
+  const stop = { id: 's1', to: 'Lead', command: 'stop', about: 'Worker 2', text: 'stop task', ...sentWord() }
+  const state = { chats: [lead, lane('Worker 2', { task: null })], advisor: null }
+  const firstSeen = new Map()
+  const judge = wordJudge({ state, items: new Map(), outbox: [stop], settings: {}, now: NOW })
+  const read = now => waitsOf({ state, outbox: [stop], now, keep, judge, items: new Map(), firstSeen }).s1
+  const first = read(NOW)
+  assert.equal(first.lead, `Done ${hhmm(NOW)}`)
+  const later = read(NOW + 7 * MIN)
+  assert.deepEqual([later.lead, later.at], [first.lead, first.at], 'seen again 7 minutes later: still the first moment')
+  // A word that left the outbox is forgotten.
+  waitsOf({ state, outbox: [], now: NOW + 8 * MIN, keep, judge, items: new Map(), firstSeen })
+  assert.equal(firstSeen.size, 0)
 })
 
 test('place 7, the Focus talk: the talk bar, "Re-check the goals now" and the Not yet words have the fallback only: "<Chat> answered", never Done with a result', () => {
@@ -209,7 +300,17 @@ test('place 8, an incident that waits for the Supervisor\'s judgment: a line of 
   assert.deepEqual(Object.keys(waitsFor({ state, outbox: [judgeWord, newer], items: new Map([['X5', items.get('X5')]]) })), ['j2#X5'])
   const dropped = waitsFor({ state, outbox: [{ ...judgeWord, state: 'dropped', why: 'none of them waits any more' }], items })
   assert.equal(dropped['j1#X1'].state, 'done')
-  assert.equal(dropped['j1#X5'], undefined, 'a dropped word with the incident still waiting: no line of it')
+  assert.equal(dropped['j1#X5']?.place, 'judge', 'the incident still waits: its line stands, whatever became of the word that names it (the review of 2026-11-04)')
+  // The review's probe: a NEWER judge word that does not name the incident never ends its line; the line reads from the newest word that names it.
+  const older = { ...judgeWord, id: 'j1', incidents: ['X1'], about: undefined, ...typed({ at: at(60), takenAt: at(59), deliveredAt: at(59) }), endedAt: at(50) }
+  const elsewhere = { ...judgeWord, id: 'j2', incidents: ['X2'], about: undefined, ...typed({ at: at(5), takenAt: at(4), deliveredAt: at(4) }) }
+  const waiting = new Map([['X1', incident('X1', 'with the supervisor', at(59))], ['X2', incident('X2', 'with the supervisor', at(4))]])
+  const both = waitsFor({ state, outbox: [older, elsewhere], items: waiting })
+  assert.deepEqual(Object.keys(both).sort(), ['j1#X1', 'j2#X2'])
+  assert.deepEqual([both['j1#X1'].state, both['j1#X1'].lead], ['sent', `Supervisor's turn ended at ${hhmm(at(50))} without it`])
+  // Once judged (or ended by code) it is Done, whichever word names it.
+  const judged = waitsFor({ state, outbox: [older, elsewhere], items: new Map([['X1', incident('X1', 'closed', at(1))], ['X2', waiting.get('X2')]]) })
+  assert.deepEqual([judged['j1#X1'].state, judged['j1#X1'].rest], ['done', 'false alarm: no fault left'])
 })
 
 test('every place: the word taken by its chat while its turn on it runs reads "<Chat> is on it · since <the turn>"', () => {

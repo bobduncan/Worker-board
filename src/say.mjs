@@ -560,7 +560,9 @@ export function checkSay(body, state, maxChars) {
       if (state.changeAsks?.stop?.[lane.name]?.isOpen === true) return refuse(409, 'An earlier ask to stop this task is still open.')
       if (body.sure !== true) return refuse(409, 'Confirm first: the worker stops at a safe point.')
       const task = [lane.task.stepId ?? null, lane.task.text ? `"${plainLine(lane.task.text)}"` : null].filter(Boolean).join(' ') || 'its task'
-      return { ok: true, message: stopWords(body.to, plainLine(lane.name), task) }
+      // T22 wave 2 (the review of 2026-11-04): the word names the task it stops and how the worker stood, so its line is Done once the lane
+      // no longer holds that task (src/waitLine.mjs `workerDone`), not only when it is free.
+      return { ok: true, message: { ...stopWords(body.to, plainLine(lane.name), task), taskStep: lane.task.stepId ?? null, taskText: String(lane.task.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200), laneState: lane.state } }
     }
     // B124: the person asks for one more worker, or for three when there is none. One ask at a time.
     if (body.command === 'spawn') {

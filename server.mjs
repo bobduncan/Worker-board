@@ -1409,6 +1409,9 @@ async function main(args) {
    * kept turn reports, the store, the obsolete check's record and the supervisor's last sweep. `{}` on the demo, and when the
    * view cannot be made (a line is information: it never stops the state).
    */
+  // T22 wave 2 (the review of 2026-11-04): the first moment each result without a time of its own was seen (a stop, a remove), so a line never
+  // reads the clock of each draw, also on a board process that does not write the outbox.
+  const waitsFirstSeen = new Map()
   const waitsNow = async (state, stored, supervised) => {
     if (isDemo || state === null) return {}
     try {
@@ -1417,7 +1420,7 @@ async function main(args) {
       const outbox = store.outbox()
       const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, assets: await assetRequests(), now })
       const obsolete = workDir === null ? null : (await readObsoleteFile(workDir)).record
-      const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null }))
+      const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null, firstSeen: waitsFirstSeen }))
       // The review of 2026-11-02 (2a): a turn seen ended, an action's own result seen, is kept on its word once and read first
       // from then on (a later turn of the chat never makes it "on it" again). Only the board process that runs the loops of
       // the board that delivers writes the outbox.

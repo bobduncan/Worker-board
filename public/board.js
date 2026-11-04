@@ -154,7 +154,7 @@ function waitViewOf(part, id) {
   const now = Number.isFinite(part?.readAt) ? part.readAt : Date.now()
   const isShown = line.state !== 'done' || !Number.isFinite(line.at) || now - line.at < WAIT_DONE_SHOWN_MS
   return {
-    id, state: line.state, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null,
+    id, state: line.state, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null, sentAt: Number.isFinite(line.sentAt) ? line.sentAt : null,
     link: typeof line.link?.step === 'string' ? { step: line.link.step, text: String(line.link.text ?? line.link.step) } : null,
     canSendAgain: line.canSendAgain === true && part?.waitAgain === true, isShown, pill: waitPillOf(waitLaneOf(part, line.chat)),
     again: { isSending: sending.has(`wait-again:${id}`), problem: problems.get(`wait-again:${id}`) ?? null },
@@ -173,10 +173,15 @@ function overturnWaitLine(recap, state) {
   return view === null || !view.isShown ? null : drawWaitLine(view)
 }
 
-/** T22 wave 2, place 6: the line of the newest Stop or Remove the person asked of the main chat for this worker, as drawn on its row; null for none (a stop done in code has none). */
-function workerWaitLine(lane, state) {
-  const view = lane.isLeftover === true || lane.isMain === true ? null : placeWaitOf(state, 'worker', { about: lane.name })
-  return view === null || !view.isShown ? null : drawWaitLine(view)
+/**
+ * T22 wave 2, place 6 (the review of 2026-11-04): the line of every Stop and Remove the person asked of the main chat for this worker, each
+ * its own (by its word's id), oldest first, as drawn on its row; `hasRemove` whether one of them is a Remove's (it replaces the older sentence
+ * "You asked the main chat to remove it"). A stop done in code has none until the main chat takes it after all (STOP_HANDS_MS).
+ */
+function workerWaitLines(lane, state) {
+  if (lane.isLeftover === true || lane.isMain === true) return { nodes: [], hasRemove: false }
+  const shown = placeWaitIds(state, 'worker', { about: lane.name }).reverse().map(id => [id, waitViewOf(state, id)]).filter(([, view]) => view !== null && view.isShown)
+  return { nodes: shown.map(([, view]) => drawWaitLine(view)), hasRemove: shown.some(([id]) => state.waits[id].command === 'remove') }
 }
 
 /**
@@ -3377,9 +3382,9 @@ function drawLane(lane, state) {
     what.append(line)
   }
   // T22 wave 2, place 6: Stop and Remove, as the main chat does them, say where they stand: the line replaces the older "asked" sentence.
-  const wait = workerWaitLine(lane, state)
-  if (removal.line !== null && !(wait !== null && removal.line.tone === 'asked' && !Number.isFinite(lane.removedAt))) what.append(el('p', `remove-line is-${removal.line.tone}`, removal.line.text))
-  if (wait !== null) what.append(wait)
+  const waits = workerWaitLines(lane, state)
+  if (removal.line !== null && !(waits.hasRemove && removal.line.tone === 'asked' && !Number.isFinite(lane.removedAt))) what.append(el('p', `remove-line is-${removal.line.tone}`, removal.line.text))
+  what.append(...waits.nodes)
   if (problems.has(`remove:${lane.name}`)) what.append(el('p', 'remove-line is-problem', problems.get(`remove:${lane.name}`)))
   // B438: what became of its last sync check, on the row itself: asked, or the main chat's answer in one line.
   const syncLine = syncLineOf(state.changeAsks?.sync?.[lane.name] ?? null, main)
@@ -5657,9 +5662,12 @@ function drawSlimNeed(need, line) {
  */
 const shownRecaps = (state, withClosed) => (state.recapsShow === 'daily' ? [] : (state.recaps ?? []).filter(recap => withClosed || !recap.isClosed || isOverturnWaiting(recap, state)))
 /** T22 wave 2, place 5: an overturned recap stays, closed, while the line of its Overturn is not Done, or Done less than ten minutes ago. */
-const isOverturnWaiting = (recap, state) => recap.state === 'overturned' && typeof recap.workId === 'string' && (placeWaitOf(state.waitPart, 'overturn', { ask: `work:${recap.workId}` })?.isShown ?? false)
-/** B360: the open recaps the daily note gathers, while they gather there. */
-const gatheredRecaps = state => (state.recapsShow === 'daily' ? (state.recaps ?? []).filter(recap => !recap.isClosed) : [])
+const isOverturnWaiting = (recap, state) => recap.state === 'overturned' && typeof recap.workId === 'string' && (placeWaitOf(state.waitPart ?? state, 'overturn', { ask: `work:${recap.workId}` })?.isShown ?? false)
+/**
+ * B360: the open recaps the daily note gathers, while they gather there. T22 wave 2, place 5 (the review of 2026-11-04): and an overturned
+ * one, closed, while the line of its Overturn waits or is Done less than ten minutes ago: it stays listed where it was overturned.
+ */
+const gatheredRecaps = state => (state.recapsShow === 'daily' ? (state.recaps ?? []).filter(recap => !recap.isClosed || isOverturnWaiting(recap, state)) : [])
 /** B360: a time left, as a card says it: hours from an hour on, else minutes. */
 const timeLeft = ms => (ms >= HOUR ? `${Math.round(ms / HOUR)} h` : `${Math.max(1, Math.round(ms / MIN))} min`)
 /** B360: the person's words in quotes, without a full stop of their own before the sentence goes on. */
@@ -17937,7 +17945,8 @@ $('view-vision').addEventListener('keydown', event => {
 function focusRecapCard(state) {
   const card = el('section', 'focus-card focus-recaps')
   const recaps = gatheredRecaps(state)
-  card.append(el('h3', '', `Finished: ${recaps.length}`), el('p', 'muted', 'Gathered here under your partner\'s note, not one by one in Needs your attention. Each approves itself 24 hours after it came, unless you overturn it or mark it seen.'))
+  const open = recaps.filter(recap => !recap.isClosed).length
+  card.append(el('h3', '', open > 0 ? `Finished: ${open}` : 'Overturned: your partner makes the fix'), el('p', 'muted', 'Gathered here under your partner\'s note, not one by one in Needs your attention. Each approves itself 24 hours after it came, unless you overturn it or mark it seen.'))
   card.append(...recaps.map(recap => drawRecap(recap, state)))
   return card
 }
@@ -20313,7 +20322,7 @@ function refinePart(step, state, isItemShown = false, { skipOpen = false, skipAn
   const view = refineView(step, advisor)
   // T22 wave 2, place 1: the step's wait line in its place (Sent, "<Chat> is on it", Done "refined", Late), also its Done for ten minutes;
   // the older sentence stands for a refine the board asked for itself, which has no line.
-  const waitLine = refineWaitLine(step, state)
+  const waitLine = refineWaitLine(step, state, view?.working ?? null)
   const working = waitLine !== null ? waitLine : view?.working == null ? null
     : el('p', 'refine-working', `Asked at ${clock(view.working.at)}: ${advisor} ${view.working.isDelivered ? 'is refining it' : 'gets it when its chat takes it'}. It shows here once written.`)
   // A ready description stays, also once the step is finished; so does a finished step's summary, without its questions.
@@ -20363,9 +20372,13 @@ function refinePart(step, state, isItemShown = false, { skipOpen = false, skipAn
 }
 
 /** T22 wave 2, place 1: the line of the person's last refine word of a step (Send answers, Refine again, Ask for pictures), as drawn; null for none. */
-function refineWaitLine(step, state) {
+function refineWaitLine(step, state, working = null) {
   const view = typeof step?.id === 'string' ? placeWaitOf(state, 'refine', { about: step.id }) : null
-  return view === null || !view.isShown ? null : drawWaitLine(view)
+  if (view === null || !view.isShown) return null
+  // The newest refine activity stands (the review of 2026-11-04): a refine asked after the person's (the board's own, Autopilot's: no line of
+  // its own) that runs now is said by the older sentence, never hidden behind the person's earlier line.
+  if (working !== null && Number.isFinite(view.sentAt) && working.at > view.sentAt) return null
+  return drawWaitLine(view)
 }
 
 /**
