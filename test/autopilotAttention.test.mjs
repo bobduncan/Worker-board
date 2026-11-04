@@ -68,29 +68,26 @@ const live = () => ({
   Q2: ask('Q2', { Title: 'Is 68 beside the other map\'s 64 good enough for this map, or should the 75 target be reset for this panel?', Owner: 'Painter', Asks: 'look', Advice: 'accepting it and keeping 75', Via: 'chat', Route: 'person', Pictures: 'pictures/B50/evidence.png' }, null, { routed: true }),
 })
 
-test('the switch-on\'s sweep puts the asks the focus recap asks already into the recap; what somebody handed on, or is no recap ask, stays', async t => {
+test('the switch-on\'s sweep puts the asks the focus recap asks already into the recap; what somebody handed on, or is the goal\'s recap of another goal, stays; Autopilot v2 decides the rest', async t => {
   const dir = await storeWith({
     ...live(),
-    // Board-routed to the person, but a goal question: stays.
+    // Board-routed to the person, a rebuild of the focus goal with advice: Autopilot v2 (on purpose: it stayed the person's) takes it.
     Q3: ask('Q3', { Title: 'Rebuild G29: which way?', Owner: 'Partner', Asks: 'decide', Of: 'G29', Options: 'A walls | B pool', Advice: 'A', Route: 'person' }, null, { routed: true }),
     // The recap of another goal: the same words stay the person's as before.
     Q4: ask('Q4', { Title: 'Open the recap and try it: [Open the recap](http://127.0.0.1:4314/#demo=pictures/g7/recap/demo.json).', Owner: 'Painter', Asks: 'do', Via: 'chat', Route: 'person' }, null, { routed: true }),
     // Somebody handed it to the person (a line on its card): never judged again, whatever its words.
     Q5: ask('Q5', { Title: RECAP_LINK, Owner: 'Painter', Asks: 'do', Via: 'chat', Route: 'person' }, null, { routed: true, route: ['Your partner hands this to you: a new look is yours'] }),
-    // Its step is named by no part of the recap.
+    // Its step is named by no part of the recap: a look without advice, which the partner judges under v2 (on purpose: it stayed).
     Q6: ask('Q6', { Title: 'Is 70 beside the other map\'s 64 good enough, or should the 75 target be reset?', Owner: 'Painter', Asks: 'look', Via: 'chat', Route: 'person', Pictures: 'pictures/B60/evidence.png' }, null, { routed: true }),
   })
   t.after(() => rm(dir, { recursive: true, force: true }))
-  const before = await Promise.all(['Q3', 'Q4', 'Q5', 'Q6'].map(id => readFile(join(dir, `${id}.md`), 'utf8')))
-  // The board's refresh (no sweep) judges nothing it routed to the person already.
-  const plain = await pass(dir, {})
-  assert.deepEqual(plain.result.routed, [])
-  assert.equal(field(await read(dir), 'Q1', 'Route'), 'person')
-  assert.equal(await cleared(dir), null, 'no switch-on, no record')
-  // The switch-on.
+  const before = await Promise.all(['Q3', 'Q4', 'Q5'].map(id => readFile(join(dir, `${id}.md`), 'utf8')))
+  // The switch-on. (Autopilot v2: every pass judges anew what the board routed to the person, so a refresh would do the same.)
   const swept = await pass(dir, { sweep: true })
   assert.equal(swept.ok, true, swept.why)
-  assert.deepEqual(swept.result.routed, [{ id: 'Q1', to: 'recap' }, { id: 'Q2', to: 'recap' }])
+  // Q3, a rebuild, stays the person's (the person's decision of 2026-11-04, REBUILD_IS_PERSONS, on purpose: its advice was taken).
+  assert.deepEqual(swept.result.routed, [{ id: 'Q1', to: 'recap' }, { id: 'Q2', to: 'recap' }, { id: 'Q6', to: 'partner' }])
+  assert.deepEqual(swept.result.answered, [])
   const items = await read(dir)
   // The goal's own ask: routed to the recap, under no step; one more route line in its History, the board's own.
   assert.deepEqual([field(items, 'Q1', 'Route'), field(items, 'Q1', 'Of')], ['recap', undefined])
@@ -101,11 +98,11 @@ test('the switch-on\'s sweep puts the asks the focus recap asks already into the
   assert.ok(items.get('B50').sections.get('Context').some(line => line.trim() === 'Recap verdict: waits (Q2)'))
   assert.equal(field(items, 'B50', 'State'), 'review', 'the step stays as it is')
   // The rest stays as it was, byte for byte.
-  assert.deepEqual(await Promise.all(['Q3', 'Q4', 'Q5', 'Q6'].map(id => readFile(join(dir, `${id}.md`), 'utf8'))), before)
+  assert.deepEqual(await Promise.all(['Q3', 'Q4', 'Q5'].map(id => readFile(join(dir, `${id}.md`), 'utf8'))), before)
   // Out of Needs your attention, in the recap's lists.
   const work = { ok: true, items }
   const needs = storeNeeds(work, { now: NOW + 2 * MIN, autopilot: true, roleOf: name => ROLES[name] ?? null, focusGoal: 'G29', focusHasDemo: true, recapSteps: RECAPS }).filter(one => one.answer === null).map(one => one.workId)
-  assert.deepEqual(needs.sort(), ['Q3', 'Q4', 'Q5', 'Q6'])
+  assert.deepEqual(needs.sort(), ['Q3', 'Q4', 'Q5'])
   assert.deepEqual(routedAwayOf(work).map(one => [one.id, one.route, one.of, one.asks]), [['Q1', 'recap', null, 'do'], ['Q2', 'recap', 'B50', 'look']])
   // The record: each item moved into the recap, in the words of the page's line.
   const record = await cleared(dir)
@@ -151,6 +148,8 @@ test('the recap\'s Send answers the goal\'s own ask (its words link the recap) o
   const items = await read(dir)
   assert.deepEqual(items.get('Q1').sections.get('Answer'), ['Answered in the recap of G29, round 2.'])
   assert.equal(field(items, 'Q1', 'State'), 'answered')
+  // The review of 2026-11-04: both are closed by the recap, so neither stands as the person's slim Answered card (`Answered by: recap`).
+  assert.deepEqual(['Q1', 'Q2'].map(id => field(items, id, 'Answered by')), ['recap', 'recap'])
   assert.ok(history(items, 'Q1').some(line => line.includes('closed by the goal\'s recap: Answered in the recap of G29, round 2.')))
   assert.equal(answered.result.wakes[1].text, 'The person answered this in the goal\'s recap: Answered in the recap of G29, round 2.')
   // Without the path of the Send, the recap rows of the goal give it.
@@ -181,9 +180,10 @@ test('the Advisor\'s check by Autopilot judges only what stands for the person, 
     ...live(),
     B60: step('B60', { Title: 'Plant the hedge', State: 'in progress', Owner: 'Painter', Goal: 'G30' }),
     B61: step('B61', { Title: 'Label the hedge', State: 'queued', Goal: 'G30' }),
-    // Stands for the person: no route, and the board's own person route; one routed away is none of the check's.
-    Q10: ask('Q10', { Title: 'Which spade for the hedge?', Owner: 'Painter', Asks: 'provide', Of: 'B60', Via: 'chat', Blocking: 'yes' }),
-    Q11: ask('Q11', { Title: 'Restart the board for the hedge popup?', Owner: 'Painter', Asks: 'provide', Via: 'chat', Route: 'person' }, null, { routed: true }),
+    // Stands for the person: no route, and the board's own person route; one routed away is none of the check's. (Autopilot v2, on
+    // purpose: the person's hands, money and the Claude app, so the switch-on's sweep leaves them the person's.)
+    Q10: ask('Q10', { Title: 'Which spade to pay for, for the hedge?', Owner: 'Painter', Asks: 'provide', Of: 'B60', Via: 'chat', Blocking: 'yes' }),
+    Q11: ask('Q11', { Title: 'Restart the Claude app for the hedge popup?', Owner: 'Painter', Asks: 'provide', Via: 'chat', Route: 'person' }, null, { routed: true }),
     Q12: ask('Q12', { Title: 'Icons or words on the bar?', Owner: 'Painter', Asks: 'decide', Of: 'B60', Via: 'chat', Route: 'partner' }),
     Q13: ask('Q13', { Title: 'Shorter names on the hedge labels? A: yes B: no', Owner: 'Partner', Asks: 'decide', Of: 'B61', Via: 'refine' }),
     // An incident that came back: signals change 6 (B915, the lead's decision 8): the Supervisor judges it, never the Advisor's check.
@@ -211,7 +211,7 @@ test('the Advisor\'s check by Autopilot judges only what stands for the person, 
     ['Q1', 'recap', 'moved into your recap'], ['Q2', 'recap', 'moved into your recap'],
     ['Q10', 'closed', 'the spade was chosen'],
   ])
-  assert.equal(record.items[2].title, 'Which spade for the hedge?')
+  assert.equal(record.items[2].title, 'Which spade to pay for, for the hedge?')
   let items = await read(dir)
   assert.equal(field(items, 'Q10', 'State'), 'withdrawn')
   assert.equal(field(items, 'X1', 'State'), 'came back', 'the incident is left to the Supervisor')
@@ -341,7 +341,7 @@ test('the switch-on\'s check never replaces one the person started: still checki
 })
 
 test('Undo is for a day: a record from 24 h ago or more is refused, and the newest clear starts the day anew', async t => {
-  const dir = await storeWith({ ...live(), Q20: ask('Q20', { Title: 'Which spade for the hedge?', Owner: 'Painter', Asks: 'provide', Via: 'chat' }) })
+  const dir = await storeWith({ ...live(), Q20: ask('Q20', { Title: 'Which spade to pay for, for the hedge?', Owner: 'Painter', Asks: 'provide', Via: 'chat' }) })
   t.after(() => rm(dir, { recursive: true, force: true }))
   await pass(dir, { sweep: true })
   assert.equal((await cleared(dir)).at, NOW)

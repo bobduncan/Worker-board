@@ -27,6 +27,7 @@ import { NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '..
 import { readingAgeMinutes } from '../../limits.mjs'
 import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
+import { rebuildHoldOf } from '../../goalGuard.mjs'
 import { DEAF_KEEP_MS } from '../../hearing.mjs'
 import { stallWords } from '../../stallWords.mjs'
 import { isHandTaken } from '../../hands.mjs'
@@ -695,7 +696,11 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     // past `openFixMinutes` once the newest refine word about it is older than `checkWordMinutes` (the board's retry,
     // refineGate.mjs FIX_RETRY_MS, had its chance), as review-stuck reads the check words.
     const key = `open-fix ${wait.end}`
-    const from = afterPause(view, wait.unrefined.since)
+    // B985 (X139): while the person's pick on a rebuild of the fix's goal is open, the fix waits for it by design (the refine
+    // gate types no word, goalGuard.mjs `rebuildHoldOf`); once it closed, the hour counts from the close.
+    const hold = rebuildHoldOf(view.items.get(wait.end), view.goals, view.items)
+    if (hold?.ask !== null && hold?.ask !== undefined) return not
+    const from = afterPause(view, Math.max(wait.unrefined.since, hold?.closedAt ?? 0))
     const ms = view.now - from - boardOffMs(view, from)
     const words = refineWordsOf(view, wait.end, wait.unrefined.since)
     const last = words.at(-1) ?? null
@@ -994,33 +999,38 @@ function boardSlow(view) {
   }]
 }
 
-/** B742: how long a worker may keep working after the board's word at the week's stop line before the rule opens. */
-const WEEK_STOP_WAIT_MS = 15 * MIN
+/** B742, B984: how long a worker may keep working after the board's week-stop word reached it before the rule opens. */
+const WEEK_STOP_WAIT_MS = 20 * MIN
 
 /**
  * 20. B742 (X95, X96, the rule the sweep wanted: at 98% of the week Workers 2, 3 and 5 worked on from 22:20 to 22:32 with no
  * lane suspended): the week stands at the person's stop line (view.limits.week: `level` full, `used` from `stopAt`), the board
- * told a working worker to stop (the word `week-stop` in the outbox), it still works 15 min of running time after that word
- * (the pause and the board's off time do not count), and no lane is suspended for the limit. One finding, naming the workers.
- * It clears when a lane is suspended, the week falls back under the line, or nobody works.
+ * told a working worker to stop (the word `week-stop` in the outbox), and it still works 20 min of running time after that
+ * word reached it (the pause and the board's off time do not count). B984 (X138: Worker 4 paused at once when its word
+ * arrived, but an expired word of the week before timed it from 09:56): the word that counts is the worker's newest word of
+ * this week's reset that was delivered (`deliveredAt`); an older week's word or one not delivered is no case (rule
+ * `undelivered` watches those). Timed from the delivery alone, a key for each word. A lane that works is no pause, so another
+ * lane being suspended silences nobody. One finding for each late worker; the word is never typed twice (a safe point takes minutes).
  */
 function weekStopIgnored(view, ctx) {
   const week = view.limits?.week ?? null
   if (isPaused(view) || week === null || week.level !== 'full' || !Number.isFinite(week.used) || !Number.isFinite(week.stopAt) || week.used < week.stopAt) return []
-  if (view.lanes.some(lane => lane.state === 'suspended')) return []
-  const late = []
+  const resets = Number.isFinite(week.resetsAt) ? week.resetsAt : null
+  const found = []
   for (const lane of workersOf(view).filter(one => one.state === 'working')) {
-    const word = (view.outbox ?? []).filter(sent => sent.command === 'week-stop' && sent.to === lane.name && Number.isFinite(sent.at)).reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
+    const word = (view.outbox ?? [])
+      .filter(sent => sent.command === 'week-stop' && sent.to === lane.name && (sent.weekResets ?? null) === resets && sent.state === 'delivered' && Number.isFinite(sent.deliveredAt))
+      .reduce((a, b) => (a === null || b.deliveredAt > a.deliveredAt ? b : a), null)
     if (word === null) continue
-    const ms = lasted(view, ctx, `week-stop-ignored ${lane.name}`, afterPause(view, word.at))
-    if (ms > WEEK_STOP_WAIT_MS) late.push({ name: lane.name, since: word.at, ms })
+    const ms = lasted(view, ctx, `week-stop-ignored ${lane.name} ${word.id}`, afterPause(view, word.deliveredAt))
+    if (ms <= WEEK_STOP_WAIT_MS) continue
+    found.push({
+      rule: 'week-stop-ignored', key: `week-stop-ignored ${lane.name} ${word.id}`, subject: lane.name,
+      text: `the week is at ${Math.round(week.used)}%, its stop line is ${week.stopAt}%, and ${lane.name} still works ${minutes(ms)} min after the board's word to stop`,
+      evidence: `week ${Math.round(week.used)}% (stop line ${week.stopAt}%); the board's word to stop reached ${lane.name} at ${clockOf(word.deliveredAt)}, ${minutes(ms)} min ago; no pause note since; threshold ${minutes(WEEK_STOP_WAIT_MS)} min`,
+    })
   }
-  if (late.length === 0) return []
-  return [{
-    rule: 'week-stop-ignored', key: 'week-stop-ignored board', subject: 'board',
-    text: `the week is at ${Math.round(week.used)}%, its stop line is ${week.stopAt}%, and ${late.map(one => one.name).join(', ')} still work${late.length === 1 ? 's' : ''} with no lane suspended`,
-    evidence: `week ${Math.round(week.used)}% (stop line ${week.stopAt}%); the board's word to stop: ${late.map(one => `${one.name} at ${clockOf(one.since)}, ${minutes(one.ms)} min ago`).join('; ')}; no lane is suspended; threshold ${minutes(WEEK_STOP_WAIT_MS)} min`,
-  }]
+  return found
 }
 
 /**
@@ -1312,7 +1322,7 @@ export const WATCH_RULES = [
   { id: 'dropped-fix', kind: 'watch', says: 'a step in review whose fix was dropped, with no new fix, no new check and no block for over 30 min', check: fixDropped, skips: SKIPS_ON_PAUSE },
   { id: 'review-held', kind: 'watch', says: 'a step in review whose chain of fixes ends in a fix the ready list holds, for too long', check: reviewHeld, skips: SKIPS_HELD },
   { id: 'chain-long', kind: 'watch', says: 'a chain of three tries or more whose newest fix names no "Tried before:" (a patch of the same way again)', check: chainLong },
-  { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30', check: openFix, skips: SKIPS_ON_PAUSE },
+  { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30 (not while the person\'s pick on a rebuild of its goal is open; then 60 min from the pick)', check: openFix, skips: SKIPS_ON_PAUSE },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress whose worker works on it for hours with no checkpoint', check: staleCheckpoint, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'handover-held', kind: 'watch', says: 'a worker on the hand-over sequence held (its set, restart or line did not run; a 0.30.0 worker: its clear) for over 10 min of running time', check: handoverHeld, skips: SKIPS_ON_PAUSE },
@@ -1323,7 +1333,7 @@ export const WATCH_RULES = [
   { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading, skips: SKIPS_ON_PAUSE },
   { id: 'board-deaf', kind: 'watch', says: 'the board heard no chat for over 10 min while chats wrote their conversations', check: boardDeaf, skips: SKIPS_ON_PAUSE },
   { id: 'board-slow', kind: 'watch', says: 'two work calls within 2 min answered after the chat gave up on them', check: boardSlow },
-  { id: 'week-stop-ignored', kind: 'watch', says: 'the week at the stop line (98%), a worker told to stop still works 15 min later and no lane is suspended', check: weekStopIgnored, skips: SKIPS_ON_PAUSE },
+  { id: 'week-stop-ignored', kind: 'watch', says: 'the week at the stop line (98%), a worker told to stop still works 20 min after its word reached it', check: weekStopIgnored, skips: SKIPS_ON_PAUSE },
   { id: 'five-hour-stop-ignored', kind: 'watch', says: 'a step given or a worker started while the 5-hour limit is at its stop line (95%) with its reset over 10 min off', check: fiveHourStopIgnored, skips: SKIPS_ON_PAUSE },
   { id: 'pause-stale', kind: 'watch', says: 'a chat\'s clear skipped for the person\'s pause over a minute after the pause ended', check: pauseStale },
   { id: 'obsolete-wrong', kind: 'watch', says: 'something the person closed from "Find obsolete items" that its chat asked again, or an incident closed that way that came back', check: obsoleteWrong },

@@ -1388,6 +1388,31 @@ function supervisorLine(information, isClosing = () => false) {
   return { ids, text: `Supervisor: ${ids.length === 1 ? 'one new finding' : `${ids.length} new findings`}` }
 }
 
+/**
+ * Autopilot v2 (the person's "B", 2026-11-02: "autopilot doesnt help me enough i still get way too many signels"; the board's
+ * signals lead the same night): while Autopilot is on, the Supervisor's findings line leaves Needs your attention (the findings
+ * stay in the Supervisor's own part), but an alarm its judgment hands to the person (a fix step it may not file, "needs your
+ * hands", or its own escalation: a note of the board's, Via supervisor, that is no finding's own line, `isHandedAlarm`) still
+ * shows there as one line, and counts as one (`isHanded`). One function, so it is undone in one place; with Autopilot off it is
+ * `supervisorLine`, as before.
+ */
+function attentionSupervisorLine(information, isAutopilotOn, isClosing = () => false) {
+  if (isAutopilotOn !== true) return supervisorLine(information, isClosing)
+  const ids = (information ?? []).filter(one => one.via === 'supervisor' && one.isRead !== true && !isClosing(one.id) && isHandedAlarm(one)).map(one => one.id)
+  if (ids.length === 0) return null
+  return { ids, text: `Supervisor: ${ids.length === 1 ? 'one alarm needs you' : `${ids.length} alarms need you`}`, isHanded: true }
+}
+
+/**
+ * Whether a note of the Supervisor's hands an alarm to the person: its words are not a finding's own line ("Supervisor: X12 came
+ * back: ...", supervisor/index.mjs `personWords`: the board's escalations "Incident X12 ... has been with the Supervisor for over 2
+ * hours" and "The Advisor has not refined B7 after 3 asks" are not), or they say so ("needs your hands", "may not file", escalated).
+ */
+function isHandedAlarm(note) {
+  const words = String(note?.text ?? '').trim()
+  return !/^Supervisor:\s/.test(words) || /\bneeds your hands\b|\bmay not file\b|\bescalat/i.test(words)
+}
+
 /** B573: the keys the page keeps the section under (localStorage): opened or folded, and when the person last opened it. */
 const SUPERVISOR_KEEP = { open: 'supervisor-open', seenAt: 'supervisor-seen-at', shownSince: 'supervisor-shown-since' }
 
@@ -4534,10 +4559,11 @@ function partnerAskWindowOf(ask) {
 /**
  * The person's "A" (2026-11-02): a look the partner handed over that Autopilot keeps for the goal's recap (`isKept`: the state's
  * `routedAway`, src/work/keptLook.mjs) is answered in its window, as any look is: Looks right or Send back with a note, whether the
- * recap card shows it yet or not. `{ id }`, or null for every other ask (it is judged in the recap, or it is not the person's yet).
+ * recap card shows it yet or not. Since "Yes, clear them" (2026-11-04) an own-senses do the main chat or the partner handed on is kept the
+ * same way and answered "Done" (`isDo`). `{ id, isDo }`, or null for every other ask (it is judged in the recap, or it is not the person's yet).
  */
 function lookAnswerOf(ask) {
-  return ask?.route === 'recap' && ask.asks === 'look' && ask.isKept === true ? { id: ask.id } : null
+  return ask?.route === 'recap' && ['look', 'do'].includes(ask.asks) && ask.isKept === true ? { id: ask.id, isDo: ask.asks === 'do' } : null
 }
 
 /** Autopilot (2026-10-31): the chip of an ask's route in its window, and the line under where it stands. */
@@ -4608,7 +4634,7 @@ function drawLookAnswer(answer, ui) {
   const buttons = el('div', 'buttons is-split')
   buttons.append(
     button('↺  Send back', 'is-reject', 'reject', 'Sends it back to the chat that asked, with your note'),
-    button('✓  Looks right', 'is-seen', 'approve', 'Approves it; the chat that asked is told'),
+    answer.isDo === true ? button('✓  Done', 'is-seen', 'done', 'Marks it done; the chat that asked is told') : button('✓  Looks right', 'is-seen', 'approve', 'Approves it; the chat that asked is told'),
   )
   return section('Your answer', [note, buttons, ...(ui.problem === null ? [] : [el('p', 'problem', ui.problem)])])
 }
@@ -4682,6 +4708,55 @@ function laneStateText(lane) {
   return statusLabel(laneStatus(lane))
 }
 // partner-answers:end
+
+// handsline:start
+/**
+ * Autopilot v2 (the person's "B", 2026-11-02: "autopilot doesnt help me enough i still get way too many signels"): what only the
+ * person's hands can do (a sign-in, an account, money, an install, a click, the Claude app ...: the store's `hands`, autopilot.mjs
+ * PERSONS_HANDS) stays theirs, but while Autopilot is on it stands as one quiet line under the cards, not a card each: the open,
+ * unanswered asks that carry it. None while Autopilot is off: every ask is a card then, as before.
+ */
+function handsNeedsOf(needs, isAutopilotOn) {
+  if (isAutopilotOn !== true) return []
+  return (needs ?? []).filter(need => typeof need?.hands === 'string' && need.hands !== '' && need.isClosed !== true && (need.answer ?? null) === null)
+}
+
+/**
+ * The hands line's view (the plan's "Needs your hands: <title cut at 40> · <title> →"): each title cut at 40 characters and
+ * opening its ask's window; `isBlocking` when one holds up a step (only then in the attention colour). Null for none.
+ * T20.1 (the person's "Yes, fold them", 2026-11-04): the app's form (a popup, a question in a chat) comes with its own words
+ * (`handsWords`: "Worker 5's chat waits on a popup: change directory"), and a chat's identical words stand once, even when the
+ * mod filed them twice before the board folded them (the live Q629 and Q632).
+ */
+function handsLineView(list) {
+  if (!Array.isArray(list) || list.length === 0) return null
+  const seen = new Set()
+  const items = list.flatMap(need => {
+    const id = need.workId ?? need.id
+    const own = typeof need.handsWords === 'string' && need.handsWords !== '' ? need.handsWords : null
+    if (own !== null && seen.has(own)) return []
+    if (own !== null) seen.add(own)
+    return [{ id, words: own ?? cutWords(String(need.title ?? id), 40), title: `Open ${id}: ${need.title ?? ''} (only you can: ${need.hands})`, href: `#details=${id}` }]
+  })
+  return { items, isBlocking: list.some(need => need.blocking === true) }
+}
+// handsline:end
+
+/** Autopilot v2: the one quiet line of what only the person's hands can do (handsLineView), under the cards; it counts as one. */
+function drawHandsLine(view) {
+  if (view === null) return null
+  const line = el('p', `hands-line${view.isBlocking ? ' is-blocking' : ''}`)
+  line.append(el('span', 'hands-line-head', 'Needs your hands: '))
+  view.items.forEach((one, at) => {
+    if (at > 0) line.append(' · ')
+    // The arrow closes the line on the last title, so it opens something too (never a dead arrow).
+    const link = el('a', 'hands-line-ask', at === view.items.length - 1 ? `${one.words} →` : one.words)
+    link.href = one.href
+    link.title = one.title
+    line.append(link)
+  })
+  return line
+}
 
 /** Partner answers, the review's findings: the "With your partner" line, a click lists the asks (B408: open as the view says). */
 function drawWithPartner(state) {
@@ -6091,9 +6166,21 @@ function drawNeeds(state) {
   const box = $('needs')
   const focused = focusedNeed(box)
   const top = box.scrollTop
-  const forYou = state.forYou
+  const isPilot = state.autopilot?.on === true
+  // T17.1 (the coordinator's ruling): while round N+1 is being made the card is always the quiet one, whatever else waits; it asks nothing,
+  // so it is not counted, and no verdict card stands beside it. T20.1 (the person, 2026-11-04: "These numbers are all over the place"): the
+  // recap card counts as many as it says to judge (the popup's N), never "one".
+  const recapMaking = recapMakingView(state.recapMaking ?? null, state.focusGoal ?? null)
+  const recapAttention = recapMaking !== null ? null : recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
+  // The review of 2026-11-04: an ask the recap card counts as a kept look or do is no card of its own beside it (never counted twice).
+  const inRecapCard = new Set(recapAttention === null ? [] : (state.recapCard?.looks ?? []).map(one => one.target?.ask).filter(id => typeof id === 'string'))
+  const forYou = inRecapCard.size === 0 ? state.forYou : state.forYou.filter(need => !inRecapCard.has(need.workId))
   // Calm panel: the open asks the backlog held are cards as every other ask (`panelNeeds`), its ticked ones closed.
-  const needs = panelNeeds({ ...state, forYou })
+  const every = panelNeeds({ ...state, forYou })
+  // Autopilot v2: what only the person's hands can do is one quiet line under the cards, not a card each (handsNeedsOf).
+  const hands = handsNeedsOf(every, isPilot)
+  const handsLine = handsLineView(hands)
+  const needs = hands.length === 0 ? every : every.filter(need => !hands.includes(need))
   const open = needs.filter(need => !isClosed(need))
   // B287: a refine question has no card: its step's line says it, and only while it is open.
   const lines = refineLines(open)
@@ -6103,17 +6190,18 @@ function drawNeeds(state) {
   // Calm panel: an instruction a chat missed is the person's: one line here, while the log holds the rest.
   const missed = missedLines(state.instructions, clock)
   // The supervisor: one quiet line for its new or returning incidents (B573: "Supervisor: 3 new findings"), never counted.
-  const supervised = supervisorLine(state.information, id => sending.has(`read:${id}`))
+  // Autopilot v2: while on, only an alarm handed to the person, which counts as one (attentionSupervisorLine).
+  const supervised = attentionSupervisorLine(state.information, isPilot, id => sending.has(`read:${id}`))
   // B258: an answer to an ask on the goal map waits to be read, and counts.
   // B287: the refine questions count once per step, as their lines stand.
   // Calm panel: the missed lines count too; the log's notes and open instructions never do.
-  // T20: the Product owner's recap card counts as one while verdicts wait.
-  // T17.1 (the coordinator's ruling): while round N+1 is being made the card is always the quiet one, whatever else waits; it asks nothing,
-  // so it is not counted, and no verdict card stands beside it.
-  const recapMaking = recapMakingView(state.recapMaking ?? null, state.focusGoal ?? null)
-  const recapAttention = recapMaking !== null ? null : recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
+  // T20: the Product owner's recap card counts while verdicts wait (above).
   const cleared = clearedLineView(state.autopilotCleared ?? null, state.readAt)
-  const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length + (recapAttention === null ? 0 : 1)
+  // Autopilot v2: the hands line counts as one, as does the Supervisor's alarm handed to the person: the top bar's "N wait for
+  // you" counts what Needs your attention shows waiting.
+  // The review of 2026-11-04: N (what the recap card says to judge) plus the cards drawn besides it.
+  const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length + (recapAttention === null ? 0 : recapAttention.count)
+    + (handsLine === null ? 0 : 1) + (supervised?.isHanded === true ? 1 : 0)
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
   drawWaits(unanswered, cardsOpen.filter(need => !isAnswered(need)).map(need => ({ id: need.id, from: need.from ?? null, title: need.title })))
   // Focus 4: the partner's questions first, under "From your partner"; the rest as before.
@@ -6124,13 +6212,19 @@ function drawNeeds(state) {
   const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   // T22: an answered card whose answer still waits for its chat stays as a slim card with its line, after the open cards (with
   // "Show closed" the whole card shows it).
-  const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart))
+  // Autopilot v2: what was decided for the person is never shown here while it is on (the line on top counts it). The person's "Yes,
+  // clear them" (2026-11-04): and an answer the partner, Autopilot or the main chat gave is never a slim card, on or off; its wait line is
+  // in the ask's own window (Show closed). The review of the same day: nor is an ask the goal's recap closed (`Answered by: recap`).
+  const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart) && !isDecidedAnswer(need.answer) && need.answer?.by !== 'recap')
   const cards = [...rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state)), ...slim.map(need => drawSlimNeed(need, answerWaitOf(need, state.waitPart)))]
   const hidden = answered - slim.length
-  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
+  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || handsLine !== null || supervised?.isHanded === true || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
-  fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
+  // Autopilot v2 (the person's "B", 2026-11-02): while it is on, what was routed away is never shown nor counted here: no "With your
+  // partner" line, and "Decided for you" folds into the one line on top with today's count (drawAutopilotLine); the older answers
+  // stay in the daily notes.
+  fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawHandsLine(handsLine), isPilot ? null : drawWithPartner(state), isPilot ? null : drawDecidedForYou(state), ...recaps])
   // T20: the Product owner's recap card is the first card, the dashed "Autopilot cleared" line right under it.
   const firstCards = [recapAttention === null ? null : drawRecapAttention(recapAttention), recapMaking === null ? null : drawRecapMaking(recapMaking), cleared === null ? null : drawClearedLine(cleared)].filter(one => one !== null)
   if (firstCards.length > 0) box.prepend(...firstCards)
@@ -10193,9 +10287,9 @@ document.addEventListener('click', event => {
 
 // demo:start
 /** B860: what the popup shows of the person's answer to one part: the words after the part's name in the side panel. */
-function demoAnswerWords(answer) {
+function demoAnswerWords(answer, isDo = false) {
   if (answer === undefined || answer.verdict === undefined) return 'not decided yet'
-  return answer.verdict === 'approved' ? 'approved' : `sent back${answer.comment.trim() === '' ? ': needs a comment' : `: "${answer.comment.trim()}"`}`
+  return answer.verdict === 'approved' ? (isDo ? 'done' : 'approved') : `sent back${answer.comment.trim() === '' ? ': needs a comment' : `: "${answer.comment.trim()}"`}`
 }
 
 /**
@@ -10207,12 +10301,13 @@ function demoSide(page, draft) {
   const side = el('aside', 'demo-side')
   side.append(el('h3', '', 'Your feedback'))
   if (draft.notice !== '') side.append(el('p', 'demo-notice', draft.notice))
-  if (feedback.done) {
+  // T20.1: a look kept for the recap is something to answer too, also when every row is approved.
+  if (feedback.done && !(feedback.looks > 0)) {
     side.append(el('p', 'demo-done', 'Every part is approved: the recap is done.'))
     return side
   }
   // T17.1: nothing to answer while round N+1 is being made, nor when every part left is still being reworked.
-  if (feedback.making != null || feedback.answerable === 0) {
+  if (feedback.making != null || (feedback.toJudge ?? feedback.answerable) === 0) {
     side.append(el('p', 'demo-muted', feedback.making != null ? 'Nothing to send until your partner has built the next tries.' : 'Nothing to answer yet: every part left is still being reworked.'))
     return side
   }
@@ -10221,18 +10316,15 @@ function demoSide(page, draft) {
     return side
   }
   const list = el('ul', 'demo-answers')
-  for (const section of page.sections) {
-    for (const row of section.rows) {
-      // T17.1: a part whose new try is not in yet is no part of the Send.
-      if (row.reworking === true) continue
-      const answer = draft.parts.get(row.key)
-      const item = el('li', `demo-answer is-${answer?.verdict ?? 'open'}`)
-      const jump = el('button', 'demo-answer-jump', row.title)
-      jump.type = 'button'
-      jump.dataset.demoGoto = row.key
-      item.append(jump, el('span', 'demo-answer-words', demoAnswerWords(answer)))
-      list.append(item)
-    }
+  // T17.1: a part whose new try is not in yet is no part of the Send. T20.1: the looks kept for the recap follow the rows, answered the same way.
+  for (const row of [...page.sections.flatMap(section => section.rows).filter(one => one.reworking !== true), ...(page.looks ?? [])]) {
+    const answer = draft.parts.get(row.key)
+    const item = el('li', `demo-answer is-${answer?.verdict ?? 'open'}`)
+    const jump = el('button', 'demo-answer-jump', row.title)
+    jump.type = 'button'
+    jump.dataset.demoGoto = row.key
+    item.append(jump, el('span', 'demo-answer-words', demoAnswerWords(answer, row.asks === 'do')))
+    list.append(item)
   }
   side.append(list)
   // 2026-11-01 (the person: "keep send feedback always visible at the bottom ... outside the right scroll area"): only the
@@ -10249,6 +10341,106 @@ function demoSide(page, draft) {
   return side
 }
 
+/** B860: the Approve / Send back buttons and the comment box of one part (a row, or a look kept for the recap), by the part's key. */
+function demoFeedbackBar(key, draft, isDo = false) {
+  const answer = draft.parts.get(key)
+  const bar = el('div', 'demo-feedback')
+  const approve = el('button', `demo-approve${answer?.verdict === 'approved' ? ' is-on' : ''}`, isDo ? 'Done' : 'Approve')
+  const back = el('button', `demo-send-back${answer?.verdict === 'sent-back' ? ' is-on' : ''}`, 'Send back')
+  for (const [button, verdict] of [[approve, 'approved'], [back, 'sent-back']]) {
+    button.type = 'button'
+    button.dataset.demoVerdict = verdict
+    button.dataset.demoKey = key
+  }
+  const comment = el('textarea', 'demo-comment')
+  comment.rows = 2
+  comment.placeholder = 'Your comment on this part...'
+  comment.value = answer?.comment ?? ''
+  comment.dataset.demoComment = key
+  bar.append(approve, back, comment)
+  return bar
+}
+
+/**
+ * The review of 2026-11-04: the words of a kept look or do as nodes, its markdown links [words](where) drawn as links, never raw: a link to a step
+ * or ask of this board (`#details=Q600`) opens that window, one to a play setting (`#play=main&arena=ring`) opens the game in a new tab, any other
+ * address shows its words only (the page opens nothing by it).
+ */
+function demoWordsNodes(text) {
+  const nodes = []
+  for (const piece of String(text ?? '').split(/(\[[^\]\n]+\]\([^)\s]+\))/)) {
+    const link = piece.match(/^\[([^\]\n]+)\]\(([^)\s]+)\)$/)
+    if (link === null) {
+      if (piece !== '') nodes.push(el('span', '', piece))
+      continue
+    }
+    const [, words, where] = link
+    const ask = where.match(/#details=([QB]\d+)/)?.[1]
+    const play = where.match(/#play=([A-Za-z0-9_&=.%-]+)/)?.[1]
+    if (ask !== undefined) {
+      const open = el('button', 'ask-link', words)
+      open.type = 'button'
+      open.dataset.askLink = ask
+      open.title = `Open ${ask}`
+      nodes.push(open)
+    } else if (play !== undefined) {
+      const game = el('a', 'demo-play-link', words)
+      game.href = `/#play=${play}`
+      game.target = '_blank'
+      game.rel = 'noreferrer noopener'
+      nodes.push(game)
+    } else nodes.push(el('span', '', words))
+  }
+  return nodes
+}
+
+/**
+ * T20.1 (the person's "A" of 2026-11-02, and "These numbers are all over the place", 2026-11-04): the looks kept for the recap (the page's
+ * `looks`) as rows of their own, in the section "Looks kept for your recap": each look's title, its words, its pictures, its Play link when
+ * its words carry one, and Approve / Send back with a note like any row; they are part of the same Send.
+ */
+function demoLooksSection(looks, feedback, draft) {
+  const part = el('section', 'demo-section is-looks')
+  part.append(el('div', 'demo-band', 'Looks kept for your recap'))
+  for (const look of looks) {
+    const card = el('div', 'demo-row demo-look')
+    card.dataset.demoRow = look.key
+    const head = el('h3', 'demo-row-title')
+    const title = el('span', '')
+    title.append(...demoWordsNodes(look.title === '' ? look.ask : look.title))
+    head.append(el('span', 'demo-verdict', look.asks === 'do' ? 'To do' : 'A look'), title)
+    card.append(head)
+    for (const line of String(look.text ?? '').split('\n').filter(one => one.trim() !== '')) {
+      const words = el('p', 'demo-row-note')
+      words.append(...demoWordsNodes(line))
+      card.append(words)
+    }
+    if ((look.pictures ?? []).length > 0) {
+      const shots = el('div', 'demo-pictures')
+      for (const one of look.pictures) {
+        const figure = el('figure', 'demo-figure')
+        figure.append(el('figcaption', '', one.caption))
+        const frame = picture(one.path, one.caption)
+        frame.className += ' demo-picture'
+        figure.append(frame)
+        shots.append(figure)
+      }
+      card.append(shots)
+    }
+    if (typeof look.play === 'string' && look.play !== '' && (typeof board === 'undefined' || board?.hasGame !== false)) {
+      const play = el('a', 'demo-play', 'Play it ↗')
+      play.href = `/#play=${look.play}`
+      play.target = '_blank'
+      play.rel = 'noreferrer noopener'
+      play.title = 'Starts the game in a new tab, as the look asks'
+      card.append(play)
+    }
+    if (feedback !== null && feedback.canSend && draft !== null) card.append(demoFeedbackBar(look.key, draft, look.asks === 'do'))
+    part.append(card)
+  }
+  return part
+}
+
 /** B699: the goal demo's page body from the board's page model (src/demo.mjs demoPage): the verdict of each part, its labelled pictures at their own size (a click opens the picture window), the follow-up last. Words, order and labels are the model's. B860: with the person's feedback on each part (Approve, Send back, a comment) when the board takes it. */
 function demoBody(page, draft = null) {
   const body = el('div', 'demo-body')
@@ -10262,6 +10454,10 @@ function demoBody(page, draft = null) {
   if (feedback !== null && feedback.making != null) {
     // T17.1 (the person: "i see no evidence of what i asked it to fix/change"): no old pictures beside the words they sent back.
     body.append(el('p', 'demo-round demo-making', `Round ${feedback.making.round} is being made: your partner is building the next tries`))
+  } else if (feedback !== null && feedback.toJudge !== undefined) {
+    // T20.1 (the person, 2026-11-04: "when we open the demo i see only 3 items ... These numbers are all over the place"): the head carries the
+    // one count, the same "to judge" the recap card and the Needs count carry.
+    body.append(el('p', 'demo-round', `Round ${feedback.round} · ${feedback.toJudge === 0 ? 'nothing to judge yet' : `${feedback.toJudge} to judge`}${feedback.round > 1 ? ': only what you sent back or did not decide yet.' : ''}`))
   } else if (feedback !== null && feedback.round > 1) {
     body.append(el('p', 'demo-round', `Round ${feedback.round}: only what you sent back or did not decide yet.`))
   }
@@ -10283,7 +10479,8 @@ function demoBody(page, draft = null) {
       // T17.1: in order: the person's words, what changed for them, the new pictures, the game on that map, then Approve / Send back.
       if (row.said !== undefined) card.append(el('p', 'demo-said', `Your words: "${row.said.comment}"`))
       if (row.reworking === true) {
-        card.append(el('p', 'demo-reworking', row.pending ? `Being reworked: ${row.pending}` : 'Being reworked'))
+        // T20.1: a row a step of which is under way in the store says which step and who is on it; else the partner's own line.
+        card.append(el('p', 'demo-reworking', row.rework ? `Being reworked: ${row.rework.words}` : row.pending ? `Being reworked: ${row.pending}` : 'Being reworked'))
         part.append(card)
         continue
       }
@@ -10308,28 +10505,12 @@ function demoBody(page, draft = null) {
         play.title = `Starts the game on the map ${row.play} in a new tab`
         card.append(play)
       }
-      if (feedback !== null && feedback.canSend && draft !== null) {
-        const answer = draft.parts.get(row.key)
-        const bar = el('div', 'demo-feedback')
-        const approve = el('button', `demo-approve${answer?.verdict === 'approved' ? ' is-on' : ''}`, 'Approve')
-        const back = el('button', `demo-send-back${answer?.verdict === 'sent-back' ? ' is-on' : ''}`, 'Send back')
-        for (const [button, verdict] of [[approve, 'approved'], [back, 'sent-back']]) {
-          button.type = 'button'
-          button.dataset.demoVerdict = verdict
-          button.dataset.demoKey = row.key
-        }
-        const comment = el('textarea', 'demo-comment')
-        comment.rows = 2
-        comment.placeholder = 'Your comment on this part...'
-        comment.value = answer?.comment ?? ''
-        comment.dataset.demoComment = row.key
-        bar.append(approve, back, comment)
-        card.append(bar)
-      }
+      if (feedback !== null && feedback.canSend && draft !== null) card.append(demoFeedbackBar(row.key, draft))
       part.append(card)
     }
     body.append(part)
   }
+  if ((page.looks ?? []).length > 0) body.append(demoLooksSection(page.looks, feedback, draft))
   if (page.followUp !== null) {
     const follow = el('section', 'demo-section is-follow-up')
     follow.append(el('div', 'demo-band', page.followUp.band))
@@ -10495,7 +10676,8 @@ function redrawDemoSide() {
 async function sendDemoFeedback() {
   const draft = demoDraft
   if (draft === null || draft.sending) return
-  const shown = draft.page.sections.flatMap(section => section.rows).filter(row => row.reworking !== true)
+  // T20.1: the looks kept for the recap are answered in the same Send, as parts keyed `look:<ask>`.
+  const shown = [...draft.page.sections.flatMap(section => section.rows).filter(row => row.reworking !== true), ...(draft.page.looks ?? [])]
   const parts = shown.filter(row => draft.parts.get(row.key)?.verdict !== undefined).map(row => ({ key: row.key, ...draft.parts.get(row.key) }))
   const lacking = parts.find(part => part.verdict === 'sent-back' && part.comment.trim() === '')
   draft.problem = parts.length === 0 ? 'Approve or Send back at least one part first.'
@@ -10518,7 +10700,11 @@ async function sendDemoFeedback() {
   demoSaid = typeof sent.said === 'string' ? { path, id: sent.said } : null
   dropDemoDraft()
   demoDraft = null
-  openDemo(path, sent.done === true ? 'Sent. Every part is approved: the recap is done.' : `Sent: ${sent.approved ?? 0} approved, ${sent.sentBack ?? 0} sent back. ${(sent.sentBack ?? 0) > 0 ? `Your partner makes the next tries; round ${(sent.round ?? 0) + 1} opens when they are in, with what changed.` : `Round ${(sent.round ?? 0) + 1} shows what you did not decide yet.`}`)
+  const lookWords = `${(sent.looks ?? 0) > 0 ? `, ${sent.looks} look${sent.looks === 1 ? '' : 's'} answered` : ''}${(sent.lookFailed ?? []).length > 0 ? `, ${sent.lookFailed.join(' and ')} could not be answered (open it and answer it there)` : ''}`
+  const rowsSent = (sent.approved ?? 0) + (sent.sentBack ?? 0)
+  // The review of 2026-11-04: "the recap is done" only when no kept look or do still waits (the board says: `done`); else how many still wait.
+  const stillWait = (sent.looksLeft ?? 0) > 0 ? ` ${sent.looksLeft} look${sent.looksLeft === 1 ? '' : 's'} still wait${sent.looksLeft === 1 ? 's' : ''} for your answer.` : ''
+  openDemo(path, sent.done === true ? `Sent${lookWords === '' ? '' : lookWords}. Every part is approved: the recap is done.` : `Sent: ${sent.approved ?? 0} approved, ${sent.sentBack ?? 0} sent back${lookWords}. ${(sent.sentBack ?? 0) > 0 ? `Your partner makes the next tries; round ${(sent.round ?? 0) + 1} opens when they are in, with what changed.` : rowsSent === 0 ? '' : `Round ${(sent.round ?? 0) + 1} shows what you did not decide yet.`}${stillWait}`.trim())
 }
 
 document.addEventListener('click', event => {
@@ -14806,11 +14992,16 @@ function verdictLinkOf(at, card) {
  */
 function recapReadyView(card) {
   if (card === null || card === undefined || !(card.count > 0)) return null
+  const tiles = (card.tiles ?? []).slice(0, RECAP_TILES).map(tile => ({ title: tile.title, line: tile.line, picture: tile.picture ?? null, target: tile.target ?? card.open ?? null }))
   return {
-    title: `Your recap is ready · ${card.count} ${card.count === 1 ? 'verdict waits' : 'verdicts wait'}`,
+    // T20.1 (the person, 2026-11-04: "These numbers are all over the place and non consistent"): ONE count, "N to judge", the very number
+    // the recap's popup carries in its head, the Needs count and the card in Needs your attention (src/recapRound.mjs `toJudge`).
+    title: `Your recap is ready · ${card.count} to judge`,
     line: card.isBuilt === true ? 'Everything is built. Judge each part: approve it, or send it back with a note.' : 'Judge what is ready: approve it, or send it back with a note.',
     open: { label: 'Open the recap', target: card.open ?? null },
-    tiles: (card.tiles ?? []).slice(0, RECAP_TILES).map(tile => ({ title: tile.title, line: tile.line, picture: tile.picture ?? null, target: tile.target ?? card.open ?? null })),
+    tiles,
+    // The tiles stay one row of at most three; the rest is one quiet link to the recap.
+    more: Math.max(0, card.count - tiles.length),
     outside: card.outside ?? [],
   }
 }
@@ -14909,6 +15100,34 @@ function clearedLineView(cleared, now) {
 // recapready:end
 
 /**
+ * T20.1 (the person, 2026-11-04: "of the 5 open now, only 1 is done ... Cliffs and Ground: Waiting, nobody on it now, Stairs: Worker 4 is on it"; the
+ * review of the same day): the chip of a work block on the Focus page, read from the same round reading as the recap card (the state's
+ * `toJudge`, `recapAt`, `openNow`'s `rework`). `{ chip, tone, link, isVerdict, isRework }`, the chip null for a block that is done:
+ * 1. a block with a row ready to judge, or a kept look or do, of its steps waits for the verdict in the recap, whatever its own state
+ *    ("Waits for your verdict in the recap →", opening the recap at that row);
+ * 2. a block that had work before the round (`open.kind` rework) with a step under way is being reworked ("Being reworked: B981 · waiting for a
+ *    worker", the words the popup's row uses);
+ * 3. a block that waits for the person in another form (an Accept card, a question in its window: its own state `verdict`) keeps "Waits for your
+ *    verdict →", and every other block its state's chip (a block in progress names the worker on it).
+ * `card` is the recap card, for where a verdict with no row of its own opens. `open` is the block as `openNow` has it, or null.
+ */
+function blockChipOf(part, open, card = null, namesWorker = false) {
+  if (part.state === 'done') return { chip: null, tone: part.state, link: null, isVerdict: false, isRework: false }
+  if ((part.toJudge ?? 0) > 0 && !['stopped', 'dropped'].includes(part.state)) {
+    const link = part.recapAt ?? card?.open ?? null
+    return { chip: 'Waits for your verdict in the recap →', tone: 'verdict', link, isVerdict: true, isRework: false }
+  }
+  if (part.state !== 'verdict' && open?.kind === 'rework' && open.rework != null) return { chip: `Being reworked: ${open.rework.words}`, tone: 'rework', link: null, isVerdict: false, isRework: true }
+  if (part.state === 'verdict') {
+    const link = verdictLinkOf(part.verdictAt, card)
+    return { chip: typeof link?.path === 'string' ? 'Waits for your verdict in the recap →' : FOCUS_CHIPS.verdict, tone: 'verdict', link, isVerdict: true, isRework: false }
+  }
+  // Open now names the worker of a block in progress in its chip; All work blocks keeps "In progress" (its row names the worker beside the bar).
+  const chip = namesWorker && part.state === 'now' && typeof part.owner === 'string' && part.owner !== '' ? `${part.owner} is on it` : FOCUS_CHIPS[part.state] ?? null
+  return { chip, tone: part.state, link: null, isVerdict: false, isRework: false }
+}
+
+/**
  * Work blocks (the person, 2026-10-31: "the done when will only show the unfinished workblocks ... filtered once per
  * evaluation"): the run's "Open now" card: the round's line and one line per block open in it (the state's `openNow`): a
  * tick once done, its title, "Rework: <line>" for a block that was there before the round or "New: <line>" for one made in
@@ -14923,16 +15142,21 @@ function focusOpenNowView(focus, card = null) {
     const isDone = part.state === 'done'
     const line = blockLineOf(part)
     const label = one.kind === 'rework' ? 'Rework' : 'New'
-    const chip = isDone ? null : part.state === 'now' && typeof part.owner === 'string' && part.owner !== '' ? `${part.owner} is on it` : FOCUS_CHIPS[part.state] ?? null
-    // 2026-11-01: a block that waits for the person's verdict has its chip open the recap (at its part where the state knows it).
-    return { title: part.title, isDone, kind: one.kind, line: line === '' ? label : `${label}: ${line}`, chip, tone: part.state, ...(part.state === 'verdict' ? { verdict: verdictLinkOf(part.verdictAt, card) } : {}) }
+    const shown = blockChipOf(part, one, card, true)
+    // 2026-11-01: a block that waits for the person's verdict has its chip open the recap (at its row where the state knows it).
+    return { title: part.title, isDone, kind: one.kind, line: line === '' ? label : `${label}: ${line}`, chip: shown.chip, tone: shown.tone, isRework: shown.isRework, ...(shown.isVerdict ? { verdict: shown.link } : {}) }
   }).filter(one => one !== null)
   const done = rows.filter(one => one.isDone).length
+  // T20.1: the line counts the way the cards do: "1 of 5 done · 4 wait for your verdict · 3 being reworked". What waits for your verdict is the
+  // recap card's own count (rows ready to judge and kept looks, the popup's N), never a count of blocks; the blocks being reworked are counted.
+  const waits = card?.count ?? 0
+  const reworked = rows.filter(one => one.isRework).length
+  const counts = `${done} of ${rows.length} done${waits > 0 ? ` · ${waits} ${waits === 1 ? 'waits' : 'wait'} for your verdict` : ''}${reworked > 0 ? ` · ${reworked} being reworked` : ''}`
   // "opened by the change of 31 Oct": a why that names its own day ("the change of 2026-10-31") says it once.
   const why = String(round.why ?? '').replace(/\s+of\s+\d{4}-\d\d-\d\d$/, '')
   return {
     title: 'Open now',
-    line: `Round ${round.n} · opened by ${why} of ${focusDayWords(round.since)} · ${done} of ${rows.length} done · the next evaluation starts round ${round.n + 1}`,
+    line: `Round ${round.n} · opened by ${why} of ${focusDayWords(round.since)} · ${counts} · the next evaluation starts round ${round.n + 1}`,
     rows,
     done,
     total: rows.length,
@@ -15070,6 +15294,9 @@ function focusView(focus, goals, can = null, ui = {}) {
     const chips = FOCUS_CHIPS
     // Work blocks (2026-10-31): a block made in this round (round 2 on) carries a small "new".
     const isNewNow = index => (focus.round?.n ?? 1) > 1 && (focus.openNow ?? []).some(one => one.index === index && one.kind === 'new')
+    // T20.1: the block as this round opens it (its kind, and the step under way when it is being reworked), null when the round does not open it.
+    const openOf = index => (focus.openNow ?? []).find(one => one.index === index) ?? null
+    const shownChip = (part, index) => blockChipOf(part, openOf(index), ui.recapCard ?? null)
     view.run = {
       title: 'All work blocks',
       page: focus.page ?? null,
@@ -15078,15 +15305,17 @@ function focusView(focus, goals, can = null, ui = {}) {
         // Work blocks: its done-when line under its bar, and "new" when this round made it.
         ...(blockLineOf(part) === '' ? {} : { doneWhen: `Done when: ${blockLineOf(part)}` }),
         ...(isNewNow(index) ? { isNew: true } : {}),
-        chip: part.state === 'dropped' ? `Dropped: ${part.why ?? ''}`.trim() : chips[part.state],
+        chip: part.state === 'dropped' ? `Dropped: ${part.why ?? ''}`.trim() : (shownChip(part, index).chip ?? chips[part.state]),
         tone: part.state,
+        // T20.1: a block being reworked has a quiet chip of its own, one that waits for a verdict the attention colour (the row keeps its state's look).
+        ...(['rework', 'verdict'].includes(shownChip(part, index).tone) ? { chipTone: shownChip(part, index).tone } : {}),
         percent: part.state === 'done' ? 100 : part.state === 'stopped' || part.state === 'dropped' || part.total === 0 ? 0 : Math.round((part.done / part.total) * 100),
         // B680: under a Stopped part the person may drop it, with a reason; a dropped one has its Undo.
         ...(part.state === 'stopped' ? { drop: { label: 'Drop this work block', act: 'part-drop', isEnabled: allowed, title: allowed ? 'You stop this work block: say why in one line. It then counts out of the whole. Your partner can instead try another way.' : why } } : {}),
         ...(part.state === 'dropped' ? { undo: { label: 'Undo', act: 'part-undo', isEnabled: allowed, title: allowed ? 'Take the drop back: the work block is Stopped again' : why } } : {}),
         owner: part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null,
-        // 2026-11-01: a block that waits for the person's verdict: its chip opens the recap (verdictLinkOf).
-        ...(part.state === 'verdict' ? { verdict: verdictLinkOf(part.verdictAt, ui.recapCard) } : {}),
+        // 2026-11-01: a block that waits for the person's verdict: its chip opens the recap (blockChipOf).
+        ...(shownChip(part, index).isVerdict ? { verdict: shownChip(part, index).link } : {}),
         // Fix first: its worker does a board fix first.
         ...(typeof part.fixFirst === 'string' ? { fixFirst: `A board fix goes first: ${part.fixFirst}` } : {}),
         // B354: what its results are checked against: the kind, the reference picture, the target.
@@ -15109,7 +15338,7 @@ function focusView(focus, goals, can = null, ui = {}) {
     if (view.recapCard !== null) {
       const count = ui.recapCard.count
       view.strip = view.strip.map(one => (one.label === 'The run' ? { ...one, label: 'Your recap', state: 'recap' } : one))
-      if (view.progress !== null) view.progress = { ...view.progress, text: `${view.progress.text.split(' · ')[0]} · ${count} ${count === 1 ? 'verdict waits' : 'verdicts wait'} for you`, isRecap: true }
+      if (view.progress !== null) view.progress = { ...view.progress, text: `${view.progress.text.split(' · ')[0]} · ${count} to judge`, isRecap: true }
     }
     const whole = workBlocksOf(focus)
     if (whole.length > 0 && view.openNow !== null) {
@@ -16050,6 +16279,8 @@ function focusRecapReady(view) {
     tiles.append(link)
   }
   card.append(words, open, tiles)
+  // T20.1: what the row of tiles cannot hold is one quiet link to the recap ("+2 more in the recap").
+  if (view.more > 0) card.append(targetLink(view.open.target, 'focus-recap-more', `+${view.more} more in the recap`))
   return card
 }
 
@@ -16111,7 +16342,7 @@ function focusRunCard(view) {
     const top = el('div', 'focus-part-top')
     const title = el('b', '', part.title)
     if (part.isNew === true) title.append(el('span', 'focus-new', 'new'))
-    top.append(title, focusChipEl(part.chip, part.tone, part.verdict ?? null))
+    top.append(title, focusChipEl(part.chip, part.chipTone ?? part.tone, part.verdict ?? null))
     // B684: one block per step, coloured by its state; a part without steps keeps its plain fill.
     const bar = el('div', part.blocks.length > 0 ? 'focus-bar focus-blocks' : 'focus-bar')
     if (part.blocks.length > 0) for (const tone of part.blocks) bar.append(el('span', `focus-block is-${tone}`))
@@ -17627,10 +17858,14 @@ function autopilotWords(isOn) {
     : 'Questions come to you as before.'
 }
 
-/** Autopilot: the quiet line on top of Needs your attention while it is on, or null: "Autopilot is on · decided for you today: 3". */
+/**
+ * Autopilot: the quiet line on top of Needs your attention while it is on, or null. Autopilot v2 (the person's "B", 2026-11-02:
+ * "Decided for you" folds to one line with today's count only): "Autopilot decided 3 today →", which takes the place of the list
+ * "Decided for you" while it is on; it opens the partner's daily note, where each answer keeps its Undo.
+ */
 function autopilotLineText(autopilot) {
   if (autopilot === null || autopilot === undefined || autopilot.on !== true) return null
-  return `Autopilot is on · decided for you today: ${Number.isInteger(autopilot.decidedToday) ? autopilot.decidedToday : 0}`
+  return `Autopilot decided ${Number.isInteger(autopilot.decidedToday) ? autopilot.decidedToday : 0} today →`
 }
 
 /** Autopilot: one line per ask that waits for the recap: its question, its picture, its step; each opens the ask's window. */

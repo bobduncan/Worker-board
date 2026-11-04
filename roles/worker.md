@@ -124,9 +124,11 @@ step therefore says what it touches ("Touches: ...").
   worktree as its working folder, and Windows refuses that folder for as long as it runs: past your report and past a
   restart of your chat (B844: B821's folder stayed busy 20 minutes, held by its chat's own `sleep 1500` monitor). Then
   leave it: `cd` to the main checkout in a command of its own, so your chat's working folder is no longer the worktree
-  (a shell standing in it makes Windows refuse the last folder: "Permission denied", an empty folder stays). A link in it (a junction such as `node_modules`) first,
-  alone (`cmd /c rmdir "<folder>\node_modules"` on Windows: the link only, never what it points to), then `git worktree
-  remove <folder>`, then the empty folder Windows may leave (`rmdir "<folder>"`, which fails when it is not empty). The
+  (a shell standing in it makes Windows refuse the last folder: "Permission denied", an empty folder stays). Then take
+  the folder away with one command, never by hand (B947): `node <board>/tools/remove-task-folder.mjs <folder>`. It takes
+  every link in it (a junction such as `node_modules`) away alone, never what it points to, then removes the worktree
+  (never `--force`) and the empty folder Windows may leave, and refuses while a program stands in it. The project's
+  shell hook refuses `git worktree remove`, `rm -rf` and `Remove-Item -Recurse` on a folder that holds a link. The
   board's check of your report fails while a worktree of the step, or a folder with files of it, is left, and names it
   with how to remove it: remove it and report again. A report whose check failed is handed back to you (B737): you stay
   in your turn to fix it, no clear is owed for it and the board gives you no new step until you report that step again
@@ -317,11 +319,11 @@ on Opus (the task's Model and Effort lines); it switches your model and effort f
    points on it). A kind with a reference picture and a target: `--reference <the reference picture> --result <the result's
    picture> --points '<the ticked points as JSON>' --score <n> --target <n>`. Work with nothing to see has no picture: its
    evidence is `none (nothing on screen)`.
-4. Remove the worktrees you made for the check (detached, named `check-b<id>`, and `check-b<id>-before` for the state before): a
-   link in one (a junction such as `node_modules`) first, alone (`cmd /c rmdir "<folder>\node_modules"` on Windows: the link only),
-   then `git worktree remove <folder>` (never `--force`: it follows links and deletes what they point to), then the empty folder
-   Windows may leave (stop your background commands and monitors that run in it first, B844, and leave the folder: `cd` out of
-   it in a command of its own; an empty one the board removes itself). The
+4. Remove the worktrees you made for the check (detached, named `check-b<id>`, and `check-b<id>-before` for the state before),
+   each with `node <board>/tools/remove-task-folder.mjs <folder>` (B947: it takes a link such as `node_modules` away alone,
+   never what it points to, then removes the worktree without `--force` and the empty folder Windows may leave; never by
+   hand). Stop your background commands and monitors that run in it first (B844), and leave the folder: `cd` out of
+   it in a command of its own; an empty one the board removes itself. The
    board refuses `work checked` while one of them is left, and names it with how to remove it.
 5. File it: `work checked B701` (the checked step's id, not the task's) with `evidence` (the picture's path in the project, or
    `none (<why>)`), `points` (every agreed point, each `pass: <point>`, `fail: <point>` or `ask: <point>`) and `score` ("82 of 75")

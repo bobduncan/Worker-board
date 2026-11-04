@@ -9,7 +9,7 @@
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { makingOf, roundsOf } from './demoFeedback.mjs'
+import { hasChanged, isPending, makingOf, roundsOf } from './demoFeedback.mjs'
 import { parseGoals } from './goals.mjs'
 import { readDemo, shownFolders, shownRoots } from './pictures.mjs'
 import { linksRecap, standsForPerson } from './work/autopilot.mjs'
@@ -26,6 +26,8 @@ export const TILE_LINE = 'approve or send back'
 const BUILT_STATES = ['done', 'dropped', 'stopped', 'verdict']
 const FINISHED = ['done', 'closed', 'dropped']
 const IMAGE = /\.(?:png|jpe?g|gif|webp)$/i
+/** The asks a kept look can be: a look, or an own-senses do the main chat or the partner handed on (src/work/keptLook.mjs). */
+const KEPT_ASKS = ['look', 'do']
 /** The advice on a look's tile is cut at this many characters (it is one small line). */
 const LOOK_ADVICE_MOST = 60
 
@@ -88,6 +90,9 @@ export async function readGoalRecap(config, goalsText) {
   const rows = read === null || read.why !== undefined ? [] : read.base.sections.flatMap(section => section.rows)
   return {
     goal: goals.focus, path, pictures: Object.fromEntries(rows.map(row => [row.key, tilePictureOf(row.pictures)]).filter(([, picture]) => picture !== null)),
+    // T20.1: every row of the recap, with the steps it names and whether it says what changed or that its new try is not in: what the
+    // popup's round is made of (src/recapRound.mjs), so the card counts the rows the popup shows, the rows that name no step too.
+    rows: rows.map(row => ({ key: row.key, title: row.title, steps: row.steps ?? [], changed: hasChanged(row), pending: isPending(row) })),
     rounds: read === null || read.why !== undefined ? [] : roundsOf(read.feedback), changedAt: read?.changedAt ?? null,
   }
 }
@@ -214,100 +219,62 @@ export function wholeGoalAskOf(standing, goal, recapPath) {
 }
 
 /**
- * The card, or null while nothing waits for the person's verdict. `goal` is the focus goal's id, `recapPath` its recap file (null for
- * none), `waits` where each step a recap part names stands with the person (src/recaps.mjs `recapWaitsOf`), `pictures` the file's
- * tile pictures by part key, `steps` the store's steps by id, `blocks` the goal's work blocks (the state's `parts`: each with its
- * `state` and its steps' `waitsForVerdict`/`verdictAt`), `standing` `standingAsksOf`, `openChecks` `openChecksOf`, `asked` the asks
- * routed to the recap that count (Autopilot on only: `routedAwayOf`'s recap asks). One of them with no step whose words link the
- * recap file is the goal's own ask (2026-11-02, Autopilot moved "Open the recap and try it" into the recap): the first of them
- * makes the "play it" tile like a standing one; every further one is an ask outside the card, listed under it.
+ * The card, or null while nothing is left to judge (N = 0). `goal` is the focus goal's id, `recapPath` its recap file (null for none),
+ * `rows` the rows of its recap as the popup's round has them (src/recapRound.mjs `recapRoundOf`: `[{ key, title, steps, ready }]`, the rows
+ * the person has not approved; `ready`: they can judge it now, not ready: it is being reworked and asks nothing), `looks` its kept looks and
+ * kept dos (the same function), `pictures` the file's tile pictures by row key, `steps` the store's steps by id, `blocks` the goal's work
+ * blocks (the state's `parts`, for whether everything is built), `standing` `standingAsksOf`, `openChecks` `openChecksOf`, `asked` the asks
+ * routed to the recap that count (Autopilot on only: `routedAwayOf`'s recap asks).
  *
- * `{ goal, open, count, isBuilt, tiles, looks, outside }`. Count: the recap parts waiting (rows that name steps; a part with a step still
- * being checked is no verdict yet; a part with a step of an open recap ask counts too; each part once) plus the work blocks whose
- * step waits for the person in another form (an Accept card, a look standing with them) that no counted part covers, plus the
- * goal's own "play it" ask. `tiles`: the first MOST_TILES of them in that order, each `{ title, line, picture, target }`; a target is
- * `{ path, key }` (the recap at its part), `{ step }` or `{ ask }` (that window). `open`: the recap file, else the first tile's.
- * `outside`: the ids of the recap asks whose step no counted part or block covers: the page lists those under the card.
+ * `{ goal, open, count, isBuilt, tiles, looks, outside }`. THE ONE COUNT (T20.1, the person, 2026-11-04: "5 verdicts wait while of the 5 open
+ * now, only 1 is done. And when we open the demo i see only 3 items ... These numbers are all over the place and non consistent"; the review
+ * of the same day): `count` is exactly the popup's N, the rows ready to judge plus the kept looks and dos, and nothing else. An Accept card,
+ * a look or question that stands with the person, the goal's own "open the recap and play it" ask: each stands as its own card in Needs
+ * your attention when it stands at all (or, routed to the recap, as an ask `outside`), never as a tile or a count of this card. N = 0: no
+ * card. Whenever N > 0 the card shows, also when only kept looks remain mid-goal (the 2026-11-02 rule that a kept look raised no card
+ * beside no other reason is gone: one count wins).
  *
- * A kept look (the person's "A", 2026-11-02, the live Q590: a look the partner handed to the person that Autopilot keeps for the
- * recap; `isKept` on its `asked` entry, src/work/keptLook.mjs): every kept look of a step that no recap PART names is a tile of its
- * own, after the others, whether or not a block covers the step (a block's tile is the step's card, not this look): its title, the
- * line "a look · advised: <advice>" (or "a look"), its first picture, and the target `{ ask }`, the window where the person answers
- * it. It counts, and it is no ask `outside`. `looks` holds all of them (the page's Product owner card names every one; `tiles` only
- * the first MOST_TILES of everything). The coordinator's ruling the same day: a kept look raises no "your recap is ready" mid-goal;
- * it makes no block wait for a verdict (`standingAsksOf` leaves it out) and is no reason of its own: its tile counts and shows only
- * while the card has another reason to show (a part, a block or the goal's own ask waits) or every block of the goal is built (a step
- * in review held only by its kept look counts as built: the goal's last kept look would otherwise never show).
- * Every other look routed to the recap (a checker's, one below its target) stays an ask `outside` when no part covers it.
+ * `tiles`: the first MOST_TILES of the rows, then the kept looks, each `{ title, line, picture, target }`; a target is `{ path, key }` (the recap
+ * at its row) or `{ ask }` (that window). `looks` holds every kept look (the Product owner's card names every one). `open`: the recap file,
+ * else the first tile's. `outside`: the ids of the asks routed to the recap that no row or kept look covers (a checker's look, one below its
+ * target, the goal's own ask): the page lists those under the card. `isBuilt`: nothing of the goal is left to build or rework.
  *
- * T17.1: while the focus goal's recap has its next round being made (`making`, `recapMakingOf`, or a wait of the recap that says `making`)
- * there is no card at all: the result is null and the page draws the quiet "round N+1 is being made" card in its place, whatever else
- * waits for the person.
+ * T17.1: while the focus goal's recap has its next round being made (`making`, `recapMakingOf`) there is no card at all: the result is null
+ * and the page draws the quiet "round N+1 is being made" card in its place, whatever else waits for the person.
  */
-export function recapCardOf({ goal, recapPath = null, waits = [], pictures = {}, steps = new Map(), blocks = [], standing = [], openChecks = new Set(), asked = [], making = null }) {
+export function recapCardOf({ goal, recapPath = null, rows = [], looks: kept = [], pictures = {}, steps = new Map(), blocks = [], standing = [], openChecks = new Set(), asked = [], making = null }) {
   // T17.1 (the coordinator's ruling): no card of verdicts while the goal's recap has its next round being made, whatever else waits: the
-  // page draws the quiet "round N+1 is being made" card in its place (`making`: `recapMakingOf`, or a wait of the recap says so).
-  if (making !== null || (Array.isArray(waits) ? waits : []).some(wait => wait.goal === goal && wait.making === true && (recapPath === null || wait.path === recapPath))) return null
+  // page draws the quiet "round N+1 is being made" card in its place (`making`: `recapMakingOf`).
+  if (making !== null) return null
   const isOpenCheck = id => openChecks.has(id)
-  const parts = new Map()
-  for (const wait of (Array.isArray(waits) ? waits : []).filter(one => one.goal === goal && (recapPath === null || one.path === recapPath))) {
-    const at = `${wait.path}\n${wait.key}`
-    const part = parts.get(at) ?? { path: wait.path, key: wait.key, title: wait.title, steps: [], verdict: wait.verdict, isAsked: false }
-    part.steps.push(wait.step)
-    parts.set(at, part)
-  }
-  const covered = new Set()
+  const every = Array.isArray(rows) ? rows : []
+  const named = new Set(every.flatMap(row => row.steps ?? []))
   const outside = []
-  // The goal's own ask: the first standing one, else the first routed to the recap (it has no step); only that one is a tile.
-  const whole = wholeGoalAskOf([...standing, ...(Array.isArray(asked) ? asked : []).filter(ask => ask.of === null).map(ask => ({ ...ask, asks: ask.asks ?? 'do' }))], goal, recapPath)
   for (const ask of Array.isArray(asked) ? asked : []) {
-    if (whole !== null && ask.id === whole.id) continue
-    const part = [...parts.values()].find(one => one.steps.includes(ask.of))
-    if (part === undefined) outside.push(ask.id)
-    else part.isAsked = true
+    // A kept look or do is a row of the recap, never an ask outside it.
+    if (ask.isKept === true && KEPT_ASKS.includes(ask.asks) && /^B\d+$/.test(ask.of ?? '')) continue
+    // An ask of a step a row names waits with that row (the person's verdict on the row closes it, or the row is being reworked).
+    if (!named.has(ask.of)) outside.push(ask.id)
   }
-  const waitingParts = [...parts.values()].filter(part => (part.verdict === null || part.isAsked) && !part.steps.some(isOpenCheck))
-  for (const part of waitingParts) for (const id of part.steps) covered.add(id)
   const scoreLine = ids => [...ids].map(id => steps.get(id)).filter(one => one !== undefined).sort((a, b) => Number(valueOf(b, 'Id').slice(1)) - Number(valueOf(a, 'Id').slice(1))).map(scoreOf).find(one => one !== null) ?? null
   const lineOf = ids => { const score = scoreLine(ids); return score === null ? TILE_LINE : `${score} · ${TILE_LINE}` }
-  const tiles = waitingParts.map(part => ({ title: part.title, line: lineOf(part.steps), picture: pictures[part.key] ?? null, target: { path: part.path, key: part.key } }))
-  // The blocks whose step waits for the person in a form no recap part covers.
-  const askedBy = askedStepsOf(standing)
-  for (const block of blocks) {
-    const waiting = (block.steps ?? []).filter(one => one.waitsForVerdict === true && typeof one.verdictAt?.step === 'string' && !covered.has(one.verdictAt.step))
-    if (waiting.length === 0) continue
-    const ids = [...new Set(waiting.map(one => one.verdictAt.step))]
-    for (const id of ids) covered.add(id)
-    // The picture of the step's ask: its Accept card first, then the newest.
-    const ask = ids.flatMap(id => askedBy.get(id) ?? []).sort((a, b) => Number(b.via === 'accept') - Number(a.via === 'accept') || Number(b.id.slice(1)) - Number(a.id.slice(1))).find(one => one.pictures.length > 0) ?? null
-    const evidence = ids.map(id => checkedOf(steps.get(id))?.evidence).find(path => typeof path === 'string' && IMAGE.test(path)) ?? null
-    tiles.push({ title: block.title, line: lineOf(ids), picture: ask?.pictures[0] ?? evidence, target: { step: ids[0] } })
-  }
-  // The goal's own ask: open the recap and play it.
-  if (whole !== null) tiles.push({ title: 'The whole goal: play it', line: `is ${goal} reached?`, picture: whole.pictures[0] ?? null, target: recapPath !== null ? { path: recapPath } : { ask: whole.id } })
-  // A kept look no recap part covers is a tile of its own, also when a block covers its step; it is no ask outside.
-  const keptLooks = (Array.isArray(asked) ? asked : []).filter(ask => ask.isKept === true && ask.asks === 'look' && /^B\d+$/.test(ask.of ?? '') && outside.includes(ask.id))
-  for (const ask of keptLooks) outside.splice(outside.indexOf(ask.id), 1)
-  for (const ask of Array.isArray(asked) ? asked : []) if (outside.includes(ask.id) && covered.has(ask.of)) outside.splice(outside.indexOf(ask.id), 1)
-  // A block is built when its state says so, or when what is left of it is a step in review held only by its kept look (nothing else of it
-  // is open: no check, no failed check, no other ask): that step is built, and only the person's answer to the look is missing. Else the
-  // goal's last kept look could never show on the card.
-  const keptSteps = new Set((Array.isArray(asked) ? asked : []).filter(ask => ask.isKept === true && ask.asks === 'look' && /^B\d+$/.test(ask.of ?? '')).map(ask => ask.of))
+  const tiles = every.filter(row => row.ready === true).map(row => ({ title: row.title, line: lineOf(row.steps ?? []), picture: pictures[row.key] ?? null, target: { path: row.path ?? recapPath, key: row.key } }))
+  const looks = (Array.isArray(kept) ? kept : []).map(look => ({ title: look.title, line: lookLineOf(look.advice), picture: look.pictures?.[0] ?? null, target: { ask: look.ask } }))
+  tiles.push(...looks)
+  if (tiles.length === 0) return null
+  // Everything is built when no block is left to build, and the only thing that holds one back is the kept look of a step in review (nothing
+  // else of it is open: no check, no failed check, no other ask) and every row is ready.
+  const keptSteps = new Set((Array.isArray(kept) ? kept : []).map(look => look.step))
   const hasOtherAsk = id => [...(Array.isArray(standing) ? standing : []), ...(Array.isArray(asked) ? asked : [])].some(ask => ask.of === id && ask.isKept !== true)
   const isHeldByKept = step => keptSteps.has(step.id) && steps.get(step.id) !== undefined && valueOf(steps.get(step.id), 'State') === 'review' && !isOpenCheck(step.id) && step.isFailed !== true && !hasOtherAsk(step.id)
   const isBlockBuilt = block => BUILT_STATES.includes(block.state)
     || ((block.steps ?? []).some(isHeldByKept) && (block.steps ?? []).every(step => ['done', 'stop'].includes(step.tone) || isHeldByKept(step)))
   const isAllBuilt = (blocks ?? []).every(isBlockBuilt)
-  const looks = tiles.length > 0 || isAllBuilt
-    ? keptLooks.map(ask => ({ title: ask.title, line: lookLineOf(ask.advice), picture: ask.pictures?.[0] ?? null, target: { ask: ask.id } }))
-    : []
-  tiles.push(...looks)
-  if (tiles.length === 0) return null
-  const isBuilt = isAllBuilt && [...parts.values()].every(one => one.verdict === null)
+  const isBuilt = isAllBuilt && every.every(row => row.ready === true)
   const first = tiles[0].target
   return {
     goal,
-    open: recapPath !== null ? { path: recapPath } : first.path !== undefined ? { path: first.path } : first,
+    open: recapPath !== null ? { path: recapPath } : first.path !== undefined && first.path !== null ? { path: first.path } : first,
     count: tiles.length,
     isBuilt,
     tiles: tiles.slice(0, MOST_TILES),

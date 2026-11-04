@@ -8,7 +8,7 @@ import { repeatFactsOf } from './askRepeat.mjs'
 import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, TAKE_BACK_MS, isDecidedForYou, isRoutedToPartner, partnerAskStand } from './partnerAnswers.mjs'
-import { TOOK_ADVICE, routedAt, standsForPerson } from './autopilot.mjs'
+import { TOOK_ADVICE, autopilotRoute, formHandsOf, routedAt, standsForPerson } from './autopilot.mjs'
 import { isKeptLook } from './keptLook.mjs'
 import { isRecap } from './recap.mjs'
 
@@ -168,9 +168,17 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     const stored = { at: since, verdict: null, text: (item.sections.get('Answer') ?? []).join(' '), state: 'delivered', takenAt: null, deliveredAt: since }
     const why = byPartner ? (item.sections.get('Why') ?? []).join(' ').trim() || null : null
     // Partner answers: the partner's answer as the store holds it, with where its word to the chat is.
-    const answer = byPartner ? { ...stored, ...(known.answer === null ? {} : { state: known.answer.state, takenAt: known.answer.takenAt ?? null, deliveredAt: known.answer.deliveredAt ?? since }), by: valueOf(item, 'Answered by'), why }
-      : known.answer ?? (state === 'open' ? null : stored)
+    // Autopilot noise (the person's "Yes, clear them", 2026-11-04): a decided answer carries its word's id so that its wait line stays
+    // reachable from the ask's own window, but it is never a slim "Answered" card of Needs your attention: only the person's own
+    // answer (no `Answered by`, or `person`) stands there while its line waits (the page's `slim`).
+    const answer = byPartner ? { ...stored, ...(known.answer === null ? {} : { id: known.answer.id ?? null, state: known.answer.state, takenAt: known.answer.takenAt ?? null, deliveredAt: known.answer.deliveredAt ?? since }), by: valueOf(item, 'Answered by'), why }
+      : (a => (a !== null && valueOf(item, 'Answered by') === 'recap' ? { ...a, by: 'recap' } : a))(known.answer ?? (state === 'open' ? null : stored))
     const routeNote = (item.sections.get('Route') ?? []).join(' ').trim()
+    // Autopilot v2 (the person's "B", 2026-11-02): an open ask only the person's hands can do (and nobody handed on) is no card but
+    // a part of the one quiet line "Needs your hands" (`hands`: what of the hands it needs, autopilot.mjs PERSONS_HANDS).
+    const hands = autopilot && state === 'open' ? autopilotRoute(item, { roleOf, items, focusGoal, focusHasDemo, recapSteps, prefix, again: true }).hands ?? null : null
+    // T20.1 (the live Q629 and Q632): the app's form stands in that line too, with its own words ("Worker 5's chat waits on a popup: change directory").
+    const handsWords = hands === null ? null : formHandsOf(item, owner === null ? null : nameOf(owner))?.words ?? null
     return [{
       id: `work:${id}`, workId: id, from: owner === null ? null : nameOf(owner), kind: asks === 'look' ? 'verify' : asks === 'do' ? 'do' : 'input', asks,
       title, text: context.join('\n'), at: Number.isFinite(since) ? since : null,
@@ -184,7 +192,7 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
       via, isForm: via === 'form', isRefine: via === 'refine',
       // The board answers it through the store (POST /api/work, answer); a question of the app's form only in its chat.
       canAnswer: state === 'open' && via !== 'form', isClosed: false, answer, earlier: known.earlier ?? null,
-      route: valueOf(item, 'Route'), routeNote: routeNote === '' ? null : routeNote, canTakeBack: byPartner,
+      route: valueOf(item, 'Route'), routeNote: routeNote === '' ? null : routeNote, canTakeBack: byPartner, hands, handsWords,
     }]
   })
 }
@@ -231,10 +239,25 @@ export function partnerDecidedOf(work, { now, shownNote = null, names = [], pref
   }).sort((a, b) => b.at - a.at || b.ask.localeCompare(a.ask, 'en', { numeric: true }))
 }
 
+const PLAY_OF = item => (item?.sections?.get('Play') ?? []).map(one => one.trim()).find(one => one !== '') ?? null
+const ASK_LINK = /#details=(Q\d+)/g
+/** The play setting of an ask (`## Play`: "main&arena=ring"), else of the first ask its words link that has one; null for none. */
+function playOfAsk(item, items) {
+  const own = PLAY_OF(item)
+  if (own !== null) return own
+  const words = `${valueOf(item, 'Title') ?? ''} ${(item.sections.get('Text') ?? []).join(' ')}`
+  for (const found of words.matchAll(ASK_LINK)) {
+    const linked = items.get(found[1])
+    const play = linked === undefined || valueOf(linked, 'Id') === valueOf(item, 'Id') ? null : PLAY_OF(linked)
+    if (play !== null) return play
+  }
+  return null
+}
+
 /**
  * Autopilot (2026-10-31): the open asks the board routed to the main chat or to a goal's recap, for the window a click on
  * one opens (they stand in no list of Needs your attention) and the Focus page's "For your recap": `[{ id, route, from,
- * title, of, ofTitle, goal, text, advice, options, pictures, at, toYouAt, isKept }]`, oldest first. `isKept`: a look the partner handed over
+ * title, of, ofTitle, goal, text, advice, options, pictures, play, at, toYouAt, isKept }]`, oldest first. `isKept`: a look the partner handed over
  * that Autopilot keeps for the goal's recap (src/work/keptLook.mjs; the person's "A", 2026-11-02). `toYouAt`: when one routed to the
  * main chat comes to the person (the partner's 30 minutes from its route), else null.
  */
@@ -255,6 +278,9 @@ export function routedAwayOf(work, { names = [], prefix = '', limitMs = PARTNER_
       text: askPartsOf(item).context.join('\n'), advice,
       options: (valueOf(item, 'Options') ?? '').split(' | ').filter(one => one.trim() !== '').map(label => ({ label, isRecommended: isAdvised(label, advice) })),
       pictures: (valueOf(item, 'Pictures') ?? '').split(',').map(one => one.trim()).filter(Boolean),
+      // The review of 2026-11-04: the ask's own `## Play` (a map to open the game on), else the one of the ask its words link
+      // (`#details=Q<n>`: Q616 "reopen the Q600 play link" carries Q600's), else null.
+      play: playOfAsk(item, items),
       at: Number.isFinite(at) ? at : null, toYouAt: route === 'main' && Number.isFinite(routed) ? routed + limitMs : null,
     }
   }).sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))

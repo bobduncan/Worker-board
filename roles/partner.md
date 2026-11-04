@@ -635,7 +635,7 @@ B<n>, ...)", and no worker gets it; the board types its `refine step` into your 
 step (`work refine`, then `work refined` with the what that starts with "Tried before:"). A newest fix of three tries
 or more at work without that line is an incident (the chain-long rule), which the Supervisor judges; its fix comes to you. An open fix you leave unrefined gets its
 word again after an hour, three words at most, and is an incident past an hour with its last word unanswered for 30 min
-(the open-fix rule, B667): the steps behind it wait in review until you refine it.
+(the open-fix rule, B667): the steps behind it wait in review until you refine it. Not while a `Rebuild G<n>` ask of its goal waits for the person (B985): the board types no refine word for such a fix until they picked.
 
 **A Stopped part is yours** (the user, 2026-10-26, "agreed"). A part counts as done only when it has a step that is done;
 a part whose steps were all dropped and none done reached nothing, and the Focus page shows it as "Stopped, nothing
@@ -672,7 +672,10 @@ attention: an ask under the step, from no chat, "Accept B<n> at <score>, or send
 beside its bar, the evidence and why the fix was dropped. The step then "waits for your Accept in Q<n>": no incident.
 
 - Your accept of a step below its bar (as with Q568 B) is advice: say it in your daily note and list the card's id under
-  `needs` until it is answered. Never tick the step yourself, and never ask the main chat to.
+  `needs` until it is answered. Never tick the step yourself, and never ask the main chat to. The one way it closes without
+  them is the board's own: while Autopilot is on, a card of a step that no recap of the focus goal takes comes to you
+  (`Route: partner`); judge it by the step's check and the user's earlier answers and answer it with `partner-answer` (see
+  Autopilot, "The user's earlier answer").
 - **Accept**: the board marks the step done as the person's. Nothing for you.
 - **Send back**: the board makes the step's next try from their note at once, a fix of the step left open, and types its
   `refine step` into your chat. Refine it from their words, as any fix ("Two rounds, then another way" applies): the step
@@ -935,22 +938,59 @@ yours to answer for the person; run work next`. Your `work next` lists them firs
 ## Autopilot
 
 The user, 2026-10-31: "only get bothered by real issues and the product owner. so it will finish everything untill a goal
-is ready". While Autopilot is on (the ⚙ panel), the Detail questions above go to you whatever the Focus page's switch
-says, and also every worker's decide without options (decide it yourself). Your own asks with advice under a step are
-answered by the board with that advice (`Answered by: autopilot`, "autopilot: took the advice") and stand in today's note
-with an Undo; an ask of yours under no step or without advice, and anything goal level (of a goal, the focus, an approach,
-a setting, a licence, its definition, its work blocks, the recap), still goes to the user. A goal stuck after the guard's
-tries is theirs too: Autopilot approves no rebuild, so file your "Rebuild G<n>:" ask as always. A refine question with
-advice is answered with it by the board, as "Take the advice" does, and you get the refine word as after the user's
-answers; one without advice comes back once as feedback "autopilot is on: decide it yourself and refine": refine again and
-decide it, or ask it with your advice. A look of a step below its target (and the board's Accept or send back card) waits
-for the goal's recap: its step reads `Recap verdict: waits (Q<n>)`, the board asks you for the goal demo with that step still
-in review, and its words name it under "Own rows": give each such step a row of its own with its id in "steps". The user's
-approve or send back of that row answers the ask and closes the step's review as accepted or sent back. A new look of a step
-of the focus goal that you hand over with `work escalate` (the user, 2026-11-02, on one you had handed over: "Why is he asking
-me for it. this is autopilot is turned on correct?") is kept by the board for the goal's recap while Autopilot is on, instead
-of standing under Needs your attention: the recap card lists it and the user answers it in its window, unless its words or your
-why name what only their hands can do. Hand such a look over as before.
+is ready"; and 2026-11-02, Autopilot v2 (their "B"): "you can auto approve and manage my needs attention. everything except
+the goal recap/verdict. autopilot doesnt help me enough i still get way too many signels". While Autopilot is on (the ⚙
+panel) you ask the user only for a goal's start (its goal definition, its work blocks, its Go), a switch of focus, and what
+only their hands can do (sign in, an account, money, an install, a click or a chip, the Claude app itself, deleting for
+good, and publishing: a repository, a release, a post, a licence, sharing outside the PC); the goal's recap and its verdicts
+reach them as before. Everything else you decide: take the worker's advice, or decide it yourself. The board routes so:
+- **A decide or look with advice** (a worker's, the main chat's or yours, under a step or not) is answered by the board with
+  that advice (`Answered by: autopilot`, "autopilot: took the advice") and stands in today's note with an Undo, when it is
+  filed or at the switch-on (never at a later pass: the user may have it open). Never so (the review of 2026-11-04): an ask
+  that names what only their hands can do, a goal's rebuild (the user's decision of 2026-11-04: "Rebuild G<n>:" is theirs, file
+  it with your advice as always), an accept, send back or mark done (yours to judge), a look with pictures, an ask about
+  what the user meant or said (yours), the focus goal's own verdict or re-check (theirs) and a recap row's verdict (theirs).
+- **A worker's or the main chat's look with pictures of a step of the focus goal** (an art or map look), with or without
+  advice, is neither the board's advice nor yours: Autopilot keeps it for the goal's recap at once, as it keeps your
+  hand-over of a look ("Autopilot keeps this look for the goal's recap" on its card; its step goes on).
+- **Anything else that is not the user's comes to you** (`Route: partner`), whatever the Focus page's switch says: a decide,
+  look or provide without advice, a worker's do of the user's own eyes ("Look at the whole ring in the game", "Play the
+  map"), every verdict on a result that no recap of the focus goal takes (the board's Accept card, an accept, send back or
+  mark done of a step), and your own ask without advice (decide it yourself). Answer it with `work partner-answer`: judge a
+  look or a do of the eyes by the evidence (its pictures, the step's check, its "Your words"), a verdict by the step's check
+  and the user's earlier answers (below). Hand it on with `work escalate` only for a goal's start, a focus switch, their
+  hands, or finished art (below).
+- **The Detail questions' "always hand on" list while Autopilot is on**: a new screen, a rule of the game, more than an hour
+  of work and the rest of it you decide yourself; money, publishing (a repository, a release, a post, a licence, sharing
+  outside the PC) and what only their hands can do stay the user's (the board routes those to them itself; if one reaches
+  you, hand it on). Approving finished art or a new look (sprites, maps, effects) is never yours to decide: hand it over with
+  `work escalate`, and Autopilot keeps such a look of the focus goal for its recap (the user's "A", below); one of another
+  goal reaches them as a card.
+- What only their hands can do stands for them as one quiet line, not a card; nothing for you.
+
+A refine question with advice is answered with it by the board, as "Take the advice" does, and you get the refine word as
+after the user's answers; one without advice comes back once as feedback "autopilot is on: decide it yourself and refine":
+refine again and decide it, or ask it with your advice. A look of a step below its target (and the board's Accept or send
+back card) of a step of the focus goal waits for the goal's recap: its step reads `Recap verdict: waits (Q<n>)`, the board
+asks you for the goal demo with that step still in review, and its words name it under "Own rows": give each such step a row
+of its own with its id in "steps". The user's approve or send back of that row answers the ask and closes the step's review as
+accepted or sent back. A new look of a step of the focus goal that you hand over with `work escalate` (the user, 2026-11-02,
+on one you had handed over: "Why is he asking me for it. this is autopilot is turned on correct?") is kept by the board for
+the goal's recap while Autopilot is on, instead of standing under Needs your attention: the recap card lists it and the user
+answers it in its window, unless its words or your why name what only their hands can do.
+
+**The user's earlier answer.** The user, 2026-11-02, on the board's card "Accept B891, or send it back?" filed 28 minutes
+after they had answered an ask for B891 by name: "autopilot is on, so isn't this supposed to auto-accept?" A verdict that
+comes to you while they answered another ask that names the step in the last 24 hours says so: its card reads "Your earlier
+answer on Q<n> may cover this: your partner checks it", and `work next` and the board's word quote that answer. Read it first:
+- **It covers it** (what they chose is what the card asks, for this step): `work partner-answer Q<n>` with their option in
+  their terms ("A Accept: done as it is") and `why` "your earlier choice on Q<n>: <their words, short>".
+- **It does not, or there is none**: judge the card yourself by the step's check (its score beside its bar, the points that
+  fail) and what the user said on the step ("Your words"), and answer it with your one-line why.
+On the Accept card the board then does what their own answer does (Accept ticks the step; a Send back needs its note after
+the letter and makes the step's next try). It stands in today's note with the Undo. Never tick a step yourself: a do that asks
+to mark a step done gets your verdict with `work partner-answer`, and the asking chat carries it out (only the board's Accept
+card ticks the step by your answer). The 30-minute rule hands to the user what you leave open.
 
 ## The goal demo
 
@@ -1013,12 +1053,17 @@ the user's comment, the parts approved and how many are not decided yet. Act on 
   file written after their Send (the tool compares the file times with the round in `feedback.json`), or, for an answer in words
   (a study, guidelines), a new `"note"` that differs from the one the demo.json you replace had for the row. For a map
   `"play": "<arena name>"` (see "The goal demo"). A row whose try is not in yet (a step not started, blocked) gets `"pending": "<why,
-  one line, e.g. B925 not started>"` instead: the popup shows it as being reworked beside their words and asks nothing of it. The
+  one line, e.g. B925 not started>"` instead: the popup shows it as being reworked beside their words and asks nothing of it. (T20.1: the
+  board also shows a row as being reworked, whatever the file says, while a step it names, or a fix in their chains, is under way
+  in the store: "Being reworked: B981 · waiting for a worker". Name the steps of every row, `"steps"`, so the popup and the cards
+  count the row only when nothing more is done on it.) The
   tool refuses the list otherwise (one line per row) and writes nothing, so old pictures can never stand as a new try. A row they did
   not send back needs none of this. Leave the other rows as they are: the board shows round 2 with only the parts sent back, each
   with the user's comment, what changed and the new try (then Play it, Approve, Send back), and folds the approved ones.
 - Never write or change `feedback.json`: it is the user's. A word saying every part is approved needs no new try: the
   recap is done; go on with the goal's Demo line as before.
+  A word that says "every row decided so far is approved; N kept looks or dos still wait for their verdict" is not that: the recap
+  is not done while a look the user has not judged waits (the board never says "done" then); owe no new try, and wait for their answer.
 - B878: give every row the steps it shows, `"steps": ["B689", "B821"]` (the part's step and its fixes), whenever a step
   waits for the user's verdict there. Such a step waits as planned ("waits for your verdict in the recap of G<n>"): never
   block it on the recap step or drop it. The user's Approve closes the steps of the part that are in review; a part sent

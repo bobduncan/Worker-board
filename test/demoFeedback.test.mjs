@@ -69,7 +69,7 @@ test('the Send is checked against the round the demo shows: unknown part, no com
   const shown = roundPage(page(), null)
   const send = parts => checkSend(shown, { round: 1, parts })
   assert.deepEqual(send([{ key: '1. Lava', verdict: 'approved', comment: '  fine  ' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still   stepped' }]),
-    { ok: true, round: 1, parts: [{ key: '1. Lava', verdict: 'approved', comment: 'fine' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }] })
+    { ok: true, round: 1, parts: [{ key: '1. Lava', verdict: 'approved', comment: 'fine' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }], looks: [] })
   assert.match(send([{ key: '9. Nothing', verdict: 'approved' }]).why, /no part "9\. Nothing"/)
   assert.match(send([{ key: '3. Round shapes', verdict: 'sent-back', comment: ' ' }]).why, /without a comment/)
   assert.match(send([{ key: '1. Lava', verdict: 'approved' }, { key: '1. Lava', verdict: 'approved' }]).why, /twice/)
@@ -158,7 +158,7 @@ test('round 2 of the popup: the round line, the folded approved parts, the perso
   const feedback = withRound(null, 1, [{ key: '1. Lava', verdict: 'approved', comment: '' }, { key: '2. Cliffs', verdict: 'approved', comment: '' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }], 'x')
   const shown = canSend(roundPage(page(), feedback))
   const body = drawn.demoBody(shown, draft())
-  assert.equal(wordsOf(withClass(body, 'demo-round')[0]), 'Round 2: only what you sent back or did not decide yet.')
+  assert.equal(wordsOf(withClass(body, 'demo-round')[0]), 'Round 2 · 1 to judge: only what you sent back or did not decide yet.')
   assert.equal(wordsOf(withClass(body, 'demo-folded')[0]), 'Approved, folded away: 1. Lava · 2. Cliffs')
   assert.deepEqual(withClass(body, 'demo-row').map(row => row.dataset.demoRow), ['3. Round shapes', '4. Ground'])
   assert.equal(wordsOf(withClass(body, 'demo-said')[0]), 'Your words: "still stepped"')

@@ -138,10 +138,15 @@ export async function writeFeedback(demoFile, content) {
   await rename(temporary, file)
 }
 
-/** B699: the page of a demo for the person: the round they answer now (src/demoFeedback.mjs roundPage). Same answers as `readDemo`, else `{ page }`. */
-export async function findDemo(project, roots, value) {
+/**
+ * B699: the page of a demo for the person: the round they answer now (src/demoFeedback.mjs roundPage). Same answers as `readDemo`, else
+ * `{ page }`. T20.1: `options.of(goal, path)` gives the rows being reworked and the kept looks of that recap (`{ rework, looks }`), or null.
+ */
+export async function findDemo(project, roots, value, options = {}) {
   const found = await readDemo(project, roots, value)
-  return found === null || found.why !== undefined ? found : { page: roundPage(found.base, found.feedback, { changedAt: found.changedAt }) }
+  if (found === null || found.why !== undefined) return found
+  const store = typeof options.of === 'function' ? options.of(found.base.goal, value) : null
+  return { page: roundPage(found.base, found.feedback, { changedAt: found.changedAt, rework: store?.rework, looks: store?.looks }) }
 }
 
 /** The size of a picture in a shown folder that is too big to show, or null (B676: the popup says so, never an empty window). */

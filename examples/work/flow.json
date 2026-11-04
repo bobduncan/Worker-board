@@ -18,6 +18,7 @@
       { "from": "in progress", "to": "review", "by": ["worker", "advisor", "main"], "then": "check: base equals remote, branch gone, result named" },
       { "from": "review", "to": "review", "by": ["worker", "advisor", "main"], "then": "check: base equals remote, branch gone, result named" },
       { "from": "*", "to": "done", "by": "person" },
+      { "from": "done", "to": "review", "by": "person" },
       { "from": "review", "to": "done", "by": "server", "when": "the check passed and no ask of kind look is open" },
       { "from": "*", "to": "dropped", "by": ["person", "main"] }
     ]

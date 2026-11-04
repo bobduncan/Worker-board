@@ -14,6 +14,7 @@ import { parseConfig } from '../src/config.mjs'
 import { ARENA_NAME, checkList, checkTries, checkWords, demoPage } from '../src/demo.mjs'
 import { checkSend, isAfterSend, makingOf, roundPage, roundsOf, withRound } from '../src/demoFeedback.mjs'
 import { nextTriesOf, recapCardOf, recapMakingOf, recapRoundDue } from '../src/recapCard.mjs'
+import { recapRoundOf } from '../src/recapRound.mjs'
 import { recapWaitsOf } from '../src/recaps.mjs'
 import { recapRoundWords } from '../src/say.mjs'
 import { parseItem, sinceMs } from '../src/work/item.mjs'
@@ -368,7 +369,9 @@ test('the coordinator\'s ruling: while round 2 is being made the focus recap is 
       goalRecap: { goal: 'G6', path: PATH, pictures: {}, changedAt, rounds: sent(60, [{ key: 'Block 1', verdict: 'approved', comment: '' }, { key: 'Block 3', verdict: 'sent-back', comment: 'x' }]) } }))
   const written = build2(NOW - 20 * MIN)
   assert.equal(written.recapMaking, null)
-  assert.equal(written.recapCard.count, 3, 'the look of B1, the part Block 2 and the goal\'s own ask wait for the person once the recap is written')
+  // The review of 2026-11-04: the card counts the popup's N: the part Block 2 (a row ready to judge); the look of B1 and the goal's own ask stand as
+  // cards of their own (or, routed to the recap, outside the card).
+  assert.equal(written.recapCard.count, 1, 'the part Block 2 waits for the person once the recap is written')
   assert.equal(written.focus.parts[1].steps[0].waitsForVerdict, true)
   const making = build2(NOW - 200 * MIN)
   assert.equal(making.recapCard, null, 'no card of verdicts at all')
@@ -398,11 +401,19 @@ test('each step is told once: the steps done that no word of the board names yet
   assert.deepEqual(recapRoundDue({ goal: 'G60', doneSteps: [] }, []), [])
 })
 
-test('the card function itself gives none while the recap\'s round is being made: by its `making`, or by a wait of the recap that says so (a block that waits is no reason)', () => {
+const round1ish = withRound(null, 1, [{ key: 'Block 1', verdict: 'sent-back', comment: 'still stepped' }], SENT)
+
+test('the card function itself gives none while the recap\'s round is being made: by its `making`; the round reads no row as ready then, and keeps its looks for the round after', () => {
   const blocks = [{ title: 'Ring', state: 'open', steps: [{ id: 'B920', waitsForVerdict: true, verdictAt: { step: 'B920' } }] }]
-  const wait = more => ({ step: 'B821', goal: 'G6', path: PATH, key: 'Block 1', title: 'Block 1', verdict: null, at: null, making: false, ...more })
-  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [wait({})], blocks }).count, 2, 'written: the part and the block wait')
-  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [wait({ making: true })], blocks }), null)
-  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [], blocks, making: { round: 2 } }), null)
-  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, waits: [wait({ making: true, goal: 'G7' })], blocks }).count, 1, 'the making recap of another goal is no reason: the block waits')
+  const rows = [{ key: 'Block 1', title: 'Block 1', steps: ['B821'], ready: true, path: PATH }]
+  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, rows, blocks }).count, 1, 'written: the row waits (the block that waits for its own card is no count of the recap card)')
+  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, rows, blocks, making: { round: 2 } }), null)
+  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, rows: [], blocks, making: { round: 2 } }), null)
+  // The round itself (src/recapRound.mjs): the Send sent Block 1 back and the recap was not written since: nothing to judge, no look either.
+  const look = { route: 'recap', isKept: true, asks: 'look', of: 'B9', goal: 'G6', id: 'Q5', title: 'A look', text: '', pictures: [] }
+  const recap = changedAt => ({ path: PATH, goal: 'G6', changedAt, rounds: roundsOf(round1ish), parts: [{ key: 'Block 1', title: 'Block 1', steps: ['B821'], pending: false, changed: true }, { key: 'Block 2', title: 'Block 2', steps: ['B2'], pending: false, changed: true }] })
+  const made = recapRoundOf({ goal: 'G6', goalRecap: { goal: 'G6', path: PATH, pictures: {} }, recaps: [recap(SENT_MS - MIN)], routed: [look] })
+  assert.deepEqual([made.making, made.toJudge, made.ready.length, made.looks.length], [{ round: 2 }, 0, 0, 0])
+  const written = recapRoundOf({ goal: 'G6', goalRecap: { goal: 'G6', path: PATH, pictures: {} }, recaps: [recap(SENT_MS + 2 * MIN)], routed: [look] })
+  assert.deepEqual([written.making, written.ready.map(one => one.key), written.looks.map(one => one.ask), written.toJudge], [null, ['Block 1', 'Block 2'], ['Q5'], 3])
 })

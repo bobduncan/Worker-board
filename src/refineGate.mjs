@@ -130,7 +130,9 @@ function needsRefine(step, outbox, now, again = Infinity) {
  * now (`refineWhenDue` asks for the first only while none is). Empty without an Advisor. The Advisor's "Next for it" shows it.
  */
 export function refineQueue(state, outbox, kept, now) {
-  const steps = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => typeof step.id === 'string')
+  // B985 (X139): a fix whose goal has the person's pick on a rebuild open waits for it, as the evaluate word does (B791):
+  // no refine word, the gate stays free for the next step (state.rebuildHolds, goalGuard.mjs `rebuildHoldsOf`).
+  const steps = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => typeof step.id === 'string' && (state.rebuildHolds?.[step.id]?.ask ?? null) === null)
   if ((state.advisor?.name ?? null) === null) return []
   const isOpen = step => step.status === 'open' || step.status === 'queued'
   const order = [

@@ -63,7 +63,7 @@ test('the report check carries the words, without the "; " that parts a check li
   assert.equal(line, `${PLAIN}: it is 2 commits behind, and uncommitted edits block the fast-forward (page.js): another chat's work, ${AGAIN}`)
   assert.doesNotMatch(line, /; /)
   assert.deepEqual(await basesNow({ repos: [{ dir: DIR, base: 'main' }, { dir: '/projects/quiet', base: 'main' }], run: git(world) }),
-    [{ name: 'lantern', base: 'main', equal: false }, { name: 'quiet', base: 'main', equal: null }])
+    [{ name: 'lantern', base: 'main', equal: false, unmerged: null }, { name: 'quiet', base: 'main', equal: null, unmerged: null }])
 })
 
 const MIN = 60_000

@@ -23,17 +23,20 @@ const ON = { approveRebuilds: false, maxWorkers: 5, autopilot: true, canSet: tru
 const OFF = { ...ON, autopilot: false }
 
 /** The garden's state as the board builds it, with the settings `settings` (config.json) and the store's `items`. */
-function garden(items = [], settings = {}, goalsText = RUN_GOALS) {
+function garden(items = [], settings = {}, goalsText = RUN_GOALS, more = {}) {
   const config = { ...parseConfig(JSON.stringify(settings), {}), project: 'D:\\garden' }
   const work = storeFromText('## Garden\n- [ ] B12 Plant the hedge\n', { now: NOW - 60 * MIN })
   for (const one of items) work.items.set(one.head.get('Id'), one)
   const raw = {
     listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [app('Lead'), app('Digger'), app('Advisor')],
     tails: { 'cli-Lead': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Digger': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Advisor': tail([typed(NOW - 20 * MIN, 'hi'), answer(NOW - 12 * MIN, 'ok')]) },
-    planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work, goalsText,
+    planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work, goalsText, ...more,
   }
   return buildState(raw, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config })
 }
+/** The garden's recap (T20.1: the card counts the recap's rows): one row, `Show damage`, which shows B1. */
+const RECAP_PATH = 'pictures/g6/recap/demo.json'
+const withRecap = { recaps: [{ path: RECAP_PATH, goal: 'G6', parts: [{ key: 'Show damage', title: 'Show damage', steps: ['B1'] }], rounds: [], changedAt: null }], goalRecap: { goal: 'G6', path: RECAP_PATH, pictures: {} } }
 const askOf = (id, fields) => parseItem(`${Object.entries({ Id: id, Kind: 'ask', State: 'open', Owner: 'Digger', Since: sinceOf(NOW - 40 * MIN), Filed: String(NOW - 40 * MIN), Asks: 'decide', Blocking: 'no', ...fields }).map(([key, value]) => `${key}: ${value}`).join('\n')}\n`)
 const words = node => node.textContent.replace(/\s+/g, ' ').trim()
 
@@ -103,14 +106,17 @@ test('the panel: a click on On sends the flag; the board\'s answer hides the set
 
 // 2026-11-01 (the person: "a little tooltip next to the autopilot setting with making it clear what is and isnt being signalled"):
 // the "ⓘ" right of the Autopilot label; its box holds what Autopilot asks and what it decides for you.
+// Autopilot v2 (the person's "B", 2026-11-02), on purpose: a goal's Go and a focus switch are asked, a stuck goal's rebuild takes its
+// advice, the hands stand in one line, and the rest the partner decides.
 const TIP = [
   'With Autopilot on, you are asked for:',
-  "a new goal's start: its goal definition and work blocks",
+  "a new goal's start: its goal definition, work blocks and Go",
+  'a switch of focus',
   "a goal's recap, once it is ready",
-  'what only you can do: sign-ins, accounts, money, installs, deleting things, restarting the Claude app',
-  'a goal stuck after its retries',
+  'what only you can do, in one line: sign-ins, accounts, money, installs, deleting things, publishing, restarting the Claude app',
   "Decided for you instead (with Undo, listed in your partner's note):",
-  'choices inside a task that come with advice',
+  "a question with advice: the advice is taken (never for a rebuild, an accept or a picture)",
+  'the rest: your partner decides it, or hands it to you',
   "looks below their target: they wait for the goal's recap",
   'chores a chat can do: Main does them',
   'While Autopilot is on, "Approve rebuilds by itself" is covered and hidden; it works again when Autopilot is off.',
@@ -123,7 +129,7 @@ test('the "ⓘ" beside Autopilot: a focusable button described by a calm box tha
     assert.ok(button.getAttribute('aria-label').length > 0, 'a name for a screen reader')
     assert.equal(page.find('#autopilot-tip').getAttribute('role'), 'tooltip')
     assert.deepEqual(page.all('#autopilot-tip p, #autopilot-tip li').map(one => one.textContent.trim()), TIP)
-    assert.deepEqual(page.all('#autopilot-tip ul').map(one => one.children.length), [4, 3], 'asked for: 4 lines; decided for you: 3')
+    assert.deepEqual(page.all('#autopilot-tip ul').map(one => one.children.length), [4, 4], 'asked for: 4 lines; decided for you: 4')
     // Right of the label, in the same row; the label's own words stay "Autopilot".
     assert.equal(page.find('#autopilot-info').closest('.autopilot-title').querySelector('.cpu-label').textContent, 'Autopilot')
     // The box is in the panel's flow, right under the Autopilot line, before the Off and On buttons (it pushes them down, covers nothing).
@@ -172,10 +178,13 @@ test('Needs your attention with Autopilot on: only the person\'s asks, counted o
   try {
     const top = page.all('#needs > *').slice(0, 2).map(words)
     assert.match(top[0], /^Nobody answers the board's wake-ups: open any chat · could not wake Advisor: the app did not start it \(launched 09:58\); open its chat\.$/)
-    assert.equal(top[1], 'Autopilot is on · decided for you today: 3')
+    // Autopilot v2 (on purpose): "Decided for you" folds into this one line with today's count.
+    assert.equal(top[1], 'Autopilot decided 3 today →')
     assert.equal(page.find('#needs .autopilot-line a').getAttribute('href'), '#advice/focus')
     assert.equal(page.text('#waits-for-you'), '1 waits for you')
-    assert.equal(page.all('#needs [data-id^="work:"]').filter(card => !card.classList.contains('is-closed')).map(card => card.dataset.id).join(), 'work:Q4')
+    // Autopilot v2 (on purpose): the sign-in is the person's hands, so it stands in the one hands line, not as a card.
+    assert.equal(page.all('#needs [data-id^="work:"]').filter(card => !card.classList.contains('is-closed')).map(card => card.dataset.id).join(), '')
+    assert.equal(words(page.find('#needs .hands-line')), 'Needs your hands: Sign in to the seed shop account? →')
     // Signals change 4: the opener's line above the lanes went into the one wake notice.
     assert.doesNotMatch(words(page.find('#restart')), /Opened .* to wake the chats/)
   } finally { await page.close() }
@@ -211,18 +220,18 @@ test('the Focus page: the switch reads "covered by Autopilot"; the asks that wai
     parseItem(`Id: B1\nKind: step\nTitle: Show damage\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`),
     askOf('Q3', { Title: 'Approve the damage numbers at 64 of 75?', Asks: 'look', Of: 'B1', Route: 'recap', Pictures: 'pictures/B1/check.png' }),
   ]
-  const page = await openPage({ state: { ...asSent(garden(items, { autopilot: true })), goalsEdit: { canWrite: true } } })
+  const page = await openPage({ state: { ...asSent(garden(items, { autopilot: true }, RUN_GOALS, withRecap)), goalsEdit: { canWrite: true } } })
   try {
     await page.click('[data-tab="advice"]')
     assert.equal(page.find('[data-partner-answers="switch"]').disabled, true)
     assert.equal(page.find('[data-partner-answers="switch"]').checked, true)
     assert.equal(page.text('.focus-partner-switch small'), 'covered by Autopilot')
-    // 2026-11-01: the list "For your recap (n)" is folded into the recap card: the block whose step waits for the person is one
-    // verdict there (its tile opens the step), and no second list stands on the page.
+    // 2026-11-01: the list "For your recap (n)" is folded into the recap card: the row whose step waits for the person is one
+    // verdict there (its tile opens the recap at its row; T20.1: the card counts the recap's rows), and no second list stands on the page.
     assert.equal(page.all('.focus-recap-wait').length, 0)
-    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 verdict waits')
+    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 to judge')
     const tile = page.find('.focus-recap-tile')
-    assert.deepEqual([tile.querySelector('b').textContent, tile.dataset.askLink], ['Show damage', 'B1'])
+    assert.deepEqual([tile.querySelector('b').textContent, tile.dataset.demo, tile.dataset.demoPart], ['Show damage', RECAP_PATH, 'Show damage'])
   } finally { await page.close() }
   const off = await openPage({ state: { ...asSent(garden(items)), goalsEdit: { canWrite: true } } })
   try {
@@ -237,7 +246,7 @@ test('the recap moment (the coordinator\'s ruling, 2026-10-31): a step that wait
     parseItem(`Id: B1\nKind: step\nTitle: Show damage\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n\n## Context\n  Recap verdict: waits (Q3)\n`),
     askOf('Q3', { Title: 'Approve the damage numbers at 64 of 75?', Asks: 'look', Of: 'B1', Route: 'recap', Pictures: 'pictures/B1/check.png' }),
   ]
-  const state = { ...asSent(garden(items, { autopilot: true })), goalsEdit: { canWrite: true } }
+  const state = { ...asSent(garden(items, { autopilot: true }, RUN_GOALS, withRecap)), goalsEdit: { canWrite: true } }
   assert.deepEqual([state.focus.progress.done, state.focus.progress.forDemo, state.focus.progress.total], [0, 1, 1])
   assert.deepEqual(state.focus.recapRows, [{ step: 'B1', asks: ['Q3'] }])
   const page = await openPage({ state })
@@ -245,7 +254,7 @@ test('the recap moment (the coordinator\'s ruling, 2026-10-31): a step that wait
     await page.click('[data-tab="advice"]')
     // 2026-11-01: while a verdict waits the recap card shows and "Did we reach the goal?" is not drawn (it was drawn with the asks
     // first, "For your recap (1)", and a Yes that waited); the asks are counted in the card.
-    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 verdict waits')
+    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 to judge')
     assert.equal(page.all('.focus-there').length, 0)
     assert.equal(page.all('.focus-recap-wait, .focus-recap-head').length, 0, 'listed once, in the card')
   } finally { await page.close() }

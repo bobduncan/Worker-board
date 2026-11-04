@@ -489,28 +489,51 @@ are asked when a goal starts, when it is ready, and for what no chat can do. Eve
 Undo."; Off, "Questions come to you as before."
 
 - **Needs your attention** shows only the asks routed to you and the board's own lines (limits, setup, the wake lines "No
-  chat is running ...", "Nobody could wake ...", the opener's "Opened ..."), with one quiet line on top: "Autopilot is on ·
-  decided for you today: <n>", which opens the partner's daily note. The header's "<n> wait for you" counts only those.
-  The Refine questions part shows none while the board answers them.
+  chat is running ...", "Nobody could wake ...", the opener's "Opened ..."), with one quiet line on top: "Autopilot decided
+  <n> today →" (Autopilot v2, 2026-11-02: it takes the place of the list "Decided for you" and of "With your partner"), which
+  opens the partner's daily note. What only your hands can do is no card but one quiet line under the cards, "Needs your
+  hands: <title> · <title> →" (each opens its ask; the attention colour only when one holds up a step). The Supervisor's
+  findings line is not there (it stays in the Supervisor's part), except for an alarm it hands to you: "Supervisor: one alarm
+  needs you". The header's "<n> wait for you" counts exactly what waits there: each card, the hands line and that alarm line
+  as one each. The Refine questions part shows none while the board answers them.
 - **Decided for you**: the board's taken advice and the main chat's actions stand in the partner's daily note beside the
   partner's answers, each with its Undo; a card says "Decided for you: A ..." or "The main chat did it: ...".
-- **Your recap is ready** (2026-11-01) at the top of the Focus page, under the head: while verdicts wait for you, a card with its
-  title ("Your recap is ready · 3 verdicts wait"; "1 verdict waits"), its line ("Everything is built. Judge each part: approve it,
+- **One count for the recap** (T20.1, 2026-11-04: "I'm confused. what do you mean 5 verdicts wait while of the 5 open now, only 1 is
+  done? And when we open the demo i see only 3 items"; the review of the same day): **N to judge** = the rows of the recap you can
+  judge now + the kept looks and dos of the goal, and nothing else. The same N stands on the Product owner's card in Needs your
+  attention, the Focus page's card ("Your recap is ready · N to judge"; at most 3 tiles, then "+K more in the recap"), the progress
+  line, the recap popup's head ("Round 3 · N to judge") and, with the cards it draws besides, the Needs count (an ask the recap card
+  counts is never a card of its own as well). An Accept card, a look or question that stands with you and the goal's own "open the
+  recap / play it" ask are cards of their own in Needs your attention (or, routed to the recap, one line under the card): never a
+  tile or a count of the recap card. Whenever N > 0 the card shows, also when only kept looks remain mid-goal; N = 0: no card.
+  A row is ready only when nothing more is done on it: a row whose steps, or any fix in their chains, are under way (new,
+  refined, queued, taken, in progress, waiting on you, or in review with its check still to run) is **being reworked**: the popup
+  says "Being reworked: B981 · waiting for a worker", naming the step a worker holds first (else the newest under way) and its state
+  in words ("being checked", "waiting for a worker", "Worker 4 is on it", "waits on you"); it asks nothing and counts nowhere; so
+  does a row you sent back whose new try is not in. A kept look or do (a look the partner handed to you, a worker's look with
+  pictures, or an own-senses do the main chat or the partner handed on; Autopilot keeps them for the recap) is a row of the popup, in
+  its section "Looks kept for your recap": its title and words (their links are links), pictures, **Play** link (the ask's own `## Play`,
+  else that of the ask its words link: Q616 "reopen the Q600 play link" carries Q600's map) and Approve ("Done" for a do) / Send back
+  with a note, part of the same Send; the Send answers it as its window's form would and wakes the chat that asked. The recap is done
+  ("Every part is approved") only when no kept look or do still waits; else the page and the partner's word say how many wait. An ask
+  the recap closes (a row's verdict named in its words, or waiting under a step) is written `Answered by: recap` and is never your slim
+  "Answered" card. In Open now and All work blocks a block with a row ready or a kept look of its steps reads "Waits for your verdict in
+  the recap →" (opening the recap at that row), whatever its own state; one that had work before the round with a step under way reads
+  "Being reworked: <the same words>"; and the line under Open now counts "1 of 5 done · 4 wait for your verdict · 3 being reworked",
+  the 4 being the card's N.
+- **Your recap is ready** (2026-11-01) at the top of the Focus page, under the head: while something is left to judge, a card with its
+  title ("Your recap is ready · 3 to judge"), its line ("Everything is built. Judge each part: approve it,
   or send it back with a note.", or "Judge what is ready: ..." while parts are still being built), one big button **Open the
-  recap** (the attention colour: it is your action) and ONE row of at most 3 tiles: each its picture (the part's, else the ask's,
-  else the step's evidence, else a calm placeholder), title and "64 of 75 · approve or send back" ("approve or send back" without
-  a score). Six waiting look the same as three, only the title says 6; a narrow page shows fewer tiles, never a second row. What
-  counts, in this order: the parts of the goal's recap that wait (its recap file: the goal's Demo line, else the newest demo.json
-  of the goal; ONE file; only rows that name steps are parts), then each work block whose step waits for you in another form
-  that no part covers (an Accept card, a look or decision of the step that stands with you, an ask routed to the recap while
-  Autopilot is on), then the goal's own "open the recap / play it" ask ("The whole goal: play it"). A part or step still being
-  checked (a Quality Assurance task open) is no verdict yet. A tile opens the recap at its part, or the step's window where the
-  card or ask stands; the button opens the recap file, else the first tile's window. The card is gone once nothing waits. A block
-  that waits for your verdict, in any of those forms, reads **Waits for your verdict →** (both views; the arrow opens the
-  recap at its part when the recap names the step, else the step's window, never nowhere), and the head's line says "the rest
-  waits for your verdict" when every open block does; "Waiting, nobody on it now" stays for work that waits for another task.
-  While the card shows, "Did we reach the goal?" is not drawn: the recap comes first, and the question comes back once no
-  verdict waits.
+  recap** (the attention colour: it is your action) and ONE row of at most 3 tiles: each its picture (the row's, else the look's
+  first), title and "64 of 75 · approve or send back" ("approve or send back" without a score; "a look · advised: yes" for a look).
+  Six waiting look the same as three, only the title says 6; a narrow page shows fewer tiles, never a second row. What counts is
+  "One count for the recap" above: the rows ready to judge (its recap file: the goal's Demo line, else the newest demo.json of the
+  goal; ONE file), then the kept looks and dos. A row or step still being checked (a Quality Assurance task open) is no verdict yet. A
+  tile opens the recap at its row, or the look's window; the button opens the recap file, else the first tile's window. The card is
+  gone once nothing is left to judge. A block that waits for you in another form (an Accept card, a question in its window) reads
+  **Waits for your verdict →** (the arrow opens the step's window, never nowhere); "Waiting, nobody on it now" stays for work that
+  waits for another task. While the card shows, "Did we reach the goal?" is not drawn: the recap comes first, and the question comes
+  back once nothing is left to judge.
 - **Round 2 of your recap is being made** (T17.1, 2026-11-02): after a Send that sent rows back and until your partner wrote the recap
   again, the recap card and the Product owner's card read "G60 · <title>: round 2 of your recap is being made" with one quiet line ("2 of
   5 next tries done": the goal's steps filed or reopened after your Send, without Quality Assurance tasks, done or dropped), a link to the
@@ -524,10 +547,21 @@ Undo."; Off, "Questions come to you as before."
   done for asking the goal demo, whose words ask a row of their own for them; "Did we reach the goal?" then shows, lists
   them first, and its Yes waits until the recap's approve or send back of those rows answered them. With Autopilot off
   they stand in Needs your attention again.
-- **Always yours**: goal questions (a goal, the focus, an approach, a setting, a licence, a stuck goal's "Rebuild G<n>:"
-  ask: Autopilot approves no rebuild), what only your hands can do (the Claude app, a click, a sign-in, an account, money,
-  an install, a permission, anything deleted for good: a chat, a file or folder, a launch.json entry, a branch; archiving
-  stays the main chat's), and marking a step done, accepting it or sending it back.
+- **Always yours** (Autopilot v2, the person's "B", 2026-11-02: "everything except the goal recap/verdict"): the goal's recap
+  and its verdicts (a recap row's verdict and the focus goal's own re-check too), a goal's start (its goal definition, work
+  blocks and Go; anything of a goal that is not the focus) and a switch of focus, under a step too, a goal's rebuild (your
+  decision of 2026-11-04), what only your hands can do (the Claude app, a click, a sign-in, an account, money: buying, a
+  price, credits, extra usage, a subscription; an install, a permission or allow rule, anything deleted or removed for good,
+  a cache too: a chat, a file or folder, a launch.json entry, a branch, archiving stays the main chat's; anything published
+  or made public: a repository, a release, a post, a licence, an upload, itch.io or Steam, sharing outside the PC), a
+  question about Fable, and what the partner or the main chat hands to you. Everything else is decided for you, with Undo: a
+  question with advice takes it when it is filed or at the switch-on (never an accept, a look with pictures, or what you
+  meant or said), the rest your partner decides (a look without advice, a "look at it" do, an Accept card or a mark done
+  that no recap of the focus goal takes); the board judges anew at every pass what it had routed to you itself, but never
+  answers such an ask with its advice then. A worker's or the main chat's look with pictures of a step of the focus goal (an
+  art or map look) is never decided: it is kept for the goal's recap, with or without advice. The Undo of your partner's
+  Accept puts its step back in review and the card back with you (a project's own flow.json needs the move done → review by
+  the person for it; without it the Undo says so and changes nothing).
 - **The task window** of an ask with the main chat or waiting for the recap names its route ("With the main chat
   (Autopilot)", "For your recap (Autopilot)") and where it stands.
 - The Focus page's switch "Your partner answers detail questions" reads "covered by Autopilot" while it is on.

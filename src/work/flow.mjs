@@ -33,6 +33,8 @@ export const DEFAULT_FLOW = {
       { from: 'in progress', to: 'review', by: ['worker', 'advisor', 'main'], then: 'check: base equals remote, branch gone, result named' },
       { from: 'review', to: 'review', by: ['worker', 'advisor', 'main'], then: 'check: base equals remote, branch gone, result named' },
       { from: '*', to: 'done', by: 'person' },
+      // The review of Autopilot v2 (2026-11-04): the person's Undo of an Accept decided for them puts the step back in review.
+      { from: 'done', to: 'review', by: 'person' },
       { from: 'review', to: 'done', by: 'server', when: 'the check passed and no ask of kind look is open' },
       { from: '*', to: 'dropped', by: ['person', 'main'] },
     ],

@@ -68,7 +68,9 @@ test('"From the backlog" goes: its open asks are cards among the others, its clo
 
 test('Needs your attention draws the cards and the missed lines, and the log no longer stands in it', () => {
   const needs = script.slice(script.indexOf('function drawNeeds(state)'), script.indexOf('/** Who runs and who was asked'))
-  assert.match(needs, /const needs = panelNeeds\(\{ \.\.\.state, forYou \}\)\n  const open = needs\.filter/)
+  // Autopilot v2 (on purpose): the asks only the person's hands can do leave the cards for one line (handsNeedsOf) first.
+  assert.match(needs, /const every = panelNeeds\(\{ \.\.\.state, forYou \}\)\n/)
+  assert.match(needs, /const needs = hands\.length === 0 \? every : every\.filter\(need => !hands\.includes\(need\)\)\n  const open = needs\.filter/)
   assert.match(needs, /shownNeeds\(needs, showsClosed\(\)\)/)
   assert.ok(!needs.includes('drawInstructions(state)'))
   assert.ok(!needs.includes('drawLegacy(state)'))

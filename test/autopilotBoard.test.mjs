@@ -131,7 +131,8 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
   // B12 would join the open one there, one question per task).
   const names = await asChat('Advisor', { action: 'ask', of: 'B14', kind: 'decide', title: 'Shorter names on the hedge labels?', text: 'Shorter names fit the labels.', advice: 'yes' })
   ok(names, 'the partner\'s')
-  const part = await asChat('Advisor', { action: 'ask', of: 'G6', kind: 'decide', title: 'Which part first?', text: 'Damage first or the bars first?', options: ['A damage', 'B bars'], advice: 'A' })
+  // Autopilot v2 (on purpose: "Which part first?" of the focus goal now takes its advice): a goal's start stays the person's.
+  const part = await asChat('Advisor', { action: 'ask', of: 'G6', kind: 'decide', title: 'Which goal comes next: damage or the bars?', text: 'Damage first or the bars first?', options: ['A damage', 'B bars'], advice: 'A' })
   ok(part, 'the goal\'s')
   const look = await asChat('Checker', { action: 'ask', of: 'B12', kind: 'look', title: 'Approve the hedge as it is?', text: 'It stands a little low.', advice: 'yes' })
   ok(look, 'the checker\'s')
@@ -168,14 +169,21 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
   assert.equal(await head(mergeId, 'Answered by'), 'main')
 
   // The recap's Send: the part that shows B12 sent back closes the checker's look with the person's words.
-  const sent = await asPerson('/api/demo-feedback', { path: 'pictures/g6/demo.json', round: 1, parts: [{ key: '1. Hedge', verdict: 'sent-back', comment: 'taller, please' }] })
+  // T20.1: a row whose step is under way asks nothing; B12 is reported (in review) before the person judges its row, and the board has to see it.
+  assert.equal((await asPerson('/api/demo-feedback', { path: 'pictures/g6/demo.json', round: 1, parts: [{ key: '1. Hedge', verdict: 'sent-back', comment: 'taller, please' }] })).status, 400, 'B12 is taken: its row is being reworked')
+  await writeFile(join(work, 'B12.md'), (await readFile(join(work, 'B12.md'), 'utf8')).replace(/^State: .*$/m, 'State: review'))
+  const sent = await until(async () => {
+    const answered = await asPerson('/api/demo-feedback', { path: 'pictures/g6/demo.json', round: 1, parts: [{ key: '1. Hedge', verdict: 'sent-back', comment: 'taller, please' }] })
+    return answered.status === 400 ? null : answered
+  }, 'the row of the reported step is open to the person')
   assert.equal(sent.status, 200, sent.body)
   assert.equal(await head(lookId, 'State'), 'answered')
   assert.match(await readFile(join(work, `${lookId}.md`), 'utf8'), /## Answer\nSent back in the recap of G6, round 1: 1\. Hedge: "taller, please"/)
   await until(async () => (await outbox()).some(one => one.to === 'Checker' && /taller, please/.test(one.text ?? '')), 'the recap\'s answer to Checker')
 
   // A new ask while Autopilot is on is routed as it is filed.
-  const fresh = await asChat('Digger', { action: 'ask', of: 'B12', kind: 'decide', title: 'Box or yew for the hedge?', text: 'Both grow well here.', options: ['A box', 'B yew'], advice: 'B' })
+  // Autopilot v2: without advice (with it the board takes the advice).
+  const fresh = await asChat('Digger', { action: 'ask', of: 'B12', kind: 'decide', title: 'Box or yew for the hedge?', text: 'Both grow well here.', options: ['A box', 'B yew'] })
   ok(fresh, 'the new ask')
   assert.equal(await head(idOf(fresh), 'Route'), 'partner')
   assert.match(await readFile(join(work, `${idOf(fresh)}.md`), 'utf8'), /server: autopilot: routed to partner/)

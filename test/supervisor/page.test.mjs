@@ -474,7 +474,9 @@ test('B573: the supervisor\'s notes under Needs your attention are one line, "Su
   assert.equal(page.supervisorLine(information.slice(3)), null)
   assert.equal(page.supervisorLine([]), null)
   // Drawn under Needs your attention after the missed lines, never counted; a click opens the section, which reads them.
-  assert.match(script, /const supervised = supervisorLine\(state\.information, /)
+  // Autopilot v2 (on purpose): through attentionSupervisorLine, which is supervisorLine while Autopilot is off.
+  assert.match(script, /const supervised = attentionSupervisorLine\(state\.information, isPilot, /)
+  assert.match(script, /if \(isAutopilotOn !== true\) return supervisorLine\(information, isClosing\)/)
   assert.match(script, /drawMissed\(missed\), drawSupervisorLine\(supervised\)/)
   assert.doesNotMatch(script.match(/const unanswered = [^\n]*/)[0], /supervised/)
   assert.match(script, /'supervisor-line': \(\) => openSupervisor\(\)/)
@@ -495,7 +497,7 @@ test('B581: a small x closes the supervisor\'s line: its notes are read, the sec
   const read = information.map(one => ({ ...one, isRead: true }))
   assert.equal(page.supervisorLine(read), null)
   assert.deepEqual(plain(page.supervisorLine([{ id: 'N9', via: 'supervisor', isRead: false, about: 'X3', text: 'Supervisor: came back' }, ...read])), { ids: ['N9'], text: 'Supervisor: one new finding' })
-  assert.match(script, /const supervised = supervisorLine\(state\.information, id => sending\.has\(`read:\$\{id\}`\)\)/)
+  assert.match(script, /const supervised = attentionSupervisorLine\(state\.information, isPilot, id => sending\.has\(`read:\$\{id\}`\)\)/)
   // The x: quiet, beside the line (not inside its button, which opens the section), with its tooltip.
   const draw = script.slice(script.indexOf('function drawSupervisorLine('), script.indexOf('function setSupervisorOpen('))
   assert.match(draw, /const close = el\('button', 'icon-button supervisor-line-close', '×'\)/)

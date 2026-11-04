@@ -956,8 +956,8 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   and the bar's "(full)" follow. At the stop line the board types each working worker once per week (`say.mjs`
   `weekStopDue`, command `week-stop`, the board's own word): "The weekly limit reached the stop line (98%): bring your
   work to a safe point (commit, checkpoint), then send the paused note"; the worker's paused note then makes its lane
-  Suspended as before. The watch rule `week-stop-ignored` (`rules/watch.mjs`) opens one incident when the week is at the
-  line, a worker still works 15 min of running time after its word, and no lane is suspended. *Whom the word goes to (B771, the
+  Suspended as before. The watch rule `week-stop-ignored` (`rules/watch.mjs`) opens an incident for each worker that, with the week at the
+  line, still works 20 min of running time after this week's word reached it (B984, X138: timed from `deliveredAt`, a key for each word; an older week's word or an undelivered one is no case; another lane being suspended silences nobody). *Whom the word goes to (B771, the
   fix of X98).* Only a worker that holds a step not yet reported (`say.mjs` `holdsOpenStep`: taken or in progress in the store,
   or one the board's check handed back, which the worker stays in its turn to fix). At 22:50 on 2026-10-27 Worker 2 reported
   B742 and, 15 s later, was typed the stop word: it started a new turn before the worker's clear ran, and the worker stayed
@@ -1759,7 +1759,7 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   the folder's name, `game-b12`), and no folder of one in the project folder (empty, or holding a `.git` file, or named
   `<repository's folder>-...`); a result check's own `check-b<id>` folders are left to `checked`. Each leftover is one
   line with its path and how to remove it ("first leave it (cd to the main checkout, in a command of its own), then git worktree remove <path>, then delete the empty folder Windows may
-  leave", its link alone first when it holds one), and the pass says "worktree gone". B717 (2026-10-26): an EMPTY folder
+  leave", its link alone first when it holds one, and B947's `tools/remove-task-folder.mjs <path>` as the one command), and the pass says "worktree gone". B717 (2026-10-26): an EMPTY folder
   no repository lists is removed by the check itself (rmdir; a chat's shell standing in the worktree makes Windows
   refuse the last folder for a minute) and gives no line. B723: the check tries once; a held folder keeps one line ("a
   program still uses it") and the tries after 1, 2 and 4 seconds run in the background, outside the work store's queue
@@ -2145,6 +2145,12 @@ step on "check pending" for good.
   that: a step in review whose last check failed only on such lines is checked again once each base equals its remote's
   (the view's `bases`, `basesNow`; the server-only action `recheck-base`, History "check run again: main of <repo>
   equals origin/main now"), once per failed check, without a new report. Tests: `test/supervisor/baseEqual.test.mjs`.
+- **Work on a branch not merged, merged later** (B962, the fix of X137: B944's check failed twice on 2 Nov because its branch was kept on
+  purpose; its commit reached main that night and nothing checked again for 33 hours): the repair rule `merged-now` checks a step
+  in review again, through the same `recheck-base` action (History "check run again: <branch> is on <base> now"), when its last
+  check failed only on "not merged" lines and the branch is no longer among the branches the base lacks (`basesNow`'s
+  `unmerged`: merged, or gone with its commits on the base). Once per failed check; git silent, a branch still unmerged or a
+  second fault leaves the step. Tests: `test/supervisor/mergedNow.test.mjs`.
 - **A restart** stops taking work (the Workers mod gets 503 "The board restarts: try again in a moment."), starts no
   new look, pass or check, and waits up to 10 s for the reconciler's pass and the running checks before it ends; it
   also ends when the page's connection drops before the answer is out.
@@ -3768,7 +3774,8 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
 - **The report check** (`stepLeftovers`, from `reportCheck`): no worktree of the step's repository on its branch, no
   worktree of a repository the board knows named for the step, and no folder of one in the project folder, empty or
   not. Each leftover fails the check with one line: its path and "first leave it (cd to the main checkout, in a command of its own), then git worktree remove <path>, then delete the empty
-  folder Windows may leave" (a link in it named first, to be taken away alone: `cmd /c rmdir "<link>"` on Windows).
+  folder Windows may leave" (a link in it named first, to be taken away alone: `cmd /c rmdir "<link>"` on Windows),
+  and, since B947, "or all in one command: node tools/remove-task-folder.mjs <path>" (below, "The removal tool").
   The worker removes it and reports again, as after a failed branch check. Work outside git gets the same lines.
   Exception (B717): an empty folder no repository lists is removed by the check itself (`removeEmptyFolder`, one rmdir, more tries in the background; left when git is silent), so the empty folder Windows leaves when the worker's chat still stood in the worktree no
   longer fails the check (T8: one a program still holds is a warning); workers stop their background commands and monitors in a worktree and `cd` out of it before
@@ -3795,6 +3802,23 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
   `--force` or removes a folder recursively: a worktree is removed by `git worktree remove` alone, only after a walk
   through it found no link (a junction, a symlink, or an entry of no known kind; a folder too large to walk is left),
   and looked at again right before; a folder only by `rmdir`, which fails when it is not empty.
+- **The removal tool and the guard** (B947, the person 2026-11-02: "Yes, fix it": a code guard, not a role line): a task
+  folder's removal followed its `node_modules` junction and emptied the person's own node_modules four times (B920,
+  2026-11-02 16:37; before: 10-06, 10-24 twice, 10-31), because `git worktree remove` and `rm -rf` follow a link they
+  find. `tools/remove-task-folder.mjs <folder>` is the one way for a worker, a thin command on `findLink`, `unlinkLink`
+  and `cleanLeftover` (worktrees.mjs) and `folderHolders` (holders.mjs), no second copy: it refuses while a program
+  stands in the folder (its vite), names each, takes every link in the folder away alone (rmdir on a junction, unlink on
+  a symlink, looked at again), runs `git worktree remove` (never `--force`) and `git worktree prune`, and checks that
+  each link's target kept its entries (counted before and after). A folder that is no worktree only loses its links.
+  The report check's leftover line names the tool. The guard is the project's own, in its shell hook
+  (`<project>/.claude/hooks/guard-removal.mjs`, called from `guard-dev-servers.mjs`, also in `.codex/hooks`; undo: remove
+  that one call): it refuses `git worktree remove`, `rm -r`, `rmdir /s`, `rd /s` and `Remove-Item -Recurse` whose target
+  is a link or holds one right in it, reading each command of a chain (`;` `&&` `||` `|`) with an earlier `cd`, through
+  `cmd /c`, `bash -c` and `powershell -Command`, and says which tool to use. Limits: a link below the top level of the
+  folder and a target it cannot resolve (a variable, a glob) pass the guard (the tool walks the whole folder); a chain
+  that takes the link away first (`rmdir link && git worktree remove folder`) is refused too, because the guard sees the
+  folder as it is before the chain runs. Its own error lets a command pass. Tests: `test/removeTaskFolder.test.mjs`, and
+  `test/guardRemoval.test.mjs` (runs the project's guard when it is there; the real case of B920 on a real junction).
 - The job texts: `roles/worker.md` (the step's end: the worktree removed before `work report`), `roles/partner.md`
   ("The check", step 4: the helper removes its check worktrees before `work checked`), `roles/protocol.md`.
 - Tests: `test/work/worktrees.test.mjs` (temporary git repositories: merged and unmerged worktrees, changes, held
@@ -3870,7 +3894,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   new with no refine round written since it was made, over 60 min from then (`openFixMinutes`) and its newest refine word
   unanswered for 30 (`checkWordMinutes`); one case per fix, naming the words typed and "the board stopped asking" after
   BOARD_TRIES; its line reads "waits for its fix B<n>, not refined yet"; the refine gate types such a fix's word again
-  after an hour, `FIX_RETRY_MS`, up to BOARD_TRIES; a round with questions waits for the person and is no case). B664: the health
+  after an hour, `FIX_RETRY_MS`, up to BOARD_TRIES; a round with questions waits for the person and is no case; B985, X139: nor is a fix of a goal with an open ask titled `Rebuild G<n>` that covers it, the whole goal or the evaluated part (`rebuildHoldOf`, goalGuard.mjs, as B791 holds the evaluate word): the refine gate types no word for it and skips it, so the gate stays free (`refineQueue`, `state.rebuildHolds`), and once the ask is answered or withdrawn the hour counts from that close, not from the fix's Since). B664: the health
   summary judges a step in review as review-stuck, dropped-fix and review-held do, through one helper (`reviewLateOf`,
   with the supervisor's memory of when it first saw each key): a check whose QA task a worker is on, the person's open ask,
   a block by steps that all wait for the person alone (B916) and a hold the watch only just saw are not odd there either,
@@ -5155,7 +5179,7 @@ makes the outcome: each fact is `pass`, `warn`, `back` or `fail` (`ACTIONS`), an
 |---|---|---|---|---|
 | `merged` | a `merged` commit a repository the board knows holds (several commits: each in its repository) | in every repository of the commits: its base equals its remote, the step's branch is gone (local and remote), no worktree of the step left; a result | the commit(s) in `merged` (one per repository, space between), what the person gets | base differs from its remote: **fail** (the repair `base-equal` checks again by itself once equal); branch or worktree left, a named commit no repository holds: **back**; git silent: **fail** |
 | `branch` | no commit named; the step's branch is, or was (reflog, remote), in one repository, and merged | as `merged`, in that repository | what the person gets (the commit is better) | as `merged` |
-| `unmerged` | the step's own branch, or a branch whose commits name the step, or one that adds the files the report names, is not merged into its base | none: it is not finished | - | **back**: "not merged: Your work for B<id> is on branch <name> (<n> commits) but not on <base>: merge it into <base>, then report again." |
+| `unmerged` | the step's own branch, or a branch whose commits name the step, or one that adds the files the report names, is not merged into its base | none: it is not finished | - | **back**: "not merged: Your work for B<id> is on branch <name> (<n> commits) but not on <base>: merge it into <base>, then report again." (the repair `merged-now` checks again by itself once the branch is merged or gone) |
 | `outside` | no branch of its own (none, the base, or one no repository ever had: B580), no commit a repository holds, and a file it names is there outside every repository | a file the result or Touches names is there, outside every repository | `merged` none; the files by their paths in the project | none there, a file in a repository, no file named: **back**; a Touches path or a path in the prose not there beside one that is: **warn** |
 | `moot` | no commit held, no branch of its own in a repository, and the result says nothing was changed: "No change: <why>" opening it or its Change ("Nothing new built:", "No change made:", "No new work:", "No file made:", "Moot:" read the same) | the reason; the result check judges it, never git or files | `merged` none; "No change: <the steps that built it, or the decision that made it moot>" | reason named: **warn** (it passes; the warning tells the result check "no change made: judge whether nothing was needed"); no reason: **back** |
 | `unknown` | none of the above: no repository holds the commit, the branch is in none, git did not answer | - | - | **fail**: "could not tell which repository B<id>'s work is in" (Principle 3: never a silent pass) |
@@ -6547,3 +6571,37 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    recap closed by the recap's answer, and to the person without its focus; the main chat's next, answer, escalate and
    timeout; refine with and without advice; routed as filed), test/autopilotPage.test.mjs (the panel, the two readers,
    Needs your attention with the wake lines, the window, the Focus page), test/autopilotBoard.test.mjs (end to end).
+10. **The person's earlier answer** (2026-11-02, the live Q608 "Accept B891, or send it back?", filed 28 minutes after the person
+    had answered Q588 for B880 and B891 by name, "C Stop here and hand it over (no build)": "autopilot is on, so isn't this supposed
+    to auto-accept?"; their choice "B: partner judges"): a verdict on a result that would be the person's (the board's Accept or
+    send back card, an action that marks a step done, a look or decide that accepts or sends back) goes to the partner instead
+    (`Route: partner`, why "the person's earlier answer on Q<n> names B<n>") when `earlierAnswerOf(ask, items, now)` finds, for its
+    step, the newest ask the person answered (no `Answered by`, or `person`; never the partner's, Autopilot's or the main chat's)
+    within 24 hours of its `Since` that names the step (its `Of`, or its title, text or answer as a whole word: B8910 is no B891).
+    Never when the person's hands are needed, at goal level, once the partner handed the ask on, for the partner's, its helper's
+    or the Product owner's own ask, or for a recap wait (a focus goal's accept keeps the recap). The card's Route section reads "Your earlier answer on Q<n> may cover this: your partner
+    checks it" (the ask's window; `earlierOfCard` reads the id back from it), and the partner's word, the supervisor's repeat of it
+    and `work next` name that answer. Every pass routes such a card again when the board itself had routed it to the person
+    (`isBoardRoutedPerson`) and an earlier answer exists now; it judges nothing else anew (only the switch-on's sweep does). The
+    partner answers it with `partner-answer` only when that answer clearly covers it (the why quotes it), else `escalate` at once;
+    the 30-minute rule hands on the rest. A partner's answer on the Accept card does what the person's own answer does
+    (`acceptAnswer`: Accept ticks the step, "accepted for you by your partner in Q<n>"; Send back makes the next try from the
+    note, refused first without one); the Undo opens the ask for the person again and leaves the step as it is. Tests:
+    test/autopilotEarlier.test.mjs.
+11. **The last three kinds of noise** (the person's "Yes, clear them", 2026-11-04, after v2 went live: Main's Q616 "After the step in
+    Q600, reopen the Q600 play link", Worker 1's Q595 "give your verdict on row 9 in G60's recap", and two "Answered" slim cards of asks
+    others answered). (a) A slim "Answered" card (the wait line) is the person's own answer only: an answer the partner, Autopilot or the
+    main chat gave (`Answered by`) carries its word's id, so its line shows in the ask's own window (Show closed), and is never a slim
+    card, Autopilot on or off. (b) An own-senses do or look (`isOwnSenses`: any look; a do of looking, playing, trying, checking or opening
+    a play link, a lead-in "After ..., " cut) that the main chat or the partner hands on (`escalate`; the pass moves one already handed
+    on, `handOverOf` reads who from its Route line) and whose step is a step of the focus goal is kept for the recap like a kept look
+    (`handedOnOf`: its `Of`, else the step its `Pictures` name, else the `Of` of the first ask it links by `#details=Q<n>`; Route recap,
+    Route line "Kept for the goal's recap: the main chat|your partner handed it on", the step marked, a tile under "Also a look", answered
+    in its window: Done or Send back for a do). The partner's own look keeps its line; a step of a goal that is not the focus, no step found, the
+    person's hands and the Product owner's ask stay the person's card. (c) A question the recap has answered closes (`recapClosesAsk`, while
+    Autopilot is on, the focus goal's recap only): an open look, do or Accept card whose words name one row of it ("row 9 in G60's
+    recap", `recapRowNumberOf`) closes at the Send (approved or sent back) and at every pass (approved only: a row sent back is judged
+    anew) with the recap's words ("Approved in the recap of G60, round 2: 9. Tall props ..."), its chat woken; so does an ask waiting
+    in the recap under a step when every row naming the step is approved. The rows come from the state's `recapRows`
+    (src/recaps.mjs `recapVerdictsOf`: every row, also one with no step). Never an ask the person took back, the app's form or a refine
+    question. Tests: test/autopilotNoise.test.mjs.
