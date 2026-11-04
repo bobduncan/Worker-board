@@ -1,0 +1,233 @@
+{
+ "about": "The first lazy-clear hand-over after Workers mod 0.31.0 went live: Worker 1, B1013 after B982, 2026-11-04 21:21:56-21:37:57 (the lead's trace, chat 1). Real records copied READ-ONLY from the live board: the outbox lines of envelopes b24b992a0c789610 (the first give), a0a187c12d3c089f (the double give) and ba1272913fdc729f (Worker 3's lone clear from before 0.31.0, taken 12:24 and never settled); B1013's head and History up to the first give. The lane facts of the two refreshes are the trace's (no log records them).",
+ "outbox": [
+  {
+   "id": "ba1272913fdc729f",
+   "at": 1793791476877,
+   "to": "Worker 3",
+   "ask": null,
+   "step": null,
+   "title": null,
+   "version": null,
+   "verdict": null,
+   "command": "handover",
+   "about": "Worker 3",
+   "text": "hand-over\nClear after B981",
+   "state": "waiting",
+   "kind": "clear",
+   "clear": {
+    "step": "B981",
+    "reportedAt": 1793791440000
+   },
+   "restart": false,
+   "set": null,
+   "line": null,
+   "back": null
+  },
+  {
+   "id": "ba1272913fdc729f",
+   "state": "taken",
+   "takenAt": 1793791476921
+  },
+  {
+   "id": "ba1272913fdc729f",
+   "netAt": 1793805776544
+  },
+  {
+   "id": "b24b992a0c789610",
+   "at": 1793823716326,
+   "to": "Worker 1",
+   "ask": null,
+   "step": "B1013",
+   "title": null,
+   "version": null,
+   "verdict": null,
+   "command": "handover",
+   "about": "Worker 1",
+   "text": "hand-over\nClear after B982\nLine: work: B1013 is yours; run work next",
+   "state": "waiting",
+   "kind": "task",
+   "clear": {
+    "step": "B982",
+    "reportedAt": 1793823660000
+   },
+   "restart": false,
+   "set": null,
+   "line": "work: B1013 is yours; run work next",
+   "back": null
+  },
+  {
+   "id": "b24b992a0c789610",
+   "state": "taken",
+   "takenAt": 1793823716600
+  },
+  {
+   "id": "b24b992a0c789610",
+   "stages": [
+    {
+     "stage": "log-saved",
+     "at": 1793823717548,
+     "log": ".claude/chat-logs/Worker 1/2026-11-04 2121 B982.txt"
+    }
+   ]
+  },
+  {
+   "id": "b24b992a0c789610",
+   "stages": [
+    {
+     "stage": "log-saved",
+     "at": 1793823717548,
+     "log": ".claude/chat-logs/Worker 1/2026-11-04 2121 B982.txt"
+    },
+    {
+     "stage": "clear-queued",
+     "at": 1793823717557,
+     "ticket": "clear-1793823620389-1"
+    }
+   ]
+  },
+  {
+   "id": "b24b992a0c789610",
+   "stages": [
+    {
+     "stage": "log-saved",
+     "at": 1793823717548,
+     "log": ".claude/chat-logs/Worker 1/2026-11-04 2121 B982.txt"
+    },
+    {
+     "stage": "clear-queued",
+     "at": 1793823717557,
+     "ticket": "clear-1793823620389-1"
+    },
+    {
+     "stage": "cleared",
+     "at": 1793823722599,
+     "ticket": "clear-1793823620389-1",
+     "session": "c1a2912a-9c1c-4275-826f-bf3cf37aa85d"
+    }
+   ]
+  },
+  {
+   "id": "a0a187c12d3c089f",
+   "at": 1793823728422,
+   "to": "Worker 1",
+   "ask": null,
+   "step": "B1013",
+   "title": null,
+   "version": null,
+   "verdict": null,
+   "command": "handover",
+   "about": "Worker 1",
+   "text": "hand-over\nLine: work: B1013 is yours; run work next",
+   "state": "waiting",
+   "kind": "task",
+   "clear": null,
+   "restart": false,
+   "set": null,
+   "line": "work: B1013 is yours; run work next",
+   "back": null
+  },
+  {
+   "id": "b24b992a0c789610",
+   "state": "delivered",
+   "deliveredAt": 1793823729360,
+   "settledAt": 1793823729360,
+   "outcome": {
+    "cleared": true,
+    "set": null,
+    "typed": true,
+    "restarted": null,
+    "background": false,
+    "why": null,
+    "clearWhy": null,
+    "typedAt": 1793823727569,
+    "enteredAt": 1793823728216
+   }
+  },
+  {
+   "id": "a0a187c12d3c089f",
+   "state": "taken",
+   "takenAt": 1793823733192
+  },
+  {
+   "id": "a0a187c12d3c089f",
+   "state": "delivered",
+   "deliveredAt": 1793824660118,
+   "settledAt": 1793824660118,
+   "outcome": {
+    "cleared": null,
+    "set": null,
+    "typed": true,
+    "restarted": null,
+    "background": false,
+    "why": null,
+    "clearWhy": null,
+    "typedAt": 1793823733921,
+    "enteredAt": 1793824659103
+   }
+  }
+ ],
+ "b1013": {
+  "id": "B1013",
+  "title": "Fix: Judged at play size, the joined hole as good as the lone one (72)",
+  "owner": "Worker 1",
+  "activity": "Look: make the game compare to the reference pictures",
+  "goal": "G60",
+  "history": [
+   [
+    1793810580000,
+    "Worker 4: made by the result check of B1006, open: 4 tries, the partner refines it another way"
+   ],
+   [
+    1793814660000,
+    "Advisor: refined, round 2"
+   ],
+   [
+    1793814660000,
+    "Advisor: refined is ready"
+   ],
+   [
+    1793814660000,
+    "Advisor: new → refined"
+   ],
+   [
+    1793823660000,
+    "server: refined → queued (given by the board to Worker 1)"
+   ]
+  ],
+  "observedAfter": [
+   1793823720000,
+   "server: queued → refined (taken back from Worker 1: Worker 1 is not on the hand-over)"
+  ]
+ },
+ "lane": {
+  "name": "Worker 1",
+  "atRefresh": {
+   "at": 1793823726000,
+   "report": null
+  },
+  "atPass": {
+   "at": 1793823728422,
+   "report": {
+    "state": "idle",
+    "since": 1793823727500,
+    "background": false,
+    "at": 1793823727500
+   }
+  }
+ },
+ "bridge": [
+  {
+   "at": 1793823711000,
+   "route": "report",
+   "header": "0.31.0",
+   "note": "Worker 1's old session reports idle, its mod says its version (the header)"
+  },
+  {
+   "at": 1793823722599,
+   "route": "typed",
+   "header": "0.31.0",
+   "note": "the mod posts the cleared stage; before this fix the board did not merge the header for typed"
+  }
+ ]
+}

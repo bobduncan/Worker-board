@@ -4887,8 +4887,10 @@ its turn back at once, one 10-minute net. The reconciler's own give, its later l
   report turns idle (`src/work/again.mjs` `coalesce`: one pass at a time).
 - **Taken back** (principle 2): only by the hand-over (not taken in the turn its line started, a failed envelope, the
   net, a pause), each at once and once; and, by the reconciler, a give no hand-over will ever carry on
-  (`strandedGives`: its worker is not on the sequence, at once; its chat missing from the list, 10 minutes after the
-  give). History "queued → refined (taken back from <worker>: <why>)".
+  (`strandedGives`: its worker is off the sequence by a KNOWN mod older than the hand-over's or the setting "timers", at once;
+  its chat missing from the list, 10 minutes after the give; never while its envelope is in flight, nor for a worker whose mod
+  the board has no version of yet, each for 10 minutes after the give at most: Fix 0.31.0, below). History "queued → refined (taken
+  back from <worker>: <why>)".
 - **One more worker** (`workerStart`): when ready tasks that a new worker could take wait (kept for nobody, their
   Touches overlapping nothing given or under way, as `match` checks), more of them than the workers asked for in the
   last 10 minutes that have not reported yet (a start word whose worker has not reported since; a spawn word, which
@@ -5241,8 +5243,9 @@ not-cleared, not-taking, the clear part of skip-repeats and the report part of r
 sequence is handed nothing: one on an older mod waits to be restarted by hand (its lane says so), and `"timers"`, kept as
 the escape hatch, hands out nothing new and starts no worker, with one line on top: "the hand-over is off: set handover
 to sequence" (`HANDOVER_OFF`, `src/work/reconcile.mjs`). A task given that no hand-over carries on goes back on the list
-(`strandedGives`, `src/work/handOut.mjs`: at once for a worker not on the sequence, 10 minutes after the give for a chat
-gone from the list). Tests: `test/work/oldPathGone.test.mjs` (and the mutants named there).
+(`strandedGives`, `src/work/handOut.mjs`: at once for a worker off the sequence by a known older mod or the setting "timers", 10
+minutes after the give for a chat gone from the list; Fix 0.31.0: an envelope of that step in flight, or a mod not heard yet
+(unknown, not "off"), keeps the step for those 10 minutes). Tests: `test/work/oldPathGone.test.mjs` (and the mutants named there).
 
 **The decision** (`decide`, `src/work/handover.mjs`, pure). The worker's turn end (the mod's `turn-ended`, which it
 already sends) is the one trigger. Facts: the store (steps, their History, the ready list), the worker's lane (its mod's
@@ -5504,7 +5507,7 @@ cleared with its own line ("unpinned from Worker N: given back by the board"). T
 give-back (clearOwed.mjs reads its line: the envelope's clear is `{ step, reportedAt: the give-back time }`); its card,
 which the board never writes, is cleared by that clear, and the reconciler's 'card' flag is quiet meanwhile. owner-gone
 (repair.mjs) gives the step of a holder gone from the list back at once by the same path (`{ do: 'give-back', id, chat,
-why }`, beside handOut.mjs `strandedGives`, which takes back the queued ones), waiting on you too: no note to the main
+why }`, beside handOut.mjs `strandedGives`, which takes back the queued ones, unless their envelope is in flight), waiting on you too: no note to the main
 chat; its asks stay open for the person.
 
 **What reads the give-back's History line** (holderTimers.mjs `GIVEN_BACK`):
@@ -6731,3 +6734,11 @@ a clear. Tests: `test/lazyClearReplay.test.mjs` (the real records, `test/fixture
 1. **A typed call never erases a known mod** (`bridge.mjs` `withModHeader`, `modSaid`; server.mjs). The header is merged into every
    bridge body; `noteMod` keeps the last known version when a call carries none (only `at` moves). Tests:
    `test/typedKeepsMod.test.mjs`.
+2. **strandedGives never takes back a step whose hand-over envelope is in flight, and an unknown mod is not "off"** (`src/work/handOut.mjs`
+   `strandedGives` with the outbox `sent`, passed in by reconcile.mjs as `decide` gets its envelopes; `isEnvelopeInFlight`: command
+   `handover`, a task, `waiting` or `taken`, no outcome, the net not fired for it). A lane that is off the sequence keeps a step the
+   board gave it while an envelope of that step to it is in flight, and while its mod is null (the board has heard no version: a
+   worker just after its clear). Only a lane with a KNOWN mod older than `HANDOVER_MOD`, or the setting "timers", loses the given
+   step at once. Both holds last 10 minutes (`NET_MS`) after the give at most, so nothing waits for ever (an unknown lane has no
+   net of its own: the decision runs for lanes on the sequence only); the chat missing from the list keeps its own rule (back
+   10 minutes after the give). Tests: `test/work/strandedInFlight.test.mjs`, `test/lazyClearReplay.test.mjs`.
