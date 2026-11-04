@@ -146,3 +146,32 @@ test('a command it does not know is a usage error', () => {
   assert.equal(ran.status, 2)
   assert.match(ran.stderr, /frobnicate/)
 })
+
+test('lock-refresh gives the holder\'s lock a new time and tells another landing it is not its own', () => {
+  const dir = folder()
+  const file = join(dir, 'landing.lock')
+  const old = new Date(Date.now() - 10 * 60_000).toISOString()
+  writeFileSync(file, JSON.stringify({ by: 'chat 3', branch: 'x', at: old, pid: 77 }))
+  const beat = run('lock-refresh', '--file', file, '--pid', 77, '--at', old)
+  assert.equal(beat.status, 0)
+  assert.equal(beat.said.ok, true)
+  assert.ok(Date.parse(beat.said.at) > Date.parse(old))
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).at, beat.said.at)
+  // The old time no longer matches: the same call is refused, and the lock stays.
+  const again = run('lock-refresh', '--file', file, '--pid', 77, '--at', old)
+  assert.equal(again.status, 1)
+  assert.match(again.said.why, /taken over by chat 3/)
+  assert.deepEqual(run('lock-release', '--file', file, '--pid', 77, '--at', beat.said.at).said, { released: true })
+})
+
+test('gate-check names the failing test files of a run that failed, and only then', () => {
+  const dir = folder()
+  const red = join(dir, 'red.log')
+  writeFileSync(red, '✖ failing tests:\n\ntest at test/a.test.mjs:1:1\n\ntest at test/b.test.mjs:2:1\nℹ fail 2\n')
+  const failed = run('gate-check', '--kind', 'board', '--file', red, '--exit', 1)
+  assert.equal(failed.status, 1)
+  assert.deepEqual(failed.said.files, ['test/a.test.mjs', 'test/b.test.mjs'])
+  const coloured = join(dir, 'coloured.log')
+  writeFileSync(coloured, 'ℹ tests 1\n\u001b[34mℹ fail 0\u001b[39m\n')
+  assert.deepEqual(run('gate-check', '--kind', 'board', '--file', coloured, '--exit', 0).said, { ok: true, why: null })
+})

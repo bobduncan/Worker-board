@@ -3,7 +3,7 @@
 // Node's own modules only, so the script can copy this file and its caller aside at its start and run them from there
 // (the landing moves the checkout the script came from).
 
-import { linkSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { linkSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 
 /** A landing lock older than this is a crashed landing's: it is broken. */
@@ -24,6 +24,29 @@ export const asciiJson = value => JSON.stringify(value).replace(/[\u0080-￿]/g,
 
 // The gate.
 
+/** The text without terminal colour and cursor codes (`ESC [ ... letter`): with FORCE_COLOR a summary line starts with one. */
+export const stripAnsi = text => String(text ?? '').replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
+
+/**
+ * The test files a gate run names as failing, once each, in order: the runner's "failing tests" list ("test at <file>:<line>:<col>")
+ * and the `location:` of a "not ok" in the tap reporter. A chat may rerun one of them alone (a known flake) and never retries by itself.
+ */
+export function failingFiles(output) {
+  const found = []
+  for (const line of stripAnsi(output).split(/\r?\n/)) {
+    const file = /^test at (.+?):\d+:\d+\s*$/.exec(line)?.[1] ?? /^\s*location: ['"]?(?:file:\/\/\/)?(.+?):\d+:\d+['"]?\s*$/.exec(line)?.[1]
+    if (file !== undefined && !found.includes(file)) found.push(file)
+  }
+  return found
+}
+
+/** `gatePassed`, and for a run that did not pass the failing test files it names (`files`, only when it names some). */
+export function gateVerdict(output, kind = 'board', exitCode = undefined) {
+  const verdict = gatePassed(output, kind, exitCode)
+  const files = verdict.ok ? [] : failingFiles(output)
+  return files.length > 0 ? { ...verdict, files } : verdict
+}
+
 /**
  * Whether a gate run passed, from the WHOLE output of its command: `{ ok, why }`. Only the run's own summary line counts,
  * at the start of a line: "ℹ fail N" (the board's tests; "# fail N" in the tap reporter) or " N fail" (the mod's). A name
@@ -33,7 +56,7 @@ export const asciiJson = value => JSON.stringify(value).replace(/[\u0080-￿]/g,
  */
 export function gatePassed(output, kind = 'board', exitCode = undefined) {
   const pattern = kind === 'mod' ? /^\s*(\d+) fail\s*$/ : /^(?:ℹ|#) fail (\d+)\s*$/
-  const fails = String(output ?? '').split(/\r?\n/).map(line => pattern.exec(line)?.[1]).filter(found => found !== undefined).map(Number)
+  const fails = stripAnsi(output).split(/\r?\n/).map(line => pattern.exec(line)?.[1]).filter(found => found !== undefined).map(Number)
   if (fails.length === 0) return { ok: false, why: `no summary line in the output (a line "${kind === 'mod' ? 'N fail' : 'fail N'}" is missing)` }
   const bad = fails.find(count => count !== 0)
   if (bad !== undefined) return { ok: false, why: `the summary says fail ${bad}` }
@@ -136,6 +159,21 @@ export function takeLock(file, { by, branch, pid, now = Date.now(), staleMs = ST
     }
   }
   return { ok: false, why: 'the landing lock could not be taken: it stays busy' }
+}
+
+/**
+ * The lock's heartbeat: gives the lock a new time (`at`) at each phase of a landing, so a live landing never looks stale. Only the
+ * holder refreshes: `{ ok: true, token }` with the new token, or `{ ok: false, why }` when the lock is gone or another landing took it.
+ */
+export function refreshLock(file, token, now = Date.now()) {
+  const holder = lockHolder(file, now)
+  if (holder === null) return { ok: false, why: 'the landing lock is gone' }
+  if (holder.pid !== token.pid || holder.at !== token.at) return { ok: false, why: `the landing lock was taken over by ${holder.by} (${holder.branch}, since ${hhmm(holder.at)})` }
+  const next = { by: holder.by, branch: holder.branch, at: new Date(now).toISOString(), pid: token.pid }
+  const temp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
+  writeFileSync(temp, JSON.stringify(next))
+  renameSync(temp, file)
+  return { ok: true, token: { pid: token.pid, at: next.at } }
 }
 
 /** Gives the lock back, only when it is still the one `token` (`{ pid, at }`) took; true when it was removed. */

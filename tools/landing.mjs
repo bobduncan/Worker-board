@@ -3,7 +3,8 @@
 //
 //   node tools/landing.mjs gate-check --kind board|mod --file <gate log> [--exit <code>]
 //   node tools/landing.mjs lock-take --file <lock> --by <chat> --branch <branch> --pid <pid> [--stale-minutes 15]
-//   node tools/landing.mjs lock-release --file <lock> --pid <pid> --at <the time lock-take gave>
+//   node tools/landing.mjs lock-refresh --file <lock> --pid <pid> --at <the time lock-take (or the last refresh) gave>
+//   node tools/landing.mjs lock-release --file <lock> --pid <pid> --at <the time lock-take (or the last refresh) gave>
 //   node tools/landing.mjs inspect --boards <json> --processes <json> --connections <json>
 //   node tools/landing.mjs log-line --file <data/landings.jsonl> --fields <json>
 //
@@ -14,7 +15,7 @@ import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { STALE_LOCK_MS, asciiJson, gatePassed, inspectorDecision, landingLine, releaseLock, takeLock } from '../src/landing.mjs'
+import { STALE_LOCK_MS, asciiJson, gateVerdict, inspectorDecision, landingLine, refreshLock, releaseLock, takeLock } from '../src/landing.mjs'
 
 const MIN = 60_000
 
@@ -58,7 +59,7 @@ export function command(name, args) {
   if (name === 'gate-check') {
     const kind = given.kind === 'mod' ? 'mod' : 'board'
     const exit = given.exit === undefined ? undefined : Number(given.exit)
-    const result = gatePassed(readText(need(given, 'file')), kind, exit)
+    const result = gateVerdict(readText(need(given, 'file')), kind, exit)
     say(result)
     return result.ok ? 0 : 1
   }
@@ -70,6 +71,11 @@ export function command(name, args) {
     const took = takeLock(need(given, 'file'), { by, branch, pid, staleMs })
     say(took.ok ? { ok: true, by, branch, pid, at: took.token.at, broke: took.broke } : { ok: false, why: took.why })
     return took.ok ? 0 : 1
+  }
+  if (name === 'lock-refresh') {
+    const beat = refreshLock(need(given, 'file'), { pid: Number(need(given, 'pid')), at: need(given, 'at') })
+    say(beat.ok ? { ok: true, at: beat.token.at } : { ok: false, why: beat.why })
+    return beat.ok ? 0 : 1
   }
   if (name === 'lock-release') {
     const released = releaseLock(need(given, 'file'), { pid: Number(need(given, 'pid')), at: need(given, 'at') })
@@ -89,7 +95,7 @@ export function command(name, args) {
     process.stdout.write(`${line}\n`)
     return 0
   }
-  throw new Error(`a wrong call: the command ${name} is not one of gate-check, lock-take, lock-release, inspect, log-line`)
+  throw new Error(`a wrong call: the command ${name} is not one of gate-check, lock-take, lock-refresh, lock-release, inspect, log-line`)
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

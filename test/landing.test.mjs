@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 
-import { RESULTS, STALE_LOCK_MS, asciiJson, boardProcesses, gatePassed, hhmm, inspectorDecision, landingLine, lockHolder, releaseLock, takeLock } from '../src/landing.mjs'
+import { RESULTS, STALE_LOCK_MS, asciiJson, boardProcesses, failingFiles, gatePassed, gateVerdict, hhmm, inspectorDecision, landingLine, lockHolder, refreshLock, releaseLock, stripAnsi, takeLock } from '../src/landing.mjs'
 
 const scratch = mkdtempSync(join(tmpdir(), 'landing-test-'))
 after(() => rmSync(scratch, { recursive: true, force: true }))
@@ -252,4 +252,68 @@ test('hhmm gives the local time of an ISO time as two digits and two digits', ()
   const at = new Date(2026, 10, 4, 7, 5, 9).toISOString()
   assert.equal(hhmm(at), '07:05')
   assert.equal(hhmm('not a time'), '??:??')
+})
+
+// Review 2026-11-04 (an independent read of the first build): colours, the failing files, the lock's heartbeat.
+
+const ESC = String.fromCharCode(27)
+
+test('a summary the test runner coloured (FORCE_COLOR) is still the summary: the codes are stripped before the lines are read', () => {
+  const coloured = ['✔ one (0.4ms)', 'ℹ tests 2', 'ℹ pass 2', `${ESC}[34mℹ fail 0${ESC}[39m`, `${ESC}[34mℹ cancelled 0${ESC}[39m`].join('\n')
+  assert.deepEqual(gatePassed(coloured, 'board', 0), { ok: true, why: null })
+  assert.equal(gatePassed(coloured.replace('fail 0', 'fail 2'), 'board').ok, false)
+  // A colour in front of the mod's summary too, and codes alone are no summary.
+  assert.equal(gatePassed(`(pass) a [1ms]\n ${ESC}[1m2 pass${ESC}[0m\n ${ESC}[31m0 fail${ESC}[0m\n`, 'mod').ok, true)
+  assert.equal(gatePassed(`${ESC}[34m${ESC}[39m\n`, 'board').ok, false)
+  assert.equal(stripAnsi(`${ESC}[1;32mgreen${ESC}[0m ${ESC}[?25hok`), 'green ok')
+})
+
+test('the failing test files are read from the runner\'s "failing tests" list (spec) and from the location of a "not ok" (tap), once each', () => {
+  const spec = [
+    '✖ a test (3ms)', '✖ failing tests:', '', 'test at test/anyProject.test.mjs:48:1', '✖ no new tie (175ms)', '  AssertionError', '',
+    'test at test/landing.test.mjs:63:1', '✖ the mod gate (0.7ms)', '', 'test at test/anyProject.test.mjs:67:1',
+  ].join('\n')
+  assert.deepEqual(failingFiles(spec), ['test/anyProject.test.mjs', 'test/landing.test.mjs'])
+  const tap = ["not ok 1 - a test", '  ---', "  location: 'file:///C:/work/board/test/a.test.mjs:12:1'", '  ...', 'not ok 2 - b', `  location: 'file:///C:/work/board/test/b.test.mjs:5:3'`].join('\n')
+  assert.deepEqual(failingFiles(tap), ['C:/work/board/test/a.test.mjs', 'C:/work/board/test/b.test.mjs'])
+  assert.deepEqual(failingFiles(BOARD_PASS), [])
+  assert.deepEqual(failingFiles(`${ESC}[31mtest at test/x.test.mjs:1:1${ESC}[39m`), ['test/x.test.mjs'])
+})
+
+test('a gate verdict names the failing files and nothing more when it passed', () => {
+  const failed = gateVerdict(['✖ failing tests:', 'test at test/a.test.mjs:1:1', 'ℹ fail 1'].join('\n'), 'board', 1)
+  assert.deepEqual([failed.ok, failed.files], [false, ['test/a.test.mjs']])
+  assert.deepEqual(gateVerdict(BOARD_PASS, 'board', 0), { ok: true, why: null })
+  assert.deepEqual(Object.keys(gateVerdict('no summary at all', 'board', 0)), ['ok', 'why'], 'no files to name without a failing list')
+})
+
+test('the lock\'s heartbeat: a refresh gives the lock a new time, so a live landing never looks stale; only its holder may refresh', () => {
+  const file = lockFile()
+  const took = takeLock(file, { by: 'chat 3', branch: 'land-script', pid: 7, now: NOW - 14 * MIN })
+  // Without a refresh it is 16 minutes old two minutes on, and another landing breaks it.
+  const lateTaker = lockFile()
+  takeLock(lateTaker, { by: 'chat 3', branch: 'land-script', pid: 7, now: NOW - 14 * MIN })
+  assert.equal(takeLock(lateTaker, { by: 'chat 4', branch: 'x', pid: 8, now: NOW + 2 * MIN }).ok, true, 'a lock nobody refreshed is stale after 15 minutes')
+  const refreshed = refreshLock(file, took.token, NOW)
+  assert.equal(refreshed.ok, true)
+  assert.deepEqual(refreshed.token, { pid: 7, at: '2026-11-04T18:00:00.000Z' })
+  const held = takeLock(file, { by: 'chat 4', branch: 'x', pid: 8, now: NOW + 2 * MIN })
+  assert.equal(held.ok, false, 'two minutes after the refresh the lock holds')
+  assert.match(held.why, /^a landing by chat 3 of land-script holds the lock since /)
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { by: 'chat 3', branch: 'land-script', at: '2026-11-04T18:00:00.000Z', pid: 7 })
+  // The old token no longer gives it back; the new one does.
+  assert.equal(releaseLock(file, took.token), false)
+  assert.equal(releaseLock(file, refreshed.token), true)
+})
+
+test('a lock another landing took over, or that is gone, is not refreshed: the landing is told it is not its own', () => {
+  const file = lockFile()
+  const mine = takeLock(file, { by: 'chat 3', branch: 'a', pid: 7, now: NOW - 20 * MIN })
+  takeLock(file, { by: 'chat 4', branch: 'b', pid: 8, now: NOW })
+  const lost = refreshLock(file, mine.token, NOW)
+  assert.equal(lost.ok, false)
+  assert.match(lost.why, /^the landing lock was taken over by chat 4 \(b, since /)
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).by, 'chat 4', 'the other landing\'s lock is untouched')
+  rmSync(file)
+  assert.deepEqual(refreshLock(file, mine.token, NOW), { ok: false, why: 'the landing lock is gone' })
 })
