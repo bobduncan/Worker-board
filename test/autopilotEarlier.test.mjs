@@ -133,15 +133,23 @@ test('the route: a verdict a worker files (a look or decide that accepts, an act
 })
 
 test('the route: never when the person\'s hands are needed, never goal level, never once the partner handed it on', () => {
+  // The board's Accept card is judged by its title only (the re-review of v2, 2026-11-04, on purpose: its body's sign-in made it the
+  // person's): its body says what the step gives. A worker's verdict whose own words need a sign-in stays the person's.
   const signIn = item(cardFields(), cardSections({ Text: ['Sign in to the store first; only then can B91 be accepted.'] }))
-  const hands = autopilotRoute(signIn, { ...ctxOf({ items: of(STEP91, EARLIER, signIn) }), again: true })
+  assert.equal(autopilotRoute(signIn, { ...ctxOf({ items: of(STEP91, EARLIER, signIn) }), again: true }).to, 'partner')
+  const asked = item({ Id: 'Q57', Kind: 'ask', Title: 'Sign in to the store, then accept B91?', State: 'open', Owner: 'Painter', Asks: 'decide', Of: 'B91', Advice: 'yes', Via: 'chat', Since: at(0), Filed: String(NOW) }, { Text: ['Sign in to the store, then accept B91?'], History: [`- ${at(0)} Painter: asked (decide)`] })
+  const hands = autopilotRoute(asked, ctxOf({ items: of(STEP91, EARLIER, asked) }))
   assert.equal(hands.to, 'person')
   assert.match(hands.why, /only the person's hands: a sign-in/)
   // An action the person's hands do, even when it marks a step done.
   const restart = item({ Id: 'Q58', Kind: 'ask', Title: 'Restart the Claude app, then mark B91 done.', State: 'open', Owner: 'Lead', Asks: 'do', Of: 'B91', Via: 'chat', Since: at(0), Filed: String(NOW) }, { Text: ['Restart the Claude app, then mark B91 done.'], History: [`- ${at(0)} Lead: asked (do)`] })
   assert.deepEqual([autopilotRoute(restart, ctxOf()).to, autopilotRoute(restart, ctxOf()).earlier], ['person', undefined])
+  // The card's body is no goal level (the re-review of v2, 2026-11-04, on purpose: its recap link made it the person's): the partner
+  // judges the card, with the earlier answer as its hint. A worker's verdict that links the recap stays the person's.
   const recap = item(cardFields(), cardSections({ Text: ['B91 in the goal recap: [Open the recap](http://127.0.0.1:4310/#demo=pictures/g15/recap/demo.json).'] }))
-  const goal = autopilotRoute(recap, { ...ctxOf({ items: of(STEP91, EARLIER, recap) }), again: true })
+  assert.deepEqual(autopilotRoute(recap, { ...ctxOf({ items: of(STEP91, EARLIER, recap) }), again: true }).earlier, 'Q50')
+  const linked = item({ Id: 'Q59', Kind: 'ask', Title: 'Accept B91 as the goal recap shows it?', State: 'open', Owner: 'Painter', Asks: 'decide', Of: 'B91', Advice: 'yes', Via: 'chat', Since: at(0), Filed: String(NOW) }, { Text: ['Accept B91? [Open the recap](http://127.0.0.1:4310/#demo=pictures/g15/recap/demo.json)'], History: [`- ${at(0)} Painter: asked (decide)`] })
+  const goal = autopilotRoute(linked, ctxOf({ items: of(STEP91, EARLIER, linked) }))
   assert.deepEqual([goal.to, goal.earlier], ['person', undefined])
   assert.match(goal.why, /the goal's recap/)
   // The partner's hand-over is its judgement already: not routed back to it.

@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import vm from 'node:vm'
 
-import { KEPT_LOOK_WHY, KEPT_LOOK_WORDS, REBUILD_IS_PERSONS, adviceAnswerOf, autopilotRoute, isBoardRoutedPerson, isKeptLook } from '../src/work/autopilot.mjs'
+import { KEPT_LOOK_WHY, KEPT_LOOK_WORDS, REBUILD_IS_PERSONS, adviceAnswerOf, autopilotRoute, isBoardRoutedPerson, isKeptLook, refineStaysPersonsOf } from '../src/work/autopilot.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { parseItem } from '../src/work/item.mjs'
@@ -225,6 +225,62 @@ test('the review\'s probes: the person\'s hands in the whole list before any adv
   // What the person meant or said: the partner reads their words.
   assert.equal(route({ owner: 'Main', of: null, title: 'Did you mean the north ring or the south ring?', advice: 'the north ring' }).to, 'partner')
   assert.equal(route({ title: 'Do you mean the shop bar or the map bar?', advice: 'the shop bar' }).to, 'partner')
+})
+
+test('the re-review\'s probes (2026-11-04): the hands words narrowed to what the person\'s hands do, the Accept card judged by its title, a mark done or an art choice never advice, the focus goal\'s verdict and a rebuild by its id anywhere', () => {
+  const review = new Map([...[['B900', 'G60', 'in progress'], ['B901', 'G29', 'review']].map(([id, goal, state]) => parseItem(stepText(id, { Title: `Step ${id}`, State: state, Owner: 'Worker 1', Goal: goal })))].map(one => [one.head.get('Id'), one]))
+  const roles = { ...ROLES, 'Worker 1': 'worker' }
+  const rctx = (more = {}) => ({ roleOf: name => roles[name] ?? null, items: review, focusGoal: 'G60', focusHasDemo: true, recapSteps: [], now: NOW, ...more })
+  const probe = ({ owner = 'Worker 1', kind = 'decide', of = 'B900', title, advice = 'yes', options = null, pictures = null }) => ask('Q710', { Title: title, Owner: owner, Asks: kind, Of: of ?? undefined, Advice: advice ?? undefined, Options: options ?? undefined, Pictures: pictures ?? undefined, Via: 'chat' }, { history: [] })
+  const route = shape => autopilotRoute(probe(shape), rctx())
+  // 2: the game's and the board's own words are no hands (they went to the person before).
+  for (const title of ['Should the shop\'s Buy button stay off when the gold is short?', 'Should a purchase in the shop leave the grid at once?', 'Should the credits line sit on the About tab?',
+    'Add the music credits to the menu?', 'Should clicking a hero choose it?', 'Should Enter press Buy once it has the focus?', 'Should a tap on a tile move the hero?',
+    'Which file permissions does the save folder need?', 'Should I upload the evidence picture to the step?', 'Should Tab switch the focus to the next hero?', 'May I npm install vitest as a dev dependency?',
+    'Should the damage account for the armor of the target?', 'Should the Steam from the vents fade?', 'Should a won fight pay more gold on the Terraces?', 'Should a hero with the paid flag show a coin?',
+    'Is the damage from lava permanently applied to the tile?', 'Should the game log into the console when a move is refused?', 'Do we log in the history each move?']) {
+    assert.equal(route({ title }).to, 'advice', title)
+  }
+  // ... while the person's hands still are.
+  for (const [title, hands] of [['Buy the sound pack for $12 so the map has its ambience?', 'money'], ['Buy 500 credits for the image service?', 'money'], ['Switch to the paid plan for the asset service?', 'money'],
+    ['Upload the build to itch.io so testers can play it?', 'a publish'], ['May I add the permission for set_session_model to settings.local.json?', 'a permission'], ['Should I click "Allow" on the prompt in Worker 2?', 'a click'],
+    ['May I delete the unused test fixture file?', 'a permanent delete'], ['Should the hero be removed permanently when it dies?', 'a permanent delete'], ['Install the paint app on this PC?', 'an install'],
+    ['Reinstall the Workers mod now?', 'an install'], ['Log into the asset store with the shared login?', 'a sign-in'], ['Use your account for the pack?', 'an account'], ['Pay the hosting bill this month?', 'money']]) {
+    assert.equal(route({ title }).hands, hands, title)
+  }
+  // 1: the board's Accept card is judged by its title only: its body's words of what the step gives are no hands, no goal.
+  const card = gives => ask('Q711', { Title: 'Accept B901 at 72 of 75, or send it back?', Asks: 'decide', Of: 'B901', Options: 'A Accept: done as it is | B Send back', Via: 'accept', Route: 'person' },
+    { words: `B901 stays in review: its fix B875 was dropped, and only you close a result below its bar. What it gives: ${gives}` })
+  for (const gives of ['the shop shows its Buy button off when the gold is short', 'a purchase leaves the grid at once', 'the board uploads the picture to the step', 'the goal demo gets a row for each part and the recap row shows the picture',
+    'the Goals page draws the goal map with the focus goal first', 'the Goals page lists the work blocks of a goal', 'the board says which goal each step belongs to', 'a focus switch shows its banner',
+    'a lost hero is removed permanently', 'the old save slot can be deleted']) {
+    assert.equal(autopilotRoute(card(gives), rctx({ again: true })).to, 'partner', gives)
+  }
+  // 5: a decide or yes/no that marks a step done or finishes it is a verdict: the partner's, never the advice.
+  for (const shape of [{ title: 'Mark B901 done, or keep it open?', of: 'B901', advice: 'A', options: 'A Mark it done | B Keep it open' }, { title: 'Tick B901 as finished?', of: 'B901' },
+    { title: 'Is B901 good enough to finish now?', of: 'B901' }, { title: 'Is the ring good enough to call it done?', of: 'B901' }]) {
+    assert.equal(route(shape).to, 'partner', shape.title)
+  }
+  assert.equal(route({ title: 'Should I finish the shop first or the map?', of: 'B901', advice: 'the shop' }).to, 'advice', 'finishing other work first is no verdict')
+  // 5: a rebuild of a goal, "rebuild" in any case anywhere in the title with a goal's id; a rebuild of a thing under a step is none.
+  assert.equal(route({ owner: 'Advisor', of: null, title: 'rebuild G60: which way?', advice: 'A', options: 'A x | B y' }).to, 'person')
+  assert.equal(route({ owner: 'Advisor', of: 'G60', title: 'Which way to rebuild the Ring of G60?', advice: 'A', options: 'A x | B y' }).to, 'person')
+  assert.equal(route({ title: 'Rebuild the ring pool from scratch, or patch it?', advice: 'B', options: 'A rebuild | B patch' }).to, 'advice')
+  // 6: verdict words naming the focus goal's id anywhere are its verdict; an art choice and "did you want" never take the advice.
+  for (const shape of [{ owner: 'Advisor', of: null, title: 'Is G60 reached now?' }, { owner: 'Advisor', of: 'G60', title: 'Is G60 reached now?' }, { title: 'Is G60 reached now, with this ring?' }]) {
+    assert.equal(route(shape).to, 'person', `${shape.of}: ${shape.title}`)
+  }
+  assert.equal(route({ title: 'Which ring variant: A thin or B thick?', of: 'B901', advice: 'A', options: 'A thin | B thick', pictures: 'pictures/B901/ring.png' }).to, 'partner', 'an art choice')
+  assert.equal(route({ title: 'Did you want the ring thicker?', of: 'B901' }).to, 'partner')
+})
+
+test('the re-review\'s refine rule: the board takes no refine advice the person\'s hands, a goal\'s start, a focus switch, a rebuild, a goal\'s verdict or what they meant would answer', () => {
+  assert.match(refineStaysPersonsOf('Buy the sound pack for $12? A: yes B: no. Advised: A', 'B900', 'G60'), /^only the person's hands: money/)
+  assert.match(refineStaysPersonsOf('Switch the focus to G29 after this step? Advised: yes', 'B900', 'G60'), /^goal level \(start\)/)
+  assert.match(refineStaysPersonsOf('Rebuild G29 instead of patching it? Advised: yes', 'B900', 'G60'), /^goal level \(rebuild\)/)
+  assert.match(refineStaysPersonsOf('Is G60 reached once this lands? Advised: yes', 'B900', 'G60'), /^goal level \(verdict\)/)
+  assert.equal(refineStaysPersonsOf('Did you want the ring thicker? Advised: yes', 'B900', 'G60'), 'what the person meant or said')
+  assert.equal(refineStaysPersonsOf('Two rows or three? A: two rows B: three rows. Advised: A — fits the screen', 'B900', 'G60'), null)
 })
 
 test('the Undo of the partner\'s Accept puts the step back in review and the card stays for the person; a flow that lets nobody move it back refuses the Undo and changes nothing', async t => {

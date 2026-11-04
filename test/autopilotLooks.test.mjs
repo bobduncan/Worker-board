@@ -121,7 +121,7 @@ test('a worker\'s look is routed as before (the partner answers it); only the pa
   assert.notEqual(autopilotRoute(Q590({ Asks: 'decide' }), handedOver).why, FOCUS_LOOK_WHY)
   assert.notEqual(autopilotRoute(Q590(), { ...handedOver, focusGoal: null }).to, 'recap')
   // The person's hands and goal level come first.
-  assert.equal(autopilotRoute(Q590({ Title: 'Click the wizard: does the move range look right?' }), handedOver).to, 'person', 'a click is the person\'s hands')
+  assert.equal(autopilotRoute(Q590({ Title: 'Click "Allow" on the prompt: does the move range look right?' }), handedOver).to, 'person', 'a click is the person\'s hands')
   assert.equal(autopilotRoute(Q590({ Title: 'Is the goal\'s recap what you wanted?' }), handedOver).to, 'person', 'goal level')
   assert.equal(autopilotRoute(Q590({ Of: 'G29' }), handedOver).to, 'person', 'a look of a goal')
   // Stands in Needs your attention: not while the board holds it for the recap or the partner; a young one is the board's to route.
@@ -150,7 +150,7 @@ test('the partner\'s hand-over of a look: found by its History and its Route lin
   byBoard.sections.set('History', [`- ${at(60)} Painter: asked`, `- ${at(5)} server: to the person: the partner did not answer in 30 min`])
   assert.equal(partnerHandOverOf(byBoard), null, 'a History line of the board is no partner\'s')
   // The person's hands: in the partner's why, or in the ask's words; goal level too. All stay the person's.
-  const hands = handedBy('Painter wants you to click the wizard and look at the range.')
+  const hands = handedBy('Painter wants you to sign in to the art shop and look at the range.')
   assert.equal(autopilotRoute(hands, { ...pure, handedWhy: partnerHandOverOf(hands) }).to, 'person', 'the why names a click')
   const signIn = handedBy()
   signIn.sections.set('Text', ['Sign in to the art shop, then does the range look right?'])
@@ -239,7 +239,7 @@ test('the partner\'s escalate stays the person\'s for a look of another goal, a 
   t.after(() => rm(dir, { recursive: true, force: true }))
   const escalate = (id, why = WHY) => chat(dir, 'Partner', { action: 'escalate', id, why }, NOW, { autopilot: true })
   for (const id of ['Q1', 'Q2', 'Q4', 'Q5', 'Q6']) assert.equal((await escalate(id)).ok, true, id)
-  assert.equal((await escalate('Q3', 'Painter asks you to click the wizard and look at the range.')).ok, true)
+  assert.equal((await escalate('Q3', 'Painter asks you to sign in to the art shop and look at the range.')).ok, true)
   const items = await read(dir)
   for (const id of ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6']) assert.equal(field(items, id, 'Route'), 'person', id)
   assert.equal(field(items, 'Q3', 'Of'), undefined, 'and is put under no step')
@@ -256,7 +256,7 @@ test('the pass moves a look that stands for the person because the partner hande
     Q2: look('Q2', { Route: 'person' }, { route: ['The person took it back from Autopilot (Undo)'], history: handedHistory(WHY) }),
     // Handed on by the main chat, or by the partner for what the person's hands do.
     Q3: look('Q3', { Route: 'person' }, { route: ['The main chat hands this to you: it needs a sign-in'], history: [`- ${at(75)} Lead: to the person: it needs a sign-in`] }),
-    Q4: handed('Q4', {}, 'Painter wants you to click the wizard and look at the range.'),
+    Q4: handed('Q4', {}, 'Painter wants you to sign in to the art shop and look at the range.'),
     Q5: handed('Q5', { Title: 'Sign in to the art shop: does the range look right?' }),
     Q6: handed('Q6', { Of: 'G29' }),
     Q7: handed('Q7', { Owner: 'Keeper' }),

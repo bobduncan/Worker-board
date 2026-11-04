@@ -272,6 +272,22 @@ test('refine questions under Autopilot: with advice answered as "Take the advice
   assert.deepEqual(needsIds({ ok: true, items: await read(off) }, false), ['Q40'])
 })
 
+test('the re-review of v2 (2026-11-04): a refine question whose advice names the person\'s hands, a focus switch or what they meant stays with them; the board takes the rest', async t => {
+  const Q1 = 'Two rows or three? A: two rows B: three rows. Advised: A — fits the screen'
+  const Q2 = 'Buy the sound pack for $12? A: yes B: no. Advised: A — the map needs it'
+  const Q3 = 'Switch the focus to G7 once this lands? Advised: yes'
+  const Q4 = 'Did you want the bar thinner? Advised: yes'
+  const dir = await storeWith({ B32: refining('B32', [Q1, Q2, Q3, Q4]), Q50: refineAsk('Q50', 'B32', Q1), Q51: refineAsk('Q51', 'B32', Q2), Q52: refineAsk('Q52', 'B32', Q3), Q53: refineAsk('Q53', 'B32', Q4) })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  // While young, the three the board leaves stand for the person at once; the one it answers stands nowhere.
+  assert.deepEqual(needsIds({ ok: true, items: await read(dir) }).sort(), ['Q51', 'Q52', 'Q53'])
+  const done = await sweep(dir)
+  assert.deepEqual(done.result.refines, [{ step: 'B32', took: ['Q50'], back: false }])
+  const items = await read(dir)
+  assert.deepEqual(['Q50', 'Q51', 'Q52', 'Q53'].map(id => field(items, id, 'State')), ['answered', 'open', 'open', 'open'])
+  assert.deepEqual(needsIds({ ok: true, items }).sort(), ['Q51', 'Q52', 'Q53'])
+})
+
 test('a chat\'s new ask is routed at once while Autopilot is on, and its chat is told where it went', async t => {
   const dir = await storeWith({ B21, B22, B40: step('B40', { Title: 'Plant the hedge', State: 'in progress', Owner: 'Painter', Goal: 'G29' }) })
   t.after(() => rm(dir, { recursive: true, force: true }))

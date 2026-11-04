@@ -131,7 +131,8 @@ test('the review\'s cases (2026-10-31) under Autopilot v2: a goal\'s start, a fo
   const partner = (id, title, more = {}) => ask(id, { Title: title, Owner: 'Partner', Asks: 'decide', Advice: 'A', ...more })
   // The live asks were under no step (Q366, Q411, Q361, Q133, Q112, Q436's words).
   assert.deepEqual(autopilotRoute(partner('Q70', 'Make G42 the next focus?', { Advice: 'yes' }), ctx), { to: 'person', why: 'a goal\'s start or a focus switch ("G42")' })
-  assert.deepEqual(autopilotRoute(partner('Q70', 'Make the maps goal the next focus?', { Advice: 'yes' }), ctx), { to: 'person', why: 'a goal\'s start or a focus switch ("next focus")' })
+  // The re-review (2026-11-04, on purpose: it was the person's): the focus-switch words count only with a goal's id in their sentence.
+  assert.deepEqual(autopilotRoute(partner('Q70', 'Make the maps goal the next focus?', { Advice: 'yes' }), ctx), { to: 'advice', why: 'a detail question: its advice is taken' })
   assert.equal(routeOf(partner('Q72', 'Apply the new goal map?', { Advice: 'yes' })), 'person', 'the goal map: which goals there are')
   // v2, on purpose (they were the person's): the person's "B" decides everything else for them, with Undo.
   assert.equal(routeOf(partner('Q71', 'Is the maps goal\'s approach right after 18 failed checks?')), 'advice')
@@ -159,17 +160,17 @@ test('the re-review\'s ruling: under a step, Autopilot On asks the person no mor
     assert.equal(routeOf(detail('Q91', title, { Asks: 'look' })), 'advice', `look: ${title}`)
     assert.equal(routeOf(detail('Q91', title, { Advice: undefined })), 'partner', `no advice: ${title}`)
   }
-  // The review of v2 (2026-11-04, on purpose: these took the advice): advice is an automatic yes, so the whole list of the person's
-  // hands is read first, under a step too: a click, a press, a chip are theirs; without advice the partner judges them, as Off.
+  // The re-review of v2 (2026-11-04, on purpose: the review had made them the person's): a click, a press or a chip of the game is no
+  // hands; only one on the Claude app, a prompt or dialog, "Allow", a permission, a chip or a chat is.
   for (const title of ['Press the edge in by one pixel?', 'Click through the shop: does it read?', 'Keep the chip art for the cards?']) {
-    assert.equal(routeOf(detail('Q90', title)), 'person', title)
-    assert.equal(autopilotRoute(detail('Q90', title), ctx).hands, 'a click', title)
+    assert.equal(routeOf(detail('Q90', title)), 'advice', title)
     assert.equal(routeOf(detail('Q91', title, { Advice: undefined })), 'partner', `no advice: ${title}`)
   }
+  assert.equal(autopilotRoute(detail('Q90', 'Click "Allow" on the prompt in the Painter chat?'), ctx).hands, 'a click')
   // Only these whole phrases make a decide or look under a step the person's.
   for (const [title, name, phrase] of [['Quit and reopen the Claude app to load it?', 'the Claude app', 'Quit and reopen the Claude app'], ['Sign in to the art shop for the pack?', 'a sign-in', 'Sign in'],
     ['Log in to the font site?', 'a sign-in', 'Log in'], ['Use your account for the pack?', 'an account', 'your account'], ['Store the password in the settings?', 'a password', 'password'],
-    ['Pay for the bigger pack?', 'money', 'Pay'], ['Spend money on a sound pack?', 'money', 'money'], ['Delete the old branch?', 'a permanent delete', 'Delete'],
+    ['Pay for the bigger pack?', 'money', 'Pay for'], ['Spend money on a sound pack?', 'money', 'money'], ['Delete the old branch?', 'a permanent delete', 'Delete'],
     ['Reinstall the Workers mod?', 'an install', 'Reinstall the Workers mod'], ['Install the paint app?', 'an install', 'Install the paint app']]) {
     assert.deepEqual(autopilotRoute(detail('Q92', title), ctx), { to: 'person', why: `only the person's hands: ${name} ("${phrase}")`, hands: name }, title)
   }
@@ -196,8 +197,8 @@ test('what only the person\'s hands can do never goes to the main chat (twins of
   // One list: a board button only the person presses, sign-in, an account, money, an install, a mod's change, a permission,
   // a password, the week's limit (the live store's closed asks of the week showed the board's buttons, a reinstall and a mod).
   assert.deepEqual(PERSONS_HANDS.map(([name]) => name), ['the Claude app', 'a click', 'a click', 'a button of the board', 'a sign-in', 'an account', 'money', 'an install', 'a change of a mod', 'a permission', 'a password', 'the week\'s limit', 'a permanent delete', 'a publish', 'a publish'])
-  for (const [title, hands] of [['Log in to the seed shop', 'a sign-in'], ['Pay the hosting bill', 'money'], ['Install the image tool on this PC', 'an install'], ['Reinstall the packages in your game folder?', 'an install'],
-    ['Grant the folder permission', 'a permission'], ['Raise the weekly limit', 'the week\'s limit'], ['In Painter\'s chat, press "Turn them on" for the test mod', 'a click'],
+  for (const [title, hands] of [['Log in to the seed shop', 'a sign-in'], ['Pay the hosting bill', 'money'], ['Install the image tool on this PC', 'an install'], ['Reinstall the paint app on this PC?', 'an install'],
+    ['Grant the permission in the settings for the tool', 'a permission'], ['Raise the weekly limit', 'the week\'s limit'], ['In Painter\'s chat, press "Turn them on" for the test mod', 'a click'],
     ['B80 waits until you add it to the queue on the Backlog tab.', 'a button of the board'], ['Pin B59 to Painter on the worker board', 'a button of the board'], ['Update the Workers mod to 0.30 so this goes live?', 'a change of a mod']]) {
     assert.equal(routeOf(lead('Q99', title)), 'person', title)
     assert.equal(handsOf(lead('Q99', title)), hands, title)
@@ -419,7 +420,11 @@ test('2026-11-02 (the person: "if autopilot is turned on, the outstanding, needi
   assert.equal(autopilotRoute(linked('Q556', { Asks: 'do' }), withRows).to, 'recap', 'a Do')
   // An ask of a step or of a goal with that link keeps its rule (the goal's recap is no step's), and the person's hands still win.
   assert.equal(autopilotRoute(ask('Q31', { Title: 'Open the recap and try it: [recap](http://127.0.0.1:4999/#demo=pictures/g29/recap/demo.json).', Owner: 'Partner', Asks: 'decide', Of: 'G29', Advice: 'yes' }), withRows).to, 'person')
-  assert.equal(autopilotRoute(ask('Q32', { Title: 'Click Approve in the recap: [recap](http://127.0.0.1:4999/#demo=pictures/g29/recap/demo.json).', Owner: 'Painter', Asks: 'do', Via: 'chat' }), withRows).to, 'person', 'a click is the person\'s hands')
+  // The re-review (2026-11-04, on purpose: a click was the person's hands): a click in the recap is no hands; the recap asks it already.
+  assert.equal(autopilotRoute(ask('Q32', { Title: 'Click Approve in the recap: [recap](http://127.0.0.1:4999/#demo=pictures/g29/recap/demo.json).', Owner: 'Painter', Asks: 'do', Via: 'chat' }), withRows).to, 'recap')
+  // The re-review: "the package reinstall" of a game folder (npm) and a folder's permission are a chat's, never the person's hands.
+  assert.equal(routeOf(ask('Q33', { Title: 'Reinstall the packages in your game folder?', Owner: 'Lead', Asks: 'do', Via: 'chat' })), 'main')
+  assert.equal(routeOf(ask('Q34', { Title: 'Grant the folder permission', Owner: 'Lead', Asks: 'do', Via: 'chat' })), 'main')
 
   // Its step (the live Q578, a look under no step whose picture is of B24): put under the step the recap names, first id of the words.
   assert.deepEqual(autopilotRoute(LOOSE_LOOK, withRows), { to: 'recap', why: 'its step\'s part of the goal\'s recap asks it already', step: 'B24' })

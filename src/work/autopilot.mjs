@@ -300,6 +300,22 @@ export function refineAdviceOf(question) {
   return { advice: lettered[2], answer: option === undefined || option.words === '' ? lettered[2] : `${lettered[2]}: ${option.words}` }
 }
 
+/**
+ * The re-review of v2 (2026-11-04: a refine question with advice was answered with no checks): why the board leaves a refine
+ * question's advice for the person, or null: what only their hands can do (the whole PERSONS_HANDS), a goal's start, a focus
+ * switch, a rebuild, a goal's verdict or recap (`goalLevelOf`, as the partner asks it under its step), what they meant, said or
+ * wanted. Such a question stands for them as any refine question does.
+ */
+export function refineStaysPersonsOf(question, stepId = null, focusGoal = null) {
+  const words = String(question ?? '').replace(/\s+Answer:\s[\s\S]*$/, '')
+  const shape = { head: new Map([['Title', words], ['Asks', 'decide'], ...(stepId === null ? [] : [['Of', stepId]])]), sections: new Map() }
+  const hands = handsMatchOf(shape, PERSONS_HANDS)
+  if (hands !== null) return `only the person's hands: ${hands.name}`
+  const goal = goalLevelOf(shape, 'advisor', focusGoal)
+  if (goal !== null) return `goal level (${goal.part}): ${goal.phrase}`
+  return ASKS_MEANING.test(words) ? 'what the person meant or said' : null
+}
+
 /** B810's words: a refine question that drops the step itself ("Drop B7?", "drop it"): never answered by the board. */
 export const dropsStep = (question, stepId) => new RegExp(`\\bdrop (?:it|this step|${stepId})\\b`, 'i').test(String(question ?? '')) && !/\b(?:don'?t|not)\s+drop\b/i.test(String(question ?? ''))
 
@@ -312,8 +328,11 @@ export const dropsStep = (question, stepId) => new RegExp(`\\bdrop (?:it|this st
 export const GOAL_START = /\bgoal definition\b|\bwork blocks?\b|\bnew plan\b|\bnew how\b|\bChange this goal\b|\bwhich goal\b|\bgoal map\b|\bnew goal\b(?!\s+steps?\b)/i
 /** A goal's Go, as the Goals page names the person's button ("your Go", "the Go"): case kept, so "your go-ahead" is none. */
 export const GOAL_GO = /\b(?:your|the|its) Go\b/
-/** A switch of focus (the review of v2, 2026-11-04: "Switch to G29 as the focus once B900 lands?"), in every chat's words. */
-export const FOCUS_SWITCH = /\bnext (?:focus|goal)\b|\bswitch(?:es|ed|ing)?\b[^.?!]{0,40}\bfocus\b(?!\s+(?:ring|outline|state|style|colou?r)\b)|\bas the focus\b|\bfocus switch\b|\bthe focus (?:to|on) G\d+\b/i
+/**
+ * A switch of focus (the review of v2, 2026-11-04: "Switch to G29 as the focus once B900 lands?"), in every chat's words; only in a
+ * sentence that names a goal by its id (the re-review: "Should Tab switch the focus to the next hero?" is the game's focus).
+ */
+export const FOCUS_SWITCH =/\bnext (?:focus|goal)\b|\bswitch(?:es|ed|ing)?\b[^.?!]{0,40}\bfocus\b(?!\s+(?:ring|outline|state|style|colou?r)\b)|\bas the focus\b|\bfocus switch\b|\bthe focus (?:to|on) G\d+\b/i
 /**
  * The goal's recap and a recap row's verdict, under a step too (the review of v2, 2026-11-04: the live Q595 "give your verdict on
  * row 9 in G60's recap", a do under a step linking its window; "Approve row 4 of G60's recap?"): its `#demo=` link or demo.json,
@@ -327,8 +346,16 @@ const GOAL_VERDICT = /\breach(?:ed|es)? (?:the|this|its) goal\b|\b(?:goal|G\d+)\
  * Q583, Q598, Q605): a goal's rebuild ("Rebuild G<n>: ...") is theirs, never the board's advice. One constant, a one-line change.
  */
 export const REBUILD_IS_PERSONS = true
-/** An ask about what the person meant or said (the live Q603, Q604): never the board's advice; the partner reads their words. */
-const ASKS_MEANING = /\b(?:do|did) you (?:mean|say)\b/i
+/**
+ * An ask about what the person meant, said or wanted (the live Q603, Q604; the re-review: "Did you want …"): never the board's
+ * advice; the partner reads their words. "Which do you want?" is a plain choice, none.
+ */
+const ASKS_MEANING = /\b(?:do|did) you (?:mean|say)\b|\bdid you want\b/i
+/** The sentences of words (cut at . ? !), for a rule that wants two cues in one sentence. */
+const sentencesOf = words => String(words ?? '').split(/(?<=[.?!])\s+/)
+/** A goal's rebuild (the re-review, 2026-11-04: "rebuild" in any case anywhere in the title, with a goal's id there: "Which way to rebuild the Ring of G60?"). */
+const rebuildOf = words => (/\brebuild\w*\b/i.test(words) && /\bG\d+\b/.test(words)
+  ? words.match(/\brebuild\w*\s+G\d+\b/i)?.[0] ?? `${words.match(/\brebuild\w*\b/i)[0]} … ${words.match(/\bG\d+\b/)[0]}` : null)
 
 /**
  * Goal level under Autopilot v2 (the person's "B", 2026-11-02, and the review's rulings of 2026-11-04): what of a goal still reaches
@@ -348,13 +375,20 @@ export function goalLevelOf(item, role = null, focusGoal = null) {
   const isUnderStep = STEP.test(of ?? '')
   const recap = words.match(RECAP_WORDS)?.[0] ?? null
   if (recap !== null) return { phrase: recap, part: 'recap' }
-  const rebuild = REBUILD_IS_PERSONS ? title(item).match(/^Rebuild G\d+\b/)?.[0] ?? null : null
+  const rebuild = REBUILD_IS_PERSONS ? rebuildOf(title(item)) : null
   if (rebuild !== null) return { phrase: rebuild, part: 'rebuild' }
   if (focusGoal !== null && of === focusGoal) {
     const verdict = (valueOf(item, 'Asks') ?? 'decide') === 'look' ? `a look of ${of}` : words.match(GOAL_VERDICT)?.[0] ?? null
     if (verdict !== null) return { phrase: verdict, part: 'verdict' }
   }
-  const start = words.match(FOCUS_SWITCH)?.[0] ?? (role === 'worker' ? null : words.match(GOAL_START)?.[0] ?? words.match(GOAL_GO)?.[0] ?? null)
+  // The re-review (2026-11-04): verdict words that name the focus goal's id anywhere are its verdict, under a step or none ("Is G60
+  // reached now?"); GOAL_VERDICT is wide, which fails safe.
+  if (focusGoal !== null && new RegExp(`\\b${focusGoal}\\b`).test(words)) {
+    const verdict = words.match(GOAL_VERDICT)?.[0] ?? null
+    if (verdict !== null) return { phrase: verdict, part: 'verdict' }
+  }
+  const switched = sentencesOf(words).find(one => FOCUS_SWITCH.test(one) && /\bG\d+\b/.test(one))?.match(FOCUS_SWITCH)?.[0] ?? null
+  const start = switched ?? (role === 'worker' ? null : words.match(GOAL_START)?.[0] ?? words.match(GOAL_GO)?.[0] ?? null)
   if (isUnderStep) return start === null ? null : { phrase: start, part: 'start' }
   if (GOAL.test(of ?? '') && of !== focusGoal) return { phrase: `of ${of}`, part: 'start' }
   const other = (title(item).match(/(?<![-\w])G\d+\b/g) ?? []).find(id => id !== focusGoal) ?? null
@@ -366,45 +400,68 @@ export const isGoalLevel = (item, role = null, focusGoal = null) => goalLevelOf(
 
 /**
  * The pattern of a permanent delete: a chat, a file or folder, a launch.json entry, a branch (the review of v2, 2026-11-04: a cache
- * too, the exemption is gone; `git branch -D`; a remove for good or permanently).
+ * too, the exemption is gone; `git branch -D`; and, the re-review of the same day, a remove for good or permanently: "permanently"
+ * only with a remove or delete verb).
  */
-const DELETES = /\bdelet(?:e|es|ed|ing|ion)\b|\berase[sd]?\b|\bwipe[sd]?\b|\brmdir\b|\brm -r|\bbranch -D\b|\bremov(?:e|es|ed|ing)\b[^.?!]*\b(?:for good|permanently)\b|\bpermanently\b/i
+const DELETES = /\bdelet(?:e|es|ed|ing|ion)\b|\berase[sd]?\b|\bwipe[sd]?\b|\brmdir\b|\brm -r|\bbranch -D\b|\bremov(?:e|es|ed|ing)\b[^.?!]*\b(?:for good|permanently)\b/i
+/** A real-money cue (the re-review of v2, 2026-11-04): a price in a currency or $, a plan, a subscription, extra usage, credits, a top-up. */
+const MONEY_CUE = String.raw`(?:[$€£]\s?\d|\b\d+(?:[.,]\d+)?\s?(?:USD|EUR|dollars?|euros?)\b|\bprice\b[^.?!]*(?:[$€£]|\bUSD\b|\bEUR\b|\bdollars?\b|\beuros?\b)|\bplans?\b|\bsubscriptions?\b|\bextra usage\b|\bcredits\b|\btop[- ]?ups?\b)`
+/** Buying (buy, purchase) or credits, each only with a real-money cue in its sentence: "Buy the sound pack for $12", not the shop's Buy button. */
+const BUYING = String.raw`\b(?:buy(?:s|ing)?|bought|purchas(?:e|es|ed|ing)|credits)\b`
 /**
- * Money (the review of v2, 2026-11-04: advice is an automatic yes now): pay, billing, buy or purchase, a price in a currency or $,
- * credits (not a game's credits screen), extra usage, a subscription.
+ * Money (the review of v2, 2026-11-04: advice is an automatic yes now): paying for something (not a fight that pays more gold), a
+ * payment, billing, money, a subscription, extra usage, a price in a currency or $; buying, credits and "paid" only with such a cue
+ * (the re-review: a shop's Buy button, the music credits and a hero's paid flag are none).
  */
-const MONEY = /\bpay(?:s|ing|ment|ments)?\b(?!\s+attention)|\bpaid\b|\bbilling\b|\bmoney\b|\bbuy(?:s|ing)?\b|\bbought\b|\bpurchas(?:e|es|ed|ing)\b|\bsubscriptions?\b|\bcredits\b(?!\s+(?:screen|roll|scene|page)\b)|\bextra usage\b|[$€£]\s?\d|\b\d+(?:[.,]\d+)?\s?(?:USD|EUR|dollars?|euros?)\b|\bprice\b[^.?!]*(?:[$€£]|\bUSD\b|\bEUR\b|\bdollars?\b|\beuros?\b)/i
+const MONEY = new RegExp(String.raw`\bpay(?:s|ing)?\s+(?:for|the|a|an|my|our|your|it|them|this|that)\b(?![^.?!]*\b(?:gold|coins?|xp)\b)|\bpayments?\b|\bpaid\b(?=[^.?!]*${MONEY_CUE})|${MONEY_CUE}[^.?!]*\bpaid\b|\bbilling\b|\bmoney\b|\bsubscriptions?\b|\bextra usage\b|[$€£]\s?\d|\b\d+(?:[.,]\d+)?\s?(?:USD|EUR|dollars?|euros?)\b|\bprice\b[^.?!]*(?:[$€£]|\bUSD\b|\bEUR\b|\bdollars?\b|\beuros?\b)|${BUYING}(?=[^.?!]*${MONEY_CUE})|${MONEY_CUE}[^.?!]*${BUYING}`, 'i')
 /**
  * The pattern of what publishes or makes public (the coordinator's ruling on Autopilot v2, 2026-11-02: "Publishing stays the
  * person's"): publish, make public (a repository, the game, a build, a page, the code; not a function made public in the code) or
  * open-source, a public repository, a release, a post on a site, a licence, sharing outside the PC; and (the review, 2026-11-04) an
- * upload, itch.io, Steam (`STEAM`, its case kept: steam in a lava game is none), a store page.
+ * upload to a site or a store (itch.io, Steam, a store page, the web, GitHub: never a picture uploaded to a step), itch.io, Steam
+ * (`STEAM`, its case kept: steam in a lava game is none), a store page.
  */
-const PUBLISHES = /\bpublish(?:es|ed|ing)?\b|\bmake (?:it|them|this|that|(?:the |our |my |this )?(?:\w+ )?(?:repo(?:sitory)?|game|build|project|site|page|code|source))\b[^.?!]{0,20}?\bpublic\b|\bopen[- ]source\b|\bupload(?:s|ed|ing)?\b|\bitch(?:\.io)?\b|\bstore page\b|\bpublic(?:ly)? (?:repo(?:sitory)?|release|post)\b|\b(?:a|the|new|public|github) release\b|\bpost(?:s|ed|ing)?\b[^.?!]{0,40}?\b(?:on|to) (?:twitter|x|reddit|discord|github|itch(?:\.io)?|steam|the (?:web|internet)|social media|a forum)\b|\blicen[cs]e[sd]?\b|\bshar(?:e|es|ed|ing)\b[^.?!]*\b(?:outside (?:the|this) PC|publicly|online|with the (?:public|world))\b/i
-/** Steam, the store, its case kept (steam rising from a lava vent is no publish): on Steam, a Steam page, store, release, build or key. */
-const STEAM = /\b(?:[Oo]n|[Tt]o|[Ff]or|[Tt]he) Steam\b|\bSteam (?:page|store|release|build|keys?)\b|\b[Ss]teamworks\b/
+const PUBLISHES = /\bpublish(?:es|ed|ing)?\b|\bmake (?:it|them|this|that|(?:the |our |my |this )?(?:\w+ )?(?:repo(?:sitory)?|game|build|project|site|page|code|source))\b[^.?!]{0,20}?\bpublic\b|\bopen[- ]source\b|\bupload(?:s|ed|ing)?\b[^.?!]*\b(?:itch(?:\.io)?|steam|store page|the (?:web|internet)|online|github|a (?:web)?site|website)\b|\bitch\.io\b|\bstore page\b|\bpublic(?:ly)? (?:repo(?:sitory)?|release|post)\b|\b(?:a|new|public|github) release\b|\bpost(?:s|ed|ing)?\b[^.?!]{0,40}?\b(?:on|to) (?:twitter|x|reddit|discord|github|itch(?:\.io)?|the (?:web|internet)|social media|a forum)\b|\blicen[cs]e[sd]?\b|\bshar(?:e|es|ed|ing)\b[^.?!]*\b(?:outside (?:the|this) PC|publicly|online|with the (?:public|world))\b/i
+/**
+ * Steam, the store, its case kept (steam rising from a lava vent is no publish): on Steam, a Steam page, store, release, build or
+ * key. Not "the Steam" (the re-review: "Should the Steam from the vents fade?").
+ */
+const STEAM = /\b(?:[Oo]n|[Tt]o|[Ff]or) Steam\b|\bSteam (?:page|store|release|build|keys?)\b|\b[Ss]teamworks\b/
+/** What a click, press or tap must name to be the person's hands (the re-review, 2026-11-04): the Claude app, a prompt or dialog, "Allow", a permission, a chip or a chat. */
+const CLICK_CUE = String.raw`\b(?:Claude|prompt|dialog|popup|Allow|permissions?|chips?|chat)\b`
+const CLICKS = String.raw`\b(?:click|press|tap)(?:s|es|ed|ing)?\b`
+/** What an install must be of to be the person's (the re-review): a mod, an app, Claude, a tool or program on the PC; never `npm install`. */
+const INSTALLS = /(?<!\bnpm )\b(?:re-?)?install(?:s|ed|ing|ation)?\b[^.?!]*\b(?:mods?|apps?|Claude|tool|program|software|plugin|extension|on (?:this|your|the) PC)\b/i
+/** A permission only with an allow, a rule, the settings, a tool or a prompt (the re-review: never a file's permissions). */
+const PERMISSION = /\bpermissions?\b(?=[^.?!]*\b(?:allow|rules?|settings?|tools?|prompt)\b)|\b(?:allow|rules?|settings?|tools?|prompt)\b[^.?!]*\bpermissions?\b|\ballow rules?\b/i
+/** Signing in, and a log in or into only with an account, a site, a shop or a service (the re-review: "log into the console" is none). */
+const SIGN_IN = /\bsign(?:ed|ing)?[- ]?(?:in|up)\b|\blog(?:ged|ging)?[- ]?in(?:to)?\b(?=[^.?!]*\b(?:accounts?|site|website|service|shop|store|portal|dashboard|github|itch(?:\.io)?|steam)\b)/i
+/** An account as a thing someone has ("your account", "the shop account"), never the verb ("the damage account for the armor"). */
+const ACCOUNT = /\b(?:an?|your|the|my|our|their|this|that)\s+accounts?\b|\b(?:an?|your|the|my|our|their|this|that)\s+\w+\s+accounts?\b(?!\s+for\b)/i
 
 /**
  * What only the person's own hands can do, one list (the review of 2026-10-31: Q104, Q559, Q345, Q113, Q539 went to the main
- * chat), for a do ask and an ask under no step: quit, reopen or restart the Claude app; a click or a press (Allow, a chip, a
- * button, a prompt); a button of the board that only the person presses (add to the queue, pin); sign in or log in; an
- * account; money; an install; a change of a mod (the person's own word, roles/worker.md "Not yours"); a permission; a
- * password or key; the week's limit; (the coordinator's ruling, 2026-10-31) anything that deletes for good: a chat, a file
- * or folder, a launch.json entry, a branch (archiving a chat stays the main chat's); and (the ruling on Autopilot v2,
- * 2026-11-02) anything that publishes or makes public (PUBLISHES). `[name, pattern]`; never routed to a chat.
+ * chat), for a do ask and an ask under no step, and (the review of v2, 2026-11-04) before any advice is taken: quit, reopen or
+ * restart the Claude app; a click or a press on the app (Allow, a chip, a prompt); a button of the board that only the person
+ * presses (add to the queue, pin); sign in or log in to a site; an account; money; an install of a mod or an app; a change of a
+ * mod (the person's own word, roles/worker.md "Not yours"); a permission of a tool; a password or key; the week's limit; (the
+ * coordinator's ruling, 2026-10-31) anything that deletes for good: a chat, a file or folder, a launch.json entry, a branch
+ * (archiving a chat stays the main chat's); and (the ruling on Autopilot v2, 2026-11-02) anything that publishes or makes public
+ * (PUBLISHES). The re-review of 2026-11-04 narrowed the words a game or the board says in passing (a shop's Buy button, a
+ * click on a hero, `npm install`, a file's permissions, "log into the console"). `[name, pattern]`; never routed to a chat.
  */
 export const PERSONS_HANDS = [
   ['the Claude app', /\b(?:quit|re-?open|restart|relaunch|close)\b[^.?!]*\b(?:Claude(?: app| desktop)?|the app)\b|\b(?:Claude|the) app\b[^.?!]*\b(?:quit|re-?open|restart|relaunch)/i],
-  ['a click', /\bclick(?:s|ed|ing)?\b|\bchips?\b|\b(?:press|tap)(?:es|ed|ing|s)?\b/i],
+  ['a click', new RegExp(`${CLICKS}(?=[^.?!]*${CLICK_CUE})|${CLICK_CUE}[^.?!]*${CLICKS}`, 'i')],
   // "Allow" as the app's button (quoted, or on a prompt), never the verb ("Allow the outline to cut a cell?", the live Q401).
   ['a click', /["“']Allow["”']|\bAllow\b[^.?!]*\b(?:prompt|popup|dialog)\b/],
   ['a button of the board', /\badd (?:it |them )?to the queue\b|\bpin(?:s|ned)?\b[^.?!]*\bto\b|\bthe Backlog tab\b/i],
-  ['a sign-in', /\bsign(?:ed|ing)?[- ]?(?:in|up)\b|\blog(?:ged|ging)?[- ]?in(?:to)?\b/i],
-  ['an account', /(?<!\binto )\baccounts?\b/i],
+  ['a sign-in', SIGN_IN],
+  ['an account', ACCOUNT],
   ['money', MONEY],
-  ['an install', /\b(?:re-?)?install(?:s|ed|ing|ation)?\b/i],
+  ['an install', INSTALLS],
   ['a change of a mod', /\b(?:update|change|upgrade)\b[^.?!]*\bmods?\b/i],
-  ['a permission', /\bpermissions?\b|\ballow rules?\b/i],
+  ['a permission', PERMISSION],
   ['a password', /\bpasswords?\b|\bAPI keys?\b/i],
   ['the week\'s limit', /\bweekly limit\b|\bweek's limit\b/i],
   ['a permanent delete', DELETES],
@@ -414,17 +471,17 @@ export const PERSONS_HANDS = [
 /**
  * The coordinator's ruling (2026-10-31): for a decide or a look under a step, only these whole phrases make it the person's
  * (Autopilot never asks the person more than the partner's answers do): quit, reopen or restart the Claude app; sign in or
- * log in; an account; a password; pay or money; a permanent delete; install or reinstall a mod or an app; and (2026-11-02)
- * anything that publishes or makes public.
+ * log in to a site; an account; a password; pay or money; a permanent delete; install or reinstall a mod or an app; and
+ * (2026-11-02) anything that publishes or makes public. (Before any advice, the whole PERSONS_HANDS is read: the review of v2.)
  */
 export const UNDER_STEP_HANDS = [
   ['the Claude app', /\b(?:quit|re-?open|restart)\b[^.?!]*\bClaude(?: app)?\b|\bClaude app\b[^.?!]*\b(?:quit|re-?open|restart)\b/i],
-  ['a sign-in', /\bsign(?:ed|ing)? in\b|\blog(?:ged|ging)? in(?:to)?\b/i],
-  ['an account', /\b(?:an?|your|the|my|our|their|this|that)\s+accounts?\b/i],
+  ['a sign-in', SIGN_IN],
+  ['an account', ACCOUNT],
   ['a password', /\bpasswords?\b/i],
   ['money', MONEY],
   ['a permanent delete', DELETES],
-  ['an install', /\b(?:re-?)?install(?:s|ed|ing)?\b[^.?!]*\b(?:mod|app)\b/i],
+  ['an install', INSTALLS],
   ['a publish', PUBLISHES],
   ['a publish', STEAM],
 ]
@@ -446,15 +503,17 @@ export function handsMatchOf(item, list = PERSONS_HANDS) {
 export const handsOf = (item, list = PERSONS_HANDS) => handsMatchOf(item, list)?.name ?? null
 
 /** An ask that marks a step done, accepts it, approves it or sends it back (its title): never the main chat's to do. */
-export const STEP_VERDICT = /\b(?:mark|tick|set)\b[^.?!]*\bdone\b|\baccept(?:s|ed|ing)?\b|\bapprove(?:s|d)?\b|\bsen[dt]\b[^.?!]*\bback\b|\bclose\b[^.?!]*\bB\d+\b|\bleave the (?:rest of the )?gap\b/i
+export const STEP_VERDICT = /\b(?:mark|tick|set)\b[^.?!]*\b(?:done|finished|complete)\b|\baccept(?:s|ed|ing)?\b|\bapprove(?:s|d)?\b|\bsen[dt]\b[^.?!]*\bback\b|\bclose\b[^.?!]*\bB\d+\b|\bleave the (?:rest of the )?gap\b/i
 /**
  * The last re-check (2026-10-31, the live Q520 "Do you accept this look for now and leave the rest of the gap as a later
  * step?"): a look or a decide that is the person's verdict on a result: it accepts it, leaves its gap, sends it back, or
- * approves it below its bar (its step below its target, or its title's score below its target). The phrase, or null.
+ * approves it below its bar (its step below its target, or its title's score below its target). The phrase, or null. And (the
+ * re-review of v2, 2026-11-04) one that marks, ticks or finishes a step ("Mark B901 done, or keep it open?", "Is B901 good enough
+ * to finish now?", "call it done"): a verdict the partner judges, never the board's advice.
  */
 export function stepVerdictOf(item, step) {
   const words = title(item)
-  const said = words.match(/\baccept(?:s|ed|ing)?\b|\bleave the (?:rest of the )?gap\b|\bsen[dt]\b[^.?!]*\bback\b/i)?.[0] ?? null
+  const said = words.match(/\baccept(?:s|ed|ing)?\b|\bleave the (?:rest of the )?gap\b|\bsen[dt]\b[^.?!]*\bback\b|\b(?:mark|tick|set)\b[^.?!]*\b(?:done|finished|complete)\b|\bgood enough to (?:finish|close)\b|\bfinish(?:es|ed|ing)? (?:it|this|that|the step|B\d+)\b|\bcall it (?:done|finished)\b|\bclose\b[^.?!]*\bB\d+\b/i)?.[0] ?? null
   if (said !== null) return said
   const approve = words.match(/\bapprove(?:s|d)?\b/i)?.[0] ?? null
   const score = words.match(/\b(\d+) of (\d+)\b/)
@@ -541,7 +600,9 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
     const advised = advice !== null && ['decide', 'look'].includes(kind) && via !== 'accept'
     const hands = advised ? handsMatchOf(item, PERSONS_HANDS) : null
     if (hands !== null) return { to: 'person', why: `only the person's hands: ${hands.name} ("${hands.phrase}")`, hands: hands.name }
-    const takes = advised && !(kind === 'look' && hasPictures) && !ASKS_MEANING.test(`${title(item)} ${text(item)}`)
+    // The re-review (2026-11-04): a decide with pictures and options is an art choice: the partner's too.
+    const isArt = hasPictures && (kind === 'look' || optionsOf(item).length > 0)
+    const takes = advised && !isArt && !ASKS_MEANING.test(`${title(item)} ${text(item)}`)
     if (role === 'owner') return takes && isUnderStep ? { to: 'advice', why: 'the Product owner\'s own advice on a step' } : { to: 'person', why: `the Product owner's: it answers for the goal (${why})` }
     return takes ? { to: 'advice', why: `${why}: its advice is taken` } : { to: 'partner', why: `${why}: the partner decides it` }
   }
@@ -568,7 +629,10 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   // The person's hands: the whole list for an action (the last re-check: a chore under a step too, Q556) and an ask under no
   // step; for a detail decide or look under a step only its phrases.
   const list = isAction || !isUnderStep ? PERSONS_HANDS : UNDER_STEP_HANDS
-  const hands = handsMatchOf(item, list) ?? (handedWhy === null ? null : handsMatchOf({ head: new Map([['Title', handedWhy]]), sections: new Map() }, list))
+  // The board's own Accept card is judged by its title only (the re-review, 2026-11-04): its body quotes what the step gives ("the
+  // shop's Buy button", "the goal map"), never a question of the person's hands or of a goal.
+  const judged = via === 'accept' ? { head: item.head, sections: new Map() } : item
+  const hands = handsMatchOf(judged, list) ?? (handedWhy === null ? null : handsMatchOf({ head: new Map([['Title', handedWhy]]), sections: new Map() }, list))
   if (hands !== null) return { to: 'person', why: `only the person's hands: ${hands.name} ("${hands.phrase}")`, hands: hands.name }
   // Never Fable without the person's yes (the person, 2026-10-24: "you cant run fable without my permission"): an ask that names
   // Fable in its words or options is theirs, whatever its advice, so neither the board nor the partner says yes for them.
@@ -579,7 +643,7 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   // The focus goal's recap asks it already: the ask waits for the recap (before the goal-level words: its `#demo=` link is one).
   const recapAsk = recapAskOf(item, { focusGoal, recapSteps, items }, role)
   if (recapAsk !== null) return recapAsk
-  const goal = goalLevelOf(item, role, focusGoal)
+  const goal = goalLevelOf(judged, role, focusGoal)
   if (goal !== null) {
     const why = { recap: 'the goal\'s recap', rebuild: 'a rebuild of a goal', verdict: 'the focus goal\'s own verdict', start: 'a goal\'s start or a focus switch' }[goal.part]
     // Under a step the goal's recap takes it when it can (its step of the focus goal, the demo still to come or naming it), else the person.
@@ -634,6 +698,8 @@ export function standsForPerson(item, ctx = {}) {
     const step = of === null ? undefined : ctx.items?.get?.(of)
     const question = text(item)
     if (step !== undefined && dropsStep(question, of)) return true
+    // One whose advice the board never takes stands for the person at once (the re-review of v2, 2026-11-04).
+    if (refineAdviceOf(question).advice !== null && refineStaysPersonsOf(question, of, ctx.focusGoal ?? null) !== null) return true
     const sentAt = sentBackAt(step)
     if (refineAdviceOf(question).advice === null && Number.isFinite(sentAt)) {
       // Sent back for this question (after it was filed): its next round comes; sent back before it: once only, it is theirs.
