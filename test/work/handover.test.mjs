@@ -329,6 +329,9 @@ test('a free worker with no task: no clear alone (the lazy clear, R1), nothing a
   const out = { id: 'c1', at: at(29, 9, 1), to: name, command: HANDOVER_COMMAND, state: 'taken', kind: 'clear', step: null, clear: { step: 'B50', reportedAt: owed.reportedAt }, restart: false, set: null, line: null, back: null }
   const waiting = decide({ worker: lane, items: mapOf([...items.values(), step('B51', 'refined')]), ready: ready('B51'), owed, envelopes: [out], now: at(29, 9, 2) })
   assert.deepEqual([waiting.state, waiting.envelope, waiting.give], [STATES.HANDING, null, null])
+  assert.equal(laneWords(waiting), 'handing over: its clear')
+  const words = decide({ worker: lane, items, owed, envelopes: [{ ...out, kind: 'back', clear: null, line: 'work: B50 again', back: 'B50 x' }], now: at(29, 9, 2) })
+  assert.equal(laneWords(words), 'handing over its words')
   assert.deepEqual(decide({ worker: lane, items: new Map(), now: at(29, 9, 1) }).envelope, null)
   // Its clear never answered: the net marks it once, unknown.
   const net = decide({ worker: lane, items, owed, envelopes: [out], now: at(29, 9, 1) + NET_MS })
@@ -552,4 +555,50 @@ test('the lazy clear, D1: the clear stages as the board takes them (one per name
   assert.equal(clearOwed({ lane: card, items, afterStep: 'clear', clearedStage: { at: day2(21, 0), step: 'B930' } }), null, 'the card newer than the stage (the person\'s own /clear)')
   // outcomeOf keeps 0.30.0's times and takes clearWhy.
   assert.deepEqual(outcomeOf({ cleared: false, typed: true, clearWhy: ' not run\nin 20 s ', typedAt: 5, enteredAt: 6 }), { cleared: false, set: null, typed: true, restarted: null, background: false, why: null, clearWhy: 'not run in 20 s', typedAt: 5, enteredAt: 6 })
+})
+
+test('the lazy clear, review of Task 1: at most 8 stages a post (mutant: no cut); a stage dated over a minute past the board\'s clock is left out (a far `cleared` would owe no clear ever again)', async () => {
+  const { stagesOf } = await import('../../src/work/handover.mjs')
+  const T = day2(21, 40)
+  const junk = Array.from({ length: 8 }, () => ({ stage: 'compacted', at: T }))
+  assert.equal(stagesOf([...junk, { stage: 'cleared', at: T }]), null, 'the ninth entry is not read')
+  assert.deepEqual(stagesOf([...junk.slice(1), { stage: 'cleared', at: T }]), [{ stage: 'cleared', at: T }])
+  assert.equal(stagesOf([{ stage: 'cleared', at: 9e15 }], T), null)
+  assert.equal(stagesOf([{ stage: 'cleared', at: T + MIN + 1 }], T), null)
+  assert.deepEqual(stagesOf([{ stage: 'cleared', at: T + MIN }, { stage: 'log-saved', at: T - MIN }], T), [{ stage: 'cleared', at: T + MIN }, { stage: 'log-saved', at: T - MIN }])
+})
+
+test('the lazy clear, review of Task 1: a failed line or set is named before a clear that did not run; the clear\'s words from clearWhy; a 0.30.0 failed clear keeps its words', async () => {
+  const { failedWhy } = await import('../../src/work/handover.mjs')
+  const envelope = outcome => ({ id: 'e1', kind: 'task', step: 'B937', clear: { step: 'B936' }, set: null, line: lineFor('B937'), outcome })
+  // The reviewer's case: the clear refused, then the line not taken: the hold is the line's.
+  assert.equal(failedWhy(envelope({ cleared: false, clearWhy: 'a prompt came first', typed: false, why: 'the chat did not take it' })), 'its line could not be typed: the chat did not take it')
+  assert.equal(failedWhy(envelope({ cleared: false, clearWhy: 'a prompt came first', set: false, typed: null, why: 'the app refused the model' })), 'its model and effort could not be set: the app refused the model')
+  // The person's pause (D3): the clear's own words.
+  assert.equal(failedWhy(envelope({ cleared: false, clearWhy: 'the person pauses the chats', typed: null, why: null })), 'its clear did not run: the person pauses the chats')
+  // A 0.30.0 mod: no clearWhy, its why is the clear's (also with typed false, as older fixtures have it).
+  assert.equal(failedWhy(envelope({ cleared: false, typed: false, background: true, why: 'background work it started still runs' })), 'its clear did not run: background work it started still runs')
+  assert.equal(failedWhy(envelope({ cleared: null, set: null, typed: false, why: 'a hook dropped it' })), 'its line could not be typed: a hook dropped it')
+})
+
+test('the lazy clear, review of Task 1 (D3): a refusal under the person\'s pause takes the task back as today, and after the resume the worker is not held: the clear rides its next task (mutant: held up to 10 min after the resume)', () => {
+  const name = 'Worker 3'
+  const reportAt = day2(21, 23)
+  const queued = mapOf([reported('B936', name, reportAt), step('B937', 'queued', { Owner: name }), step('B938', 'refined')])
+  const lane = when => worker(name, { since: day2(21, 40), heard: when })
+  const owed = owedOf(lane(day2(21, 41)), queued)
+  const refused = { id: 'e937', at: day2(21, 40), to: name, command: HANDOVER_COMMAND, kind: 'task', step: 'B937', clear: { step: 'B936', reportedAt: reportAt }, restart: false, set: null, line: lineFor('B937'), state: 'failed', settledAt: day2(21, 40, 5), failedAt: day2(21, 40, 5), outcome: { cleared: false, set: null, typed: null, restarted: null, background: false, why: null, clearWhy: PAUSED_WHY, typedAt: null, enteredAt: null } }
+  const paused = decide({ worker: lane(day2(21, 40, 6)), items: queued, ready: ready('B938'), owed, envelopes: [refused], paused: true, now: day2(21, 40, 6) })
+  assert.deepEqual([paused.state, paused.takeBack], [STATES.SUSPENDED, { id: 'B937', why: PAUSED_WHY }])
+  // The resume two minutes later (B937 back on the list): not held, the clear and the next task in one envelope.
+  const back = mapOf([reported('B936', name, reportAt), step('B937', 'refined'), step('B938', 'refined')])
+  const resumed = decide({ worker: lane(day2(21, 42, 30)), items: back, ready: ready('B937', 'B938'), owed, envelopes: [refused], now: day2(21, 42, 30) })
+  assert.notEqual(resumed.state, STATES.HELD)
+  assert.equal(resumed.state, STATES.HANDING)
+  assert.deepEqual(resumed.envelope.clear, { step: 'B936', reportedAt: reportAt })
+  // Still under a full limit: suspended, not released early.
+  assert.equal(decide({ worker: lane(day2(21, 42, 30)), items: back, ready: ready('B937'), owed, envelopes: [refused], limitFull: true, now: day2(21, 42, 30) }).state, STATES.SUSPENDED)
+  // An old-style failed clear (no clearWhy) keeps B930's hold.
+  const old = { ...refused, outcome: { ...refused.outcome, clearWhy: null, why: '/clear did not run within two minutes' } }
+  assert.equal(decide({ worker: lane(day2(21, 42, 30)), items: back, ready: ready('B937', 'B938'), owed, envelopes: [old], now: day2(21, 42, 30) }).state, STATES.HELD)
 })

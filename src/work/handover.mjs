@@ -114,13 +114,20 @@ export function failedOf(envelope) {
 /** The why of a failed envelope, in the board's words, for the lane and the History. */
 export function failedWhy(envelope) {
   const outcome = envelope?.outcome ?? null
-  // The lazy clear: a 0.31.0 mod says the clear's why in `clearWhy` (the person's pause, a full limit: the line not typed).
-  const own = [outcome?.why, outcome?.clearWhy].find(one => typeof one === 'string' && one.trim() !== '')
-  const said = own !== undefined ? own.replace(/\s+/g, ' ').trim().slice(0, 160) : typeof envelope?.why === 'string' ? envelope.why.slice(0, 160) : 'no reason given'
-  if (outcome?.cleared === false) return `its clear did not run: ${said}`
-  if (outcome?.set === false) return `its model and effort could not be set: ${said}`
-  if (envelope?.restart === true) return `its restart did not run: ${said}`
-  return `its line could not be typed: ${said}`
+  const said = (...whys) => {
+    const own = whys.find(one => typeof one === 'string' && one.trim() !== '')
+    return own !== undefined ? own.replace(/\s+/g, ' ').trim().slice(0, 160) : typeof envelope?.why === 'string' ? envelope.why.slice(0, 160) : 'no reason given'
+  }
+  // The lazy clear: a 0.31.0 mod says the clear's why in `clearWhy`, and `why` is then the set's or the line's: a set or a
+  // line that failed is what holds, so its words come first. A 0.30.0 mod's failed clear has no clearWhy: its `why` is the clear's.
+  const clearWhy = outcome?.clearWhy ?? null
+  const isOldClear = outcome?.cleared === false && clearWhy === null
+  if (!isOldClear && outcome?.set === false) return `its model and effort could not be set: ${said(outcome.why)}`
+  if (!isOldClear && outcome?.typed === false && typeof envelope?.line === 'string') return `its line could not be typed: ${said(outcome.why)}`
+  if (outcome?.cleared === false) return `its clear did not run: ${said(clearWhy, outcome.why)}`
+  if (outcome?.set === false) return `its model and effort could not be set: ${said(outcome.why)}`
+  if (envelope?.restart === true) return `its restart did not run: ${said(outcome?.why)}`
+  return `its line could not be typed: ${said(outcome?.why)}`
 }
 
 /**
@@ -369,7 +376,7 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
   if (last !== null && takenBack === null && last.netAt === undefined && ['waiting', 'taken'].includes(last.state) && (last.outcome ?? null) === null && typeof last.step !== 'string'
     && !(isTurnEnd && last.state !== 'waiting' && turnSince >= last.at) && last.restart !== true) {
     // Signals change 4: no net while its chat is being woken either; it counts from the "woke" verdict.
-    if (isWaking || runningMs(Math.max(last.at, wokeAt)) < NET_MS) return result(STATES.HANDING, null)
+    if (isWaking || runningMs(Math.max(last.at, wokeAt)) < NET_MS) return result(STATES.HANDING, null, { kind: last.kind ?? null })
     return result(STATES.UNKNOWN, UNANSWERED_WHY, { net: last.id, close: closeOf(last) })
   }
 
@@ -418,6 +425,9 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
       || (isReported && backgroundCount(worker) === 0 && (last.outcome?.background === true || last.outcome?.set === false))
       || (isReported && isBoardTimeout(last) && !isTimedOutAgain)
       || (isReported && heldMs >= HELD_RETRY_MS)
+      // The lazy clear (D3): a 0.31.0 refusal under the person's pause or a full limit (the line not typed, `typed` null, with
+      // its clearWhy) held only while those last; once they end, it is released at once (no wait out of HELD_RETRY_MS).
+      || (!paused && !limitFull && last.outcome?.clearWhy != null && last.outcome?.typed == null && last.outcome?.set !== false)
     if (!isReleased) {
       const nextTry = hourMinuteOf(now + Math.max(0, HELD_RETRY_MS - heldMs))
       return result(STATES.HELD, `${isTimedOutAgain ? timedOutTwiceWhy(clearStepOf(last)) : failedWhy(last)}; next try ${nextTry}`, { step: typeof last.step === 'string' ? last.step : null })
@@ -496,12 +506,15 @@ const MOST_STAGES = 8
  * The lazy clear (D1): the stages the Workers mod posts through `typed` (`body.stages`, top-level beside `handover`), checked:
  * `[{ stage, at, why?, log?, ticket?, session? }]`, `stage` one of CLEAR_STAGES, `at` the mod's finite time, `ticket` a
  * string (D9: 'clear-<run>-<n>'), the rest short lines; an entry that is not one is left out. Null when none is left.
+ * `now`: the board's clock; a stage dated more than a minute past it is left out (a `cleared` far in the future would
+ * stand for every later report's clear: no clear owed ever again).
  */
-export function stagesOf(value) {
+export function stagesOf(value, now = null) {
   if (!Array.isArray(value)) return null
   const stages = []
   for (const one of value.slice(0, MOST_STAGES)) {
     if (one === null || typeof one !== 'object' || !CLEAR_STAGES.includes(one.stage) || !Number.isFinite(one.at)) continue
+    if (Number.isFinite(now) && one.at > now + MIN) continue
     const ticket = typeof one.ticket === 'string' || Number.isFinite(one.ticket) ? lineOf(String(one.ticket), 80) : null
     const more = { why: lineOf(one.why), log: lineOf(one.log, 400), ticket, session: lineOf(one.session, 200) }
     stages.push({ stage: one.stage, at: one.at, ...Object.fromEntries(Object.entries(more).filter(([, given]) => given !== null)) })
@@ -527,7 +540,8 @@ export function laneWords(decision) {
   if (decision === null || decision === undefined) return null
   const step = decision.step ?? null
   switch (decision.state) {
-    case STATES.HANDING: return step === null ? 'handing over: its clear' : `handing over ${step}`
+    // An envelope without a task: the back words, or a clear alone an older board wrote (the lazy clear writes none).
+    case STATES.HANDING: return step !== null ? `handing over ${step}` : decision.kind === 'back' ? 'handing over its words' : decision.kind === 'clear' ? 'handing over: its clear' : 'handing over'
     case STATES.OFFERED: return `offered ${step}, not taken yet`
     case STATES.HELD: return `held: ${decision.why ?? 'no reason given'}`
     case STATES.UNKNOWN: return decision.why === null ? 'unknown' : decision.why.startsWith(UNANSWERED_WHY) || decision.why === RESTART_LATE_WHY ? decision.why : null

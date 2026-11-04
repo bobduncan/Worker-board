@@ -2162,7 +2162,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   // T8.5: a worker on the sequence: its state now, as the one decision reads it. Nothing is decided here (no ready task and
   // no clear are offered, so only what the facts say shows); the board's refresh and the worker's turn end carry it out.
   // Signals change 3: with `asked`, when its "go on" line of this stopped spell was written (the lane's "asked to go on at HH:MM").
-  const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step, asked }) => ({ state, why, step, asked }))(decide({
+  const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step, asked, kind }) => ({ state, why, step, asked, ...(typeof kind === 'string' ? { kind } : {}) }))(decide({
     ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' }, wakes }),
     ready: [], owed: null,
   })))

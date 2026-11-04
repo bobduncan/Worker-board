@@ -3255,15 +3255,17 @@ async function main(args) {
       // back now, not after a clock). The lazy clear (D1): the clear's stages as they happen (`stages`, top-level beside
       // `handover`), alone or with the outcome, merged in the same turn as the settle, so two quick posts never lose each other.
       const outcome = outcomeOf(body?.outcome)
-      const stages = stagesOf(body?.stages)
-      if (typeof body?.handover === 'string' && (outcome !== null || stages !== null)) {
+      // Whenever `stages` came as a list the answer says `staged` (false: none taken), so the mod tells "dropped" from an older board.
+      const hasStages = Array.isArray(body?.stages)
+      const stages = stagesOf(body?.stages, clock())
+      if (typeof body?.handover === 'string' && (outcome !== null || hasStages)) {
         const done = await handoverTurn(workDir ?? HERE, async () => ({
           staged: stages === null ? false : await addStages(store, checked.chat, body.handover, stages),
           settled: outcome === null ? false : await settleEnvelope(store, checked.chat, body.handover, outcome, clock()),
         }))
         if (done.staged || done.settled) readState.reset()
         if (done.settled) await decideFor(checked.chat, body?.mod ?? null, { kind: 'pass' })
-        return { ok: true, result: { settled: done.settled, ...(stages === null ? {} : { staged: done.staged }) } }
+        return { ok: true, result: { settled: done.settled, ...(hasStages ? { staged: done.staged } : {}) } }
       }
       return { ok: true, result: {} }
     }),
