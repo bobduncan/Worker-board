@@ -7,7 +7,7 @@ import { appendFile, open, readdir, readFile, rename, rm, writeFile } from 'node
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { absentAs, again, appendLines, readKept, writeAtomic } from '../src/write.mjs'
+import { absentAs, again, appendLines, readKept, writeAtomic, writeUnflushed } from '../src/write.mjs'
 import { tempDir } from './tempDir.mjs'
 
 const real = { open, writeFile, rename, rm, readFile, appendFile }
@@ -121,6 +121,13 @@ test('writeAtomic flushes the new file to disk before it puts it in place', asyn
   }
   await writeAtomic(join(dir, 'emus.json'), '{}', watched)
   assert.deepEqual(steps, ['write', 'sync', 'close', 'rename'])
+  // B934 (X93): a bookkeeping file the board writes often is put in place the same way, without the flush that took
+  // up to 6 s on a busy disk; the file is whole all the same.
+  steps.length = 0
+  await writeUnflushed(join(dir, 'emus.json'), '{"emus":2}', watched)
+  assert.deepEqual(steps, ['write', 'close', 'rename'])
+  assert.equal(await readFile(join(dir, 'emus.json'), 'utf8'), '{"emus":2}')
+  assert.deepEqual((await readdir(dir)).filter(name => name.endsWith('.tmp')), [])
 })
 
 test('B467: absentAs gives its value for a file or folder that is not there, and lets every other error go on', async () => {

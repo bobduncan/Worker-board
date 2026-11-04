@@ -10,7 +10,7 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 import { MOST_NAMED, stallOf } from './stallWords.mjs'
-import { writeAtomic } from './write.mjs'
+import { writeUnflushed } from './write.mjs'
 
 /** A delay of the event loop, or a work call's wait, longer than this is a stall. */
 export const STALL_MS = 2000
@@ -60,7 +60,7 @@ export function stallLog({ now = Date.now, overMs = STALL_MS, most = MOST_STALLS
       await load()
       try {
         await fs.mkdir(dirname(file), { recursive: true })
-        await writeAtomic(file, `${JSON.stringify({ stalls }, null, 1)}\n`)
+        await writeUnflushed(file, `${JSON.stringify({ stalls }, null, 1)}\n`)
       } catch {
         // kept in memory all the same
       }

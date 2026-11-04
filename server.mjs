@@ -122,7 +122,7 @@ import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from '
 import { loads, readVersion } from './src/version.mjs'
 import { activePages, blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
 import { findGameFile } from './src/gameFile.mjs'
-import { absentAs, readKept, writeAtomic } from './src/write.mjs'
+import { absentAs, readKept, writeAtomic, writeUnflushed } from './src/write.mjs'
 import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -829,7 +829,8 @@ async function main(args) {
       read: () => readFile(LOOP_LOCK, 'utf8'),
       write: async text => {
         await mkdir(dirname(LOOP_LOCK), { recursive: true })
-        await writeAtomic(LOOP_LOCK, text)
+        // B934: the lock's heartbeat, every second or so: no flush.
+        await writeUnflushed(LOOP_LOCK, text)
       },
       alive: pid => {
         try {
@@ -2123,8 +2124,9 @@ async function main(args) {
       }
       if (added.length > 0) taskTimes.tasks = keptTasks(taskTimes.tasks, added)
       if (historyFrom === undefined) {
-        await writeAtomic(TASK_TIMES_FILE, JSON.stringify(taskTimes))
-        if (added.length > 0 || !hasList) await writeAtomic(TASK_LIST_FILE, listText(taskTimes.tasks, clock()))
+        // B934: the board's own measure, made again from the transcripts: no flush.
+        await writeUnflushed(TASK_TIMES_FILE, JSON.stringify(taskTimes))
+        if (added.length > 0 || !hasList) await writeUnflushed(TASK_LIST_FILE, listText(taskTimes.tasks, clock()))
         hasList = true
       }
       if (added.length > 0) readState.reset()

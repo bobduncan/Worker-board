@@ -12,7 +12,7 @@ import { isStopWord, waitsLong } from './say.mjs'
 import { isStoppedWhy } from './stopped.mjs'
 import { AGAIN_AFTER_MS, TRIES, passesBySelf } from './work/passing.mjs'
 import { heldMs } from './work/pause.mjs'
-import { appendLines, writeAtomic } from './write.mjs'
+import { appendLines, writeAtomic, writeUnflushed } from './write.mjs'
 
 /** outbox.jsonl is a log: a line with an id seen before changes that message (delivered, later on). */
 export function foldOutbox(text) {
@@ -367,7 +367,8 @@ export async function fileStore(dir, now, { start = null } = {}) {
   const store = storeOver(lines, foldOutbox(await read(files.outbox)), Number.isFinite(aliveAt) ? aliveAt : null, {
     // B406: a record starts on a line of its own, also after a line torn by a power cut; alive.json is never torn.
     history: added => appendLines(files.history, jsonLines(added)),
-    alive: at => writeAtomic(files.alive, JSON.stringify({ at })),
+    // B934: the board's heartbeat: no flush.
+    alive: at => writeUnflushed(files.alive, JSON.stringify({ at })),
     outbox: changed => appendLines(files.outbox, jsonLines(changed)),
   })
   // Signals change 1: why the board ended last (data/stop.json), taken once: the file is removed at this start.
