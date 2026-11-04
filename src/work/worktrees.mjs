@@ -22,6 +22,7 @@
 import { execFile } from 'node:child_process'
 import { lstat, mkdir, readdir, readlink, rename, rmdir, unlink } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { folderHolders, holderWords } from './holders.mjs'
 import { valueOf } from './item.mjs'
@@ -211,6 +212,9 @@ async function removeEmptyFolder(path, fs, waits, later, inline = false) {
   return why
 }
 
+/** B947: the one command that takes a task folder away without following a link in it (tools/remove-task-folder.mjs). */
+export const REMOVE_TOOL = slashed(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'tools', 'remove-task-folder.mjs'))
+
 /** How to take a link away alone, never what it points to. */
 const unlinkCommand = (path, platform) => (platform === 'win32' ? `cmd /c rmdir "${native(path, platform)}"` : `rm "${slashed(path)}"`)
 
@@ -218,7 +222,7 @@ const unlinkCommand = (path, platform) => (platform === 'win32' ? `cmd /c rmdir 
 async function worktreeLine(path, state, fs, platform) {
   const link = fs === null ? null : await topLink(path, fs)
   const first = `first leave it (cd to the main checkout, in a command of its own), then ` + (link === null ? '' : `remove its link ${link} alone (${unlinkCommand(join(path, link), platform)}), then `)
-  return `the worktree ${slashed(path)} ${state}: ${first}git worktree remove ${slashed(path)}, then delete the empty folder Windows may leave`
+  return `the worktree ${slashed(path)} ${state}: ${first}git worktree remove ${slashed(path)}, then delete the empty folder Windows may leave; or all in one command: node ${REMOVE_TOOL} ${slashed(path)}`
 }
 
 /**
@@ -524,6 +528,20 @@ export function gitWrite(args) {
 }
 
 /**
+ * B947: takes one link away alone, the link and never what it points to: a junction goes by rmdir, a symlink by unlink;
+ * looked at again after. `{ ok: true }`, or `{ ok: false, why }` (`why` reads after "its <name> ").
+ */
+export async function unlinkLink(at, fs = FILES) {
+  try {
+    await fs.rmdir(at).catch(error => (error?.code === 'ENOTDIR' ? fs.unlink(at) : Promise.reject(error)))
+  } catch (error) {
+    return { ok: false, why: `link could not be taken away (${error?.code ?? error?.message ?? 'no answer'})` }
+  }
+  if (await lstatOr(fs, at) !== 'gone') return { ok: false, why: 'link is still there' }
+  return { ok: true }
+}
+
+/**
  * Removes one safe leftover of `findLeftovers`: a worktree by `git worktree remove` (never --force), then the empty
  * folder Windows may leave by rmdir (never recursive: it fails on one that is not empty); a folder by rmdir alone.
  * `{ ok: true }`, or `{ ok: false, why }`.
@@ -549,13 +567,8 @@ export async function cleanLeftover(one, { git = gitWrite, fs = FILES, platform 
     if (one.unlink === PACKAGES) {
       const at = join(one.path, PACKAGES)
       if (!(await isPackagesLink(at, dirname(one.packages ?? ''), fs, platform))) return { ok: false, why: `its ${PACKAGES} is no longer the link to the main checkout's` }
-      try {
-        // A junction goes by rmdir (the link alone); a symlink by unlink.
-        await fs.rmdir(at).catch(error => (error?.code === 'ENOTDIR' ? fs.unlink(at) : Promise.reject(error)))
-      } catch (error) {
-        return { ok: false, why: `its ${PACKAGES} link could not be taken away (${error?.code ?? error?.message ?? 'no answer'})` }
-      }
-      if (await lstatOr(fs, at) !== 'gone') return { ok: false, why: `its ${PACKAGES} link is still there` }
+      const taken = await unlinkLink(at, fs)
+      if (!taken.ok) return { ok: false, why: `its ${PACKAGES} ${taken.why}` }
     }
     // B751: changes of line endings alone are put back (git restores the files as committed) before the removal.
     if (one.lineEndings === true) {

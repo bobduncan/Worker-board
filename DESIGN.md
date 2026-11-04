@@ -1757,7 +1757,7 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   the folder's name, `game-b12`), and no folder of one in the project folder (empty, or holding a `.git` file, or named
   `<repository's folder>-...`); a result check's own `check-b<id>` folders are left to `checked`. Each leftover is one
   line with its path and how to remove it ("first leave it (cd to the main checkout, in a command of its own), then git worktree remove <path>, then delete the empty folder Windows may
-  leave", its link alone first when it holds one), and the pass says "worktree gone". B717 (2026-10-26): an EMPTY folder
+  leave", its link alone first when it holds one, and B947's `tools/remove-task-folder.mjs <path>` as the one command), and the pass says "worktree gone". B717 (2026-10-26): an EMPTY folder
   no repository lists is removed by the check itself (rmdir; a chat's shell standing in the worktree makes Windows
   refuse the last folder for a minute) and gives no line. B723: the check tries once; a held folder keeps one line ("a
   program still uses it") and the tries after 1, 2 and 4 seconds run in the background, outside the work store's queue
@@ -3772,7 +3772,8 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
 - **The report check** (`stepLeftovers`, from `reportCheck`): no worktree of the step's repository on its branch, no
   worktree of a repository the board knows named for the step, and no folder of one in the project folder, empty or
   not. Each leftover fails the check with one line: its path and "first leave it (cd to the main checkout, in a command of its own), then git worktree remove <path>, then delete the empty
-  folder Windows may leave" (a link in it named first, to be taken away alone: `cmd /c rmdir "<link>"` on Windows).
+  folder Windows may leave" (a link in it named first, to be taken away alone: `cmd /c rmdir "<link>"` on Windows),
+  and, since B947, "or all in one command: node tools/remove-task-folder.mjs <path>" (below, "The removal tool").
   The worker removes it and reports again, as after a failed branch check. Work outside git gets the same lines.
   Exception (B717): an empty folder no repository lists is removed by the check itself (`removeEmptyFolder`, one rmdir, more tries in the background; left when git is silent), so the empty folder Windows leaves when the worker's chat still stood in the worktree no
   longer fails the check (T8: one a program still holds is a warning); workers stop their background commands and monitors in a worktree and `cd` out of it before
@@ -3799,6 +3800,23 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
   `--force` or removes a folder recursively: a worktree is removed by `git worktree remove` alone, only after a walk
   through it found no link (a junction, a symlink, or an entry of no known kind; a folder too large to walk is left),
   and looked at again right before; a folder only by `rmdir`, which fails when it is not empty.
+- **The removal tool and the guard** (B947, the person 2026-11-02: "Yes, fix it": a code guard, not a role line): a task
+  folder's removal followed its `node_modules` junction and emptied the person's own node_modules four times (B920,
+  2026-11-02 16:37; before: 10-06, 10-24 twice, 10-31), because `git worktree remove` and `rm -rf` follow a link they
+  find. `tools/remove-task-folder.mjs <folder>` is the one way for a worker, a thin command on `findLink`, `unlinkLink`
+  and `cleanLeftover` (worktrees.mjs) and `folderHolders` (holders.mjs), no second copy: it refuses while a program
+  stands in the folder (its vite), names each, takes every link in the folder away alone (rmdir on a junction, unlink on
+  a symlink, looked at again), runs `git worktree remove` (never `--force`) and `git worktree prune`, and checks that
+  each link's target kept its entries (counted before and after). A folder that is no worktree only loses its links.
+  The report check's leftover line names the tool. The guard is the project's own, in its shell hook
+  (`<project>/.claude/hooks/guard-removal.mjs`, called from `guard-dev-servers.mjs`, also in `.codex/hooks`; undo: remove
+  that one call): it refuses `git worktree remove`, `rm -r`, `rmdir /s`, `rd /s` and `Remove-Item -Recurse` whose target
+  is a link or holds one right in it, reading each command of a chain (`;` `&&` `||` `|`) with an earlier `cd`, through
+  `cmd /c`, `bash -c` and `powershell -Command`, and says which tool to use. Limits: a link below the top level of the
+  folder and a target it cannot resolve (a variable, a glob) pass the guard (the tool walks the whole folder); a chain
+  that takes the link away first (`rmdir link && git worktree remove folder`) is refused too, because the guard sees the
+  folder as it is before the chain runs. Its own error lets a command pass. Tests: `test/removeTaskFolder.test.mjs`, and
+  `test/guardRemoval.test.mjs` (runs the project's guard when it is there; the real case of B920 on a real junction).
 - The job texts: `roles/worker.md` (the step's end: the worktree removed before `work report`), `roles/partner.md`
   ("The check", step 4: the helper removes its check worktrees before `work checked`), `roles/protocol.md`.
 - Tests: `test/work/worktrees.test.mjs` (temporary git repositories: merged and unmerged worktrees, changes, held

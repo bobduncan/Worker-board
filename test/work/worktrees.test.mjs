@@ -13,7 +13,7 @@ import test from 'node:test'
 
 import { gitRunner } from '../../src/folders.mjs'
 import { patientReportCheck } from '../../src/work/check.mjs'
-import { EMPTY_WAITS, FILES, cleanLeftover, findLeftovers, findLink, isHeldLine, namesStep, stepLeftovers, worktreeBlocks } from '../../src/work/worktrees.mjs'
+import { EMPTY_WAITS, FILES, REMOVE_TOOL, cleanLeftover, findLeftovers, findLink, isHeldLine, namesStep, stepLeftovers, worktreeBlocks } from '../../src/work/worktrees.mjs'
 
 const HOUR = 60 * 60_000
 const isWindows = process.platform === 'win32'
@@ -213,7 +213,7 @@ test('the report check\'s part: a worktree on the step\'s branch, and a folder o
     const repo = one.repos[0]
     const own = await stepLeftovers({ id: 'B5', branch: 'b5-lamps', repo, repos: one.repos, project: one.project, run })
     const at = slashed(join(one.project, 'garden-b5'))
-    assert.deepEqual(own, [`the worktree ${at} is still on b5-lamps: first leave it (cd to the main checkout, in a command of its own), then git worktree remove ${at}, then delete the empty folder Windows may leave`])
+    assert.deepEqual(own, [`the worktree ${at} is still on b5-lamps: first leave it (cd to the main checkout, in a command of its own), then git worktree remove ${at}, then delete the empty folder Windows may leave; or all in one command: node ${REMOVE_TOOL} ${at}`])
     const empty = await stepLeftovers({ id: 'B3', branch: 'b3-gone', repo, repos: one.repos, project: one.project, run })
     // An empty folder no repository lists is removed by the board itself (B717): no line, and the folder is gone.
     assert.deepEqual(empty, [])
@@ -222,7 +222,7 @@ test('the report check\'s part: a worktree on the step\'s branch, and a folder o
     const linked = await stepLeftovers({ id: 'B10', branch: 'b10-other', repo, repos: one.repos, project: one.project, run })
     const b10 = join(one.project, 'garden-b10')
     const unlink = isWindows ? `cmd /c rmdir "${join(b10, 'node_modules')}"` : `rm "${slashed(join(b10, 'node_modules'))}"`
-    assert.deepEqual(linked, [`the worktree ${slashed(b10)} is still there: first leave it (cd to the main checkout, in a command of its own), then remove its link node_modules alone (${unlink}), then git worktree remove ${slashed(b10)}, then delete the empty folder Windows may leave`])
+    assert.deepEqual(linked, [`the worktree ${slashed(b10)} is still there: first leave it (cd to the main checkout, in a command of its own), then remove its link node_modules alone (${unlink}), then git worktree remove ${slashed(b10)}, then delete the empty folder Windows may leave; or all in one command: node ${REMOVE_TOOL} ${slashed(b10)}`])
     // A result check's own folder is the partner's, not the worker's; nothing left is no line.
     assert.deepEqual(await stepLeftovers({ id: 'B12', branch: 'b12-x', repo, repos: one.repos, project: one.project, run }), [])
     assert.deepEqual(await stepLeftovers({ id: 'B99', branch: 'b99-x', repo, repos: one.repos, project: one.project, run }), [])
@@ -324,7 +324,7 @@ test('the result check\'s part: the check\'s own check-<id> worktrees are named,
   try {
     const at = slashed(join(one.project, 'check-b12'))
     assert.deepEqual(await stepLeftovers({ id: 'B12', which: 'check', repos: one.repos, project: one.project, run }),
-      [`the worktree ${at} is still there: first leave it (cd to the main checkout, in a command of its own), then git worktree remove ${at}, then delete the empty folder Windows may leave`])
+      [`the worktree ${at} is still there: first leave it (cd to the main checkout, in a command of its own), then git worktree remove ${at}, then delete the empty folder Windows may leave; or all in one command: node ${REMOVE_TOOL} ${at}`])
     assert.deepEqual(await stepLeftovers({ id: 'B5', which: 'check', repos: one.repos, project: one.project, run }), [])
   } finally {
     done(one)
