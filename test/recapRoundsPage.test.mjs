@@ -23,6 +23,8 @@ const PATH = 'pictures/g6/recap/demo.json'
 const SENT = new Date(2026, 10, 2, 16, 17)
 const SENT_MS = SENT.getTime()
 const AT = '2026-11-02 16:17'
+/** T17.2: a checker's word on a row's close-up, written after the Send (16:17): "this shows what you asked". */
+const OK = { verdict: 'yes', by: 'Checker', at: '2026-11-02 16:30', why: 'the tall props fade behind the wizard' }
 
 const row = (title, more = {}) => ({ title, note: `${title} note`, pictures: [{ kind: 'final', caption: 'in the game', path: `${title.split('. ')[1].slice(0, 1)}.png` }], ...more })
 const list = (more = {}) => ({
@@ -69,14 +71,15 @@ test('round 2 is being made: one line at the top, each part sent back with the p
 })
 
 test('round 2 once the try is in: the row reads your words, what changed, the new pictures, Play it, then Approve / Send back; a pending row stays being reworked', async () => {
-  const more = { props: { changed: 'tall props -> the limit stays, see-through behind a unit', play: 'ring' }, ring: { pending: 'B925 not started', play: 'ring' } }
+  const more = { props: { changed: 'tall props -> the limit stays, see-through behind a unit', play: 'ring', shows: OK }, ring: { pending: 'B925 not started', play: 'ring' } }
   const page = await opened(shown(more, SENT_MS + 90 * MIN))
   try {
     assert.equal(page.all('.demo-making').length, 0)
     assert.equal(words(page.find('.demo-round')), 'Round 2 · 3 to judge: only what you sent back or did not decide yet.')
     assert.deepEqual(page.all('.demo-row').map(one => one.dataset.demoRow), ['2. Cliffs', '3. Props', '4. Ring', '5. Bridges'])
     const props = page.all('.demo-row')[1]
-    assert.deepEqual(classesOf(props), ['demo-row-title', 'demo-row-note', 'demo-said', 'demo-changed', 'demo-pictures', 'demo-play', 'demo-feedback'])
+    assert.deepEqual(classesOf(props), ['demo-row-title', 'demo-row-note', 'demo-said', 'demo-changed', 'demo-checked', 'demo-pictures', 'demo-play', 'demo-feedback'])
+    assert.equal(words(props.querySelector('.demo-checked')), 'Checked by Checker: the tall props fade behind the wizard', 'a row with no close-up (an answer in words) draws the checker line and its pictures as before')
     assert.equal(words(props.querySelector('.demo-said')), 'Your words: "keep the limit for tall props"')
     assert.equal(words(props.querySelector('.demo-changed')), 'What changed: tall props -> the limit stays, see-through behind a unit')
     assert.equal(props.querySelectorAll('.demo-picture').length, 1)
@@ -121,7 +124,7 @@ const rounds = [{ n: 1, at: sinceOf(NOW - 60 * MIN), parts: [{ key: 'Block 1', v
 /** The garden: Block 1 sent back an hour ago; `changedAt` is when the recap was last written. */
 const garden = changedAt => asSent(build(
   [step('B1', 'review', 300), step('B2', 'review', 300), step('B5', 'done', 30), step('B6', 'queued', 20), step('B7', 'dropped', 10)], undefined, goals,
-  { recaps: [{ path: PATH, goal: 'G6', changedAt, rounds, parts: ['Block 1', 'Block 2'].map((key, at) => ({ key, title: key, steps: [`B${at + 1}`], pending: false, changed: true })) }], goalRecap: { goal: 'G6', path: PATH, pictures: {}, changedAt, rounds }, config: ON },
+  { recaps: [{ path: PATH, goal: 'G6', changedAt, rounds, parts: ['Block 1', 'Block 2'].map((key, at) => ({ key, title: key, steps: [`B${at + 1}`], pending: false, changed: true, shows: { verdict: 'yes', by: 'Checker', at: sinceOf(NOW - 30 * MIN), why: 'it reads round' } })) }], goalRecap: { goal: 'G6', path: PATH, pictures: {}, changedAt, rounds }, config: ON },
 ))
 
 test('Needs your attention while round 2 is being made: the Product owner\'s card says so in quiet colours, with "2 of 3 next tries done" and a link; no verdict, not counted', async () => {
@@ -176,7 +179,7 @@ test('an open popup that says "being made" is drawn anew once the state says the
     await page.reread()
     assert.equal(asked(), 1, 'still being made: not asked again')
     current = garden(NOW - 20 * MIN)
-    give = shown({ props: { changed: 'tall props -> the limit stays' } }, SENT_MS + 90 * MIN)
+    give = shown({ props: { changed: 'tall props -> the limit stays', shows: OK } }, SENT_MS + 90 * MIN)
     await page.reread()
     await settle(10)
     assert.equal(asked(), 2)

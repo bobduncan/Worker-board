@@ -65,7 +65,9 @@ When `work health` itself does not answer (it timed out), file nothing for that:
 answers work calls after the chats gave up, and board-deaf one that hears no chat (B736). `work health` answers from what
 the board has and never waits for a change in the store's queue, so a time-out is the board being stuck, which those
 rules say. Board-slow's evidence cites the board's stall log (B934, `data/stalls.json`): each stall over 2 s with the
-requests and the board's own jobs that ran during it, so its finding already says what held the board.
+requests and the board's own jobs that ran during it, so its finding already says what held the board. Harm is the bar (B1011):
+board-slow sounds only for calls answered after the chat gave up (10 s, two within 2 min); a stall of 2 to 10 s stays in the
+log and is no finding; a clean-up that does not run is `clear-owed-repeat` or `handover-held`.
 
 Read only the health summary. Do not read files, logs or transcripts, do not run commands, and do not start agents: a
 sweep is meant to cost little (a few tens of thousands of tokens, mostly cached).
@@ -85,7 +87,7 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   again, its check failing again) is odd.
 - The board hands out all work (redesign Part 2, 2026-10-25; since T8.5 by one hand-over at the worker's turn end): a
   task it gives a worker is taken in the turn its line started, or the board takes it back at once; a ready task that
-  waits while a worker is free (the rule ready-while-free) is odd. Ready means what the board hands out: a fix, a task of the focus
+  waits while a worker is free (the rule ready-while-free: one incident per free worker, naming its waiting tasks) is odd. Ready means what the board hands out: a fix, a task of the focus
   goal or of a goal under it, a fix of a step the person queued or pinned (not a dropped one; the rule: the comment above `readyList` in `src/work/handOut.mjs`), or a pinned one (the backlog line's "ready to hand out"). Refined tasks outside the focus goal (the rule: `readyList` in `src/work/handOut.mjs`) wait for the
   person's pin or a focus switch by design (the backlog line's "outside the focus goal, waiting for the person by
   design"), and so do those "held otherwise": workers idle while only such tasks wait is no incident. A task pinned to a
@@ -164,8 +166,12 @@ You look for what is really wrong, nothing else.
   back by the board ... no incident". The board acts on these by itself; the dropped worker's later calls on that step are
   refused with "was given back by the board".
 - What a code rule already covers: unknown lanes (X65: the board wakes a chat by itself; since signals change 3 a holder
-  that stopped is the board's two timers'), limit readings (X47, X55, X56), clears and checks. File what the rules do not name,
-  not a second copy of what they do.
+  that stopped is the board's two timers', B986 also after the board's restart and an account switch), limit readings (X47,
+  X55, X56), clears and checks. File what the rules do not name, not a second copy of what they do.
+- `wake-failed` "could not wake Worker N: its chat is not in the app's list" (B986, X140): the chat its reports name is not
+  in the Claude app's list (an account switch, an archived chat). The board tried no message and no launch, and the held
+  step goes back by the timers (go on after 5 minutes, back 15 after); a fault only when the step is still held 20 minutes
+  after the chat stopped.
 
 An incident that turns out to be one of these is closed in your judgment (`work drop X<n>` with its why, B685), so it
 leaves the lists; in a sweep you file a new finding only for a case that really is new.

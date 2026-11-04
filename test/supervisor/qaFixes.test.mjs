@@ -157,12 +157,12 @@ const check = (id, board, seen = new Map()) => rule(id).check(board, { seen, obs
 test('3: a free worker named in a ready entry\'s notBy does not count as free for it; another free worker does', () => {
   const entry = (more = {}) => ({ id: 'B730', rank: -1, keptFor: null, keptUntil: null, pinned: null, prefers: null, notBy: ['Worker 1'], ...more })
   const board = (chats, rows = [entry()]) => view({ chats: [LEAD, ...chats], items: items(waiting('B701', 90), qa('B730', 'B701')), readyList: { ready: rows, held: [] } })
-  const seen = new Map([['ready-while-free B730', ago(30)]])
+  const seen = new Map([['ready-while-free Worker 1', ago(30)], ['ready-while-free Worker 2', ago(30)], ['ready-while-free Team - Worker 1', ago(30)]])
   // The only free worker built the step: the task waits by design.
   assert.deepEqual(check('ready-while-free', board([free('Worker 1')]), seen), [])
   // A second worker is free and could have taken it: a case, naming that one only.
   const found = check('ready-while-free', board([free('Worker 1'), free('Worker 2')]), seen)
-  assert.deepEqual(found.map(one => one.text), ['B730 ready for 30 min while Worker 2 is free'])
+  assert.deepEqual(found.map(one => one.text), ['Worker 2 free for 30 min while 1 ready task waits: B730'])
   // Any task without a notBy is as before.
   assert.equal(check('ready-while-free', board([free('Worker 1')], [{ id: 'B730', rank: -1, keptFor: null, keptUntil: null, pinned: null, prefers: null }]), seen).length, 1)
   // With the list's prefix and other letters.

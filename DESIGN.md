@@ -3951,6 +3951,16 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   its action and chat) and the board's own jobs (every loop run through `loops.run`, a state rebuild, a hand-over, a chat
   log being written, the read of a cleared chat's left session) that ran during it, to `data/stalls.json` (the newest 50,
   read again at a start); the state carries them (`stalls`) and board-slow cites them.
+  **Harm is the bar** (B1011, the person's pick C on Q645, 2026-11-04 18:43, after B934 and B978 each cut real waste and the
+  tail stayed: the board rebuilds its whole picture after almost any change, and a turn's end brings its own rebuild, the
+  hand-over's and 5 to 8 jobs at once, so no single blocker is left): the 5 s the board aims at is measured, not an alarm. A
+  call answered after 2 to 10 s goes to the stall log only; an alarm sounds only when a slow answer does harm: board-slow for
+  calls answered after the chat gave up (10 s, two within 2 min), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
+  clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. What forces a rebuild is pinned end to end by
+  `test/rebuildsBoard.test.mjs` (a copy of the board with its state kept an hour, `WORKER_BOARD_STATE_MS`, and one line per
+  rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
+  an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a
+  state read under a second ago.
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
@@ -5312,7 +5322,8 @@ for another, and since step 6 the old rules are gone for every worker:
 - `handover-unanswered`: the net fired (`netAt` on an envelope of its): one finding per envelope, for a day after the net.
   In place of not-taking.
 - `ready-while-free`: such a worker is free only in the hand-over's own **free** (its lane's `handover.state`), never by
-  the hand-out's older reading (R7, X111).
+  the hand-out's older reading (R7, X111). B1008 (X142-X147): one finding per free worker, key `ready-while-free <worker>`,
+  its waiting tasks in text and evidence, never one per ready task (one cause made six incidents).
 - `review-stuck`: its report part (a failed check not reported again) is gone since step 6, for every worker (the
   decision tells it at its first turn's end); the result-check part stays.
 
@@ -5614,6 +5625,57 @@ Tests: `test/wake.test.mjs`, `test/wakeNeeds.test.mjs`, `test/opener.test.mjs` (
 wake job and its claim), `test/work/handover.test.mjs` and `test/work/handoverBoard.test.mjs` (the hand-over around a wake,
 the real envelopes eb4fe8aada155b05 and 93ee0a904d02d2dc), `test/supervisor/handoverRules.test.mjs` (the alarms),
 `test/asleepAfterRestart.test.mjs` (the lane's words, the notice, the ⚙ row).
+
+## A lane's own chat, and one way back for a held step (B986, X140, 2026-11-04)
+
+**The case.** Worker 4 paused for the week's limit at 10:13 holding B968 (checkpoint c3186b6). The board was off
+10:54-10:58 while the person switched account; the new account's list held an old "Worker 4" of 28 Oct (local_800a5b00)
+and not the chat that held B968 (its reports' session 0c8d674a). The lane was bound to the old chat by its title, so no
+kept report matched it; after its own restart the board knew no Workers mod for the worker (its memory of calls is empty
+then), so the worker fell off the hand-over's sequence (`onSequence`): `resumesDue` sent its old `resume-step` word at
+10:58 and the holder timers (change 3) never ran, so no give-back came. Main's message (11:03) and the launch (11:06)
+went to the old chat, "could not wake Worker 4" at 11:10 (X140). The person brought the chat back into the app at 11:34.
+The deeper look also found the 10:23 lift of its pause: the note "paused for the limit until 20:00" names no window, so
+`pauseLimit` reads it as a five-hour pause, lifted by the 5-hour reading (40%) while the week stood at 100% (its own fix).
+
+**One way back.** The kept report's Workers mod counts for the lane (`mod`: the mod's last call, else the lane's matched
+report, else the report kept under its name): a worker on the sequence stays on it after the board's restart and with its
+title on another chat, so whatever stopped it (the limit, its chat closed, its chat gone after an account switch) its
+step gets change 3's "go on" after 5 minutes and the give-back 15 minutes after that, from its checkpoint, branch and
+plan. A lifted pause starts those timers; the old resume word is never sent for it (`resumesDue` skips a lane on the
+sequence).
+
+**The lane's own chat** (`src/ownChat.mjs`, `lane.own` `{ session, appSession, isListed, by }`). The chat its kept report
+names: by the report's session, or by the app id the report now keeps (`app`, the shown chat's at the report: bridge.mjs
+`noteReport`, `appOfShown`; saved in `data/reports.json`), which finds it again after a clear or an import gave it a new
+session; the title's chat when no report is kept, or when the kept report is no longer the lane's (`keptFor`, the review of
+B986: the title's chat was made after the report, as a new chat that took a renamed chat's name; or the chat it names is
+shown under another name); then its mod does not count either. Every wake goes by it, never by the title: the wake's paths and needs
+(wake.mjs `pathsOf`, `wakeNeeds`), the hands' jobs about a chat (hands.mjs `handJobs`: start, wake, set, restart), the
+launches (`chatToOpen`, the person's Send again), and the main chat's start and wake words (say.mjs). The lane itself, its
+card and its transcript stay the title's chat, and the bridge serves the session it shows.
+
+**Not in the app's list.** When the list holds no open chat its report names (`isListed` false), the wake has no path: "could
+not wake Worker 4: its chat is not in the app's list; open its chat" at once (the lane's "could not wake: its chat is not
+in the app's list"), with no message, no launch and no two-minute wait; the held step goes on to the give-back by the timers.
+A read that sees the app id's file but no chat in it (the app rewrites it) is not known (`isListed` null): the wake goes on by
+the report's ids, no case. The app's own answer to a wake message that names a session "not found" (`isNotListedAnswer`)
+ends the spell's tries too: no launch after it; "archived" does not (X140: the launch of 11:35:08 after the Advisor's
+"is archived" of 11:34:48 woke the chat).
+
+**Listed, but not the chat the board shows** (`isShown` false: two open chats of one name, the older one newer in the
+list): the own chat's takes would be refused (the bridge serves the shown session only), so no wake of it is tried: "could
+not wake Worker 4: another chat of its name is open in the app: archive the one that does not hold its work". The main
+chat's start and wake words are refused for a chat that cannot be woken ("Worker 4 cannot be woken: ... Tell the person"),
+never sent with the title's id. The wake's spell reads the kept report (`ownReport`) when the title's chat has none, so the
+spell holds and the woken chat's own report is heard in it.
+
+**Not in it.** The reimport of chats after an account switch (chat 1 fixes it with the person); the pause note's window
+(its own fix).
+
+Tests: `test/heldStepWayBack.test.mjs` (X140 replayed with its ids and times, 10:58 to 11:13: on the sequence, no
+resume-step, could not wake at once, one go on line, B968 given back from c3186b6 with its branch and plan; the cases and
+the 5 and 15 minutes; the kept app id).
 
 ## The wait line (T22, wave 1, 2026-11-02)
 
@@ -5966,6 +6028,52 @@ The coordinator's review of the first build (same day) added:
 
 Tests: test/recapRounds.test.mjs (data, the list, tools/demo.mjs, the state), test/recapRoundsPage.test.mjs (the popup, both cards),
 test/demoFeedbackBoard.test.mjs and test/recapVerdictBoard.test.mjs (on a running board: being made, then the rewrite).
+
+## Recap close-ups (T17.2, 2026-11-04)
+
+The person, 2026-11-04, looking at G60's recap row 7 (tall props fade while a unit stands behind them): "This demo never really updates
+it's images in the demo: I expect that when i promide feedback i get new tailored demo on the aspects i asked for.. e.g. a picture of a
+tall prop that is transparent like i asked for in this case." The fix was built (the crystal fades for the wizard), but the row showed five
+whole-screen shots, the old ones first, and the fade is a few pixels. Zoomed in it is plain.
+
+Their answers (2026-11-04): 1 C: a close-up before/after of the exact spot their words name, always, plus a clip where something moves (a
+fade, lava, a crumbling cell). 2 A: the new close-up first, the old pictures folded under "Earlier pictures". 3 yes: a row comes back to
+them only when its new picture was made after their words and a separate checker says "this shows what you asked"; else "Being reworked".
+4 yes: Play at the spot where the game's settings allow (they do not yet: no setting places a unit or the camera; nothing built for it).
+5 yes: the rows now in the recap get this before they judge (the coordinator does that after landing).
+
+1. Two picture kinds (src/demo.mjs `PICTURES`, `checkList`): `closeup` (`path` the after picture, `before`, `box` and optional `beforeBox`
+   in each picture's own pixels, whole numbers, w and h at least 16, `beforeCaption` and `afterCaption`, default "Before your words" and
+   "Now") labelled "YOUR WORDS, UP CLOSE", and `clip` (2 to 12 `frames`, optional `box`, `ms` 300 to 3000, default 900, `path` the last
+   frame when left out) labelled "YOUR WORDS, MOVING"; they rank before every other kind. A row's `shows` is the checker's word:
+   `{ verdict: "yes" | "no", by, at: "YYYY-MM-DD HH:MM", why }`. A bad box, frame count, `ms` or `shows` refuses the list in one line (the
+   board reading a demo.json refuses the whole recap then, as for a bad picture kind). tools/demo.mjs also checks `before` and every frame
+   (exists, a picture type, under the board's size limit) and writes their paths relative to demo.json.
+2. The tool's gate (`checkTries`): a row the person sent back, with a `changed` line and no `pending`, needs besides what it needed in T17.1:
+   a `closeup` whose `path` (the after picture) was written after their Send, unless it is an answer in words (a new note, or the same list
+   taken again with no picture) or a grid row (a grid has no close-up to carry); and a `shows` with verdict yes whose `at` is not before
+   their Send. One line per row says what to do: make the close-up (before, after, the box of the spot their words name, a clip when it
+   moves), then have a checker who did not make it write `shows`, or give `pending`.
+3. The board's gate (`roundPage`, `showsCheck`): a row sent back that has `changed`, is not `pending` and not under way is still "being
+   reworked" when its `shows` is missing, says no or is older than the Send: "Being reworked: the close-up of your words waits for its
+   check" / "Being reworked: the check says it does not show your words yet: <why>". It asks nothing and is counted nowhere: the one
+   count (src/recapRound.mjs, the card, the Needs count) reads `roundPage`, and the recap's waits (`recapWaitsOf`) read the same word. A
+   demo.json written by hand cannot skip the check; the checker's name cannot be checked by the board (the partner's rule: never the chat
+   or helper that made the picture).
+4. The popup (public/board.js): in a row they sent back whose new try is in, right under "What changed", the block "Your words, up close":
+   each close-up as the spot before and now side by side, its box scaled up to the frame with crisp pixels (the picture is placed by
+   percentages of its frame once it is loaded; `image-rendering: pixelated`); each clip one frame at a time, looping every `ms`, with "1 / N"
+   under it (with reduced motion its frames stand side by side and nothing moves; its timer stops on every redraw and when the popup
+   closes); a click on a side or on the frame shown opens that whole picture in the picture window. Under it a quiet line "Checked by <by>:
+   <why>" (cool tones), then `<details>` "Earlier pictures (N)", closed, with every other picture as before. A sent-back row with no
+   close-up (an answer in words) shows the checker's line and its pictures as before; a row not sent back is drawn as before.
+5. The partner's rule (roles/partner.md "Recap feedback"): for every row sent back, the close-up of the spot their words name and a clip when
+   the change moves, made by the worker of the fix (its report names the before and after pictures, the box and, when it moves, the frames;
+   ask for them when it does not) and checked by a helper that did not make it ("does this close-up show <their words>?"), written as
+   `shows`; without a yes the row is `pending`.
+
+Tests: test/recapCloseups.test.mjs (the shape, the tool's gate, the board's gate, tools/demo.mjs), test/recapCloseupsPage.test.mjs (the popup),
+and the fixtures of test/recapRounds.test.mjs, test/recapRoundsPage.test.mjs and test/recapOneCount.test.mjs, whose rows now carry a `shows`.
 
 ## A step nothing else closes goes to the person: Accept or Send back (B883)
 

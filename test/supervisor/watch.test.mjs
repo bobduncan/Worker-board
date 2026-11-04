@@ -103,10 +103,10 @@ test('ready-while-free: a ready task kept for nobody waits 11 min while a worker
   const free = (name, since = ago(40), state = 'free') => lane(name, { state: 'free', onSequence: true, handover: handover(state), report: { state: 'idle', since, background: false, at: ago(0) } })
   const ready = (...rows) => ({ ready: rows.map(row => ({ rank: 2, keptFor: null, keptUntil: null, pinned: null, ...row })), held: [] })
   const board = (more = {}) => view({ chats: [LEAD, free('Painter'), lane('Mason', { state: 'working' })], items: items(step('B5', 'refined', { Refined: 'ready' })), readyList: ready({ id: 'B5' }), ...more })
-  const seen = minutes => new Map([['ready-while-free B5', ago(minutes)]])
+  const seen = minutes => new Map([['ready-while-free Painter', ago(minutes)]])
   const found = check('ready-while-free', board(), seen(11))
-  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['ready-while-free', 'ready-while-free B5', 'B5']])
-  assert.equal(found[0].text, 'B5 ready for 11 min while Painter is free')
+  assert.deepEqual(found.map(one => [one.rule, one.key, one.subject]), [['ready-while-free', 'ready-while-free Painter', 'Painter']])
+  assert.equal(found[0].text, 'Painter free for 11 min while 1 ready task waits: B5')
   assert.equal(found[0].fix, undefined, 'report only')
   assert.deepEqual(check('ready-while-free', board(), seen(9)), [])
   // The worker only just went free: counted from its report.
@@ -129,6 +129,19 @@ test('ready-while-free: a ready task kept for nobody waits 11 min while a worker
   // Not while the person pauses or a limit is full.
   assert.deepEqual(check('ready-while-free', board({ pause: { state: 'pausing', since: ago(5) } }), seen(30)), [])
   assert.deepEqual(check('ready-while-free', board({ limits: { week: { level: 'full' } } }), seen(30)), [])
+})
+
+test('ready-while-free: one finding per free worker naming all its waiting tasks, never one per task (X142-X147)', () => {
+  const free = (name, since = ago(40)) => lane(name, { state: 'free', onSequence: true, handover: { state: 'free', why: null, step: null }, report: { state: 'idle', since, background: false, at: ago(0) } })
+  const ready = ids => ({ ready: ids.map(id => ({ id, rank: 2, keptFor: null, keptUntil: null, pinned: null })), held: [] })
+  const ids = ['B1', 'B2', 'B3']
+  const board = chats => view({ chats: [LEAD, ...chats], items: items(...ids.map(id => step(id, 'refined', { Refined: 'ready' }))), readyList: ready(ids) })
+  const seen = new Map([['ready-while-free Painter', ago(30)], ['ready-while-free Mason', ago(30)]])
+  const one = check('ready-while-free', board([free('Painter')]), seen)
+  assert.deepEqual(one.map(f => [f.key, f.subject]), [['ready-while-free Painter', 'Painter']])
+  assert.equal(one[0].text, 'Painter free for 30 min while 3 ready tasks wait: B1, B2, B3')
+  assert.match(one[0].evidence, /waiting tasks: B1, B2, B3/)
+  assert.deepEqual(check('ready-while-free', board([free('Painter'), free('Mason')]), seen).map(f => f.key), ['ready-while-free Painter', 'ready-while-free Mason'])
 })
 
 test('opus-wait: an opus step held for Opus for 16 min trips; 14 min does not', () => {
@@ -478,13 +491,13 @@ test('gap 3: ready-while-free counts only what the board hands out: never a task
   const list = (ready, held) => ({ ready: ready.map(row => ({ rank: 1, keptFor: null, keptUntil: null, pinned: null, ...row })), held })
   const OUTSIDE = 'outside the focus goal: waits until you pin it or switch the focus'
   const board = readyList => view({ chats: [LEAD, free('Painter')], items: items(step('B5', 'refined', { Refined: 'ready' }), step('B6', 'refined', { Refined: 'ready' })), readyList })
-  const seen = new Map([['ready-while-free B5', ago(30)], ['ready-while-free B6', ago(30)]])
+  const seen = new Map([['ready-while-free Painter', ago(30)]])
   // Refined tasks outside the focus goal wait for the person by design: no finding while a worker is free.
   assert.deepEqual(check('ready-while-free', board(list([], [{ id: 'B5', why: OUTSIDE }, { id: 'B6', why: OUTSIDE }])), seen), [])
   // A task pinned to the worker that stands free: the board failed to give it.
   const pinned = check('ready-while-free', board(list([{ id: 'B6', keptFor: 'Painter', pinned: 'Painter' }], [{ id: 'B5', why: OUTSIDE }])), seen)
-  assert.deepEqual(pinned.map(one => one.subject), ['B6'])
-  assert.equal(pinned[0].text, 'B6 ready for 30 min while Painter is free')
+  assert.deepEqual(pinned.map(one => one.subject), ['Painter'])
+  assert.equal(pinned[0].text, 'Painter free for 30 min while 1 ready task waits: B6')
   // The sweep's instructions say the same: idle workers beside tasks outside the focus goal are no incident.
   const role = (await readFile(new URL('../../roles/supervisor.md', import.meta.url), 'utf8')).replace(/\s+/g, ' ')
   assert.match(role, /Refined tasks outside the focus goal .* wait for the person's pin or a focus switch by design .* workers idle while only such tasks wait is no incident/)

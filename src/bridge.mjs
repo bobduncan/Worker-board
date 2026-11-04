@@ -42,7 +42,7 @@ export function noteCall(seen, body, checked, now) {
  * (`checked`, the take's check): another session under the name (a renamed or replaced chat) never writes over it.
  * `reports` is the server's Map. True when a report was kept.
  */
-export function noteReport(reports, body, checked, now) {
+export function noteReport(reports, body, checked, now, app = null) {
   if (reports === null || reports === undefined || checked?.ok !== true || typeof checked.chat !== 'string') return false
   const report = parseReport(body?.report, now)
   if (report === null) return false
@@ -53,8 +53,12 @@ export function noteReport(reports, body, checked, now) {
   // The review of chat-reports (principle 5): two reports can arrive out of order; one of a lower `seq` than the kept one
   // of the same session and process changes nothing but when the chat was last heard. A new session or process starts
   // fresh; no clock is compared.
+  // B986 (X140): the app's id of the chat the report came from (`app`, the shown chat's), so a lane finds its own chat again
+  // after a clear or an import gave it a new session (ownChat.mjs); a report without one keeps the id its session had.
+  const appId = typeof app === 'string' && /^local_[\w-]{1,80}$/.test(app) ? app : kept !== undefined && kept.session === session && typeof kept.app === 'string' ? kept.app : null
+  const withApp = entry => (appId === null ? entry : { ...entry, app: appId })
   if (isSame && kept.seq !== null && report.seq !== null && report.seq < kept.seq) {
-    reports.set(checked.chat, { ...kept, at: now, mod })
+    reports.set(checked.chat, withApp({ ...kept, at: now, mod }))
     return true
   }
   // When the board heard the chat's last turn start (busy after idle, ended or nothing; not after its question), kept
@@ -62,14 +66,17 @@ export function noteReport(reports, body, checked, now) {
   const isSameSession = kept !== undefined && kept.session === session
   const isTurnStart = report.state === 'busy' && (!isSameSession || kept.state === 'idle' || kept.state === 'ended')
   const busyAt = isTurnStart ? now : isSameSession ? kept.busyAt ?? null : null
-  reports.set(checked.chat, { ...report, at: now, session, mod, busyAt })
+  reports.set(checked.chat, withApp({ ...report, at: now, session, mod, busyAt }))
   return true
 }
 
+/** B986: the app's id of the chat the board shows under `checked.chat` (its lane's `appSession`), or null. */
+export const appOfShown = (state, checked) => (checked?.ok === true ? shownChats(state ?? {}).find(one => one.name === checked.chat)?.appSession ?? null : null)
+
 /** The report call's answer: refused as a take is (400, 409), 400 for no report, else the report is kept. */
-export function answerReport(reports, body, checked, now) {
+export function answerReport(reports, body, checked, now, app = null) {
   if (!checked.ok) return checked
-  return noteReport(reports, body, checked, now) ? { ok: true, result: { ok: true } } : refuse(400, 'Not a report: its state is busy, idle, asking or ended.')
+  return noteReport(reports, body, checked, now, app) ? { ok: true, result: { ok: true } } : refuse(400, 'Not a report: its state is busy, idle, asking or ended.')
 }
 
 /**
