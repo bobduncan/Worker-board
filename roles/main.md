@@ -380,4 +380,6 @@ starts it with one click. Workers have no fixed subject; an older chat's name is
 
 All chats share the plan's limits. Look them up once in your first turn after each reset (the app's usage tool):
 the board reads the reset time from that. Never spend extra usage without asking. Never stop or start the user's
-board yourself, and never force-push a base branch.
+board yourself, and never force-push a base branch. A change to the worker board itself goes live only with
+`tools/land.ps1 <branch> -By "<your chat>"` on the lead's or the person's go, never by hand (DESIGN.md, "Going live:
+tools/land.ps1").

@@ -82,10 +82,10 @@ export function allowedIn(texts) {
 }
 
 /**
- * The settings text with `tools` added to its allow rules, the rest kept: `{ ok, text, added }`. An empty or missing
- * file starts as `{}`; one that is no JSON object is left alone (`ok` false, with why).
+ * The settings text with `rules` added to its `permissions.<key>` list, the rest kept: `{ ok, text, added }`. An empty or
+ * missing file starts as `{}`; one that is no JSON object is left alone (`ok` false, with why).
  */
-export function withAllowRules(text, tools) {
+function withRules(text, key, rules) {
   let read = {}
   if (typeof text === 'string' && text.trim() !== '') {
     try {
@@ -96,11 +96,23 @@ export function withAllowRules(text, tools) {
     if (!isRecord(read)) return { ok: false, why: 'the project\'s settings.local.json is no JSON object: fix it first' }
   }
   const permissions = isRecord(read.permissions) ? read.permissions : {}
-  const allow = Array.isArray(permissions.allow) ? [...permissions.allow] : []
-  const added = tools.filter(tool => !allow.includes(tool))
+  const kept = Array.isArray(permissions[key]) ? [...permissions[key]] : []
+  const added = rules.filter(rule => !kept.includes(rule))
   if (added.length === 0) return { ok: true, text, added }
-  return { ok: true, text: `${JSON.stringify({ ...read, permissions: { ...permissions, allow: [...allow, ...added] } }, null, 2)}\n`, added }
+  return { ok: true, text: `${JSON.stringify({ ...read, permissions: { ...permissions, [key]: [...kept, ...added] } }, null, 2)}\n`, added }
 }
+
+/** The settings text with `tools` added to its allow rules (see `withRules`). */
+export const withAllowRules = (text, tools) => withRules(text, 'allow', tools)
+
+/** The settings text with `rules` added to its deny rules (see `withRules`); a deny rule only takes rights away. */
+export const withDenyRules = (text, rules) => withRules(text, 'deny', rules)
+
+/**
+ * 2026-11-04: a force-push of a base branch is denied in a project's settings, for the Bash and the PowerShell tool alike;
+ * the go-live script (tools/land.ps1) is how a chat lands, and it never forces.
+ */
+export const FORCE_PUSH_DENY = ['Bash', 'PowerShell'].flatMap(tool => ['git push --force*', 'git push -f*', 'git push --force-with-lease*', 'git push * --force*', 'git push * -f*'].map(pattern => `${tool}(${pattern})`))
 
 /**
  * What the page shows: `{ rows: [{ key, title, byCode, why }], missing, needsTask, missingRoutines, checked }`. `claims` the
@@ -188,14 +200,20 @@ export async function readCodeJobs({ project, folder, maxWorkers, home = homedir
   return { allowed: allowedIn(texts), tasks: ids.filter((id, at) => there[at]) }
 }
 
-/** Allow: adds `tools` to the project's `.claude/settings.local.json`, made when missing: `{ ok, added }` or why not. */
-export async function allowCodeJobs({ project, tools, fs = FILES }) {
+/** Writes `rules` into the project's `.claude/settings.local.json` under `permissions.<key>`, made when missing: `{ ok, added }` or why not. */
+async function writeRules({ project, key, rules, fs }) {
   const file = join(project, '.claude', 'settings.local.json')
   const text = await fs.readFile(file, 'utf8').catch(error => (error?.code === 'ENOENT' ? '' : null))
   if (text === null) return { ok: false, why: 'the project\'s settings.local.json cannot be read' }
-  const next = withAllowRules(text, tools)
+  const next = withRules(text, key, rules)
   if (!next.ok || next.added.length === 0) return next
   await fs.mkdir(dirname(file), { recursive: true })
   await fs.writeFile(file, next.text, 'utf8')
   return { ok: true, added: next.added }
 }
+
+/** Allow: adds `tools` to the project's `.claude/settings.local.json`, made when missing: `{ ok, added }` or why not. */
+export const allowCodeJobs = ({ project, tools, fs = FILES }) => writeRules({ project, key: 'allow', rules: tools, fs })
+
+/** Deny: adds `rules` (the force-push ones unless given) to the project's deny rules, the same way: `{ ok, added }` or why not. */
+export const denyForcePushes = ({ project, rules = FORCE_PUSH_DENY, fs = FILES }) => writeRules({ project, key: 'deny', rules, fs })

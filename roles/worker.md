@@ -150,7 +150,12 @@ step therefore says what it touches ("Touches: ...").
 - The repository's own `CLAUDE.md`, when it has one, is the working agreement and holds for you in full: read it
   before your first task.
 - Push a branch when you make it and as it grows. Run the repository's checks before a merge; after it push main,
-  delete the branch here and on its remote, and prune. Never force-push main.
+  delete the branch here and on its remote, and prune. Never force-push main (the project's settings deny it).
+  A change to the worker board itself is the exception to "merge and push main yourself": it goes live only with
+  `tools/land.ps1 <branch> -By "<your chat>"` (DESIGN.md, "Going live: tools/land.ps1"), on the lead's or the person's go,
+  and never by hand: it gates the exact head, takes the one landing lock, fast-forwards main, pushes, brings the trial copy
+  up, restarts both boards and rolls back with a revert commit when one does not come back. Merge main into your branch
+  first; its answer is one line (`landed`, `refused: <why>` or `rolled back: <why>`) and a line in `data/landings.jsonl`.
 - Lessons of a task go into the repository's documents, not into a chat.
 - A change to the Workers mod (B570): raise its version (plugin.json and `MOD_VERSION`), and after your merge bring it
   onto the PC once: `claude plugin marketplace update <marketplace>` and `claude plugin update <mod>@<marketplace>`

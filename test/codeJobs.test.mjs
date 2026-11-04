@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-import { CLAIM_MS, CODE_JOBS, SEND_SOON, SEND_WHY, allowCodeJobs, allowedIn, codeJobsView, missingRoutines, readCodeJobs, taskWords, withAllowRules } from '../src/codeJobs.mjs'
+import { CLAIM_MS, CODE_JOBS, FORCE_PUSH_DENY, SEND_SOON, SEND_WHY, allowCodeJobs, allowedIn, codeJobsView, denyForcePushes, missingRoutines, readCodeJobs, taskWords, withAllowRules, withDenyRules } from '../src/codeJobs.mjs'
 
 const MIN = 60_000
 const NOW = 100 * MIN
@@ -258,4 +258,61 @@ test('2026-11-01 (the person: "remove this from the settings, just the visual"):
     assert.equal(open.find('#code-jobs').hidden, false)
     assert.equal(open.find('#code-jobs-allow').hidden, false)
   } finally { await open.close() }
+})
+
+// 2026-11-04 (the go-live script, tools/land.ps1): force-pushes are denied in a new project's settings, in the flow that adds the
+// allow rules. A deny rule only takes rights away.
+
+test('the force-push deny rules are the five push patterns for the Bash tool and the same five for the PowerShell tool', () => {
+  const patterns = ['git push --force*', 'git push -f*', 'git push --force-with-lease*', 'git push * --force*', 'git push * -f*']
+  assert.deepEqual(FORCE_PUSH_DENY, [...patterns.map(one => `Bash(${one})`), ...patterns.map(one => `PowerShell(${one})`)])
+  assert.equal(FORCE_PUSH_DENY.length, 10)
+})
+
+test('deny rules are added under permissions.deny: the allow rules and the rest of the file stay, a second time adds nothing', () => {
+  const kept = JSON.stringify({ permissions: { allow: ['A'], deny: ['D'] }, hooks: { x: 1 } })
+  const added = withDenyRules(kept, ['D', 'E'])
+  assert.deepEqual(added.added, ['E'])
+  assert.deepEqual(JSON.parse(added.text), { permissions: { allow: ['A'], deny: ['D', 'E'] }, hooks: { x: 1 } })
+  assert.deepEqual(withDenyRules(added.text, ['D', 'E']).added, [])
+  assert.deepEqual(JSON.parse(withDenyRules('', ['E']).text), { permissions: { deny: ['E'] } })
+  assert.equal(withDenyRules('{ broken', ['E']).ok, false)
+  // An allow rule is no deny rule and the other way round.
+  assert.deepEqual(JSON.parse(withAllowRules(added.text, ['E']).text).permissions, { allow: ['A', 'E'], deny: ['D', 'E'] })
+})
+
+test('the new project\'s settings.local.json gets the allow rules and then the force-push deny rules; nothing allows the go-live script', async () => {
+  const files = new Map()
+  const norm = path => path.replace(/\\/g, '/')
+  const fs = {
+    readFile: async path => { if (!files.has(norm(path))) throw Object.assign(new Error('none'), { code: 'ENOENT' }); return files.get(norm(path)) },
+    writeFile: async (path, text) => { files.set(norm(path), text) },
+    mkdir: async () => {},
+  }
+  const file = 'P/.claude/settings.local.json'
+  const tools = CODE_JOBS.flatMap(job => job.tools)
+  assert.equal((await allowCodeJobs({ project: 'P', tools, fs })).ok, true)
+  const denied = await denyForcePushes({ project: 'P', fs })
+  assert.deepEqual(denied, { ok: true, added: FORCE_PUSH_DENY })
+  const written = JSON.parse(files.get(file))
+  assert.deepEqual(written.permissions.allow, tools)
+  assert.deepEqual(written.permissions.deny, FORCE_PUSH_DENY)
+  assert.deepEqual([...files.keys()], [file], 'one file only')
+  assert.ok(!JSON.stringify(written).includes('land.ps1'), 'no allow rule for the script')
+  assert.deepEqual(await denyForcePushes({ project: 'P', fs }), { ok: true, text: files.get(file), added: [] })
+  // A settings file that is no JSON is left alone, with the reason.
+  files.set(file, '{ broken')
+  const broken = await denyForcePushes({ project: 'P', fs })
+  assert.equal(broken.ok, false)
+  assert.equal(files.get(file), '{ broken')
+})
+
+test('npm run new adds the deny rules only in the flow that adds the allow rules, on the person\'s y, and writes no settings file of the person', async () => {
+  const flow = await readFile(new URL('../tools/new-project.mjs', import.meta.url), 'utf8')
+  const block = flow.slice(flow.indexOf('if (allowCode) {'))
+  assert.match(block, /allowCodeJobs\(\{ project: folder, tools: CODE_TOOLS \}\)[\s\S]*denyForcePushes\(\{ project: folder \}\)/)
+  assert.equal((flow.match(/denyForcePushes\(/g) ?? []).length, 1, 'one call, inside that block')
+  assert.ok(flow.indexOf('denyForcePushes(') > flow.indexOf('if (allowCode) {'))
+  assert.ok(!/land\.ps1/.test(flow), 'no allow rule for the script')
+  assert.ok(!/settings\.json/.test(flow), 'nothing is written to ~/.claude/settings.json or any other settings.json')
 })

@@ -127,6 +127,13 @@ and the briefings for the main chat and the workers.
    `mcp__Claude_Browser__preview_logs` let a worker start, check and stop the game's preview (the app's built-in browser,
    from the project's own `.claude\launch.json`) with no popup; without them every worker asks you each time it starts
    the game. Other browser actions (opening outside sites) keep asking.
+   **Force-pushes are denied.** On the same y the new-project flow also writes deny rules into the project's
+   `.claude\settings.local.json` (`permissions.deny`): `Bash(git push --force*)`, `Bash(git push -f*)`,
+   `Bash(git push --force-with-lease*)`, `Bash(git push * --force*)`, `Bash(git push * -f*)` and the same five as
+   `PowerShell(...)`. A deny rule only takes rights away; nothing is allowed by it. A change of the worker board itself goes
+   live through `tools\land.ps1 <branch> -By "<chat>"` (DESIGN.md, "Going live: tools/land.ps1"): it gates the exact head,
+   fast-forwards main, pushes without force, restarts both boards and rolls back with a revert commit. It has no allow rule
+   and nothing is written to your `~\.claude\settings.json`; whether a chat may land is your word or the lead's.
    **Leftovers (B847).** A worker's routine opens a new chat with the worker's title on each run; it does not reopen the
    chat of the run before. The older chat stays in the app's list and the board shows it greyed, as a leftover. Once the
    newer chat has checked in, the board archives the older chats of that worker by itself (a chat's mod, with the three
