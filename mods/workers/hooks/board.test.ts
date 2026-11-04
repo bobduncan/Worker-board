@@ -111,8 +111,9 @@ describe('B944 (0.30.0): the clear on its way, kept in the mod\'s store', () => 
 
   test('the pending clear the store keeps, read safely', () => {
     const env = { id: 'e1', kind: 'task', step: 'B13', clear: null, restart: false, set: null, line: 'go', version: null }
-    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: env, outcome: { typed: null } })).toEqual({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: parseEnvelope(env), outcome: { ...NO_OUTCOME } })
-    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: '../x', at: 5, envelope: null, outcome: null })).toEqual({ ticket: 'clear-7-2', from: 'units', step: null, at: 5, envelope: null, outcome: null })
+    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: env, outcome: { typed: null } })).toEqual({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: parseEnvelope(env), outcome: { ...NO_OUTCOME }, lineTyped: false })
+    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', at: 5, lineTyped: true })?.lineTyped).toBe(true)
+    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: '../x', at: 5, envelope: null, outcome: null })).toEqual({ ticket: 'clear-7-2', from: 'units', step: null, at: 5, envelope: null, outcome: null, lineTyped: false })
     expect(parsePendingClear({ ticket: '7', from: 'units', at: 5 })).toBeNull()
     expect(parsePendingClear(null)).toBeNull()
   })

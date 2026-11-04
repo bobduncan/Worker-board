@@ -338,7 +338,18 @@ export type Outcome = {
   cleared: boolean | null; set: boolean | null; typed: boolean | null; restarted: boolean | null; background: boolean; why: string | null
   /** 4c (0.30.0): the mod's clock just before the line's submit, and when the submit resolved (the line entered the chat); absent with no line typed. */
   typedAt?: number; enteredAt?: number
+  /** The lazy clear (0.31.0): why the envelope's clear did not run (its line went anyway); absent when it ran or none was asked. */
+  clearWhy?: string
 }
+
+/**
+ * The lazy clear (0.31.0, the board's Task 1 contract): a stage of an envelope's clear, told to the board the moment it
+ * happens (`typed` with `handover` and a top-level `stages`), dated by the mod's clock then. `ticket` is the clear's
+ * key (`clearTicket`), `session` the new session's id after a clear, `log` the log's path, `why` a refusal's words.
+ */
+export type ClearStage = { stage: 'log-saved' | 'clear-queued' | 'cleared' | 'clear-refused'; at: number; why?: string; log?: string; ticket?: string; session?: string }
+/** The board takes at most this many stages in one post. */
+export const MOST_STAGES = 8
 
 const STEP_ID = /^[A-Z]\d{1,6}$/
 const ENVELOPE_ID = /^[A-Za-z0-9_-]{1,64}$/
@@ -519,8 +530,10 @@ export function launchArgv(board: BoardStart, cwd: string): string[] {
  * first): the clear on its way is kept in the mod's store with its envelope, under a key of its own (`clearTicket`: the
  * process's run and its ticket), so a reload or a new process that runs its /clear by the card's mark still types the
  * envelope's line and settles it, and one whose /clear never comes settles it failed at the two-minute net.
+ * The lazy clear (0.31.0, D9): `lineTyped` once the envelope's line went without the clear (its clear dropped at
+ * CLEAR_NET_MS): a reload that finds the record never types that line a second time.
  */
-export type PendingClear = { ticket: string; from: string; step: string | null; at: number; envelope: Envelope | null; outcome: Outcome | null }
+export type PendingClear = { ticket: string; from: string; step: string | null; at: number; envelope: Envelope | null; outcome: Outcome | null; lineTyped: boolean }
 /**
  * B944: the store's key of a clear, unique across this chat's processes: the process's run (its start) and its ticket. The
  * record itself is kept under its session (`pendingClearKey`): `$.store` is one file for every chat of the plugin.
@@ -533,7 +546,7 @@ const TICKET = /^clear-\d{1,16}-\d{1,9}$/
 export function parsePendingClear(raw: unknown): PendingClear | null {
   if (!isRecord(raw) || typeof raw.ticket !== 'string' || !TICKET.test(raw.ticket) || typeof raw.from !== 'string' || typeof raw.at !== 'number' || !Number.isFinite(raw.at)) return null
   const outcome = isRecord(raw.outcome) ? { ...NO_OUTCOME, ...raw.outcome } as Outcome : null
-  return { ticket: raw.ticket, from: raw.from, step: typeof raw.step === 'string' && STEP_ID.test(raw.step) ? raw.step : null, at: raw.at, envelope: parseEnvelope(raw.envelope), outcome }
+  return { ticket: raw.ticket, from: raw.from, step: typeof raw.step === 'string' && STEP_ID.test(raw.step) ? raw.step : null, at: raw.at, envelope: parseEnvelope(raw.envelope), outcome, lineTyped: raw.lineTyped === true }
 }
 
 /** Pause 2: a step's checkpoint as the board names it (`work step` with `commit` and `next`); null when it has none. */
