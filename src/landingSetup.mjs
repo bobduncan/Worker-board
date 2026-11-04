@@ -1,4 +1,4 @@
-// 2026-11-04 (the person, in the lead's chat: "Yes, write them"): what the board's setup may write so that a chat of a new project can
+// 2026-11-04 (the person, in the building chat: "Yes, write them"): what the board's setup may write so that a chat of a new project can
 // put a board change live with tools/land.ps1 on its own. Claude Code's auto mode refuses a landing (a push of main, a restart) as a
 // "production deploy" unless it is told the board is a local development tool, and it reads that only from the user's own settings
 // (`autoMode` in ~/.claude/settings.json); the project's `permissions.allow` lets the one command run with no question. A new project
