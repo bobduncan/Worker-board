@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, MOST_STAGES, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, MOST_STAGES, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn } from './board'
 import type { Board, BoardStart, ClearStage, Envelope, Handover, Outcome, PauseState, PauseWhere, PendingClear, StopAsk, TurnReport, TurnWords, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -980,6 +980,29 @@ const idOf = (read: Record<string, unknown> | null): string | null => (typeof re
  * Tells the board what became of the messages this chat took: typed here, or not. B532: with `why` per id, and the ids
  * it `refused` for good (too long, no text), which the board does not try again; a failed one it does.
  */
+/** 0.31.0, Task 6: the taken words whose fate this process told the board (typed or not), each once; the newest REPORTED_KEEP. */
+const reportedWords = new Set<string>()
+const REPORTED_KEEP = 200
+/** True the first time a word is marked reported (it is told now), false when it was told before. */
+function markReported(id: string): boolean {
+  if (reportedWords.has(id)) return false
+  reportedWords.add(id)
+  while (reportedWords.size > REPORTED_KEEP) reportedWords.delete(reportedWords.values().next().value as string)
+  return true
+}
+
+/**
+ * 0.31.0, Task 6: taken words a turn's prompt holds (the app merged queued prompts into one, and only the last submit
+ * resolves): reported typed, each once.
+ */
+async function reportEntered($: EngineInterface, ids: string[]): Promise<void> {
+  const told = ids.filter(markReported)
+  if (told.length === 0 || chatsDir === null) return
+  const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
+  const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
+  if (board !== null) await reportTyped($, board, told, [])
+}
+
 async function reportTyped($: EngineInterface, board: Board, typed: string[], failed: string[], why: Record<string, string> = {}, refused: string[] = []): Promise<void> {
   try {
     await askBoard($, board, TYPED_PATH, { typed, failed, ...(refused.length > 0 ? { refused } : {}), ...(Object.keys(why).length > 0 ? { why } : {}) })
@@ -1044,12 +1067,15 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
         // A prompt a hook dropped did not enter the chat, though the call itself went well.
         entered => {
           turnWords = wordSettled(turnWords, message.id, entered.drop === undefined)
+          // 0.31.0, Task 6: a word its turn's start already reported typed (a merged prompt) is not reported again.
+          if (!markReported(message.id)) return undefined
           return entered.drop === undefined
             ? reportTyped($, board, [message.id], [])
             : reportTyped($, board, [], [message.id], { [message.id]: typedWhy(entered.drop, 'a hook dropped it') })
         },
         reason => {
           turnWords = wordSettled(turnWords, message.id, false)
+          if (!markReported(message.id)) return undefined
           return reportTyped($, board, [], [message.id], { [message.id]: typedWhy(reason, 'the chat did not take it') })
         },
       )
@@ -2860,7 +2886,13 @@ export const register: Register = on => {
     // runs on, by its text, and its start, before the busy goes out. An ask that closes within the turn is no start (asking ->
     // busy keeps both). A start whose state report does not change (a question still open) is told at once all the same.
     const isOwnStart = e.agentId === undefined && !isInTurn
-    if (isOwnStart) turnWords = turnBegan(turnWords, e.text, await $.clock.now())
+    if (isOwnStart) {
+      // 0.31.0, Task 6: the words of ours this prompt holds have entered, merged or not: each taken word not yet reported is
+      // reported typed now (its own submit may never resolve), once; the turn is named by the first of them.
+      const entered = wordsIn(turnWords, e.text).filter(id => typedIds.has(id) && !reportedWords.has(id))
+      turnWords = turnBegan(turnWords, e.text, await $.clock.now())
+      if (entered.length > 0) void reportEntered($, entered).catch(() => null)
+    }
     const wasBusy = turnReport.state === 'busy'
     // Redesign Part 1: a turn of the chat's own reports busy (a question still open to the person keeps it asking).
     if (e.agentId === undefined && openForms === 0) await setReport($, 'busy')

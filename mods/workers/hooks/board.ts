@@ -61,9 +61,28 @@ export function wordSettled(words: TurnWords, id: string, isEntered: boolean): T
  * `turn` is `now` either way. The word taken, and any that entered before it (their turns are past), leave the queue.
  */
 export function turnBegan(words: TurnWords, text: string, now: number): TurnWords {
-  const at = words.typed.findIndex(one => sameWords(one.text, text))
+  // 0.31.0, Task 6: the app may merge several queued prompts of ours into one turn's prompt: every word whose text the
+  // prompt holds entered with it; the turn is named by the first of them in outbox order.
+  const inPrompt = new Set(wordsIn(words, text))
+  const at = words.typed.findIndex(one => inPrompt.has(one.id))
   if (at < 0) return { typed: words.typed, word: null, turn: now }
-  return { typed: words.typed.filter((one, i) => i > at || (i < at && !one.isEntered)), word: words.typed[at].id, turn: now }
+  return { typed: words.typed.filter((one, i) => !inPrompt.has(one.id) && (i > at || !one.isEntered)), word: words.typed[at].id, turn: now }
+}
+
+/** Whitespace-normalised, as `sameWords` compares. */
+const normal = (value: unknown): string => String(value ?? '').replace(/\s+/g, ' ').trim()
+
+/**
+ * 0.31.0, Task 6 (the Advisor's case of 2026-11-04: 09:31:48, 10:06:48, 11:19:40): the app queues each word the mod submits
+ * while its chat is busy, and after the turn dequeues them all at once MERGED into one user message; only the last submit
+ * resolves, the earlier ones never resolve or reject. The ids of the words of ours on their way whose text the turn's prompt
+ * holds (whitespace-normalised: the exact text, or one part of a merged prompt), in outbox order; none for a prompt that holds
+ * none of them (the person's own line).
+ */
+export function wordsIn(words: TurnWords, text: string): string[] {
+  const prompt = normal(text)
+  if (prompt === '') return []
+  return words.typed.filter(one => normal(one.text) !== '' && (sameWords(one.text, text) || prompt.includes(normal(one.text)))).map(one => one.id)
 }
 
 /** 8c: a /clear: the new conversation runs no word of the old one's queue, and no turn has run on a word in it yet. */
