@@ -148,18 +148,18 @@ test('lockHolder reads who holds the lock and for how long, or null when none', 
 
 // The debugger check.
 
-const BOARDS = [{ dir: 'C:\\Web\\lava-tactics-project\\worker-board', port: 4310 }, { dir: 'C:\\Web\\board-trial\\worker-board', port: 4314 }]
+const BOARDS = [{ dir: 'D:\\boards\\main\\worker-board', port: 4310 }, { dir: 'D:\\boards\\trial\\worker-board', port: 4314 }]
 const node = (pid, ppid, commandLine) => ({ pid, ppid, name: 'node.exe', commandLine })
 const listen = (pid, port) => ({ state: 'Listen', localAddress: '127.0.0.1', localPort: port, remoteAddress: '0.0.0.0', remotePort: 0, pid })
 const link = (pid, localPort, remotePort) => ({ state: 'Established', localAddress: '127.0.0.1', localPort, remoteAddress: '127.0.0.1', remotePort, pid })
 
 const PROCESSES = [
-  node(100, 1, 'node "C:\\Web\\lava-tactics-project\\worker-board\\server.mjs"'),
-  node(101, 100, '"C:\\Program Files\\nodejs\\node.exe" C:\\Web\\lava-tactics-project\\worker-board\\server.mjs'),
-  node(200, 1, 'node C:\\Web\\board-trial\\worker-board\\server.mjs'),
-  node(201, 200, 'node C:\\Web\\board-trial\\worker-board\\server.mjs'),
-  node(900, 1, 'node C:\\Web\\somewhere-else\\worker-board\\server.mjs'),
-  node(950, 1, 'node C:\\Web\\lava-tactics-project\\art-inbox\\X93\\trace-b978.mjs'),
+  node(100, 1, 'node "D:\\boards\\main\\worker-board\\server.mjs"'),
+  node(101, 100, '"C:\\Program Files\\nodejs\\node.exe" D:\\boards\\main\\worker-board\\server.mjs'),
+  node(200, 1, 'node D:\\boards\\trial\\worker-board\\server.mjs'),
+  node(201, 200, 'node D:\\boards\\trial\\worker-board\\server.mjs'),
+  node(900, 1, 'node D:\\boards\\elsewhere\\worker-board\\server.mjs'),
+  node(950, 1, 'node D:\\boards\\tools\\trace.mjs'),
 ]
 const BASE = [listen(101, 4310), listen(201, 4314), listen(900, 4400), link(101, 4310, 55000), link(7, 55000, 4310)]
 
@@ -190,7 +190,7 @@ test('a client on the inspector is a refusal that names the board, its process, 
   const connections = [...BASE, listen(101, 9229), link(101, 9229, 61000), link(950, 61000, 9229)]
   const decision = inspectorDecision({ boards: BOARDS, processes: PROCESSES, connections })
   assert.equal(decision.verdict, 'refuse')
-  assert.equal(decision.refusal, 'a debugger is attached to the 4310 board\'s child (pid 101, inspector port 9229, client pid 950 node C:\\Web\\lava-tactics-project\\art-inbox\\X93\\trace-b978.mjs): stop it first')
+  assert.equal(decision.refusal, 'a debugger is attached to the 4310 board\'s child (pid 101, inspector port 9229, client pid 950 node D:\\boards\\tools\\trace.mjs): stop it first')
   // A client whose end of the pair is not in the list is still a client.
   const unseen = inspectorDecision({ boards: BOARDS, processes: PROCESSES, connections: [...BASE, listen(201, 9230), link(201, 9230, 61001)] })
   assert.equal(unseen.verdict, 'refuse')

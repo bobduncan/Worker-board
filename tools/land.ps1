@@ -1,6 +1,6 @@
 # land.ps1 <branch> [-Cold] [-By "<chat>"]   (2026-11-04: the one safe, logged way a change of the worker board goes live)
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File "C:/Web/lava-tactics-project/worker-board/tools/land.ps1" <branch> [-Cold] [-By "<chat>"]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File "<the main checkout>/tools/land.ps1" <branch> [-Cold] [-By "<chat>"]
 #
 # What it does, in order (DESIGN.md, "Going live: tools/land.ps1"):
 #  1. Refuses, with one line "refused: <why>" and a line in data/landings.jsonl, before anything changes: the main checkout is
@@ -24,7 +24,8 @@
 #
 # -Config <json file> is for tests only: { main, boards: [{ dir, port }], remote, trialRemote, gateBoard, gateMod, claudeExe,
 # dataDir, tempRoot, nodeModules, comeBackSeconds, pollMs, gateMinutes, lockStaleMinutes, processesFile, connectionsFile }.
-# Without it the defaults are the PC's real boards (the main checkout on 4310, the trial copy on 4314).
+# Without it the defaults are the PC's real boards: the main checkout (the repository's first working tree) with the port the
+# PC's list of boards gives it, and each trial copy (a board of that list that is a clone of the main checkout: its remote `local`).
 #
 # This file is plain ASCII: Windows PowerShell 5.1 reads a script without a byte-order mark in the console's code page.
 param(
@@ -35,74 +36,6 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
-
-# ---- settings ---------------------------------------------------------------------------------------------------------
-$cfg = $null
-if ($Config -ne '') { $cfg = (Get-Content -Raw -LiteralPath $Config) | ConvertFrom-Json }
-function Get-Setting([string]$Name, $Default) {
-  if ($null -ne $cfg) {
-    $found = $cfg.PSObject.Properties[$Name]
-    if ($null -ne $found -and $null -ne $found.Value -and "$($found.Value)" -ne '') { return $found.Value }
-  }
-  return $Default
-}
-function Get-Full([string]$Path) { return [System.IO.Path]::GetFullPath($Path).TrimEnd('\') }
-
-$mainDir = Get-Full (Get-Setting 'main' 'C:\Web\lava-tactics-project\worker-board')
-$boards = @()
-if ($null -ne $cfg -and $null -ne $cfg.PSObject.Properties['boards']) {
-  foreach ($one in @($cfg.boards)) { $boards += @{ dir = (Get-Full $one.dir); port = [int]$one.port } }
-} else {
-  $boards = @(@{ dir = $mainDir; port = 4310 }, @{ dir = (Get-Full 'C:\Web\board-trial\worker-board'); port = 4314 })
-}
-$remote = [string](Get-Setting 'remote' 'origin')
-$trialRemote = [string](Get-Setting 'trialRemote' 'local')
-$gateBoardCommand = [string](Get-Setting 'gateBoard' 'npm test')
-$gateModCommand = [string](Get-Setting 'gateMod' '')
-$claudeExeSetting = [string](Get-Setting 'claudeExe' '')
-$dataDir = Get-Full (Get-Setting 'dataDir' (Join-Path $mainDir 'data'))
-$tempRoot = Get-Full (Get-Setting 'tempRoot' $env:TEMP)
-$nodeModules = Get-Full (Get-Setting 'nodeModules' (Join-Path $mainDir 'node_modules'))
-$comeBackSeconds = [int](Get-Setting 'comeBackSeconds' 90)
-$pollMs = [int](Get-Setting 'pollMs' 2000)
-$gateMinutes = [int](Get-Setting 'gateMinutes' 60)
-$lockStaleMinutes = [int](Get-Setting 'lockStaleMinutes' 15)
-$processesFile = [string](Get-Setting 'processesFile' '')
-$connectionsFile = [string](Get-Setting 'connectionsFile' '')
-$lockFile = Join-Path $dataDir 'landing.lock'
-$landingsLog = Join-Path $dataDir 'landings.jsonl'
-$landingsDir = Join-Path $dataDir 'landings'
-$KNOWN_CLAUDE = 'C:\Users\bobdu\AppData\Local\Claude-Data\claude_pzs8sxrjxfjjc\claude-code\2.1.309\9078b9c1d466\claude.exe'
-
-# State of this run, read by the log line at the end.
-$script:refused = $false
-$script:result = 'refused'
-$script:why = $null
-$script:exitCode = 1
-$script:headFull = $null
-$script:beforeFull = $null
-$script:afterFull = $null
-$script:trialFull = $null
-$script:boardsAfter = @()
-$script:gateLog = $null
-$script:notes = @()
-$script:lockToken = $null
-$script:work = $null
-$script:snapshot = $null
-$script:landed = $false
-
-function Say([string]$Text) { [Console]::Out.WriteLine($Text) }
-function Short([string]$Sha) { if ($null -eq $Sha -or $Sha.Length -le 7) { return $Sha } else { return $Sha.Substring(0, 7) } }
-function Refuse([string]$Why) {
-  $script:refused = $true
-  $script:why = $Why
-  throw 'land-refused'
-}
-
-# A script that came from the checkout this run moves must not change under it: the two helpers are copied aside first.
-Remove-Item Env:\WORKER_BOARD_CHILD -ErrorAction SilentlyContinue
-Remove-Item Env:\WORKER_BOARD_KEY -ErrorAction SilentlyContinue
-Remove-Item Env:\WORKER_BOARD_TOKEN -ErrorAction SilentlyContinue
 
 # ---- running programs (a .NET process: stdout, stderr and the exit code each on their own, whatever PowerShell 5.1 does) ----
 function ConvertTo-Arg([string]$Arg) {
@@ -139,6 +72,124 @@ function Invoke-Native([string]$File, [string[]]$ArgList, [string]$WorkDir = '',
 
 function Invoke-Git([string]$Dir, [string[]]$GitArgs) { return (Invoke-Native 'git' (@('-C', $Dir) + $GitArgs) '' 300) }
 function Git-Line($Result) { if ($Result.err -ne '') { return (($Result.err -split "`n")[0]).Trim() } else { return (($Result.out -split "`n")[0]).Trim() } }
+
+# State of this run, read by the log line at the end.
+$script:refused = $false
+$script:result = 'refused'
+$script:why = $null
+$script:exitCode = 1
+$script:headFull = $null
+$script:beforeFull = $null
+$script:afterFull = $null
+$script:trialFull = $null
+$script:boardsAfter = @()
+$script:gateLog = $null
+$script:notes = @()
+$script:lockToken = $null
+$script:work = $null
+$script:snapshot = $null
+$script:landed = $false
+
+function Say([string]$Text) { [Console]::Out.WriteLine($Text) }
+function Short([string]$Sha) { if ($null -eq $Sha -or $Sha.Length -le 7) { return $Sha } else { return $Sha.Substring(0, 7) } }
+function Refuse([string]$Why) {
+  $script:refused = $true
+  $script:why = $Why
+  throw 'land-refused'
+}
+
+# A script that came from the checkout this run moves must not change under it: the two helpers are copied aside first.
+Remove-Item Env:\WORKER_BOARD_CHILD -ErrorAction SilentlyContinue
+Remove-Item Env:\WORKER_BOARD_KEY -ErrorAction SilentlyContinue
+Remove-Item Env:\WORKER_BOARD_TOKEN -ErrorAction SilentlyContinue
+
+# ---- settings ---------------------------------------------------------------------------------------------------------
+$cfg = $null
+if ($Config -ne '') { $cfg = (Get-Content -Raw -LiteralPath $Config) | ConvertFrom-Json }
+function Get-Setting([string]$Name, $Default) {
+  if ($null -ne $cfg) {
+    $found = $cfg.PSObject.Properties[$Name]
+    if ($null -ne $found -and $null -ne $found.Value -and "$($found.Value)" -ne '') { return $found.Value }
+  }
+  return $Default
+}
+function Get-Full([string]$Path) { return [System.IO.Path]::GetFullPath($Path).TrimEnd('\') }
+
+# The repository names no folder of the PC it was built on (the tests of B323 and B191 keep it so): the main checkout is the
+# repository's first working tree, which git lists first, wherever this script runs from (a worktree of a branch too).
+function Get-MainCheckout {
+  $listed = Invoke-Native 'git' @('-C', $PSScriptRoot, 'worktree', 'list', '--porcelain') '' 60
+  $first = @($listed.out -split "`n" | Where-Object { $_ -like 'worktree *' }) | Select-Object -First 1
+  if ($listed.code -ne 0 -or $null -eq $first) { return (Get-Full (Join-Path $PSScriptRoot '..')) }
+  return (Get-Full ($first.Substring(9).Trim().Replace('/', '\')))
+}
+
+# The boards of this PC, without a -Config: the main checkout's board, then each trial copy. The ports are the ones the PC's own
+# list of boards holds (boards.json in ~\.worker-board, or in WORKER_BOARD_HOME; src/ports.mjs), else the main board's config.json
+# or 4310. A trial copy is a board of that list, in another folder, that is a clone of the main checkout: its remote `local`
+# is the main checkout (a board of another project has none).
+function Get-DefaultBoards([string]$Main, [string]$TrialRemote) {
+  $listHome = $env:WORKER_BOARD_HOME
+  if (-not $listHome) { $listHome = Join-Path $env:USERPROFILE '.worker-board' }
+  $entries = @()
+  $listFile = Join-Path $listHome 'boards.json'
+  if (Test-Path -LiteralPath $listFile) {
+    try { $entries = @((Get-Content -Raw -LiteralPath $listFile | ConvertFrom-Json).boards) } catch { $entries = @() }
+  }
+  $port = 4310
+  $configFile = Join-Path $Main 'config.json'
+  if (Test-Path -LiteralPath $configFile) {
+    try {
+      $read = Get-Content -Raw -LiteralPath $configFile | ConvertFrom-Json
+      if ($null -ne $read.PSObject.Properties['port']) { $port = [int]$read.PSObject.Properties['port'].Value }
+    } catch { $port = 4310 }
+  }
+  $found = @()
+  foreach ($entry in $entries) {
+    if ($null -eq $entry.PSObject.Properties['folder'] -or $null -eq $entry.PSObject.Properties['port']) { continue }
+    if ((Get-Full ([string]$entry.folder)) -eq $Main) { $port = [int]$entry.port }
+  }
+  $found += @{ dir = $Main; port = $port }
+  foreach ($entry in $entries) {
+    if ($null -eq $entry.PSObject.Properties['folder'] -or $null -eq $entry.PSObject.Properties['port']) { continue }
+    $dir = Get-Full ([string]$entry.folder)
+    if ($dir -eq $Main -or -not (Test-Path -LiteralPath $dir)) { continue }
+    $url = Invoke-Git $dir @('remote', 'get-url', $TrialRemote)
+    if ($url.code -eq 0 -and $url.out -ne '' -and (Get-Full $url.out.Replace('/', '\')) -eq $Main) { $found += @{ dir = $dir; port = [int]$entry.port } }
+  }
+  return $found
+}
+
+$remote = [string](Get-Setting 'remote' 'origin')
+$trialRemote = [string](Get-Setting 'trialRemote' 'local')
+$configuredMain = [string](Get-Setting 'main' '')
+if ($configuredMain -ne '') { $mainDir = Get-Full $configuredMain } else { $mainDir = Get-MainCheckout }
+$boards = @()
+if ($null -ne $cfg -and $null -ne $cfg.PSObject.Properties['boards']) {
+  foreach ($one in @($cfg.boards)) { $boards += @{ dir = (Get-Full $one.dir); port = [int]$one.port } }
+} else {
+  $boards = @(Get-DefaultBoards $mainDir $trialRemote)
+}
+# For the tests of the defaults above: says the boards and ends, touching nothing.
+if ([bool](Get-Setting 'printBoards' $false)) {
+  Say ('boards: ' + (ConvertTo-Json -InputObject @($boards | ForEach-Object { [pscustomobject]@{ dir = $_.dir; port = $_.port } }) -Compress))
+  exit 0
+}
+$gateBoardCommand = [string](Get-Setting 'gateBoard' 'npm test')
+$gateModCommand = [string](Get-Setting 'gateMod' '')
+$claudeExeSetting = [string](Get-Setting 'claudeExe' '')
+$dataDir = Get-Full (Get-Setting 'dataDir' (Join-Path $mainDir 'data'))
+$tempRoot = Get-Full (Get-Setting 'tempRoot' $env:TEMP)
+$nodeModules = Get-Full (Get-Setting 'nodeModules' (Join-Path $mainDir 'node_modules'))
+$comeBackSeconds = [int](Get-Setting 'comeBackSeconds' 90)
+$pollMs = [int](Get-Setting 'pollMs' 2000)
+$gateMinutes = [int](Get-Setting 'gateMinutes' 60)
+$lockStaleMinutes = [int](Get-Setting 'lockStaleMinutes' 15)
+$processesFile = [string](Get-Setting 'processesFile' '')
+$connectionsFile = [string](Get-Setting 'connectionsFile' '')
+$lockFile = Join-Path $dataDir 'landing.lock'
+$landingsLog = Join-Path $dataDir 'landings.jsonl'
+$landingsDir = Join-Path $dataDir 'landings'
 
 # ---- the helpers (src/landing.mjs through tools/landing.mjs) -----------------------------------------------------------
 $node = $null
@@ -320,9 +371,13 @@ function Test-Ready([bool]$AfterGate) {
 # ---- the gate ---------------------------------------------------------------------------------------------------------
 function Find-ClaudeExe {
   if ($claudeExeSetting -ne '') { return $claudeExeSetting }
-  if (Test-Path -LiteralPath $KNOWN_CLAUDE) { return $KNOWN_CLAUDE }
+  # The app keeps its command-line program in its own data folder, one folder per version: a running chat's is the one in use,
+  # else the newest one there.
   $paths = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'claude*' -and $_.ExecutablePath } | ForEach-Object { $_.ExecutablePath })
-  foreach ($path in @($paths | Where-Object { $_ -match 'claude-code' }) + $paths) { if (Test-Path -LiteralPath $path) { return $path } }
+  foreach ($path in @($paths | Where-Object { $_ -match 'claude-code' })) { if (Test-Path -LiteralPath $path) { return $path } }
+  $kept = @(Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Claude-Data\*\claude-code\*\*\claude.exe') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+  if ($kept.Count -gt 0) { return $kept[0].FullName }
+  foreach ($path in $paths) { if (Test-Path -LiteralPath $path) { return $path } }
   return $null
 }
 

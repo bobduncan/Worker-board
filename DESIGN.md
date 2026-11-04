@@ -6409,7 +6409,7 @@ Until now every landing of the worker board was done by hand or with a scratch s
 up, restart both boards. `tools/land.ps1` is the one safe, logged command for it, for any chat that has the lead's or the
 person's go (the script grants no right and has no allow rule; a landing is never done by hand):
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File "C:/Web/lava-tactics-project/worker-board/tools/land.ps1" <branch> [-Cold] [-By "<chat>"]
+    powershell -NoProfile -ExecutionPolicy Bypass -File "<the main checkout>/tools/land.ps1" <branch> [-Cold] [-By "<chat>"]
 
 - **What it checks, before anything changes** (each refusal is one line `refused: <why>`, exit 1, and a landings line): the
   main checkout is on `main` and clean (an untracked `.claude/` does not count); the branch contains main ("merge main into

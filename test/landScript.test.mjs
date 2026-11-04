@@ -327,7 +327,7 @@ test('a debugger attached to a board is refused before anything changes (the lis
   world.branch('feat')
   await world.boards()
   const was = await Promise.all(world.ports.map(boardState))
-  const trace = 'node C:\\Web\\lava-tactics-project\\art-inbox\\X93\\trace-b978.mjs'
+  const trace = 'node D:\\tools\\trace.mjs'
   writeFileSync(world.processesFile, JSON.stringify([
     { pid: 7001, ppid: 1, name: 'node.exe', commandLine: `node ${join(world.main, 'server.mjs')}` },
     { pid: 7002, ppid: 1, name: 'node.exe', commandLine: trace },
@@ -480,6 +480,40 @@ test('nothing to land, a main checkout on another branch and a trial copy that c
   assert.equal(existsSync(join(world.data, 'landings')), false, 'no gate ran for any of them')
   assert.deepEqual(world.landings().map(line => line.result), ['refused', 'refused', 'refused', 'refused'])
   assert.deepEqual(readdirSync(world.tmp), [])
+})
+
+test('without settings the boards are found, not named: git\'s first working tree, the ports of the PC\'s list, a trial copy is a clone of the main checkout', LONG, async t => {
+  const world = await makeWorld(t)
+  // The script runs from a folder of the made-up repository, as it does from the real one (its worktrees too).
+  mkdirSync(join(world.main, 'tools'))
+  await cp(SCRIPT, join(world.main, 'tools', 'land.ps1'))
+  const copy = join(world.root, 'elsewhere')
+  git(world.root, 'clone', '-q', world.remote, copy)
+  const home = join(world.root, 'pc')
+  mkdirSync(home)
+  const entry = (folder, port) => ({ project: dirname(folder), folder, port, gamePort: 5300, asked: { port: 4310, gamePort: 5300 } })
+  writeFileSync(join(home, 'boards.json'), JSON.stringify({ boards: [entry(world.trial, 4412), entry(world.main, 4411), entry(copy, 4413), entry(join(world.root, 'gone'), 4414)] }))
+  const configFile = join(world.root, 'print.json')
+  writeFileSync(configFile, JSON.stringify({ printBoards: true }))
+  const boards = home => new Promise(done => {
+    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(world.main, 'tools', 'land.ps1'), 'unused', '-Config', configFile],
+      { cwd: world.root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, WORKER_BOARD_HOME: home } })
+    let out = ''
+    child.stdout.on('data', chunk => { out += chunk })
+    child.stderr.on('data', chunk => { out += chunk })
+    child.on('exit', status => done({ status, out: out.replace(/\r/g, '').trim() }))
+  })
+  const listed = await boards(home)
+  assert.equal(listed.status, 0, listed.out)
+  // The main checkout first with its port from the list, then the clone of it (the copy that has no `local` remote is another's).
+  assert.deepEqual(JSON.parse(listed.out.replace(/^boards: /, '')), [{ dir: world.main, port: 4411 }, { dir: world.trial, port: 4412 }])
+  // No list: the main board alone, on its config.json's port, else on 4310.
+  const empty = join(world.root, 'nolist')
+  mkdirSync(empty)
+  assert.deepEqual(JSON.parse((await boards(empty)).out.replace(/^boards: /, '')), [{ dir: world.main, port: 4310 }])
+  writeFileSync(join(world.main, 'config.json'), JSON.stringify({ port: 4455 }))
+  assert.deepEqual(JSON.parse((await boards(empty)).out.replace(/^boards: /, '')), [{ dir: world.main, port: 4455 }])
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), world.before, 'nothing was touched')
 })
 
 // The script's own text.
