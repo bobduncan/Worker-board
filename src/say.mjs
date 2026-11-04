@@ -6,7 +6,7 @@ import { refinedKey } from './backlog.mjs'
 import { doneWhenText } from './goals.mjs'
 import { blockTitlesFor, brainstormFixWords, brainstormStrandedWords, leftOutKey } from './brainstorm.mjs'
 export { brainstormFixWords, brainstormStrandedWords }
-import { wakeIdsOf } from './ownChat.mjs'
+import { cannotWakeWhy, wakeIdsOf } from './ownChat.mjs'
 import { SWITCH_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
 import { stoppedOf } from './stopped.mjs'
@@ -643,7 +643,10 @@ function startCheck(body, state, text) {
   if (body.to !== (state.restart?.main ?? null) && lanes.find(chat => chat.name === body.to)?.isRunning !== true) return refuse(409, 'That chat does not run, so it cannot start another.')
   const target = lanes.find(chat => chat.name === body.chat)
   if (target === undefined || target.name === body.to || target.isRunning !== false) return refuse(409, 'That chat runs, or is not on the board.')
-  // B986 (X140): the chat its reports name (ownChat.mjs), never the one its title matches.
+  // B986 (X140): the chat its reports name (ownChat.mjs), never the one its title matches; none for a chat that cannot be
+  // woken (the review of B986: else the main chat messages the title's chat, the 11:03 mechanism).
+  const cannot = cannotWakeWhy(target)
+  if (cannot !== null) return refuse(409, `${target.name} cannot be woken: ${cannot}. Tell the person.`)
   const own = wakeIdsOf(target).appSession
   const hasId = typeof own === 'string' && /^[\w-]{1,80}$/.test(own)
   const id = hasId ? `Its session id: ${own}.` : 'The board does not know its session id: find its session by the chat\'s name in the app\'s list of sessions.'
@@ -932,6 +935,8 @@ export function wakesStopped(state, stopped, outbox, clock) {
   const lanes = boardLanes(state)
   return lanes.filter(lane => lane.name !== main && (stopped.get(lane.name) ?? null) !== null)
     .filter(lane => !outbox.some(sent => sent.command === 'wake' && sent.about === lane.name && sent.stoppedAt === stopped.get(lane.name).since))
+    // B986 (the review, 6): no word for a chat that cannot be woken (not in the app's list, not the chat the board shows).
+    .filter(lane => cannotWakeWhy(lane) === null)
     .map(lane => wakeStoppedWords(main, lane, stopped.get(lane.name), clock))
 }
 

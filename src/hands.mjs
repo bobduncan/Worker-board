@@ -290,13 +290,13 @@ export function handJobs({ caller, taken = [], lanes = [], now, spawn = null, us
     const lane = laneOf(message.about)
     // B986 (X140): the chat its reports name (ownChat.mjs), never the one its title matches; none when not in the app's list.
     const ids = wakeIdsOf(lane)
-    if (lane === undefined || lane.name === caller || ids.isListed === false || !isAppId(ids.appSession)) {
+    if (lane === undefined || lane.name === caller || ids.why !== null || !isAppId(ids.appSession)) {
       back.push(message.id)
       continue
     }
     const set = setOf(message)
     const head = { id: message.id, to: ids.appSession, chat: lane.name }
-    if (message.command === RESTART_COMMAND) jobs.push({ ...head, restart: { keep: lanes.map(one => wakeIdsOf(one).appSession).filter(isAppId) } })
+    if (message.command === RESTART_COMMAND) jobs.push({ ...head, restart: { keep: lanes.map(one => one.appSession).filter(isAppId) } })
     else if (set !== null) jobs.push({ ...head, set })
     else if (canSend) jobs.push({ ...head, text: HAND_LINE })
     else back.push(message.id)

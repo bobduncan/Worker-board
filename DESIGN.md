@@ -5527,7 +5527,9 @@ sequence).
 **The lane's own chat** (`src/ownChat.mjs`, `lane.own` `{ session, appSession, isListed, by }`). The chat its kept report
 names: by the report's session, or by the app id the report now keeps (`app`, the shown chat's at the report: bridge.mjs
 `noteReport`, `appOfShown`; saved in `data/reports.json`), which finds it again after a clear or an import gave it a new
-session; the title's chat when no report is kept. Every wake goes by it, never by the title: the wake's paths and needs
+session; the title's chat when no report is kept, or when the kept report is no longer the lane's (`keptFor`, the review of
+B986: the title's chat was made after the report, as a new chat that took a renamed chat's name; or the chat it names is
+shown under another name); then its mod does not count either. Every wake goes by it, never by the title: the wake's paths and needs
 (wake.mjs `pathsOf`, `wakeNeeds`), the hands' jobs about a chat (hands.mjs `handJobs`: start, wake, set, restart), the
 launches (`chatToOpen`, the person's Send again), and the main chat's start and wake words (say.mjs). The lane itself, its
 card and its transcript stay the title's chat, and the bridge serves the session it shows.
@@ -5535,9 +5537,17 @@ card and its transcript stay the title's chat, and the bridge serves the session
 **Not in the app's list.** When the list holds no open chat its report names (`isListed` false), the wake has no path: "could
 not wake Worker 4: its chat is not in the app's list; open its chat" at once (the lane's "could not wake: its chat is not
 in the app's list"), with no message, no launch and no two-minute wait; the held step goes on to the give-back by the timers.
-A read that sees the app id's file but no chat in it (the app rewrites it) is not known (`isListed` null): no case. The
-app's own answer to a wake message, "not found" or "archived" (`isNotListedAnswer`), ends the spell's tries too: no launch
-after it.
+A read that sees the app id's file but no chat in it (the app rewrites it) is not known (`isListed` null): the wake goes on by
+the report's ids, no case. The app's own answer to a wake message that names a session "not found" (`isNotListedAnswer`)
+ends the spell's tries too: no launch after it; "archived" does not (X140: the launch of 11:35:08 after the Advisor's
+"is archived" of 11:34:48 woke the chat).
+
+**Listed, but not the chat the board shows** (`isShown` false: two open chats of one name, the older one newer in the
+list): the own chat's takes would be refused (the bridge serves the shown session only), so no wake of it is tried: "could
+not wake Worker 4: another chat of its name is open in the app: archive the one that does not hold its work". The main
+chat's start and wake words are refused for a chat that cannot be woken ("Worker 4 cannot be woken: ... Tell the person"),
+never sent with the title's id. The wake's spell reads the kept report (`ownReport`) when the title's chat has none, so the
+spell holds and the woken chat's own report is heard in it.
 
 **Not in it.** The reimport of chats after an account switch (chat 1 fixes it with the person); the pause note's window
 (its own fix).

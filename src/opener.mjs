@@ -84,8 +84,8 @@ export function chatToOpen(state, outbox = []) {
   const owner = state?.productOwner ?? null
   const ownerWaits = typeof owner?.name === 'string' && (outbox ?? []).some(message => message?.state === 'waiting' && message.to === owner.name)
   const order = [ownerWaits ? owner : undefined, lanes.find(lane => lane.isMain === true), state?.advisor, state?.supervisorChat, ...lanes.filter(lane => lane.isMain !== true)]
-  // B986: by each lane's own chat (ownChat.mjs), never the title's; one not in the app's list is not launched.
-  const found = order.find(lane => typeof lane?.name === 'string' && wakeIdsOf(lane).isListed !== false && isSessionId(wakeIdsOf(lane).session))
+  // B986: by each lane's own chat (ownChat.mjs), never the title's; one that cannot be woken (not in the app's list, not the shown chat) is not launched.
+  const found = order.find(lane => typeof lane?.name === 'string' && wakeIdsOf(lane).why === null && isSessionId(wakeIdsOf(lane).session))
   return found === undefined ? null : { chat: found.name, session: wakeIdsOf(found).session }
 }
 
