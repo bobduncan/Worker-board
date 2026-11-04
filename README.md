@@ -406,7 +406,8 @@ no token cost: `<project>\.claude\chat-logs\<chat>\<YYYY-MM-DD HHmm> <step>.txt`
 speaker and every tool call and result in full, with an exact copy of the transcript beside it (`.jsonl`); a log not
 finished when the board stops is finished at its next start (`data\chat-logs.json`). A moment the board itself stalls
 (its event loop held, or a work call answered after over 2 s) is written to `data\stalls.json` with what the board ran
-then (B934), and the supervisor's rule board-slow cites it. The chat's card moves to its new
+then (B934), and the supervisor's rule board-slow cites it; harm is the bar (B1011): a call answered after 2 to 10 s stays in that
+log and opens no finding, board-slow sounds only for calls answered after the chat gave up (10 s). The chat's card moves to its new
 session id and the board follows it, so its lane, steps, asks and instructions stay the same chat's; the lane says
 "cleared after B482 · log", and "log" opens the text in the board. A worker that may not be cleared then (the person
 pauses, a question not filed as an ask, something of it still running, no log) is compacted as before.

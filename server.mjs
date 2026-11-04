@@ -22,7 +22,7 @@
 
 import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs'
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -134,7 +134,12 @@ const PICTURE_BYTES = REFERENCE_BYTES
 const FOLDERS_MS = 60_000
 // B917 (X93): 2 s rarely covered the chats' 5-second pings and the page's 10-second polls (207 rebuilds in 10 min on
 // 2026-11-02); every change through the board still resets it, so a change shows at once.
-const STATE_MS = 5_000
+const STATE_MS = Number(process.env.WORKER_BOARD_STATE_MS) > 0 ? Number(process.env.WORKER_BOARD_STATE_MS) : 5_000
+/**
+ * B1011: a test's file that gets one line for each rebuild of the state, so a copy of the board shows end to end what forces a
+ * rebuild (with WORKER_BOARD_STATE_MS long, only a reset does). '' (none) on a real board.
+ */
+const READ_LOG = process.env.WORKER_BOARD_READ_LOG ?? ''
 /** Light state: what `GET /api/step?id=` takes, a step's key: its id (B12), or "<activity>:<place>" for an old line without one. */
 const STEP_KEY = /^(?:[A-Za-z][A-Za-z0-9-]{0,40}|\d{1,4}:\d{1,5})$/
 /** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */
@@ -2087,6 +2092,7 @@ async function main(args) {
   // `planLineOf`), in memory as the asleep map was kept: a restart forgets it, which only makes the words look new.
   let planSeen = {}
   const readState = cached(() => trackJob('state rebuild', async () => {
+    if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
     blockRead()
     const raw = await readRaw()
