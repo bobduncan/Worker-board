@@ -106,8 +106,8 @@ import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirs
 import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { HANDOVER_COMMAND, onSequence, outcomeOf } from './src/work/handover.mjs'
-import { handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
+import { HANDOVER_COMMAND, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
+import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, SUPERVISOR_RULE_KEYS, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
@@ -1738,6 +1738,9 @@ async function main(args) {
     }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start })
+      // The lazy clear (D8): no clear goes alone since Workers mod 0.31.0; one an older board left waiting is closed with its
+      // reason at every start (the landing's sweep: the first start on this version closes them, later ones find none).
+      if (!isShowOnly) await closeClearOnly(store, clock()).catch(error => loops.failed('clear-only-sweep', error))
       // B406: a file torn by a restart or a power cut is set aside, and the board starts without it (the page says so).
       finishedSeen = await kept(FINISHED_FILE)
       roundsKept = await kept(ROUNDS_FILE)
@@ -3325,17 +3328,21 @@ async function main(args) {
       noteMod(body, checked)
       if (!checked.ok) return checked
       if (await store.settle(checked.chat, checked, clock()) > 0) readState.reset()
-      // T8.5: an envelope's outcome, once (D): settled, and the worker's decision runs at once (a failed clear or set takes
-      // its task back now, not after a clock).
+      // T8.5: an envelope's outcome, once (D): settled, and the worker's decision runs at once (a failed set takes its task
+      // back now, not after a clock). The lazy clear (D1): the clear's stages as they happen (`stages`, top-level beside
+      // `handover`), alone or with the outcome, merged in the same turn as the settle, so two quick posts never lose each other.
       const outcome = outcomeOf(body?.outcome)
-      if (typeof body?.handover === 'string' && outcome !== null) {
-        const settled = await handoverTurn(workDir ?? HERE, () => settleEnvelope(store, checked.chat, body.handover, outcome, clock()))
-        if (settled) {
-          readState.reset()
-          await decideFor(checked.chat, body?.mod ?? null, { kind: 'pass' })
-          return { ok: true, result: { settled: true } }
-        }
-        return { ok: true, result: { settled: false } }
+      // Whenever `stages` came as a list the answer says `staged` (false: none taken), so the mod tells "dropped" from an older board.
+      const hasStages = Array.isArray(body?.stages)
+      const stages = stagesOf(body?.stages, clock())
+      if (typeof body?.handover === 'string' && (outcome !== null || hasStages)) {
+        const done = await handoverTurn(workDir ?? HERE, async () => ({
+          staged: stages === null ? false : await addStages(store, checked.chat, body.handover, stages),
+          settled: outcome === null ? false : await settleEnvelope(store, checked.chat, body.handover, outcome, clock()),
+        }))
+        if (done.staged || done.settled) readState.reset()
+        if (done.settled) await decideFor(checked.chat, body?.mod ?? null, { kind: 'pass' })
+        return { ok: true, result: { settled: done.settled, ...(hasStages ? { staged: done.staged } : {}) } }
       }
       return { ok: true, result: {} }
     }),

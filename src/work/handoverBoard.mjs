@@ -14,7 +14,7 @@
 
 import { RESTART_COMMAND, restartWords } from './modRollout.mjs'
 import { EFFORTS, chatEffort, effortOf, effortWords, modelOf, runSettings, sameModel } from './effort.mjs'
-import { HANDOVER_COMMAND, contractOf, decide, envelopesOf, failedWhy, onSequence } from './handover.mjs'
+import { HANDOVER_COMMAND, contractOf, decide, envelopesOf, failedWhy, isClearOwedOnly, mergeStages, onSequence } from './handover.mjs'
 import { giveBackStep } from './giveBack.mjs'
 import { GIVE_BACK_MINUTES, RESUME_MINUTES, continuationOf, standOf } from './holderTimers.mjs'
 import { isHolding } from './pause.mjs'
@@ -150,11 +150,44 @@ export async function settle(outbox, chat, id, outcome, now) {
   const message = outbox.outbox().find(one => one.id === id && one.command === HANDOVER_COMMAND && one.to === chat)
   if (message === undefined || (message.outcome ?? null) !== null || !['waiting', 'taken'].includes(message.state)) return false
   const settled = { ...message, outcome }
-  const isFailed = outcome.cleared === false || outcome.set === false || outcome.restarted === false || (outcome.typed === false && typeof message.line === 'string')
+  // The lazy clear (D4): a clear owed while its line went in is delivered, as failedOf reads it (one predicate for both).
+  const isFailed = !isClearOwedOnly(message, outcome)
+    && (outcome.cleared === false || outcome.set === false || outcome.restarted === false || (outcome.typed === false && typeof message.line === 'string'))
   await outbox.update(id, isFailed
     ? { state: 'failed', failedAt: now, settledAt: now, outcome, why: failedWhy(settled) }
     : { state: 'delivered', deliveredAt: now, settledAt: now, outcome })
   return true
+}
+
+/**
+ * The lazy clear (D1): the clear stages the Workers mod posts as they happen (`typed` with `handover` and `stages`), written
+ * on the envelope's top-level `stages`, one entry per stage name (a repeat is ignored), in any state and also after its
+ * outcome (a late `cleared` may follow a `clear-refused`); the settle stays once. The caller runs it in the store's one
+ * turn (`inTurn`), so two quick posts never lose each other. True when the envelope is this chat's (the stages are on it
+ * now), false for none.
+ */
+export async function addStages(outbox, chat, id, stages) {
+  const message = outbox.outbox().find(one => one.id === id && one.command === HANDOVER_COMMAND && one.to === chat)
+  if (message === undefined) return false
+  const merged = mergeStages(message.stages, stages)
+  if (merged !== null) await outbox.update(id, { stages: merged })
+  return true
+}
+
+/** The lazy clear (D8): the reason a clear-only envelope still waiting is closed at the board's start. */
+export const CLEAR_ONLY_CLOSED_WHY = 'no clear goes alone since Workers mod 0.31.0: the clear it owes rides its next task'
+
+/**
+ * The lazy clear (D8): the landing's sweep, at every start of the board: every clear-only envelope (a clear, no task, no
+ * line, no restart) still waiting in the outbox is closed with its reason; one already taken is the mod's and settles as
+ * its outcome says. The number closed.
+ */
+export async function closeClearOnly(outbox, now) {
+  const waiting = outbox.outbox().filter(one => one.command === HANDOVER_COMMAND && one.state === 'waiting' && one.restart !== true
+    && (one.clear ?? null) !== null && typeof one.step !== 'string' && typeof one.line !== 'string')
+  let closed = 0
+  for (const one of waiting) if (await outbox.close(one.id, 'dropped', CLEAR_ONLY_CLOSED_WHY, now)) closed += 1
+  return closed
 }
 
 /**

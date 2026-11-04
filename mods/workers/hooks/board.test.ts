@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared } from './board'
+import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -84,6 +84,85 @@ describe('8c (0.30.0): every report says the word its turn runs on and the turn\
   })
 })
 
+describe('Task 6 (0.31.0): words the app merged into one prompt have all entered', () => {
+  /** The three real batches of 2026-11-04 (the Advisor's chat), as the ids the board hands out: the merged prompt of each ran one turn. */
+  const BATCHES: [string, string[]][] = [
+    ['09:31:48', ['7a972772', 'cf04b25b']],
+    ['10:06:48', ['e2c84352', '45ac6f71', '77955933']],
+    ['11:19:40', ['e747d01f', '9cf89a1b', '626c45f7']],
+  ]
+  const textOf = (id: string): string => `(answered on the worker board, 09:3x) Q${id} "Go on": approved.\nTick this step.`
+  /** Every word of the batch typed (their submits pending: none resolved, or only the last), in outbox order. */
+  const typedAll = (ids: string[], lastResolved = false): TurnWords => ids.reduce((words, id, i) => {
+    const typing = wordTyping(words, id, textOf(id))
+    return lastResolved && i === ids.length - 1 ? wordSettled(typing, id, true) : typing
+  }, NO_TURN_WORDS as TurnWords)
+
+  for (const [at, ids] of BATCHES) {
+    test(`the batch of ${at} (${ids.join(' + ')}): the merged prompt holds every word: all of them entered, the turn is the first one's, the queue is empty`, () => {
+      // The app joins the queued prompts with a blank line (it may also re-wrap their whitespace).
+      const prompt = ids.map(textOf).join('\n\n')
+      // Mutant "only the exact text matches": the joined prompt equals none of the words: nothing entered, the turn no word's.
+      for (const lastResolved of [false, true]) {
+        const words = typedAll(ids, lastResolved)
+        expect(wordsIn(words, prompt)).toEqual(ids)
+        expect(wordsIn(words, prompt.replace(/\n+/g, '   '))).toEqual(ids)
+        const began = turnBegan(words, prompt, 5000)
+        expect({ word: began.word, turn: began.turn, typed: began.typed }).toEqual({ word: ids[0], turn: 5000, typed: [] })
+      }
+    })
+  }
+
+  test('a prompt that holds only some of the queued words: those entered, the turn is the first of them; a later word stays on its way', () => {
+    const words = typedAll(['w1', 'w2', 'w3', 'w4'])
+    const prompt = [textOf('w2'), textOf('w3')].join('\n\n')
+    expect(wordsIn(words, prompt)).toEqual(['w2', 'w3'])
+    const began = turnBegan(words, prompt, 7000)
+    expect(began.word).toBe('w2')
+    // w1 never ran in this prompt: it waits (not entered); w4 is later: it waits too.
+    expect(began.typed.map(one => one.id)).toEqual(['w1', 'w4'])
+  })
+
+  test('the person\'s own line holds none of them: none entered, the turn no word\'s, every word still on its way', () => {
+    const words = typedAll(['7a972772', 'cf04b25b'])
+    expect(wordsIn(words, 'what about the lava?')).toEqual([])
+    expect(wordsIn(words, '')).toEqual([])
+    expect(wordsIn(words, undefined as never)).toEqual([])
+    const began = turnBegan(words, 'what about the lava?', 3000)
+    expect({ word: began.word, turn: began.turn, ids: began.typed.map(one => one.id) }).toEqual({ word: null, turn: 3000, ids: ['7a972772', 'cf04b25b'] })
+    // The merged prompt of the two comes after the person's line: they enter then.
+    expect(turnBegan(began, [textOf('7a972772'), textOf('cf04b25b')].join('\n\n'), 4000).word).toBe('7a972772')
+  })
+
+  test('the whole-branch review: a short word inside a longer prompt is never entered; the bound is MERGED_MIN_CHARS normalised characters, below it only the whole prompt matches', () => {
+    expect(MERGED_MIN_CHARS).toBe(24)
+    const inside = (own: string): string => `what about ${own} and the lava?`
+    // One below the bound: inside the person's line it is not held; as the whole prompt it still is (a take's own prompt).
+    const short = wordTyping(NO_TURN_WORDS, 'w', 'x'.repeat(MERGED_MIN_CHARS - 1))
+    expect(wordsIn(short, inside('x'.repeat(MERGED_MIN_CHARS - 1)))).toEqual([])
+    expect(turnBegan(short, inside('x'.repeat(MERGED_MIN_CHARS - 1)), 1).word).toBeNull()
+    expect(wordsIn(short, 'x'.repeat(MERGED_MIN_CHARS - 1))).toEqual(['w'])
+    expect(wordsIn(short, `  ${'x'.repeat(MERGED_MIN_CHARS - 1)}
+`)).toEqual(['w'])
+    // At the bound: one part of a merged prompt.
+    const long = wordTyping(NO_TURN_WORDS, 'w', 'x'.repeat(MERGED_MIN_CHARS))
+    expect(wordsIn(long, inside('x'.repeat(MERGED_MIN_CHARS)))).toEqual(['w'])
+    expect(turnBegan(long, inside('x'.repeat(MERGED_MIN_CHARS)), 1).word).toBe('w')
+    // The length is the normalised text's: 31 characters with a run of spaces that normalise to 23 stay below the bound.
+    const spaced = wordTyping(NO_TURN_WORDS, 'w', `${'x'.repeat(11)}        ${'y'.repeat(11)}`)
+    expect(wordsIn(spaced, inside(`${'x'.repeat(11)} ${'y'.repeat(11)}`))).toEqual([])
+    // The real short words of the board: a take's text inside the person's own line is not entered.
+    const approved = wordTyping(NO_TURN_WORDS, 'w1', 'B13: approved')
+    expect(wordsIn(approved, 'B13: approved, but wait')).toEqual([])
+  })
+
+  test('a word with no text enters nothing (an empty text is "in" every prompt)', () => {
+    const words = wordTyping(NO_TURN_WORDS, 'empty', '')
+    expect(wordsIn(words, 'anything')).toEqual([])
+    expect(turnBegan(words, 'anything', 1).word).toBeNull()
+  })
+})
+
 describe('F (0.30.0): the background work a call of the chat\'s own started, by the result\'s own id', () => {
   test('a background command, one the app moved there itself, and a Monitor count; a plain command does not', () => {
     expect(backgroundStartOf('Bash', { run_in_background: true }, { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bx1' } })).toBe('bx1')
@@ -111,8 +190,9 @@ describe('B944 (0.30.0): the clear on its way, kept in the mod\'s store', () => 
 
   test('the pending clear the store keeps, read safely', () => {
     const env = { id: 'e1', kind: 'task', step: 'B13', clear: null, restart: false, set: null, line: 'go', version: null }
-    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: env, outcome: { typed: null } })).toEqual({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: parseEnvelope(env), outcome: { ...NO_OUTCOME } })
-    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: '../x', at: 5, envelope: null, outcome: null })).toEqual({ ticket: 'clear-7-2', from: 'units', step: null, at: 5, envelope: null, outcome: null })
+    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: env, outcome: { typed: null } })).toEqual({ ticket: 'clear-7-2', from: 'units', step: 'B12', at: 5, envelope: parseEnvelope(env), outcome: { ...NO_OUTCOME }, lineTyped: false })
+    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', at: 5, lineTyped: true })?.lineTyped).toBe(true)
+    expect(parsePendingClear({ ticket: 'clear-7-2', from: 'units', step: '../x', at: 5, envelope: null, outcome: null })).toEqual({ ticket: 'clear-7-2', from: 'units', step: null, at: 5, envelope: null, outcome: null, lineTyped: false })
     expect(parsePendingClear({ ticket: '7', from: 'units', at: 5 })).toBeNull()
     expect(parsePendingClear(null)).toBeNull()
   })
@@ -415,7 +495,7 @@ describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
     // 0.27.3: the work tool says "goal definition" and takes definition-draft (this branch carried 0.27.1, the main branch is at 0.27.2).
-    expect(MOD_VERSION).toBe('0.30.0')
+    expect(MOD_VERSION).toBe('0.31.0')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {

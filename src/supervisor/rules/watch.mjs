@@ -23,7 +23,7 @@ import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '..
 import { chainTries, hasTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
 import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
-import { NET_MS, STATES, UNANSWERED_WHY, envelopesOf } from '../../work/handover.mjs'
+import { NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '../../work/handover.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
 import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
@@ -1083,6 +1083,8 @@ function handoverHeld(view, ctx) {
   if (isPaused(view)) return found
   for (const lane of workersOf(view).filter(one => one.onSequence === true)) {
     if (lane.handover?.state !== STATES.HELD) continue
+    // The lazy clear (Task 4, D4; the Task 4 review): never on a clear outcome, by decide itself: it holds only on a failed
+    // envelope (failedOf), and a clear owed while its line went in is none (isClearOwedOnly): the lane's HELD is the fact.
     const failed = envelopesOf(view.outbox, lane.name, view.prefix).filter(one => one.state === 'failed').at(-1) ?? null
     const since = [failed?.settledAt, failed?.failedAt, failed?.at].find(Number.isFinite) ?? null
     const report = lane.clearOwed?.step ?? failed?.clear?.step ?? failed?.step ?? failed?.id ?? 'its last report'
@@ -1103,6 +1105,32 @@ function handoverHeld(view, ctx) {
   }
   return found
 }
+
+/**
+ * The lazy clear (Task 4, R6 with D7): a worker on the sequence whose last three hand-overs that asked a clear all settled
+ * cleared:false with the Workers mod's clearWhy (0.31.0's: its line went anyway, so nothing holds it). One finding per chat,
+ * keyed `clear-owed-repeat <chat>`, judged by the Supervisor as any; a refusal under the person's pause and a 0.30.0 failed
+ * clear (no clearWhy) are not counted (`clearOutcomesOf`); a clear that ran ends the run. Two in a row: none.
+ */
+function clearOwedRepeat(view) {
+  const found = []
+  for (const lane of workersOf(view).filter(one => one.onSequence === true)) {
+    // The Task 4 review: only while the clear is still owed (the person's /clear or a late `cleared` stage met it: none).
+    if ((lane.clearOwed ?? null) === null) continue
+    const last = clearOutcomesOf(envelopesOf(view.outbox, lane.name, view.prefix)).slice(-CLEAR_OWED_RUN)
+    if (last.length < CLEAR_OWED_RUN || last.some(one => one.isCleared)) continue
+    const settled = one => [one.envelope.settledAt, one.envelope.deliveredAt, one.envelope.failedAt, one.envelope.at].find(Number.isFinite) ?? null
+    const since = settled(last[0])
+    found.push({
+      rule: 'clear-owed-repeat', key: `clear-owed-repeat ${lane.name}`, subject: lane.name, ...(since === null ? {} : { since }),
+      text: `${lane.name}'s clear did not run at its last ${CLEAR_OWED_RUN} hand-overs in a row: ${last.at(-1).clearWhy}`,
+      evidence: last.map(one => `envelope ${one.envelope.id} (${one.envelope.step ?? 'no task'}, its clear after ${one.envelope.clear?.step ?? 'a step'}) settled ${settled(one) === null ? 'at a time not known' : clockOf(settled(one))}: ${one.clearWhy}`).join('; '),
+    })
+  }
+  return found
+}
+/** The lazy clear: how many hand-overs in a row whose clear did not run open clear-owed-repeat. */
+const CLEAR_OWED_RUN = 3
 
 /** T8.5 step 4: how far back a fired net still counts as a finding (one per envelope, so its incident counts it once). */
 const UNANSWERED_LOOK_MS = DAY
@@ -1297,8 +1325,9 @@ export const WATCH_RULES = [
   { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30 (not while the person\'s pick on a rebuild of its goal is open; then 60 min from the pick)', check: openFix, skips: SKIPS_ON_PAUSE },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress whose worker works on it for hours with no checkpoint', check: staleCheckpoint, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch, skips: SKIPS_ON_PAUSE_OR_LIMIT },
-  { id: 'handover-held', kind: 'watch', says: 'a worker on the hand-over sequence held (its clear, set or restart did not run) for over 10 min of running time', check: handoverHeld, skips: SKIPS_ON_PAUSE },
+  { id: 'handover-held', kind: 'watch', says: 'a worker on the hand-over sequence held (its set, restart or line did not run; a 0.30.0 worker: its clear) for over 10 min of running time', check: handoverHeld, skips: SKIPS_ON_PAUSE },
   { id: 'handover-unanswered', kind: 'watch', says: 'a worker on the hand-over sequence that did not answer its hand-over within 10 min (the net fired)', check: handoverUnanswered },
+  { id: 'clear-owed-repeat', kind: 'watch', says: 'a worker whose clear did not run at its last three hand-overs in a row (its line went each time; a refusal in the person\'s pause not counted)', check: clearOwedRepeat },
   { id: 'wake-failed', kind: 'watch', says: 'a chat the board could not wake: the app did not start it on a launch, and no message reached it', check: wakeFailed },
   { id: 'nobody-answers-wakes', kind: 'watch', says: 'nobody answers the board\'s wake-ups: every chat with work could not be woken, and the launch when nobody ran failed', check: nobodyAnswersWakes },
   { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading, skips: SKIPS_ON_PAUSE },

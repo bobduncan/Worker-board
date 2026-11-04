@@ -105,7 +105,21 @@ test('the sequence on a running board: T answers the envelope, D takes back at o
   await writeStore(work, { items, activities: [{ name: 'Art', isFocus: false, steps: [...items.keys()], notes: [], loose: [] }] }, undefined, { now: NOW - 60 * MIN })
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'handover', project, port, gamePort: 7330, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), refreshSeconds: 5, handOutBeyondFocus: true, handover: 'sequence' }))
+  // The lazy clear (D8): a clear-only envelope an older board left waiting; the start's sweep closes it with its reason.
+  const leftClear = { id: 'old-clear', at: NOW - 2 * MIN, to: 'Units', ask: null, step: null, title: null, version: null, verdict: null, command: 'handover', about: 'Units', text: 'hand-over\nClear after B12', state: 'waiting', kind: 'clear', clear: { step: 'B12', reportedAt: NOW - 30 * MIN }, restart: false, set: null, line: null, back: null }
+  await put(join(board, 'data', 'outbox.jsonl'), `${JSON.stringify(leftClear)}\n`)
   await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc') })
+  const outboxNow = async () => {
+    const folded = new Map()
+    for (const line of (await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8')).trim().split('\n')) {
+      const one = JSON.parse(line)
+      folded.set(one.id, { ...(folded.get(one.id) ?? {}), ...one })
+    }
+    return folded
+  }
+  const { CLEAR_ONLY_CLOSED_WHY } = await import('../src/work/handoverBoard.mjs')
+  const swept = (await outboxNow()).get('old-clear')
+  assert.deepEqual([swept.state, swept.why, Number.isFinite(swept.closedAt)], ['dropped', CLEAR_ONLY_CLOSED_WHY, true])
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   const call = (path, body, mod) => fetch(`http://127.0.0.1:${port}/api/bridge/${path}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': mod }, body: JSON.stringify(body),
@@ -157,7 +171,25 @@ test('the sequence on a running board: T answers the envelope, D takes back at o
   const after = await ping('Units', 'units-id', NEW, { state: 'idle', since: Date.now() - 1000, background: false })
   assert.equal(after.body.clear, undefined)
   assert.deepEqual([again.clear?.step, again.step], ['B12', 'B13'])
-  assert.equal(await call('typed', { chat: 'Units', session: 'units-id', handover: again.id, outcome: { cleared: true, typed: true } }, NEW).then(reply => reply.body.settled), true)
+  // The lazy clear (D1): the clear's stages through the same route as they happen: two quick posts at once both kept, the
+  // outcome with the last stage settles once, a stage after it is still taken; nothing else in the body is needed.
+  const stage = (name, at, more = {}) => ({ stage: name, at, ...more })
+  const posts = await Promise.all([
+    call('typed', { chat: 'Units', session: 'units-id', handover: again.id, stages: [stage('log-saved', Date.now(), { log: 'logs/B12.md' })] }, NEW),
+    call('typed', { chat: 'Units', session: 'units-id', handover: again.id, stages: [stage('clear-queued', Date.now(), { ticket: 'clear-1-1' })] }, NEW),
+  ])
+  assert.deepEqual(posts.map(reply => [reply.status, reply.body.staged, reply.body.settled]), [[200, true, false], [200, true, false]])
+  const final = await call('typed', { chat: 'Units', session: 'units-id', handover: again.id, stages: [stage('cleared', Date.now(), { session: 'units-new' })], outcome: { cleared: true, typed: true } }, NEW)
+  assert.deepEqual([final.body.settled, final.body.staged], [true, true])
+  const twice = await call('typed', { chat: 'Units', session: 'units-id', handover: again.id, stages: [stage('clear-refused', Date.now(), { why: 'late' })], outcome: { cleared: false, typed: true } }, NEW)
+  assert.deepEqual([twice.body.settled, twice.body.staged], [false, true])
+  // Stages none of which the board takes (an unknown name, a time far past the board's clock): `staged: false`, never `{}`.
+  const unknown = await call('typed', { chat: 'Units', session: 'units-id', handover: again.id, stages: [{ stage: 'compacted', at: Date.now() }] }, NEW)
+  assert.deepEqual([unknown.status, unknown.body.settled, unknown.body.staged], [200, false, false])
+  const far = await call('typed', { chat: 'Units', session: 'units-id', handover: again.id, stages: [{ stage: 'cleared', at: Date.now() + 60 * MIN }] }, NEW)
+  assert.equal(far.body.staged, false)
+  const kept = (await outboxNow()).get(again.id)
+  assert.deepEqual([kept.state, kept.outcome.cleared, kept.stages.map(one => one.stage).sort()], ['delivered', true, ['clear-queued', 'clear-refused', 'cleared', 'log-saved']])
 
   // T after the line, no take: B13 back ("did not take it in its turn"), B14 in the same answer.
   const untaken = await call('work', { action: 'turn-ended', chat: 'Units', session: 'units-id', since: Date.now() }, NEW)

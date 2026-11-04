@@ -1100,7 +1100,9 @@ a chat renamed in the app joins under it at its next take, or at a refused work 
 marks what waits for that chat taken, writes that down, then hands it out;
 the mod types it into its chat as the person's own words and tells the board what was typed and what was not
 (`POST /api/bridge/typed`), so the card says "handed to its chat", then "typed into its chat", or that it did not
-arrive. The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only
+arrive. The outbox's states are `waiting`, `taken` (handed out, not yet said typed), `delivered`, `failed`, `stopped`, `expired`,
+`dropped`, `copied` and `held` (a queue ask held until its step is refined); a word still `taken` after its chat ran a turn that came after the take is closed `delivered` with the why
+"delivered-unconfirmed" ("Words the app merged into one prompt", below). The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only
 takes: sending still needs the board's own page. (B738) The answer also names the chats that do not run (`off`), so the
 mod's Workers list says "Not running" for them, as the page does. A second board that starts while another one's file is there
 and that board answers leaves the file alone. What remains, as with sending: a chat that wrote a `board.json` of
@@ -4450,13 +4452,102 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
 - **Rollout** (the person's, once the mod is installed and the app started anew): `"afterStep": "clear"` and
   `"compactAbove": 150000` in the project's `list.json`.
 
+### The lazy clear (Workers mod 0.31.0, 2026-11-04)
+
+Spec `.claude/specs/2026-11-03-lazy-clear-design.md`, brief `.claude/plans/2026-11-03-lazy-clear-brief.md` with its addendum
+D1-D9 (the lead's yes of 2026-11-03). Until 0.30.0 the board cleared a worker on its own between tasks (an envelope with a
+clear and no task) and parked it (Held) when the clear failed; that was the whole class of Held workers, two-minute
+silences, retry floods and duplicate logs the clear caused (B930, B944). Now the clear is owed, never a hold: it rides the
+next task, and the task goes ahead without it when it fails. This part replaces what the sections above and below say of
+a clear alone, a clear that holds the worker and "the line is never typed before the clear has run"; they stay for why.
+
+- **No clear alone** (`decide` step 6, `handover.mjs`). A worker that owes a clear and has no task ready is **free**, nothing
+  sent (an idle chat costs no tokens); the envelope kind `clear` is no longer written, and its lane word "handing over: its
+  clear" is gone from the free state (`laneWords` keeps it only for a clear-only envelope an older board wrote). The owed
+  clear (`clearOwed`, unchanged) is the first field of the next task's envelope. The mod's own two lone clears went too
+  (D5): the clear it decided itself when the board did not answer a report's turn's end (a late answer's envelope still
+  carries it), and the dead `taken.clear` path (the take names no clear since T8.5 step 6). A worker that asks for work
+  while it owes a clear gets the clear with the next task's envelope like any other. At the board's start
+  `closeClearOnly` (`handoverBoard.mjs`, D8) closes every clear-only envelope still waiting in the outbox, with its reason
+  ("no clear goes alone since Workers mod 0.31.0: the clear it owes rides its next task"); one already taken settles as the
+  mod's outcome says.
+- **A clear that does not run never holds** (D3, D4). The order stays restart, clear, set, line. When the clear does not
+  run (refused by a guard of `clearAfter`/`clearEnvelope`: a question the board was not handed, a subagent, a message to another
+  chat, background work, a prompt that came in, the log refused, a card that could not be read or written, a clear already
+  on its way; refused or dropped by the /clear hook; not run in time) the mod tells the stage
+  `clear-refused` with the why and types the line **anyway**, into the old conversation (no start's words go with it: it
+  is not a fresh one), then settles `{ cleared: false, clearWhy, typed: true }`. `isClearOwedOnly` (`handover.mjs`): the
+  clear did not run, the set did not fail, no restart, and the line was typed (or none was owed: the hand-out waived it,
+  the wake message carried it): that envelope is **delivered**, not failed (`failedOf` and `settle` read the one
+  predicate): no HELD, no take-back, the worker goes on with the task and the clear is owed again at its next report. The
+  hold remains for a failed set, restart or line (the spec's "held only for set" reads: for set, restart and line), and
+  for the old-style settle of a 0.30.0 worker (a failed clear with `typed` not true): the old HELD path with B930's release
+  and `HELD_RETRY_MS`, until every worker runs 0.31.0. **The exception is the person's pause** (and, on the board's side, a
+  full limit: the board hands out nothing then): no line is typed, the mod settles `{ cleared: false, clearWhy: "the person
+  pauses the chats", typed: null }` (exactly the board's `PAUSED_WHY`, whatever refused the clear; the refusal's own words stay
+  in its stage), the board's suspended path takes the task back at once, and `isPauseRefusal` releases the hold at the
+  resume, only when the board's own pause record covered the settle (`pauseCovered`).
+- **The 20-second net** (D2, D9; `CLEAR_NET_MS`, `register.tsx`). An envelope's /clear queued and neither run nor
+  refused within 20 s is **dropped completely** before its line goes: the clear on its way (`clearing`, `handing`) is
+  emptied, the card's mark taken off, the stored `PendingClear` marked `lineTyped` (written before the line is submitted:
+  at most once is the trade, a reload in that gap loses the line and the board's `NET_MS` shows UNKNOWN, never twice) and
+  forgotten. Only then is the line typed. So a /clear the app runs later finds nothing to run (`hooks/clearrun.ts` refuses
+  a /clear with no clear on its way or a prompt since it was decided, and the /clear hook re-reads `clearing` after its
+  `await $.session.id()`), and a late clear never clears mid-task, nor is the line ever typed twice. The two-minute
+  `CLEAR_WAIT_MS` stays the net of a clear that carries no line (the card's own mark, or a kept one whose line went already): it types none. A kept envelope found after a reload has its line typed once at the 20 s net like any (`settleStoredClear`, the record marked `lineTyped` first).
+- **Stages, told at once** (D1, D9). Every stage of a clear, dated by the mod's clock when it happens, goes to the board
+  through the settle route: `log-saved`, `clear-queued`, `cleared` (posted from `afterClear`, where the new session's id is
+  known: `session`), `clear-refused` (`why`); `ticket` is the clear's key (`clear-<run>-<n>`, a string). A post is
+  `{ chat, session, handover: <id>, stages: [...] }` with no outcome, or the final `{ ..., outcome, stages }` (all of them,
+  once). The stages are the message's top-level `stages`, never in the outcome: `addStages` merges them inside the store's
+  one turn (`handoverTurn`, so two quick posts never lose each other), one entry per stage name (a repeat, as the mod's
+  retry sends, is ignored), in any state and **also after the final outcome** (a late `cleared` may follow a
+  `clear-refused`); the settle itself stays once per envelope. `stagesOf` checks them (a stage dated more than a minute
+  past the board's clock is left out: a `cleared` in the future would stand for every later report's clear).
+- **The account reads the stages** (`clearedStageOf`, `clearOwed`). The worker's last clear is the newest `cleared` stage on
+  its envelopes (a derived input from the outbox, `state.mjs`), the card's `lastCleared` as the fallback; the newer of the
+  two stands (the person's own /clear moves only the card). Nothing is written; `decide` and `clearOwed` stay pure.
+- **One log per (session, step)** (D8, `chatLogs.mjs`). A clear that does not run is tried again at the next hand-over,
+  which saved the log anew each time (B936 and B936-2, 2026-11-02). A second `save-log` for the same (session id, step)
+  answers the first log's path and writes no new file; once the first job has finished and the transcript has grown it is
+  copied again into that same file (never a `-2` file); one save at a time; no check when the step is null. The journal
+  (`data/chat-logs.json`) keeps an index of the finished (session, step) → path (`done`, validated in `load()`, reset in
+  `reload()` as B529 says, the newest 200); a log of a step given up after its copy keeps its paths.
+- **The page and the Supervisor** (D6, D7). The row's amber "not cleared after B###" is gone: a worker that owes its clear is
+  no fault, only a quiet mark on hovering its name and in its window, "clear owed · its last: <clearWhy>" (the clearWhy of
+  its newest hand-over that asked a clear and did not clear, never the card's note). "clearing… <stage> HH:MM:SS" is
+  the **handing** pill's why while the clear is on its way (`chatStatus.mjs`, `clearingOf`): the pill set stays change 2's.
+  B739's line "your background work still runs: stop it" (`say.mjs`) and the wake's clear term (`wake.mjs`) apply only to a
+  worker that holds no step (one on its next step owes the clear of its last, which goes with its next task).
+  `handover-held` trips on any HELD (set, restart, line), never on a clear outcome (`decide` itself holds only on a failed
+  envelope). The new rule `clear-owed-repeat` (key `clear-owed-repeat <chat>`): the chat's last **three** hand-overs that
+  asked a clear all settled `cleared: false` with a `clearWhy` (0.31.0's), while the clear is still owed: one finding,
+  judged by the Supervisor as any (two: none; a pause refusal and a 0.30.0 failed clear without `clearWhy` are not counted,
+  so the old failed clears cannot trip it at the landing; a clear that ran ends the run). The health summary marks a worker
+  with an owed clear **info** with its last why.
+- **Landing order** (the board first). A 0.31.0 mod settles `cleared: false` with its line typed; a board older than 0.31.0
+  reads that as a failed clear (HELD, the task taken back while the worker is on it). The board lands first; a mod
+  reaches a chat only at its process's restart (every worker restarts onto 0.31.0 through its RESTARTING envelope); the
+  board is never rolled back below 0.31.0 while 0.31.0 mods run. Meanwhile 0.30.0 workers' old-style settles keep the old
+  HELD path. A worker not on the sequence (the setting `"timers"`, an older board that sends no `handover`) is cleared by its mod after a report as before 0.27.0; one on the sequence never is, whether or not the board answered (the mod keeps in its store whether its session is on it).
+- **Tests**: board `test/work/handover.test.mjs` (the real case of 2026-11-02 21:25: Worker 3 after B936, no task ready, no
+  envelope; B937 given later carries the clear; a clear owed with the line typed is delivered; `set: false` still holds; the
+  mutants: a clear-only envelope written, HELD on `cleared: false`, a take-back on a clear failure), `test/work/handoverBoard.test.mjs`
+  (the stages merged, in any state, once per name; the landing sweep), `test/work/handoverLive.test.mjs`,
+  `test/chatLogs.test.mjs` (two saves of a pair: one file; a new step: a second; the mutant `-2`),
+  `test/supervisor/handoverRules.test.mjs` (three in a row open one finding, two none), `test/chatStatus.test.mjs`; the mod kit
+  `hooks/chatlist.test.ts` ("the board's hand-over as one envelope": log refused, /clear refused, not run in 20 s with the late
+  /clear refused, a line typed between queue and run, the pause's words, the pending clear kept across a reload; the mutants: the
+  line waiting for the net, a stage posted only with the outcome, the pending clear only in memory).
+
 ### The board keeps the account of clears (B547, 2026-10-24)
 
 **Since 2026-10-31 (signals change 2)** a conversation cleared less than two minutes ago that has not reported yet reads **Restarting** (timed from the moved card's `cleared.at`, which the card keeps), then Unknown with the age; it no longer reads Unknown for the first minute (see "One status per chat").
 
 **Since T8.5 step 6 (2026-10-31)** the account (`clearOwed`) is what the hand-over's envelope reads: the owed clear is its
-first field, before the next task's line, and a clear that cannot run fails the envelope and holds the worker with its why
-(the rule `handover-held`; see "The hand-over as one sequence"). What this part describes besides the account is gone: the
+first field, before the next task's line, and (until Workers mod 0.31.0) a clear that cannot run fails the envelope and holds the worker with its why
+(the rule `handover-held`; see "The hand-over as one sequence"). **Since 0.31.0 (the lazy clear, above)** the account still stands, but it is only an
+account: no clear goes alone, the clear rides the next task and a clear that does not run never holds the worker. What this part describes besides the account is gone: the
 held line (`clearHolds`), the take's `clear` and its 2-minute grace (`clearAtTake`, `CLEAR_GRACE_MS`), the take refused
 while a clear is owed (`takeRefusal`), the rule `not-cleared` and its `takenSince` (B765), and B587's release of the
 held line for a restarted chat (the restart is the envelope's own). The history below is kept for why.
@@ -5160,7 +5251,7 @@ this order, the first that holds wins:
 2. It holds a step taken, in progress or waiting on you: **working**. Its envelope in flight: a turn that ended after its
    line without a take gives the task back at once ("did not take it in its turn") and decides on in the same call, and
    that task is not offered to it again until it takes another (the person's answer to question 2); a failed outcome
-   gives it back at once, **held** with its why; else **handing** (no outcome yet) or **offered** (the line typed).
+   gives it back at once, **held** with its why (a clear that did not run while its line went in is no failure since 0.31.0: the task stays, **offered** or on); else **handing** (no outcome yet) or **offered** (the line typed).
 3. Its newest report's check failed and it did not report again: **working**, with the board's "back to you" words once
    per failed check (in place of the 30-minute report again).
 4. Its newest report's check has not ended: **checking**; its end decides again.
@@ -5172,8 +5263,9 @@ this order, the first that holds wins:
    **unknown** after the net (released by its next turn end or a report that changed).
 6. Otherwise the clear when one is owed (`clearOwed`, as before) and the ready list's first task this worker may take
    (`match` for this one worker: pins, QA's `notBy`, Touches), given in the same call, with `set` when the chat runs
-   another model or effort and the line "work: B12 is yours; run work next": **handing**; no task: **free** (the
-   envelope may still hold the clear). A give the work API refuses moves to the next candidate in the same call.
+   another model or effort and the line "work: B12 is yours; run work next": **handing**; no task: **free**, nothing sent (since
+   0.31.0 no clear goes alone: the clear stays owed and rides the next task's envelope). A give the work API refuses moves to
+   the next candidate in the same call.
 
 At a refresh nothing is handed to a worker whose report says its turn runs (X111: busy by its report is not free) or
 whose chat does not run (an asleep one counts: the waiting envelope has the board open it, T13).
@@ -5200,18 +5292,23 @@ hands could set it, the set fails at once. A failed set bars that model's steps 
 restart envelope its mod carried out gets the hands' `mod-restart` word once.
 
 **The page.** The lane of a worker on the sequence says where its hand-over stands, quietly (information, never amber):
-"handing over B12", "handing over: its clear", "offered B12, not taken yet", "held: <why>", "did not answer its hand-over
+"handing over B12", "offered B12, not taken yet", "held: <why>", "did not answer its hand-over
 (B12)", "restarting for the new Workers mod", "B12: the board checks its report" (`laneWords`; the state's
-`lane.handover` is `{ state, why, step }`).
+`lane.handover` is `{ state, why, step }`). Since 0.31.0 a clear owed adds no lane word ("handing over: its clear" is only an older board's
+clear-only envelope); the pill's why says "clearing… <stage> HH:MM:SS" while its clear is on its way, and the worker's hover and window the quiet
+"clear owed · its last: <clearWhy>" (see "The lazy clear").
 
 **The Supervisor's rules for it (step 4).** Only for a worker on the sequence (`lane.onSequence`); the new rules never fire
 for another, and since step 6 the old rules are gone for every worker:
 
-- `handover-held`: its lane's hand-over is **held** (its last envelope failed: its clear, set or restart did not run, and
-  its task went back at once) for over `notClearedMinutes` (10) of the board's running time from the failure (the pause,
+- `handover-held`: its lane's hand-over is **held** (its last envelope failed: its set, restart or line did not run (a 0.30.0
+  worker: its clear), and its task went back at once; never on a clear that did not run while the line went in, 0.31.0) for over `notClearedMinutes` (10) of the board's running time from the failure (the pause,
   the board off and the stretches it heard no chat left out). One finding per worker and report (key `handover-held
   <worker> <the step its clear is owed for>`), with the Workers mod's why. In place of not-cleared and the clear part of
   skip-repeats (both gone since step 6).
+- `clear-owed-repeat` (0.31.0): a worker whose clear did not run at its last three hand-overs in a row (each settled
+  `cleared: false` with a `clearWhy`, its line typed each time, the clear still owed): one finding, key `clear-owed-repeat <worker>`,
+  judged by the Supervisor as any. Nothing holds the worker; the rule says its clear keeps failing ("The lazy clear").
 - `handover-unanswered`: the net fired (`netAt` on an envelope of its): one finding per envelope, for a day after the net.
   In place of not-taking.
 - `ready-while-free`: such a worker is free only in the hand-over's own **free** (its lane's `handover.state`), never by
@@ -5265,26 +5362,37 @@ The mod carries it out in this order and stops at the first that fails:
 
 1. `restart` true: save the log (`save-log`, as today), mark the card, end; nothing else.
 2. `clear` not null: save the log, mark the card cleared after `clear.step`, run /clear, with every guard of today's
-   `clearAfter` (the pause read anew; no new prompt in between).
+   `clearAfter` (the pause read anew; no new prompt in between). Since 0.31.0 a clear that does not run does not stop the
+   envelope: the mod tells the stage `clear-refused` and goes on to the line (step 4) in the old conversation, with
+   `cleared: false` and the why in `clearWhy`; only under the person's pause does it stop (no line, `typed: null`).
 3. `set` not null: already set by the board's hands before the envelope was handed out (the app refuses a chat's own
    model and effort): the mod does not set it, and says `set: null`.
 4. `line` not null: typed into the (fresh) conversation together with the words a cleared chat already gets (who it is,
-   its rules, its log), as one prompt.
+   its rules, its log), as one prompt; in the old conversation, with no start's words, when the clear did not run (0.31.0).
 
 Then it settles it once: `POST /api/bridge/typed` with
 
 ```
 { chat, session, handover: "<the envelope's id>",
   outcome: { cleared: true | false | null, set: true | false | null, typed: true | false | null,
-             restarted: true | false | null, background: true | false, why: "<one line>" | null } }
+             restarted: true | false | null, background: true | false, why: "<one line>" | null,
+             clearWhy: "<one line>" | absent,           // 0.31.0: why the clear did not run (cleared false); the line went anyway
+             typedAt, enteredAt: <ms> | absent },
+  stages?: [ { stage: "log-saved" | "clear-queued" | "cleared" | "clear-refused", at: <ms>, why?, log?, ticket?, session? } ] }
 ```
+
+`stages` (0.31.0, top-level beside `handover`, never inside `outcome`) are told as they happen in a post of their own
+(`{ chat, session, handover, stages }`, no outcome) and again with the final outcome; the board merges them one entry per
+stage name, in any state and after the outcome ("The lazy clear").
 
 each flag true (done), false (it failed) or null (not asked); `background` true when background work it started was
 why the clear could not run (the board's 409, which reads the one source of B930: the mod's fresh idle report, else the
 transcript); `why` the reason of the first that failed. The answer is `{ settled: true }`, or
 `{ settled: false }` for an id that is not its envelope or was settled before. The board then decides at once: an
-outcome where nothing failed leaves the worker offered (a line) or free; a failed clear, set, line or restart takes the
-task back at once and holds the worker with the why.
+outcome where nothing failed leaves the worker offered (a line) or free; a failed set, line or restart takes the
+task back at once and holds the worker with the why. Since 0.31.0 a clear that did not run (`cleared: false`) with the line
+typed (`typed: true`) is no failure (`isClearOwedOnly`): delivered, the worker goes on, the clear stays owed; a 0.30.0 worker's
+old-style settle (`typed` not true) still fails as above.
 
 The mod also sends `turn-ended` after every answered turn of a worker, also when it holds a step (the pull flag goes),
 and while idle reads its background count anew at each 5-second ping, so a report gone idle with nothing in the
@@ -5301,7 +5409,9 @@ with these readings of it:
   card marked), but a clear that may not run is not compacted instead: the card's `clearNote` says why and the outcome
   is `cleared: false` with `background` true when a subagent of its own ran or the board refused the log with 409. A
   clear dropped later (a turn that started first, the /clear let go after 2 minutes, the command refused) settles the
-  same way. The line is never typed and nothing is settled before the /clear has run.
+  same way. Until 0.30.0 the line was never typed and nothing settled before the /clear had run; since 0.31.0 a clear that
+  did not run (or not within 20 s) is dropped completely and the line goes anyway ("The lazy clear"), and the clear's own
+  stages are told at once.
 - The line after a clear goes at the next 5-second ping (the app takes no prompt from inside the /clear's own hook),
   and the start's words stand in its text, before the line: the app hands a mod's own prompt to none of its own hooks,
   so they cannot go as context. Without a clear the line is typed at once (as a take's word, `asUser`).
@@ -5552,6 +5662,36 @@ board's receipt of that turn's start, not before: a busy chat's idle no longer a
 board that did not hear the turn begin (no `busyAt`) answers nothing. **The keep**: every 30 s as before, and at once when a
 report MOVES (its state, `busyAt`, `word` or `turn`; chatReport.mjs `hasMoved`, called by `keepReport`), never on the 5-second
 ping that repeats them; both through `loops.single('waits-keep', ...)` (one pass at a time), never awaited in the route.
+
+**Words the app merged into one prompt** (Workers mod 0.31.0, Task 6; the Advisor's case of 2026-11-04, 09:31:48, 10:06:48 and
+11:19:40). The mod types a taken word with `$.prompt.submit` while its chat is busy; the app queues it, and after the turn (and
+a /compact) dequeues ALL the queued prompts at once and MERGES them into one user message. Only the last submit of such a batch
+resolves; the earlier ones never resolve or reject, so the mod never said them typed and the board kept them `taken` for ever
+(in each batch only the last went `delivered`). Two parts:
+- **The mod** (`hooks/board.ts` `wordsIn`, `turnBegan`; `register.tsx` `reportEntered`): at a turn of the chat's own, every word
+  of ours on its way whose text the turn's prompt holds (whitespace-normalised: the exact text, or, for a text of `MERGED_MIN_CHARS` = 24
+  characters or more, one part of a merged prompt) has entered. Each taken word not yet reported is told typed to the board now, once per id (`reportedWords`: a later resolve of
+  its own submit, or a rejection, tells nothing again), it leaves the queue, and the turn's `word` is the FIRST of them in outbox
+  order. A prompt that holds none of them (the person's own line, a task notification) keeps the 8c rule: `word` null, nothing
+  reported, the words still on their way. An envelope's line is NOT confirmed by this rule (its outcome is the envelope's own,
+  from its submit); it still names a turn when its text is in the prompt. A board file that cannot be read tells nothing and
+  marks nothing told. A text shorter than 24 normalised characters counts only as the whole prompt (the whole-branch review: a short
+  word that stands inside the person's own line is never counted entered); the board's words carry their request in them and are
+  longer, so the merged batches are read; two short words merged into one prompt are not.
+- **The board's net** (`src/work/outboxSweep.mjs` `unconfirmedOf`, `unconfirmedWords`; `store.mjs` `deliverUnconfirmed`; the sweep
+  that already runs at every refresh and every take): a word its own chat took (`isHandTaken` false: B880's hands have their own
+  net; never a hand-over envelope; the lane has a report that names its last turn, `report.turn`), still `taken` 15 minutes
+  (`UNCONFIRMED_MS`) after the chat went IDLE from a turn that came AFTER the take (`report.turn` > `takenAt`; `report.state` idle with its
+  `since` not before that turn: a busy, asking or ended chat is not judged, because that turn may not carry the word at all, the person's
+  line or a task notification that started while the word was still queued), is closed
+  `delivered` with `why: "delivered-unconfirmed: its chat ran a turn after it and never said"` and `deliveredAt` = that
+  turn's start. It is for a mod older than 0.31.0 and for a report that failed; a word the mod said typed meanwhile is
+  `delivered` already and untouched. Limits: the turn is the chat's LAST turn (a chat with back-to-back turns closes it only
+  once the chat has rested 15 minutes after the last), and a chat whose session was replaced after the take also runs a turn
+  after it: such a word (lost with the old session) is closed with the same honest "never said". No Supervisor rule.
+Tests: `test/mergedWords.test.mjs` (the net: closed at 15 minutes, not at 14; a turn before the take, a hand's take, an envelope, no
+report: left), `mods/workers/hooks/board.test.ts` and `chatlist.test.ts` (the three real batches: each word told once, the turn
+named by the first; the person's own line; the envelope's line apart; the order of the last submit's resolve).
 
 **The state's `waits`** (server.mjs `waitsNow`): every person's word of the last 24 h (an answer, `recap-feedback`,
 `obsolete-check`, the asked sweep's word `lastSweep.word`) by its id, judged by `wordJudge` (src/supervisor/index.mjs: a view

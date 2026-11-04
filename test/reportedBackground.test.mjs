@@ -47,6 +47,13 @@ test('no line without background work, with the turn still open, with nothing ow
   assert.deepEqual(reportedBackgroundDue(board([{ ...lane(), isMain: true }, { ...lane({ name: 'Old fork' }), isLeftover: true }]), []), [])
 })
 
+test('the lazy clear (Task 4, D7): a worker on its next step (its clear refused, its line typed anyway) whose background work is that step\'s is not told to stop it (mutant: B739 for a holder)', () => {
+  const working = lane({ held: { id: 'B721', state: 'in progress' } })
+  assert.deepEqual(reportedBackgroundDue(board([working]), []), [])
+  // Holding nothing, as before: told once.
+  assert.equal(reportedBackgroundDue(board([lane({ held: null })]), []).length, 1)
+})
+
 test('a second idle tick with the same report gives no second line; a report again does', () => {
   const [first] = reportedBackgroundDue(board([lane()]), [])
   // Whatever became of the first word (waiting, taken, expired): it was told.
