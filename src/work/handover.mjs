@@ -119,13 +119,13 @@ export function failedWhy(envelope) {
     return own !== undefined ? own.replace(/\s+/g, ' ').trim().slice(0, 160) : typeof envelope?.why === 'string' ? envelope.why.slice(0, 160) : 'no reason given'
   }
   // The lazy clear: a 0.31.0 mod says the clear's why in `clearWhy`, and `why` is then the set's or the line's: a set or a
-  // line that failed is what holds, so its words come first. A 0.30.0 mod's failed clear has no clearWhy: its `why` is the clear's.
+  // line that failed is what holds, so its words come first, in that order. Only a 0.30.0 failed clear (cleared and typed
+  // both false, no clearWhy) is the clear's: its `why` is the clear's.
   const clearWhy = outcome?.clearWhy ?? null
-  const isOldClear = outcome?.cleared === false && clearWhy === null
-  if (!isOldClear && outcome?.set === false) return `its model and effort could not be set: ${said(outcome.why)}`
+  const isOldClear = outcome?.cleared === false && outcome?.typed === false && clearWhy === null
+  if (outcome?.set === false) return `its model and effort could not be set: ${said(outcome.why)}`
   if (!isOldClear && outcome?.typed === false && typeof envelope?.line === 'string') return `its line could not be typed: ${said(outcome.why)}`
   if (outcome?.cleared === false) return `its clear did not run: ${said(clearWhy, outcome.why)}`
-  if (outcome?.set === false) return `its model and effort could not be set: ${said(outcome.why)}`
   if (envelope?.restart === true) return `its restart did not run: ${said(outcome?.why)}`
   return `its line could not be typed: ${said(outcome?.why)}`
 }
@@ -164,6 +164,23 @@ export const HELD_RETRY_MS = 10 * MIN
 const RESTART_CUT_MS = MIN
 const isRestartCut = (envelope, boardStartedAt) => isBoardTimeout(envelope) && (/is not running\b/.test(envelope.outcome?.why ?? '')
   || (Number.isFinite(boardStartedAt) && Number.isFinite(envelope.at) && envelope.at >= boardStartedAt - RESTART_CUT_MS && envelope.at <= boardStartedAt))
+/**
+ * The lazy clear (D3): a 0.31.0 refusal of the clear under the person's pause: the line not typed (`typed` null), the set not
+ * failed, and the clear's why the board's own pause words (PAUSED_WHY: the Workers mod sends exactly these, its chats.ts
+ * `clearWhy`). The mod knows no limit, so no refusal names LIMIT_WHY; one that did would hold as any.
+ */
+const isPauseRefusal = envelope => envelope?.outcome?.cleared === false && envelope.outcome.typed == null && envelope.outcome.set !== false
+  && envelope.outcome.clearWhy === PAUSED_WHY
+/**
+ * Whether the board's own pause record (pause.json: pausing since `since`; resuming or running, from `pausedSince` to the
+ * resume) covered the moment `at`.
+ */
+function pauseCovered(pause, at, now) {
+  if (pause === null || pause === undefined || !Number.isFinite(at)) return false
+  const start = pause.state === 'pausing' ? pause.since : pause.pausedSince ?? null
+  const end = pause.state === 'pausing' ? now : pause.state === 'resuming' ? pause.since : pause.resumedSince ?? pause.since
+  return Number.isFinite(start) && Number.isFinite(end) && start <= at && at <= end
+}
 const two = n => String(n).padStart(2, '0')
 const hourMinuteOf = ms => `${two(new Date(ms).getHours())}:${two(new Date(ms).getMinutes())}`
 
@@ -425,9 +442,10 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
       || (isReported && backgroundCount(worker) === 0 && (last.outcome?.background === true || last.outcome?.set === false))
       || (isReported && isBoardTimeout(last) && !isTimedOutAgain)
       || (isReported && heldMs >= HELD_RETRY_MS)
-      // The lazy clear (D3): a 0.31.0 refusal under the person's pause or a full limit (the line not typed, `typed` null, with
-      // its clearWhy) held only while those last; once they end, it is released at once (no wait out of HELD_RETRY_MS).
-      || (!paused && !limitFull && last.outcome?.clearWhy != null && last.outcome?.typed == null && last.outcome?.set !== false)
+      // The lazy clear (D3, the Task 3 review): a 0.31.0 refusal under the person's pause (the line not typed, `typed` null, the
+      // clearWhy the board's own PAUSED_WHY) is released at once, but only when the board's own pause record covered the
+      // settle: a refusal on a reading the board does not share holds as any (no loop through the ready list at pass rate).
+      || (isPauseRefusal(last) && pauseCovered(pause, at, now))
     if (!isReleased) {
       const nextTry = hourMinuteOf(now + Math.max(0, HELD_RETRY_MS - heldMs))
       return result(STATES.HELD, `${isTimedOutAgain ? timedOutTwiceWhy(clearStepOf(last)) : failedWhy(last)}; next try ${nextTry}`, { step: typeof last.step === 'string' ? last.step : null })

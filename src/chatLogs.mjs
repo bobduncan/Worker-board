@@ -303,6 +303,11 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
       const isGone = job.state === 'copy' && !(await exists(job.source))
       if (isGone || job.tries >= MOST_TRIES) {
         jobs = (jobs ?? []).filter(one => one !== job)
+        // D8 (the Task 3 review): a log of a step given up after its copy keeps its paths: the next save of that pair copies
+        // again into them (its size not known), never a -2 file beside it.
+        if (job.state === 'text' && typeof job.step === 'string' && STEP_ID.test(job.step)) {
+          done = [...done.filter(one => !(one.session === job.session && one.step === job.step)), { session: job.session, step: job.step, chat: job.chat, source: job.source, jsonl: job.jsonl, txt: job.txt, log: job.log, at: job.at, size: null }].slice(-MOST_DONE)
+        }
         failed(job, error)
       }
       await keep().catch(() => {})
@@ -351,7 +356,15 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
    * viewer opens it, `file` and `jsonl` the full paths; or `{ ok: false, status, why }`. The answer comes once the
    * journal names it: the copy goes on after it.
    */
-  async function save({ chat, session, step }) {
+  /** D8 (the Task 3 review): one save at a time, so two of the same pair in one tick never both pass the check. */
+  let saving = Promise.resolve()
+  function save(asked) {
+    const once = saving.then(() => saveOnce(asked), () => saveOnce(asked))
+    saving = once.catch(() => {})
+    return once
+  }
+
+  async function saveOnce({ chat, session, step }) {
     if (typeof chat !== 'string' || chat.trim() === '') return { ok: false, status: 400, why: 'Name the chat.' }
     if (typeof session !== 'string' || !SESSION_ID.test(session)) return { ok: false, status: 400, why: 'Name the session.' }
     if (typeof project !== 'string' || project === '' || typeof transcripts !== 'string' || transcripts === '') return { ok: false, status: 503, why: 'This board keeps no chat logs: it knows no project or transcripts folder.' }

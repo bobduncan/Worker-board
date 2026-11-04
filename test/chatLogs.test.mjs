@@ -354,6 +354,33 @@ test('D8: a save that comes while the log of its (session, step) waits in the jo
   }
 })
 
+test('D8, the Task 3 review: two saves of one pair in the same tick: one job, one path (mutant: both pass the check); a log given up after its copy keeps its paths for the next save', async () => {
+  const dir = await folder()
+  try {
+    const one = await oneSession(dir)
+    const [a, b] = await Promise.all([one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B936' }), one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B936' })])
+    assert.equal(b.result.log, a.result.log)
+    assert.equal((await one.keeper.pending()).length, 1)
+    await one.keeper.idle()
+    assert.deepEqual(await filesIn(one.folderOf), ['2026-10-23 1405 B936.jsonl', '2026-10-23 1405 B936.txt'])
+    // A log of B937 whose copy was made, then its text failed for the last time (its copy gone): given up, its paths kept.
+    const base = join(one.folderOf, 'given-up B937')
+    const given = []
+    const other = chatLogKeeper({ file: join(dir, 'other.json'), project: one.project, transcripts: one.transcripts, clock: () => AT, failed: job => given.push(job.id) })
+    await writeFile(join(dir, 'other.json'), JSON.stringify({ jobs: [{ id: 'g1', chat: 'Worker 3', session: 's1', step: 'B937', at: AT, state: 'text', tries: 2, source: join(one.transcripts, 's1.jsonl'), jsonl: `${base}.jsonl`, txt: `${base}.txt`, log: '.claude/chat-logs/Worker 3/given-up B937.txt' }], left: [] }))
+    await other.resume()
+    await other.idle()
+    assert.deepEqual(given, ['g1'])
+    const again = await other.save({ chat: 'Worker 3', session: 's1', step: 'B937' })
+    assert.equal(again.result.file, `${base}.txt`)
+    await other.idle()
+    await other.idle()
+    assert.match(await readFile(`${base}.txt`, 'utf8'), /The knight is in\./)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('D8: the index as the journal keeps it: a broken entry is left out at load, a reload (B529) reads it anew, at most 200, the newest', async () => {
   const dir = await folder()
   try {

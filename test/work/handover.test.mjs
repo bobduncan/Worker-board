@@ -574,6 +574,8 @@ test('the lazy clear, review of Task 1: a failed line or set is named before a c
   // The reviewer's case: the clear refused, then the line not taken: the hold is the line's.
   assert.equal(failedWhy(envelope({ cleared: false, clearWhy: 'a prompt came first', typed: false, why: 'the chat did not take it' })), 'its line could not be typed: the chat did not take it')
   assert.equal(failedWhy(envelope({ cleared: false, clearWhy: 'a prompt came first', set: false, typed: null, why: 'the app refused the model' })), 'its model and effort could not be set: the app refused the model')
+  // The Task 3 review: no version guess for the set: a failed set is named first, with clearWhy or without.
+  assert.equal(failedWhy(envelope({ cleared: false, set: false, typed: null, why: 'the app refused the model' })), 'its model and effort could not be set: the app refused the model')
   // The person's pause (D3): the clear's own words.
   assert.equal(failedWhy(envelope({ cleared: false, clearWhy: 'the person pauses the chats', typed: null, why: null })), 'its clear did not run: the person pauses the chats')
   // A 0.30.0 mod: no clearWhy, its why is the clear's (also with typed false, as older fixtures have it).
@@ -592,10 +594,18 @@ test('the lazy clear, review of Task 1 (D3): a refusal under the person\'s pause
   assert.deepEqual([paused.state, paused.takeBack], [STATES.SUSPENDED, { id: 'B937', why: PAUSED_WHY }])
   // The resume two minutes later (B937 back on the list): not held, the clear and the next task in one envelope.
   const back = mapOf([reported('B936', name, reportAt), step('B937', 'refined'), step('B938', 'refined')])
-  const resumed = decide({ worker: lane(day2(21, 42, 30)), items: back, ready: ready('B937', 'B938'), owed, envelopes: [refused], now: day2(21, 42, 30) })
+  // The board's own pause record covered the settle (paused 21:39, resumed 21:42).
+  const record = { state: 'running', since: day2(21, 42), pausedSince: day2(21, 39), resumedSince: day2(21, 42), by: 'person' }
+  const resumed = decide({ worker: lane(day2(21, 42, 30)), items: back, ready: ready('B937', 'B938'), owed, envelopes: [refused], pause: record, now: day2(21, 42, 30) })
   assert.notEqual(resumed.state, STATES.HELD)
   assert.equal(resumed.state, STATES.HANDING)
   assert.deepEqual(resumed.envelope.clear, { step: 'B936', reportedAt: reportAt })
+  // The Task 3 review's loop case: the mod refused on a pause the board does not share (no record, or one that ended
+  // before the settle), or with other words: HELD as any, never released at once to be handed the next ready task.
+  for (const [pause, outcome] of [[null, refused.outcome], [{ ...record, pausedSince: day2(20, 0), resumedSince: day2(20, 30), since: day2(20, 30) }, refused.outcome], [record, { ...refused.outcome, clearWhy: 'the board pauses, it said' }]]) {
+    const held = decide({ worker: lane(day2(21, 42, 30)), items: back, ready: ready('B937', 'B938'), owed, envelopes: [{ ...refused, outcome }], pause, now: day2(21, 42, 30) })
+    assert.deepEqual([held.state, held.give, held.envelope], [STATES.HELD, null, null])
+  }
   // Still under a full limit: suspended, not released early.
   assert.equal(decide({ worker: lane(day2(21, 42, 30)), items: back, ready: ready('B937'), owed, envelopes: [refused], limitFull: true, now: day2(21, 42, 30) }).state, STATES.SUSPENDED)
   // An old-style failed clear (no clearWhy) keeps B930's hold.
