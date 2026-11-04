@@ -3,7 +3,9 @@
 // folder is on, and "restarts" on POST /api/restart without leaving its process: after 250 ms its `since` is new and its
 // commit is the folder's head again. `--stale-once` makes the first restart come back with the OLD commit, as a board does
 // whose restart did not take.
-//   node server.mjs --port 4500 [--stale-once]       (without --port: the number in data/port.txt, as start-board.mjs gives it)
+//   node server.mjs --port 4500 [--stale-once] [--no-keeper] [--repo <folder>]
+//     (without --port: the number in data/port.txt, as start-board.mjs gives it; --no-keeper: a board started without its keeper
+//     says version.canRestart false and refuses /api/restart; --repo: the folder whose commit it reports, this folder's by default)
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -13,7 +15,10 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const at = process.argv.indexOf('--port')
 const PORT = Number(at >= 0 ? process.argv[at + 1] : readFileSync(join(HERE, 'data', 'port.txt'), 'utf8'))
-const head = () => execFileSync('git', ['-C', HERE, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim()
+const repoAt = process.argv.indexOf('--repo')
+const REPO = repoAt >= 0 ? process.argv[repoAt + 1] : HERE
+const head = () => execFileSync('git', ['-C', REPO, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim()
+const NO_KEEPER = process.argv.includes('--no-keeper')
 const TOKEN = Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')
 const state = { commit: head(), since: Date.now() }
 let stale = process.argv.includes('--stale-once') ? 1 : 0
@@ -30,9 +35,15 @@ const server = createServer((req, res) => {
     return send(200, 'text/html', `<!doctype html><html><head><meta name="board-token" content="${TOKEN}"><title>Worker board</title></head><body>a made-up board</body></html>`)
   }
   if (req.headers['x-board-token'] !== TOKEN) return send(403, 'text/plain', 'token')
-  if (req.method === 'GET' && pathname === '/api/state') return send(200, 'application/json', JSON.stringify({ version: { commit: state.commit, since: state.since } }))
+  if (req.method === 'GET' && pathname === '/api/state') return send(200, 'application/json', JSON.stringify({ version: { commit: state.commit, since: state.since, canRestart: !NO_KEEPER } }))
   if (req.method === 'POST' && pathname === '/api/restart') {
     if (req.headers.origin !== `http://127.0.0.1:${PORT}`) return send(403, 'text/plain', 'origin')
+    if (NO_KEEPER) return send(409, 'application/json', JSON.stringify({ why: 'This board was started without its keeper: start it once from where it was started.' }))
+    try {
+      appendFileSync(join(HERE, 'data', 'restarts.log'), String(Date.now()) + '\n')
+    } catch {
+      // A log that cannot be written is no reason not to restart.
+    }
     send(200, 'application/json', JSON.stringify({ at: Date.now() }))
     setTimeout(() => {
       state.since = Date.now()

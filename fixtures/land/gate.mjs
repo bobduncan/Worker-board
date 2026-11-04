@@ -1,6 +1,6 @@
 // The made-up gate of test/landScript.test.mjs: prints where it ran (the script runs it in a worktree of the branch's head,
 // with the junction to node_modules) and a summary the way the real gates do.
-//   node gate.mjs board-pass | board-fail | no-summary | mod-pass | mod-fail | board-pass-then-copy <from> <to>
+//   node gate.mjs board-pass | board-fail | board-fail-files | no-summary | print-env | mod-pass | mod-fail | board-pass-then-copy <from> <to>
 import { copyFileSync, existsSync } from 'node:fs'
 
 const [mode, from, to] = process.argv.slice(2)
@@ -15,6 +15,17 @@ const board = fails => {
   console.log('ℹ cancelled 0')
 }
 if (mode === 'board-pass') board(0)
+else if (mode === 'print-env') {
+  console.log(`env NO_COLOR=${process.env.NO_COLOR ?? 'unset'} FORCE_COLOR=${process.env.FORCE_COLOR ?? 'unset'}`)
+  board(0)
+} else if (mode === 'board-fail-files') {
+  console.log('✖ a made-up failing test (2ms)')
+  console.log('✖ failing tests:')
+  console.log('test at test/alpha.test.mjs:12:1')
+  console.log('test at test/beta.test.mjs:3:1')
+  board(2)
+  process.exitCode = 1
+}
 else if (mode === 'board-pass-then-copy') {
   // A debugger comes during the gate: the list of connections the script reads changes before the gate ends.
   copyFileSync(from, to)

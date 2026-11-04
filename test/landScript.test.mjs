@@ -5,7 +5,7 @@
 // script's own settings (-Config) say so. Each landing takes some ten seconds (PowerShell, a worktree, the PC's process list).
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { get } from 'node:http'
 import { createServer } from 'node:net'
@@ -104,11 +104,21 @@ async function makeWorld(t, { live = false } = {}) {
     assert.notEqual(await boardState(port), null, `the made-up board on ${port} did not start`)
     return child
   }
-  /** Both made-up boards; the first gets `first`'s options. */
-  world.boards = async (first = {}) => {
+  /** Both made-up boards; the first (the main checkout's) gets `first`'s options, the second (the trial copy's) `second`'s. */
+  world.boards = async (first = {}, second = {}) => {
     await world.board(world.main, world.ports[0], first)
-    await world.board(world.trial, world.ports[1])
+    await world.board(world.trial, world.ports[1], second)
   }
+  /** The made-up remote takes no push whose commit says "Revert the landing": a hook of the bare repository. */
+  world.rejectReverts = () => writeFileSync(join(world.remote, 'hooks', 'pre-receive'), [
+    '#!/bin/sh', 'while read old new ref; do',
+    '  if git log -1 --format=%s "$new" | grep -q "^Revert the landing"; then echo "the made-up remote takes no reverts" >&2; exit 1; fi',
+    'done', '',
+  ].join('\n'))
+  /** The made-up remote answers a push only after `seconds`, when the ref is already updated (a push that times out on the client). */
+  world.slowRemote = seconds => writeFileSync(join(world.remote, 'hooks', 'post-receive'), ['#!/bin/sh', `sleep ${seconds}`, ''].join('\n'))
+  /** What the script is run with besides the PC's own environment. */
+  world.env = {}
   /** A branch from main's head with `files` in one commit; the checkout goes back to main. Gives the branch's head. */
   world.branch = (name, files = { 'feature.txt': `${name}\n` }) => {
     git(world.main, 'switch', '-q', '-c', name)
@@ -132,7 +142,7 @@ async function makeWorld(t, { live = false } = {}) {
   }
   /** Runs the script as a chat does, with the made-up settings. `{ status, out }`; the words as lines. */
   world.land = (...args) => new Promise(done => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', SCRIPT, ...args, '-Config', world.configFile], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', SCRIPT, ...args, '-Config', world.configFile], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...world.env } })
     let out = ''
     child.stdout.on('data', chunk => { out += chunk })
     child.stderr.on('data', chunk => { out += chunk })
@@ -164,6 +174,7 @@ test('a landing: main moves to the gated head, the remote and the trial copy fol
   assert.equal(ran.status, 0, ran.out)
   const out = lines(ran.out)
   assert.match(out.at(-1), /^landed: feat by chat 3$/)
+  assert.ok(out.includes(`boards: the main board on ${world.ports[0]} (${world.main}), the trial board on ${world.ports[1]} (${world.trial})`), 'the boards chosen are said on every run')
   assert.ok(out.some(line => line === `before ${world.before.slice(0, 7)} -> after ${head.slice(0, 7)} (trial ${head.slice(0, 7)})`), ran.out)
   // Main, the remote and the trial copy are on the gated head, as a fast-forward.
   assert.equal(git(world.main, 'rev-parse', 'HEAD'), head)
@@ -482,11 +493,14 @@ test('nothing to land, a main checkout on another branch and a trial copy that c
   assert.deepEqual(readdirSync(world.tmp), [])
 })
 
-test('without settings the boards are found, not named: git\'s first working tree, the ports of the PC\'s list, a trial copy is a clone of the main checkout', LONG, async t => {
+test('without settings the boards are found, not named: git\'s first working tree, the ports of the PC\'s list, a trial copy is a clone of the main checkout; a list nobody can read or without a trial copy is a refusal', LONG, async t => {
   const world = await makeWorld(t)
   // The script runs from a folder of the made-up repository, as it does from the real one (its worktrees too).
   mkdirSync(join(world.main, 'tools'))
   await cp(SCRIPT, join(world.main, 'tools', 'land.ps1'))
+  await cp(join(ROOT, 'tools', 'landing.mjs'), join(world.main, 'tools', 'landing.mjs'))
+  mkdirSync(join(world.main, 'src'))
+  await cp(join(ROOT, 'src', 'landing.mjs'), join(world.main, 'src', 'landing.mjs'))
   const copy = join(world.root, 'elsewhere')
   git(world.root, 'clone', '-q', world.remote, copy)
   const home = join(world.root, 'pc')
@@ -495,25 +509,250 @@ test('without settings the boards are found, not named: git\'s first working tre
   writeFileSync(join(home, 'boards.json'), JSON.stringify({ boards: [entry(world.trial, 4412), entry(world.main, 4411), entry(copy, 4413), entry(join(world.root, 'gone'), 4414)] }))
   const configFile = join(world.root, 'print.json')
   writeFileSync(configFile, JSON.stringify({ printBoards: true }))
-  const boards = home => new Promise(done => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(world.main, 'tools', 'land.ps1'), 'unused', '-Config', configFile],
+  const boards = (home, ...flags) => new Promise(done => {
+    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(world.main, 'tools', 'land.ps1'), 'unused', ...flags, '-Config', configFile],
       { cwd: world.root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, WORKER_BOARD_HOME: home } })
     let out = ''
     child.stdout.on('data', chunk => { out += chunk })
     child.stderr.on('data', chunk => { out += chunk })
     child.on('exit', status => done({ status, out: out.replace(/\r/g, '').trim() }))
   })
+  const said = answer => JSON.parse(answer.out.replace(/^boards: /, ''))
   const listed = await boards(home)
   assert.equal(listed.status, 0, listed.out)
   // The main checkout first with its port from the list, then the clone of it (the copy that has no `local` remote is another's).
-  assert.deepEqual(JSON.parse(listed.out.replace(/^boards: /, '')), [{ dir: world.main, port: 4411 }, { dir: world.trial, port: 4412 }])
-  // No list: the main board alone, on its config.json's port, else on 4310.
+  assert.deepEqual(said(listed), [{ dir: world.main, port: 4411 }, { dir: world.trial, port: 4412 }])
+  // A PC's list that names no trial copy is a refusal: a landing must not skip the trial copy quietly. -NoTrial says it is meant.
   const empty = join(world.root, 'nolist')
   mkdirSync(empty)
-  assert.deepEqual(JSON.parse((await boards(empty)).out.replace(/^boards: /, '')), [{ dir: world.main, port: 4310 }])
+  const none = await boards(empty)
+  assert.equal(none.status, 1)
+  assert.match(lines(none.out).at(-1), /^refused: no trial copy of the main checkout was found in the PC's list of boards \(.*boards\.json\).*pass -NoTrial/)
+  // No list and -NoTrial: the main board alone, on its config.json's port, else on 4310.
+  assert.deepEqual(said(await boards(empty, '-NoTrial')), [{ dir: world.main, port: 4310 }])
   writeFileSync(join(world.main, 'config.json'), JSON.stringify({ port: 4455 }))
-  assert.deepEqual(JSON.parse((await boards(empty)).out.replace(/^boards: /, '')), [{ dir: world.main, port: 4455 }])
+  assert.deepEqual(said(await boards(empty, '-NoTrial')), [{ dir: world.main, port: 4455 }])
+  // A list that exists and cannot be read is a refusal too, and its line is written (the settings are read inside the run's try).
+  const broken = join(world.root, 'brokenlist')
+  mkdirSync(broken)
+  writeFileSync(join(broken, 'boards.json'), '{ "boards": [ torn')
+  const unreadable = await boards(broken, '-NoTrial')
+  assert.equal(unreadable.status, 1)
+  assert.match(lines(unreadable.out).at(-1), /^refused: the PC's list of boards .*boards\.json cannot be read \(.+\): fix it, or say the boards with -Config$/)
+  const written = world.landings()
+  assert.equal(written.at(-1).result, 'refused')
+  assert.match(written.at(-1).why, /cannot be read/)
   assert.equal(git(world.main, 'rev-parse', 'HEAD'), world.before, 'nothing was touched')
+})
+
+test('a rollback whose revert cannot be pushed restarts both boards on the local revert first: exit 3, the boards up, the line says exactly that', LONG, async t => {
+  const world = await makeWorld(t)
+  const head = world.branch('feat')
+  world.rejectReverts()
+  await world.boards({ args: ['--stale-once'] })
+  world.config({ comeBackSeconds: 3 })
+  const ran = await world.land('feat', '-By', 'chat 3')
+  assert.equal(ran.status, 3, ran.out)
+  const out = lines(ran.out)
+  const revert = git(world.main, 'rev-parse', 'HEAD')
+  assert.equal(git(world.main, 'rev-parse', 'HEAD^'), head, 'main has the revert on the landing, here')
+  assert.equal(git(world.remote, 'rev-parse', 'main'), head, 'the remote still has the landing: it took no revert')
+  assert.equal(git(world.trial, 'rev-parse', 'HEAD'), revert)
+  // Both boards answer with the revert commit: they were restarted before the push was tried.
+  for (const port of world.ports) assert.equal((await boardState(port)).commit, revert.slice(0, 7))
+  const failed = out.find(line => line.startsWith('ROLLBACK FAILED:'))
+  assert.ok(failed, ran.out)
+  assert.ok(failed.includes(`the revert ${revert.slice(0, 7)} is on main here and the boards run it, but the push to origin failed`), failed)
+  assert.ok(failed.includes(`origin/main still has ${head.slice(0, 7)}, the landing; push the revert by hand`), failed)
+  assert.ok(out.some(line => line === `state: the board on ${world.ports[0]} runs ${revert.slice(0, 7)}`), ran.out)
+  const [line] = world.landings()
+  assert.deepEqual([line.result, line.after], ['rollback-failed', head])
+  assert.deepEqual(line.boards.map(one => one.commit), [revert.slice(0, 7), revert.slice(0, 7)])
+  assertCleanedUp(world)
+})
+
+test('the trial board restarts first as a canary: when it does not come back the live board is not touched before the rollback', LONG, async t => {
+  const world = await makeWorld(t)
+  const head = world.branch('feat')
+  await world.boards({}, { args: ['--stale-once'] })
+  world.config({ comeBackSeconds: 3 })
+  const ran = await world.land('feat')
+  assert.equal(ran.status, 2, ran.out)
+  const out = lines(ran.out)
+  assert.equal(out.at(-1), `rolled back: ${world.ports[1]} did not come back with ${head.slice(0, 7)} within 3 s`)
+  assert.ok(out.includes(`note: restarting the trial board on ${world.ports[1]} first, as the canary`), ran.out)
+  const restarts = dir => readFileSync(join(dir, 'data', 'restarts.log'), 'utf8').trim().split('\n').length
+  assert.equal(restarts(world.trial), 2, 'the trial board: the landing\'s restart, then the rollback\'s')
+  assert.equal(restarts(world.main), 1, 'the live board was restarted once only: by the rollback, never by the landing')
+  const revert = git(world.main, 'rev-parse', 'HEAD')
+  for (const port of world.ports) assert.equal((await boardState(port)).commit, revert.slice(0, 7))
+  assertCleanedUp(world)
+})
+
+test('a board that was started without its keeper is refused before anything changes in warm mode: it needs -Cold', LONG, async t => {
+  const world = await makeWorld(t)
+  world.branch('feat')
+  await world.boards({ args: ['--no-keeper'] })
+  const ran = await world.land('feat')
+  assert.equal(ran.status, 1)
+  assert.equal(lines(ran.out).at(-1), `refused: the board on ${world.ports[0]} was started without its keeper and cannot restart itself: it needs -Cold`)
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), world.before)
+  assert.equal(git(world.remote, 'rev-parse', 'main'), world.before)
+  assert.equal(existsSync(join(world.data, 'landings')), false, 'no gate ran')
+  assertCleanedUp(world)
+})
+
+test('a push that times out but landed is found out with git ls-remote and the landing goes on', LONG, async t => {
+  const world = await makeWorld(t)
+  const head = world.branch('feat')
+  await world.boards()
+  world.slowRemote(8)
+  world.config({ pushTimeoutSeconds: 3 })
+  const ran = await world.land('feat')
+  assert.equal(ran.status, 0, ran.out)
+  assert.ok(lines(ran.out).some(line => /^note: the push to origin said it failed \(timed out after 3 s\), but origin\/main has [0-9a-f]{7}: going on$/.test(line)), ran.out)
+  assert.equal(git(world.remote, 'rev-parse', 'main'), head)
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), head)
+  for (const port of world.ports) assert.equal((await boardState(port)).commit, head.slice(0, 7))
+  assert.equal(world.landings()[0].result, 'landed')
+})
+
+test('an unexpected error after main moved is never silent: before the push main goes back, after it the rollback runs, and a rollback that stops too is logged with the state', LONG, async t => {
+  const world = await makeWorld(t)
+  const head = world.branch('feat')
+  await world.boards()
+  // A fault right after the fast-forward, before the push: main is put back.
+  world.config({ failAfter: 'ff' })
+  const early = await world.land('feat')
+  assert.equal(early.status, 1, early.out)
+  assert.equal(lines(early.out).at(-1), `refused: an unexpected error after main moved (a fault made on purpose after the fast-forward); main is back at ${world.before.slice(0, 7)}`)
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), world.before)
+  assert.equal(git(world.remote, 'rev-parse', 'main'), world.before)
+  // A fault right after the push: the rollback runs, the boards come back on the revert.
+  world.config({ failAfter: 'push' })
+  const late = await world.land('feat')
+  assert.equal(late.status, 2, late.out)
+  assert.equal(lines(late.out).at(-1), 'rolled back: an unexpected error after the push: a fault made on purpose after the push')
+  const revert = git(world.main, 'rev-parse', 'HEAD')
+  assert.equal(git(world.main, 'rev-parse', 'HEAD^'), head)
+  assert.equal(git(world.remote, 'rev-parse', 'main'), revert)
+  for (const port of world.ports) assert.equal((await boardState(port)).commit, revert.slice(0, 7))
+  // A fault after the push and another in the rollback: nobody is left guessing: rollback-failed, with the state.
+  world.branch('feat2')
+  world.config({ failAfter: 'push,rollback' })
+  const cut = await world.land('feat2')
+  assert.equal(cut.status, 3, cut.out)
+  const cutOut = lines(cut.out)
+  assert.ok(cutOut.some(line => /^ROLLBACK FAILED: the run ended after main moved, before it finished: an unexpected error after the push \(a fault made on purpose after the push\), and the rollback stopped: a fault made on purpose at the rollback$/.test(line)), cut.out)
+  assert.ok(cutOut.some(line => line.startsWith('state: main (local) is at ')), cut.out)
+  const results = world.landings().map(line => line.result)
+  assert.deepEqual(results, ['refused', 'rolled-back', 'rollback-failed'])
+  assertCleanedUp(world)
+})
+
+test('the gate runs without colour (NO_COLOR, no FORCE_COLOR) and a refusal names the failing test files', LONG, async t => {
+  const world = await makeWorld(t)
+  world.branch('feat')
+  world.env.FORCE_COLOR = '1'
+  // A lock held by another landing ends the run right after the gate: the log is all this needs.
+  writeFileSync(join(world.data, 'landing.lock'), JSON.stringify({ by: 'chat 1', branch: 'x', at: new Date().toISOString(), pid: 1 }))
+  world.config({ gateBoard: world.gate('print-env') })
+  const first = await world.land('feat')
+  assert.equal(first.status, 1, first.out)
+  assert.match(readFileSync(world.landings()[0].gateLog, 'utf8'), /env NO_COLOR=1 FORCE_COLOR=unset/)
+  world.config({ gateBoard: world.gate('board-fail-files') })
+  const failed = await world.land('feat')
+  assert.equal(failed.status, 1)
+  assert.match(lines(failed.out).at(-1), /^refused: the gate failed on [0-9a-f]{7}: the summary says fail 2; failing test files: test\/alpha\.test\.mjs, test\/beta\.test\.mjs \(see /)
+  assert.deepEqual(readdirSync(world.tmp), [])
+  assert.equal(world.worktrees(), 1)
+})
+
+test('the claude program for the mod gate is the app\'s CLI under its own data folder, never the desktop app; none is a refusal', LONG, async t => {
+  const world = await makeWorld(t)
+  const app = join(world.root, 'localapp')
+  const cli = version => {
+    const dir = join(app, 'Claude-Data', 'id1', 'claude-code', version, 'hash')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'claude.exe'), 'x')
+    return join(dir, 'claude.exe')
+  }
+  const desktop = join(world.root, 'Desktop', 'claude.exe')
+  const store = join(world.root, 'WindowsApps', 'Claude_1', 'claude-code', '9', 'claude.exe')
+  for (const file of [desktop, store]) {
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, 'x')
+  }
+  world.env.LOCALAPPDATA = app
+  const ask = async processes => {
+    world.config({ printClaude: true, claudeProcesses: processes })
+    const ran = await world.land('unused')
+    assert.equal(ran.status, 0, ran.out)
+    return lines(ran.out).find(line => line.startsWith('claude: '))
+  }
+  // Only the desktop app and the store's copy: none.
+  assert.equal(await ask([desktop, store]), 'claude: none')
+  const older = cli('1.0.0')
+  const newer = cli('2.0.0')
+  const later = new Date(Date.now() + 60_000)
+  utimesSync(newer, later, later)
+  // Without a running one, the newest of the app's data folder; the desktop app is passed over.
+  assert.equal(await ask([desktop, store]), `claude: ${newer}`)
+  // A running chat's version is the one in use.
+  assert.equal(await ask([desktop, older]), `claude: ${older}`)
+  // And a branch that changes the mod, with none found, is refused with the words.
+  rmSync(join(app, 'Claude-Data'), { recursive: true, force: true })
+  world.branch('mod-change', { 'mods/workers/note.txt': 'the mod changed\n' })
+  world.config({ gateMod: '', claudeProcesses: [desktop, store] })
+  const refused = await world.land('mod-change')
+  assert.equal(refused.status, 1)
+  assert.match(lines(refused.out).at(-1), /^refused: the mod gate cannot run: claude CLI not found \(the app's own claude\.exe is never used\) \(see /)
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), world.before)
+})
+
+test('gate worktrees a cut landing left are swept at the start: the junction first (its target untouched), then the worktree; one whose landing still runs is left', LONG, async t => {
+  const world = await makeWorld(t)
+  world.branch('feat')
+  const target = join(world.root, 'nm-target')
+  mkdirSync(target)
+  writeFileSync(join(target, 'keep.txt'), 'the files behind a junction must survive the sweep')
+  const leftover = (name, { worktree = true, owner = null } = {}) => {
+    const dir = join(world.tmp, name)
+    if (worktree) git(world.main, 'worktree', 'add', '--detach', dir, 'HEAD')
+    else mkdirSync(dir)
+    const linked = spawnSync('cmd.exe', ['/c', 'mklink', '/J', join(dir, 'node_modules'), target], { windowsHide: true })
+    assert.equal(linked.status, 0, String(linked.stdout))
+    if (owner !== null) writeFileSync(`${dir}.owner`, String(owner))
+    return dir
+  }
+  const dead = leftover('land-gate-dead0001', { owner: 999999 })
+  const noOwner = leftover('land-gate-noown002')
+  const plain = leftover('land-gate-plain003', { worktree: false })
+  // A landing that is alive: a PowerShell process that runs for a while owns this one.
+  const alive = spawn('powershell.exe', ['-NoProfile', '-Command', 'Start-Sleep -Seconds 300'], { stdio: 'ignore', windowsHide: true })
+  world.started.push(alive)
+  const live = leftover('land-gate-live0004', { owner: alive.pid })
+  git(world.main, 'branch', 'same')
+  const ran = await world.land('same')
+  assert.equal(ran.status, 1, ran.out)
+  const out = lines(ran.out)
+  for (const dir of [dead, noOwner, plain]) {
+    assert.equal(existsSync(dir), false, `${dir} is gone`)
+    assert.ok(out.some(line => line.startsWith('note: removed the gate worktree ') && line.includes(dir)), ran.out)
+  }
+  assert.equal(readFileSync(join(target, 'keep.txt'), 'utf8'), 'the files behind a junction must survive the sweep')
+  assert.equal(existsSync(`${dead}.owner`), false)
+  assert.equal(existsSync(join(live, 'node_modules', 'keep.txt')), true, 'the live landing\'s worktree and junction are untouched')
+  assert.ok(out.some(line => line.includes(`${live} belongs to a landing that is still running`)), ran.out)
+  assert.equal(world.worktrees(), 2, 'main and the live landing\'s worktree')
+  // Its landing gone, the next run sweeps it too.
+  spawnSync('taskkill', ['/PID', String(alive.pid), '/T', '/F'], { windowsHide: true })
+  await sleep(500)
+  const again = await world.land('same')
+  assert.ok(lines(again.out).some(line => line.startsWith('note: removed the gate worktree ') && line.includes(live)), again.out)
+  assert.equal(existsSync(live), false)
+  assert.equal(readFileSync(join(target, 'keep.txt'), 'utf8'), 'the files behind a junction must survive the sweep')
+  assert.equal(world.worktrees(), 1)
 })
 
 // The script's own text.
@@ -544,7 +783,26 @@ test('the debugger check comes before the fast-forward in the order of the run, 
   assert.ok(at('Invoke-Gate') < at("'lock-take'"), 'the gate runs before the lock')
   assert.ok(at("'lock-take'") < at('Test-Ready $true'), 'the second look is under the lock')
   assert.ok(run.lastIndexOf('Test-Debugger') < at("'merge', '--ff-only', $script:headFull"), 'the second debugger check is before the fast-forward')
-  assert.ok(at("'merge', '--ff-only', $script:headFull") < at("'push', $remote, 'main'"))
+  assert.ok(at("'merge', '--ff-only', $script:headFull") < at('Publish-Main'), 'main moves, then it is pushed')
+})
+
+test('the lock is refreshed at each phase, the settings are read inside the try, and a process is stopped only through Stop-Tree', () => {
+  const source = text()
+  const run = source.slice(source.indexOf('function Invoke-Run'), source.indexOf('\ntry {\n  Invoke-Run'))
+  // The heartbeat: after the lock is taken and checked, after the fast-forward, after the push, after the trial copy; and per board.
+  assert.ok((run.match(/Update-LockBeat/g) ?? []).length >= 4)
+  assert.ok(run.indexOf("'lock-take'") < run.indexOf('Update-LockBeat $true'), 'the first beat is under the lock and must hold')
+  assert.ok(run.indexOf('Update-LockBeat $true') < run.indexOf("'merge', '--ff-only', $script:headFull"), 'a lock that is not ours is a refusal before main moves')
+  assert.match(source, /function Restart-AllBoards[\s\S]*Update-LockBeat[\s\S]*function Read-Boards/)
+  assert.match(source, /function Invoke-Rollback[\s\S]*Update-LockBeat/)
+  // The settings: read by a function the run calls inside its try, never at the top of the script.
+  assert.ok(run.startsWith('function Invoke-Run {\n  Initialize-Settings\n'))
+  assert.ok(!/^\$cfg = .*ConvertFrom-Json/m.test(source), 'the settings file is not read outside the try')
+  // taskkill, under an error preference of Stop, only where a complaint is caught.
+  const kills = source.split('\n').filter(line => /taskkill/.test(line) && !/^\s*#/.test(line))
+  assert.equal(kills.length, 1)
+  assert.match(source, /function Stop-Tree\(\[int\]\$ProcId\) \{\n  try \{ & taskkill [^\n]*\} catch \{ \$null = \$_ \}/)
+  assert.ok(!/Stop-Process[^\n]*\$process/.test(source.replace(/function Stop-Tree[\s\S]*?\n\}/, '')), 'a process the script started is stopped through Stop-Tree')
 })
 
 test('the script is plain ASCII and has no syntax error in Windows PowerShell', { skip }, () => {

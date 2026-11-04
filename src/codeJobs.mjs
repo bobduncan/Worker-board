@@ -112,7 +112,12 @@ export const withDenyRules = (text, rules) => withRules(text, 'deny', rules)
  * 2026-11-04: a force-push of a base branch is denied in a project's settings, for the Bash and the PowerShell tool alike;
  * the go-live script (tools/land.ps1) is how a chat lands, and it never forces.
  */
-export const FORCE_PUSH_DENY = ['Bash', 'PowerShell'].flatMap(tool => ['git push --force*', 'git push -f*', 'git push --force-with-lease*', 'git push * --force*', 'git push * -f*'].map(pattern => `${tool}(${pattern})`))
+export const FORCE_PUSH_DENY = ['Bash', 'PowerShell'].flatMap(tool => [
+  // The person's own list (2026-11-04): force flags, also behind git -C. --force-with-lease starts with --force.
+  'git push --force*', 'git push -f*', 'git push * --force*', 'git push * -f', 'git push * -f *', 'git -C * push * --force*', 'git -C * push * -f *',
+  // The review's: a mirror push, a "+" refspec (it forces) and a ":" refspec (it deletes a remote branch).
+  'git push --mirror*', 'git push * --mirror*', 'git -C * push * --mirror*', 'git push * +*', 'git -C * push * +*', 'git push * :*', 'git -C * push * :*',
+].map(pattern => `${tool}(${pattern})`))
 
 /**
  * What the page shows: `{ rows: [{ key, title, byCode, why }], missing, needsTask, missingRoutines, checked }`. `claims` the

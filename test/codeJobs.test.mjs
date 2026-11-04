@@ -263,10 +263,16 @@ test('2026-11-01 (the person: "remove this from the settings, just the visual"):
 // 2026-11-04 (the go-live script, tools/land.ps1): force-pushes are denied in a new project's settings, in the flow that adds the
 // allow rules. A deny rule only takes rights away.
 
-test('the force-push deny rules are the five push patterns for the Bash tool and the same five for the PowerShell tool', () => {
-  const patterns = ['git push --force*', 'git push -f*', 'git push --force-with-lease*', 'git push * --force*', 'git push * -f*']
+test('the push deny rules are the person\'s own seven patterns plus the mirror, plus-refspec and delete forms, for the Bash tool and the PowerShell tool', () => {
+  const patterns = [
+    // The person's own list (their project's settings, 2026-11-04): force flags, also behind git -C.
+    'git push --force*', 'git push -f*', 'git push * --force*', 'git push * -f', 'git push * -f *', 'git -C * push * --force*', 'git -C * push * -f *',
+    // The review's: a mirror push, a "+" refspec (it forces) and a ":" refspec (it deletes a remote branch).
+    'git push --mirror*', 'git push * --mirror*', 'git -C * push * --mirror*', 'git push * +*', 'git -C * push * +*', 'git push * :*', 'git -C * push * :*',
+  ]
   assert.deepEqual(FORCE_PUSH_DENY, [...patterns.map(one => `Bash(${one})`), ...patterns.map(one => `PowerShell(${one})`)])
-  assert.equal(FORCE_PUSH_DENY.length, 10)
+  assert.equal(FORCE_PUSH_DENY.length, 28)
+  assert.equal(new Set(FORCE_PUSH_DENY).size, 28, 'no rule twice')
 })
 
 test('deny rules are added under permissions.deny: the allow rules and the rest of the file stay, a second time adds nothing', () => {
