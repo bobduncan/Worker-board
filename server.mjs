@@ -1193,7 +1193,7 @@ async function main(args) {
     for (const wake of done.result.wakes ?? []) await sendWakes({ ok: true, result: { wake } })
     const advisor = state.advisor?.name ?? null
     for (const one of done.result.refines ?? []) {
-      if (advisor !== null && sayNow !== null) await sayNow({ to: advisor, command: 'refine', step: one.step })
+      if (advisor !== null && sayNow !== null) await sayNow({ to: advisor, command: 'refine', step: one.step, isAuto: true })
     }
     await mainAsksNow(await readState(), done.result.mainAsks ?? [])
     return done

@@ -292,7 +292,8 @@ function refineCheck(body, state) {
   if (step === undefined || step.status === 'done') return refuse(409, 'That step is not on the backlog, or it is finished.')
   if (step.refineAsk?.isOpen === true) return refuse(409, 'The Advisor is refining this step already.')
   // B285: the ask remembers the block it is about, so a block that changed since answers it (state.mjs `refineAsk`).
-  return { ok: true, message: { ...refineWords(body.to, step, (step.refined?.round ?? 0) + 1), before: refinedKey(step.refined) } }
+  // T22 wave 2: Autopilot's refine (server.mjs `autopilotNow`) is no action of the person's: it carries no wait line (`isAuto`).
+  return { ok: true, message: { ...refineWords(body.to, step, (step.refined?.round ?? 0) + 1), before: refinedKey(step.refined), ...(body.isAuto === true ? { isAuto: true } : {}) } }
 }
 
 /**

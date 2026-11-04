@@ -29,16 +29,28 @@
 // older rule, narrowed: an idle answers only when the turn it ended began at or after the word arrived.
 // The chat's status pill stays beside the line as it is (condition 3): the page draws it from the lane, never from here.
 //
+// WAVE 2 (T22, 2026-11-04, art-inbox/focus-mocks/wait-rule/plan-wave2.md): the same line for every other action of the person that
+// waits on a chat, eight places, each with the Done source of its own (`placeOfWord`, `doneOfPlace`): a refine (its block written
+// after the word), Go (the work blocks' tasks filed), Change this goal (the partner's next stage of the thread: its new goal
+// definition), a goal ask (its answer under the goal), an Overturn (the fix step made), Stop or Remove a worker (its lane
+// stopped or gone), the Focus talk (no result of its own: the fallback "answered"), and an incident that waits for the
+// Supervisor's judgment (`judgeLinesOf`: one line per incident, from its judge word and the incident's own state). The person,
+// 2026-11-02: "I want to know whats going on." A result that ends the very reason for the word (a refine written closes its word,
+// the outbox sweep drops it) still reads as Done: `outlives`.
+//
 // PURE: every fact is passed in, `now` included, and rule 8's judgement as `judge` (the supervisor's `wordJudge`: nothing
 // outside the supervisor imports its parts). The server puts the lines in the state as `waits`, by word id (`waitsOf`: only
 // the words an action of the person typed, the last 24 h); the page draws a line where it finds a word id.
 
+import { refinedAt } from './backlog.mjs'
+import { blocksOf } from './goals.mjs'
 import { isHandTaken } from './hands.mjs'
 import { isLate } from './store.mjs'
 import { WAKE_PENDING, triedWords } from './wake.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
 import { TRIES, passesBySelf } from './work/passing.mjs'
 import { isHolding } from './work/pause.mjs'
+import { isBlockWritten } from './work/refineWait.mjs'
 import { fixesOf } from './work/resultCheck.mjs'
 import { madeAtMs } from './work/qaTask.mjs'
 
@@ -53,6 +65,18 @@ export const WAIT_STATES = ['done', 'late', 'picked-up', 'sent']
 export const WAIT_COMMANDS = ['recap-feedback', 'obsolete-check', 'sweep']
 /** The commands of the actions with a Done source of their own (an all-approved recap Send names no step: it has none). */
 const OWN_DONE = ['obsolete-check', 'sweep', 'recap-feedback']
+/**
+ * Wave 2: the places an action of the person has (`placeOfWord`). The six first have a Done source of their own (`OWN_PLACES`), the
+ * talk the fallback, the judgment of an incident its own lines (`judgeLinesOf`).
+ */
+export const WAVE2_PLACES = ['refine', 'go', 'change', 'goal-ask', 'overturn', 'worker', 'talk', 'judge']
+const OWN_PLACES = ['refine', 'go', 'change', 'goal-ask', 'overturn', 'worker']
+/** The Focus talk's words: the talk bar, "Not yet", "Re-check the goals now", and the words of a brainstorm that is no change of a goal. */
+const TALK_COMMANDS = ['talk', 'vibe-not-yet', 'how-not-yet', 'recheck']
+/** The words of a brainstorm thread the person types (the board's own `brainstorm-fix` and `brainstorm-stranded` are no action of theirs). */
+const BRAINSTORM_COMMANDS = ['brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite']
+/** The state of an incident that waits for a judgment, and those that ended it (supervisor/incidents.mjs ENDED, 'fix': given a fix step). */
+const INCIDENT_WAITS = ['open', 'came back', 'with the supervisor', 'with the advisor']
 /**
  * Who holds the person's Send again on the message way until a hand that may send takes it (server.mjs `wakeAgainNow`, the
  * attempt's `by`): the line then reads "waking X (message on its way, held by the board)".
@@ -75,6 +99,8 @@ const ordinal = n => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st',
  * report's since at or after deliveredAt", read so that this race never shows a running turn as not picked up).
  */
 export function arrivedAt(word) {
+  // The coordinator's rule 2 of 2026-11-04: a judge word whose text sat in another word's merged prompt counts as typed. The
+  // outbox record's `wordsIn` that would say so is not on this main: it plugs in here (a word named in another's `wordsIn`).
   if (word?.state === 'delivered') return [word.takenAt, word.deliveredAt, word.at].find(isTime) ?? null
   if (word?.state === 'taken' && !isHandTaken(word)) return [word.takenAt, word.at].find(isTime) ?? null
   return null
@@ -114,14 +140,20 @@ const oneLine = (words, max = 120) => String(words ?? '').replace(/\s+/g, ' ').t
  * - `queue`: how many of the addressee's waiting words came before it;
  * - `judge`: rule 8's judgement of one word (supervisor/index.mjs `wordJudge`): `isUndelivered(word)`, watch.mjs's function that
  *   `undeliveredWords` uses (the alarm's own: no second clock), and `matters(word)`, the outbox sweep's (`wordMatters`);
- * - `paused`: the person pauses the chats (no Send again then: the board wakes nobody).
+ * - `paused`: the person pauses the chats (no Send again then: the board wakes nobody);
+ * - wave 2: `own` whether the action has a Done source of its own (else `hasOwnDone(word)`: the places say it, `OWN_PLACES`);
+ *   `outlives` a result that ends the reason for the word (a refine written: the sweep drops the word as no longer needed) still
+ *   reads as Done; `needsPill` false for the Supervisor's judge word (the coordinator's rule 2 of 2026-11-04: "on it" reads the word's
+ *   own state and the mod's `report.word`, never the chat's status pill).
  */
-export function waitLineOf({ word, lane = null, report = null, ahead = false, wake = null, done = null, now, keep = {}, queue = 0, judge, paused = false }) {
+export function waitLineOf({ word, lane = null, report = null, ahead = false, wake = null, done = null, now, keep = {}, queue = 0, judge, paused = false, own: ownGiven = undefined, outlives = false, needsPill = true }) {
   if (word === null || word === undefined || typeof word.to !== 'string' || !isTime(word.at)) return null
-  if (['dropped', 'stopped', 'copied'].includes(word.state) || !judge.matters(word)) return null
+  if (['stopped', 'copied'].includes(word.state)) return null
+  const hasResult = isTime(word.doneAt) || (done !== null && done !== undefined)
+  if ((word.state === 'dropped' || !judge.matters(word)) && !(outlives && hasResult)) return null
   const chat = lane?.name ?? word.to
   const line = (state, lead, rest, at, more = {}) => ({ state, lead, rest, at, chat, canSendAgain: false, link: null, seen: null, ...more })
-  const own = hasOwnDone(word)
+  const own = ownGiven ?? hasOwnDone(word)
   // 1. Done, as kept on the word first (the review of 2026-11-02, 2a: once seen, it stays), then as seen now.
   if (isTime(word.doneAt)) {
     const link = done?.link ?? (typeof word.doneStep === 'string' ? { step: word.doneStep, text: `See ${word.doneStep} →` } : null)
@@ -136,6 +168,8 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
   const ended = (at, isBound = false) => (own ? line('sent', `${chat}'s turn ended ${isBound ? 'by' : 'at'} ${clockOf(at)} without it`, '', at, { isTurnEnded: true, ...(isBound ? { isBound } : {}) })
     : line('done', `${chat} answered ${isBound ? 'by ' : ''}${clockOf(at)}`, '', at, { isFallback: true, ...(isBound ? { isBound } : {}) }))
   if (isTime(word.answeredAt)) return ended(word.answeredAt, word.answeredBound === true)
+  // The Supervisor's judge word says its own turn's end (`endedAt`, supervisor/index.mjs `markWord`): exact, never guessed.
+  if (isTime(word.endedAt)) return ended(word.endedAt)
   const arrived = arrivedAt(word)
   const hasReport = report !== null && report !== undefined && isTime(report.since) && arrived !== null
   // The mod names the word its turn ran on (`report.word`, a string, or null for a turn that was no word's): then the board knows
@@ -170,9 +204,9 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
   // asking, the chat's own question inside that turn, the lane Waiting for you) on this very word, since that turn's own start.
   // Without it (an older mod; a word its chat took inside a turn that runs, taken and never typed: on in that turn, from the take).
   if (isNamed) {
-    const isRunning = isOurs && (report.state === 'busy' ? lane?.status === 'Working' : report.state === 'asking' && lane?.status === 'Waiting for you')
+    const isRunning = isOurs && (report.state === 'busy' ? !needsPill || lane?.status === 'Working' : report.state === 'asking' && (!needsPill || lane?.status === 'Waiting for you'))
     if (isRunning) return line('picked-up', `${chat} is on it`, `since ${clockOf(turnOf(report))}`, turnOf(report))
-  } else if (hasReport && lane?.status === 'Working' && (report.since >= arrived || word.state === 'taken')) {
+  } else if (hasReport && (needsPill ? lane?.status === 'Working' : report.state === 'busy') && (report.since >= arrived || word.state === 'taken')) {
     return line('picked-up', `${chat} is on it`, `since ${clockOf(Math.max(report.since, arrived))}`, Math.max(report.since, arrived))
   }
   // 4. Sent: why it is not picked up yet, as far as the board knows. A chat that does not run first: its wake words.
@@ -222,12 +256,60 @@ function wakingWords(chat, lane, wake) {
   }
 }
 
-/** Whether a word is one an action of the person typed (wave 1): an answer, the recap's feedback, the obsolete check, an asked sweep. */
+/**
+ * Whether a word is one an action of the person typed: an answer, the recap's feedback, the obsolete check, an asked sweep (wave 1);
+ * and, wave 2, a refine the person asked for (not the gate's own `board`, the supervisor's repeat `syncKey`, nor Autopilot's `isAuto`),
+ * Go, a goal ask, a talk word, a brainstorm word of theirs, and a Stop or Remove the main chat does (`byCode`: the board does it, instantly).
+ * The judge word is no such word: its lines are the incidents' (`judgeLinesOf`).
+ */
 export function isPersonWord(word, { sweepWord = null } = {}) {
   if (typeof word?.to !== 'string' || word.to === '' || !isTime(word.at)) return false
   if ((word.ask ?? null) !== null) return true
   if (word.command === 'sweep') return typeof sweepWord === 'string' && word.id === sweepWord
-  return ['recap-feedback', 'obsolete-check'].includes(word.command)
+  if (['recap-feedback', 'obsolete-check', 'how-go', 'goal-ask', ...TALK_COMMANDS, ...BRAINSTORM_COMMANDS].includes(word.command)) return true
+  if (word.command === 'refine') return word.board !== true && word.isAuto !== true && (word.syncKey ?? null) === null
+  return ['stop', 'remove'].includes(word.command) && word.byCode !== true
+}
+
+/**
+ * Where an action of the person has its line (wave 2, the eight places of plan-wave2.md): 'refine', 'go', 'change' (a word of a
+ * change thread, `Kind: change`), 'goal-ask', 'overturn' (the answer to a recap of finished work that the person overturned),
+ * 'worker' (Stop or Remove), 'talk' (every other word of the Focus talk and of a brainstorm), else the wave 1 places 'answer',
+ * 'recap', 'obsolete', 'sweep'. `threads` the state's brainstorm threads, `items` the work store's items.
+ */
+export function placeOfWord(word, { threads = [], items = null } = {}) {
+  if ((word?.ask ?? null) !== null) return isOverturn(word, items) ? 'overturn' : 'answer'
+  switch (word?.command) {
+    case 'refine': return 'refine'
+    case 'how-go': return 'go'
+    case 'goal-ask': return 'goal-ask'
+    case 'stop': case 'remove': return 'worker'
+    case 'recap-feedback': return 'recap'
+    case 'obsolete-check': return 'obsolete'
+    case 'sweep': return 'sweep'
+    default: break
+  }
+  if (BRAINSTORM_COMMANDS.includes(word?.command)) return threadOf(word, threads)?.kind === 'change' ? 'change' : 'talk'
+  return TALK_COMMANDS.includes(word?.command) ? 'talk' : null
+}
+
+/** The thread a brainstorm word is about (its `about` is the thread's path). */
+const threadOf = (word, threads) => (Array.isArray(threads) ? threads : []).find(one => one?.path === word?.about) ?? null
+
+/** The recap (a note of the store, `Recap: overturned`) a person's answer overturned: the answer's `ask` is `work:<id>`. */
+function overturnedRecap(word, items) {
+  const id = String(word?.ask ?? '').match(/^work:(.+)$/)?.[1]
+  const item = id === undefined || !(items instanceof Map) ? undefined : items.get(id)
+  return item !== undefined && valueOf(item, 'Kind') === 'note' && valueOf(item, 'Recap') === 'overturned' ? item : null
+}
+const isOverturn = (word, items) => overturnedRecap(word, items) !== null
+
+/** The goal a word is about (G<n>), for the page to find the line of the goal's card: its `goal`, `about`, or its thread's goal. */
+function goalOfWord(word, place, threads) {
+  if (typeof word.goal === 'string') return word.goal
+  if (['go', 'talk'].includes(place) && /^G\d+$/.test(String(word.about ?? ''))) return word.about
+  const goal = threadOf(word, threads)?.goal?.id
+  return typeof goal === 'string' ? goal : null
 }
 
 /** The copy that stands for a retried word (`retriedAs`, a few hops at most), else the word itself. */
@@ -298,6 +380,155 @@ export function sweepDone(word, sweep) {
   return { at: sweep.ended, words: found === 0 ? 'nothing new found' : `${found} incident${found === 1 ? '' : 's'} filed`, link: null }
 }
 
+/**
+ * Wave 2, place 1, a refine (Send answers, Refine again, Ask for pictures): the step's refine written after the word, as the
+ * state's own refine ask reads it (refineWait.mjs `isBlockWritten`: the round the word asked for, or the block's key changed
+ * since the word, or its stamp at or after the word's minute). `step` the state's backlog step. `{ at, words }` or null.
+ */
+export function refineDone(word, step) {
+  if (step === undefined || step === null || step.refined === undefined || step.refined === null || !isBlockWritten(step.refined, word)) return null
+  const written = refinedAt(step.refined)
+  return { at: isTime(written) ? Math.max(written, minuteOf(word.at)) : null, words: 'refined', link: null }
+}
+
+/**
+ * Place 2, Go on a goal: the goal's round opened with its steps: every work block of the goal (`blocksOf`) has a step filed after
+ * the word (`items`: the store's; a step's own made time). `node` the goal map's node. `{ at, words, link }` or null.
+ */
+export function goDone(word, node, items) {
+  const blocks = blocksOf(node)
+  if (blocks.length === 0 || !(items instanceof Map)) return null
+  const from = minuteOf(word.at)
+  const filed = blocks.map(part => (part.steps ?? []).map(id => ({ id, at: madeAtMs(items.get(id)) })).filter(one => isTime(one.at) && one.at >= from))
+  if (filed.some(steps => steps.length === 0)) return null
+  const steps = [...new Map(filed.flat().map(one => [one.id, one])).values()].sort((a, b) => a.at - b.at)
+  return { at: Math.max(...steps.map(one => one.at)), words: `${steps.length} step${steps.length === 1 ? '' : 's'}`, link: { step: steps[0].id, text: `See ${steps[0].id} →` } }
+}
+
+/**
+ * The minute a thread's clock ("14:05") falls in, after the word: on the day of `from`, or the day after when that would be before
+ * it (the talk went past midnight), and NaN when that day after is still to come (`now`): it stands from before the word.
+ */
+function clockAfter(text, from, now) {
+  const clock = String(text ?? '').match(/(\d{1,2}):(\d\d)(?::\d\d)?\s*$/)
+  if (clock === null) return Number.NaN
+  const day = new Date(from)
+  day.setHours(Number(clock[1]), Number(clock[2]), 0, 0)
+  if (day.getTime() >= minuteOf(from)) return day.getTime()
+  return day.getTime() + 24 * 60 * MIN <= now ? day.getTime() + 24 * 60 * MIN : Number.NaN
+}
+
+/**
+ * Place 3, Change this goal: what the partner wrote into the thread after the word (the Brainstorm form's own stages): its new goal
+ * definition (the proposal's draft: an Objective), else its next question, else what it understood and waits for your yes. The
+ * person's own lines never count (the answer under a question, the yes). `thread` the state's brainstorm thread. `{ at, words }` or null.
+ */
+export function changeDone(word, thread, now = Date.now()) {
+  if (thread === undefined || thread === null) return null
+  const from = minuteOf(word.at)
+  const proposal = clockAfter(thread.proposal?.at, word.at, now)
+  if (typeof thread.proposal?.objective === 'string' && thread.proposal.objective !== '' && proposal >= from) return { at: proposal, words: 'new definition', link: null }
+  const question = clockAfter(thread.latest?.at, word.at, now)
+  if (thread.latest !== null && thread.latest !== undefined && question >= from) return { at: question, words: 'a question for you', link: null }
+  const understood = clockAfter(thread.understood?.at, word.at, now)
+  if (thread.understood !== null && thread.understood !== undefined && understood >= from) return { at: understood, words: 'what it understood, for your yes', link: null }
+  return null
+}
+
+/** Place 4, a goal ask: the partner's answer under that goal. `goal` the goal map's node, the word's `about` the ask's id. */
+export function goalAskDone(word, goal) {
+  const answer = (goal?.asks ?? []).find(one => one.id === word.about)?.answer ?? null
+  if (answer === null) return null
+  const at = sinceMs(answer.at)
+  return { at: isTime(at) ? Math.max(at, minuteOf(word.at)) : null, words: `answered under ${goal.id}`, link: null }
+}
+
+/**
+ * Place 5, Overturn: the fix step made from the person's words: a step that fixes the recap's step (`Fix of`), or, for a goal's recap,
+ * a step of that goal, filed after the word. The recap is the note the answer's `ask` (work:<id>) names. `{ at, words, link }` or null.
+ */
+export function overturnDone(word, items) {
+  const recap = overturnedRecap(word, items)
+  const about = recap === null ? null : (recap.sections.get('About') ?? [])[0]?.trim() ?? null
+  if (about === null || about === '') return null
+  const from = minuteOf(word.at)
+  const made = (/^G\d+$/.test(about) ? [...items.values()].filter(one => valueOf(one, 'Kind') === 'step' && valueOf(one, 'Goal') === about) : fixesOf(about, items))
+    .map(one => ({ id: valueOf(one, 'Id'), at: madeAtMs(one) })).filter(one => typeof one.id === 'string' && isTime(one.at) && one.at >= from).sort((a, b) => a.at - b.at)
+  if (made.length === 0) return null
+  return { at: made[0].at, words: made.length === 1 ? made[0].id : `${made[0].id} and ${made.length - 1} more`, link: { step: made[0].id, text: `See ${made[0].id} →` } }
+}
+
+/**
+ * Place 6, Stop or Remove a worker the main chat does (a stop the board does in code has no word, instantly): a stop is done once
+ * the worker's lane holds no task and is free; a remove once the worker is gone from the list (or its lane says it was removed).
+ * `lane` the worker's lane in the state, or undefined when the list no longer has it. `{ at, words }` or null.
+ */
+export function workerDone(word, lane) {
+  if (word.command === 'remove') {
+    if (lane !== undefined && lane !== null && lane.isLeftover !== true && !isTime(lane.removedAt)) return null
+    return { at: isTime(lane?.removedAt) ? lane.removedAt : null, words: 'removed', link: null }
+  }
+  if (lane === undefined || lane === null || lane.isLeftover === true || (lane.task ?? null) !== null || lane.state !== 'free') return null
+  return { at: null, words: 'stopped', link: null }
+}
+
+/** How an incident's wait ended (the Supervisor's verdict, or code's 60-minute rule): the words and the fix step it names. */
+function judgmentOf(state, fix) {
+  const named = typeof fix === 'string' && /^B\d+$/.test(fix) ? { step: fix, text: `See ${fix} →` } : null
+  switch (state) {
+    case 'closed': return { words: 'false alarm: no fault left', link: null }
+    case 'gone': return { words: 'went by itself', link: null }
+    case 'fixed': return { words: named === null ? 'fixed' : `fixed by ${fix}`, link: named }
+    case 'fix': return { words: named === null ? 'given a fix step' : `fix step ${fix}`, link: named }
+    default: return null
+  }
+}
+
+/**
+ * Place 8, an incident that waits for the Supervisor's judgment: one line per incident, from its newest judge word (the outbox
+ * record signals change 6 keeps: `incidents`, `endedAt`) and the incident's own state in the store. The coordinator's rules of
+ * 2026-11-04: Done also when code ends it (the 60-minute "gone" or "fixed" rule, its fix step done), the same as the Supervisor's
+ * verdict; the counting of an incident (a repeat of its key) never starts a new wait or moves the clock (the clock is the word's);
+ * "on it" reads the word's own state (`needsPill` false). A judgment that came before the incident's state change (an incident that
+ * came back after it) is no wait of this word. `{ [<word id>#<incident id>]: line }`; no kept result: the incident's state is the
+ * store's, kept for good, and one judge word covers many incidents.
+ */
+export function judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, paused }) {
+  const newest = new Map()
+  for (const word of outbox) {
+    if (word?.command !== 'judge' || !Array.isArray(word.incidents) || !isTime(word.at) || now - word.at >= WAITS_KEPT_MS) continue
+    // The newest word that is not dropped (a moot one is closed by the sweep once its incidents ended: its Done is the incident's), else the newest.
+    for (const id of word.incidents) {
+      const held = newest.get(id)
+      const isNewer = held === undefined || ((held.state === 'dropped') === (word.state === 'dropped') ? word.at >= held.at : held.state === 'dropped')
+      if (isNewer) newest.set(id, word)
+    }
+  }
+  const out = {}
+  if (!(items instanceof Map)) return out
+  for (const [id, word] of newest) {
+    const item = items.get(id)
+    if (item === undefined || valueOf(item, 'Kind') !== 'incident') continue
+    const state = valueOf(item, 'State')
+    const since = sinceMs(valueOf(item, 'Since'))
+    const isWaiting = INCIDENT_WAITS.includes(state)
+    // An incident that opened or came back after this word waits for the next one; one that ended before it, no word of this one's.
+    if (isWaiting ? ['open', 'came back'].includes(state) && isTime(since) && since > word.at : !(isTime(since) && since >= minuteOf(word.at))) continue
+    const judgment = isWaiting ? null : judgmentOf(state, valueOf(item, 'Fix'))
+    if (!isWaiting && judgment === null) continue
+    const lane = lanes.get(word.to) ?? null
+    const report = (reports instanceof Map ? reports.get(word.to) : null) ?? lane?.report ?? null
+    const queue = outbox.filter(one => one.to === word.to && one.state === 'waiting' && one.isHeld !== true && one.id !== word.id && isTime(one.at) && one.at < word.at).length
+    const line = waitLineOf({
+      word, lane, report, wake: lane?.wake ?? null, done: judgment === null ? null : { at: since, words: judgment.words, link: judgment.link }, now, keep, queue, judge, paused,
+      own: true, outlives: true, needsPill: false,
+    })
+    if (line === null) continue
+    out[`${word.id}#${id}`] = { ...line, seen: line.seen?.doneAt === undefined ? line.seen : null, place: 'judge', word: word.id, command: 'judge', about: id, ask: null, goal: null, sentAt: word.at, title: String(valueOf(item, 'Title') ?? '').slice(0, 160) }
+  }
+  return out
+}
+
 /** Every board chat the state draws, by name: the lanes, the partner, its helper, the supervisor's chat, the Product owner. */
 function lanesOf(state) {
   const lanes = [...(state?.chats ?? []).filter(lane => lane?.isLeftover !== true), state?.advisor, state?.advisorHelper, state?.supervisorChat, state?.productOwner]
@@ -310,8 +541,10 @@ function lanesOf(state) {
  * the board's clock and the outbox's keep, `judge` rule 8's judgement of the same moment (the supervisor's `wordJudge`, made
  * once for every word), `reports` the board's kept turn reports by chat (a Map), `items` the
  * work store's items, `obsolete` the obsolete check's record, `sweep` the supervisor's last sweep (`{ word, asked, ended, how,
- * found }`). Each line also carries what the page finds it by: `command` ('answer' for an answer), `about`, `ask`, `sentAt`, and
- * `title`, the word's first line.
+ * found }`). Each line also carries what the page finds it by: `command` ('answer' for an answer), `place` (`placeOfWord`), `about`,
+ * `goal` (G<n> when the word is about one), `ask`, `sentAt`, and `title`, the word's first line. Wave 2: the other places' own
+ * results are read from the same `state` the page draws (its backlog steps, goal map, brainstorm threads, lanes) and the store's `items`;
+ * an incident that waits for the Supervisor's judgment has a line of its own under `<word id>#<incident id>` (`judgeLinesOf`).
  */
 export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = null, items = null, obsolete = null, sweep = null }) {
   const paused = isHolding(state?.pause) || state?.pause?.state === 'resuming'
@@ -320,22 +553,37 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
   const placeOf = new Map(outbox.map((word, place) => [word?.id, place]))
   const lanes = lanesOf(state)
   const sweepWord = sweep?.asked === true && typeof sweep.word === 'string' ? sweep.word : null
+  const threads = state?.brainstorms?.threads ?? []
+  const steps = new Map((state?.backlog ?? []).flatMap(activity => activity?.steps ?? []).filter(step => typeof step?.id === 'string').map(step => [step.id, step]))
+  const goals = new Map((state?.goals?.nodes ?? []).filter(node => typeof node?.id === 'string').map(node => [node.id, node]))
   const waits = {}
   for (const asked of outbox) {
     if (!isPersonWord(asked, { sweepWord }) || now - asked.at >= WAITS_KEPT_MS) continue
     const word = standingWord(asked, byId)
+    const place = placeOfWord(word, { threads, items })
     const lane = lanes.get(word.to) ?? null
     const report = (reports instanceof Map ? reports.get(word.to) : null) ?? lane?.report ?? null
     const queue = outbox.filter(one => one.to === word.to && one.state === 'waiting' && one.isHeld !== true && one.id !== word.id && isTime(one.at) && one.at < word.at).length
-    const done = word.command === 'recap-feedback' ? recapDone(word, items) : word.command === 'obsolete-check' ? obsoleteDone(word, obsolete) : word.command === 'sweep' ? sweepDone(word, sweep) : null
+    const done = word.command === 'recap-feedback' ? recapDone(word, items) : word.command === 'obsolete-check' ? obsoleteDone(word, obsolete) : word.command === 'sweep' ? sweepDone(word, sweep)
+      : place === 'refine' ? refineDone(word, steps.get(word.about))
+        : place === 'go' ? goDone(word, goals.get(word.about), items)
+          : place === 'change' ? changeDone(word, threadOf(word, threads), now)
+            : place === 'goal-ask' ? goalAskDone(word, goals.get(word.goal))
+              : place === 'overturn' ? overturnDone(word, items)
+                : place === 'worker' ? workerDone(word, (state?.chats ?? []).find(one => one?.name === word.about && one.isLeftover !== true))
+                  : null
     // The word the chat's turn ran on, when it is one of the chat's that came before this one: its turn is not this word's.
     const ranOn = typeof report?.word === 'string' ? byId.get(report.word) : undefined
     const ahead = ranOn !== undefined && ranOn.to === word.to && ranOn.id !== word.id && ['taken', 'delivered'].includes(ranOn.state) && placeOf.get(ranOn.id) < placeOf.get(word.id)
-    const line = waitLineOf({ word, lane, report, ahead, wake: lane?.wake ?? null, done, now, keep, queue, judge, paused })
+    // Wave 2: a place with a Done source of its own says "turn ended without it" when its turn ended without the result; the talk has none.
+    const isOwnPlace = OWN_PLACES.includes(place)
+    const line = waitLineOf({ word, lane, report, ahead, wake: lane?.wake ?? null, done, now, keep, queue, judge, paused, outlives: isOwnPlace, ...(WAVE2_PLACES.includes(place) ? { own: isOwnPlace } : {}) })
     if (line === null) continue
     const title = String(asked.text ?? '').split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 160)
-    waits[asked.id] = { ...line, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command, about: asked.about ?? null, ask: asked.ask ?? null, sentAt: asked.at, title }
+    waits[asked.id] = { ...line, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command, place, about: asked.about ?? null, goal: goalOfWord(asked, place, threads), ask: asked.ask ?? null, sentAt: asked.at, title }
   }
+  // Place 8: an incident that waits for the Supervisor's judgment, a line of its own each.
+  Object.assign(waits, judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, paused }))
   return waits
 }
 
