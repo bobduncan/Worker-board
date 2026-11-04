@@ -237,6 +237,23 @@ function storeOver(lines, messages, alive, write) {
       return true
     },
     /**
+     * 0.31.0, Task 6: words their own chat took and ran a turn after, and never said it typed (the app merges the words it queued
+     * while busy into one prompt; only the last submit resolves): `[{ id, deliveredAt, why }]`, each closed `delivered` at that
+     * turn's start with its reason. The judging is src/work/outboxSweep.mjs `unconfirmedWords` (never a hand's take: B880's own net
+     * holds those); only a word still `taken` is closed here: what the mod said meanwhile stands. The number closed.
+     */
+    async deliverUnconfirmed(list) {
+      const closed = []
+      for (const { id, deliveredAt, why } of list) {
+        const message = messages.find(one => one.id === id)
+        if (message === undefined || message.state !== 'taken' || !Number.isFinite(deliveredAt)) continue
+        Object.assign(message, { state: 'delivered', deliveredAt, why })
+        closed.push({ id, state: 'delivered', deliveredAt, why })
+      }
+      if (closed.length > 0) await write.outbox(closed)
+      return closed.length
+    },
+    /**
      * B532: a word the chat could not type (failed) goes again after `afterMs`, up to `tries` times in all, while it is
      * not late; then it stays failed. It goes as a new word with its own id (`retryOf` the failed one, which names it in
      * `retriedAs`): the Workers mod types an id once per process. Not again: a word the mod refused for good (`final`, too

@@ -8,7 +8,7 @@
 // rule 8 stop naming it; one that still matters stays failed, for the person to see.
 
 import { shownChats } from '../bridge.mjs'
-import { heldTooLong, isMootSpawn, mootWhy } from '../hands.mjs'
+import { heldTooLong, isHandTaken, isMootSpawn, mootWhy } from '../hands.mjs'
 import { RESUME_STEP, isStopWord, waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
@@ -186,6 +186,42 @@ export const isFailedForGood = message => message?.state === 'failed' && message
 const expired = (message, keep) => ({ state: 'expired', why: `waited longer than ${span(keepMs(message, keep))}` })
 
 /**
+ * 0.31.0, Task 6 (the Advisor's case of 2026-11-04: 09:31:48, 10:06:48, 11:19:40): the app dequeues the words the mod typed while
+ * its chat was busy all at once, MERGED into one prompt, and only the last submit resolves: a mod before 0.31.0 never says the
+ * earlier ones typed, and they stayed `taken` for ever. The mod of 0.31.0 confirms them itself (a turn whose prompt holds a word
+ * has entered it); this is the board's net for the rest: how long after the start of a turn that came after the take, a word its
+ * own chat took is still `taken` before it is closed `delivered`, unconfirmed.
+ */
+export const UNCONFIRMED_MS = 15 * 60_000
+export const UNCONFIRMED_WHY = 'delivered-unconfirmed: its chat ran a turn after it and never said'
+
+/**
+ * The reason, and the time, a taken word counts as delivered, or null: a word its own chat took (never a hand's take, B880's
+ * own net; never a hand-over envelope, whose outcome is its own), the chat's report (the lane's `report.turn`: the start of its
+ * last turn, from a mod that says it) names a turn that began after the take, and that start is UNCONFIRMED_MS past. A chat
+ * with no report, or one that does not name its turn, is not judged: the board does not guess it.
+ */
+export function unconfirmedOf(message, lane, now) {
+  if (message?.state !== 'taken' || isHandTaken(message) || message.command === 'handover') return null
+  const turn = lane?.report?.turn
+  if (!Number.isFinite(turn) || !Number.isFinite(message.takenAt) || turn <= message.takenAt) return null
+  if (now - turn < UNCONFIRMED_MS) return null
+  return { state: 'delivered', why: UNCONFIRMED_WHY, deliveredAt: turn }
+}
+
+/** The words `unconfirmedOf` closes, as `{ id, state, why, deliveredAt }`; `to`, when given, only those to that chat. */
+export function unconfirmedWords({ outbox, state, now, to = null }) {
+  const lanes = (state?.chats ?? []).filter(lane => lane?.isLeftover !== true)
+  const closing = []
+  for (const message of outbox) {
+    if (message?.state !== 'taken' || (to !== null && message.to !== to)) continue
+    const closed = unconfirmedOf(message, lanes.find(lane => lane.name === message.to), now)
+    if (closed !== null) closing.push({ id: message.id, ...closed })
+  }
+  return closing
+}
+
+/**
  * One sweep: retries the words that failed, then closes what no longer matters. The words closed, as
  * `{ id, state, why }` (a replay on a copy of the outbox passes `dry: true`: nothing is written then). `to`, when given,
  * judges only the words to that chat (a chat's take: the store is read only when something waits for it).
@@ -197,11 +233,14 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   if (!dry) await outbox.retryFailed(now, keep)
   // B577: at a refresh, the words that failed for a chat's old session go to the session the board shows under its name now.
   if (!dry && to === null && typeof outbox.revive === 'function') await outbox.revive(sessionsOf(state), now, keep)
+  // 0.31.0, Task 6: a taken word whose chat ran a turn after it and never said is closed delivered, unconfirmed (the merged words).
+  const confirmed = unconfirmedWords({ outbox: outbox.outbox(), state, now, to })
+  if (!dry && confirmed.length > 0 && typeof outbox.deliverUnconfirmed === 'function') await outbox.deliverUnconfirmed(confirmed)
   // B571: with the failed words that are not tried again, judged as the waiting ones; only a word whose purpose is gone
   // is closed among those (an old failed word is not "expired": it never waited).
   // B589: not the work lines: withdrawStale (deliver.mjs) closes them by the same judge, with the start they asked.
   const waiting = outbox.outbox().filter(message => (message.state === 'waiting' || isFailedForGood(message)) && message.command !== 'work' && (to === null || message.to === to))
-  if (waiting.length === 0) return []
+  if (waiting.length === 0) return confirmed
   const items = (dir ?? null) === null ? null : (await readStore(dir, fs)).items
   const runs = new Map((state?.chats ?? []).filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
   // T9.4: the chats known not to run (not those the board cannot tell about), the partner, its helper and the supervisor's among them.
@@ -216,7 +255,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
     if (closed !== null && (message.state === 'waiting' || closed.state === 'dropped')) closing.set(message.id, { id: message.id, ...closed })
   }
   if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now)
-  return [...closing.values()]
+  return [...confirmed, ...closing.values()]
 }
 
 /**

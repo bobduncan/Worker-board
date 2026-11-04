@@ -976,10 +976,6 @@ type FiledForm = { id: string | Promise<string | null>; text: string }
 /** B412: the id of the ask a call filed, or null. */
 const idOf = (read: Record<string, unknown> | null): string | null => (typeof read?.id === 'string' ? read.id : null)
 
-/**
- * Tells the board what became of the messages this chat took: typed here, or not. B532: with `why` per id, and the ids
- * it `refused` for good (too long, no text), which the board does not try again; a failed one it does.
- */
 /** 0.31.0, Task 6: the taken words whose fate this process told the board (typed or not), each once; the newest REPORTED_KEEP. */
 const reportedWords = new Set<string>()
 const REPORTED_KEEP = 200
@@ -993,16 +989,25 @@ function markReported(id: string): boolean {
 
 /**
  * 0.31.0, Task 6: taken words a turn's prompt holds (the app merged queued prompts into one, and only the last submit
- * resolves): reported typed, each once.
+ * resolves): reported typed, each once. The board's file unreadable: nothing was told, so the words are not marked told (a
+ * later resolve of their own submit, or the board's own net, settles them).
  */
 async function reportEntered($: EngineInterface, ids: string[]): Promise<void> {
   const told = ids.filter(markReported)
-  if (told.length === 0 || chatsDir === null) return
-  const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
-  const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
-  if (board !== null) await reportTyped($, board, told, [])
+  if (told.length === 0) return
+  const project = chatsDir === null ? null : chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
+  const board = project === null ? null : parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)).catch(() => ''))
+  if (board === null) {
+    for (const id of told) reportedWords.delete(id)
+    return
+  }
+  await reportTyped($, board, told, [])
 }
 
+/**
+ * Tells the board what became of the messages this chat took: typed here, or not. B532: with `why` per id, and the ids
+ * it `refused` for good (too long, no text), which the board does not try again; a failed one it does.
+ */
 async function reportTyped($: EngineInterface, board: Board, typed: string[], failed: string[], why: Record<string, string> = {}, refused: string[] = []): Promise<void> {
   try {
     await askBoard($, board, TYPED_PATH, { typed, failed, ...(refused.length > 0 ? { refused } : {}), ...(Object.keys(why).length > 0 ? { why } : {}) })

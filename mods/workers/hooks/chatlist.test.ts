@@ -4512,4 +4512,130 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     const busy = w.reports.map(body => (JSON.parse(body) as { report: { state: string; word: unknown; turn: unknown } }).report).filter(one => one.state === 'busy')
     expect(busy.map(one => [one.word, one.turn])).toEqual([[ID, 6000]])
   })
+
+  test('Task 6 (0.31.0): a merged prompt that holds the envelope\'s line and a taken word confirms the word only: the envelope\'s outcome is its own', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    // The app holds both submits (it queued them behind a turn): neither resolves.
+    w.beforeTyped = async () => new Promise<never>(() => {})
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    await take(clock, w, { handover: envelope({ clear: null }) })
+    await take(clock, w, { messages: [{ id: 'm9', text: 'B13: approved' }] })
+    await clock.advance(1000)
+    await $.turn.start({ text: `${LINE}\n\nB13: approved`, turnId: 't1' })
+    for (let i = 0; i < 5; i++) await settle()
+    const typed = w.reported.map(body => JSON.parse(body) as { typed?: string[]; handover?: string }).flatMap(body => body.typed ?? [])
+    // Mutant "the envelope's line is confirmed too": the envelope's id would be told typed (its outcome comes from its own submit).
+    expect(typed).toEqual(['m9'])
+    expect(outcomes(w)).toEqual([])
+    // The turn is named by the first word in outbox order: the envelope's line was typed first.
+    const busy = w.reports.map(body => (JSON.parse(body) as { report: { state: string; word: unknown } }).report).filter(one => one.state === 'busy')
+    expect(busy.map(one => one.word)).toEqual([ID])
+  })
+})
+
+describe('Task 6 (0.31.0): the app merges the words queued while the chat is busy into one prompt, and only the last submit resolves', () => {
+  /** The three real batches of 2026-11-04 (the Advisor's chat); in each only the last submit went `delivered`. */
+  const BATCHES: [string, string[]][] = [
+    ['09:31:48', ['7a972772', 'cf04b25b']],
+    ['10:06:48', ['e2c84352', '45ac6f71', '77955933']],
+    ['11:19:40', ['e747d01f', '9cf89a1b', '626c45f7']],
+  ]
+  const textOf = (id: string): string => `(answered on the worker board, 09:3x) Q${id} "Go on": approved.`
+  /** The ids each typed report of the mod named, in the order told. */
+  const typedOf = (w: World): string[] => w.reported.map(body => JSON.parse(body) as { typed?: string[] }).flatMap(body => body.typed ?? [])
+  /** Each busy and idle report's word and turn. */
+  const wordsOf = (w: World): string[] => w.reports.map(body => (JSON.parse(body) as { report: { state: string; word: string | null; turn: number | null } }).report).map(one => `${one.state} ${one.word} ${one.turn}`)
+
+  /** A worker whose board hands out the batch at one take; the app holds every submit but the last, which resolves when `release` is called. */
+  async function queued($: Engine, on: On, ids: string[]): Promise<{ w: World; clock: ReturnType<typeof mock.clock>; texts: string[]; release: () => void }> {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    const texts = ids.map(textOf)
+    let release = (): void => {}
+    const resolving = new Promise<void>(done => { release = done })
+    w.beforeTyped = async (_$$, text) => {
+      if (text === texts.at(-1)) await resolving
+      else await new Promise<never>(() => {})
+    }
+    stand(on, w)
+    w.workAnswer = { status: 503, text: 'No work store.' }
+    await startedAs($, w, 'Units')
+    w.waiting.push(...ids.map(id => ({ id, text: textOf(id) })))
+    await clock.advance(5000)
+    await settle()
+    return { w, clock, texts, release }
+  }
+
+  for (const [at, ids] of BATCHES) {
+    test(`the batch of ${at} (${ids.join(' + ')}): the turn that runs the merged prompt reports every word typed once, named by the first; the last submit resolving later reports nothing again`, async ($, on) => {
+      const { w, clock, texts, release } = await queued($, on, ids)
+      // The app queued them: no submit has resolved, so nothing is told yet.
+      expect(w.reported).toEqual([])
+      await clock.advance(1000)
+      await $.turn.start({ text: texts.join('\n\n'), turnId: 't1' })
+      await settle()
+      // Mutant "only the exact text matches": the joined prompt equals none of the words: nothing reported, the turn no word's.
+      expect(typedOf(w)).toEqual(ids)
+      expect(w.reported.length).toBe(1)
+      expect(wordsOf(w)).toEqual([`busy ${ids[0]} 6000`])
+      // The last submit resolves now: its word was told at the turn's start, so nothing again (mutant "told on every resolve").
+      release()
+      await settle()
+      expect(typedOf(w)).toEqual(ids)
+      expect(w.reported.length).toBe(1)
+      await clock.advance(1000)
+      await $.turn.complete({ ...ENDED, turnId: 't1' })
+      await settle()
+      expect(wordsOf(w)).toEqual([`busy ${ids[0]} 6000`, `idle ${ids[0]} 6000`])
+    })
+  }
+
+  test('the last submit resolving before the merged turn starts: it is told then, the others at the turn\'s start, none twice', async ($, on) => {
+    const { w, clock, texts, release } = await queued($, on, ['e2c84352', '45ac6f71', '77955933'])
+    release()
+    await settle()
+    expect(typedOf(w)).toEqual(['77955933'])
+    await clock.advance(1000)
+    await $.turn.start({ text: texts.join('\n\n'), turnId: 't1' })
+    await settle()
+    expect(typedOf(w)).toEqual(['77955933', 'e2c84352', '45ac6f71'])
+    expect(wordsOf(w)).toEqual(['busy e2c84352 6000'])
+  })
+
+  test('a turn whose prompt is the person\'s own line reports none and names no word; the words stay on their way until their own prompt starts', async ($, on) => {
+    const { w, clock, texts } = await queued($, on, ['7a972772', 'cf04b25b'])
+    await clock.advance(1000)
+    await $.turn.start({ text: 'what about the lava?', turnId: 't1' })
+    await settle()
+    expect(w.reported).toEqual([])
+    expect(wordsOf(w)).toEqual(['busy null 6000'])
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    expect(w.reported).toEqual([])
+    await clock.advance(1000)
+    await $.turn.start({ text: texts.join('\n\n'), turnId: 't2' })
+    await settle()
+    expect(typedOf(w)).toEqual(['7a972772', 'cf04b25b'])
+    expect(wordsOf(w).at(-1)).toBe('busy 7a972772 7000')
+  })
+
+  test('a word the app refused or a hook dropped is never told typed by a turn: it left the queue', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed(), [BOARD]: board })
+    w.refusesTyping = true
+    stand(on, w)
+    w.workAnswer = { status: 503, text: 'No work store.' }
+    await startedAs($, w, 'Units')
+    w.waiting.push({ id: 'd1', text: textOf('d1') })
+    await clock.advance(5000)
+    await settle()
+    expect(w.reported.map(body => JSON.parse(body))).toEqual([{ chat: 'Units', session: 'units', typed: [], failed: ['d1'], why: { d1: expect.any(String) } }])
+    await $.turn.start({ text: textOf('d1'), turnId: 't1' })
+    await settle()
+    // Told failed once; the turn that happens to hold its text does not tell it typed.
+    expect(typedOf(w)).toEqual([])
+    expect(w.reported.length).toBe(1)
+  })
 })
