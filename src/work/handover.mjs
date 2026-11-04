@@ -42,6 +42,13 @@ export const STATES = Object.freeze({
 /** The History words of the take-backs (spec part 3: "the take-back with a new why"). */
 export const NOT_TAKEN_WHY = 'did not take it in its turn'
 export const UNANSWERED_WHY = 'did not answer its hand-over'
+/**
+ * The lazy clear (D8) and Fix 0.31.0 part 4: the whys the board's start sweep (handoverBoard.mjs `closeClearOnly`) closes a lone
+ * clear with: one still waiting, and one taken and never answered. Here, beside UNANSWERED_WHY, so the rule handover-unanswered can
+ * tell such a close from the net's own (its why is UNANSWERED_WHY).
+ */
+export const CLEAR_ONLY_CLOSED_WHY = 'no clear goes alone since Workers mod 0.31.0: the clear it owes rides its next task'
+export const CLEAR_ONLY_TAKEN_WHY = 'a lone clear from before 0.31.0, never answered'
 export const PAUSED_WHY = 'the person pauses the chats'
 export const LIMIT_WHY = 'a usage limit is full'
 export const RESTART_LATE_WHY = 'its restart did not happen'

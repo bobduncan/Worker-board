@@ -255,7 +255,7 @@ function storeOver(lines, messages, alive, write) {
     },
     /**
      * Fix 0.31.0: words the board settles though their chat never did: `[{ id, state, why }]`, each still `taken` (a word the mod said
-     * meanwhile stands) closed as `state` (`expired`: its chat is no longer on the board, outboxSweep.mjs `goneWords`; `dropped`: the lone
+     * meanwhile stands) closed as `state` (`expired`: its chat is no longer on the board, outboxSweep.mjs `vanishedChatWords`; `dropped`: the lone
      * clear of before 0.31.0, handoverBoard.mjs `closeClearOnly`) with its reason and the time. The number closed.
      */
     async closeTaken(list, now) {

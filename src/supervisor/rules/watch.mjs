@@ -23,7 +23,7 @@ import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '..
 import { chainTries, hasTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
 import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
-import { NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '../../work/handover.mjs'
+import { CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '../../work/handover.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
 import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
@@ -1163,6 +1163,10 @@ function handoverUnanswered(view) {
   for (const lane of workersOf(view).filter(one => one.onSequence === true)) {
     for (const envelope of envelopesOf(view.outbox, lane.name, view.prefix)) {
       if (!Number.isFinite(envelope.netAt) || view.now - envelope.netAt > UNANSWERED_LOOK_MS) continue
+      // Fix 0.31.0 (part 4, X141 counted ba127291 104 times): a lone clear from before 0.31.0 that the board's start sweep has settled
+      // (closeClearOnly: dropped, with its own why) is no miss any more. Not every dropped envelope: the net closes its own waiting
+      // envelope dropped (why UNANSWERED_WHY, or none), and that one is the very miss this rule names.
+      if (envelope.state === 'dropped' && [CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY].includes(envelope.why)) continue
       // Change 4's follow-up (2026-11-02, X119 counted 71 times hours after its net): a miss whose task was handled since
       // (taken, given to another worker, moved or touched by the person) is not found again: its look ends at that move.
       if (typeof envelope.step === 'string' && handledSince(view.items?.get(envelope.step), envelope.netAt)) continue

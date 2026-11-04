@@ -2667,7 +2667,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     bridge: isBridgeMissing === null ? null : { isMissing: isBridgeMissing },
     chatPrefix: prefix,
     // Fix 0.31.0: every report the board holds (data/reports.json), by the chat's name, for the outbox's net (outboxSweep.mjs
-    // `reportOf`, `goneWords`): the Advisor, its helper, the Supervisor and the Product owner are no lane, and a lane's own report
+    // `reportOf`, `vanishedChatWords`): the Advisor, its helper, the Supervisor and the Product owner are no lane, and a lane's own report
     // is the session-checked one. Null where the board keeps none (the sweep then says nothing of any chat's absence).
     reported: reports instanceof Map ? Object.fromEntries([...reports].map(([name, one]) => [name, { state: one.state, since: one.since, ...(Number.isFinite(one.turn) ? { turn: one.turn } : {}), session: one.session ?? null }])) : null,
     // B547: "clear" when the list of chats has a worker cleared after each reported step (src/clearOwed.mjs), else null.

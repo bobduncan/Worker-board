@@ -5327,7 +5327,9 @@ for another, and since step 6 the old rules are gone for every worker:
   `cleared: false` with a `clearWhy`, its line typed each time, the clear still owed): one finding, key `clear-owed-repeat <worker>`,
   judged by the Supervisor as any. Nothing holds the worker; the rule says its clear keeps failing ("The lazy clear").
 - `handover-unanswered`: the net fired (`netAt` on an envelope of its): one finding per envelope, for a day after the net.
-  In place of not-taking.
+  In place of not-taking. Fix 0.31.0: not for a lone clear that the board's start sweep settled (`dropped` with the
+  why "a lone clear from before 0.31.0, never answered" or the older "no clear goes alone since Workers mod 0.31.0: ..."): X141 counted ba127291
+  104 times. Not every `dropped` envelope: the net closes its own waiting envelope `dropped` too, and that one is the miss.
 - `ready-while-free`: such a worker is free only in the hand-over's own **free** (its lane's `handover.state`), never by
   the hand-out's older reading (R7, X111).
 - `review-stuck`: its report part (a failed check not reported again) is gone since step 6, for every worker (the
@@ -5761,7 +5763,7 @@ resolves; the earlier ones never resolve or reject, so the mod never said them t
   helper, the Supervisor and the Product owner are no lane: 526 words stood `taken`, three showed as "waits for its turn" in Needs).
   `reportOf(state, name)`: the lane's own report; for a side chat the report kept under its name (the state's `reported`, state.mjs: every
   report of data/reports.json by chat name, null where the board keeps none) when it is of the session the board shows for it; for a chat
-  of neither list the report kept under its name; the list's prefix ignored. **The 24 h expiry** (`goneWords`, `store.mjs closeTaken`): a word
+  of neither list the report kept under its name; the list's prefix ignored. **The 24 h expiry** (`vanishedChatWords`, `store.mjs closeTaken`): a word
   taken over 24 hours ago (`GONE_AFTER_MS`) by a chat the board no longer knows (no lane, no side chat, no report held under its name) is
   closed `expired` with the why "expired: its chat <name> is no longer on the board", and `closedAt`. Never a hand's take, never a hand-over
   envelope, never a person's answer; a board that knows no chat or keeps no reports closes nothing. The sweep's result lists both closes.
@@ -6808,7 +6810,7 @@ a clear. Tests: `test/lazyClearReplay.test.mjs` (the real records, `test/fixture
    net of its own: the decision runs for lanes on the sequence only); the chat missing from the list keeps its own rule (back
    10 minutes after the give). Tests: `test/work/strandedInFlight.test.mjs`, `test/lazyClearReplay.test.mjs`.
 3. **Task 6's net judges every chat with a report, and a word of a vanished chat expires** (`src/work/outboxSweep.mjs` `reportOf`,
-   `unconfirmedWords`, `goneWords`; `store.mjs` `closeTaken`; state.mjs `reported`). The Advisor, its helper, the Supervisor and the Product
+   `unconfirmedWords`, `vanishedChatWords`; `store.mjs` `closeTaken`; state.mjs `reported`). The Advisor, its helper, the Supervisor and the Product
    owner (no lane) are judged by the report the board holds under their name (of the session the board shows for them), as a lane is;
    a word taken over 24 h ago by a chat with no lane, no side chat and no report under its name is closed `expired` ("expired: its chat
    <name> is no longer on the board"). Never a hand's take, a hand-over envelope or a person's answer. Tests:
@@ -6819,3 +6821,9 @@ a clear. Tests: `test/lazyClearReplay.test.mjs` (the real records, `test/fixture
    envelope (a hand-over with no step, no line, no restart) that is `waiting` is closed `dropped` with its old reason; one `taken` with
    no outcome is settled `dropped` with "a lone clear from before 0.31.0, never answered". One the mod answered stays as it stands. No
    such envelope is written any more. Tests: `test/work/handoverBoard.test.mjs` (the real record from the fixture; the mutant "taken left out").
+   The rule handover-unanswered (watch.mjs) skips an envelope the sweep settled (`dropped` with `CLEAR_ONLY_TAKEN_WHY` or `CLEAR_ONLY_CLOSED_WHY`, now
+   kept in handover.mjs beside `UNANSWERED_WHY`), so X141 ends with it; the net's own `dropped` envelope is still a finding. Tests:
+   `test/supervisor/handoverRules.test.mjs` (ba127291 taken: the finding stays; dropped: none; mutants: the skip removed, every dropped skipped).
+5. **Review (2026-11-04)**: `test/typedModBoard.test.mjs` runs part 1 on a running board over HTTP (a chat first heard on a typed call is known by
+   its header; a typed call without a version erases nothing; a mod that never says one stays unknown); `goneWords` of the net is named
+   `vanishedChatWords` (holderTimers.mjs has its own `goneWords`).

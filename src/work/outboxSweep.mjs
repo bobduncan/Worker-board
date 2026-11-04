@@ -258,7 +258,7 @@ export const goneWhy = to => `expired: its chat ${to} is no longer on the board`
  * envelope (its outcome is its own), never a person's answer (it waits for its chat however old). A board that knows no chat
  * (its list could not be read) or holds no reports (`state.reported` null) says nothing of any chat: nothing is closed.
  */
-export function goneWords({ outbox, state, now }) {
+export function vanishedChatWords({ outbox, state, now }) {
   const prefix = state?.chatPrefix ?? ''
   const lanes = (state?.chats ?? []).filter(chat => chat?.isLeftover !== true)
   if (lanes.length === 0 || state?.reported === null || typeof state?.reported !== 'object') return []
@@ -288,7 +288,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const confirmed = unconfirmedWords({ outbox: outbox.outbox(), state, now, to })
   if (!dry && confirmed.length > 0 && typeof outbox.deliverUnconfirmed === 'function') await outbox.deliverUnconfirmed(confirmed)
   // Fix 0.31.0: a word taken over 24 h ago by a chat the board no longer knows is closed expired (a refresh's, not a chat's take).
-  const gone = to === null ? goneWords({ outbox: outbox.outbox(), state, now }) : []
+  const gone = to === null ? vanishedChatWords({ outbox: outbox.outbox(), state, now }) : []
   if (!dry && gone.length > 0 && typeof outbox.closeTaken === 'function') await outbox.closeTaken(gone, now)
   const settled = [...confirmed, ...gone]
   // B571: with the failed words that are not tried again, judged as the waiting ones; only a word whose purpose is gone

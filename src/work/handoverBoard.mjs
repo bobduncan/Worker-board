@@ -14,7 +14,7 @@
 
 import { RESTART_COMMAND, restartWords } from './modRollout.mjs'
 import { EFFORTS, chatEffort, effortOf, effortWords, modelOf, runSettings, sameModel } from './effort.mjs'
-import { HANDOVER_COMMAND, contractOf, decide, envelopesOf, failedWhy, isClearOwedOnly, mergeStages, onSequence } from './handover.mjs'
+import { CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, HANDOVER_COMMAND, contractOf, decide, envelopesOf, failedWhy, isClearOwedOnly, mergeStages, onSequence } from './handover.mjs'
 import { giveBackStep } from './giveBack.mjs'
 import { GIVE_BACK_MINUTES, RESUME_MINUTES, continuationOf, standOf } from './holderTimers.mjs'
 import { isHolding } from './pause.mjs'
@@ -174,11 +174,8 @@ export async function addStages(outbox, chat, id, stages) {
   return true
 }
 
-/** The lazy clear (D8): the reason a clear-only envelope still waiting is closed at the board's start. */
-export const CLEAR_ONLY_CLOSED_WHY = 'no clear goes alone since Workers mod 0.31.0: the clear it owes rides its next task'
-
-/** Fix 0.31.0 (part 4): the reason a clear-only envelope that was taken and never answered is settled at the board's start. */
-export const CLEAR_ONLY_TAKEN_WHY = 'a lone clear from before 0.31.0, never answered'
+/** The lazy clear (D8) and Fix 0.31.0 part 4: the reasons a lone clear is closed at the board's start (handover.mjs: the rule handover-unanswered reads them too). */
+export { CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY }
 
 /**
  * The lazy clear (D8): the landing's sweep, at every start of the board: every clear-only envelope (a clear, no task, no
