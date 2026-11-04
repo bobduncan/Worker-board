@@ -95,26 +95,60 @@ const viewOf = (week, chats, outbox, now = NOW, more = {}) => buildView({
   state: { chats: lanesOf(chats), today: [], limits: limits(week), pause: more.pause ?? null, chatPrefix: '' }, items: new Map(), outbox, settings: {}, now,
 })
 const rule = WATCH_RULES.find(one => one.id === 'week-stop-ignored')
-const wordAt = (to, minutesAgo) => ({ to, command: 'week-stop', at: NOW - minutesAgo * MIN, state: 'taken', weekResets: RESET })
+// B984 (X138): a word counts from its delivery, of this week's reset only.
+let nextWord = 1
+const wordAt = (to, minutesAgo, more = {}) => ({ id: `W${nextWord++}`, to, command: 'week-stop', at: NOW - (minutesAgo + 10) * MIN, deliveredAt: NOW - minutesAgo * MIN, state: 'delivered', weekResets: RESET, ...more })
 const run = (board, seen = new Map()) => rule.check(board, { seen, observed: [] })
 
-test('week-stop-ignored: at the line, three workers still work 16 min after the word and no lane is suspended → one incident naming them', () => {
-  const outbox = THREE.map(one => wordAt(one.name, 16))
-  const found = run(viewOf(98, THREE, outbox))
-  assert.equal(found.length, 1)
-  assert.equal(found[0].key, 'week-stop-ignored board')
-  assert.match(found[0].text, /Worker 2, Worker 3, Worker 5 still work/)
-  // 14 min after the word: not yet.
-  assert.deepEqual(run(viewOf(98, THREE, THREE.map(one => wordAt(one.name, 14)))), [])
+test('week-stop-ignored: delivered 21 min ago and still working → one incident each, naming the worker; 19 min → none (B984: 20 min from delivery)', () => {
+  const found = run(viewOf(98, THREE, THREE.map(one => wordAt(one.name, 21))))
+  assert.equal(found.length, 3)
+  assert.match(found[0].key, /^week-stop-ignored Worker 2 W\d+$/)
+  assert.match(found[0].text, /Worker 2 still works 21 min after the board's word/)
+  assert.match(found[0].evidence, /reached Worker 2 at 22:19, 21 min ago/)
+  assert.deepEqual(run(viewOf(98, THREE, THREE.map(one => wordAt(one.name, 19)))), [])
 })
 
-test('week-stop-ignored: quiet when a lane is suspended, the week is under the line, nobody works, no word was given or the person pauses', () => {
-  const outbox = THREE.map(one => wordAt(one.name, 16))
-  assert.deepEqual(run(viewOf(98, [...THREE, lane('Worker 4', { state: 'suspended', suspended: { limit: 'week' } })], outbox)), [])
+test('week-stop-ignored: a word of an older week, a word taken but never delivered, and one without a delivery time are no case', () => {
+  const old = wordAt('Worker 4', 40, { weekResets: RESET - 7 * 24 * 60 * MIN })
+  assert.deepEqual(run(viewOf(98, [lane('Worker 4')], [old])), [])
+  for (const state of ['taken', 'waiting', 'expired', 'failed']) assert.deepEqual(run(viewOf(98, [lane('Worker 4')], [wordAt('Worker 4', 40, { state })])), [], state)
+  assert.deepEqual(run(viewOf(98, [lane('Worker 4')], [wordAt('Worker 4', 40, { deliveredAt: undefined })])), [])
+})
+
+test('week-stop-ignored: X138 replayed: the expired word of the week before never times the new word; the new one, delivered 10:13, is quiet to 10:40', () => {
+  const stale = wordAt('Worker 4', 0, { id: 'OLD', at: NOW - 12 * 60 * MIN, deliveredAt: NOW - 12 * 60 * MIN + MIN, state: 'expired', weekResets: RESET - 7 * 24 * 60 * MIN })
+  const fresh = at => wordAt('Worker 4', (NOW - at) / MIN, { id: 'NEW' })
+  const seen = new Map([['week-stop-ignored Worker 4 OLD', NOW - 15 * MIN], ['week-stop-ignored Worker 4', NOW - 15 * MIN]])
+  for (let minute = 0; minute <= 18; minute += 3) {
+    const now = NOW + minute * MIN
+    assert.deepEqual(rule.check(viewOf(98, [lane('Worker 4')], [stale, fresh(NOW)], now), { seen, observed: [] }), [], `${minute} min after delivery`)
+  }
+  assert.equal(rule.check(viewOf(98, [lane('Worker 4')], [stale, fresh(NOW)], NOW + 21 * MIN), { seen, observed: [] }).length, 1)
+})
+
+test('week-stop-ignored: the newest delivered word of the week counts, a key for each word', () => {
+  const first = wordAt('Worker 2', 60, { id: 'A' })
+  const second = wordAt('Worker 2', 5, { id: 'B' })
+  assert.deepEqual(run(viewOf(98, [lane('Worker 2')], [first, second])), [])
+  assert.match(run(viewOf(98, [lane('Worker 2')], [first]))[0].key, / A$/)
+})
+
+test('week-stop-ignored: Worker 3 suspended while Worker 5 works 21 min → one incident naming Worker 5', () => {
+  const found = run(viewOf(98, [lane('Worker 3', { state: 'suspended', suspended: { limit: 'week' } }), lane('Worker 5')], [wordAt('Worker 3', 30), wordAt('Worker 5', 21)]))
+  assert.equal(found.length, 1)
+  assert.equal(found[0].subject, 'Worker 5')
+})
+
+test('week-stop-ignored: quiet when the week is under the line, nobody works, an idle lane, no word was given or the person pauses', () => {
+  const outbox = THREE.map(one => wordAt(one.name, 30))
   assert.deepEqual(run(viewOf(97, THREE, outbox)), [])
   assert.deepEqual(run(viewOf(98, THREE.map(one => ({ ...one, state: 'free' })), outbox)), [])
+  assert.deepEqual(run(viewOf(98, [lane('Worker 2', { state: 'suspended', suspended: { limit: 'week' } })], outbox)), [])
   assert.deepEqual(run(viewOf(98, THREE, [])), [])
   assert.deepEqual(run(viewOf(98, THREE, outbox, NOW, { pause: { state: 'pausing', since: NOW - MIN } })), [])
+  // The person's pause ended 5 min ago: the chats stood still before, so only 5 min count.
+  assert.deepEqual(run(viewOf(98, THREE, outbox, NOW, { pause: { state: 'running', since: NOW - 5 * MIN } })), [])
 })
 
 // The hand-out holds at the stop line through the state's one level (the week's level full → state.mjs limitsFull → reconcile's handOutHeld).
