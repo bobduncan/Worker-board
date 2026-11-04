@@ -8,7 +8,7 @@ import { repeatFactsOf } from './askRepeat.mjs'
 import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, TAKE_BACK_MS, isDecidedForYou, isRoutedToPartner, partnerAskStand } from './partnerAnswers.mjs'
-import { TOOK_ADVICE, autopilotRoute, routedAt, standsForPerson } from './autopilot.mjs'
+import { TOOK_ADVICE, autopilotRoute, formHandsOf, routedAt, standsForPerson } from './autopilot.mjs'
 import { isKeptLook } from './keptLook.mjs'
 import { isRecap } from './recap.mjs'
 
@@ -177,6 +177,8 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     // Autopilot v2 (the person's "B", 2026-11-02): an open ask only the person's hands can do (and nobody handed on) is no card but
     // a part of the one quiet line "Needs your hands" (`hands`: what of the hands it needs, autopilot.mjs PERSONS_HANDS).
     const hands = autopilot && state === 'open' ? autopilotRoute(item, { roleOf, items, focusGoal, focusHasDemo, recapSteps, prefix, again: true }).hands ?? null : null
+    // T20.1 (the live Q629 and Q632): the app's form stands in that line too, with its own words ("Worker 5's chat waits on a popup: change directory").
+    const handsWords = hands === null ? null : formHandsOf(item, owner === null ? null : nameOf(owner))?.words ?? null
     return [{
       id: `work:${id}`, workId: id, from: owner === null ? null : nameOf(owner), kind: asks === 'look' ? 'verify' : asks === 'do' ? 'do' : 'input', asks,
       title, text: context.join('\n'), at: Number.isFinite(since) ? since : null,
@@ -190,7 +192,7 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
       via, isForm: via === 'form', isRefine: via === 'refine',
       // The board answers it through the store (POST /api/work, answer); a question of the app's form only in its chat.
       canAnswer: state === 'open' && via !== 'form', isClosed: false, answer, earlier: known.earlier ?? null,
-      route: valueOf(item, 'Route'), routeNote: routeNote === '' ? null : routeNote, canTakeBack: byPartner, hands,
+      route: valueOf(item, 'Route'), routeNote: routeNote === '' ? null : routeNote, canTakeBack: byPartner, hands, handsWords,
     }]
   })
 }

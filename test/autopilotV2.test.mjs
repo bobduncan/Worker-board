@@ -468,3 +468,32 @@ test('Needs your attention with Autopilot v2 on: one goal-start card, the two ha
     assert.deepEqual(off.all('#needs .supervisor-line').map(words), ['Supervisor: one new finding'])
   } finally { await off.close() }
 })
+
+test('T20.1, the app\'s popup: with Autopilot on it stands in the hands line with its own words, once per chat (the live Q629 and Q632 as one entry), another chat on its own, no card; off, each is a card', async () => {
+  const POPUP = 'A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (garden) for over a minute. Open its chat and look.'
+  const popup = (id, owner, minutes) => gardenAsk(id, { Title: POPUP.split('. ')[0] + '.', Owner: owner, Asks: 'do', Via: 'form', Route: 'person', Since: sinceOf(PAGE_NOW - minutes * PAGE_MIN), Filed: String(PAGE_NOW - minutes * PAGE_MIN) })
+  const withText = (item, words) => { item.sections.set('Text', [words]); item.sections.set('History', [`- ${sinceOf(PAGE_NOW - 40 * PAGE_MIN)} server: autopilot: routed to person`]); return item }
+  const items = [
+    gardenAsk('Q1', { Title: 'Give G9\'s new plan your Go on the Goals page', Owner: 'Advisor', Asks: 'do' }),
+    gardenAsk('Q2', { Title: 'Sign in to the seed shop account', Asks: 'do' }),
+    withText(popup('Q3', 'Digger', 90), POPUP),
+    withText(popup('Q4', 'Digger', 44), POPUP),
+    withText(popup('Q5', 'Lead', 30), POPUP),
+  ]
+  const state = asSent(garden(items))
+  const cards = state.forYou.filter(one => one.workId !== undefined).sort((a, b) => a.workId.localeCompare(b.workId))
+  assert.deepEqual(cards.map(one => [one.workId, one.hands, one.handsWords]), [['Q1', null, null], ['Q2', 'a sign-in', null], ['Q3', 'a popup in its chat', 'Digger\'s chat waits on a popup: change directory'], ['Q4', 'a popup in its chat', 'Digger\'s chat waits on a popup: change directory'], ['Q5', 'a popup in its chat', 'Lead\'s chat waits on a popup: change directory']])
+  const page = await openPage({ state: { ...state, autopilot: { on: true, decidedToday: 3 } } })
+  try {
+    assert.deepEqual(page.all('#needs [data-id^="work:"]').filter(card => !card.classList.contains('is-closed')).map(card => card.dataset.id), ['work:Q1'], 'one card: the goal\'s start')
+    assert.equal(words(page.find('#needs .hands-line')), "Needs your hands: Lead's chat waits on a popup: change directory · Sign in to the seed shop account · Digger's chat waits on a popup: change directory →", "the newest first; Digger's two as one")
+    assert.deepEqual(page.all('#needs .hands-line a').map(link => link.getAttribute('href')), ['#details=Q5', '#details=Q2', '#details=Q4'])
+    assert.equal(page.text('#needs-count'), '2', 'the line counts as one')
+  } finally { await page.close() }
+  // Off: every popup is a card again, as before.
+  const off = await openPage({ state: asSent(garden(items, false)) })
+  try {
+    assert.equal(off.all('#needs .hands-line').length, 0)
+    assert.deepEqual(off.all('#needs [data-id^="work:"]').filter(card => !card.classList.contains('is-closed')).map(card => card.dataset.id).sort(), ['work:Q1', 'work:Q2', 'work:Q3', 'work:Q4', 'work:Q5'])
+  } finally { await off.close() }
+})
