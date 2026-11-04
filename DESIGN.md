@@ -3951,6 +3951,16 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   its action and chat) and the board's own jobs (every loop run through `loops.run`, a state rebuild, a hand-over, a chat
   log being written, the read of a cleared chat's left session) that ran during it, to `data/stalls.json` (the newest 50,
   read again at a start); the state carries them (`stalls`) and board-slow cites them.
+  **Harm is the bar** (B1011, the person's pick C on Q645, 2026-11-04 18:43, after B934 and B978 each cut real waste and the
+  tail stayed: the board rebuilds its whole picture after almost any change, and a turn's end brings its own rebuild, the
+  hand-over's and 5 to 8 jobs at once, so no single blocker is left): the 5 s the board aims at is measured, not an alarm. A
+  call answered after 2 to 10 s goes to the stall log only; an alarm sounds only when a slow answer does harm: board-slow for
+  calls answered after the chat gave up (10 s, two within 2 min), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
+  clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. What forces a rebuild is pinned end to end by
+  `test/rebuildsBoard.test.mjs` (a copy of the board with its state kept an hour, `WORKER_BOARD_STATE_MS`, and one line per
+  rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
+  an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a
+  state read under a second ago.
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
