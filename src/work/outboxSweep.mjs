@@ -198,6 +198,24 @@ export const UNCONFIRMED_MS = 15 * 60_000
 export const UNCONFIRMED_WHY = 'delivered-unconfirmed: its chat ran a turn after it and never said'
 
 /**
+ * Fix 0.31.0 (the Advisor's own case: it is no lane, so the net never judged it): the report the board holds of the chat
+ * called `name`, as `unconfirmedOf` reads a lane's (`{ state, since, turn }`), or null. The lane's own (state.chats: its
+ * report is the one of the session the board shows); for a side chat (the partner, its helper, the Supervisor, the Product
+ * owner: `shownChats`) the report kept under its name (`state.reported`, state.mjs) when it is of the session the board shows
+ * for it; for a chat of neither list the report kept under its name. A name the list's prefix may or may not carry.
+ */
+export function reportOf(state, name) {
+  const prefix = state?.chatPrefix ?? ''
+  const same = chat => typeof chat?.name === 'string' && plainName(chat.name, prefix) === plainName(name, prefix)
+  const lane = (state?.chats ?? []).find(chat => chat?.isLeftover !== true && same(chat))
+  if (lane !== undefined) return lane.report ?? null
+  const key = Object.keys(state?.reported ?? {}).find(one => plainName(one, prefix) === plainName(name, prefix))
+  const kept = key === undefined ? null : state.reported[key] ?? null
+  const side = shownChats(state ?? {}).find(same)
+  return side === undefined ? kept : kept !== null && kept.session === side.session ? kept : null
+}
+
+/**
  * The reason, and the time, a taken word counts as delivered, or null: a word its own chat took (never a hand's take, B880's
  * own net; never a hand-over envelope, whose outcome is its own), the chat's report (the lane's `report.turn`: the start of its
  * last turn, from a mod that says it) names a turn that began after the take, the chat is IDLE since that turn (`report.state`
@@ -213,14 +231,43 @@ export function unconfirmedOf(message, lane, now) {
   return { state: 'delivered', why: UNCONFIRMED_WHY, deliveredAt: turn }
 }
 
-/** The words `unconfirmedOf` closes, as `{ id, state, why, deliveredAt }`; `to`, when given, only those to that chat. */
+/**
+ * The words `unconfirmedOf` closes, as `{ id, state, why, deliveredAt }`; `to`, when given, only those to that chat. Fix 0.31.0: every chat
+ * whose report the board holds is judged (`reportOf`), not the lanes of `state.chats` alone.
+ */
 export function unconfirmedWords({ outbox, state, now, to = null }) {
-  const lanes = (state?.chats ?? []).filter(lane => lane?.isLeftover !== true)
   const closing = []
   for (const message of outbox) {
     if (message?.state !== 'taken' || (to !== null && message.to !== to)) continue
-    const closed = unconfirmedOf(message, lanes.find(lane => lane.name === message.to), now)
+    const closed = unconfirmedOf(message, { report: reportOf(state, message.to) }, now)
     if (closed !== null) closing.push({ id: message.id, ...closed })
+  }
+  return closing
+}
+
+/**
+ * Fix 0.31.0: how long a word its chat took may stand `taken` when the board knows that chat no more (no lane, no side chat, no
+ * report kept under its name) before it is closed `expired`; and its why (`goneWhy`).
+ */
+export const GONE_AFTER_MS = 24 * 3_600_000
+export const goneWhy = to => `expired: its chat ${to} is no longer on the board`
+
+/**
+ * The words taken by a chat the board no longer knows (no lane, no side chat, no report held under its name, the list's prefix
+ * ignored) over GONE_AFTER_MS ago, as `{ id, state: 'expired', why }`. Never a hand's take (B880's own net), never a hand-over
+ * envelope (its outcome is its own), never a person's answer (it waits for its chat however old). A board that knows no chat
+ * (its list could not be read) or holds no reports (`state.reported` null) says nothing of any chat: nothing is closed.
+ */
+export function goneWords({ outbox, state, now }) {
+  const prefix = state?.chatPrefix ?? ''
+  const lanes = (state?.chats ?? []).filter(chat => chat?.isLeftover !== true)
+  if (lanes.length === 0 || state?.reported === null || typeof state?.reported !== 'object') return []
+  const known = new Set([...shownChats(state), ...Object.keys(state.reported).map(name => ({ name }))].map(chat => plainName(chat.name, prefix)))
+  const closing = []
+  for (const message of outbox) {
+    if (message?.state !== 'taken' || isHandTaken(message) || message.command === 'handover' || (message.ask ?? null) !== null) continue
+    if (!Number.isFinite(message.takenAt) || now - message.takenAt <= GONE_AFTER_MS || known.has(plainName(message.to, prefix))) continue
+    closing.push({ id: message.id, state: 'expired', why: goneWhy(message.to) })
   }
   return closing
 }
@@ -240,11 +287,15 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   // 0.31.0, Task 6: a taken word whose chat ran a turn after it and never said is closed delivered, unconfirmed (the merged words).
   const confirmed = unconfirmedWords({ outbox: outbox.outbox(), state, now, to })
   if (!dry && confirmed.length > 0 && typeof outbox.deliverUnconfirmed === 'function') await outbox.deliverUnconfirmed(confirmed)
+  // Fix 0.31.0: a word taken over 24 h ago by a chat the board no longer knows is closed expired (a refresh's, not a chat's take).
+  const gone = to === null ? goneWords({ outbox: outbox.outbox(), state, now }) : []
+  if (!dry && gone.length > 0 && typeof outbox.closeTaken === 'function') await outbox.closeTaken(gone, now)
+  const settled = [...confirmed, ...gone]
   // B571: with the failed words that are not tried again, judged as the waiting ones; only a word whose purpose is gone
   // is closed among those (an old failed word is not "expired": it never waited).
   // B589: not the work lines: withdrawStale (deliver.mjs) closes them by the same judge, with the start they asked.
   const waiting = outbox.outbox().filter(message => (message.state === 'waiting' || isFailedForGood(message)) && message.command !== 'work' && (to === null || message.to === to))
-  if (waiting.length === 0) return confirmed
+  if (waiting.length === 0) return settled
   const items = (dir ?? null) === null ? null : (await readStore(dir, fs)).items
   const runs = new Map((state?.chats ?? []).filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
   // T9.4: the chats known not to run (not those the board cannot tell about), the partner, its helper and the supervisor's among them.
@@ -259,7 +310,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
     if (closed !== null && (message.state === 'waiting' || closed.state === 'dropped')) closing.set(message.id, { id: message.id, ...closed })
   }
   if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now)
-  return [...confirmed, ...closing.values()]
+  return [...settled, ...closing.values()]
 }
 
 /**

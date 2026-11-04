@@ -1102,7 +1102,7 @@ the mod types it into its chat as the person's own words and tells the board wha
 (`POST /api/bridge/typed`), so the card says "handed to its chat", then "typed into its chat", or that it did not
 arrive. The outbox's states are `waiting`, `taken` (handed out, not yet said typed), `delivered`, `failed`, `stopped`, `expired`,
 `dropped`, `copied` and `held` (a queue ask held until its step is refined); a word still `taken` after its chat ran a turn that came after the take is closed `delivered` with the why
-"delivered-unconfirmed" ("Words the app merged into one prompt", below). The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only
+"delivered-unconfirmed" ("Words the app merged into one prompt", below: every chat with a report is judged, and a word taken over 24 h ago by a chat the board no longer knows is closed `expired`). The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only
 takes: sending still needs the board's own page. (B738) The answer also names the chats that do not run (`off`), so the
 mod's Workers list says "Not running" for them, as the page does. A second board that starts while another one's file is there
 and that board answers leaves the file alone. What remains, as with sending: a chat that wrote a `board.json` of
@@ -5746,8 +5746,16 @@ resolves; the earlier ones never resolve or reject, so the mod never said them t
   `delivered` already and untouched. Limits: the turn is the chat's LAST turn (a chat with back-to-back turns closes it only
   once the chat has rested 15 minutes after the last), and a chat whose session was replaced after the take also runs a turn
   after it: such a word (lost with the old session) is closed with the same honest "never said". No Supervisor rule.
+  Fix 0.31.0: **every chat whose report the board holds is judged**, not the lanes of `state.chats` alone (the Advisor, its
+  helper, the Supervisor and the Product owner are no lane: 526 words stood `taken`, three showed as "waits for its turn" in Needs).
+  `reportOf(state, name)`: the lane's own report; for a side chat the report kept under its name (the state's `reported`, state.mjs: every
+  report of data/reports.json by chat name, null where the board keeps none) when it is of the session the board shows for it; for a chat
+  of neither list the report kept under its name; the list's prefix ignored. **The 24 h expiry** (`goneWords`, `store.mjs closeTaken`): a word
+  taken over 24 hours ago (`GONE_AFTER_MS`) by a chat the board no longer knows (no lane, no side chat, no report held under its name) is
+  closed `expired` with the why "expired: its chat <name> is no longer on the board", and `closedAt`. Never a hand's take, never a hand-over
+  envelope, never a person's answer; a board that knows no chat or keeps no reports closes nothing. The sweep's result lists both closes.
 Tests: `test/mergedWords.test.mjs` (the net: closed at 15 minutes, not at 14; a turn before the take, a hand's take, an envelope, no
-report: left), `mods/workers/hooks/board.test.ts` and `chatlist.test.ts` (the three real batches: each word told once, the turn
+report: left), `test/netEveryChat.test.mjs` (Fix 0.31.0: the side chats judged, the 24 h expiry and what it never touches), `mods/workers/hooks/board.test.ts` and `chatlist.test.ts` (the three real batches: each word told once, the turn
 named by the first; the person's own line; the envelope's line apart; the order of the last submit's resolve).
 
 **The state's `waits`** (server.mjs `waitsNow`): every person's word of the last 24 h (an answer, `recap-feedback`,
@@ -6742,3 +6750,9 @@ a clear. Tests: `test/lazyClearReplay.test.mjs` (the real records, `test/fixture
    step at once. Both holds last 10 minutes (`NET_MS`) after the give at most, so nothing waits for ever (an unknown lane has no
    net of its own: the decision runs for lanes on the sequence only); the chat missing from the list keeps its own rule (back
    10 minutes after the give). Tests: `test/work/strandedInFlight.test.mjs`, `test/lazyClearReplay.test.mjs`.
+3. **Task 6's net judges every chat with a report, and a word of a vanished chat expires** (`src/work/outboxSweep.mjs` `reportOf`,
+   `unconfirmedWords`, `goneWords`; `store.mjs` `closeTaken`; state.mjs `reported`). The Advisor, its helper, the Supervisor and the Product
+   owner (no lane) are judged by the report the board holds under their name (of the session the board shows for them), as a lane is;
+   a word taken over 24 h ago by a chat with no lane, no side chat and no report under its name is closed `expired` ("expired: its chat
+   <name> is no longer on the board"). Never a hand's take, a hand-over envelope or a person's answer. Tests:
+   `test/netEveryChat.test.mjs`.

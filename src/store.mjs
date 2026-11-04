@@ -254,6 +254,22 @@ function storeOver(lines, messages, alive, write) {
       return closed.length
     },
     /**
+     * Fix 0.31.0: words the board settles though their chat never did: `[{ id, state, why }]`, each still `taken` (a word the mod said
+     * meanwhile stands) closed as `state` (`expired`: its chat is no longer on the board, outboxSweep.mjs `goneWords`; `dropped`: the lone
+     * clear of before 0.31.0, handoverBoard.mjs `closeClearOnly`) with its reason and the time. The number closed.
+     */
+    async closeTaken(list, now) {
+      const closed = []
+      for (const { id, state, why } of list) {
+        const message = messages.find(one => one.id === id)
+        if (message === undefined || message.state !== 'taken' || !['expired', 'dropped'].includes(state)) continue
+        Object.assign(message, { state, why, closedAt: now })
+        closed.push({ id, state, why, closedAt: now })
+      }
+      if (closed.length > 0) await write.outbox(closed)
+      return closed.length
+    },
+    /**
      * B532: a word the chat could not type (failed) goes again after `afterMs`, up to `tries` times in all, while it is
      * not late; then it stays failed. It goes as a new word with its own id (`retryOf` the failed one, which names it in
      * `retriedAs`): the Workers mod types an id once per process. Not again: a word the mod refused for good (`final`, too
