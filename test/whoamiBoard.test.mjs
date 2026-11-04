@@ -123,6 +123,15 @@ test('the board names a session: its chat, its role, where its card is filed; an
   assert.deepEqual(await whoami({ chat: 'Main', session: 'stranger-id' }), { status: 200, body: { name: null, role: null, card: null } })
   assert.equal((await whoami({ chat: 'Main' })).status, 400)
 
+  // B978: a chat the app writes into its list only after its first whoami (the person's test, 2026-10-28) is still named
+  // within seconds, though a session the board shows under no name no longer throws the state away on every call.
+  assert.deepEqual(await whoami({ session: 'w7-id' }), { status: 200, body: { name: null, role: null, card: null } })
+  await put(join(chats, 'w7-id.json'), JSON.stringify({ name: 'Worker 7', role: 'worker', state: 'waiting', task: null, at: NOW }))
+  await put(join(app, 'a', 'b', 'local_Worker7.json'), appChat('Worker 7', 'w7-id'))
+  const askedAt = Date.now()
+  await until(async () => (await whoami({ session: 'w7-id' })).body?.name === 'Worker 7', 'Worker 7 named once the app lists it')
+  assert.ok(Date.now() - askedAt < 3_000, `named ${Date.now() - askedAt} ms after the app listed it`)
+
   // The calls counted: the board knows a mod runs, as it did not before the first of them.
   assert.equal((await state()).bridge.isMissing, false)
 })

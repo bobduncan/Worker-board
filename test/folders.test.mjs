@@ -66,6 +66,19 @@ test('cached asks again only after the time is up', async () => {
   assert.equal(await read(), 2)
 })
 
+test('B978: readAt says when the kept answer was read, and -Infinity after a reset until the next read', async () => {
+  let now = 1000
+  const read = cached(async () => now, 60_000, () => now)
+  assert.equal(read.readAt(), -Infinity)
+  await read()
+  assert.equal(read.readAt(), 1000)
+  now += 500
+  read.reset()
+  assert.equal(read.readAt(), -Infinity)
+  await read()
+  assert.equal(read.readAt(), 1500)
+})
+
 test('cached reads again after a reset, also when a read was under way', async () => {
   let count = 0
   const gates = []

@@ -1217,19 +1217,25 @@ async function main(args) {
   const mainAsksNow = async (state, ids) => {
     const main = (state.chats ?? []).find(lane => lane.isMain && !lane.isLeftover) ?? null
     const runs = main !== null && main.isRunning === true
+    // B978: the state is read anew only when this pass changed the outbox: it runs on every server tick, and an unconditional
+    // reset forced a whole rebuild each time (103 of 372 rebuilds in 16 min on the live board).
+    let changed = 0
     for (const message of store.outbox().filter(one => one.kind === MAIN_ASK && one.state === 'waiting' && (!runs || one.to !== main.name))) {
       await store.update(message.id, { state: 'dropped', why: 'the main chat does not run: Autopilot asks it again once it is free', closedAt: clock() })
+      changed += 1
     }
-    if (!runs || !mayWake(state, main.name)) return
-    for (const id of ids) {
-      const words = store.outbox().filter(one => one.kind === MAIN_ASK && one.about === id)
-      if (words.length >= 2 || words.some(one => ['waiting', 'taken', 'delivered'].includes(one.state))) continue
-      await sendOnce({
-        dir: workDir, key: `main-ask ${id} ${main.name}${words.length > 0 ? ' again' : ''}`, words: { ...workWords(main.name, id, mainAskWords(id)), kind: MAIN_ASK },
-        outbox: store, state, now: clock(), maxChars: config.maxMessageChars, newId: () => randomBytes(8).toString('hex'), keep,
-      })
+    if (runs && mayWake(state, main.name)) {
+      for (const id of ids) {
+        const words = store.outbox().filter(one => one.kind === MAIN_ASK && one.about === id)
+        if (words.length >= 2 || words.some(one => ['waiting', 'taken', 'delivered'].includes(one.state))) continue
+        const sent = await sendOnce({
+          dir: workDir, key: `main-ask ${id} ${main.name}${words.length > 0 ? ' again' : ''}`, words: { ...workWords(main.name, id, mainAskWords(id)), kind: MAIN_ASK },
+          outbox: store, state, now: clock(), maxChars: config.maxMessageChars, newId: () => randomBytes(8).toString('hex'), keep,
+        })
+        if (sent !== null) changed += 1
+      }
     }
-    readState.reset()
+    if (changed > 0) readState.reset()
   }
   /**
    * T20.1 (the person, 2026-11-04: "These numbers are all over the place and non consistent"): what the board knows of a recap beyond its file,
@@ -2292,6 +2298,8 @@ async function main(args) {
   const freshFor = new Map()
   /** 2026-10-28: the same for the whoami call, kept apart: a session's whoami never uses up the read its first take needs. */
   const freshWho = new Map()
+  /** B978: since when a session's whoami finds it under no name (its reads anew slow down after FRESH_MS). */
+  const whoMissSince = new Map()
   /** B847: when a word to archive a replaced chat last went, by the chat's app id, and why it went (for board.log). */
   const archiveGiven = new Map()
   const archiveWhy = new Map()
@@ -3287,12 +3295,20 @@ async function main(args) {
       // The person's test (2026-10-28 11:08): a chat started anew asked at its start, 0.3 s before its first prompt, while the
       // app had not yet written the new session into its list; a second read only 30 s on left that prompt unnamed. A session
       // the board shows under no name is read anew at most once a second.
-      if (session !== null && whoamiOf(state, session) === null && clock() - (freshWho.get(session) ?? -Infinity) >= WHO_FRESH_MS) {
-        freshWho.set(session, clock())
-        for (const [one, at] of freshWho) if (clock() - at >= FRESH_MS) freshWho.delete(one)
-        readState.reset()
-        state = await readState()
-      }
+      // B978: for its first 30 s unnamed; after that at most once in 30 s (a side chat outside the board's list asks on every
+      // tool call: 122 of 372 rebuilds in 16 min on the live board). And a state read less than a second ago, or about to be
+      // read, is new enough: it is not thrown away for everyone else.
+      if (session !== null && whoamiOf(state, session) === null) {
+        const since = whoMissSince.get(session) ?? clock()
+        whoMissSince.set(session, since)
+        const every = clock() - since < FRESH_MS ? WHO_FRESH_MS : FRESH_MS
+        if (clock() - (freshWho.get(session) ?? -Infinity) >= every) {
+          freshWho.set(session, clock())
+          for (const [one, at] of freshWho) if (clock() - at >= 2 * FRESH_MS) { freshWho.delete(one); whoMissSince.delete(one) }
+          if (clock() - readState.readAt() >= WHO_FRESH_MS && readState.readAt() !== -Infinity) readState.reset()
+          state = await readState()
+        }
+      } else if (session !== null) whoMissSince.delete(session)
       const name = session === null ? null : whoamiOf(state, session)
       if (session !== null) {
         if (name !== null) noteMod(body, { ok: true, chat: name })
