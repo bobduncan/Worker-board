@@ -75,7 +75,7 @@ const OWN_PLACES = ['refine', 'go', 'change', 'goal-ask', 'overturn', 'worker']
 const TALK_COMMANDS = ['talk', 'vibe-not-yet', 'how-not-yet', 'recheck']
 /** The words of a brainstorm thread the person types (the board's own `brainstorm-fix` and `brainstorm-stranded` are no action of theirs). */
 const BRAINSTORM_COMMANDS = ['brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite']
-/** The state of an incident that waits for a judgment, and those that ended it (supervisor/incidents.mjs ENDED, 'fix': given a fix step). */
+/** The states of an incident that waits for a judgment; the ones that end it are `ENDED` of supervisor/incidents.mjs, and 'fix' (given a fix step). */
 const INCIDENT_WAITS = ['open', 'came back', 'with the supervisor', 'with the advisor']
 /**
  * Who holds the person's Send again on the message way until a hand that may send takes it (server.mjs `wakeAgainNow`, the
@@ -402,7 +402,7 @@ export function goDone(word, node, items) {
   const blocks = blocksOf(node)
   if (blocks.length === 0 || !(items instanceof Map)) return null
   const from = minuteOf(word.at)
-  const filed = blocks.map(part => (part.steps ?? []).map(id => ({ id, at: madeAtMs(items.get(id)) })).filter(one => isTime(one.at) && one.at >= from))
+  const filed = blocks.map(part => (part.steps ?? []).map(id => ({ id, at: items.has(id) ? madeAtMs(items.get(id)) : Number.NaN })).filter(one => isTime(one.at) && one.at >= from))
   if (filed.some(steps => steps.length === 0)) return null
   const steps = [...new Map(filed.flat().map(one => [one.id, one])).values()].sort((a, b) => a.at - b.at)
   return { at: Math.max(...steps.map(one => one.at)), words: `${steps.length} step${steps.length === 1 ? '' : 's'}`, link: { step: steps[0].id, text: `See ${steps[0].id} →` } }
@@ -532,6 +532,26 @@ export function judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, 
   return out
 }
 
+/**
+ * The own result of a wave 2 place (`refineDone` and the others), or null: a source that cannot be read (a task the store does not hold
+ * yet, a thread half written) is no result, and never stops the lines of the others (a line is information).
+ */
+function doneOfPlace(word, place, { state, items, steps, goals, threads, now }) {
+  try {
+    switch (place) {
+      case 'refine': return refineDone(word, steps.get(word.about))
+      case 'go': return goDone(word, goals.get(word.about), items)
+      case 'change': return changeDone(word, threadOf(word, threads), now)
+      case 'goal-ask': return goalAskDone(word, goals.get(word.goal))
+      case 'overturn': return overturnDone(word, items)
+      case 'worker': return workerDone(word, (state?.chats ?? []).find(one => one?.name === word.about && one.isLeftover !== true))
+      default: return null
+    }
+  } catch {
+    return null
+  }
+}
+
 /** Every board chat the state draws, by name: the lanes, the partner, its helper, the supervisor's chat, the Product owner. */
 function lanesOf(state) {
   const lanes = [...(state?.chats ?? []).filter(lane => lane?.isLeftover !== true), state?.advisor, state?.advisorHelper, state?.supervisorChat, state?.productOwner]
@@ -568,13 +588,7 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     const report = (reports instanceof Map ? reports.get(word.to) : null) ?? lane?.report ?? null
     const queue = outbox.filter(one => one.to === word.to && one.state === 'waiting' && one.isHeld !== true && one.id !== word.id && isTime(one.at) && one.at < word.at).length
     const done = word.command === 'recap-feedback' ? recapDone(word, items) : word.command === 'obsolete-check' ? obsoleteDone(word, obsolete) : word.command === 'sweep' ? sweepDone(word, sweep)
-      : place === 'refine' ? refineDone(word, steps.get(word.about))
-        : place === 'go' ? goDone(word, goals.get(word.about), items)
-          : place === 'change' ? changeDone(word, threadOf(word, threads), now)
-            : place === 'goal-ask' ? goalAskDone(word, goals.get(word.goal))
-              : place === 'overturn' ? overturnDone(word, items)
-                : place === 'worker' ? workerDone(word, (state?.chats ?? []).find(one => one?.name === word.about && one.isLeftover !== true))
-                  : null
+      : doneOfPlace(word, place, { state, items, steps, goals, threads, now })
     // The word the chat's turn ran on, when it is one of the chat's that came before this one: its turn is not this word's.
     const ranOn = typeof report?.word === 'string' ? byId.get(report.word) : undefined
     const ahead = ranOn !== undefined && ranOn.to === word.to && ranOn.id !== word.id && ['taken', 'delivered'].includes(ranOn.state) && placeOf.get(ranOn.id) < placeOf.get(word.id)

@@ -86,6 +86,7 @@ test('place 2, Go: Done once every work block of the goal has a task filed after
   assert.deepEqual([sent.state, sent.rest, sent.place, sent.goal], ['sent', 'waits for Advisor to pick it up · next in its queue', 'go', 'G6'])
   assert.equal(waitsFor({ state: stateOf([['B1'], []]), outbox: [word], items }).g1.state, 'sent', 'one block still has no task')
   assert.equal(waitsFor({ state: stateOf([['B0'], ['B2']]), outbox: [word], items }).g1.state, 'sent', 'a task from before Go is no result of it')
+  assert.equal(waitsFor({ state: stateOf([['B404'], ['B2']]), outbox: [word], items }).g1.state, 'sent', 'a task the store does not hold yet is not filed, and breaks no line')
   const done = waitsFor({ state: stateOf([['B1'], ['B2']]), outbox: [word], items }).g1
   assert.deepEqual([done.state, done.lead, done.rest, done.link], ['done', `Done ${hhmm(at(1))}`, '2 steps', { step: 'B1', text: 'See B1 →' }])
   const onIt = waitsFor({ state: { ...stateOf([[], []]), advisor: working('Advisor') }, outbox: [{ ...word, ...typed() }], items, reports: new Map([['Advisor', said('busy', at(2), { word: 'g1', turn: at(2) })]]) }).g1
@@ -209,4 +210,24 @@ test('place 8, an incident that waits for the Supervisor\'s judgment: a line of 
   const dropped = waitsFor({ state, outbox: [{ ...judgeWord, state: 'dropped', why: 'none of them waits any more' }], items })
   assert.equal(dropped['j1#X1'].state, 'done')
   assert.equal(dropped['j1#X5'], undefined, 'a dropped word with the incident still waiting: no line of it')
+})
+
+test('every place: the word taken by its chat while its turn on it runs reads "<Chat> is on it · since <the turn>"', () => {
+  const advisor = working('Advisor')
+  const lead = working('Lead')
+  const recap = item(`Id: N1\nKind: note\nTitle: recap\nState: read\nRecap: overturned\nSince: ${stamp(at(3))}\n\n## About\nB12\n`)
+  const cases = [
+    { name: 'refine', chat: 'Advisor', word: { command: 'refine', about: 'B12', round: 1 }, state: { chats: [], advisor, backlog: [{ steps: [{ id: 'B12', refined: null }] }] }, items: new Map([['B12', step('B12', 'new', at(60))]]) },
+    { name: 'go', chat: 'Advisor', word: { command: 'how-go', about: 'G6' }, state: { chats: [], advisor, goals: { nodes: [{ id: 'G6', parts: [{ title: 'Beds', steps: [] }], partsDropped: [] }] } } },
+    { name: 'change', chat: 'Advisor', word: { command: 'brainstorm', about: 'b/change.md' }, state: { chats: [], advisor, brainstorms: { threads: [{ path: 'b/change.md', kind: 'change', goal: { id: 'G6' }, latest: null, understood: null, proposal: null }] } } },
+    { name: 'goal-ask', chat: 'Advisor', word: { command: 'goal-ask', goal: 'G6', about: 'A1' }, state: { chats: [], advisor, goals: { nodes: [{ id: 'G6', asks: [{ id: 'A1', answer: null }], parts: [] }] } } },
+    { name: 'overturn', chat: 'Advisor', word: { ask: 'work:N1', step: 'N1' }, state: { chats: [], advisor }, items: new Map([['N1', recap]]) },
+    { name: 'worker', chat: 'Lead', word: { command: 'stop', about: 'Worker 2' }, state: { chats: [lead, working('Worker 2', { task: { text: 'dig' } })], advisor: null } },
+    { name: 'talk', chat: 'Advisor', word: { command: 'talk', about: 'G6' }, state: { chats: [], advisor } },
+  ]
+  for (const one of cases) {
+    const word = typed({ id: 'w1', to: one.chat, takenAt: at(2), deliveredAt: at(2) + 1000, ...one.word })
+    const line = waitsFor({ state: one.state, outbox: [word], items: one.items ?? new Map(), reports: new Map([[one.chat, said('busy', at(2) + 500, { word: 'w1', turn: at(2) + 500 })]]) }).w1
+    assert.deepEqual([one.name, line?.place, line?.state, line?.lead, line?.rest], [one.name, one.name === 'overturn' ? 'overturn' : one.name, 'picked-up', `${one.chat} is on it`, `since ${hhmm(at(2) + 500)}`])
+  }
 })

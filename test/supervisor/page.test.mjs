@@ -265,7 +265,8 @@ test('the page wires the status: the press counts from the key sync:<chat>, the 
   assert.match(draw, /const isPressed = isCheckPressed\(\)/)
   assert.match(draw, /const status = shown \? checkStatusOf\(view, \{ isPressed, now: Date\.now\(\) \}\) : null/)
   // T22: and the asked sweep's wait line (sweepWaitOf), so the section draws again when its line moves.
-  assert.match(draw, /sending\.has\('sync:board'\), status, sweepLine\], \(\) => \{/)
+  // Wave 2 (place 8): and the lines of the incidents that wait for the Supervisor's judgment, each by its incident.
+  assert.match(draw, /sending\.has\('sync:board'\), status, sweepLine, \[\.\.\.incidentWaits\]\.map\(\(\[id, wait\]\) => \[id, waitKeyOf\(wait\)\]\)\], \(\) => \{/)
   assert.match(draw, /supervisorOf\(view, \{[^}]*now: Date\.now\(\), isPressed \}\)/)
   // The word stands after the counts, in the head's own line (folded or open).
   assert.match(draw, /fill\(toggle, \[el\('span', 'supervisor-caret', isOpen \? '▾' : '▸'\), wrench, el\('span', 'supervisor-title', part\.head\), checkStatusPart\(part\.status\)\]\)/)
