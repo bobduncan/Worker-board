@@ -20,7 +20,7 @@ import { afterPause as afterPauseOf, checkpointOf, heldMs, holdEndOf, isHolding,
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
-import { chainTries, hasTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
+import { chainTries, chainWaitOf, hasTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
 import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
 import { NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '../../work/handover.mjs'
@@ -74,6 +74,11 @@ const isPaused = view => isHolding(view.pause) || view.pause?.state === 'resumin
 const pauseEndOf = view => pauseEnd(view.pause)
 /** A time something began, counted from the end of the last pause at the earliest: the pause's time does not count. */
 const afterPause = (view, since) => afterPauseOf(view.pause, since)
+/**
+ * B1021 (X148): when the last full limit ended, as the limits' reading names it (`resetAt`: its reset has passed and nothing was
+ * read since); -Infinity for none. The board hands out nothing while a limit is full, so that time is no one's wait.
+ */
+const limitEndOf = view => Math.max(-Infinity, ...['fiveHour', 'week'].map(limit => view.limits?.[limit]?.resetAt).filter(Number.isFinite))
 
 /**
  * How long a thing has lasted: since `since` (what the board's data says), or since the supervisor first saw it (`key`
@@ -94,9 +99,9 @@ const watchOf = ctx => key => {
  * `lasted`'s span, with `seenOf(key)` the time the key was first seen (undefined: now). B736: `heard` (the rules about a
  * chat that does not run) leaves out the stretches the board heard no chat too (`deafMs`).
  */
-function spanOf(view, seenOf, key, since = null, { heard = false } = {}) {
+function spanOf(view, seenOf, key, since = null, { heard = false, floor = -Infinity } = {}) {
   const first = Math.min(Number.isFinite(since) ? since : Infinity, seenOf(key) ?? view.now)
-  const from = Math.max(first, pauseEndOf(view))
+  const from = Math.max(first, pauseEndOf(view), floor)
   return view.now - from - boardOffMs(view, from) - (heard ? deafMs(view, from) : 0)
 }
 
@@ -613,6 +618,38 @@ function personHold(view, held) {
   return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps))
 }
 
+/** B1021: the states in which a step is with a worker that was given it or took it. */
+const MOVING = ['queued', 'taken', 'in progress']
+
+/**
+ * B1021 (X148: B1018 blocked by B1014, which waited for its own ready fix B1020 while the limit held every hand-out): whether a
+ * step that blocks a held fix moves: it is with a worker (queued, taken, in progress), or in review behind a chain of open fixes
+ * at work (`chainWaitOf` atWork) or ending in a refined fix the ready list does not hold, or whose last fix is held only by a block
+ * of steps that move or wait for the person themselves. A step in review for its check, a chain ending in a fix not refined yet
+ * or held for another reason, or any other state stands still. `visited` keeps a loop of blocks from running on.
+ */
+function stepMoves(view, id, visited) {
+  const step = view.items.get(id)
+  if (step === undefined || visited.has(id)) return false
+  visited.add(id)
+  const state = stateOf(step)
+  if (MOVING.includes(state)) return true
+  if (state !== 'review') return false
+  const chain = chainWaitOf(id, view.items, view.held, view.now, view.recaps)
+  if (chain === null) return false
+  if (chain.atWork) return true
+  const why = (view.held ?? []).find(one => one.id === chain.end)?.why ?? null
+  if (why === null) return stateOf(view.items.get(chain.end)) === 'refined'
+  return holdMoves(view, why, visited)
+}
+
+/** B1021: whether a held why is a block by steps that all move or wait for the person (`stepMoves`, B916's `personHold`). */
+function holdMoves(view, held, visited = new Set()) {
+  if (!BLOCKED_HOLD.test(held)) return false
+  const ids = [...new Set(held.match(/B[0-9]+/g) ?? [])]
+  return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps) || stepMoves(view, id, visited))
+}
+
 /**
  * 12c. B656 (X8 again: B603 sat in review behind its fix B614, which the ready list held for the answer to an ask, while
  * its line said only "waits for its fix B614"): a step in review whose chain of open fixes ends in a fix the ready list
@@ -623,10 +660,15 @@ function personHold(view, held) {
  * block by steps that all wait for the person alone (`personHold`); the time counts from
  * when the board first saw this hold (its key holds the why, so a changed why starts again), not from the fix's Since, and
  * from the end of the person's last pause. No ready list in the view: nothing.
+ * B1021 (X148: B923 → B953 → B972 → B991 → B1018, held "blocked by B1014 (review)", B1014 behind its own ready fix B1020, while the
+ * 5-hour limit held every hand-out): a block by steps that all move (`holdMoves`: with a worker, or behind a chain at work or
+ * ending in a refined fix not held) is a wait, no case; nothing is said while a limit is full (the rule does not run, so the
+ * watch forgets the key and the hold counts again from the first run after it, and from the limit's reset at the earliest,
+ * `limitEndOf`). A chain that stands still after the reset fires as before.
  */
 function reviewHeld(view, ctx) {
   const found = []
-  if (isPaused(view) || !Array.isArray(view.held)) return found
+  if (isPaused(view) || isFull(view) || !Array.isArray(view.held)) return found
   const seen = new Set()
   // By id: a chain's first step comes before its fixes, so it names the case.
   for (const item of stepsOf(view).filter(one => stateOf(one) === 'review').sort((a, b) => byId(idOf(a), idOf(b)))) {
@@ -708,11 +750,12 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     return { late, key, ms, words }
   }
   if (wait.kind === 'fix' && wait.held !== null) {
-    if (isPaused(view) || personHold(view, wait.held)) return not
+    // B1021 (X148): nothing is handed out while a limit is full, and a block by steps that move is a wait the board planned.
+    if (isPaused(view) || isFull(view) || personHold(view, wait.held) || holdMoves(view, wait.held)) return not
     // Counted per why, from when the board first saw this hold (the fix's Since is its move to refined, long before a
-    // blocker or an ask may have cleared: B614 refined at 16:39, blocked by B623 until 19:56).
+    // blocker or an ask may have cleared: B614 refined at 16:39, blocked by B623 until 19:56), and from the end of a full limit.
     const key = `review-held ${wait.end} ${wait.held.slice(0, 80)}`
-    const ms = spanOf(view, seenOf, key)
+    const ms = spanOf(view, seenOf, key, null, { floor: limitEndOf(view) })
     return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms }
   }
   return null
@@ -1304,7 +1347,7 @@ function obsoleteWrong(view) {
 const SKIPS_ON_PAUSE = view => (isPaused(view) ? 'the person pauses' : null)
 const SKIPS_ON_PAUSE_OR_LIMIT = view => (isPaused(view) ? 'the person pauses' : isFull(view) ? 'a limit is full' : null)
 /** review-held without a ready list in the view cannot see a hold at all. */
-const SKIPS_HELD = view => SKIPS_ON_PAUSE(view) ?? (Array.isArray(view.held) ? null : 'no ready list in the view')
+const SKIPS_HELD = view => SKIPS_ON_PAUSE_OR_LIMIT(view) ?? (Array.isArray(view.held) ? null : 'no ready list in the view')
 
 /** Every watch rule, in the order the section shows them. */
 export const WATCH_RULES = [
@@ -1320,7 +1363,7 @@ export const WATCH_RULES = [
   { id: 'odd-effort', kind: 'watch', says: 'a chat whose effort is not a level', check: oddEffort },
   { id: 'review-stuck', kind: 'watch', says: 'a step in review with no result check for too long', check: reviewStuck, skips: SKIPS_ON_PAUSE },
   { id: 'dropped-fix', kind: 'watch', says: 'a step in review whose fix was dropped, with no new fix, no new check and no block for over 30 min', check: fixDropped, skips: SKIPS_ON_PAUSE },
-  { id: 'review-held', kind: 'watch', says: 'a step in review whose chain of fixes ends in a fix the ready list holds, for too long', check: reviewHeld, skips: SKIPS_HELD },
+  { id: 'review-held', kind: 'watch', says: 'a step in review whose chain of fixes ends in a fix the ready list holds, for too long (not while a limit is full, nor behind a block by steps that move)', check: reviewHeld, skips: SKIPS_HELD },
   { id: 'chain-long', kind: 'watch', says: 'a chain of three tries or more whose newest fix names no "Tried before:" (a patch of the same way again)', check: chainLong },
   { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30 (not while the person\'s pick on a rebuild of its goal is open; then 60 min from the pick)', check: openFix, skips: SKIPS_ON_PAUSE },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress whose worker works on it for hours with no checkpoint', check: staleCheckpoint, skips: SKIPS_ON_PAUSE_OR_LIMIT },

@@ -160,3 +160,70 @@ test('the Backlog line and the work tool name the held fix', async t => {
   const listed = await workApi({ action: 'list', chat: 'Lead' }, { dir, now: NOW, roleOf: () => 'main', readyHeld: HELD })
   assert.match(listed.result.text, /^B603 · step · review \(waits for its fix B614, held: outside the focus goal\) · Painter/m)
 })
+
+// B1021 (X148): B923 → B953 → B972 → B991 → B1018, the ready list holds B1018 "blocked by B1014 (review)"; B1014 waits for its own
+// fix B1020 (ready) while the 5-hour limit is full and nothing is handed out. A wait the board plans is no case; a chain that stands still is.
+const BLOCKED = 'blocked by B1014 (review)'
+const BLOCKED_KEY = `review-held B1018 ${BLOCKED}`
+/** B923 behind B1018 (blocked by B1014), B1014 behind its fix B1020, in the state `fix` is in. */
+const chainStore = (fixState, head = {}) => items(
+  reviewed('B923', 300, 'B953'),
+  reviewed('B953', 260, 'B1018', { 'Fix of': 'B923' }),
+  reviewed('B1014', 200, 'B1020', { 'Fix of': 'B953' }),
+  fixStep('B1018', 'B953', 'refined', 150, { Refined: 'ready', 'Blocked by': 'B1014' }),
+  fixStep('B1020', 'B1014', fixState, 100, { Refined: 'ready', ...head }),
+)
+const BLOCK_HELD = [{ id: 'B1018', why: BLOCKED }]
+const OVER_LONG = { fiveHour: { used: 0, at: ago(150), resetsAt: null, resetAt: ago(150), level: 'ok', stopAt: 95 } }
+const FULL = { fiveHour: { used: 100, at: ago(100), resetsAt: ago(-50), resetAt: null, level: 'full', stopAt: 95 } }
+const LIMIT_OVER = { fiveHour: { used: 0, at: ago(30), resetsAt: null, resetAt: ago(30), level: 'ok', stopAt: 95 } }
+const watchWith = (store, held, limits, seen) => WATCH_RULES.find(one => one.id === 'review-held').check(
+  buildView({ state: { chats: [LEAD, PAINTER], today: [], limits, pause: null, chatPrefix: '', readyList: { ready: [], held } }, items: store, outbox: [], settings: {}, seen: null, now: NOW }),
+  { seen, observed: [] })
+
+test('review-held (B1021, X148): a blocker whose own chain moves is a wait; a full limit is no time', () => {
+  const seen = new Map([[BLOCKED_KEY, ago(240)]])
+  // X148's shape with the limit full: no case, however long the board has seen the block.
+  assert.deepEqual(watchWith(chainStore('refined'), BLOCK_HELD, FULL, seen), [])
+  // The same after the reset, B1020 ready and not held: a moving chain, no case.
+  assert.deepEqual(watchWith(chainStore('refined'), BLOCK_HELD, OVER_LONG, seen), [])
+  // B1020 itself held by the ready list for over the review minutes: the chain stands still, B923 fires (the limit's time left out).
+  const stillHeld = [...BLOCK_HELD, { id: 'B1020', why: CHOICE_WHY }]
+  assert.deepEqual(watchWith(chainStore('refined'), stillHeld, LIMIT_OVER, seen), []) // only 30 min since the reset
+  const stillFound = watchWith(chainStore('refined'), stillHeld, OVER_LONG, seen)
+  assert.deepEqual(stillFound.map(one => [one.key, one.subject]), [['review-held B923', 'B923']])
+  // A blocker in progress is a wait; so is one queued for a worker.
+  const working = items(reviewed('B923', 300, 'B953'), fixStep('B953', 'B923', 'refined', 150, { Refined: 'ready' }), fixStep('B1014', 'B953', 'in progress', 100))
+  assert.deepEqual(watchWith(working, [{ id: 'B953', why: 'blocked by B1014 (in progress)' }], OVER_LONG, new Map([['review-held B953 blocked by B1014 (in progress)', ago(240)]])), [])
+  // A blocker with no open fix and no worker (in review for its check) keeps the case.
+  const checking = items(reviewed('B923', 300, 'B953'), fixStep('B953', 'B923', 'refined', 150, { Refined: 'ready' }), reviewed('B1014', 100, null))
+  assert.equal(watchWith(checking, [{ id: 'B953', why: 'blocked by B1014 (review)' }], OVER_LONG, new Map([['review-held B953 blocked by B1014 (review)', ago(240)]])).length, 1)
+  // A blocker whose last fix is not refined yet stands still too.
+  const unrefined = chainStore('new')
+  assert.equal(watchWith(unrefined, BLOCK_HELD, OVER_LONG, seen).length, 1)
+})
+
+test('review-held (B1021): a hold counts from the end of a full limit; the rule is skipped while one is full', () => {
+  const rule = WATCH_RULES.find(one => one.id === 'review-held')
+  const full = buildView({ state: { chats: [LEAD, PAINTER], today: [], limits: FULL, pause: null, chatPrefix: '', readyList: { ready: [], held: HELD } }, items: HELD_STORE, outbox: [], settings: {}, seen: null, now: NOW })
+  assert.equal(rule.skips(full), 'a limit is full')
+  // Seen 180 min ago, the limit over 60 min ago: 60 min count, under the review minutes (90): no case; the same hold with no limit: 180 min.
+  const key = new Map([[`review-held B614 ${CHOICE_WHY}`, ago(180)]])
+  const over = { fiveHour: { used: 0, at: ago(60), resetsAt: null, resetAt: ago(60), level: 'ok', stopAt: 95 } }
+  assert.deepEqual(watchWith(HELD_STORE, HELD, over, key), [])
+  assert.equal(watchWith(HELD_STORE, HELD, {}, key).length, 1)
+  // The hold's text counts the minutes since the limit's end.
+  const long = { fiveHour: { used: 0, at: ago(100), resetsAt: null, resetAt: ago(100), level: 'ok', stopAt: 95 } }
+  assert.match(watchWith(HELD_STORE, HELD, long, key)[0].text, /held 100 min/)
+})
+
+test('the health summary reads X148 as waiting, not odd, while the limit is full or the chain moves; odd once it stands still', () => {
+  const board = (store, held, limits) => buildView({ state: { chats: [LEAD, PAINTER], today: [], limits, pause: null, chatPrefix: '', readyList: { ready: [], held } }, items: store, outbox: [], settings: {}, seen: new Map([[BLOCKED_KEY, ago(240)]]), now: NOW })
+  const OVER_LONG = { fiveHour: { used: 0, at: ago(150), resetsAt: null, resetAt: ago(150), level: 'ok', stopAt: 95 } }
+  const STILL = [...BLOCK_HELD, { id: 'B1020', why: CHOICE_WHY }]
+  const full = healthSummary(board(chainStore('refined'), STILL, FULL), NOW)
+  assert.match(full, /in review: \d+ steps? in \d+ chains? of fixes/)
+  assert.doesNotMatch(full, /- ! in review/)
+  assert.doesNotMatch(healthSummary(board(chainStore('refined'), BLOCK_HELD, OVER_LONG), NOW), /- ! in review/)
+  assert.match(healthSummary(board(chainStore('refined'), [...BLOCK_HELD, { id: 'B1020', why: CHOICE_WHY }], OVER_LONG), NOW), /- ! in review/)
+})
