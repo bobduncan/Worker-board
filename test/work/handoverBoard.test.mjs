@@ -4,13 +4,13 @@
 // the set as the hands' job the envelope waits for, the restart word after a restart envelope. Made-up names only.
 
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
 import { clearOwed } from '../../src/clearOwed.mjs'
-import { memoryStore } from '../../src/store.mjs'
+import { foldOutbox, memoryStore } from '../../src/store.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { readyList } from '../../src/work/handOut.mjs'
 import { HANDOVER_COMMAND, NET_MS, NOT_TAKEN_WHY, PAUSED_WHY, STATES, UNANSWERED_WHY } from '../../src/work/handover.mjs'
@@ -431,18 +431,54 @@ test('the lazy clear, D1: the stages on the envelope, merged in the turn: two qu
   }
 })
 
-test('the lazy clear, D8: the landing sweep closes every clear-only envelope still waiting, with its reason; a taken one, a task\'s and a restart stay', async () => {
+test('the lazy clear, D8: the landing sweep closes every clear-only envelope still waiting, with its reason; a task\'s and a restart stay', async () => {
   const { CLEAR_ONLY_CLOSED_WHY, closeClearOnly } = await import('../../src/work/handoverBoard.mjs')
   const outbox = memoryStore()
   const base = { to: 'Digger', command: HANDOVER_COMMAND, restart: false, set: null, back: null }
   await outbox.say({ ...base, id: 'c1', at: NOW - 5 * MIN, kind: 'clear', step: null, clear: { step: 'B12', reportedAt: NOW - 6 * MIN }, line: null, state: 'waiting' })
-  await outbox.say({ ...base, id: 'c2', at: NOW - 5 * MIN, to: 'Mower', kind: 'clear', step: null, clear: { step: 'B10', reportedAt: NOW - 6 * MIN }, line: null, state: 'taken' })
   await outbox.say({ ...base, id: 't1', at: NOW - 4 * MIN, kind: 'task', step: 'B13', clear: { step: 'B12', reportedAt: NOW - 6 * MIN }, line: 'work: B13 is yours; run work next', state: 'waiting' })
   await outbox.say({ ...base, id: 'r1', at: NOW - 4 * MIN, kind: 'restart', step: null, clear: null, restart: true, line: null, version: '0.31.0', state: 'waiting' })
   assert.equal(await closeClearOnly(outbox, NOW), 1)
   const of = id => outbox.outbox().find(message => message.id === id)
   assert.deepEqual([of('c1').state, of('c1').why, of('c1').closedAt], ['dropped', CLEAR_ONLY_CLOSED_WHY, NOW])
-  assert.deepEqual([of('c2').state, of('t1').state, of('r1').state], ['taken', 'waiting', 'waiting'])
+  assert.deepEqual([of('t1').state, of('r1').state], ['waiting', 'waiting'])
   // Again (every start): nothing more.
   assert.equal(await closeClearOnly(outbox, NOW + MIN), 0)
+})
+
+test('Fix 0.31.0, part 4: a lone clear from before 0.31.0 that was TAKEN and never answered is settled dropped at the start too: the real envelope ba1272913fdc729f (Worker 3, the clear after B981, X141)', async () => {
+  const { CLEAR_ONLY_TAKEN_WHY, closeClearOnly } = await import('../../src/work/handoverBoard.mjs')
+  const fixture = JSON.parse(await readFile(new URL('../fixtures/lazy-clear-2026-11-04.json', import.meta.url), 'utf8'))
+  const outbox = memoryStore()
+  // The real records of the live outbox: written 12:24:36.877, taken 12:24:36.921, the net fired at 16:22:56 (`netAt`), never settled.
+  outbox.outbox().push(...foldOutbox(fixture.outbox.filter(line => line.id === 'ba1272913fdc729f').map(line => JSON.stringify(line)).join('\n')))
+  const real = outbox.outbox().find(message => message.id === 'ba1272913fdc729f')
+  assert.deepEqual([real.state, real.kind, real.step, real.line, real.outcome ?? null, Number.isFinite(real.netAt)], ['taken', 'clear', null, null, null, true])
+  assert.equal(CLEAR_ONLY_TAKEN_WHY, 'a lone clear from before 0.31.0, never answered')
+  // Beside it, what stays: a task's envelope taken, a restart taken, a lone clear the mod answered (delivered, failed), another chat's word.
+  const base = { to: 'Digger', command: HANDOVER_COMMAND, restart: false, set: null, back: null }
+  const later = NOW - 5 * MIN
+  await outbox.say({ ...base, id: 't1', at: later, kind: 'task', step: 'B13', clear: { step: 'B12', reportedAt: later }, line: 'work: B13 is yours; run work next', state: 'taken' })
+  await outbox.say({ ...base, id: 'r1', at: later, kind: 'restart', step: null, clear: null, restart: true, line: null, version: '0.31.0', state: 'taken' })
+  await outbox.say({ ...base, id: 'd1', at: later, kind: 'clear', step: null, clear: { step: 'B12', reportedAt: later }, line: null, state: 'delivered', outcome: { cleared: true } })
+  await outbox.say({ ...base, id: 'f1', at: later, kind: 'clear', step: null, clear: { step: 'B12', reportedAt: later }, line: null, state: 'failed', outcome: { cleared: false } })
+  await outbox.say({ ...base, id: 'x1', at: later, command: 'work', kind: 'clear', step: null, clear: { step: 'B12', reportedAt: later }, line: null, state: 'taken' })
+  assert.equal(await closeClearOnly(outbox, NOW), 1)
+  const of = id => outbox.outbox().find(message => message.id === id)
+  assert.deepEqual([of('ba1272913fdc729f').state, of('ba1272913fdc729f').why, of('ba1272913fdc729f').closedAt], ['dropped', CLEAR_ONLY_TAKEN_WHY, NOW])
+  assert.deepEqual(['t1', 'r1', 'd1', 'f1', 'x1'].map(id => of(id).state), ['taken', 'taken', 'delivered', 'failed', 'taken'])
+  // Again (every start): nothing more.
+  assert.equal(await closeClearOnly(outbox, NOW + MIN), 0)
+})
+
+test('mutant "taken left out": the start sweep counts a taken lone clear with no outcome, a waiting one with its own reason, and both in one number', async () => {
+  const { CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, closeClearOnly } = await import('../../src/work/handoverBoard.mjs')
+  const outbox = memoryStore()
+  const base = { to: 'Digger', command: HANDOVER_COMMAND, restart: false, set: null, back: null, kind: 'clear', step: null, line: null, clear: { step: 'B12', reportedAt: NOW - 6 * MIN } }
+  await outbox.say({ ...base, id: 'w', at: NOW - 5 * MIN, state: 'waiting' })
+  await outbox.say({ ...base, id: 'k', at: NOW - 5 * MIN, to: 'Mower', state: 'taken' })
+  assert.equal(await closeClearOnly(outbox, NOW), 2)
+  const of = id => outbox.outbox().find(message => message.id === id)
+  assert.deepEqual([of('w').why, of('k').why], [CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY])
+  assert.deepEqual([of('w').state, of('k').state], ['dropped', 'dropped'])
 })

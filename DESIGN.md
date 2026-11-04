@@ -4473,7 +4473,8 @@ a clear alone, a clear that holds the worker and "the line is never typed before
   while it owes a clear gets the clear with the next task's envelope like any other. At the board's start
   `closeClearOnly` (`handoverBoard.mjs`, D8) closes every clear-only envelope still waiting in the outbox, with its reason
   ("no clear goes alone since Workers mod 0.31.0: the clear it owes rides its next task"); one already taken settles as the
-  mod's outcome says.
+  mod's outcome says, and one taken with no outcome at all (before Fix 0.31.0, part 4) is settled `dropped` at the start too, with
+  "a lone clear from before 0.31.0, never answered" (`CLEAR_ONLY_TAKEN_WHY`; `store.mjs closeTaken`).
 - **A clear that does not run never holds** (D3, D4). The order stays restart, clear, set, line. When the clear does not
   run (refused by a guard of `clearAfter`/`clearEnvelope`: a question the board was not handed, a subagent, a message to another
   chat, background work, a prompt that came in, the log refused, a card that could not be read or written, a clear already
@@ -6756,3 +6757,9 @@ a clear. Tests: `test/lazyClearReplay.test.mjs` (the real records, `test/fixture
    a word taken over 24 h ago by a chat with no lane, no side chat and no report under its name is closed `expired` ("expired: its chat
    <name> is no longer on the board"). Never a hand's take, a hand-over envelope or a person's answer. Tests:
    `test/netEveryChat.test.mjs`.
+4. **The start sweep settles a lone clear that was taken and never answered** (`handoverBoard.mjs` `closeClearOnly`, `CLEAR_ONLY_TAKEN_WHY`).
+   0.31.0's Task 1 sweep closed clear-only envelopes still waiting; Worker 3's `ba1272913fdc729f` (the clear after B981, taken 12:24:36,
+   the net fired at 16:22) was already taken and never settled, so X141's rule handover-unanswered counted it 104 times. A clear-only
+   envelope (a hand-over with no step, no line, no restart) that is `waiting` is closed `dropped` with its old reason; one `taken` with
+   no outcome is settled `dropped` with "a lone clear from before 0.31.0, never answered". One the mod answered stays as it stands. No
+   such envelope is written any more. Tests: `test/work/handoverBoard.test.mjs` (the real record from the fixture; the mutant "taken left out").
