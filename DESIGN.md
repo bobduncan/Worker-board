@@ -6574,24 +6574,35 @@ seven decisions on it shaped what follows.
 
 Until now every landing of the worker board was done by hand or with a scratch script: merge, push, bring the trial copy
 up, restart both boards. `tools/land.ps1` is the one safe, logged command for it, for any chat that has the lead's or the
-person's go (the script grants no right and has no allow rule; a landing is never done by hand):
+person's go (the script grants no right; a landing is never done by hand). **Run it in the background** (the Bash or PowerShell
+tool's `run_in_background`) and wait for its notice: the gate takes about ten minutes and a chat's foreground call dies after two to
+ten, which cuts the landing in half (no `finally` runs). What a cut one leaves is swept by the next run, below.
 
     powershell -NoProfile -ExecutionPolicy Bypass -File "<the main checkout>/tools/land.ps1" <branch> [-Cold] [-By "<chat>"]
 
-- **What it checks, before anything changes** (each refusal is one line `refused: <why>`, exit 1, and a landings line): the
-  main checkout is on `main` and clean (an untracked `.claude/` does not count); the branch contains main ("merge main into
+- **What it checks, before anything changes** (each refusal is one line `refused: <why>`, exit 1, and a landings line; the boards
+  chosen are said on every run): a gate worktree a cut landing left is swept first (the junction with `cmd /c rmdir`, then
+  `git worktree remove` without force, then prune; one whose landing is still running, by the process id in the `.owner` file
+  beside it, is left); the main checkout is on `main` and clean (an untracked `.claude/` does not count); the branch contains main ("merge main into
   <branch> first"); the branch has something to land; the trial copy is on main, clean, has its `local` remote and can
-  fast-forward; no debugger is attached to a board (below); and the gate passes on the branch's exact head.
+  fast-forward; in warm mode every board that answers says `version.canRestart` (else "needs -Cold"); no debugger is attached
+  to a board (below); and the gate passes on the branch's exact head. Without `-Config` the boards come from git (the main
+  checkout is the repository's first working tree) and the PC's list of boards (`boards.json`: the ports; a trial copy is a board
+  of the list whose remote `local` is the main checkout); a list that cannot be read, or that names no trial copy, is a refusal
+  (`-NoTrial` lands the main board alone).
 - **The gate** runs BEFORE the lock (it takes about ten minutes): `git worktree add --detach` of the head in a temporary
   folder, a junction `node_modules` to the main checkout's, `npm test` there and, only when the branch touches `mods/workers/`,
-  `claude.exe plugin test .` in its `mods/workers`. It passes only on the run's own summary line (`src/landing.mjs`,
-  `gatePassed`): `ℹ fail 0` (the mod: ` 0 fail`) at the start of a line, every summary 0, the command's exit code 0; a missing
+  `claude.exe plugin test .` in its `mods/workers` (the app's own command-line program under its data folder, never the desktop
+  app: none found is a refusal), with `NO_COLOR=1` and no `FORCE_COLOR`. It passes only on the run's own summary line (`src/landing.mjs`,
+  `gatePassed`, colour codes stripped first): `ℹ fail 0` (the mod: ` 0 fail`) at the start of a line, every summary 0, the command's exit code 0; a missing
   summary is a failure, and "fail 0" inside a test's name is none (a grep under `set -e` once let a red merge through). The
-  run's output goes to `data/landings/<time>-<branch>.log`, which a refusal names. Cleaned up always: the junction first
+  run's output goes to `data/landings/<time>-<branch>.log`, which a refusal names, with the failing test files (a known flake is
+  rerun alone by the chat; the script never retries). Cleaned up always: the junction first
   with `cmd /c rmdir` (never a recursive delete through it), then `git worktree remove` without force, then prune.
 - **One landing at a time**: `data/landing.lock` (`by`, `branch`, `at`, `pid`), made by an exclusive create. Held by another
   and younger than 15 minutes: refused ("a landing by <by> of <branch> holds the lock since HH:MM"); older: broken with the
-  line "broke a stale landing lock of ...", one breaker at a time. Released in a `finally`, and only by the run that took it.
+  line "broke a stale landing lock of ...", one breaker at a time. Refreshed at every phase (a heartbeat, `lock-refresh`), so a live landing never looks stale; one taken over meanwhile is a refusal
+  before main moves. Released in a `finally`, and only by the run that took it.
   Under the lock the checks run once more, because main may have moved during the gate: the branch still contains main and
   is still at the gated head ("main moved during the gate: merge and land again"), the checkout is clean, no debugger.
 - **A debugger holds a board** (2026-11-04 17:11: a worker's `trace-b978.mjs` held the old child on 4310): for each board's
@@ -6602,20 +6613,31 @@ person's go (the script grants no right and has no allow rule; a landing is neve
   fast-forward: nothing changes while it refuses.
 - **Landing**: fast-forward of main to the gated head (the sha, not the branch's name), `git push <remote> main` (never a
   force: force-pushes are denied in the project's settings, README "The allow rules"), the trial copy fast-forwarded from its
-  `local` remote. A push that fails puts main back with `git reset --keep` (the checkout was clean; nothing else moved).
-- **Restart and verify**: warm (the default: `POST /api/restart` with the page's token and Origin, the keeper starts the new
+  `local` remote. A push that fails or times out is checked with `git ls-remote` first: when the remote has the head the landing
+  goes on; when it does not, main is put back with `git reset --keep` (the checkout was clean; nothing else moved); a timeout with
+  an unreadable remote is exit 3 with the state, nothing guessed.
+- **Restart and verify**, the trial board FIRST as a canary (one that does not come back rolls the landing back before the live board
+  is touched): warm (the default: `POST /api/restart` with the page's token and Origin, the keeper starts the new
   code with the same token) or `-Cold` (new keepers first, then each old keeper before its child; start-board.mjs would only
   say "runs already" while the old board answers, so the keeper is started as it does, `node server.mjs` with the keeper's own
   env words removed, appended to `data/board.log`). A board that does not answer is started with `node start-board.mjs`.
   A board counts as landed when it answers `/api/state` with `version.commit` equal to its folder's head (short or full, by
   prefix) within 90 s.
 - **Rollback**: a board that does not come back gets ONE revert commit on main whose tree is the old head's
-  (`git commit-tree <before>^{tree} -p <after>`), fast-forwarded, pushed (no force: the remote keeps the landing in its
-  history), the trial copy and both boards on it. Exit 2, "rolled back: <why>". When even that fails: exit 3 and one line each
-  for main, the remote, the trial copy and the boards, so nobody has to guess.
+  (`git commit-tree <before>^{tree} -p <after>`), fast-forwarded here, the trial copy and both boards restarted on the LOCAL revert
+  first, and the revert pushed LAST (no force: the remote keeps the landing in its history). A push that fails leaves the boards
+  up: exit 3 with a line that says so. Exit 2, "rolled back: <why>", when all of it worked. An unexpected error after main moved is
+  the same: before the push main is put back, after it the rollback runs, and a run that is cut or whose rollback stops too is
+  logged `rollback-failed` with the state (the net in the final block); it is never logged as a refusal. Exit 3 comes with one
+  line each for main, the remote, the trial copy and the boards, so nobody has to guess.
 - **The log**: one line per run in `data/landings.jsonl`: `at`, `by`, `branch`, `head`, `before`, `after` (null when refused),
   `trial`, `result` (`landed`, `refused`, `rolled-back`, `rollback-failed`), `why`, `boards` (`[{ port, commit, since }]` after
   the restart), `cold`, `gateLog`. Exit 0 only for `landed`.
+- **The landing rules in setup** (the person's yes, 2026-11-04): `npm run new` asks, once, whether the board's chats may land by
+  themselves; on y `src/landingSetup.mjs` adds the allow rule of `land.ps1` to the new project's settings and the `autoMode` lines to the
+  person's `~/.claude/settings.json` (`$defaults` first, a line only once, nothing of the person's changed, a backup
+  `settings.json.bak-<time>` first); `--check` says what it would add. The push deny rules (`FORCE_PUSH_DENY`) start from the person's
+  own list and add the mirror, `+` and `:` refspec forms. README "The allow rules".
 - **Built so**: the logic is in `src/landing.mjs` and is called through `node tools/landing.mjs <command>` (PowerShell is
   fragile with JSON, quoting and code pages); the script copies those two files to a temporary folder at its start because the
   landing moves the checkout they came from; the script is plain ASCII (Windows PowerShell 5.1). `-Config <json>` is for the
@@ -6624,7 +6646,9 @@ person's go (the script grants no right and has no allow rule; a landing is neve
 - **Tests**: `test/landing.test.mjs` (the gate summary, the lock, the debugger decision, the landings line),
   `test/landingCli.test.mjs` (the small program, six takers of the lock at once), `test/landScript.test.mjs` (the script run in
   Windows PowerShell against temporary repositories, a bare remote and made-up boards in `fixtures/land/`: a landing, the
-  refusals, the gates, the lock, the rollback, the debugger, a dead board, `-Cold`; and the script's text: no forced push).
+  refusals, the gates, the lock, the rollback and its push that fails, the canary, the sweep, the debugger, a dead board, `-Cold`,
+  a push that times out, faults on purpose; and the script's text: no forced push, the order of the checks, the heartbeat),
+  `test/landingSetup.test.mjs` (the landing rules of a new project, with a temporary home folder only).
 
 ## A worker's row from the board's records (signals change 7, 2026-11-02, B914)
 

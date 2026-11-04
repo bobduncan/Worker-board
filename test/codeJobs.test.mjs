@@ -313,12 +313,11 @@ test('the new project\'s settings.local.json gets the allow rules and then the f
   assert.equal(files.get(file), '{ broken')
 })
 
-test('npm run new adds the deny rules only in the flow that adds the allow rules, on the person\'s y, and writes no settings file of the person', async () => {
+test('npm run new adds the deny rules only in the flow that adds the allow rules, on the person\'s y, and itself writes no settings file of the person (the landing rules are in src/landingSetup.mjs, tested in test/landingSetup.test.mjs)', async () => {
   const flow = await readFile(new URL('../tools/new-project.mjs', import.meta.url), 'utf8')
   const block = flow.slice(flow.indexOf('if (allowCode) {'))
   assert.match(block, /allowCodeJobs\(\{ project: folder, tools: CODE_TOOLS \}\)[\s\S]*denyForcePushes\(\{ project: folder \}\)/)
   assert.equal((flow.match(/denyForcePushes\(/g) ?? []).length, 1, 'one call, inside that block')
   assert.ok(flow.indexOf('denyForcePushes(') > flow.indexOf('if (allowCode) {'))
-  assert.ok(!/land\.ps1/.test(flow), 'no allow rule for the script')
   assert.ok(!/settings\.json/.test(flow), 'nothing is written to ~/.claude/settings.json or any other settings.json')
 })

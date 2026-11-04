@@ -13,7 +13,8 @@ import { fileURLToPath } from 'node:url'
 
 import { CODE_JOBS, allowCodeJobs, denyForcePushes } from '../src/codeJobs.mjs'
 import { loadConfig } from '../src/config.mjs'
-import { checkNewProject, makeProject } from '../src/newProject.mjs'
+import { describeSetup, setupLanding } from '../src/landingSetup.mjs'
+import { BOARD_FOLDER, checkNewProject, makeProject } from '../src/newProject.mjs'
 
 const BOARD = join(dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -27,6 +28,15 @@ if (process.platform !== 'win32') {
 // A new project's folder is suggested beside this board's project, else in the person's Projects folder.
 const config = await loadConfig(join(BOARD, 'config.json')).catch(() => null)
 const parent = config?.project ? dirname(resolve(BOARD, config.project)) : join(homedir(), 'Projects')
+
+// 2026-11-04: `--check` says what each part of the setup would add to the settings (the project's and yours) and writes nothing.
+if (args.includes('--check')) {
+  const checked = given('folder') ?? join(parent, given('name') ?? '<name>')
+  const tools = CODE_JOBS.flatMap(job => job.tools)
+  for (const line of await describeSetup({ project: checked, board: join(checked, BOARD_FOLDER), home: homedir(), codeTools: tools })) console.log(line)
+  console.log('Nothing is written: this is what the questions below would add on your y.')
+  process.exit(0)
+}
 
 const asking = createInterface({ input: process.stdin, output: process.stdout })
 // An answer as typed; only an empty one takes the suggestion. A prefix keeps its last space ("Garden - ").
@@ -56,6 +66,9 @@ const prefix = given('prefix') ?? await ask('The chats\' titles start with', `${
 const CODE_TOOLS = CODE_JOBS.flatMap(job => job.tools)
 const allowCode = /^y/i.test((given('allow-code') ?? await ask(`May the board start, wake and restart its chats and set their model by itself, and its workers start the game preview with no popup? It adds ${CODE_TOOLS.length} tool permissions to the new project's own settings, and denies force-pushes there. y/n`, 'y')).trim())
   && (process.stdin.isTTY || given('allow-code') !== undefined)
+// 2026-11-04 (the person's yes): the landing rules, a question of its own; asked once, and nothing is written without a keyboard unless
+// --allow-landing yes. Claude Code's auto mode refuses a landing as a "production deploy" otherwise, and reads autoMode from your own settings only.
+const landingAnswer = given('allow-landing') ?? await ask('May the board\'s chats put board changes live with tools/land.ps1 by themselves? It adds an allow rule for land.ps1 to the new project\'s settings and two lines to your Claude settings (autoMode) saying the board is a local development tool. y/n', 'y')
 asking.close()
 
 console.log('Making the project: its folder, its copy of the board, its icon (this takes a few seconds)…')
@@ -70,4 +83,11 @@ if (allowCode) {
   console.log(allowed.ok ? `The board's code may do the main chat's routine jobs: ${allowed.added.length} tools allowed in the project's .claude\\settings.local.json.` : `The routine jobs stay the main chat's: ${allowed.why}`)
   const denied = await denyForcePushes({ project: folder })
   console.log(denied.ok ? `Force-pushes are denied in the project's .claude\\settings.local.json (${denied.added.length} rules added).` : `Force-pushes are not denied there yet: ${denied.why}`)
+}
+const landing = await setupLanding({ answer: landingAnswer, flag: given('allow-landing'), isTty: Boolean(process.stdin.isTTY), project: folder, board: made.board, port: made.port, home: homedir() })
+if (landing.wrote) {
+  console.log(landing.allowed.ok ? `The board's chats may put board changes live with its landing script: ${landing.allowed.added.length} rules allowed in the project's .claude\settings.local.json.` : `The landing script stays asked each time: ${landing.allowed.why}`)
+  if (!landing.auto.ok) console.log(`Your Claude settings were left as they are: ${landing.auto.why}`)
+  else if (landing.auto.backup === null) console.log(landing.auto.added.environment.length + landing.auto.added.allow.length === 0 ? 'Your Claude settings already say the board is a local development tool: nothing changed.' : 'Your Claude settings now say the board is a local development tool (autoMode; there was no file before).')
+  else console.log(`Your Claude settings now say the board is a local development tool (autoMode); the old file is kept as ${landing.auto.backup}`)
 }

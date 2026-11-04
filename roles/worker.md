@@ -153,7 +153,8 @@ step therefore says what it touches ("Touches: ...").
   delete the branch here and on its remote, and prune. Never force-push main (the project's settings deny it).
   A change to the worker board itself is the exception to "merge and push main yourself": it goes live only with
   `tools/land.ps1 <branch> -By "<your chat>"` (DESIGN.md, "Going live: tools/land.ps1"), on the lead's or the person's go,
-  and never by hand: it gates the exact head, takes the one landing lock, fast-forwards main, pushes, brings the trial copy
+  and never by hand. Run it in the BACKGROUND (the Bash or PowerShell tool's run_in_background) and wait for its notice: the gate takes about ten
+  minutes and a foreground call dies after two to ten, which cuts the landing in half (the next run sweeps what it left). It gates the exact head, takes the one landing lock, fast-forwards main, pushes, brings the trial copy
   up, restarts both boards and rolls back with a revert commit when one does not come back. Merge main into your branch
   first; its answer is one line (`landed`, `refused: <why>` or `rolled back: <why>`) and a line in `data/landings.jsonl`.
 - Lessons of a task go into the repository's documents, not into a chat.

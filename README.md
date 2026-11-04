@@ -128,12 +128,22 @@ and the briefings for the main chat and the workers.
    from the project's own `.claude\launch.json`) with no popup; without them every worker asks you each time it starts
    the game. Other browser actions (opening outside sites) keep asking.
    **Force-pushes are denied.** On the same y the new-project flow also writes deny rules into the project's
-   `.claude\settings.local.json` (`permissions.deny`): `Bash(git push --force*)`, `Bash(git push -f*)`,
-   `Bash(git push --force-with-lease*)`, `Bash(git push * --force*)`, `Bash(git push * -f*)` and the same five as
-   `PowerShell(...)`. A deny rule only takes rights away; nothing is allowed by it. A change of the worker board itself goes
-   live through `tools\land.ps1 <branch> -By "<chat>"` (DESIGN.md, "Going live: tools/land.ps1"): it gates the exact head,
-   fast-forwards main, pushes without force, restarts both boards and rolls back with a revert commit. It has no allow rule
-   and nothing is written to your `~\.claude\settings.json`; whether a chat may land is your word or the lead's.
+   `.claude\settings.local.json` (`permissions.deny`), each for `Bash(...)` and for `PowerShell(...)`: a force flag
+   (`git push --force*`, `git push -f*`, `git push * --force*`, `git push * -f`, `git push * -f *`, and the same behind
+   `git -C * push ...`), a mirror push (`git push --mirror*`, `git push * --mirror*`), a `+` refspec, which forces
+   (`git push * +*`), and a `:` refspec, which deletes a remote branch (`git push * :*`). A deny rule only takes rights
+   away; nothing is allowed by it.
+   **The landing rules (2026-11-04).** A change of the worker board itself goes live through `tools\land.ps1 <branch> -By "<chat>"`
+   (DESIGN.md, "Going live: tools/land.ps1"): it gates the exact head, fast-forwards main, pushes without force, restarts both
+   boards and rolls back with a revert commit. Claude Code's auto mode refuses such a landing as a "production deploy" unless it
+   is told the board is a local development tool, and it reads that only from your own settings. So setup asks one question of
+   its own, once (default y; without a keyboard only `--allow-landing yes` says it): on y it adds to the new project's
+   `.claude\settings.local.json` an allow rule for that one command (`Bash(powershell -NoProfile -ExecutionPolicy Bypass -File
+   "<board folder>/tools/land.ps1" *)` and the same as `PowerShell(...)`), and to your `~\.claude\settings.json` three
+   `autoMode` lines (one in `environment`, two in `allow`) with the project's folder, board folder and ports in them, each list
+   starting with `"$defaults"`. It never changes or removes a line of yours, adds a line only once, keeps every other key, and
+   copies the old file to `settings.json.bak-<time>` first (it says where). `npm run new -- --check` says what each part would
+   add and writes nothing. Without the y a chat that lands is asked each time.
    **Leftovers (B847).** A worker's routine opens a new chat with the worker's title on each run; it does not reopen the
    chat of the run before. The older chat stays in the app's list and the board shows it greyed, as a leftover. Once the
    newer chat has checked in, the board archives the older chats of that worker by itself (a chat's mod, with the three
