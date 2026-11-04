@@ -92,7 +92,8 @@ export async function readGoalRecap(config, goalsText) {
     goal: goals.focus, path, pictures: Object.fromEntries(rows.map(row => [row.key, tilePictureOf(row.pictures)]).filter(([, picture]) => picture !== null)),
     // T20.1: every row of the recap, with the steps it names and whether it says what changed or that its new try is not in: what the
     // popup's round is made of (src/recapRound.mjs), so the card counts the rows the popup shows, the rows that name no step too.
-    rows: rows.map(row => ({ key: row.key, title: row.title, steps: row.steps ?? [], changed: hasChanged(row), pending: isPending(row) })),
+    // T17.2: and the checker's word on its close-up (`shows`), the other thing that makes a row sent back the new try.
+    rows: rows.map(row => ({ key: row.key, title: row.title, steps: row.steps ?? [], changed: hasChanged(row), pending: isPending(row), shows: row.shows ?? null })),
     rounds: read === null || read.why !== undefined ? [] : roundsOf(read.feedback), changedAt: read?.changedAt ?? null,
   }
 }

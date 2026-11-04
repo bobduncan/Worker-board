@@ -173,10 +173,12 @@ test('the Send on a goal demo: feedback.json, the words on the step once, one wo
   // The partner writes the demo again (a later minute than the Send), the part sent back with what changed: round 2 is ready.
   const file = join(project, 'pictures', 'g6', 'demo.json')
   const written = JSON.parse(await readFile(file, 'utf8'))
+  const later = new Date(Date.now() + 5 * MIN)
   written.sections[1].rows[0].changed = 'still stepped -> rounded off'
   written.sections[1].rows[0].play = 'ring'
+  // T17.2: and a checker who did not make its close-up says, after the Send, that it shows their words.
+  written.sections[1].rows[0].shows = { verdict: 'yes', by: 'Checker', at: stamp(later.getTime()), why: 'the ring reads round' }
   await writeFile(file, JSON.stringify(written))
-  const later = new Date(Date.now() + 5 * MIN)
   await utimes(file, later, later)
 
   // Round 2 shows only the part sent back, with the person's comment and what changed; the approved ones are folded.
