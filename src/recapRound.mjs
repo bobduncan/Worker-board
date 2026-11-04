@@ -36,9 +36,22 @@ export function isUnderWay(item, items, { openChecks = new Set(), now = null } =
 }
 
 /**
- * The newest step under way among `stepIds` and every fix in their chains (all links, a fix of a fix too), `{ step, worker, words }`, or null
- * when none is: the steps are built and checked, or only waiting for the person. `worker` is `workerOf(step)` (the worker whose card shows
- * it), null for none; the page words that "waiting for a worker".
+ * What a step under way is doing, in the words after its id on "Being reworked: B981 · <this>" (the review of 2026-11-04): a step in review
+ * with its check still to run is "being checked", one new, refined or queued is "waiting for a worker", one taken or in progress is
+ * "<worker> is on it" (a worker the board does not know: "a worker is on it"), one waiting on the person "waits on you".
+ */
+export function reworkPhraseOf(state, worker = null) {
+  if (state === 'review') return 'being checked'
+  if (state === 'taken' || state === 'in progress') return `${worker ?? 'a worker'} is on it`
+  if (state === 'waiting on you') return 'waits on you'
+  return WAITING_FOR_A_WORKER
+}
+
+/**
+ * The step under way among `stepIds` and every fix in their chains (all links, a fix of a fix too) that a row or block is being reworked on,
+ * `{ step, state, worker, words }`, or null when none is: the steps are built and checked, or only waiting for the person. The review of
+ * 2026-11-04: the step a worker holds first (its card shows it, or it is taken or in progress: `worker` is `workerOf(step)`, else its owner),
+ * the newest of them; else the newest step under way. `words` is `reworkPhraseOf` after the id ("B981 · waiting for a worker").
  */
 export function reworkOf(stepIds, items, { openChecks = new Set(), workerOf = () => null, now = null } = {}) {
   const seen = new Set()
@@ -50,15 +63,23 @@ export function reworkOf(stepIds, items, { openChecks = new Set(), workerOf = ()
     seen.add(id)
     const item = items?.get(id)
     if (item === undefined || valueOf(item, 'Kind') !== 'step') continue
-    if (isUnderWay(item, items, { openChecks, now })) under.push(id)
+    if (isUnderWay(item, items, { openChecks, now })) under.push(item)
     for (const fix of fixesOf(id, items)) queue.push(valueOf(fix, 'Id'))
   }
   if (under.length === 0) return null
-  const step = under.sort((a, b) => numberOf(a) - numberOf(b)).at(-1)
-  const worker = workerOf(step)
-  const who = typeof worker === 'string' && worker !== '' ? worker : null
-  // `words`: what follows "Being reworked:" in the popup and on the chips, "B981 · waiting for a worker" or "B981 · Worker 4".
-  return { step, worker: who, words: `${step} · ${who ?? WAITING_FOR_A_WORKER}` }
+  const whoOf = item => {
+    const named = workerOf(valueOf(item, 'Id'))
+    if (typeof named === 'string' && named !== '') return named
+    return ['taken', 'in progress'].includes(valueOf(item, 'State')) && typeof valueOf(item, 'Owner') === 'string' ? valueOf(item, 'Owner') : null
+  }
+  const newest = list => list.sort((a, b) => numberOf(valueOf(a, 'Id')) - numberOf(valueOf(b, 'Id'))).at(-1)
+  const held = under.filter(item => whoOf(item) !== null)
+  const item = newest(held.length > 0 ? held : under)
+  const step = valueOf(item, 'Id')
+  const state = valueOf(item, 'State')
+  const worker = whoOf(item)
+  // `words`: what follows "Being reworked:" in the popup and on the chips.
+  return { step, state, worker, words: `${step} · ${reworkPhraseOf(state, worker)}` }
 }
 
 /**
@@ -99,7 +120,9 @@ export function keptLooksOf(routed, goal) {
     .filter(one => one.route === 'recap' && one.isKept === true && KEPT_ASKS.includes(one.asks) && /^B\d+$/.test(one.of ?? '') && one.goal === goal)
     .map(one => ({
       ask: one.id, asks: one.asks, key: lookKey(one.id), title: String(one.title ?? ''), text: String(one.text ?? ''), advice: one.advice ?? null, step: one.of,
-      pictures: Array.isArray(one.pictures) ? one.pictures : [], play: playOf(`${one.title ?? ''} ${one.text ?? ''}`),
+      pictures: Array.isArray(one.pictures) ? one.pictures : [],
+      // The look's own `## Play` (the work tool's `play`), else, for a do that links another ask, that ask's (`routedAwayOf`), else a #play= in its words.
+      play: typeof one.play === 'string' && one.play.trim() !== '' ? one.play.trim() : playOf(`${one.title ?? ''} ${one.text ?? ''}`),
     }))
 }
 

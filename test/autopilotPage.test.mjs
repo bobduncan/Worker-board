@@ -23,17 +23,20 @@ const ON = { approveRebuilds: false, maxWorkers: 5, autopilot: true, canSet: tru
 const OFF = { ...ON, autopilot: false }
 
 /** The garden's state as the board builds it, with the settings `settings` (config.json) and the store's `items`. */
-function garden(items = [], settings = {}, goalsText = RUN_GOALS) {
+function garden(items = [], settings = {}, goalsText = RUN_GOALS, more = {}) {
   const config = { ...parseConfig(JSON.stringify(settings), {}), project: 'D:\\garden' }
   const work = storeFromText('## Garden\n- [ ] B12 Plant the hedge\n', { now: NOW - 60 * MIN })
   for (const one of items) work.items.set(one.head.get('Id'), one)
   const raw = {
     listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [app('Lead'), app('Digger'), app('Advisor')],
     tails: { 'cli-Lead': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Digger': tail([answer(NOW - 30 * MIN, 'ok')]), 'cli-Advisor': tail([typed(NOW - 20 * MIN, 'hi'), answer(NOW - 12 * MIN, 'ok')]) },
-    planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work, goalsText,
+    planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work, goalsText, ...more,
   }
   return buildState(raw, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config })
 }
+/** The garden's recap (T20.1: the card counts the recap's rows): one row, `Show damage`, which shows B1. */
+const RECAP_PATH = 'pictures/g6/recap/demo.json'
+const withRecap = { recaps: [{ path: RECAP_PATH, goal: 'G6', parts: [{ key: 'Show damage', title: 'Show damage', steps: ['B1'] }], rounds: [], changedAt: null }], goalRecap: { goal: 'G6', path: RECAP_PATH, pictures: {} } }
 const askOf = (id, fields) => parseItem(`${Object.entries({ Id: id, Kind: 'ask', State: 'open', Owner: 'Digger', Since: sinceOf(NOW - 40 * MIN), Filed: String(NOW - 40 * MIN), Asks: 'decide', Blocking: 'no', ...fields }).map(([key, value]) => `${key}: ${value}`).join('\n')}\n`)
 const words = node => node.textContent.replace(/\s+/g, ' ').trim()
 
@@ -217,18 +220,18 @@ test('the Focus page: the switch reads "covered by Autopilot"; the asks that wai
     parseItem(`Id: B1\nKind: step\nTitle: Show damage\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`),
     askOf('Q3', { Title: 'Approve the damage numbers at 64 of 75?', Asks: 'look', Of: 'B1', Route: 'recap', Pictures: 'pictures/B1/check.png' }),
   ]
-  const page = await openPage({ state: { ...asSent(garden(items, { autopilot: true })), goalsEdit: { canWrite: true } } })
+  const page = await openPage({ state: { ...asSent(garden(items, { autopilot: true }, RUN_GOALS, withRecap)), goalsEdit: { canWrite: true } } })
   try {
     await page.click('[data-tab="advice"]')
     assert.equal(page.find('[data-partner-answers="switch"]').disabled, true)
     assert.equal(page.find('[data-partner-answers="switch"]').checked, true)
     assert.equal(page.text('.focus-partner-switch small'), 'covered by Autopilot')
-    // 2026-11-01: the list "For your recap (n)" is folded into the recap card: the block whose step waits for the person is one
-    // verdict there (its tile opens the step), and no second list stands on the page.
+    // 2026-11-01: the list "For your recap (n)" is folded into the recap card: the row whose step waits for the person is one
+    // verdict there (its tile opens the recap at its row; T20.1: the card counts the recap's rows), and no second list stands on the page.
     assert.equal(page.all('.focus-recap-wait').length, 0)
     assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 to judge')
     const tile = page.find('.focus-recap-tile')
-    assert.deepEqual([tile.querySelector('b').textContent, tile.dataset.askLink], ['Show damage', 'B1'])
+    assert.deepEqual([tile.querySelector('b').textContent, tile.dataset.demo, tile.dataset.demoPart], ['Show damage', RECAP_PATH, 'Show damage'])
   } finally { await page.close() }
   const off = await openPage({ state: { ...asSent(garden(items)), goalsEdit: { canWrite: true } } })
   try {
@@ -243,7 +246,7 @@ test('the recap moment (the coordinator\'s ruling, 2026-10-31): a step that wait
     parseItem(`Id: B1\nKind: step\nTitle: Show damage\nState: review\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n\n## Context\n  Recap verdict: waits (Q3)\n`),
     askOf('Q3', { Title: 'Approve the damage numbers at 64 of 75?', Asks: 'look', Of: 'B1', Route: 'recap', Pictures: 'pictures/B1/check.png' }),
   ]
-  const state = { ...asSent(garden(items, { autopilot: true })), goalsEdit: { canWrite: true } }
+  const state = { ...asSent(garden(items, { autopilot: true }, RUN_GOALS, withRecap)), goalsEdit: { canWrite: true } }
   assert.deepEqual([state.focus.progress.done, state.focus.progress.forDemo, state.focus.progress.total], [0, 1, 1])
   assert.deepEqual(state.focus.recapRows, [{ step: 'B1', asks: ['Q3'] }])
   const page = await openPage({ state })

@@ -59,17 +59,18 @@ test('rework: the newest step under way among a row\'s steps and every fix in th
     built('B3', { result: 'failed', fix: 'B33' }), built('B33', { result: 'failed', fix: 'B34', fixOf: 'B3' }), step('B34', 'new', 'B33'),
     built('B1', { result: 'passed' }),
   ])
-  assert.deepEqual(reworkOf(['B2'], items), { step: 'B22', worker: null, words: 'B22 · waiting for a worker' })
-  assert.deepEqual(reworkOf(['B3', 'B1'], items), { step: 'B34', worker: null, words: 'B34 · waiting for a worker' }, 'a row of two steps: the one under way decides')
-  assert.deepEqual(reworkOf(['B2'], items, { workerOf: id => (id === 'B22' ? 'Worker 4' : null) }), { step: 'B22', worker: 'Worker 4', words: 'B22 · Worker 4' })
+  assert.deepEqual(reworkOf(['B2'], items), { step: 'B22', state: 'new', worker: null, words: 'B22 · waiting for a worker' })
+  assert.deepEqual(reworkOf(['B3', 'B1'], items), { step: 'B34', state: 'new', worker: null, words: 'B34 · waiting for a worker' }, 'a row of two steps: the one under way decides')
+  assert.deepEqual(reworkOf(['B2'], items, { workerOf: id => (id === 'B22' ? 'Worker 4' : null) }), { step: 'B22', state: 'new', worker: 'Worker 4', words: 'B22 · waiting for a worker' }, 'a card that shows a step under a state that is not taken is still "waiting for a worker"')
   assert.equal(reworkOf(['B1'], items), null, 'every link built and checked: ready')
   assert.equal(reworkOf([], items), null)
   // Every link done or in review with its check done is ready, however long the chain.
   const done = itemsOf([built('B2', { result: 'failed', fix: 'B21' }), built('B21', { result: 'passed', fixOf: 'B2' })])
   assert.equal(reworkOf(['B2'], done), null)
-  // The newest under way wins; a loop in the chain ends it; an id the store does not hold is none.
+  // The step a worker holds comes first (B5 is in progress with its owner), else the newest under way; a loop in the chain ends it; an id the store does not hold is none.
   const two = itemsOf([step('B5', 'in progress'), step('B25', 'queued', 'B5'), step('B30', 'done', 'B25')])
-  assert.equal(reworkOf(['B5'], two).step, 'B25')
+  assert.equal(reworkOf(['B5'], two).step, 'B5')
+  assert.equal(reworkOf(['B5'], itemsOf([step('B5', 'new'), step('B25', 'queued', 'B5'), step('B30', 'done', 'B25')])).step, 'B25')
   const loop = itemsOf([step('B5', 'new', 'B6'), step('B6', 'new', 'B5')])
   assert.equal(reworkOf(['B5'], loop).step, 'B6')
   assert.equal(reworkOf(['B99'], two), null)
@@ -99,7 +100,7 @@ test('the live shape: the Ring is ready; the Ground and the Cliffs, with a fix n
   const state = live()
   assert.deepEqual(state.recapRound.ready, 1)
   assert.deepEqual(state.recapRound.reworking.map(one => [one.key, one.rework.step, one.rework.words]), [['Ground', 'B22', 'B22 · waiting for a worker'], ['Cliffs', 'B34', 'B34 · waiting for a worker']])
-  assert.deepEqual(state.recapRound.rework, { Ground: { step: 'B22', worker: null, words: 'B22 · waiting for a worker' }, Cliffs: { step: 'B34', worker: null, words: 'B34 · waiting for a worker' } })
+  assert.deepEqual(state.recapRound.rework, { Ground: { step: 'B22', state: 'new', worker: null, words: 'B22 · waiting for a worker' }, Cliffs: { step: 'B34', state: 'new', worker: null, words: 'B34 · waiting for a worker' } })
   assert.equal(state.recapRound.toJudge, 1)
   // The card counts the one ready row, and says nothing of the other two.
   assert.deepEqual([state.recapCard.count, state.recapCard.tiles.map(one => one.title), state.recapCard.isBuilt], [1, ['Ring'], false])

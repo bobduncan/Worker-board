@@ -15,7 +15,7 @@ import test from 'node:test'
 import { answer, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { recapVerdictsOf } from '../src/recaps.mjs'
-import { HANDED_KEPT_WORDS, HANDED_ON_WHY, autopilotRoute, handOverOf, handedOnKeptWords, handedOnOf, isKeptLook, isOwnSenses, recapClosesAsk, recapRowNumberOf, rowNumberOfTitle } from '../src/work/autopilot.mjs'
+import { HANDED_KEPT_WORDS, HANDED_ON_WHY, autopilotRoute, handOverOf, handedOnKeptWords, handedOnOf, isKeptLook, isOfRecapGoal, isOwnSenses, recapClosesAsk, recapRowNumberOf, rowNumberOfTitle } from '../src/work/autopilot.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { routedAwayOf, storeNeeds } from '../src/work/lists.mjs'
@@ -105,7 +105,8 @@ async function twoAnswers(config, by) {
 }
 
 test('an answer the partner, Autopilot or the main chat gave carries its word\'s id (its line stays reachable from the ask\'s window) but is never a slim "Answered" card; the person\'s own answer is one', async () => {
-  for (const by of ['partner', 'autopilot', 'main']) {
+  // The review of 2026-11-04: an ask the goal's recap closed (`Answered by: recap`) is the person's verdict in the recap, no answer they typed to it: never a slim card either.
+  for (const by of ['partner', 'autopilot', 'main', 'recap']) {
     const state = await twoAnswers(GARDEN, by)
     const needs = Object.fromEntries(state.forYou.filter(one => one.workId !== undefined).map(one => [one.workId, one]))
     assert.deepEqual([needs.Q5.answer.by, needs.Q5.answer.id], [by, 'w-Q5'], `${by}: decided, with its word`)
@@ -324,7 +325,7 @@ test('the recap card lists the kept do as a tile ("Also a look: <its title> →"
   } finally { await page.close() }
   // Mid-goal (nothing else waits): the kept do waits quietly, its window still answers it.
   const quiet = asSent(build([gardenDone, keptDo], undefined, GOALS, { recaps: [], goalRecap: { goal: 'G6', path: GARDEN_PATH, pictures: {} }, config: ON }))
-  assert.equal(quiet.recapCard, null)
+  assert.equal(quiet.recapCard.count, 1, 'the kept do alone is 1 to judge, also mid-goal (one count: whenever N > 0 the card shows)')
   const window = await openPage({ state: quiet, hash: 'details=Q616' })
   try {
     await settle(10)
@@ -409,11 +410,47 @@ test('Q595\'s shape (a do under B921 naming "row 9 in G29\'s recap", row 9 appro
   const items = await read(dir)
   assert.equal(field(items, 'Q1', 'State'), 'answered')
   assert.deepEqual(items.get('Q1').sections.get('Answer'), [APPROVED_WORDS])
+  assert.equal(field(items, 'Q1', 'Answered by'), 'recap', 'the review of 2026-11-04: closed by the recap, so never a slim Answered card of the person')
   assert.ok(history(items, 'Q1').includes(`server: closed by the goal's recap: ${APPROVED_WORDS}`))
   assert.ok(items.get('B921').sections.get('Context').some(line => line.includes('Q1 closed by the recap of G29')), 'its step is told in one line')
   assert.ok(!items.get('B921').sections.get('Context').some(line => line.includes('Recap verdict')), 'no verdict line for an ask that was not routed to the recap')
   for (const [id, body] of Object.entries(before)) assert.equal(await readFile(join(dir, `${id}.md`), 'utf8'), body, `${id} stays as it was`)
   assert.deepEqual((await pass(dir, {}, NOW + 5 * MIN, { recapRows: ROWS })).result.recapClosed, [], 'once')
+})
+
+test('the review of 2026-11-04: a row number in an ask\'s words is this recap\'s row only for an ask of the recap\'s goal: its own step is a step of the goal, or, with no step, its words name the goal; never an ask of another goal (the pass and the Send)', async t => {
+  const q = (id, fields, title = 'Give your verdict on row 9 in the recap.') => Q595(id, { Title: title, ...fields })
+  const dir = await storeWith({
+    ...world3(),
+    // B70 is a step of G30 (the other goal's), B921 of G29 (the focus goal).
+    Q1: q('Q1', { Of: 'B70' }),
+    Q2: q('Q2', { Of: 'B921' }),
+    Q3: q('Q3', { Of: null }),
+    Q4: q('Q4', { Of: null }, 'Give your verdict on row 9 in G29\'s recap.'),
+    Q5: q('Q5', { Of: 'B999' }),
+    Q6: q('Q6', { Of: 'G30' }),
+  })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const done = await pass(dir, {}, NOW, { recapRows: ROWS })
+  assert.deepEqual(done.result.recapClosed.sort(), ['Q2', 'Q4'], 'a step of the focus goal; no step but the goal named')
+  const items = await read(dir)
+  assert.deepEqual(['Q1', 'Q3', 'Q5', 'Q6'].map(id => field(items, id, 'State')), ['open', 'open', 'open', 'open'], 'another goal\'s step, no step and no goal named, a step the store lacks, another goal itself: stay')
+  // The Send closes by the same rule.
+  const dir2 = await storeWith({ ...world3(), Q1: q('Q1', { Of: 'B70' }), Q2: q('Q2', { Of: 'B921' }), Q3: q('Q3', { Of: null }), Q4: q('Q4', { Of: null }, 'Give your verdict on row 9 in G29\'s recap.') })
+  t.after(() => rm(dir2, { recursive: true, force: true }))
+  const sent = await workApi({ action: 'recap-answered', goal: 'G29', round: 3, path: PATH, parts: [{ key: ROW9, title: ROW9, verdict: 'approved', steps: [] }] }, ctx(dir2, NOW + MIN, 'server', { autopilot: true }))
+  assert.deepEqual(sent.result.closed.sort(), ['Q2', 'Q4'])
+  const after = await read(dir2)
+  assert.deepEqual(['Q1', 'Q3'].map(id => field(after, id, 'State')), ['open', 'open'])
+  // Pure: the helper.
+  const world = new Map(Object.entries(world3()).map(([id, body]) => [id, parseItem(body)]))
+  const ask = fields => parseItem(Q595('Q9', fields))
+  assert.equal(isOfRecapGoal(ask({ Of: 'B921' }), 'G29', world), true)
+  assert.equal(isOfRecapGoal(ask({ Of: 'B921' }), 'G29', null), false, 'no store to look the step up in')
+  assert.equal(isOfRecapGoal(ask({ Of: 'B70' }), 'G29', world), false)
+  assert.equal(isOfRecapGoal(ask({ Of: null, Title: 'Row 9 of the recap?' }), 'G29', world), false)
+  assert.equal(isOfRecapGoal(ask({ Of: null, Title: 'Row 9 of the recap of G29?' }), 'G29', world), true)
+  assert.equal(isOfRecapGoal(ask({ Of: null, Title: 'Row 9 of the recap of G290?' }), 'G29', world), false, 'a whole word')
 })
 
 test('the pass closes only for the focus goal\'s recap, while Autopilot is on; without rows nothing closes', async t => {
@@ -467,6 +504,7 @@ test('the recap\'s Send closes the question that names a judged row, approved or
   ])
   const items = await read(dir)
   assert.deepEqual(items.get('Q1').sections.get('Answer'), [`Approved in the recap of G29, round 3: ${ROW9}.`])
+  assert.deepEqual(['Q1', 'Q2'].map(id => field(items, id, 'Answered by')), ['recap', 'recap'])
   assert.deepEqual(items.get('Q2').sections.get('Answer'), [`Sent back in the recap of G29, round 3: ${ROW10}: "not a square map"`])
   assert.equal(field(items, 'Q3', 'State'), 'open', 'row 11 was not judged')
   // Autopilot off, or the recap of another goal: nothing closes.
@@ -477,15 +515,18 @@ test('the recap\'s Send closes the question that names a judged row, approved or
 
 test('recapClosesAsk: pure rules; an ask the person took back, a form, a refine question and a goal that is no focus close nothing', () => {
   const rows = ROWS
+  // The review of 2026-11-04: the ask's own step says which goal's recap "row 9" means (`items`: the store's by id).
+  const items = new Map(Object.entries(world3()).map(([id, body]) => [id, parseItem(body)]))
   const ask = (fields = {}, route = []) => parseItem(Q595('Q1', fields, null).replace('## History', route.length === 0 ? '## History' : `## Route\n${route.join('\n')}\n\n## History`))
-  assert.equal(recapClosesAsk(ask(), { focusGoal: 'G29', rows })?.key, ROW9)
-  assert.equal(recapClosesAsk(ask(), { focusGoal: 'G30', rows }), null)
-  assert.equal(recapClosesAsk(ask(), { focusGoal: null, rows }), null)
-  assert.equal(recapClosesAsk(ask({ State: 'answered' }), { focusGoal: 'G29', rows }), null)
-  assert.equal(recapClosesAsk(ask({ Via: 'refine' }), { focusGoal: 'G29', rows }), null)
-  assert.equal(recapClosesAsk(ask({}, ['Your partner had answered: x; you took it back']), { focusGoal: 'G29', rows }), null)
-  assert.equal(recapClosesAsk(ask({ Asks: 'look' }), { focusGoal: 'G29', rows })?.key, ROW9)
-  assert.equal(recapClosesAsk(ask({ Via: 'accept', Asks: 'decide' }), { focusGoal: 'G29', rows })?.key, ROW9, 'the board\'s Accept card names the row too')
-  assert.equal(recapClosesAsk(ask({ Title: 'Give your verdict on row 10 in G29\'s recap.' }), { focusGoal: 'G29', rows }), null, 'sent back: judged anew')
-  assert.equal(recapClosesAsk(ask(), { focusGoal: 'G29', rows: [...rows, { ...rows[0], key: 'x', path: 'p2' }] }), null, 'two recaps with a row 9: not sure which')
+  const closes = (one, more = {}) => recapClosesAsk(one, { focusGoal: 'G29', rows, items, ...more })
+  assert.equal(closes(ask())?.key, ROW9)
+  assert.equal(closes(ask(), { focusGoal: 'G30' }), null)
+  assert.equal(closes(ask(), { focusGoal: null }), null)
+  assert.equal(closes(ask({ State: 'answered' })), null)
+  assert.equal(closes(ask({ Via: 'refine' })), null)
+  assert.equal(closes(ask({}, ['Your partner had answered: x; you took it back'])), null)
+  assert.equal(closes(ask({ Asks: 'look' }))?.key, ROW9)
+  assert.equal(closes(ask({ Via: 'accept', Asks: 'decide' }))?.key, ROW9, 'the board\'s Accept card names the row too')
+  assert.equal(closes(ask({ Title: 'Give your verdict on row 10 in G29\'s recap.' })), null, 'sent back: judged anew')
+  assert.equal(closes(ask(), { rows: [...rows, { ...rows[0], key: 'x', path: 'p2' }] }), null, 'two recaps with a row 9: not sure which')
 })

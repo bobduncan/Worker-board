@@ -141,7 +141,7 @@ test('Open now, the person\'s example: 10 blocks, 3 reworked after an evaluation
   const focus = focusState(parseGoals(garden()), gardenTasks, [], '')
   assert.deepEqual(focus.round, { n: 2, since: '2026-10-17 10:00', why: 'the evaluation of 2026-10-17' })
   // T20.1: Block 8 had work before the round and its task B28 is under way: it is being reworked (nobody's card shows B28).
-  assert.deepEqual(focus.openNow, [{ index: 2, title: 'Block 3', kind: 'rework' }, { index: 4, title: 'Block 5', kind: 'rework' }, { index: 7, title: 'Block 8', kind: 'rework', rework: { step: 'B28', worker: null, words: 'B28 · waiting for a worker' } }])
+  assert.deepEqual(focus.openNow, [{ index: 2, title: 'Block 3', kind: 'rework' }, { index: 4, title: 'Block 5', kind: 'rework' }, { index: 7, title: 'Block 8', kind: 'rework', rework: { step: 'B28', state: 'in progress', worker: null, words: 'B28 · a worker is on it' } }])
   assert.deepEqual(focus.openNow.map(one => focus.parts[one.index].state), ['done', 'done', 'now'])
   assert.deepEqual(focus.progress, { done: 9, total: 10, minutesLeft: 60 })
   // Each block has its done-when line in the state.
@@ -373,7 +373,7 @@ test('the Focus page: the switch with its counts; All work blocks with each bloc
     assert.deepEqual(rows, [
       ['done', 'Block 3', 'Rework: line 3', null],
       ['done', 'Block 5', 'Rework: line 5', null],
-      ['not done yet', 'Block 8', 'Rework: line 8', 'Being reworked: B28 · waiting for a worker'],
+      ['not done yet', 'Block 8', 'Rework: line 8', 'Being reworked: B28 · a worker is on it'],
     ])
     assert.equal(page.find('[data-focus-blocks="open"]').getAttribute('aria-pressed'), 'true')
     // And back.

@@ -369,7 +369,9 @@ test('the coordinator\'s ruling: while round 2 is being made the focus recap is 
       goalRecap: { goal: 'G6', path: PATH, pictures: {}, changedAt, rounds: sent(60, [{ key: 'Block 1', verdict: 'approved', comment: '' }, { key: 'Block 3', verdict: 'sent-back', comment: 'x' }]) } }))
   const written = build2(NOW - 20 * MIN)
   assert.equal(written.recapMaking, null)
-  assert.equal(written.recapCard.count, 3, 'the look of B1, the part Block 2 and the goal\'s own ask wait for the person once the recap is written')
+  // The review of 2026-11-04: the card counts the popup's N: the part Block 2 (a row ready to judge); the look of B1 and the goal's own ask stand as
+  // cards of their own (or, routed to the recap, outside the card).
+  assert.equal(written.recapCard.count, 1, 'the part Block 2 waits for the person once the recap is written')
   assert.equal(written.focus.parts[1].steps[0].waitsForVerdict, true)
   const making = build2(NOW - 200 * MIN)
   assert.equal(making.recapCard, null, 'no card of verdicts at all')
@@ -404,7 +406,7 @@ const round1ish = withRound(null, 1, [{ key: 'Block 1', verdict: 'sent-back', co
 test('the card function itself gives none while the recap\'s round is being made: by its `making`; the round reads no row as ready then, and keeps its looks for the round after', () => {
   const blocks = [{ title: 'Ring', state: 'open', steps: [{ id: 'B920', waitsForVerdict: true, verdictAt: { step: 'B920' } }] }]
   const rows = [{ key: 'Block 1', title: 'Block 1', steps: ['B821'], ready: true, path: PATH }]
-  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, rows, blocks }).count, 2, 'written: the row and the block wait')
+  assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, rows, blocks }).count, 1, 'written: the row waits (the block that waits for its own card is no count of the recap card)')
   assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, rows, blocks, making: { round: 2 } }), null)
   assert.equal(recapCardOf({ goal: 'G6', recapPath: PATH, rows: [], blocks, making: { round: 2 } }), null)
   // The round itself (src/recapRound.mjs): the Send sent Block 1 back and the recap was not written since: nothing to judge, no look either.

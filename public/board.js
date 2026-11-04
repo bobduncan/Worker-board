@@ -6166,8 +6166,15 @@ function drawNeeds(state) {
   const box = $('needs')
   const focused = focusedNeed(box)
   const top = box.scrollTop
-  const forYou = state.forYou
   const isPilot = state.autopilot?.on === true
+  // T17.1 (the coordinator's ruling): while round N+1 is being made the card is always the quiet one, whatever else waits; it asks nothing,
+  // so it is not counted, and no verdict card stands beside it. T20.1 (the person, 2026-11-04: "These numbers are all over the place"): the
+  // recap card counts as many as it says to judge (the popup's N), never "one".
+  const recapMaking = recapMakingView(state.recapMaking ?? null, state.focusGoal ?? null)
+  const recapAttention = recapMaking !== null ? null : recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
+  // The review of 2026-11-04: an ask the recap card counts as a kept look or do is no card of its own beside it (never counted twice).
+  const inRecapCard = new Set(recapAttention === null ? [] : (state.recapCard?.looks ?? []).map(one => one.target?.ask).filter(id => typeof id === 'string'))
+  const forYou = inRecapCard.size === 0 ? state.forYou : state.forYou.filter(need => !inRecapCard.has(need.workId))
   // Calm panel: the open asks the backlog held are cards as every other ask (`panelNeeds`), its ticked ones closed.
   const every = panelNeeds({ ...state, forYou })
   // Autopilot v2: what only the person's hands can do is one quiet line under the cards, not a card each (handsNeedsOf).
@@ -6188,15 +6195,11 @@ function drawNeeds(state) {
   // B258: an answer to an ask on the goal map waits to be read, and counts.
   // B287: the refine questions count once per step, as their lines stand.
   // Calm panel: the missed lines count too; the log's notes and open instructions never do.
-  // T20: the Product owner's recap card counts while verdicts wait. T20.1 (the person, 2026-11-04: "These numbers are all over the place"): as
-  // many as it says to judge, never "one".
-  // T17.1 (the coordinator's ruling): while round N+1 is being made the card is always the quiet one, whatever else waits; it asks nothing,
-  // so it is not counted, and no verdict card stands beside it.
-  const recapMaking = recapMakingView(state.recapMaking ?? null, state.focusGoal ?? null)
-  const recapAttention = recapMaking !== null ? null : recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
+  // T20: the Product owner's recap card counts while verdicts wait (above).
   const cleared = clearedLineView(state.autopilotCleared ?? null, state.readAt)
   // Autopilot v2: the hands line counts as one, as does the Supervisor's alarm handed to the person: the top bar's "N wait for
   // you" counts what Needs your attention shows waiting.
+  // The review of 2026-11-04: N (what the recap card says to judge) plus the cards drawn besides it.
   const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length + (recapAttention === null ? 0 : recapAttention.count)
     + (handsLine === null ? 0 : 1) + (supervised?.isHanded === true ? 1 : 0)
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
@@ -6211,8 +6214,8 @@ function drawNeeds(state) {
   // "Show closed" the whole card shows it).
   // Autopilot v2: what was decided for the person is never shown here while it is on (the line on top counts it). The person's "Yes,
   // clear them" (2026-11-04): and an answer the partner, Autopilot or the main chat gave is never a slim card, on or off; its wait line is
-  // in the ask's own window (Show closed).
-  const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart) && !isDecidedAnswer(need.answer))
+  // in the ask's own window (Show closed). The review of the same day: nor is an ask the goal's recap closed (`Answered by: recap`).
+  const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart) && !isDecidedAnswer(need.answer) && need.answer?.by !== 'recap')
   const cards = [...rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state)), ...slim.map(need => drawSlimNeed(need, answerWaitOf(need, state.waitPart)))]
   const hidden = answered - slim.length
   const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || handsLine !== null || supervised?.isHanded === true || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
@@ -10357,6 +10360,39 @@ function demoFeedbackBar(key, draft, isDo = false) {
 }
 
 /**
+ * The review of 2026-11-04: the words of a kept look or do as nodes, its markdown links [words](where) drawn as links, never raw: a link to a step
+ * or ask of this board (`#details=Q600`) opens that window, one to a play setting (`#play=main&arena=ring`) opens the game in a new tab, any other
+ * address shows its words only (the page opens nothing by it).
+ */
+function demoWordsNodes(text) {
+  const nodes = []
+  for (const piece of String(text ?? '').split(/(\[[^\]\n]+\]\([^)\s]+\))/)) {
+    const link = piece.match(/^\[([^\]\n]+)\]\(([^)\s]+)\)$/)
+    if (link === null) {
+      if (piece !== '') nodes.push(el('span', '', piece))
+      continue
+    }
+    const [, words, where] = link
+    const ask = where.match(/#details=([QB]\d+)/)?.[1]
+    const play = where.match(/#play=([A-Za-z0-9_&=.%-]+)/)?.[1]
+    if (ask !== undefined) {
+      const open = el('button', 'ask-link', words)
+      open.type = 'button'
+      open.dataset.askLink = ask
+      open.title = `Open ${ask}`
+      nodes.push(open)
+    } else if (play !== undefined) {
+      const game = el('a', 'demo-play-link', words)
+      game.href = `/#play=${play}`
+      game.target = '_blank'
+      game.rel = 'noreferrer noopener'
+      nodes.push(game)
+    } else nodes.push(el('span', '', words))
+  }
+  return nodes
+}
+
+/**
  * T20.1 (the person's "A" of 2026-11-02, and "These numbers are all over the place", 2026-11-04): the looks kept for the recap (the page's
  * `looks`) as rows of their own, in the section "Looks kept for your recap": each look's title, its words, its pictures, its Play link when
  * its words carry one, and Approve / Send back with a note like any row; they are part of the same Send.
@@ -10368,9 +10404,15 @@ function demoLooksSection(looks, feedback, draft) {
     const card = el('div', 'demo-row demo-look')
     card.dataset.demoRow = look.key
     const head = el('h3', 'demo-row-title')
-    head.append(el('span', 'demo-verdict', look.asks === 'do' ? 'To do' : 'A look'), el('span', '', look.title === '' ? look.ask : look.title))
+    const title = el('span', '')
+    title.append(...demoWordsNodes(look.title === '' ? look.ask : look.title))
+    head.append(el('span', 'demo-verdict', look.asks === 'do' ? 'To do' : 'A look'), title)
     card.append(head)
-    for (const line of String(look.text ?? '').split('\n').filter(one => one.trim() !== '')) card.append(el('p', 'demo-row-note', line))
+    for (const line of String(look.text ?? '').split('\n').filter(one => one.trim() !== '')) {
+      const words = el('p', 'demo-row-note')
+      words.append(...demoWordsNodes(line))
+      card.append(words)
+    }
     if ((look.pictures ?? []).length > 0) {
       const shots = el('div', 'demo-pictures')
       for (const one of look.pictures) {
@@ -10658,7 +10700,9 @@ async function sendDemoFeedback() {
   demoDraft = null
   const lookWords = `${(sent.looks ?? 0) > 0 ? `, ${sent.looks} look${sent.looks === 1 ? '' : 's'} answered` : ''}${(sent.lookFailed ?? []).length > 0 ? `, ${sent.lookFailed.join(' and ')} could not be answered (open it and answer it there)` : ''}`
   const rowsSent = (sent.approved ?? 0) + (sent.sentBack ?? 0)
-  openDemo(path, sent.done === true && lookWords === '' ? 'Sent. Every part is approved: the recap is done.' : `Sent: ${sent.approved ?? 0} approved, ${sent.sentBack ?? 0} sent back${lookWords}. ${(sent.sentBack ?? 0) > 0 ? `Your partner makes the next tries; round ${(sent.round ?? 0) + 1} opens when they are in, with what changed.` : rowsSent === 0 ? '' : `Round ${(sent.round ?? 0) + 1} shows what you did not decide yet.`}`.trim())
+  // The review of 2026-11-04: "the recap is done" only when no kept look or do still waits (the board says: `done`); else how many still wait.
+  const stillWait = (sent.looksLeft ?? 0) > 0 ? ` ${sent.looksLeft} look${sent.looksLeft === 1 ? '' : 's'} still wait${sent.looksLeft === 1 ? 's' : ''} for your answer.` : ''
+  openDemo(path, sent.done === true ? `Sent${lookWords === '' ? '' : lookWords}. Every part is approved: the recap is done.` : `Sent: ${sent.approved ?? 0} approved, ${sent.sentBack ?? 0} sent back${lookWords}. ${(sent.sentBack ?? 0) > 0 ? `Your partner makes the next tries; round ${(sent.round ?? 0) + 1} opens when they are in, with what changed.` : rowsSent === 0 ? '' : `Round ${(sent.round ?? 0) + 1} shows what you did not decide yet.`}${stillWait}`.trim())
 }
 
 document.addEventListener('click', event => {
@@ -15054,23 +15098,31 @@ function clearedLineView(cleared, now) {
 // recapready:end
 
 /**
- * T20.1 (the person, 2026-11-04: "the 5 open now ... Waiting, nobody on it now"): a block whose try waits in the recap reads "Waits for your
- * verdict in the recap →" (the chip opens the recap at its row); one that waits for the person in another form (an Accept card, a question
- * in its window) keeps "Waits for your verdict →". `link` is `verdictLinkOf`'s target.
+ * T20.1 (the person, 2026-11-04: "of the 5 open now, only 1 is done ... Cliffs and Ground: Waiting, nobody on it now, Stairs: Worker 4 is on it"; the
+ * review of the same day): the chip of a work block on the Focus page, read from the same round reading as the recap card (the state's
+ * `toJudge`, `recapAt`, `openNow`'s `rework`). `{ chip, tone, link, isVerdict, isRework }`, the chip null for a block that is done:
+ * 1. a block with a row ready to judge, or a kept look or do, of its steps waits for the verdict in the recap, whatever its own state
+ *    ("Waits for your verdict in the recap →", opening the recap at that row);
+ * 2. a block that had work before the round (`open.kind` rework) with a step under way is being reworked ("Being reworked: B981 · waiting for a
+ *    worker", the words the popup's row uses);
+ * 3. a block that waits for the person in another form (an Accept card, a question in its window: its own state `verdict`) keeps "Waits for your
+ *    verdict →", and every other block its state's chip (a block in progress names the worker on it).
+ * `card` is the recap card, for where a verdict with no row of its own opens. `open` is the block as `openNow` has it, or null.
  */
-function verdictChipOf(link) {
-  return typeof link?.path === 'string' ? 'Waits for your verdict in the recap →' : FOCUS_CHIPS.verdict
-}
-
-/**
- * T20.1 (the person, 2026-11-04: "of the 5 open now, only 1 is done ... Cliffs and Ground: Waiting, nobody on it now, Stairs: Worker 4 is on it"):
- * the chip of a work block that is being reworked, in the words the recap's popup uses for its row: "Being reworked: B981 · waiting for a
- * worker" (or the worker's name). Only a block that had work before the round (`kind` rework) reads so: a block made in this round is being
- * built, not reworked. Null for any other block (a block that waits for the person's verdict keeps its verdict chip).
- */
-function reworkChipOf(part, open) {
-  if (part.state === 'verdict' || open?.kind !== 'rework' || open.rework == null) return null
-  return `Being reworked: ${open.rework.words}`
+function blockChipOf(part, open, card = null, namesWorker = false) {
+  if (part.state === 'done') return { chip: null, tone: part.state, link: null, isVerdict: false, isRework: false }
+  if ((part.toJudge ?? 0) > 0 && !['stopped', 'dropped'].includes(part.state)) {
+    const link = part.recapAt ?? card?.open ?? null
+    return { chip: 'Waits for your verdict in the recap →', tone: 'verdict', link, isVerdict: true, isRework: false }
+  }
+  if (part.state !== 'verdict' && open?.kind === 'rework' && open.rework != null) return { chip: `Being reworked: ${open.rework.words}`, tone: 'rework', link: null, isVerdict: false, isRework: true }
+  if (part.state === 'verdict') {
+    const link = verdictLinkOf(part.verdictAt, card)
+    return { chip: typeof link?.path === 'string' ? 'Waits for your verdict in the recap →' : FOCUS_CHIPS.verdict, tone: 'verdict', link, isVerdict: true, isRework: false }
+  }
+  // Open now names the worker of a block in progress in its chip; All work blocks keeps "In progress" (its row names the worker beside the bar).
+  const chip = namesWorker && part.state === 'now' && typeof part.owner === 'string' && part.owner !== '' ? `${part.owner} is on it` : FOCUS_CHIPS[part.state] ?? null
+  return { chip, tone: part.state, link: null, isVerdict: false, isRework: false }
 }
 
 /**
@@ -15088,15 +15140,14 @@ function focusOpenNowView(focus, card = null) {
     const isDone = part.state === 'done'
     const line = blockLineOf(part)
     const label = one.kind === 'rework' ? 'Rework' : 'New'
-    const rework = isDone ? null : reworkChipOf(part, one)
-    const link = part.state === 'verdict' ? verdictLinkOf(part.verdictAt, card) : null
-    const chip = isDone ? null : rework ?? (part.state === 'now' && typeof part.owner === 'string' && part.owner !== '' ? `${part.owner} is on it` : part.state === 'verdict' ? verdictChipOf(link) : FOCUS_CHIPS[part.state] ?? null)
-    // 2026-11-01: a block that waits for the person's verdict has its chip open the recap (at its part where the state knows it).
-    return { title: part.title, isDone, kind: one.kind, line: line === '' ? label : `${label}: ${line}`, chip, tone: rework === null ? part.state : 'rework', isRework: rework !== null, isVerdict: !isDone && part.state === 'verdict', ...(part.state === 'verdict' ? { verdict: link } : {}) }
+    const shown = blockChipOf(part, one, card, true)
+    // 2026-11-01: a block that waits for the person's verdict has its chip open the recap (at its row where the state knows it).
+    return { title: part.title, isDone, kind: one.kind, line: line === '' ? label : `${label}: ${line}`, chip: shown.chip, tone: shown.tone, isRework: shown.isRework, ...(shown.isVerdict ? { verdict: shown.link } : {}) }
   }).filter(one => one !== null)
   const done = rows.filter(one => one.isDone).length
-  // T20.1: the line counts the blocks the way their chips read: "1 of 5 done · 1 waits for your verdict · 3 being reworked".
-  const waits = rows.filter(one => one.isVerdict).length
+  // T20.1: the line counts the way the cards do: "1 of 5 done · 4 wait for your verdict · 3 being reworked". What waits for your verdict is the
+  // recap card's own count (rows ready to judge and kept looks, the popup's N), never a count of blocks; the blocks being reworked are counted.
+  const waits = card?.count ?? 0
   const reworked = rows.filter(one => one.isRework).length
   const counts = `${done} of ${rows.length} done${waits > 0 ? ` · ${waits} ${waits === 1 ? 'waits' : 'wait'} for your verdict` : ''}${reworked > 0 ? ` · ${reworked} being reworked` : ''}`
   // "opened by the change of 31 Oct": a why that names its own day ("the change of 2026-10-31") says it once.
@@ -15243,6 +15294,7 @@ function focusView(focus, goals, can = null, ui = {}) {
     const isNewNow = index => (focus.round?.n ?? 1) > 1 && (focus.openNow ?? []).some(one => one.index === index && one.kind === 'new')
     // T20.1: the block as this round opens it (its kind, and the step under way when it is being reworked), null when the round does not open it.
     const openOf = index => (focus.openNow ?? []).find(one => one.index === index) ?? null
+    const shownChip = (part, index) => blockChipOf(part, openOf(index), ui.recapCard ?? null)
     view.run = {
       title: 'All work blocks',
       page: focus.page ?? null,
@@ -15251,17 +15303,17 @@ function focusView(focus, goals, can = null, ui = {}) {
         // Work blocks: its done-when line under its bar, and "new" when this round made it.
         ...(blockLineOf(part) === '' ? {} : { doneWhen: `Done when: ${blockLineOf(part)}` }),
         ...(isNewNow(index) ? { isNew: true } : {}),
-        chip: part.state === 'dropped' ? `Dropped: ${part.why ?? ''}`.trim() : reworkChipOf(part, openOf(index)) ?? (part.state === 'verdict' ? verdictChipOf(verdictLinkOf(part.verdictAt, ui.recapCard)) : chips[part.state]),
+        chip: part.state === 'dropped' ? `Dropped: ${part.why ?? ''}`.trim() : (shownChip(part, index).chip ?? chips[part.state]),
         tone: part.state,
-        // T20.1: a block being reworked has a quiet chip of its own (the row keeps its state's look).
-        ...(reworkChipOf(part, openOf(index)) === null ? {} : { chipTone: 'rework' }),
+        // T20.1: a block being reworked has a quiet chip of its own, one that waits for a verdict the attention colour (the row keeps its state's look).
+        ...(['rework', 'verdict'].includes(shownChip(part, index).tone) ? { chipTone: shownChip(part, index).tone } : {}),
         percent: part.state === 'done' ? 100 : part.state === 'stopped' || part.state === 'dropped' || part.total === 0 ? 0 : Math.round((part.done / part.total) * 100),
         // B680: under a Stopped part the person may drop it, with a reason; a dropped one has its Undo.
         ...(part.state === 'stopped' ? { drop: { label: 'Drop this work block', act: 'part-drop', isEnabled: allowed, title: allowed ? 'You stop this work block: say why in one line. It then counts out of the whole. Your partner can instead try another way.' : why } } : {}),
         ...(part.state === 'dropped' ? { undo: { label: 'Undo', act: 'part-undo', isEnabled: allowed, title: allowed ? 'Take the drop back: the work block is Stopped again' : why } } : {}),
         owner: part.state === 'now' && part.owner !== null ? `${part.owner} is on it` : null,
-        // 2026-11-01: a block that waits for the person's verdict: its chip opens the recap (verdictLinkOf).
-        ...(part.state === 'verdict' ? { verdict: verdictLinkOf(part.verdictAt, ui.recapCard) } : {}),
+        // 2026-11-01: a block that waits for the person's verdict: its chip opens the recap (blockChipOf).
+        ...(shownChip(part, index).isVerdict ? { verdict: shownChip(part, index).link } : {}),
         // Fix first: its worker does a board fix first.
         ...(typeof part.fixFirst === 'string' ? { fixFirst: `A board fix goes first: ${part.fixFirst}` } : {}),
         // B354: what its results are checked against: the kind, the reference picture, the target.

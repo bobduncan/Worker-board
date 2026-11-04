@@ -1276,7 +1276,10 @@ async function main(args) {
       }
       if (checked.parts.length === 0) {
         readState.reset()
-        return { ok: true, result: { round: checked.round, approved: 0, sentBack: 0, looks: looked.length, lookFailed, done: false, notedOn: null, closed: [], said: null } }
+        const looksLeft = (store?.looks ?? []).filter(look => !looked.includes(look.ask)).length
+        // Every row approved before and the last looks answered now: the recap is done (the review of 2026-11-04).
+        const isDone = roundPage(found.base, found.feedback, { rework: store?.rework }).feedback.done && looksLeft === 0
+        return { ok: true, result: { round: checked.round, approved: 0, sentBack: 0, looks: looked.length, lookFailed, looksLeft, done: isDone, notedOn: null, closed: [], said: null } }
       }
       await writeFeedback(found.file, withRound(found.feedback, checked.round, checked.parts, stampOf(clock())))
       readState.reset()
@@ -1316,15 +1319,19 @@ async function main(args) {
         }
       }
       const left = after.sections.flatMap(section => section.rows).filter(row => row.said === undefined).length
+      // The review of 2026-11-04: the recap is done only when no kept look or do still waits for them: every row approved leaves the looks they
+      // did not judge in this Send still to answer (`looksLeft`), and neither the page nor the partner's word says "approved, done" then.
+      const looksLeft = (store?.looks ?? []).filter(look => !looked.includes(look.ask)).length
+      const isDone = after.feedback.done && looksLeft === 0
       const told = await toPartner({
         ...recapFeedbackWords(state.advisor.name, {
           goal: found.base.goal, title: found.base.title, step: notedOn ?? found.base.step, round: checked.round, approved: said.approved, back: said.back,
-          done: after.feedback.done, left, path: body.path, job: join(HERE, 'roles', 'partner.md'),
+          done: isDone, left, looksLeft, path: body.path, job: join(HERE, 'roles', 'partner.md'),
         }),
         // T22: the steps whose next tries make this Send done (src/waitLine.mjs `recapDone`); the page finds its line by `said`.
         ...(backSteps.length === 0 ? {} : { backSteps: [...new Set(backSteps)] }),
       }, {}, state)
-      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, looks: looked.length, lookFailed, done: after.feedback.done, notedOn, closed, said: told.result?.said ?? null } }
+      return { ok: true, result: { round: checked.round, approved: said.approved.length, sentBack: said.back.length, looks: looked.length, lookFailed, looksLeft, done: isDone, notedOn, closed, said: told.result?.said ?? null } }
     }
     const turn = demoTurn.then(run, run)
     // The caller has the turn itself, with its error; the next Send only waits for this one to end.

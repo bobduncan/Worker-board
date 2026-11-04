@@ -458,6 +458,20 @@ export const isRecapVerdictAsk = item => !['form', 'refine'].includes(valueOf(it
 /** An ask the person took back from a decider (the Undo writes "you took it back" or "took it back from Autopilot" on its card): theirs, never closed by the board. */
 export const isTakenBack = item => (item?.sections?.get('Route') ?? []).some(one => /\btook it back\b/i.test(one))
 /**
+ * The review of 2026-11-04: whether an ask belongs to the recap's goal (`goal`, the focus goal), so that a row's number in its words means that
+ * goal's recap row. Its own step (`Of`) is a step of that goal (`items`: the store's by id; a step the store does not hold, or a missing `items`,
+ * is none); its `Of` is the goal itself; with no `Of`, its words name the goal's id ("row 9 in G60's recap"). Never an ask of another goal.
+ */
+export function isOfRecapGoal(item, goal, items = null) {
+  if (goal === null || goal === undefined) return false
+  const of = valueOf(item, 'Of')
+  if (of === null) return new RegExp(String.raw`\b${goal}\b`).test(`${title(item)} ${text(item)}`)
+  if (of === goal) return true
+  if (!STEP.test(of)) return false
+  const step = items?.get?.(of)
+  return step !== undefined && valueOf(step, 'Goal') === goal
+}
+/**
  * The row of the focus goal's recap that has answered an open ask, `{ goal, path, key, title, steps, verdict, round }`, or null (the
  * pass, for an ask approved before it was filed or routed). `rows`: every row of the recaps with where it stands
  * (src/recaps.mjs `recapVerdictsOf`); only the focus goal's recap, and only when the row's standing verdict is approved (a row sent back
@@ -465,13 +479,14 @@ export const isTakenBack = item => (item?.sections?.get('Route') ?? []).some(one
  * (`recapRowNumberOf`: one row, in a recap of the focus goal); and an ask already routed to the recap under a step that rows name, when
  * every row naming the step is approved. Never an ask the person took back, nor one of the app's form or a refine question.
  */
-export function recapClosesAsk(item, { focusGoal = null, rows = [] } = {}) {
+export function recapClosesAsk(item, { focusGoal = null, rows = [], items = null } = {}) {
   if (focusGoal === null || focusGoal === undefined || valueOf(item, 'Kind') !== 'ask' || valueOf(item, 'State') !== 'open') return null
   if (isTakenBack(item) || ['form', 'refine'].includes(valueOf(item, 'Via'))) return null
   // T20.1: a kept look (or a kept do) is a row of the recap of its own: the person judges it there, a verdict on a row never answers it.
   if (isKeptLook(item)) return null
   const mine = (Array.isArray(rows) ? rows : []).filter(one => one.goal === focusGoal)
-  if (isRecapVerdictAsk(item)) {
+  // The review of 2026-11-04: the words' row number is the recap's only when the ask is of the recap's goal (`isOfRecapGoal`).
+  if (isRecapVerdictAsk(item) && isOfRecapGoal(item, focusGoal, items)) {
     const number = recapRowNumberOf(`${title(item)} ${text(item)}`, focusGoal)
     const named = number === null ? [] : mine.filter(one => rowNumberOfTitle(one.title) === number)
     if (named.length === 1) return named[0].verdict === 'approved' ? named[0] : null

@@ -172,7 +172,7 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     // reachable from the ask's own window, but it is never a slim "Answered" card of Needs your attention: only the person's own
     // answer (no `Answered by`, or `person`) stands there while its line waits (the page's `slim`).
     const answer = byPartner ? { ...stored, ...(known.answer === null ? {} : { id: known.answer.id ?? null, state: known.answer.state, takenAt: known.answer.takenAt ?? null, deliveredAt: known.answer.deliveredAt ?? since }), by: valueOf(item, 'Answered by'), why }
-      : known.answer ?? (state === 'open' ? null : stored)
+      : (a => (a !== null && valueOf(item, 'Answered by') === 'recap' ? { ...a, by: 'recap' } : a))(known.answer ?? (state === 'open' ? null : stored))
     const routeNote = (item.sections.get('Route') ?? []).join(' ').trim()
     // Autopilot v2 (the person's "B", 2026-11-02): an open ask only the person's hands can do (and nobody handed on) is no card but
     // a part of the one quiet line "Needs your hands" (`hands`: what of the hands it needs, autopilot.mjs PERSONS_HANDS).
@@ -237,10 +237,25 @@ export function partnerDecidedOf(work, { now, shownNote = null, names = [], pref
   }).sort((a, b) => b.at - a.at || b.ask.localeCompare(a.ask, 'en', { numeric: true }))
 }
 
+const PLAY_OF = item => (item?.sections?.get('Play') ?? []).map(one => one.trim()).find(one => one !== '') ?? null
+const ASK_LINK = /#details=(Q\d+)/g
+/** The play setting of an ask (`## Play`: "main&arena=ring"), else of the first ask its words link that has one; null for none. */
+function playOfAsk(item, items) {
+  const own = PLAY_OF(item)
+  if (own !== null) return own
+  const words = `${valueOf(item, 'Title') ?? ''} ${(item.sections.get('Text') ?? []).join(' ')}`
+  for (const found of words.matchAll(ASK_LINK)) {
+    const linked = items.get(found[1])
+    const play = linked === undefined || valueOf(linked, 'Id') === valueOf(item, 'Id') ? null : PLAY_OF(linked)
+    if (play !== null) return play
+  }
+  return null
+}
+
 /**
  * Autopilot (2026-10-31): the open asks the board routed to the main chat or to a goal's recap, for the window a click on
  * one opens (they stand in no list of Needs your attention) and the Focus page's "For your recap": `[{ id, route, from,
- * title, of, ofTitle, goal, text, advice, options, pictures, at, toYouAt, isKept }]`, oldest first. `isKept`: a look the partner handed over
+ * title, of, ofTitle, goal, text, advice, options, pictures, play, at, toYouAt, isKept }]`, oldest first. `isKept`: a look the partner handed over
  * that Autopilot keeps for the goal's recap (src/work/keptLook.mjs; the person's "A", 2026-11-02). `toYouAt`: when one routed to the
  * main chat comes to the person (the partner's 30 minutes from its route), else null.
  */
@@ -261,6 +276,9 @@ export function routedAwayOf(work, { names = [], prefix = '', limitMs = PARTNER_
       text: askPartsOf(item).context.join('\n'), advice,
       options: (valueOf(item, 'Options') ?? '').split(' | ').filter(one => one.trim() !== '').map(label => ({ label, isRecommended: isAdvised(label, advice) })),
       pictures: (valueOf(item, 'Pictures') ?? '').split(',').map(one => one.trim()).filter(Boolean),
+      // The review of 2026-11-04: the ask's own `## Play` (a map to open the game on), else the one of the ask its words link
+      // (`#details=Q<n>`: Q616 "reopen the Q600 play link" carries Q600's), else null.
+      play: playOfAsk(item, items),
       at: Number.isFinite(at) ? at : null, toYouAt: route === 'main' && Number.isFinite(routed) ? routed + limitMs : null,
     }
   }).sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))

@@ -1039,12 +1039,15 @@ export function obsoleteWords(to, { ids, job }) {
  * with their comments. The partner makes the next tries and updates the demo (roles/partner.md, "Recap feedback"); the board
  * shows the next round with only the parts sent back.
  */
-export function recapFeedbackWords(to, { goal, title, step, round, approved, back, done, left, path, job }) {
+export function recapFeedbackWords(to, { goal, title, step, round, approved, back, done, left, looksLeft = 0, path, job }) {
   const one = value => String(value ?? '').replace(/\s+/g, ' ').trim()
+  // The review of 2026-11-04: "every part approved" only when no kept look or do still waits for their verdict (`looksLeft`).
+  const looks = looksLeft > 0 ? `${looksLeft} kept look${looksLeft === 1 ? '' : 's'} or do${looksLeft === 1 ? '' : 's'} still wait${looksLeft === 1 ? 's' : ''} for their verdict` : null
+  const head = done ? 'every part approved' : back.length === 0 && looks !== null ? 'every row decided so far is approved' : `${back.length} part${back.length === 1 ? '' : 's'} sent back`
   return {
     to, ask: null, step: step ?? null, title: null, version: null, verdict: null, command: 'recap-feedback', about: goal,
     text: [
-      `recap feedback: ${goal} ${one(title)}, round ${round}: ${done ? 'every part approved' : `${back.length} part${back.length === 1 ? '' : 's'} sent back`}`,
+      `recap feedback: ${goal} ${one(title)}, round ${round}: ${head}${looks === null ? '' : `; ${looks}`}`,
       ...(step === null || step === undefined ? [] : [`Step: ${step}`]),
       `Demo: ${path}`,
       // B878: with the steps the part shows: the partner makes the fix of each (roles/partner.md, "Recap feedback").

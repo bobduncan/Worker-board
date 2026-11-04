@@ -286,16 +286,16 @@ test('the Product owner\'s card names the look under its line; the link opens th
   } finally { await page.close() }
 })
 
-test('mid-goal a kept look waits quietly: no Product owner card, nothing counted; its window (the Focus list links it) still holds the answer form', async () => {
+test('mid-goal a kept look is also a Product owner card (one count: whenever N > 0 the card shows): 1 to judge, counted once; its window still holds the answer form', async () => {
   const building = parseItem(`Id: B1\nKind: step\nTitle: Task B1\nState: new\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)
   const state = asSent(build([building, done9, lookOf(590, 'Does the wizard\'s move range on the terraces look right?')], undefined, goals(2), { recaps: [], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON }))
-  assert.equal(state.recapCard, null)
+  assert.equal(state.recapCard.count, 1)
   assert.deepEqual(state.routedAway.map(one => [one.id, one.isKept]), [['Q590', true]])
   const page = await openPage({ state, hash: 'details=Q590' })
   try {
     await settle(10)
-    assert.equal(page.all('#needs .is-recap-ready').length, 0, 'no "your recap is ready" for one look mid-goal')
-    assert.equal(page.text('#needs-count'), '')
+    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 1 to judge', 'the one look is 1 to judge, also mid-goal')
+    assert.equal(page.text('#needs-count'), '1', 'counted once')
     assert.equal(page.find('#details').open, true)
     assert.deepEqual(page.all('#details [data-look-answer]').map(node => node.dataset.lookAnswer), ['reject', 'approve'], 'it can be answered at once')
   } finally { await page.close() }

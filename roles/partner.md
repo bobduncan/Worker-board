@@ -1062,6 +1062,8 @@ the user's comment, the parts approved and how many are not decided yet. Act on 
   with the user's comment, what changed and the new try (then Play it, Approve, Send back), and folds the approved ones.
 - Never write or change `feedback.json`: it is the user's. A word saying every part is approved needs no new try: the
   recap is done; go on with the goal's Demo line as before.
+  A word that says "every row decided so far is approved; N kept looks or dos still wait for their verdict" is not that: the recap
+  is not done while a look the user has not judged waits (the board never says "done" then); owe no new try, and wait for their answer.
 - B878: give every row the steps it shows, `"steps": ["B689", "B821"]` (the part's step and its fixes), whenever a step
   waits for the user's verdict there. Such a step waits as planned ("waits for your verdict in the recap of G<n>"): never
   block it on the recap step or drop it. The user's Approve closes the steps of the part that are in review; a part sent

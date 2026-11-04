@@ -148,6 +148,8 @@ test('the recap\'s Send answers the goal\'s own ask (its words link the recap) o
   const items = await read(dir)
   assert.deepEqual(items.get('Q1').sections.get('Answer'), ['Answered in the recap of G29, round 2.'])
   assert.equal(field(items, 'Q1', 'State'), 'answered')
+  // The review of 2026-11-04: both are closed by the recap, so neither stands as the person's slim Answered card (`Answered by: recap`).
+  assert.deepEqual(['Q1', 'Q2'].map(id => field(items, id, 'Answered by')), ['recap', 'recap'])
   assert.ok(history(items, 'Q1').some(line => line.includes('closed by the goal\'s recap: Answered in the recap of G29, round 2.')))
   assert.equal(answered.result.wakes[1].text, 'The person answered this in the goal\'s recap: Answered in the recap of G29, round 2.')
   // Without the path of the Send, the recap rows of the goal give it.

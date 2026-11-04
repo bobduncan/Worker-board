@@ -42,7 +42,7 @@ import { readAutopilotClearedFile, readNamesFile, readObsoleteFile, readPartnerA
 import { KEPT_WORDS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
-import { HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
+import { HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
@@ -1671,7 +1671,7 @@ async function autopilot(body, w) {
   // below hands a recap wait of an approved row back. Only while Autopilot is on; a row sent back stays (it is judged anew).
   if (on && (w.focusGoal ?? null) !== null && (w.recapRows ?? []).length > 0) {
     for (const item of openAsksAll(w)) {
-      const row = recapClosesAsk(item, { focusGoal: w.focusGoal, rows: w.recapRows })
+      const row = recapClosesAsk(item, { focusGoal: w.focusGoal, rows: w.recapRows, items: w.store.items })
       if (row === null) continue
       const answer = `Approved in the recap of ${row.goal}${Number.isInteger(row.round) ? `, round ${row.round}` : ''}${row.title ? `: ${line(row.title, 120)}` : ''}.`
       const done = await closeByRecap(valueOf(item, 'Id'), answer, row.goal, true, await freshOf(w))
@@ -1774,6 +1774,13 @@ async function autopilot(body, w) {
   return { ok: true, result: { text: `${text}.`, changed: count > 0, routed, answered, escalated, mainAsks, refines, recapClosed, wakes, ...(clearedWhy === null ? {} : { clearedWhy }) } }
 }
 
+/**
+ * The review of 2026-11-04: what a recap-closed ask's `Answered by` says. It is the person's own verdict in the recap, but it is no answer they typed
+ * to that question: so it never stands as their slim "Answered" card in Needs your attention (the page's `slim`), and it is not "decided for you"
+ * (no Undo): `isDecidedForYou` knows only the partner, Autopilot and the main chat.
+ */
+const RECAP_BY = 'recap'
+
 /** An ask's title and words in one line, as the recap link is looked for in them. */
 const askLinkWords = item => `${valueOf(item, 'Title') ?? ''} ${(item.sections.get('Text') ?? []).join(' ')}`
 
@@ -1848,7 +1855,7 @@ async function recapAnswered(body, w) {
         const id = valueOf(ask, 'Id')
         const found = await load(id, w, { kind: ['ask'] })
         if (!found.ok || stateOf(found.item) !== 'open') continue
-        let item = put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now))
+        let item = put(put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now)), 'Answered by', RECAP_BY)
         item.sections.set('Answer', [answer])
         item = ordered(appendHistory(item, 'server', `closed by the goal's recap: ${line(answer, 200)}`, w.now))
         const done = await answerStep(w, item, found.text, stepId, step => {
@@ -1868,6 +1875,8 @@ async function recapAnswered(body, w) {
       const id = valueOf(ask, 'Id')
       // T20.1: a kept look or do is a row of the recap of its own: the verdict on another row does not answer it.
       if (closed.includes(id) || !isRecapVerdictAsk(ask) || isTakenBack(ask) || isKeptLook(ask)) continue
+      // The review of 2026-11-04: "row 9" means this recap's row 9 only for an ask of this goal.
+      if (!isOfRecapGoal(ask, goal, w.store.items)) continue
       if (recapRowNumberOf(`${valueOf(ask, 'Title') ?? ''} ${(ask.sections.get('Text') ?? []).join(' ')}`.replace(/\s+/g, ' '), goal) !== number) continue
       const done = await closeByRecap(id, answer, goal, isApproved, w)
       if (done === null) continue
@@ -1882,7 +1891,7 @@ async function recapAnswered(body, w) {
       const id = valueOf(ask, 'Id')
       const found = await load(id, w, { kind: ['ask'] })
       if (!found.ok || stateOf(found.item) !== 'open') continue
-      let item = put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now))
+      let item = put(put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now)), 'Answered by', RECAP_BY)
       item.sections.set('Answer', [answer])
       item = ordered(appendHistory(item, 'server', `closed by the goal's recap: ${answer}`, w.now))
       const done = await answerStep(w, item, found.text, null, step => step)
@@ -1905,7 +1914,7 @@ async function closeByRecap(id, answer, goal, isApproved, w) {
   if (!found.ok || stateOf(found.item) !== 'open') return null
   const of = valueOf(found.item, 'Of')
   const isRouted = valueOf(found.item, 'Route') === 'recap'
-  let item = put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now))
+  let item = put(put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now)), 'Answered by', RECAP_BY)
   item.sections.set('Answer', [answer])
   item = ordered(appendHistory(item, 'server', `closed by the goal's recap: ${line(answer, 200)}`, w.now))
   const done = await answerStep(w, item, found.text, of !== null && STEP_ID.test(of) ? of : null, step => {

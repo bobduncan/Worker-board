@@ -221,16 +221,16 @@ test('Open now in the same words as the recap: one block waits for the verdict i
       ['Block 2', 'Waits for your verdict in the recap →'],
       ['Block 3', 'Being reworked: B32 · waiting for a worker'],
       ['Block 4', 'Being reworked: B42 · waiting for a worker'],
-      ['Block 5', 'Being reworked: B5 · Digger'],
+      ['Block 5', 'Being reworked: B5 · Digger is on it'],
     ])
     // The worker is the one whose card shows the step (Digger's does, B5 is his); a step nobody's card shows is "waiting for a worker".
     // The block that waits for the verdict opens the recap at its row; "Waiting, nobody on it now" is said of none of them.
     assert.deepEqual(page.all('.focus-open-block .focus-chip.is-verdict').map(one => [one.tagName, one.dataset.demo, one.dataset.demoPart]), [['A', PATH, 'Ring']])
     assert.equal(page.all('.focus-open-block .focus-chip.is-rework').length, 3)
-    assert.doesNotMatch(page.text('.focus-open-now'), /Waiting, nobody on it now|is on it|In progress/)
+    assert.doesNotMatch(page.text('.focus-open-now'), /Waiting, nobody on it now|In progress/)
     // All work blocks says the same of each block.
     await page.click('[data-focus-blocks="all"]')
-    assert.deepEqual(page.all('.focus-part .focus-chip').map(words), ['Done', 'Waits for your verdict in the recap →', 'Being reworked: B32 · waiting for a worker', 'Being reworked: B42 · waiting for a worker', 'Being reworked: B5 · Digger'])
+    assert.deepEqual(page.all('.focus-part .focus-chip').map(words), ['Done', 'Waits for your verdict in the recap →', 'Being reworked: B32 · waiting for a worker', 'Being reworked: B42 · waiting for a worker', 'Being reworked: B5 · Digger is on it'])
   } finally { await page.close() }
 })
 

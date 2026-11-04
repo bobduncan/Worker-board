@@ -2375,6 +2375,16 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   // T20.1: the focus goal's recap round as ONE reading (src/recapRound.mjs): the rows the person can judge, the rows being reworked, the
   // kept looks (Autopilot on only): the popup, the cards, the Needs count and the work blocks' chips all take their numbers from it.
   const recapRound = focus === null ? null : recapRoundOf({ goal: focus.id, goalRecap: raw.goalRecap ?? null, recaps: raw.recaps ?? [], items: itemsById, openChecks: checksOpen, workerOf: workerOfStep, now, routed: config.autopilot === true ? routedAway : [] })
+  // The review of 2026-11-04: a block with a row ready to judge, or a kept look or do, of its steps waits for the person's verdict in the recap,
+  // whatever its own state: `toJudge` how many, `recapAt` where its chip opens (the recap at the first ready row, else at the first look's row).
+  for (const part of recapRound === null ? [] : focus.parts) {
+    const ids = new Set((part.steps ?? []).map(one => one.id))
+    const rows = recapRound.ready.filter(row => (row.steps ?? []).some(id => ids.has(id)))
+    const looks = recapRound.looks.filter(look => ids.has(look.step))
+    if (rows.length + looks.length === 0) continue
+    part.toJudge = rows.length + looks.length
+    part.recapAt = rows.length > 0 ? { path: recapRound.path, key: rows[0].key } : recapRound.path !== null ? { path: recapRound.path, key: looks[0].key } : { ask: looks[0].ask }
+  }
   const built = {
     readAt: now,
     // Signals change 7: when the board saw each worker's own plan words change, for the server to hand back at the next read.
