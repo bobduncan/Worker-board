@@ -1388,6 +1388,31 @@ function supervisorLine(information, isClosing = () => false) {
   return { ids, text: `Supervisor: ${ids.length === 1 ? 'one new finding' : `${ids.length} new findings`}` }
 }
 
+/**
+ * Autopilot v2 (the person's "B", 2026-11-02: "autopilot doesnt help me enough i still get way too many signels"; the board's
+ * signals lead the same night): while Autopilot is on, the Supervisor's findings line leaves Needs your attention (the findings
+ * stay in the Supervisor's own part), but an alarm its judgment hands to the person (a fix step it may not file, "needs your
+ * hands", or its own escalation: a note of the board's, Via supervisor, that is no finding's own line, `isHandedAlarm`) still
+ * shows there as one line, and counts as one (`isHanded`). One function, so it is undone in one place; with Autopilot off it is
+ * `supervisorLine`, as before.
+ */
+function attentionSupervisorLine(information, isAutopilotOn, isClosing = () => false) {
+  if (isAutopilotOn !== true) return supervisorLine(information, isClosing)
+  const ids = (information ?? []).filter(one => one.via === 'supervisor' && one.isRead !== true && !isClosing(one.id) && isHandedAlarm(one)).map(one => one.id)
+  if (ids.length === 0) return null
+  return { ids, text: `Supervisor: ${ids.length === 1 ? 'one alarm needs you' : `${ids.length} alarms need you`}`, isHanded: true }
+}
+
+/**
+ * Whether a note of the Supervisor's hands an alarm to the person: its words are not a finding's own line ("Supervisor: X12 came
+ * back: ...", supervisor/index.mjs `personWords`: the board's escalations "Incident X12 ... has been with the Supervisor for over 2
+ * hours" and "The Advisor has not refined B7 after 3 asks" are not), or they say so ("needs your hands", "may not file", escalated).
+ */
+function isHandedAlarm(note) {
+  const words = String(note?.text ?? '').trim()
+  return !/^Supervisor:\s/.test(words) || /\bneeds your hands\b|\bmay not file\b|\bescalat/i.test(words)
+}
+
 /** B573: the keys the page keeps the section under (localStorage): opened or folded, and when the person last opened it. */
 const SUPERVISOR_KEEP = { open: 'supervisor-open', seenAt: 'supervisor-seen-at', shownSince: 'supervisor-shown-since' }
 
@@ -4688,6 +4713,50 @@ function laneStateText(lane) {
 }
 // partner-answers:end
 
+// handsline:start
+/**
+ * Autopilot v2 (the person's "B", 2026-11-02: "autopilot doesnt help me enough i still get way too many signels"): what only the
+ * person's hands can do (a sign-in, an account, money, an install, a click, the Claude app ...: the store's `hands`, autopilot.mjs
+ * PERSONS_HANDS) stays theirs, but while Autopilot is on it stands as one quiet line under the cards, not a card each: the open,
+ * unanswered asks that carry it. None while Autopilot is off: every ask is a card then, as before.
+ */
+function handsNeedsOf(needs, isAutopilotOn) {
+  if (isAutopilotOn !== true) return []
+  return (needs ?? []).filter(need => typeof need?.hands === 'string' && need.hands !== '' && need.isClosed !== true && (need.answer ?? null) === null)
+}
+
+/**
+ * The hands line's view (the plan's "Needs your hands: <title cut at 40> · <title> →"): each title cut at 40 characters and
+ * opening its ask's window; `isBlocking` when one holds up a step (only then in the attention colour). Null for none.
+ */
+function handsLineView(list) {
+  if (!Array.isArray(list) || list.length === 0) return null
+  return {
+    items: list.map(need => {
+      const id = need.workId ?? need.id
+      return { id, words: cutWords(String(need.title ?? id), 40), title: `Open ${id}: ${need.title ?? ''} (only you can: ${need.hands})`, href: `#details=${id}` }
+    }),
+    isBlocking: list.some(need => need.blocking === true),
+  }
+}
+// handsline:end
+
+/** Autopilot v2: the one quiet line of what only the person's hands can do (handsLineView), under the cards; it counts as one. */
+function drawHandsLine(view) {
+  if (view === null) return null
+  const line = el('p', `hands-line${view.isBlocking ? ' is-blocking' : ''}`)
+  line.append(el('span', 'hands-line-head', 'Needs your hands: '))
+  view.items.forEach((one, at) => {
+    if (at > 0) line.append(' · ')
+    // The arrow closes the line on the last title, so it opens something too (never a dead arrow).
+    const link = el('a', 'hands-line-ask', at === view.items.length - 1 ? `${one.words} →` : one.words)
+    link.href = one.href
+    link.title = one.title
+    line.append(link)
+  })
+  return line
+}
+
 /** Partner answers, the review's findings: the "With your partner" line, a click lists the asks (B408: open as the view says). */
 function drawWithPartner(state) {
   const view = withPartnerView(state.withPartner ?? [])
@@ -6097,8 +6166,13 @@ function drawNeeds(state) {
   const focused = focusedNeed(box)
   const top = box.scrollTop
   const forYou = state.forYou
+  const isPilot = state.autopilot?.on === true
   // Calm panel: the open asks the backlog held are cards as every other ask (`panelNeeds`), its ticked ones closed.
-  const needs = panelNeeds({ ...state, forYou })
+  const every = panelNeeds({ ...state, forYou })
+  // Autopilot v2: what only the person's hands can do is one quiet line under the cards, not a card each (handsNeedsOf).
+  const hands = handsNeedsOf(every, isPilot)
+  const handsLine = handsLineView(hands)
+  const needs = hands.length === 0 ? every : every.filter(need => !hands.includes(need))
   const open = needs.filter(need => !isClosed(need))
   // B287: a refine question has no card: its step's line says it, and only while it is open.
   const lines = refineLines(open)
@@ -6108,7 +6182,8 @@ function drawNeeds(state) {
   // Calm panel: an instruction a chat missed is the person's: one line here, while the log holds the rest.
   const missed = missedLines(state.instructions, clock)
   // The supervisor: one quiet line for its new or returning incidents (B573: "Supervisor: 3 new findings"), never counted.
-  const supervised = supervisorLine(state.information, id => sending.has(`read:${id}`))
+  // Autopilot v2: while on, only an alarm handed to the person, which counts as one (attentionSupervisorLine).
+  const supervised = attentionSupervisorLine(state.information, isPilot, id => sending.has(`read:${id}`))
   // B258: an answer to an ask on the goal map waits to be read, and counts.
   // B287: the refine questions count once per step, as their lines stand.
   // Calm panel: the missed lines count too; the log's notes and open instructions never do.
@@ -6118,7 +6193,10 @@ function drawNeeds(state) {
   const recapMaking = recapMakingView(state.recapMaking ?? null, state.focusGoal ?? null)
   const recapAttention = recapMaking !== null ? null : recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
   const cleared = clearedLineView(state.autopilotCleared ?? null, state.readAt)
+  // Autopilot v2: the hands line counts as one, as does the Supervisor's alarm handed to the person: the top bar's "N wait for
+  // you" counts what Needs your attention shows waiting.
   const unanswered = cardsOpen.filter(need => !isAnswered(need)).length + lines.length + (state.goalAskNeeds ?? []).length + (state.brainstormNeeds ?? []).length + missed.length + (recapAttention === null ? 0 : 1)
+    + (handsLine === null ? 0 : 1) + (supervised?.isHanded === true ? 1 : 0)
   $('needs-count').textContent = unanswered === 0 ? '' : String(unanswered)
   drawWaits(unanswered, cardsOpen.filter(need => !isAnswered(need)).map(need => ({ id: need.id, from: need.from ?? null, title: need.title })))
   // Focus 4: the partner's questions first, under "From your partner"; the rest as before.
@@ -6129,13 +6207,17 @@ function drawNeeds(state) {
   const oldCards = rest.filter(need => need.isOld === true).map(need => drawNeed(need, state))
   // T22: an answered card whose answer still waits for its chat stays as a slim card with its line, after the open cards (with
   // "Show closed" the whole card shows it).
-  const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart))
+  // Autopilot v2: what was decided for the person is never shown here while it is on (the line on top counts it).
+  const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart) && !(isPilot && isDecidedAnswer(need.answer)))
   const cards = [...rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state)), ...slim.map(need => drawSlimNeed(need, answerWaitOf(need, state.waitPart)))]
   const hidden = answered - slim.length
-  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
+  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || handsLine !== null || supervised?.isHanded === true || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
-  fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawWithPartner(state), drawDecidedForYou(state), ...recaps])
+  // Autopilot v2 (the person's "B", 2026-11-02): while it is on, what was routed away is never shown nor counted here: no "With your
+  // partner" line, and "Decided for you" folds into the one line on top with today's count (drawAutopilotLine); the older answers
+  // stay in the daily notes.
+  fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawHandsLine(handsLine), isPilot ? null : drawWithPartner(state), isPilot ? null : drawDecidedForYou(state), ...recaps])
   // T20: the Product owner's recap card is the first card, the dashed "Autopilot cleared" line right under it.
   const firstCards = [recapAttention === null ? null : drawRecapAttention(recapAttention), recapMaking === null ? null : drawRecapMaking(recapMaking), cleared === null ? null : drawClearedLine(cleared)].filter(one => one !== null)
   if (firstCards.length > 0) box.prepend(...firstCards)
@@ -17630,10 +17712,14 @@ function autopilotWords(isOn) {
     : 'Questions come to you as before.'
 }
 
-/** Autopilot: the quiet line on top of Needs your attention while it is on, or null: "Autopilot is on · decided for you today: 3". */
+/**
+ * Autopilot: the quiet line on top of Needs your attention while it is on, or null. Autopilot v2 (the person's "B", 2026-11-02:
+ * "Decided for you" folds to one line with today's count only): "Autopilot decided 3 today →", which takes the place of the list
+ * "Decided for you" while it is on; it opens the partner's daily note, where each answer keeps its Undo.
+ */
 function autopilotLineText(autopilot) {
   if (autopilot === null || autopilot === undefined || autopilot.on !== true) return null
-  return `Autopilot is on · decided for you today: ${Number.isInteger(autopilot.decidedToday) ? autopilot.decidedToday : 0}`
+  return `Autopilot decided ${Number.isInteger(autopilot.decidedToday) ? autopilot.decidedToday : 0} today →`
 }
 
 /** Autopilot: one line per ask that waits for the recap: its question, its picture, its step; each opens the ask's window. */

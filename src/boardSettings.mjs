@@ -2,8 +2,9 @@
 // guard calls for goes ahead without the person's yes (`approveRebuilds`). B-max (the person, 2026-10-28: "make the worker
 // limit configurable in the settings default is 5."): `maxWorkers`, how many workers the board starts at most, a whole
 // number from 1 to 10. Autopilot (the person, 2026-10-31, src/work/autopilot.mjs): `autopilot`, on or off. While it is on,
-// "Approve rebuilds by itself" is hidden: a goal stuck after the guard's tries is the person's (the coordinator's ruling,
-// 2026-10-31): no rebuild approves itself, so it acts as off. Every reader of `approveRebuilds` reads it through
+// "Approve rebuilds by itself" is hidden: no rebuild approves itself (the coordinator's ruling, 2026-10-31), so it acts as off;
+// the partner files its "Rebuild G<n>:" ask, and since Autopilot v2 (the person's "B", 2026-11-02) the board takes its advice
+// for the focus goal (a rebuild of another goal is the person's). Every reader of `approveRebuilds` reads it through
 // `rebuildsApproved`. The recaps of finished work (B360) go where Autopilot says (`recapsShowOf`).
 
 import { DEFAULTS } from './config.mjs'
@@ -18,7 +19,7 @@ export const PANEL_SETTINGS = { approveRebuilds: [false, true], routingMode: ['o
 
 /**
  * Whether a rebuild the goal guard calls for goes ahead without the person's yes: the person's own "Approve rebuilds by
- * itself", which acts as off while Autopilot is on (a stuck goal's "Rebuild G<n>:" ask is the person's).
+ * itself", which acts as off while Autopilot is on (a stuck goal's "Rebuild G<n>:" ask is filed; Autopilot v2 takes its advice).
  */
 export const rebuildsApproved = config => config?.autopilot !== true && config?.approveRebuilds === true
 /**

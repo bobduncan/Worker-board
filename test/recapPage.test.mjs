@@ -164,7 +164,8 @@ test('B569: a card reads its title, bold Context and Change, the picture, then o
 test('the wiring: the cards after the questions, the clicks through the answer forms, the daily note\'s card, the look', () => {
   assert.match(script, /const recaps = shownRecaps\(state, showsClosed\(\)\)\.map\(recap => drawRecap\(recap, state\)\)/)
   // B466: the partner's lines stand between the cards and the recaps.
-  assert.match(script, /\.\.\.cards, drawWithPartner\(state\), drawDecidedForYou\(state\), \.\.\.recaps\]\)/)
+  // Autopilot v2 (on purpose): the hands line after the cards; the partner's lines only while Autopilot is off.
+  assert.match(script, /\.\.\.cards, drawHandsLine\(handsLine\), isPilot \? null : drawWithPartner\(state\), isPilot \? null : drawDecidedForYou\(state\), \.\.\.recaps\]\)/)
   assert.match(script, /if \(id\.startsWith\('recap:'\)\) \{\s+const sent = recapSend\(need, verdict, text\)\s+return sent\.ok \? sendWork\(sent\.body, id\) : fail\(id, sent\.why\)/)
   // B390: Overturn opens the box through the answer forms' [data-open]; Cancel closes it and drops the words.
   assert.match(script, /if \(event\.target\.closest\('\[data-cancel\]'\) !== null\) \{\s+openForms\.delete\(id\)\s+drafts\.delete\(id\)\s+problems\.delete\(id\)\s+redrawNeeds\(\)\s+redrawFocus\(\)\s+return\s+\}/)

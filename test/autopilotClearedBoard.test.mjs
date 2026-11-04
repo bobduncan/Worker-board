@@ -112,7 +112,7 @@ test('switching Autopilot on moves the asks the focus recap asks into the recap,
   // What the first switch-on left with the person (the live Q569 and Q578), and a question that stands for them for real.
   await writeFile(join(work, 'Q1.md'), askFile('Q1', { Title: `Open the recap and try it: [Open the recap](http://127.0.0.1:4314/#demo=${RECAP}).`, Owner: 'Digger', Asks: 'do', Route: 'person' }, `Open the recap and try it: [Open the recap](http://127.0.0.1:4314/#demo=${RECAP}).`, true))
   await writeFile(join(work, 'Q2.md'), askFile('Q2', { Title: 'Is 68 good enough for this map, or should the 75 target be reset for this panel?', Owner: 'Digger', Asks: 'look', Pictures: 'pictures/B12/evidence.png', Advice: 'accepting it', Route: 'person' }, 'Is 68 good enough for this map, or should the 75 target be reset for this panel? I advise accepting it.', true))
-  await writeFile(join(work, 'Q3.md'), askFile('Q3', { Title: 'Which spade for the hedge?', Owner: 'Digger', Asks: 'provide' }, 'Which spade for the hedge?', false))
+  await writeFile(join(work, 'Q3.md'), askFile('Q3', { Title: 'Which spade to pay for, for the hedge?', Owner: 'Digger', Asks: 'provide' }, 'Which spade to pay for, for the hedge?', false))
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'cleared', project, port, gamePort: 7342, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }, null, 2))
   await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc') })
@@ -139,7 +139,8 @@ test('switching Autopilot on moves the asks the focus recap asks into the recap,
   // On: the sweep moves Q1 and Q2 into the recap at once; the settings answer does not wait for the Advisor.
   const switched = await asPerson('/api/settings', { key: 'autopilot', value: true })
   assert.equal(switched.status, 200, switched.body)
-  // (Q3 is only a question for the person: the pass gives it its route, the person's own.)
+  // (Q3 is only a question for the person: the pass gives it its route, the person's own. Autopilot v2, on purpose: money, the
+  // person's hands; a plain provide the partner decides now.)
   assert.deepEqual(await Promise.all(['Q1', 'Q2', 'Q3'].map(id => head(id, 'Route'))), ['recap', 'recap', 'person'])
   assert.equal(await head('Q2', 'Of'), 'B12')
   const record = await file('autopilot-cleared.json')

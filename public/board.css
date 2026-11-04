@@ -336,6 +336,13 @@ button, textarea, select { font: inherit; color: inherit; }
 .autopilot-line { margin: 0 0 8px; font-size: 13px; }
 .autopilot-line a { color: var(--muted); text-decoration: none; }
 .autopilot-line a:hover { text-decoration: underline; }
+/* Autopilot v2: the one quiet line of what only the person's hands can do; the attention colour only when one blocks a step. */
+.hands-line { margin: 6px 0 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.hands-line-head { color: var(--text); font-weight: 600; }
+.hands-line a { color: var(--text); text-decoration: none; }
+.hands-line a:hover { text-decoration: underline; }
+.hands-line.is-blocking { border-color: var(--attn-line); background: var(--attn-bg); }
+.hands-line.is-blocking .hands-line-head { color: var(--attn-text); }
 .autopilot-setting .cpu-count { max-width: 30em; }
 /* 2026-11-01 (the person: "a little tooltip next to the autopilot setting with making it clear what is and isnt being signalled"):
    the small "ⓘ" right of the Autopilot label. A click (Enter, Space) opens a calm box (no attention colour: it is information)

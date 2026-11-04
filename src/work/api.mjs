@@ -42,7 +42,7 @@ import { readAutopilotClearedFile, readNamesFile, readObsoleteFile, readPartnerA
 import { KEPT_WORDS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
-import { HANDED_KEPT_WORDS, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, partnerHandOverOf, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords } from './autopilot.mjs'
+import { HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, autopilotRoute, dropsStep, earlierCardWords, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, linksRecap, partnerHandOverOf, recapGoneWords, recapVerdictWords, refineAdviceOf, routedAt, routedWords, shortAnswer } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
@@ -424,7 +424,9 @@ function routedAsks(w) {
     const advice = valueOf(item, 'Advice')
     const of = valueOf(item, 'Of')
     const owner = valueOf(item, 'Owner')
-    return `- ${valueOf(item, 'Id')} ${valueOf(item, 'Asks') ?? 'decide'} from ${owner === null ? 'nobody' : bare(owner, w.prefix)}${of === null ? '' : ` on ${of}`}${valueOf(item, 'Blocking') === 'yes' ? ', blocking' : ''}: ${valueOf(item, 'Title') ?? ''}${options === null ? '' : ` · ${options}`}${advice === null ? '' : ` · advised: ${advice}`}`
+    // The person's "B" (2026-11-02): an ask the board routed to you on the person's earlier answer says which, and what it was.
+    const earlier = earlierOfCard(item, w.store.items)
+    return `- ${valueOf(item, 'Id')} ${valueOf(item, 'Asks') ?? 'decide'} from ${owner === null ? 'nobody' : bare(owner, w.prefix)}${of === null ? '' : ` on ${of}`}${valueOf(item, 'Blocking') === 'yes' ? ', blocking' : ''}: ${valueOf(item, 'Title') ?? ''}${options === null ? '' : ` · ${options}`}${advice === null ? '' : ` · advised: ${advice}`}${earlier === null ? '' : ` · the person's earlier answer on ${earlier.id}: "${shortAnswer(earlier.answer, 300)}" (answer it only if that clearly covers it, else escalate)`}`
   })
   const first = valueOf(routed[0], 'Id')
   return {
@@ -933,7 +935,9 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
     const joined = await joinOpenAskOf(w, of.item, kind, text, { anyKind: qaHeld !== null, options, advice, pictures, play, qa: qaHeld !== null })
     if (joined.found) return joined.done
   }
-  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route, pilot: pilot !== null, freed: isFreed })
+  // A worker's look with pictures of a step of the focus goal (the ruling on v2, 2026-11-02) is a kept look from its filing: its kept line.
+  const card = route === 'recap' && pilot?.kept === true ? KEPT_LOOK_WORDS : pilot?.earlier === undefined ? null : earlierCardWords(pilot.earlier)
+  const made = await makeAsk(w, { of: of.item, kind, blocking, text, options, advice, pictures, play, via, goal, route, pilot: pilot !== null, freed: isFreed, card })
   if (!made.ok) return made
   const { question, id, title } = made
   const stepId = isAlone ? null : valueOf(of.item, 'Id')
@@ -1053,7 +1057,7 @@ function askShape({ owner, kind, of = null, options = [], advice = '', via = nul
 }
 
 /** Autopilot: what the routing reads of the board: each chat's role, the store's items, the focus goal, the chats' title start. */
-const routeCtx = w => ({ roleOf: name => w.roleOf?.(name) ?? null, items: w.store.items, focusGoal: w.focusGoal ?? null, focusHasDemo: w.focusHasDemo === true, recapSteps: w.recaps ?? [], prefix: w.prefix ?? '' })
+const routeCtx = w => ({ roleOf: name => w.roleOf?.(name) ?? null, items: w.store.items, focusGoal: w.focusGoal ?? null, focusHasDemo: w.focusHasDemo === true, recapSteps: w.recaps ?? [], prefix: w.prefix ?? '', now: w.now })
 
 /** Autopilot: what the asking chat is told of an ask routed away from the person at once. */
 function autopilotFiledWords(id, route) {
@@ -1063,7 +1067,7 @@ function autopilotFiledWords(id, route) {
 }
 
 /** B299: writes a new ask `Q<n>` (under the step `of`, an item, or alone): `{ ok, question, id, title }`. */
-async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null, owner = undefined, pilot = false, freed = false }) {
+async function makeAsk(w, { of = null, kind, blocking = false, text, options = [], advice = '', pictures = [], play = '', via = null, goal = null, route = null, title: given = null, owner = undefined, pilot = false, freed = false, card = null }) {
   const id = await nextId(w.dir, 'Q', w.fs)
   // B452: the question its words lead with (a title over 12 words came from the mod's form or a "For you" block).
   // B462: a refine question gives its own, found before its advice.
@@ -1073,7 +1077,7 @@ async function makeAsk(w, { of = null, kind, blocking = false, text, options = [
     head: new Map([['Id', id], ['Kind', 'ask'], ['Title', title], ['State', 'open'], ['Owner', owner === null || w.role === 'person' ? '-' : w.who], ['Activity', of === null ? '-' : valueOf(of, 'Activity') ?? '-'],
       ['Since', stamp(w.now)], ['Filed', String(w.now)], ['Pictures', pictures.length === 0 ? '-' : pictures.join(', ')], ['Asks', kind], ['Blocking', blocking ? 'yes' : 'no'], ['Of', of === null ? goal ?? '-' : valueOf(of, 'Id')],
       ['Options', options.length === 0 ? '-' : options.join(' | ')], ['Advice', advice === '' ? '-' : advice], ['Via', via ?? '-'], ['Route', route ?? '-']].filter(([, value]) => value !== '-')),
-    sections: new Map([['Text', text], ...(play === '' ? [] : [['Play', [play]]])]),
+    sections: new Map([['Text', text], ...(play === '' ? [] : [['Play', [play]]]), ...(card === null ? [] : [['Route', [card]]])]),
     problem: null,
   })
   question = said(question, w, `asked (${kind}${blocking ? ', blocking' : ''}${via === 'form' ? ', with the app\'s question form' : via === 'refine' ? ', refining' : via === 'chat' ? ', from its "For you" block' : ''})${route === 'partner' ? ': to the partner first' : ''}`)
@@ -1386,7 +1390,14 @@ async function partnerAnswer(body, w) {
   const advice = valueOf(found.item, 'Advice')
   const text = given.length > 0 ? given : advice === null || isMain ? [] : [advice]
   if (text.length === 0) return refuse(400, isMain ? 'Say what you did in "text".' : 'Give your answer in "text" (normally the advice).')
-  return decideFor(found, { text, why, by: isMain ? 'main' : 'partner' }, w)
+  // The person's "B" (2026-11-02): the partner answers the board's Accept or send back card on the person's earlier answer. The
+  // card does what the person's own answer does (`acceptAnswer`: Accept ticks the step, Send back makes the next try from the
+  // note), so the answer is read first: a Send back without its note is refused before anything is written.
+  const card = valueOf(found.item, 'Via') === ACCEPT_VIA && !isMain ? acceptPlan(found.item, text) : null
+  if (card !== null && !card.ok) return card
+  const done = await decideFor(found, { text, why, by: isMain ? 'main' : 'partner' }, w)
+  if (!done.ok || card === null) return done
+  return { ok: true, result: { ...done.result, ...(await acceptAnswer(found.item, card, line(text.join(' '), 200), w, 'partner')) } }
 }
 
 /** Autopilot: how each decider is named in History, on the step and to the asking chat. */
@@ -1577,10 +1588,11 @@ async function routeAsk(id, to, w, card = null, step = null, { said = null, plac
  * waits for a recap whose step is of no focus goal any more goes to the person. While on, a step's open refine questions are
  * answered with their advice and the step goes on (`refines`: the board sends the refine word); a question without advice
  * goes back to the Advisor once per step. Answers `{ routed, answered, escalated, mainAsks, refines, wakes }`.
- * The switch-on (`body.sweep`, 2026-11-02; the person: "if autopilot is turned on, the outstanding, needing for attentions get
- * reevaluated and possible resolved if autopilot would answer them"): also judges anew the asks the board itself routed to the
- * person (autopilot.mjs `isBoardRoutedPerson`, never one somebody handed on) and routes them when the answer is anything but
- * the person; what it moved into the recap is kept for the Undo (autopilotCleared.mjs, `autopilot-cleared.json`).
+ * Every pass while on (the switch-on's sweep since 2026-11-02, every pass since Autopilot v2, the person's "B": "if autopilot is
+ * turned on, the outstanding, needing for attentions get reevaluated and possible resolved if autopilot would answer them") also
+ * judges anew the asks the board itself routed to the person (autopilot.mjs `isBoardRoutedPerson`, never one somebody handed on)
+ * and routes them when the answer is anything but the person; what the switch-on (`body.sweep`) moved into the recap is kept for
+ * the Undo (autopilotCleared.mjs, `autopilot-cleared.json`).
  */
 async function autopilot(body, w) {
   const on = body.on === true
@@ -1593,21 +1605,38 @@ async function autopilot(body, w) {
   const wakes = []
   // The partner's hand-overs this pass kept for the recap (the person's "A"): each is kept for the Undo, at every pass.
   const kept = []
+  // Autopilot v2: the asks this pass judged anew (they stood for the person): one it moved into the recap is kept for the Undo too.
+  const judgedAgain = new Set()
   if (on) {
     for (const item of openAsksAll(w)) {
       const route = valueOf(item, 'Route')
-      const isAgain = isSweep && isBoardRoutedPerson(item)
+      // Autopilot v2 (the person's "B", 2026-11-02: "autopilot doesnt help me enough i still get way too many signels"): every pass,
+      // not only the switch-on's sweep, judges anew an ask the board itself routed to the person (`isBoardRoutedPerson`), so what
+      // the new rule decides for them leaves Needs your attention; never one a chat or the partner handed on, nor the person's
+      // take-back (their words stand on its card).
+      const isAgain = isBoardRoutedPerson(item)
       if (valueOf(item, 'Via') === 'refine') continue
       if (!isAgain && (isAutopilotRouted(item) || (route !== null && !(route === 'person' && !isExplicitPerson(item))))) continue
       const decided = autopilotRoute(item, isAgain ? { ...ctx, again: true } : ctx)
       if (isAgain && decided.to === 'person') continue
-      let done = await routeAsk(valueOf(item, 'Id'), decided.to, w, null, decided.step ?? null)
+      // The review's ruling (2026-11-04): a pass never answers with the advice an ask that stood for the person (they may have it
+      // open, as Q598 after a focus switch); the advice is taken only at the filing and at the switch-on's sweep.
+      if (isAgain && !isSweep && decided.to === 'advice') continue
+      // A worker's look with pictures of the focus goal (the ruling on v2, 2026-11-02) is kept as the partner's hand-over is: its kept
+      // line, put under the step its picture names, its step goes on; read anew, as the hand-overs below are.
+      let done = decided.kept === true
+        ? await routeAsk(valueOf(item, 'Id'), 'recap', await freshOf(w), KEPT_LOOK_WORDS, decided.step ?? null, { placed: PLACED_BY_PICTURE, freesStep: true })
+        : await routeAsk(valueOf(item, 'Id'), decided.to, w, decided.earlier === undefined ? null : earlierCardWords(decided.earlier), decided.step ?? null)
       // A step the recap names that the store cannot give: the ask is the person's, as before.
       if (!done.ok && decided.step !== undefined) {
         decided.to = 'person'
         done = await routeAsk(valueOf(item, 'Id'), 'person', w)
       }
       if (done.ok) routed.push({ id: valueOf(item, 'Id'), to: decided.to })
+      if (done.ok && decided.kept === true && done.wake !== null && done.wake !== undefined) wakes.push(done.wake)
+      // One that stood for the person is kept for the Undo: a kept look as "kept for your recap", any other recap move as moved.
+      if (done.ok && isAgain && decided.kept === true && decided.to === 'recap') kept.push(valueOf(item, 'Id'))
+      else if (done.ok && isAgain) judgedAgain.add(valueOf(item, 'Id'))
     }
     // The partner's hand-over of a look (the person's "A", 2026-11-02, the live Q590: "Why is he asking me for it. this is autopilot
     // is turned on correct?"), at every pass: one that stands for the person because the partner escalated it, and that a new look
@@ -1695,11 +1724,12 @@ async function autopilot(body, w) {
     }
   }
   // The switch-on keeps what it moved into the recap (the page: "Autopilot cleared N", with an Undo for a day); every pass keeps the
-  // partner's hand-overs it kept for the recap (the person's "A", 2026-11-02): they stood for the person before.
+  // partner's hand-overs it kept for the recap (the person's "A", 2026-11-02), and (Autopilot v2) what it judged anew into the recap:
+  // they stood for the person before. What it decided otherwise has its own Undo (the daily note's).
   let clearedWhy = null
   const titleOf = id => valueOf(w.store.items.get(id), 'Title') ?? id
   const moved = [
-    ...(isSweep ? routed.filter(one => one.to === 'recap' && !kept.includes(one.id)).map(one => clearedItem(one.id, titleOf(one.id), 'recap', MOVED_WORDS)) : []),
+    ...routed.filter(one => one.to === 'recap' && !kept.includes(one.id) && (isSweep || judgedAgain.has(one.id))).map(one => clearedItem(one.id, titleOf(one.id), 'recap', MOVED_WORDS)),
     ...kept.map(id => clearedItem(id, titleOf(id), 'recap', KEPT_WORDS)),
   ]
   if (moved.length > 0) {
@@ -1739,6 +1769,9 @@ async function refineByAdvice(stepId, asks, w) {
     const index = questionIndex(questions, ask, w)
     if (index < 0 || / Answer: /.test(questions[index]) || dropsStep(questions[index], stepId)) continue
     const { answer } = refineAdviceOf(questions[index])
+    // The re-review of v2 (2026-11-04): an advice the board never takes (the person's hands, a goal's start, a focus switch, a
+    // rebuild, a goal's verdict, what they meant): the question stays with the person, as today's refine question.
+    if (answer !== null && refineStaysPersonsOf(questions[index], stepId, w.focusGoal ?? null) !== null) continue
     if (answer !== null) took.push({ index, answer, ask })
     else if (!sentBefore) back = true
   }
@@ -1852,6 +1885,16 @@ async function takeBack(ask, body, w) {
     if (stateOf(ask.item) === 'open' && routeLines.some(one => / you took it back$/.test(one))) return { ok: true, result: { id, text: 'Taken back already.', changed: false, asked: true } }
     return refuse(409, `${id} is no answer of your partner's: there is nothing to take back.`)
   }
+  // The review of Autopilot v2 (2026-11-04: the Undo of the partner's Accept led nowhere, its step stayed done and the reopened card
+  // was withdrawn a minute later): the Undo of an Accept that ticked the card's step moves the step back to review, so the card
+  // stands for the person again; when the flow lets nobody move it back, the Undo refuses with one line and changes nothing.
+  const of = valueOf(ask.item, 'Of')
+  const ticked = w.store.items.get(of ?? '')
+  const reopens = valueOf(ask.item, 'Via') === ACCEPT_VIA && acceptReading(ask.item.sections.get('Answer') ?? []) === 'accept' && ticked !== undefined && stateOf(ticked) === 'done'
+  if (reopens) {
+    const back = move(ticked, 'review', 'person', w, flowCtx(w, [ticked]))
+    if (!back.ok) return refuse(409, `${id} cannot be taken back: its Accept closed ${of}, and the flow lets nobody move a done step back to review (${back.why}). Nothing changed.`)
+  }
   if (body.check === true) return { ok: true, result: { id, text: 'It may be taken back.', changed: false, asked: false, undo: { ask: id, note: noteId } } }
   // The review's findings: the note's line is marked first; a note that cannot be marked fails the take-back loudly,
   // and nothing changes, so its Undo stays.
@@ -1880,9 +1923,13 @@ async function takeBack(ask, body, w) {
   item.sections.delete('Why')
   item.sections.set('Route', [`${had}: ${answered}; you took it back`])
   item = ordered(said(item, w, `took back the ${by === 'autopilot' ? 'board\'s Autopilot' : by === 'main' ? 'main chat\'s' : 'partner\'s'} answer: ${answered}; open for the person`))
-  const of = valueOf(ask.item, 'Of')
   const done = await answerStep(w, item, ask.text, of, step => {
     let mine = said(underStep(step, [`${id}: the person took back the partner's answer on ${at(w.now)}; it waits for their answer`]), w, `${id} taken back`)
+    // Its Accept undone: back to review, as the flow allowed above (the step read anew; one no longer done stays as it is). Its line
+    // is no "done → review": every reader of a report (a move to review) would take it for a new report and ask its check anew.
+    if (reopens && stateOf(mine) === 'done' && move(mine, 'review', 'person', w, flowCtx(w, [item, mine])).ok) {
+      mine = appendHistory(put(put(copy(mine), 'State', 'review'), 'Since', stamp(w.now)), w.who, `back in review: the Accept in ${id} is undone`, w.now)
+    }
     // A step its holder blocked on this ask waits on the person again, as when it asked.
     const owner = valueOf(mine, 'Owner')
     if (valueOf(ask.item, 'Blocking') === 'yes' && stateOf(mine) === 'in progress' && owner !== null && asker !== null && plain(owner, w.prefix) === plain(asker, w.prefix)) {
@@ -3875,18 +3922,20 @@ async function answer(body, w) {
  * board's refine word takes their words to the partner, who refines it (refineGate.mjs; the rule open-fix watches it) and
  * the step waits for that fix. `{ accepted }` or `{ fix }`.
  */
-async function acceptAnswer(ask, card, short, w) {
+async function acceptAnswer(ask, card, short, w, by = 'person') {
   const id = valueOf(ask, 'Id')
+  // The partner's answer on the person's earlier choice (the person's "B", 2026-11-02) does the same, as the partner's, with its Undo on the ask.
+  const who = by === 'partner' ? 'for you by your partner' : 'by you'
   const fresh = { ...w, role: 'person', store: { ok: true, dir: w.dir, ...(await readStore(w.dir, w.fs)) } }
   const step = fresh.store.items.get(card.step)
   const score = step === undefined ? null : checkedOf(step)?.score ?? null
   if (card.reading === 'accept') {
-    const ticked = await tick({ id: card.step, verdict: `accepted by you in ${id}${score === null ? '' : ` at ${score}`}: ${short}` }, fresh)
+    const ticked = await tick({ id: card.step, verdict: `accepted ${who} in ${id}${score === null ? '' : ` at ${score}`}: ${short}` }, fresh)
     return ticked.ok ? { accepted: card.step } : { accepted: null, acceptRefused: ticked.why }
   }
   if (step === undefined || stateOf(step) !== 'review') return { fix: null }
   const made = await fixStep(step, [{ text: line(card.note, 1000) }], fresh, undefined, '', {
-    open: true, context: `Fix of ${card.step}: you sent it back in ${id}${score === null ? '' : ` at ${score}`}, after its fix was dropped.`, history: `made by your Send back in ${id}, open: the partner refines it from your words`,
+    open: true, context: `Fix of ${card.step}: ${by === 'partner' ? 'your partner sent it back for you' : 'you sent it back'} in ${id}${score === null ? '' : ` at ${score}`}, after its fix was dropped.`, history: `made by ${by === 'partner' ? 'your partner\'s' : 'your'} Send back in ${id}, open: the partner refines it from ${by === 'partner' ? 'the' : 'your'} words`,
   })
   return { fix: made.ok ? made.id : null, ...(made.ok ? {} : { fixRefused: made.why }) }
 }

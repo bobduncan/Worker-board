@@ -45,7 +45,8 @@ test('B466: a click opens or closes it, and the page remembers it', () => {
 
 test('B466: what needs you comes first; the partner\'s lines after it; the badge counts only what needs you', () => {
   const draw = cut('function drawNeeds(state)', '/** Who runs and who was asked')
-  assert.match(draw, /\.\.\.oldCards, drawRefineNeeds\(state\), \.\.\.cards, drawWithPartner\(state\), drawDecidedForYou\(state\), \.\.\.recaps\]\)/)
+  // Autopilot v2 (on purpose): the hands line comes right after the cards; while Autopilot is on the partner's lines are not drawn.
+  assert.match(draw, /\.\.\.oldCards, drawRefineNeeds\(state\), \.\.\.cards, drawHandsLine\(handsLine\), isPilot \? null : drawWithPartner\(state\), isPilot \? null : drawDecidedForYou\(state\), \.\.\.recaps\]\)/)
   const badge = draw.slice(draw.indexOf('const unanswered ='), draw.indexOf("$('needs-count')"))
   assert.ok(badge.length > 0)
   assert.ok(!/partnerDecided|withPartner/.test(badge), 'the partner\'s lines are not counted')

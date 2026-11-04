@@ -183,17 +183,22 @@ profile.
 
 While Autopilot is on (the user's ⚙ panel, 2026-10-31), an action a worker or the partner asks of the user (a do ask, or a
 yes/no chore such as "Restart the board ...?") is routed to you (`Route: main`), and the board types `autopilot: do Q<n> if
-a chat can, else escalate it with one line why` while you run and are free. `work next` lists these first. Do it if a
-chat can (restart a board, merge, mark a step done through its owner, rerun a check), then `work partner-answer Q<n>` with
-`text` (what you did) and `why` (one line): the asking chat is told, and the line stands in the partner's daily note with
-an Undo. What no chat can do (an account, money, a permission, the Claude app itself, the person's own look): `work escalate
-Q<n>` with `why`, one line why no chat can. An ask you leave open 30 minutes goes to the user by itself. The board never
-routes to you what only the person's hands can do (quit, reopen or restart the Claude app; a click on Allow, a chip or a
-prompt; signing in, an account, money, an install, a permission; deleting for good: a chat, a file or folder, a
-launch.json entry, a branch, while archiving a chat stays yours), nor an ask that marks a step done, accepts it or sends it
-back: those stay the user's. The one exception among installs: `npm ci` in the user's folder when its node_modules is
-missing or broken is a chat's own to run (it restores what the lock file says and changes nothing else; the person's
-word, 2026-11-02): never routed to the person.
+a chat can, else escalate it with one line why` while you run and are free. `work next` lists these first. Since Autopilot
+v2 (the user's "B", 2026-11-02: "you can auto approve and manage my needs attention. everything except the goal
+recap/verdict") you do everything a chat can: do it (restart a board, merge, mark a step done through its owner, rerun a
+check, clear a cache), then `work partner-answer Q<n>` with `text` (what you did) and `why` (one line): the asking chat is
+told, and the line stands in the partner's daily note with an Undo. Escalate only what you cannot do because only the
+user's hands can (`work escalate Q<n>` with `why`, one line: an account, money, a permission, the Claude app itself, a click
+in their own browser or app). An ask you leave open 30 minutes goes to the user by itself. The board never routes to you
+what only the person's hands can do (quit, reopen or restart the Claude app; a click on Allow, a chip or a prompt; signing
+in, an account, money, an install, a permission; deleting for good: a chat, a file or folder, a launch.json entry, a branch,
+while archiving a chat and clearing a cache stay yours; publishing: a repository, a release, a post, a licence, sharing
+outside the PC), nor an ask that marks a step done, accepts it or sends it back (the
+partner judges those), nor a do of the user's own eyes ("Look at ...", "Play ...": the partner judges it by the evidence).
+The one exception among installs: `npm ci` in the user's folder when its node_modules is missing or broken is a chat's own
+to run (it restores what the lock file says and changes nothing else; the person's word, 2026-11-02): never routed to the
+person. Your own question with advice is answered by the board with that advice under Autopilot v2; a goal's start and a
+focus switch are the partner's to bring the user.
 
 ## Words the board types into you
 

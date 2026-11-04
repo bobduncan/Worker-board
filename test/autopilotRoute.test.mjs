@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { PERSONS_HANDS, UNDER_STEP_HANDS, REFINE_BACK_WORDS, SENT_BACK, adviceAnswerOf, adviceOf, autopilotRoute, belowTarget, handsOf, isBoardRoutedPerson, isChore, isExplicitPerson, isGoalLevel, letteredOptions, recapVerdictWords, recapWaitIds, optionsOf, recapWaitOf, refineAdviceOf, routedWords, standsForPerson, waitsForRecap } from '../src/work/autopilot.mjs'
+import { KEPT_LOOK_WHY, PERSONS_HANDS, UNDER_STEP_HANDS, REFINE_BACK_WORDS, SENT_BACK, adviceAnswerOf, adviceOf, autopilotRoute, belowTarget, handsOf, isBoardRoutedPerson, isChore, isExplicitPerson, isGoalLevel, letteredOptions, recapVerdictWords, recapWaitIds, optionsOf, recapWaitOf, refineAdviceOf, routedWords, standsForPerson, waitsForRecap } from '../src/work/autopilot.mjs'
 import { routesToPartner } from '../src/work/partnerAnswers.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
@@ -55,73 +55,92 @@ const BUILDER_LOOK = ask('Q9', { Title: 'B37 asks for the edge shape the partner
 const LOOSE_LOOK = ask('Q10', { Title: 'Is 68 beside the other map\'s 64 good enough, or should the 75 target be reset?', Owner: 'Painter', Asks: 'look', Advice: 'accepting it and keeping 75', Via: 'chat', Pictures: 'pictures/B24/evidence.png' })
 const PLAY_LOOK = ask('Q11', { Title: 'Does the repainted keep look right in play? I advise yes.', Owner: 'Painter', Asks: 'look', Advice: 'yes', Via: 'chat' })
 
-test('the eleven asks of the day, by the rulings of 2026-10-31: chores to the main chat, looks below target to the recap, the rest the person\'s', () => {
+test('the eleven asks of the day, by the rulings of 2026-10-31 and Autopilot v2 (2026-11-02): chores to the main chat, looks below target to the recap, the rest decided for the person', () => {
   assert.equal(routeOf(RECAP_DO), 'person', 'the goal\'s recap (its demo) is the person\'s')
   assert.equal(routeOf(RESTART), 'main', 'a restart of a board asked as a yes/no question is a chore')
-  assert.equal(routeOf(MARK_DONE), 'person', 'marking a step done is never the main chat\'s')
+  // Autopilot v2 (the person's "B", 2026-11-02), on purpose: these were the person's before.
+  assert.equal(routeOf(MARK_DONE), 'partner', 'marking a step done is never the main chat\'s: the partner judges it')
   assert.equal(routeOf(REFINE_Q), 'advice', 'the Advisor\'s refine question with its advice, under its step')
-  assert.equal(routeOf(PARTNER_PICK), 'person', 'the partner\'s ask under no step')
-  assert.equal(routeOf(REBUILD), 'person', 'a rebuild of a goal is goal level')
+  assert.equal(routeOf(PARTNER_PICK), 'advice', 'the partner\'s ask under no step takes its advice')
+  assert.equal(routeOf(REBUILD), 'person', 'a rebuild of a goal that is not the focus (G15) is a goal\'s start')
   assert.equal(routeOf(ACCEPT), 'recap', 'an accept or send back below its target waits for the recap')
   assert.equal(routeOf(CHECKER_LOOK), 'recap', 'a look the step\'s checker asks waits for the recap')
   assert.equal(routeOf(BUILDER_LOOK), 'recap', 'a look of a step below its target waits for the recap')
-  assert.equal(routeOf(LOOSE_LOOK), 'person', 'a look below its target under no step')
-  assert.equal(routeOf(PLAY_LOOK), 'partner')
+  // The ruling on v2 (2026-11-02), on purpose: a worker's look with a picture of a step of the focus goal (B24) is kept for the recap.
+  assert.equal(routeOf(LOOSE_LOOK), 'recap', 'a look with a picture of the focus goal is kept for the recap')
+  assert.equal(routeOf(PLAY_LOOK), 'advice', 'a look with advice takes it (it went to the partner)')
 })
 
 test('the recap: only for a step of the focus goal whose demo is still to come or whose recap names it already', () => {
-  // The goal's demo is made (its Demo line) and no recap names B21: nothing would close it, so it is the person's.
-  assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusHasDemo: true }).to, 'person')
+  // The goal's demo is made (its Demo line) and no recap names B21: nothing would close it, so it is decided for the person (v2,
+  // on purpose: it was theirs): the Accept card goes to the partner, a look with advice takes it.
+  assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusHasDemo: true }).to, 'partner')
   assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B21', goal: 'G29' }] }).to, 'recap')
-  assert.equal(autopilotRoute(CHECKER_LOOK, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B99', goal: 'G29' }] }).to, 'person')
-  assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusGoal: null }).to, 'person')
+  // The checker's look carries a picture of B21, a step of the focus goal: kept for the recap (the ruling on v2, on purpose).
+  // Its words name "the goal recap": the recap's words count under a step too (the review, 2026-11-04, on purpose: it was kept for the
+  // recap as a look with pictures); the demo is made without its step, so it is the person's.
+  assert.deepEqual(autopilotRoute(CHECKER_LOOK, { ...ctx, focusHasDemo: true, recapSteps: [{ step: 'B99', goal: 'G29' }] }), { to: 'person', why: 'the goal\'s recap ("goal recap"), and the goal\'s demo is made without its step' })
+  assert.equal(autopilotRoute(ACCEPT, { ...ctx, focusGoal: null }).to, 'partner')
 })
 
-test('every row of the plan: partner, advice, recap, main and person', () => {
+test('every row of the plan: partner, advice, recap, main and person (Autopilot v2: what is not the person\'s is decided for them)', () => {
   const worker = (id, fields, text) => ask(id, { Owner: 'Painter', Asks: 'decide', ...fields }, text)
-  // partner: a decide or look with options or advice from a worker or the main chat; a decide without either.
-  assert.equal(routeOf(worker('Q20', { Title: 'Icons or words on the bar?', Options: 'A icons | B words', Advice: 'A' })), 'partner')
-  assert.equal(routeOf(worker('Q21', { Title: 'Which bar colour?', Owner: 'Lead', Advice: 'blue' })), 'partner')
+  // advice (v2, on purpose: these went to the partner): a decide or look with advice from a worker or the main chat takes it.
+  assert.equal(routeOf(worker('Q20', { Title: 'Icons or words on the bar?', Options: 'A icons | B words', Advice: 'A' })), 'advice')
+  assert.equal(routeOf(worker('Q21', { Title: 'Which bar colour?', Owner: 'Lead', Advice: 'blue' })), 'advice')
+  // partner: a decide without advice, with options or not.
   assert.equal(routeOf(worker('Q22', { Title: 'How tall should the bar be?' })), 'partner', 'the partner decides a decide without options')
-  // advice: the partner's or the Product owner's own ask with advice, under a step; under no step, or without advice, the person's.
+  assert.equal(routeOf(worker('Q19', { Title: 'Icons or words on the bar?', Options: 'A icons | B words' })), 'partner', 'options without advice')
+  // The Product owner answers for the goal: its advice under a step is taken; under no step its ask is the person's.
   assert.equal(routeOf(ask('Q23', { Title: 'Shorter names in the shop?', Owner: 'Keeper', Asks: 'decide', Of: 'B21', Advice: 'yes' })), 'advice')
   assert.equal(routeOf(ask('Q23', { Title: 'Shorter names in the shop?', Owner: 'Keeper', Asks: 'decide', Advice: 'yes' })), 'person')
-  assert.equal(routeOf(ask('Q24', { Title: 'Shorter names in the shop?', Owner: 'Partner', Asks: 'decide', Of: 'B21' })), 'person')
+  // v2, on purpose: the partner's own ask without advice goes back to it (decide it yourself); it was the person's.
+  assert.equal(routeOf(ask('Q24', { Title: 'Shorter names in the shop?', Owner: 'Partner', Asks: 'decide', Of: 'B21' })), 'partner')
   // A refine question without advice goes back to the Advisor.
   assert.equal(routeOf(ask('Q25', { Title: 'Two rows or three?', Owner: 'Partner', Asks: 'decide', Of: 'B30', Via: 'refine' })), 'partner')
-  // recap: only for a step of the focus goal; another goal's (or none) is the person's.
-  assert.equal(routeOf(ask('Q26', { Title: 'Accept B23 at 60 of 75, or send it back?', Asks: 'decide', Of: 'B23', Via: 'accept', Options: 'A Accept | B Send back' })), 'person')
-  // A look of a step at or above its target is no recap wait.
-  assert.equal(routeOf(ask('Q27', { Title: 'Does the moat look right?', Owner: 'Painter', Asks: 'look', Of: 'B24', Advice: 'yes' })), 'partner')
+  // recap: only for a step of the focus goal; another goal's (or none) the partner judges (v2, on purpose: it was the person's).
+  assert.equal(routeOf(ask('Q26', { Title: 'Accept B23 at 60 of 75, or send it back?', Asks: 'decide', Of: 'B23', Via: 'accept', Options: 'A Accept | B Send back' })), 'partner')
+  // A look of a step at or above its target is no recap wait: its advice is taken (v2, on purpose: it went to the partner).
+  assert.equal(routeOf(ask('Q27', { Title: 'Does the moat look right?', Owner: 'Painter', Asks: 'look', Of: 'B24', Advice: 'yes' })), 'advice')
   // main: a do a chat can carry out, from a worker, the partner or the main chat; never the Product owner's.
   assert.equal(routeOf(ask('Q28', { Title: 'Merge B21 into main', Owner: 'Painter', Asks: 'do' })), 'main')
   assert.equal(routeOf(ask('Q29', { Title: 'Run the map export', Owner: 'Partner', Asks: 'do' })), 'main')
   assert.equal(routeOf(ask('Q30', { Title: 'Press Go under the plan', Owner: 'Keeper', Asks: 'do' })), 'person')
-  // Never the main chat's: marking a step done, accepting it, sending it back.
-  assert.equal(routeOf(ask('Q55', { Title: 'Tick B24 as done', Owner: 'Lead', Asks: 'do' })), 'person')
-  assert.equal(routeOf(ask('Q56', { Title: 'Accept B24 as it is', Owner: 'Painter', Asks: 'do' })), 'person')
-  assert.equal(routeOf(ask('Q57', { Title: 'Send B24 back for a rounder edge', Owner: 'Partner', Asks: 'do' })), 'person')
-  // person: goal level, what no chat can do, the app's form, a provide, a look with nothing to go by, the board's own card.
-  assert.equal(routeOf(ask('Q31', { Title: 'Which part first?', Owner: 'Partner', Asks: 'decide', Of: 'G29', Advice: 'A', Options: 'A walls | B pool' })), 'person')
+  // Never the main chat's: marking a step done, accepting it, sending it back (v2, on purpose: the partner judges it, it was the person's).
+  assert.equal(routeOf(ask('Q55', { Title: 'Tick B24 as done', Owner: 'Lead', Asks: 'do' })), 'partner')
+  assert.equal(routeOf(ask('Q56', { Title: 'Accept B24 as it is', Owner: 'Painter', Asks: 'do' })), 'partner')
+  assert.equal(routeOf(ask('Q57', { Title: 'Send B24 back for a rounder edge', Owner: 'Partner', Asks: 'do' })), 'partner')
+  // The focus goal mid-goal (v2, on purpose: it was goal level): its advice is taken; the goal guard's card the partner decides.
+  assert.equal(routeOf(ask('Q31', { Title: 'Which part first?', Owner: 'Partner', Asks: 'decide', Of: 'G29', Advice: 'A', Options: 'A walls | B pool' })), 'advice')
+  assert.equal(routeOf(ask('Q33', { Title: 'G29 failed 3 times: evaluate the strategy?', Asks: 'decide', Options: 'A yes | B no' })), 'partner')
+  // person: a goal's start, what no chat can do, the app's form.
   assert.equal(routeOf(ask('Q32', { Title: 'Is this the goal definition you want?', Owner: 'Keeper', Asks: 'decide', Advice: 'yes' })), 'person')
-  assert.equal(routeOf(ask('Q33', { Title: 'G29 failed 3 times: evaluate the strategy?', Asks: 'decide', Options: 'A yes | B no' })), 'person')
+  assert.equal(routeOf(ask('Q31', { Title: 'Which part first?', Owner: 'Partner', Asks: 'decide', Of: 'G7', Advice: 'A', Options: 'A walls | B pool' })), 'person', 'a goal that is not the focus')
   assert.equal(routeOf(worker('Q34', { Title: 'Sign in to the shop account?', Advice: 'yes', Options: 'A yes | B later' })), 'person')
   assert.equal(routeOf(worker('Q35', { Title: 'Restart the Claude app to load the new tool?', Advice: 'yes' })), 'person', 'an app restart no chat can do')
   assert.equal(routeOf(worker('Q36', { Title: 'Which colour?', Via: 'form', Options: 'A red | B blue', Advice: 'A' })), 'person')
-  assert.equal(routeOf(worker('Q37', { Title: 'The sound file for the shop', Asks: 'provide' })), 'person')
-  assert.equal(routeOf(worker('Q38', { Title: 'Does it feel right?', Asks: 'look' })), 'person')
-  assert.equal(routeOf(ask('Q39', { Title: 'A card of the board', Asks: 'decide' })), 'person')
+  // v2, on purpose (they were the person's): a provide, a look with nothing to go by and a card of the board the partner decides,
+  // or hands on; the board's own ask for an asset the person provides stands in the hands line.
+  assert.equal(routeOf(worker('Q37', { Title: 'The sound file for the shop', Asks: 'provide' })), 'partner')
+  assert.equal(routeOf(worker('Q38', { Title: 'Does it feel right?', Asks: 'look' })), 'partner')
+  assert.equal(routeOf(ask('Q39', { Title: 'A card of the board', Asks: 'decide' })), 'partner')
+  assert.deepEqual(autopilotRoute(ask('Q40', { Title: 'Make the shop music', Asks: 'provide' }), ctx), { to: 'person', why: 'only the person provides it (the board\'s asset ask)', hands: 'a file only you provide' })
 })
 
-test('the review\'s cases (2026-10-31): a goal, the focus, an approach, a setting, a standard or a licence under no step is the person\'s', () => {
+test('the review\'s cases (2026-10-31) under Autopilot v2: a goal\'s start, a focus switch and a publish are the person\'s; an approach, a setting or a standard takes its advice', () => {
   const partner = (id, title, more = {}) => ask(id, { Title: title, Owner: 'Partner', Asks: 'decide', Advice: 'A', ...more })
   // The live asks were under no step (Q366, Q411, Q361, Q133, Q112, Q436's words).
-  assert.deepEqual(autopilotRoute(partner('Q70', 'Make G42 the next focus?', { Advice: 'yes' }), ctx), { to: 'person', why: 'goal level ("G42")' })
-  assert.equal(routeOf(partner('Q71', 'Is the maps goal\'s approach right after 18 failed checks?')), 'person')
-  assert.equal(routeOf(partner('Q72', 'Apply the new goal map?', { Advice: 'yes' })), 'person')
-  assert.equal(routeOf(partner('Q73', 'Which board setting for the first rebuilds?', { Options: 'A off | B on' })), 'person')
-  assert.equal(routeOf(partner('Q74', 'Publish the repository under the MIT license?', { Advice: 'yes' })), 'person')
-  assert.equal(routeOf(partner('Q76', 'Add "ground that changes" to your map bar?', { Advice: 'yes' })), 'person', 'the person\'s standard')
+  assert.deepEqual(autopilotRoute(partner('Q70', 'Make G42 the next focus?', { Advice: 'yes' }), ctx), { to: 'person', why: 'a goal\'s start or a focus switch ("G42")' })
+  // The re-review (2026-11-04, on purpose: it was the person's): the focus-switch words count only with a goal's id in their sentence.
+  assert.deepEqual(autopilotRoute(partner('Q70', 'Make the maps goal the next focus?', { Advice: 'yes' }), ctx), { to: 'advice', why: 'a detail question: its advice is taken' })
+  assert.equal(routeOf(partner('Q72', 'Apply the new goal map?', { Advice: 'yes' })), 'person', 'the goal map: which goals there are')
+  // v2, on purpose (they were the person's): the person's "B" decides everything else for them, with Undo.
+  assert.equal(routeOf(partner('Q71', 'Is the maps goal\'s approach right after 18 failed checks?')), 'advice')
+  assert.equal(routeOf(partner('Q73', 'Which board setting for the first rebuilds?', { Options: 'A off | B on' })), 'advice')
+  // The coordinator's ruling on v2 (2026-11-02): publishing stays the person's, as their hands, under a step or not.
+  assert.deepEqual(autopilotRoute(partner('Q74', 'Publish the repository under the MIT license?', { Advice: 'yes' }), ctx), { to: 'person', why: 'only the person\'s hands: a publish ("Publish")', hands: 'a publish' })
+  assert.deepEqual(autopilotRoute(partner('Q74', 'Publish the repository under the MIT license?', { Advice: 'yes', Of: 'B21' }), ctx).hands, 'a publish')
+  assert.equal(routeOf(partner('Q76', 'Add "ground that changes" to your map bar?', { Advice: 'yes' })), 'advice', 'the person\'s standard')
   // The re-review's ruling: those words count only under no step; under a step the partner's advice is taken.
   assert.equal(routeOf(partner('Q77', 'Which settings page preview for the shop card?', { Of: 'B21', Options: 'A small | B large' })), 'advice')
   assert.equal(routeOf(partner('Q75', 'Two rows or three on the shop card?', { Of: 'B21', Options: 'A two | B three' })), 'advice')
@@ -133,21 +152,29 @@ test('the re-review\'s ruling: under a step, Autopilot On asks the person no mor
   const off = one => routesToPartner({ setting: { on: true }, role: 'worker', kind: one.head.get('Asks'), options: optionsOf(one).map(o => o.words), advice: adviceOf(one) ?? '', via: null })
   // Twins of the live Q125, Q234, Q401 and words like them: the partner's with Autopilot off, the partner's with it on.
   for (const title of ['Do the settings page\'s previews work the way you meant?', 'New approach for the crumbling tiles and vents?', 'Allow the painted outline to cut a cell by up to half?',
-    'Should the focus ring be gold?', 'Press the edge in by one pixel?', 'Click through the shop: does it read?', 'Take the old lava into account?', 'Pay attention to the moat\'s edge?',
-    'Keep the chip art for the cards?', 'Update the map to the G28 levels?']) {
+    'Should the focus ring be gold?', 'Take the old lava into account?', 'Pay attention to the moat\'s edge?', 'Update the map to the G28 levels?']) {
     const one = detail('Q90', title)
     assert.equal(off(one), true, title)
-    assert.equal(routeOf(one), 'partner', title)
-    assert.equal(routeOf(detail('Q91', title, { Asks: 'look' })), 'partner', `look: ${title}`)
+    // v2, on purpose: the board takes the advice the partner took (it went to the partner).
+    assert.equal(routeOf(one), 'advice', title)
+    assert.equal(routeOf(detail('Q91', title, { Asks: 'look' })), 'advice', `look: ${title}`)
+    assert.equal(routeOf(detail('Q91', title, { Advice: undefined })), 'partner', `no advice: ${title}`)
   }
+  // The re-review of v2 (2026-11-04, on purpose: the review had made them the person's): a click, a press or a chip of the game is no
+  // hands; only one on the Claude app, a prompt or dialog, "Allow", a permission, a chip or a chat is.
+  for (const title of ['Press the edge in by one pixel?', 'Click through the shop: does it read?', 'Keep the chip art for the cards?']) {
+    assert.equal(routeOf(detail('Q90', title)), 'advice', title)
+    assert.equal(routeOf(detail('Q91', title, { Advice: undefined })), 'partner', `no advice: ${title}`)
+  }
+  assert.equal(autopilotRoute(detail('Q90', 'Click "Allow" on the prompt in the Painter chat?'), ctx).hands, 'a click')
   // Only these whole phrases make a decide or look under a step the person's.
   for (const [title, name, phrase] of [['Quit and reopen the Claude app to load it?', 'the Claude app', 'Quit and reopen the Claude app'], ['Sign in to the art shop for the pack?', 'a sign-in', 'Sign in'],
     ['Log in to the font site?', 'a sign-in', 'Log in'], ['Use your account for the pack?', 'an account', 'your account'], ['Store the password in the settings?', 'a password', 'password'],
-    ['Pay for the bigger pack?', 'money', 'Pay'], ['Spend money on a sound pack?', 'money', 'money'], ['Delete the old branch?', 'a permanent delete', 'Delete'],
+    ['Pay for the bigger pack?', 'money', 'Pay for'], ['Spend money on a sound pack?', 'money', 'money'], ['Delete the old branch?', 'a permanent delete', 'Delete'],
     ['Reinstall the Workers mod?', 'an install', 'Reinstall the Workers mod'], ['Install the paint app?', 'an install', 'Install the paint app']]) {
-    assert.deepEqual(autopilotRoute(detail('Q92', title), ctx), { to: 'person', why: `only the person's hands: ${name} ("${phrase}")` }, title)
+    assert.deepEqual(autopilotRoute(detail('Q92', title), ctx), { to: 'person', why: `only the person's hands: ${name} ("${phrase}")`, hands: name }, title)
   }
-  assert.deepEqual(UNDER_STEP_HANDS.map(([name]) => name), ['the Claude app', 'a sign-in', 'an account', 'a password', 'money', 'a permanent delete', 'an install'])
+  assert.deepEqual(UNDER_STEP_HANDS.map(([name]) => name), ['the Claude app', 'a sign-in', 'an account', 'a password', 'money', 'a permanent delete', 'an install', 'a publish', 'a publish'])
   // A do under a step keeps the whole list: a click is the person's.
   assert.equal(routeOf(detail('Q93', 'Click Allow on the prompt', { Asks: 'do', Options: undefined, Advice: undefined })), 'person')
 })
@@ -169,16 +196,17 @@ test('what only the person\'s hands can do never goes to the main chat (twins of
   }
   // One list: a board button only the person presses, sign-in, an account, money, an install, a mod's change, a permission,
   // a password, the week's limit (the live store's closed asks of the week showed the board's buttons, a reinstall and a mod).
-  assert.deepEqual(PERSONS_HANDS.map(([name]) => name), ['the Claude app', 'a click', 'a click', 'a button of the board', 'a sign-in', 'an account', 'money', 'an install', 'a change of a mod', 'a permission', 'a password', 'the week\'s limit', 'a permanent delete'])
-  for (const [title, hands] of [['Log in to the seed shop', 'a sign-in'], ['Pay the hosting bill', 'money'], ['Install the image tool on this PC', 'an install'], ['Reinstall the packages in your game folder?', 'an install'],
-    ['Grant the folder permission', 'a permission'], ['Raise the weekly limit', 'the week\'s limit'], ['In Painter\'s chat, press "Turn them on" for the test mod', 'a click'],
+  assert.deepEqual(PERSONS_HANDS.map(([name]) => name), ['the Claude app', 'a click', 'a click', 'a button of the board', 'a sign-in', 'an account', 'money', 'an install', 'a change of a mod', 'a permission', 'a password', 'the week\'s limit', 'a permanent delete', 'a publish', 'a publish'])
+  for (const [title, hands] of [['Log in to the seed shop', 'a sign-in'], ['Pay the hosting bill', 'money'], ['Install the image tool on this PC', 'an install'], ['Reinstall the paint app on this PC?', 'an install'],
+    ['Grant the permission in the settings for the tool', 'a permission'], ['Raise the weekly limit', 'the week\'s limit'], ['In Painter\'s chat, press "Turn them on" for the test mod', 'a click'],
     ['B80 waits until you add it to the queue on the Backlog tab.', 'a button of the board'], ['Pin B59 to Painter on the worker board', 'a button of the board'], ['Update the Workers mod to 0.30 so this goes live?', 'a change of a mod']]) {
     assert.equal(routeOf(lead('Q99', title)), 'person', title)
     assert.equal(handsOf(lead('Q99', title)), hands, title)
   }
-  // A do only the person's eyes, ears or words carry out (live Q387, Q388, Q414, Q529, Q566): never the main chat's.
+  // A do only the person's eyes, ears or words carry out (live Q387, Q388, Q414, Q529, Q566): never the main chat's; v2 (on purpose:
+  // it was the person's) the partner judges it by the evidence.
   for (const title of ['Look at the picture.', 'Play the painted map.', 'Pick the geyser sound by ear on the sound board', 'Check the result if you like.', 'If you want it the other way, tell me in the chat itself.']) {
-    assert.deepEqual(autopilotRoute(lead('Q97', title), ctx), { to: 'person', why: 'the person\'s own eyes, ears or words' }, title)
+    assert.deepEqual(autopilotRoute(lead('Q97', title), ctx), { to: 'partner', why: 'the person\'s own eyes, ears or words: the partner judges it by the evidence' }, title)
   }
   // A restart of a board, a merge, a folder deleted, a line run in a terminal: a chat can do them.
   assert.equal(handsOf(RESTART), null)
@@ -237,7 +265,7 @@ test('an explicit Route: person stays the person\'s; a bare default one does not
   assert.equal(routeOf(handed), 'person')
   const bare = ask('Q41', { Title: 'Icons or words?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', Route: 'person' })
   assert.equal(isExplicitPerson(bare), false)
-  assert.equal(routeOf(bare), 'partner')
+  assert.equal(routeOf(bare), 'advice', 'v2: its advice is taken')
   // The board's own route to the person is somebody's word too.
   const routed = item({ Id: 'Q42', Kind: 'ask', Title: 'x', State: 'open', Route: 'person' }, { History: [`- ${at(5)} server: ${routedWords('person')}`] })
   assert.equal(isExplicitPerson(routed), true)
@@ -285,6 +313,8 @@ test('Needs your attention: a routed ask stands nowhere (a recap wait again once
   // On: a new one the board routes to the partner stands nowhere; one routed to the person stands.
   const fresh = ask('Q51', { Title: 'Icons or words?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', age: 1 })
   assert.equal(sp(fresh), false)
+  assert.equal(sp(ask('Q52', { Title: 'Rebuild G7: which way?', Owner: 'Partner', Asks: 'decide', Of: 'G7', age: 1 })), true)
+  // The person's decision of 2026-11-04 (REBUILD_IS_PERSONS, on purpose: the partner decided it): a rebuild of the focus goal too.
   assert.equal(sp(ask('Q52', { Title: 'Rebuild G29: which way?', Owner: 'Partner', Asks: 'decide', Of: 'G29', age: 1 })), true)
   // One the board could not route in ten minutes stands, so nothing is lost.
   assert.equal(sp(ask('Q53', { Title: 'Icons or words?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', age: 11 })), true)
@@ -342,23 +372,26 @@ test('the last re-check\'s probe5 (2026-10-31): every action, a yes/no chore und
       assert.ok(route.why.startsWith(`only the person's hands: ${name} ("`), route.why)
     }
   }
-  // A chore no hands are needed for still goes to the main chat; a detail decide under a step keeps the short list.
+  // A chore no hands are needed for still goes to the main chat; a detail decide under a step takes its advice (v2), after the whole
+  // list of the person's hands was read (the review, 2026-11-04).
   assert.equal(routeOf(chore('Restart the board so it shows the popup?')), 'main')
-  assert.equal(routeOf(ask('Q8', { Title: 'Keep the chip art on the cards?', Owner: 'Painter', Asks: 'decide', Options: 'A keep | B drop', Advice: 'A', Of: 'B24' })), 'partner')
+  assert.equal(routeOf(ask('Q8', { Title: 'Keep the gold frame on the cards?', Owner: 'Painter', Asks: 'decide', Options: 'A keep | B drop', Advice: 'A', Of: 'B24' })), 'advice')
 })
 
-test('the last re-check (2026-10-31): a look or decide that accepts a result, leaves its gap, approves it below its bar or sends it back is the person\'s, never the partner\'s', () => {
-  // The live Q520, a look under no step from a "For you" block.
+test('the last re-check (2026-10-31) under Autopilot v2: a look or decide that accepts a result, leaves its gap, approves it below its bar or sends it back waits for the focus goal\'s recap, else is decided for the person', () => {
+  // The live Q520, a look under no step from a "For you" block: v2, on purpose (it was the person's), the partner judges it; an
+  // accept never takes the advice (the review, 2026-11-04).
   const q520 = ask('Q520', { Title: 'Do you accept this look for now and leave the rest of the gap as a later step?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Via: 'chat' })
-  assert.deepEqual(autopilotRoute(q520, ctx), { to: 'person', why: 'the person\'s verdict on a result ("accept")' })
-  // Under a step of the focus goal: at its recap, by the recap's rule (of another goal: the person's).
+  assert.deepEqual(autopilotRoute(q520, ctx), { to: 'partner', why: 'a verdict on a result ("accept"): the partner decides it' })
+  assert.deepEqual(autopilotRoute(ask('Q520', { Title: 'Do you accept this look for now?', Owner: 'Painter', Asks: 'look', Via: 'chat' }), ctx), { to: 'partner', why: 'a verdict on a result ("accept"): the partner decides it' })
+  // Under a step of the focus goal: at its recap, by the recap's rule (of another goal: decided for the person).
   const under = more => ask('Q521', { Title: 'Leave the rest of the gap as a later step?', Owner: 'Painter', Asks: 'decide', Advice: 'yes', Of: 'B24', ...more })
-  assert.deepEqual(autopilotRoute(under(), ctx), { to: 'recap', why: 'the person\'s verdict on a result ("Leave the rest of the gap")' })
-  assert.equal(autopilotRoute(under({ Of: 'B23' }), ctx).to, 'person')
+  assert.deepEqual(autopilotRoute(under(), ctx), { to: 'recap', why: 'a verdict on a result ("Leave the rest of the gap")' })
+  assert.equal(autopilotRoute(under({ Of: 'B23' }), ctx).to, 'partner')
   assert.equal(routeOf(ask('Q522', { Title: 'Send the moat back for a rounder edge?', Owner: 'Painter', Asks: 'decide', Options: 'A yes | B no', Advice: 'A', Of: 'B24' })), 'recap')
-  // "Approve" only below its bar: at or above it, or with no score, it stays a detail for the partner.
-  assert.equal(routeOf(ask('Q523', { Title: 'Approve the moat at 70 of 75?', Owner: 'Painter', Asks: 'look', Advice: 'yes' })), 'person')
-  assert.equal(routeOf(ask('Q524', { Title: 'Approve the new icons on the bar?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Of: 'B24' })), 'partner')
+  // "Approve" only below its bar is a verdict (the partner's); at or above it, or with no score, a detail that takes its advice.
+  assert.equal(routeOf(ask('Q523', { Title: 'Approve the moat at 70 of 75?', Owner: 'Painter', Asks: 'look', Advice: 'yes' })), 'partner')
+  assert.equal(routeOf(ask('Q524', { Title: 'Approve the new icons on the bar?', Owner: 'Painter', Asks: 'look', Advice: 'yes', Of: 'B24' })), 'advice')
 })
 
 test('2026-11-02 (the person: "if autopilot is turned on, the outstanding, needing for attentions get reevaluated and possible resolved if autopilot would answer them"): an ask the focus goal\'s recap asks already waits for the recap', () => {
@@ -367,7 +400,7 @@ test('2026-11-02 (the person: "if autopilot is turned on, the outstanding, needi
   // The whole goal (the live Q569, a Do with a `#demo=` link): it waits for the person's Send in that recap.
   assert.deepEqual(autopilotRoute(RECAP_DO, withRows), { to: 'recap', why: 'the goal\'s recap asks it already' })
   // Before: no recap row of the focus goal, or the same words for the recap of a goal that is not the focus: as before, goal level.
-  assert.deepEqual(autopilotRoute(RECAP_DO, ctx), { to: 'person', why: 'goal level ("#demo=")' })
+  assert.deepEqual(autopilotRoute(RECAP_DO, ctx), { to: 'person', why: 'the goal\'s recap ("#demo=")' })
   assert.equal(autopilotRoute(RECAP_DO, { ...ctx, recapSteps: [{ step: 'B23', goal: 'G7', path: 'pictures/g7/recap/demo.json' }] }).to, 'person')
   assert.equal(autopilotRoute(RECAP_DO, { ...ctx, recapSteps: [{ step: 'B24', goal: 'G29', path: 'pictures/g29/other/demo.json' }] }).to, 'person', 'another recap file of the goal')
   assert.equal(autopilotRoute(RECAP_DO, { ...withRows, focusGoal: null }).to, 'person')
@@ -378,7 +411,7 @@ test('2026-11-02 (the person: "if autopilot is turned on, the outstanding, needi
   // keeps its old route, the person's (the live Q550: a worker's decide, advice yes, "Is the recap page what you wanted to see
   // before approving G60?": the Send must not close it unanswered).
   const linked = (id, more) => ask(id, { Title: 'Is the recap page what you wanted to see before approving G29? [recap](http://127.0.0.1:4999/#demo=pictures/g29/recap/demo.json)', Owner: 'Painter', Via: 'chat', ...more })
-  assert.deepEqual(autopilotRoute(linked('Q550', { Asks: 'decide', Advice: 'yes' }), withRows), { to: 'person', why: 'goal level ("#demo=")' })
+  assert.deepEqual(autopilotRoute(linked('Q550', { Asks: 'decide', Advice: 'yes' }), withRows), { to: 'person', why: 'the goal\'s recap ("#demo=")' })
   assert.equal(autopilotRoute(linked('Q551', { Asks: 'decide' }), withRows).to, 'person', 'a decide')
   assert.equal(autopilotRoute(linked('Q552', { Asks: 'look', Advice: 'yes' }), withRows).to, 'person', 'a look with advice')
   assert.equal(autopilotRoute(linked('Q553', { Asks: 'look', Options: 'A yes | B no' }), withRows).to, 'person', 'a look with options')
@@ -387,25 +420,32 @@ test('2026-11-02 (the person: "if autopilot is turned on, the outstanding, needi
   assert.equal(autopilotRoute(linked('Q556', { Asks: 'do' }), withRows).to, 'recap', 'a Do')
   // An ask of a step or of a goal with that link keeps its rule (the goal's recap is no step's), and the person's hands still win.
   assert.equal(autopilotRoute(ask('Q31', { Title: 'Open the recap and try it: [recap](http://127.0.0.1:4999/#demo=pictures/g29/recap/demo.json).', Owner: 'Partner', Asks: 'decide', Of: 'G29', Advice: 'yes' }), withRows).to, 'person')
-  assert.equal(autopilotRoute(ask('Q32', { Title: 'Click Approve in the recap: [recap](http://127.0.0.1:4999/#demo=pictures/g29/recap/demo.json).', Owner: 'Painter', Asks: 'do', Via: 'chat' }), withRows).to, 'person', 'a click is the person\'s hands')
+  // The re-review (2026-11-04, on purpose: a click was the person's hands): a click in the recap is no hands; the recap asks it already.
+  assert.equal(autopilotRoute(ask('Q32', { Title: 'Click Approve in the recap: [recap](http://127.0.0.1:4999/#demo=pictures/g29/recap/demo.json).', Owner: 'Painter', Asks: 'do', Via: 'chat' }), withRows).to, 'recap')
+  // The re-review: "the package reinstall" of a game folder (npm) and a folder's permission are a chat's, never the person's hands.
+  assert.equal(routeOf(ask('Q33', { Title: 'Reinstall the packages in your game folder?', Owner: 'Lead', Asks: 'do', Via: 'chat' })), 'main')
+  assert.equal(routeOf(ask('Q34', { Title: 'Grant the folder permission', Owner: 'Lead', Asks: 'do', Via: 'chat' })), 'main')
 
   // Its step (the live Q578, a look under no step whose picture is of B24): put under the step the recap names, first id of the words.
   assert.deepEqual(autopilotRoute(LOOSE_LOOK, withRows), { to: 'recap', why: 'its step\'s part of the goal\'s recap asks it already', step: 'B24' })
-  assert.deepEqual(autopilotRoute(LOOSE_LOOK, ctx), { to: 'person', why: 'a score below its target, under no step' }, 'no recap names B24: as before')
-  assert.equal(autopilotRoute(LOOSE_LOOK, { ...ctx, recapSteps: [{ step: 'B24', goal: 'G7', path: 'pictures/g7/recap/demo.json' }] }).to, 'person', 'B24 of another goal\'s recap')
+  // No recap names B24: its picture is of a step of the focus goal, so it is kept for the recap, put under B24 (the ruling on v2,
+  // 2026-11-02, on purpose: it was the person's, "a score below its target, under no step").
+  assert.deepEqual(autopilotRoute(LOOSE_LOOK, ctx), { to: 'recap', why: KEPT_LOOK_WHY, kept: true, step: 'B24' }, 'no recap names B24')
+  assert.equal(autopilotRoute(LOOSE_LOOK, { ...ctx, recapSteps: [{ step: 'B24', goal: 'G7', path: 'pictures/g7/recap/demo.json' }] }).kept, true, 'B24 of another goal\'s recap: B24 is the focus goal\'s in the store')
   const named = (more, words = null) => ask('Q33', { Title: 'Is the moat good enough as it is?', Owner: 'Painter', Asks: 'look', Via: 'chat', ...more }, words)
   assert.equal(autopilotRoute(named({ Pictures: 'pictures/B99/a.png, pictures/B24/b.png' }), withRows).step, 'B24', 'the first id a part of the recap names')
-  // Only its Pictures name the step (the review of 2026-11-02): a step named in its title or words is no reason to move it.
-  assert.equal(autopilotRoute(named({}, 'Is the moat good enough as it is? B24 shows it.'), withRows).to, 'person', 'its words name it: no')
-  assert.equal(autopilotRoute(named({ Title: 'Is B24 good enough as it is?' }), withRows).to, 'person', 'its title names it: no')
-  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B240/a.png' }), withRows).to, 'person', 'a longer id is no match')
+  // Only its Pictures name the step (the review of 2026-11-02): a step named in its title or words is no reason to move it. Not
+  // moved, a look without advice the partner judges (v2, on purpose: these were the person's).
+  assert.equal(autopilotRoute(named({}, 'Is the moat good enough as it is? B24 shows it.'), withRows).to, 'partner', 'its words name it: no')
+  assert.equal(autopilotRoute(named({ Title: 'Is B24 good enough as it is?' }), withRows).to, 'partner', 'its title names it: no')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B240/a.png' }), withRows).to, 'partner', 'a longer id is no match')
   // The step must be of the focus goal in the store too (B23 is G7's), else the pass would move the ask and hand it back at once.
   const odd = [{ step: 'B23', goal: 'G29', path: 'pictures/g29/recap/demo.json' }, { step: 'B24', goal: 'G29', path: 'pictures/g29/recap/demo.json' }]
-  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B23/a.png' }), { ...ctx, recapSteps: odd }).to, 'person', 'a step of another goal in the store')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B23/a.png' }), { ...ctx, recapSteps: odd }).to, 'partner', 'a step of another goal in the store')
   assert.equal(autopilotRoute(named({ Pictures: 'pictures/B23/a.png, pictures/B24/b.png' }), { ...ctx, recapSteps: odd }).step, 'B24', 'and the next id that fits is taken')
-  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B50/a.png' }), { ...ctx, recapSteps: [{ step: 'B50', goal: 'G29', path: 'pictures/g29/recap/demo.json' }] }).to, 'person', 'a step the store does not hold')
-  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Asks: 'provide' }), withRows).to, 'person', 'only a look or a decide')
-  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Owner: 'Partner' }), withRows).to, 'person', 'the partner\'s ask under no step stays the person\'s')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B50/a.png' }), { ...ctx, recapSteps: [{ step: 'B50', goal: 'G29', path: 'pictures/g29/recap/demo.json' }] }).to, 'partner', 'a step the store does not hold')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Asks: 'provide' }), withRows).to, 'partner', 'only a look or a decide')
+  assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Owner: 'Partner' }), withRows).to, 'partner', 'the partner\'s own look under no step: it decides it')
   assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Of: 'B21' }), withRows).to, 'recap', 'under a step it goes as before (the checker\'s look)')
   assert.equal(autopilotRoute(named({ Pictures: 'pictures/B24/b.png', Of: 'B21' }), withRows).step, undefined, 'and is put under no other step')
 })
@@ -417,7 +457,7 @@ test('2026-11-02: the sweep judges an ask the board itself routed to the person 
   assert.equal(isBoardRoutedPerson(own), true)
   assert.equal(isExplicitPerson(own), true, 'the board\'s own route is a person route as it stands')
   assert.equal(autopilotRoute(own, ctx).to, 'person')
-  assert.equal(autopilotRoute(own, { ...ctx, again: true }).to, 'partner', 'judged anew, a detail question goes to the partner')
+  assert.equal(autopilotRoute(own, { ...ctx, again: true }).to, 'advice', 'judged anew, a detail question takes its advice (v2)')
   const handed = routedBy({ Route: ['Your partner hands this to you: a new look is yours'] })
   assert.equal(isBoardRoutedPerson(handed), false)
   assert.equal(autopilotRoute(handed, { ...ctx, again: true }).to, 'person', 'handed on: never judged again')

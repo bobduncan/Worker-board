@@ -489,9 +489,13 @@ are asked when a goal starts, when it is ready, and for what no chat can do. Eve
 Undo."; Off, "Questions come to you as before."
 
 - **Needs your attention** shows only the asks routed to you and the board's own lines (limits, setup, the wake lines "No
-  chat is running ...", "Nobody could wake ...", the opener's "Opened ..."), with one quiet line on top: "Autopilot is on ·
-  decided for you today: <n>", which opens the partner's daily note. The header's "<n> wait for you" counts only those.
-  The Refine questions part shows none while the board answers them.
+  chat is running ...", "Nobody could wake ...", the opener's "Opened ..."), with one quiet line on top: "Autopilot decided
+  <n> today →" (Autopilot v2, 2026-11-02: it takes the place of the list "Decided for you" and of "With your partner"), which
+  opens the partner's daily note. What only your hands can do is no card but one quiet line under the cards, "Needs your
+  hands: <title> · <title> →" (each opens its ask; the attention colour only when one holds up a step). The Supervisor's
+  findings line is not there (it stays in the Supervisor's part), except for an alarm it hands to you: "Supervisor: one alarm
+  needs you". The header's "<n> wait for you" counts exactly what waits there: each card, the hands line and that alarm line
+  as one each. The Refine questions part shows none while the board answers them.
 - **Decided for you**: the board's taken advice and the main chat's actions stand in the partner's daily note beside the
   partner's answers, each with its Undo; a card says "Decided for you: A ..." or "The main chat did it: ...".
 - **Your recap is ready** (2026-11-01) at the top of the Focus page, under the head: while verdicts wait for you, a card with its
@@ -524,10 +528,21 @@ Undo."; Off, "Questions come to you as before."
   done for asking the goal demo, whose words ask a row of their own for them; "Did we reach the goal?" then shows, lists
   them first, and its Yes waits until the recap's approve or send back of those rows answered them. With Autopilot off
   they stand in Needs your attention again.
-- **Always yours**: goal questions (a goal, the focus, an approach, a setting, a licence, a stuck goal's "Rebuild G<n>:"
-  ask: Autopilot approves no rebuild), what only your hands can do (the Claude app, a click, a sign-in, an account, money,
-  an install, a permission, anything deleted for good: a chat, a file or folder, a launch.json entry, a branch; archiving
-  stays the main chat's), and marking a step done, accepting it or sending it back.
+- **Always yours** (Autopilot v2, the person's "B", 2026-11-02: "everything except the goal recap/verdict"): the goal's recap
+  and its verdicts (a recap row's verdict and the focus goal's own re-check too), a goal's start (its goal definition, work
+  blocks and Go; anything of a goal that is not the focus) and a switch of focus, under a step too, a goal's rebuild (your
+  decision of 2026-11-04), what only your hands can do (the Claude app, a click, a sign-in, an account, money: buying, a
+  price, credits, extra usage, a subscription; an install, a permission or allow rule, anything deleted or removed for good,
+  a cache too: a chat, a file or folder, a launch.json entry, a branch, archiving stays the main chat's; anything published
+  or made public: a repository, a release, a post, a licence, an upload, itch.io or Steam, sharing outside the PC), a
+  question about Fable, and what the partner or the main chat hands to you. Everything else is decided for you, with Undo: a
+  question with advice takes it when it is filed or at the switch-on (never an accept, a look with pictures, or what you
+  meant or said), the rest your partner decides (a look without advice, a "look at it" do, an Accept card or a mark done
+  that no recap of the focus goal takes); the board judges anew at every pass what it had routed to you itself, but never
+  answers such an ask with its advice then. A worker's or the main chat's look with pictures of a step of the focus goal (an
+  art or map look) is never decided: it is kept for the goal's recap, with or without advice. The Undo of your partner's
+  Accept puts its step back in review and the card back with you (a project's own flow.json needs the move done → review by
+  the person for it; without it the Undo says so and changes nothing).
 - **The task window** of an ask with the main chat or waiting for the recap names its route ("With the main chat
   (Autopilot)", "For your recap (Autopilot)") and where it stands.
 - The Focus page's switch "Your partner answers detail questions" reads "covered by Autopilot" while it is on.

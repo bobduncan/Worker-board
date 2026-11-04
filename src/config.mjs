@@ -148,7 +148,7 @@ export const DEFAULTS = {
    * Autopilot (the person, 2026-10-31: "i kind of want to have an option to autoapprove and only get bothered by real issues
    * and the product owner"): the work runs until a goal is ready; only goal-level questions and what no chat can do reach
    * the person, the rest is decided for them with Undo (src/work/autopilot.mjs). Off unless the person switches it on in the
-   * settings panel. While on, `approveRebuilds` reads as off: a stuck goal's rebuild is the person's, and the recaps of
+   * settings panel. While on, `approveRebuilds` reads as off: a stuck goal's rebuild is asked (Autopilot v2 takes its advice), and the recaps of
    * finished work gather under the partner's daily note (src/boardSettings.mjs). (An old `botherMe` in a config file is ignored.)
    */
   autopilot: false,

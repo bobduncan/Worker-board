@@ -64,9 +64,11 @@ const B22 = step('B22', { Title: 'Quality Assurance: B21 Round the pool', State:
 test('the sweep routes each open ask once, with one History line; one handed on stays; while off it routes nothing', async t => {
   const dir = await storeWith({
     B21, B22,
-    Q1: ask('Q1', { Title: 'Icons or words on the bar?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', Via: 'chat' }),
+    // Autopilot v2, on purpose: Q1 carries no advice (with it the board takes it), and Q3 rebuilds a goal that is not the focus (a
+    // rebuild of the focus goal with advice is taken too).
+    Q1: ask('Q1', { Title: 'Icons or words on the bar?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Via: 'chat' }),
     Q2: ask('Q2', { Title: 'Merge B21 into main', Owner: 'Painter', Asks: 'do', Via: 'chat' }),
-    Q3: ask('Q3', { Title: 'Rebuild G29: which way?', Owner: 'Partner', Asks: 'decide', Of: 'G29', Options: 'A walls | B pool', Advice: 'A' }),
+    Q3: ask('Q3', { Title: 'Rebuild G7: which way?', Owner: 'Partner', Asks: 'decide', Of: 'G7', Options: 'A walls | B pool', Advice: 'A' }),
     Q4: ask('Q4', { Title: 'Icons or words on the map?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', Route: 'person' }, null, { Route: ['Your partner hands this to you: a new look is yours'] }),
     Q5: ask('Q5', { Title: 'Which bar colour?', Owner: 'Painter', Asks: 'decide', Advice: 'blue', Route: 'partner' }),
   })
@@ -268,6 +270,22 @@ test('refine questions under Autopilot: with advice answered as "Take the advice
   t.after(() => rm(off, { recursive: true, force: true }))
   assert.deepEqual((await sweep(off, false)).result.refines, [])
   assert.deepEqual(needsIds({ ok: true, items: await read(off) }, false), ['Q40'])
+})
+
+test('the re-review of v2 (2026-11-04): a refine question whose advice names the person\'s hands, a focus switch or what they meant stays with them; the board takes the rest', async t => {
+  const Q1 = 'Two rows or three? A: two rows B: three rows. Advised: A — fits the screen'
+  const Q2 = 'Buy the sound pack for $12? A: yes B: no. Advised: A — the map needs it'
+  const Q3 = 'Switch the focus to G7 once this lands? Advised: yes'
+  const Q4 = 'Did you want the bar thinner? Advised: yes'
+  const dir = await storeWith({ B32: refining('B32', [Q1, Q2, Q3, Q4]), Q50: refineAsk('Q50', 'B32', Q1), Q51: refineAsk('Q51', 'B32', Q2), Q52: refineAsk('Q52', 'B32', Q3), Q53: refineAsk('Q53', 'B32', Q4) })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  // While young, the three the board leaves stand for the person at once; the one it answers stands nowhere.
+  assert.deepEqual(needsIds({ ok: true, items: await read(dir) }).sort(), ['Q51', 'Q52', 'Q53'])
+  const done = await sweep(dir)
+  assert.deepEqual(done.result.refines, [{ step: 'B32', took: ['Q50'], back: false }])
+  const items = await read(dir)
+  assert.deepEqual(['Q50', 'Q51', 'Q52', 'Q53'].map(id => field(items, id, 'State')), ['answered', 'open', 'open', 'open'])
+  assert.deepEqual(needsIds({ ok: true, items }).sort(), ['Q51', 'Q52', 'Q53'])
 })
 
 test('a chat\'s new ask is routed at once while Autopilot is on, and its chat is told where it went', async t => {
