@@ -437,12 +437,14 @@ export async function baseFault({ dir, base, name, run }) {
 
 /**
  * B598: for the repair rule base-equal, each repository of `repos` by its name (its folder's last part, as the check
- * names it): `{ name, base, equal }`, `equal` null where git did not answer.
+ * names it): `{ name, base, equal, unmerged }`, `equal` null where git did not answer.
  */
 export async function basesNow({ repos, run }) {
   return Promise.all(repos.map(async ({ dir, base }) => {
-    const [local, remote] = await Promise.all([run(['-C', dir, 'rev-parse', base]), run(['-C', dir, 'rev-parse', `origin/${base}`])])
-    return { name: nameOf(dir), base, equal: local === null || remote === null ? null : local.trim() === remote.trim() }
+    const [local, remote, unmerged] = await Promise.all([run(['-C', dir, 'rev-parse', base]), run(['-C', dir, 'rev-parse', `origin/${base}`]),
+      run(['-C', dir, 'for-each-ref', '--no-merged', base, '--format=%(refname:short)', 'refs/heads'])])
+    // B962: `unmerged` the local branches the base lacks (the repair rule merged-now), null where git did not answer.
+    return { name: nameOf(dir), base, equal: local === null || remote === null ? null : local.trim() === remote.trim(), unmerged: unmerged === null ? null : linesOf(unmerged) }
   }))
 }
 

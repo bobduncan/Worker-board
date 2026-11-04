@@ -2143,6 +2143,12 @@ step on "check pending" for good.
   that: a step in review whose last check failed only on such lines is checked again once each base equals its remote's
   (the view's `bases`, `basesNow`; the server-only action `recheck-base`, History "check run again: main of <repo>
   equals origin/main now"), once per failed check, without a new report. Tests: `test/supervisor/baseEqual.test.mjs`.
+- **Work on a branch not merged, merged later** (B962, the fix of X137: B944's check failed twice on 2 Nov because its branch was kept on
+  purpose; its commit reached main that night and nothing checked again for 33 hours): the repair rule `merged-now` checks a step
+  in review again, through the same `recheck-base` action (History "check run again: <branch> is on <base> now"), when its last
+  check failed only on "not merged" lines and the branch is no longer among the branches the base lacks (`basesNow`'s
+  `unmerged`: merged, or gone with its commits on the base). Once per failed check; git silent, a branch still unmerged or a
+  second fault leaves the step. Tests: `test/supervisor/mergedNow.test.mjs`.
 - **A restart** stops taking work (the Workers mod gets 503 "The board restarts: try again in a moment."), starts no
   new look, pass or check, and waits up to 10 s for the reconciler's pass and the running checks before it ends; it
   also ends when the page's connection drops before the answer is out.
@@ -5064,7 +5070,7 @@ makes the outcome: each fact is `pass`, `warn`, `back` or `fail` (`ACTIONS`), an
 |---|---|---|---|---|
 | `merged` | a `merged` commit a repository the board knows holds (several commits: each in its repository) | in every repository of the commits: its base equals its remote, the step's branch is gone (local and remote), no worktree of the step left; a result | the commit(s) in `merged` (one per repository, space between), what the person gets | base differs from its remote: **fail** (the repair `base-equal` checks again by itself once equal); branch or worktree left, a named commit no repository holds: **back**; git silent: **fail** |
 | `branch` | no commit named; the step's branch is, or was (reflog, remote), in one repository, and merged | as `merged`, in that repository | what the person gets (the commit is better) | as `merged` |
-| `unmerged` | the step's own branch, or a branch whose commits name the step, or one that adds the files the report names, is not merged into its base | none: it is not finished | - | **back**: "not merged: Your work for B<id> is on branch <name> (<n> commits) but not on <base>: merge it into <base>, then report again." |
+| `unmerged` | the step's own branch, or a branch whose commits name the step, or one that adds the files the report names, is not merged into its base | none: it is not finished | - | **back**: "not merged: Your work for B<id> is on branch <name> (<n> commits) but not on <base>: merge it into <base>, then report again." (the repair `merged-now` checks again by itself once the branch is merged or gone) |
 | `outside` | no branch of its own (none, the base, or one no repository ever had: B580), no commit a repository holds, and a file it names is there outside every repository | a file the result or Touches names is there, outside every repository | `merged` none; the files by their paths in the project | none there, a file in a repository, no file named: **back**; a Touches path or a path in the prose not there beside one that is: **warn** |
 | `moot` | no commit held, no branch of its own in a repository, and the result says nothing was changed: "No change: <why>" opening it or its Change ("Nothing new built:", "No change made:", "No new work:", "No file made:", "Moot:" read the same) | the reason; the result check judges it, never git or files | `merged` none; "No change: <the steps that built it, or the decision that made it moot>" | reason named: **warn** (it passes; the warning tells the result check "no change made: judge whether nothing was needed"); no reason: **back** |
 | `unknown` | none of the above: no repository holds the commit, the branch is in none, git did not answer | - | - | **fail**: "could not tell which repository B<id>'s work is in" (Principle 3: never a silent pass) |

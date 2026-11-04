@@ -610,6 +610,35 @@ function baseEqual(view) {
   return found
 }
 
+const NOT_MERGED_FAULT = /^not merged: Your work for \S+ is on branch (\S+) \(\d+ commits?\) but not on (\S+?):/
+
+/**
+ * B962 (X137: B944's report failed the board's check twice on "not merged" while its branch was kept on purpose; its commit
+ * reached main that night, and nothing checked again until the worker reported 33 hours later): a step in review whose last
+ * board check failed only on work on a branch not merged is checked again, without a new report, once that branch is merged
+ * into its base or gone (the view's `bases`, check.mjs `basesNow`: `unmerged` the branches the base lacks). Once per failed
+ * check (its key names the check's minute). A branch still unmerged, git silent, or another fault in the same check: nothing.
+ */
+function mergedNow(view) {
+  const { bases = [] } = view
+  const { steps } = factsOf(view)
+  if (!Array.isArray(bases) || bases.length === 0) return []
+  const found = []
+  for (const item of steps.filter(one => stateOf(one) === 'review')) {
+    const last = (item.sections?.get('History') ?? []).map(one => BOARD_CHECK.exec(String(one).trim())).filter(Boolean).at(-1)
+    if (last === undefined || last[2] !== 'failed') continue
+    const faults = String(last[3] ?? '').split('; ').map(one => one.trim()).filter(one => one !== '' && !one.startsWith('work in '))
+    const unmerged = faults.map(one => NOT_MERGED_FAULT.exec(one))
+    if (faults.length === 0 || unmerged.some(one => one === null)) continue
+    // Every repository must have answered, and none may still lack the branch's commits.
+    if (bases.some(repo => !Array.isArray(repo.unmerged)) || unmerged.some(one => bases.some(repo => repo.base === one[2] && repo.unmerged.includes(one[1])))) continue
+    const id = idOf(item)
+    const said = `${unmerged.map(one => one[1]).join(', ')} is on ${[...new Set(unmerged.map(one => one[2]))].join(', ')} now`
+    found.push(finding('merged-now', `merged-now ${id} ${last[1]}`, id, `${id}: its check failed only on work not merged, and ${said}`, { do: 'recheck', id, why: said }))
+  }
+  return found
+}
+
 /**
  * Every repair rule of the board's self-check, in the order the answer shows them. B590: `countsBy: 'key'` marks a rule
  * whose key names a pair (the step and what it waited on), so repair-repeats counts it by that key; without it a repair
@@ -629,6 +658,7 @@ export const REPAIR_RULES = [
   { id: 'incident-again', kind: 'repair', says: 'an incident with the Supervisor that gets no close and no fix step for over 2 hours, told to the person once', check: incidentAgain },
   { id: 'held-elsewhere', kind: 'repair', says: 'a step in progress over an hour while its worker is on another step, with nothing naming why', check: heldElsewhere },
   { id: 'base-equal', kind: 'repair', says: 'a step in review whose check failed only on its base branch against the remote\'s, now equal', check: baseEqual },
+  { id: 'merged-now', kind: 'repair', says: 'a step in review whose check failed only on work not merged, its branch now merged or gone', check: mergedNow },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
 ]
 

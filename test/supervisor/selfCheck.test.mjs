@@ -33,7 +33,7 @@ const of = (found, check) => found.filter(one => one.check === check)
 const checkedPass = { History: [`- ${stamp(ago(30))} server: check passed: merged`] }
 
 test('the list names every check once, with its words', () => {
-  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'closed-worker', 'partner-ask', 'unchecked', 'refine-again', 'incident-again', 'held-elsewhere', 'base-equal', 'worktrees'])
+  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'closed-worker', 'partner-ask', 'unchecked', 'refine-again', 'incident-again', 'held-elsewhere', 'base-equal', 'merged-now', 'worktrees'])
   // Signals change 6 (B915, Addendum 4): the repair fix-dropped is retired; the watch rule dropped-fix files the case once.
   assert.ok(RETIRED_RULES.some(one => one.id === 'fix-dropped'))
   assert.ok(CHECKS.every(one => typeof one.words === 'string' && one.words.length > 0))
