@@ -635,7 +635,7 @@ B<n>, ...)", and no worker gets it; the board types its `refine step` into your 
 step (`work refine`, then `work refined` with the what that starts with "Tried before:"). A newest fix of three tries
 or more at work without that line is an incident (the chain-long rule), which the Supervisor judges; its fix comes to you. An open fix you leave unrefined gets its
 word again after an hour, three words at most, and is an incident past an hour with its last word unanswered for 30 min
-(the open-fix rule, B667): the steps behind it wait in review until you refine it.
+(the open-fix rule, B667): the steps behind it wait in review until you refine it. Not while a `Rebuild G<n>` ask of its goal waits for the person (B985): the board types no refine word for such a fix until they picked.
 
 **A Stopped part is yours** (the user, 2026-10-26, "agreed"). A part counts as done only when it has a step that is done;
 a part whose steps were all dropped and none done reached nothing, and the Focus page shows it as "Stopped, nothing

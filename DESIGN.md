@@ -3892,7 +3892,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   new with no refine round written since it was made, over 60 min from then (`openFixMinutes`) and its newest refine word
   unanswered for 30 (`checkWordMinutes`); one case per fix, naming the words typed and "the board stopped asking" after
   BOARD_TRIES; its line reads "waits for its fix B<n>, not refined yet"; the refine gate types such a fix's word again
-  after an hour, `FIX_RETRY_MS`, up to BOARD_TRIES; a round with questions waits for the person and is no case). B664: the health
+  after an hour, `FIX_RETRY_MS`, up to BOARD_TRIES; a round with questions waits for the person and is no case; B985, X139: nor is a fix of a goal with an open ask titled `Rebuild G<n>` that covers it, the whole goal or the evaluated part (`rebuildHoldOf`, goalGuard.mjs, as B791 holds the evaluate word): the refine gate types no word for it and skips it, so the gate stays free (`refineQueue`, `state.rebuildHolds`), and once the ask is answered or withdrawn the hour counts from that close, not from the fix's Since). B664: the health
   summary judges a step in review as review-stuck, dropped-fix and review-held do, through one helper (`reviewLateOf`,
   with the supervisor's memory of when it first saw each key): a check whose QA task a worker is on, the person's open ask,
   a block by steps that all wait for the person alone (B916) and a hold the watch only just saw are not odd there either,

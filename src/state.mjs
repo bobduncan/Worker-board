@@ -59,7 +59,7 @@ import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitO
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, standingAsksOf } from './recapCard.mjs'
 import { recapRoundOf, reworkOf } from './recapRound.mjs'
-import { guardOf } from './goalGuard.mjs'
+import { guardOf, rebuildHoldsOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
 import { chatsByRole } from './oldMods.mjs'
@@ -2690,6 +2690,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
       return { file: config.goals, roots: goalMap.roots, problems: goalMap.problems, nodes: goalMap.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })), unlinked: unlinkedSteps(goalMap, backlog, config.advisorSuggestions) }
     })(),
     goalsFile: config.goals,
+    // B985: the fixes a goal's open Rebuild ask holds (the refine gate types no word for them).
+    rebuildHolds: workOk && goalMap !== null ? rebuildHoldsOf(goalMap.nodes, raw.work.items) : {},
     // B258: every ask under a goal of the map, and an answer the person has not read yet as a need under "Needs your
     // attention" (Done marks it read); the folder of the Advisor's long answers, where their More lines point.
     goalAsks: goalMap === null ? [] : goalAskList(goalMap),

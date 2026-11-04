@@ -27,6 +27,7 @@ import { NET_MS, STATES, UNANSWERED_WHY, envelopesOf } from '../../work/handover
 import { readingAgeMinutes } from '../../limits.mjs'
 import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
+import { rebuildHoldOf } from '../../goalGuard.mjs'
 import { DEAF_KEEP_MS } from '../../hearing.mjs'
 import { stallWords } from '../../stallWords.mjs'
 import { isHandTaken } from '../../hands.mjs'
@@ -695,7 +696,11 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     // past `openFixMinutes` once the newest refine word about it is older than `checkWordMinutes` (the board's retry,
     // refineGate.mjs FIX_RETRY_MS, had its chance), as review-stuck reads the check words.
     const key = `open-fix ${wait.end}`
-    const from = afterPause(view, wait.unrefined.since)
+    // B985 (X139): while the person's pick on a rebuild of the fix's goal is open, the fix waits for it by design (the refine
+    // gate types no word, goalGuard.mjs `rebuildHoldOf`); once it closed, the hour counts from the close.
+    const hold = rebuildHoldOf(view.items.get(wait.end), view.goals, view.items)
+    if (hold?.ask !== null && hold?.ask !== undefined) return not
+    const from = afterPause(view, Math.max(wait.unrefined.since, hold?.closedAt ?? 0))
     const ms = view.now - from - boardOffMs(view, from)
     const words = refineWordsOf(view, wait.end, wait.unrefined.since)
     const last = words.at(-1) ?? null
@@ -1289,7 +1294,7 @@ export const WATCH_RULES = [
   { id: 'dropped-fix', kind: 'watch', says: 'a step in review whose fix was dropped, with no new fix, no new check and no block for over 30 min', check: fixDropped, skips: SKIPS_ON_PAUSE },
   { id: 'review-held', kind: 'watch', says: 'a step in review whose chain of fixes ends in a fix the ready list holds, for too long', check: reviewHeld, skips: SKIPS_HELD },
   { id: 'chain-long', kind: 'watch', says: 'a chain of three tries or more whose newest fix names no "Tried before:" (a patch of the same way again)', check: chainLong },
-  { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30', check: openFix, skips: SKIPS_ON_PAUSE },
+  { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30 (not while the person\'s pick on a rebuild of its goal is open; then 60 min from the pick)', check: openFix, skips: SKIPS_ON_PAUSE },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress whose worker works on it for hours with no checkpoint', check: staleCheckpoint, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'handover-held', kind: 'watch', says: 'a worker on the hand-over sequence held (its clear, set or restart did not run) for over 10 min of running time', check: handoverHeld, skips: SKIPS_ON_PAUSE },

@@ -432,3 +432,38 @@ export function evaluationsDue(nodes, outbox, now, asks) {
   }
   return due
 }
+
+/**
+ * B985 (X139: B982, a fix in G29's chain, alarmed open-fix at 11:01 while the person's pick on the rebuild, Q627, waited by
+ * design): whether the fix `fix` (a store item) is held by a rebuild waiting for the person, as `evaluationsDue` holds the
+ * evaluate word since B791. Its goal is its own `Goal`, else its chain root's; a rebuild ask is one of that goal titled
+ * "Rebuild G<n>". The fix is covered when the goal's evaluation covers it (`evaluationCovers`: the whole goal with no
+ * "Evaluation part:", else the part its chain root is in; the other parts go on, B669). `items` the store's, a Map or an array.
+ * `{ ask, closedAt }`: `ask` the open Rebuild ask's id (held now), else null; `closedAt` when the newest one closed (ms),
+ * else null. Null when the fix has no goal, or no Rebuild ask covers it.
+ */
+export function rebuildHoldOf(fix, nodes, items) {
+  if (fix === undefined || fix === null) return null
+  const byId = byIdOf(items)
+  const id = fix.head.get('Id')
+  const goal = fix.head.get('Goal') ?? byId.get(rootOf(id, byId))?.head.get('Goal') ?? null
+  const node = goal === null ? undefined : (nodes ?? []).find(one => one.id === goal)
+  if (node === undefined || !evaluationCovers(node, byId, id)) return null
+  const rebuilds = rebuildAsksOf(node, [...byId.values()])
+  if (rebuilds.length === 0) return null
+  const open = rebuilds.find(isOpenAsk)
+  const closed = rebuilds.filter(one => !isOpenAsk(one)).map(one => historyOf(one).at(-1)?.[1]).filter(Boolean).map(sinceMs).filter(Number.isFinite)
+  return { ask: open === undefined ? null : open.head.get('Id'), closedAt: closed.length === 0 ? null : Math.max(...closed) }
+}
+
+/** B985: the held fixes now, `{ <fix id>: { ask, closedAt } }` of every open fix (a step with `Fix of`) a Rebuild ask covers (`rebuildHoldOf`), for the refine gate. */
+export function rebuildHoldsOf(nodes, items) {
+  const found = {}
+  const all = [...byIdOf(items).values()]
+  for (const item of all) {
+    if (item.head.get('Kind') !== 'step' || !item.head.get('Fix of') || ['done', 'dropped'].includes(String(item.head.get('State') ?? '').toLowerCase())) continue
+    const hold = rebuildHoldOf(item, nodes, all)
+    if (hold !== null) found[item.head.get('Id')] = hold
+  }
+  return found
+}
