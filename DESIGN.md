@@ -6442,8 +6442,8 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
     on, `handOverOf` reads who from its Route line) and whose step is a step of the focus goal is kept for the recap like a kept look
     (`handedOnOf`: its `Of`, else the step its `Pictures` name, else the `Of` of the first ask it links by `#details=Q<n>`; Route recap,
     Route line "Kept for the goal's recap: the main chat|your partner handed it on", the step marked, a tile under "Also a look", answered
-    in its window: Done or Send back for a do). The partner's own look keeps its line; a step of another goal, none found, the person's
-    hands and the Product owner's ask stay the person's card. (c) A question the recap has answered closes (`recapClosesAsk`, while
+    in its window: Done or Send back for a do). The partner's own look keeps its line; a step of a goal that is not the focus, no step found, the
+    person's hands and the Product owner's ask stay the person's card. (c) A question the recap has answered closes (`recapClosesAsk`, while
     Autopilot is on, the focus goal's recap only): an open look, do or Accept card whose words name one row of it ("row 9 in G60's
     recap", `recapRowNumberOf`) closes at the Send (approved or sent back) and at every pass (approved only: a row sent back is judged
     anew) with the recap's words ("Approved in the recap of G60, round 2: 9. Tall props ..."), its chat woken; so does an ask waiting
