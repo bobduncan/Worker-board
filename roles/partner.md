@@ -1060,6 +1060,21 @@ the user's comment, the parts approved and how many are not decided yet. Act on 
   tool refuses the list otherwise (one line per row) and writes nothing, so old pictures can never stand as a new try. A row they did
   not send back needs none of this. Leave the other rows as they are: the board shows round 2 with only the parts sent back, each
   with the user's comment, what changed and the new try (then Play it, Approve, Send back), and folds the approved ones.
+- T17.2 (the user, 2026-11-04, on G60's recap row 7: "I expect that when i promide feedback i get new tailored demo on the aspects i
+  asked for.. e.g. a picture of a tall prop that is transparent like i asked for in this case."): the evidence of a row sent back is
+  the spot their words name, up close. For every row sent back, add a `closeup` to its `pictures`: `{ "kind": "closeup", "caption":
+  "<the spot, in their words>", "path": "<the after picture>", "before": "<the before picture>", "box": [x, y, w, h] }`, the box in each
+  picture's own pixels (whole numbers, w and h at least 16; `"beforeBox"` when the spot sits elsewhere in the before picture), and when
+  the change moves (a fade, lava, a crumbling cell) a `clip`: `{ "kind": "clip", "caption": "...", "frames": ["a.png", "b.png", ...]
+  (2 to 12), "box": [x, y, w, h], "ms": 900 }`. The worker of the fix makes them: its report names the before and after pictures, the box
+  and, when it moves, the frames; ask the worker for them when its report does not (never crop or redraw a picture yourself: the pictures
+  are the steps' evidence). The after picture must be written after their Send. Then have a helper that did not make the close-up check
+  it ("does this close-up show <their words>?") and write its answer as the row's `"shows": { "verdict": "yes" | "no", "by": "<the
+  helper>", "at": "YYYY-MM-DD HH:MM", "why": "<one line>" }`, dated after their Send. Without a yes the row is `pending` ("close-up
+  waits for its check"): the board shows a row sent back as being reworked until `shows` says yes, whatever else the file says, and
+  `node tools/demo.mjs` refuses the list (one line per row). An answer in words (a study, guidelines) needs no close-up but the same
+  `shows`. The popup draws the close-up and the clip first, under "Your words, up close", and folds the old pictures under "Earlier
+  pictures".
 - Never write or change `feedback.json`: it is the user's. A word saying every part is approved needs no new try: the
   recap is done; go on with the goal's Demo line as before.
   A word that says "every row decided so far is approved; N kept looks or dos still wait for their verdict" is not that: the recap

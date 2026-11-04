@@ -334,7 +334,10 @@ list does not know. Do it now, in this turn:
   app's usage tool).
 - Fix at once what you can: a step held by a step that is finished or dropped: `work unblock B<id>` (with `on`, or
   without it for an `after` of words); a worker paused for the limit while the limit is back, or one that holds a step
-  and is not working on it: wake it ("resume your step B<id> from your checkpoint"); a task given to a worker that is
+  and is not working on it: wake it ("resume your step B<id> from your checkpoint") by the session id the board names,
+  never by the chat's title (B986, X140: after an account switch an old chat of the same name may be open); a held step
+  whose chat is not in the app's list needs nothing from you: the board gives it back by itself 20 minutes after the chat
+  stopped (go on after 5, back 15 after), from its checkpoint; a task given to a worker that is
   gone or not on the hand-over the board takes back itself, and a pin to a chat gone for half an hour it takes
   off; an ask nobody needs any more: its chat takes it back with
   `work withdraw Q<id>` (ask it to; one with no asking chat you withdraw yourself, with a why); an ask the board routed

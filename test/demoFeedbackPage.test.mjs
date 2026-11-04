@@ -9,12 +9,12 @@ import { roundPage, withRound } from '../src/demoFeedback.mjs'
 import { openPage, reply, settle } from './pageHarness.mjs'
 import { asSent, build } from './partnerState.mjs'
 
-/** `tried`: the partner wrote the demo again with the new try of the row sent back (T17.1: its `changed` line). */
+/** `tried`: the partner wrote the demo again with the new try of the row sent back (T17.1: its `changed` line; T17.2: a checker's `shows`). */
 const list = (tried = false) => ({
   goal: 'G6', title: 'The polish', step: 'B7',
   sections: [
     { kind: 'reached', rows: [{ title: '1. Lava', pictures: [{ kind: 'target', caption: 'target', path: 'a.png' }] }, { title: '2. Cliffs', pictures: [{ kind: 'target', caption: 'target', path: 'b.png' }] }] },
-    { kind: 'not-reached', rows: [{ title: '3. Round shapes', ...(tried ? { changed: 'still stepped -> rounded off' } : {}), pictures: [{ kind: 'final-not', caption: 'last try', path: 'c.png' }] }] },
+    { kind: 'not-reached', rows: [{ title: '3. Round shapes', ...(tried ? { changed: 'still stepped -> rounded off', shows: { verdict: 'yes', by: 'Checker', at: '2026-11-03 10:00', why: 'the shapes read round' } } : {}), pictures: [{ kind: 'final-not', caption: 'last try', path: 'c.png' }] }] },
   ],
 })
 const PATH = 'pictures/g6/demo.json'

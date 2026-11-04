@@ -1102,7 +1102,7 @@ the mod types it into its chat as the person's own words and tells the board wha
 (`POST /api/bridge/typed`), so the card says "handed to its chat", then "typed into its chat", or that it did not
 arrive. The outbox's states are `waiting`, `taken` (handed out, not yet said typed), `delivered`, `failed`, `stopped`, `expired`,
 `dropped`, `copied` and `held` (a queue ask held until its step is refined); a word still `taken` after its chat ran a turn that came after the take is closed `delivered` with the why
-"delivered-unconfirmed" ("Words the app merged into one prompt", below). The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only
+"delivered-unconfirmed" ("Words the app merged into one prompt", below: every chat with a report is judged, and a word taken over 24 h ago by a chat the board no longer knows is closed `expired`). The engine runs it once the chat is idle, so a busy chat gets it after what it is doing. The key only
 takes: sending still needs the board's own page. (B738) The answer also names the chats that do not run (`off`), so the
 mod's Workers list says "Not running" for them, as the page does. A second board that starts while another one's file is there
 and that board answers leaves the file alone. What remains, as with sending: a chat that wrote a `board.json` of
@@ -3884,7 +3884,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   starts again; a hold that is the person's open ask, "waits for the answer to Q<n>", is no case and not odd; B916, X123: nor is a hold
   "blocked by B<n>, ..." when every blocker waits for the person alone, `waitsForPerson`: their answer, verdict in a recap or Accept, also at
   the end of the blocker's chain of fixes with no link at work; one blocker that waits for a check or a worker keeps it a case; once their wait
-  ends the hold counts from then, as nothing was watched meanwhile); one case per chain, named by its first step, with the
+  ends the hold counts from then, as nothing was watched meanwhile; B1021, X148: nor is a block by steps that all move, `holdMoves`: each
+  with a worker, or behind a chain at work or ending in a refined fix not held; and nothing is said while a limit is full, the rule does not run,
+  the watch forgets the key and the hold counts again from the limit's reset at the earliest, `limitEndOf`; a chain that stands still after it fires as before); one case per chain, named by its first step, with the
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
   <why>" on the Backlog tab, in work next and list, and in the health summary, which counts review chains, not steps),
   `chain-long` (B664, X8 a third time: a chain of fixes with three tries or more, its first step and every fix under it
@@ -3897,7 +3899,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   after an hour, `FIX_RETRY_MS`, up to BOARD_TRIES; a round with questions waits for the person and is no case; B985, X139: nor is a fix of a goal with an open ask titled `Rebuild G<n>` that covers it, the whole goal or the evaluated part (`rebuildHoldOf`, goalGuard.mjs, as B791 holds the evaluate word): the refine gate types no word for it and skips it, so the gate stays free (`refineQueue`, `state.rebuildHolds`), and once the ask is answered or withdrawn the hour counts from that close, not from the fix's Since). B664: the health
   summary judges a step in review as review-stuck, dropped-fix and review-held do, through one helper (`reviewLateOf`,
   with the supervisor's memory of when it first saw each key): a check whose QA task a worker is on, the person's open ask,
-  a block by steps that all wait for the person alone (B916) and a hold the watch only just saw are not odd there either,
+  a block by steps that all wait for the person alone (B916), a block by steps that all move and any hold while a limit is full (B1021) and a hold the watch only just saw are not odd there either,
   `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose
   last checkpoint's next action is to report, written over 30 min ago; one finding per step and checkpoint; not while
   the person pauses, a limit is full or its worker is suspended for the limit, and its suspended time does not count; the health summary shows each step in progress with its
@@ -3951,6 +3953,16 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   its action and chat) and the board's own jobs (every loop run through `loops.run`, a state rebuild, a hand-over, a chat
   log being written, the read of a cleared chat's left session) that ran during it, to `data/stalls.json` (the newest 50,
   read again at a start); the state carries them (`stalls`) and board-slow cites them.
+  **Harm is the bar** (B1011, the person's pick C on Q645, 2026-11-04 18:43, after B934 and B978 each cut real waste and the
+  tail stayed: the board rebuilds its whole picture after almost any change, and a turn's end brings its own rebuild, the
+  hand-over's and 5 to 8 jobs at once, so no single blocker is left): the 5 s the board aims at is measured, not an alarm. A
+  call answered after 2 to 10 s goes to the stall log only; an alarm sounds only when a slow answer does harm: board-slow for
+  calls answered after the chat gave up (10 s, two within 2 min), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
+  clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. What forces a rebuild is pinned end to end by
+  `test/rebuildsBoard.test.mjs` (a copy of the board with its state kept an hour, `WORKER_BOARD_STATE_MS`, and one line per
+  rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
+  an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a
+  state read under a second ago.
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
@@ -4124,6 +4136,9 @@ it can. The person: "It just needs to observe, periodically, not consume a lot o
 - **The Workers mod's version** (0.16.0): every call to the board carries `X-Workers-Mod` (`board.ts MOD_VERSION`, the
   same as plugin.json, a test checks it); the server keeps it per chat (`noteMod`), which makes the watch rule `old-mod`
   live and lets Check now say that the supervisor's chat runs a mod too old to sweep. A mod older than 0.16.0 sends none.
+  Fix 0.31.0: the header is merged into the body of every bridge route, the typed one too (`bridge.mjs withModHeader`; the
+  mod posts the clear's stages through typed), and a call that says no version keeps the one the board knows (`modSaid`: it
+  moves `at`, never `version`), so no call erases a known mod; one whose mod never said a version stays null.
 - **The hand-over to the Advisor** (Task 7, `index.mjs tellOwed`, after every run of the rules and at the end of each
   sweep's turn): each incident that opened or came back gets, from the store (so also one the sweep filed, and after a
   restart), first the person's line (part 1), then, once that line is filed, one board word to the partner through
@@ -4470,7 +4485,8 @@ a clear alone, a clear that holds the worker and "the line is never typed before
   while it owes a clear gets the clear with the next task's envelope like any other. At the board's start
   `closeClearOnly` (`handoverBoard.mjs`, D8) closes every clear-only envelope still waiting in the outbox, with its reason
   ("no clear goes alone since Workers mod 0.31.0: the clear it owes rides its next task"); one already taken settles as the
-  mod's outcome says.
+  mod's outcome says, and one taken with no outcome at all (before Fix 0.31.0, part 4) is settled `dropped` at the start too, with
+  "a lone clear from before 0.31.0, never answered" (`CLEAR_ONLY_TAKEN_WHY`; `store.mjs closeTaken`).
 - **A clear that does not run never holds** (D3, D4). The order stays restart, clear, set, line. When the clear does not
   run (refused by a guard of `clearAfter`/`clearEnvelope`: a question the board was not handed, a subagent, a message to another
   chat, background work, a prompt that came in, the log refused, a card that could not be read or written, a clear already
@@ -4884,8 +4900,10 @@ its turn back at once, one 10-minute net. The reconciler's own give, its later l
   report turns idle (`src/work/again.mjs` `coalesce`: one pass at a time).
 - **Taken back** (principle 2): only by the hand-over (not taken in the turn its line started, a failed envelope, the
   net, a pause), each at once and once; and, by the reconciler, a give no hand-over will ever carry on
-  (`strandedGives`: its worker is not on the sequence, at once; its chat missing from the list, 10 minutes after the
-  give). History "queued → refined (taken back from <worker>: <why>)".
+  (`strandedGives`: its worker is off the sequence by a KNOWN mod older than the hand-over's or the setting "timers", at once;
+  its chat missing from the list, 10 minutes after the give; never while its envelope is in flight, nor for a worker whose mod
+  the board has no version of yet, each for 10 minutes after the give at most: Fix 0.31.0, below). History "queued → refined (taken
+  back from <worker>: <why>)".
 - **One more worker** (`workerStart`): when ready tasks that a new worker could take wait (kept for nobody, their
   Touches overlapping nothing given or under way, as `match` checks), more of them than the workers asked for in the
   last 10 minutes that have not reported yet (a start word whose worker has not reported since; a spawn word, which
@@ -5238,8 +5256,9 @@ not-cleared, not-taking, the clear part of skip-repeats and the report part of r
 sequence is handed nothing: one on an older mod waits to be restarted by hand (its lane says so), and `"timers"`, kept as
 the escape hatch, hands out nothing new and starts no worker, with one line on top: "the hand-over is off: set handover
 to sequence" (`HANDOVER_OFF`, `src/work/reconcile.mjs`). A task given that no hand-over carries on goes back on the list
-(`strandedGives`, `src/work/handOut.mjs`: at once for a worker not on the sequence, 10 minutes after the give for a chat
-gone from the list). Tests: `test/work/oldPathGone.test.mjs` (and the mutants named there).
+(`strandedGives`, `src/work/handOut.mjs`: at once for a worker off the sequence by a known older mod or the setting "timers", 10
+minutes after the give for a chat gone from the list; Fix 0.31.0: an envelope of that step in flight, or a mod not heard yet
+(unknown, not "off"), keeps the step for those 10 minutes). Tests: `test/work/oldPathGone.test.mjs` (and the mutants named there).
 
 **The decision** (`decide`, `src/work/handover.mjs`, pure). The worker's turn end (the mod's `turn-ended`, which it
 already sends) is the one trigger. Facts: the store (steps, their History, the ready list), the worker's lane (its mod's
@@ -5310,9 +5329,12 @@ for another, and since step 6 the old rules are gone for every worker:
   `cleared: false` with a `clearWhy`, its line typed each time, the clear still owed): one finding, key `clear-owed-repeat <worker>`,
   judged by the Supervisor as any. Nothing holds the worker; the rule says its clear keeps failing ("The lazy clear").
 - `handover-unanswered`: the net fired (`netAt` on an envelope of its): one finding per envelope, for a day after the net.
-  In place of not-taking.
+  In place of not-taking. Fix 0.31.0: not for a lone clear that the board's start sweep settled (`dropped` with the
+  why "a lone clear from before 0.31.0, never answered" or the older "no clear goes alone since Workers mod 0.31.0: ..."): X141 counted ba127291
+  104 times. Not every `dropped` envelope: the net closes its own waiting envelope `dropped` too, and that one is the miss.
 - `ready-while-free`: such a worker is free only in the hand-over's own **free** (its lane's `handover.state`), never by
-  the hand-out's older reading (R7, X111).
+  the hand-out's older reading (R7, X111). B1008 (X142-X147): one finding per free worker, key `ready-while-free <worker>`,
+  its waiting tasks in text and evidence, never one per ready task (one cause made six incidents).
 - `review-stuck`: its report part (a failed check not reported again) is gone since step 6, for every worker (the
   decision tells it at its first turn's end); the result-check part stays.
 
@@ -5501,7 +5523,7 @@ cleared with its own line ("unpinned from Worker N: given back by the board"). T
 give-back (clearOwed.mjs reads its line: the envelope's clear is `{ step, reportedAt: the give-back time }`); its card,
 which the board never writes, is cleared by that clear, and the reconciler's 'card' flag is quiet meanwhile. owner-gone
 (repair.mjs) gives the step of a holder gone from the list back at once by the same path (`{ do: 'give-back', id, chat,
-why }`, beside handOut.mjs `strandedGives`, which takes back the queued ones), waiting on you too: no note to the main
+why }`, beside handOut.mjs `strandedGives`, which takes back the queued ones, unless their envelope is in flight), waiting on you too: no note to the main
 chat; its asks stay open for the person.
 
 **What reads the give-back's History line** (holderTimers.mjs `GIVEN_BACK`):
@@ -5615,6 +5637,57 @@ wake job and its claim), `test/work/handover.test.mjs` and `test/work/handoverBo
 the real envelopes eb4fe8aada155b05 and 93ee0a904d02d2dc), `test/supervisor/handoverRules.test.mjs` (the alarms),
 `test/asleepAfterRestart.test.mjs` (the lane's words, the notice, the ⚙ row).
 
+## A lane's own chat, and one way back for a held step (B986, X140, 2026-11-04)
+
+**The case.** Worker 4 paused for the week's limit at 10:13 holding B968 (checkpoint c3186b6). The board was off
+10:54-10:58 while the person switched account; the new account's list held an old "Worker 4" of 28 Oct (local_800a5b00)
+and not the chat that held B968 (its reports' session 0c8d674a). The lane was bound to the old chat by its title, so no
+kept report matched it; after its own restart the board knew no Workers mod for the worker (its memory of calls is empty
+then), so the worker fell off the hand-over's sequence (`onSequence`): `resumesDue` sent its old `resume-step` word at
+10:58 and the holder timers (change 3) never ran, so no give-back came. Main's message (11:03) and the launch (11:06)
+went to the old chat, "could not wake Worker 4" at 11:10 (X140). The person brought the chat back into the app at 11:34.
+The deeper look also found the 10:23 lift of its pause: the note "paused for the limit until 20:00" names no window, so
+`pauseLimit` reads it as a five-hour pause, lifted by the 5-hour reading (40%) while the week stood at 100% (its own fix).
+
+**One way back.** The kept report's Workers mod counts for the lane (`mod`: the mod's last call, else the lane's matched
+report, else the report kept under its name): a worker on the sequence stays on it after the board's restart and with its
+title on another chat, so whatever stopped it (the limit, its chat closed, its chat gone after an account switch) its
+step gets change 3's "go on" after 5 minutes and the give-back 15 minutes after that, from its checkpoint, branch and
+plan. A lifted pause starts those timers; the old resume word is never sent for it (`resumesDue` skips a lane on the
+sequence).
+
+**The lane's own chat** (`src/ownChat.mjs`, `lane.own` `{ session, appSession, isListed, by }`). The chat its kept report
+names: by the report's session, or by the app id the report now keeps (`app`, the shown chat's at the report: bridge.mjs
+`noteReport`, `appOfShown`; saved in `data/reports.json`), which finds it again after a clear or an import gave it a new
+session; the title's chat when no report is kept, or when the kept report is no longer the lane's (`keptFor`, the review of
+B986: the title's chat was made after the report, as a new chat that took a renamed chat's name; or the chat it names is
+shown under another name); then its mod does not count either. Every wake goes by it, never by the title: the wake's paths and needs
+(wake.mjs `pathsOf`, `wakeNeeds`), the hands' jobs about a chat (hands.mjs `handJobs`: start, wake, set, restart), the
+launches (`chatToOpen`, the person's Send again), and the main chat's start and wake words (say.mjs). The lane itself, its
+card and its transcript stay the title's chat, and the bridge serves the session it shows.
+
+**Not in the app's list.** When the list holds no open chat its report names (`isListed` false), the wake has no path: "could
+not wake Worker 4: its chat is not in the app's list; open its chat" at once (the lane's "could not wake: its chat is not
+in the app's list"), with no message, no launch and no two-minute wait; the held step goes on to the give-back by the timers.
+A read that sees the app id's file but no chat in it (the app rewrites it) is not known (`isListed` null): the wake goes on by
+the report's ids, no case. The app's own answer to a wake message that names a session "not found" (`isNotListedAnswer`)
+ends the spell's tries too: no launch after it; "archived" does not (X140: the launch of 11:35:08 after the Advisor's
+"is archived" of 11:34:48 woke the chat).
+
+**Listed, but not the chat the board shows** (`isShown` false: two open chats of one name, the older one newer in the
+list): the own chat's takes would be refused (the bridge serves the shown session only), so no wake of it is tried: "could
+not wake Worker 4: another chat of its name is open in the app: archive the one that does not hold its work". The main
+chat's start and wake words are refused for a chat that cannot be woken ("Worker 4 cannot be woken: ... Tell the person"),
+never sent with the title's id. The wake's spell reads the kept report (`ownReport`) when the title's chat has none, so the
+spell holds and the woken chat's own report is heard in it.
+
+**Not in it.** The reimport of chats after an account switch (chat 1 fixes it with the person); the pause note's window
+(its own fix).
+
+Tests: `test/heldStepWayBack.test.mjs` (X140 replayed with its ids and times, 10:58 to 11:13: on the sequence, no
+resume-step, could not wake at once, one go on line, B968 given back from c3186b6 with its branch and plan; the cases and
+the 5 and 15 minutes; the kept app id).
+
 ## The wait line (T22, wave 1, 2026-11-02)
 
 The person, 2026-11-02: "either the board responds immediately, e.g. via code. or we expect an ai chat todo something in
@@ -5689,8 +5762,22 @@ resolves; the earlier ones never resolve or reject, so the mod never said them t
   `delivered` already and untouched. Limits: the turn is the chat's LAST turn (a chat with back-to-back turns closes it only
   once the chat has rested 15 minutes after the last), and a chat whose session was replaced after the take also runs a turn
   after it: such a word (lost with the old session) is closed with the same honest "never said". No Supervisor rule.
+  Fix 0.31.0: **every chat whose report the board holds is judged**, not the lanes of `state.chats` alone (the Advisor, its
+  helper, the Supervisor and the Product owner are no lane: 526 words stood `taken`, three showed as "waits for its turn" in Needs).
+  `reportOf(state, name)`: the lane's own report; for a side chat the report kept under its name (the state's `reported`, state.mjs: every
+  report of data/reports.json by chat name, null where the board keeps none) when it is of the session the board shows for it; for a chat
+  of neither list the report kept under its name; the list's prefix ignored. **The 24 h expiry** (`vanishedChatWords`, `store.mjs closeTaken`): a word
+  taken over 24 hours ago (`GONE_AFTER_MS`) by a chat the board no longer knows (no lane, no side chat, no report held under its name) is
+  closed `expired` with the why "expired: its chat <name> is no longer on the board", and `closedAt`. Never a hand's take, never a hand-over
+  envelope, never a person's answer; a board that knows no chat or keeps no reports closes nothing. The sweep's result lists both closes.
+  B1033 (X141, envelope ba127291: Worker 3's clear after B981, taken at 12:24 and never settled, counted 111 times): the one hand-over
+  envelope the net judges is a clear-only one an older board left (`clear` set, no `step`, no `line`, no `restart`): no clear goes
+  alone since 0.31.0, so no outcome of its own is coming, and it closes like a plain word. The rule `handover-unanswered` skips an
+  envelope settled `delivered` after its net fired (answered, however late); a `dropped` or `failed` one is still found, except
+  a lone clear the board's start sweep settled `dropped` with its own why (Fix 0.31.0, part 4: whichever comes first, the
+  start sweep or this net, closes it).
 Tests: `test/mergedWords.test.mjs` (the net: closed at 15 minutes, not at 14; a turn before the take, a hand's take, an envelope, no
-report: left), `mods/workers/hooks/board.test.ts` and `chatlist.test.ts` (the three real batches: each word told once, the turn
+report: left), `test/netEveryChat.test.mjs` (Fix 0.31.0: the side chats judged, the 24 h expiry and what it never touches), `mods/workers/hooks/board.test.ts` and `chatlist.test.ts` (the three real batches: each word told once, the turn
 named by the first; the person's own line; the envelope's line apart; the order of the last submit's resolve).
 
 **The state's `waits`** (server.mjs `waitsNow`): every person's word of the last 24 h (an answer, `recap-feedback`,
@@ -5713,8 +5800,42 @@ pauses, and for a spell that is not the record's newest entry of the chat) makes
 `personAgain`, change 7, outside the cap of one try per path): the message way when a chat that may send claims (the record holds it `by` "the board"
 until the next hand takes it, with the job id `wakeJobId` the hands route gives a claim), else a launch at once (`launchFor`
 with `again`). A refusal stands under the line, in Needs your attention, the recap's popup and the supervisor's head. A
-word failed for good, and a chat the board has no id to reach, get none (the line says to open the chat). **Not in it yet**: the incident judgment's line (change 6), wave 2 (a refine,
-Go, Change this goal, a goal ask, Overturn, Stop or Remove a worker, the Focus talk).
+word failed for good, and a chat the board has no id to reach, get none (the line says to open the chat).
+
+### Wave 2 (T22, 2026-11-04)
+
+Spec and plan: `art-inbox/focus-mocks/wait-rule/` (spec.md, plan-wave2.md). The same one line, the same states and rules (the chat's
+status pill beside it, amber for Late only, Send again only through the wake record, a Done line hides after 10 minutes, one source
+per fact), at every other place where an action of the person waits on a chat. The person, 2026-11-02: "I want to know whats going
+on." Each place has the Done source of its own, read from what the board's state already holds (`src/waitLine.mjs`, `placeOfWord`
+and the `*Done` functions, pure); without such a result the fallback stays "<Chat> answered HH:MM", and an action with its own
+source whose turn ended without it says so quietly ("<Chat>'s turn ended at HH:MM without it"). Every line carries `place`,
+`about` and `goal`, by which the page finds it (`placeWaitIds`, `placeWaitOf`).
+
+| Place | The word | Done = | Where the page draws it |
+|---|---|---|---|
+| 1. A refine (Send answers, Refine again, Ask for pictures) | `refine`, `about` the step; not the gate's (`board`), the supervisor's repeat (`syncKey`) nor Autopilot's (`isAuto`) | the step's refine block written after the word (refineWait.mjs `isBlockWritten`, the state's own refine ask) → "refined" | the Refine part of the step's window, in place of the older "Asked at ..." sentence |
+| 2. Go on a goal | `how-go`, `about` the goal | every work block that had no task before the word has one made after it (a block that had tasks is carried: kept, or done; with the state's `focus.openNow` only the blocks open in the new round count) → "<n> steps", linked | under the Focus head (the run), with its name |
+| 3. Change this goal | a word of a thread with `Kind: change` | only a new goal-definition draft (the proposal's Objective) written after the word, its time compared as a full date-time (the thread's HH:MM lines dated from its start, never later than now) → "new definition". The partner's next question, or what it understood, is progress ("<Partner> answered: a question for you"), never Done | under the Focus head, and in the thread's card on the Brainstorm part |
+| 4. A goal ask | `goal-ask`, `goal`, `about` the ask | the answer under that goal → "answered under G<n>" | the ask's box under the goal |
+| 5. Overturn | the answer to a recap the person overturned (`ask` `work:<recap>`, `Recap: overturned`) | the fix step made from the words, filed after: for a step's recap a fix of it (`Fix of`), for a goal's recap a step of the goal whose text names the recap or holds their words, never any step of the goal → "B<n>", linked | the overturned recap's card, which stays (closed) while its line is not Done: in Needs your attention, and, with Autopilot on (recaps gather in the daily note), in the Focus page's daily-note part |
+| 6. Stop / Remove a worker | `stop`, `remove` to the main chat; the stop word names the task it stops and how the worker stood (`taskStep`, `taskText`, `laneState`). A stop or remove the board does in code (`byCode`) has no line for STOP_HANDS_MS (15 min); handed to the main chat after it, it has one | a stop: the lane no longer holds that task (gone, changed, the worker gone from the list, or no longer working) → "stopped"; a remove: its lane gone from the list, or marked removed → "removed" | the worker's row: every word of the worker its own line, by its word id |
+| 7. The Focus talk | `talk`, `vibe-not-yet`, `how-not-yet`, `recheck`, and the words of a brainstorm that changes no goal | none: the fallback "<Chat> answered" | under the talk bar and in the talk card; under "Re-check the goals now"; the thread's card |
+| 8. An incident waiting for the Supervisor's judgment | the judge word (`incidents`, `endedAt`), one line per incident under `<word>#<incident>` | the incident ended (closed: false alarm, fixed, gone by itself, the 60-minute rule included) or given a fix step | the incident's row in the Supervisor's part, nowhere else |
+
+A result with no time of its own (a stop, a remove, a refine block with no stamp) is dated by the first moment the board saw it: kept on the
+word (`doneAt`) and in the server's own map (`firstSeen`), never by the clock of each draw. A refine's line yields to a newer refine that
+runs now and has no line of its own (the board's, Autopilot's): the newest refine activity shows. A result that ends the very reason for the word (a refine written leaves the step no longer new: the outbox sweep drops the word, and
+the judge word is moot once its incidents ended) still reads as Done: `waitLineOf` `outlives`, and the board keeps it on the word
+(`doneAt`) as before. Place 8 (the signals lead's rules of 2026-11-04): Done also when code ends the incident; a repeat of an
+incident's key only counts it and never starts a wait nor moves the clock (the line's clock is the judge word's); "on it" reads the word's
+own state and the mod's `report.word`, never the Supervisor's pill (`needsPill` false; the outbox record's `wordsIn`, a word whose text
+sat in a merged prompt, plugs in at `arrivedAt` once the board has it); and its line is never in the hands line or in Needs your
+attention. The judge word's own turn end (`endedAt`) is read as it stands. An incident's line reads from the newest judge word that NAMES it; a newer word that does not name it, a word the sweep closed or one a newer word superseded, never ends it: the line goes only when the incident is judged or ended by code.
+
+Wave 2 tests: `test/waitLineWave2.test.mjs` (the places, each Sent, on it and Done from its own source), `test/waitLinePageWave2.test.mjs` (the
+DOM harness: each place's line where its action was taken, Done gone after 10 minutes), `test/waitLineRefineBoard.test.mjs` (a refine
+on a running board: Sent, the block written, Done, kept on the word).
 
 Tests: `test/waitLine.test.mjs` (the four states, rule 8's one judgement, the wake record, the actions' own results,
 `waitsOf`, the turn rule: the live case of Q587, an older mod, a word typed into a busy chat, a question inside the word's
@@ -5932,6 +6053,52 @@ The coordinator's review of the first build (same day) added:
 
 Tests: test/recapRounds.test.mjs (data, the list, tools/demo.mjs, the state), test/recapRoundsPage.test.mjs (the popup, both cards),
 test/demoFeedbackBoard.test.mjs and test/recapVerdictBoard.test.mjs (on a running board: being made, then the rewrite).
+
+## Recap close-ups (T17.2, 2026-11-04)
+
+The person, 2026-11-04, looking at G60's recap row 7 (tall props fade while a unit stands behind them): "This demo never really updates
+it's images in the demo: I expect that when i promide feedback i get new tailored demo on the aspects i asked for.. e.g. a picture of a
+tall prop that is transparent like i asked for in this case." The fix was built (the crystal fades for the wizard), but the row showed five
+whole-screen shots, the old ones first, and the fade is a few pixels. Zoomed in it is plain.
+
+Their answers (2026-11-04): 1 C: a close-up before/after of the exact spot their words name, always, plus a clip where something moves (a
+fade, lava, a crumbling cell). 2 A: the new close-up first, the old pictures folded under "Earlier pictures". 3 yes: a row comes back to
+them only when its new picture was made after their words and a separate checker says "this shows what you asked"; else "Being reworked".
+4 yes: Play at the spot where the game's settings allow (they do not yet: no setting places a unit or the camera; nothing built for it).
+5 yes: the rows now in the recap get this before they judge (the coordinator does that after landing).
+
+1. Two picture kinds (src/demo.mjs `PICTURES`, `checkList`): `closeup` (`path` the after picture, `before`, `box` and optional `beforeBox`
+   in each picture's own pixels, whole numbers, w and h at least 16, `beforeCaption` and `afterCaption`, default "Before your words" and
+   "Now") labelled "YOUR WORDS, UP CLOSE", and `clip` (2 to 12 `frames`, optional `box`, `ms` 300 to 3000, default 900, `path` the last
+   frame when left out) labelled "YOUR WORDS, MOVING"; they rank before every other kind. A row's `shows` is the checker's word:
+   `{ verdict: "yes" | "no", by, at: "YYYY-MM-DD HH:MM", why }`. A bad box, frame count, `ms` or `shows` refuses the list in one line (the
+   board reading a demo.json refuses the whole recap then, as for a bad picture kind). tools/demo.mjs also checks `before` and every frame
+   (exists, a picture type, under the board's size limit) and writes their paths relative to demo.json.
+2. The tool's gate (`checkTries`): a row the person sent back, with a `changed` line and no `pending`, needs besides what it needed in T17.1:
+   a `closeup` whose `path` (the after picture) was written after their Send, unless it is an answer in words (a new note, or the same list
+   taken again with no picture) or a grid row (a grid has no close-up to carry); and a `shows` with verdict yes whose `at` is not before
+   their Send. One line per row says what to do: make the close-up (before, after, the box of the spot their words name, a clip when it
+   moves), then have a checker who did not make it write `shows`, or give `pending`.
+3. The board's gate (`roundPage`, `showsCheck`): a row sent back that has `changed`, is not `pending` and not under way is still "being
+   reworked" when its `shows` is missing, says no or is older than the Send: "Being reworked: the close-up of your words waits for its
+   check" / "Being reworked: the check says it does not show your words yet: <why>". It asks nothing and is counted nowhere: the one
+   count (src/recapRound.mjs, the card, the Needs count) reads `roundPage`, and the recap's waits (`recapWaitsOf`) read the same word. A
+   demo.json written by hand cannot skip the check; the checker's name cannot be checked by the board (the partner's rule: never the chat
+   or helper that made the picture).
+4. The popup (public/board.js): in a row they sent back whose new try is in, right under "What changed", the block "Your words, up close":
+   each close-up as the spot before and now side by side, its box scaled up to the frame with crisp pixels (the picture is placed by
+   percentages of its frame once it is loaded; `image-rendering: pixelated`); each clip one frame at a time, looping every `ms`, with "1 / N"
+   under it (with reduced motion its frames stand side by side and nothing moves; its timer stops on every redraw and when the popup
+   closes); a click on a side or on the frame shown opens that whole picture in the picture window. Under it a quiet line "Checked by <by>:
+   <why>" (cool tones), then `<details>` "Earlier pictures (N)", closed, with every other picture as before. A sent-back row with no
+   close-up (an answer in words) shows the checker's line and its pictures as before; a row not sent back is drawn as before.
+5. The partner's rule (roles/partner.md "Recap feedback"): for every row sent back, the close-up of the spot their words name and a clip when
+   the change moves, made by the worker of the fix (its report names the before and after pictures, the box and, when it moves, the frames;
+   ask for them when it does not) and checked by a helper that did not make it ("does this close-up show <their words>?"), written as
+   `shows`; without a yes the row is `pending`.
+
+Tests: test/recapCloseups.test.mjs (the shape, the tool's gate, the board's gate, tools/demo.mjs), test/recapCloseupsPage.test.mjs (the popup),
+and the fixtures of test/recapRounds.test.mjs, test/recapRoundsPage.test.mjs and test/recapOneCount.test.mjs, whose rows now carry a `shows`.
 
 ## A step nothing else closes goes to the person: Accept or Send back (B883)
 
@@ -6685,3 +6852,43 @@ Three rules, the person's of 2026-11-02 (instant, or a visible wait) applied to 
 
 Tests: test/askAbout.test.mjs (the real case Q616 and Q600; mutants: the play problem not drawn, the click path dropped, the About line
 dropped, the linked ask's id in place of its title, the address of a Q id not opened).
+
+## Fix 0.31.0: the double give after a lazy clear (2026-11-04, branch fix-031-handover)
+
+The real case (Worker 1, B1013 after B982, 21:21:56-21:37:57, the first lazy-clear hand-over after 0.31.0 went live; the lead's
+trace): the mod posted the clear's `cleared` stage through `/api/bridge/typed`, whose `X-Workers-Mod` header the server did not
+merge, so `noteMod` stored Worker 1's mod as null; the card moved to the new session at that moment, so no report counted either;
+the lane read as off the sequence; the refresh's `strandedGives` took B1013 back ("Worker 1 is not on the hand-over") while its
+envelope was in flight; and the next pass gave it again (envelope a0a187c1, clear null): a stale line waited 15 minutes in the
+app's queue, cost a turn after the report and made the next hand-over's clear read "refused". It repeated at every hand-over with
+a clear. Tests: `test/lazyClearReplay.test.mjs` (the real records, `test/fixtures/lazy-clear-2026-11-04.json`).
+
+1. **A typed call never erases a known mod** (`bridge.mjs` `withModHeader`, `modSaid`; server.mjs). The header is merged into every
+   bridge body; `noteMod` keeps the last known version when a call carries none (only `at` moves). Tests:
+   `test/typedKeepsMod.test.mjs`.
+2. **strandedGives never takes back a step whose hand-over envelope is in flight, and an unknown mod is not "off"** (`src/work/handOut.mjs`
+   `strandedGives` with the outbox `sent`, passed in by reconcile.mjs as `decide` gets its envelopes; `isEnvelopeInFlight`: command
+   `handover`, a task, `waiting` or `taken`, no outcome, the net not fired for it). A lane that is off the sequence keeps a step the
+   board gave it while an envelope of that step to it is in flight, and while its mod is null (the board has heard no version: a
+   worker just after its clear). Only a lane with a KNOWN mod older than `HANDOVER_MOD`, or the setting "timers", loses the given
+   step at once. Both holds last 10 minutes (`NET_MS`) after the give at most, so nothing waits for ever (an unknown lane has no
+   net of its own: the decision runs for lanes on the sequence only); the chat missing from the list keeps its own rule (back
+   10 minutes after the give). Tests: `test/work/strandedInFlight.test.mjs`, `test/lazyClearReplay.test.mjs`.
+3. **Task 6's net judges every chat with a report, and a word of a vanished chat expires** (`src/work/outboxSweep.mjs` `reportOf`,
+   `unconfirmedWords`, `vanishedChatWords`; `store.mjs` `closeTaken`; state.mjs `reported`). The Advisor, its helper, the Supervisor and the Product
+   owner (no lane) are judged by the report the board holds under their name (of the session the board shows for them), as a lane is;
+   a word taken over 24 h ago by a chat with no lane, no side chat and no report under its name is closed `expired` ("expired: its chat
+   <name> is no longer on the board"). Never a hand's take, a hand-over envelope or a person's answer. Tests:
+   `test/netEveryChat.test.mjs`.
+4. **The start sweep settles a lone clear that was taken and never answered** (`handoverBoard.mjs` `closeClearOnly`, `CLEAR_ONLY_TAKEN_WHY`).
+   0.31.0's Task 1 sweep closed clear-only envelopes still waiting; Worker 3's `ba1272913fdc729f` (the clear after B981, taken 12:24:36,
+   the net fired at 16:22) was already taken and never settled, so X141's rule handover-unanswered counted it 104 times. A clear-only
+   envelope (a hand-over with no step, no line, no restart) that is `waiting` is closed `dropped` with its old reason; one `taken` with
+   no outcome is settled `dropped` with "a lone clear from before 0.31.0, never answered". One the mod answered stays as it stands. No
+   such envelope is written any more. Tests: `test/work/handoverBoard.test.mjs` (the real record from the fixture; the mutant "taken left out").
+   The rule handover-unanswered (watch.mjs) skips an envelope the sweep settled (`dropped` with `CLEAR_ONLY_TAKEN_WHY` or `CLEAR_ONLY_CLOSED_WHY`, now
+   kept in handover.mjs beside `UNANSWERED_WHY`), so X141 ends with it; the net's own `dropped` envelope is still a finding. Tests:
+   `test/supervisor/handoverRules.test.mjs` (ba127291 taken: the finding stays; dropped: none; mutants: the skip removed, every dropped skipped).
+5. **Review (2026-11-04)**: `test/typedModBoard.test.mjs` runs part 1 on a running board over HTTP (a chat first heard on a typed call is known by
+   its header; a typed call without a version erases nothing; a mod that never says one stays unknown); `goneWords` of the net is named
+   `vanishedChatWords` (holderTimers.mjs has its own `goneWords`).

@@ -6,6 +6,7 @@ import { refinedKey } from './backlog.mjs'
 import { doneWhenText } from './goals.mjs'
 import { blockTitlesFor, brainstormFixWords, brainstormStrandedWords, leftOutKey } from './brainstorm.mjs'
 export { brainstormFixWords, brainstormStrandedWords }
+import { cannotWakeWhy, wakeIdsOf } from './ownChat.mjs'
 import { SWITCH_MODES, partnerEffortWords } from './partnerEffort.mjs'
 import { RECHECK_HEAD } from './rounds.mjs'
 import { stoppedOf } from './stopped.mjs'
@@ -292,7 +293,8 @@ function refineCheck(body, state) {
   if (step === undefined || step.status === 'done') return refuse(409, 'That step is not on the backlog, or it is finished.')
   if (step.refineAsk?.isOpen === true) return refuse(409, 'The Advisor is refining this step already.')
   // B285: the ask remembers the block it is about, so a block that changed since answers it (state.mjs `refineAsk`).
-  return { ok: true, message: { ...refineWords(body.to, step, (step.refined?.round ?? 0) + 1), before: refinedKey(step.refined) } }
+  // T22 wave 2: Autopilot's refine (server.mjs `autopilotNow`) is no action of the person's: it carries no wait line (`isAuto`).
+  return { ok: true, message: { ...refineWords(body.to, step, (step.refined?.round ?? 0) + 1), before: refinedKey(step.refined), ...(body.isAuto === true ? { isAuto: true } : {}) } }
 }
 
 /**
@@ -559,7 +561,9 @@ export function checkSay(body, state, maxChars) {
       if (state.changeAsks?.stop?.[lane.name]?.isOpen === true) return refuse(409, 'An earlier ask to stop this task is still open.')
       if (body.sure !== true) return refuse(409, 'Confirm first: the worker stops at a safe point.')
       const task = [lane.task.stepId ?? null, lane.task.text ? `"${plainLine(lane.task.text)}"` : null].filter(Boolean).join(' ') || 'its task'
-      return { ok: true, message: stopWords(body.to, plainLine(lane.name), task) }
+      // T22 wave 2 (the review of 2026-11-04): the word names the task it stops and how the worker stood, so its line is Done once the lane
+      // no longer holds that task (src/waitLine.mjs `workerDone`), not only when it is free.
+      return { ok: true, message: { ...stopWords(body.to, plainLine(lane.name), task), taskStep: lane.task.stepId ?? null, taskText: String(lane.task.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200), laneState: lane.state } }
     }
     // B124: the person asks for one more worker, or for three when there is none. One ask at a time.
     if (body.command === 'spawn') {
@@ -642,8 +646,13 @@ function startCheck(body, state, text) {
   if (body.to !== (state.restart?.main ?? null) && lanes.find(chat => chat.name === body.to)?.isRunning !== true) return refuse(409, 'That chat does not run, so it cannot start another.')
   const target = lanes.find(chat => chat.name === body.chat)
   if (target === undefined || target.name === body.to || target.isRunning !== false) return refuse(409, 'That chat runs, or is not on the board.')
-  const hasId = typeof target.appSession === 'string' && /^[\w-]{1,80}$/.test(target.appSession)
-  const id = hasId ? `Its session id: ${target.appSession}.` : 'The board does not know its session id: find its session by the chat\'s name in the app\'s list of sessions.'
+  // B986 (X140): the chat its reports name (ownChat.mjs), never the one its title matches; none for a chat that cannot be
+  // woken (the review of B986: else the main chat messages the title's chat, the 11:03 mechanism).
+  const cannot = cannotWakeWhy(target)
+  if (cannot !== null) return refuse(409, `${target.name} cannot be woken: ${cannot}. Tell the person.`)
+  const own = wakeIdsOf(target).appSession
+  const hasId = typeof own === 'string' && /^[\w-]{1,80}$/.test(own)
+  const id = hasId ? `Its session id: ${own}.` : 'The board does not know its session id: find its session by the chat\'s name in the app\'s list of sessions.'
   const words = [
     `start "${plainLine(target.name)}"`,
     'Its chat is not running, and words from the worker board wait for it. Start it now: send it one line with SendMessage to its session id (load it with ToolSearch when it is deferred): "The worker board holds something for you." Nothing else, no reply needed; then go on with your own work.',
@@ -911,7 +920,9 @@ export async function sayStopWords(state, store, sent, now, newId) {
  * the chat's stop (src/stopped.mjs `stoppedOf`), `clock` says a time as "21:40".
  */
 export const wakeStoppedWords = (main, lane, stop, clock) => {
-  const id = typeof lane.appSession === 'string' && /^[\w-]{1,80}$/.test(lane.appSession) ? ` Its session id: ${lane.appSession}.` : ''
+  // B986 (X140): the chat its reports name (ownChat.mjs), never the one its title matches.
+  const own = wakeIdsOf(lane).appSession
+  const id = typeof own === 'string' && /^[\w-]{1,80}$/.test(own) ? ` Its session id: ${own}.` : ''
   const count = `${stop.words} ${stop.words === 1 ? 'word' : 'words'}`
   return {
     to: main, ask: null, step: null, title: null, version: null, verdict: null, command: 'wake', about: lane.name, stoppedAt: stop.since,
@@ -930,6 +941,8 @@ export function wakesStopped(state, stopped, outbox, clock) {
   const lanes = boardLanes(state)
   return lanes.filter(lane => lane.name !== main && (stopped.get(lane.name) ?? null) !== null)
     .filter(lane => !outbox.some(sent => sent.command === 'wake' && sent.about === lane.name && sent.stoppedAt === stopped.get(lane.name).since))
+    // B986 (the review, 6): no word for a chat that cannot be woken (not in the app's list, not the chat the board shows).
+    .filter(lane => cannotWakeWhy(lane) === null)
     .map(lane => wakeStoppedWords(main, lane, stopped.get(lane.name), clock))
 }
 

@@ -177,7 +177,7 @@ test('waitsOf: the words an action of the person typed in the last 24 h, by id; 
   const answer = { id: 'a1', to: 'Advisor', ask: 'work:Q5', command: null, text: 'A', at: at(4), state: 'waiting' }
   const failed = { id: 'a0', to: 'Advisor', ask: 'work:Q4', command: null, text: 'B', at: at(6), state: 'failed', retriedAs: 'a2' }
   const copy = { ...failed, id: 'a2', state: 'delivered', retriedAs: undefined, retryOf: 'a0', takenAt: at(3), deliveredAt: at(3) }
-  const board = { id: 'b1', to: 'Advisor', ask: null, command: 'refine', about: 'B12', text: 'refine', at: at(2), state: 'waiting' }
+  const board = { id: 'b1', to: 'Advisor', ask: null, command: 'refine', board: true, about: 'B12', text: 'refine', at: at(2), state: 'waiting' }
   const yesterday = { ...answer, id: 'a9', at: at(25 * 60) }
   const sweep = { id: 's1', to: 'Supervisor', ask: null, command: 'sweep', about: 'board', text: 'sweep', at: at(1), state: 'waiting' }
   const outbox = [yesterday, failed, answer, copy, board, sweep]

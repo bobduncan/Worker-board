@@ -154,3 +154,17 @@ test('a chat\'s own take sweeps only its own words, and the net is written to th
   assert.deepEqual(closed.map(one => one.id), ['mine'])
   assert.equal(stateOf(store, 'theirs').state, 'taken')
 })
+
+test('B1033 (X141, envelope ba127291): a clear-only hand-over an older board left taken is closed delivered by the net; a task envelope and a restart envelope keep their own outcome', async () => {
+  const store = memoryStore()
+  const envelope = (id, more) => ({ id, to: 'Advisor', text: 'hand-over', at: TAKE - MIN, state: 'waiting', command: 'handover', about: 'Advisor', kind: 'clear', clear: { step: 'B981', reportedAt: TAKE - 2 * MIN }, restart: false, step: null, line: null, ...more })
+  for (const one of [envelope('clearonly', {}), envelope('withtask', { kind: 'task', step: 'B14', line: 'work: B14 is yours; run work next' }), envelope('restart', { restart: true })]) {
+    await store.say(one)
+    await store.take('Advisor', TAKE, keep, message => message.id === one.id)
+  }
+  assert.deepEqual((await sweep(store, IDLE + 15 * MIN)).map(one => one.id), ['clearonly'])
+  assert.equal(stateOf(store, 'clearonly').state, 'delivered')
+  assert.equal(stateOf(store, 'clearonly').why, UNCONFIRMED_WHY)
+  assert.equal(stateOf(store, 'withtask').state, 'taken')
+  assert.equal(stateOf(store, 'restart').state, 'taken')
+})

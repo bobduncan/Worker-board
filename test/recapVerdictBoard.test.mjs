@@ -164,9 +164,11 @@ test('a recap part names its steps: waits for the verdict, Send back words them,
   assert.equal((await send({ round: 2, parts: [{ key: '3. Round shapes', verdict: 'approved' }] })).status, 409)
   const file = join(project, 'pictures', 'g6', 'recap', 'demo.json')
   const written = JSON.parse(await readFile(file, 'utf8'))
-  written.sections[1].rows[0].changed = 'still stepped -> rounded off'
-  await writeFile(file, JSON.stringify(written))
   const later = new Date(Date.now() + 5 * MIN)
+  written.sections[1].rows[0].changed = 'still stepped -> rounded off'
+  // T17.2: and a checker who did not make its close-up says, after the Send, that it shows their words.
+  written.sections[1].rows[0].shows = { verdict: 'yes', by: 'Checker', at: stamp(later.getTime()), why: 'the shapes read round' }
+  await writeFile(file, JSON.stringify(written))
   await utimes(file, later, later)
 
   // Round 2, approved: both steps are closed, the person's verdict in their History.

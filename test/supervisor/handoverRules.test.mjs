@@ -89,6 +89,8 @@ test('handover-unanswered: the net fired: one finding per envelope, keyed by the
   assert.equal(found[1].since, ago(12))
   // A clear alone (no step): named all the same, without a step.
   assert.equal(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e4', 15, 3, { step: null, kind: 'clear', clear: { step: 'B12', reportedAt: ago(20) } })] }))[0].text, 'Digger did not answer its hand-over within 10 min')
+  // B1033 (X141 counted 111 times on a take that never settled): the envelope settled delivered after the net was answered, however late: none.
+  assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e6', 15, 3, { step: null, kind: 'clear', clear: { step: 'B12', reportedAt: ago(20) }, state: 'delivered' })] })), [])
   // Over a day after the net: no longer.
   assert.deepEqual(check('handover-unanswered', view({ chats: [LEAD, digger], outbox: [sent('e5', 25 * 60 + 12, 25 * 60)] })), [])
   // Mutant "the rule firing for a timers worker".
@@ -163,10 +165,10 @@ test('ready-while-free reads the hand-over FREE only (R7, X111): held, handing o
   const B5 = parseItem(`Id: B5\nKind: step\nTitle: Step B5\nState: refined\nRefined: ready\nSince: ${stamp(ago(60))}\n`)
   const ready = { ready: [{ id: 'B5', rank: 2, keptFor: null, keptUntil: null, pinned: null }], held: [] }
   const board = chats => view({ chats: [LEAD, ...chats], items: new Map([['B5', B5]]), readyList: ready })
-  const seen = new Map([['ready-while-free B5', ago(30)]])
+  const seen = new Map([['ready-while-free Digger', ago(30)]])
   const found = check('ready-while-free', board([onIt('Digger', 'free')]), seen)
-  assert.deepEqual(found.map(one => [one.rule, one.key]), [['ready-while-free', 'ready-while-free B5']])
-  assert.equal(found[0].text, 'B5 ready for 30 min while Digger is free')
+  assert.deepEqual(found.map(one => [one.rule, one.key]), [['ready-while-free', 'ready-while-free Digger']])
+  assert.equal(found[0].text, 'Digger free for 30 min while 1 ready task waits: B5')
   assert.match(found[0].evidence, /Digger since \d\d:\d\d \(its hand-over: free\)/)
   // Idle by its report, but its hand-over is not free: no free worker (the old reading would have named it).
   for (const state of ['held', 'handing', 'offered', 'checking', 'unknown', 'restarting', 'suspended', 'working']) {
@@ -286,4 +288,29 @@ test('the Task 4 review: the health line clips the clear\'s why so the line keep
   const board = view({ chats: [LEAD, owing({ state: 'free', handover: { state: 'free', why: null, step: null } })], outbox: [long] })
   const line = oddLines(board, NOW).find(one => one.text.startsWith('Digger (worker)')).text
   assert.match(line, /\(its last: the board refused the log: x+…\); no clear known/)
+})
+
+test('Fix 0.31.0, part 4: the lone clear ba1272913fdc729f (X141, counted 104 times) is a finding while it stands taken and none once the start sweep settled it dropped; the net\'s own dropped envelope still is one (mutant: the skip removed)', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { foldOutbox, memoryStore } = await import('../../src/store.mjs')
+  const { closeClearOnly } = await import('../../src/work/handoverBoard.mjs')
+  const fixture = JSON.parse(await readFile(new URL('../fixtures/lazy-clear-2026-11-04.json', import.meta.url), 'utf8'))
+  const store = memoryStore()
+  store.outbox().push(...foldOutbox(fixture.outbox.filter(line => line.id === 'ba1272913fdc729f').map(line => JSON.stringify(line)).join('\n')))
+  const real = () => store.outbox().find(one => one.id === 'ba1272913fdc729f')
+  // 16:30 on the day: the net fired at 16:22, the lane is Worker 3 on the sequence, as in the live record of X141.
+  const at = real().netAt + 8 * MIN
+  const worker3 = onIt('Worker 3', 'free', { handover: { state: 'free', why: null, step: null } })
+  const find = () => check('handover-unanswered', buildView({ state: { chats: [LEAD, worker3], today: [], limits: {}, pause: null, chatPrefix: '', gaps: [], wakes: {} }, items: new Map(), outbox: store.outbox(), settings: {}, now: at }))
+  assert.deepEqual([real().state, real().kind, real().step], ['taken', 'clear', null])
+  assert.deepEqual(find().map(one => [one.key, one.subject]), [['handover-unanswered Worker 3 ba1272913fdc729f', 'Worker 3']], 'taken: the finding stays')
+  assert.equal(await closeClearOnly(store, at), 1)
+  assert.deepEqual([real().state, real().why], ['dropped', 'a lone clear from before 0.31.0, never answered'])
+  assert.deepEqual(find(), [], 'dropped by the start sweep: no finding')
+  // The same for the clear the sweep closed while it still waited.
+  store.outbox().push({ ...real(), id: 'w1', state: 'dropped', why: 'no clear goes alone since Workers mod 0.31.0: the clear it owes rides its next task', netAt: at - MIN })
+  assert.deepEqual(find(), [])
+  // The net's own close is no such close: a waiting envelope the net fired for and closed dropped with the net's why is still the miss.
+  store.outbox().push({ ...real(), id: 'n1', state: 'dropped', why: 'did not answer its hand-over', netAt: at - MIN })
+  assert.deepEqual(find().map(one => one.key), ['handover-unanswered Worker 3 n1'])
 })

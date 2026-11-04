@@ -206,6 +206,19 @@ const holdsOf = (items, name, prefix) => [...items.values()].some(item => kindOf
   && plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix))
 const isWorkerLane = lane => lane.isMain !== true && lane.isLeftover !== true
 
+/** The outbox's command of a hand-over envelope (handover.mjs `HANDOVER_COMMAND`; kept here because handover.mjs imports this file). */
+const ENVELOPE_COMMAND = 'handover'
+
+/**
+ * Fix 0.31.0: whether an outbox message is a hand-over envelope with a task that is still in flight: waiting or taken, no
+ * outcome, and the net not fired for it (handover.mjs `decide` takes the task of one the net fired for back itself).
+ */
+export const isEnvelopeInFlight = message => message?.command === ENVELOPE_COMMAND && typeof message.step === 'string' && ['waiting', 'taken'].includes(message.state)
+  && (message.outcome ?? null) === null && message.netAt === undefined
+
+/** Whether a lane's Workers mod is a known version ("0.31.0"); a lane the board has heard no version of (null) is unknown. */
+const isKnownMod = mod => typeof mod === 'string' && /^\d+(?:\.\d+)*$/.test(mod)
+
 /**
  * T8.5 step 6: the tasks the board gave that no hand-over will ever carry on (principle 2: nothing waits for ever), back
  * on the list: `[{ id, chat, why }]`. A step queued by the board's give (its newest move to queued is the give) whose Owner
@@ -213,22 +226,31 @@ const isWorkerLane = lane => lane.isMain !== true && lane.isLeftover !== true
  * back at once; one whose Owner is no worker of the list (dropped from the app's list, gone) goes back `waitMs` after the
  * give (the list may lose a chat for a while). A worker on the sequence is its hand-over's (its net). A board that reads
  * no worker at all (the app's list of chats could not be read) takes nothing back.
+ * Fix 0.31.0 (the double give after a lazy clear, 2026-11-04): two things hold a step on a worker that is off the sequence, each
+ * for `waitMs` after the give at most: a hand-over envelope of that step to that worker still in flight (`sent`, the outbox:
+ * waiting or taken, no outcome: its decision, not this pass, ends it), and a Workers mod the board has no version of yet (null:
+ * a worker just after its clear, whose one call of that moment said none) - unknown is not "off the sequence". Only a KNOWN
+ * mod older than the hand-over's, or the setting "timers", takes the give back at once.
  */
-export function strandedGives({ items, lanes = [], now, waitMs, prefix = '' }) {
+export function strandedGives({ items, lanes = [], now, waitMs, prefix = '', sent = [] }) {
   const backs = []
   const workers = lanes.filter(isWorkerLane)
   if (workers.length === 0) return backs
+  const inFlight = sent.filter(isEnvelopeInFlight)
   const queued = [...items.values()].filter(item => kindOf(item) === 'step' && stateOf(item) === 'queued' && valueOf(item, 'Owner') !== null
     && GIVE_LINE.test(historyOf(item).findLast(line => QUEUED_LINE.test(line)) ?? ''))
   for (const item of queued.sort((a, b) => byId(idOf(a), idOf(b)))) {
     const owner = bare(valueOf(item, 'Owner'), prefix)
     const lane = workers.find(one => plain(one.name, prefix) === plain(owner, prefix))
     if (lane?.onSequence === true) continue
+    const givenAt = sinceMs(valueOf(item, 'Since'))
     if (lane !== undefined) {
+      // Held for the net's time only: after it the old rule stands (an envelope no mod answers, a mod never heard).
+      const isHeld = Number.isFinite(givenAt) && now - givenAt < waitMs
+      if (isHeld && (!isKnownMod(lane.mod) || inFlight.some(one => one.step === idOf(item) && plain(one.to, prefix) === plain(owner, prefix)))) continue
       backs.push({ id: idOf(item), chat: lane.name, why: `${lane.name} is not on the hand-over` })
       continue
     }
-    const givenAt = sinceMs(valueOf(item, 'Since'))
     if (Number.isFinite(givenAt) && now - givenAt >= waitMs) backs.push({ id: idOf(item), chat: owner, why: `${owner} is no worker of the list` })
   }
   return backs

@@ -86,14 +86,15 @@ export function reworkOf(stepIds, items, { openChecks = new Set(), workerOf = ()
  * The rows of a recap as the popup shows its round: `{ round, making, done, rows: [{ key, title, steps, ready, rework }] }`, the rows the
  * person has not approved. `ready`: the person can judge it now (nothing more is done on it); not ready: it is being reworked (sent back
  * and its new try not in, or `rework`: a step of it is under way) and asks nothing. It is `roundPage` itself that decides, over the same
- * rows, so the popup and every count agree by construction. `rows`: `[{ key, title, steps, changed, pending }]` (booleans or words);
+ * rows, so the popup and every count agree by construction. `rows`: `[{ key, title, steps, changed, pending, shows }]` (booleans or words; T17.2: `shows`, the checker's word on the row's
+ * close-up, `{ verdict, by, at, why }` or null, decides with `changed` whether a row sent back is the new try);
  * `rework`: `Map(key → { step, worker })`; `changedAt` when the recap was last written (ms, null for never).
  */
 export function roundRowsOf({ rows, rounds, changedAt = null, rework = new Map() }) {
   const page = {
     sections: [{ kind: 'open', rows: (rows ?? []).map(row => ({
       key: row.key, title: row.title, steps: row.steps ?? [], note: '', pictures: [], play: null,
-      changed: row.changed ? 'changed' : null, pending: row.pending ? 'pending' : null,
+      changed: row.changed ? 'changed' : null, pending: row.pending ? 'pending' : null, shows: row.shows ?? null,
     })) }],
   }
   const shown = roundPage(page, { rounds: rounds ?? [] }, { changedAt, rework })

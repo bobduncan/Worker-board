@@ -14,7 +14,7 @@
 
 import { RESTART_COMMAND, restartWords } from './modRollout.mjs'
 import { EFFORTS, chatEffort, effortOf, effortWords, modelOf, runSettings, sameModel } from './effort.mjs'
-import { HANDOVER_COMMAND, contractOf, decide, envelopesOf, failedWhy, isClearOwedOnly, mergeStages, onSequence } from './handover.mjs'
+import { CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, HANDOVER_COMMAND, contractOf, decide, envelopesOf, failedWhy, isClearOwedOnly, mergeStages, onSequence } from './handover.mjs'
 import { giveBackStep } from './giveBack.mjs'
 import { GIVE_BACK_MINUTES, RESUME_MINUTES, continuationOf, standOf } from './holderTimers.mjs'
 import { isHolding } from './pause.mjs'
@@ -174,19 +174,23 @@ export async function addStages(outbox, chat, id, stages) {
   return true
 }
 
-/** The lazy clear (D8): the reason a clear-only envelope still waiting is closed at the board's start. */
-export const CLEAR_ONLY_CLOSED_WHY = 'no clear goes alone since Workers mod 0.31.0: the clear it owes rides its next task'
+/** The lazy clear (D8) and Fix 0.31.0 part 4: the reasons a lone clear is closed at the board's start (handover.mjs: the rule handover-unanswered reads them too). */
+export { CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY }
 
 /**
  * The lazy clear (D8): the landing's sweep, at every start of the board: every clear-only envelope (a clear, no task, no
- * line, no restart) still waiting in the outbox is closed with its reason; one already taken is the mod's and settles as
- * its outcome says. The number closed.
+ * line, no restart) still waiting in the outbox is closed with its reason. Fix 0.31.0 (part 4): one already TAKEN with no
+ * outcome is settled `dropped` too ("a lone clear from before 0.31.0, never answered": Worker 3's ba127291, taken at 12:24 and
+ * never settled, kept X141's rule handover-unanswered counting it 104 times); no such envelope is written any more, and one
+ * the mod answered (delivered or failed) is left as it stands. The number closed.
  */
 export async function closeClearOnly(outbox, now) {
-  const waiting = outbox.outbox().filter(one => one.command === HANDOVER_COMMAND && one.state === 'waiting' && one.restart !== true
-    && (one.clear ?? null) !== null && typeof one.step !== 'string' && typeof one.line !== 'string')
+  const isLoneClear = one => one.command === HANDOVER_COMMAND && one.restart !== true && (one.clear ?? null) !== null && typeof one.step !== 'string' && typeof one.line !== 'string'
+  const lone = outbox.outbox().filter(isLoneClear)
   let closed = 0
-  for (const one of waiting) if (await outbox.close(one.id, 'dropped', CLEAR_ONLY_CLOSED_WHY, now)) closed += 1
+  for (const one of lone.filter(message => message.state === 'waiting')) if (await outbox.close(one.id, 'dropped', CLEAR_ONLY_CLOSED_WHY, now)) closed += 1
+  const unanswered = lone.filter(message => message.state === 'taken' && (message.outcome ?? null) === null).map(message => ({ id: message.id, state: 'dropped', why: CLEAR_ONLY_TAKEN_WHY }))
+  if (unanswered.length > 0 && typeof outbox.closeTaken === 'function') closed += await outbox.closeTaken(unanswered, now)
   return closed
 }
 

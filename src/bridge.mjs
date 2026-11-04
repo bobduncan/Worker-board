@@ -36,13 +36,38 @@ export function noteCall(seen, body, checked, now) {
   if (name !== null && name !== '') seen.shown[name] = now
 }
 
+/** The Workers mod's version as its header says it (X-Workers-Mod, since 0.16.0): numbers and dots only. */
+const MOD_HEADER = /^\d{1,4}(?:\.\d{1,4}){0,3}$/
+
+/**
+ * The supervisor's Part 2, and fix 0.31.0 (the double give after a lazy clear, 2026-11-04): the version the mod says in its
+ * header (`given`) goes into the body of EVERY bridge call, the typed one too (the mod posts the clear's stages through it, at
+ * the very moment its session moves: the one call the board heard of Worker 1 just then said no version, and the board read a
+ * worker of 0.31.0 as off the sequence). A body's own `mod` is never taken; a header that is no version says none.
+ */
+export function withModHeader(parsed, given) {
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return parsed
+  const { mod: _ignored, ...rest } = parsed
+  return { ...rest, ...(typeof given === 'string' && MOD_HEADER.test(given.trim()) ? { mod: given.trim() } : {}) }
+}
+
+/**
+ * The version of each chat's Workers mod, by the chat's name, as its last accepted call said it (`modOf`, the server's Map;
+ * `at`: when the chat last called). Fix 0.31.0: a call that says none (an older mod, a route that carries no header) updates
+ * `at` and keeps the version the board knows; a chat whose mod never said one (older than 0.16.0) stays null.
+ */
+export function modSaid(modOf, body, checked, now) {
+  if (checked?.ok !== true || typeof checked.chat !== 'string') return
+  modOf.set(checked.chat, { version: typeof body?.mod === 'string' ? body.mod : modOf.get(checked.chat)?.version ?? null, at: now })
+}
+
 /**
  * Redesign Part 1: a chat's own report of its turn state (busy, idle, asking), from `POST /api/bridge/report` or the
  * `report` its take carries. Kept by the name the board shows, and only for the session it shows under that name
  * (`checked`, the take's check): another session under the name (a renamed or replaced chat) never writes over it.
  * `reports` is the server's Map. True when a report was kept.
  */
-export function noteReport(reports, body, checked, now) {
+export function noteReport(reports, body, checked, now, app = null) {
   if (reports === null || reports === undefined || checked?.ok !== true || typeof checked.chat !== 'string') return false
   const report = parseReport(body?.report, now)
   if (report === null) return false
@@ -53,8 +78,12 @@ export function noteReport(reports, body, checked, now) {
   // The review of chat-reports (principle 5): two reports can arrive out of order; one of a lower `seq` than the kept one
   // of the same session and process changes nothing but when the chat was last heard. A new session or process starts
   // fresh; no clock is compared.
+  // B986 (X140): the app's id of the chat the report came from (`app`, the shown chat's), so a lane finds its own chat again
+  // after a clear or an import gave it a new session (ownChat.mjs); a report without one keeps the id its session had.
+  const appId = typeof app === 'string' && /^local_[\w-]{1,80}$/.test(app) ? app : kept !== undefined && kept.session === session && typeof kept.app === 'string' ? kept.app : null
+  const withApp = entry => (appId === null ? entry : { ...entry, app: appId })
   if (isSame && kept.seq !== null && report.seq !== null && report.seq < kept.seq) {
-    reports.set(checked.chat, { ...kept, at: now, mod })
+    reports.set(checked.chat, withApp({ ...kept, at: now, mod }))
     return true
   }
   // When the board heard the chat's last turn start (busy after idle, ended or nothing; not after its question), kept
@@ -62,14 +91,17 @@ export function noteReport(reports, body, checked, now) {
   const isSameSession = kept !== undefined && kept.session === session
   const isTurnStart = report.state === 'busy' && (!isSameSession || kept.state === 'idle' || kept.state === 'ended')
   const busyAt = isTurnStart ? now : isSameSession ? kept.busyAt ?? null : null
-  reports.set(checked.chat, { ...report, at: now, session, mod, busyAt })
+  reports.set(checked.chat, withApp({ ...report, at: now, session, mod, busyAt }))
   return true
 }
 
+/** B986: the app's id of the chat the board shows under `checked.chat` (its lane's `appSession`), or null. */
+export const appOfShown = (state, checked) => (checked?.ok === true ? shownChats(state ?? {}).find(one => one.name === checked.chat)?.appSession ?? null : null)
+
 /** The report call's answer: refused as a take is (400, 409), 400 for no report, else the report is kept. */
-export function answerReport(reports, body, checked, now) {
+export function answerReport(reports, body, checked, now, app = null) {
   if (!checked.ok) return checked
-  return noteReport(reports, body, checked, now) ? { ok: true, result: { ok: true } } : refuse(400, 'Not a report: its state is busy, idle, asking or ended.')
+  return noteReport(reports, body, checked, now, app) ? { ok: true, result: { ok: true } } : refuse(400, 'Not a report: its state is busy, idle, asking or ended.')
 }
 
 /**

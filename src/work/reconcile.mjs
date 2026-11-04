@@ -75,7 +75,8 @@ const span = ms => {
  * a worker nothing of a failed check. `settings.handover` other than "sequence" (the escape hatch "timers") hands out
  * nothing at all: a line on top says so (`HANDOVER_OFF`).
  * `retired`: `[{ id }]`, the tasks queued before the redesign, which go back on the list once (work/handOut.mjs `oldQueued`);
- * `stranded`: `[{ id, chat, why }]`, the given tasks no hand-over carries on, back on the list (handOut.mjs `strandedGives`).
+ * `stranded`: `[{ id, chat, why }]`, the given tasks no hand-over carries on, back on the list (handOut.mjs `strandedGives`, with
+ * `sent`: not a task whose envelope is in flight, nor one of a worker whose mod is not known yet, for the net's time).
  * `handOutHeld` says whether the hand-out holds now (a pause, a resume, a full limit).
  */
 export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false }) {
@@ -323,7 +324,7 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // T8.5 step 6: a task the board gave that no hand-over carries on (its worker is not on the sequence, or gone from the
   // list for the net's time) goes back on the list; not while the hand-out holds.
   const retiredIds = new Set(retired.map(one => one.id))
-  const stranded = handOutHeld || !handsOut ? [] : strandedGives({ items, lanes: live, now, waitMs: NET_MS, prefix }).filter(one => !retiredIds.has(one.id))
+  const stranded = handOutHeld || !handsOut ? [] : strandedGives({ items, lanes: live, now, waitMs: NET_MS, prefix, sent }).filter(one => !retiredIds.has(one.id))
   // A free worker counts as free for the start of one more worker (its task comes by the hand-over).
   const idle = idleWorkers(live, { items, prefix, restFree, stuck: handedBack })
   const start = !handsOut || !isHandoverOn ? null : workerStart({ ready: ready.ready, idle, lanes: live, maxWorkers: settings.maxWorkers, isHeld: handOutHeld, items, sent, now, prefix,

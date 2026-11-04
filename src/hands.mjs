@@ -38,6 +38,7 @@
 
 import { PARTNER_MODES, SWITCH_MODES } from './partnerEffort.mjs'
 import { isOlder, versionOf } from './oldMods.mjs'
+import { wakeIdsOf } from './ownChat.mjs'
 import { EFFORTS, MODEL_ID } from './work/effort.mjs'
 import { RESTART_COMMAND } from './work/modRollout.mjs'
 import { ownerFirst } from './talkPartner.mjs'
@@ -287,12 +288,14 @@ export function handJobs({ caller, taken = [], lanes = [], now, spawn = null, us
       continue
     }
     const lane = laneOf(message.about)
-    if (lane === undefined || lane.name === caller || !isAppId(lane.appSession)) {
+    // B986 (X140): the chat its reports name (ownChat.mjs), never the one its title matches; none when not in the app's list.
+    const ids = wakeIdsOf(lane)
+    if (lane === undefined || lane.name === caller || ids.why !== null || !isAppId(ids.appSession)) {
       back.push(message.id)
       continue
     }
     const set = setOf(message)
-    const head = { id: message.id, to: lane.appSession, chat: lane.name }
+    const head = { id: message.id, to: ids.appSession, chat: lane.name }
     if (message.command === RESTART_COMMAND) jobs.push({ ...head, restart: { keep: lanes.map(one => one.appSession).filter(isAppId) } })
     else if (set !== null) jobs.push({ ...head, set })
     else if (canSend) jobs.push({ ...head, text: HAND_LINE })

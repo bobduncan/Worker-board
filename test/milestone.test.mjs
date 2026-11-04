@@ -205,7 +205,7 @@ test('the page: the Advisor tab in four parts under their buttons, the way first
   // the way is drawn anew while one is sent.
   assert.match(script, /send\(\{ to: board\.workers\?\.main \?\? null, command: 'recommend', about: rec\.id, answer: 'yes' \}, 'recommend'\)/)
   assert.match(script, /send\(\{ to: board\.advisor\.name, command: 'recommend', about: rec\.id, answer: 'no', reason: wayReason\.trim\(\) \}, 'recommend'\)/)
-  assert.match(script, /once\('way', \[state\.milestone \?\? null, state\.goalsFile \?\? null, state\.workers\?\.main \?\? null, state\.goalsEdit\?\.canWrite \?\? null, state\.advisor\?\.name \?\? null, sending\.has\('recommend'\), problems\.get\('recommend'\) \?\? null, state\.advisor\?\.roundRuns \?\? null, sending\.has\('recheck'\), problems\.get\('recheck'\) \?\? null\], \(\) => drawWay\(state\)\)/)
+  assert.match(script, /once\('way', \[state\.milestone \?\? null, state\.goalsFile \?\? null, state\.workers\?\.main \?\? null, state\.goalsEdit\?\.canWrite \?\? null, state\.advisor\?\.name \?\? null, sending\.has\('recommend'\), problems\.get\('recommend'\) \?\? null, state\.advisor\?\.roundRuns \?\? null, sending\.has\('recheck'\), problems\.get\('recheck'\) \?\? null, waitKeyOf\(placeWaitOf\(state, 'talk', \{ command: 'recheck' \}\)\)\], \(\) => drawWay\(state\)\)/)
 })
 
 // Phasing out the main chat (the person, 2026-10-28: "A, and send note"): a yes the board carries out itself.
