@@ -8,6 +8,11 @@
 // transcript stays on disk after a /clear, so the copy may finish after the clear; a small journal
 // (`data/chat-logs.json`) names each log not finished yet, and the board finishes it after a restart. Once copied,
 // nothing here needs Claude Code to keep the old transcript.
+//
+// The lazy clear (Workers mod 0.31.0, 2026-11-03): one log per (session, step). A clear that did not run is tried again
+// at the next hand-over, which saved the log anew each time (B936 and B936-2 on 2026-11-02); now a second save of the same
+// pair answers the first log's path, and copies the grown transcript again into those same files. The journal keeps an
+// index of the finished logs for that (`done`).
 
 import { createReadStream, createWriteStream } from 'node:fs'
 import { copyFile, mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
@@ -210,6 +215,16 @@ export function leftSubjects(kept, movedFrom, lanes = []) {
 /** Review of clear after each step: a left session's transcript is read to its end by both readers, or is gone. */
 export const isReadOut = ({ size, taskOffset, spendingOffset }) => size === null || (taskOffset >= size && spendingOffset >= size)
 
+/**
+ * The lazy clear (Workers mod 0.31.0, the brief's D8): one log per (session, step). The journal's index of the logs finished
+ * for a step (`done`): `{ session, step, chat, source, jsonl, txt, log, at, size }`, `size` the bytes copied (null: not
+ * known). Only one with every field it needs is kept; at most MOST_DONE, the newest.
+ */
+const isDone = one => one !== null && typeof one === 'object' && typeof one.session === 'string' && SESSION_ID.test(one.session)
+  && typeof one.step === 'string' && STEP_ID.test(one.step) && ['chat', 'source', 'jsonl', 'txt', 'log'].every(key => typeof one[key] === 'string' && one[key] !== '')
+  && Number.isFinite(one.at) && (one.size === null || Number.isFinite(one.size))
+const MOST_DONE = 200
+
 /** A job of the journal as it was read: only one with every field it needs is kept. */
 const isJob = job => job !== null && typeof job === 'object' && ['copy', 'text'].includes(job.state)
   && ['id', 'chat', 'session', 'source', 'jsonl', 'txt', 'log'].every(key => typeof job[key] === 'string' && job[key] !== '') && Number.isFinite(job.at)
@@ -225,6 +240,8 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
   let jobs = null
   /** The sessions cleared chats left, still to be read to their ends (`leftSubjects`). */
   let left = []
+  /** D8: the logs finished for a (session, step), newest last (`isDone`). */
+  let done = []
   let queue = Promise.resolve()
   let journal = Promise.resolve()
   // Read once: two callers at the board's start share the one reading, so neither puts the other's job out.
@@ -236,6 +253,7 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
         const raw = JSON.parse(await readFile(file, 'utf8'))
         jobs = (Array.isArray(raw?.jobs) ? raw.jobs : []).filter(isJob)
         left = (Array.isArray(raw?.left) ? raw.left : []).filter(isLeft)
+        done = (Array.isArray(raw?.done) ? raw.done : []).filter(isDone).slice(-MOST_DONE)
       } catch {
         // No journal yet, or a torn one: nothing is unfinished that it can name.
         jobs ??= []
@@ -246,7 +264,7 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
   }
   /** The journal as it is now, written one write after the other. */
   const keep = () => {
-    const text = `${JSON.stringify({ jobs: jobs ?? [], left }, null, 2)}\n`
+    const text = `${JSON.stringify({ jobs: jobs ?? [], left, done }, null, 2)}\n`
     const write = journal.catch(() => {}).then(async () => {
       await mkdir(dirname(file), { recursive: true })
       // B934: the journal, written at every save-log and step of a log: no flush (a power cut may lose its last entry).
@@ -269,6 +287,14 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
       // From here on only the copy is read: the app may delete the old transcript.
       await writeTextLog(job.jsonl, job.txt, job)
       jobs = (jobs ?? []).filter(one => one !== job)
+      // D8: the finished log of its (session, step), for a second save of the same pair.
+      if (job.step !== null && STEP_ID.test(job.step ?? '')) {
+        const size = await stat(job.jsonl).then(found => found.size, () => null)
+        const kept = { session: job.session, step: job.step, chat: job.chat, source: job.source, jsonl: job.jsonl, txt: job.txt, log: job.log, at: job.at, size }
+        done = [...done.filter(one => !(one.session === job.session && one.step === job.step)), kept].slice(-MOST_DONE)
+        // A second save came while it was written: copied again into the same files once the transcript has grown since.
+        if (job.again === true) await copyAgain(kept)
+      }
       await keep()
     } catch (error) {
       job.tries = (job.tries ?? 0) + 1
@@ -290,6 +316,24 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
     queue = queue.then(() => tracked(job), () => tracked(job))
     return queue
   }
+
+  /**
+   * D8: the finished log of a (session, step) copied again into its own files (never a `-2` file) when its transcript has
+   * grown since it was copied: a new job of the journal with the same paths. The job, or null (not grown, gone, too many).
+   */
+  async function copyAgain(finished) {
+    const size = await stat(finished.source).then(found => found.size, () => null)
+    if (size === null || (Number.isFinite(finished.size) && size <= finished.size) || (jobs ?? []).length >= MOST_JOBS) return null
+    if ((jobs ?? []).some(one => one.session === finished.session && one.step === finished.step)) return null
+    const at = clock()
+    const job = { id: `${finished.session}-${at}`, chat: finished.chat, session: finished.session, step: finished.step, at, state: 'copy', source: finished.source, jsonl: finished.jsonl, txt: finished.txt, log: finished.log }
+    jobs = [...(jobs ?? []), job]
+    void run(job)
+    return job
+  }
+
+  /** The answer of a save: the log's path in the project and its full paths. */
+  const savedAs = job => ({ ok: true, result: { text: `Saving the conversation to ${job.txt}.`, log: job.log, file: job.txt, jsonl: job.jsonl } })
 
   /** A free name for a new log of `chat`: `<base>`, else `<base>-2`, ... */
   async function freeName(folder, base) {
@@ -314,6 +358,21 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
     const source = join(transcripts, `${session}.jsonl`)
     if (!(await exists(source))) return { ok: false, status: 404, why: `No transcript of this session (${session}): nothing to keep.` }
     await load()
+    // The lazy clear (D8): one log per (session, step). A second save of the same pair answers the first log's path and
+    // writes no new file: one still being written is copied again once it is done (when the transcript grew meanwhile),
+    // one finished is copied again into its own files now when the transcript grew since. No step named: no such check.
+    const stepId = typeof step === 'string' && STEP_ID.test(step) ? step : null
+    if (stepId !== null) {
+      const open = jobs.find(one => one.session === session && one.step === stepId)
+      const finished = open === undefined ? done.findLast(one => one.session === session && one.step === stepId) : undefined
+      if (open !== undefined || finished !== undefined) {
+        if (open !== undefined) open.again = true
+        else await copyAgain(finished)
+        if (!left.some(one => one.session === session)) left.push({ session, chat: chat.trim(), at: clock() })
+        await keep().catch(() => {})
+        return savedAs(open ?? finished)
+      }
+    }
     if (jobs.length >= MOST_JOBS) return { ok: false, status: 503, why: 'Too many chat logs wait to be written: none is taken now.' }
     const at = clock()
     const folderName = logFolderName(chat)
@@ -333,7 +392,7 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
       return { ok: false, status: 500, why: `The journal of the chat logs could not be written (${String(error?.code ?? error?.message ?? error).slice(0, 80)}).` }
     }
     void run(job)
-    return { ok: true, result: { text: `Saving the conversation to ${job.txt}.`, log: job.log, file: job.txt, jsonl: job.jsonl } }
+    return savedAs(job)
   }
 
   /** Starts every log the journal names: the board was stopped before they were written. */
@@ -354,6 +413,7 @@ export function chatLogKeeper({ file, project, transcripts, clock = Date.now, fa
     loading = null
     jobs = null
     left = []
+    done = []
   }
 
   /** The sessions cleared chats left, still to be read to their ends. */

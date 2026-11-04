@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { createWriteStream } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { once } from 'node:events'
 
@@ -134,13 +134,16 @@ test('a log the board did not finish is finished after a restart, from the copy 
     assert.match(await readFile(join(logs, 'new.txt'), 'utf8'), /Worker 1:\nThe knight is in\./)
     assert.match(await readFile(join(logs, 'old.txt'), 'utf8'), /Worker 1:\nThe knight is in\./)
     assert.equal((await readFile(join(logs, 'new.jsonl'), 'utf8')), `${transcriptLines().join('\n')}\n`)
-    assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')), { jobs: [], left: [] })
+    const kept = JSON.parse(await readFile(journal, 'utf8'))
+    assert.deepEqual([kept.jobs, kept.left], [[], []])
+    // D8: both are finished logs of their (session, step) now.
+    assert.deepEqual(kept.done.map(one => [one.session, one.step, one.log]), [['s1', 'B7', '.claude/chat-logs/Worker 1/new.txt'], ['gone', 'B7', '.claude/chat-logs/Worker 1/old.txt']])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
 })
 
-test('a transcript gone before its copy is given up, said once; no transcript, no log; two logs in one minute get two names', async () => {
+test('a transcript gone before its copy is given up, said once; no transcript, no log; two logs in one minute get two names (another session, or no step named)', async () => {
   const dir = await folder()
   try {
     const project = join(dir, 'project')
@@ -153,13 +156,17 @@ test('a transcript gone before its copy is given up, said once; no transcript, n
     await keeper.resume()
     await keeper.idle()
     assert.deepEqual(given, ['x'])
-    assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')), { jobs: [], left: [] })
+    assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')), { jobs: [], left: [], done: [] })
     assert.deepEqual(await keeper.save({ chat: 'W', session: 'none', step: 'B1' }), { ok: false, status: 404, why: 'No transcript of this session (none): nothing to keep.' })
     assert.equal((await keeper.save({ chat: 'W', session: '../x', step: 'B1' })).status, 400)
     await writeFile(join(transcripts, 's2.jsonl'), `${transcriptLines()[1]}\n`)
+    await writeFile(join(transcripts, 's3.jsonl'), `${transcriptLines()[1]}\n`)
     const first = await keeper.save({ chat: 'W', session: 's2', step: 'B1' })
-    const second = await keeper.save({ chat: 'W', session: 's2', step: 'B1' })
+    const second = await keeper.save({ chat: 'W', session: 's3', step: 'B1' })
     assert.deepEqual([first.result.log, second.result.log], ['.claude/chat-logs/W/2026-10-23 1405 B1.txt', '.claude/chat-logs/W/2026-10-23 1405 B1-2.txt'])
+    // No step named: the (session, step) check is skipped.
+    const plain = [await keeper.save({ chat: 'W', session: 's2', step: null }), await keeper.save({ chat: 'W', session: 's2', step: null })]
+    assert.deepEqual(plain.map(one => one.result.log), ['.claude/chat-logs/W/2026-10-23 1405 no step.txt', '.claude/chat-logs/W/2026-10-23 1405 no step-2.txt'])
     await keeper.idle()
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -248,7 +255,130 @@ test('B529: a board process that gains the loops reads the journal again and fin
     await other.resume()
     await other.idle()
     assert.match(await readFile(join(logs, 'open.txt'), 'utf8'), /W:\nThe knight is in\./)
-    assert.deepEqual(JSON.parse(await readFile(journal, 'utf8')), { jobs: [], left: [{ session: 's1', chat: 'W', at: AT }] })
+    const kept = JSON.parse(await readFile(journal, 'utf8'))
+    assert.deepEqual([kept.jobs, kept.left, kept.done.map(one => one.log)], [[], [{ session: 's1', chat: 'W', at: AT }], ['logs/open.txt']])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+// ---- The lazy clear (Workers mod 0.31.0, brief Task 3 with D8): one log per (session, step).
+
+/** A keeper on a project with one transcript `s1` of the worker's conversation. */
+async function oneSession(dir, { clock = () => AT } = {}) {
+  const project = join(dir, 'project')
+  const transcripts = join(dir, 'transcripts')
+  await mkdir(transcripts, { recursive: true })
+  await writeFile(join(transcripts, 's1.jsonl'), `${transcriptLines().join('\n')}\n`)
+  const journal = join(dir, 'data', 'chat-logs.json')
+  const folderOf = join(project, '.claude', 'chat-logs', 'Worker 3')
+  const grow = words => writeFile(join(transcripts, 's1.jsonl'), `${transcriptLines().join('\n')}\n${JSON.stringify({ type: 'assistant', timestamp: iso(AT + 60_000), message: { role: 'assistant', content: [{ type: 'text', text: words }] } })}\n`)
+  return { project, transcripts, journal, folderOf, grow, keeper: chatLogKeeper({ file: journal, project, transcripts, clock }) }
+}
+const filesIn = async folder => (await readdir(folder)).sort()
+
+test('D8, B936 (2026-11-02, B936 and B936-2): a second save for the same (session, step) answers the first log\'s path and writes no new file; once the first is finished and the transcript grew, it is copied again into the same files (mutant: a -2 file)', async () => {
+  const dir = await folder()
+  try {
+    const one = await oneSession(dir)
+    const first = await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B936' })
+    // The retry at once, while the first is being written: the same path, nothing new.
+    const again = await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B936' })
+    assert.deepEqual(again, first)
+    await one.keeper.idle()
+    assert.deepEqual(await filesIn(one.folderOf), ['2026-10-23 1405 B936.jsonl', '2026-10-23 1405 B936.txt'])
+    // The journal's index names it.
+    const index = JSON.parse(await readFile(one.journal, 'utf8')).done
+    assert.deepEqual(index.map(entry => [entry.session, entry.step, entry.log]), [['s1', 'B936', first.result.log]])
+    assert.equal(index[0].size, (await stat(first.result.jsonl)).size)
+    // Later, the same pair again with the transcript unchanged: the same path, nothing copied.
+    assert.deepEqual(await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B936' }), first)
+    assert.deepEqual(await one.keeper.pending(), [])
+    // The transcript grew (the task went on in the old conversation): copied again into the same files.
+    await one.grow('B936 needed one more look.')
+    assert.deepEqual(await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B936' }), first)
+    await one.keeper.idle()
+    assert.deepEqual(await filesIn(one.folderOf), ['2026-10-23 1405 B936.jsonl', '2026-10-23 1405 B936.txt'])
+    assert.match(await readFile(first.result.file, 'utf8'), /B936 needed one more look\./)
+    assert.match(await readFile(first.result.jsonl, 'utf8'), /B936 needed one more look\./)
+    assert.deepEqual(JSON.parse(await readFile(one.journal, 'utf8')).done.map(entry => entry.log), [first.result.log])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('D8: a second save while the first is still written, the transcript grown meanwhile: one log that holds it all; a new step on the same session gets its own log', async () => {
+  const dir = await folder()
+  try {
+    let now = AT
+    const one = await oneSession(dir, { clock: () => now })
+    const first = await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B936' })
+    await one.grow('More words before the clear.')
+    assert.deepEqual(await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B936' }), first)
+    await one.keeper.idle()
+    await one.keeper.idle()
+    assert.match(await readFile(first.result.file, 'utf8'), /More words before the clear\./)
+    // Two tasks in a row on one uncleared session: the next step's log is its own and covers both tasks' conversation.
+    now = AT + 30 * 60_000
+    const next = await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B937' })
+    assert.notEqual(next.result.log, first.result.log)
+    await one.keeper.idle()
+    assert.deepEqual(await filesIn(one.folderOf), ['2026-10-23 1405 B936.jsonl', '2026-10-23 1405 B936.txt', '2026-10-23 1435 B937.jsonl', '2026-10-23 1435 B937.txt'])
+    assert.match(await readFile(next.result.file, 'utf8'), /More words before the clear\./)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('D8: a save that comes while the log of its (session, step) waits in the journal (copied, its text not written) marks it: once done it is copied again from the grown transcript into the same files (mutant: the mark ignored)', async () => {
+  const dir = await folder()
+  try {
+    const one = await oneSession(dir)
+    await mkdir(one.folderOf, { recursive: true })
+    const base = join(one.folderOf, '2026-10-23 1405 B936')
+    // The board stopped after the copy: the copy holds the transcript as it was; the transcript grew since.
+    await writeFile(`${base}.jsonl`, `${transcriptLines().join('\n')}\n`)
+    await one.grow('Words after the first copy.')
+    await mkdir(dirname(one.journal), { recursive: true })
+    await writeFile(one.journal, JSON.stringify({ jobs: [{ id: 'j1', chat: 'Worker 3', session: 's1', step: 'B936', at: AT, state: 'text', source: join(one.transcripts, 's1.jsonl'), jsonl: `${base}.jsonl`, txt: `${base}.txt`, log: '.claude/chat-logs/Worker 3/2026-10-23 1405 B936.txt' }], left: [] }))
+    const saved = await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B936' })
+    assert.equal(saved.result.file, `${base}.txt`)
+    assert.equal((await one.keeper.pending())[0].again, true)
+    await one.keeper.resume()
+    await one.keeper.idle()
+    await one.keeper.idle()
+    assert.match(await readFile(`${base}.txt`, 'utf8'), /Words after the first copy\./)
+    assert.deepEqual(await filesIn(one.folderOf), ['2026-10-23 1405 B936.jsonl', '2026-10-23 1405 B936.txt'])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('D8: the index as the journal keeps it: a broken entry is left out at load, a reload (B529) reads it anew, at most 200, the newest', async () => {
+  const dir = await folder()
+  try {
+    const one = await oneSession(dir)
+    const entry = (n, more = {}) => ({ session: 's1', step: `B${n}`, chat: 'Worker 3', source: join(one.transcripts, 's1.jsonl'), jsonl: join(one.folderOf, `${n}.jsonl`), txt: join(one.folderOf, `${n}.txt`), log: `.claude/chat-logs/Worker 3/${n}.txt`, at: AT, size: null, ...more })
+    await mkdir(dirname(one.journal), { recursive: true })
+    await writeFile(one.journal, JSON.stringify({ jobs: [], left: [], done: [entry(1), entry(2, { session: '../x' }), entry(3, { step: 'none' }), { broken: true }, entry(4, { size: 'big' })] }))
+    // B1 is known (finished): its save answers that path (its transcript grew past the unknown size: copied again into it).
+    const known = await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B1' })
+    assert.equal(known.result.log, '.claude/chat-logs/Worker 3/1.txt')
+    // B4's entry was broken (size): a save of B4 is a new log.
+    assert.notEqual((await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B4' })).result.log, '.claude/chat-logs/Worker 3/4.txt')
+    await one.keeper.idle()
+    // Another process wrote 205 entries: after a reload this one reads them, the newest 200.
+    await writeFile(one.journal, JSON.stringify({ jobs: [], left: [], done: Array.from({ length: 205 }, (_, n) => entry(100 + n)) }))
+    await one.keeper.reload()
+    assert.equal((await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B304' })).result.log, '.claude/chat-logs/Worker 3/304.txt')
+    assert.notEqual((await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B100' })).result.log, '.claude/chat-logs/Worker 3/100.txt', 'the oldest five are cut')
+    await one.keeper.idle()
+    assert.equal(JSON.parse(await readFile(one.journal, 'utf8')).done.length, 200)
+    // A reload that finds a torn journal forgets the index it read before (B529's reset).
+    await writeFile(one.journal, '{"jobs": [')
+    await one.keeper.reload()
+    assert.notEqual((await one.keeper.save({ chat: 'Worker 3', session: 's1', step: 'B300' })).result.log, '.claude/chat-logs/Worker 3/300.txt')
+    await one.keeper.idle()
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
