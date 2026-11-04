@@ -10046,6 +10046,8 @@ function optionChoices(need) {
 }
 
 function openDetails(what) {
+  // B993: a link to an ask no list of the page holds (an answered one) opens from the store, whatever its state.
+  if (typeof what?.step === 'string' && /^Q\d+$/.test(what.step) && board !== null && !(board.routedAway ?? []).some(one => one.id === what.step)) return openAskCard(what.step)
   detailsOf = what
   // Light state: a task that could not be read is read again when its window is opened again.
   if (typeof what?.step === 'string') fullStepProblems.delete(what.step)
@@ -18798,8 +18800,6 @@ document.addEventListener('click', event => {
   const id = link.dataset.askLink
   const need = everyNeed(board).find(one => one.workId === id)
   if (need === undefined && (board.withPartner ?? []).some(one => one.id === id)) return openDetails({ partnerAsk: id })
-  // B993: an ask the page does not list (an answered one) opens from the store, whatever its state.
-  if (need === undefined && /^Q\d+$/.test(id) && !(board.routedAway ?? []).some(one => one.id === id)) return openAskCard(id)
   openDetails(need !== undefined ? { need: need.id } : { step: id })
 }, true)
 
