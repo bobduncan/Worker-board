@@ -247,10 +247,11 @@ export function checkTries(list, { feedback = null, mtimeOf, previous = null }) 
         problems.push(`${own}: no picture was written after that Send and its note is the old one, so this is the old try: put in the new try's picture (or, for an answer in words, its new note), or give "pending": "<why the new try is not in yet>".`)
         continue
       }
-      // T17.2: the new try shows the spot their words name, up close, and a checker who did not make it says so. An answer in words (a new
-      // note, or the list taken again with no picture) is no spot of a picture: it needs no close-up, but the same check. Nor does a grid row
-      // (a row has pictures or a grid, never both: a grid cannot carry a close-up).
-      const isWords = hasWords || (isRerun && !hasPicture) || (row.pictures ?? []).length === 0
+      // T17.2: the new try shows the spot their words name, up close, and a checker who did not make it says so. An answer in words (it passed
+      // on a new note or the list taken again alone, with no picture written after the Send) is no spot of a picture: it needs no close-up, but
+      // the same check. Nor does a grid row (a row has pictures or a grid, never both: a grid cannot carry a close-up). A row with new pictures
+      // needs its close-up even when its note changed too (the review: a rewritten note let row 7's whole-screen shots pass without one).
+      const isWords = !hasPicture || (row.pictures ?? []).length === 0
       const closeups = (row.pictures ?? []).filter(one => one?.kind === 'closeup')
       const hasCloseup = closeups.some(one => isAfterSend(mtimeOf(one.path), sent))
       const checked = showsCheck(row.shows, sent)

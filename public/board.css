@@ -3023,7 +3023,7 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .demo-closeup-sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; align-items: start; }
 .picture.demo-crop { position: relative; display: block; width: 100%; }
 .picture.demo-crop img { position: absolute; display: block; max-width: none; height: auto; aspect-ratio: auto; object-fit: fill; image-rendering: pixelated; visibility: hidden; }
-.picture.demo-crop.is-sized img { visibility: visible; }
+.picture.demo-crop.is-sized img { visibility: inherit; }
 .demo-clip-stack { display: grid; }
 .demo-clip-stack > .picture { grid-area: 1 / 1; visibility: hidden; }
 .demo-clip-stack > .picture.is-on { visibility: visible; }

@@ -102,7 +102,8 @@ const props = (more = {}) => row({ changed: 'tall props -> they fade for a unit 
 const previous = { list: list(study({ note: 'The old note' })), writtenAt: SENT_MS - 4 * 60 * MIN }
 
 test('G60 row 7\'s shape: only whole-screen shots written after the Send is refused for the missing close-up; with the close-up but no word of a checker, refused again', () => {
-  const tries = (old = []) => ({ feedback, mtimeOf: written(old), previous })
+  // Row 8's study picture is the old one: it passes on its new note alone (an answer in words).
+  const tries = (old = ['study.png']) => ({ feedback, mtimeOf: written(old), previous })
   const said = refusal(list(props(), study()), tries())
   assert.match(said, /"7\. Tall props" \(sent back in round 1, 2026-11-04 10:00\): no close-up; no "shows"/)
   assert.match(said, /Make the close-up: the before and after pictures and the box of the spot their words name, a clip when it moves; then have a checker who did not make it write "shows"/)
@@ -117,7 +118,11 @@ test('G60 row 7\'s shape: only whole-screen shots written after the Send is refu
   // The close-up and the word: passes. A clip beside it is no harm.
   assert.equal(refusal(list(props({ pictures: [SHOT, CLOSE, CLIP], shows: YES }), study()), tries()), null)
   // The close-up's after picture written before the Send is the old try's, whatever else is new.
-  assert.match(refusal(list(props({ pictures: [SHOT, CLOSE], shows: YES }), study()), tries(['after.png'])), /"7\. Tall props".*its close-up's after picture was written before that Send, so it is the old try/)
+  assert.match(refusal(list(props({ pictures: [SHOT, CLOSE], shows: YES }), study()), tries(['after.png', 'study.png'])), /"7\. Tall props".*its close-up's after picture was written before that Send, so it is the old try/)
+  // The review: a new note does not free a row whose new pictures are whole-screen shots: it still needs its close-up.
+  const renoted = { ...list(props({ note: 'Props now fade for a unit behind them.', shows: YES }), study()) }
+  const renotedPrevious = { list: list(props({ note: 'The old props note' }), study({ note: 'The old note' })), writtenAt: SENT_MS - 4 * 60 * MIN }
+  assert.match(refusal(renoted, { feedback, mtimeOf: written(['study.png']), previous: renotedPrevious }), /"7\. Tall props".*: no close-up/)
   // "pending" needs none of it.
   assert.equal(refusal(list(props({ pending: 'B957 not started' }), study()), tries()), null)
 })
