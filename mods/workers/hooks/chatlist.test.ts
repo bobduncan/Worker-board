@@ -117,6 +117,10 @@ type World = {
   beforeTyped?: ($: Engine, text: string) => Promise<void>
   /** T8.5: everything that went out, in one order: each work call's action, each /clear, each prompt typed in ("prompt"), each typed report ("typed"). */
   order: string[]
+  /** The lazy clear (the Task 2 review): the mod's store refuses to delete; a /clear the test holds; the store at each /clear. */
+  storeDeleteFails?: boolean
+  holdClear?: Promise<void> | null
+  storedAtClear?: Record<string, unknown>[]
 }
 
 /** The review of chat-reports: a report as the board reads what it says, without its order (`run`, `seq`); 8c's `word` and `turn` are tested apart. */
@@ -190,11 +194,13 @@ function stand(on: On, w: World): void {
     return { value: { isPlaced: true } }
   })
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: w.tokens, window: 1_000_000, percent: Math.round(w.tokens / 10_000) }, rateLimits: [] } }))
-  on('command.run', { command: 'clear' }, (_$, e) => {
+  on('command.run', { command: 'clear' }, async (_$, e) => {
     w.commanded.push(`/clear by ${e.origin.kind}${e.origin.kind === 'plugin' ? ` ${e.origin.name}` : ''}`)
     w.sequence.push('/clear')
     w.order.push('/clear')
     w.reportsAtClear.push(w.reports.length)
+    ;(w.storedAtClear ??= []).push(JSON.parse(JSON.stringify(w.stored)) as Record<string, unknown>)
+    if (w.holdClear !== undefined && w.holdClear !== null) await w.holdClear
     return { text: '' }
   })
   on('command.run', { command: 'compact' }, async (_$, e) => {
@@ -243,6 +249,7 @@ function stand(on: On, w: World): void {
     return { value: undefined }
   })
   on('store.delete', (_$, e) => {
+    if (w.storeDeleteFails === true) throw new Error('the store could not be written')
     delete w.stored[e.key]
 
     return { value: undefined }
@@ -4200,17 +4207,28 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
 
   test('the lazy clear, D2 and review focus 1: a /clear the app has not run in 20 s: dropped completely (no mark, no record), then the line; the late /clear is refused and never clears mid-task (mutant: the line typed with the clear still on its way)', async ($, on) => {
     const { w, clock } = await worker($, on, handover(envelope()))
+    // The Task 2 review (m4): what stood when the line was submitted: the card's mark and the stored record.
+    const atLine: { mark: unknown; record: unknown }[] = []
+    w.beforeTyped = async () => { atLine.push({ mark: fileOf(w)?.clearing, record: w.stored['clear-pending:units'] }) }
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await wait(50)
     expect(w.commanded).toEqual(['/clear by plugin workers'])
-    // The kit's stand-in does not run the queued /clear: 15 s on, nothing yet.
+    // The Task 2 review (m2): the clear was kept in the store, with its envelope, before its /clear went (mutant: no store).
+    const kept = w.storedAtClear?.[0]?.['clear-pending:units'] as { envelope?: { id?: string }; lineTyped?: boolean } | undefined
+    expect([kept?.envelope?.id, kept?.lineTyped]).toEqual([ID, false])
+    // 15 s on, nothing yet.
     await clock.advance(15_000)
     for (let i = 0; i < 20; i++) await settle()
     expect(w.typedIn).toEqual([])
     await clock.advance(5000)
     for (let i = 0; i < 50 && outcomes(w).length === 0; i++) await settle()
+    // D2's order: the card's mark was off and the record marked (or gone) before the line (mutant m4: the line first).
+    expect(atLine.length).toBe(1)
+    expect(atLine[0]?.mark).toBeUndefined()
+    expect((atLine[0]?.record as { lineTyped?: boolean } | undefined)?.lineTyped ?? true).toBe(true)
     expect(fileOf(w)?.clearing).toBeUndefined()
     expect(fileOf(w)?.clearNote?.why).toBe('not run in 20 s')
+    for (let i = 0; i < 20 && w.stored['clear-pending:units'] !== undefined; i++) await settle()
     expect(w.stored['clear-pending:units']).toBeUndefined()
     expect(w.typedIn).toEqual([`plugin:as the person:${LINE}`])
     expect(untimed(outcomes(w)).map(one => one.outcome)).toEqual([{ ...DONE, cleared: false, typed: true, clearWhy: 'not run in 20 s' }])
@@ -4225,6 +4243,89 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     expect((await $.command.run(CLEAR_BY_MOD)).text).toBe('Not cleared: this /clear of the Workers mod was let go before it ran.')
     expect(w.commanded).toEqual(['/clear by plugin workers'])
     expect(untimed(outcomes(w)).length).toBe(1)
+  })
+
+  test('the Task 2 review (1, D3): the person pauses while the /clear waits: at 20 s no line, settled typed null with exactly the board\'s PAUSED_WHY; the net\'s own words stay in the stage', async ($, on) => {
+    const { w, clock } = await worker($, on, handover(envelope()))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    w.pauseAnswer = { ...RUNNING, state: 'pausing', since: 1 }
+    await clock.advance(20_000)
+    for (let i = 0; i < 50 && outcomes(w).length === 0; i++) await settle()
+    expect(w.typedIn).toEqual([])
+    expect(untimed(outcomes(w)).map(one => one.outcome)).toEqual([{ ...DONE, cleared: false, clearWhy: 'the person pauses the chats' }])
+    expect(stagesAlone(w).at(-1)).toEqual({ stage: 'clear-refused', at: expect.any(Number), why: 'not run in 20 s' })
+  })
+
+  test('the Task 2 review (3): a /clear that runs while the 20 s net comes due: no line into the conversation being cleared; it ran, so the line follows the clear and the stage says cleared', async ($, on) => {
+    const { w, clock } = await worker($, on, handover(envelope()))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    // The app runs the queued /clear now, and it takes its time.
+    let release = (): void => {}
+    w.holdClear = new Promise<void>(done => { release = done })
+    const running = $.command.run(CLEAR_BY_MOD)
+    await settle()
+    await clock.advance(25_000)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(w.typedIn).toEqual([])
+    expect(outcomes(w)).toEqual([])
+    // It ends: the conversation after it gets the line, and the clear is told as run.
+    await $.session.end({ reason: 'clear', sessionId: w.id, resume: { id: w.id } } as never)
+    w.id = 'units-2'
+    release()
+    await running
+    await clock.advance(5000)
+    for (let i = 0; i < 50 && outcomes(w).length === 0; i++) await settle()
+    expect(untimed(outcomes(w)).map(one => [one.session, (one.outcome as { cleared: unknown }).cleared])).toEqual([['units-2', true]])
+    expect(finalStages(w)).toContain('cleared')
+    expect(w.typedIn.length).toBe(1)
+  })
+
+  test('the Task 2 review (2, 6): a kept clear in a new process whose store cannot forget it: its line goes once, after the card\'s mark is off', async ($, on) => {
+    const at = 50 * MIN
+    const clock = mock.clock(on, { now: at + 5000 })
+    const marked: ChatFile = { name: 'Units', role: 'worker', state: 'waiting', task: null, at, clearing: { at, step: 'B12', log: LOG } }
+    const w = world('units', { ...listed({ units: marked }), [BOARD]: board })
+    stand(on, w)
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'Yours, Units:', open: [] }) }
+    w.stored['clear-pending:units'] = { ticket: 'clear-7-2', from: 'units', step: 'B12', at, envelope: envelope(), outcome: null }
+    w.storeDeleteFails = true
+    const marks: unknown[] = []
+    w.beforeTyped = async () => { marks.push([fileOf(w)?.clearing, (w.stored['clear-pending:units'] as { lineTyped?: boolean } | undefined)?.lineTyped]) }
+    await $.session.start(START)
+    // Two and a half minutes of ticks: the 20 s net and the 2-minute net both pass.
+    for (let s = 0; s < 150; s += 5) {
+      await clock.advance(5000)
+      for (let i = 0; i < 5; i++) await settle()
+    }
+    expect(w.typedIn.filter(one => one.endsWith(LINE)).length).toBe(1)
+    // D2's order (m4, 6): the card's mark off and the record marked lineTyped before the line.
+    expect(marks).toEqual([[undefined, true]])
+    expect(untimed(outcomes(w)).length).toBe(1)
+  })
+
+  test('the Task 2 review (7, D5): a new process of a worker on the sequence (kept in the store) whose report\'s turn\'s end the board refuses makes no lone clear', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { [`${CHATS}/list.json`]: '{ "prefix": "Game - ", "main": "Main", "afterStep": "clear" }\n', [BOARD]: board })
+    stand(on, w)
+    w.stored['handover-sequence'] = { units: 1 }
+    w.byAction = {
+      report: ok({ id: 'B12', text: 'B12 is in review.', more: null }),
+      'turn-ended': { status: 503, text: 'The board restarts: try again in a moment.' },
+      'save-log': ok({ text: `Saving the conversation to ${FILE}.`, log: LOG, file: FILE }),
+    }
+    await startedAs($, w, 'Units')
+    w.order = []
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'it is in' } as never)
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    for (let i = 0; i < 20; i++) await settle()
+    await clock.advance(5000)
+    expect(steps(w)).toEqual([])
+    expect(w.commanded).toEqual([])
+    expect(w.compactions).toEqual([])
   })
 
   test('the lazy clear, R5: a turn that starts before the envelope\'s /clear ran drops it: told at once, and its line goes anyway at the next ping (never from inside the prompt\'s hook)', async ($, on) => {

@@ -15,6 +15,7 @@ import { match } from './handOut.mjs'
 import { GIVEN_BACK, GIVE_BACK_MINUTES, RESUME_KIND, RESUME_MINUTES, continuationLine, continuationOf, holderTimers } from './holderTimers.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 import { reportCheckFailedOf } from './resultCheck.mjs'
+import { holdEndOf } from './pause.mjs'
 
 const MIN = 60_000
 /** The Workers mod that carries out the board's envelope: a worker on an older one is handed nothing (T8.5 step 6). */
@@ -119,10 +120,11 @@ export function failedWhy(envelope) {
     return own !== undefined ? own.replace(/\s+/g, ' ').trim().slice(0, 160) : typeof envelope?.why === 'string' ? envelope.why.slice(0, 160) : 'no reason given'
   }
   // The lazy clear: a 0.31.0 mod says the clear's why in `clearWhy`, and `why` is then the set's or the line's: a set or a
-  // line that failed is what holds, so its words come first, in that order. Only a 0.30.0 failed clear (cleared and typed
-  // both false, no clearWhy) is the clear's: its `why` is the clear's.
+  // line that failed is what holds, so its words come first, in that order. A 0.30.0 failed clear (no clearWhy) is the
+  // clear's: its `why` is the clear's. The real 0.30.0 mod settles it typed null (the line branch never takes it then);
+  // the guard keeps the same words for the typed:false shape older fixtures and tests carry.
   const clearWhy = outcome?.clearWhy ?? null
-  const isOldClear = outcome?.cleared === false && outcome?.typed === false && clearWhy === null
+  const isOldClear = outcome?.cleared === false && clearWhy === null
   if (outcome?.set === false) return `its model and effort could not be set: ${said(outcome.why)}`
   if (!isOldClear && outcome?.typed === false && typeof envelope?.line === 'string') return `its line could not be typed: ${said(outcome.why)}`
   if (outcome?.cleared === false) return `its clear did not run: ${said(clearWhy, outcome.why)}`
@@ -178,7 +180,8 @@ export const isPauseRefusal = envelope => envelope?.outcome?.cleared === false &
 function pauseCovered(pause, at, now) {
   if (pause === null || pause === undefined || !Number.isFinite(at)) return false
   const start = pause.state === 'pausing' ? pause.since : pause.pausedSince ?? null
-  const end = pause.state === 'pausing' ? now : pause.state === 'resuming' ? pause.since : pause.resumedSince ?? pause.since
+  // pause.mjs's window: from the pause's start to its hold's end (holdEndOf), now while it still holds.
+  const end = pause.state === 'pausing' ? now : holdEndOf(pause)
   return Number.isFinite(start) && Number.isFinite(end) && start <= at && at <= end
 }
 const two = n => String(n).padStart(2, '0')

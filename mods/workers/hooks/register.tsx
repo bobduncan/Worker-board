@@ -176,6 +176,37 @@ const STAGES_KEEP = 20
  * nothing (the board decides what it gets). Any answer without it (an older board, the setting "timers") sets it back.
  */
 let isOnSequence = false
+/**
+ * The lazy clear (the Task 2 review, D5): whether this session is on the sequence is kept in the mod's store too (one file
+ * for every chat of the plugin: by session id, the newest SEQUENCE_KEEP), so a new process whose first turn's end the board
+ * refuses (its restart at a landing) never falls back to a lone clear of its own.
+ */
+const SEQUENCE_KEY = 'handover-sequence'
+const SEQUENCE_KEEP = 50
+async function setOnSequence($: EngineInterface, value: boolean): Promise<void> {
+  const was = isOnSequence
+  isOnSequence = value
+  if (was === value) return
+  try {
+    const session = await $.session.id()
+    const kept: unknown = await $.store.get(SEQUENCE_KEY)
+    const sessions = (typeof kept === 'object' && kept !== null && !Array.isArray(kept) ? Object.entries(kept as Record<string, unknown>) : [])
+      .filter((one): one is [string, number] => typeof one[1] === 'number' && one[0] !== session)
+    const next = value ? [...sessions, [session, await $.clock.now()] as [string, number]] : sessions
+    await $.store.set(SEQUENCE_KEY, Object.fromEntries(next.sort((a, b) => a[1] - b[1]).slice(-SEQUENCE_KEEP)))
+  } catch {
+    // this process keeps it all the same
+  }
+}
+/** The Task 2 review: a new process reads whether its session was on the sequence. */
+async function onSequenceKept($: EngineInterface): Promise<boolean> {
+  try {
+    const kept: unknown = await $.store.get(SEQUENCE_KEY)
+    return typeof kept === 'object' && kept !== null && typeof (kept as Record<string, unknown>)[await $.session.id()] === 'number'
+  } catch {
+    return false
+  }
+}
 /** Clear after each step: the clear's decision waits for the board's late answer: nothing is typed in meanwhile. */
 let isDecidingClear = false
 /** Clear after each step: the role the board last named for this chat, in its answer to a turn's end. */
@@ -741,7 +772,7 @@ async function tookEnded($: EngineInterface, ended: Record<string, unknown>): Pr
   blockLeft = Array.isArray(left) ? left.filter((one): one is string => typeof one === 'string') : []
   lastRole = roleFrom(ended) ?? lastRole
   // T8.5: an answer with `handover` is the sequence's; one without, today's path (an older board, "timers").
-  isOnSequence = parseHandover(ended) !== null
+  await setOnSequence($, parseHandover(ended) !== null)
   const line = (ended.pull as { text?: unknown } | undefined)?.text
   return typeof line === 'string' && line !== ''
 }
@@ -1193,6 +1224,10 @@ const CLEAR_WAIT_MS = 2 * 60_000
  */
 const CLEAR_NET_MS = 20_000
 const NET_WHY = `not run in ${String(CLEAR_NET_MS / 1000)} s`
+/** D3: the words of a clear refused in the person's pause, exactly the board's PAUSED_WHY (chats.ts `clearWhy` says the same). */
+const PAUSED_CLEAR_WHY = 'the person pauses the chats'
+/** The Task 2 review: the ticket of the clear whose /clear runs now (its hook passed it on): no net drops it meanwhile. */
+let clearRunning: number | null = null
 
 /**
  * Clear after each step, at every tick: a clear whose new conversation started without a start this process heard (a
@@ -1209,6 +1244,8 @@ async function settleClear($: EngineInterface): Promise<void> {
       return
     }
     const age = (await $.clock.now()) - decided.at
+    // The Task 2 review: its /clear runs right now: neither net drops it (its end moves the card and types the line).
+    if (clearRunning !== null && clearRunning === decided.ticket) return
     // The lazy clear (D2): an envelope's /clear not run within CLEAR_NET_MS: dropped completely, then its line goes.
     if (handing !== null && handing.ticket === decided.ticket && age >= CLEAR_NET_MS) return await lineWithoutClear($, decided, handing)
     if (age < CLEAR_WAIT_MS) return
@@ -1223,6 +1260,8 @@ async function settleClear($: EngineInterface): Promise<void> {
  * The lazy clear (0.31.0, D2 with D9): the envelope's clear is dropped completely before its line goes: no clear on its way,
  * the card's mark taken off, the stored record marked `lineTyped` and then forgotten (a reload in between never types the
  * line twice, and its /clear finds no mark to run by). Only then the envelope's line is typed into the old conversation.
+ * `lineTyped` is written before the line is submitted: at most once is the trade (a reload in that gap loses the line, and
+ * the board's NET_MS shows the hand-over UNKNOWN), never twice.
  */
 async function lineWithoutClear($: EngineInterface, decided: Clearing, handed: Handing): Promise<void> {
   clearing = null
@@ -1528,28 +1567,29 @@ async function settleStoredClear($: EngineInterface): Promise<void> {
   const age = (await $.clock.now()) - kept.at
   // The lazy clear (D2, D9): a kept envelope whose /clear has not run within CLEAR_NET_MS: the clear dropped (marked, the
   // card's mark off, forgotten), then its line goes, once.
-  if (kept.envelope !== null && !kept.lineTyped && age >= CLEAR_NET_MS) {
-    await keepLineTyped($, kept.ticket, kept.from)
-    await failKeptClear($, kept, NET_WHY)
-    return
-  }
-  if (age < CLEAR_WAIT_MS) return
-  await failKeptClear($, kept, '/clear did not run within two minutes')
+  const isNet = kept.envelope !== null && !kept.lineTyped && age >= CLEAR_NET_MS
+  if (!isNet && age < CLEAR_WAIT_MS) return
+  // The Task 2 review: this process is done with the record at once, before any await: a store that fails to forget it
+  // never brings it (and its line) back at the next tick.
+  storedClear = null
+  if (isNet) await keepLineTyped($, kept.ticket, kept.from)
+  await failKeptClear($, kept, isNet ? NET_WHY : '/clear did not run within two minutes')
 }
 
 /**
- * B944: a kept clear that will not run: the card told, the store emptied. The lazy clear (0.31.0): its envelope's line goes
- * anyway (once: never when the record says it went), the clear stays owed.
+ * B944: a kept clear that will not run: the store emptied, the card's mark taken off. The lazy clear (0.31.0): then (D2's
+ * order: the mark is gone before the line, so a late /clear finds nothing to run by) its envelope's line goes anyway, once
+ * (never when the record says it went), and the clear stays owed.
  */
 async function failKeptClear($: EngineInterface, kept: PendingClear, why: string): Promise<void> {
   await forgetClear($, kept.ticket, kept.from)
-  if (kept.envelope !== null && !kept.lineTyped) void clearRefused($, kept.envelope, { ...NO_OUTCOME, ...(kept.outcome ?? {}) }, why).catch(() => null)
   try {
     const now = await $.clock.now()
     await changeMine($, mine => ({ ...mine, clearing: undefined, clearNote: { at: now, why } }))
   } catch {
     // only the card does not learn of it
   }
+  if (kept.envelope !== null && !kept.lineTyped) await clearRefused($, kept.envelope, { ...NO_OUTCOME, ...(kept.outcome ?? {}) }, why).catch(() => null)
 }
 
 /**
@@ -1621,7 +1661,8 @@ async function restartEnvelope($: EngineInterface, envelope: Envelope, outcome: 
 async function clearEnvelope($: EngineInterface, envelope: Envelope, outcome: Outcome, at: EnvelopeAt): Promise<void> {
   const step = envelope.clear?.step ?? null
   // The lazy clear (D9): these are refusals too: the line goes anyway, the clear stays owed.
-  if (clearing !== null || isDecidingClear) return clearRefused($, envelope, outcome, 'a clear is already on its way')
+  if (clearing !== null) return clearRefused($, envelope, outcome, 'a clear is already on its way')
+  if (isDecidingClear) return clearRefused($, envelope, outcome, 'its clear waits for the board\'s answer to its turn\'s end')
   const dir = await findChatsDir($)
   const list = dir === null ? null : parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
   const chat = dir === null ? null : await readChat($, dir, await $.session.id())
@@ -1761,11 +1802,19 @@ function logRefusedWhy(answer: WorkAnswer): string {
 async function clearRefused($: EngineInterface, envelope: Envelope, outcome: Outcome, why: string, o: { isBackground?: boolean; isPaused?: boolean; atNextPing?: boolean } = {}): Promise<void> {
   if (handing?.envelope.id === envelope.id) handing = null
   const said = why.replace(/\s+/g, ' ').trim().slice(0, 200)
-  outcome.cleared = false
-  outcome.clearWhy = said === '' ? 'no reason given' : said
-  outcome.background = o.isBackground === true
-  await postStage($, envelope.id, { stage: 'clear-refused', why: outcome.clearWhy })
+  const words = said === '' ? 'no reason given' : said
   const isPausing = o.isPaused ?? isPaused(await pauseNow($))
+  // The landing order this relies on (the Task 2 review): a 0.31.0 mod settles cleared:false with its line typed, which a
+  // board older than 0.31.0 reads as a failed clear (HELD, the task taken back while the worker is on it). The board lands
+  // first and the mod reaches a chat only at its process's restart; never roll the board back below 0.31.0 while 0.31.0
+  // mods run.
+  outcome.cleared = false
+  // D3 (the Task 2 review): under the person's pause the outcome's clearWhy is exactly the board's PAUSED_WHY, whatever
+  // refused the clear (the 20 s net, a drop, a kept clear): the board releases such a refusal at the resume by these words.
+  // The refusal's own words stay in the stage.
+  outcome.clearWhy = isPausing ? PAUSED_CLEAR_WHY : words
+  outcome.background = o.isBackground === true
+  await postStage($, envelope.id, { stage: 'clear-refused', why: words })
   if (isPausing) return settleEnvelope($, envelope.id, outcome)
   if (o.atNextPing === true && envelope.line !== null) {
     lineWaiting = { envelope, outcome, ticket: 0, isCleared: false }
@@ -1779,7 +1828,7 @@ async function envelopeWhenAnswered($: EngineInterface, late: Promise<Record<str
   const read = await late
   const handover = parseHandover(read)
   if (handover === null) return
-  isOnSequence = true
+  await setOnSequence($, true)
   if (handover.envelope !== null) await carryEnvelope($, handover.envelope, { ...at, ended: read })
 }
 
@@ -2684,10 +2733,13 @@ const MOVE_WAIT_MS = 1_000
  * as before.
  */
 /** B944 (0.30.0): the mod's /clear ran (or the app refused it): the store no longer keeps that clear (its key) on its way. */
-async function ranClear<T>($: EngineInterface, cleared: Clearing | null, ran: Promise<T>): Promise<T> {
+async function ranClear<T>($: EngineInterface, cleared: Clearing | null, ran: Promise<T>, ticket: number | null = null): Promise<T> {
+  // The Task 2 review: while the /clear runs, the tick's nets leave its clear alone (`clearRunning`).
+  if (ticket !== null) clearRunning = ticket
   try {
     return await ran
   } finally {
+    if (ticket !== null && clearRunning === ticket) clearRunning = null
     if (cleared?.kept !== undefined) void forgetClear($, cleared.kept, cleared.from)
   }
 }
@@ -2728,6 +2780,8 @@ export const register: Register = on => {
     reportSeq = 0
     // 8c: a new process has typed no word and run no turn yet.
     turnWords = NO_TURN_WORDS
+    // The Task 2 review (D5): whether its session was on the sequence before this process (a restart keeps the session).
+    isOnSequence = await onSequenceKept($)
     const view = await load($)
     ensureWatch($)
     const hasChats = await startChats($)
@@ -3033,7 +3087,7 @@ export const register: Register = on => {
     const decided = clearing
     const run = clearRun(queuedClears, decided, { session, isInTurn, prompts: promptCount, turn: turnNumber })
     queuedClears.splice(0, queuedClears.length, ...run.left)
-    if (run.verdict === 'run') return ranClear($, decided, clearThenPrepare($, next(e)))
+    if (run.verdict === 'run') return ranClear($, decided, clearThenPrepare($, next(e)), decided?.ticket ?? null)
     if (run.verdict === 'late') {
       await dropClear($, 'a new prompt came in before the clear ran')
       return { text: 'Not cleared: a new prompt came in before the clear ran.' }
@@ -3059,7 +3113,7 @@ export const register: Register = on => {
         clearing = { ...marked, ticket: KEPT_TICKET, kept: kept.ticket }
         if (kept.envelope !== null) handing = { envelope: kept.envelope, outcome: { ...NO_OUTCOME, ...(kept.outcome ?? {}) }, ticket: KEPT_TICKET }
       }
-      return ranClear($, clearing, clearThenPrepare($, next(e)))
+      return ranClear($, clearing, clearThenPrepare($, next(e)), clearing?.ticket ?? null)
     }
     return { text: 'Not cleared: this /clear of the Workers mod was let go before it ran.' }
   })
