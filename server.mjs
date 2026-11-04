@@ -1210,7 +1210,7 @@ async function main(args) {
     const main = (state.chats ?? []).find(lane => lane.isMain && !lane.isLeftover) ?? null
     const runs = main !== null && main.isRunning === true
     // B978: the state is read anew only when this pass changed the outbox: it runs on every server tick, and an unconditional
-    // reset forced a whole rebuild each time (103 of 372 rebuilds in 16 min on the live board, art-inbox/X93/b978-trace-2).
+    // reset forced a whole rebuild each time (103 of 372 rebuilds in 16 min on the live board).
     let changed = 0
     for (const message of store.outbox().filter(one => one.kind === MAIN_ASK && one.state === 'waiting' && (!runs || one.to !== main.name))) {
       await store.update(message.id, { state: 'dropped', why: 'the main chat does not run: Autopilot asks it again once it is free', closedAt: clock() })
