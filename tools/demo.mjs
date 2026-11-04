@@ -18,6 +18,15 @@
 // (one line per row), so old pictures cannot pass for a new try; it also stops on a row the person sent back that the list no longer
 // has (a renamed title: keep it, or give the row an "id"). A row's "play" is the name of an arena the game has (its arenas folder and
 // the dev folder in it, from the board's config.json "gameRepo"): a name it has not is refused.
+//
+// T17.2 (the person, 2026-11-04: "I expect that when i promide feedback i get new tailored demo on the aspects i asked for"): every such row
+// also needs a close-up of the spot their words name and a checker's word that it shows them. A "closeup" picture: { "kind": "closeup",
+// "caption": "...", "path": "<after>", "before": "<before>", "box": [x, y, w, h], "beforeBox": [x, y, w, h] (optional) } whose after picture
+// was written after their Send; a "clip" where something moves: { "kind": "clip", "frames": ["a.png", "b.png", ...] (2 to 12), "box":
+// [x, y, w, h] (optional), "ms": 900 (300 to 3000, optional) }. A box is in the picture's own pixels, whole numbers, w and h at least 16.
+// And the row's "shows": { "verdict": "yes", "by": "<a checker who did not make the close-up>", "at": "YYYY-MM-DD HH:MM", "why": "<one
+// line>" }, dated not before their Send. An answer in words (a new note) and a grid row need no close-up, only the "shows". The tool also
+// checks the "before" picture and every frame (there, a picture type, under the limit) and writes their paths relative to demo.json.
 
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'

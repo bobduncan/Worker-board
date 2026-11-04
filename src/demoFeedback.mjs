@@ -105,6 +105,10 @@ const lookOf = look => ({
  * line, is `reworking` too (its new try is not in, whatever the file's time says), one that has is the new try (its `changed` line and
  * pictures). Pure.
  *
+ * T17.2: a sent-back row with a `changed` line and no `pending` is the new try only when its `shows` (the checker's word on its close-up, `showsCheck`) says
+ * yes in a minute not before that Send; else it is `reworking` with `reworkWhy` ("the close-up of your words waits for its check", or "the check says it does
+ * not show your words yet: <why>"), asks nothing and is counted nowhere.
+ *
  * T20.1 (the person, 2026-11-04: "These numbers are all over the place and non consistent"): `options.rework`, `Map(row key → { step,
  * worker })` (src/recapRound.mjs): a row whose steps, or a fix in their chains, are under way is `reworking` with that `rework` and asks
  * nothing, in any round. `options.looks`: the kept looks of the goal (src/recapRound.mjs `keptLooksOf`), the page's `looks`, rows of the
