@@ -126,5 +126,7 @@ export function cached(read, ttlMs, now = Date.now) {
   }
   /** B736: the newest answer any read gave, however old, or undefined before the first: for what must not wait for a read. */
   fresh.last = () => latest
+  /** B978: when the kept answer was read (-Infinity when none is kept: the next call reads anyway). */
+  fresh.readAt = () => readAt
   return fresh
 }

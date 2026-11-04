@@ -4618,7 +4618,7 @@ function partnerAskWindowOf(ask) {
     code: ask.id, title: ask.title ?? '', fullTitle: ask.title ?? '', route,
     chips: [{ text: ROUTE_CHIPS[route] ?? ROUTE_CHIPS.partner, tone: 'kind' }, ...(ask.from == null ? [] : [{ text: `From: ${ask.from}`, tone: 'to' }])],
     at: ask.at ?? null,
-    stand: route === 'main' ? `the main chat does it if a chat can${Number.isFinite(ask.toYouAt) ? ` · comes to you at ${clock(ask.toYouAt)}` : ''}`
+    stand: route === 'ref' ? (ask.state == null ? null : `it is ${ask.state}`) : route === 'main' ? `the main chat does it if a chat can${Number.isFinite(ask.toYouAt) ? ` · comes to you at ${clock(ask.toYouAt)}` : ''}`
       : route === 'recap' ? (answer === null ? "waits for the goal's recap: you judge it there" : "waits for the goal's recap: you can answer it here") : standWords(ask.stand),
     answer,
     text: String(ask.text ?? ''), options: ask.options ?? [], advice: ask.advice ?? null,
@@ -4637,7 +4637,7 @@ function lookAnswerOf(ask) {
 }
 
 /** Autopilot (2026-10-31): the chip of an ask's route in its window, and the line under where it stands. */
-const ROUTE_CHIPS = { partner: 'With your partner', main: 'With the main chat (Autopilot)', recap: 'For your recap (Autopilot)' }
+const ROUTE_CHIPS = { partner: 'With your partner', main: 'With the main chat (Autopilot)', recap: 'For your recap (Autopilot)', ref: 'An ask of the board' }
 const ROUTE_STANDS = {
   partner: 'Your partner answers it first; one it has not answered in 30 minutes comes to you.',
   main: 'Autopilot: the main chat does it if a chat can, else hands it to you with one line why; one it has not done in 30 minutes comes to you.',
@@ -8687,7 +8687,7 @@ function subjectOf(state) {
   if (detailsOf.partnerAsk !== undefined) {
     // A question that is with the partner: it has no card among the ones for you. It closes once the partner answered it.
     // Autopilot (2026-10-31): or with the main chat, or waiting for the goal's recap.
-    const ask = (state.withPartner ?? []).find(one => one.id === detailsOf.partnerAsk) ?? (state.routedAway ?? []).find(one => one.id === detailsOf.partnerAsk)
+    const ask = (state.withPartner ?? []).find(one => one.id === detailsOf.partnerAsk) ?? (state.routedAway ?? []).find(one => one.id === detailsOf.partnerAsk) ?? askCards.get(detailsOf.partnerAsk)
     return ask === undefined ? null : { partnerAsk: ask }
   }
   if (detailsOf.step !== undefined) {
@@ -10139,6 +10139,8 @@ function optionChoices(need) {
 }
 
 function openDetails(what) {
+  // B993: a link to an ask no list of the page holds (an answered one) opens from the store, whatever its state.
+  if (typeof what?.step === 'string' && /^Q\d+$/.test(what.step) && board !== null && !(board.routedAway ?? []).some(one => one.id === what.step)) return openAskCard(what.step)
   detailsOf = what
   // Light state: a task that could not be read is read again when its window is opened again.
   if (typeof what?.step === 'string') fullStepProblems.delete(what.step)
@@ -10241,6 +10243,7 @@ function openFromAddress(state) {
     } else {
       const [branch, ...settings] = hash.slice('#play='.length).split('&')
       if (state.hasGame !== false) play(decodeURIComponent(branch), settings.join('&'), { inPlace: true })
+      else showPlayNotice('this board has no game to start')
     }
     return
   }
@@ -10268,7 +10271,9 @@ function openStepWindow(state, code) {
     if (place >= 0) return openDetails({ lane: lane.name, place, id: code })
   }
   // B507: a step in no worker's queue opens as the step it is.
-  if ((state.backlog ?? []).flatMap(activity => activity.steps).some(step => step.key === code)) openDetails({ step: code })
+  if ((state.backlog ?? []).flatMap(activity => activity.steps).some(step => step.key === code)) return openDetails({ step: code })
+  // B993: an ask of the store in any other state (answered, closed) opens from the store.
+  if (/^Q\d+$/.test(code)) openAskCard(code)
 }
 
 // Pictures, large: a window of its own, so it also opens over the details
@@ -10506,6 +10511,8 @@ function demoLooksSection(looks, feedback, draft) {
     title.append(...demoWordsNodes(look.title === '' ? look.ask : look.title))
     head.append(el('span', 'demo-verdict', look.asks === 'do' ? 'To do' : 'A look'), title)
     card.append(head)
+    // B993: what the look is about, in words of its own (the step and the ask its words link), so the card stands alone.
+    if (typeof look.about === 'string' && look.about !== '') card.append(el('p', 'demo-row-about', look.about))
     for (const line of String(look.text ?? '').split('\n').filter(one => one.trim() !== '')) {
       const words = el('p', 'demo-row-note')
       words.append(...demoWordsNodes(line))
@@ -18946,6 +18953,25 @@ document.addEventListener('click', event => {
   openDetails(need !== undefined ? { need: need.id } : { step: id })
 }, true)
 
+/**
+ * B993 (the person, 2026-11-04: "the link doesnt work"): the window of an ask the page's lists do not hold (an answered one: Q600): at once
+ * "Opening…", then the ask as the store has it (`/api/ask`), or "not on the board". Kept in `askCards` so the window redraws with the state.
+ */
+const askCards = new Map()
+async function openAskCard(id) {
+  if (askCards.has(id) && askCards.get(id).isWaiting !== true) return openDetails({ partnerAsk: id })
+  askCards.set(id, { id, route: 'ref', title: id, text: 'Opening it…', isWaiting: true })
+  openDetails({ partnerAsk: id })
+  try {
+    const answer = await fetch(`/api/ask?id=${encodeURIComponent(id)}`, { headers: { 'X-Board-Token': TOKEN } })
+    askCards.set(id, answer.ok ? await answer.json() : { id, route: 'ref', title: id, text: `${id} is not on the board any more.` })
+  } catch {
+    askCards.set(id, { id, route: 'ref', title: id, text: `${id} could not be opened: the board's server does not answer.` })
+  }
+  detailsShown = null
+  if (detailsOf?.partnerAsk === id && board !== null) drawDetails(board)
+}
+
 // The chat with the advisor
 
 function drawMessage({ key, kind, time, who, text, picture: shown = null, note = null }) {
@@ -22376,11 +22402,66 @@ async function showPaste(paste) {
  * ("arena=crossing&enemies=skeletons") go into its address. From a click the game opens in the tab opened with it;
  * from a link to the board (`#play=`, `inPlace`) this tab becomes the game.
  */
+// playnotice:start
+/**
+ * B993 (the person's rule of 2026-11-02, instant or a visible wait): the words a play tab shows while the game starts and when it did not
+ * start: `Starting the game…`, or `Not started: <why>`. Pure.
+ */
+function playNoticeOf(problem) {
+  return problem === null || problem === undefined ? 'Starting the game…' : `Not started: ${problem}`
+}
+
+/**
+ * B993: shows `playNoticeOf(problem)` where the game will open: in the tab opened with the click (its blank page), or over this page for a
+ * `#play=` link that makes this tab the game; a refusal stays there with a way back to the board, never a silent board.
+ */
+function showPlayNotice(problem, { tab = null } = {}) {
+  const words = playNoticeOf(problem)
+  try {
+    if (tab !== null) {
+      const page = tab.document
+      page.title = problem === null ? 'Starting the game…' : 'Game not started'
+      page.body.textContent = ''
+      const line = page.createElement('p')
+      line.textContent = words
+      line.style.cssText = 'font: 16px system-ui, sans-serif; margin: 24px'
+      page.body.append(line)
+      if (problem !== null) {
+        const back = page.createElement('a')
+        back.href = location.origin + '/'
+        back.textContent = 'Back to the board'
+        back.style.cssText = 'font: 16px system-ui, sans-serif; margin: 0 24px'
+        page.body.append(back)
+      }
+      return
+    }
+  } catch {
+    // A tab that cannot be written to: the board's own page keeps the words below.
+  }
+  let notice = document.getElementById('play-notice')
+  if (notice === null) {
+    notice = el('div', 'play-notice')
+    notice.id = 'play-notice'
+    notice.setAttribute('role', 'status')
+    document.body.append(notice)
+  }
+  notice.textContent = ''
+  notice.append(el('p', problem === null ? 'play-notice-line' : 'play-notice-line is-problem', words))
+  if (problem !== null) {
+    const back = el('button', 'button', 'Back to the board')
+    back.type = 'button'
+    back.addEventListener('click', () => notice.remove())
+    notice.append(back)
+  }
+}
+// playnotice:end
+
 async function play(branch, settings, { tab = null, inPlace = false } = {}) {
   const key = `play:${branch}`
   starting.add(key)
   problems.delete(key)
   let problem = !inPlace && tab === null ? 'the browser stopped the new tab; allow pop-ups for the board' : null
+  if (problem === null) showPlayNotice(null, { tab })
   // B675: `page=<name>` opens that page of the game (`/<name>.html`) instead of its start.
   const params = new URLSearchParams(settings)
   const page = params.get('page')
@@ -22407,9 +22488,11 @@ async function play(branch, settings, { tab = null, inPlace = false } = {}) {
       problem = 'the board\'s server does not answer'
     }
   }
-  if (problem !== null && tab !== null) tab.close()
   starting.delete(key)
-  if (problem !== null) problems.set(key, `Not started: ${problem}`)
+  if (problem !== null) {
+    problems.set(key, playNoticeOf(problem))
+    showPlayNotice(problem, { tab })
+  }
   await read()
 }
 
