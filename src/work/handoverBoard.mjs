@@ -118,6 +118,12 @@ async function localOnlyOf(ready, items, isPushed) {
 }
 
 /**
+ * B1051 (X153): a set word is done when it was delivered, or dropped because the chat ran at that setting already (the sweep
+ * marks it `met`): the setting holds, so its envelope goes on. A word dropped as superseded, or one that failed, is not done.
+ */
+const isWordDone = word => word?.state === 'delivered' || (word?.state === 'dropped' && word.met === true)
+
+/**
  * The envelope waiting for `chat` that may be handed out now: its set word (when it has one) is done. Signals change 4, D.4
  * (decision 12): `holdClear` while the chat's first turn after a wake runs (src/wake.mjs `inFirstTurn`): an envelope with a
  * clear waits for that turn's end (its clear would fail "a turn is running"); the chat's next take gets it.
@@ -125,7 +131,7 @@ async function localOnlyOf(ready, items, isPushed) {
 export function carryable(sent, chat, now, keep, { holdClear = false } = {}) {
   return sent.find(message => message.command === HANDOVER_COMMAND && message.to === chat && message.state === 'waiting' && !isLate(message, now, keep)
     && !(holdClear && message.clear !== null && message.clear !== undefined)
-    && (typeof message.waitsFor !== 'string' || sent.find(one => one.id === message.waitsFor)?.state === 'delivered')) ?? null
+    && (typeof message.waitsFor !== 'string' || isWordDone(sent.find(one => one.id === message.waitsFor)))) ?? null
 }
 
 /** Hands the carryable envelope of `chat` out (marked taken, as a take marks a word): its contract, or null. */
@@ -265,7 +271,7 @@ export async function handoverPass({ state, dir, outbox, apply, config, installe
       const sent = outbox.outbox()
       for (const message of sent.filter(one => one.command === HANDOVER_COMMAND && one.to === lane.name && one.state === 'waiting' && typeof one.waitsFor === 'string')) {
         const word = sent.find(one => one.id === message.waitsFor)
-        if (word === undefined || ['failed', 'dropped', 'expired', 'stopped'].includes(word.state)) {
+        if (word === undefined || (['failed', 'dropped', 'expired', 'stopped'].includes(word.state) && !isWordDone(word))) {
           await outbox.update(message.id, { state: 'failed', failedAt: now, settledAt: now, outcome: { cleared: null, set: false, typed: false, restarted: null, background: false, why: word?.why ?? 'the set word did not arrive' } })
         }
       }
