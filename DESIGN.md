@@ -6916,3 +6916,14 @@ a clear. Tests: `test/lazyClearReplay.test.mjs` (the real records, `test/fixture
 5. **Review (2026-11-04)**: `test/typedModBoard.test.mjs` runs part 1 on a running board over HTTP (a chat first heard on a typed call is known by
    its header; a typed call without a version erases nothing; a mod that never says one stays unknown); `goneWords` of the net is named
    `vanishedChatWords` (holderTimers.mjs has its own `goneWords`).
+
+## Pause truth (2026-11-05, build brief A, branch fix-pause-truth)
+
+The person's real pause (Pause all since 2026-11-04 23:36, the PC slept until 08:15, the app restarted) showed the page telling
+things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state of that day as its fixture
+(`test/fixtures/pause-2026-11-05/state-4310-trimmed.json`).
+
+1. **The day bars follow the cards** (`public/board.js` `pausedToday`, next to `pausedLanes`). While pausing, the chats `pausedLanes`
+   shows as Paused have the `interrupted` part of their day bar from the pause's start on drawn `suspended` (the quiet purple of a
+   pause, never the orange of attention); a stop before the pause stays a stop. One decision (`pausedLanes`), read by both. Mutant:
+   the call left out kills `item 1: the day bars ...`.

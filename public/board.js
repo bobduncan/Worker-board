@@ -2203,6 +2203,28 @@ function pausedLanes(chats, pause) {
   return chats.map(lane => (lane?.state === 'interrupted' && (lane.asleep === true || !isUnsaved(lane)) ? { ...lane, state: 'suspended', suspended: { by: 'pause', since: pause.since ?? null, until: null, isBack: false } } : lane))
 }
 
+/**
+ * Pause truth item 1 (2026-11-05, the person's real pause: the cards said Paused, the day bars drew the same chats as
+ * orange "Stopped"): the day bars read the chats `pausedLanes` made suspended by the pause, the one decision, never a second
+ * copy of its rule. The part of such a chat's `interrupted` spans from the pause's start on is drawn `suspended` (the
+ * quiet purple of a pause); what came before the pause stays as it was. Plain data in, a copy out.
+ */
+function pausedToday(today, chats, pause) {
+  if (pause?.state !== 'pausing' || !Array.isArray(today) || !Array.isArray(chats)) return today
+  const names = new Set(chats.filter(lane => lane?.state === 'suspended' && lane.suspended?.by === 'pause').map(lane => lane.name))
+  const since = Number.isFinite(pause.since) ? pause.since : -Infinity
+  return today.map(lane => {
+    if (!names.has(lane.chat)) return lane
+    const spans = []
+    for (const piece of lane.spans) {
+      if (piece.state !== 'interrupted' || piece.to <= since) spans.push(piece)
+      else if (piece.from >= since) spans.push({ ...piece, state: 'suspended' })
+      else spans.push({ ...piece, to: since }, { ...piece, from: since, state: 'suspended' })
+    }
+    return { ...lane, spans }
+  })
+}
+
 /** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
 function heldText(held) {
   if (held.by === 'pause') return 'Paused by you · stopped at its checkpoint; goes on at Resume all'
@@ -22368,7 +22390,11 @@ async function read() {
     if (by !== null) answeredBy = by
     bannerAnswered(state)
     // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
-    if (state?.pause?.state === 'pausing') state.chats = pausedLanes(state.chats, state.pause)
+    if (state?.pause?.state === 'pausing') {
+      state.chats = pausedLanes(state.chats, state.pause)
+      // Pause truth item 1: the day bars follow the cards.
+      state.today = pausedToday(state.today, state.chats, state.pause)
+    }
     withAnswers(state)
     // Light state: the finished steps this page read whole stand whole again.
     withFullSteps(state)
