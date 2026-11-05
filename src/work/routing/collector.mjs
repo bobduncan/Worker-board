@@ -6,6 +6,10 @@ import {attributeUsage,routingSummary} from './metrics.mjs'
 
 const CHUNK=1024*1024,MAX_EVENTS=50000,MAX_FILES=32,TAIL_BYTES=16*CHUNK,MAX_BYTES=96*CHUNK,MAX_SCAN_MS=5000,MAX_CHILDREN=4096
 const statOf=path=>stat(path).catch(()=>null)
+// Round 4 (c): of 1,291 lines over 1 MB none was an answer (user lines, request blobs): only an answer's line hides
+// usage, so only it is counted as skipped. Its type stands in its first bytes.
+const isAnswerLine=bytes=>bytes.subarray(0,4096).includes('"type":"assistant"')
+const OVERSIZED_RULE=1
 
 /**
  * Spending counts every chat: every clear starts a new session, and the card of the old one names the next (`movedTo`,
@@ -107,7 +111,9 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
   const coverage=()=>({startedAt:ledger.startedAt,lastScanAt:ledger.lastScanAt,unknownMessages:ledger.unknown??0,skippedLongLines:ledger.skippedLongLines??0,pendingBytes:Object.values(ledger.scans).reduce((sum,scan)=>sum+Math.max(0,(scan.size??scan.offset)-scan.offset),0),pendingFiles:ledger.pendingFiles??0,childTranscripts:ledger.childTranscripts??0,unavailableTranscripts:ledger.unavailableTranscripts??0,discoveryLimited:ledger.discoveryLimited??false,retentionLimited:ledger.retentionLimited,retainedFrom:ledger.retentionLimited?ledger.retainedFrom??null:null,collecting:busy,problem,unavailable,scope:'Recorded project chats and discovered native children, including Main and Advisors; missing or still-pending transcripts leave totals incomplete.'})
   return {
     async load(){
-      try{const raw=JSON.parse(await readFile(file,'utf8'));if(!validLedger(raw))throw Error('Unsupported or corrupt spending ledger');ledger={...ledger,...raw};if(ledger.retentionLimited&&ledger.retainedFrom===undefined)ledger.retainedFrom=ledger.events.reduce((first,e)=>Math.min(first,e.sourceAt),Infinity);for(const [session,mark] of Object.entries(ledger.readOut??{}))if(typeof mark!=='number')delete ledger.readOut[session]}
+      try{const raw=JSON.parse(await readFile(file,'utf8'));if(!validLedger(raw))throw Error('Unsupported or corrupt spending ledger');ledger={...ledger,...raw};if(ledger.retentionLimited&&ledger.retainedFrom===undefined)ledger.retainedFrom=ledger.events.reduce((first,e)=>Math.min(first,e.sourceAt),Infinity);for(const [session,mark] of Object.entries(ledger.readOut??{}))if(typeof mark!=='number')delete ledger.readOut[session]
+        // The count kept before counted every long line; checked on the live data (chat 1, 2026-11-05), none was an answer.
+        if(ledger.oversizedRule!==OVERSIZED_RULE){ledger.skippedLongLines=0;ledger.oversizedRule=OVERSIZED_RULE}}
       catch(error){if(error.code!=='ENOENT'){unavailable=true;problem='Spending history is unavailable. The previous file is preserved; repair or move it aside before restarting collection.'}}
     },
     // B917 (X93): the board's every rebuild asked 5 summaries over all events, 374 ms each time; one is kept per period
@@ -177,7 +183,7 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
               if(end<lineStart){
                 // A crash left a tail of zeros and no newline at the file's end: there is nothing more to read in it.
                 if(scan.offset+bytesRead===stat.size&&buffer.subarray(lineStart,bytesRead).every(byte=>byte===0)){scan.offset=stat.size;changed=true;break}
-                if(bytesRead===CHUNK){ledger.skippedLongLines=(ledger.skippedLongLines??0)+1;scan.skippingLine=true;scan.offset+=bytesRead;changed=true;problem='Oversized transcript lines are excluded; collection continues after them.';continue}
+                if(bytesRead===CHUNK){if(isAnswerLine(buffer.subarray(lineStart,bytesRead))){ledger.skippedLongLines=(ledger.skippedLongLines??0)+1;problem='Oversized transcript lines are excluded; collection continues after them.'}scan.skippingLine=true;scan.offset+=bytesRead;changed=true;continue}
                 if(lineStart>0){scan.offset+=lineStart;changed=true}
                 break
               }

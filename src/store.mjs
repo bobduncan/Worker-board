@@ -229,11 +229,11 @@ function storeOver(lines, messages, alive, write) {
      * down with the time, so the outbox holds only words that still matter and the page says what became of the rest.
      * B571: also a failed word that is not tried again (its purpose gone, outboxSweep.mjs).
      */
-    async close(id, state, why, now) {
+    async close(id, state, why, now, extra = {}) {
       const message = messages.find(one => one.id === id)
       if (message === undefined || !(message.state === 'waiting' || (message.state === 'failed' && message.retriedAs === undefined))) return false
-      Object.assign(message, { state, why, closedAt: now })
-      await write.outbox([{ id, state, why, closedAt: now }])
+      Object.assign(message, { state, why, closedAt: now, ...extra })
+      await write.outbox([{ id, state, why, closedAt: now, ...extra }])
       return true
     },
     /**
@@ -439,6 +439,8 @@ export async function tick(store, state, now) {
   }
   const chats = state.chats.filter(chat => !chat.isLeftover)
   await store.record(changes(lastByChat(store.lines()), chats, now))
+  // Pause truth item 5: a gap that no chat line followed (the trial board has no chats) ends at this look: the board answers, so it is not off.
+  if (store.lines().at(-1)?.gap === true) await store.record([{ at: now, ran: true }])
   await store.alive(now)
 }
 

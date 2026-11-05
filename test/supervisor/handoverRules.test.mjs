@@ -314,3 +314,12 @@ test('Fix 0.31.0, part 4: the lone clear ba1272913fdc729f (X141, counted 104 tim
   store.outbox().push({ ...real(), id: 'n1', state: 'dropped', why: 'did not answer its hand-over', netAt: at - MIN })
   assert.deepEqual(find().map(one => one.key), ['handover-unanswered Worker 3 n1'])
 })
+
+test('B1051 (X153): ready-while-free keeps its key and count, and its evidence names a standing ban (mutant: the ban left out)', () => {
+  const B5 = parseItem(`Id: B5\nKind: step\nTitle: Step B5\nState: refined\nRefined: ready\nSince: ${stamp(ago(60))}\n`)
+  const ready = { ready: [{ id: 'B5', rank: 2, keptFor: null, keptUntil: null, pinned: null }], held: [] }
+  const why = 'free; gets no sonnet steps: its set failed at 20:10 (Session x not found.) until 22:10'
+  const found = check('ready-while-free', view({ chats: [LEAD, onIt('Digger', 'free', { handover: { state: 'free', why, step: null } })], items: new Map([['B5', B5]]), readyList: ready }), new Map([['ready-while-free Digger', ago(30)]]))
+  assert.deepEqual(found.map(one => [one.rule, one.key]), [['ready-while-free', 'ready-while-free Digger']])
+  assert.match(found[0].evidence, /\(its hand-over: free; gets no sonnet steps: its set failed at 20:10 \(Session x not found\.\) until 22:10\)/)
+})

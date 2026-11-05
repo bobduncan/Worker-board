@@ -275,7 +275,7 @@ const calm = LANES.map(lane => ({ ...lane, state: lane.name === 'Board' ? 'free'
 test('review 1: a step waiting on you or in review is held as the work API holds it: it is named (the review of Pause 2: it blocks no Safe); a resume wakes the one waiting on you', () => {
   const items = new Map([['B1', held('B1', 'Board', 'waiting on you')], ['B2', held('B2', 'Support', 'review')]])
   const pausing = pauseFacts({ pause: { state: 'pausing', since: NOW, by: 'person' }, items, lanes: calm })
-  assert.deepEqual([pausing.unsaved, pausing.isSafe], [[{ chat: 'Board', id: 'B1' }, { chat: 'Support', id: 'B2' }], true])
+  assert.deepEqual([pausing.unsaved, pausing.isSafe], [[{ chat: 'Board', id: 'B1' }, { chat: 'Support', id: 'B2', inReview: true }], true])
   // 2026-10-24: a step in review leaves its chat nothing to pick up again: the resume neither waits for it nor wakes it
   // (Worker 1's four steps in review kept the banner up for twenty minutes and an hour after).
   const resuming = pauseFacts({ pause: { state: 'resuming', since: NOW + MIN, by: 'person' }, items, lanes: calm })

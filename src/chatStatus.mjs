@@ -9,7 +9,7 @@
 // The statuses and their precedence (the first that holds wins) are the brief's table, with the age: `age = now - report.at`
 // (the mod refreshes `at` with every 5 s ping, so a live chat's age is seconds). Times are the board's own clock (`now`).
 
-import { UNANSWERED_WHY } from './work/handover.mjs'
+import { BAN_WHY_MARK, UNANSWERED_WHY } from './work/handover.mjs'
 
 const MIN = 60_000
 
@@ -96,6 +96,8 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
   const asleep = lane.asleep === true
   const isFreshBusy = report?.state === 'busy' && reportAt !== null && now - reportAt <= unknownAfterMs
   const hand = handover?.state ?? null
+  // B1051 (X153): a free worker the board gives no step of a model (its set failed) says so; the page reads this why.
+  const banWhy = typeof handover?.why === 'string' && handover.why.includes(BAN_WHY_MARK) ? handover.why : null
   const partner = (lane.waitsForPartner ?? []).length > 0 || lane.heldBy === 'partner'
 
   // 1. Working: a fresh report says busy (also background work after a reported step, and a wait for the partner). A fresh busy
@@ -135,10 +137,10 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
     return out(STATUSES.STOPPED, finite(lane.cutOffAt) ? `cut off at ${hourMinute(lane.cutOffAt)}` : 'cut off by a restart', lane.cutOffAt)
   }
   // 11. Asleep: the process ended while the chat is idle (a message wakes it). Before Free: an asleep chat is not "free to run".
-  if (asleep && (state === 'free' || state === 'working')) return out(STATUSES.ASLEEP, state === 'working' ? 'waits for the partner' : null, lane.asleepSince)
+  if (asleep && (state === 'free' || state === 'working')) return out(STATUSES.ASLEEP, state === 'working' ? 'waits for the partner' : banWhy, lane.asleepSince)
   // 10. Free: the hand-out would take it now. A worker on the hand-over: its hand-over FREE; a worker on the timers, the main chat,
   // the partner, the supervisor, the product owner: idle and nothing held (`state` free).
-  if (state === 'free' && lane.isRunning !== false && (handover === null || hand === 'free')) return out(STATUSES.FREE)
+  if (state === 'free' && lane.isRunning !== false && (handover === null || hand === 'free')) return out(STATUSES.FREE, banWhy)
   // 12. Not running: the process is gone and will not wake by itself (a wake failed, the session ended with no app session, silent,
   // unreported).
   if (state === 'off' || (lane.isRunning === false && !asleep)) return out(STATUSES.NOT_RUNNING, lane.offWhy ?? 'its chat is closed', lane.offSince)
