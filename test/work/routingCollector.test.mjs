@@ -33,7 +33,8 @@ test('an oversized image/chat line does not permanently hide later usage',async(
     await writeFile(join(transcripts,'s.jsonl'),'x'.repeat(1100000)+'\n'+JSON.stringify(line)+'\n')
     const collector=createSpendingCollector({dir:root,transcripts,clock:()=>at+1});await collector.load();await collector.scan([{session:'s',name:'Worker'}])
     assert.equal(collector.summary(7).messages,1)
-    assert.equal(collector.summary(7).coverage.skippedLongLines,1)
+    // Round 4 (c): a skipped line that is no answer (an image, a tool's output) hides no usage: it is not counted.
+    assert.equal(collector.summary(7).coverage.skippedLongLines,0)
   }finally{await rm(root,{recursive:true,force:true})}
 })
 
