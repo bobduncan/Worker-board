@@ -535,3 +535,14 @@ test('review 5: a ran line after the board asked for workers is no worker that w
   // A real worker line after the ask: asked again once all went.
   assert.notEqual(spawnWhenAlone(state, [asked], [{ at: 200, chat: 'Worker 1', state: 'working' }]), null)
 })
+
+// ---- Review 2 item 3: the 5-minute "chat acted" rule of estimateSaidAt, on its own.
+test('review 2: the same step and minutes re-said with a transcript entry within 5 minutes of the card is NOT dated back; 6 minutes away it is', () => {
+  const T0 = RESTART_AT - 60 * MIN
+  const same = [{ at: T0, chat: 'Board', state: 'working', task: TASK, step: 5, steps: 6, leftMs: 6_574_399, estimateAt: T0, startedAt: T0 - 30 * MIN, source: 'step', by: null }]
+  const card = RESTART_AT + 8_000
+  // The chat's last entry 4 minutes before the card: it acted near it, so the estimate is the card's.
+  assert.equal(laneOf(realBoard({ lines: same, writeAfter: card - 4 * MIN }), 'Board').task.estimateAt, card)
+  // 6 minutes before: the card was rewritten without the chat acting: healed to the first line.
+  assert.equal(laneOf(realBoard({ lines: same, writeAfter: card - 6 * MIN }), 'Board').task.estimateAt, T0)
+})
