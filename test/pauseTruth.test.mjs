@@ -19,7 +19,7 @@ import { gapsOf, lastByChat, parseHistory, today } from '../src/history.mjs'
 import { fileStore, tick } from '../src/store.mjs'
 import { incidentCards } from '../src/supervisor/cards.mjs'
 import { createSupervisor } from '../src/supervisor/index.mjs'
-import { chatsWithoutProcess } from '../src/work/pause.mjs'
+import { chatsWithoutProcess, pauseFacts } from '../src/work/pause.mjs'
 import { readStore, share } from '../src/work/store.mjs'
 import { openPage } from './pageHarness.mjs'
 import { buildState } from './withStore.mjs'
@@ -336,4 +336,31 @@ Evidence: the chain
   assert.deepEqual(chipsOf(view({ state: 'pausing', since: PAUSED_AT }).cards), { B1042: 'new · waits for Resume all', B1051: 'new · waits for Resume all' })
   assert.deepEqual(chipsOf(view({ state: 'resuming', since: PAUSED_AT }).cards), { B1042: 'new · waits for the Advisor', B1051: 'new · waits for the Advisor' })
   assert.deepEqual(chipsOf(view(null).cards), { B1042: 'new · waits for the Advisor', B1051: 'new · waits for the Advisor' })
+})
+
+// ---- Item 7: the pause's notes about steps in review (18 of the real 20 notes said "resumes from its branch and History").
+const notesOf = page => page.window.document.querySelector('#restart').textContent
+
+// Mutants: `inReview` not written by the board; the page's words for it left as before.
+test('item 7: the board marks a held step that is in review, the real 18 of 20 notes were of such steps', () => {
+  const live = [held('B851', 'Worker 1', 'review'), held('B1020', 'Worker 1', 'review'), held('B1031', 'Worker 5', 'review'), held('B2000', 'Worker 2', 'in progress')]
+  const items = new Map(live.map(one => [one.head.get('Id'), one]))
+  const lanes = ['Worker 1', 'Worker 2', 'Worker 5'].map(name => ({ name, state: 'free', isRunning: false }))
+  const facts = pauseFacts({ pause: { state: 'pausing', since: PAUSED_AT }, items, lanes, prefix: '' })
+  assert.deepEqual(facts.unsaved, [
+    { chat: 'Worker 1', id: 'B851', inReview: true }, { chat: 'Worker 1', id: 'B1020', inReview: true }, { chat: 'Worker 5', id: 'B1031', inReview: true },
+    { chat: 'Worker 2', id: 'B2000' },
+  ].sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true })))
+})
+
+test('item 7: the page words a step in review as the review goes on, and another step as before', async () => {
+  const state = await realCase()
+  state.pause = { ...state.pause, unsaved: [...state.pause.unsaved.map(one => ({ ...one, inReview: true })), { chat: 'Worker 2', id: 'B2000' }] }
+  const page = await openPage({ state, now: state.readAt })
+  try {
+    const text = notesOf(page)
+    assert.match(text, /B851 \(Worker 1\) is in review and has no checkpoint; no chat resumes it, its check goes on after Resume all\./)
+    assert.match(text, /B2000 \(Worker 2\) has no checkpoint; it resumes from its branch and History\./)
+    assert.equal((text.match(/resumes from its branch/g) ?? []).length, 1, 'only the step in progress resumes from its branch')
+  } finally { await page.close() }
 })

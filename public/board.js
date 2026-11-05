@@ -2304,10 +2304,9 @@ function pauseRing(pause) {
     ...chats.filter(chat => chat.state === 'typing').map(chat => `A line is being typed into ${chat.name}.`),
     // B442: lines the pause holds back wait for the resume; they keep nothing from being safe.
     ...((pause.held ?? []).length === 0 ? [] : [`${pause.held.length === 1 ? '1 line waits' : `${pause.held.length} lines wait`} for the resume (${pause.held.map(one => `${one.chat}${one.step === null ? '' : `: ${one.step}`}`).join(', ')}).`]),
-    ...[
-      ...(pause.unsaved ?? []).map(one => `${one.id} (${one.chat})`),
-      ...(pause.offBoard ?? []).map(one => `${one.id} (${one.title}, not on the board)`),
-    ].map(what => `${what} has no checkpoint; it resumes from its branch and History.`),
+    // Pause truth item 7: a step in review has no chat to resume: its check goes on when Resume all lets the board hand it out again.
+    ...(pause.unsaved ?? []).map(one => (one.inReview === true ? `${one.id} (${one.chat}) is in review and has no checkpoint; no chat resumes it, its check goes on after Resume all.` : `${one.id} (${one.chat}) has no checkpoint; it resumes from its branch and History.`)),
+    ...(pause.offBoard ?? []).map(one => `${one.id} (${one.title}, not on the board) has no checkpoint; it resumes from its branch and History.`),
   ]
   return {
     head: pause.isSafe ? 'All still: safe to restart' : 'Pausing…', tone: pause.isSafe ? 'ready' : '', isDone: pause.isSafe === true,

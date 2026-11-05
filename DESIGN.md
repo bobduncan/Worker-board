@@ -6957,3 +6957,9 @@ things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state 
    pause holds (`pause.held`), so the card of a `new` fix step (B1042, B1051 in the real case) says "new · waits for Resume all" while the
    pause is `pausing`, and "waits for the Advisor" otherwise. Mutants: the pause not passed on, the words not switched (each kills one
    `item 6` test).
+7. **A step in review is not "resumed from its branch"** (`src/work/pause.mjs` `holdersOf` gives `state`, `pauseFacts` marks `unsaved` entries
+   `inReview: true`; `public/board.js` `pauseRing` notes). A resume neither waits for nor wakes a chat for a step in review (`RESUMED`
+   leaves it out): its check goes on by the board's own hand-out, which the pause holds. 18 of the real pause's 20 notes were such steps
+   and said "it resumes from its branch and History". Now: "B851 (Worker 1) is in review and has no checkpoint; no chat resumes it, its
+   check goes on after Resume all." A step in progress keeps the old words. Mutants: `inReview` not written, the page's words not
+   switched (each kills one `item 7` test).

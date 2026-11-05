@@ -117,7 +117,7 @@ export function holdersOf(items, prefix = '') {
   const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
   return [...(items?.values?.() ?? [])]
     .filter(item => valueOf(item, 'Kind') === 'step' && HELD.includes(valueOf(item, 'State')) && (valueOf(item, 'Owner') ?? '') !== '')
-    .map(item => ({ id: valueOf(item, 'Id'), owner: valueOf(item, 'Owner'), checkpoint: checkpointOf(item), branch: valueOf(item, 'Branch') ?? null, history: historyOf(item) }))
+    .map(item => ({ id: valueOf(item, 'Id'), owner: valueOf(item, 'Owner'), state: valueOf(item, 'State'), checkpoint: checkpointOf(item), branch: valueOf(item, 'Branch') ?? null, history: historyOf(item) }))
     .sort((a, b) => byId(a.id, b.id))
     .map(({ id, owner, ...rest }) => {
       const name = String(owner).trim()
@@ -164,7 +164,8 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
     const asking = lanes.filter(lane => lane.isAsking === true && lane.state !== 'off').map(lane => lane.name)
     const working = lanes.filter(lane => runsTurn(lane) && !asking.includes(lane.name)).map(lane => lane.name)
     const typing = [...new Set((pending ?? []).map(one => one?.to).filter(to => typeof to === 'string' && to !== ''))]
-    const unsaved = holders.filter(holder => !isSince(holder.checkpoint, pause.since)).map(({ chat, id }) => ({ chat, id }))
+    // Pause truth item 7: a step in review is named so (`inReview`): no chat resumes it, the board goes on with its check.
+    const unsaved = holders.filter(holder => !isSince(holder.checkpoint, pause.since)).map(({ chat, id, state }) => ({ chat, id, ...(state === 'review' ? { inReview: true } : {}) }))
     const offBoard = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) === undefined && !isSince(holder.checkpoint, pause.since))
       .map(({ chat, id }) => ({ chat, id, title: `${prefix}${chat}` }))
     // B364: every chat of the board by its state, in the board's order, for the panel's loader.
