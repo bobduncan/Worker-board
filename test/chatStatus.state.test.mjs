@@ -229,3 +229,15 @@ test('2c: the take reads the statuses AFTER the hand-out and the state reset (a 
   const none = await handedWithStatuses({ hand: async () => null, readState })
   assert.deepEqual([none.envelope, builds], [null, 2])
 })
+
+test('B1051 (X153): a free worker whose Sonnet set failed reads Free with the ban words on the page\'s status why (mutant: the why not carried); without a ban no words', () => {
+  const sonnet = { model: 'claude-sonnet-5-5', effort: 'medium' }
+  const banned = { id: 'e9', at: NOW - 10 * MIN, to: 'Worker 1', command: HANDOVER_COMMAND, text: 'hand-over', state: 'failed', kind: 'task', step: 'B12', clear: null, restart: false, set: sonnet, line: 'x', failedAt: NOW - 9 * MIN, settledAt: NOW - 9 * MIN, outcome: { cleared: null, set: false, typed: false, restarted: null, background: false, why: 'Session x not found.' } }
+  const delivered = { ...banned, id: 'e10', at: NOW - 5 * MIN, state: 'delivered', set: null, failedAt: undefined, deliveredAt: NOW - 4 * MIN, settledAt: NOW - 4 * MIN, outcome: { cleared: null, set: null, typed: true, restarted: null, background: false, why: null } }
+  const run = outbox => lane(build({ reports: [report('Lead', 'idle'), report('Worker 1', 'idle')], mods: { 'Worker 1': '0.27.0' }, outbox }), 'Worker 1')
+  const one = run([banned])
+  assert.equal(one.status, STATUSES.FREE)
+  assert.match(one.why, /^free; gets no sonnet steps: its set failed at \d\d:\d\d \(Session x not found\.\) until \d\d:\d\d$/)
+  const clear = run([banned, delivered])
+  assert.deepEqual([clear.status, clear.why], [STATUSES.FREE, null])
+})

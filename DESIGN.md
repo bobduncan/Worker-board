@@ -3585,7 +3585,13 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
    comes after both), and again each half hour (`AGAIN_MS`). The lane says so, "B<id> waits for Opus since HH:MM: <why>"
    (a flag of kind `model`, amber). Since T8.5 step 6 nothing is held here and `work take` refuses nothing for it (`stepHold`
    and `reconciled.holds` are gone): the hand-over's envelope waits for the set word, and a set that failed bars that
-   model's steps from the worker until it runs it.
+   model's steps from the worker until a later envelope of it is delivered (B1051, X153: it works, so the next step of
+   that model is tried once more; a real failure bans it again, and a failure with nothing delivered after it stays
+   banned; `bansOf` in handover.mjs). A set word the sweep drops because the chat runs at that setting already is a success
+   (`met: true`, outboxSweep.mjs): its envelope goes on and is not failed (`isWordDone`, handoverBoard.mjs); one dropped as
+   superseded still fails. A ban also ends `BAN_MS` (2 h) after its failure (nothing waits for ever): one more try, and a
+   real failure bans again for 2 h. While a ban stands the lane says "free; gets no sonnet steps: its set failed at HH:MM
+   (<why>) until HH:MM".
 5. Between steps a worker runs at its usual setting from the settings, `usualModel` and `usualEffort` (sonnet and
    medium unless set; `runSettings`), never at what it ran at before the board's first word (B468 kept that one, extra
    high on Opus for every worker). The board moves a worker back only after one of its words changed it, as in B468; a
@@ -5351,8 +5357,10 @@ answer (the fast path) and it stands in the outbox (the record, and the carrier 
 asleep: its next take brings it). A turn-ended call asked again with its request id gets the same answer (B412). Its `set`
 is the hands' job (the app refuses a chat setting its own model or effort, `src/hands.mjs`): the board writes the usual
 `worker-effort` word beside it (`envelope`: its id), and the envelope waits for that word's done before it is handed out
-(`waitsFor`): one more event, no clock. A set word that failed or was dropped fails the envelope; with no main chat whose
-hands could set it, the set fails at once. A failed set bars that model's steps from the worker until it runs it. A
+(`waitsFor`): one more event, no clock. A set word that failed fails the envelope (one dropped because the chat runs at that setting already is a success, `met`, and the
+envelope goes on; one dropped as superseded fails it); with no main chat whose hands could set it, the set fails at once. A failed
+set bars that model's steps from the worker until a later envelope of it is delivered or `BAN_MS` (2 h) has passed. The status
+reads the ban too: a Free or Asleep pill carries the lane's why (chatStatus.mjs), and ready-while-free's evidence names it. A
 restart envelope its mod carried out gets the hands' `mod-restart` word once.
 
 **The page.** The lane of a worker on the sequence says where its hand-over stands, quietly (information, never amber):
