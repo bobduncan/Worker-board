@@ -3057,6 +3057,20 @@ function alertsOf(lane, state) {
 }
 // alerts:end
 
+/**
+ * Pause truth item 4 (the real case: Main's last line, the app's summary of its turn at 22:33, said "Worker 3 running again; will pick up
+ * B1050" a day later, and Worker 3 never took it: the pause holds what would start a turn). The summary is a chat's past words and
+ * stays as they were; where it names a step the board still holds on its ready list while the pause stands, a line after it says
+ * what is so now. Null when the pause does not hold, or the line names no such step.
+ */
+function lastNotHandedOut(detail, state) {
+  if (typeof detail !== 'string' || state?.pause?.state !== 'pausing') return null
+  const ready = new Set((state.readyList?.ready ?? []).map(one => one.id))
+  const ids = [...new Set(detail.match(/\bB\d+\b/g) ?? [])].filter(id => ready.has(id))
+  if (ids.length === 0) return null
+  return `${ids.join(', ')} ${ids.length === 1 ? 'is' : 'are'} not handed out yet: the pause holds ${ids.length === 1 ? 'it' : 'them'}; ${ids.length === 1 ? 'it goes' : 'they go'} out after Resume all.`
+}
+
 function drawMore(lane, state) {
   const more = el('div', 'more')
   const now = state.readAt
@@ -3118,6 +3132,8 @@ function drawMore(lane, state) {
     list.append(item)
   } else if (compacted !== null) list.append(el('li', 'muted', compacted.title))
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
+  const notHandedOut = lastNotHandedOut(lane.statusDetail, state)
+  if (notHandedOut !== null) list.append(el('li', 'muted', notHandedOut))
   for (const folder of lane.folders) list.append(el('li', '', folderLine(folder, now)))
   if (lane.lastActivityAt !== null) list.append(el('li', 'muted', `Last activity ${ago(lane.lastActivityAt, now)}`))
   details.append(list)

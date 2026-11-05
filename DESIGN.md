@@ -6941,3 +6941,8 @@ things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state 
    chat is never named), with the why "the popup cannot wait any more: ...". A popup ask of a running chat on an open step, and any
    real question of the app's form, stay. Mutants: the step rule out, the process rule out, the popup test out (each kills one of the
    three `item 3` tests; the real Q629/Q632/B966 are the fixture).
+4. **A "Last" line is a chat's past words** (`public/board.js` `lastNotHandedOut`, in the lane's Details). The line is the app's summary of the
+   chat's last turn (Main's, from 22:33: "Worker 3 running again; will pick up B1050"); the board cannot and does not edit it. While
+   the pause stands, a step id in it that is still on the ready list gets a line after it: "B1050 is not handed out yet: the pause
+   holds it; it goes out after Resume all." Nothing once the step left the ready list (taken), or when no pause holds. Mutants: the note
+   out, the pause test out, the ready-list test out (kill the two `item 4` tests).

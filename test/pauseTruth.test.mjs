@@ -213,3 +213,38 @@ test('item 3: the chats without a process are read from the real state: all six 
   assert.deepEqual(chatsWithoutProcess(state.chats).sort(), ['Main', 'Worker 1', 'Worker 2', 'Worker 3', 'Worker 4', 'Worker 5'])
   assert.deepEqual(chatsWithoutProcess([{ name: 'Worker 7', isRunning: null }, { name: 'Worker 8', isRunning: true }, { name: 'Worker 9' }]), [])
 })
+
+// ---- Item 4: Main's real "Last" line.
+const detailsOf = async (page, name) => {
+  await page.click(`.lane-menu[data-lane="${name}"]`)
+  return page.all('.lane.is-paused .more li, .lane .more li').map(one => one.textContent)
+}
+
+// Mutants: the note left out; the note said without the pause; the note said for a step that is not on the ready list.
+test('item 4: Main\'s last line promised B1050 to Worker 3; while the pause holds it the card says it is not handed out', async () => {
+  const state = await realCase()
+  const main = state.chats.find(one => one.name === 'Main')
+  assert.equal(main.statusDetail, 'Worker 3 running again; will pick up B1050')
+  assert.ok(state.readyList.ready.some(one => one.id === 'B1050'))
+  const page = await openPage({ state, now: state.readAt })
+  try {
+    const lines = await detailsOf(page, 'Main')
+    assert.ok(lines.includes('Last: Worker 3 running again; will pick up B1050'), lines.join(' | '))
+    assert.ok(lines.includes('B1050 is not handed out yet: the pause holds it; it goes out after Resume all.'), lines.join(' | '))
+  } finally { await page.close() }
+})
+
+test('item 4: no such note once the step was taken (not on the ready list), or when no pause holds', async () => {
+  const taken = await realCase()
+  taken.readyList = { ...taken.readyList, ready: [] }
+  const a = await openPage({ state: taken, now: taken.readAt })
+  try {
+    assert.ok(!(await detailsOf(a, 'Main')).some(line => line.includes('not handed out')))
+  } finally { await a.close() }
+  const running = await realCase()
+  running.pause = { state: 'running', since: running.pause.since }
+  const b = await openPage({ state: running, now: running.readAt })
+  try {
+    assert.ok(!(await detailsOf(b, 'Main')).some(line => line.includes('not handed out')))
+  } finally { await b.close() }
+})
