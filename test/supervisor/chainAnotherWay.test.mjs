@@ -181,3 +181,15 @@ test('health and the rules agree: the Q408 hold and a fresh QA task are odd to n
     assert.equal(/- ! in review/.test(text), odd, `${minutes} min`)
   }
 })
+
+test('chain-long (B1042, X152): "Tried before, <part>:" counts, in a point or the refine block; a copy in the Context does not', () => {
+  const real = ['- Tried before, side flights: B924 ramp 69, B942 70, B948 71', '- Tried before, bridges: B968 66, Q625 pick']
+  const inWhat = items(...ISLANDS, fixAt('B659', 'B654', 'queued', real))
+  assert.deepEqual(check('chain-long', view(inWhat)), [])
+  const inBlock = items(...ISLANDS, item({ Id: 'B659', Kind: 'step', Title: 'Fix', State: 'refined', 'Fix of': 'B654', Since: stamp(ago(5)) }, { Refined: ['  Refined (2026-10-25 22:30; ready):', '  What we build:', '  - Makes pass: the lip', `  ${real[1]}`] }))
+  assert.deepEqual(check('chain-long', view(inBlock)), [])
+  const longPart = items(...ISLANDS, fixAt('B659', 'B654', 'queued', ['- Tried before ' + 'x'.repeat(50) + ': nothing']))
+  assert.equal(check('chain-long', view(longPart)).length, 1)
+  const inContext = items(...ISLANDS, item({ Id: 'B659', Kind: 'step', Title: 'Fix', State: 'queued', 'Fix of': 'B654', Since: stamp(ago(5)) }, { Context: ['  Makes pass: Tried before, bridges: B968 66'], 'What we build': ['- the lip is back'] }))
+  assert.equal(check('chain-long', view(inContext)).length, 1)
+})

@@ -627,7 +627,7 @@ a new task for it when it cannot read the answer.
 "sure, lets try this. but i dont need to give approval for the first different approach"). When a thing's second try
 fails its check too (its fix fails, `Attempts` 2 or more), it gets no third patch of the same way. Refine its next fix
 to another way of making it: for a look, a Codex painting or pieces cut from one, a rule change, or another tool. Start
-the what with `Tried before: <each way, its score, why it fell short>`. Choose that way yourself and let it run without
+the what with `Tried before: <each way, its score, why it fell short>` (a part may stand before the colon: `Tried before, bridges:`). Choose that way yourself and let it run without
 asking the user. Only when the different way fails twice as well, bring it to the user with the evaluation below.
 The board holds you to it (B664): once a chain had two tries (the step and one fix, or more), the fix a failed check
 makes is open, not refined, its first point "Two rounds, then another way: the partner refines it another way (tried:

@@ -3934,7 +3934,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
   <why>" on the Backlog tab, in work next and list, and in the health summary, which counts review chains, not steps),
   `chain-long` (B664, X8 a third time: a chain of fixes with three tries or more, its first step and every fix under it
-  not dropped, whose newest fix is at work with no "Tried before:" line in its what: a third patch of the same way; one
+  not dropped, whose newest fix is at work with no "Tried before:" line in its what (a short part may stand before the colon, "Tried before, bridges:"; B1042, X152): a third patch of the same way; one
   case per chain and newest fix; a fix the board made open for the partner's other way is no case yet), `open-fix` (B667,
   B664's check, principle 2: an open fix the partner never refines had no follow-up: a step in review whose last fix is
   new with no refine round written since it was made, over 60 min from then (`openFixMinutes`) and its newest refine word
