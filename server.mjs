@@ -3217,7 +3217,10 @@ async function main(args) {
       }
       // B847: the older chats of a worker that a newer run of its routine replaced, archived by a chat whose mod can.
       if (can.has('restart') && modAtLeast(claim.mod, ARCHIVE_MOD) && !isHolding(state.pause)) {
-        for (const one of replacedChats({ lanes: state.chats ?? [], now: clock(), given: archiveGiven })) {
+        // Pause truth item 8: what a leftover's summary says it needs counts no more once the steps it names are done.
+        const storedSteps = await work()
+        const stepStateOf = id => (storedSteps?.ok === true ? storedSteps.items.get(id)?.head?.get('State') ?? null : null)
+        for (const one of replacedChats({ lanes: state.chats ?? [], now: clock(), given: archiveGiven, stepState: stepStateOf })) {
           archiveGiven.set(one.session, clock())
           if (!(await hasNothingUncommitted(one.cwd, gitRunner()))) continue
           archiveWhy.set(one.session, one.why)

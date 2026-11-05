@@ -20,6 +20,7 @@ import { fileStore, tick } from '../src/store.mjs'
 import { incidentCards } from '../src/supervisor/cards.mjs'
 import { createSupervisor } from '../src/supervisor/index.mjs'
 import { chatsWithoutProcess, pauseFacts } from '../src/work/pause.mjs'
+import { replacedChats } from '../src/replacedChats.mjs'
 import { readStore, share } from '../src/work/store.mjs'
 import { openPage } from './pageHarness.mjs'
 import { buildState } from './withStore.mjs'
@@ -363,4 +364,35 @@ test('item 7: the page words a step in review as the review goes on, and another
     assert.match(text, /B2000 \(Worker 2\) has no checkpoint; it resumes from its branch and History\./)
     assert.equal((text.match(/resumes from its branch/g) ?? []).length, 1, 'only the step in progress resumes from its branch')
   } finally { await page.close() }
+})
+
+// ---- Item 8: the leftover Worker 3 card of the real case ("answer B982", a step done 2026-11-04 22:18).
+// Mutants: the done-step rule left out; any named step counts (some, not every); an unknown step counts as ended.
+test('item 8: a leftover whose summary names only steps that are done is no reason to keep it; an open or unknown one is', async () => {
+  const state = await realCase()
+  const leftover = state.chats.find(one => one.isLeftover === true && one.name === 'Worker 3')
+  assert.equal(leftover.needsAction, 'answer B982: http://127.0.0.1:4310/#details=B982')
+  // The newer Worker 3 has come back (running, its mod reported): the case after the person's Resume all.
+  const back = state.chats.map(one => (one.name === 'Worker 3' && one.isLeftover !== true ? { ...one, isRunning: true, asleep: false } : one))
+  const named = stepState => replacedChats({ lanes: back, now: state.readAt, stepState }).map(one => one.session)
+  assert.deepEqual(named(id => (id === 'B982' ? 'done' : null)), [leftover.appSession])
+  assert.deepEqual(named(id => (id === 'B982' ? 'dropped' : null)), [leftover.appSession])
+  // The step is still open: the chat may hold live work.
+  assert.deepEqual(named(id => (id === 'B982' ? 'in progress' : null)), [])
+  assert.deepEqual(named(id => (id === 'B982' ? 'waiting on you' : null)), [])
+  // The store does not know the step (unread or gone): nothing is guessed.
+  assert.deepEqual(named(() => null), [])
+  // Today's behaviour stands without a store.
+  assert.deepEqual(replacedChats({ lanes: back, now: state.readAt }), [])
+  // Two steps named, one still open: kept.
+  const two = back.map(one => (one.isLeftover === true && one.name === 'Worker 3' ? { ...one, needsAction: 'answer B982 and B983' } : one))
+  assert.deepEqual(replacedChats({ lanes: two, now: state.readAt, stepState: id => (id === 'B982' ? 'done' : 'review') }), [])
+  // Words naming no step keep it, as before.
+  const words = back.map(one => (one.isLeftover === true && one.name === 'Worker 3' ? { ...one, needsAction: 'Answer the question' } : one))
+  assert.deepEqual(replacedChats({ lanes: words, now: state.readAt, stepState: () => 'done' }), [])
+})
+
+test('item 8: a newer chat that does not run keeps the leftover, as it should: nothing proves it holds the lane', async () => {
+  const state = await realCase()
+  assert.deepEqual(replacedChats({ lanes: state.chats, now: state.readAt, stepState: () => 'done' }), [])
 })

@@ -6963,3 +6963,10 @@ things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state 
    and said "it resumes from its branch and History". Now: "B851 (Worker 1) is in review and has no checkpoint; no chat resumes it, its
    check goes on after Resume all." A step in progress keeps the old words. Mutants: `inReview` not written, the page's words not
    switched (each kills one `item 7` test).
+8. **A leftover whose summary names only finished steps is no reason to keep it** (`src/replacedChats.mjs` `isAboutEndedSteps`, `stepState`
+   from the server's work store). The leftover Worker 3 card stayed because the app's summary said "answer B982" (done 2026-11-04
+   22:18). `needsAction` still keeps a chat, unless it names at least one step and every named step is done or dropped in the store
+   (a step open or unknown, or words naming none, keep it as before). The other rules stand: the newer chat must run and have reported
+   (in the real case it does not run until Resume all, so the card goes after the resume), same folder, quiet, and no open step of
+   the name that the live chat does not show. Mutants: the rule out, `some` for `every`, "not in progress" for "done or dropped" (each
+   kills `item 8`).
