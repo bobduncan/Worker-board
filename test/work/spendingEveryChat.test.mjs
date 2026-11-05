@@ -142,3 +142,95 @@ test('the events kept by message id between chunks are the ones built anew, and 
   assert.equal(written.includes('inside a tool output'),false)
   assert.ok((await stat(join(root,'spending.json'))).size<10000)
 }))
+
+// The review of 2026-11-05 (chat 1): a read-out mark that never lets go loses a chat's new answers.
+const counted=collector=>Object.fromEntries(collector.summary(7).chats.map(one=>[one.key,one.messages]))
+const ledgerOf=async root=>JSON.parse(await (await import('node:fs/promises')).readFile(join(root,'spending.json'),'utf8'))
+
+// Review 1: chat 2's card is only {"left":true}, yet it is in use. Read out, then 2 new answers: both counted.
+// Mutant (the mark skips the session whatever its size): 1 counted, not 3.
+test('a session that left the board and goes on is read on after it was read out',async()=>place(async({root,transcripts,chats})=>{
+  await writeFile(join(transcripts,'side.jsonl'),answer('a','side')+'\n')
+  await writeFile(join(chats,'side.json'),JSON.stringify({left:true}))
+  const collector=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await collector.load()
+  await collector.scan([]);await collector.scan([])
+  assert.equal(typeof (await ledgerOf(root)).readOut.side,'number','read out at its size')
+  await appendFile(join(transcripts,'side.jsonl'),answer('b','side')+'\n'+answer('c','side')+'\n')
+  await collector.scan([]);await collector.scan([])
+  assert.equal(collector.summary(7).messages,3)
+}))
+
+// Review 1: a moved session a chat resumed (Worker 4's 1ec8713a on 11-04) gets answers after its move.
+// Mutant (the mark skips the session whatever its size): the resumed answer is lost.
+test('a moved session that a chat resumes is read on',async()=>place(async({root,transcripts,chats})=>{
+  await writeFile(join(transcripts,'old.jsonl'),answer('a','old')+'\n')
+  await writeFile(join(transcripts,'now.jsonl'),answer('b','now')+'\n')
+  await writeFile(join(chats,'old.json'),JSON.stringify({movedTo:'now',at}))
+  await writeFile(join(chats,'now.json'),JSON.stringify({name:'Worker 4',role:'worker',at}))
+  const collector=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await collector.load()
+  const lanes=[{session:'now',name:'Worker 4',role:'worker'}]
+  await collector.scan(lanes);await collector.scan(lanes)
+  await appendFile(join(transcripts,'old.jsonl'),answer('resumed','old')+'\n')
+  await collector.scan(lanes)
+  assert.deepEqual(counted(collector),{'Worker 4':3})
+}))
+
+// Review 1: a read-out session that becomes a chat's own again (chat 2 rejoining) is read, also after a restart.
+// Mutant (the mark is looked at before the chat's own sessions): the new answer is never read.
+test('a read-out session that is a chat\'s own again is read on, after a restart too',async()=>place(async({root,transcripts,chats})=>{
+  await writeFile(join(transcripts,'side.jsonl'),answer('a','side')+'\n')
+  await writeFile(join(chats,'side.json'),JSON.stringify({left:true}))
+  const first=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await first.load()
+  await first.scan([]);await first.scan([])
+  await appendFile(join(transcripts,'side.jsonl'),answer('b','side')+'\n')
+  // The mark is kept at the size it had; the own lane is read whatever the mark says.
+  const restarted=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await restarted.load()
+  const lanes=[{session:'side',name:'Goal chat',role:'worker'}]
+  await restarted.scan(lanes)
+  assert.equal(restarted.summary(7).messages,2)
+  assert.equal((await ledgerOf(root)).readOut.side,undefined)
+}))
+
+// Review 2: the read-out compares with the size found in this scan, not the one of the last read. A left session grows
+// while the scan's time goes to a bigger, newer backlog: it is still behind, never marked read out.
+// Mutant (the size of the last read): it is marked read out with its new answer unread, and nothing shows as behind.
+test('a left session that grew since its last read is not marked read out before it is read',async()=>place(async({root,transcripts,chats})=>{
+  await writeFile(join(transcripts,'old.jsonl'),answer('a','old')+'\n')
+  await writeFile(join(chats,'old.json'),JSON.stringify({movedTo:'gone',at}))
+  let now=at;const clock=()=>(now+=1000)
+  const collector=createSpendingCollector({dir:root,transcripts,chats,clock});await collector.load()
+  await collector.scan([])
+  await appendFile(join(transcripts,'old.jsonl'),answer('b','old')+'\n')
+  await backlog(join(transcripts,'big.jsonl'),40,5)
+  await writeFile(join(chats,'big.json'),JSON.stringify({movedTo:'gone',at}))
+  const {utimes}=await import('node:fs/promises');await utimes(join(transcripts,'old.jsonl'),new Date(at),new Date(at))
+  await collector.scan([])
+  const ledger=await ledgerOf(root)
+  assert.equal(ledger.readOut.old,undefined)
+  assert.ok(ledger.scans.old.offset<ledger.scans.old.size,'the old session shows as behind')
+}))
+
+// Review 3: four cards were cut at 70 bytes (24-26 Oct); a chain of moves through one still ends in its chat.
+// Mutant (a card that does not parse is dropped): the sessions count under "Earlier chat" or not at all.
+test('a card cut short still names its chat and carries its move',async()=>place(async({root,transcripts,chats})=>{
+  for(const session of ['a','b','c'])await writeFile(join(transcripts,`${session}.jsonl`),answer(`m-${session}`,session)+'\n')
+  await writeFile(join(chats,'a.json'),JSON.stringify({movedTo:'b',at}))
+  await writeFile(join(chats,'b.json'),'{"movedTo":"c","at":17927')
+  await writeFile(join(chats,'c.json'),'{\n  "name": "Supervisor",\n  "role": "worker",\n  "state": "waiting",\n  ')
+  const collector=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await collector.load()
+  await collector.scan([])
+  assert.deepEqual(counted(collector),{Supervisor:3})
+}))
+
+// Review 4: the ledger keeps the latest 50 000 messages; a period that starts before the oldest kept one says so.
+// Mutant (no line): the 30-day and All views say nothing about the days they miss.
+test('a period longer than the kept history says from when it covers',async()=>{
+  const {readFile}=await import('node:fs/promises'),vm=await import('node:vm')
+  const context={window:{},Intl,Blob,URL,setTimeout};vm.runInNewContext(await readFile(new URL('../../public/spending.js',import.meta.url),'utf8'),context)
+  const kept=Date.UTC(2026,9,24)
+  const line=summary=>context.window.BoardSpending.coversLine(summary)
+  assert.match(line({from:null,coverage:{retainedFrom:kept}}),/^Covers only from /)
+  assert.match(line({from:kept-6*86400000,coverage:{retainedFrom:kept}}),/^Covers only from /)
+  assert.equal(line({from:kept+86400000,coverage:{retainedFrom:kept}}),null)
+  assert.equal(line({from:null,coverage:{retainedFrom:null}}),null)
+})

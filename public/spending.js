@@ -4,6 +4,8 @@
   let selected='7',lastState=null,lastKey='',message=''
   const dollars=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2}).format(n)
   const count=n=>n===null||n===undefined?'Unknown':new Intl.NumberFormat(undefined,{notation:'compact',maximumFractionDigits:1}).format(n)
+  // The kept history has a cap (the latest 50 000 messages): a period that starts before the oldest kept one says so.
+  function coversLine(summary){const from=summary?.coverage?.retainedFrom;return from&&(summary.from===null||summary.from<from)?`Covers only from ${new Date(from).toLocaleDateString()}: older messages are not kept.`:null}
   function costLabel(summary){if(summary?.coverage?.unavailable)return 'Unavailable';const {low=0,high=0}=summary?.knownCost??{};return !low&&!high&&summary?.unknownCostMessages?'Unknown':Math.abs(high-low)<.005?dollars(low):`${dollars(low)}–${dollars(high)}`}
   function qualityLabel(summary){return summary?.qualitySample>0?`${summary.firstPassPercent}%`:'Not measured'}
   function node(tag,className,text){const n=document.createElement(tag);if(className)n.className=className;if(text!==undefined)n.textContent=String(text);return n}
@@ -60,6 +62,7 @@
     const gaps=summary.coverage??{}
     if(gaps.unavailable)root.append(node('p','spending-notice',gaps.problem??'Spending is unavailable; local history is preserved.'))
     else if(gaps.pendingFiles||gaps.pendingBytes||gaps.unavailableTranscripts||gaps.discoveryLimited)root.append(node('p','spending-notice',`Incomplete coverage: ${count(gaps.pendingFiles??0)} files await scanning, ${count(gaps.pendingBytes??0)} known bytes remain, ${count(gaps.unavailableTranscripts??0)} transcripts unavailable.${gaps.discoveryLimited?' Some child files could not be discovered.':''} Costs will change as collection catches up.`))
+    const covers=coversLine(summary);if(covers)root.append(node('p','spending-notice',covers))
     const cards=node('div','spending-metrics')
     add(cards,metric('Estimated usage cost',costLabel(summary),summary.unknownCostMessages?`${count(summary.unknownCostMessages)} messages have unknown costs; known costs only.`:'Includes cached tokens and all observed work.'),metric('Finished tasks',count(summary.accepted),'Unfinished and rejected work still contributes to spending.'),metric('Linked to a task',summary.attributionPercent===null?'Not measured':`${summary.attributionPercent}%`,'Unassigned coordination and review remain visible.'),metric('First-pass results',qualityLabel(summary),summary.qualitySample?`Based on ${summary.qualitySample} tasks with measured attempts.`:'Needs attempt history; no quality claim yet.'))
     root.append(cards)
@@ -91,5 +94,5 @@
     const week=state.limits?.week;if(week?.used!==undefined&&week?.used!==null)coverage.append(node('p','spending-muted',`Account-wide weekly allowance: ${week.used}% used${week.at?`, read ${new Date(week.at).toLocaleString()}`:''}. Other projects and chats share this allowance.`))
     root.append(coverage)
   }
-  window.BoardSpending={draw,costLabel,qualityLabel}
+  window.BoardSpending={draw,costLabel,qualityLabel,coversLine}
 })()
