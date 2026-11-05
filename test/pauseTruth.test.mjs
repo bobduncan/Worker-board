@@ -21,6 +21,7 @@ import { incidentCards } from '../src/supervisor/cards.mjs'
 import { createSupervisor } from '../src/supervisor/index.mjs'
 import { chatsWithoutProcess, pauseFacts } from '../src/work/pause.mjs'
 import { replacedChats } from '../src/replacedChats.mjs'
+import { spawnWhenAlone } from '../src/say.mjs'
 import { readStore, share } from '../src/work/store.mjs'
 import { openPage } from './pageHarness.mjs'
 import { buildState } from './withStore.mjs'
@@ -523,4 +524,14 @@ test('review 7: the note follows the board\'s own handOutHeld, and words the rea
   assert.match(note(await mainLines(state => { state.pause = { state: 'resuming', since: state.readAt - MIN, pausedSince: state.pause.since, waiting: [], isResumed: true } })), /held while the resume goes on/)
   assert.match(note(await mainLines(state => { state.pause = { state: 'running', since: state.readAt - MIN } })), /held while a usage limit is full/)
   assert.equal(note(await mainLines(state => { state.pause = { state: 'running', since: state.readAt - MIN }; state.reconciled = { handOutHeld: false } })), undefined)
+})
+
+// ---- Review 5: the guard of spawnWhenAlone: a ran line is no chat line, so it never counts as "a worker was there".
+test('review 5: a ran line after the board asked for workers is no worker that was there', () => {
+  const state = { workers: { main: 'Main', count: 0, ask: null }, chats: [{ name: 'Main', isRunning: true }] }
+  const asked = { command: 'spawn', why: 'alone', at: 100 }
+  assert.equal(spawnWhenAlone(state, [asked], [{ at: 200, ran: true }]), null)
+  assert.equal(spawnWhenAlone(state, [asked], [{ at: 200, gap: true }]), null)
+  // A real worker line after the ask: asked again once all went.
+  assert.notEqual(spawnWhenAlone(state, [asked], [{ at: 200, chat: 'Worker 1', state: 'working' }]), null)
 })

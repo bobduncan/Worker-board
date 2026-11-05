@@ -6974,3 +6974,20 @@ things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state 
 The picture of the real pause (`test/pauseTruthPicture.mjs`, not a test): a tiny static server on 127.0.0.1 serves a `public/` folder and answers
 `/api/state` with the real case's state fixture, and a headless Edge draws it (`tools/evidence.mjs` `shootPage`). No board is started, no
 live data is read, no chat can be typed to. Before = main's `public/` (`git archive 08da3b7 public`), after = the branch's.
+
+### Pause truth: review (an independent review of the branch)
+
+- **Day bars (item 1, review 1 and 10):** `pausedToday` decides by the card's own status (`laneStatus(lane).key === 'paused'`), so free chats under
+  the pause are Paused bars too; `free` and `interrupted` spans are split at the pause's window. `pauseWindowOf(pause)`: pausing `[since, ∞)`, resuming
+  `[pausedSince, since]`, running `[pausedSince, resumedSince]` (pause.mjs `pauseFacts` carries both times); in a pause that is over every lane's
+  free/interrupted spans inside the window stay Paused. Only the last pause is on record.
+- **Estimate heal (item 2, review 3):** `estimateSaidAt` also compares the step and heals only when the card was rewritten without the chat acting
+  (no transcript entry within 5 min before the card's `at`, or after it; no transcript read: no heal).
+- **Popup asks (item 3, review 2 and 6):** withdrawn when the chat has no process; or the step is done/dropped/gone AND the chat no longer reports
+  asking (`body.asking`, `chatsAsking`). A gone step is withdrawn too (`withdraw` with `stepMayBeGone`, from the sweep only).
+- **Not handed out (item 4, review 7):** follows `state.reconciled.handOutHeld` and says the real reason (pause, resume, a full limit).
+- **Pause notes (item 7, review 4 and 8):** "is in review and has no checkpoint: no chat resumes it", plus what it waits on only where `reviewWaitOf`
+  knows (recap, Accept, answer, its check held by the pause: `waitsOn`); off-board holders in review are worded the same.
+- **Leftover (item 8, review 9):** the named steps must also have ended after the leftover's last activity (`stepEndedAt`, the step's Since).
+- **Server wiring (review 5):** `test/pauseTruthBoard.test.mjs` runs a board on a made-up project; mutants: popup-asks call out, `pause: state.pause`
+  out, `stepState` out, `stepEndedAt` out each fail it; the `say.mjs` guard has its own test.
