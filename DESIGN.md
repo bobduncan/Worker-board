@@ -2182,19 +2182,19 @@ step on "check pending" for good.
   origin; git not answering, or an origin whose base cannot be read, is a fault. A repository with an origin whose base
   was never pushed now fails the check, as it should.
 - **A busy file names its holder** (B1049, X: 2026-11-04 22:26 an orphaned `grep.exe` held `data/spending.json` open and the
-  measure loop failed every few minutes with only "EPERM"): a loop that fails with EPERM, EBUSY or EACCES on a file for
-  2 min in a row gets a read-only Restart Manager lookup (`fileHolders` in `src/work/holders.mjs`, beside B844's folder
+  measure loop failed every few minutes with only "EPERM"): a loop that fails with EPERM, EBUSY or EACCES on a file
+  twice, the second failure at least a minute after the first (round 3: the real 11-04 pairs came 113 to 120 s apart, so a strict 2 min never fired), gets a read-only Restart Manager lookup (`fileHolders` in `src/work/holders.mjs`, beside B844's folder
   reader; RmStartSession, RmRegisterResources, RmGetList, RmEndSession) on the files the error names (the board's own temp
   files left out). The head's line then ends "; held by grep.exe, pid 57736, since 19:52": at most three programs named,
   the rest counted, at most one lookup a minute per file and one lookup in flight at a time, nothing named off Windows or when PowerShell does not answer.
-  "2 min in a row" is a busy streak apart from the loop's failing: it starts at the first EPERM/EBUSY/EACCES failure and ends,
+  The streak of busy failures of a file is apart from the loop's failing: it starts at the first EPERM/EBUSY/EACCES failure and ends,
   with its names, only when the loop succeeds more than 2 min after its last busy failure, so the no-op success the measure
-  loop returns while a measure runs (the real 11-04 case: a failure every 2 min) does not reset it, or at once when the loop
+  loop returns while a measure runs (the real 11-04 case: a failure every 2 min) does not reset it (it ends after 2 min free), or at once when the loop
   fails for another reason (EPERM turned ENOENT: no program holds the file, so no "held by" stands beside it); the lookup reads the
   whole error line, not the 300 characters the page keeps (a long project path would lose its file name).
   It only reads: no Stop button, no program ended by the board (the person ends it in Task Manager). Tests:
-  `test/loopHolders.test.mjs` (a child holds a scratch file without share-delete, the rename gets EPERM, the loop fails 2
-  min on a test clock, the line names the program and its pid).
+  `test/loopHolders.test.mjs` (a child holds a scratch file without share-delete, the rename gets EPERM, the loop fails a
+  minute on a test clock, the line names the program and its pid; the real 113.2 s and 119.966 s pairs; a lookup that settles after the streak ended names nothing).
 - Tests: `test/loops.test.mjs` (fake clock: a loop that throws once and goes on, one failing every refresh logged once,
   the page line, the log file and its rotation, stuck checks and their cap, the restart's wait), `test/work/recheck.test.mjs`
   (the action on a store), `test/work/check.test.mjs` (no remote against a failed call).
@@ -4019,7 +4019,11 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   under 10 min is logged as a stall of the loop, because `performance.now` keeps counting through a Windows sleep (QPC),
   so the clock-jump check does not fire there (it stays for clocks that stop in a sleep) and the 10 min rule alone
   catches a long sleep. `from < startedAt` cannot happen for the timer `watchLoop` starts (it begins at the board's start);
-  it guards a caller that hands in an earlier `from`. Pinned by `test/sleepStall.test.mjs`. What forces a rebuild is pinned end to end by
+  it guards a caller that hands in an earlier `from`. Round 3 (the re-check): a call proves a "sleep" was a hang only when it was
+  sent over a minute before the window's end and the window is under an hour (a call sent at the wake tick of a real night
+  proves nothing; the live 08:15:06 entry stays "slept"), and `slowCall` writes a call that spans a logged sleep (sent before it
+  began, answered after it ended) as that sleep, not as an 8.5 h call. An awake loop hang over 10 min names no jobs (it is
+  written as a sleep by `tick`), and EPERM alternating with another error never reaches the lookup (the other error ends the streak). Pinned by `test/sleepStall.test.mjs`. What forces a rebuild is pinned end to end by
   `test/rebuildsBoard.test.mjs` (a copy of the board with its state kept an hour, `WORKER_BOARD_STATE_MS`, and one line per
   rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
   an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a

@@ -1020,6 +1020,9 @@ const SLOW_PAIR_MS = 2 * MIN
 const SLOW_LOOK_MS = 10 * MIN
 /** A call sent this close after a sleep began (or before) still counts as sent before it. */
 const SLEEP_SLACK_MS = 5000
+/** Round 3: a stall of the loop can be a hang with the PC awake only under this long, and only for a call sent this long before its end. */
+const HANG_MAX_MS = 60 * MIN
+const HANG_END_MS = MIN
 
 /** B934: how many of the board's newest stalls the finding cites. */
 const SLOW_CITES = 3
@@ -1043,7 +1046,9 @@ function boardSlow(view) {
   const worst = Math.max(...recent.map(one => one.ms))
   const inLook = (view.stalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS).sort((a, b) => a.at - b.at)
   // Round 2: a "sleep" that a counted call was sent inside was a hang with the PC awake: cited as a hang, never as slept.
-  const awake = sleep => recent.some(call => call.at - call.ms > sleep.at - sleep.ms + SLEEP_SLACK_MS && call.at - call.ms < sleep.at)
+  // Round 3: only a window under an hour can be a hang, and a call proves it only when sent over a minute before its end (a call sent
+  // at the wake tick of a real night proves nothing).
+  const awake = sleep => sleep.ms < HANG_MAX_MS && recent.some(call => call.at - call.ms > sleep.at - sleep.ms + SLEEP_SLACK_MS && call.at - call.ms < sleep.at - HANG_END_MS)
   const hangs = inLook.filter(one => isSleep(one) && awake(one))
   const stalls = inLook.filter(one => !isSleep(one) || awake(one)).slice(-SLOW_CITES)
   const slept = inLook.filter(one => isSleep(one) && !awake(one)).slice(-SLOW_CITES)

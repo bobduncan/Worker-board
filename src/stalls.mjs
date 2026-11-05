@@ -130,7 +130,9 @@ export function stallLog({ now = Date.now, overMs = STALL_MS, most = MOST_STALLS
     if (!Number.isFinite(from) || !Number.isFinite(to) || to - from <= overMs) return null
     // Round 2: a call that waited long is not a sleep by its length: the loop kept ticking, so the PC was awake (a real sleep is
     // logged by tick() from the timer's gap). Only a call sent before the board began is no case of this board.
-    if (from < startedAt) return keep({ at: to, ms: to - from, kind: 'sleep', requests: [], jobs: [] })
+    // Round 3: a call sent before a sleep the timer logged began and answered after it ended is that sleep, not a call of 8.5 h.
+    const spans = stalls.some(one => one.kind === 'sleep' && from <= one.at - one.ms + JUMP_MS && to >= one.at)
+    if (from < startedAt || spans) return keep({ at: to, ms: to - from, kind: 'sleep', requests: [], jobs: [] })
     const call = wordsOf(words)
     return keep({ at: to, ms: to - from, kind: 'call', call, requests: during(from, to, 'request').filter(one => one !== call), jobs: during(from, to, 'job') })
   }

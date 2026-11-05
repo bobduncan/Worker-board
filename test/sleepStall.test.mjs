@@ -145,3 +145,25 @@ test('round 2: a 12 min block with the PC awake (two late calls sent inside it) 
   assert.doesNotMatch(found[0].evidence, /the PC slept/)
   assert.match(found[0].evidence, /the loop blocked 12 min to \d\d:\d\d:\d\d; calls were sent inside it: not a sleep/)
 })
+
+test('round 3: the live 08:15:06 sleep stays "slept" when a call was sent 200 ms before the wake tick; a call that spans a tick sleep is written as a sleep', () => {
+  const now = REAL.at + MIN
+  const sent = [{ at: REAL.at + 1000, ms: 1200 }, { at: REAL.at + 2000, ms: 2200 }]
+  const found = check(now, sent, [REAL])
+  assert.equal(found.length, 1)
+  assert.match(found[0].evidence, /slept: /)
+  assert.doesNotMatch(found[0].evidence, /not a sleep/)
+  // A window of over an hour is never a hang by a call sent near its end; one a minute or more before the end under an hour still is.
+  const longBlock = { at: REAL.at, ms: 2 * 60 * MIN, kind: 'sleep', requests: [], jobs: [] }
+  assert.doesNotMatch(check(now, [{ at: REAL.at + 1000, ms: 30 * MIN }, { at: REAL.at + 2000, ms: 30 * MIN }], [longBlock])[0].evidence, /not a sleep/)
+  // A window under an hour: a call sent 30 s before its end proves nothing (the wake), one sent 5 min before does.
+  const nap = { at: REAL.at, ms: 12 * MIN, kind: 'sleep', requests: [], jobs: [] }
+  assert.doesNotMatch(check(now, [{ at: REAL.at + 1000, ms: 31_000 }, { at: REAL.at + 2000, ms: 32_000 }], [nap])[0].evidence, /not a sleep/)
+  assert.match(check(now, [{ at: REAL.at + 1000, ms: 5 * MIN }, { at: REAL.at + 2000, ms: 5 * MIN }], [nap])[0].evidence, /not a sleep/)
+  // The log: a tick wrote the night as a sleep; the call sent before it and answered after is the same sleep, not an 8.5 h call.
+  const t0 = Date.UTC(2026, 10, 5, 0, 0, 0)
+  const log = stallLog({ now: () => t0, startedAt: t0 - 60 * MIN })
+  assert.equal(log.tick(t0 + MIN, t0 + 510 * MIN, 500, 510 * MIN - MIN).kind, 'sleep')
+  assert.equal(log.slowCall('work take by Worker 2', t0, t0 + 510 * MIN + 800).kind, 'sleep')
+  assert.equal(log.slowCall('work take by Worker 3', t0 + 510 * MIN - 200, t0 + 510 * MIN + 5000).kind, 'call', 'a call sent at the wake, not before the sleep, is an ordinary call')
+})
