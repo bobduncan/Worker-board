@@ -4,6 +4,9 @@
 // board's start; a sleep stays in the log, in plain words, and is never a slow board (rule board-slow, B1011's harm bar).
 
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import { stallLog, watchLoop } from '../src/stalls.mjs'
@@ -97,4 +100,22 @@ test('a hang of 11 min with the PC awake is no sleep for board-slow: calls sent 
   assert.equal(check(end + 2000, [{ at: end, ms: 10 * MIN + 1000 }, { at: end + 1000, ms: 9 * MIN }], [block]).length, 1)
   // The real 08:15 entry with calls sent before it began, and none inside: not counted.
   assert.deepEqual(check(REAL.at + MIN, [{ at: REAL.at, ms: 30_599_000 }, { at: REAL.at + 1000, ms: 30_599_900 }], [REAL]), [])
+})
+
+test('load() from a file turns the old real entry into a sleep, and the next save writes it as one', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'stalls-'))
+  try {
+    const file = join(dir, 'stalls.json')
+    await writeFile(file, JSON.stringify({ stalls: [REAL] }))
+    const log = stallLog({ file, now: () => REAL.at + MIN })
+    await log.load()
+    assert.deepEqual(log.recent(), [{ at: REAL.at, ms: REAL.ms, kind: 'sleep', requests: [], jobs: [] }])
+    log.tick(REAL.at + 2 * MIN, REAL.at + 2 * MIN + 5000, 500, 5000)
+    await log.saved()
+    const written = JSON.parse(await readFile(file, 'utf8')).stalls
+    assert.deepEqual(written.map(one => one.kind), ['sleep', 'loop'])
+    assert.deepEqual([written[0].requests, written[0].jobs], [[], []], 'the job self-update is no longer named')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
