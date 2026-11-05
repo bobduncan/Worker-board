@@ -3149,6 +3149,16 @@ function isStartChecking(state) {
   return state?.check?.running === true && state.check.trigger === 'start'
 }
 
+/**
+ * While the check of a board start runs no failure of before it is news (plan task 7): the state the page draws has no wake notice, and
+ * a chat whose wake failed reads "Checking" (its flag, quiet). The result of the check decides what stays.
+ */
+function whileChecking(state) {
+  if (!isStartChecking(state)) return state
+  const quiet = lane => (lane === null || lane === undefined || !Array.isArray(lane.flags) ? lane : { ...lane, flags: lane.flags.map(flag => (flag.kind === 'wake failed' ? { ...flag, kind: 'wake', text: 'Checking', button: null } : flag)) })
+  return { ...state, wakeNotice: null, chats: (state.chats ?? []).map(quiet), advisor: quiet(state.advisor), advisorHelper: quiet(state.advisorHelper), supervisorChat: quiet(state.supervisorChat), productOwner: quiet(state.productOwner) }
+}
+
 /** Set when the person clicked Check everything, until a state shows the check over (or 15 s passed). */
 let checkClickedAt = null
 let checkSawRunning = false
@@ -3203,7 +3213,7 @@ function laneFlags(lane, restart = null) {
   const main = restart?.main ?? null
   const isAsked = (restart?.starting ?? []).some(one => one.chat === lane.name && one.state !== 'expired' && one.state !== 'failed')
   // Signals change 2: where its hand-over stands is the chat's status and its why (Handing, Held...): no second line for it.
-  return (lane.flags ?? []).filter(flag => flag.kind !== 'handover').map(flag => (isStartChecking(board) && flag.kind === 'wake failed' ? { ...flag, kind: 'wake', text: 'Checking', button: null } : flag)).map(flag => ({
+  return (lane.flags ?? []).filter(flag => flag.kind !== 'handover').map(flag => ({
     text: flag.text,
     // Model per step: a step that waits for its worker to run on Opus is a wait, no fault.
     // 2026-10-31 (B799): a step whose work is on a branch not merged is back with its worker: a quiet line, no button for the person.
@@ -5913,8 +5923,6 @@ function wakeNoticeText(notice) {
 
 /** Signals change 4: that line, in the attention colour (the class the older lines had, so the CSS holds); null for none. */
 function drawWakeNotice(notice) {
-  // The start-up check: no stale alarm while the check of a board start runs; its result decides (plan task 7).
-  if (isStartChecking(board)) return null
   const text = wakeNoticeText(notice)
   return text === null ? null : el('p', 'nobody-runs', text)
 }
@@ -22206,6 +22214,7 @@ $('phone-more').addEventListener('click', () => {
 // Reading and sending
 
 function draw(state) {
+  state = whileChecking(state)
   board = state
   restoreKept()
   window.BoardSpending?.draw(state)

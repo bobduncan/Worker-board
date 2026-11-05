@@ -1889,8 +1889,9 @@ async function main(args) {
     // G1 (2026-11-05): a report with a new run from any chat says the app is back; a spell that failed as "not found" (or is spent)
     // is tried again once its chat is listed (wake.mjs `reopenSpells`).
     if (checked?.ok === true && entryAfter !== undefined && entryAfter.run != null && entryAfter.run !== entryBefore?.run) {
-      // The start-up check (2026-11-05): a new run id is some session starting; one check follows for all within 10 s.
-      checker?.newRun(clock())
+      // The start-up check (2026-11-05): a chat whose kept report had another run id: some session started; one check follows for all
+      // within 10 s. A chat's first report (nothing kept before) says nothing of the app: no check for it.
+      if (entryBefore !== undefined) checker?.newRun(clock())
       if (wakeNoteRun(wakes, clock())) {
         wakesChanged()
         reopenWakes(readState.last())

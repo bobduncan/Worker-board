@@ -2,7 +2,7 @@
 // (the account switch in one line, amber). The real board page is served by a small static server with the state the board
 // would send (`state.check`), and drawn by a headless Edge or Chrome (tools/evidence.mjs `shootPage`). Not a test:
 //   node test/startupCheckPicture.mjs [out-folder]
-// The default folder is C:\Web\lava-tactics-project\art-inbox\board-startup-check (the lead's plan).
+// The default folder is art-inbox/board-startup-check beside the board's folder (the lead's plan).
 import { readFile, mkdir } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
@@ -12,7 +12,7 @@ import { shootPage } from '../tools/evidence.mjs'
 import { asSent, build, NOW } from './partnerState.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
-const OUT = process.argv[2] ?? 'C:\\Web\\lava-tactics-project\\art-inbox\\board-startup-check'
+const OUT = process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'art-inbox', 'board-startup-check')
 const TYPES = { '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.ico': 'image/x-icon', '.html': 'text/html' }
 
 const base = asSent(build([]))

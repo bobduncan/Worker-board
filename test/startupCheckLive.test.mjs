@@ -125,10 +125,16 @@ test('the start-up check on a running board: it runs at the start and names the 
   assert.equal(foreign.status, 403)
 
   // A report with a new run (some session started): one app-restart check follows within the debounce.
-  const reply = await fetch(`${base}/api/bridge/take`, {
+  const take = run => fetch(`${base}/api/bridge/take`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.31.0' },
-    body: JSON.stringify({ chat: 'Units', session: 'units-id', report: { state: 'idle', since: Date.now(), background: false, run: Date.now(), seq: 1 } }),
+    body: JSON.stringify({ chat: 'Units', session: 'units-id', report: { state: 'idle', since: Date.now(), background: false, run, seq: 1 } }),
   })
+  // The chat's first report says nothing of the app (nothing was kept before): no check for it.
+  const first = await take(Date.now() - 1000)
+  assert.equal(first.status, 200, await first.text())
+  await new Promise(done => setTimeout(done, 12_000))
+  assert.equal((await stateOf()).check.trigger, 'button', 'a first report starts no check')
+  const reply = await take(Date.now())
   assert.equal(reply.status, 200, await reply.text())
   await until(async () => (await stateOf()).check?.trigger === 'app-restart', 'the app-restart check', 40_000)
 })
