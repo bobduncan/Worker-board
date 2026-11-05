@@ -9,7 +9,7 @@
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { hasChanged, isPending, makingOf, roundsOf, showsCheck, standOf } from './demoFeedback.mjs'
+import { hasChanged, isPending, isTriedSince, makingOf, roundsOf, standOf } from './demoFeedback.mjs'
 import { parseGoals } from './goals.mjs'
 import { readDemo, shownFolders, shownRoots } from './pictures.mjs'
 import { sinceMs } from './work/item.mjs'
@@ -76,7 +76,7 @@ export function recapWaitsOf(recaps, reworkOf = null) {
       if (said?.verdict === 'approved') return []
       const back = said?.verdict === 'sent-back' ? sent.get(said.round) ?? null : null
       // The Send is stamped to its minute: a demo written in a later minute holds the partner's new try.
-      const tried = Number.isFinite(back) && Number.isFinite(recap.changedAt) && recap.changedAt >= back + 60_000 && part.pending !== true && part.changed === true && showsCheck(part.shows, back).state === 'yes'
+      const tried = isTriedSince(part, back, recap.changedAt)
       const verdict = said?.verdict === 'sent-back' && !tried ? 'sent-back' : null
       const at = verdict === null ? null : back
       const rework = typeof reworkOf === 'function' ? reworkOf(recap, part) ?? null : null

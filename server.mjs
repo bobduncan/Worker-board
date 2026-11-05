@@ -1184,9 +1184,20 @@ async function main(args) {
    */
   const recapRoundNow = async state => {
     const making = state.recapMaking ?? null
-    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause) || making === null) return
-    for (const step of recapRoundDue(making, store.outbox())) {
-      await toPartner(recapRoundWords(state.advisor.name, { goal: making.goal, round: making.round, step, path: making.path, job: join(HERE, 'roles', 'partner.md') }), {}, state)
+    const waiting = state.recapWaiting ?? null
+    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause) || (making === null && waiting === null)) return
+    // 2026-11-05: a row sent back in an earlier round whose try is in is told the same way ("is in"), once per step.
+    const told = new Set()
+    const lists = [
+      [making, making === null ? [] : recapRoundDue(making, store.outbox()), false],
+      [waiting, waiting === null ? [] : recapRoundDue({ goal: waiting.goal, doneSteps: waiting.steps }, store.outbox()), true],
+    ]
+    for (const [one, due, isIn] of lists) {
+      for (const step of due) {
+        if (told.has(step)) continue
+        told.add(step)
+        await toPartner(recapRoundWords(state.advisor.name, { goal: one.goal, round: one.round, step, path: one.path, job: join(HERE, 'roles', 'partner.md'), isIn }), {}, state)
+      }
     }
   }
   /**

@@ -188,6 +188,22 @@ export function fixesOf(id, items) {
 }
 
 /**
+ * 2026-11-05: the steps up the `Fix of` chain of the step `id`, nearest first (B1048 → B1018 → B991): only steps, a loop ends it,
+ * at most 40 hops. Next to `fixesOf`, which goes down.
+ */
+export function fixRootsOf(id, items) {
+  const roots = []
+  const seen = new Set([id])
+  const upOf = at => (items?.get(at) === undefined ? null : valueOf(items.get(at), 'Fix of'))
+  for (let up = upOf(id); typeof up === 'string' && roots.length < 40 && !seen.has(up); up = upOf(up)) {
+    seen.add(up)
+    if (items?.get(up) === undefined || valueOf(items.get(up), 'Kind') !== 'step') break
+    roots.push(up)
+  }
+  return roots
+}
+
+/**
  * The review of B356: a step whose result check failed counts as checked once the fix that check made is done, and no
  * point of the check waits for the person. The second review: only that fix, named in the check's own line ("fix B<n>
  * for ..."), so a fix of an earlier round counts for nothing; a dropped one counts for nothing either.
