@@ -137,6 +137,7 @@ export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn
   const lookedAt = new Map()
   function lookUp(one, message, at) {
     if (holders === null || one.failingSince === null || at - one.failingSince < HOLDER_AFTER_MS) return
+    if (looking.size > 0) return // one lookup in flight at a time (each starts a PowerShell)
     const files = pathsOf(message).filter(file => !(at - (lookedAt.get(file) ?? -Infinity) < HOLDER_EVERY_MS))
     if (files.length === 0) return
     for (const file of files) lookedAt.set(file, at)

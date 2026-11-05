@@ -25,21 +25,23 @@ function fakeClock(start) {
 
 const onlyWindows = { skip: process.platform !== 'win32' ? 'Restart Manager is Windows only' : false }
 
-test('the real case: a program holds the file without share-delete, the rename gets EPERM, the loop fails 2 min, its line names the program and its pid', onlyWindows, async () => {
+test('the real case: a program holds the file without share-delete, the rename gets EPERM, the loop fails 2 min, its line names the program and its pid', { ...onlyWindows, timeout: 180_000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'holder-'))
   const file = join(dir, 'spending.json')
   await writeFile(file, '{}')
   // What grep.exe did: the file open for reading, others may read, nobody may delete or replace it.
   const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
     "$f = [IO.File]::Open($env:HOLD_FILE, 'Open', 'Read', 'Read'); 'held'; Start-Sleep 120"], { stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, HOLD_FILE: file }, windowsHide: true })
+  const closed = new Promise(resolve => child.on('close', resolve))
   try {
     await new Promise((resolve, reject) => {
-      child.stdout.setEncoding('utf8').on('data', text => { if (text.includes('held')) resolve() })
+      const giveUp = setTimeout(() => reject(new Error('the holder never printed "held"')), 60_000)
+      child.stdout.setEncoding('utf8').on('data', text => { if (text.includes('held')) { clearTimeout(giveUp); resolve() } })
       child.on('error', reject)
       child.on('close', () => reject(new Error('the holder ended')))
     })
     const clock = fakeClock(at(22, 26))
-    const loops = loopRecord({ now: clock.now, holders: paths => fileHolders(paths) })
+    const loops = loopRecord({ now: clock.now, holders: paths => fileHolders(paths, { timeoutMs: 90_000 }) })
     const measure = async () => { await writeAtomic(file, '{"a":1}') }
     await loops.run('measure', measure)
     assert.equal(loops.failing()[0].error.startsWith('EPERM'), true, 'the rename past its five tries gets EPERM')
@@ -51,6 +53,7 @@ test('the real case: a program holds the file without share-delete, the rename g
     assert.match(line, new RegExp(`held by powershell\\.exe, pid ${child.pid}, since \\d\\d:\\d\\d`))
   } finally {
     child.kill()
+    await closed
     await rm(dir, { recursive: true, force: true }).catch(() => {})
   }
 })
@@ -79,6 +82,26 @@ test('no lookup before the loop has failed 2 min in a row; one at 2 min; none ag
   await fail()
   await loops.lookups()
   assert.equal(asked.length, 2, 'a minute later: the next one')
+})
+
+test('one lookup runs at a time: a new one is skipped while one is in flight, and made after it settles', async () => {
+  const clock = fakeClock(at(22, 26))
+  const asked = []
+  let release = null
+  const loops = loopRecord({ now: clock.now, holders: paths => { asked.push(paths[0]); return new Promise(resolve => { release = () => resolve([{ pid: 4, name: 'x.exe' }]) }) } })
+  const fail = (name, file) => loops.run(name, async () => { throw busy(file) })
+  await fail('a', 'C:\p\a.json')
+  await fail('b', 'C:\p\b.json')
+  clock.move(HOLDER_AFTER_MS)
+  await fail('a', 'C:\p\a.json')
+  await fail('b', 'C:\p\b.json')
+  assert.deepEqual(asked, ['C:\p\a.json'], 'b waits: a is still being looked up')
+  release()
+  await loops.lookups()
+  await fail('b', 'C:\p\b.json')
+  assert.deepEqual(asked, ['C:\p\a.json', 'C:\p\b.json'], 'after a settled, b is looked up (it was not marked as looked up while skipped)')
+  release()
+  await loops.lookups()
 })
 
 test('another file is looked up on its own clock; a success clears the names', async () => {
