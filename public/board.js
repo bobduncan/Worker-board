@@ -3143,6 +3143,55 @@ function freeLine(lane, clock = null) {
 }
 // lanefree:end
 
+// startcheck:start
+/** The start-up check (2026-11-05): whether the check of a board start is running now, so no failure of before it is shown as news. */
+function isStartChecking(state) {
+  return state?.check?.running === true && state.check.trigger === 'start'
+}
+
+/** Set when the person clicked Check everything, until a state shows the check over (or 15 s passed). */
+let checkClickedAt = null
+let checkSawRunning = false
+
+/** The Overview header's row: a loader and "Checking N chats…" while it runs, else its line, its time and the button. */
+function drawCheckRow(state) {
+  const row = $('check-row')
+  const check = state.check ?? null
+  row.hidden = check === null
+  if (check === null) return
+  if (check.running === true) checkSawRunning = true
+  else if (checkSawRunning) { checkClickedAt = null; checkSawRunning = false }
+  if (checkClickedAt !== null && Date.now() - checkClickedAt > 15_000) checkClickedAt = null
+  row.classList.toggle('is-attention', check.running !== true && check.tone === 'attention')
+  if (check.running === true) {
+    fill(row, [el('span', 'check-spinner', ''), el('span', 'check-line', `Checking ${check.total ?? ''} chats…`.replace('Checking  chats', 'Checking the chats'))])
+    return
+  }
+  const again = el('button', 'check-again', 'Check everything')
+  again.type = 'button'
+  again.id = 'check-again'
+  again.disabled = checkClickedAt !== null
+  again.title = 'Reads the app\'s chats, the wake record and the open alarms again and mends what it can'
+  fill(row, [el('span', 'check-line', check.line ?? ''), again])
+}
+
+$('check-row').addEventListener('click', async event => {
+  const button = event.target.closest?.('#check-again')
+  if (button === null || button === undefined || button.disabled) return
+  checkClickedAt = Date.now()
+  checkSawRunning = false
+  button.disabled = true
+  try {
+    const answer = await fetch('/api/check', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: '{}' })
+    if (!answer.ok) throw new Error(String(answer.status))
+    void read()
+  } catch {
+    checkClickedAt = null
+    button.disabled = false
+  }
+})
+// startcheck:end
+
 // laneflags:start
 /**
  * B300: the reconciler's flags on a lane (`lane.flags`), each a line, and for a chat that holds work but does not run a
@@ -3154,7 +3203,7 @@ function laneFlags(lane, restart = null) {
   const main = restart?.main ?? null
   const isAsked = (restart?.starting ?? []).some(one => one.chat === lane.name && one.state !== 'expired' && one.state !== 'failed')
   // Signals change 2: where its hand-over stands is the chat's status and its why (Handing, Held...): no second line for it.
-  return (lane.flags ?? []).filter(flag => flag.kind !== 'handover').map(flag => ({
+  return (lane.flags ?? []).filter(flag => flag.kind !== 'handover').map(flag => (isStartChecking(board) && flag.kind === 'wake failed' ? { ...flag, kind: 'wake', text: 'Checking', button: null } : flag)).map(flag => ({
     text: flag.text,
     // Model per step: a step that waits for its worker to run on Opus is a wait, no fault.
     // 2026-10-31 (B799): a step whose work is on a branch not merged is back with its worker: a quiet line, no button for the person.
@@ -5864,6 +5913,8 @@ function wakeNoticeText(notice) {
 
 /** Signals change 4: that line, in the attention colour (the class the older lines had, so the CSS holds); null for none. */
 function drawWakeNotice(notice) {
+  // The start-up check: no stale alarm while the check of a board start runs; its result decides (plan task 7).
+  if (isStartChecking(board)) return null
   const text = wakeNoticeText(notice)
   return text === null ? null : el('p', 'nobody-runs', text)
 }
@@ -22168,6 +22219,7 @@ function draw(state) {
   drawCpu(state)
   drawMainGame(state)
   drawLimits(state)
+  drawCheckRow(state)
   drawRestart(state)
   drawLanes(state)
   drawSupervisor(state)
