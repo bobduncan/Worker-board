@@ -24,10 +24,14 @@ time and the coverage anew. Five summaries 416 ms → 2 ms on the live ledger (t
 - *Every session of every chat.* The cards in `.claude/chats` name them: a card with `movedTo` counts under the chat its
   chain of moves ends in, a named card that is no chat's own session now under its name, a card that left the board
   (or a chain that ends in no named card) under its app title, else "Earlier chat" (`movedSubjects`). A card cut short
-  (four were cut at 70 bytes, 24-26 Oct) still gives its name, role and move (`cardOf`). A left session read to its
-  end, its children too, is marked in `readOut` with its size then, and skipped while its transcript keeps that size and
-  it is no chat's own session; one that grew (a chat resumed it, a chat that left the board goes on) is read on. The
-  read-out compares with the size found in this scan, never the one of the last read.
+  (four were cut at 70 bytes, 24-26 Oct) still gives its name, role and move (`cardOf`). Every other session in the
+  transcripts folder (a side chat that never joined the board) counts under its app title. A session's files are its
+  transcript, its children (`subagents/*.jsonl`) and its workflow agents (`subagents/workflows/<run>/*.jsonl`)
+  (`sessionFiles`). A left session read to its end is marked in `readOut` with the bytes of all its files, and skipped
+  while they keep them and it is no chat's own session; one that grew (a chat resumed it, a child of it goes on, a chat
+  that left the board goes on) is read on. The read-out compares with the sizes found in this scan, never those of the
+  last read. A left session whose transcript is gone is read out, not "unavailable"; a tail of zeros a crash left at a
+  file's end is read as done; a file that shrank is read again from its start.
 - *The cap says so.* The ledger keeps the latest 50 000 messages (~12 days with every chat): a period that starts before
   the oldest kept one shows "Covers only from <date>" on the Spending tab (`coversLine`).
 - *A backlog within the hour, the board quick.* Each scan (one a minute) first gives the chats' own sessions their turn

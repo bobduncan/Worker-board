@@ -48,6 +48,32 @@ export async function movedSubjects(chats,cards=new Map(),titleOf=()=>null){
   }
   return subjects
 }
+/**
+ * The files of a session, each with its size (null: not there): its transcript, its native children
+ * (<session>/subagents/*.jsonl) and its workflow agents (<session>/subagents/workflows/<run>/*.jsonl). `limited` when
+ * a folder holds more children than are read.
+ */
+export async function sessionFiles(transcripts,session){
+  const files=[],main=join(transcripts,`${session}.jsonl`)
+  files.push({key:session,path:main,size:(await statOf(main))?.size??null})
+  let limited=false,problem=null
+  const children=async(folder,keyOf,idOf)=>{
+    let names
+    try{names=(await readdir(folder,{withFileTypes:true})).filter(f=>f.isFile()&&/^[\w-]+\.jsonl$/.test(f.name)).map(f=>f.name).sort()}
+    catch(error){if(error.code!=='ENOENT')problem=error.code??'read failed';return}
+    if(files.length+names.length>MAX_CHILDREN+1)limited=true
+    for(const name of names.slice(0,Math.max(0,MAX_CHILDREN+1-files.length))){const path=join(folder,name);files.push({key:keyOf(name),path,child:idOf(name),size:(await statOf(path))?.size??null})}
+  }
+  const subagents=join(transcripts,session,'subagents')
+  await children(subagents,name=>`${session}/subagents/${name}`,name=>name.slice(0,-6))
+  let runs=[]
+  try{runs=(await readdir(join(subagents,'workflows'),{withFileTypes:true})).filter(f=>f.isDirectory()&&/^[\w-]+$/.test(f.name)).map(f=>f.name).sort()}
+  catch(error){if(error.code!=='ENOENT')problem=error.code??'read failed'}
+  for(const run of runs)await children(join(subagents,'workflows',run),name=>`${session}/subagents/workflows/${run}/${name}`,name=>`${run}/${name.slice(0,-6)}`)
+  return {files,limited,problem}
+}
+/** A session's mark when read to its end: the bytes of all its files, so a child that grows undoes it too. */
+const bytesOf=files=>files.reduce((sum,file)=>sum+(file.size??0),0)
 const nonnegative=n=>Number.isFinite(n)&&n>=0
 const nullableString=s=>s===null||typeof s==='string'
 function validLedger(raw){
@@ -111,24 +137,30 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
         const own=new Set(subjects.map(one=>one.session))
         // The app's titles are read again at most every ten minutes.
         if(appSessions&&clock()-titlesAt>=600000){titles=await appTitles(appSessions);titlesAt=clock()}
-        const left=(chats?await movedSubjects(chats,cards,session=>titles.get(session)??null).catch(error=>{if(error.code!=='ENOENT')problem='The sessions cleared chats left could not be listed; totals are incomplete.';return []}):[]).filter(one=>!own.has(one.session))
+        const titleOf=session=>titles.get(session)??null
+        const claimed=(chats?await movedSubjects(chats,cards,titleOf).catch(error=>{if(error.code!=='ENOENT')problem='The sessions cleared chats left could not be listed; totals are incomplete.';return []}):[]).filter(one=>!own.has(one.session))
+        // And every other session of the project (a side chat that never joined the board): under its app title.
+        const known=new Set([...own,...claimed.map(one=>one.session)])
+        const others=chats?(await readdir(transcripts).catch(()=>[])).filter(name=>/^[\w-]+\.jsonl$/.test(name)).map(name=>name.slice(0,-6)).filter(session=>!known.has(session)).map(session=>({session,name:titleOf(session)??'Earlier chat',role:'worker',left:true})):[]
+        const left=[...claimed,...others],filesOf=new Map()
         for(const subject of [...subjects,...left]){
-          if(!/^[\w-]+$/.test(subject.session??''))continue
-          // A left session read to its end is skipped while its transcript has the size it had then. One that grew (a
-          // chat resumed it, or it is still in use, like a chat that left the board) or that is a chat's own again is read on.
+          if(!/^[\w-]+$/.test(subject.session??'')||filesOf.has(subject.session))continue
+          const found=await sessionFiles(transcripts,subject.session)
+          if(found.limited)ledger.discoveryLimited=true
+          if(found.problem){ledger.discoveryLimited=true;problem='Some native child transcripts could not be discovered; totals are incomplete.'}
+          // A left session read to its end is skipped while all its files have the bytes they had then. One that grew (a
+          // chat resumed it, a child of it goes on, it is still in use) or that is a chat's own again is read on.
           if(readOut[subject.session]!==undefined){
-            const now=own.has(subject.session)?undefined:await statOf(join(transcripts,`${subject.session}.jsonl`))
-            if(now===null||now?.size===readOut[subject.session])continue
-            delete readOut[subject.session]
+            if(!own.has(subject.session)&&bytesOf(found.files)===readOut[subject.session])continue
+            delete readOut[subject.session];changed=true
           }
-          jobs.push({...subject,key:subject.session,path:join(transcripts,`${subject.session}.jsonl`)})
-          try{
-            const children=(await readdir(join(transcripts,subject.session,'subagents'),{withFileTypes:true})).filter(f=>f.isFile()&&/^[\w-]+\.jsonl$/.test(f.name)).sort((a,b)=>a.name.localeCompare(b.name))
-            if(children.length>MAX_CHILDREN)ledger.discoveryLimited=true
-            for(const child of children.slice(0,MAX_CHILDREN))jobs.push({session:`${subject.session}:child:${child.name.slice(0,-6)}`,parentSessionId:subject.session,key:`${subject.session}/subagents/${child.name}`,path:join(transcripts,subject.session,'subagents',child.name),name:subject.name,role:'child',left:subject.left})
-          }catch(error){if(error.code!=='ENOENT'){ledger.discoveryLimited=true;problem='Some native child transcripts could not be discovered; totals are incomplete.'}}
+          filesOf.set(subject.session,found.files)
+          for(const file of found.files){
+            // A left session whose transcript is gone has nothing to read: it is read out, never "unavailable".
+            if(file.size===null&&!file.child&&subject.left){if(ledger.scans[file.key])ledger.scans[file.key]={...ledger.scans[file.key],unavailable:false,size:ledger.scans[file.key].offset};continue}
+            jobs.push(file.child===undefined?{...subject,key:file.key,path:file.path}:{session:`${subject.session}:child:${file.child}`,parentSessionId:subject.session,key:file.key,path:file.path,name:subject.name,role:'child',left:subject.left})
+          }
         }
-        ledger.childTranscripts=jobs.filter(j=>j.parentSessionId).length
         // One file read on from its offset: at most `chunks` chunks, within `most` bytes of this scan; the board answers between chunks.
         const readOn=async(subject,chunks,most)=>{
           let handle
@@ -143,6 +175,8 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
               if(scan.skippingLine){const newline=buffer.indexOf(10);if(newline<0){scan.offset+=bytesRead;changed=true;continue}lineStart=newline+1;scan.skippingLine=false}
               const end=buffer.lastIndexOf(10,bytesRead-1)
               if(end<lineStart){
+                // A crash left a tail of zeros and no newline at the file's end: there is nothing more to read in it.
+                if(scan.offset+bytesRead===stat.size&&buffer.subarray(lineStart,bytesRead).every(byte=>byte===0)){scan.offset=stat.size;changed=true;break}
                 if(bytesRead===CHUNK){ledger.skippedLongLines=(ledger.skippedLongLines??0)+1;scan.skippingLine=true;scan.offset+=bytesRead;changed=true;problem='Oversized transcript lines are excluded; collection continues after them.';continue}
                 if(lineStart>0){scan.offset+=lineStart;changed=true}
                 break
@@ -168,18 +202,25 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
         for(const job of jobs){
           const found=await statOf(job.path),scan=ledger.scans[job.key]
           if(found!==null&&scan!==undefined)scan.size=found.size
-          if(found!==null&&(scan===undefined||scan.offset<found.size))behind.push({job,at:found.mtimeMs})
+          if(found!==null&&(scan===undefined||scan.offset!==found.size))behind.push({job,at:found.mtimeMs})
         }
         for(const {job} of behind.sort((a,b)=>b.at-a.at)){
           if(bytes>=MAX_BYTES||clock()-began>=MAX_SCAN_MS)break
           await readOn(job,Infinity,MAX_BYTES)
         }
-        // A left session read to its end, its children too, is not looked at again.
+        // A left session read to its end, its children too, is marked with the bytes of all its files.
         for(const one of left){
+          if(!filesOf.has(one.session))continue
           const mine=jobs.filter(j=>j.key===one.session||j.parentSessionId===one.session)
-          if(mine.length&&mine.every(j=>{const scan=ledger.scans[j.key];return scan!==undefined&&!scan.unavailable&&!scan.skippingLine&&scan.offset>=(scan.size??Infinity)}))readOut[one.session]=ledger.scans[one.session]?.size??0
+          if(mine.every(j=>{const scan=ledger.scans[j.key];return scan!==undefined&&!scan.unavailable&&!scan.skippingLine&&scan.offset===scan.size})){
+            // A new mark is written too, so it holds after a restart.
+            const bytes=mine.reduce((sum,j)=>sum+ledger.scans[j.key].size,0)
+            if(readOut[one.session]!==bytes){readOut[one.session]=bytes;changed=true}
+          }
         }
         ledger.readOut=readOut
+        // Every child read so far counts, also of sessions read out.
+        ledger.childTranscripts=Object.keys(ledger.scans).filter(key=>key.includes('/subagents/')).length
         ledger.pendingFiles=jobs.filter(j=>!ledger.scans[j.key]).length
         ledger.unavailableTranscripts=Math.max(missing,jobs.filter(j=>ledger.scans[j.key]?.unavailable).length)
         if(changed){

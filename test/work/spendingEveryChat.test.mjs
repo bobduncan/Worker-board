@@ -23,6 +23,8 @@ async function backlog(path,mb,answers){
   while(n<answers)out.write(answer(`m${n++}`)+'\n')
   await new Promise(done=>out.end(done))
 }
+const counted=collector=>Object.fromEntries(collector.summary(7).chats.map(one=>[one.key,one.messages]))
+const ledgerOf=async root=>JSON.parse(await (await import('node:fs/promises')).readFile(join(root,'spending.json'),'utf8'))
 async function place(fn){const root=await mkdtemp(join(tmpdir(),'spending-every-'));try{const transcripts=join(root,'t'),chats=join(root,'chats');await mkdir(transcripts);await mkdir(chats);await fn({root,transcripts,chats})}finally{await rm(root,{recursive:true,force:true})}}
 
 // Point 1: the Advisor's 1.35 GB was read at 2 MB per visit, one visit per ~12 min. Now a backlog is read on to the
@@ -101,9 +103,9 @@ test('the sessions a cleared chat left are counted under that chat',async()=>pla
   assert.deepEqual(chatsSeen,{'Worker 3':4,'Earlier chat':1,'Units':1})
 }))
 
-// Point 3, kept cheap: a left session read to its end is not looked at again (no stat, no open), so 700 old sessions
-// cost nothing once read. Mutant (no read-out mark): the removed file shows as unavailable.
-test('a left session read to its end is not opened again',async()=>place(async({root,transcripts,chats})=>{
+// Point 3, kept cheap: a left session read to its end, its children too, is marked with the bytes of all its files and
+// not read again; a transcript gone since is no "unavailable" one. (Skipping only saves reading: no count shows it.)
+test('a left session read to its end is marked with all its bytes, and a gone transcript is not unavailable',async()=>place(async({root,transcripts,chats})=>{
   await writeFile(join(transcripts,'old.jsonl'),answer('a','old')+'\n')
   await mkdir(join(transcripts,'old','subagents'),{recursive:true})
   await writeFile(join(transcripts,'old','subagents','agent-1.jsonl'),answer('a1','old')+'\n')
@@ -114,14 +116,16 @@ test('a left session read to its end is not opened again',async()=>place(async({
   const lanes=[{session:'now',name:'Worker 1',role:'worker'}]
   await collector.scan(lanes)
   assert.equal(collector.summary(7).coverage.childTranscripts,1)
+  const bytes=(await stat(join(transcripts,'old.jsonl'))).size+(await stat(join(transcripts,'old','subagents','agent-1.jsonl'))).size
+  assert.equal((await ledgerOf(root)).readOut.old,bytes)
   await rm(join(transcripts,'old.jsonl'))
   await appendFile(join(transcripts,'now.jsonl'),answer('c','now')+'\n')
   await collector.scan(lanes)
   const summary=collector.summary(7)
   assert.equal(summary.messages,4)
   assert.equal(summary.coverage.unavailableTranscripts,0)
-  // The old session and its child are no longer among the files looked at.
-  assert.equal(summary.coverage.childTranscripts,0)
+  // Every child read so far counts.
+  assert.equal(summary.coverage.childTranscripts,1)
 }))
 
 // Point 4: writes stay quick. The ledger keeps no transcript text and stays as small as before: a tool output's
@@ -144,8 +148,6 @@ test('the events kept by message id between chunks are the ones built anew, and 
 }))
 
 // The review of 2026-11-05 (chat 1): a read-out mark that never lets go loses a chat's new answers.
-const counted=collector=>Object.fromEntries(collector.summary(7).chats.map(one=>[one.key,one.messages]))
-const ledgerOf=async root=>JSON.parse(await (await import('node:fs/promises')).readFile(join(root,'spending.json'),'utf8'))
 
 // Review 1: chat 2's card is only {"left":true}, yet it is in use. Read out, then 2 new answers: both counted.
 // Mutant (the mark skips the session whatever its size): 1 counted, not 3.
@@ -234,3 +236,79 @@ test('a period longer than the kept history says from when it covers',async()=>{
   assert.equal(line({from:kept+86400000,coverage:{retainedFrom:kept}}),null)
   assert.equal(line({from:null,coverage:{retainedFrom:null}}),null)
 })
+
+// The second review (chat 1, 2026-11-05).
+// Review 2.1: chat 2 runs agents for hours with no word in its own transcript. A child that grows undoes the read-out mark.
+// Mutant (the mark is the main transcript's size only): the child's new answer waits for the next main write, or forever.
+test('a read-out session whose child grows is read on',async()=>place(async({root,transcripts,chats})=>{
+  await writeFile(join(transcripts,'side.jsonl'),answer('a','side')+'\n')
+  await mkdir(join(transcripts,'side','subagents'),{recursive:true})
+  await writeFile(join(transcripts,'side','subagents','agent-1.jsonl'),answer('a1','side')+'\n')
+  await writeFile(join(chats,'side.json'),JSON.stringify({left:true}))
+  const collector=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await collector.load()
+  await collector.scan([]);await collector.scan([])
+  assert.equal(typeof (await ledgerOf(root)).readOut.side,'number')
+  await appendFile(join(transcripts,'side','subagents','agent-1.jsonl'),answer('a2','side')+'\n')
+  await collector.scan([])
+  assert.equal(collector.summary(7).messages,3)
+}))
+
+// Review 2.2: four transcripts the 24-26 Oct crashes cut end in zeros and no newline (7570a22a: 761,535 bytes). Their
+// tail is read as done, so "Incomplete coverage" clears after the catch-up. Mutant (a tail of zeros waits for a newline):
+// the bytes stay pending for good.
+test('a transcript that ends in a crash\'s zeros is read to its end and nothing stays pending',async()=>place(async({root,transcripts,chats})=>{
+  await writeFile(join(transcripts,'cut.jsonl'),Buffer.concat([Buffer.from(answer('a','cut')+'\n'),Buffer.alloc(761535)]))
+  await writeFile(join(chats,'cut.json'),JSON.stringify({movedTo:'gone',at}))
+  const collector=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await collector.load()
+  await collector.scan([]);await collector.scan([])
+  const summary=collector.summary(7)
+  assert.equal(summary.messages,1)
+  assert.equal(summary.coverage.pendingBytes,0)
+  assert.equal(typeof (await ledgerOf(root)).readOut.cut,'number')
+}))
+
+// Review 2.2: the old Advisor's card (8cf33317) names a transcript that is gone; it is read out, never "unavailable".
+// Mutant (a gone transcript is read like any other): "1 transcripts unavailable" for good.
+test('a left session whose transcript is gone is read out, not unavailable',async()=>place(async({root,transcripts,chats})=>{
+  await writeFile(join(chats,'gone.json'),JSON.stringify({name:'Advisor',role:'advisor',at}))
+  const collector=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await collector.load()
+  await collector.scan([]);await collector.scan([])
+  const summary=collector.summary(7)
+  assert.equal(summary.coverage.unavailableTranscripts,0)
+  assert.equal((await ledgerOf(root)).readOut.gone,0)
+}))
+
+// Review 2.3: a left transcript replaced by a smaller one is read again from its start.
+// Mutant (behind only while the offset is below the size): the smaller file's answers are never read.
+test('a left transcript that shrinks is read again from its start',async()=>place(async({root,transcripts,chats})=>{
+  await writeFile(join(transcripts,'old.jsonl'),answer('a','old')+'\n'+answer('b','old')+'\n')
+  await writeFile(join(chats,'old.json'),JSON.stringify({movedTo:'gone',at}))
+  const collector=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await collector.load()
+  await collector.scan([])
+  await writeFile(join(transcripts,'old.jsonl'),answer('c','old')+'\n')
+  await collector.scan([]);await collector.scan([])
+  assert.equal(collector.summary(7).messages,3)
+}))
+
+// Review 2.4: workflow agents write one folder deeper, <session>/subagents/workflows/<run>/agent-*.jsonl (467 files here).
+// Mutant (only subagents/*.jsonl): the workflow's answers are not counted.
+test('a workflow agent\'s transcript is counted under its chat',async()=>place(async({root,transcripts})=>{
+  await writeFile(join(transcripts,'now.jsonl'),answer('a','now')+'\n')
+  await mkdir(join(transcripts,'now','subagents','workflows','wf_1'),{recursive:true})
+  await writeFile(join(transcripts,'now','subagents','workflows','wf_1','agent-1.jsonl'),answer('w1','now')+'\n')
+  const collector=createSpendingCollector({dir:root,transcripts,clock:()=>at+1});await collector.load()
+  await collector.scan([{session:'now',name:'Worker 2',role:'worker'}])
+  assert.deepEqual(counted(collector),{'Worker 2':2})
+  assert.ok((await ledgerOf(root)).scans['now/subagents/workflows/wf_1/agent-1.jsonl'])
+}))
+
+// Review 2.5: every chat is counted, also a side chat that never had a card ("Worker board task reliability"), under its
+// app title. Mutant (only sessions a card names): the side chat is missing.
+test('a session no card names is counted under its app title',async()=>place(async({root,transcripts,chats})=>{
+  await writeFile(join(transcripts,'side.jsonl'),answer('a','side')+'\n')
+  const appSessions=join(root,'app','account','org');await mkdir(appSessions,{recursive:true})
+  await writeFile(join(appSessions,'local_1.json'),JSON.stringify({sessionId:'local_1',cliSessionId:'side',title:'Worker board task reliability'}))
+  const collector=createSpendingCollector({dir:root,transcripts,chats,appSessions:join(root,'app'),clock:()=>at+1});await collector.load()
+  await collector.scan([])
+  assert.deepEqual(counted(collector),{'Worker board task reliability':1})
+}))
