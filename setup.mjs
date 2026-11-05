@@ -63,7 +63,7 @@ if (file !== null) {
       console.log(`Nothing changed: ${done.why}`)
       good = false
     } else if (done.backup === null) console.log('Nothing changed.')
-    else console.log(`Added ${done.added.length} moves to ${done.file}; the old file is kept as ${done.backup}`)
+    else console.log(`Added ${done.added.length} move${done.added.length === 1 ? '' : 's'}${done.states.length === 0 ? '' : ` and ${done.states.length} state${done.states.length === 1 ? '' : 's'}`} to ${done.file}; the old file is kept as ${done.backup}`)
   }
 }
 process.exitCode = good ? 0 : 1
