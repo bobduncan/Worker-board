@@ -2186,7 +2186,7 @@ step on "check pending" for good.
   2 min in a row gets a read-only Restart Manager lookup (`fileHolders` in `src/work/holders.mjs`, beside B844's folder
   reader; RmStartSession, RmRegisterResources, RmGetList, RmEndSession) on the files the error names (the board's own temp
   files left out). The head's line then ends "; held by grep.exe, pid 57736, since 19:52": at most three programs named,
-  the rest counted, at most one lookup a minute per file, nothing named off Windows or when PowerShell does not answer.
+  the rest counted, at most one lookup a minute per file and one lookup in flight at a time, nothing named off Windows or when PowerShell does not answer.
   It only reads: no Stop button, no program ended by the board (the person ends it in Task Manager). Tests:
   `test/loopHolders.test.mjs` (a child holds a scratch file without share-delete, the rename gets EPERM, the loop fails 2
   min on a test clock, the line names the program and its pid).
@@ -3996,7 +3996,14 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   `kind: 'sleep'` (no requests or jobs named) when it lasts over 10 min, spans a clock jump (the wall clock and the monotonic
   one, `watchLoop`, disagree by over 5 s) or began before the board did; an older entry over 10 min reads as a sleep too
   (`stallOf`). A sleep is kept and said in plain words ("the PC slept (not a slow board)"); board-slow counts no call that
-  waited through one and cites it as "slept: ...", never as a stall. Pinned by `test/sleepStall.test.mjs`. What forces a rebuild is pinned end to end by
+  waited through one and cites it as "slept: ...", never as a stall. Review (2026-11-05): a call is left out only when its chat
+  sent it before the sleep began (the call's send time is `at - ms`, within 5 s of the sleep's start); the chats sleep with
+  the PC, so a call sent inside the window proves the PC was awake and counts, however long it waited (an 11 min hang with
+  the PC awake trips board-slow). The log itself still writes any loop stall over 10 min as a sleep (the stall log cannot
+  see the chats). On Windows the clock-jump check is unlikely to fire for a real sleep (the monotonic clock, QPC, counts
+  across it), so the 10 min rule is the one that catches a sleep; the clock-jump check stays for clocks that stop in a
+  sleep. `from < startedAt` cannot happen for the timer `watchLoop` starts (it begins at the board's start); it guards a
+  caller that hands in an earlier `from`. Pinned by `test/sleepStall.test.mjs`. What forces a rebuild is pinned end to end by
   `test/rebuildsBoard.test.mjs` (a copy of the board with its state kept an hour, `WORKER_BOARD_STATE_MS`, and one line per
   rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
   an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a

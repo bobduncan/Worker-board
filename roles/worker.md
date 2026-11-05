@@ -176,7 +176,7 @@ step therefore says what it touches ("Touches: ...").
 - Every change to the board works for any project: no project, chat, folder or PC names in its code, page, job
   texts or examples; names, paths and words come from the settings or the project's files. Its test
   `test/anyProject.test.mjs` fails on a new tie.
-- Never grep, cat or read `data/spending.json` whole (one line of many MB; B1049: an orphaned `grep.exe` held it open and blocked the board's rewrite for hours): use the Spending tab.
+- Never grep, cat or read `data/spending.json` whole (one line of many MB; B1049: an orphaned `grep.exe` held it open and blocked the board's rewrite for hours): use the Spending tab (or `tools/spending-count.mjs`).
 - Nothing that holds words from a chat goes into the board's repository.
 
 ## A bug the person reported
