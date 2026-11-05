@@ -65,6 +65,8 @@ export const STALE_MS = 10 * 60_000
 
 /** B1049: a loop failing with a busy file this long in a row gets its file's holders looked up. */
 export const HOLDER_AFTER_MS = 2 * 60_000
+/** Round 3: the second busy failure of a file, at least this long after the first, gets the lookup (the real 11-04 pairs came 113 to 120 s apart). */
+export const HOLDER_FIRST_MS = 60_000
 /** B1049: the holders of one file are looked up at most this often. */
 export const HOLDER_EVERY_MS = 60_000
 const BUSY_WORDS = /^(EPERM|EBUSY|EACCES)\b/
@@ -138,13 +140,13 @@ export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn
   // Round 2: the busy streak (`busySince`) is apart from `failingSince`: a no-op success between two failures (measure returns at
   // once while a measure runs) ends the failing, not the streak, so a file busy every few minutes still reaches the lookup.
   function lookUp(one, message, at) {
-    if (holders === null || one.busySince === null || at - one.busySince < HOLDER_AFTER_MS) return
+    if (holders === null || one.busySince === null || at - one.busySince < HOLDER_FIRST_MS) return
     if (looking.size > 0) return // one lookup in flight at a time (each starts a PowerShell)
     const files = pathsOf(message).filter(file => !(at - (lookedAt.get(file) ?? -Infinity) < HOLDER_EVERY_MS))
     if (files.length === 0) return
     for (const file of files) lookedAt.set(file, at)
     const lookup = Promise.resolve().then(() => holders(files)).then(
-      list => { if (one.failures > 0) one.holders = Array.isArray(list) && list.length > 0 ? list : undefined },
+      list => { if (one.failures > 0 && one.busySince !== null) one.holders = Array.isArray(list) && list.length > 0 ? list : undefined },
       () => {},
     ).finally(() => looking.delete(lookup))
     looking.add(lookup)

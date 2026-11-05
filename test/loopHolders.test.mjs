@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { fileHolders, holderLine, parseHolders } from '../src/work/holders.mjs'
-import { HOLDER_AFTER_MS, HOLDER_EVERY_MS, failingLine, loopRecord, pathsOf } from '../src/loops.mjs'
+import { HOLDER_AFTER_MS, HOLDER_EVERY_MS, HOLDER_FIRST_MS, failingLine, loopRecord, pathsOf } from '../src/loops.mjs'
 import { writeAtomic } from '../src/write.mjs'
 
 const at = (h, m, s = 0) => new Date(2026, 10, 4, h, m, s).getTime()
@@ -58,21 +58,21 @@ test('the real case: a program holds the file without share-delete, the rename g
   }
 })
 
-test('no lookup before the loop has failed 2 min in a row; one at 2 min; none again within a minute, one after it', async () => {
+test('no lookup before the second busy failure of the file, a minute after the first; one then; none again within a minute, one after it', async () => {
   const clock = fakeClock(at(22, 26))
   const asked = []
   const loops = loopRecord({ now: clock.now, holders: async paths => { asked.push(paths); return [{ pid: 57736, name: 'grep.exe', since: at(19, 52) }] } })
   const fail = () => loops.run('measure', async () => { throw busy('C:\\p\\data\\spending.json') })
   await fail()
-  clock.move(HOLDER_AFTER_MS - 1000)
+  clock.move(HOLDER_FIRST_MS - 1000)
   await fail()
   await loops.lookups()
-  assert.equal(asked.length, 0, 'under 2 min: nothing is looked up')
+  assert.equal(asked.length, 0, 'under a minute: nothing is looked up')
   assert.doesNotMatch(failingLine(loops.failing(), clockOf), /held by/)
   clock.move(1000)
   await fail()
   await loops.lookups()
-  assert.deepEqual(asked, [['C:\\p\\data\\spending.json']], 'at 2 min: one lookup, on the file and not on the temp file beside it')
+  assert.deepEqual(asked, [['C:\\p\\data\\spending.json']], 'a minute after the first: one lookup, on the file and not on the temp file beside it')
   assert.match(failingLine(loops.failing(), clockOf), /; held by grep\.exe, pid 57736, since 19:52$/)
   clock.move(HOLDER_EVERY_MS / 2)
   await fail()
@@ -214,4 +214,36 @@ test('round 2: a long path in the error is still looked up (the stored message i
   await loops.lookups()
   assert.ok(loops.failing()[0].error.length <= 300)
   assert.deepEqual(asked, [[file]])
+})
+
+test('round 3: the real EPERM pairs (113.2 s and 119.966 s apart, a no-op success between) each reach the lookup at the second failure', async () => {
+  for (const gap of [113_200, 119_966]) {
+    const clock = fakeClock(at(22, 24))
+    const asked = []
+    const loops = loopRecord({ now: clock.now, holders: async paths => { asked.push(paths); return [{ pid: 57736, name: 'grep.exe', since: at(19, 52) }] } })
+    const fail = () => loops.run('measure', async () => { throw busy('C:\\p\\data\\spending.json') })
+    await fail()
+    clock.move(60_000)
+    await loops.run('measure', async () => {})
+    clock.move(gap - 60_000)
+    await fail()
+    await loops.lookups()
+    assert.equal(asked.length, 1, `the second failure ${gap} ms after the first looks the file up`)
+    assert.match(failingLine(loops.failing(), clockOf), /; held by grep\.exe, pid 57736/)
+  }
+})
+
+test('round 3: a lookup that settles after a failure of another kind ended the busy streak names nothing', async () => {
+  const clock = fakeClock(at(22, 26))
+  let release = null
+  const loops = loopRecord({ now: clock.now, holders: () => new Promise(resolve => { release = () => resolve([{ pid: 4, name: 'x.exe' }]) }) })
+  const fail = () => loops.run('measure', async () => { throw busy('C:\\p\\data\\spending.json') })
+  await fail()
+  clock.move(HOLDER_FIRST_MS)
+  await fail()
+  clock.move(1000)
+  await loops.run('measure', async () => { throw new Error("ENOENT: no such file or directory, open 'C:\\p\\data\\spending.json'") })
+  release()
+  await loops.lookups()
+  assert.equal(loops.failing()[0].holders, undefined)
 })
