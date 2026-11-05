@@ -7,7 +7,9 @@
 // `listedWhere`), the H1 texts (src/ownChat.mjs) and the C rule's bans (src/work/handover.mjs `bansOf`); nothing twice.
 
 import { listedWhere } from './appChats.mjs'
+import { OTHER_ACCOUNT_WHY, RESTART_WHY } from './ownChat.mjs'
 import { wakeOf } from './wake.mjs'
+import { sameModel } from './work/effort.mjs'
 import { bansOf } from './work/handover.mjs'
 
 /** The rules whose incidents name a wake that failed: the check closes them when the chat answers again. */
@@ -51,7 +53,7 @@ function wakeOfChat(record, chat) {
  *
  * `{ now, accounts, signedIn, lanes, newestRun, wakes, pause, ready, bans, incidents }`.
  */
-export function pictureOf({ now, folders = [], lanes = [], reports = {}, wakes = null, pause = null, ready = [], envelopes = {}, incidents = [] }) {
+export function pictureOf({ now, tooSlow = false, folders = [], lanes = [], reports = {}, wakes = null, pause = null, ready = [], envelopes = {}, incidents = [] }) {
   const newest = Math.max(0, ...folders.map(folder => folder.at))
   const withReport = lanes.map(lane => {
     const report = reports?.[lane.name] ?? null
@@ -59,6 +61,8 @@ export function pictureOf({ now, folders = [], lanes = [], reports = {}, wakes =
       name: lane.name, appSession: lane.appSession ?? null, cliSession: lane.cliSession ?? null, model: lane.model ?? null,
       isRunning: lane.isRunning ?? null, run: isTime(report?.run) ? report.run : null,
       listedWhere: listedWhere(lane.appSession, folders),
+      // When its file in the folder in use was last active (the app writes it): older than a wake's "not found" means the app has not read it yet.
+      fileAt: folders.find(folder => folder.at === newest && folder.chats.has(lane.appSession))?.chats.get(lane.appSession).lastActivityAt ?? null,
     }
   })
   // The newest run id among the chats that run: the mod's run id is when its process started, so one newer than a wake's
@@ -66,6 +70,7 @@ export function pictureOf({ now, folders = [], lanes = [], reports = {}, wakes =
   const runs = withReport.filter(lane => lane.isRunning === true && lane.run !== null).map(lane => lane.run)
   return {
     now,
+    tooSlow: tooSlow === true,
     accounts: folders.map(folder => ({ account: folder.account, org: folder.org ?? null, at: folder.at, ids: [...folder.ids], isSignedIn: folder.at === newest })),
     // The app does not mark the account in use: the folder with the newest activity counts, said as such in the line.
     signedIn: folders.filter(folder => folder.at === newest).map(folder => folder.account),
@@ -78,5 +83,87 @@ export function pictureOf({ now, folders = [], lanes = [], reports = {}, wakes =
     incidents: incidents
       .filter(one => WAKE_RULES.some(rule => typeof one.key === 'string' && one.key.startsWith(rule)) && !ENDED.includes(one.state))
       .map(one => ({ id: one.id, key: one.key, subject: one.subject ?? null, state: one.state, since: isTime(one.since) ? one.since : storeTimeOf(one.since) })),
+  }
+}
+
+// ---- Task 3: the verdict ----
+
+const clockOf = ms => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
+
+/** "A's and B's" / "A's, B's and C's" (possessive = true), else "A and B" / "A, B and C". */
+export function namesOf(names, possessive = false) {
+  const each = names.map(name => (possessive ? `${name}'s` : name))
+  return each.length <= 1 ? each.join('') : `${each.slice(0, -1).join(', ')} and ${each.at(-1)}`
+}
+
+/**
+ * Task 3: what the check does about a picture, and the one line it tells. PURE and deterministic. For each chat, in order:
+ * its file only in another account (`elsewhere`); no file anywhere (`nowhere`); listed here, not running, its wake failed for
+ * good and a newer run was heard than the failure (the app was back since): `wake-again`; listed here but the app answered
+ * "not found" and the file is older than that answer: `restartNeeded` (the app has not read it yet). A model ban whose lane
+ * runs that model is dropped. An open wake incident whose chat runs, was woken again or was woken since, is closed; the
+ * board-wide one when any chat runs.
+ *
+ * `{ at, total, reachable, line, tone, fixed, elsewhere, restartNeeded, nowhere, tooSlow, actions }`; `actions` is what
+ * `apply` writes: `{ noteRun, reopen: [{ chat, spell }], banDrops: [{ chat, model, envelope }], closeIncidents: [{ id, why }] }`.
+ */
+export function judge(picture) {
+  const { now } = picture
+  const elsewhere = []
+  const nowhere = []
+  const restartNeeded = []
+  const reopen = []
+  const fixed = []
+  const noticeWas = new Set()
+  for (const lane of picture.lanes) {
+    if (lane.listedWhere === 'elsewhere') { elsewhere.push(lane.name); continue }
+    if (lane.listedWhere === 'nowhere') { nowhere.push(lane.name); continue }
+    const wake = picture.wakes[lane.name]
+    if (lane.isRunning !== false || wake === undefined || wake.final !== true) continue
+    // The failure is older than the proof that the app is back: a run id newer than the failure's verdict.
+    if (isTime(picture.newestRun) && isTime(wake.verdictAt) && picture.newestRun > wake.verdictAt && wake.reopenedAt === null) {
+      reopen.push({ chat: lane.name, spell: wake.spell })
+      noticeWas.add(lane.name)
+      fixed.push({ kind: 'wake-again', chat: lane.name, what: `woken again at ${clockOf(now)}: its chat is listed and the app is back` })
+    } else if (wake.notFound && isTime(lane.fileAt) && isTime(wake.verdictAt) && lane.fileAt < wake.verdictAt) {
+      restartNeeded.push(lane.name)
+    }
+  }
+  for (const chat of noticeWas) fixed.push({ kind: 'notice-cleared', chat, what: `"could not wake ${chat}" cleared` })
+  // Bans: the lane runs the model the ban bars, so the ban is wrong now (C's delivered-lift and 2 h stay as they are).
+  const banDrops = []
+  for (const lane of picture.lanes) {
+    for (const ban of picture.bans[lane.name] ?? []) {
+      if (!sameModel(lane.model, ban.model)) continue
+      banDrops.push({ chat: lane.name, model: ban.model, envelope: ban.envelope })
+      fixed.push({ kind: 'ban-dropped', chat: lane.name, what: `${ban.model} ban dropped: it runs that model` })
+    }
+  }
+  // Incidents about a wake that failed: closed when their chat answers again.
+  const runs = picture.lanes.some(lane => lane.isRunning === true)
+  const reopened = new Set(reopen.map(one => one.chat))
+  const closeIncidents = []
+  for (const incident of picture.incidents) {
+    const lane = picture.lanes.find(one => one.name === incident.subject)
+    const wake = lane === undefined ? undefined : picture.wakes[lane.name]
+    const answers = incident.subject === 'board' ? runs
+      : lane !== undefined && (lane.isRunning === true || reopened.has(lane.name) || (wake?.state === 'woke' && isTime(incident.since) && wake.verdictAt > incident.since))
+    if (!answers) continue
+    const why = `gone after the check at ${clockOf(now)}`
+    closeIncidents.push({ id: incident.id, why })
+    fixed.push({ kind: 'incident-gone', chat: incident.subject, what: `${incident.id} ${why}` })
+  }
+  const total = picture.lanes.length
+  const reachable = picture.lanes.filter(lane => lane.listedWhere === 'here').length
+  const parts = []
+  if (elsewhere.length > 0) parts.push(`${namesOf(elsewhere, true)} chats are in${OTHER_ACCOUNT_WHY.slice('your chats are in'.length)}`)
+  if (restartNeeded.length > 0) parts.push(`${RESTART_WHY}: ${namesOf(restartNeeded)}`)
+  if (nowhere.length > 0) parts.push(`${namesOf(nowhere)} ${nowhere.length === 1 ? 'has' : 'have'} no chat in the app: open ${nowhere.length === 1 ? 'one' : 'them'} from the board`)
+  const head = reachable === total ? `All ${total} chats reachable` : `${reachable} of ${total} chats reachable`
+  const line = picture.tooSlow === true ? `Checked ${clockOf(now)}, but the app's chat list could not be read in 30 s: checked again at the next start`
+    : [`${head} · checked ${clockOf(now)}`, ...parts].join(' · ')
+  return {
+    at: now, total, reachable, line, tone: parts.length > 0 || picture.tooSlow === true ? 'attention' : 'quiet', fixed, elsewhere, restartNeeded, nowhere, tooSlow: picture.tooSlow === true,
+    actions: { noteRun: picture.newestRun, reopen, banDrops, closeIncidents },
   }
 }

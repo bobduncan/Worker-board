@@ -28,5 +28,10 @@
     "name": "Worker 5",
     "appSession": "local_88208666-fd8c-43e5-8f6a-b0b847115ba7",
     "model": "claude-sonnet-5-5"
+  },
+  {
+    "name": "Supervisor",
+    "appSession": "local_43a11efb-3de3-4577-802d-e91718ec94a1",
+    "model": "claude-sonnet-5-5"
   }
 ]
