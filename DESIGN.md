@@ -6978,3 +6978,78 @@ a clear. Tests: `test/lazyClearReplay.test.mjs` (the real records, `test/fixture
 5. **Review (2026-11-04)**: `test/typedModBoard.test.mjs` runs part 1 on a running board over HTTP (a chat first heard on a typed call is known by
    its header; a typed call without a version erases nothing; a mod that never says one stays unknown); `goneWords` of the net is named
    `vanishedChatWords` (holderTimers.mjs has its own `goneWords`).
+
+## Pause truth (2026-11-05, build brief A, branch fix-pause-truth)
+
+The person's real pause (Pause all since 2026-11-04 23:36, the PC slept until 08:15, the app restarted) showed the page telling
+things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state of that day as its fixture
+(`test/fixtures/pause-2026-11-05/state-4310-trimmed.json`).
+
+1. **The day bars follow the cards** (`public/board.js` `pausedToday`, next to `pausedLanes`). While pausing, the chats `pausedLanes`
+   shows as Paused have the `interrupted` part of their day bar from the pause's start on drawn `suspended` (the quiet purple of a
+   pause, never the orange of attention); a stop before the pause stays a stop. One decision (`pausedLanes`), read by both. Mutant:
+   the call left out kills `item 1: the day bars ...`.
+2. **Card times are not the app restart's** (`src/state.mjs` `lastEntryAt`, `estimateSaidAt`). The restart appends a `cost-state` line to
+   every transcript (file time 08:15) and the Workers mod rewrites every card with its old plan (`at` 08:15). *Last activity* is the
+   newest transcript entry's own time (the file's time only when no entry has one). A card's *said N left* is the oldest line of the
+   chat's newest unbroken run in the history with the same task and the same time left (a renewed plan, another time left, is a new
+   estimate and takes the card's `at`); this also heals a history line that already holds the restart's time. Mutants: the file time
+   back (kills `item 2: a card never says ...` and `... really wrote after the restart`); the card's `at` back (kills `... never says`
+   and `a history that already holds the wrong restart time`).
+3. **A popup ask of a chat that cannot withdraw it** (`src/work/api.mjs` `popupAsks`, the server-only action `popup-asks`; `pause.mjs`
+   `chatsWithoutProcess`; server.mjs reconcile pass, its own `loops.run`). The Workers mod withdraws a popup ask when the call goes on;
+   a chat with no process (Worker 5 since the 08:15 restart) cannot. At each refresh the board withdraws an open `Via: form` popup ask
+   (`isPopupAsk`) whose step is done, dropped or gone, or whose chat the board reads as having no process (`isRunning === false`, an unknown
+   chat is never named), with the why "the popup cannot wait any more: ...". A popup ask of a running chat on an open step, and any
+   real question of the app's form, stay. Mutants: the step rule out, the process rule out, the popup test out (each kills one of the
+   three `item 3` tests; the real Q629/Q632/B966 are the fixture).
+4. **A "Last" line is a chat's past words** (`public/board.js` `lastNotHandedOut`, in the lane's Details). The line is the app's summary of the
+   chat's last turn (Main's, from 22:33: "Worker 3 running again; will pick up B1050"); the board cannot and does not edit it. While
+   the pause stands, a step id in it that is still on the ready list gets a line after it: "B1050 is not handed out yet: the pause
+   holds it; it goes out after Resume all." Nothing once the step left the ready list (taken), or when no pause holds. Mutants: the note
+   out, the pause test out, the ready-list test out (kill the two `item 4` tests).
+5. **A board that answers is not "off"** (`src/store.mjs` `tick`, `src/history.mjs` `parseHistory`, `lastByChat`; `say.mjs` and `state.mjs` read only
+   chat lines as chat lines). The trial board has no chats, so after a gap line (the PC slept) nothing was ever written and `gapsOf`
+   kept the last gap open "until now" (23:44 until now, on a board that answered). At its look after a gap, when no chat line
+   followed, the tick writes one `{ at, ran: true }` line (once: the next look finds a line that is no gap); the gap ends there. Old
+   history reads as before. The real tail of the trial's history.jsonl is the fixture. Mutants: the line not written; `ran` lines not
+   read back (each kills one `item 5` test).
+6. **A new step waits for Resume all while the pause holds** (`src/supervisor/cards.mjs` `stepState`/`incidentCards` `isPaused`;
+   `supervisor/index.mjs` `view` from `live.pause`; server.mjs passes `state.pause`). The refine word to the Advisor is one of the lines the
+   pause holds (`pause.held`), so the card of a `new` fix step (B1042, B1051 in the real case) says "new · waits for Resume all" while the
+   pause is `pausing`, and "waits for the Advisor" otherwise. Mutants: the pause not passed on, the words not switched (each kills one
+   `item 6` test).
+7. **A step in review is not "resumed from its branch"** (`src/work/pause.mjs` `holdersOf` gives `state`, `pauseFacts` marks `unsaved` entries
+   `inReview: true`; `public/board.js` `pauseRing` notes). A resume neither waits for nor wakes a chat for a step in review (`RESUMED`
+   leaves it out): its check goes on by the board's own hand-out, which the pause holds. 18 of the real pause's 20 notes were such steps
+   and said "it resumes from its branch and History". Now: "B851 (Worker 1) is in review and has no checkpoint; no chat resumes it, its
+   check goes on after Resume all." A step in progress keeps the old words. Mutants: `inReview` not written, the page's words not
+   switched (each kills one `item 7` test).
+8. **A leftover whose summary names only finished steps is no reason to keep it** (`src/replacedChats.mjs` `isAboutEndedSteps`, `stepState`
+   from the server's work store). The leftover Worker 3 card stayed because the app's summary said "answer B982" (done 2026-11-04
+   22:18). `needsAction` still keeps a chat, unless it names at least one step and every named step is done or dropped in the store
+   (a step open or unknown, or words naming none, keep it as before). The other rules stand: the newer chat must run and have reported
+   (in the real case it does not run until Resume all, so the card goes after the resume), same folder, quiet, and no open step of
+   the name that the live chat does not show. Mutants: the rule out, `some` for `every`, "not in progress" for "done or dropped" (each
+   kills `item 8`).
+
+The picture of the real pause (`test/pauseTruthPicture.mjs`, not a test): a tiny static server on 127.0.0.1 serves a `public/` folder and answers
+`/api/state` with the real case's state fixture, and a headless Edge draws it (`tools/evidence.mjs` `shootPage`). No board is started, no
+live data is read, no chat can be typed to. Before = main's `public/` (`git archive 08da3b7 public`), after = the branch's.
+
+### Pause truth: review (an independent review of the branch)
+
+- **Day bars (item 1, review 1 and 10):** `pausedToday` decides by the card's own status (`laneStatus(lane).key === 'paused'`), so free chats under
+  the pause are Paused bars too; `free` and `interrupted` spans are split at the pause's window. `pauseWindowOf(pause)`: pausing `[since, ∞)`, resuming
+  `[pausedSince, since]`, running `[pausedSince, resumedSince]` (pause.mjs `pauseFacts` carries both times); in a pause that is over every lane's
+  free/interrupted spans inside the window stay Paused. Only the last pause is on record.
+- **Estimate heal (item 2, review 3):** `estimateSaidAt` also compares the step and heals only when the card was rewritten without the chat acting
+  (no transcript entry within 5 min before the card's `at`, or after it; no transcript read: no heal).
+- **Popup asks (item 3, review 2 and 6):** withdrawn when the chat has no process; or the step is done/dropped/gone AND the chat no longer reports
+  asking (`body.asking`, `chatsAsking`). A gone step is withdrawn too (`withdraw` with `stepMayBeGone`, from the sweep only).
+- **Not handed out (item 4, review 7):** follows `state.reconciled.handOutHeld` and says the real reason (pause, resume, a full limit).
+- **Pause notes (item 7, review 4 and 8):** "is in review and has no checkpoint: no chat resumes it", plus what it waits on only where `reviewWaitOf`
+  knows (recap, Accept, answer, its check held by the pause: `waitsOn`); off-board holders in review are worded the same.
+- **Leftover (item 8, review 9):** the named steps must also have ended after the leftover's last activity (`stepEndedAt`, the step's Since).
+- **Server wiring (review 5):** `test/pauseTruthBoard.test.mjs` runs a board on a made-up project; mutants: popup-asks call out, `pause: state.pause`
+  out, `stepState` out, `stepEndedAt` out each fail it; the `say.mjs` guard has its own test.
