@@ -1,0 +1,254 @@
+{
+ "wakes": {
+  "*": [
+   {
+    "spell": 1793862910428,
+    "attempts": [
+     {
+      "path": "launch",
+      "at": 1793906845664,
+      "by": "board",
+      "verdict": "woke",
+      "verdictAt": 1793906870661,
+      "runBefore": null,
+      "why": null
+     }
+    ]
+   },
+   {
+    "spell": 1793907067909,
+    "attempts": [
+     {
+      "path": "launch",
+      "at": 1793907552063,
+      "by": "board",
+      "verdict": "failed",
+      "verdictAt": 1793907732084,
+      "runBefore": null,
+      "why": "the app did not start it"
+     }
+    ]
+   }
+  ],
+  "Advisor": [
+   {
+    "spell": 1793896794455,
+    "attempts": [
+     {
+      "path": "message",
+      "at": 1793906870681,
+      "by": "Main",
+      "verdict": "woke",
+      "verdictAt": 1793906881064,
+      "runBefore": 1793863311313,
+      "why": null
+     }
+    ]
+   },
+   {
+    "spell": 0,
+    "attempts": [
+     {
+      "path": "launch",
+      "at": 1793909953290,
+      "by": "board",
+      "verdict": "failed",
+      "verdictAt": 1793910133308,
+      "runBefore": 1793906878074,
+      "why": "the app did not start it"
+     }
+    ]
+   },
+   {
+    "spell": 1793909954457.5808,
+    "attempts": [
+     {
+      "path": "launch",
+      "at": 1793910013296,
+      "by": "board",
+      "verdict": "woke",
+      "verdictAt": 1793910023574,
+      "runBefore": 1793906878074,
+      "why": null
+     }
+    ]
+   }
+  ],
+  "Worker 2": [
+   {
+    "spell": 1793862907836,
+    "attempts": [
+     {
+      "path": "message",
+      "at": 1793906870682,
+      "by": "Main",
+      "verdict": "failed",
+      "verdictAt": 1793907011969,
+      "runBefore": 1793830724955,
+      "why": "no report within 2 minutes of the message"
+     },
+     {
+      "path": "launch",
+      "at": 1793907011969,
+      "by": "board",
+      "verdict": "failed",
+      "verdictAt": 1793907192011,
+      "runBefore": 1793830724955,
+      "why": "the app did not start it"
+     }
+    ]
+   }
+  ],
+  "Worker 3": [
+   {
+    "spell": 1793831599304,
+    "attempts": [
+     {
+      "path": "message",
+      "at": 1793910878526,
+      "by": "Advisor",
+      "verdict": "woke",
+      "verdictAt": 1793910884312,
+      "runBefore": 1793830919147,
+      "why": null
+     }
+    ]
+   }
+  ],
+  "Worker 4": [
+   {
+    "spell": 1793912512340,
+    "attempts": [
+     {
+      "path": "message",
+      "at": 1793912612037,
+      "by": "Worker 5",
+      "verdict": "woke",
+      "verdictAt": 1793912626382,
+      "runBefore": 1793911588391,
+      "why": null
+     }
+    ]
+   }
+  ],
+  "Worker 5": [
+   {
+    "spell": 1793862908033,
+    "attempts": [
+     {
+      "path": "message",
+      "at": 1793907210876,
+      "by": "Main",
+      "verdict": "failed",
+      "verdictAt": 1793907210941,
+      "runBefore": 1793831789315,
+      "why": "Message not delivered: session local_88208666-fd8c-43e5-8f6a"
+     }
+    ]
+   },
+   {
+    "spell": 1793913198733,
+    "attempts": [
+     {
+      "path": "message",
+      "at": 1793915139784,
+      "by": "Advisor",
+      "verdict": "woke",
+      "verdictAt": 1793915146339,
+      "runBefore": 1793911069477,
+      "why": null
+     }
+    ]
+   }
+  ],
+  "Worker 1": [
+   {
+    "spell": 1793862907591,
+    "attempts": [
+     {
+      "path": "message",
+      "at": 1793907210875,
+      "by": "Main",
+      "verdict": "failed",
+      "verdictAt": 1793907210940,
+      "runBefore": 1793829813678,
+      "why": "Message not delivered: session local_e92c96e7-9f9c-4b57-8f7d"
+     }
+    ]
+   },
+   {
+    "spell": 1793913574202,
+    "attempts": [
+     {
+      "path": "message",
+      "at": 1793913880251,
+      "by": "Advisor",
+      "verdict": "woke",
+      "verdictAt": 1793913886533,
+      "runBefore": 1793911065959,
+      "why": null
+     }
+    ]
+   }
+  ],
+  "Supervisor": [
+   {
+    "spell": 0,
+    "attempts": [
+     {
+      "path": "message",
+      "at": 1793907070759,
+      "by": "Main",
+      "verdict": "failed",
+      "verdictAt": 1793907252020,
+      "runBefore": 1793831678075,
+      "why": "no report within 2 minutes of the message"
+     },
+     {
+      "path": "launch",
+      "at": 1793907252020,
+      "by": "board",
+      "verdict": "failed",
+      "verdictAt": 1793907432045,
+      "runBefore": 1793831678075,
+      "why": "the app did not start it"
+     },
+     {
+      "path": "message",
+      "at": 1793910038388,
+      "by": "Advisor",
+      "verdict": "failed",
+      "verdictAt": 1793910193309,
+      "runBefore": 1793831678075,
+      "why": "no report within 2 minutes of the message"
+     }
+    ]
+   }
+  ],
+  "Main": [
+   {
+    "spell": 1793907248149,
+    "attempts": [
+     {
+      "path": "launch",
+      "at": 1793909472813,
+      "by": "board",
+      "verdict": "failed",
+      "verdictAt": 1793909652835,
+      "runBefore": 1793906849027,
+      "why": "the app did not start it"
+     },
+     {
+      "path": "message",
+      "at": 1793910038387,
+      "by": "Advisor",
+      "verdict": "woke",
+      "verdictAt": 1793910043931,
+      "runBefore": 1793906849027,
+      "why": null
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -1,0 +1,61 @@
+{"at":1793906891970,"chat":"Worker 2","state":"off","task":"B1048 Fix: Standard map 71 of 75: the na"}
+{"at":1793906891970,"chat":"Worker 3","state":"off","task":null}
+{"at":1793906891970,"chat":"Worker 4","state":"off","task":null}
+{"at":1793906891970,"chat":"Worker 5","state":"off","task":"B1043 Fix: Judged at play size beside th"}
+{"at":1793906891970,"chat":"Worker 1","state":"off","task":"B976 Quality Assurance: B966 Fix: First"}
+{"at":1793907071990,"chat":"Worker 2","state":"interrupted","task":"B1048 Fix: Standard map 71 of"}
+{"at":1793907252726,"chat":"Worker 1","state":"interrupted","task":"B1046 Fix: Your words row 14 (left/right"}
+{"at":1793907252726,"chat":"Worker 5","state":"interrupted","task":"Long Ledge painted three ways"}
+{"at":1793907252726,"chat":"Worker 3","state":"free","task":null}
+{"at":1793907252726,"chat":"Worker 4","state":"free","task":null}
+{"at":1793907372043,"chat":"Worker 2","state":"off","task":"B1048 Fix: Standard map 71 of"}
+{"at":1793909292788,"chat":"Worker 1","state":"free","task":null}
+{"at":1793909292788,"chat":"Worker 5","state":"free","task":null}
+{"at":1793909834147,"chat":"Main","state":"off","task":null}
+{"at":1793910073305,"chat":"Main","state":"free","task":null}
+{"at":1793910914016,"chat":"Worker 3","state":"working","task":"B1051 Fix of X153: free Worker"}
+{"at":1793911033637,"chat":"Worker 2","state":"free","task":null}
+{"at":1793911093636,"chat":"Worker 1","state":"working","task":"B1046 Fix: Your words row 14"}
+{"at":1793911093636,"chat":"Worker 5","state":"working","task":"Long Ledge painted three ways"}
+{"at":1793911153642,"chat":"Worker 1","state":"working","task":"B1042 Fix of X152: chain-long must"}
+{"at":1793911153642,"chat":"Worker 5","state":"working","task":"B1050 Quality Assurance: B1021 Fix of"}
+{"at":1793911153642,"chat":"Worker 3","state":"working","task":"B1051 Fix of X153: free Worker"}
+{"at":1793911214188,"chat":"Worker 3","state":"working","task":"B1051 Fix of X153: free Worker"}
+{"at":1793911274328,"chat":"Main","state":"working","task":null}
+{"at":1793911274328,"chat":"Worker 5","state":"working","task":"B1046 Fix: Your words row 14"}
+{"at":1793911274328,"chat":"Worker 3","state":"interrupted","task":"B1051 Fix of X153: free Worker"}
+{"at":1793911335993,"chat":"Main","state":"free","task":null}
+{"at":1793911454701,"chat":"Worker 2","state":"working","task":"B1043 Fix: Judged at play size"}
+{"at":1793911514688,"chat":"Worker 5","state":"working","task":null}
+{"at":1793911575132,"chat":"Worker 5","state":"working","task":"B1048 Fix: Standard map 71 of"}
+{"at":1793911877397,"chat":"Worker 3","state":"working","task":"B1051 Fix of X153: free Worker"}
+{"at":1793911936000,"chat":"Worker 3","state":"interrupted","task":"B1051 Fix of X153: free Worker"}
+{"at":1793912296100,"chat":"Worker 5","state":"working","task":null}
+{"at":1793912356104,"chat":"Worker 5","state":"free","task":null}
+{"at":1793912654053,"chat":"Worker 4","state":"working","task":"B1052 Quality Assurance: B1046 Fix: Your"}
+{"at":1793912718422,"chat":"Main","state":"working","task":null}
+{"at":1793912718422,"chat":"Worker 1","state":"interrupted","task":"B1042 Fix of X152: chain-long must find "}
+{"at":1793912718422,"chat":"Worker 3","state":"free","task":null}
+{"at":1793912774097,"chat":"Main","state":"free","task":null}
+{"at":1793912774097,"chat":"Worker 3","state":"working","task":"B1053 Quality Assurance: B1048 Fix: Stan"}
+{"at":1793912894132,"chat":"Worker 3","state":"free","task":null}
+{"at":1793912954179,"chat":"Worker 4","state":"free","task":null}
+{"at":1793913194847,"chat":"Worker 2","state":"free","task":null}
+{"at":1793913256134,"chat":"Worker 3","state":"working","task":"B1055 Quality Assurance: B1043 Fix: Judg"}
+{"at":1793913435077,"chat":"Worker 3","state":"free","task":null}
+{"at":1793913555672,"chat":"Worker 3","state":"working","task":"B1055 Quality Assurance: B1043 Fix: Judg"}
+{"at":1793913615831,"chat":"Worker 3","state":"working","task":"B1054 Fix: If a helper that"}
+{"at":1793913875642,"chat":"Worker 3","state":"free","task":null}
+{"at":1793913935643,"chat":"Worker 1","state":"interrupted","task":"B1042 Fix of X152: chain-long must"}
+{"at":1793914703563,"chat":"Worker 1","state":"working","task":"B1042 Fix of X152: chain-long must"}
+{"at":1793915125415,"chat":"Main","state":"working","task":null}
+{"at":1793915125415,"chat":"Worker 3","state":"working","task":null}
+{"at":1793915185614,"chat":"Main","state":"free","task":null}
+{"at":1793915185614,"chat":"Worker 5","state":"working","task":null}
+{"at":1793915185614,"chat":"Worker 3","state":"free","task":null}
+{"at":1793915245595,"chat":"Worker 5","state":"working","task":"B1057 Quality Assurance: B1054 Fix: If"}
+{"at":1793915305600,"chat":"Worker 5","state":"free","task":null}
+{"at":1793915651098,"chat":"Worker 1","state":"free","task":null}
+{"at":1793915651098,"chat":"Worker 5","state":"working","task":"B1057 Quality Assurance: B1054 Fix: If"}
+{"at":1793915711220,"chat":"Worker 5","state":"working","task":"B1058 Quality Assurance: B1042 Fix of"}
+{"at":1793915771171,"chat":"Worker 5","state":"free","task":null}

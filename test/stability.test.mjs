@@ -3,12 +3,15 @@
 // B1048 and B1043 ready, copied as literals from the board's lanes and the work store.
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { monitorEventLoopDelay } from 'node:perf_hooks'
 import test from 'node:test'
 
-import { MINUTES_KEEP_MS, minuteKeeper, minuteOf } from '../src/stability.mjs'
+import { parseHistory } from '../src/history.mjs'
+import { MINUTES_KEEP_MS, alarmsOf, dayLineOf, finishOf, idleMinutesOf, interventionsOf, mergedOutbox, minuteKeeper, minuteOf, recordStability, tailLines } from '../src/stability.mjs'
 import { parseItem } from '../src/work/item.mjs'
 
 const DAY = 24 * 60 * 60_000
@@ -94,6 +97,311 @@ test('the writer appends one line a minute and prunes to 31 days at the first wr
     now = NOW + DAY + 2 * 60_000
     await keep(stateOf(), items)
     assert.deepEqual((await lines()).map(one => one.at), [recent.at, NOW, NOW + 60_000, now])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+// Task 3 (2026-11-05): the day line. The records are trimmed copies of the board's own from the night of 2026-11-05
+// (test/fixtures/stability/: history.jsonl, wakes.json, reports.json, landings.jsonl, outbox.jsonl, the incidents X148 and
+// X152-X161). The person's actions log did not exist that night (task 1 was not on the board yet): its fixture is written
+// below from what the outbox shows (a `resume` to Main at 20:27:36 is the board answering the person's Resume all).
+
+const FIXTURES = new URL('./fixtures/stability/', import.meta.url)
+const text = name => readFileSync(new URL(name, FIXTURES), 'utf8')
+const jsonl = name => text(name).split('\n').filter(Boolean).map(line => JSON.parse(line))
+const t = (hour, minute, second = 0, day = 5) => new Date(2026, 10, day, hour, minute, second).getTime()
+const TODAY = '2026-11-05'
+const MIN = 60_000
+
+const history = parseHistory(text('history.jsonl'))
+const wakes = JSON.parse(text('wakes.json'))
+const reports = JSON.parse(text('reports.json'))
+const landings = jsonl('landings.jsonl')
+const outbox = jsonl('outbox.jsonl')
+const incidents = ['X148', 'X152', 'X153', 'X154', 'X155', 'X156', 'X157', 'X158', 'X159', 'X160', 'X161'].map(id => parseItem(text(`${id}.md`)))
+const act = (action, at) => ({ at, by: 'person', via: 'work', action, id: null })
+// The person paused at 20:15 and pressed Resume all at 20:27:36 (the outbox's `resume` to Main, delivered 20:27:38).
+const OWN_PAUSE = [act('pause-all', t(20, 15, 3)), act('resume-all', t(20, 27, 36))]
+const night = (more = {}) => interventionsOf({ actions: OWN_PAUSE, landings, reports, history, wakes, outbox, day: TODAY, ...more })
+const clock = at => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+test('tonight: the records prove five woke-outside findings in the evening and the 20:27 Resume all is not one', () => {
+  const { interventions } = night()
+  assert.equal(interventions.some(one => one.kind === 'resume-all'), false, 'the person ended their own pause')
+  const evening = interventions.filter(one => one.at >= t(20, 0))
+  assert.deepEqual(evening.map(one => `${clock(one.at)} ${one.kind} ${one.what.split(' was ')[0]}`), [
+    '21:37:13 woke-outside Worker 2',
+    '21:37:45 woke-outside Worker 1',
+    '21:37:49 woke-outside Worker 5',
+    '21:46:28 woke-outside Worker 4',
+    '22:45:20 woke-outside Worker 3',
+  ])
+  // The Advisor's run of 08:21 stands in the wakes file as the run before a 20:27 message; no attempt of the morning is kept.
+  assert.deepEqual(interventions.filter(one => one.at < t(20, 0)).map(one => `${clock(one.at)} ${one.what.split(' was ')[0]}`), ['08:21:51 Advisor'])
+})
+
+test('the board starting Main and Advisor at 21:20 and every chat at 20:27 (a wake of the whole app) are not findings', () => {
+  assert.equal(night().interventions.some(one => /Main/.test(one.what)), false)
+  assert.equal(night().interventions.some(one => one.at >= t(20, 27) && one.at <= t(20, 36)), false, 'the 20:27 launch and the resume explain 20:27-20:34')
+})
+
+test('a Resume all with no pause of the person before it is an intervention; one after a pause of the person is not; a second one is', () => {
+  const lone = interventionsOf({ actions: [act('resume-all', t(9, 0))], day: TODAY })
+  assert.deepEqual(lone.interventions.map(one => one.kind), ['resume-all'])
+  const own = interventionsOf({ actions: [act('pause-all', t(9, 0)), act('resume-all', t(9, 5))], day: TODAY })
+  assert.deepEqual(own.interventions, [])
+  const twice = interventionsOf({ actions: [act('pause-all', t(9, 0)), act('resume-all', t(9, 5)), act('resume-all', t(10, 0))], day: TODAY })
+  assert.deepEqual(twice.interventions.map(one => one.at), [t(10, 0)])
+  const server = interventionsOf({ actions: [{ ...act('resume-all', t(9, 0)), by: 'server' }], day: TODAY })
+  assert.deepEqual(server.interventions, [], 'only the person\'s actions count')
+})
+
+test('a rollback of a landing is an intervention; a landing that held is not', () => {
+  const rolled = [...landings, { at: new Date(t(21, 10)).toISOString(), branch: 'bad-branch', result: 'rolled back: the trial failed' }]
+  const { interventions } = interventionsOf({ landings: rolled, day: TODAY })
+  assert.deepEqual(interventions.map(one => `${one.kind} ${clock(one.at)}`), ['rollback 21:10:00'])
+  assert.match(interventions[0].what, /bad-branch/)
+  assert.deepEqual(interventionsOf({ landings, day: TODAY }).interventions, [])
+})
+
+test('a board started by hand is an intervention unless a landing is within 5 minutes; a keeper start is not; an unknown start is unsure', () => {
+  const stop = (start, to) => ({ from: to - 120_000, to, why: 'unknown', start })
+  const hand = interventionsOf({ lastStop: stop('hand', t(14, 0)), landings, day: TODAY })
+  assert.deepEqual(hand.interventions.map(one => one.kind), ['restart-by-hand'])
+  const landed = interventionsOf({ lastStop: stop('hand', Date.parse(landings[1].at) + 4 * MIN), landings, day: TODAY })
+  assert.deepEqual(landed.interventions, [])
+  assert.deepEqual(interventionsOf({ lastStop: stop('keeper', t(14, 0)), landings, day: TODAY }), { interventions: [], unsure: [] })
+  const unknown = interventionsOf({ lastStop: stop(null, t(14, 0)), landings, day: TODAY })
+  assert.deepEqual(unknown.interventions, [])
+  assert.equal(unknown.unsure[0].kind, 'restart-by-hand')
+  assert.match(unknown.unsure[0].why, /hand or keeper/)
+  // The board shows a stop for 15 minutes only: once made, the finding stays through the day line's `kept`.
+  const kept = hand.interventions
+  assert.deepEqual(interventionsOf({ lastStop: null, kept, day: TODAY }).interventions, [])
+  assert.deepEqual(interventionsOf({ lastStop: stop('hand', t(14, 0)), kept, day: TODAY }).interventions.length, 1)
+})
+
+test('every chat the app starts again that starts a run within 2 minutes, with nothing of the board before it, is one app restart', () => {
+  const live = { reports: { Main: { run: t(15, 0, 5), state: 'idle' }, 'Worker 1': { run: t(15, 0, 40), state: 'idle' }, 'Worker 2': { run: t(15, 1, 20), state: 'idle' } } }
+  const known = { wakes: { Main: [{ spell: 1, attempts: [] }], 'Worker 1': [{ spell: 1, attempts: [] }], 'Worker 2': [{ spell: 1, attempts: [] }] } }
+  const done = interventionsOf({ reports: live, wakes: known, day: TODAY })
+  assert.deepEqual(done.interventions.map(one => `${one.kind} ${clock(one.at)}`), ['app-restart 15:00:05'], 'one finding, not three woke-outside')
+  // A landing within 5 minutes explains it (the board restarted the app itself).
+  const landed = interventionsOf({ reports: live, wakes: known, landings: [{ at: new Date(t(15, 3)).toISOString(), result: 'landed' }], day: TODAY })
+  assert.deepEqual(landed.interventions, [])
+  // Not every chat: each is a woke-outside of its own.
+  const partial = interventionsOf({ reports: live, wakes: known, live: ['Main', 'Worker 1', 'Worker 2', 'Worker 3'], day: TODAY })
+  assert.deepEqual(partial.interventions.map(one => one.kind), ['woke-outside', 'woke-outside', 'woke-outside'])
+  // Found once, kept after the reports move on (a chat's report holds only its newest run).
+  const kept = done.interventions
+  const later = interventionsOf({ reports: { reports: {} }, wakes: known, kept, day: TODAY })
+  assert.deepEqual(later.interventions.map(one => one.kind), ['app-restart'])
+})
+
+test('a start the board explains is no finding: its own attempt, a message, a resume that names the chat; a different chat of the same number is not named', () => {
+  const run = t(16, 0, 30)
+  const reportsOf = { reports: { 'Worker 1': { run, state: 'idle' } } }
+  const base = { 'Worker 1': [{ spell: 1, attempts: [] }] }
+  const kinds = args => interventionsOf({ reports: reportsOf, day: TODAY, ...args }).interventions.map(one => one.kind)
+  assert.deepEqual(kinds({ wakes: { wakes: base } }), ['woke-outside'])
+  assert.deepEqual(kinds({ wakes: { wakes: { 'Worker 1': [{ spell: 1, attempts: [{ at: run - 30_000, by: 'Main', verdict: 'woke' }] }] } } }), [])
+  assert.deepEqual(kinds({ wakes: { wakes: base }, outbox: [{ id: 'a', at: run - 2 * MIN, to: 'Worker 1', state: 'delivered' }] }), [])
+  assert.deepEqual(kinds({ wakes: { wakes: base }, outbox: [{ id: 'a', at: run - 2 * MIN, to: 'Worker 1', state: 'dropped' }] }), ['woke-outside'], 'a dropped message reached nobody')
+  assert.deepEqual(kinds({ wakes: { wakes: base }, outbox: [{ id: 'a', at: run - 8 * MIN, to: 'Main', command: 'resume', text: 'resume\nNot running: Worker 2, Worker 1.', state: 'delivered' }] }), [])
+  assert.deepEqual(kinds({ wakes: { wakes: base }, outbox: [{ id: 'a', at: run - 8 * MIN, to: 'Main', command: 'resume', text: 'resume\nNot running: Worker 10.', state: 'delivered' }] }), ['woke-outside'])
+  assert.deepEqual(kinds({ wakes: { wakes: base }, outbox: [{ id: 'a', at: run - 8 * MIN, to: 'Worker 1', state: 'delivered' }] }), ['woke-outside'], 'a message 8 minutes before does not explain')
+})
+
+test('an interrupted chat that goes on with nobody reaching it is unsure, never an intervention (the records cannot tell it from its own release)', () => {
+  const { interventions, unsure } = night()
+  assert.deepEqual(unsure.map(one => `${clock(one.at)} ${one.kind}`), ['22:38:23 woke-outside'])
+  assert.match(unsure[0].what, /Worker 1 went from interrupted to working/)
+  assert.match(unsure[0].why, /do not tell/)
+  assert.equal(interventions.some(one => one.at === unsure[0].at), false)
+})
+
+test('an ask that says "open its chat" and that the person answered that day is an intervention; an unanswered or withdrawn one is not', () => {
+  const ask = (state, lines) => parseItem(`Id: Q700\nKind: ask\nTitle: A popup in its chat may wait for you\nState: ${state}\nOwner: Worker 5\nSince: 2026-11-05 10:00\n\n## Text\nA popup may wait. Open its chat and look.\n\n## History\n${lines.join('\n')}\n`)
+  const answered = ask('answered', ['- 2026-11-05 10:00 Worker 5: asked (do)', '- 2026-11-05 10:07 person: answered: done'])
+  assert.deepEqual(interventionsOf({ asks: [answered], day: TODAY }).interventions.map(one => `${one.kind} ${clock(one.at)}`), ['open-its-chat 10:07:00'])
+  assert.deepEqual(interventionsOf({ asks: [ask('withdrawn', ['- 2026-11-05 10:00 Worker 5: asked (do)', '- 2026-11-05 10:05 server: withdrawn: the call went on'])], day: TODAY }).interventions, [])
+  assert.deepEqual(interventionsOf({ asks: [answered], day: '2026-11-04' }).interventions, [])
+})
+
+test('alarms: the incidents raised that day; gone and "No fault" are false, fixed and open are real (X154-X161 are all of 2026-11-05)', () => {
+  const alarms = alarmsOf(incidents, TODAY)
+  assert.deepEqual(alarms.ids, ['X154', 'X155', 'X156', 'X157', 'X158', 'X159', 'X160', 'X161'])
+  assert.equal(alarms.real, 3, 'X157, X158 and X161 are open')
+  assert.equal(alarms.false, 5, 'X154, X155, X156, X159 and X160 went gone')
+  // X148 and X152 were raised on 11-04 and fixed on 11-05: the alarms of 11-04.
+  assert.deepEqual(alarmsOf(incidents, '2026-11-04').ids, ['X148', 'X152', 'X153'])
+  const closed = (id, line) => parseItem(`Id: ${id}\nKind: incident\nTitle: t\nState: closed\nSince: 2026-11-05 09:00\nFirst seen: 2026-11-05 08:00\n\n## History\n- 2026-11-05 09:00 Supervisor: ${line}\n`)
+  const mixed = alarmsOf([closed('X1', 'closed: No fault: waits as planned'), closed('X2', 'closed: obsolete: the step moved'), closed('X3', 'closed: fixed by B1')], TODAY)
+  assert.deepEqual({ real: mixed.real, false: mixed.false }, { real: 1, false: 2 })
+})
+
+test('idle-with-work counts distinct whole minutes of the day: gaps, double lines, empty lanes and other days do not add', () => {
+  const lines = []
+  const seen = (at, could = ['B1042']) => lines.push({ at, free: could.length === 0 ? [] : [{ chat: 'Worker 3', could }] })
+  // 20:34-21:33, two minutes missing (a gap of the loop), five minutes written twice.
+  for (let index = 0; index < 60; index += 1) {
+    if (index === 30 || index === 31) continue
+    seen(t(20, 34) + index * MIN + 5_000)
+    if (index < 5) seen(t(20, 34) + index * MIN + 50_000)
+  }
+  for (let index = 0; index < 38; index += 1) seen(t(22, 0) + index * MIN + 20_000)
+  // Not counted: an empty minute, a free lane with nothing to take, the days before and after.
+  seen(t(21, 40), [])
+  lines.push({ at: t(21, 41), free: [{ chat: 'Worker 4', could: [] }] })
+  seen(t(23, 59, 59, 4))
+  seen(t(0, 0, 0, 6))
+  assert.equal(idleMinutesOf(lines, TODAY), 96)
+  const line = dayLineOf({ day: TODAY, minutes: lines, interventions: [], alarms: { real: 0, false: 0, ids: [] }, now: t(23, 0) })
+  assert.deepEqual(line, { day: TODAY, idleWithWorkMinutes: 96, idleEstimated: false, interventions: [], unsure: [], alarms: { real: 0, false: 0, ids: [] }, writtenAt: t(23, 0), closed: false })
+})
+
+test('finishOf: days in a row ending yesterday (or a closed today) with no intervention and under 10 minutes idle', () => {
+  const line = (index, more = {}) => ({ day: `2026-10-${String(index).padStart(2, '0')}`, idleWithWorkMinutes: 0, interventions: [], closed: true, ...more })
+  const fourteen = Array.from({ length: 14 }, (_, index) => line(10 + index))
+  assert.deepEqual(finishOf(fourteen), { stableDays: 14, isStable: true })
+  const broken = fourteen.map(one => (one.day === '2026-10-21' ? { ...one, interventions: [{ at: 1, kind: 'rollback', what: 'x' }] } : one))
+  assert.deepEqual(finishOf(broken), { stableDays: 2, isStable: false }, 'the 22nd and 23rd count; the 21st breaks the row')
+  assert.deepEqual(finishOf(fourteen.map(one => (one.day === '2026-10-23' ? { ...one, idleWithWorkMinutes: 10 } : one))), { stableDays: 0, isStable: false }, '10 minutes is not under 10')
+  assert.deepEqual(finishOf(fourteen.map(one => (one.day === '2026-10-23' ? { ...one, idleWithWorkMinutes: 9 } : one))).stableDays, 14)
+  assert.deepEqual(finishOf(fourteen.map(one => (one.day === '2026-10-22' ? { ...one, idleWithWorkMinutes: 25 } : one))), { stableDays: 1, isStable: false })
+  // Today's line counts only once it is closed.
+  const open = [...fourteen.slice(0, 13), line(23, { closed: false, interventions: [{ at: 1, kind: 'rollback', what: 'x' }] })]
+  assert.deepEqual(finishOf(open), { stableDays: 13, isStable: true })
+  // A day with no line breaks the row.
+  assert.deepEqual(finishOf([line(10), line(11), line(13), line(14)]), { stableDays: 2, isStable: false })
+  assert.deepEqual(finishOf([]), { stableDays: 0, isStable: false })
+  // Unsure findings are not interventions.
+  assert.deepEqual(finishOf([line(1, { unsure: [{ at: 1 }] }), line(2), line(3)]).stableDays, 3)
+})
+
+test('tailLines reads from the end back to the first line older than the start, skipping a torn line, and gives [] for a missing file', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'stability-tail-'))
+  try {
+    const file = join(dir, 'lines.jsonl')
+    const lines = Array.from({ length: 3000 }, (_, index) => JSON.stringify({ at: index * 1000, pad: 'x'.repeat(60) }))
+    await writeFile(file, `${lines.join('\n')}\n{"at": 99\n`)
+    const some = await tailLines(file, 2_900_000, { chunk: 512 })
+    assert.equal(some.at(-1).at, 2_999_000, 'the torn last line is skipped')
+    assert.ok(some.length < 3000 && some.length >= 101, `read only the end (${some.length} lines)`)
+    assert.equal(some.some(line => line.at === 2_900_000), true)
+    assert.deepEqual(some.map(line => line.at), [...some.map(line => line.at)].sort((a, b) => a - b))
+    assert.equal((await tailLines(file, -1, { chunk: 512 })).length, 3000, 'back to the start of the file')
+    assert.deepEqual(await tailLines(join(dir, 'nothing.jsonl'), 0), [])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('mergedOutbox joins the lines of one record by id', () => {
+  const merged = mergedOutbox([{ id: 'a', at: 5, to: 'Main', state: 'waiting' }, { id: 'a', state: 'delivered', deliveredAt: 9 }, { id: 'b', state: 'delivered' }])
+  assert.deepEqual(merged, [{ id: 'a', at: 5, to: 'Main', state: 'delivered', deliveredAt: 9 }])
+})
+
+const copyFixtures = async dir => {
+  for (const name of ['history.jsonl', 'wakes.json', 'reports.json', 'landings.jsonl', 'outbox.jsonl']) await writeFile(join(dir, name), text(name))
+  await writeFile(join(dir, 'actions.jsonl'), OWN_PAUSE.map(one => JSON.stringify(one)).join('\n') + '\n')
+}
+const itemsOf = () => new Map(incidents.map(item => [item.head.get('Id'), item]))
+const linesOf = async file => (await readFile(file, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+
+test('recordStability writes tonight\'s line; at the first pass of the next day it closes it, once, and never rewrites it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'stability-day-'))
+  try {
+    await copyFixtures(dir)
+    const minutes = [t(21, 5), t(21, 6), t(21, 6, 40), t(21, 9)].map(at => ({ at, free: [{ chat: 'Worker 3', could: ['B1042'] }] }))
+    await writeFile(join(dir, 'ready-minutes.jsonl'), minutes.map(one => JSON.stringify(one)).join('\n') + '\n')
+    const file = join(dir, 'stability.jsonl')
+    let now = t(23, 0)
+    const view = await recordStability({}, { dir, items: itemsOf(), clock: () => now })
+    const [tonight] = await linesOf(file)
+    assert.equal(tonight.day, TODAY)
+    assert.equal(tonight.closed, false)
+    assert.equal(tonight.idleWithWorkMinutes, 3)
+    assert.equal(tonight.interventions.length, 6)
+    assert.deepEqual({ real: tonight.alarms.real, false: tonight.alarms.false }, { real: 3, false: 5 })
+    assert.equal(tonight.writtenAt, now)
+    assert.deepEqual(view.today, tonight)
+    assert.deepEqual(view.days, [])
+    // The same day again: the line is made anew, one line in the file.
+    now = t(23, 59)
+    await recordStability({}, { dir, items: itemsOf(), clock: () => now })
+    assert.equal((await linesOf(file)).length, 1)
+    assert.equal((await linesOf(file))[0].writtenAt, t(23, 59))
+    const lastOfDay = (await linesOf(file))[0]
+    // 00:01 of the next day: the 5th closes (as it stood at 23:59), the 6th starts.
+    now = t(0, 1, 0, 6)
+    const next = await recordStability({}, { dir, items: itemsOf(), clock: () => now })
+    const [closed, fresh] = await linesOf(file)
+    assert.deepEqual(closed, { ...lastOfDay, closed: true })
+    assert.equal(fresh.day, '2026-11-06')
+    assert.equal(fresh.closed, false)
+    assert.equal(fresh.interventions.length, 0)
+    assert.deepEqual(next.days.map(one => one.day), [TODAY])
+    // Later passes (even with records that would change the 5th) never touch the closed line.
+    await writeFile(join(dir, 'actions.jsonl'), `${JSON.stringify(act('resume-all', t(23, 30)))}\n`)
+    now = t(0, 2, 0, 6)
+    await recordStability({}, { dir, items: itemsOf(), clock: () => now })
+    now = t(8, 0, 0, 6)
+    await recordStability({}, { dir, items: itemsOf(), clock: () => now })
+    const after = await linesOf(file)
+    assert.deepEqual(after[0], closed)
+    assert.equal(after.length, 2)
+    assert.equal(after[1].writtenAt, t(8, 0, 0, 6))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a pass whose files cannot be read says so and returns null; the loop goes on', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'stability-bad-'))
+  const errors = []
+  const original = console.error
+  console.error = message => errors.push(message)
+  try {
+    await writeFile(join(dir, 'wakes.json'), '{not json')
+    assert.equal(await recordStability({}, { dir, clock: () => t(12, 0) }), null)
+    assert.match(errors[0], /stability record could not be written/)
+  } finally {
+    console.error = original
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('with a 7-day history file the whole pass holds the event loop under 50 ms', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'stability-hold-'))
+  try {
+    await copyFixtures(dir)
+    const chats = ['Main', 'Worker 1', 'Worker 2', 'Worker 3', 'Worker 4', 'Worker 5']
+    const states = ['working', 'free', 'interrupted', 'off']
+    const historyLines = []
+    const outboxLines = []
+    const minuteLines = []
+    // Seven days before tonight and tonight's own, at the size of the live files (about 6000 history lines in 5 days).
+    for (let day = -7; day <= 0; day += 1) {
+      const start = t(0, 0, 0, 5 + day)
+      for (let index = 0; index < 1300; index += 1) historyLines.push(JSON.stringify({ at: start + index * 60_000 * 1.1, chat: chats[index % 6], state: states[(index >> 2) % 4], task: `B${index % 900} a task title of some length`, step: null, steps: null, leftMs: 3600000, estimateAt: 0, startedAt: 0, source: 'step', by: null }))
+      for (let index = 0; index < 700; index += 1) outboxLines.push(JSON.stringify({ id: `d${day}-${index}`, at: start + index * 120_000, to: chats[index % 6], command: 'task', state: 'delivered', text: 'x'.repeat(400) }))
+      for (let index = 0; index < 1440; index += 1) minuteLines.push(JSON.stringify({ at: start + index * 60_000, free: index % 3 === 0 ? [{ chat: 'Worker 3', could: ['B1'] }] : [] }))
+    }
+    await writeFile(join(dir, 'history.jsonl'), `${historyLines.join('\n')}\n`)
+    await writeFile(join(dir, 'outbox.jsonl'), `${outboxLines.join('\n')}\n`)
+    await writeFile(join(dir, 'ready-minutes.jsonl'), `${minuteLines.join('\n')}\n`)
+    const histogram = monitorEventLoopDelay({ resolution: 1 })
+    histogram.enable()
+    const started = performance.now()
+    await recordStability({}, { dir, items: itemsOf(), clock: () => t(23, 0) })
+    await recordStability({}, { dir, items: itemsOf(), clock: () => t(23, 1) })
+    const took = performance.now() - started
+    histogram.disable()
+    const worst = histogram.max / 1e6
+    console.log(`  stability pass: ${took.toFixed(0)} ms for two passes, longest hold of the event loop ${worst.toFixed(1)} ms`)
+    assert.ok(worst < 50, `the event loop was held ${worst.toFixed(1)} ms`)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
