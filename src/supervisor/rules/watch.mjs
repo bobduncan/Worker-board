@@ -23,7 +23,7 @@ import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '..
 import { chainTries, chainWaitOf, hasTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
 import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
-import { CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '../../work/handover.mjs'
+import { BAN_WHY_MARK, CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '../../work/handover.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
 import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
@@ -210,7 +210,7 @@ function readyWhileFree(view, ctx) {
     found.push({
       rule: 'ready-while-free', key, subject: lane.name,
       text: `${lane.name} free for ${minutes(ms)} min while ${ids.length} ready task${ids.length === 1 ? '' : 's'} wait${ids.length === 1 ? 's' : ''}: ${ids.slice(0, 8).join(', ')}${ids.length > 8 ? ', ...' : ''}`,
-      evidence: `waiting tasks: ${ids.slice(0, 8).join(', ')}${ids.length > 8 ? ` (and ${ids.length - 8} more)` : ''}; free by its report: ${lane.name} since ${Number.isFinite(lane.report?.since) ? clockOf(lane.report.since) : 'a time not known'} (its hand-over: free)`,
+      evidence: `waiting tasks: ${ids.slice(0, 8).join(', ')}${ids.length > 8 ? ` (and ${ids.length - 8} more)` : ''}; free by its report: ${lane.name} since ${Number.isFinite(lane.report?.since) ? clockOf(lane.report.since) : 'a time not known'} (its hand-over: ${typeof lane.handover?.why === 'string' && lane.handover.why.includes(BAN_WHY_MARK) ? lane.handover.why : 'free'})`,
     })
   }
   return found

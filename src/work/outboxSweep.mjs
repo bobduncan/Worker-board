@@ -84,7 +84,8 @@ export function whyClosed(message, ctx) {
     if (newer !== undefined) return { state: 'dropped', why: `superseded by a newer word for ${message.about}'s setting (${stamp(newer.at)})` }
     const lane = (ctx.lanes ?? []).find(one => one.name === message.about && !one.isLeftover)
     if (lane !== undefined && lane.effort === message.effort && ((message.model ?? null) === null || sameModel(lane.model, message.model))) {
-      return { state: 'dropped', why: `${message.about} runs at ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort} already` }
+      // B1051 (X153): the setting was met: a success, not a failure. `met` tells the hand-over pass so (it waits for this word).
+      return { state: 'dropped', met: true, why: `${message.about} runs at ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort} already` }
     }
   }
   // B880 (X2): a start word for a chat that is on the board now (the Product owner's routine) is moot, waiting or failed.
@@ -316,7 +317,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
     const closed = whyClosed(message, ctx)
     if (closed !== null && (message.state === 'waiting' || closed.state === 'dropped')) closing.set(message.id, { id: message.id, ...closed })
   }
-  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now)
+  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : {})
   return [...settled, ...closing.values()]
 }
 

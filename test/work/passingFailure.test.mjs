@@ -104,7 +104,7 @@ test('a moot effort word is closed by the sweep: a newer one for the same chat s
   // Worker 4 runs at medium on Sonnet already (set by hand, or by a word the board did not see arrive).
   const set = outboxOf([low(), x2()])
   assert.deepEqual(await sweepOutbox({ dir: null, outbox: set, state: { chats: lanesAt('medium') }, now: BACK, keep }),
-    [{ id: 'a104abf4066c82b9', state: 'dropped', why: 'Worker 4 runs at sonnet · medium already' }])
+    [{ id: 'a104abf4066c82b9', state: 'dropped', met: true, why: 'Worker 4 runs at sonnet · medium already' }])
   assert.deepEqual(undelivered(outboxOf([low(), x2()]), BACK, 'medium'), [])
 })
 
