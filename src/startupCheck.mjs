@@ -149,8 +149,11 @@ export function judge(picture) {
     }
   }
   // Incidents about a wake that failed: closed when their chat answers again.
-  const runs = picture.lanes.some(lane => lane.isRunning === true)
   const reopened = new Set(reopen.map(one => one.chat))
+  // The board-wide incident (nobody answers the wake-ups) goes only when the rule's own condition is over: some chat answers and no
+  // chat is left failed for good that this check did not re-open. Else the rule would file it again at once (a close/re-file loop).
+  const stillFailed = picture.lanes.some(lane => lane.isRunning === false && picture.wakes[lane.name]?.final === true && !reopened.has(lane.name))
+  const runs = picture.lanes.some(lane => lane.isRunning === true) && (reopened.size > 0 || !stillFailed)
   const closeIncidents = []
   for (const incident of picture.incidents) {
     const lane = picture.lanes.find(one => one.name === incident.subject)

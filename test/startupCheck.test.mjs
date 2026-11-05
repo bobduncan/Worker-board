@@ -447,3 +447,12 @@ test('task 5: a second check right after the first changes nothing (the fixes ar
   assert.ok(took < 1000, `one full check took ${Math.round(took)} ms`)
   console.log(`start-up check: one full check on the real-case fixtures took ${Math.round(took)} ms, ${first.fixed.length} fixes`)
 })
+
+test('task 6: the board-wide incident (X158) is not closed while chats stay failed for good that the check did not re-open (no close and re-file loop)', async () => {
+  // Old runs, no trigger moment: nothing is re-opened; Main runs, Workers 1, 2, 5 and the Supervisor stay failed.
+  const verdict = await judged({ elsewhere: false, old: true, down: ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor'] })
+  assert.equal(verdict.actions.closeIncidents.some(one => one.id === 'X158'), false)
+  // Once the check re-opened some (a trigger after the failures), it goes.
+  const after = await judged({ elsewhere: false, old: true, down: ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor'], trigger: 'start', triggerAt: AT_2125 })
+  assert.equal(after.actions.closeIncidents.some(one => one.id === 'X158'), true)
+})

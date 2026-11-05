@@ -25,6 +25,7 @@ import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
 import { BAN_WHY_MARK, CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '../../work/handover.mjs'
 import { readingAgeMinutes } from '../../limits.mjs'
+import { OTHER_ACCOUNT_TAIL, RESTART_WHY } from '../../ownChat.mjs'
 import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
 import { rebuildHoldOf } from '../../goalGuard.mjs'
@@ -1237,12 +1238,38 @@ function handoverUnanswered(view) {
 const dayOfMs = ms => `${new Date(ms).getFullYear()}-${pad(new Date(ms).getMonth() + 1)}-${pad(new Date(ms).getDate())}`
 
 /**
+ * The start-up check (2026-11-05): whether the newest check (finished, its read not cut short) lists the chat under a cause it names in
+ * its own incident (check-unreachable): the other account, a restart to do, or no chat. Then the per-chat wake rules say nothing of it.
+ */
+const CHECK_CAUSES = [
+  { cause: 'account-switch', field: 'elsewhere', words: `your chats are in ${OTHER_ACCOUNT_TAIL}` },
+  { cause: 'restart-needed', field: 'restartNeeded', words: RESTART_WHY },
+  { cause: 'no-chat', field: 'nowhere', words: 'no chat in the app: open one from the board' },
+]
+const isCheckFresh = view => view.check !== null && view.check?.running !== true && view.check?.tooSlow !== true
+const listedByCheck = (view, chat) => isCheckFresh(view) && CHECK_CAUSES.some(one => (view.check[one.field] ?? []).includes(chat))
+
+/**
+ * The start-up check, plan task 6: ONE incident per CAUSE (key "check-unreachable <cause>", the same while the cause lasts, so the board
+ * counts it and never files it again), naming every chat the last check could not reach for that cause. It stands while the check
+ * lists the cause; the next check that lists nobody under it makes the finding absent, and the gone clock closes the incident.
+ */
+function checkUnreachable(view) {
+  if (!isCheckFresh(view)) return []
+  return CHECK_CAUSES.filter(one => (view.check[one.field] ?? []).length > 0).map(one => ({
+    rule: 'check-unreachable', key: `check-unreachable ${one.cause}`, subject: 'board',
+    text: `${one.words}: ${view.check[one.field].join(', ')}`,
+    evidence: [`the check at ${clockOf(view.check.at)} (${view.check.trigger ?? 'start'}) listed them: ${view.check.line ?? ''}`],
+  }))
+}
+
+/**
  * Signals change 4, B908 (decision 7; X119-X121: the launches of 10:32-11:08 that started nothing): a chat the board could
  * not wake: its wake failed on every path it could take (state.mjs lane `wake.final`: the app did not start it on a launch,
  * and no message reached it, or it has no id). One finding per chat and spell, with what was tried and when.
  */
 function wakeFailed(view) {
-  return wakeLanesOf(view).filter(lane => lane.wake?.state === 'failed' && lane.wake.final === true).map(lane => {
+  return wakeLanesOf(view).filter(lane => lane.wake?.state === 'failed' && lane.wake.final === true && !listedByCheck(view, lane.name)).map(lane => {
     const attempts = Array.isArray(lane.wake.attempts) ? lane.wake.attempts : []
     const tried = attempts.length === 0 ? [lane.wake.why === 'no id' ? 'the board has no id to reach it' : lane.wake.why ?? 'no reason given'] : triedWords(attempts, clockOf)
     return {
@@ -1259,7 +1286,8 @@ function wakeFailed(view) {
  * path, and the board-wide spell's launch failed too. One finding per day (the board's local date).
  */
 function nobodyAnswersWakes(view) {
-  const needs = wakeLanesOf(view).filter(lane => lane.wake?.need === true)
+  // The start-up check names the chats it could not reach in one incident of their cause: they are not a second alarm here.
+  const needs = wakeLanesOf(view).filter(lane => lane.wake?.need === true && !listedByCheck(view, lane.name))
   const board = view.wakes?.['*'] ?? null
   // The review of 2026-11-02 (7): only the board-wide spell of now, or one that failed within a day.
   const failedAt = Math.max(...(board?.attempts ?? []).map(one => one.verdictAt).filter(Number.isFinite))
@@ -1382,6 +1410,7 @@ export const WATCH_RULES = [
   { id: 'clear-owed-repeat', kind: 'watch', says: 'a worker whose clear did not run at its last three hand-overs in a row (its line went each time; a refusal in the person\'s pause not counted)', check: clearOwedRepeat },
   { id: 'wake-failed', kind: 'watch', says: 'a chat the board could not wake: the app did not start it on a launch, and no message reached it; or (B986) the chat its reports name is not in the app list', check: wakeFailed },
   { id: 'nobody-answers-wakes', kind: 'watch', says: 'nobody answers the board\'s wake-ups: every chat with work could not be woken, and the launch when nobody ran failed', check: nobodyAnswersWakes },
+  { id: 'check-unreachable', kind: 'watch', says: 'chats the start-up check could not reach, one incident per cause (the other Claude account, a restart of the app to do, no chat in the app) naming the chats; the per-chat wake rules stand down for them', check: checkUnreachable },
   { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading, skips: SKIPS_ON_PAUSE },
   { id: 'board-deaf', kind: 'watch', says: 'the board heard no chat for over 10 min while chats wrote their conversations', check: boardDeaf, skips: SKIPS_ON_PAUSE },
   { id: 'board-slow', kind: 'watch', says: 'two work calls within 2 min answered after the chat gave up on them', check: boardSlow },
