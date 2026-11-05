@@ -6970,3 +6970,7 @@ things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state 
    (in the real case it does not run until Resume all, so the card goes after the resume), same folder, quiet, and no open step of
    the name that the live chat does not show. Mutants: the rule out, `some` for `every`, "not in progress" for "done or dropped" (each
    kills `item 8`).
+
+The picture of the real pause (`test/pauseTruthPicture.mjs`, not a test): a tiny static server on 127.0.0.1 serves a `public/` folder and answers
+`/api/state` with the real case's state fixture, and a headless Edge draws it (`tools/evidence.mjs` `shootPage`). No board is started, no
+live data is read, no chat can be typed to. Before = main's `public/` (`git archive 08da3b7 public`), after = the branch's.
