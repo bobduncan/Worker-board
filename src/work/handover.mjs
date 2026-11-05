@@ -16,6 +16,8 @@ import { GIVEN_BACK, GIVE_BACK_MINUTES, RESUME_KIND, RESUME_MINUTES, continuatio
 import { sinceMs, valueOf } from './item.mjs'
 import { reportCheckFailedOf } from './resultCheck.mjs'
 import { holdEndOf } from './pause.mjs'
+import { familyOf } from './effort.mjs'
+import { stamp } from './migrate.mjs'
 
 const MIN = 60_000
 /** The Workers mod that carries out the board's envelope: a worker on an older one is handed nothing (T8.5 step 6). */
@@ -269,16 +271,40 @@ function backWords(id, failed) {
   return `work: ${id}'s report check failed at ${failed.clock} (${failed.why}): fix what it names and report it again`
 }
 
-/** The models a set failed for and that no later envelope set: no step that wants one goes to this worker meanwhile. */
-function failedModels(envelopes) {
-  const barred = new Set()
+/** The words a lane's why carries while a ban stands (laneWords reads them; a test pins them). */
+export const BAN_WHY_MARK = ' steps: its set failed at '
+
+/**
+ * The models a set failed for and that nothing lifted since, each with the envelope that failed (`Map model -> envelope`).
+ * A ban lifts on a later envelope of this worker that set that model (`outcome.set` true), and on any later DELIVERED envelope
+ * (B1051, 2026-11-05: the worker works, so its next step of that model is tried once more; a real failure bans it again, and a
+ * failure with nothing delivered after it stays banned). Before, only `outcome.set === true` lifted, which no mod writes: a
+ * set that was dropped as "runs at sonnet already" (a success) banned Sonnet for ever.
+ */
+function bansOf(envelopes) {
+  const barred = new Map()
   for (const envelope of envelopes) {
+    if (envelope.state === 'delivered') barred.clear()
     const model = envelope.set?.model ?? null
     if (model === null) continue
-    if (envelope.outcome?.set === false) barred.add(model)
+    if (envelope.outcome?.set === false) barred.set(model, envelope)
     else if (envelope.outcome?.set === true) barred.delete(model)
   }
   return barred
+}
+
+const failedModels = envelopes => new Set(bansOf(envelopes).keys())
+
+/** The lane's why for a worker with a ban standing: "free; gets no sonnet steps: its set failed at 11:30 (<why>)", or null. */
+function banWhy(envelopes) {
+  const bans = [...bansOf(envelopes)]
+  if (bans.length === 0) return null
+  const parts = bans.map(([model, envelope]) => {
+    const when = envelope.failedAt ?? envelope.settledAt ?? envelope.at
+    const why = `${envelope.outcome?.why ?? envelope.why ?? 'no reason given'}`.replace(/\s+/g, ' ').trim().slice(0, 80)
+    return `${familyOf(model) ?? model}${BAN_WHY_MARK}${stamp(when).slice(11)} (${why})`
+  })
+  return `free; gets no ${parts.join('; gets no ')}`
 }
 
 const result = (state, why = null, more = {}) => ({ state, why, step: null, takeBack: null, give: null, envelope: null, net: null, close: null, asked: null, goOn: null, giveBack: null, ...more })
@@ -486,7 +512,7 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
   const said = takenBack === null ? null : `${NOT_TAKEN_WHY.replace('it', takenBack.id)}`
   // The lazy clear (R1, 2026-11-03): no clear is ever sent alone. A free worker that owes one stays FREE and uncleared (an
   // idle chat costs no tokens); the clear rides its next task's envelope. Its lane says nothing of it (D6).
-  if (given === null) return result(STATES.FREE, said, { takeBack: takenBack })
+  if (given === null) return result(STATES.FREE, [said, banWhy(envelopes)].filter(one => one !== null).join('; ') || null, { takeBack: takenBack })
   const set = setFor(given.id) ?? null
   // Signals change 3: a step the board gave back goes to its next worker as a continuation from its checkpoint.
   const item = items.get(given.id)
@@ -606,6 +632,7 @@ export function laneWords(decision) {
     case STATES.OFFERED: return `offered ${step}, not taken yet`
     case STATES.HELD: return `held: ${decision.why ?? 'no reason given'}`
     case STATES.UNKNOWN: return decision.why === null ? 'unknown' : decision.why.startsWith(UNANSWERED_WHY) || decision.why === RESTART_LATE_WHY ? decision.why : null
+    case STATES.FREE: return typeof decision.why === 'string' && decision.why.includes(BAN_WHY_MARK) ? decision.why : null
     case STATES.RESTARTING: return 'restarting for the new Workers mod'
     case STATES.CHECKING: return step === null ? null : `${step}: the board checks its report`
     default: return null

@@ -3552,7 +3552,11 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
    comes after both), and again each half hour (`AGAIN_MS`). The lane says so, "B<id> waits for Opus since HH:MM: <why>"
    (a flag of kind `model`, amber). Since T8.5 step 6 nothing is held here and `work take` refuses nothing for it (`stepHold`
    and `reconciled.holds` are gone): the hand-over's envelope waits for the set word, and a set that failed bars that
-   model's steps from the worker until it runs it.
+   model's steps from the worker until a later envelope of it is delivered (B1051, X153: it works, so the next step of
+   that model is tried once more; a real failure bans it again, and a failure with nothing delivered after it stays
+   banned; `bansOf` in handover.mjs). A set word the sweep drops because the chat runs at that setting already is a success
+   (`met: true`, outboxSweep.mjs): its envelope goes on and is not failed (`isWordDone`, handoverBoard.mjs); one dropped as
+   superseded still fails. While a ban stands the lane says "free; gets no sonnet steps: its set failed at HH:MM (<why>)".
 5. Between steps a worker runs at its usual setting from the settings, `usualModel` and `usualEffort` (sonnet and
    medium unless set; `runSettings`), never at what it ran at before the board's first word (B468 kept that one, extra
    high on Opus for every worker). The board moves a worker back only after one of its words changed it, as in B468; a
