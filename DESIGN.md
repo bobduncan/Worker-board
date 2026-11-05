@@ -6927,3 +6927,10 @@ things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state 
    shows as Paused have the `interrupted` part of their day bar from the pause's start on drawn `suspended` (the quiet purple of a
    pause, never the orange of attention); a stop before the pause stays a stop. One decision (`pausedLanes`), read by both. Mutant:
    the call left out kills `item 1: the day bars ...`.
+2. **Card times are not the app restart's** (`src/state.mjs` `lastEntryAt`, `estimateSaidAt`). The restart appends a `cost-state` line to
+   every transcript (file time 08:15) and the Workers mod rewrites every card with its old plan (`at` 08:15). *Last activity* is the
+   newest transcript entry's own time (the file's time only when no entry has one). A card's *said N left* is the oldest line of the
+   chat's newest unbroken run in the history with the same task and the same time left (a renewed plan, another time left, is a new
+   estimate and takes the card's `at`); this also heals a history line that already holds the restart's time. Mutants: the file time
+   back (kills `item 2: a card never says ...` and `... really wrote after the restart`); the card's `at` back (kills `... never says`
+   and `a history that already holds the wrong restart time`).

@@ -345,6 +345,33 @@ function feedbackLine(words) {
   return one.length > FEEDBACK_CHARS ? `${one.slice(0, FEEDBACK_CHARS - 1).trimEnd()}…` : one
 }
 
+/**
+ * Pause truth item 2 (the real case: the card of Worker 5 said "said about 1 h 50 left, 5 h ago" at the app's restart, 08:15, for an
+ * estimate given at 23:38): when a card's time left was said. The card's own `at` is when its file was last written, and the Workers
+ * mod rewrites every card at a restart with the plan it held. The history records each look with the estimate's time: the
+ * chat's newest unbroken run of lines for this task with the same time left (`leftMs`) is one estimate, said when its oldest
+ * line says. A renewed plan (another time left), a new task or no history says `cardAt`.
+ */
+function estimateSaidAt(lines, chat, task, leftMs, cardAt) {
+  let said = null
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]
+    if (line.gap === true || line.chat !== chat) continue
+    if (line.task !== task || line.leftMs !== leftMs || !Number.isFinite(line.estimateAt)) break
+    said = line.estimateAt
+  }
+  return Number.isFinite(said) && Number.isFinite(cardAt) && said <= cardAt ? said : cardAt
+}
+
+/**
+ * Pause truth item 2: when the newest entry of a transcript was written (its own time stamp), or null when none says. The file's
+ * time is no such time: the app's restart appends a `cost-state` line to every transcript, so every chat read as active then.
+ */
+function lastEntryAt(entries) {
+  const times = (entries ?? []).map(entry => entry.at).filter(Number.isFinite)
+  return times.length === 0 ? null : Math.max(...times)
+}
+
 /** T13: whether a card's task holds a plan of its own: parts, a count of them, or a time (a topic alone is none). */
 const hasCardPlan = task => task.names !== null || task.steps > 0 || task.leftMs !== null || task.stepLeftMs !== null
 
@@ -407,7 +434,9 @@ function taskOf({ chat, plan, scan, state, before, lines, prefix, now, aliveAt =
     const { text, step: at, steps, names, leftMs } = plan.task
     // The time for the step it is on, and when it said so: like the task's own time, it counts down from there.
     const stepLeftMs = plan.task.stepLeftMs ?? null
-    task = { text, step: at, steps, names, leftMs, estimateAt: leftMs === null ? null : plan.at, stepLeftMs, stepEstimateAt: stepLeftMs === null ? null : plan.at, source: 'plan', by: null }
+    // Pause truth item 2: a card the mod only rewrote (the app's restart) with the same time left is not a new estimate.
+    const saidAt = leftMs === null ? null : estimateSaidAt(lines, chat.name, text, leftMs, plan.at)
+    task = { text, step: at, steps, names, leftMs, estimateAt: leftMs === null ? null : saidAt, stepLeftMs, stepEstimateAt: stepLeftMs === null ? null : saidAt, source: 'plan', by: null }
     // Its record may name other steps too ("after B93"): only a step of its own, or of nobody, counts.
     onStep ??= firstOpen(text.match(/\bB\d+\b/g) ?? [], chat.name)
   } else if (isBusy) {
@@ -732,7 +761,8 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     // A worker that works and has no time from anywhere: a fault to fix, and shown as one. The main chat hands
     // out work and answers the person; it has no task to time.
     isWithoutTime: state === 'working' && !chat.isMain && eta === null,
-    lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
+    // Pause truth item 2: the chat's last real entry, never its file's own time (the app restart appends a line to every transcript).
+    lastActivityAt: Math.max(chat.lastActivityAt ?? 0, lastEntryAt(entries) ?? tail?.modifiedAt ?? 0) || null,
     // B847: when the app made this chat and where it works: an older chat of a routine is told from it.
     createdAt: chat.createdAt ?? null,
     cwd: chat.cwd ?? null,
