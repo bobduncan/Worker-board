@@ -3154,9 +3154,11 @@ function isStartChecking(state) {
  * a chat whose wake failed reads "Checking" (its flag, quiet). The result of the check decides what stays.
  */
 function whileChecking(state) {
-  if (!isStartChecking(state)) return state
-  const quiet = lane => (lane === null || lane === undefined || !Array.isArray(lane.flags) ? lane : { ...lane, flags: lane.flags.map(flag => (flag.kind === 'wake failed' ? { ...flag, kind: 'wake', text: 'Checking', button: null } : flag)) })
-  return { ...state, wakeNotice: null, chats: (state.chats ?? []).map(quiet), advisor: quiet(state.advisor), advisorHelper: quiet(state.advisorHelper), supervisorChat: quiet(state.supervisorChat), productOwner: quiet(state.productOwner) }
+  if (!isStartChecking(state)) return
+  // In place, on the state this read just parsed (as `withFullSteps` does).
+  const quiet = lane => { if (lane !== null && lane !== undefined && Array.isArray(lane.flags)) lane.flags = lane.flags.map(flag => (flag.kind === 'wake failed' ? { ...flag, kind: 'wake', text: 'Checking', button: null } : flag)) }
+  state.wakeNotice = null
+  for (const lane of [...(state.chats ?? []), state.advisor, state.advisorHelper, state.supervisorChat, state.productOwner]) quiet(lane)
 }
 
 /** Set when the person clicked Check everything, until a state shows the check over (or 15 s passed). */
@@ -22432,7 +22434,8 @@ async function read() {
     withAnswers(state)
     // Light state: the finished steps this page read whole stand whole again.
     withFullSteps(state)
-    draw(whileChecking(state))
+    whileChecking(state)
+    draw(state)
     awaySince = null
     helpAtStart(state)
   } catch (error) {
