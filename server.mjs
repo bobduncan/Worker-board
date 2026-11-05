@@ -2553,6 +2553,8 @@ async function main(args) {
         // Signals change 6: the Supervisor judges the incidents; its chat's name for the cards' words.
         supervisor: state.supervisorChat?.name ?? null,
         flow: stored?.ok === true ? stored.flow : null,
+        // Pause truth item 6: while the pause holds, a new step waits for Resume all, not for the Advisor.
+        pause: state.pause ?? null,
       })
       // 2026-10-28: the Advisor's "Next for it" ends with the steps the board will ask it to refine next (only the board holds the refine gate).
       const refineGateNow = Array.isArray(state.advisor?.next) ? firstLook(refineKept, state) : null

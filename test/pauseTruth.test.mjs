@@ -17,6 +17,8 @@ import { storeFromText } from '../src/work/read.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { gapsOf, lastByChat, parseHistory, today } from '../src/history.mjs'
 import { fileStore, tick } from '../src/store.mjs'
+import { incidentCards } from '../src/supervisor/cards.mjs'
+import { createSupervisor } from '../src/supervisor/index.mjs'
 import { chatsWithoutProcess } from '../src/work/pause.mjs'
 import { readStore, share } from '../src/work/store.mjs'
 import { openPage } from './pageHarness.mjs'
@@ -284,4 +286,54 @@ test('item 5: a ran line is no chat line: it is read back, and it changes no cha
   assert.equal(lastByChat(lines).size, 0, 'a gap forgets every chat; the ran line adds none')
   assert.deepEqual(gapsOf(lines, 20), [{ from: 5, to: 9 }])
   assert.deepEqual(today(lines, { from: 0, to: 20, names: ['Worker 1'] })[0].spans, [{ from: 1, to: 5, state: 'working', task: 'B1 x' }])
+})
+
+// ---- Item 6: the supervisor's cards of B1042 and B1051 (state "new": refine word to the Advisor held by the pause).
+const realStep = (id, title, since) => parseItem(`Id: ${id}\nKind: step\nTitle: ${title}\nPriority: fix\nState: new\nActivity: Worker board for any project (B126)\nSince: ${since}\n\n## History\n- ${since} Supervisor: made\n`)
+const incidentOf = id => ({ id, title: `Incident ${id}`, state: 'fix', fix: null, source: 'sweep', subject: 'board', count: 3, firstSeen: NOW - 900 * MIN, lastSeen: NOW - 800 * MIN, since: NOW - 800 * MIN, evidence: null, ruleWanted: null })
+const realItems = () => new Map([
+  ['B1042', realStep('B1042', 'Fix of X152: chain-long must find "Tried before:" anywhere in the newest fix', '2026-11-04 22:29')],
+  ['B1051', realStep('B1051', 'Fix of X153: free Worker 4 gets no hand-over for a ready check step (B1050)', '2026-11-04 23:35')],
+])
+const chipsOf = cards => Object.fromEntries(cards.map(card => [card.step, card.state.text]))
+
+// Mutants: the pause not passed on; the words for a step that is not new changed.
+test('item 6: while the pause holds, B1042 and B1051 wait for Resume all, not for the Advisor', () => {
+  const state = { incidents: [incidentOf('X152'), incidentOf('X153')], items: realItems() }
+  assert.deepEqual(chipsOf(incidentCards({ ...state, isPaused: true })), { B1042: 'new · waits for Resume all', B1051: 'new · waits for Resume all' })
+  // Not paused: the Advisor, as before.
+  assert.deepEqual(chipsOf(incidentCards({ ...state, isPaused: false })), { B1042: 'new · waits for the Advisor', B1051: 'new · waits for the Advisor' })
+  assert.deepEqual(chipsOf(incidentCards(state)), { B1042: 'new · waits for the Advisor', B1051: 'new · waits for the Advisor' })
+})
+
+test('item 6: the supervisor view passes the pause on, from the real X152 / X153 / B1042 / B1051 records', () => {
+  const x = (id, step, key) => parseItem(`Id: ${id}
+Kind: incident
+Title: Real ${id}
+State: fix
+Source: chain-long
+Subject: B924
+Key: ${key}
+Since: 2026-11-04 22:29
+First seen: 2026-11-04 22:18
+Last seen: 2026-11-04 22:45
+Count: 9
+Fix: ${step}
+Evidence: the chain
+
+## History
+- 2026-11-04 22:29 Supervisor: fix ${step}
+`)
+  const items = realItems()
+  items.set('X152', x('X152', 'B1042', 'chain-long B924 B1031'))
+  items.set('X153', x('X153', 'B1051', 'ready-while-free Worker 4'))
+  const ports = {
+    state: async () => ({ chats: [], chatPrefix: '', limits: {}, pause: null }), items: async () => items, outbox: () => [], refused: () => [], apply: async () => ({ ok: true }),
+    wake: async () => ({ id: 'w' }), noted: { load: async () => ({ noted: [], seen: {} }), save: async () => {} }, now: () => NOW, owns: async () => true,
+    loops: { run: async (_name, run) => run(), failed: () => {} }, closing: () => false, settings: {},
+  }
+  const view = pause => createSupervisor(ports).view(NOW, { items, lanes: [], pause })
+  assert.deepEqual(chipsOf(view({ state: 'pausing', since: PAUSED_AT }).cards), { B1042: 'new · waits for Resume all', B1051: 'new · waits for Resume all' })
+  assert.deepEqual(chipsOf(view({ state: 'resuming', since: PAUSED_AT }).cards), { B1042: 'new · waits for the Advisor', B1051: 'new · waits for the Advisor' })
+  assert.deepEqual(chipsOf(view(null).cards), { B1042: 'new · waits for the Advisor', B1051: 'new · waits for the Advisor' })
 })

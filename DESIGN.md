@@ -6952,3 +6952,8 @@ things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state 
    followed, the tick writes one `{ at, ran: true }` line (once: the next look finds a line that is no gap); the gap ends there. Old
    history reads as before. The real tail of the trial's history.jsonl is the fixture. Mutants: the line not written; `ran` lines not
    read back (each kills one `item 5` test).
+6. **A new step waits for Resume all while the pause holds** (`src/supervisor/cards.mjs` `stepState`/`incidentCards` `isPaused`;
+   `supervisor/index.mjs` `view` from `live.pause`; server.mjs passes `state.pause`). The refine word to the Advisor is one of the lines the
+   pause holds (`pause.held`), so the card of a `new` fix step (B1042, B1051 in the real case) says "new · waits for Resume all" while the
+   pause is `pausing`, and "waits for the Advisor" otherwise. Mutants: the pause not passed on, the words not switched (each kills one
+   `item 6` test).
