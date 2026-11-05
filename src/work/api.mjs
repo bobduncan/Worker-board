@@ -2375,17 +2375,22 @@ async function acceptCards(_body, w) {
  * The server's, at the refresh.
  */
 async function popupAsks(body, w) {
-  const gone = new Set((Array.isArray(body.gone) ? body.gone : []).map(name => plain(name, w.prefix)))
+  const names = list => new Set((Array.isArray(list) ? list : []).map(name => plain(name, w.prefix)))
+  const gone = names(body.gone)
+  const asking = names(body.asking)
   const withdrawn = []
   for (const ask of [...w.store.items.values()].filter(one => kindOf(one) === 'ask' && stateOf(one) === 'open' && valueOf(one, 'Via') === 'form' && isPopupAsk(one))) {
     const of = valueOf(ask, 'Of')
     const step = w.store.items.get(of ?? '')
     const owner = valueOf(ask, 'Owner')
-    const why = step === undefined && of !== null ? `its step ${of} is gone`
-      : step !== undefined && ['done', 'dropped'].includes(stateOf(step)) ? `its step ${of} is ${stateOf(step)}`
-        : owner !== null && gone.has(plain(owner, w.prefix)) ? `its chat ${owner} has no process` : null
+    const mine = owner === null ? '' : plain(owner, w.prefix)
+    // Review 2: the mod files the popup under the first step its card names, which may stay named for hours after that step is done
+    // while the chat runs on; so an ended step counts only when its chat no longer reports asking. A chat with no process counts always.
+    const isStepEnded = of !== null && (step === undefined || ['done', 'dropped'].includes(stateOf(step)))
+    const why = owner !== null && gone.has(mine) ? `its chat ${owner} has no process`
+      : isStepEnded && !asking.has(mine) ? (step === undefined ? `its step ${of} is gone` : `its step ${of} is ${stateOf(step)} and its chat no longer asks`) : null
     if (why === null) continue
-    const done = await withdraw({ id: valueOf(ask, 'Id'), why: `the popup cannot wait any more: ${why}` }, { ...w, role: 'person' })
+    const done = await withdraw({ id: valueOf(ask, 'Id'), why: `the popup cannot wait any more: ${why}`, stepMayBeGone: true }, { ...w, role: 'person' })
     if (done.ok) withdrawn.push(valueOf(ask, 'Id'))
   }
   return { ok: true, result: { text: withdrawn.length === 0 ? 'No popup ask is out of date.' : `Withdrawn: ${withdrawn.join(', ')}.`, withdrawn, changed: withdrawn.length > 0 } }
@@ -2575,23 +2580,27 @@ async function withdraw(body, w) {
   return answerStep(w, item, found.text, of, step => {
     const mine = said(underStep(step, [`${id} withdrawn by ${w.who} on ${at(w.now)}${why === '' ? '' : `: ${why}`}`]), w, `${id} withdrawn`)
     return stateOf(mine) === 'waiting on you' ? goOnOrPark(mine, w, flowCtx(w, [item, mine]), ` (${id} withdrawn)`).item : mine
-  })
+  }, { mayBeGone: body.stepMayBeGone === true })
 }
 
 /**
  * Review 6: an ask that is answered or withdrawn, and its step: the step is written first, then the ask; when the
  * ask cannot be written the step is put back, and the answer is 500 with both as they were.
  */
-async function answerStep(w, item, text, of, change) {
+async function answerStep(w, item, text, of, change, { mayBeGone = false } = {}) {
   let step = null
   // Focus 3: an ask of a goal has no step to follow.
   if (of !== null && !GOAL_ID.test(of)) {
     step = await load(of, w, { kind: ['step'] })
-    if (!step.ok) return step
-    const mine = change(step.item)
-    const done = await save(mine, step.text, w)
-    if (!done.ok) return refuse(500, `${of} could not be written (${done.why}); nothing changed.`)
-    step = { ...step, written: serializeItem(mine) }
+    // Review 6: the board's own sweep of a popup ask may close it although its step's file is gone.
+    if (!step.ok && mayBeGone && step.status === 404) step = null
+    else if (!step.ok) return step
+    if (step !== null) {
+      const mine = change(step.item)
+      const done = await save(mine, step.text, w)
+      if (!done.ok) return refuse(500, `${of} could not be written (${done.why}); nothing changed.`)
+      step = { ...step, written: serializeItem(mine) }
+    }
   }
   const done = await save(item, text, w)
   if (!done.ok) {

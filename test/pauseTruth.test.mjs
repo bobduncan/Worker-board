@@ -171,7 +171,7 @@ async function popupStore(files) {
   return dir
 }
 const ROLES = { Main: 'main', 'Worker 5': 'worker', Advisor: 'advisor' }
-const sweep = (dir, gone = []) => workApi({ action: 'popup-asks', gone }, { dir, now: NOW, prefix: '', roleOf: chat => ROLES[chat] ?? null, chats: Object.keys(ROLES), as: 'server', recaps: [] })
+const sweep = (dir, gone = [], asking = []) => workApi({ action: 'popup-asks', gone, asking }, { dir, now: NOW, prefix: '', roleOf: chat => ROLES[chat] ?? null, chats: Object.keys(ROLES), as: 'server', recaps: [] })
 const stateOfAsk = async (dir, id) => (await readStore(dir)).items.get(id).head.get('State')
 
 // Mutants: the done-step rule left out; the no-process rule left out; every popup withdrawn; any form ask withdrawn.
@@ -184,7 +184,7 @@ test('item 3: a popup ask whose step is done is withdrawn, with its why (the rea
     assert.deepEqual(done.result.withdrawn, ['Q629', 'Q632'])
     assert.equal(await stateOfAsk(dir, 'Q629'), 'withdrawn')
     const history = (await readStore(dir)).items.get('Q629').sections.get('History').join('\n')
-    assert.match(history, /withdrawn: the popup cannot wait any more: its step B966 is done/)
+    assert.match(history, /withdrawn: the popup cannot wait any more: its step B966 is done and its chat no longer asks/)
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
 
@@ -421,4 +421,26 @@ test('review 3: the same step and the same minutes, but the chat wrote at the ca
   const T0 = RESTART_AT - 60 * MIN
   const same = [{ at: T0, chat: 'Board', state: 'working', task: TASK, step: 5, steps: 6, leftMs: 6_574_399, estimateAt: T0, startedAt: T0 - 30 * MIN, source: 'step', by: null }]
   assert.equal(laneOf(realBoard({ lines: same, writeAfter: RESTART_AT + 8_000 }), 'Board').task.estimateAt, RESTART_AT + 8_000)
+})
+
+// ---- Review 2 and 6: a step done while its chat still asks keeps the ask; a gone step's ask can be withdrawn.
+test('review 2: a step done while its chat still reports asking keeps its popup ask; once the chat asks no more it goes', async () => {
+  share.ms = 0
+  const dir = await popupStore({ Q629: popupAsk('Q629', 'B966', 'Worker 5'), B966: stepFile('B966', 'done', 'Worker 5') })
+  try {
+    assert.deepEqual((await sweep(dir, [], ['Worker 5'])).result.withdrawn, [])
+    assert.equal(await stateOfAsk(dir, 'Q629'), 'open')
+    assert.deepEqual((await sweep(dir, [], [])).result.withdrawn, ['Q629'])
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('review 6: a popup ask of a step that is gone from the store is withdrawn, with the step untouched', async () => {
+  share.ms = 0
+  const dir = await popupStore({ Q629: popupAsk('Q629', 'B966', 'Worker 5') })
+  try {
+    const done = await sweep(dir, [], [])
+    assert.deepEqual(done.result.withdrawn, ['Q629'], done.why)
+    assert.equal(await stateOfAsk(dir, 'Q629'), 'withdrawn')
+    assert.match((await readStore(dir)).items.get('Q629').sections.get('History').join(' '), /its step B966 is gone/)
+  } finally { await rm(dir, { recursive: true, force: true }) }
 })

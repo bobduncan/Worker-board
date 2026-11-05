@@ -299,3 +299,6 @@ export function heldMs(message, now, pause) {
  * PC's sleep and the app's restart). An unknown one (`isRunning` null: no word of its mod yet) is not named: nothing is guessed.
  */
 export const chatsWithoutProcess = lanes => (Array.isArray(lanes) ? lanes : []).filter(lane => lane?.isRunning === false && typeof lane.name === 'string').map(lane => lane.name)
+
+/** Review 2: the names of the chats that report asking (the app's question form, or waiting on the person): their popup may be real. */
+export const chatsAsking = lanes => (Array.isArray(lanes) ? lanes : []).filter(lane => (lane?.isAsking === true || lane?.state === 'waiting') && typeof lane.name === 'string').map(lane => lane.name)

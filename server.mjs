@@ -97,7 +97,7 @@ import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
-import { chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
+import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
@@ -3697,7 +3697,7 @@ async function main(args) {
         // one), is withdrawn: nobody is left to withdraw it. On its own, so a failure stops no delivery.
         await loops.run('popup-asks', async () => {
           const gone = chatsWithoutProcess(state.chats)
-          const swept = await workAction({ action: 'popup-asks', gone }, 'server')
+          const swept = await workAction({ action: 'popup-asks', gone, asking: chatsAsking(state.chats) }, 'server')
           if (!swept.ok) throw new Error(swept.why ?? 'popup-asks was refused')
           if (swept.result.changed === true) readState.reset()
         })
