@@ -57,14 +57,14 @@ const SCRIPT = [
   `'${MARK}' + (ConvertTo-Json -Compress -InputObject @($found))`,
 ].join("\n")
 
-/** Runs the reader for `folder`; answers its output, or null when PowerShell failed or took longer than `timeoutMs`. */
-function runReader(folder, timeoutMs) {
+/** Runs `script` (PowerShell) with `env` added; answers its output, or null when PowerShell failed or took longer than `timeoutMs`. */
+function runScript(script, env, timeoutMs) {
   return new Promise(resolve => {
-    // The folder goes in by the environment and the script encoded, so no quoting can change either.
-    const encoded = Buffer.from(SCRIPT, 'utf16le').toString('base64')
+    // What the script reads goes in by the environment and the script encoded, so no quoting can change either.
+    const encoded = Buffer.from(script, 'utf16le').toString('base64')
     let child
     try {
-      child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, BOARD_HOLDERS_OF: folder } })
+      child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, ...env } })
     } catch {
       resolve(null)
       return
@@ -76,6 +76,9 @@ function runReader(folder, timeoutMs) {
     child.on('close', code => { clearTimeout(timer); resolve(code === 0 ? out : null) })
   })
 }
+
+/** Runs the folder reader for `folder`. */
+const runReader = (folder, timeoutMs) => runScript(SCRIPT, { BOARD_HOLDERS_OF: folder }, timeoutMs)
 
 /** The reader's answer (MARK, then its JSON) as holders `{ pid, name, parent, command }`; null when it is none. */
 export function parseHolders(text) {
@@ -93,6 +96,8 @@ export function parseHolders(text) {
     name: typeof one.name === 'string' ? one.name : '',
     parent: typeof one.parent === 'string' ? one.parent : null,
     command: typeof one.command === 'string' ? one.command : null,
+    // B1049: when the program started (ms), from Restart Manager's lookup of a file; the folder reader gives none.
+    ...(Number.isFinite(one.since) ? { since: one.since } : {}),
   }))
 }
 
@@ -127,4 +132,74 @@ export function holderWords(list) {
   const named = list.slice(0, NAMED_MAX).map(one => `${one.name} ${one.pid}${one.parent ? ` from ${one.parent}` : ''}${one.command ? `: ${shortCommand(one.command)}` : ''}`)
   const more = list.length > NAMED_MAX ? `; and ${list.length - NAMED_MAX} more` : ''
   return ` (${named.join('; ')}${more}): stop ${list.length === 1 ? 'it' : 'them'} (a chat's background command or monitor: TaskStop)`
+}
+
+// B1049 (2026-11-04 22:26: the measure loop failed every few minutes with EPERM renaming onto data/spending.json, held by
+// an orphaned grep.exe): the programs that hold a FILE open, from Windows' Restart Manager (RmStartSession,
+// RmRegisterResources, RmGetList, RmEndSession). Read-only: it ends nothing and asks nothing of the program.
+const FILE_READER = `using System; using System.Runtime.InteropServices; using System.Text;
+public static class FileHolders {
+  [StructLayout(LayoutKind.Sequential)] struct RM_UNIQUE_PROCESS { public int dwProcessId; public System.Runtime.InteropServices.ComTypes.FILETIME ProcessStartTime; }
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct RM_PROCESS_INFO {
+    public RM_UNIQUE_PROCESS Process;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string strAppName;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string strServiceShortName;
+    public int ApplicationType; public uint AppStatus; public uint TSSessionId;
+    [MarshalAs(UnmanagedType.Bool)] public bool bRestartable;
+  }
+  [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)] static extern int RmStartSession(out uint h, int flags, StringBuilder key);
+  [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)] static extern int RmRegisterResources(uint h, uint nFiles, string[] files, uint nApps, RM_UNIQUE_PROCESS[] apps, uint nSvc, string[] svc);
+  [DllImport("rstrtmgr.dll")] static extern int RmGetList(uint h, out uint needed, ref uint count, [In, Out] RM_PROCESS_INFO[] info, out uint reasons);
+  [DllImport("rstrtmgr.dll")] static extern int RmEndSession(uint h);
+  // One line per holder: pid, start time (ms since 1970, UTC), the program's own name.
+  public static string[] Of(string[] files) {
+    uint h; StringBuilder key = new StringBuilder(33);
+    if (RmStartSession(out h, 0, key) != 0) throw new Exception("RmStartSession failed");
+    try {
+      if (RmRegisterResources(h, (uint)files.Length, files, 0, null, 0, null) != 0) throw new Exception("RmRegisterResources failed");
+      uint needed = 0, count = 0, reasons; RM_PROCESS_INFO[] info = new RM_PROCESS_INFO[0];
+      int r = RmGetList(h, out needed, ref count, info, out reasons);
+      if (r == 234) { info = new RM_PROCESS_INFO[needed + 4]; count = (uint)info.Length; r = RmGetList(h, out needed, ref count, info, out reasons); }
+      if (r != 0) throw new Exception("RmGetList failed " + r);
+      string[] lines = new string[count];
+      for (int i = 0; i < count; i++) {
+        long ft = ((long)info[i].Process.ProcessStartTime.dwHighDateTime << 32) | (uint)info[i].Process.ProcessStartTime.dwLowDateTime;
+        long ms = ft == 0 ? 0 : (long)((DateTime.FromFileTimeUtc(ft) - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds);
+        lines[i] = info[i].Process.dwProcessId + "|" + ms + "|" + info[i].strAppName;
+      }
+      return lines;
+    } finally { RmEndSession(h); }
+  }
+}`
+const FILE_SCRIPT = [
+  "try { (Get-Process -Id $PID).PriorityClass = 'BelowNormal' } catch {}",
+  "$ErrorActionPreference = 'Stop'",
+  '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
+  `Add-Type -TypeDefinition @'\n${FILE_READER}\n'@`,
+  // The files come in by the environment, one per line (a path holds no line break).
+  "$files = [string[]]@(($env:BOARD_HOLDERS_OF_FILES -split \"`n\") | Where-Object { $_ -ne '' })",
+  '$found = @()',
+  "foreach ($line in [FileHolders]::Of($files)) { $part = $line.Split('|', 3); $id = [int]$part[0]; $p = Get-Process -Id $id -ErrorAction SilentlyContinue; $name = if ($p) { $p.ProcessName + '.exe' } else { $part[2] }; $since = [double]$part[1]; $found += [pscustomobject]@{ pid = $id; name = $name; since = $(if ($since -gt 0) { $since } else { $null }) } }",
+  `'${MARK}' + (ConvertTo-Json -Compress -InputObject @($found))`,
+].join('\n')
+
+/**
+ * The programs that hold any of the `files` open: `[{ pid, name, since? }]`, an empty list when none does, or null when
+ * that is not known (not Windows, nothing to look for, or PowerShell did not answer). Read-only.
+ */
+export async function fileHolders(files, { platform = process.platform, timeoutMs = 20_000, run = (list, ms) => runScript(FILE_SCRIPT, { BOARD_HOLDERS_OF_FILES: list.join('\n') }, ms) } = {}) {
+  const list = (Array.isArray(files) ? files : []).map(String).filter(file => file !== '' && !/[\r\n]/.test(file))
+  if (platform !== 'win32' || list.length === 0) return null
+  const out = await run(list, timeoutMs)
+  return out === null ? null : parseHolders(out)
+}
+
+/**
+ * B1049: the failing-loop line's words for the programs that hold a file, "held by grep.exe, pid 57736, since 19:52": at
+ * most NAMED_MAX named, the rest counted; '' when none is known. `clockOf` writes a time.
+ */
+export function holderLine(list, clockOf) {
+  if (!Array.isArray(list) || list.length === 0) return ''
+  const named = list.slice(0, NAMED_MAX).map(one => `${one.name || 'a program'}, pid ${one.pid}${Number.isFinite(one.since) ? `, since ${clockOf(one.since)}` : ''}`)
+  return `held by ${named.join('; ')}${list.length > NAMED_MAX ? `; and ${list.length - NAMED_MAX} more` : ''}`
 }

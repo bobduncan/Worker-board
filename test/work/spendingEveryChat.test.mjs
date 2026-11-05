@@ -312,3 +312,30 @@ test('a session no card names is counted under its app title',async()=>place(asy
   await collector.scan([])
   assert.deepEqual(counted(collector),{'Worker board task reliability':1})
 }))
+
+// Round 4 (c): 1,291 lines over 1 MB, none an answer (user lines, request blobs): "N oversized lines ... usage unknown"
+// was a false alarm. Only an answer's line is counted. Mutant (every long line counted): 2, not 1.
+test('only an oversized answer line is counted as usage left out',async()=>place(async({root,transcripts})=>{
+  const huge=JSON.stringify({type:'assistant',timestamp:new Date(at).toISOString(),message:{id:'big',model:'claude-opus-5-5',content:[{type:'text',text:'y'.repeat(1100000)}],usage:{input_tokens:1,output_tokens:1,cache_creation_input_tokens:0,cache_read_input_tokens:0}}})
+  await writeFile(join(transcripts,'s.jsonl'),toolOutput(1100000)+'\n'+huge+'\n'+answer('after','s')+'\n')
+  const collector=createSpendingCollector({dir:root,transcripts,clock:()=>at+1});await collector.load()
+  await collector.scan([{session:'s',name:'Worker',role:'worker'}])
+  const summary=collector.summary(7)
+  assert.equal(summary.coverage.skippedLongLines,1)
+  assert.equal(summary.messages,1)
+}))
+
+// Round 4 (c): the live ledger counted 1,295 lines that were no answers; it is started anew once.
+// Mutant (the old count kept): the false notice stays.
+test('the old count of long lines is started anew once',async()=>place(async({root,transcripts})=>{
+  await writeFile(join(root,'spending.json'),JSON.stringify({version:1,events:[],scans:{},skippedLongLines:1295}))
+  const first=createSpendingCollector({dir:root,transcripts,clock:()=>at+1});await first.load()
+  assert.equal(first.summary(7).coverage.skippedLongLines,0)
+  await writeFile(join(transcripts,'s.jsonl'),answer('a','s')+'\n')
+  await first.scan([{session:'s',name:'Worker',role:'worker'}])
+  const ledger=await ledgerOf(root)
+  ledger.skippedLongLines=1
+  await writeFile(join(root,'spending.json'),JSON.stringify(ledger))
+  const again=createSpendingCollector({dir:root,transcripts,clock:()=>at+1});await again.load()
+  assert.equal(again.summary(7).coverage.skippedLongLines,1,'a count under the new rule is kept')
+}))

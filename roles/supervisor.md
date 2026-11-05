@@ -67,7 +67,7 @@ the board has and never waits for a change in the store's queue, so a time-out i
 rules say. Board-slow's evidence cites the board's stall log (B934, `data/stalls.json`): each stall over 2 s with the
 requests and the board's own jobs that ran during it, so its finding already says what held the board. Harm is the bar (B1011):
 board-slow sounds only for calls answered after the chat gave up (10 s, two within 2 min); a stall of 2 to 10 s stays in the
-log and is no finding; a clean-up that does not run is `clear-owed-repeat` or `handover-held`.
+log and is no finding; a sleep of the PC (a stall of the loop over 10 min, across a clock jump or a board start; kind `sleep`; a call that waited long while the loop kept ticking, or a "sleep" with calls sent inside it, is a hang, cited as such) is shown as "the PC slept" and is never a slow board; a clean-up that does not run is `clear-owed-repeat` or `handover-held`.
 
 Read only the health summary. Do not read files, logs or transcripts, do not run commands, and do not start agents: a
 sweep is meant to cost little (a few tens of thousands of tokens, mostly cached).
@@ -118,7 +118,7 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
   fix, no new check and no block for over 30 min. A fix the board does not hand out leaves its step waiting for nothing
   that moves: "waits for its fix B<n>, held: <why>" (B656) is odd past the review minutes and the review-held rule's, unless the hold is the person's open ask (B660) or a block by steps that all wait for the person alone (B916) or a block by steps that all move (B1021, X148: with a worker, or behind a chain at work or ending in a refined fix not held); nothing is said while the 5-hour or weekly limit is full, and the hold counts again from the limit's reset at the earliest.
   A "!" on a review line means what the rules mean (B664): the summary judges review as they do, so a fresh check word or
-  the person's open ask is never odd there. A chain of three tries or more whose newest fix names no "Tried before:" is
+  the person's open ask is never odd there. A chain of three tries or more whose newest fix names no "Tried before:" (or "Tried before, <part>:") is
   the chain-long rule's: a patch of the same way again, for the partner. "waits for its fix B<n>, not refined yet" is
   an open fix with the partner: the open-fix rule's past an hour, once its last refine word went unanswered 30 min (B667); never while the person's pick on a rebuild of its goal is open (`Rebuild G<n>` ask, B985): then it waits for them by design, and after the pick the hour counts from it.
   The summary gives one line per chain of fixes ("one chain, 3 in review: ...; newest link B<n> ...") and counts them

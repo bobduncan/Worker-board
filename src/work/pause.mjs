@@ -117,7 +117,7 @@ export function holdersOf(items, prefix = '') {
   const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
   return [...(items?.values?.() ?? [])]
     .filter(item => valueOf(item, 'Kind') === 'step' && HELD.includes(valueOf(item, 'State')) && (valueOf(item, 'Owner') ?? '') !== '')
-    .map(item => ({ id: valueOf(item, 'Id'), owner: valueOf(item, 'Owner'), checkpoint: checkpointOf(item), branch: valueOf(item, 'Branch') ?? null, history: historyOf(item) }))
+    .map(item => ({ id: valueOf(item, 'Id'), owner: valueOf(item, 'Owner'), state: valueOf(item, 'State'), checkpoint: checkpointOf(item), branch: valueOf(item, 'Branch') ?? null, history: historyOf(item) }))
     .sort((a, b) => byId(a.id, b.id))
     .map(({ id, owner, ...rest }) => {
       const name = String(owner).trim()
@@ -164,9 +164,10 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
     const asking = lanes.filter(lane => lane.isAsking === true && lane.state !== 'off').map(lane => lane.name)
     const working = lanes.filter(lane => runsTurn(lane) && !asking.includes(lane.name)).map(lane => lane.name)
     const typing = [...new Set((pending ?? []).map(one => one?.to).filter(to => typeof to === 'string' && to !== ''))]
-    const unsaved = holders.filter(holder => !isSince(holder.checkpoint, pause.since)).map(({ chat, id }) => ({ chat, id }))
+    // Pause truth item 7: a step in review is named so (`inReview`): no chat resumes it, the board goes on with its check.
+    const unsaved = holders.filter(holder => !isSince(holder.checkpoint, pause.since)).map(({ chat, id, state }) => ({ chat, id, ...(state === 'review' ? { inReview: true } : {}) }))
     const offBoard = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) === undefined && !isSince(holder.checkpoint, pause.since))
-      .map(({ chat, id }) => ({ chat, id, title: `${prefix}${chat}` }))
+      .map(({ chat, id, state }) => ({ chat, id, title: `${prefix}${chat}`, ...(state === 'review' ? { inReview: true } : {}) }))
     // B364: every chat of the board by its state, in the board's order, for the panel's loader.
     const isTyped = lane => typing.some(to => plain(to, prefix) === plain(lane.name, prefix))
     // A line handed to a chat starts a turn, also in one that does not run yet or is no lane: said as typing, as isSafe
@@ -190,11 +191,13 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
     // T8.5: a task given to a worker went back at the pause (its one task in flight): it waits for no start.
     const resumed = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) !== undefined)
     const waiting = byChat(resumed.filter(holder => isResumed(items, holder) && !hasStarted(laneOf(holder.chat), pause.since)), prefix)
-    return { state: 'resuming', since: pause.since, waiting, isResumed: waiting.length === 0, until: Number.isFinite(pause.since) ? pause.since + RESUME_WAIT_MS : null }
+    return { state: 'resuming', since: pause.since, ...(Number.isFinite(pause.pausedSince) ? { pausedSince: pause.pausedSince } : {}), waiting, isResumed: waiting.length === 0, until: Number.isFinite(pause.since) ? pause.since + RESUME_WAIT_MS : null }
   }
   const isShown = Number.isFinite(now) && Number.isFinite(pause.since) && now - pause.since < NOT_STARTED_SHOWN_MS
   const notStarted = !isShown ? [] : (pause.notStarted ?? []).filter(one => !hasStarted(laneOf(one.chat), pause.resumedSince ?? pause.since))
-  return notStarted.length === 0 ? { state: 'running', since: pause.since } : { state: 'running', since: pause.since, notStarted }
+  // Review 10: when the pause began and when the resume began, so the page keeps drawing the pause that was.
+  const window = { ...(Number.isFinite(pause.pausedSince) ? { pausedSince: pause.pausedSince } : {}), ...(Number.isFinite(pause.resumedSince) ? { resumedSince: pause.resumedSince } : {}) }
+  return notStarted.length === 0 ? { state: 'running', since: pause.since, ...window } : { state: 'running', since: pause.since, ...window, notStarted }
 }
 
 /** Holders as one entry per chat (2026-10-19: a chat counts once), `{ chat, ids }`, in the order of their first step. */
@@ -292,3 +295,12 @@ export function heldMs(message, now, pause) {
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0
   return Math.max(0, Math.min(end, now) - Math.max(start, message.at))
 }
+
+/**
+ * Pause truth item 3: the names of the chats the board reads as having no process (`isRunning === false`: closed, or ended by the
+ * PC's sleep and the app's restart). An unknown one (`isRunning` null: no word of its mod yet) is not named: nothing is guessed.
+ */
+export const chatsWithoutProcess = lanes => (Array.isArray(lanes) ? lanes : []).filter(lane => lane?.isRunning === false && typeof lane.name === 'string').map(lane => lane.name)
+
+/** Review 2: the names of the chats that report asking (the app's question form, or waiting on the person): their popup may be real. */
+export const chatsAsking = lanes => (Array.isArray(lanes) ? lanes : []).filter(lane => (lane?.isAsking === true || lane?.state === 'waiting') && typeof lane.name === 'string').map(lane => lane.name)

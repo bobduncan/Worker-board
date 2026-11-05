@@ -415,7 +415,7 @@ export function createSupervisor(ports) {
       const shown = live?.items instanceof Map ? incidentsOf(live.items, now) : incidents
       const supervisor = live?.supervisor ?? null
       const cards = live === null ? [] : incidentCards({
-        incidents: shown, items: live.items ?? null, lanes: live.lanes ?? [], hasSupervisor: supervisor !== null,
+        incidents: shown, items: live.items ?? null, lanes: live.lanes ?? [], hasSupervisor: supervisor !== null, isPaused: isHolding(live.pause ?? null),
         words: wordsOf(runnerPorts.outbox(), shown, supervisor, now, keep),
       })
       const owned = rules.map(rule => ({ ...rule, ownsHealth: HEALTH_OWNERS.includes(rule.id) }))

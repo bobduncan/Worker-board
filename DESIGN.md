@@ -2181,6 +2181,20 @@ step on "check pending" for good.
 - **No remote** (`src/work/check.mjs`): origin/<base> unread passes as "has no remote" only when `git remote` names no
   origin; git not answering, or an origin whose base cannot be read, is a fault. A repository with an origin whose base
   was never pushed now fails the check, as it should.
+- **A busy file names its holder** (B1049, X: 2026-11-04 22:26 an orphaned `grep.exe` held `data/spending.json` open and the
+  measure loop failed every few minutes with only "EPERM"): a loop that fails with EPERM, EBUSY or EACCES on a file
+  twice, the second failure at least a minute after the first (round 3: the real 11-04 pairs came 113 to 120 s apart, so a strict 2 min never fired), gets a read-only Restart Manager lookup (`fileHolders` in `src/work/holders.mjs`, beside B844's folder
+  reader; RmStartSession, RmRegisterResources, RmGetList, RmEndSession) on the files the error names (the board's own temp
+  files left out). The head's line then ends "; held by grep.exe, pid 57736, since 19:52": at most three programs named,
+  the rest counted, at most one lookup a minute per file and one lookup in flight at a time, nothing named off Windows or when PowerShell does not answer.
+  The streak of busy failures of a file is apart from the loop's failing: it starts at the first EPERM/EBUSY/EACCES failure and ends,
+  with its names, only when the loop succeeds more than 2 min after its last busy failure, so the no-op success the measure
+  loop returns while a measure runs (the real 11-04 case: a failure every 2 min) does not reset it (it ends after 2 min free), or at once when the loop
+  fails for another reason (EPERM turned ENOENT: no program holds the file, so no "held by" stands beside it); the lookup reads the
+  whole error line, not the 300 characters the page keeps (a long project path would lose its file name).
+  It only reads: no Stop button, no program ended by the board (the person ends it in Task Manager). Tests:
+  `test/loopHolders.test.mjs` (a child holds a scratch file without share-delete, the rename gets EPERM, the loop fails a
+  minute on a test clock, the line names the program and its pid; the real 113.2 s and 119.966 s pairs; a lookup that settles after the streak ended names nothing).
 - Tests: `test/loops.test.mjs` (fake clock: a loop that throws once and goes on, one failing every refresh logged once,
   the page line, the log file and its rotation, stuck checks and their cap, the restart's wait), `test/work/recheck.test.mjs`
   (the action on a store), `test/work/check.test.mjs` (no remote against a failed call).
@@ -3920,7 +3934,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
   <why>" on the Backlog tab, in work next and list, and in the health summary, which counts review chains, not steps),
   `chain-long` (B664, X8 a third time: a chain of fixes with three tries or more, its first step and every fix under it
-  not dropped, whose newest fix is at work with no "Tried before:" line in its what: a third patch of the same way; one
+  not dropped, whose newest fix is at work with no "Tried before:" line in its what (a short part may stand before the colon, "Tried before, bridges:"; B1042, X152): a third patch of the same way; one
   case per chain and newest fix; a fix the board made open for the partner's other way is no case yet), `open-fix` (B667,
   B664's check, principle 2: an open fix the partner never refines had no follow-up: a step in review whose last fix is
   new with no refine round written since it was made, over 60 min from then (`openFixMinutes`) and its newest refine word
@@ -3988,7 +4002,28 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   hand-over's and 5 to 8 jobs at once, so no single blocker is left): the 5 s the board aims at is measured, not an alarm. A
   call answered after 2 to 10 s goes to the stall log only; an alarm sounds only when a slow answer does harm: board-slow for
   calls answered after the chat gave up (10 s, two within 2 min), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
-  clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. What forces a rebuild is pinned end to end by
+  clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. **A sleep is no stall** (B1049 part 2: the PC
+  slept 2026-11-04 23:45 to 11-05 08:15 and `data/stalls.json` held it as 8.5 h of "the loop blocked"): a stall is written as
+  `kind: 'sleep'` (no requests or jobs named) when a stall of the loop lasts over 10 min, spans a clock jump (the wall clock and the monotonic
+  one, `watchLoop`, disagree by over 5 s) or began before the board did (a work call is a sleep only when sent before the board began); an older loop stall over 10 min reads as a sleep too
+  (`stallOf`). A sleep is kept and said in plain words ("the PC slept (not a slow board)"); board-slow counts no call that
+  waited through one and cites it as "slept: ...", never as a stall. Review (2026-11-05): a call is left out only when its chat
+  sent it before the sleep began (the call's send time is `at - ms`, within 5 s of the sleep's start); the chats sleep with
+  the PC, so a call sent inside the window proves the PC was awake and counts, however long it waited (an 11 min hang with
+  the PC awake trips board-slow). Round 2 (2026-11-05, an independent check): only the timer's stall of the loop (`tick`) is
+  written as a sleep by its length (over 10 min); a work call (`slowCall`) that waited over 10 min stays `kind: 'call'`
+  (it is a sleep only when sent before the board began), because the loop kept ticking while it waited: the PC was awake
+  (`isSleep` reads the 10 min rule only for an old stall of the loop). A "sleep" that a counted call was sent inside (sent
+  after it began plus 5 s, before it ended) was a hang of the board with the PC awake: board-slow cites it under stalls
+  as "the loop blocked 12 min to 13:12:00; calls were sent inside it: not a sleep", never under "slept:". A PC sleep
+  under 10 min is logged as a stall of the loop, because `performance.now` keeps counting through a Windows sleep (QPC),
+  so the clock-jump check does not fire there (it stays for clocks that stop in a sleep) and the 10 min rule alone
+  catches a long sleep. `from < startedAt` cannot happen for the timer `watchLoop` starts (it begins at the board's start);
+  it guards a caller that hands in an earlier `from`. Round 3 (the re-check): a call proves a "sleep" was a hang only when it was
+  sent over a minute before the window's end and the window is under an hour (a call sent at the wake tick of a real night
+  proves nothing; the live 08:15:06 entry stays "slept"), and `slowCall` writes a call that spans a logged sleep (sent before it
+  began, answered after it ended) as that sleep, not as an 8.5 h call. An awake loop hang over 10 min names no jobs (it is
+  written as a sleep by `tick`), and EPERM alternating with another error never reaches the lookup (the other error ends the streak). Pinned by `test/sleepStall.test.mjs`. What forces a rebuild is pinned end to end by
   `test/rebuildsBoard.test.mjs` (a copy of the board with its state kept an hour, `WORKER_BOARD_STATE_MS`, and one line per
   rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
   an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a
@@ -6948,3 +6983,78 @@ a clear. Tests: `test/lazyClearReplay.test.mjs` (the real records, `test/fixture
 5. **Review (2026-11-04)**: `test/typedModBoard.test.mjs` runs part 1 on a running board over HTTP (a chat first heard on a typed call is known by
    its header; a typed call without a version erases nothing; a mod that never says one stays unknown); `goneWords` of the net is named
    `vanishedChatWords` (holderTimers.mjs has its own `goneWords`).
+
+## Pause truth (2026-11-05, build brief A, branch fix-pause-truth)
+
+The person's real pause (Pause all since 2026-11-04 23:36, the PC slept until 08:15, the app restarted) showed the page telling
+things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state of that day as its fixture
+(`test/fixtures/pause-2026-11-05/state-4310-trimmed.json`).
+
+1. **The day bars follow the cards** (`public/board.js` `pausedToday`, next to `pausedLanes`). While pausing, the chats `pausedLanes`
+   shows as Paused have the `interrupted` part of their day bar from the pause's start on drawn `suspended` (the quiet purple of a
+   pause, never the orange of attention); a stop before the pause stays a stop. One decision (`pausedLanes`), read by both. Mutant:
+   the call left out kills `item 1: the day bars ...`.
+2. **Card times are not the app restart's** (`src/state.mjs` `lastEntryAt`, `estimateSaidAt`). The restart appends a `cost-state` line to
+   every transcript (file time 08:15) and the Workers mod rewrites every card with its old plan (`at` 08:15). *Last activity* is the
+   newest transcript entry's own time (the file's time only when no entry has one). A card's *said N left* is the oldest line of the
+   chat's newest unbroken run in the history with the same task and the same time left (a renewed plan, another time left, is a new
+   estimate and takes the card's `at`); this also heals a history line that already holds the restart's time. Mutants: the file time
+   back (kills `item 2: a card never says ...` and `... really wrote after the restart`); the card's `at` back (kills `... never says`
+   and `a history that already holds the wrong restart time`).
+3. **A popup ask of a chat that cannot withdraw it** (`src/work/api.mjs` `popupAsks`, the server-only action `popup-asks`; `pause.mjs`
+   `chatsWithoutProcess`; server.mjs reconcile pass, its own `loops.run`). The Workers mod withdraws a popup ask when the call goes on;
+   a chat with no process (Worker 5 since the 08:15 restart) cannot. At each refresh the board withdraws an open `Via: form` popup ask
+   (`isPopupAsk`) whose step is done, dropped or gone, or whose chat the board reads as having no process (`isRunning === false`, an unknown
+   chat is never named), with the why "the popup cannot wait any more: ...". A popup ask of a running chat on an open step, and any
+   real question of the app's form, stay. Mutants: the step rule out, the process rule out, the popup test out (each kills one of the
+   three `item 3` tests; the real Q629/Q632/B966 are the fixture).
+4. **A "Last" line is a chat's past words** (`public/board.js` `lastNotHandedOut`, in the lane's Details). The line is the app's summary of the
+   chat's last turn (Main's, from 22:33: "Worker 3 running again; will pick up B1050"); the board cannot and does not edit it. While
+   the pause stands, a step id in it that is still on the ready list gets a line after it: "B1050 is not handed out yet: the pause
+   holds it; it goes out after Resume all." Nothing once the step left the ready list (taken), or when no pause holds. Mutants: the note
+   out, the pause test out, the ready-list test out (kill the two `item 4` tests).
+5. **A board that answers is not "off"** (`src/store.mjs` `tick`, `src/history.mjs` `parseHistory`, `lastByChat`; `say.mjs` and `state.mjs` read only
+   chat lines as chat lines). The trial board has no chats, so after a gap line (the PC slept) nothing was ever written and `gapsOf`
+   kept the last gap open "until now" (23:44 until now, on a board that answered). At its look after a gap, when no chat line
+   followed, the tick writes one `{ at, ran: true }` line (once: the next look finds a line that is no gap); the gap ends there. Old
+   history reads as before. The real tail of the trial's history.jsonl is the fixture. Mutants: the line not written; `ran` lines not
+   read back (each kills one `item 5` test).
+6. **A new step waits for Resume all while the pause holds** (`src/supervisor/cards.mjs` `stepState`/`incidentCards` `isPaused`;
+   `supervisor/index.mjs` `view` from `live.pause`; server.mjs passes `state.pause`). The refine word to the Advisor is one of the lines the
+   pause holds (`pause.held`), so the card of a `new` fix step (B1042, B1051 in the real case) says "new · waits for Resume all" while the
+   pause is `pausing`, and "waits for the Advisor" otherwise. Mutants: the pause not passed on, the words not switched (each kills one
+   `item 6` test).
+7. **A step in review is not "resumed from its branch"** (`src/work/pause.mjs` `holdersOf` gives `state`, `pauseFacts` marks `unsaved` entries
+   `inReview: true`; `public/board.js` `pauseRing` notes). A resume neither waits for nor wakes a chat for a step in review (`RESUMED`
+   leaves it out): its check goes on by the board's own hand-out, which the pause holds. 18 of the real pause's 20 notes were such steps
+   and said "it resumes from its branch and History". Now: "B851 (Worker 1) is in review and has no checkpoint; no chat resumes it, its
+   check goes on after Resume all." A step in progress keeps the old words. Mutants: `inReview` not written, the page's words not
+   switched (each kills one `item 7` test).
+8. **A leftover whose summary names only finished steps is no reason to keep it** (`src/replacedChats.mjs` `isAboutEndedSteps`, `stepState`
+   from the server's work store). The leftover Worker 3 card stayed because the app's summary said "answer B982" (done 2026-11-04
+   22:18). `needsAction` still keeps a chat, unless it names at least one step and every named step is done or dropped in the store
+   (a step open or unknown, or words naming none, keep it as before). The other rules stand: the newer chat must run and have reported
+   (in the real case it does not run until Resume all, so the card goes after the resume), same folder, quiet, and no open step of
+   the name that the live chat does not show. Mutants: the rule out, `some` for `every`, "not in progress" for "done or dropped" (each
+   kills `item 8`).
+
+The picture of the real pause (`test/pauseTruthPicture.mjs`, not a test): a tiny static server on 127.0.0.1 serves a `public/` folder and answers
+`/api/state` with the real case's state fixture, and a headless Edge draws it (`tools/evidence.mjs` `shootPage`). No board is started, no
+live data is read, no chat can be typed to. Before = main's `public/` (`git archive 08da3b7 public`), after = the branch's.
+
+### Pause truth: review (an independent review of the branch)
+
+- **Day bars (item 1, review 1 and 10):** `pausedToday` decides by the card's own status (`laneStatus(lane).key === 'paused'`), so free chats under
+  the pause are Paused bars too; `free` and `interrupted` spans are split at the pause's window. `pauseWindowOf(pause)`: pausing `[since, ∞)`, resuming
+  `[pausedSince, since]`, running `[pausedSince, resumedSince]` (pause.mjs `pauseFacts` carries both times); in a pause that is over every lane's
+  free/interrupted spans inside the window stay Paused. Only the last pause is on record.
+- **Estimate heal (item 2, review 3):** `estimateSaidAt` also compares the step and heals only when the card was rewritten without the chat acting
+  (no transcript entry within 5 min before the card's `at`, or after it; no transcript read: no heal).
+- **Popup asks (item 3, review 2 and 6):** withdrawn when the chat has no process; or the step is done/dropped/gone AND the chat no longer reports
+  asking (`body.asking`, `chatsAsking`). A gone step is withdrawn too (`withdraw` with `stepMayBeGone`, from the sweep only).
+- **Not handed out (item 4, review 7):** follows `state.reconciled.handOutHeld` and says the real reason (pause, resume, a full limit).
+- **Pause notes (item 7, review 4 and 8):** "is in review and has no checkpoint: no chat resumes it", plus what it waits on only where `reviewWaitOf`
+  knows (recap, Accept, answer, its check held by the pause: `waitsOn`); off-board holders in review are worded the same.
+- **Leftover (item 8, review 9):** the named steps must also have ended after the leftover's last activity (`stepEndedAt`, the step's Since).
+- **Server wiring (review 5):** `test/pauseTruthBoard.test.mjs` runs a board on a made-up project; mutants: popup-asks call out, `pause: state.pause`
+  out, `stepState` out, `stepEndedAt` out each fail it; the `say.mjs` guard has its own test.
