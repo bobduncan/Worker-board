@@ -46,6 +46,10 @@ export function parseAppChat(fileText) {
     createdAt: number(raw.createdAt),
     lastActivityAt: number(raw.lastActivityAt),
     completedTurns: number(raw.completedTurns),
+    // H2 (2026-11-05): a launch stub. The board's launch (`claude --desktop --resume`) made local_8f2378dd for Worker 2: an
+    // adopted transcript (`fromCliTranscript` or `adoptedFromOtherSurface`) with no completed turn and no answer yet is a
+    // copy of the CLI session, never the chat the title belongs to (the real one had 147 turns).
+    isStub: (raw.fromCliTranscript === true || raw.adoptedFromOtherSurface === true) && !(number(raw.completedTurns) > 0) && text(raw.lastAssistantUuid) === null,
     // B468: the effort the chat runs at, as the app sets it (from its next turn on).
     effort: text(raw.effort),
     model: text(raw.model),
@@ -121,6 +125,9 @@ export function boardChats(appChats, { project, prefix, main }) {
     createdAt: chat.createdAt,
     lastActivityAt: chat.lastActivityAt,
     completedTurns: chat.completedTurns,
+    isStub: chat.isStub === true,
+    // The id the app's file holds (state.mjs gives the card's moved id as `cliSessionId`; the app can resume this one).
+    ...(typeof chat.rawCliSessionId === 'string' ? { rawCliSessionId: chat.rawCliSessionId } : {}),
     effort: chat.effort ?? null,
     model: chat.model ?? null,
     summary: chat.summary,
@@ -131,6 +138,8 @@ export function boardChats(appChats, { project, prefix, main }) {
   const chats = named.map(chat => {
     const base = chat.name.match(/^(.*\S) \([^()]+\)$/)?.[1]
     const isCopy = base !== undefined && (base === main || names.has(base))
+    // H2: a stub is a leftover and takes no name: the real chat of the title stays the title's chat, in any order.
+    if (chat.isStub) return { ...chat, isMain: false, isLeftover: true }
     const isLeftover = isCopy || taken.has(chat.name)
     taken.add(chat.name)
     return { ...chat, isMain: !isLeftover && chat.name === main, isLeftover }
@@ -165,8 +174,10 @@ function activeAt(text) {
  * named as one of today's: a second lane of that name). Only the folder with the most recently active chat is read.
  * B986: `files`, when given, gets the app id of every chat file in the folders read (`local_<id>`), also one that could not
  * be read whole: a chat whose file is there is not gone from the app's list (ownChat.mjs `ownChatOf`).
+ * H1 (2026-11-05, the person's account switch): `elsewhere`, when given (a Map), gets the app id of every chat file in the
+ * folders NOT read, with the account folder's name: a chat that is only there lives in the person's other Claude account.
  */
-export async function readAppChats(dir, files = null) {
+export async function readAppChats(dir, files = null, elsewhere = null) {
   const folders = []
   for (const outer of await list(dir)) {
     if (!outer.isDirectory()) continue
@@ -182,12 +193,16 @@ export async function readAppChats(dir, files = null) {
         const head = await readHead(join(folder, file.name), CHAT_FILE_BYTES)
         if (head !== null && head.isWhole) texts.push(head.text)
       }
-      if (texts.length > 0) folders.push({ texts, ids, at: Math.max(...texts.map(activeAt)) })
+      if (texts.length > 0 || ids.length > 0) folders.push({ texts, ids, account: outer.name, at: texts.length === 0 ? 0 : Math.max(...texts.map(activeAt)) })
     }
   }
   // Two folders as recent as each other cannot be told apart: both are read.
   const newest = Math.max(0, ...folders.map(folder => folder.at))
   const read = folders.filter(folder => folder.at === newest)
   if (files instanceof Set) for (const folder of read) for (const id of folder.ids) files.add(id)
+  if (elsewhere instanceof Map) {
+    const seen = new Set(read.flatMap(folder => folder.ids))
+    for (const folder of folders) if (!read.includes(folder)) for (const id of folder.ids) if (!seen.has(id)) elsewhere.set(id, folder.account)
+  }
   return read.flatMap(folder => folder.texts)
 }

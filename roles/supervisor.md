@@ -171,7 +171,9 @@ You look for what is really wrong, nothing else.
 - `wake-failed` "could not wake Worker N: its chat is not in the app's list" (B986, X140): the chat its reports name is not
   in the Claude app's list (an account switch, an archived chat). The board tried no message and no launch, and the held
   step goes back by the timers (go on after 5 minutes, back 15 after); a fault only when the step is still held 20 minutes
-  after the chat stopped.
+  after the chat stopped. Since 2026-11-05 the same line may say "your chats are in your other Claude account: run /reimport-chats,
+  then restart the app" or "restart the app so it reads the reimported chats" (the person's to do), and the board tries a
+  failed wake once more by itself when the chat is listed and a new run was heard (`reopenSpells`).
 
 An incident that turns out to be one of these is closed in your judgment (`work drop X<n>` with its why, B685), so it
 leaves the lists; in a sweep you file a new finding only for a case that really is new.

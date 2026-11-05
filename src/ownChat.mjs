@@ -16,6 +16,15 @@ export const NOT_LISTED_WHY = 'its chat is not in the app\'s list'
 export const NOT_SHOWN_WHY = 'another chat of its name is open in the app: archive the one that does not hold its work'
 
 /**
+ * H1 (2026-11-05, the person's account switch): the own chat's file is only in the folder of the person's OTHER Claude
+ * account (the board reads one account's folder, the newest). The reimport skill brings it over; the app reads new files at
+ * a start.
+ */
+export const OTHER_ACCOUNT_WHY = 'your chats are in your other Claude account: run /reimport-chats, then restart the app'
+/** H1: the file is in the folder the board reads, yet the app answered "not found" (it reads new files only at a start). */
+export const RESTART_WHY = 'restart the app so it reads the reimported chats'
+
+/**
  * The app's answer to a message for a session it does not have (the hand-out's "Session local_82c0c4cd... not found" of
  * B984 at 11:31): the chat is not in the app's list, whatever the board's last read said. Only an answer that names a
  * session; "archived" is not one (X140 11:34:48: the launch after it worked).
@@ -32,7 +41,8 @@ const isText = value => typeof value === 'string' && value !== ''
  */
 export function keptFor({ name, kept = null, chat = null, chats = [] }) {
   if (kept === null || kept === undefined || !isText(kept.session)) return null
-  if (Number.isFinite(chat?.createdAt) && Number.isFinite(kept.at) && chat.createdAt > kept.at) return null
+  // H2: a launch stub (appChats.mjs `isStub`) is made by the board's own launch, after the report: it says nothing of whose chat it is.
+  if (chat?.isStub !== true && Number.isFinite(chat?.createdAt) && Number.isFinite(kept.at) && chat.createdAt > kept.at) return null
   const app = isText(kept.app) ? kept.app : null
   const elsewhere = (chats ?? []).some(one => one?.isLeftover !== true && one.name !== name && (one.cliSessionId === kept.session || (app !== null && one.appSessionId === app)))
   return elsewhere ? null : kept
@@ -52,16 +62,24 @@ export function keptFor({ name, kept = null, chat = null, chats = [] }) {
  * `lane` `{ session, appSession }` (the title's chat), `kept` the report `{ session, app }`, `apps` the parsed app chats
  * `{ sessionId, cliSessionId, isArchived }`, `appFiles` the app ids of the files read (null when not known).
  */
-export function ownChatOf({ lane, kept = null, apps = [], appFiles = null }) {
+export function ownChatOf({ lane, kept = null, apps = [], appFiles = null, elsewhere = null }) {
+  // G2: the id a launch resumes is the one the app's file holds (`rawCliSessionId`, state.mjs), not the end of the clear chain;
+  // only when it differs from the session, so a file that is up to date adds nothing.
+  const launchOf = (session, appSession) => {
+    const chat = (apps ?? []).find(one => one?.isArchived !== true && ((appSession !== null && one.sessionId === appSession) || (session !== null && one.cliSessionId === session)))
+    return isText(chat?.rawCliSessionId) && chat.rawCliSessionId !== session ? { launch: chat.rawCliSessionId } : {}
+  }
   const title = { session: lane?.session ?? null, appSession: lane?.appSession ?? null, isListed: true, isShown: true, by: 'title' }
-  if (kept === null || kept === undefined || !isText(kept.session)) return title
+  if (kept === null || kept === undefined || !isText(kept.session)) return { ...title, ...launchOf(title.session, title.appSession) }
   const app = isText(kept.app) ? kept.app : null
-  if (kept.session === title.session || (app !== null && app === title.appSession)) return { ...title, by: 'report' }
+  if (kept.session === title.session || (app !== null && app === title.appSession)) return { ...title, ...launchOf(title.session, title.appSession), by: 'report' }
   const other = (apps ?? []).find(chat => chat?.isArchived !== true && (chat.cliSessionId === kept.session || (app !== null && chat.sessionId === app)))
-  if (other !== undefined) return { session: other.cliSessionId ?? null, appSession: other.sessionId ?? null, isListed: true, isShown: false, by: 'report' }
+  if (other !== undefined) return { session: other.cliSessionId ?? null, appSession: other.sessionId ?? null, isListed: true, isShown: false, by: 'report', ...launchOf(other.cliSessionId ?? null, other.sessionId ?? null) }
   const isRewritten = app !== null && appFiles instanceof Set && appFiles.has(app) && !(apps ?? []).some(chat => chat?.sessionId === app)
   if (isRewritten) return { session: kept.session, appSession: app, isListed: null, isShown: true, by: 'report' }
-  return { session: null, appSession: null, isListed: false, isShown: true, by: 'report' }
+  // H1: its file is in a folder the board does not read: the person's other Claude account (`elsewhere`, app id to account).
+  const account = app !== null && elsewhere instanceof Map ? elsewhere.get(app) ?? null : null
+  return { session: null, appSession: null, isListed: false, isShown: true, by: 'report', ...(account === null ? {} : { elsewhere: account }) }
 }
 
 /**
@@ -72,8 +90,9 @@ export function ownChatOf({ lane, kept = null, apps = [], appFiles = null }) {
 export function wakeIdsOf(lane) {
   const own = lane?.own ?? null
   if (own === null || typeof own !== 'object') return { session: lane?.session ?? null, appSession: lane?.appSession ?? null, isListed: true, why: null }
-  const why = own.isListed === false ? NOT_LISTED_WHY : own.isShown === false ? NOT_SHOWN_WHY : null
-  return { session: own.session ?? null, appSession: own.appSession ?? null, isListed: own.isListed ?? true, why }
+  const why = own.isListed === false ? (typeof own.elsewhere === 'string' ? OTHER_ACCOUNT_WHY : NOT_LISTED_WHY) : own.isShown === false ? NOT_SHOWN_WHY : null
+  // G2: a launch resumes the id the app's file holds (`launch`), when it differs from the session the board follows.
+  return { session: own.launch ?? own.session ?? null, appSession: own.appSession ?? null, isListed: own.isListed ?? true, why }
 }
 
 /** Why no wake of `lane` can be tried (NOT_LISTED_WHY, NOT_SHOWN_WHY), or null. */

@@ -1620,7 +1620,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const apps = (Array.isArray(raw.appChatTexts) ? raw.appChatTexts : [])
     .map(text => parseAppChat(textOr(text, '')))
     .filter(chat => chat !== null)
-    .map(chat => (moved.has(chat.cliSessionId) ? { ...chat, cliSessionId: moved.get(chat.cliSessionId) } : chat))
+    // G2: and the id the app's file holds (`rawCliSessionId`): what a launch resumes, whatever the card chain says.
+    .map(chat => (moved.has(chat.cliSessionId) ? { ...chat, cliSessionId: moved.get(chat.cliSessionId), rawCliSessionId: chat.cliSessionId } : chat))
   const movedBack = new Map([...moved].map(([from, to]) => [to, from]))
   // B152: a chat whose card says it left the list of chats ("left": true) gets no lane, also while its chat stays
   // open in the app (one with Remote Control on cannot be closed). For two minutes after the card said so, its lane
@@ -2159,6 +2160,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const keptOf = lane => (lane.isLeftover || !(reports instanceof Map) ? null
     : keptFor({ name: lane.name, kept: reports.get(lane.name) ?? null, chat: shownChatOf(lane.name), chats: found }))
   const appFiles = Array.isArray(raw.appFiles) ? new Set(raw.appFiles.filter(id => typeof id === 'string')) : null
+  // H1: the chat files of the account folders the board does not read, app id to the account folder's name.
+  const appElsewhere = raw.appElsewhere !== null && typeof raw.appElsewhere === 'object' ? new Map(Object.entries(raw.appElsewhere).filter(([, account]) => typeof account === 'string')) : null
   const sequenced = lanes.map(lane => withSequence({
     ...lane,
     // T8.5: the Workers mod its last call said (else its kept report's), for the one predicate of the hand-over (`onSequence`).
@@ -2166,7 +2169,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     // list, the kept report's mod still counts: the worker on the sequence keeps change 3's timers, never the old resume word.
     mod: mods?.[lane.name] ?? lane.report?.mod ?? keptOf(lane)?.mod ?? null,
     // B986 (X140): the lane's own chat, the one its kept report names (src/ownChat.mjs): every wake goes by it, never by the title.
-    own: lane.isLeftover ? null : ownChatOf({ lane, kept: keptOf(lane), apps, appFiles }),
+    own: lane.isLeftover ? null : ownChatOf({ lane, kept: keptOf(lane), apps, appFiles, elsewhere: appElsewhere }),
     // B986 (the review, 7): the kept report the wake's spell is read from when the title's chat has none (wake.mjs `spellOf`),
     // so the spell does not flip between that report and none, and the woken chat's own report is heard in it.
     ownReport: lane.isLeftover || lane.report != null ? null : (({ state, since, at }) => ({ state, since, at }))(keptOf(lane) ?? {}),

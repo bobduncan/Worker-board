@@ -5708,6 +5708,37 @@ spell holds and the woken chat's own report is heard in it.
 **Not in it.** The reimport of chats after an account switch (chat 1 fixes it with the person); the pause note's window
 (its own fix).
 
+**A failed wake is tried again, and an account switch is said plainly (G+H, 2026-11-05).** The evening of the person's
+account switch (~20:25): the app keeps one chat list per account (`claude-code-sessions<account><org>local_*.json`);
+the board reads only the folder with the newest chat (`readAppChats`), where Workers 1 and 5 were stale copies, so their
+own chats were "not in the app's list". The reimport (20:33) brought the real chats over, but the app reads new files only at
+a start: Main's message at 20:33:30 got "session local_e92c96e7... not found" (`unlisted`). At ~21:20 the app was back, yet
+nothing tried again: an `unlisted` attempt stops the spell for good, and a spent spell (Worker 2: message and launch both
+failed) has no try left. Now:
+- **G1, re-opened once.** The record keeps `heardRunAt`, the newest time the board heard a report with a NEW `run` from any
+  chat (`noteRun`, the server's `keepReport`: the app, or that chat's process, is back). `reopenSpells` (the server's wake
+  pass each minute, and at once when a new run is heard) sets `reopenedAt` on the newest spell of a lane that does not run when
+  ALL hold: the lane's own chat is listed now (`wakeIdsOf` has no `why`), no attempt is pending or woke, the spell failed as
+  `unlisted` or is spent (every path its ids allow was tried), and `heardRunAt` is after the spell's last verdict. Only the
+  attempts made since `reopenedAt` count (`countedOf`: `nextPath`, `statusOf`), so the notice (`final` false) goes by itself and
+  the message is claimed again by the next hand that may send; the old attempts stay in the record. Once per spell: a
+  second failure is final. Saved in `data/wakes.json` (`heardRunAt`, the entry's `reopenedAt`).
+- **G2, the whole clear chain.** `followMoves` (sources.mjs) follows the cards' `movedTo` to the end, with a seen set against a
+  loop; the old cap of eight hops ended a copy 12 clears behind at a wrong session. A launch resumes the id the app's FILE holds
+  (`rawCliSessionId`, set by the state; `ownChatOf` `launch`, `wakeIdsOf` `session`), never the end of the chain the app cannot
+  resume; a message still goes by the app id.
+- **H1, said plainly.** `readAppChats(dir, files, elsewhere)` also collects the app ids of the folders it does not read, with the
+  account folder's name. A lane whose own chat is listed there (`ownChatOf` `elsewhere`) says "your chats are in your other
+  Claude account: run /reimport-chats, then restart the app" (`OTHER_ACCOUNT_WHY`); a chat whose file the board reads but whose
+  wake the app answered "not found" says "restart the app so it reads the reimported chats" (`RESTART_WHY`, in the lane and the
+  notice). The reimport skill itself is the person's and unchanged.
+- **H2, a launch stub is never the chat.** An adopted transcript (`fromCliTranscript` or `adoptedFromOtherSurface`) with no
+  completed turn and no answer (`parseAppChat` `isStub`) is a leftover in `boardChats` and takes no title, and its `createdAt` never
+  drops a kept report (`keptFor`). The board's launch at 20:30 had made one (`local_8f2378dd`) that took Worker 2's place. The
+  reimport skill's `--titles` still compares recency by `lastActivityAt` alone and keeps such a stub: the person's, not changed here.
+
+Tests: `test/wakeAccount.test.mjs` (the evening's fixtures, `fixtures/wake-account`).
+
 Tests: `test/heldStepWayBack.test.mjs` (X140 replayed with its ids and times, 10:58 to 11:13: on the sequence, no
 resume-step, could not wake at once, one go on line, B968 given back from c3186b6 with its branch and plan; the cases and
 the 5 and 15 minutes; the kept app id).

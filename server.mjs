@@ -102,7 +102,7 @@ import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/code
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, personAgain, readWakes, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
@@ -1874,6 +1874,12 @@ async function main(args) {
     if (checked?.ok === true && hasMoved(entryBefore, entryAfter)) void keepWaitsNow()
     // Signals change 4 (C.4): the woken chat's own report after a wake attempt, from a new process: the verdict "woke".
     // The hand-over decides for it once, so its task's net counts from the verdict (the 5-second ping is the earliest).
+    // G1 (2026-11-05): a report with a new run from any chat says the app is back; a spell that failed as "not found" (or is spent)
+    // is tried again once its chat is listed (wake.mjs `reopenSpells`).
+    if (checked?.ok === true && entryAfter !== undefined && entryAfter.run != null && entryAfter.run !== entryBefore?.run && wakeNoteRun(wakes, clock())) {
+      wakesChanged()
+      reopenWakes(readState.last())
+    }
     if (checked?.ok === true && entryAfter !== undefined) {
       const woke = wakeHeard(wakes, checked.chat, entryAfter, clock())
       if (woke !== null) {
@@ -2376,6 +2382,17 @@ async function main(args) {
       wakesChanged()
     }
   }
+  /** G1: re-open the spells of the lanes that do not run whose failure the app's return may have mended; true when one was. */
+  const reopenWakes = state => {
+    if (state === null || state === undefined) return false
+    const lanes = boardLanes(state).filter(lane => lane.isLeftover !== true && lane.isRunning === false).map(lane => ({
+      chat: lane.name, spell: spellOf(lane), listed: wakeIdsOf(lane).why === null, paths: wakePathsOf(lane, canLaunchNow()),
+    })).filter(lane => lane.spell !== null)
+    const opened = wakeReopen(wakes, lanes, clock())
+    for (const chat of opened) console.log(`Wake: ${chat} is tried again: its chat is listed and the app is back (a report with a new run).`)
+    if (opened.length > 0) wakesChanged()
+    return opened.length > 0
+  }
   const wakePass = async (given = null) => {
     if (isClosing || isOpening || bridgeKey === null || isShowOnly) return
     if (!(await ownsLoops())) return
@@ -2396,6 +2413,7 @@ async function main(args) {
       const spell = spellOf(lane)
       if (spell !== null && wakes.wakes.has(lane.name) && newSpell(wakes, lane.name, spell)) changed = true
     }
+    if (reopenWakes(state)) changed = true
     if (changed) wakesChanged()
     if (!canOpen || isHolding(state.pause)) return
     // The review of 2026-11-02 (4a): a launch the board could not make waits until its program and folder pass again.
