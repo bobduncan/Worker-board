@@ -1,0 +1,104 @@
+// Spending counts every chat (chat 1's brief, 2026-11-05): a backlog of hundreds of MB is read in a few scans without
+// holding the board, and the sessions cleared chats left (.claude/chats cards with `movedTo`) are counted under the chat.
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {mkdtemp,mkdir,writeFile,appendFile,rm,stat} from 'node:fs/promises'
+import {createWriteStream} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {createSpendingCollector,movedSubjects} from '../../src/work/routing/collector.mjs'
+import {attributeUsage} from '../../src/work/routing/metrics.mjs'
+
+const at=Date.UTC(2026,10,5,9)
+// The shapes of a real transcript: an answer with its usage, and a tool's output (the bulk of a transcript).
+const answer=(id,session='s')=>JSON.stringify({parentUuid:'p',isSidechain:false,type:'assistant',sessionId:session,timestamp:new Date(at).toISOString(),message:{id,model:'claude-opus-5-5',role:'assistant',content:[{type:'text',text:'done'}],usage:{input_tokens:10,cache_creation_input_tokens:0,cache_read_input_tokens:1000,output_tokens:20}}})
+const toolOutput=size=>JSON.stringify({parentUuid:'p',isSidechain:false,type:'user',timestamp:new Date(at).toISOString(),message:{role:'user',content:[{type:'tool_result',tool_use_id:'t',content:'x'.repeat(size)}]},toolUseResult:{stdout:'"type":"assistant" inside a tool output is no answer'}})
+async function backlog(path,mb,answers){
+  const out=createWriteStream(path),block=toolOutput(64*1024)+'\n'
+  let n=0
+  for(let written=0;written<mb*1024*1024;written+=block.length){
+    out.write(block)
+    if(n<answers&&written%(4*1024*1024)<block.length)out.write(answer(`m${n++}`)+'\n')
+  }
+  while(n<answers)out.write(answer(`m${n++}`)+'\n')
+  await new Promise(done=>out.end(done))
+}
+async function place(fn){const root=await mkdtemp(join(tmpdir(),'spending-every-'));try{const transcripts=join(root,'t'),chats=join(root,'chats');await mkdir(transcripts);await mkdir(chats);await fn({root,transcripts,chats})}finally{await rm(root,{recursive:true,force:true})}}
+
+// Point 1: the Advisor's 1.35 GB was read at 2 MB per visit, one visit per ~12 min. Now a backlog is read on to the
+// scan's bytes. Mutant (2 chunks per file, the old reading): 40 MB takes 20 scans, so one scan finds 2 of 20 answers.
+test('a backlog of 40 MB is read in one scan, every answer in it counted',async()=>place(async({root,transcripts})=>{
+  await backlog(join(transcripts,'advisor.jsonl'),40,20)
+  const collector=createSpendingCollector({dir:root,transcripts,clock:()=>at+1});await collector.load()
+  await collector.scan([{session:'advisor',name:'Advisor',role:'advisor'}])
+  const summary=collector.summary(7)
+  assert.equal(summary.messages,20)
+  assert.equal(summary.coverage.pendingBytes,0)
+}))
+
+// Point 2: the board keeps answering. A timer every 5 ms keeps firing while 64 MB are read; no gap is long.
+// Mutant (the backlog read in one buffer and parsed at once): one gap of hundreds of ms.
+test('while a 64 MB backlog is read, the board is never held for more than 150 ms',async()=>place(async({root,transcripts})=>{
+  await backlog(join(transcripts,'advisor.jsonl'),64,30)
+  const collector=createSpendingCollector({dir:root,transcripts,clock:Date.now});await collector.load()
+  let last=performance.now(),longest=0,ticks=0
+  const timer=setInterval(()=>{const now=performance.now();longest=Math.max(longest,now-last);last=now;ticks++},5)
+  await collector.scan([{session:'advisor',name:'Advisor',role:'advisor'}])
+  clearInterval(timer)
+  assert.equal(collector.summary(7).messages,30)
+  assert.ok(ticks>5,`the timer fired ${ticks} times`)
+  assert.ok(longest<150,`the board was held ${Math.round(longest)} ms`)
+}))
+
+// Point 3: every clear starts a new session; the old one's card names the next. Worker 3 cleared twice: both old
+// sessions count under Worker 3; a chain that ends in no named card counts under "Earlier chat".
+// Mutant (only the chats' own sessions, as before): Worker 3 has 1 message, not 3, and "Earlier chat" none.
+test('the sessions a cleared chat left are counted under that chat',async()=>place(async({root,transcripts,chats})=>{
+  for(const [session,id] of [['old1','a'],['old2','b'],['now','c'],['gone','d']])await writeFile(join(transcripts,`${session}.jsonl`),answer(id,session)+'\n')
+  await writeFile(join(chats,'old1.json'),JSON.stringify({movedTo:'old2',at}))
+  await writeFile(join(chats,'old2.json'),JSON.stringify({movedTo:'now',at}))
+  await writeFile(join(chats,'now.json'),JSON.stringify({name:'Worker 3',role:'worker',state:'working',task:null,at}))
+  await writeFile(join(chats,'gone.json'),JSON.stringify({movedTo:'deleted',at}))
+  assert.deepEqual((await movedSubjects(chats)).map(one=>[one.session,one.name]).sort(),[['gone','Earlier chat'],['old1','Worker 3'],['old2','Worker 3']])
+  const collector=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await collector.load()
+  await collector.scan([{session:'now',name:'Worker 3',role:'worker'}])
+  const chatsSeen=Object.fromEntries(collector.summary(7).chats.map(one=>[one.key,one.messages]))
+  assert.deepEqual(chatsSeen,{'Worker 3':3,'Earlier chat':1})
+}))
+
+// Point 3, kept cheap: a left session read to its end is not looked at again (no stat, no open), so 700 old sessions
+// cost nothing once read. Mutant (no read-out mark): the removed file shows as unavailable.
+test('a left session read to its end is not opened again',async()=>place(async({root,transcripts,chats})=>{
+  await writeFile(join(transcripts,'old.jsonl'),answer('a','old')+'\n')
+  await writeFile(join(transcripts,'now.jsonl'),answer('b','now')+'\n')
+  await writeFile(join(chats,'old.json'),JSON.stringify({movedTo:'now',at}))
+  await writeFile(join(chats,'now.json'),JSON.stringify({name:'Worker 1',role:'worker',at}))
+  const collector=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await collector.load()
+  const lanes=[{session:'now',name:'Worker 1',role:'worker'}]
+  await collector.scan(lanes)
+  await rm(join(transcripts,'old.jsonl'))
+  await appendFile(join(transcripts,'now.jsonl'),answer('c','now')+'\n')
+  await collector.scan(lanes)
+  const summary=collector.summary(7)
+  assert.equal(summary.messages,3)
+  assert.equal(summary.coverage.unavailableTranscripts,0)
+}))
+
+// Point 4: writes stay quick. The ledger keeps no transcript text and stays as small as before: a tool output's
+// words never reach it, and the index kept between chunks gives the same events as building them anew.
+// Mutant (the index not filled in place): no events at all.
+test('the events kept by message id between chunks are the ones built anew, and the ledger holds no text',async()=>place(async({root,transcripts})=>{
+  const entry=(id,output)=>({type:'assistant',messageId:id,at,model:'claude-opus-5-5',usage:{input:1,cacheRead:0,cacheWrite:0,output},blocks:[]})
+  const index=new Map()
+  attributeUsage({entries:[entry('one',5)],sourceSessionId:'s',chat:'Worker',role:'worker',index})
+  attributeUsage({entries:[entry('one',9),entry('two',1)],sourceSessionId:'fork',chat:'Copy',role:'worker',index})
+  const anew=attributeUsage({entries:[entry('one',9),entry('two',1)],sourceSessionId:'fork',chat:'Copy',role:'worker',previous:attributeUsage({entries:[entry('one',5)],sourceSessionId:'s',chat:'Worker',role:'worker'}).events})
+  assert.deepEqual([...index.values()],anew.events)
+  await backlog(join(transcripts,'s.jsonl'),2,3)
+  const collector=createSpendingCollector({dir:root,transcripts,clock:()=>at+1});await collector.load()
+  await collector.scan([{session:'s',name:'Worker',role:'worker'}])
+  const {readFile}=await import('node:fs/promises'),written=await readFile(join(root,'spending.json'),'utf8')
+  assert.equal(written.includes('xxxx'),false)
+  assert.equal(written.includes('inside a tool output'),false)
+  assert.ok((await stat(join(root,'spending.json'))).size<10000)
+}))

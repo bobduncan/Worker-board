@@ -22,8 +22,9 @@ export function estimateUsage(event){
 }
 const calls=entry=>(entry.blocks??[]).filter(b=>b.type==='tool_use'&&/(?:^|__)work$/.test(b.name??'')).map(b=>b.input??{})
 const phaseOf=action=>['refine','refined','contract','new'].includes(action)?'spec':['checked','candidate-review'].includes(action)?'review':['route-raise'].includes(action)?'evaluate':null
-export function attributeUsage({entries,assignments=[],sourceSessionId,parentSessionId=null,chat=sourceSessionId,role,previous=[],cursor={}}){
-  const events=new Map(previous.map(e=>[e.messageId,e]));let unknown=0,taskId=cursor.taskId??null
+// `index` (a Map by message id) is filled in place, for a collector that keeps it between chunks; without it `previous` is copied.
+export function attributeUsage({entries,assignments=[],sourceSessionId,parentSessionId=null,chat=sourceSessionId,role,previous=[],index=null,cursor={}}){
+  const events=index??new Map(previous.map(e=>[e.messageId,e]));let unknown=0,taskId=cursor.taskId??null
   for(const entry of entries){
     if(entry.type!=='assistant')continue
     const child=parentSessionId!==null||entry.isSidechain===true
@@ -45,7 +46,7 @@ export function attributeUsage({entries,assignments=[],sourceSessionId,parentSes
     }else events.set(entry.messageId,next)
     if(actions.some(a=>a.action==='report'&&a.id===taskId)&&!child)taskId=null
   }
-  return {events:[...events.values()],cursor:{taskId},unknown}
+  return {events:index?null:[...events.values()],cursor:{taskId},unknown}
 }
 const round=n=>Math.round(n*1e8)/1e8
 function grouped(events,key){
