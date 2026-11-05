@@ -29,7 +29,7 @@ import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
 import { rebuildHoldOf } from '../../goalGuard.mjs'
 import { DEAF_KEEP_MS } from '../../hearing.mjs'
-import { SLEEP_MS, isSleep, stallWords } from '../../stallWords.mjs'
+import { isSleep, stallWords } from '../../stallWords.mjs'
 import { isHandTaken } from '../../hands.mjs'
 import { triedWords } from '../../wake.mjs'
 
@@ -1018,6 +1018,8 @@ function boardDeaf(view) {
 const SLOW_PAIR_MS = 2 * MIN
 /** B736: how far back a late answer still counts. */
 const SLOW_LOOK_MS = 10 * MIN
+/** A call sent this close after a sleep began (or before) still counts as sent before it. */
+const SLEEP_SLACK_MS = 5000
 
 /** B934: how many of the board's newest stalls the finding cites. */
 const SLOW_CITES = 3
@@ -1028,12 +1030,14 @@ const secondsOf = ms => `${clockOf(ms)}:${pad(new Date(ms).getSeconds())}`
  * board answered after the chat's Workers mod had given up on them (view.mjs `lateCalls`, from each call's request id):
  * one finding, naming the longest wait. B934 (X93): its evidence cites the board's newest stalls in that time (the stall
  * log, stalls.mjs: what the board ran while it did not answer), or says the log names none. B1049: a sleep of the PC is no
- * slow board: a call that waited through one (over 10 min, or overlapping a stall logged as a sleep) is not counted, and
+ * slow board: a call its chat sent before a sleep began and that was answered after it began is not counted (a call sent inside the window proves the PC was awake), and
  * the evidence names the sleep in its own words ("slept: ...").
  */
 function boardSlow(view) {
   const sleeps = (view.stalls ?? []).filter(isSleep)
-  const duringSleep = call => call.ms > SLEEP_MS || sleeps.some(sleep => call.at - call.ms < sleep.at && sleep.at - sleep.ms < call.at)
+  // A call counts unless its chat sent it before a sleep began: the chats sleep with the PC, so a call sent inside the window
+  // proves the PC was awake (a hang of the board), however long it waited.
+  const duringSleep = call => sleeps.some(sleep => call.at - call.ms <= sleep.at - sleep.ms + SLEEP_SLACK_MS && call.at > sleep.at - sleep.ms)
   const recent = (view.lateCalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS && !duringSleep(one)).sort((a, b) => a.at - b.at)
   if (!recent.some((one, index) => index > 0 && one.at - recent[index - 1].at <= SLOW_PAIR_MS)) return []
   const worst = Math.max(...recent.map(one => one.ms))

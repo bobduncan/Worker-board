@@ -83,3 +83,18 @@ test('the loop\'s watch gives the log both clocks, so a sleep the monotonic cloc
   tick()
   assert.deepEqual(log.recent().map(one => one.kind), ['loop', 'sleep'])
 })
+
+test('a hang of 11 min with the PC awake is no sleep for board-slow: calls sent inside it count; the real sleep, with no sends inside, does not', () => {
+  const end = Date.UTC(2026, 10, 5, 12, 0, 0)
+  const block = { at: end, ms: 11 * MIN, kind: 'sleep', requests: [], jobs: [] }
+  // Chats sent inside the block (5 and 3 min before it ended) and got their answers as it ended.
+  const sentInside = [{ at: end, ms: 5 * MIN }, { at: end + 1000, ms: 3 * MIN }]
+  assert.equal(check(end + 2000, sentInside, [block]).length, 1, 'sent while the PC was awake: the board hung')
+  // The same stall with only calls sent before it began (the chats slept with the PC): no slow board.
+  const sentBefore = [{ at: end, ms: 11 * MIN + 20_000 }, { at: end + 1000, ms: 12 * MIN }]
+  assert.deepEqual(check(end + 2000, sentBefore, [block]), [])
+  // A call that waited over 10 min but was sent inside the block still counts (no blanket ms exclusion).
+  assert.equal(check(end + 2000, [{ at: end, ms: 10 * MIN + 1000 }, { at: end + 1000, ms: 9 * MIN }], [block]).length, 1)
+  // The real 08:15 entry with calls sent before it began, and none inside: not counted.
+  assert.deepEqual(check(REAL.at + MIN, [{ at: REAL.at, ms: 30_599_000 }, { at: REAL.at + 1000, ms: 30_599_900 }], [REAL]), [])
+})
