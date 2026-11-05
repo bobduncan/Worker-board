@@ -374,6 +374,27 @@ function lastEntryAt(entries) {
   return times.length === 0 ? null : Math.max(...times)
 }
 
+/** Review 4: the clause for a step in review's wait that the board knows for sure, or null (nothing is said that is not known). */
+function reviewWaitClause(wait) {
+  switch (wait?.kind) {
+    case 'recap': return 'it waits for your verdict in the recap'
+    case 'accept': return 'it waits for your Accept'
+    case 'answer': return 'it waits for your answer'
+    case 'check': return 'its check waits for the hand-out, which the pause holds'
+    default: return null
+  }
+}
+
+/** Review 4 and 8: the pause view's steps in review (held, with no checkpoint) carry `waitsOn` where the board knows it. */
+function withReviewWaits(pause, items, held, now, recaps) {
+  const add = one => {
+    if (one.inReview !== true) return one
+    const clause = reviewWaitClause(reviewWaitOf(items.get(one.id), items, held, now, recaps))
+    return clause === null ? one : { ...one, waitsOn: clause }
+  }
+  return { ...pause, ...(pause.unsaved === undefined ? {} : { unsaved: pause.unsaved.map(add) }), ...(pause.offBoard === undefined ? {} : { offBoard: pause.offBoard.map(add) }) }
+}
+
 /** T13: whether a card's task holds a plan of its own: parts, a count of them, or a time (a topic alone is none). */
 const hasCardPlan = task => task.names !== null || task.steps > 0 || task.leftMs !== null || task.stepLeftMs !== null
 
@@ -2601,7 +2622,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     // B934 (X93): the board's newest stalls (stalls.mjs), which the rule board-slow cites.
     stalls: Array.isArray(stalls) ? stalls : [],
     restart,
-    pause,
+    // Review 4: a step in review is named with what it waits on only where the board knows it (reviewWaitOf's kind).
+    pause: pause === null ? null : withReviewWaits(pause, raw.work.items, reconciled?.ready?.held ?? null, now, recapWaits),
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many
     // workers there are, and the newest ask for workers.
     workers: (() => {

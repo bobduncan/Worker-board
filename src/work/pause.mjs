@@ -167,7 +167,7 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
     // Pause truth item 7: a step in review is named so (`inReview`): no chat resumes it, the board goes on with its check.
     const unsaved = holders.filter(holder => !isSince(holder.checkpoint, pause.since)).map(({ chat, id, state }) => ({ chat, id, ...(state === 'review' ? { inReview: true } : {}) }))
     const offBoard = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) === undefined && !isSince(holder.checkpoint, pause.since))
-      .map(({ chat, id }) => ({ chat, id, title: `${prefix}${chat}` }))
+      .map(({ chat, id, state }) => ({ chat, id, title: `${prefix}${chat}`, ...(state === 'review' ? { inReview: true } : {}) }))
     // B364: every chat of the board by its state, in the board's order, for the panel's loader.
     const isTyped = lane => typing.some(to => plain(to, prefix) === plain(lane.name, prefix))
     // A line handed to a chat starts a turn, also in one that does not run yet or is no lane: said as typing, as isSafe

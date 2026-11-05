@@ -360,7 +360,8 @@ test('item 7: the page words a step in review as the review goes on, and another
   const page = await openPage({ state, now: state.readAt })
   try {
     const text = notesOf(page)
-    assert.match(text, /B851 \(Worker 1\) is in review and has no checkpoint; no chat resumes it, its check goes on after Resume all\./)
+    assert.match(text, /B851 \(Worker 1\) is in review and has no checkpoint: no chat resumes it\./)
+    assert.ok(!/after Resume all/.test(text), 'nothing is promised that the board does not know')
     assert.match(text, /B2000 \(Worker 2\) has no checkpoint; it resumes from its branch and History\./)
     assert.equal((text.match(/resumes from its branch/g) ?? []).length, 1, 'only the step in progress resumes from its branch')
   } finally { await page.close() }
@@ -470,4 +471,37 @@ test('review 10: the board\'s pause view carries the window of the pause it ende
   assert.deepEqual([running.pausedSince, running.resumedSince], [PAUSED_AT, PAUSED_AT + 60 * MIN])
   const resuming = pauseFacts({ pause: { state: 'resuming', since: PAUSED_AT + 60 * MIN, pausedSince: PAUSED_AT }, items, lanes: [], now: NOW })
   assert.equal(resuming.pausedSince, PAUSED_AT)
+})
+
+// ---- Review 4 and 8: what a step in review waits on is said only where the board knows it; also for off-board holders.
+test('review 4: a waitsOn clause goes on the step the board knows the wait of; the page words it; nothing is said for the rest', async () => {
+  const state = await realCase()
+  state.pause = { ...state.pause, unsaved: [
+    { chat: 'Worker 1', id: 'B851', inReview: true, waitsOn: 'it waits for your verdict in the recap' },
+    { chat: 'Worker 2', id: 'B1021', inReview: true, waitsOn: 'its check waits for the hand-out, which the pause holds' },
+    { chat: 'Worker 5', id: 'B1031', inReview: true },
+  ], offBoard: [{ chat: 'Ghost', id: 'B7', title: 'Game - Ghost', inReview: true }, { chat: 'Ghost', id: 'B8', title: 'Game - Ghost' }] }
+  const page = await openPage({ state, now: state.readAt })
+  try {
+    const text = notesOf(page)
+    assert.match(text, /B851 \(Worker 1\) is in review and has no checkpoint: no chat resumes it; it waits for your verdict in the recap\./)
+    assert.match(text, /B1021 \(Worker 2\) is in review and has no checkpoint: no chat resumes it; its check waits for the hand-out, which the pause holds\./)
+    assert.match(text, /B1031 \(Worker 5\) is in review and has no checkpoint: no chat resumes it\./)
+    assert.match(text, /B7 \(Game - Ghost, not on the board\) is in review and has no checkpoint: no chat resumes it\./)
+    assert.match(text, /B8 \(Game - Ghost, not on the board\) has no checkpoint; it resumes from its branch and History\./)
+  } finally { await page.close() }
+})
+
+test('review 8: the board marks an off-board holders step in review too', () => {
+  const items = new Map([['B7', held('B7', 'Ghost', 'review')], ['B8', held('B8', 'Ghost', 'in progress')]])
+  const facts = pauseFacts({ pause: { state: 'pausing', since: PAUSED_AT }, items, lanes: [], prefix: '' })
+  assert.deepEqual(facts.offBoard.map(one => [one.id, one.inReview === true]), [['B7', true], ['B8', false]])
+})
+
+test('review 4: the board\'s own state puts waitsOn on a step in review whose wait it knows (its first check waits for the hand-out)', () => {
+  const review = parseItem(`Id: B900\nKind: step\nTitle: Step B900\nState: review\nOwner: Board\nActivity: Garden\nSince: ${stampOf(NOW - 20 * 60 * MIN)}\nBranch: b900\n\n## Standard\nground look · pictures/walls.png · target 75\n\n## History\n- ${stampOf(NOW - 19 * 60 * MIN)} Board: in progress → review\n- ${stampOf(NOW - 19 * 60 * MIN)} server: check passed: work in garden; result named\n`)
+  const state = realBoard({ steps: [review] })
+  const one = state.pause.unsaved.find(entry => entry.id === 'B900')
+  assert.equal(one.inReview, true)
+  assert.equal(one.waitsOn, 'its check waits for the hand-out, which the pause holds')
 })
