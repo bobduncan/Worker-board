@@ -104,6 +104,8 @@ export function newSpell(record, chat, spell) {
 /**
  * G1 (2026-11-05): the board heard a report with a new `run` from a chat at `at`: the app (or that chat's process) is back.
  * Kept as the newest such time; the server calls it when a chat's kept report changes its run.
+ * `heardRunAt` holds two kinds of ms time: the board's own clock when it heard a new run (G1), and a session's start
+ * (a run id) or a check's trigger moment (the start-up check); all are ms and only compared with a verdict's time.
  */
 export function noteRun(record, at) {
   if (!isTime(at) || (isTime(record.heardRunAt) && record.heardRunAt >= at)) return false

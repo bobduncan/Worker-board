@@ -226,7 +226,7 @@ export async function readAccountFolders(dir) {
 /**
  * Where a chat's file is, among all the account folders (`readAccountFolders`): 'here' (a real, open file in the folder of the
  * account in use: the one with the newest activity, as the board has always read; the app does not mark it), 'elsewhere' (such
- * a file only in another account's folder) or 'nowhere'. A launch stub (H2, `isStub`) and an archived file are no chat's file.
+ * a file only in another account's folder), 'unknown' (listed but not readable whole just now) or 'nowhere'. A launch stub (H2, `isStub`) and an archived file are no chat's file.
  * `appSession` the app id (`local_<id>`).
  */
 export function listedWhere(appSession, folders) {
@@ -237,5 +237,7 @@ export function listedWhere(appSession, folders) {
     return chat !== undefined && chat.isArchived !== true && chat.isStub !== true
   }
   if ((folders ?? []).some(folder => folder.at === newest && has(folder))) return 'here'
-  return (folders ?? []).some(has) ? 'elsewhere' : 'nowhere'
+  if ((folders ?? []).some(has)) return 'elsewhere'
+  // Review 1 (4): a file the app is rewriting (listed, not read whole) is not known, never "no chat".
+  return (folders ?? []).some(folder => folder.ids.includes(appSession) && !folder.chats.has(appSession)) ? 'unknown' : 'nowhere'
 }

@@ -20,7 +20,8 @@ export const NOT_SHOWN_WHY = 'another chat of its name is open in the app: archi
  * account (the board reads one account's folder, the newest). The reimport skill brings it over; the app reads new files at
  * a start.
  */
-export const OTHER_ACCOUNT_WHY = 'your chats are in your other Claude account: run /reimport-chats, then restart the app'
+export const OTHER_ACCOUNT_TAIL = 'your other Claude account: run /reimport-chats, then restart the app'
+export const OTHER_ACCOUNT_WHY = `your chats are in ${OTHER_ACCOUNT_TAIL}`
 /** H1: the file is in the folder the board reads, yet the app answered "not found" (it reads new files only at a start). */
 export const RESTART_WHY = 'restart the app so it reads the reimported chats'
 

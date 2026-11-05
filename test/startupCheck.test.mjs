@@ -82,8 +82,12 @@ const eveningFolders = ({ elsewhere }) => {
 }
 /** The six lanes; the ones named in `down` do not run (the 20:25 picture: Workers 1, 2 and 5). */
 const lanesOf = async ({ down = [] } = {}) => (await json('lanes.json')).map(lane => ({ ...lane, isRunning: !down.includes(lane.name) }))
-const sourcesOf = async ({ elsewhere = false, down = ['Worker 1', 'Worker 2', 'Worker 5'], now = AT_2125 } = {}) => ({
+/** The report with the new run at 21:20:41 (Main's): the moment the app was back, as the board heard it. */
+const RUN_2120 = 1793910041218
+const sourcesOf = async ({ elsewhere = false, down = ['Worker 1', 'Worker 2', 'Worker 5'], now = AT_2125, trigger = 'start', triggerAt = null } = {}) => ({
   now,
+  trigger,
+  triggerAt,
   folders: eveningFolders({ elsewhere }),
   lanes: await lanesOf({ down }),
   reports: (await json('reports.json')).reports,
@@ -144,14 +148,15 @@ test('task 3: the 20:33 picture (reimported, the app answered "not found" and ha
   assert.equal(verdict.fixed.some(one => one.kind === 'wake-again'), false)
 })
 
-test('task 3: the 21:20 picture (a new run heard) wakes Workers 1, 2, 5 and the Supervisor again once, clears their notices and closes X154-X158 and X160', async () => {
-  const verdict = await judged({ elsewhere: false, down: ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor'] })
+test('task 3: the 21:20 picture (a new run heard at 21:20:41) wakes Workers 1, 2 and 5 again once, clears their notices and closes X154-X156, X158 and X160; the Supervisor (failed again at 21:23) is not woken and X157 stays', async () => {
+  const verdict = await judged({ elsewhere: false, down: ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor'], trigger: 'app-restart', triggerAt: RUN_2120 })
   const kinds = kind => verdict.fixed.filter(one => one.kind === kind).map(one => one.chat).sort()
-  assert.deepEqual(kinds('wake-again'), ['Supervisor', 'Worker 1', 'Worker 2', 'Worker 5'])
-  assert.deepEqual(kinds('notice-cleared'), ['Supervisor', 'Worker 1', 'Worker 2', 'Worker 5'])
-  assert.deepEqual(verdict.actions.closeIncidents.map(one => one.id).sort(), ['X154', 'X155', 'X156', 'X157', 'X158', 'X160'])
+  assert.deepEqual(kinds('wake-again'), ['Worker 1', 'Worker 2', 'Worker 5'])
+  assert.deepEqual(kinds('notice-cleared'), ['Worker 1', 'Worker 2', 'Worker 5'])
+  assert.deepEqual(verdict.actions.closeIncidents.map(one => one.id).sort(), ['X154', 'X155', 'X156', 'X158', 'X160'])
   assert.ok(verdict.actions.closeIncidents.every(one => one.why === 'gone after the check at 21:25'))
-  assert.deepEqual(verdict.actions.reopen.map(one => one.chat).sort(), ['Supervisor', 'Worker 1', 'Worker 2', 'Worker 5'])
+  assert.deepEqual(verdict.actions.reopen.map(one => one.chat).sort(), ['Worker 1', 'Worker 2', 'Worker 5'])
+  assert.equal(verdict.actions.noteRun, RUN_2120, 'the runs of 22:30 in the snapshot are later than this picture\'s now: not proof of 21:25')
   assert.deepEqual(verdict.restartNeeded, [], 'a newer run beats the "not found" guess')
   assert.equal(verdict.line, 'All 7 chats reachable · checked 21:25')
   assert.equal(verdict.tone, 'quiet')
@@ -175,7 +180,7 @@ test('task 3: a ban whose lane runs that model is dropped; a ban of another mode
 test('task 3: several causes are still ONE line, in the order account, restart, no chat', async () => {
   const sources = withOldRuns(await sourcesOf({ elsewhere: true }))
   // Worker 2 loses its file too; Worker 1 and 5 stay in the other account; Worker 3 had its file but it was only a stub.
-  const folders = sources.folders.map(one => ({ ...one, chats: new Map([...one.chats].filter(([id]) => id !== W2_REAL_APP)) }))
+  const folders = sources.folders.map(one => ({ ...one, ids: one.ids.filter(id => id !== W2_REAL_APP), chats: new Map([...one.chats].filter(([id]) => id !== W2_REAL_APP)) }))
   const verdict = judge(pictureOf({ ...sources, folders }))
   assert.equal(verdict.line.split('\n').length, 1)
   assert.match(verdict.line, /^4 of 7 chats reachable · checked 21:25 · Worker 1's and Worker 5's chats are in your other Claude account: run \/reimport-chats, then restart the app · Worker 2 has no chat in the app: open one from the board$/)
@@ -204,7 +209,7 @@ test('task 4: apply on the 21:20 verdict: the wakes are open again (one message 
   const board = body => workApi(body, { dir, now: NOW, prefix: '', as: 'server', roleOf: () => null })
   const evening = await json('incidents.json')
   await recordFindings(evening.map(one => ({ rule: one.source, key: one.key, subject: one.subject, text: one.title })), { work: board })
-  const sources = await sourcesOf({ elsewhere: false, down: ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor'] })
+  const sources = await sourcesOf({ elsewhere: false, down: ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor'], trigger: 'app-restart', triggerAt: RUN_2120 })
   sources.incidents = evening.map((one, index) => ({ ...one, id: `X${index + 1}` }))
   const verdict = judge(pictureOf(sources))
   const envelopes = structuredClone(sources.envelopes)
@@ -217,8 +222,12 @@ test('task 4: apply on the 21:20 verdict: the wakes are open again (one message 
     writeCheck: async result => writeAtomic(join(dir, 'check.json'), `${JSON.stringify(result)}\n`),
   }
   const result = await apply(verdict, writers, NOW)
-  // The wake record: a message is claimed to each of the four, once.
-  for (const chat of ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor']) {
+  // The wake record: a message is claimed to each of the three, once; the Supervisor stays failed.
+  {
+    const spell = sources.wakes.wakes.get('Supervisor').at(-1).spell
+    assert.notEqual(nextPath(sources.wakes, { chat: 'Supervisor', spell, senderClaims: true, paths: ['message', 'launch'] }), 'message')
+  }
+  for (const chat of ['Worker 1', 'Worker 2', 'Worker 5']) {
     const spell = sources.wakes.wakes.get(chat).at(-1).spell
     const ask = () => nextPath(sources.wakes, { chat, spell, senderClaims: true, paths: ['message', 'launch'] })
     assert.equal(ask(), 'message', chat)
@@ -230,21 +239,27 @@ test('task 4: apply on the 21:20 verdict: the wakes are open again (one message 
   assert.equal(envelopes['Worker 3'][0].outcome.liftedBy, 'check')
   assert.deepEqual([...bansOf(envelopes['Worker 4'], NOW).keys()], ['claude-opus-5-5'], 'a ban of another model stays')
   const store = await readStore(dir)
-  for (let n = 1; n <= 6; n += 1) {
+  for (const n of [1, 2, 3, 5, 6]) {
     const item = store.items.get(`X${n}`)
     assert.equal(item.head.get('State'), 'gone', `X${n}`)
     assert.match((item.sections.get('History') ?? []).join('\n'), /gone after the check at 21:25/)
   }
+  assert.equal(store.items.get('X4').head.get('State'), 'open', 'X157: the Supervisor was not woken, its incident stands')
   const saved = JSON.parse(await readFile(join(dir, 'check.json'), 'utf8'))
   assert.deepEqual(saved, result)
   assert.deepEqual([saved.line, saved.running, saved.total, saved.reachable], ['All 7 chats reachable · checked 21:25', false, 7, 7])
-  assert.equal(saved.fixed.filter(one => one.kind === 'wake-again').length, 4)
-  assert.equal(saved.fixed.filter(one => one.kind === 'incident-gone').length, 6)
+  assert.equal(saved.fixed.filter(one => one.kind === 'wake-again').length, 3)
+  assert.equal(saved.fixed.filter(one => one.kind === 'incident-gone').length, 5)
+  assert.equal(saved.trigger, 'app-restart', 'the result names the trigger the picture had')
   assert.equal(saved.fixed.filter(one => one.kind === 'ban-dropped').length, 1)
   assert.deepEqual((await readdir(dir)).filter(name => name.endsWith('.tmp')), [], 'written atomically')
   // Once: a second check on the same record re-opens nothing and closes nothing.
-  const again = judge(pictureOf({ ...sources, incidents: [] }))
+  // Fed the store's incidents as they are after the close, the second check closes nothing and re-opens nothing.
+  const after = [...(await readStore(dir)).items.values()].filter(item => item.head.get('Kind') === 'incident').map(item => ({ id: item.head.get('Id'), key: item.head.get('Key'), source: item.head.get('Source'), subject: item.head.get('Subject'), state: item.head.get('State'), since: item.head.get('Since') }))
+  assert.equal(after.length, 6)
+  const again = judge(pictureOf({ ...sources, incidents: after }))
   assert.deepEqual(again.actions.reopen, [])
+  assert.deepEqual(again.actions.closeIncidents.map(one => one.id), [], 'nothing left to close that the first check could close')
 })
 
 test('task 4: a writer that fails is said in `failed` and leaves the other fixes done; a fix with no writer is not claimed as fixed', async () => {
@@ -255,4 +270,73 @@ test('task 4: a writer that fails is said in `failed` and leaves the other fixes
   assert.equal(result.fixed.some(one => one.kind === 'wake-again'), true)
   assert.equal(result.fixed.some(one => one.kind === 'ban-dropped'), false)
   assert.equal(result.fixed.some(one => one.kind === 'incident-gone'), false, 'no writer, no claim')
+})
+
+// ---- Review 1 (Opus, 2026-11-05): the nine fixes ----
+
+test('review 1 (1): an incident that rests on a re-open stays open when the wake write fails; the others close; `failed` says so', async () => {
+  const sources = await sourcesOf({ elsewhere: false, down: ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor'], trigger: 'app-restart', triggerAt: RUN_2120 })
+  const verdict = judge(pictureOf(sources))
+  const closed = []
+  const result = await apply(verdict, { wakes: { get wakes() { throw new Error('wakes.json busy') } }, closeIncidents: async list => { closed.push(...list.map(one => one.id)); return list.map(one => one.id) } }, AT_2125)
+  assert.deepEqual(closed.sort(), ['X158', 'X160'], 'only the ones that do not rest on the wake: the board-wide one and Main\'s (it runs)')
+  assert.ok(result.failed.some(one => /^wake-again: wakes.json busy/.test(one)))
+  assert.equal(result.fixed.some(one => one.kind === 'wake-again' || one.kind === 'notice-cleared'), false)
+  assert.deepEqual(result.fixed.filter(one => one.kind === 'incident-gone').map(one => one.what.split(' ')[0]).sort(), ['X158', 'X160'])
+})
+
+test('review 1 (3): a read that took too long leaves elsewhere, restart and nowhere empty and reachable null, never "nowhere" for every chat', async () => {
+  const verdict = judge(pictureOf({ ...(await sourcesOf()), folders: [], tooSlow: true }))
+  assert.deepEqual([verdict.elsewhere, verdict.restartNeeded, verdict.nowhere], [[], [], []])
+  assert.equal(verdict.reachable, null)
+  assert.equal(verdict.tooSlow, true)
+  assert.deepEqual(verdict.actions.reopen, [], 'a chat whose listing is not known is not woken')
+  assert.doesNotMatch(verdict.line, /no chat in the app/)
+})
+
+test('review 1 (4): a listed file that could not be read whole is unknown, not "no chat"; a running lane is never elsewhere or nowhere', async () => {
+  const sources = await sourcesOf({ elsewhere: false, down: [] })
+  const half = sources.folders.map(one => ({ ...one, chats: new Map([...one.chats].filter(([id]) => id !== 'local_0981b01c-5087-464a-beca-85d4f50734d2')) }))
+  const verdict = judge(pictureOf({ ...sources, folders: half }))
+  assert.equal(pictureOf({ ...sources, folders: half }).lanes.find(lane => lane.name === 'Worker 3').listedWhere, 'unknown')
+  assert.deepEqual(verdict.nowhere, [])
+  assert.equal(verdict.line, 'All 7 chats reachable · checked 21:25')
+  // Not listed at all, but it runs (its mod just called): the app has the chat, whatever the folders say.
+  const gone = sources.folders.map(one => ({ ...one, ids: one.ids.filter(id => id !== 'local_0981b01c-5087-464a-beca-85d4f50734d2'), chats: new Map([...one.chats].filter(([id]) => id !== 'local_0981b01c-5087-464a-beca-85d4f50734d2')) }))
+  const running = judge(pictureOf({ ...sources, folders: gone }))
+  assert.deepEqual(running.nowhere, [])
+  assert.equal(running.reachable, 7)
+  // The same lane NOT running is "no chat".
+  const down = judge(pictureOf({ ...(await sourcesOf({ elsewhere: false, down: ['Worker 3'] })), folders: gone }))
+  assert.deepEqual(down.nowhere, ['Worker 3'])
+})
+
+test('review 1 (5): a board start or the button counts as a trigger: a reimport and an app restart with no lane run yet still wake the chats; a trigger before the failure does not', async () => {
+  const afterFailure = new Date(2026, 10, 5, 21, 0).getTime()
+  const beforeFailure = new Date(2026, 10, 5, 20, 0).getTime()
+  const base = { elsewhere: false, old: true, down: ['Worker 1', 'Worker 2', 'Worker 5'] }
+  const start = judge(pictureOf(withOldRuns(await sourcesOf({ ...base, trigger: 'start', triggerAt: afterFailure }))))
+  assert.deepEqual(start.actions.reopen.map(one => one.chat).sort(), ['Worker 1', 'Worker 2', 'Worker 5'])
+  assert.equal(start.actions.noteRun, afterFailure)
+  assert.deepEqual(start.restartNeeded, [])
+  const early = judge(pictureOf(withOldRuns(await sourcesOf({ ...base, trigger: 'button', triggerAt: beforeFailure }))))
+  assert.deepEqual(early.actions.reopen, [])
+  assert.deepEqual(early.restartNeeded, ['Worker 1', 'Worker 5'])
+  // apply notes the trigger's moment (G1's heardRunAt) and names the trigger in the result.
+  const sources = withOldRuns(await sourcesOf({ ...base, trigger: 'button', triggerAt: afterFailure }))
+  const result = await apply(judge(pictureOf(sources)), { wakes: sources.wakes }, AT_2125)
+  assert.equal(sources.wakes.heardRunAt, afterFailure)
+  assert.equal(result.trigger, 'button')
+  // Once per spell: the same trigger again re-opens nothing.
+  assert.deepEqual(judge(pictureOf(sources)).actions.reopen, [])
+})
+
+test('review 1 (6): notice-cleared is recorded only when the notice really went (noticeOf before and after differ)', async () => {
+  const sources = await sourcesOf({ down: ['Worker 1'], trigger: 'app-restart', triggerAt: RUN_2120 })
+  const verdict = judge(pictureOf(sources))
+  // Worker 1's record is emptied between the look and the write: nothing to re-open, no notice to clear.
+  const result = await apply(verdict, { wakes: wakesOfFile({ wakes: {} }) }, AT_2125)
+  assert.equal(result.fixed.some(one => one.kind === 'notice-cleared'), false)
+  const real = await apply(verdict, { wakes: sources.wakes }, AT_2125)
+  assert.deepEqual(real.fixed.filter(one => one.kind === 'notice-cleared').map(one => one.chat), ['Worker 1'])
 })
