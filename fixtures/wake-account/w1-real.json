@@ -2,11 +2,11 @@
   "sessionId": "local_e92c96e7-9f9c-4b57-8f7d-7bfdfc3afcc8",
   "cliSessionId": "2f42220a-da5a-4eea-bc93-1311083885f5",
   "title": "Lava Tactics - Worker 1",
-  "cwd": "C:\\Web\\lava-tactics-project",
+  "cwd": "D:\\Work\\game-project",
   "createdAt": 1793211325792,
   "lastActivityAt": 1793831918930,
   "completedTurns": 116,
   "isArchived": false,
   "lastAssistantUuid": "913d012f-cb5a-4876-99fb-643efbd9dfa4",
-  "scheduledTaskId": "lava-tactics-project-worker-1"
+  "scheduledTaskId": "game-worker-1"
 }

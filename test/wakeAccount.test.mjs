@@ -152,7 +152,7 @@ async function accounts({ reimported = false } = {}) {
   if (reimported) await cp(join(FIXTURES, 'w1-real.json'), join(fresh, 'local_e92c96e7-9f9c-4b57-8f7d-7bfdfc3afcc8.json'))
   return dir
 }
-const RULES = { project: 'C:\\Web\\lava-tactics-project', prefix: 'Lava Tactics - ', main: 'Main' }
+const RULES = { project: 'D:\\Work\\game-project', prefix: 'Lava Tactics - ', main: 'Main' }
 const W1_KEPT = { session: '2f42220a-da5a-4eea-bc93-1311083885f5', app: 'local_e92c96e7-9f9c-4b57-8f7d-7bfdfc3afcc8', at: 1793831918930 }
 
 test('H1 the 20:25 case: the folder the board does not read holds the real Worker 1; its lane and notice say "your other Claude account: run /reimport-chats, then restart the app"', async () => {
