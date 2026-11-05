@@ -126,6 +126,7 @@ import { activePages, blockersOf, reportedNotLogged, selfUpdater } from './src/s
 import { findGameFile } from './src/gameFile.mjs'
 import { absentAs, readKept, writeAtomic, writeUnflushed } from './src/write.mjs'
 import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
+import { fileHolders } from './src/work/holders.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
@@ -803,7 +804,7 @@ async function main(args) {
     await stalls.load()
     watchLoop(stalls)
   }
-  const loops = loopRecord({ now: clock, write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')), track: trackJob })
+  const loops = loopRecord({ now: clock, holders: isDemo ? null : files => fileHolders(files), write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')), track: trackJob })
   /** B404: the checks after a report that run now, by step id; a restart waits for them, the stuck-check pass skips them. */
   const runningChecks = new Map()
   /** B404: set once a restart was asked: the board takes no more work and its loops start nothing new. */

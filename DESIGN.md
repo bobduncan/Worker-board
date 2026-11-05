@@ -2157,6 +2157,15 @@ step on "check pending" for good.
 - **No remote** (`src/work/check.mjs`): origin/<base> unread passes as "has no remote" only when `git remote` names no
   origin; git not answering, or an origin whose base cannot be read, is a fault. A repository with an origin whose base
   was never pushed now fails the check, as it should.
+- **A busy file names its holder** (B1049, X: 2026-11-04 22:26 an orphaned `grep.exe` held `data/spending.json` open and the
+  measure loop failed every few minutes with only "EPERM"): a loop that fails with EPERM, EBUSY or EACCES on a file for
+  2 min in a row gets a read-only Restart Manager lookup (`fileHolders` in `src/work/holders.mjs`, beside B844's folder
+  reader; RmStartSession, RmRegisterResources, RmGetList, RmEndSession) on the files the error names (the board's own temp
+  files left out). The head's line then ends "; held by grep.exe, pid 57736, since 19:52": at most three programs named,
+  the rest counted, at most one lookup a minute per file, nothing named off Windows or when PowerShell does not answer.
+  It only reads: no Stop button, no program ended by the board (the person ends it in Task Manager). Tests:
+  `test/loopHolders.test.mjs` (a child holds a scratch file without share-delete, the rename gets EPERM, the loop fails 2
+  min on a test clock, the line names the program and its pid).
 - Tests: `test/loops.test.mjs` (fake clock: a loop that throws once and goes on, one failing every refresh logged once,
   the page line, the log file and its rotation, stuck checks and their cap, the restart's wait), `test/work/recheck.test.mjs`
   (the action on a store), `test/work/check.test.mjs` (no remote against a failed call).

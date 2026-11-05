@@ -7,6 +7,8 @@
 import { appendFile, mkdir, stat, rename } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
+import { holderLine } from './work/holders.mjs'
+
 /** The words the page uses for each loop. A loop without one is shown by its name. */
 export const LOOP_WORDS = {
   look: 'the board\'s look',
@@ -61,6 +63,22 @@ export const wordsOf = name => LOOP_WORDS[name] ?? (String(name).startsWith('che
 /** B826: a loop run through `single` that runs longer than this is shown as failing, and the next tick runs again. */
 export const STALE_MS = 10 * 60_000
 
+/** B1049: a loop failing with a busy file this long in a row gets its file's holders looked up. */
+export const HOLDER_AFTER_MS = 2 * 60_000
+/** B1049: the holders of one file are looked up at most this often. */
+export const HOLDER_EVERY_MS = 60_000
+const BUSY_WORDS = /^(EPERM|EBUSY|EACCES)\b/
+
+/**
+ * B1049: the files an error of a busy file names ("EPERM: operation not permitted, rename 'a.json.57736.deadbeef.tmp' ->
+ * 'a.json'"): the quoted paths, without the board's own temp files (write.mjs besideOf). Empty for any other error.
+ */
+export function pathsOf(message) {
+  const text = String(message ?? '')
+  if (!BUSY_WORDS.test(text)) return []
+  return [...text.matchAll(/'([^']+)'/g)].map(one => one[1]).filter(file => !/\.\d+\.[0-9a-f]{8}\.tmp$/.test(file))
+}
+
 /** At most this many bytes in the log file; a larger one is moved to `<file>.1` (one older file is kept). */
 export const LOG_MAX_BYTES = 1_000_000
 
@@ -104,13 +122,29 @@ export function fileLog(file, { maxBytes = LOG_MAX_BYTES } = {}) {
  * a loop failing every refresh writes once, not every few seconds; after a success, its next failure is new again.
  * B934: `track(name, fn)` runs each run, so the stall log (stalls.mjs) names the loops that ran during a stall.
  */
-export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn) => fn() } = {}) {
+export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn) => fn(), holders = null } = {}) {
   const loops = new Map()
   // B446: the words (without their random part) of each loop's last line in the log, until it succeeds again.
   const logged = new Map()
   const of = name => {
     if (!loops.has(name)) loops.set(name, { name, lastOk: null, lastError: null, errorAt: null, failingSince: null, failures: 0, runs: 0 })
     return loops.get(name)
+  }
+
+  // B1049: `holders(files)` (holders.mjs fileHolders: read-only) names what holds the files a busy loop fails on. The lookups
+  // that run now, and when each file was last looked up.
+  const looking = new Set()
+  const lookedAt = new Map()
+  function lookUp(one, message, at) {
+    if (holders === null || one.failingSince === null || at - one.failingSince < HOLDER_AFTER_MS) return
+    const files = pathsOf(message).filter(file => !(at - (lookedAt.get(file) ?? -Infinity) < HOLDER_EVERY_MS))
+    if (files.length === 0) return
+    for (const file of files) lookedAt.set(file, at)
+    const lookup = Promise.resolve().then(() => holders(files)).then(
+      list => { if (one.failures > 0) one.holders = Array.isArray(list) && list.length > 0 ? list : undefined },
+      () => {},
+    ).finally(() => looking.delete(lookup))
+    looking.add(lookup)
   }
 
   /** Notes a failure of `name` (also for a loop that does not run through run()); `at` is when it began failing. */
@@ -123,6 +157,7 @@ export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn
     logged.set(name, errorKey(message))
     one.lastError = message
     one.errorAt = at
+    lookUp(one, message, now())
   }
 
   /** Notes a success of `name`: the loop is healthy again. */
@@ -131,6 +166,7 @@ export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn
     one.lastOk = now()
     one.failures = 0
     one.failingSince = null
+    delete one.holders
     // B446: the same error after a success is a new failure, and logged again.
     logged.delete(name)
   }
@@ -192,12 +228,15 @@ export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn
     .map(one => {
       const stuck = oldestHung(one.name)
       return stuck === null
-        ? { name: one.name, words: wordsOf(one.name), since: one.failingSince, error: one.lastError, failures: one.failures }
+        ? { name: one.name, words: wordsOf(one.name), since: one.failingSince, error: one.lastError, failures: one.failures, ...(one.holders ? { holders: one.holders } : {}) }
         : { name: one.name, words: wordsOf(one.name), since: stuck.since, error: stuck.error, failures: Math.max(1, one.failures) }
     })
     .sort((a, b) => a.since - b.since)
 
-  return { run, single, failed, succeeded, all, failing }
+  /** B1049: the holder lookups that run now settle (a test awaits it). */
+  const lookups = () => Promise.allSettled([...looking]).then(() => undefined)
+
+  return { run, single, failed, succeeded, all, failing, lookups }
 }
 
 /** The head's one line for the failing loops, or null when none fails: "Delivery failing since 23:10 (…)". */
@@ -206,7 +245,8 @@ export function failingLine(failing, timeOf) {
   const [first, ...more] = failing
   const words = String(first.words ?? first.name)
   const lead = `${words.charAt(0).toUpperCase()}${words.slice(1)} failing since ${timeOf(first.since)}`
-  return `${lead}${first.error ? ` (${first.error})` : ''}${more.length === 0 ? '' : `; also ${more.map(one => one.words ?? one.name).join(', ')}`}`
+  const held = holderLine(first.holders, timeOf)
+  return `${lead}${first.error ? ` (${first.error})` : ''}${held === '' ? '' : `; ${held}`}${more.length === 0 ? '' : `; also ${more.map(one => one.words ?? one.name).join(', ')}`}`
 }
 
 /**
