@@ -279,7 +279,8 @@ export function chainTries(id, items) {
 export const TRIES_BEFORE_ANOTHER_WAY = 2
 /** B664: the line an open fix of a long chain carries, and the line the partner's other way starts its what with. */
 export const ANOTHER_WAY = 'Two rounds, then another way: the partner refines it another way'
-const TRIED_BEFORE = /\bTried before:/i
+/** B1042 (X152): "Tried before:", or a short part before the colon ("Tried before, bridges:"; at most 40 characters, one line). */
+const TRIED_BEFORE = /\bTried before\b[^:\n]{0,40}:/i
 
 /** B664: whether a step's what (its What we build, or its refine block) names the ways tried before ("Tried before: ..."). */
 export const hasTriedBefore = item => ['What we build', 'Refined'].some(name => (item?.sections?.get(name) ?? []).some(one => TRIED_BEFORE.test(one)))
