@@ -2,9 +2,12 @@ import {mkdir,open,readFile,readdir,stat} from 'node:fs/promises'
 import {join} from 'node:path'
 import {writeAtomic} from '../../write.mjs'
 import {parseTail} from '../../transcript.mjs'
-import {attributeUsage,routingSummary} from './metrics.mjs'
+import {attributeUsage,foldEvents,routingSummary} from './metrics.mjs'
 
-const CHUNK=1024*1024,MAX_EVENTS=50000,MAX_FILES=32,TAIL_BYTES=16*CHUNK,MAX_BYTES=96*CHUNK,MAX_SCAN_MS=5000,MAX_CHILDREN=4096
+const CHUNK=1024*1024,MAX_EVENTS=50000,MAX_FILES=32,TAIL_BYTES=16*CHUNK,MAX_BYTES=96*CHUNK,MAX_SCAN_MS=5000,MAX_CHILDREN=4096,READ_OUT_SLICE=100
+// Round 4 (b): a ledger without day totals is read again once from the start, so the days the cap dropped are folded.
+const FOLD_VERSION=1
+const isZeros=bytes=>bytes.every(byte=>byte===0)
 const statOf=path=>stat(path).catch(()=>null)
 // Round 4 (c): of 1,291 lines over 1 MB none was an answer (user lines, request blobs): only an answer's line hides
 // usage, so only it is counted as skipped. Its type stands in its first bytes.
@@ -104,27 +107,38 @@ export async function appTitles(appSessions){
 
 export function createSpendingCollector({dir,transcripts,chats=null,appSessions=null,clock=Date.now}){
   let ledger={version:1,events:[],scans:{},startedAt:clock(),lastScanAt:null,unknown:0,retentionLimited:false},busy=false,problem=null,outcomes=[],unavailable=false
-  let keptFor={events:null,outcomes:null};const kept=new Map(),cards=new Map();let byId=null,byIdFor=null,titles=new Map(),titlesAt=-Infinity
+  let keptFor={events:null,outcomes:null,folded:null};const kept=new Map(),cards=new Map();let byId=null,byIdFor=null,titles=new Map(),titlesAt=-Infinity,outcomesKey='[]'
   // The events by message id, kept between scans: a chunk looks its answers up instead of building the map anew.
   const indexOf=()=>{if(byIdFor!==ledger.events){byId=new Map(ledger.events.map(e=>[e.messageId,e]));byIdFor=ledger.events}return byId}
   const file=join(dir,'spending.json')
-  const coverage=()=>({startedAt:ledger.startedAt,lastScanAt:ledger.lastScanAt,unknownMessages:ledger.unknown??0,skippedLongLines:ledger.skippedLongLines??0,pendingBytes:Object.values(ledger.scans).reduce((sum,scan)=>sum+Math.max(0,(scan.size??scan.offset)-scan.offset),0),pendingFiles:ledger.pendingFiles??0,childTranscripts:ledger.childTranscripts??0,unavailableTranscripts:ledger.unavailableTranscripts??0,discoveryLimited:ledger.discoveryLimited??false,retentionLimited:ledger.retentionLimited,retainedFrom:ledger.retentionLimited?ledger.retainedFrom??null:null,collecting:busy,problem,unavailable,scope:'Recorded project chats and discovered native children, including Main and Advisors; missing or still-pending transcripts leave totals incomplete.'})
+  const coverage=()=>({startedAt:ledger.startedAt,lastScanAt:ledger.lastScanAt,unknownMessages:ledger.unknown??0,skippedLongLines:ledger.skippedLongLines??0,pendingBytes:Object.values(ledger.scans).reduce((sum,scan)=>sum+Math.max(0,(scan.size??scan.offset)-scan.offset),0),pendingFiles:ledger.pendingFiles??0,childTranscripts:ledger.childTranscripts??0,unavailableTranscripts:ledger.unavailableTranscripts??0,discoveryLimited:ledger.discoveryLimited??false,retentionLimited:ledger.retentionLimited,retainedFrom:ledger.retentionLimited&&!Array.isArray(ledger.folded)?ledger.retainedFrom??null:null,collecting:busy,problem,unavailable,scope:'Recorded project chats and discovered native children, including Main and Advisors; missing or still-pending transcripts leave totals incomplete.'})
   return {
     async load(){
       try{const raw=JSON.parse(await readFile(file,'utf8'));if(!validLedger(raw))throw Error('Unsupported or corrupt spending ledger');ledger={...ledger,...raw};if(ledger.retentionLimited&&ledger.retainedFrom===undefined)ledger.retainedFrom=ledger.events.reduce((first,e)=>Math.min(first,e.sourceAt),Infinity);for(const [session,mark] of Object.entries(ledger.readOut??{}))if(typeof mark!=='number')delete ledger.readOut[session]
         // The count kept before counted every long line; checked on the live data (chat 1, 2026-11-05), none was an answer.
-        if(ledger.oversizedRule!==OVERSIZED_RULE){ledger.skippedLongLines=0;ledger.oversizedRule=OVERSIZED_RULE}}
+        if(ledger.oversizedRule!==OVERSIZED_RULE){ledger.skippedLongLines=0;ledger.oversizedRule=OVERSIZED_RULE}
+        if(ledger.foldVersion!==FOLD_VERSION){
+          // Read every transcript again from its start: the messages the cap dropped come back and are folded into day
+          // totals; the kept ones are merged by message id. The oversized lines and unknown messages are counted anew.
+          for(const scan of Object.values(ledger.scans)){scan.offset=0;scan.taskId=null;delete scan.skippingLine}
+          ledger.readOut={};ledger.readOutAt={};ledger.folded=[];ledger.skippedLongLines=0;ledger.unknown=0;ledger.foldVersion=FOLD_VERSION;ledger.oversizedRule=OVERSIZED_RULE
+        }}
       catch(error){if(error.code!=='ENOENT'){unavailable=true;problem='Spending history is unavailable. The previous file is preserved; repair or move it aside before restarting collection.'}}
+      if(ledger.foldVersion===undefined){ledger.foldVersion=FOLD_VERSION;ledger.folded=[]}
     },
     // B917 (X93): the board's every rebuild asked 5 summaries over all events, 374 ms each time; one is kept per period
     // while the events and outcomes are the same and its window starts in the same minute (the time and coverage fresh).
     summary(days=7){
       try{
         const now=clock(),period=days===null?'all':Number.isInteger(days)?`d${days}`:'part',minute=days===null?null:Math.floor((now-days*86400000)/60000)
-        if(keptFor.events!==ledger.events||keptFor.outcomes!==outcomes){kept.clear();keptFor={events:ledger.events,outcomes}}
+        // Round 4 (f): the outcomes are a new list every scan; they count as changed only when their content is.
+        if(keptFor.events!==ledger.events||keptFor.outcomes!==outcomesKey||keptFor.folded!==ledger.folded){kept.clear();keptFor={events:ledger.events,outcomes:outcomesKey,folded:ledger.folded}}
         const was=kept.get(period)
         if(was?.minute===minute)return {...was.value,days,until:now,coverage:{...was.value.coverage,...coverage()}}
-        const value=routingSummary({events:ledger.events,outcomes,now,days,coverage:coverage()})
+        // A window that moved past no message (its first one is still inside) gives the same summary.
+        const from=days===null?null:now-days*86400000,first=was?.value.coverage.earliestMessage
+        if(was&&from!==null&&Number.isFinite(first)&&from<=first){kept.set(period,{minute,value:was.value});return {...was.value,days,from,until:now,coverage:{...was.value.coverage,...coverage()}}}
+        const value=routingSummary({events:ledger.events,folded:ledger.folded??[],outcomes,now,days,coverage:coverage()})
         kept.set(period,{minute,value})
         return value
       }
@@ -134,10 +148,10 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
     offsetOf(key){return ledger.scans[key]?.offset??0},
     async scan(subjects,{assignments=[],results=[]}={}){
       if(busy||!transcripts||unavailable)return
-      busy=true;outcomes=results
+      busy=true;outcomes=results;outcomesKey=JSON.stringify(results)
       try{
         let changed=false,bytes=0,missing=0
-        const began=clock(),index=indexOf(),readOut=ledger.readOut??{}
+        const index=indexOf(),readOut=ledger.readOut??{},readOutAt=ledger.readOutAt??{}
         const jobs=[];ledger.discoveryLimited=false
         // Spending counts every chat: the sessions a clear left are read too, under the chat their moves end in.
         const own=new Set(subjects.map(one=>one.session))
@@ -149,16 +163,27 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
         const known=new Set([...own,...claimed.map(one=>one.session)])
         const others=chats?(await readdir(transcripts).catch(()=>[])).filter(name=>/^[\w-]+\.jsonl$/.test(name)).map(name=>name.slice(0,-6)).filter(session=>!known.has(session)).map(session=>({session,name:titleOf(session)??'Earlier chat',role:'worker',left:true})):[]
         const left=[...claimed,...others],filesOf=new Map()
+        // Round 4 (a): a read-out session is walked whole only when its transcript or its children's folder changed since
+        // its mark, or in its turn: READ_OUT_SLICE of them a scan, in rotation. One whose transcript and folder are gone is not.
+        const marked=left.filter(one=>readOut[one.session]!==undefined&&!own.has(one.session)).map(one=>one.session).sort()
+        const sliceFrom=marked.length?(ledger.readOutCursor??0)%marked.length:0
+        const inTurn=new Set(Array.from({length:Math.min(READ_OUT_SLICE,marked.length)},(_,n)=>marked[(sliceFrom+n)%marked.length]))
+        ledger.readOutCursor=marked.length?(sliceFrom+inTurn.size)%marked.length:0
         for(const subject of [...subjects,...left]){
           if(!/^[\w-]+$/.test(subject.session??'')||filesOf.has(subject.session))continue
+          if(readOut[subject.session]!==undefined&&!own.has(subject.session)&&!inTurn.has(subject.session)){
+            const [main,folder]=await Promise.all([statOf(join(transcripts,`${subject.session}.jsonl`)),statOf(join(transcripts,subject.session,'subagents'))])
+            if(main===null&&folder===null)continue
+            if(Math.max(main?.mtimeMs??0,folder?.mtimeMs??0)<=(readOutAt[subject.session]??0))continue
+          }
           const found=await sessionFiles(transcripts,subject.session)
           if(found.limited)ledger.discoveryLimited=true
           if(found.problem){ledger.discoveryLimited=true;problem='Some native child transcripts could not be discovered; totals are incomplete.'}
           // A left session read to its end is skipped while all its files have the bytes they had then. One that grew (a
           // chat resumed it, a child of it goes on, it is still in use) or that is a chat's own again is read on.
           if(readOut[subject.session]!==undefined){
-            if(!own.has(subject.session)&&bytesOf(found.files)===readOut[subject.session])continue
-            delete readOut[subject.session];changed=true
+            if(!own.has(subject.session)&&bytesOf(found.files)===readOut[subject.session]){if(readOutAt[subject.session]===undefined)changed=true;readOutAt[subject.session]=clock();continue}
+            delete readOut[subject.session];delete readOutAt[subject.session];changed=true
           }
           filesOf.set(subject.session,found.files)
           for(const file of found.files){
@@ -167,6 +192,8 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
             jobs.push(file.child===undefined?{...subject,key:file.key,path:file.path}:{session:`${subject.session}:child:${file.child}`,parentSessionId:subject.session,key:file.key,path:file.path,name:subject.name,role:'child',left:subject.left})
           }
         }
+        // The scan's time to read starts here, after the looking around.
+        const began=clock()
         // One file read on from its offset: at most `chunks` chunks, within `most` bytes of this scan; the board answers between chunks.
         const readOn=async(subject,chunks,most)=>{
           let handle
@@ -178,11 +205,13 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
               const buffer=Buffer.alloc(Math.min(CHUNK,stat.size-scan.offset,most-bytes));const {bytesRead}=await handle.read(buffer,0,buffer.length,scan.offset);bytes+=bytesRead
               if(!bytesRead)break
               let lineStart=0
-              if(scan.skippingLine){const newline=buffer.indexOf(10);if(newline<0){scan.offset+=bytesRead;changed=true;continue}lineStart=newline+1;scan.skippingLine=false}
+              if(scan.skippingLine){const newline=buffer.indexOf(10);if(newline<0){if(isZeros(buffer.subarray(0,bytesRead)))scan.skippingLine=false;scan.offset+=bytesRead;changed=true;continue}lineStart=newline+1;scan.skippingLine=false}
               const end=buffer.lastIndexOf(10,bytesRead-1)
               if(end<lineStart){
                 // A crash left a tail of zeros and no newline at the file's end: there is nothing more to read in it.
                 if(scan.offset+bytesRead===stat.size&&buffer.subarray(lineStart,bytesRead).every(byte=>byte===0)){scan.offset=stat.size;changed=true;break}
+                // Round 4 (d): a chunk of a crash's zeros is passed over, no line and no problem.
+                if(bytesRead===CHUNK&&isZeros(buffer.subarray(lineStart,bytesRead))){scan.offset+=bytesRead;changed=true;continue}
                 if(bytesRead===CHUNK){if(isAnswerLine(buffer.subarray(lineStart,bytesRead))){ledger.skippedLongLines=(ledger.skippedLongLines??0)+1;problem='Oversized transcript lines are excluded; collection continues after them.'}scan.skippingLine=true;scan.offset+=bytesRead;changed=true;continue}
                 if(lineStart>0){scan.offset+=lineStart;changed=true}
                 break
@@ -215,23 +244,25 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
           await readOn(job,Infinity,MAX_BYTES)
         }
         // A left session read to its end, its children too, is marked with the bytes of all its files.
+        const jobsOf=new Map()
+        for(const job of jobs){const session=job.parentSessionId??job.key;if(!jobsOf.has(session))jobsOf.set(session,[]);jobsOf.get(session).push(job)}
         for(const one of left){
           if(!filesOf.has(one.session))continue
-          const mine=jobs.filter(j=>j.key===one.session||j.parentSessionId===one.session)
+          const mine=jobsOf.get(one.session)??[]
           if(mine.every(j=>{const scan=ledger.scans[j.key];return scan!==undefined&&!scan.unavailable&&!scan.skippingLine&&scan.offset===scan.size})){
             // A new mark is written too, so it holds after a restart.
             const bytes=mine.reduce((sum,j)=>sum+ledger.scans[j.key].size,0)
-            if(readOut[one.session]!==bytes){readOut[one.session]=bytes;changed=true}
+            if(readOut[one.session]!==bytes){readOut[one.session]=bytes;readOutAt[one.session]=clock();changed=true}
           }
         }
-        ledger.readOut=readOut
+        ledger.readOut=readOut;ledger.readOutAt=readOutAt
         // Every child read so far counts, also of sessions read out.
         ledger.childTranscripts=Object.keys(ledger.scans).filter(key=>key.includes('/subagents/')).length
         ledger.pendingFiles=jobs.filter(j=>!ledger.scans[j.key]).length
         ledger.unavailableTranscripts=Math.max(missing,jobs.filter(j=>ledger.scans[j.key]?.unavailable).length)
         if(changed){
           let events=[...index.values()]
-          if(events.length>MAX_EVENTS){events.sort((a,b)=>a.sourceAt-b.sourceAt);events=events.slice(-MAX_EVENTS);ledger.retentionLimited=true;ledger.retainedFrom=events[0]?.sourceAt??null;byId=new Map(events.map(e=>[e.messageId,e]))}
+          if(events.length>MAX_EVENTS){events.sort((a,b)=>a.sourceAt-b.sourceAt);ledger.folded=foldEvents(ledger.folded??[],events.slice(0,-MAX_EVENTS));events=events.slice(-MAX_EVENTS);ledger.retentionLimited=true;ledger.retainedFrom=events[0]?.sourceAt??null;byId=new Map(events.map(e=>[e.messageId,e]))}
           ledger.events=events;byIdFor=events
         }
         ledger.lastScanAt=clock()

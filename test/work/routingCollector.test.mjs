@@ -100,7 +100,8 @@ test('a summary is kept until the events change or its window moves a minute, ne
     await writeFile(join(transcripts,'s.jsonl'),line('new',now))
     await collector.scan([{session:'s',name:'Worker'}])
     assert.equal(collector.summary(1).messages,inDay()+1)
-    assert.equal(collector.summary(null).messages,50000)
+    // Round 4 (b): the cap keeps 50 000 events; the one it drops is kept in its day's totals, so All counts it.
+    assert.equal(collector.summary(null).messages,50001)
     // A window that moved a minute leaves the oldest events behind.
     now+=61000
     assert.equal(collector.summary(1).messages,inDay()+1)
