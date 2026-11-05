@@ -68,7 +68,7 @@ const lines = (head, history) => `${Object.entries(head).map(([key, value]) => `
 const POPUP = 'A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (garden) for over a minute.'
 
 /** A board on a made-up project: a main chat Lead, a worker Units, and `extra` files in the work store and the app's folder. */
-async function boardWith(t, { files = {}, app: appFiles = {}, pause = null }) {
+async function boardWith(t, { files = {}, app: appFiles = {}, pause = null, advisor = false }) {
   const dir = await mkdtemp(join(tmpdir(), 'board-pause-truth-'))
   const started = []
   t.after(async () => {
@@ -86,7 +86,8 @@ async function boardWith(t, { files = {}, app: appFiles = {}, pause = null }) {
   await put(join(chats, 'lead-id.json'), JSON.stringify({ name: 'Lead', role: 'main', state: 'waiting', task: null, at: NOW }))
   await put(join(chats, 'units-id.json'), JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: NOW }))
   const appChat = (name, cli, more = {}) => JSON.stringify({ title: `Team - ${name}`, sessionId: `local_${name}`, cliSessionId: cli, cwd: project, isArchived: false, createdAt: name.length, lastActivityAt: NOW, ...more })
-  for (const [name, session] of [['Lead', 'lead-id'], ['Units', 'units-id']]) {
+  if (advisor) await put(join(chats, 'advisor-id.json'), JSON.stringify({ name: 'Advisor', role: 'advisor', state: 'waiting', task: null, at: NOW }))
+  for (const [name, session] of [['Lead', 'lead-id'], ['Units', 'units-id'], ...(advisor ? [['Advisor', 'advisor-id']] : [])]) {
     await put(join(app, 'a', 'b', `local_${name}.json`), appChat(name, session))
     await put(join(transcripts, `${session}.jsonl`), `${[typed(NOW - 40 * MIN, 'Go on.'), answer(NOW - 30 * MIN, 'Done.')].join('\n')}\n`)
   }
@@ -96,7 +97,7 @@ async function boardWith(t, { files = {}, app: appFiles = {}, pause = null }) {
   await put(join(work, 'activities.json'), `${JSON.stringify({ preamble: [], activities: [{ name: 'Art', steps: Object.keys(files).filter(id => id.startsWith('B')) }] }, null, 1)}\n`)
   if (pause !== null) await put(join(work, 'pause.json'), JSON.stringify(pause))
   const port = await freePort()
-  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'truth', project, port, gamePort: 7350, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), refreshSeconds: 5 }))
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'truth', project, port, gamePort: 7350, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), refreshSeconds: 5, ...(advisor ? { advisor: 'Advisor' } : {}) }))
   await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc') })
   const base = `http://127.0.0.1:${port}`
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
@@ -105,7 +106,8 @@ async function boardWith(t, { files = {}, app: appFiles = {}, pause = null }) {
   const token = (await (await fetch(`${base}/`)).text()).match(/name="board-token" content="([^"]+)"/)[1]
   const state = async () => (await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } })).json()
   const head = async (id, field) => (await readFile(join(work, `${id}.md`), 'utf8')).match(new RegExp(`^${field}: (.*)$`, 'm'))?.[1] ?? null
-  return { call, state, head }
+  const addFile = (id, text) => writeFile(join(work, `${id}.md`), text)
+  return { call, state, head, addFile }
 }
 
 test('on a running board: the popup ask of a done step is withdrawn by the pass, and a new fix step waits for Resume all while the pause holds', { timeout: 240_000 }, async t => {
@@ -139,4 +141,22 @@ test('on a running board: a leftover chat whose need names a step that ended aft
     return jobs.some(job => job.archive === true)
   }, 'the job that archives the leftover')
   assert.equal(jobs.find(job => job.archive === true).to, 'local_UnitsOld')
+})
+
+const popupOf = (id, owner, of) => lines({ Id: id, Kind: 'ask', Title: POPUP, State: 'open', Owner: owner, Activity: 'Art', Since: stamp(NOW - 25 * MIN), Filed: NOW - 25 * MIN, Asks: 'do', Blocking: 'no', Of: of, Via: 'form', Route: 'person' }, [`- ${stamp(NOW - 25 * MIN)} ${owner}: asked (do, with the app's question form)`]).replace('\n\n## History', `\n\n## Text\n${POPUP} Open its chat and look.\n\n## History`)
+
+test('on a running board: a popup ask stays while its chat, a worker or the Advisor, still reports asking on a done step; one of a chat that does not ask goes', { timeout: 240_000 }, async t => {
+  const done = lines({ Id: 'B11', Kind: 'step', Title: 'Task B11', State: 'done', Owner: 'Units', Activity: 'Art', Since: stamp(NOW - 30 * MIN) }, [`- ${stamp(NOW - 30 * MIN)} Units: in progress → done`])
+  const { call, head, state, addFile } = await boardWith(t, { advisor: true, files: { B11: done } })
+  for (const [chat, session] of [['Units', 'units-id'], ['Advisor', 'advisor-id']]) {
+    assert.equal((await call('report', { chat, session, report: { state: 'asking', since: Date.now() - MIN, seq: 1, run: 1 } })).status, 200)
+  }
+  // The chats' reports are in before the asks are filed (the pass runs at every refresh).
+  await until(async () => (await state()).chats.find(chat => chat.name === 'Units')?.state === 'waiting', 'Units reads as asking')
+  for (const [id, owner] of [['Q1', 'Units'], ['Q2', 'Advisor'], ['Q3', 'Lead']]) await addFile(id, popupOf(id, owner, 'B11'))
+  // The control: the main chat does not ask, so its popup of the done step goes (the pass has run).
+  await until(async () => (await head('Q3', 'State')) === 'withdrawn', 'the popup ask of the chat that does not ask withdrawn')
+  // The asking worker's (mutant: the asking list not sent) and the asking Advisor's (mutant: side chats left out) stay.
+  assert.equal(await head('Q1', 'State'), 'open')
+  assert.equal(await head('Q2', 'State'), 'open')
 })

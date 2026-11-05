@@ -3701,8 +3701,10 @@ async function main(args) {
         // Pause truth item 3: a popup ask whose step is done, or whose chat has no process (`isRunning === false`, never an unknown
         // one), is withdrawn: nobody is left to withdraw it. On its own, so a failure stops no delivery.
         await loops.run('popup-asks', async () => {
-          const gone = chatsWithoutProcess(state.chats)
-          const swept = await workAction({ action: 'popup-asks', gone, asking: chatsAsking(state.chats) }, 'server')
+          // Review 2: the Advisor, its helper, the Supervisor chat and the Product owner file popup asks too: they count as chats here.
+          const every = [...(state.chats ?? []), ...[state.advisor, state.advisorHelper, state.supervisorChat, state.productOwner].filter(one => one !== null && typeof one === 'object' && typeof one.name === 'string')]
+          const gone = chatsWithoutProcess(every)
+          const swept = await workAction({ action: 'popup-asks', gone, asking: chatsAsking(every) }, 'server')
           if (!swept.ok) throw new Error(swept.why ?? 'popup-asks was refused')
           if (swept.result.changed === true) readState.reset()
         })
