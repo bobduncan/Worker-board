@@ -127,7 +127,7 @@ export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn
   // B446: the words (without their random part) of each loop's last line in the log, until it succeeds again.
   const logged = new Map()
   const of = name => {
-    if (!loops.has(name)) loops.set(name, { name, lastOk: null, lastError: null, errorAt: null, failingSince: null, failures: 0, runs: 0 })
+    if (!loops.has(name)) loops.set(name, { name, lastOk: null, lastError: null, errorAt: null, failingSince: null, busySince: null, busyAt: null, failures: 0, runs: 0 })
     return loops.get(name)
   }
 
@@ -135,8 +135,10 @@ export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn
   // that run now, and when each file was last looked up.
   const looking = new Set()
   const lookedAt = new Map()
+  // Round 2: the busy streak (`busySince`) is apart from `failingSince`: a no-op success between two failures (measure returns at
+  // once while a measure runs) ends the failing, not the streak, so a file busy every few minutes still reaches the lookup.
   function lookUp(one, message, at) {
-    if (holders === null || one.failingSince === null || at - one.failingSince < HOLDER_AFTER_MS) return
+    if (holders === null || one.busySince === null || at - one.busySince < HOLDER_AFTER_MS) return
     if (looking.size > 0) return // one lookup in flight at a time (each starts a PowerShell)
     const files = pathsOf(message).filter(file => !(at - (lookedAt.get(file) ?? -Infinity) < HOLDER_EVERY_MS))
     if (files.length === 0) return
@@ -151,14 +153,19 @@ export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn
   /** Notes a failure of `name` (also for a loop that does not run through run()); `at` is when it began failing. */
   function failed(name, error, at = now()) {
     const one = of(name)
-    const message = firstLine(error).slice(0, 300) || 'unknown error'
+    const whole = firstLine(error)
+    const message = whole.slice(0, 300) || 'unknown error'
+    if (BUSY_WORDS.test(whole)) {
+      one.busySince ??= at
+      one.busyAt = at
+    }
     if (one.failures === 0) one.failingSince = at
     one.failures += 1
     if (logged.get(name) !== errorKey(message)) write(logLine(at, name, message))
     logged.set(name, errorKey(message))
     one.lastError = message
     one.errorAt = at
-    lookUp(one, message, now())
+    lookUp(one, whole, now()) // the whole line: a long path would lose its file name in the cut message
   }
 
   /** Notes a success of `name`: the loop is healthy again. */
@@ -167,7 +174,12 @@ export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn
     one.lastOk = now()
     one.failures = 0
     one.failingSince = null
-    delete one.holders
+    // The busy streak ends, with its names, once the file has been free for over HOLDER_AFTER_MS (a no-op success between two busy failures does not end it).
+    if (one.busySince === null || now() - one.busyAt > HOLDER_AFTER_MS) {
+      one.busySince = null
+      one.busyAt = null
+      delete one.holders
+    }
     // B446: the same error after a success is a new failure, and logged again.
     logged.delete(name)
   }

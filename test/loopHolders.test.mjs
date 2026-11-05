@@ -159,3 +159,44 @@ test('off Windows nothing is named; the answer of the lookup is read from its ma
   assert.deepEqual(answer, [{ pid: 57736, name: 'grep.exe', parent: null, command: null, since: 1793814720000 }])
   assert.equal(parseHolders('nothing marked'), null)
 })
+
+test('round 2: the real 11-04 sequence (EPERM 22:26, 22:28, 22:30 with a no-op success between) names the holder at the third failure', async () => {
+  const clock = fakeClock(at(22, 26))
+  const asked = []
+  const loops = loopRecord({ now: clock.now, holders: async paths => { asked.push(paths); return [{ pid: 57736, name: 'grep.exe', since: at(19, 52) }] } })
+  const fail = () => loops.run('measure', async () => { throw busy('C:\\p\\data\\spending.json') })
+  const noop = () => loops.run('measure', async () => {}) // measureTasks returns at once while a measure runs: a success
+  await fail() // 22:26
+  clock.move(60_000)
+  await noop() // 22:27
+  clock.move(60_000)
+  await fail() // 22:28
+  await loops.lookups()
+  clock.move(60_000)
+  await noop() // 22:29
+  clock.move(60_000)
+  await fail() // 22:30
+  await loops.lookups()
+  assert.ok(asked.length >= 1, 'the file was looked up although the loop succeeded between the failures')
+  assert.match(failingLine(loops.failing(), clockOf), /; held by grep\.exe, pid 57736, since 19:52$/)
+  // Quiet for over 2 min, then a success: the streak ends and the names go.
+  clock.move(HOLDER_AFTER_MS + 1000)
+  await noop()
+  assert.deepEqual(loops.failing(), [])
+  await fail()
+  assert.equal(loops.failing()[0].holders, undefined, 'a new streak starts without the old names')
+})
+
+test('round 2: a long path in the error is still looked up (the stored message is cut, the lookup reads the whole line)', async () => {
+  const clock = fakeClock(at(22, 26))
+  const asked = []
+  const loops = loopRecord({ now: clock.now, holders: async paths => { asked.push(paths); return [{ pid: 4, name: 'x.exe' }] } })
+  const file = `C:\\${'deep\\'.repeat(60)}data\\spending.json`
+  const fail = () => loops.run('measure', async () => { throw busy(file) })
+  await fail()
+  clock.move(HOLDER_AFTER_MS)
+  await fail()
+  await loops.lookups()
+  assert.ok(loops.failing()[0].error.length <= 300)
+  assert.deepEqual(asked, [[file]])
+})
