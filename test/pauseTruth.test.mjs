@@ -248,6 +248,7 @@ test('item 4: no such note once the step was taken (not on the ready list), or w
   } finally { await a.close() }
   const running = await realCase()
   running.pause = { state: 'running', since: running.pause.since }
+  running.reconciled = { handOutHeld: false }
   const b = await openPage({ state: running, now: running.readAt })
   try {
     assert.ok(!(await detailsOf(b, 'Main')).some(line => line.includes('not handed out')))
@@ -504,4 +505,18 @@ test('review 4: the board\'s own state puts waitsOn on a step in review whose wa
   const one = state.pause.unsaved.find(entry => entry.id === 'B900')
   assert.equal(one.inReview, true)
   assert.equal(one.waitsOn, 'its check waits for the hand-out, which the pause holds')
+})
+
+test('review 7: the note follows the board\'s own handOutHeld, and words the real reason (pause, resume, a full limit)', async () => {
+  const mainLines = async mutate => {
+    const state = await realCase()
+    mutate(state)
+    const page = await openPage({ state, now: state.readAt })
+    try { return await detailsOf(page, 'Main') } finally { await page.close() }
+  }
+  const note = lines => lines.find(line => line.includes('not handed out'))
+  assert.match(note(await mainLines(() => {})), /the pause holds it; it goes out after Resume all/)
+  assert.match(note(await mainLines(state => { state.pause = { state: 'resuming', since: state.readAt - MIN, pausedSince: state.pause.since, waiting: [], isResumed: true } })), /held while the resume goes on/)
+  assert.match(note(await mainLines(state => { state.pause = { state: 'running', since: state.readAt - MIN } })), /held while a usage limit is full/)
+  assert.equal(note(await mainLines(state => { state.pause = { state: 'running', since: state.readAt - MIN }; state.reconciled = { handOutHeld: false } })), undefined)
 })

@@ -3085,11 +3085,16 @@ function alertsOf(lane, state) {
  * what is so now. Null when the pause does not hold, or the line names no such step.
  */
 function lastNotHandedOut(detail, state) {
-  if (typeof detail !== 'string' || state?.pause?.state !== 'pausing') return null
+  // Review 7: the board's own word that the hand-out holds (a pause, a resume, a full limit: reconcile.mjs `handOutHeld`).
+  if (typeof detail !== 'string' || state?.reconciled?.handOutHeld !== true) return null
   const ready = new Set((state.readyList?.ready ?? []).map(one => one.id))
   const ids = [...new Set(detail.match(/\bB\d+\b/g) ?? [])].filter(id => ready.has(id))
   if (ids.length === 0) return null
-  return `${ids.join(', ')} ${ids.length === 1 ? 'is' : 'are'} not handed out yet: the pause holds ${ids.length === 1 ? 'it' : 'them'}; ${ids.length === 1 ? 'it goes' : 'they go'} out after Resume all.`
+  const one = ids.length === 1
+  const reason = state.pause?.state === 'pausing' ? `the pause holds ${one ? 'it' : 'them'}; ${one ? 'it goes' : 'they go'} out after Resume all`
+    : state.pause?.state === 'resuming' ? 'the hand-out is held while the resume goes on'
+      : 'the hand-out is held while a usage limit is full'
+  return `${ids.join(', ')} ${one ? 'is' : 'are'} not handed out yet: ${reason}.`
 }
 
 function drawMore(lane, state) {
