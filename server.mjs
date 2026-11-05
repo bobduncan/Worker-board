@@ -95,7 +95,7 @@ import { recapRoundDue } from './src/recapCard.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
-import { isReadAction, workApi } from './src/work/api.mjs'
+import { isReadAction, keepPersonAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
 import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
@@ -349,6 +349,9 @@ export function createBoard({
   step = async () => null,
   project = '',
   mayWrite = async () => null,
+  // Stability (2026-11-05): `record({ via, action })` keeps the person's click on Restart and the typed words Check now, Start
+  // and Resume in the actions log (data/actions.jsonl); the board's own restarts and words never come here.
+  record = async () => {},
   heardActive = () => {},
   // B934: runs each request, so the stall log (src/stalls.mjs) names the requests that ran during a stall.
   track = (words, fn) => fn(),
@@ -527,6 +530,7 @@ export function createBoard({
       if (pathname === '/api/restart') {
         const done = await restart(parsed)
         if (!done.ok) return refuse(res, done.status, done.why)
+        await record({ via: 'restart', action: 'restart' })
         // B142: the answer goes out first; then the board ends, and its keeper starts it anew.
         // B404: also when the page's connection drops before the answer is out, so a closing board always ends.
         let isAfter = false
@@ -540,6 +544,7 @@ export function createBoard({
         return json(res, done.result)
       }
       const answer = await say(parsed)
+      if (answer.ok && ['sync', 'start', 'resume'].includes(parsed?.command)) await record({ via: 'say', action: parsed.command })
       return answer.ok ? json(res, answer.message) : refuse(res, answer.status, answer.why)
     }
 
@@ -1639,13 +1644,15 @@ async function main(args) {
     readState.reset()
     return opened
   }
+  // Stability (2026-11-05): the person's actions log. Not on the demo, nor on a board that only shows: they write nothing.
+  const actionsFile = isDemo || isShowOnly || workWriters === null ? null : join(HERE, 'data', 'actions.jsonl')
   const workReads = new Set(['next', 'list', 'pause-state', 'route-state', 'health'])
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
-    const done = await workApi(body, { ...(await workCtx({ kept: body?.action === 'health' })), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}) })
+    const done = await workApi(body, { ...(await workCtx({ kept: body?.action === 'health' })), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
     // T9.1.1: a result check is a Quality Assurance task the work API makes itself (api.mjs `qaStep`): no word to the Advisor.
     // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.
     if (done.ok && body?.action === 'checked' && (done.result.fix !== undefined || done.result.ticked === false)) await loops.run('guard', async () => guardNow(await goalOfChecked(body.id)))
@@ -2988,6 +2995,7 @@ async function main(args) {
     isClosing: () => isClosing,
     heardActive: header => pagesActive.heard(header, clock()),
     restart: restartNow,
+    record: actionsFile === null ? undefined : entry => keepPersonAction(actionsFile, entry, clock()),
     // The page's own version goes into the page, so it can tell when the folder holds a newer one.
     pageVersion: async () => {
       const { page } = await versionNow()

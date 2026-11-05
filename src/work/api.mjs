@@ -14,6 +14,7 @@ import { minutesOf, sizeMinutes } from '../backlog.mjs'
 import { ASSET_KINDS } from '../providers/kinds.mjs'
 import { SOUND_FILES } from '../providers/sound-library.mjs'
 import { workWords } from '../say.mjs'
+import { appendLines } from '../write.mjs'
 import { stepLine, stepNotes } from './adapter.mjs'
 import { GIVE_GUARD, flowHandsOut, mayMove } from './flow.mjs'
 import { isPlacedBefore } from './handOut.mjs'
@@ -224,7 +225,38 @@ export function workApi(body, ctx) {
   // waits in the store's queue.
   if (body?.action === 'health') return act(body, ctx)
   // B867: and reads the store once: its view, recap and the close of fixes take that read with the call's own writes.
-  return serial(ctx.dir, () => oneRead(ctx.dir, ctx.fs, () => act(body, ctx)))
+  return serial(ctx.dir, () => oneRead(ctx.dir, ctx.fs, async () => {
+    const done = await act(body, ctx)
+    await logPersonAction(body, ctx, done)
+    return done
+  }))
+}
+
+/**
+ * Stability (2026-11-05): the person's hands on the board, one line each in `ctx.actionsFile` (data/actions.jsonl), so the
+ * daily numbers can tell an intervention from the board's own work. Written here, in the one place every action of the
+ * page passes, after the handler answered ok: never for a read, a dry run (`check: true`), an unchanged answer, another
+ * role or a board without the file (the demo, one that only shows).
+ */
+const NOT_LOGGED = new Set(['read'])
+async function logPersonAction(body, ctx, done) {
+  const action = body?.action
+  if (ctx.as !== 'person' || typeof ctx.actionsFile !== 'string' || ctx.onlyShows === true) return
+  if (!done?.ok || done.result?.changed === false || body.check === true) return
+  if (READS.has(action) || NOT_LOGGED.has(action) || !CHANGES.has(action)) return
+  await keepPersonAction(ctx.actionsFile, { via: 'work', action, id: line(body.id, 40) || null }, ctx.now ?? Date.now())
+}
+
+/**
+ * Stability (2026-11-05): appends `{ at, by: 'person', via, action, id }` to the actions log. A log that cannot be written
+ * is said on the console and never fails the person's action.
+ */
+export async function keepPersonAction(file, { via, action, id = null }, at = Date.now()) {
+  try {
+    await appendLines(file, `${JSON.stringify({ at, by: 'person', via, action, id })}\n`)
+  } catch (error) {
+    console.error(`The actions log could not be written (${error?.code ?? error?.message ?? 'unknown'}).`)
+  }
 }
 
 async function act(body, ctx) {
