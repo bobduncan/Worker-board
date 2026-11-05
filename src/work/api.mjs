@@ -4738,7 +4738,7 @@ async function incidentsRekey(body, w) {
 /**
  * Signals change 6 (B915, the lead's Addendum 2 and 3): the board's own close of what went by itself (src/supervisor/gone.mjs
  * `gonePlan`): `gone` `[{ id, notSeenSince }]`, an incident not judged yet, or judged and waiting, whose key its rule has not
- * found for `minutes` of running time: State gone, Since now, History "gone by itself: not seen since HH:MM (60 min of running
+ * found for `minutes` of running time (the start-up check may give its own `why`, "gone after the check at HH:MM"): State gone, Since now, History "gone by itself: not seen since HH:MM (60 min of running
  * time)"; `fixed` `[{ id, notSeenSince }]`, an incident in fix whose step is done and whose key is not seen as long: fixed,
  * with both in its line. Only the board (`server`). An id in another state is left out; answers the ids `gone` and `fixed`.
  */
@@ -4750,7 +4750,9 @@ async function incidentGone(body, w) {
   for (const one of Array.isArray(body.gone) ? body.gone : []) {
     const loaded = await load(line(one?.id, 20), w, { kind: ['incident'] })
     if (!loaded.ok || !GONE_FROM.includes(stateOf(loaded.item))) continue
-    const next = ordered(said(put(put(copy(loaded.item), 'State', 'gone'), 'Since', stamp(w.now)), w, `gone by itself: not seen since ${when(sinceOf(one?.notSeenSince))} (${minutes} min of running time)`))
+    // Start-up check: the check closes what its look found answering again, with its own words (`why`).
+    const why = typeof one?.why === 'string' && one.why.trim() !== '' ? one.why.replace(/\s+/g, ' ').trim().slice(0, 160) : null
+    const next = ordered(said(put(put(copy(loaded.item), 'State', 'gone'), 'Since', stamp(w.now)), w, why ?? `gone by itself: not seen since ${when(sinceOf(one?.notSeenSince))} (${minutes} min of running time)`))
     const done = await save(next, loaded.text, w)
     if (done.ok) gone.push(valueOf(next, 'Id'))
   }

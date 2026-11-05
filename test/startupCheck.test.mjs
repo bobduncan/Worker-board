@@ -4,14 +4,20 @@
 // fixtures/startup-check (trimmed copies of the snapshot, made-up paths).
 
 import assert from 'node:assert/strict'
-import { cp, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
 import { listedWhere, readAccountFolders, readAppChats } from '../src/appChats.mjs'
-import { judge, pictureOf } from '../src/startupCheck.mjs'
-import { wakesOfFile } from '../src/wake.mjs'
+import { recordFindings } from '../src/supervisor/incidents.mjs'
+import { apply, judge, liftBan, pictureOf } from '../src/startupCheck.mjs'
+import { claim, nextPath, wakesOfFile } from '../src/wake.mjs'
+import { workApi } from '../src/work/api.mjs'
+import { bansOf } from '../src/work/handover.mjs'
+import { migrateBacklog } from '../src/work/migrate.mjs'
+import { readStore, writeStore } from '../src/work/store.mjs'
+import { writeAtomic } from '../src/write.mjs'
 
 const FIXTURES = join(import.meta.dirname, '..', 'fixtures', 'wake-account')
 const W1_APP = 'local_e92c96e7-9f9c-4b57-8f7d-7bfdfc3afcc8'
@@ -185,4 +191,68 @@ test('task 3: the 30 s bound is said in the line', async () => {
   const verdict = judge(pictureOf({ ...(await sourcesOf()), tooSlow: true }))
   assert.equal(verdict.line, 'Checked 21:25, but the app\'s chat list could not be read in 30 s: checked again at the next start')
   assert.equal(verdict.tone, 'attention')
+})
+
+// ---- Task 4: the writes ----
+
+test('task 4: apply on the 21:20 verdict: the wakes are open again (one message each, once), the bans are lifted, the six incidents are gone, check.json is written', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'startup-apply-'))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const NOW = AT_2125
+  // The incidents in a real store (made-up ids X1-X6 for the six of the evening, same keys and subjects).
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B12 A fix (for Digger; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
+  const board = body => workApi(body, { dir, now: NOW, prefix: '', as: 'server', roleOf: () => null })
+  const evening = await json('incidents.json')
+  await recordFindings(evening.map(one => ({ rule: one.source, key: one.key, subject: one.subject, text: one.title })), { work: board })
+  const sources = await sourcesOf({ elsewhere: false, down: ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor'] })
+  sources.incidents = evening.map((one, index) => ({ ...one, id: `X${index + 1}` }))
+  const verdict = judge(pictureOf(sources))
+  const envelopes = structuredClone(sources.envelopes)
+  const written = []
+  const writers = {
+    wakes: sources.wakes,
+    saveWakes: async () => written.push('wakes'),
+    liftBan: async drop => liftBan(envelopes[drop.chat], drop.envelope, NOW),
+    closeIncidents: async list => (await board({ action: 'incident-gone', gone: list.map(one => ({ id: one.id, why: one.why })) })).result.gone,
+    writeCheck: async result => writeAtomic(join(dir, 'check.json'), `${JSON.stringify(result)}\n`),
+  }
+  const result = await apply(verdict, writers, NOW)
+  // The wake record: a message is claimed to each of the four, once.
+  for (const chat of ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor']) {
+    const spell = sources.wakes.wakes.get(chat).at(-1).spell
+    const ask = () => nextPath(sources.wakes, { chat, spell, senderClaims: true, paths: ['message', 'launch'] })
+    assert.equal(ask(), 'message', chat)
+    assert.ok(claim(sources.wakes, { chat, spell, path: 'message', by: 'Main', jobId: `wake:${spell}:${chat}`, now: NOW + 1000, paths: ['message'] }), chat)
+    assert.notEqual(ask(), 'message', `${chat}: once`)
+  }
+  assert.equal(sources.wakes.heardRunAt, verdict.actions.noteRun)
+  assert.deepEqual([...bansOf(envelopes['Worker 3'], NOW)], [], 'the ban of Worker 3 is lifted')
+  assert.equal(envelopes['Worker 3'][0].outcome.liftedBy, 'check')
+  assert.deepEqual([...bansOf(envelopes['Worker 4'], NOW).keys()], ['claude-opus-5-5'], 'a ban of another model stays')
+  const store = await readStore(dir)
+  for (let n = 1; n <= 6; n += 1) {
+    const item = store.items.get(`X${n}`)
+    assert.equal(item.head.get('State'), 'gone', `X${n}`)
+    assert.match((item.sections.get('History') ?? []).join('\n'), /gone after the check at 21:25/)
+  }
+  const saved = JSON.parse(await readFile(join(dir, 'check.json'), 'utf8'))
+  assert.deepEqual(saved, result)
+  assert.deepEqual([saved.line, saved.running, saved.total, saved.reachable], ['All 7 chats reachable · checked 21:25', false, 7, 7])
+  assert.equal(saved.fixed.filter(one => one.kind === 'wake-again').length, 4)
+  assert.equal(saved.fixed.filter(one => one.kind === 'incident-gone').length, 6)
+  assert.equal(saved.fixed.filter(one => one.kind === 'ban-dropped').length, 1)
+  assert.deepEqual((await readdir(dir)).filter(name => name.endsWith('.tmp')), [], 'written atomically')
+  // Once: a second check on the same record re-opens nothing and closes nothing.
+  const again = judge(pictureOf({ ...sources, incidents: [] }))
+  assert.deepEqual(again.actions.reopen, [])
+})
+
+test('task 4: a writer that fails is said in `failed` and leaves the other fixes done; a fix with no writer is not claimed as fixed', async () => {
+  const sources = await sourcesOf({ elsewhere: false, down: ['Worker 1'] })
+  const verdict = judge(pictureOf(sources))
+  const result = await apply(verdict, { wakes: sources.wakes, liftBan: async () => { throw new Error('outbox busy') } }, AT_2125)
+  assert.deepEqual(result.failed, ['ban-dropped: outbox busy'])
+  assert.equal(result.fixed.some(one => one.kind === 'wake-again'), true)
+  assert.equal(result.fixed.some(one => one.kind === 'ban-dropped'), false)
+  assert.equal(result.fixed.some(one => one.kind === 'incident-gone'), false, 'no writer, no claim')
 })

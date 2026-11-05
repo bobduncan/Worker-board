@@ -8,7 +8,7 @@
 
 import { listedWhere } from './appChats.mjs'
 import { OTHER_ACCOUNT_WHY, RESTART_WHY } from './ownChat.mjs'
-import { wakeOf } from './wake.mjs'
+import { noteRun, reopenSpells, wakeOf } from './wake.mjs'
 import { sameModel } from './work/effort.mjs'
 import { bansOf } from './work/handover.mjs'
 
@@ -166,4 +166,63 @@ export function judge(picture) {
     at: now, total, reachable, line, tone: parts.length > 0 || picture.tooSlow === true ? 'attention' : 'quiet', fixed, elsewhere, restartNeeded, nowhere, tooSlow: picture.tooSlow === true,
     actions: { noteRun: picture.newestRun, reopen, banDrops, closeIncidents },
   }
+}
+
+// ---- Task 4: the writes ----
+
+/**
+ * A ban lifted by the check: the failing envelope reads `outcome.set: true` with who and when (`liftedBy`, `liftedAt`), so
+ * `bansOf` sees no ban (handover.mjs: a later `set: true` lifts). `envelopes` the lane's, `id` the failing envelope's. True when done.
+ */
+export function liftBan(envelopes, id, now) {
+  const envelope = (envelopes ?? []).find(one => one?.id === id)
+  if (envelope === undefined || envelope.outcome === undefined || envelope.outcome === null) return false
+  envelope.outcome = { ...envelope.outcome, set: true, liftedBy: 'check', liftedAt: now }
+  return true
+}
+
+/**
+ * Task 4: writes the verdict's fixes through the existing writers, each one once, and returns the check's result (the state's
+ * `check`, `data/check.json`). `writers`: `wakes` (the wake record), `liftBan({ chat, model, envelope }, now)` (the outbox),
+ * `closeIncidents([{ id, why }])` (the work API's `incident-gone`), `saveWakes()` and `writeCheck(result)`. A writer that is
+ * missing does nothing (the fix is then not in `fixed` of the result). Never throws for a writer's failure: it is in `failed`.
+ */
+export async function apply(verdict, writers, now) {
+  const done = new Set()
+  const failed = []
+  const attempt = async (kind, work) => {
+    try {
+      return await work()
+    } catch (error) {
+      failed.push(`${kind}: ${error?.message ?? error}`)
+      return null
+    }
+  }
+  const { actions } = verdict
+  // G1's own blocks: the run id is the proof the app is back, then the spells that failed for good are re-opened once.
+  let reopened = []
+  if (writers.wakes !== undefined && actions.reopen.length > 0) {
+    reopened = await attempt('wake-again', () => {
+      noteRun(writers.wakes, actions.noteRun)
+      return reopenSpells(writers.wakes, actions.reopen.map(one => ({ chat: one.chat, spell: one.spell, listed: true, paths: ['message', 'launch'] })), now)
+    }) ?? []
+    for (const chat of reopened) done.add(`wake-again ${chat}`).add(`notice-cleared ${chat}`)
+    if (reopened.length > 0) await attempt('wake-again', () => writers.saveWakes?.())
+  }
+  if (typeof writers.liftBan === 'function') {
+    for (const drop of actions.banDrops) if (await attempt('ban-dropped', () => writers.liftBan(drop, now)) === true) done.add(`ban-dropped ${drop.chat}`)
+  }
+  if (typeof writers.closeIncidents === 'function' && actions.closeIncidents.length > 0) {
+    const closed = await attempt('incident-gone', () => writers.closeIncidents(actions.closeIncidents))
+    for (const id of Array.isArray(closed) ? closed : []) done.add(`incident-gone ${id}`)
+  }
+  // Only what was written stays in `fixed`; the id of an incident is in its `what` ("X154 gone after the check at ...").
+  const written = verdict.fixed.filter(one => (one.kind === 'incident-gone' ? done.has(`incident-gone ${one.what.split(' ')[0]}`) : done.has(`${one.kind} ${one.chat}`)))
+  const result = {
+    at: now, trigger: verdict.trigger ?? 'start', running: false, total: verdict.total, reachable: verdict.reachable, line: verdict.line, tone: verdict.tone,
+    fixed: written, elsewhere: verdict.elsewhere, restartNeeded: verdict.restartNeeded, nowhere: verdict.nowhere, tooSlow: verdict.tooSlow,
+    ...(failed.length > 0 ? { failed } : {}),
+  }
+  if (typeof writers.writeCheck === 'function') await attempt('check.json', () => writers.writeCheck(result))
+  return result
 }
