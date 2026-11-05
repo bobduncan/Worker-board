@@ -32,9 +32,10 @@ const holdsStepOfOthers = lane => (lane.storeSteps ?? []).some(step => HELD.incl
  * is no reason to keep it when it names steps and every one of them is done or dropped in the store (`stepState(id)`: the step's
  * state, null when the store does not hold it). Words naming no step, or a step still open or unknown, keep the chat as before.
  */
-function isAboutEndedSteps(words, stepState) {
+function isAboutEndedSteps(words, stepState, stepEndedAt, wroteAt) {
   const ids = [...new Set(String(words).match(/\bB\d+\b/g) ?? [])]
-  return ids.length > 0 && ids.every(id => ['done', 'dropped'].includes(stepState(id)))
+  // Review 9: each step ended AFTER the chat's last activity: a need written after the step ended (an unpushed merge, say) is a new need.
+  return ids.length > 0 && ids.every(id => ['done', 'dropped'].includes(stepState(id)) && Number.isFinite(stepEndedAt(id)) && stepEndedAt(id) > wroteAt)
 }
 
 /**
@@ -45,10 +46,10 @@ function isAboutEndedSteps(words, stepState) {
  * reported (`report`: it checked in), and was made after the leftover's last activity (the older chat had stopped before the
  * newer began, so it cannot work) and no open step of the name is missing from the live lane's task (`holdsStepOfOthers`);
  * it works in the same folder; it has been quiet for QUIET_MS, and
- * the app does not say it needs the person (`needsAction`, unless that names only steps that are done or dropped); it has an app id; and no word to archive it went lately.
+ * the app does not say it needs the person (`needsAction`, unless that names only steps that ended after the chat's last activity: done or dropped); it has an app id; and no word to archive it went lately.
  * The live lane itself is never named. The caller still checks that the folder has no uncommitted changes.
  */
-export function replacedChats({ lanes = [], now, given = new Map(), stepState = () => null }) {
+export function replacedChats({ lanes = [], now, given = new Map(), stepState = () => null, stepEndedAt = () => null }) {
   const live = new Map()
   for (const lane of lanes) if (lane?.isLeftover !== true && typeof lane?.name === 'string' && !live.has(lane.name)) live.set(lane.name, lane)
   const found = []
@@ -60,7 +61,7 @@ export function replacedChats({ lanes = [], now, given = new Map(), stepState = 
     if (lane.createdAt <= old.lastActivityAt || !sameFolder(lane.cwd, old.cwd)) continue
     if (holdsStepOfOthers(lane)) continue
     if (now - old.lastActivityAt < QUIET_MS) continue
-    if (typeof old.needsAction === 'string' && old.needsAction.trim() !== '' && !isAboutEndedSteps(old.needsAction, stepState)) continue
+    if (typeof old.needsAction === 'string' && old.needsAction.trim() !== '' && !isAboutEndedSteps(old.needsAction, stepState, stepEndedAt, old.lastActivityAt)) continue
     if (now - (given.get(old.appSession) ?? -Infinity) < ARCHIVE_AGAIN_MS) continue
     found.push({ session: old.appSession, chat: old.name, cwd: old.cwd ?? null, why: `${old.name}: a newer chat of the same name (${lane.appSession}) has checked in; this one has been idle since ${new Date(old.lastActivityAt).toISOString()}` })
   }

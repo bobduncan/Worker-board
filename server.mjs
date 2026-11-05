@@ -3220,7 +3220,12 @@ async function main(args) {
         // Pause truth item 8: what a leftover's summary says it needs counts no more once the steps it names are done.
         const storedSteps = await work()
         const stepStateOf = id => (storedSteps?.ok === true ? storedSteps.items.get(id)?.head?.get('State') ?? null : null)
-        for (const one of replacedChats({ lanes: state.chats ?? [], now: clock(), given: archiveGiven, stepState: stepStateOf })) {
+        const stepEndedAtOf = id => {
+          const since = storedSteps?.ok === true ? storedSteps.items.get(id)?.head?.get('Since') : null
+          const at = typeof since === 'string' ? Date.parse(since.replace(' ', 'T')) : Number.NaN
+          return Number.isFinite(at) ? at : null
+        }
+        for (const one of replacedChats({ lanes: state.chats ?? [], now: clock(), given: archiveGiven, stepState: stepStateOf, stepEndedAt: stepEndedAtOf })) {
           archiveGiven.set(one.session, clock())
           if (!(await hasNothingUncommitted(one.cwd, gitRunner()))) continue
           archiveWhy.set(one.session, one.why)

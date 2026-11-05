@@ -376,7 +376,8 @@ test('item 8: a leftover whose summary names only steps that are done is no reas
   assert.equal(leftover.needsAction, 'answer B982: http://127.0.0.1:4310/#details=B982')
   // The newer Worker 3 has come back (running, its mod reported): the case after the person's Resume all.
   const back = state.chats.map(one => (one.name === 'Worker 3' && one.isLeftover !== true ? { ...one, isRunning: true, asleep: false } : one))
-  const named = stepState => replacedChats({ lanes: back, now: state.readAt, stepState }).map(one => one.session)
+  const ENDED = 1793830000000 // B982 was done 2026-11-04 22:18, after the leftover's last activity (18:41)
+  const named = stepState => replacedChats({ lanes: back, now: state.readAt, stepState, stepEndedAt: () => ENDED }).map(one => one.session)
   assert.deepEqual(named(id => (id === 'B982' ? 'done' : null)), [leftover.appSession])
   assert.deepEqual(named(id => (id === 'B982' ? 'dropped' : null)), [leftover.appSession])
   // The step is still open: the chat may hold live work.
@@ -388,15 +389,18 @@ test('item 8: a leftover whose summary names only steps that are done is no reas
   assert.deepEqual(replacedChats({ lanes: back, now: state.readAt }), [])
   // Two steps named, one still open: kept.
   const two = back.map(one => (one.isLeftover === true && one.name === 'Worker 3' ? { ...one, needsAction: 'answer B982 and B983' } : one))
-  assert.deepEqual(replacedChats({ lanes: two, now: state.readAt, stepState: id => (id === 'B982' ? 'done' : 'review') }), [])
+  assert.deepEqual(replacedChats({ lanes: two, now: state.readAt, stepState: id => (id === 'B982' ? 'done' : 'review'), stepEndedAt: () => ENDED }), [])
   // Words naming no step keep it, as before.
   const words = back.map(one => (one.isLeftover === true && one.name === 'Worker 3' ? { ...one, needsAction: 'Answer the question' } : one))
-  assert.deepEqual(replacedChats({ lanes: words, now: state.readAt, stepState: () => 'done' }), [])
+  assert.deepEqual(replacedChats({ lanes: words, now: state.readAt, stepState: () => 'done', stepEndedAt: () => ENDED }), [])
+  // Review 9: a need written AFTER the step ended (the leftover was active later) is a new need: kept; so is a step with no end time.
+  assert.deepEqual(replacedChats({ lanes: back, now: state.readAt, stepState: () => 'done', stepEndedAt: () => leftover.lastActivityAt - 1 }), [])
+  assert.deepEqual(replacedChats({ lanes: back, now: state.readAt, stepState: () => 'done', stepEndedAt: () => null }), [])
 })
 
 test('item 8: a newer chat that does not run keeps the leftover, as it should: nothing proves it holds the lane', async () => {
   const state = await realCase()
-  assert.deepEqual(replacedChats({ lanes: state.chats, now: state.readAt, stepState: () => 'done' }), [])
+  assert.deepEqual(replacedChats({ lanes: state.chats, now: state.readAt, stepState: () => 'done', stepEndedAt: () => 1793830000000 }), [])
 })
 
 test('item 2: a card that gives only the time for its step says it at the cards own time (the estimate rule must not drop it)', () => {
