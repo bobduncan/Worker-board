@@ -1031,7 +1031,7 @@ const secondsOf = ms => `${clockOf(ms)}:${pad(new Date(ms).getSeconds())}`
  * one finding, naming the longest wait. B934 (X93): its evidence cites the board's newest stalls in that time (the stall
  * log, stalls.mjs: what the board ran while it did not answer), or says the log names none. B1049: a sleep of the PC is no
  * slow board: a call its chat sent before a sleep began and that was answered after it began is not counted (a call sent inside the window proves the PC was awake), and
- * the evidence names the sleep in its own words ("slept: ...").
+ * the evidence names the sleep in its own words ("slept: ..."). Round 2: a "sleep" that a counted call was sent inside was a hang with the PC awake: cited under stalls as such, never as slept.
  */
 function boardSlow(view) {
   const sleeps = (view.stalls ?? []).filter(isSleep)
@@ -1042,14 +1042,18 @@ function boardSlow(view) {
   if (!recent.some((one, index) => index > 0 && one.at - recent[index - 1].at <= SLOW_PAIR_MS)) return []
   const worst = Math.max(...recent.map(one => one.ms))
   const inLook = (view.stalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS).sort((a, b) => a.at - b.at)
-  const stalls = inLook.filter(one => !isSleep(one)).slice(-SLOW_CITES)
-  const slept = inLook.filter(isSleep).slice(-SLOW_CITES)
+  // Round 2: a "sleep" that a counted call was sent inside was a hang with the PC awake: cited as a hang, never as slept.
+  const awake = sleep => recent.some(call => call.at - call.ms > sleep.at - sleep.ms + SLEEP_SLACK_MS && call.at - call.ms < sleep.at)
+  const hangs = inLook.filter(one => isSleep(one) && awake(one))
+  const stalls = inLook.filter(one => !isSleep(one) || awake(one)).slice(-SLOW_CITES)
+  const slept = inLook.filter(one => isSleep(one) && !awake(one)).slice(-SLOW_CITES)
+  const stallLine = one => (hangs.includes(one) ? `the loop blocked ${minutes(one.ms)} min to ${secondsOf(one.at)}; calls were sent inside it: not a sleep` : stallWords(one, secondsOf))
   return [{
     rule: 'board-slow', key: 'board-slow board', subject: 'board',
     text: `the board did not answer for ${Math.round(worst / 1000)} s: ${recent.length} work calls in ${minutes(SLOW_LOOK_MS)} min answered after the chat gave up`,
     evidence: [
       recent.slice(-6).map(one => `answered ${clockOf(one.at)} after ${Math.round(one.ms / 1000)} s`).join('; '),
-      stalls.length === 0 ? `the stall log names no stall in ${minutes(SLOW_LOOK_MS)} min` : `stalls: ${stalls.map(one => stallWords(one, secondsOf)).join('; ')}`,
+      stalls.length === 0 ? `the stall log names no stall in ${minutes(SLOW_LOOK_MS)} min` : `stalls: ${stalls.map(stallLine).join('; ')}`,
       slept.length === 0 ? null : `slept: ${slept.map(one => stallWords(one, secondsOf)).join('; ')}`,
     ].filter(Boolean).join('. '),
   }]

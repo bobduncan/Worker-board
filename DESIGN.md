@@ -3999,17 +3999,22 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   calls answered after the chat gave up (10 s, two within 2 min), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
   clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. **A sleep is no stall** (B1049 part 2: the PC
   slept 2026-11-04 23:45 to 11-05 08:15 and `data/stalls.json` held it as 8.5 h of "the loop blocked"): a stall is written as
-  `kind: 'sleep'` (no requests or jobs named) when it lasts over 10 min, spans a clock jump (the wall clock and the monotonic
-  one, `watchLoop`, disagree by over 5 s) or began before the board did; an older entry over 10 min reads as a sleep too
+  `kind: 'sleep'` (no requests or jobs named) when a stall of the loop lasts over 10 min, spans a clock jump (the wall clock and the monotonic
+  one, `watchLoop`, disagree by over 5 s) or began before the board did (a work call is a sleep only when sent before the board began); an older loop stall over 10 min reads as a sleep too
   (`stallOf`). A sleep is kept and said in plain words ("the PC slept (not a slow board)"); board-slow counts no call that
   waited through one and cites it as "slept: ...", never as a stall. Review (2026-11-05): a call is left out only when its chat
   sent it before the sleep began (the call's send time is `at - ms`, within 5 s of the sleep's start); the chats sleep with
   the PC, so a call sent inside the window proves the PC was awake and counts, however long it waited (an 11 min hang with
-  the PC awake trips board-slow). The log itself still writes any loop stall over 10 min as a sleep (the stall log cannot
-  see the chats). On Windows the clock-jump check is unlikely to fire for a real sleep (the monotonic clock, QPC, counts
-  across it), so the 10 min rule is the one that catches a sleep; the clock-jump check stays for clocks that stop in a
-  sleep. `from < startedAt` cannot happen for the timer `watchLoop` starts (it begins at the board's start); it guards a
-  caller that hands in an earlier `from`. Pinned by `test/sleepStall.test.mjs`. What forces a rebuild is pinned end to end by
+  the PC awake trips board-slow). Round 2 (2026-11-05, an independent check): only the timer's stall of the loop (`tick`) is
+  written as a sleep by its length (over 10 min); a work call (`slowCall`) that waited over 10 min stays `kind: 'call'`
+  (it is a sleep only when sent before the board began), because the loop kept ticking while it waited: the PC was awake
+  (`isSleep` reads the 10 min rule only for an old stall of the loop). A "sleep" that a counted call was sent inside (sent
+  after it began plus 5 s, before it ended) was a hang of the board with the PC awake: board-slow cites it under stalls
+  as "the loop blocked 12 min to 13:12:00; calls were sent inside it: not a sleep", never under "slept:". A PC sleep
+  under 10 min is logged as a stall of the loop, because `performance.now` keeps counting through a Windows sleep (QPC),
+  so the clock-jump check does not fire there (it stays for clocks that stop in a sleep) and the 10 min rule alone
+  catches a long sleep. `from < startedAt` cannot happen for the timer `watchLoop` starts (it begins at the board's start);
+  it guards a caller that hands in an earlier `from`. Pinned by `test/sleepStall.test.mjs`. What forces a rebuild is pinned end to end by
   `test/rebuildsBoard.test.mjs` (a copy of the board with its state kept an hour, `WORKER_BOARD_STATE_MS`, and one line per
   rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
   an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a

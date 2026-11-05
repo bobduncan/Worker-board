@@ -10,8 +10,8 @@ export const SLEEP_MS = 10 * 60_000
 /** The wall clock and the monotonic clock disagreeing by more than this over a stall is a clock jump: a sleep. */
 export const JUMP_MS = 5000
 
-/** Whether a stall is a sleep of the PC (its kind, or a `sleep: true` mark, or an old entry over SLEEP_MS). */
-export const isSleep = stall => stall?.kind === 'sleep' || stall?.sleep === true || (Number.isFinite(stall?.ms) && stall.ms > SLEEP_MS)
+/** Whether a stall is a sleep of the PC (its kind, or a `sleep: true` mark, or an old stall of the loop over SLEEP_MS: a call that waited long is a call, round 2). */
+export const isSleep = stall => stall?.kind === 'sleep' || stall?.sleep === true || (stall?.kind === 'loop' && Number.isFinite(stall?.ms) && stall.ms > SLEEP_MS)
 
 /** A stall as the file and the view keep it, or null for one that is not whole. */
 export function stallOf(one) {

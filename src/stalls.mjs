@@ -31,9 +31,10 @@ const wordsOf = words => String(words ?? '').replace(/\s+/g, ' ').trim().slice(0
  * `every` ms apart when the loop is free; a delay over `overMs` is a loop stall. `slowCall(words, from, to)`: a work call that took over `overMs` is a call stall.
  * Each stall names what ran between its `from` and `to`. `recent()` the stalls, oldest first; `saved()` the last write.
  * `file` null keeps them in memory only.
- * B1049: a stall is written as a sleep of the PC (`kind: 'sleep'`, naming no request or job) when it lasts over SLEEP_MS (10 min),
- * spans a clock jump (`tick`'s monotonic time and the wall time disagree by over JUMP_MS) or began before the board did
- * (`startedAt`): a sleep is kept and shown, never counted as a slow board.
+ * B1049: a stall of the loop (`tick`) is written as a sleep of the PC (`kind: 'sleep'`, naming no request or job) when it lasts over
+ * SLEEP_MS (10 min), spans a clock jump (`tick`'s monotonic time and the wall time disagree by over JUMP_MS) or began before the
+ * board did (`startedAt`): a sleep is kept and shown, never counted as a slow board. A work call (`slowCall`) is a sleep only when it
+ * was sent before the board began: however long it waited, the loop kept ticking, so the PC was awake (round 2).
  */
 export function stallLog({ now = Date.now, overMs = STALL_MS, most = MOST_STALLS, file = null, fs = { readFile, mkdir }, startedAt = now() } = {}) {
   const open = new Map()
@@ -127,7 +128,9 @@ export function stallLog({ now = Date.now, overMs = STALL_MS, most = MOST_STALLS
   /** A work call (`words`) begun at `from` and answered at `to`: one over `overMs` is a stall, with what ran beside it. */
   function slowCall(words, from, to) {
     if (!Number.isFinite(from) || !Number.isFinite(to) || to - from <= overMs) return null
-    if (to - from > SLEEP_MS || from < startedAt) return keep({ at: to, ms: to - from, kind: 'sleep', requests: [], jobs: [] })
+    // Round 2: a call that waited long is not a sleep by its length: the loop kept ticking, so the PC was awake (a real sleep is
+    // logged by tick() from the timer's gap). Only a call sent before the board began is no case of this board.
+    if (from < startedAt) return keep({ at: to, ms: to - from, kind: 'sleep', requests: [], jobs: [] })
     const call = wordsOf(words)
     return keep({ at: to, ms: to - from, kind: 'call', call, requests: during(from, to, 'request').filter(one => one !== call), jobs: during(from, to, 'job') })
   }

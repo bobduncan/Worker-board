@@ -67,7 +67,7 @@ test('the log writes a sleep for a stall over 10 min, one across a clock jump, a
   assert.equal(jumped.kind, 'sleep', 'the wall clock ran 26 s more than the monotonic one')
   assert.deepEqual([jumped.requests, jumped.jobs], [[], []], 'a sleep names no request or job: none of them was slow')
   assert.equal(log.tick(t0 - 2 * MIN, t0 - 2 * MIN + 5000, 500, 5000).kind, 'sleep', 'it began before the board did')
-  assert.equal(log.slowCall('work take by Worker 2', t0, t0 + 12 * MIN).kind, 'sleep', 'a call that waited 12 min')
+  assert.equal(log.slowCall('work take by Worker 2', t0 - 2 * MIN, t0 + 5000).kind, 'sleep', 'a call sent before the board began')
   assert.equal(log.slowCall('work take by Worker 2', t0, t0 + 3000).kind, 'call')
   assert.deepEqual(log.recent().map(one => one.kind), ['sleep', 'loop', 'sleep', 'sleep', 'sleep', 'call'])
 })
@@ -118,4 +118,30 @@ test('load() from a file turns the old real entry into a sleep, and the next sav
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('round 2: a call sent while the loop keeps ticking and answered 15 min later stays a call, and board-slow fires with a worst wait of 900 s', () => {
+  const t0 = Date.UTC(2026, 10, 5, 12, 0, 0)
+  const log = stallLog({ now: () => t0, startedAt: t0 - 60 * MIN })
+  // The loop ran on (no tick stall): the PC was awake, the board did not answer these calls.
+  assert.equal(log.tick(t0, t0 + 500, 500, 500), null)
+  const stalls = [1, 2, 3].map(index => log.slowCall(`work take by Worker ${index}`, t0, t0 + 15 * MIN))
+  assert.deepEqual(stalls.map(one => one.kind), ['call', 'call', 'call'])
+  assert.equal(isSleep(stalls[0]), false)
+  assert.equal(stallOf(stalls[0]).kind, 'call', 'read again from the file it stays a call')
+  const end = t0 + 15 * MIN
+  const found = check(end + 1000, [{ at: end, ms: 15 * MIN }, { at: end + 1000, ms: 15 * MIN }], log.recent())
+  assert.equal(found.length, 1)
+  assert.match(found[0].text, /did not answer for 900 s/)
+})
+
+test('round 2: a 12 min block with the PC awake (two late calls sent inside it) is cited as a hang, never as "slept", and the evidence does not say the log names no stall', () => {
+  const end = Date.UTC(2026, 10, 5, 13, 12, 0)
+  const block = { at: end, ms: 12 * MIN, kind: 'sleep', requests: [], jobs: [] }
+  const found = check(end + 1000, [{ at: end, ms: 5 * MIN }, { at: end + 1000, ms: 4 * MIN }], [block])
+  assert.equal(found.length, 1)
+  assert.doesNotMatch(found[0].evidence, /slept:/)
+  assert.doesNotMatch(found[0].evidence, /names no stall/)
+  assert.doesNotMatch(found[0].evidence, /the PC slept/)
+  assert.match(found[0].evidence, /the loop blocked 12 min to \d\d:\d\d:\d\d; calls were sent inside it: not a sleep/)
 })
