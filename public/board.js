@@ -2210,19 +2210,39 @@ function pausedLanes(chats, pause) {
  * quiet purple of a pause); what came before the pause stays as it was. Plain data in, a copy out.
  */
 function pausedToday(today, chats, pause) {
-  if (pause?.state !== 'pausing' || !Array.isArray(today) || !Array.isArray(chats)) return today
-  const names = new Set(chats.filter(lane => lane?.state === 'suspended' && lane.suspended?.by === 'pause').map(lane => lane.name))
-  const since = Number.isFinite(pause.since) ? pause.since : -Infinity
+  if (!Array.isArray(today) || !Array.isArray(chats)) return today
+  const window = pauseWindowOf(pause)
+  if (window === null) return today
+  // While the pause stands, the lanes whose card says Paused (laneStatus: free and interrupted ones under the person's pause);
+  // in a pause that is over, every lane: the person's pause held them all, and history kept them as free or interrupted.
+  const isOver = pause.state !== 'pausing'
+  const names = new Set(chats.filter(lane => isOver || laneStatus(lane)?.key === 'paused').map(lane => lane.name))
+  const draw = piece => ['interrupted', 'free'].includes(piece.state)
   return today.map(lane => {
     if (!names.has(lane.chat)) return lane
     const spans = []
     for (const piece of lane.spans) {
-      if (piece.state !== 'interrupted' || piece.to <= since) spans.push(piece)
-      else if (piece.from >= since) spans.push({ ...piece, state: 'suspended' })
-      else spans.push({ ...piece, to: since }, { ...piece, from: since, state: 'suspended' })
+      if (!draw(piece) || piece.to <= window.from || piece.from >= window.to) { spans.push(piece); continue }
+      const from = Math.max(piece.from, window.from)
+      const to = Math.min(piece.to, window.to)
+      if (piece.from < from) spans.push({ ...piece, to: from })
+      spans.push({ ...piece, from, to, state: 'suspended' })
+      if (to < piece.to) spans.push({ ...piece, from: to })
     }
     return { ...lane, spans }
   })
+}
+
+/**
+ * Review 10: the time the person's pause held the chats, from the board's own record of it (state.pause: pausing since its start;
+ * resuming and running keep when the pause began, `pausedSince`, and when the resume began). `{ from, to }`, or null. Only the last
+ * pause is on record.
+ */
+function pauseWindowOf(pause) {
+  if (pause?.state === 'pausing') return Number.isFinite(pause.since) ? { from: pause.since, to: Infinity } : null
+  if (pause?.state === 'resuming') return Number.isFinite(pause.pausedSince) && Number.isFinite(pause.since) ? { from: pause.pausedSince, to: pause.since } : null
+  if (pause?.state === 'running') return Number.isFinite(pause.pausedSince) && Number.isFinite(pause.resumedSince) ? { from: pause.pausedSince, to: pause.resumedSince } : null
+  return null
 }
 
 /** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
@@ -22405,11 +22425,9 @@ async function read() {
     if (by !== null) answeredBy = by
     bannerAnswered(state)
     // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
-    if (state?.pause?.state === 'pausing') {
-      state.chats = pausedLanes(state.chats, state.pause)
-      // Pause truth item 1: the day bars follow the cards.
-      state.today = pausedToday(state.today, state.chats, state.pause)
-    }
+    if (state?.pause?.state === 'pausing') state.chats = pausedLanes(state.chats, state.pause)
+    // Pause truth item 1 and review 10: the day bars follow the cards, and a pause that is over stays drawn as the pause it was.
+    state.today = pausedToday(state.today, state.chats, state.pause)
     withAnswers(state)
     // Light state: the finished steps this page read whole stand whole again.
     withFullSteps(state)

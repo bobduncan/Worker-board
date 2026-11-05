@@ -191,11 +191,13 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
     // T8.5: a task given to a worker went back at the pause (its one task in flight): it waits for no start.
     const resumed = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) !== undefined)
     const waiting = byChat(resumed.filter(holder => isResumed(items, holder) && !hasStarted(laneOf(holder.chat), pause.since)), prefix)
-    return { state: 'resuming', since: pause.since, waiting, isResumed: waiting.length === 0, until: Number.isFinite(pause.since) ? pause.since + RESUME_WAIT_MS : null }
+    return { state: 'resuming', since: pause.since, ...(Number.isFinite(pause.pausedSince) ? { pausedSince: pause.pausedSince } : {}), waiting, isResumed: waiting.length === 0, until: Number.isFinite(pause.since) ? pause.since + RESUME_WAIT_MS : null }
   }
   const isShown = Number.isFinite(now) && Number.isFinite(pause.since) && now - pause.since < NOT_STARTED_SHOWN_MS
   const notStarted = !isShown ? [] : (pause.notStarted ?? []).filter(one => !hasStarted(laneOf(one.chat), pause.resumedSince ?? pause.since))
-  return notStarted.length === 0 ? { state: 'running', since: pause.since } : { state: 'running', since: pause.since, notStarted }
+  // Review 10: when the pause began and when the resume began, so the page keeps drawing the pause that was.
+  const window = { ...(Number.isFinite(pause.pausedSince) ? { pausedSince: pause.pausedSince } : {}), ...(Number.isFinite(pause.resumedSince) ? { resumedSince: pause.resumedSince } : {}) }
+  return notStarted.length === 0 ? { state: 'running', since: pause.since, ...window } : { state: 'running', since: pause.since, ...window, notStarted }
 }
 
 /** Holders as one entry per chat (2026-10-19: a chat counts once), `{ chat, ids }`, in the order of their first step. */

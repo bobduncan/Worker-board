@@ -44,8 +44,8 @@ test('item 1: the day bars of the chats the cards show as Paused are drawn Pause
     for (const name of ['Worker 1', 'Worker 2', 'Worker 5']) {
       assert.deepEqual(barsOf(page, name), ['is-suspended'], `${name}'s bar`)
     }
-    // A chat that was free stays a free bar.
-    assert.deepEqual(barsOf(page, 'Worker 3'), ['is-free'])
+    // Review 1: the chats that were free under the pause (Main, Worker 3, Worker 4) are Paused on their cards, so on their bars.
+    for (const name of ['Main', 'Worker 3', 'Worker 4']) assert.deepEqual(barsOf(page, name), ['is-suspended'], `${name}'s bar`)
     // The bars say it in words too, for the hover: "Paused", never "Stopped".
     const titles = page.all('#timeline .span').map(one => one.title)
     assert.ok(titles.some(title => title.startsWith('Paused')))
@@ -443,4 +443,31 @@ test('review 6: a popup ask of a step that is gone from the store is withdrawn, 
     assert.equal(await stateOfAsk(dir, 'Q629'), 'withdrawn')
     assert.match((await readStore(dir)).items.get('Q629').sections.get('History').join(' '), /its step B966 is gone/)
   } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+// ---- Review 10: after Resume all, the pause stays drawn as the pause it was (history keeps free and interrupted).
+test('review 10: the real window 11-04 23:36 to the resume stays Paused after the resume; what comes after is as history says', async () => {
+  const state = await realCase()
+  const pausedSince = state.pause.since
+  const resumedSince = state.readAt - 60 * MIN
+  state.pause = { state: 'running', since: state.readAt - 50 * MIN, pausedSince, resumedSince }
+  const page = await openPage({ state, now: state.readAt })
+  try {
+    for (const name of ['Main', 'Worker 1', 'Worker 3']) assert.deepEqual(barsOf(page, name), ['is-suspended', name === 'Worker 1' ? 'is-interrupted' : 'is-free'], name)
+  } finally { await page.close() }
+  // While resuming, the window ends at the resume's start.
+  const resuming = await realCase()
+  resuming.pause = { state: 'resuming', since: resuming.readAt - 30 * MIN, pausedSince, waiting: [], isResumed: true }
+  const second = await openPage({ state: resuming, now: resuming.readAt })
+  try {
+    assert.deepEqual(barsOf(second, 'Worker 5'), ['is-suspended', 'is-interrupted'])
+  } finally { await second.close() }
+})
+
+test('review 10: the board\'s pause view carries the window of the pause it ended (pausedSince, resumedSince)', () => {
+  const items = new Map()
+  const running = pauseFacts({ pause: { state: 'running', since: PAUSED_AT + 90 * MIN, pausedSince: PAUSED_AT, resumedSince: PAUSED_AT + 60 * MIN }, items, lanes: [], now: NOW })
+  assert.deepEqual([running.pausedSince, running.resumedSince], [PAUSED_AT, PAUSED_AT + 60 * MIN])
+  const resuming = pauseFacts({ pause: { state: 'resuming', since: PAUSED_AT + 60 * MIN, pausedSince: PAUSED_AT }, items, lanes: [], now: NOW })
+  assert.equal(resuming.pausedSince, PAUSED_AT)
 })
