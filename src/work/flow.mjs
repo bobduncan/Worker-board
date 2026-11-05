@@ -7,7 +7,10 @@ import { valueOf } from './item.mjs'
 
 export { GIVE_BACK_GUARD, GIVE_GUARD }
 
-/** Today's agreement, the default when the store has no flow.json; examples/work/flow.json is its text. */
+/**
+ * Today's agreement, the default when the store has no flow.json; examples/work/flow.json is its text. A move added here reaches
+ * a project that has its own flow.json through `npm run setup` (src/flowSetup.mjs), on the person's y.
+ */
 export const DEFAULT_FLOW = {
   step: {
     states: ['new', 'refined', 'queued', 'taken', 'in progress', 'waiting on you', 'review', 'done', 'dropped'],

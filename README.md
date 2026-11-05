@@ -151,6 +151,7 @@ and the briefings for the main chat and the workers.
    minutes, that the app does not say wait for you, that were last active before the newer chat began, that work in the
    same folder and whose folder has nothing uncommitted. The live chat is never archived. Each archive is one line in
    `board.log` ("B847: archived the replaced chat ...").
+   Setup also brings your project's own `flow.json` up to date with the moves the board's code needs (a new board feature does nothing in an older flow file): it shows what it would add, asks y/n (without a keyboard only `npm run setup -- --flow yes` writes), never changes or removes a move of yours, and keeps the old file as `flow.json.bak-<time>`. `npm run setup -- --check` shows it and writes nothing.
 4. **The project's files.** Make `<project>\.claude\` and copy into it from `examples\`: `list.json` into
    `.claude\chats\` with your prefix, `main-briefing.md` and `worker-briefing.md`; in the two briefings
    replace `<project>`, `<prefix>` and `<repository>`. For the Design tab, also `design.json` into `.claude\`, with
