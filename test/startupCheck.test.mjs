@@ -12,6 +12,7 @@ import test from 'node:test'
 import { listedWhere, readAccountFolders, readAppChats } from '../src/appChats.mjs'
 import { recordFindings } from '../src/supervisor/incidents.mjs'
 import { apply, judge, liftBan, pictureOf } from '../src/startupCheck.mjs'
+import { createChecker } from '../src/startupCheckRun.mjs'
 import { claim, nextPath, wakesOfFile } from '../src/wake.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { bansOf } from '../src/work/handover.mjs'
@@ -339,4 +340,110 @@ test('review 1 (6): notice-cleared is recorded only when the notice really went 
   assert.equal(result.fixed.some(one => one.kind === 'notice-cleared'), false)
   const real = await apply(verdict, { wakes: sources.wakes }, AT_2125)
   assert.deepEqual(real.fixed.filter(one => one.kind === 'notice-cleared').map(one => one.chat), ['Worker 1'])
+})
+
+// ---- Task 5: the runner (src/startupCheckRun.mjs) ----
+
+/** A runner on the evening's sources: the folders and the rest as ports; `calls` counts the reads. */
+async function checkerOn(options = {}) {
+  const sources = await sourcesOf({ elsewhere: false, down: ['Worker 1', 'Worker 2', 'Worker 5'], ...options.sources })
+  const { folders, ...rest } = sources
+  const calls = { sources: 0, folders: 0, changes: [], logs: [], after: 0 }
+  const checker = createChecker({
+    clock: () => options.now ?? AT_2125,
+    readSources: async () => { calls.sources += 1; if (options.fail) throw new Error(options.fail); return rest },
+    readFolders: options.readFolders ?? (async () => { calls.folders += 1; return folders }),
+    writers: { wakes: rest.wakes, closeIncidents: async list => list.map(one => one.id), writeCheck: async () => {} },
+    afterApply: async () => { calls.after += 1 },
+    onChange: () => calls.changes.push(checker.view()?.running === true),
+    log: text => calls.logs.push(text),
+    boundMs: options.boundMs ?? 30_000,
+    debounceMs: 10_000,
+    ...(options.setTimer === undefined ? {} : { setTimer: options.setTimer, clearTimer: options.clearTimer }),
+  })
+  return { checker, calls, rest }
+}
+
+test('task 5: a check shows "running" at once, then its result; a second call while one runs answers the running record and reads nothing again', async () => {
+  const { checker, calls } = await checkerOn()
+  assert.equal(checker.view(), null, 'nothing before the first check')
+  const first = checker.start('start')
+  assert.equal(first.started, true)
+  assert.deepEqual([first.view.running, first.view.trigger], [true, 'start'], 'the loader state is there before any await')
+  const second = checker.start('button')
+  assert.equal(second.started, false)
+  assert.equal(second.view.running, true)
+  assert.equal(second.view.trigger, 'start', 'the running one is the one answered')
+  const result = await first.done
+  assert.equal(calls.sources, 1, 'one run')
+  assert.equal(result.running, false)
+  assert.equal(result.trigger, 'start')
+  assert.match(result.line, /chats reachable/)
+  assert.equal(checker.view().running, false)
+  assert.deepEqual(calls.changes, [true, false], 'the state is read anew when it starts and when it ends')
+  assert.equal(calls.after, 1, 'the wake pass follows the writes once')
+  assert.equal(checker.start('button').started, true, 'a new one after it ended')
+})
+
+test('task 5: the 30 s bound: a folder read that does not answer is said in the line, not waited for', { timeout: 5000 }, async () => {
+  const { checker } = await checkerOn({ boundMs: 50, readFolders: () => new Promise(() => {}) })
+  const result = await checker.start('start').done
+  assert.equal(result.tooSlow, true)
+  assert.match(result.line, /could not be read in 30 s/)
+  assert.deepEqual([result.elsewhere, result.nowhere], [[], []])
+  assert.equal(result.reachable, null)
+})
+
+test('task 5: a failing read is a line "The check failed", never a throw, and the next check runs', async () => {
+  const { checker, calls } = await checkerOn({ fail: 'disk gone' })
+  const result = await checker.start('button').done
+  assert.deepEqual([result.running, result.tone, result.line], [false, 'attention', 'The check failed: disk gone'])
+  assert.deepEqual(calls.logs, ['Check: disk gone'])
+  assert.equal(checker.start('button').started, true)
+})
+
+test('task 5: new runs within the debounce make ONE app-restart check; none while one waits; none when a check finished after the report', async () => {
+  const timers = []
+  const options = { setTimer: (fn, ms) => { const timer = { fn, ms }; timers.push(timer); return timer }, clearTimer: timer => { if (timer !== null) timer.cleared = true } }
+  const { checker, calls } = await checkerOn(options)
+  assert.equal(checker.newRun(AT_2125 - 1000), true)
+  assert.equal(checker.newRun(AT_2125 - 900), false, 'a check is already waiting')
+  assert.equal(checker.newRun(AT_2125 - 800), false)
+  assert.equal(timers.filter(timer => timer.ms === 10_000).length, 1)
+  timers.find(timer => timer.ms === 10_000).fn()
+  await new Promise(done => setImmediate(done))
+  await new Promise(done => setImmediate(done))
+  assert.equal(calls.sources, 1)
+  assert.equal(checker.view().trigger, 'app-restart')
+  // A report older than the finished check starts nothing.
+  assert.equal(checker.newRun(AT_2125 - 5000), false)
+  assert.equal(checker.newRun(AT_2125 + 5000), true, 'a report after it does')
+})
+
+test('task 5: a second check right after the first changes nothing (the fixes are idempotent) and one full check is quick', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'startup-idem-'))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const NOW = AT_2125
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B12 A fix (for Digger; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
+  const board = body => workApi(body, { dir, now: NOW, prefix: '', as: 'server', roleOf: () => null })
+  const evening = await json('incidents.json')
+  await recordFindings(evening.map(one => ({ rule: one.source, key: one.key, subject: one.subject, text: one.title })), { work: board })
+  const sources = await sourcesOf({ elsewhere: false, down: ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor'] })
+  const { folders, ...rest } = sources
+  const envelopes = structuredClone(sources.envelopes)
+  const incidentsNow = async () => [...(await readStore(dir)).items.values()].filter(item => item.head.get('Kind') === 'incident').map(item => ({ id: item.head.get('Id'), key: item.head.get('Key'), source: item.head.get('Source'), subject: item.head.get('Subject'), state: item.head.get('State'), since: item.head.get('Since') }))
+  const checker = createChecker({
+    clock: () => NOW,
+    readSources: async () => ({ ...rest, envelopes, incidents: await incidentsNow() }),
+    readFolders: async () => folders,
+    writers: { wakes: sources.wakes, liftBan: async drop => liftBan(envelopes[drop.chat], drop.envelope, NOW), closeIncidents: async list => (await board({ action: 'incident-gone', gone: list.map(one => ({ id: one.id, why: one.why })) })).result.gone, writeCheck: async () => {} },
+  })
+  const begun = performance.now()
+  const first = await checker.start('app-restart').done
+  const took = performance.now() - begun
+  assert.ok(first.fixed.length >= 5, 'the first one fixes things')
+  const second = await checker.start('button').done
+  assert.deepEqual(second.fixed, [], 'the second changes nothing')
+  assert.ok(took < 1000, `one full check took ${Math.round(took)} ms`)
+  console.log(`start-up check: one full check on the real-case fixtures took ${Math.round(took)} ms, ${first.fixed.length} fixes`)
 })

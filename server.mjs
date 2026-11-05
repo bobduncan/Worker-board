@@ -107,7 +107,10 @@ import { wakeIdsOf } from './src/ownChat.mjs'
 import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { HANDOVER_COMMAND, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
+import { readAccountFolders } from './src/appChats.mjs'
+import { liftBan } from './src/startupCheck.mjs'
+import { createChecker } from './src/startupCheckRun.mjs'
+import { HANDOVER_COMMAND, envelopesOf, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
 import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, SUPERVISOR_RULE_KEYS, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
@@ -290,6 +293,8 @@ export const POST_ROUTES = Object.freeze({
   '/api/code-jobs': { kind: 'json', guard: 'lock' },
   '/api/new-project': { kind: 'json', guard: 'free', why: 'makes another project\'s folder, one at a time; writes nothing of this project' },
   '/api/restart': { kind: 'json', guard: 'free', why: 'starts this process itself anew' },
+  // The start-up check (2026-11-05): the Overview's Check everything. Only the board that runs the loops writes what the check fixes.
+  '/api/check': { kind: 'json', guard: 'lock' },
 })
 
 /**
@@ -328,6 +333,7 @@ export function createBoard({
   bugs = async () => ({ ok: false, status: 404, why: 'Not here.' }), bugPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   talkPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   plan = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  check = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   restart = async () => ({ ok: false, status: 404, why: 'Not here.' }), pageVersion = async () => '',
   onError = () => {}, onAnswered = () => {}, isClosing = () => false,
   backlog = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -522,6 +528,10 @@ export function createBoard({
       }
       if (pathname === '/api/bugs') {
         const done = await bugs(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/check') {
+        const done = await check(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/restart') {
@@ -1826,6 +1836,8 @@ async function main(args) {
   const reportsSave = reports === null ? null : reportsSaver({ file: REPORTS_FILE, reports, onError: error => loops.failed('reports-file', error), onSaved: () => loops.succeeded('reports-file') })
   // Signals change 4, B908 (2026-11-02): the one wake record (src/wake.mjs): every attempt to wake a chat, by chat and
   // spell, with its verdict; in data/wakes.json, read here once and written a moment after a change (as reports.json).
+  /** The start-up check's runner (null on a demo or a board that only shows); set where the wake pass is defined. */
+  let checker = null
   const WAKES_FILE = join(HERE, 'data', 'wakes.json')
   const savedWakes = bridgeKey === null || isShowOnly ? null : await readWakes(WAKES_FILE, clock())
   if (savedWakes?.setAside != null) setAside.push({ file: basename(WAKES_FILE), aside: basename(savedWakes.setAside), why: null })
@@ -1876,9 +1888,13 @@ async function main(args) {
     // The hand-over decides for it once, so its task's net counts from the verdict (the 5-second ping is the earliest).
     // G1 (2026-11-05): a report with a new run from any chat says the app is back; a spell that failed as "not found" (or is spent)
     // is tried again once its chat is listed (wake.mjs `reopenSpells`).
-    if (checked?.ok === true && entryAfter !== undefined && entryAfter.run != null && entryAfter.run !== entryBefore?.run && wakeNoteRun(wakes, clock())) {
-      wakesChanged()
-      reopenWakes(readState.last())
+    if (checked?.ok === true && entryAfter !== undefined && entryAfter.run != null && entryAfter.run !== entryBefore?.run) {
+      // The start-up check (2026-11-05): a new run id is some session starting; one check follows for all within 10 s.
+      checker?.newRun(clock())
+      if (wakeNoteRun(wakes, clock())) {
+        wakesChanged()
+        reopenWakes(readState.last())
+      }
     }
     if (checked?.ok === true && entryAfter !== undefined) {
       const woke = wakeHeard(wakes, checked.chat, entryAfter, clock())
@@ -2145,7 +2161,7 @@ async function main(args) {
     // (the person deletes it once read).
     const shownAside = []
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
-    return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside }
+    return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside, check: checker?.view() ?? null }
   }), STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
@@ -2429,6 +2445,54 @@ async function main(args) {
     const plan = launchPlan(wakes, { needs, nobody, senderClaims: !gone, target: chatToOpen(state, outbox) })
     if (plan !== null) await launchFor({ target: { chat: plan.chat, session: plan.session }, key: plan.key, spell: plan.spell, now })
   }
+  // The start-up check (2026-11-05, src/startupCheck.mjs and startupCheckRun.mjs): one moment where the board re-reads reality
+  // (the app's chat folders of every account, the lanes' processes, the wake record, the outbox's bans, the open wake incidents),
+  // mends what it can and tells the rest in one line (`state.check`, `data/check.json`). At the board's start, on the Overview's
+  // button, and when a new run id shows that a session started.
+  const CHECK_FILE = join(HERE, 'data', 'check.json')
+  checker = isDemo || isShowOnly || bridgeKey === null || workDir === null ? null : createChecker({
+    clock,
+    readSources: async () => {
+      const state = await readState()
+      const prefix = state.chatPrefix ?? ''
+      const reportsNow = reports === null ? {} : Object.fromEntries(reports)
+      const outbox = store.outbox()
+      const lanes = boardLanes(state).map(lane => ({
+        name: lane.name,
+        // The chat the lane's reports come from (its own chat after H2), else the one the board shows, never a launch stub.
+        appSession: reportsNow[lane.name]?.app ?? wakeIdsOf(lane).appSession ?? lane.appSession ?? null,
+        cliSession: lane.session ?? null, model: lane.model ?? null, isRunning: lane.isRunning ?? null,
+      }))
+      const incidents = [...(await readStore(workDir)).items.values()].filter(item => item.head.get('Kind') === 'incident')
+        .map(item => ({ id: item.head.get('Id'), key: item.head.get('Key'), source: item.head.get('Source'), subject: item.head.get('Subject'), state: item.head.get('State'), since: item.head.get('Since') }))
+      return {
+        lanes, reports: reportsNow, wakes, pause: state.pause ?? null, ready: (state.readyList?.ready ?? []).map(one => one.id),
+        envelopes: Object.fromEntries(lanes.map(lane => [lane.name, envelopesOf(outbox, lane.name, prefix)])), incidents,
+      }
+    },
+    readFolders: () => readAccountFolders(config.appSessions),
+    writers: {
+      wakes,
+      saveWakes: async () => wakesChanged(),
+      // The outbox's whole outcome object (store.update merges one level): a partial one would wipe its why.
+      liftBan: async (drop, now) => {
+        const envelope = store.outbox().find(one => one.id === drop.envelope)
+        if (envelope?.outcome === undefined || envelope.outcome === null) return false
+        await store.update(envelope.id, { outcome: { ...envelope.outcome, set: true, liftedBy: 'check', liftedAt: now } })
+        readState.reset()
+        return true
+      },
+      closeIncidents: async list => {
+        const done = await workAction({ action: 'incident-gone', gone: list.map(one => ({ id: one.id, why: one.why })) }, 'server')
+        return done.ok ? done.result.gone : []
+      },
+      writeCheck: async result => writeAtomic(CHECK_FILE, `${JSON.stringify(result)}\n`),
+    },
+    // A wake that was re-opened is sent in the same minute, not the next.
+    afterApply: async () => { await wakePass() },
+    onChange: () => readState.reset(),
+    log: text => console.log(text),
+  })
   /** The ⚙ panel's row of the wake (src/wake.mjs `rowOf`). */
   const wakeRowNow = () => wakeRow(wakes, {
     blocked: !canOpen ? (isShowOnly ? 'only the board that delivers launches a chat' : 'only on Windows can the board launch a chat') : openBlocked,
@@ -3003,6 +3067,11 @@ async function main(args) {
     track: (words, fn) => stalls.track('request', words, fn),
     isClosing: () => isClosing,
     heardActive: header => pagesActive.heard(header, clock()),
+    check: async () => {
+      if (checker === null) return { ok: false, status: 409, why: 'This board does not check.' }
+      const begun = checker.start('button')
+      return { ok: true, result: { running: true, at: begun.view.at } }
+    },
     restart: restartNow,
     // The page's own version goes into the page, so it can tell when the folder holds a newer one.
     pageVersion: async () => {
@@ -3487,6 +3556,8 @@ async function main(args) {
       if (owns) await claimBridge()
       else console.error('Another board process of this project runs the loops (.claude/sync-loop.json): this one shows the page and reads.')
     }
+    // The start-up check (2026-11-05): once, when the first state can be read; it does not wait for the board's other looks.
+    if (owns && checker !== null) void readState().then(() => checker.start('start')).catch(error => console.error(`Check: ${error.message}`))
     // B319: listening, it keeps its port and games' range for its project in the PC's list of boards.
     if (isHome && historyFrom === undefined) await register().catch(error => console.error(`The list of boards could not be written: ${error.message}`))
     console.log(`Worker board: http://${HOST}:${config.port}/${isDemo ? '  (demo data)' : historyFrom === undefined ? '' : '  (shows another board\'s history, records none)'}`)
