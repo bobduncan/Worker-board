@@ -236,6 +236,14 @@ and the briefings for the main chat and the workers.
   While other chats run, a worker whose chat is asleep and has work waiting for a minute (a step queued for it, or a
   word of the board's) is opened the same way, directly: a message cannot wake a closed chat. One open per minute's
   look, at most once in 3 minutes per worker, and not again after two opens left it asleep.
+- The start-up check (2026-11-05): at every board start, on the "Check everything" button under the limits and when a chat reports a new
+  run (some session started), the board re-reads reality once: the app's chats of every account folder, which chats run, the wake
+  record, the models' bans and the open "could not wake" alarms. It mends what it can (a failed wake of a chat that is listed again
+  is sent once more, such an alarm closes, a ban on a model its chat runs is lifted) and says the rest in ONE line: "All 7 chats
+  reachable · checked 22:30", or "Worker 1's and Worker 5's chats are in your other Claude account: run /reimport-chats, then
+  restart the app" (amber only then). While it runs the row says "Checking 7 chats…" and no old alarm is shown. The result is
+  `check` in `/api/state` and `data/check.json`. The account in use is a guess (the folder with the newest chat) and can flip
+  right after a switch. DESIGN.md, "The start-up check".
 - "CPU for Claude" in the head (B311, B735, Windows only): two choices you pick, no game detection. Full: everything
   the project started runs at normal priority on all cores. Low: the chats and what they started, the board itself and
   its keeper, the vite servers, codex and a headless browser run at the lowest priority on the last two cores, in
@@ -491,7 +499,7 @@ Enter, and the main chat names itself, joins the list and starts the Advisor and
 
 ## What it writes
 
-`data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), when the board last ran,
+`data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), the start-up check's last result (`check.json`), when the board last ran,
 the Design tab's ideas and the level of "CPU for Claude" (`cpu.json`). Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
 pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), the evidence pictures of `tools/evidence.mjs` (under the step in the picture folder), and the work store
 (`work`, `.claude\work` unless set), on the chats' `work` calls and your clicks, with `backlog.md` written from it as a

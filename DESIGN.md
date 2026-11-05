@@ -5591,6 +5591,8 @@ sweep dropping the line), `test/supervisor/staleCheckpoint.test.mjs` (mutant: th
 
 ## Waking a chat (change 4)
 
+*Since 2026-11-05 the start-up check ("The start-up check" below) re-opens a failed wake once when its chat is listed again, and says an account switch in one line.*
+
 Signals change 4, B908 (2026-11-02; the lead's brief "waking a chat is code only and honest", the code check and its
 Addendum of 15 decisions in `.claude/plans/2026-11-02-*`). It replaces the wake parts of T9.4 (start words), T13 part 3
 (the hands' asleep jobs), T13 part 4 and 4a (the opener's counters) above; their texts stay as the history.
@@ -5746,6 +5748,49 @@ failed) has no try left. Now:
   reimport skill's `--titles` still compares recency by `lastActivityAt` alone and keeps such a stub: the person's, not changed here.
 
 Tests: `test/wakeAccount.test.mjs` (the evening's fixtures, `fixtures/wake-account`).
+
+## The start-up check (2026-11-05)
+
+Why: alarms per day over two weeks were 31, 11, 35, 3, 19, 1, 8, 2, 19, 23, 8, a quiet day after each fix and a new spike at
+every outside event (a crash, a pause, a landing, a Claude update, an account switch), each with a new theme. So the board gets
+ONE moment where it re-reads reality, instead of a fix per symptom. The person: "evaluate everything first with a button or loader".
+One cause, one alarm: the evening of 2026-11-05 (the account switch) filed six alarms (X154-X158, X160) for one cause.
+
+**Three parts and the writes** (`src/startupCheck.mjs`, pure and tested on the evening's fixtures `fixtures/startup-check`):
+- `pictureOf(sources)`: the sources read at the moment of the check, never from memory: every account folder of the app
+  (`readAccountFolders`, `listedWhere`: here, elsewhere, unknown, nowhere; a launch stub is no chat, H2), the lanes (the own chat's
+  app id from the kept report, which run, the model), the wake record, pause, the ready ids, the outbox's bans (`bansOf`, the C rule), the
+  open wake incidents. A run id later than the picture's own moment is no proof; a read that took too long (`tooSlow`) knows nothing of
+  the listing; a listed file that is not readable whole is `unknown`, and a lane that runs is never elsewhere or nowhere.
+  The account in use is a guess: the folder with the newest chat (the app does not mark it); it can flip right after a switch.
+- `judge(picture)`: the fixes and the ONE line. `wake-again` for a chat that is listed here, does not run, failed for good, when the
+  proof that the app is back (a newer run id, or the trigger's moment: a board start or a click) is after the failure (G1's
+  `noteRun` and `reopenSpells`, once per spell); `restartNeeded` when the app answered "not found" and the file is older than that
+  answer; `ban-dropped` for a ban on the model the lane runs; `incident-gone` for an open wake incident whose chat runs or was
+  re-opened (the board-wide one only when some chat was re-opened or none stays failed, else the rule would file it again at once).
+  The line: "All 7 chats reachable · checked 22:30" or "4 of 6 ... · Worker 1's and Worker 5's chats are in your other Claude account:
+  run /reimport-chats, then restart the app" / "restart the app so it reads the reimported chats: Worker 2" / "Worker 3 has no chat in
+  the app: open one from the board", joined by " · ", never two lines, never a per-worker "not in the app's list".
+- `apply(verdict, writers)`: through the existing writers; an incident that rests on a re-open closes only for the chats
+  `reopenSpells` really re-opened; the ban is lifted with the WHOLE outcome object (`store.update` merges one level); a failing writer is in
+  `failed`, a fix with no writer is not claimed; `data/check.json` by `writeAtomic`.
+- `src/startupCheckRun.mjs` `createChecker`: one check at a time, `running` in the state at once, a 30 s bound on the folder read
+  ("the app's chat list could not be read in 30 s"), a failure is the line "The check failed: ...", never a throw.
+
+**Triggers and the page.** At the board's start (once the first state is readable), on `POST /api/check` (the Overview's "Check
+everything", page token and Origin like `/api/restart`, answers `{ running: true }` at once), and on a new `run` id in a chat's report: that
+id is a SESSION start (the mod's `reportRun`), so any chat starting counts, as for G1; one check follows after a 10 s debounce for
+all that report within it (a check is ~100 ms on the fixtures and its fixes are idempotent: a second check right after changes nothing).
+`state.check = { at, trigger, running, total, reachable, line, tone, fixed, elsewhere, restartNeeded, nowhere, tooSlow }`. The page
+(`#check-row`): a loader and "Checking 7 chats…" while it runs, then the line with its time and the button; amber only for a line that asks the
+person for something; during the check of a board start the wake notice is not drawn and a chat whose wake failed reads "Checking".
+
+**The Supervisor.** The rule `check-unreachable` (key `check-unreachable <cause>`): ONE incident per cause naming the chats; the per-chat
+`wake-failed` and `nobody-answers-wakes` skip a chat the newest check lists. It goes when the next check lists nobody under it.
+
+Out of scope: pinging chats (reachable = listed and real), the reimport skill (the person's), the three daily numbers (chat 4's plan; the
+check only exposes `state.check`). Tests: `test/startupCheck.test.mjs`, `test/startupCheckLive.test.mjs` (a running board),
+`test/startupCheck.page.test.mjs`, `test/supervisor/checkUnreachable.test.mjs`; pictures: `test/startupCheckPicture.mjs`.
 
 Tests: `test/heldStepWayBack.test.mjs` (X140 replayed with its ids and times, 10:58 to 11:13: on the sequence, no
 resume-step, could not wake at once, one go on line, B968 given back from c3186b6 with its branch and plan; the cases and

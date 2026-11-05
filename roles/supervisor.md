@@ -168,6 +168,10 @@ You look for what is really wrong, nothing else.
 - What a code rule already covers: unknown lanes (X65: the board wakes a chat by itself; since signals change 3 a holder
   that stopped is the board's two timers', B986 also after the board's restart and an account switch), limit readings (X47,
   X55, X56), clears and checks. File what the rules do not name, not a second copy of what they do.
+- `check-unreachable` (the start-up check, 2026-11-05): ONE incident per cause (`account-switch`: the chats are in the person's other Claude
+  account; `restart-needed`: reimported, the app must restart; `no-chat`), naming every chat the newest check could not reach. The
+  per-chat `wake-failed` and `nobody-answers-wakes` say nothing of a chat that check lists. It goes when the next check lists nobody
+  under that cause (the gone clock). The check itself closes wake incidents whose chat answers again ("gone after the check at HH:MM").
 - `wake-failed` "could not wake Worker N: its chat is not in the app's list" (B986, X140): the chat its reports name is not
   in the Claude app's list (an account switch, an archived chat). The board tried no message and no launch, and the held
   step goes back by the timers (go on after 5 minutes, back 15 after); a fault only when the step is still held 20 minutes
