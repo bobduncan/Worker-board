@@ -15,6 +15,8 @@ import { parseConfig } from '../src/config.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { storeFromText } from '../src/work/read.mjs'
 import { workApi } from '../src/work/api.mjs'
+import { gapsOf, lastByChat, parseHistory, today } from '../src/history.mjs'
+import { fileStore, tick } from '../src/store.mjs'
 import { chatsWithoutProcess } from '../src/work/pause.mjs'
 import { readStore, share } from '../src/work/store.mjs'
 import { openPage } from './pageHarness.mjs'
@@ -247,4 +249,39 @@ test('item 4: no such note once the step was taken (not on the ready list), or w
   try {
     assert.ok(!(await detailsOf(b, 'Main')).some(line => line.includes('not handed out')))
   } finally { await b.close() }
+})
+
+// ---- Item 5: the trial board (no chats) answers, and its history ended in a gap line (the real tail of its history.jsonl).
+// Mutants: the ran line not written; the ran line written after a chat line too; the gap read open although a ran line follows.
+test('item 5: a board that answers closes its gap at its next own look, not at "now"', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pause-truth-trial-'))
+  try {
+    const tail = await readFile(join(HERE, 'fixtures', 'pause-2026-11-05', 'trial-history-tail.jsonl'), 'utf8')
+    const gapAt = 1793832280703
+    await writeFile(join(dir, 'history.jsonl'), tail)
+    // The board ran after the gap line (its heartbeat), and runs now: it was up when it was asked.
+    const startAt = gapAt + 8 * 60 * 60_000
+    await writeFile(join(dir, 'alive.json'), JSON.stringify({ at: startAt - 20_000 }))
+    const store = await fileStore(dir, startAt)
+    // Before its first look the gap still reads open, as the real state showed it ("from 23:44 until now").
+    assert.deepEqual(gapsOf(store.lines(), startAt + 30_000).at(-1), { from: gapAt, to: startAt + 30_000 })
+    await tick(store, { chats: [] }, startAt + 30_000)
+    // From its first look the gap ends there, however long the board goes on without a chat line.
+    const later = startAt + 30_000 + 5 * 60_000
+    for (const at of [1, 2, 3, 4, 5]) await tick(store, { chats: [] }, startAt + 30_000 + at * 60_000)
+    const gaps = gapsOf(store.lines(), later, later - 1000)
+    assert.deepEqual(gaps.at(-1), { from: gapAt, to: startAt + 30_000 })
+    assert.equal(gaps.filter(gap => gap.to > startAt + 30_000).length, 0)
+    // The line is written once: ticks after it add nothing.
+    assert.equal(store.lines().filter(line => line.ran === true).length, 1)
+    assert.equal((await readFile(join(dir, 'history.jsonl'), 'utf8')).split('\n').filter(line => line.includes('"ran":true')).length, 1)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('item 5: a ran line is no chat line: it is read back, and it changes no chat\'s last state', async () => {
+  const lines = parseHistory('{"at":1,"chat":"Worker 1","state":"working","task":"B1 x"}\n{"at":5,"gap":true}\n{"at":9,"ran":true}\n')
+  assert.deepEqual(lines.map(line => line.ran === true ? 'ran' : line.gap === true ? 'gap' : line.chat), ['Worker 1', 'gap', 'ran'])
+  assert.equal(lastByChat(lines).size, 0, 'a gap forgets every chat; the ran line adds none')
+  assert.deepEqual(gapsOf(lines, 20), [{ from: 5, to: 9 }])
+  assert.deepEqual(today(lines, { from: 0, to: 20, names: ['Worker 1'] })[0].spans, [{ from: 1, to: 5, state: 'working', task: 'B1 x' }])
 })

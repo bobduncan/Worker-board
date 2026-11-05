@@ -6946,3 +6946,9 @@ things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state 
    the pause stands, a step id in it that is still on the ready list gets a line after it: "B1050 is not handed out yet: the pause
    holds it; it goes out after Resume all." Nothing once the step left the ready list (taken), or when no pause holds. Mutants: the note
    out, the pause test out, the ready-list test out (kill the two `item 4` tests).
+5. **A board that answers is not "off"** (`src/store.mjs` `tick`, `src/history.mjs` `parseHistory`, `lastByChat`; `say.mjs` and `state.mjs` read only
+   chat lines as chat lines). The trial board has no chats, so after a gap line (the PC slept) nothing was ever written and `gapsOf`
+   kept the last gap open "until now" (23:44 until now, on a board that answered). At its look after a gap, when no chat line
+   followed, the tick writes one `{ at, ran: true }` line (once: the next look finds a line that is no gap); the gap ends there. Old
+   history reads as before. The real tail of the trial's history.jsonl is the fixture. Mutants: the line not written; `ran` lines not
+   read back (each kills one `item 5` test).

@@ -439,6 +439,8 @@ export async function tick(store, state, now) {
   }
   const chats = state.chats.filter(chat => !chat.isLeftover)
   await store.record(changes(lastByChat(store.lines()), chats, now))
+  // Pause truth item 5: a gap that no chat line followed (the trial board has no chats) ends at this look: the board answers, so it is not off.
+  if (store.lines().at(-1)?.gap === true) await store.record([{ at: now, ran: true }])
   await store.alive(now)
 }
 

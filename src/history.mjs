@@ -1,7 +1,8 @@
 // Own data: what changed per chat over time. A line is written when a chat's state, task or step changes:
 //   { at, chat, state, task, step, steps, leftMs, estimateAt, startedAt, source, by } (source: 'step' or null since change 7)
 // and a gap line, { at, gap: true }, marks the moment from which the board was not running, so the time it was
-// off is drawn as unknown and not as the state it last saw.
+// off is drawn as unknown and not as the state it last saw. Pause truth item 5 (2026-11-05): a ran line, { at, ran: true },
+// marks the first look after a gap that wrote no chat line (a board with no chats): the gap ends there, not "now".
 
 /** The lines of history.jsonl. Lines that do not parse are skipped. */
 export function parseHistory(text) {
@@ -15,7 +16,7 @@ export function parseHistory(text) {
       continue
     }
     if (line === null || typeof line !== 'object' || !Number.isFinite(line.at)) continue
-    if (line.gap === true || typeof line.chat === 'string') lines.push(line)
+    if (line.gap === true || line.ran === true || typeof line.chat === 'string') lines.push(line)
   }
   return lines
 }
@@ -25,7 +26,7 @@ export function lastByChat(lines) {
   const last = new Map()
   for (const line of lines) {
     if (line.gap === true) last.clear()
-    else last.set(line.chat, line)
+    else if (typeof line.chat === 'string') last.set(line.chat, line)
   }
   return last
 }

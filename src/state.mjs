@@ -1662,7 +1662,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     .map(chat => ({ ...chat, removedAt: removedAt.get(chat.cliSessionId) ?? null }))
   const main = found.find(chat => chat.isMain)
   // What the history last said about each chat, also from before the board was last off.
-  const last = new Map(lines.filter(line => line.gap !== true).map(line => [line.chat, line]))
+  const last = new Map(lines.filter(line => line.gap !== true && typeof line.chat === 'string').map(line => [line.chat, line]))
   // B299: who waits for the person by the store's asks.
   const waits = storeWaits(raw.work, prefix)
   // B310: the notes each chat filed to the main chat: a pause for the limit may come that way.

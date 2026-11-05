@@ -672,7 +672,7 @@ export function spawnWhenAlone(state, outbox, lines) {
   if (main === null || workers.count > 0 || workers.ask?.isOpen === true) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning !== true) return null
   const asked = outbox.findLast(sent => sent.command === 'spawn' && sent.why === 'alone')
-  if (asked !== undefined && !lines.some(line => line.gap !== true && line.chat !== main && line.at > asked.at)) return null
+  if (asked !== undefined && !lines.some(line => line.gap !== true && typeof line.chat === 'string' && line.chat !== main && line.at > asked.at)) return null
   return spawnWords(main, 3, 'alone')
 }
 
