@@ -187,6 +187,21 @@ test('round 2: the real 11-04 sequence (EPERM 22:26, 22:28, 22:30 with a no-op s
   assert.equal(loops.failing()[0].holders, undefined, 'a new streak starts without the old names')
 })
 
+test('round 2: a failure of another kind after the busy ones drops the "held by" names (the review)', async () => {
+  const clock = fakeClock(at(22, 26))
+  const loops = loopRecord({ now: clock.now, holders: async () => [{ pid: 57736, name: 'grep.exe', since: at(19, 52) }] })
+  const fail = () => loops.run('measure', async () => { throw busy('C:\\p\\data\\spending.json') })
+  await fail()
+  clock.move(HOLDER_AFTER_MS)
+  await fail()
+  await loops.lookups()
+  assert.match(failingLine(loops.failing(), clockOf), /held by grep\.exe/)
+  clock.move(1000)
+  await loops.run('measure', async () => { const error = new Error('ENOENT: no such file or directory, open \'C:\\p\\data\\spending.json\''); error.code = 'ENOENT'; throw error })
+  assert.equal(loops.failing()[0].holders, undefined, 'the names went with the busy streak')
+  assert.doesNotMatch(failingLine(loops.failing(), clockOf), /held by/)
+})
+
 test('round 2: a long path in the error is still looked up (the stored message is cut, the lookup reads the whole line)', async () => {
   const clock = fakeClock(at(22, 26))
   const asked = []

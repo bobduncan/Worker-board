@@ -158,6 +158,12 @@ export function loopRecord({ now = Date.now, write = () => {}, track = (name, fn
     if (BUSY_WORDS.test(whole)) {
       one.busySince ??= at
       one.busyAt = at
+    } else {
+      // Round 2 (the review): a failure of another kind (EPERM turned ENOENT) ends the busy streak, so the line never keeps
+      // "held by …" beside an error that no program causes.
+      one.busySince = null
+      one.busyAt = null
+      delete one.holders
     }
     if (one.failures === 0) one.failingSince = at
     one.failures += 1

@@ -2189,7 +2189,8 @@ step on "check pending" for good.
   the rest counted, at most one lookup a minute per file and one lookup in flight at a time, nothing named off Windows or when PowerShell does not answer.
   "2 min in a row" is a busy streak apart from the loop's failing: it starts at the first EPERM/EBUSY/EACCES failure and ends,
   with its names, only when the loop succeeds more than 2 min after its last busy failure, so the no-op success the measure
-  loop returns while a measure runs (the real 11-04 case: a failure every 2 min) does not reset it; the lookup reads the
+  loop returns while a measure runs (the real 11-04 case: a failure every 2 min) does not reset it, or at once when the loop
+  fails for another reason (EPERM turned ENOENT: no program holds the file, so no "held by" stands beside it); the lookup reads the
   whole error line, not the 300 characters the page keeps (a long project path would lose its file name).
   It only reads: no Stop button, no program ended by the board (the person ends it in Task Manager). Tests:
   `test/loopHolders.test.mjs` (a child holds a scratch file without share-delete, the rename gets EPERM, the loop fails 2
