@@ -45,5 +45,5 @@
 {"id":"af75c65eea750050","at":1793915108662,"to":"Main","command":"work","state":"delivered","text":"work: note N1524 for you; run work next"}
 {"id":"0b98f98970756063","at":1793915130634,"to":"Main","command":"worker-effort","state":"delivered","text":"set effort\nChat: Worker 5"}
 {"id":"b235866ba3d826e7","at":1793915130634,"to":"Worker 5","command":"handover","state":"delivered","text":"hand-over\nClear after B1048"}
-{"id":"e2a2f873d6648fa1","at":1793915620301,"to":"Worker 1","command":"handover","state":"delivered","text":"hand-over\nLine: work: the board's check sent B1042 back to you at 22:53: the branch b1042-chain-long is still there; the worktree C:/Web/lava-tactics-project/w1"}
+{"id":"e2a2f873d6648fa1","at":1793915620301,"to":"Worker 1","command":"handover","state":"delivered","text":"hand-over\nLine: work: the board's check sent B1042 back to you at 22:53: the branch b1042-chain-long is still there; the worktree <worktree>"}
 {"id":"8aeb6fdbff617058","at":1793915631906,"to":"Worker 5","command":"handover","state":"delivered","text":"hand-over\nClear after B1057"}
