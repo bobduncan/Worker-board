@@ -178,24 +178,7 @@ function activeAt(text) {
  * folders NOT read, with the account folder's name: a chat that is only there lives in the person's other Claude account.
  */
 export async function readAppChats(dir, files = null, elsewhere = null) {
-  const folders = []
-  for (const outer of await list(dir)) {
-    if (!outer.isDirectory()) continue
-    for (const inner of await list(join(dir, outer.name))) {
-      if (!inner.isDirectory()) continue
-      const folder = join(dir, outer.name, inner.name)
-      const texts = []
-      const ids = []
-      for (const file of await list(folder)) {
-        if (!file.isFile() || !/^local_.*\.json$/.test(file.name)) continue
-        ids.push(file.name.slice(0, -'.json'.length))
-        // A file that cannot be read is being rewritten by the app; the next read has it. One cut short is no JSON.
-        const head = await readHead(join(folder, file.name), CHAT_FILE_BYTES)
-        if (head !== null && head.isWhole) texts.push(head.text)
-      }
-      if (texts.length > 0 || ids.length > 0) folders.push({ texts, ids, account: outer.name, at: texts.length === 0 ? 0 : Math.max(...texts.map(activeAt)) })
-    }
-  }
+  const folders = await readAccountFolders(dir)
   // Two folders as recent as each other cannot be told apart: both are read.
   const newest = Math.max(0, ...folders.map(folder => folder.at))
   const read = folders.filter(folder => folder.at === newest)
@@ -205,4 +188,54 @@ export async function readAppChats(dir, files = null, elsewhere = null) {
     for (const folder of folders) if (!read.includes(folder)) for (const id of folder.ids) if (!seen.has(id)) elsewhere.set(id, folder.account)
   }
   return read.flatMap(folder => folder.texts)
+}
+
+/**
+ * Start-up check, task 1 (2026-11-05): every `<dir>/<account>/<organisation>` folder of the app's chats, not only the newest:
+ * `[{ account, org, at, ids, texts, chats }]`, `ids` the app id of every chat file, `texts` the whole ones, `chats` a Map from
+ * app id to the parsed chat (`parseAppChat`) of each whole file. `at` is the newest activity in it (0 for none).
+ */
+export async function readAccountFolders(dir) {
+  const folders = []
+  for (const outer of await list(dir)) {
+    if (!outer.isDirectory()) continue
+    for (const inner of await list(join(dir, outer.name))) {
+      if (!inner.isDirectory()) continue
+      const folder = join(dir, outer.name, inner.name)
+      const texts = []
+      const ids = []
+      const chats = new Map()
+      for (const file of await list(folder)) {
+        if (!file.isFile() || !/^local_.*\.json$/.test(file.name)) continue
+        const id = file.name.slice(0, -'.json'.length)
+        ids.push(id)
+        // A file that cannot be read is being rewritten by the app; the next read has it. One cut short is no JSON.
+        const head = await readHead(join(folder, file.name), CHAT_FILE_BYTES)
+        if (head !== null && head.isWhole) {
+          texts.push(head.text)
+          const chat = parseAppChat(head.text)
+          if (chat !== null) chats.set(id, chat)
+        }
+      }
+      if (texts.length > 0 || ids.length > 0) folders.push({ account: outer.name, org: inner.name, texts, ids, chats, at: texts.length === 0 ? 0 : Math.max(...texts.map(activeAt)) })
+    }
+  }
+  return folders
+}
+
+/**
+ * Where a chat's file is, among all the account folders (`readAccountFolders`): 'here' (a real, open file in the folder of the
+ * account in use: the one with the newest activity, as the board has always read; the app does not mark it), 'elsewhere' (such
+ * a file only in another account's folder) or 'nowhere'. A launch stub (H2, `isStub`) and an archived file are no chat's file.
+ * `appSession` the app id (`local_<id>`).
+ */
+export function listedWhere(appSession, folders) {
+  if (typeof appSession !== 'string') return 'nowhere'
+  const newest = Math.max(0, ...(folders ?? []).map(folder => folder.at))
+  const has = folder => {
+    const chat = folder.chats.get(appSession)
+    return chat !== undefined && chat.isArchived !== true && chat.isStub !== true
+  }
+  if ((folders ?? []).some(folder => folder.at === newest && has(folder))) return 'here'
+  return (folders ?? []).some(has) ? 'elsewhere' : 'nowhere'
 }
