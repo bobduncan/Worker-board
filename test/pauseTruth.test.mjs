@@ -403,3 +403,16 @@ test('item 2: a card that gives only the time for its step says it at the cards 
   assert.equal(lane.task.stepLeftMs, 15 * MIN)
   assert.equal(lane.task.stepEstimateAt, RESTART_AT + 8_000)
 })
+
+// ---- Review 3 (an independent review): the estimate heal must not date a real new estimate back.
+test('review 3: the same minutes said again at the next step, by a chat that wrote at the card time, is a new estimate', () => {
+  const T0 = RESTART_AT - 60 * MIN
+  const lines = [{ at: T0, chat: 'Board', state: 'working', task: TASK, step: 4, steps: 6, leftMs: 6_574_399, estimateAt: T0, startedAt: T0 - 30 * MIN, source: 'step', by: null }]
+  // The chat acted at the card's time: new, whatever the step was.
+  assert.equal(laneOf(realBoard({ lines, writeAfter: RESTART_AT + 8_000 }), 'Board').task.estimateAt, RESTART_AT + 8_000)
+  // The step changed (4 -> 5) while the card was rewritten with no chat entry near it: the step differs, so no heal.
+  assert.equal(laneOf(realBoard({ lines }), 'Board').task.estimateAt, RESTART_AT + 8_000)
+  // The same step, the card rewritten without the chat acting (the real case): healed.
+  const same = [{ ...lines[0], step: 5 }]
+  assert.equal(laneOf(realBoard({ lines: same }), 'Board').task.estimateAt, T0)
+})

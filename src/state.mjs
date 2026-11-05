@@ -352,12 +352,14 @@ function feedbackLine(words) {
  * chat's newest unbroken run of lines for this task with the same time left (`leftMs`) is one estimate, said when its oldest
  * line says. A renewed plan (another time left), a new task or no history says `cardAt`.
  */
-function estimateSaidAt(lines, chat, task, leftMs, cardAt) {
+function estimateSaidAt(lines, chat, task, step, leftMs, cardAt, hasActed) {
+  // Review: a card the chat wrote itself (an entry of its transcript near the card's time, or no transcript to tell) is a new estimate.
+  if (hasActed) return cardAt
   let said = null
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     const line = lines[i]
     if (line.gap === true || line.chat !== chat) continue
-    if (line.task !== task || line.leftMs !== leftMs || !Number.isFinite(line.estimateAt)) break
+    if (line.task !== task || (line.step ?? null) !== (step ?? null) || line.leftMs !== leftMs || !Number.isFinite(line.estimateAt)) break
     said = line.estimateAt
   }
   return Number.isFinite(said) && Number.isFinite(cardAt) && said <= cardAt ? said : cardAt
@@ -435,7 +437,10 @@ function taskOf({ chat, plan, scan, state, before, lines, prefix, now, aliveAt =
     // The time for the step it is on, and when it said so: like the task's own time, it counts down from there.
     const stepLeftMs = plan.task.stepLeftMs ?? null
     // Pause truth item 2: a card the mod only rewrote (the app's restart) with the same time left is not a new estimate.
-    const saidAt = leftMs === null ? plan.at : estimateSaidAt(lines, chat.name, text, leftMs, plan.at)
+    // Review: healed only when the chat did not act near the card's time (no transcript entry within 5 min of it, or after it).
+    const newest = lastEntryAt(scan)
+    const hasActed = newest === null || !Number.isFinite(plan.at) || newest >= plan.at - 5 * MIN
+    const saidAt = leftMs === null ? plan.at : estimateSaidAt(lines, chat.name, text, at, leftMs, plan.at, hasActed)
     task = { text, step: at, steps, names, leftMs, estimateAt: leftMs === null ? null : saidAt, stepLeftMs, stepEstimateAt: stepLeftMs === null ? null : saidAt, source: 'plan', by: null }
     // Its record may name other steps too ("after B93"): only a step of its own, or of nobody, counts.
     onStep ??= firstOpen(text.match(/\bB\d+\b/g) ?? [], chat.name)
