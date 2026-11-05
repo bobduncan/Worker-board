@@ -239,7 +239,7 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
   const message = { id, at: now, to: lane.name, ask: null, step: envelope.step, title: null, version: envelope.version ?? null, verdict: null, command: HANDOVER_COMMAND, about: lane.name, text: textOf(envelope), state: 'waiting', kind: envelope.kind, clear: envelope.clear, restart: envelope.restart, set: envelope.set, line: envelope.line, back: envelope.back ?? null, ...(typeof envelope.resume === 'string' ? { resume: envelope.resume } : {}) }
   const main = state.restart?.main ?? null
   if (envelope.set !== null && main === null) {
-    // No chat whose hands could set it: the set failed at once (the task back, held, and no step of that model for it).
+    // No chat whose hands could set it: the set failed at once (the task back, held, and no step of that model for it until a later envelope is delivered or BAN_MS passes).
     await outbox.say({ ...message, state: 'failed', failedAt: now, settledAt: now, outcome: { cleared: null, set: false, typed: false, restarted: null, background: false, why: 'no main chat whose hands could set it' } })
     return { decision, envelope: null }
   }

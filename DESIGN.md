@@ -5312,8 +5312,10 @@ answer (the fast path) and it stands in the outbox (the record, and the carrier 
 asleep: its next take brings it). A turn-ended call asked again with its request id gets the same answer (B412). Its `set`
 is the hands' job (the app refuses a chat setting its own model or effort, `src/hands.mjs`): the board writes the usual
 `worker-effort` word beside it (`envelope`: its id), and the envelope waits for that word's done before it is handed out
-(`waitsFor`): one more event, no clock. A set word that failed or was dropped fails the envelope; with no main chat whose
-hands could set it, the set fails at once. A failed set bars that model's steps from the worker until it runs it. A
+(`waitsFor`): one more event, no clock. A set word that failed fails the envelope (one dropped because the chat runs at that setting already is a success, `met`, and the
+envelope goes on; one dropped as superseded fails it); with no main chat whose hands could set it, the set fails at once. A failed
+set bars that model's steps from the worker until a later envelope of it is delivered or `BAN_MS` (2 h) has passed. The status
+reads the ban too: a Free or Asleep pill carries the lane's why (chatStatus.mjs), and ready-while-free's evidence names it. A
 restart envelope its mod carried out gets the hands' `mod-restart` word once.
 
 **The page.** The lane of a worker on the sequence says where its hand-over stands, quietly (information, never amber):

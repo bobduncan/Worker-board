@@ -26,6 +26,7 @@ const items = new Map([
 ])
 const ready = [{ id: 'B1050', rank: -1, keptFor: null, keptUntil: null, pinned: null, prefers: null, notBy: ['Worker 2', 'Worker 1'] }]
 const lane = (name, more = {}) => ({ name, mod: HANDOVER_MOD, model: 'claude-opus-5-5', effort: 'high', report: { state: 'idle', since: NOW - 20 * MIN, at: NOW - MIN }, isRunning: true, asleep: false, isMain: false, isLeftover: false, state: 'free', ...more })
+const laneAt = (name, at) => lane(name, { report: { state: 'idle', since: at - 20 * MIN, at: at - MIN } })
 const decideFor = (worker, envelopes, now = NOW) => decide({ worker, items, ready, envelopes, setFor: setterFor(worker, items, CONFIG), now, installed: HANDOVER_MOD })
 
 // Worker 4, as the live outbox holds it (the first envelope is closed "no longer given" later by the sweep, its outcome stays).
@@ -34,9 +35,9 @@ const delivered = (id, at, step, set) => ({ id, at, to: 'Worker 4', command: HAN
 const worker4 = [
   failedByDrop,
   delivered('c9cbf90157d69f4c', T(2, 21, 21, 33), 'B938', { model: 'claude-opus-5-5', effort: 'high' }),
-  delivered('118c1c1115277bdd', T(4, 21, 20, 19), 'B1024', { model: null, effort: 'high' }),
-  delivered('3c2442ac78060145', T(4, 22, 1, 31), 'B1040', null),
-  delivered('def7062776f85d6c', T(4, 22, 22, 8), 'B1044', null),
+  delivered('118c1c1115277bdd', T(4, 21, 40, 19), 'B1024', { model: null, effort: 'high' }),
+  delivered('3c2442ac78060145', T(4, 22, 21, 31), 'B1040', null),
+  delivered('def7062776f85d6c', T(4, 22, 42, 8), 'B1044', null),
 ]
 
 test('real case, Worker 4: a delivered envelope after the dropped set lifts the ban, so B1050 (Sonnet) is handed with its set', () => {
@@ -44,12 +45,20 @@ test('real case, Worker 4: a delivered envelope after the dropped set lifts the 
   assert.equal(found.state, STATES.HANDING)
   assert.equal(found.give, 'B1050')
   assert.deepEqual(found.envelope.set, SONNET)
+  // 11-02 21:25, 4 min after the failure: only the delivered B938 explains it (the age-out is 2 h away).
+  const early = T(2, 21, 25)
+  assert.equal(decideFor(laneAt('Worker 4', early), worker4.slice(0, 2), early).give, 'B1050')
+  assert.equal(decideFor(laneAt('Worker 4', early), worker4.slice(0, 1), early).give, null)
 })
 
 test('real case, Worker 3: a real failed set (session not found) is lifted by the delivered B977 after it, so a Sonnet step is offered', () => {
   const failed = { id: '86df460b912ad540', at: T(4, 11, 30, 58), to: 'Worker 3', command: HANDOVER_COMMAND, state: 'dropped', kind: 'task', step: 'B984', clear: null, restart: false, set: SONNET, line: 'work: B984 is yours; run work next', waitsFor: 'c88c7324646d6bdc', failedAt: T(4, 11, 31, 8), settledAt: T(4, 11, 31, 8), outcome: { cleared: null, set: false, typed: false, restarted: null, background: false, why: 'Session local_82c0c4cd-20cd-4a13-bedd-cbea9d32285f not found.' } }
   const b977 = { ...delivered('1f3c1e81fbc4c1c9', T(4, 11, 31, 27), 'B977', null), to: 'Worker 3' }
   assert.equal(decideFor(lane('Worker 3'), [failed, b977]).give, 'B1050')
+  // 11:45, 14 min after the failure: only the delivered B977 explains it.
+  const early = T(4, 11, 45)
+  assert.equal(decideFor(laneAt('Worker 3', early), [failed, b977], early).give, 'B1050')
+  assert.equal(decideFor(laneAt('Worker 3', early), [failed], early).give, null)
 })
 
 test('guard: a real failed set with nothing delivered after it stays banned (no Sonnet step); after a delivery it is tried once, and a second failure bans again', () => {
@@ -121,4 +130,29 @@ test('sweep: a word whose chat runs at the setting already is dropped with met; 
   const superseded = whyClosed(word, ctx([lane('Worker 4')], [word, newer]))
   assert.equal(superseded.state, 'dropped')
   assert.notEqual(superseded.met, true)
+})
+
+test('the met mark is stored: a sweep over a file store keeps `met` on the closed word (also read back from the file), and the envelope is carryable', async () => {
+  const { mkdtemp, rm, readFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { fileStore, foldOutbox } = await import('../../src/store.mjs')
+  const { sweepOutbox } = await import('../../src/work/outboxSweep.mjs')
+  const EARLY = T(2, 21, 18)
+  const dir = await mkdtemp(join(tmpdir(), 'model-ban-'))
+  try {
+    const outbox = await fileStore(dir, EARLY)
+    const [envelope, word] = pending('x', false)
+    const set = { id: word.id, at: word.at, to: 'Main', command: 'worker-effort', about: 'Worker 4', effort: 'medium', model: 'claude-sonnet-5-5', state: 'waiting', envelope: envelope.id, text: 'set' }
+    await outbox.say(set)
+    await outbox.say({ ...envelope, text: 'hand-over' })
+    const state = { chats: [lane('Worker 4', { model: 'claude-sonnet-5-5', effort: 'medium' })], chatPrefix: '' }
+    await sweepOutbox({ dir: null, outbox, state, now: EARLY, keep: { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN } })
+    assert.equal(outbox.outbox().find(one => one.id === set.id).met, true)
+    const back = foldOutbox(await readFile(join(dir, 'outbox.jsonl'), 'utf8')).find(one => one.id === set.id)
+    assert.deepEqual([back.state, back.met], ['dropped', true])
+    assert.equal(carryable(foldOutbox(await readFile(join(dir, 'outbox.jsonl'), 'utf8')), 'Worker 4', EARLY, 60 * MIN)?.id, envelope.id)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
