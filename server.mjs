@@ -93,6 +93,7 @@ import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
 import { titleProblem } from './src/work/askWords.mjs'
 import { recapRoundDue } from './src/recapCard.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
+import { minuteKeeper } from './src/stability.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, keepPersonAction, workApi } from './src/work/api.mjs'
@@ -1646,6 +1647,8 @@ async function main(args) {
   }
   // Stability (2026-11-05): the person's actions log. Not on the demo, nor on a board that only shows: they write nothing.
   const actionsFile = isDemo || isShowOnly || workWriters === null ? null : join(HERE, 'data', 'actions.jsonl')
+  // Stability (2026-11-05): the per-minute record of idle-with-work, written by the look below where the board owns the loops.
+  const keepMinute = isDemo || isShowOnly || workDir === null ? null : minuteKeeper({ file: join(HERE, 'data', 'ready-minutes.jsonl'), clock })
   const workReads = new Set(['next', 'list', 'pause-state', 'route-state', 'health'])
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
   const workAction = async (body, as) => {
@@ -3550,6 +3553,8 @@ async function main(args) {
       await tick(store, state, clock())
       // B446: a loop of its own: its failure shows and is logged, and the look goes on.
       await loops.run('measure', () => measureTasks(state))
+      // Stability (2026-11-05): one line a minute of the free workers beside a ready step they could take (src/stability.mjs).
+      if (keepMinute !== null) await loops.run('stability', async () => keepMinute(state, (await work())?.items ?? new Map(), state.chatPrefix ?? ''))
       // B155: the steps it sees ticked for the first time, with when. B301: only from a store it can read, and with
       // the store's own time of each step's move to done.
       const next = seenFromState(finishedSeen, state, clock())
