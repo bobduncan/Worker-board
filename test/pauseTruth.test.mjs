@@ -416,3 +416,9 @@ test('review 3: the same minutes said again at the next step, by a chat that wro
   const same = [{ ...lines[0], step: 5 }]
   assert.equal(laneOf(realBoard({ lines: same }), 'Board').task.estimateAt, T0)
 })
+
+test('review 3: the same step and the same minutes, but the chat wrote at the card time: also a new estimate', () => {
+  const T0 = RESTART_AT - 60 * MIN
+  const same = [{ at: T0, chat: 'Board', state: 'working', task: TASK, step: 5, steps: 6, leftMs: 6_574_399, estimateAt: T0, startedAt: T0 - 30 * MIN, source: 'step', by: null }]
+  assert.equal(laneOf(realBoard({ lines: same, writeAfter: RESTART_AT + 8_000 }), 'Board').task.estimateAt, RESTART_AT + 8_000)
+})
