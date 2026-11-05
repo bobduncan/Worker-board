@@ -50,38 +50,78 @@ test('while a 64 MB backlog is read, the board is never held for more than 150 m
   assert.ok(longest<150,`the board was held ${Math.round(longest)} ms`)
 }))
 
+// Point 2: a scan stops on its time (the clock here moves 1 s per look) and the next goes on from the same offset:
+// every answer counted once. Mutant (no time limit): the first scan reads all 40 MB.
+test('a scan stops on its time and the next goes on where it stopped, every answer once',async()=>place(async({root,transcripts})=>{
+  await backlog(join(transcripts,'advisor.jsonl'),40,20)
+  let now=at;const clock=()=>(now+=1000)
+  const collector=createSpendingCollector({dir:root,transcripts,clock});await collector.load()
+  const lanes=[{session:'advisor',name:'Advisor',role:'advisor'}]
+  await collector.scan(lanes)
+  assert.ok(collector.summary(7).coverage.pendingBytes>0,'the first scan stopped on its time')
+  for(let scans=1;scans<40&&collector.summary(7).coverage.pendingBytes>0;scans++)await collector.scan(lanes)
+  assert.equal(collector.summary(7).coverage.pendingBytes,0)
+  assert.equal(collector.summary(7).messages,20)
+}))
+
+// Point 2: a chat's own session is never starved by a backlog. A left session behind by 40 MB, written last, would be
+// read first; the chats' own sessions get their turn before it. Mutant (no own turn first): Worker 1's answer waits.
+test('a chat\'s own new answer is read in the same scan as a big backlog',async()=>place(async({root,transcripts,chats})=>{
+  await writeFile(join(transcripts,'now.jsonl'),answer('fresh','now')+'\n')
+  await backlog(join(transcripts,'old.jsonl'),40,5)
+  await writeFile(join(chats,'old.json'),JSON.stringify({movedTo:'now',at}))
+  await writeFile(join(chats,'now.json'),JSON.stringify({name:'Worker 1',role:'worker',at}))
+  let now=at;const clock=()=>(now+=1000)
+  const collector=createSpendingCollector({dir:root,transcripts,chats,clock});await collector.load()
+  await collector.scan([{session:'now',name:'Worker 1',role:'worker'}])
+  const {readFile}=await import('node:fs/promises'),ledger=JSON.parse(await readFile(join(root,'spending.json'),'utf8'))
+  assert.ok(ledger.events.some(e=>e.messageId==='fresh'),'the chat\'s own answer is in')
+  assert.ok(ledger.scans.old.offset<(await stat(join(transcripts,'old.jsonl'))).size,'the backlog is still behind')
+}))
+
 // Point 3: every clear starts a new session; the old one's card names the next. Worker 3 cleared twice: both old
-// sessions count under Worker 3; a chain that ends in no named card counts under "Earlier chat".
+// sessions count under Worker 3, and so does a second named session of it that is not its own now; a chain that ends in
+// no named card counts under "Earlier chat", and a session that left the board under its app title.
 // Mutant (only the chats' own sessions, as before): Worker 3 has 1 message, not 3, and "Earlier chat" none.
 test('the sessions a cleared chat left are counted under that chat',async()=>place(async({root,transcripts,chats})=>{
-  for(const [session,id] of [['old1','a'],['old2','b'],['now','c'],['gone','d']])await writeFile(join(transcripts,`${session}.jsonl`),answer(id,session)+'\n')
+  for(const [session,id] of [['old1','a'],['old2','b'],['now','c'],['gone','d'],['away','e'],['second','f']])await writeFile(join(transcripts,`${session}.jsonl`),answer(id,session)+'\n')
+  await writeFile(join(chats,'away.json'),JSON.stringify({left:true}))
+  await writeFile(join(chats,'second.json'),JSON.stringify({name:'Worker 3',role:'worker',state:'waiting',task:null,at}))
   await writeFile(join(chats,'old1.json'),JSON.stringify({movedTo:'old2',at}))
   await writeFile(join(chats,'old2.json'),JSON.stringify({movedTo:'now',at}))
   await writeFile(join(chats,'now.json'),JSON.stringify({name:'Worker 3',role:'worker',state:'working',task:null,at}))
   await writeFile(join(chats,'gone.json'),JSON.stringify({movedTo:'deleted',at}))
-  assert.deepEqual((await movedSubjects(chats)).map(one=>[one.session,one.name]).sort(),[['gone','Earlier chat'],['old1','Worker 3'],['old2','Worker 3']])
-  const collector=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await collector.load()
+  assert.deepEqual((await movedSubjects(chats)).map(one=>[one.session,one.name]).sort(),[['away','Earlier chat'],['gone','Earlier chat'],['now','Worker 3'],['old1','Worker 3'],['old2','Worker 3'],['second','Worker 3']])
+  // The app's title names the session that left the board, without the project's prefix.
+  const appSessions=join(root,'app','account','org');await mkdir(appSessions,{recursive:true})
+  await writeFile(join(appSessions,'local_1.json'),JSON.stringify({sessionId:'local_1',cliSessionId:'away',title:'Project - Units'}))
+  const collector=createSpendingCollector({dir:root,transcripts,chats,appSessions:join(root,'app'),clock:()=>at+1});await collector.load()
   await collector.scan([{session:'now',name:'Worker 3',role:'worker'}])
   const chatsSeen=Object.fromEntries(collector.summary(7).chats.map(one=>[one.key,one.messages]))
-  assert.deepEqual(chatsSeen,{'Worker 3':3,'Earlier chat':1})
+  assert.deepEqual(chatsSeen,{'Worker 3':4,'Earlier chat':1,'Units':1})
 }))
 
 // Point 3, kept cheap: a left session read to its end is not looked at again (no stat, no open), so 700 old sessions
 // cost nothing once read. Mutant (no read-out mark): the removed file shows as unavailable.
 test('a left session read to its end is not opened again',async()=>place(async({root,transcripts,chats})=>{
   await writeFile(join(transcripts,'old.jsonl'),answer('a','old')+'\n')
+  await mkdir(join(transcripts,'old','subagents'),{recursive:true})
+  await writeFile(join(transcripts,'old','subagents','agent-1.jsonl'),answer('a1','old')+'\n')
   await writeFile(join(transcripts,'now.jsonl'),answer('b','now')+'\n')
   await writeFile(join(chats,'old.json'),JSON.stringify({movedTo:'now',at}))
   await writeFile(join(chats,'now.json'),JSON.stringify({name:'Worker 1',role:'worker',at}))
   const collector=createSpendingCollector({dir:root,transcripts,chats,clock:()=>at+1});await collector.load()
   const lanes=[{session:'now',name:'Worker 1',role:'worker'}]
   await collector.scan(lanes)
+  assert.equal(collector.summary(7).coverage.childTranscripts,1)
   await rm(join(transcripts,'old.jsonl'))
   await appendFile(join(transcripts,'now.jsonl'),answer('c','now')+'\n')
   await collector.scan(lanes)
   const summary=collector.summary(7)
-  assert.equal(summary.messages,3)
+  assert.equal(summary.messages,4)
   assert.equal(summary.coverage.unavailableTranscripts,0)
+  // The old session and its child are no longer among the files looked at.
+  assert.equal(summary.coverage.childTranscripts,0)
 }))
 
 // Point 4: writes stay quick. The ledger keeps no transcript text and stays as small as before: a tool output's

@@ -1717,7 +1717,7 @@ async function main(args) {
   const TASK_TIMES_FILE = join(HERE, 'data', 'task-times.json')
   const TASK_LIST_FILE = join(HERE, 'data', 'task-times.md')
   // Spending counts every chat: the cards name the sessions cleared chats left.
-  const spending = createSpendingCollector({ dir: join(HERE, 'data'), transcripts: config.transcripts, chats: config.project ? join(config.project, '.claude', 'chats') : null, clock })
+  const spending = createSpendingCollector({ dir: join(HERE, 'data'), transcripts: config.transcripts, chats: config.project ? join(config.project, '.claude', 'chats') : null, appSessions: config.appSessions || null, clock })
   await spending.load()
   let taskTimes = { scans: {}, tasks: [] }
   // The supervisor's section on the demo: made-up rules, incidents and a check of its own (fixtures/demo.mjs).

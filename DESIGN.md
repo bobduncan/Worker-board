@@ -19,6 +19,21 @@ each over the whole ledger (50 000 events): 374 ms per rebuild, 13% of a core on
 scan that adds events, or a load, replaces them) and the period's window starts in the same minute; a kept one gets the
 time and the coverage anew. Five summaries 416 ms → 2 ms on the live ledger (tests: test/work/routingCollector.test.mjs).
 
+**Spending counts every chat (2026-11-05).** Two gaps: the Advisor was counted only up to 25 Oct (1.35 GB behind, read at
+2 chunks of 1 MiB per visit), and a cleared chat's old sessions were never read (every clear starts a new session). Now:
+- *Every session of every chat.* The cards in `.claude/chats` name them: a card with `movedTo` counts under the chat its
+  chain of moves ends in, a named card that is no chat's own session now under its name, a card that left the board
+  (or a chain that ends in no named card) under "Earlier chat" (`movedSubjects`). A moved or left session read to its
+  end, its children too, is marked in `readOut` and not looked at again; a named one is kept looking at.
+- *A backlog within the hour, the board quick.* Each scan (one a minute) first gives the chats' own sessions their turn
+  (2 chunks each, 16 MiB), then reads every file still behind, the most recently written first, on to 96 MiB or 5 s.
+  Only an answer's lines are parsed (`"type":"assistant"`; tool output, the bulk, is skipped unparsed), the events are
+  kept by message id between chunks (no map built anew per chunk), and the board answers between chunks.
+- *Writes stay quick.* The ledger keeps its shape and its 50 000 events, so no migration: on a copy of the live 21 MB
+  file a write is ~60 ms to text plus ~33 ms to disk, once per scan that changed something.
+The check: `tools/spending-count.mjs` counts every answer from the transcripts; on 2026-11-05 the 7-day numbers per
+chat matched the collector run fresh to 0% (tests: test/work/spendingEveryChat.test.mjs).
+
 > **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
 > settings (`config.json`) or the project's own files. `test/anyProject.test.mjs` fails on any tie; its list of
