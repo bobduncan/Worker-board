@@ -22214,7 +22214,6 @@ $('phone-more').addEventListener('click', () => {
 // Reading and sending
 
 function draw(state) {
-  state = whileChecking(state)
   board = state
   restoreKept()
   window.BoardSpending?.draw(state)
@@ -22433,7 +22432,7 @@ async function read() {
     withAnswers(state)
     // Light state: the finished steps this page read whole stand whole again.
     withFullSteps(state)
-    draw(state)
+    draw(whileChecking(state))
     awaySince = null
     helpAtStart(state)
   } catch (error) {
