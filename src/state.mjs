@@ -435,7 +435,7 @@ function taskOf({ chat, plan, scan, state, before, lines, prefix, now, aliveAt =
     // The time for the step it is on, and when it said so: like the task's own time, it counts down from there.
     const stepLeftMs = plan.task.stepLeftMs ?? null
     // Pause truth item 2: a card the mod only rewrote (the app's restart) with the same time left is not a new estimate.
-    const saidAt = leftMs === null ? null : estimateSaidAt(lines, chat.name, text, leftMs, plan.at)
+    const saidAt = leftMs === null ? plan.at : estimateSaidAt(lines, chat.name, text, leftMs, plan.at)
     task = { text, step: at, steps, names, leftMs, estimateAt: leftMs === null ? null : saidAt, stepLeftMs, stepEstimateAt: stepLeftMs === null ? null : saidAt, source: 'plan', by: null }
     // Its record may name other steps too ("after B93"): only a step of its own, or of nobody, counts.
     onStep ??= firstOpen(text.match(/\bB\d+\b/g) ?? [], chat.name)

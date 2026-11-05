@@ -96,7 +96,7 @@ function realBoard({ pause = { state: 'pausing', since: PAUSED_AT, by: 'person' 
   work.pause = pause
   const board = { text: [typed(LAST_REAL - 10 * MIN, 'Go on.'), step(LAST_REAL - 5 * MIN, 'Build'), step(LAST_REAL, 'Build'), ...(writeAfter === null ? [] : [step(writeAfter, 'Build')]), JSON.stringify({ type: 'cost-state', sessionId: 'cli-Board', totalCostUSD: 4.5 })].join('\n'), isCut: false, modifiedAt: (writeAfter ?? RESTART_AT) + 7_000 }
   const main = { text: [typed(LAST_REAL - 30 * MIN, 'Go on.'), answer(LAST_REAL - 25 * MIN, 'Done for now.')].join('\n'), isCut: false, modifiedAt: LAST_REAL - 25 * MIN }
-  const card = JSON.stringify({ name: 'Board', role: 'worker', state: 'waiting', task: { text: TASK, step: 5, steps: 6, left: leftMs, isReported: false }, at: RESTART_AT + 8_000, mod: '0.31.0' })
+  const card = JSON.stringify({ name: 'Board', role: 'worker', state: 'waiting', task: { text: TASK, step: 5, steps: 6, ...(leftMs === null ? { stepLeft: 15 * MIN } : { left: leftMs }), isReported: false }, at: RESTART_AT + 8_000, mod: '0.31.0' })
   const raw = {
     listText: '{"prefix":"Game - ","main":"Main"}',
     appChatTexts: NAMES.map(appJson),
@@ -152,17 +152,17 @@ test('item 2: a history that already holds the wrong restart time is read back t
 
 // ---- Item 3: the popup ask of a chat that is gone, on a step that is done (the real Q629 / Q632 / B966, words kept).
 const popupAsk = (id, of, owner, extra = '') => [
-  `Id: ${id}`, 'Kind: ask', 'Title: A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (lava-tactics-project) for over a minute.',
+  `Id: ${id}`, 'Kind: ask', 'Title: A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (garden) for over a minute.',
   'State: open', `Owner: ${owner}`, 'Activity: Look: make the game compare to the reference pictures', 'Since: 2026-11-04 11:16', 'Filed: 1793787409459',
   'Asks: do', 'Blocking: no', `Of: ${of}`, 'Via: form', 'Route: person', extra, '', '## Text',
-  'A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (lava-tactics-project) for over a minute. Open its chat and look.', '',
+  'A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (garden) for over a minute. Open its chat and look.', '',
   '## History', '- 2026-11-04 11:16 Worker 5: asked (do, with the app\'s question form)', '- 2026-11-04 11:16 server: autopilot: routed to person', '',
 ].join('\n')
 const stepFile = (id, state, owner) => [
   `Id: ${id}`, 'Kind: step', 'Title: Fix: First look on the Terraces v5 and the Moat Keep', `State: ${state}`, `Owner: ${owner}`, 'Activity: Look: make the game compare to the reference pictures', 'Goal: G60', 'Since: 2026-11-04 18:06', 'Branch: b-x', '',
   '## History', '- 2026-11-04 18:06 Worker 5: in progress → done', '',
 ].join('\n')
-const formAsk = (id, of, owner) => popupAsk(id, of, owner).replace(/A popup in its chat may wait for you: it has tried to use ccd directory \(change directory\) \(lava-tactics-project\) for over a minute\./g, 'Which of the three paintings do you want?')
+const formAsk = (id, of, owner) => popupAsk(id, of, owner).replace(/A popup in its chat may wait for you: it has tried to use ccd directory \(change directory\) \(garden\) for over a minute\./g, 'Which of the three paintings do you want?')
 
 async function popupStore(files) {
   const dir = await mkdtemp(join(tmpdir(), 'pause-truth-'))
@@ -395,4 +395,11 @@ test('item 8: a leftover whose summary names only steps that are done is no reas
 test('item 8: a newer chat that does not run keeps the leftover, as it should: nothing proves it holds the lane', async () => {
   const state = await realCase()
   assert.deepEqual(replacedChats({ lanes: state.chats, now: state.readAt, stepState: () => 'done' }), [])
+})
+
+test('item 2: a card that gives only the time for its step says it at the cards own time (the estimate rule must not drop it)', () => {
+  const lane = laneOf(realBoard({ leftMs: null }), 'Board')
+  assert.equal(lane.task.leftMs, null)
+  assert.equal(lane.task.stepLeftMs, 15 * MIN)
+  assert.equal(lane.task.stepEstimateAt, RESTART_AT + 8_000)
 })
