@@ -23,8 +23,13 @@ time and the coverage anew. Five summaries 416 ms → 2 ms on the live ledger (t
 2 chunks of 1 MiB per visit), and a cleared chat's old sessions were never read (every clear starts a new session). Now:
 - *Every session of every chat.* The cards in `.claude/chats` name them: a card with `movedTo` counts under the chat its
   chain of moves ends in, a named card that is no chat's own session now under its name, a card that left the board
-  (or a chain that ends in no named card) under "Earlier chat" (`movedSubjects`). A moved or left session read to its
-  end, its children too, is marked in `readOut` and not looked at again; a named one is kept looking at.
+  (or a chain that ends in no named card) under its app title, else "Earlier chat" (`movedSubjects`). A card cut short
+  (four were cut at 70 bytes, 24-26 Oct) still gives its name, role and move (`cardOf`). A left session read to its
+  end, its children too, is marked in `readOut` with its size then, and skipped while its transcript keeps that size and
+  it is no chat's own session; one that grew (a chat resumed it, a chat that left the board goes on) is read on. The
+  read-out compares with the size found in this scan, never the one of the last read.
+- *The cap says so.* The ledger keeps the latest 50 000 messages (~12 days with every chat): a period that starts before
+  the oldest kept one shows "Covers only from <date>" on the Spending tab (`coversLine`).
 - *A backlog within the hour, the board quick.* Each scan (one a minute) first gives the chats' own sessions their turn
   (2 chunks each, 16 MiB), then reads every file still behind, the most recently written first, on to 96 MiB or 5 s.
   Only an answer's lines are parsed (`"type":"assistant"`; tool output, the bulk, is skipped unparsed), the events are
