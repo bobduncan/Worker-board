@@ -16,6 +16,7 @@ const MIN = 60_000
 const T = (day, h, m, s = 0) => new Date(2026, 10, day, h, m, s).getTime()
 const NOW = T(4, 23, 31)
 const SONNET = { model: 'claude-sonnet-5-5', effort: 'medium' }
+const SOON = T(2, 21, 50)
 const CONFIG = { models: { sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' }, usualModel: 'sonnet', usualEffort: 'medium' }
 
 const itemOf = (head, sections = {}) => parseItem(`${Object.entries(head).map(([key, value]) => `${key}: ${value}`).join('\n')}\n${Object.entries(sections).map(([name, lines]) => `\n## ${name}\n${lines.join('\n')}\n`).join('')}`)
@@ -53,25 +54,34 @@ test('real case, Worker 3: a real failed set (session not found) is lifted by th
 
 test('guard: a real failed set with nothing delivered after it stays banned (no Sonnet step); after a delivery it is tried once, and a second failure bans again', () => {
   const failed = { ...failedByDrop, outcome: { ...failedByDrop.outcome, why: 'no main chat whose hands could set it' } }
-  const found = decideFor(lane('Worker 4'), [failed])
+  const found = decideFor(lane('Worker 4'), [failed], SOON)
   assert.equal(found.state, STATES.FREE)
   assert.equal(found.give, null)
-  assert.equal(decideFor(lane('Worker 4'), [failed, delivered('d1', T(2, 21, 30), 'B938', null)]).give, 'B1050')
+  assert.equal(decideFor(lane('Worker 4'), [failed, delivered('d1', T(2, 21, 30), 'B938', null)], SOON).give, 'B1050')
   const again = [failed, delivered('d1', T(2, 21, 30), 'B938', null), { ...failedByDrop, id: 'f2', at: T(2, 21, 40), failedAt: T(2, 21, 41), outcome: { ...failedByDrop.outcome, why: 'the app refused' } }]
-  assert.equal(decideFor(lane('Worker 4'), again).give, null)
+  assert.equal(decideFor(lane('Worker 4'), again, SOON).give, null)
 })
 
 test('visibility: a banned lane\'s why names the model, the time and the reason; the state\'s own reading (no ready list) shows it too', () => {
   const failed = { ...failedByDrop, outcome: { ...failedByDrop.outcome, why: 'Session x not found.' } }
-  const found = decideFor(lane('Worker 4'), [failed])
-  assert.equal(found.why, 'free; gets no sonnet steps: its set failed at 21:20 (Session x not found.)')
+  const found = decideFor(lane('Worker 4'), [failed], SOON)
+  assert.equal(found.why, 'free; gets no sonnet steps: its set failed at 21:20 (Session x not found.) until 23:20')
   assert.equal(laneWords(found), found.why)
   const worker = lane('Worker 4')
-  const noReady = decide({ worker, items, ready: [], envelopes: [failed], setFor: setterFor(worker, items, CONFIG), now: NOW, installed: HANDOVER_MOD })
+  const noReady = decide({ worker, items, ready: [], envelopes: [failed], setFor: setterFor(worker, items, CONFIG), now: SOON, installed: HANDOVER_MOD })
   assert.equal(noReady.state, STATES.FREE)
   assert.match(noReady.why, /gets no sonnet steps/)
   // Not banned: no words, and a free lane without a ban says nothing (the ready-while-free rule keeps its key and count).
   assert.deepEqual([decideFor(worker, []).give, laneWords({ state: STATES.FREE, why: null })], ['B1050', null])
+})
+
+test('age-out: a real failure, only Sonnet steps ready, nothing delivered: banned at 1 h 59, the step offered at 2 h 01, banned again by a new failure', () => {
+  const failed = { ...failedByDrop, outcome: { ...failedByDrop.outcome, why: 'Session x not found.' } }
+  const at = failedByDrop.failedAt
+  assert.equal(decideFor(lane('Worker 4'), [failed], at + 119 * MIN).give, null)
+  assert.equal(decideFor(lane('Worker 4'), [failed], at + 121 * MIN).give, 'B1050')
+  const again = { ...failed, id: 'f3', at: at + 121 * MIN, failedAt: at + 122 * MIN, settledAt: at + 122 * MIN }
+  assert.equal(decideFor(lane('Worker 4'), [failed, again], at + 150 * MIN).give, null)
 })
 
 const outboxOf = sent => {

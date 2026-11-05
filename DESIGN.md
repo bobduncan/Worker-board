@@ -3556,7 +3556,9 @@ Advisor's check helpers on Sonnet". It builds on B468: the same word to the main
    that model is tried once more; a real failure bans it again, and a failure with nothing delivered after it stays
    banned; `bansOf` in handover.mjs). A set word the sweep drops because the chat runs at that setting already is a success
    (`met: true`, outboxSweep.mjs): its envelope goes on and is not failed (`isWordDone`, handoverBoard.mjs); one dropped as
-   superseded still fails. While a ban stands the lane says "free; gets no sonnet steps: its set failed at HH:MM (<why>)".
+   superseded still fails. A ban also ends `BAN_MS` (2 h) after its failure (nothing waits for ever): one more try, and a
+   real failure bans again for 2 h. While a ban stands the lane says "free; gets no sonnet steps: its set failed at HH:MM
+   (<why>) until HH:MM".
 5. Between steps a worker runs at its usual setting from the settings, `usualModel` and `usualEffort` (sonnet and
    medium unless set; `runSettings`), never at what it ran at before the board's first word (B468 kept that one, extra
    high on Opus for every worker). The board moves a worker back only after one of its words changed it, as in B468; a
