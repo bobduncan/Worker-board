@@ -67,7 +67,7 @@ the board has and never waits for a change in the store's queue, so a time-out i
 rules say. Board-slow's evidence cites the board's stall log (B934, `data/stalls.json`): each stall over 2 s with the
 requests and the board's own jobs that ran during it, so its finding already says what held the board. Harm is the bar (B1011):
 board-slow sounds only for calls answered after the chat gave up (10 s, two within 2 min); a stall of 2 to 10 s stays in the
-log and is no finding; a clean-up that does not run is `clear-owed-repeat` or `handover-held`.
+log and is no finding; a sleep of the PC (a stall over 10 min, across a clock jump or a board start; kind `sleep`) is shown as "the PC slept" and is never a slow board; a clean-up that does not run is `clear-owed-repeat` or `handover-held`.
 
 Read only the health summary. Do not read files, logs or transcripts, do not run commands, and do not start agents: a
 sweep is meant to cost little (a few tens of thousands of tokens, mostly cached).

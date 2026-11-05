@@ -29,7 +29,7 @@ import { BOUNDED_RULES, COUNTS_BY_KEY } from './repair.mjs'
 import { BOARD_TRIES } from '../../refineGate.mjs'
 import { rebuildHoldOf } from '../../goalGuard.mjs'
 import { DEAF_KEEP_MS } from '../../hearing.mjs'
-import { stallWords } from '../../stallWords.mjs'
+import { SLEEP_MS, isSleep, stallWords } from '../../stallWords.mjs'
 import { isHandTaken } from '../../hands.mjs'
 import { triedWords } from '../../wake.mjs'
 
@@ -1027,20 +1027,27 @@ const secondsOf = ms => `${clockOf(ms)}:${pad(new Date(ms).getSeconds())}`
  * 19. B736 (X89, the rule the sweep wanted: work health timed out twice in a row): two work calls within 2 minutes that the
  * board answered after the chat's Workers mod had given up on them (view.mjs `lateCalls`, from each call's request id):
  * one finding, naming the longest wait. B934 (X93): its evidence cites the board's newest stalls in that time (the stall
- * log, stalls.mjs: what the board ran while it did not answer), or says the log names none.
+ * log, stalls.mjs: what the board ran while it did not answer), or says the log names none. B1049: a sleep of the PC is no
+ * slow board: a call that waited through one (over 10 min, or overlapping a stall logged as a sleep) is not counted, and
+ * the evidence names the sleep in its own words ("slept: ...").
  */
 function boardSlow(view) {
-  const recent = (view.lateCalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS).sort((a, b) => a.at - b.at)
+  const sleeps = (view.stalls ?? []).filter(isSleep)
+  const duringSleep = call => call.ms > SLEEP_MS || sleeps.some(sleep => call.at - call.ms < sleep.at && sleep.at - sleep.ms < call.at)
+  const recent = (view.lateCalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS && !duringSleep(one)).sort((a, b) => a.at - b.at)
   if (!recent.some((one, index) => index > 0 && one.at - recent[index - 1].at <= SLOW_PAIR_MS)) return []
   const worst = Math.max(...recent.map(one => one.ms))
-  const stalls = (view.stalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS).sort((a, b) => a.at - b.at).slice(-SLOW_CITES)
+  const inLook = (view.stalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS).sort((a, b) => a.at - b.at)
+  const stalls = inLook.filter(one => !isSleep(one)).slice(-SLOW_CITES)
+  const slept = inLook.filter(isSleep).slice(-SLOW_CITES)
   return [{
     rule: 'board-slow', key: 'board-slow board', subject: 'board',
     text: `the board did not answer for ${Math.round(worst / 1000)} s: ${recent.length} work calls in ${minutes(SLOW_LOOK_MS)} min answered after the chat gave up`,
     evidence: [
       recent.slice(-6).map(one => `answered ${clockOf(one.at)} after ${Math.round(one.ms / 1000)} s`).join('; '),
       stalls.length === 0 ? `the stall log names no stall in ${minutes(SLOW_LOOK_MS)} min` : `stalls: ${stalls.map(one => stallWords(one, secondsOf)).join('; ')}`,
-    ].join('. '),
+      slept.length === 0 ? null : `slept: ${slept.map(one => stallWords(one, secondsOf)).join('; ')}`,
+    ].filter(Boolean).join('. '),
   }]
 }
 

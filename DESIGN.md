@@ -3967,7 +3967,12 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   hand-over's and 5 to 8 jobs at once, so no single blocker is left): the 5 s the board aims at is measured, not an alarm. A
   call answered after 2 to 10 s goes to the stall log only; an alarm sounds only when a slow answer does harm: board-slow for
   calls answered after the chat gave up (10 s, two within 2 min), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
-  clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. What forces a rebuild is pinned end to end by
+  clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. **A sleep is no stall** (B1049 part 2: the PC
+  slept 2026-11-04 23:45 to 11-05 08:15 and `data/stalls.json` held it as 8.5 h of "the loop blocked"): a stall is written as
+  `kind: 'sleep'` (no requests or jobs named) when it lasts over 10 min, spans a clock jump (the wall clock and the monotonic
+  one, `watchLoop`, disagree by over 5 s) or began before the board did; an older entry over 10 min reads as a sleep too
+  (`stallOf`). A sleep is kept and said in plain words ("the PC slept (not a slow board)"); board-slow counts no call that
+  waited through one and cites it as "slept: ...", never as a stall. Pinned by `test/sleepStall.test.mjs`. What forces a rebuild is pinned end to end by
   `test/rebuildsBoard.test.mjs` (a copy of the board with its state kept an hour, `WORKER_BOARD_STATE_MS`, and one line per
   rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
   an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a
