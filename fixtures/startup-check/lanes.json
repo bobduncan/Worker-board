@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Main",
+    "appSession": "local_84e3310d-5c34-43b7-a5f4-d59006c1d556",
+    "model": "claude-sonnet-5-5"
+  },
+  {
+    "name": "Worker 1",
+    "appSession": "local_e92c96e7-9f9c-4b57-8f7d-7bfdfc3afcc8",
+    "model": "claude-sonnet-5-5"
+  },
+  {
+    "name": "Worker 2",
+    "appSession": "local_f86ba0e4-f337-456d-84be-52cd655253e1",
+    "model": "claude-sonnet-5-5"
+  },
+  {
+    "name": "Worker 3",
+    "appSession": "local_0981b01c-5087-464a-beca-85d4f50734d2",
+    "model": "claude-sonnet-5-5"
+  },
+  {
+    "name": "Worker 4",
+    "appSession": "local_6a0767ea-0335-43cf-9a6b-988904461d3a",
+    "model": "claude-sonnet-5-5"
+  },
+  {
+    "name": "Worker 5",
+    "appSession": "local_88208666-fd8c-43e5-8f6a-b0b847115ba7",
+    "model": "claude-sonnet-5-5"
+  }
+]

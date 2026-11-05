@@ -285,7 +285,7 @@ export const BAN_WHY_MARK = ' steps: its set failed at '
 export const BAN_MS = 2 * 60 * MIN
 const failedAtOf = envelope => envelope.failedAt ?? envelope.settledAt ?? envelope.at
 
-function bansOf(envelopes, now = null) {
+export function bansOf(envelopes, now = null) {
   const barred = new Map()
   for (const envelope of envelopes) {
     if (envelope.state === 'delivered') barred.clear()
