@@ -6934,3 +6934,10 @@ things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state 
    estimate and takes the card's `at`); this also heals a history line that already holds the restart's time. Mutants: the file time
    back (kills `item 2: a card never says ...` and `... really wrote after the restart`); the card's `at` back (kills `... never says`
    and `a history that already holds the wrong restart time`).
+3. **A popup ask of a chat that cannot withdraw it** (`src/work/api.mjs` `popupAsks`, the server-only action `popup-asks`; `pause.mjs`
+   `chatsWithoutProcess`; server.mjs reconcile pass, its own `loops.run`). The Workers mod withdraws a popup ask when the call goes on;
+   a chat with no process (Worker 5 since the 08:15 restart) cannot. At each refresh the board withdraws an open `Via: form` popup ask
+   (`isPopupAsk`) whose step is done, dropped or gone, or whose chat the board reads as having no process (`isRunning === false`, an unknown
+   chat is never named), with the why "the popup cannot wait any more: ...". A popup ask of a running chat on an open step, and any
+   real question of the app's form, stay. Mutants: the step rule out, the process rule out, the popup test out (each kills one of the
+   three `item 3` tests; the real Q629/Q632/B966 are the fixture).

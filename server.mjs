@@ -97,7 +97,7 @@ import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
-import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
+import { chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
@@ -3687,6 +3687,14 @@ async function main(args) {
         await loops.run('accept-cards', async () => {
           const carded = await workAction({ action: 'accept-cards' }, 'server')
           if (!carded.ok) throw new Error(carded.why ?? 'accept-cards was refused')
+        })
+        // Pause truth item 3: a popup ask whose step is done, or whose chat has no process (`isRunning === false`, never an unknown
+        // one), is withdrawn: nobody is left to withdraw it. On its own, so a failure stops no delivery.
+        await loops.run('popup-asks', async () => {
+          const gone = chatsWithoutProcess(state.chats)
+          const swept = await workAction({ action: 'popup-asks', gone }, 'server')
+          if (!swept.ok) throw new Error(swept.why ?? 'popup-asks was refused')
+          if (swept.result.changed === true) readState.reset()
         })
         // The supervisor (spec 2026-10-24): an incident whose fix step is done is fixed; one whose fix was dropped, open again.
         // Only while the supervisor's view holds one being fixed: each work call reads the whole store.

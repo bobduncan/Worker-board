@@ -292,3 +292,9 @@ export function heldMs(message, now, pause) {
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0
   return Math.max(0, Math.min(end, now) - Math.max(start, message.at))
 }
+
+/**
+ * Pause truth item 3: the names of the chats the board reads as having no process (`isRunning === false`: closed, or ended by the
+ * PC's sleep and the app's restart). An unknown one (`isRunning` null: no word of its mod yet) is not named: nothing is guessed.
+ */
+export const chatsWithoutProcess = lanes => (Array.isArray(lanes) ? lanes : []).filter(lane => lane?.isRunning === false && typeof lane.name === 'string').map(lane => lane.name)

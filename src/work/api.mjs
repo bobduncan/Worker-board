@@ -58,7 +58,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'autopilot-undo', 'recap-answered', 'asset'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'popup-asks', 'autopilot', 'autopilot-undo', 'recap-answered', 'asset'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -71,7 +71,7 @@ const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incident
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'autopilot-undo', 'add-to-queue', 'remove-from-queue'])
-const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'autopilot', 'recap-answered'])
+const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'popup-asks', 'autopilot', 'recap-answered'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -2364,6 +2364,31 @@ async function acceptCards(_body, w) {
   }
   const all = [...filed, ...gone]
   return { ok: true, result: { text: all.length === 0 ? 'No step waits for your Accept.' : `Filed: ${filed.join(', ') || 'none'}; withdrawn: ${gone.join(', ') || 'none'}.`, filed, withdrawn: gone, changed: all.length > 0 } }
+}
+
+/**
+ * Pause truth item 3 (the live Q629 and Q632, 2026-11-05: "Worker 5's chat waits on a popup", the whole of "1 waits for you" a day
+ * after its step B966 was done, with the chat gone since the app's restart): the Workers mod files a popup ask when a call of its chat
+ * runs long and withdraws it when the call goes on, but a chat with no process cannot withdraw anything. The board does it: an open
+ * popup ask is withdrawn, with its why, when its step is done, dropped or gone, or when its chat has no process (`body.gone`, the
+ * names of the chats the board reads as having none: off or asleep). A popup ask of a chat that runs, on a step still open, stays.
+ * The server's, at the refresh.
+ */
+async function popupAsks(body, w) {
+  const gone = new Set((Array.isArray(body.gone) ? body.gone : []).map(name => plain(name, w.prefix)))
+  const withdrawn = []
+  for (const ask of [...w.store.items.values()].filter(one => kindOf(one) === 'ask' && stateOf(one) === 'open' && valueOf(one, 'Via') === 'form' && isPopupAsk(one))) {
+    const of = valueOf(ask, 'Of')
+    const step = w.store.items.get(of ?? '')
+    const owner = valueOf(ask, 'Owner')
+    const why = step === undefined && of !== null ? `its step ${of} is gone`
+      : step !== undefined && ['done', 'dropped'].includes(stateOf(step)) ? `its step ${of} is ${stateOf(step)}`
+        : owner !== null && gone.has(plain(owner, w.prefix)) ? `its chat ${owner} has no process` : null
+    if (why === null) continue
+    const done = await withdraw({ id: valueOf(ask, 'Id'), why: `the popup cannot wait any more: ${why}` }, { ...w, role: 'person' })
+    if (done.ok) withdrawn.push(valueOf(ask, 'Id'))
+  }
+  return { ok: true, result: { text: withdrawn.length === 0 ? 'No popup ask is out of date.' : `Withdrawn: ${withdrawn.join(', ')}.`, withdrawn, changed: withdrawn.length > 0 } }
 }
 
 /**
@@ -4841,6 +4866,7 @@ const CHANGE = {
   seen: recapAnswer,
   'approve-recaps': approveRecaps,
   'accept-cards': acceptCards,
+  'popup-asks': popupAsks,
   'recheck-stuck': recheckStuck,
   'recheck-base': recheckBase,
   'qa-task': qaTask,

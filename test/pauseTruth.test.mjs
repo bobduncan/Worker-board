@@ -4,7 +4,8 @@
 // One test per item; a mutant of each is killed by the test named in its comment.
 
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +14,9 @@ import { answer, step, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { storeFromText } from '../src/work/read.mjs'
+import { workApi } from '../src/work/api.mjs'
+import { chatsWithoutProcess } from '../src/work/pause.mjs'
+import { readStore, share } from '../src/work/store.mjs'
 import { openPage } from './pageHarness.mjs'
 import { buildState } from './withStore.mjs'
 
@@ -139,4 +143,73 @@ test('item 2: a history that already holds the wrong restart time is read back t
     { at: RESTART_AT + 10_000, chat: 'Board', state: 'interrupted', task: TASK, step: 5, steps: 6, leftMs: 6_574_399, estimateAt: RESTART_AT + 8_000, startedAt: LAST_REAL - 90 * MIN, source: 'step', by: null },
   ]
   assert.equal(laneOf(realBoard({ lines }), 'Board').task.estimateAt, SAID_AT)
+})
+
+// ---- Item 3: the popup ask of a chat that is gone, on a step that is done (the real Q629 / Q632 / B966, words kept).
+const popupAsk = (id, of, owner, extra = '') => [
+  `Id: ${id}`, 'Kind: ask', 'Title: A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (lava-tactics-project) for over a minute.',
+  'State: open', `Owner: ${owner}`, 'Activity: Look: make the game compare to the reference pictures', 'Since: 2026-11-04 11:16', 'Filed: 1793787409459',
+  'Asks: do', 'Blocking: no', `Of: ${of}`, 'Via: form', 'Route: person', extra, '', '## Text',
+  'A popup in its chat may wait for you: it has tried to use ccd directory (change directory) (lava-tactics-project) for over a minute. Open its chat and look.', '',
+  '## History', '- 2026-11-04 11:16 Worker 5: asked (do, with the app\'s question form)', '- 2026-11-04 11:16 server: autopilot: routed to person', '',
+].join('\n')
+const stepFile = (id, state, owner) => [
+  `Id: ${id}`, 'Kind: step', 'Title: Fix: First look on the Terraces v5 and the Moat Keep', `State: ${state}`, `Owner: ${owner}`, 'Activity: Look: make the game compare to the reference pictures', 'Goal: G60', 'Since: 2026-11-04 18:06', 'Branch: b-x', '',
+  '## History', '- 2026-11-04 18:06 Worker 5: in progress → done', '',
+].join('\n')
+const formAsk = (id, of, owner) => popupAsk(id, of, owner).replace(/A popup in its chat may wait for you: it has tried to use ccd directory \(change directory\) \(lava-tactics-project\) for over a minute\./g, 'Which of the three paintings do you want?')
+
+async function popupStore(files) {
+  const dir = await mkdtemp(join(tmpdir(), 'pause-truth-'))
+  for (const [id, text] of Object.entries(files)) await writeFile(join(dir, `${id}.md`), text)
+  await writeFile(join(dir, 'activities.json'), `${JSON.stringify({ preamble: [], activities: [{ name: 'Look: make the game compare to the reference pictures', steps: Object.keys(files).filter(id => id.startsWith('B')) }] }, null, 1)}\n`)
+  return dir
+}
+const ROLES = { Main: 'main', 'Worker 5': 'worker', Advisor: 'advisor' }
+const sweep = (dir, gone = []) => workApi({ action: 'popup-asks', gone }, { dir, now: NOW, prefix: '', roleOf: chat => ROLES[chat] ?? null, chats: Object.keys(ROLES), as: 'server', recaps: [] })
+const stateOfAsk = async (dir, id) => (await readStore(dir)).items.get(id).head.get('State')
+
+// Mutants: the done-step rule left out; the no-process rule left out; every popup withdrawn; any form ask withdrawn.
+test('item 3: a popup ask whose step is done is withdrawn, with its why (the real Q629 and Q632)', async () => {
+  share.ms = 0
+  const dir = await popupStore({ Q629: popupAsk('Q629', 'B966', 'Worker 5'), Q632: popupAsk('Q632', 'B966', 'Worker 5'), B966: stepFile('B966', 'done', 'Worker 5') })
+  try {
+    const done = await sweep(dir)
+    assert.equal(done.ok, true, done.why)
+    assert.deepEqual(done.result.withdrawn, ['Q629', 'Q632'])
+    assert.equal(await stateOfAsk(dir, 'Q629'), 'withdrawn')
+    const history = (await readStore(dir)).items.get('Q629').sections.get('History').join('\n')
+    assert.match(history, /withdrawn: the popup cannot wait any more: its step B966 is done/)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('item 3: a popup ask of a chat with no process is withdrawn although its step is open; one of a chat that runs stays', async () => {
+  share.ms = 0
+  const files = { Q700: popupAsk('Q700', 'B967', 'Worker 5'), B967: stepFile('B967', 'in progress', 'Worker 5') }
+  const dir = await popupStore(files)
+  try {
+    // Nobody is named as gone: the chat may run, and the step is open: the ask stays.
+    assert.deepEqual((await sweep(dir, [])).result.withdrawn, [])
+    assert.equal(await stateOfAsk(dir, 'Q700'), 'open')
+    // Another chat is gone: not this one.
+    assert.deepEqual((await sweep(dir, ['Worker 1'])).result.withdrawn, [])
+    const done = await sweep(dir, ['Worker 5'])
+    assert.deepEqual(done.result.withdrawn, ['Q700'])
+    assert.match((await readStore(dir)).items.get('Q700').sections.get('History').join('\n'), /its chat Worker 5 has no process/)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('item 3: a real question of the app\'s form is never withdrawn by this, and a done step does not withdraw an ask of another kind', async () => {
+  share.ms = 0
+  const dir = await popupStore({ Q701: formAsk('Q701', 'B966', 'Worker 5'), B966: stepFile('B966', 'done', 'Worker 5') })
+  try {
+    assert.deepEqual((await sweep(dir, ['Worker 5'])).result.withdrawn, [])
+    assert.equal(await stateOfAsk(dir, 'Q701'), 'open')
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('item 3: the chats without a process are read from the real state: all six were closed since the restart; an unknown one is not named', async () => {
+  const state = await realCase()
+  assert.deepEqual(chatsWithoutProcess(state.chats).sort(), ['Main', 'Worker 1', 'Worker 2', 'Worker 3', 'Worker 4', 'Worker 5'])
+  assert.deepEqual(chatsWithoutProcess([{ name: 'Worker 7', isRunning: null }, { name: 'Worker 8', isRunning: true }, { name: 'Worker 9' }]), [])
 })
