@@ -125,3 +125,34 @@ test('invalid persisted ledgers cannot break summaries or overwrite recoverable 
     }finally{await rm(root,{recursive:true,force:true})}
   }
 })
+
+// Round 4 (f): the outcomes are a new array every scan and the board asks 5 summaries over 50 000 events (0.4-0.9 s once
+// a minute). A summary is kept across a scan with equal outcomes, and a window that moved past no message keeps it.
+// Mutants: outcomes compared by identity; no window reuse.
+test('summary(30) on 50 000 events stays fast across a scan with equal outcomes and a 61 s window move',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'spending-fast-'))
+  try{
+    const transcripts=join(root,'transcripts');await mkdir(transcripts)
+    const t0=Date.UTC(2026,10,1,12)
+    const events=Array.from({length:50000},(_,n)=>({messageId:`e${n}`,sourceSessionId:'s',chat:`Worker ${n%7}`,phase:'implement',sourceAt:t0-n*50000,actualModel:'claude-sonnet-5-5',actualEffort:'medium',taskId:`B${n%400}`,input:10,cacheWrite:0,cacheRead:0,output:1}))
+    await writeFile(join(root,'spending.json'),JSON.stringify({version:1,events,scans:{},foldVersion:1,folded:[],oversizedRule:1}))
+    let now=t0+1000
+    const collector=createSpendingCollector({dir:root,transcripts,clock:()=>now});await collector.load()
+    const results=()=>[{id:'B1',accepted:true,attempts:1},{id:'B2',accepted:false,attempts:2}]
+    await collector.scan([],{results:results()})
+    let at=performance.now();const cold=collector.summary(30);const coldMs=performance.now()-at
+    assert.ok(cold.messages>40000)
+    await collector.scan([],{results:results()})
+    at=performance.now();const again=collector.summary(30);const againMs=performance.now()-at
+    assert.equal(again.messages,cold.messages)
+    assert.ok(againMs<coldMs/10,`after a scan with equal outcomes: ${againMs.toFixed(1)} ms, cold ${coldMs.toFixed(1)} ms`)
+    now+=61000
+    at=performance.now();const moved=collector.summary(30);const movedMs=performance.now()-at
+    assert.equal(moved.messages,cold.messages,'the window passed no message')
+    assert.equal(moved.until,now)
+    assert.ok(movedMs<coldMs/10,`after a 61 s window move: ${movedMs.toFixed(1)} ms, cold ${coldMs.toFixed(1)} ms`)
+    // Changed outcomes are not served stale.
+    await collector.scan([],{results:[{id:'B1',accepted:true,attempts:1},{id:'B2',accepted:true,attempts:1}]})
+    assert.equal(collector.summary(30).accepted,2)
+  }finally{await rm(root,{recursive:true,force:true})}
+})
