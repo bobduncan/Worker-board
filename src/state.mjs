@@ -25,6 +25,7 @@ import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
+import { FINISH_WORDS } from './stability.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { planOf } from './work/stepPlan.mjs'
@@ -1661,7 +1662,7 @@ export function buildState(raw, options) {
   return withLinks(raw?.work?.items, () => builtState(raw, options))
 }
 
-function builtState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], finishedSeen = {}, taskTimes = [], mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, now, config }) {
+function builtState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], finishedSeen = {}, taskTimes = [], stability = null, mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -2483,6 +2484,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     finished: finishedList(backlog, { stored: doneAtOf, seen: finishedSeen ?? {}, prefix }),
     // B185: how long finished tasks really took, per area and lately, and per step its estimate and working time.
     taskTimes: taskTimesOf(taskTimes),
+    // Stability numbers (2026-11-05, task 4): the three daily numbers and the finish line; absent on a board that keeps none.
+    ...(stability === null ? {} : { stability: { ...stability, finish: FINISH_WORDS } }),
     // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
     limits,
     // B640: the newest reading of each window any chat gave, kept by the server for the next read.

@@ -745,6 +745,27 @@ function demoFixSteps(now) {
 }
 
 /**
+ * Stability numbers (task 4): made-up days for the Overview row. Rough days, then two clean ones in a row and a clean day so
+ * far: the row shows "2 of 3 days".
+ */
+export function demoStability(now) {
+  const date = new Date(now)
+  const dayOf = back => {
+    const one = new Date(date.getFullYear(), date.getMonth(), date.getDate() - back)
+    return `${one.getFullYear()}-${String(one.getMonth() + 1).padStart(2, '0')}-${String(one.getDate()).padStart(2, '0')}`
+  }
+  const idle = [96, 41, 22, 12, 30, 8, 14, 5, 9, 0, 4, 26, 3, 2]
+  const talks = [5, 3, 2, 1, 2, 0, 1, 0, 0, 1, 0, 2, 0, 0]
+  const line = (back, minutes, count) => ({
+    day: dayOf(back), idleWithWorkMinutes: minutes, idleEstimated: false,
+    interventions: Array.from({ length: count }, (_, index) => ({ at: now - back * 86_400_000 - index * 3_600_000, kind: 'woke-outside', what: `Worker ${index + 1} was woken from outside the board` })),
+    unsure: [], alarms: { real: count, false: 0, ids: Array.from({ length: count }, (_, index) => `X${100 + back * 3 + index}`) }, writtenAt: now, closed: true,
+  })
+  const days = idle.map((minutes, index) => line(14 - index, minutes, talks[index]))
+  return { today: { ...line(0, 4, 0), closed: false }, days, stableDays: 2, isStable: false }
+}
+
+/**
  * The supervisor's section on the demo (the server's `supervisor` in the state): a check asked a moment ago with a fix
  * and a wake, every rule (`rules`, the supervisor's own list) with three tripped today, the incidents above with their
  * cards (made by `makeCards`, the supervisor's own `incidentCards`, from the demo's fix steps and its word to the Advisor

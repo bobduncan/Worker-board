@@ -1736,8 +1736,11 @@ async function main(args) {
   let demoSupervisor = () => null
   // B541: the demo's Workers mods: two of its chats on an older one, so its card shows.
   let demoMods = () => null
+  // Stability numbers (task 4): the demo's made-up days.
+  let demoStability = () => null
   if (isDemo) {
-    const { demoSources, demoSupervisor: madeUp, ROOTS } = await import('./fixtures/demo.mjs')
+    const { demoSources, demoStability: madeUpDays, demoSupervisor: madeUp, ROOTS } = await import('./fixtures/demo.mjs')
+    demoStability = madeUpDays
     config.pictureRoots = ROOTS
     store = memoryStore()
     readRaw = () => demoSources(clock())
@@ -2127,6 +2130,8 @@ async function main(args) {
       stalls: stalls.recent(),
       finishedSeen: finishedSeen ?? {},
       taskTimes: taskTimes.tasks,
+      // Stability numbers (2026-11-05, task 4): what the loop above last recorded; the demo shows made-up days.
+      stability: isDemo ? demoStability(clock()) : keepStability?.latest() ?? null,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
       mods: Object.fromEntries([...modOf].map(([name, one]) => [name, one.version])),
       // B570: the Workers mod installed and the version each chat's mod said lately, for the restarts between steps.

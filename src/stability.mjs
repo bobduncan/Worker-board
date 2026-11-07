@@ -424,6 +424,9 @@ export function mergedOutbox(lines) {
 /** The 14 closed lines the state shows, newest last. */
 export const SHOWN_DAYS = 14
 
+/** The finish line in words, as the state field and the page say it. */
+export const FINISH_WORDS = 'stable = 3 days in a row with 0 interventions and under 10 min idle-with-work'
+
 /** The names of the files the writer reads and writes, in the board's data folder. */
 export const filesOf = dir => ({
   actions: `${dir}/actions.jsonl`, minutes: `${dir}/ready-minutes.jsonl`, landings: `${dir}/landings.jsonl`, wakes: `${dir}/wakes.json`,

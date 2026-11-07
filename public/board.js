@@ -2292,6 +2292,81 @@ function drawLimits(state) {
   ].filter(part => part !== null))
 }
 
+// Stability numbers (2026-11-05, task 4): the row under the limits. The server's `state.stability` is today's line, the last
+// 14 closed days and the finish line; a board that keeps none leaves it out and the row stays hidden.
+
+const STABILITY_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const STABLE_NEEDED = 3
+
+/** "2026-11-05" as "5 Nov". */
+const stabilityDate = day => `${Number(day.slice(8, 10))} ${STABILITY_MONTHS[Number(day.slice(5, 7)) - 1]}`
+
+/**
+ * What the row shows, from `state.stability`: today's three numbers (each with the hover list of the day's items), a series
+ * for each of the three sparklines (the closed days, then today) and the finish line. Amber is for the two today numbers only,
+ * and only when today already misses the finish line.
+ */
+function stabilityView(stability) {
+  const today = stability.today ?? null
+  const days = stability.days ?? []
+  const idle = today?.idleWithWorkMinutes ?? 0
+  const interventions = today?.interventions ?? []
+  const unsure = today?.unsure ?? []
+  const alarms = today?.alarms ?? { real: 0, false: 0, ids: [] }
+  const missed = interventions.length > 0 || idle >= 10
+  const lines = today === null ? days : [...days, today]
+  const series = pick => lines.map(pick)
+  const since = stability.isStable === true ? [...days, ...(today?.closed === true ? [today] : [])].slice(-stability.stableDays)[0]?.day ?? null : null
+  return {
+    numbers: [
+      { key: 'idle', text: `${idle} min idle with work`, title: `${idle} min today with a worker free beside a step it could take${today?.idleEstimated === true ? ' (estimated)' : ''}`, isAmber: missed },
+      { key: 'interventions', text: `${interventions.length} ${interventions.length === 1 ? 'intervention' : 'interventions'}`,
+        title: [...interventions.map(one => one.what), ...unsure.map(one => `unsure: ${one.what}`)].join('\n') || 'No hands on the board today', isAmber: missed },
+      { key: 'alarms', text: `${alarms.real + alarms.false} ${alarms.real + alarms.false === 1 ? 'alarm' : 'alarms'} (${alarms.false} false)`,
+        title: alarms.ids.length === 0 ? 'No alarms today' : alarms.ids.join(', '), isAmber: false },
+    ],
+    sparks: [
+      { key: 'idle', name: 'Idle with work', values: series(one => one.idleWithWorkMinutes ?? 0) },
+      { key: 'interventions', name: 'Interventions', values: series(one => (one.interventions ?? []).length) },
+      { key: 'alarms', name: 'Alarms', values: series(one => (one.alarms?.real ?? 0) + (one.alarms?.false ?? 0)) },
+    ],
+    finish: { words: stability.finish ?? '', end: since === null ? `${Math.min(stability.stableDays ?? 0, STABLE_NEEDED)} of ${STABLE_NEEDED} days` : `stable since ${stabilityDate(since)}`, isStable: since !== null },
+  }
+}
+
+/** One sparkline: the series as a line in a 60 x 16 box, the last point (today) a dot. */
+function drawSparkline(spark) {
+  const [width, height] = [60, 16]
+  const top = Math.max(1, ...spark.values)
+  const points = spark.values.map((value, index) => [spark.values.length === 1 ? width / 2 : 1 + (index * (width - 2)) / (spark.values.length - 1), height - 1 - (value / top) * (height - 2)])
+  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': `${spark.name}: last ${spark.values.length - 1} days and today` }, 'stability-spark')
+  svg.dataset.spark = spark.key
+  svg.append(svgEl('polyline', { points: points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '), fill: 'none' }))
+  if (points.length > 0) svg.append(svgEl('circle', { cx: points.at(-1)[0].toFixed(1), cy: points.at(-1)[1].toFixed(1), r: 1.8 }))
+  const title = svgEl('title')
+  title.textContent = `${spark.name}, per day: ${spark.values.join(' ')}`
+  svg.append(title)
+  return svg
+}
+
+/** The stability row in the head, in one place. Hidden on a board whose server gives none (the demo of old, an old board). */
+function drawStability(state) {
+  const box = $('stability')
+  box.hidden = state.stability === undefined || state.stability === null
+  if (box.hidden) return
+  const shown = stabilityView(state.stability)
+  const numbers = shown.numbers.map(one => {
+    const node = el('b', `stability-number${one.isAmber ? ' is-attn' : ''}`, one.text)
+    node.dataset.number = one.key
+    node.title = one.title
+    return node
+  })
+  const row = [el('span', 'stability-name', 'Stability · today:')]
+  numbers.forEach((node, index) => row.push(...(index === 0 ? [] : [el('span', '', '·')]), node))
+  const finish = el('small', `stability-finish${shown.finish.isStable ? ' is-stable' : ''}`, `${shown.finish.words} · ${shown.finish.end}`)
+  fill(box, [...row, ...shown.sparks.map(drawSparkline), finish])
+}
+
 // A restart of the app
 
 // pause:start
@@ -22232,6 +22307,7 @@ function draw(state) {
   drawCpu(state)
   drawMainGame(state)
   drawLimits(state)
+  drawStability(state)
   drawRestart(state)
   drawLanes(state)
   drawSupervisor(state)
