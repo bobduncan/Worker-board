@@ -330,18 +330,22 @@ export function portIsBusy(port, host = '127.0.0.1') {
 const slashes = path => String(path).replace(/\\/g, '/')
 
 /**
- * The launch entry of a board folder for `.claude/launch.json`: started from its folder with its own port, which the
- * preview opens. A copy shows the history of the board in the main folder and records none of its own.
+ * The launch entry of a board folder for `.claude/launch.json`. The project's main board is started by its launcher
+ * (`start-board.mjs`, which has the keeper start server.mjs) and marked `"detached": true`: the start-app mod then ends
+ * the entry with code 0 while its port answers, so the board belongs to no chat and its log is data/board.log. A copy
+ * keeps `server.mjs` with its own port, and shows the history of the board in the main folder (it records none).
  */
 export function launchEntry({ folder, port, node, main = null }) {
   const isCopy = main !== null && pathKey(main) !== pathKey(folder)
-  return {
+  const entry = {
     name: basename(slashes(folder)),
     runtimeExecutable: slashes(node),
-    runtimeArgs: [`${slashes(folder)}/server.mjs`, ...(isCopy ? ['--history-from', `${slashes(main)}/data`] : [])],
+    runtimeArgs: isCopy ? [`${slashes(folder)}/server.mjs`, '--history-from', `${slashes(main)}/data`] : [`${slashes(folder)}/start-board.mjs`],
     port,
     url: `http://127.0.0.1:${port}`,
   }
+  if (!isCopy) entry.detached = true
+  return entry
 }
 
 /**

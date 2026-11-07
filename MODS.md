@@ -33,7 +33,9 @@ The same for each of them:
 - **What it gives:** a Run pane that starts a folder's app from `.claude/launch.json` and the commands /launch,
   /start, /stop-app.
 - **Without it:** the board does not use it. The board writes its own entry into `launch.json` for the app's
-  preview, and starts games itself (Run game). Lost: the Run pane inside the app.
+  preview, and starts games itself (Run game). Lost: the Run pane inside the app. The main board's entry runs
+  `start-board.mjs` with `"detached": true` (start-app 0.4.0): /launch ends with code 0 while the port answers, so the
+  board belongs to no chat and logs to `data/board.log`; a copy's entry keeps `server.mjs --history-from ...`.
 - **Verdict: drop it from the board's setup; keep it as a personal tool if wanted.** No work on the board.
 
 ## The Workers mod (`workers`, called `folder-branches` until 0.26.0)
