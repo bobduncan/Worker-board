@@ -5768,6 +5768,14 @@ One cause, one alarm: the evening of 2026-11-05 (the account switch) filed six a
   `noteRun` and `reopenSpells`, once per spell); `restartNeeded` when the app answered "not found" and the file is older than that
   answer; `ban-dropped` for a ban on the model the lane runs; `incident-gone` for an open wake incident whose chat runs or was
   re-opened (the board-wide one only when some chat was re-opened or none stays failed, else the rule would file it again at once).
+  `notice-cleared` (the person's screenshot of 23:23) also for a chat that does not run but reports again after its last failed attempt
+  (`wake.mjs` `ranSince`: a session that started after the failure, or a report that is not an ended one, heard after it): the state
+  (`withWakes`) shows no "could not wake" line, no failed flag and no final failure for it, so its incident (X157) and the board-wide one (X158)
+  close "gone after the check at HH:MM" and the rules do not file them again. `ask-withdrawn` (`asksOf` reads the store): an open ask
+  routed to the person (`Route: person`) whose step (its `Of`, else the first B<n> in its title, `src/work/askStep.mjs`) is done or
+  dropped is withdrawn, "its step B1051 is done", through the work API's server action `asks-withdrawn` (the board runs as `server`, which
+  `withdraw` refuses for another chat's ask, so the action checks each ask against its step again and withdraws it as the person's pass
+  does); it counts in `fixed` and in the result line's "fixed N".
   The line: "All 7 chats reachable · checked 22:30" or "4 of 6 ... · Worker 1's and Worker 5's chats are in your other Claude account:
   run /reimport-chats, then restart the app" / "restart the app so it reads the reimported chats: Worker 2" / "Worker 3 has no chat in
   the app: open one from the board", joined by " · ", never two lines, never a per-worker "not in the app's list".

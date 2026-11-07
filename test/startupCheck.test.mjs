@@ -4,14 +4,14 @@
 // fixtures/startup-check (trimmed copies of the snapshot, made-up paths).
 
 import assert from 'node:assert/strict'
-import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
 import { listedWhere, readAccountFolders, readAppChats } from '../src/appChats.mjs'
 import { recordFindings } from '../src/supervisor/incidents.mjs'
-import { apply, judge, liftBan, pictureOf } from '../src/startupCheck.mjs'
+import { apply, asksOf, judge, liftBan, pictureOf } from '../src/startupCheck.mjs'
 import { createChecker } from '../src/startupCheckRun.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
@@ -535,4 +535,92 @@ test('MUST 1: no close and re-file loop for X158: the rule files nothing while t
   const rule = id => WATCH_RULES.find(one => one.id === id)
   assert.deepEqual(rule('nobody-answers-wakes').check(view, {}), [])
   assert.deepEqual(rule('wake-failed').check(view, {}), [])
+})
+
+// ---- MUST 2 (the person's screenshot): `ask-withdrawn`, an open ask for the person whose step is over is closed ----
+
+/** A store dir holding the real Q666 and B1051 (trimmed, fixtures/startup-check) beside made-up asks that must stay. */
+async function storeWithAsks(t) {
+  const dir = await mkdtemp(join(tmpdir(), 'startup-asks-'))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B12 A fix (for Digger; about 1 h)\n', { now: AT_2200 }), undefined, { now: AT_2200 })
+  const put = (name, text) => writeFile(join(dir, `${name}.md`), text)
+  await put('Q666', await readFile(join(SNAP, 'Q666.md'), 'utf8'))
+  await put('B1051', await readFile(join(SNAP, 'B1051.md'), 'utf8'))
+  const step = (id, state) => `Id: ${id}\nKind: step\nTitle: Step ${id}\nState: ${state}\nOwner: Worker 3\nSince: 2026-11-05 22:04\n`
+  const ask = (id, extra) => `Id: ${id}\nKind: ask\nTitle: ${extra.title ?? `Question about ${extra.of}`}\nState: ${extra.state ?? 'open'}\nOwner: Main\nSince: 2026-11-05 21:41\nAsks: do\nBlocking: no\n${extra.of === undefined ? '' : `Of: ${extra.of}\n`}${extra.route === null ? '' : `Route: ${extra.route ?? 'person'}\n`}\n## Text\nA question.\n`
+  await put('B1060', step('B1060', 'in progress'))
+  await put('B1061', step('B1061', 'dropped'))
+  await put('Q700', ask('Q700', { of: 'B1051', route: 'person' }))
+  await put('Q701', ask('Q701', { of: 'B1060', route: 'person' }))
+  await put('Q702', ask('Q702', { of: 'B1051', route: 'main' }))
+  await put('Q703', ask('Q703', { of: 'B1061', route: 'person' }))
+  await put('Q704', ask('Q704', { of: 'B1051', route: 'person', state: 'answered' }))
+  await put('Q705', ask('Q705', { of: 'G15', route: 'person', title: 'Which goal is next? (not B1051)' }))
+  return dir
+}
+
+test('MUST 2: asksOf reads the open asks routed to the person with their step (Q666 has no Of: the first B<n> of its title) and the step\'s state', async t => {
+  const dir = await storeWithAsks(t)
+  const asks = asksOf((await readStore(dir)).items)
+  assert.deepEqual(asks.find(one => one.id === 'Q666'), { id: 'Q666', owner: 'Main', step: 'B1051', stepState: 'done' })
+  assert.deepEqual(asks.map(one => [one.id, one.step, one.stepState]).sort(), [['Q666', 'B1051', 'done'], ['Q700', 'B1051', 'done'], ['Q701', 'B1060', 'in progress'], ['Q703', 'B1061', 'dropped']])
+  // Not read: another route (Q702), not open (Q704), an Of that is a goal (Q705: no step).
+  assert.equal(asks.some(one => ['Q702', 'Q704'].includes(one.id)), false)
+  assert.equal(asks.some(one => one.id === 'Q705'), false, 'an Of that is a goal names no step (the title B1051 is not used when Of is set)')
+})
+
+test('MUST 2: the check withdraws Q666 ("its step B1051 is done"), also an ask of a dropped step; asks whose step still runs, other routes and answered ones stay; a second check withdraws nothing', async t => {
+  const dir = await storeWithAsks(t)
+  const board = body => workApi(body, { dir, now: AT_2200, prefix: '', as: 'server', roleOf: () => null })
+  const sources = { ...(await sourcesOf({ elsewhere: false, down: [], now: AT_2200 })), asks: asksOf((await readStore(dir)).items) }
+  const verdict = judge(pictureOf(sources))
+  assert.deepEqual(verdict.actions.withdrawAsks.map(one => one.id).sort(), ['Q666', 'Q700', 'Q703'])
+  assert.deepEqual(verdict.fixed.filter(one => one.kind === 'ask-withdrawn').map(one => one.what).sort(), ['Q666 withdrawn: its step B1051 is done', 'Q700 withdrawn: its step B1051 is done', 'Q703 withdrawn: its step B1061 is dropped'])
+  const result = await apply(verdict, { withdrawAsks: async list => (await board({ action: 'asks-withdrawn', withdraw: list.map(one => ({ id: one.id })) })).result.withdrawn }, AT_2200)
+  assert.deepEqual(result.fixed.filter(one => one.kind === 'ask-withdrawn').map(one => one.what.split(' ')[0]).sort(), ['Q666', 'Q700', 'Q703'], 'in `fixed`')
+  const store = await readStore(dir)
+  assert.equal(store.items.get('Q666').head.get('State'), 'withdrawn')
+  assert.match((store.items.get('Q666').sections.get('History') ?? []).join('\n'), /withdrawn: its step B1051 is done/)
+  assert.equal(store.items.get('Q703').head.get('State'), 'withdrawn')
+  for (const id of ['Q701', 'Q702', 'Q704', 'Q705']) assert.notEqual(store.items.get(id).head.get('State'), 'withdrawn', id)
+  assert.equal(store.items.get('Q701').head.get('State'), 'open')
+  // Once: the next check reads the store as it is now.
+  const again = judge(pictureOf({ ...sources, asks: asksOf(store.items) }))
+  assert.deepEqual(again.actions.withdrawAsks, [])
+  assert.deepEqual(again.fixed.filter(one => one.kind === 'ask-withdrawn'), [])
+})
+
+test('MUST 2: the result counts it: `fixed` and the runner\'s log line ("fixed N") include the withdrawn ask; a failing writer is in `failed`, not claimed', async t => {
+  const dir = await storeWithAsks(t)
+  const board = body => workApi(body, { dir, now: AT_2200, prefix: '', as: 'server', roleOf: () => null })
+  const sources = { ...(await sourcesOf({ elsewhere: false, down: [], now: AT_2200 })), asks: asksOf((await readStore(dir)).items) }
+  const { folders, ...rest } = sources
+  const logs = []
+  const checker = createChecker({
+    clock: () => AT_2200, readSources: async () => rest, readFolders: async () => folders, log: text => logs.push(text),
+    writers: { withdrawAsks: async list => (await board({ action: 'asks-withdrawn', withdraw: list.map(one => ({ id: one.id })) })).result.withdrawn },
+  })
+  const result = await checker.start('button').done
+  assert.equal(result.fixed.filter(one => one.kind === 'ask-withdrawn').length, 3)
+  assert.match(logs[0], /fixed 3\.$/, 'the ban of Worker 3 has no writer here: only the three asks are claimed')
+  const failing = await apply(judge(pictureOf(sources)), { withdrawAsks: async () => { throw new Error('store busy') } }, AT_2200)
+  assert.deepEqual(failing.failed, ['ask-withdrawn: store busy'])
+  assert.equal(failing.fixed.some(one => one.kind === 'ask-withdrawn'), false)
+})
+
+test('MUST 2: the work API\'s `asks-withdrawn` is the board\'s alone and checks each ask itself: no chat may call it, a step still running or another route is left alone', async t => {
+  const dir = await storeWithAsks(t)
+  const as = role => body => workApi(body, { dir, now: AT_2200, prefix: '', as: role, roleOf: () => null, who: 'Main' })
+  for (const role of ['main', 'worker', 'person']) {
+    const refused = await as(role)({ action: 'asks-withdrawn', withdraw: [{ id: 'Q666' }] })
+    assert.equal(refused.ok, false, role)
+  }
+  const server = await as('server')({ action: 'asks-withdrawn', withdraw: [{ id: 'Q701' }, { id: 'Q702' }, { id: 'Q705' }, { id: 'Q404' }, { id: 'B1051' }, { id: 'Q666' }] })
+  assert.equal(server.ok, true)
+  assert.deepEqual(server.result.withdrawn, ['Q666'], 'only the ask whose step is over, routed to the person')
+  const store = await readStore(dir)
+  assert.equal(store.items.get('Q666').head.get('State'), 'withdrawn')
+  assert.equal(store.items.get('Q701').head.get('State'), 'open')
+  assert.equal(store.items.get('B1051').head.get('State'), 'done', 'the step is not touched')
 })

@@ -21,6 +21,7 @@ import { handedBackOf } from '../clearOwed.mjs'
 import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { isAlike, joinTarget, stepOfAsk } from './askPlace.mjs'
+import { askStepOf } from './askStep.mjs'
 import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, refineTitleOf, sameAsk, titleProblem } from './askWords.mjs'
 import { ASKED_AGAIN, JUST_ANSWERED_MS, STILL_OPEN, askTextOf, closedMsOf, forYouRepeat, isWithdrawn, openRepeat, repeatFactsOf } from './askRepeat.mjs'
 import { lineFields } from './line.mjs'
@@ -58,7 +59,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'autopilot-undo', 'recap-answered', 'asset'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'autopilot', 'autopilot-undo', 'recap-answered', 'asset'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -71,7 +72,7 @@ const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incident
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'autopilot-undo', 'add-to-queue', 'remove-from-queue'])
-const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'autopilot', 'recap-answered'])
+const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'autopilot', 'recap-answered'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -4768,6 +4769,26 @@ async function incidentGone(body, w) {
   const all = [...gone, ...fixed]
   return { ok: true, result: { gone, fixed, text: all.length === 0 ? 'No incident changed.' : `Gone by itself: ${gone.join(', ') || 'none'}; fixed: ${fixed.join(', ') || 'none'}.`, changed: all.length > 0 } }
 }
+/**
+ * Start-up check, MUST 2 (the person's screenshot, 2026-11-05 23:23: Q666 asked about B1051 for 1 h 42 after B1051 was done): the
+ * board's own withdrawal of an open ask routed to the person whose step is over. `withdraw` `[{ id }]`; each is checked here, not
+ * trusted: an open ask, `Route: person`, about a step (its `Of`, else the first B<n> in its title) that is done or dropped. It is
+ * withdrawn as the person's own pass does (`withdraw` with the person's role: the board runs as `server`, which `withdraw` refuses for an
+ * ask another chat asked), the why "its step B<n> is done". Only the board (`server`). Answers the ids `withdrawn`.
+ */
+async function asksWithdrawn(body, w) {
+  const withdrawn = []
+  for (const one of Array.isArray(body.withdraw) ? body.withdraw : []) {
+    const loaded = await load(line(one?.id, 20), w, { kind: ['ask'] })
+    if (!loaded.ok || stateOf(loaded.item) !== 'open' || valueOf(loaded.item, 'Route') !== 'person') continue
+    const step = askStepOf(valueOf(loaded.item, 'Of'), valueOf(loaded.item, 'Title'))
+    const state = step === null || !w.store.items.has(step) ? null : stateOf(w.store.items.get(step))
+    if (state !== 'done' && state !== 'dropped') continue
+    const done = await withdraw({ id: valueOf(loaded.item, 'Id'), why: `its step ${step} is ${state}` }, { ...w, role: 'person' })
+    if (done.ok) withdrawn.push(valueOf(loaded.item, 'Id'))
+  }
+  return { ok: true, result: { withdrawn, text: withdrawn.length === 0 ? 'No ask withdrawn.' : `Withdrawn: ${withdrawn.join(', ')}.`, changed: withdrawn.length > 0 } }
+}
 /** Signals change 6: the states an incident goes gone from (src/supervisor/gone.mjs GONE_FROM): never `fix`, whose step answers for it. */
 const GONE_FROM = ['open', 'came back', 'with the supervisor', 'with the advisor']
 
@@ -4824,6 +4845,7 @@ const CHANGE = {
   'incidents-fixed': incidentsFixed,
   'incidents-rekey': incidentsRekey,
   'incident-gone': incidentGone,
+  'asks-withdrawn': asksWithdrawn,
   take, step, ask, withdraw, note, words, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'add-to-queue': addToQueue, 'remove-from-queue': removeFromQueue, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,

@@ -108,7 +108,7 @@ import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { readAccountFolders } from './src/appChats.mjs'
-import { liftBan } from './src/startupCheck.mjs'
+import { asksOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
 import { HANDOVER_COMMAND, envelopesOf, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
 import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
@@ -2464,11 +2464,14 @@ async function main(args) {
         appSession: reportsNow[lane.name]?.app ?? wakeIdsOf(lane).appSession ?? lane.appSession ?? null,
         cliSession: lane.session ?? null, model: lane.model ?? null, isRunning: lane.isRunning ?? null,
       }))
-      const incidents = [...(await readStore(workDir)).items.values()].filter(item => item.head.get('Kind') === 'incident')
+      const stored = await readStore(workDir)
+      const incidents = [...stored.items.values()].filter(item => item.head.get('Kind') === 'incident')
         .map(item => ({ id: item.head.get('Id'), key: item.head.get('Key'), source: item.head.get('Source'), subject: item.head.get('Subject'), state: item.head.get('State'), since: item.head.get('Since') }))
       return {
         lanes, reports: reportsNow, wakes, pause: state.pause ?? null, ready: (state.readyList?.ready ?? []).map(one => one.id),
         envelopes: Object.fromEntries(lanes.map(lane => [lane.name, envelopesOf(outbox, lane.name, prefix)])), incidents,
+        // MUST 2: the open asks routed to the person, with the state of the step each is about.
+        asks: asksOf(stored.items),
       }
     },
     readFolders: () => readAccountFolders(config.appSessions),
@@ -2486,6 +2489,11 @@ async function main(args) {
       closeIncidents: async list => {
         const done = await workAction({ action: 'incident-gone', gone: list.map(one => ({ id: one.id, why: one.why })) }, 'server')
         return done.ok ? done.result.gone : []
+      },
+      // MUST 2: the work API's `asks-withdrawn` (the board's own role; it checks each ask against its step again).
+      withdrawAsks: async list => {
+        const done = await workAction({ action: 'asks-withdrawn', withdraw: list.map(one => ({ id: one.id })) }, 'server')
+        return done.ok ? done.result.withdrawn : []
       },
       writeCheck: async result => writeAtomic(CHECK_FILE, `${JSON.stringify(result)}\n`),
     },

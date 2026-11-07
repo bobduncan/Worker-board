@@ -10,6 +10,7 @@ import { listedWhere } from './appChats.mjs'
 import { OTHER_ACCOUNT_TAIL, RESTART_WHY } from './ownChat.mjs'
 import { noteRun, noticeOf, ranSince, reopenSpells, wakeOf } from './wake.mjs'
 import { sameModel } from './work/effort.mjs'
+import { askStepOf } from './work/askStep.mjs'
 import { bansOf } from './work/handover.mjs'
 
 /** The rules whose incidents name a wake that failed: the check closes them when the chat answers again. */
@@ -18,6 +19,22 @@ export const WAKE_RULES = ['wake-failed', 'nobody-answers-wakes', 'launch-failed
 const ENDED = ['fixed', 'closed', 'gone']
 
 const isTime = value => Number.isFinite(value)
+
+/**
+ * MUST 2: the store's open asks routed to the person, each with the step it is about and that step's state: `[{ id, owner, step,
+ * stepState }]` (a step the store does not hold has no state: null; an ask about no step is not listed). `items` the store's items (`readStore`). The step is the ask's
+ * `Of`, else the first B<n> in its title (src/work/askStep.mjs).
+ */
+export function asksOf(items) {
+  const asks = []
+  for (const item of items?.values?.() ?? []) {
+    if (item.head.get('Kind') !== 'ask' || item.head.get('State') !== 'open' || item.head.get('Route') !== 'person') continue
+    const step = askStepOf(item.head.get('Of') ?? null, item.head.get('Title') ?? '')
+    if (step === null) continue
+    asks.push({ id: item.head.get('Id'), owner: item.head.get('Owner') ?? null, step, stepState: step === null ? null : items.get(step)?.head.get('State') ?? null })
+  }
+  return asks
+}
 
 /** An incident's "2026-11-05 20:28" (local time, as the store writes it) in ms; null for anything else. */
 export function storeTimeOf(text) {
@@ -53,7 +70,7 @@ function wakeOfChat(record, chat) {
  *
  * `{ now, accounts, signedIn, lanes, newestRun, wakes, pause, ready, bans, incidents }`.
  */
-export function pictureOf({ now, trigger = 'start', triggerAt = null, tooSlow = false, folders = [], lanes = [], reports = {}, wakes = null, pause = null, ready = [], envelopes = {}, incidents = [] }) {
+export function pictureOf({ now, trigger = 'start', triggerAt = null, tooSlow = false, folders = [], lanes = [], reports = {}, wakes = null, pause = null, ready = [], envelopes = {}, incidents = [], asks = [] }) {
   const newest = Math.max(0, ...folders.map(folder => folder.at))
   const withReport = lanes.map(lane => {
     const report = reports?.[lane.name] ?? null
@@ -92,6 +109,7 @@ export function pictureOf({ now, trigger = 'start', triggerAt = null, tooSlow = 
     pause: { state: pause?.state ?? null },
     ready: [...ready],
     bans: Object.fromEntries(lanes.map(lane => [lane.name, [...bansOf(envelopes?.[lane.name] ?? [], now)].map(([model, envelope]) => ({ model, envelope: envelope.id ?? null, failedAt: envelope.failedAt ?? envelope.settledAt ?? envelope.at ?? null }))])),
+    asks: asks.filter(one => typeof one?.id === 'string' && typeof one.step === 'string').map(one => ({ id: one.id, owner: one.owner ?? null, step: one.step, stepState: one.stepState ?? null })),
     incidents: incidents
       .filter(one => WAKE_RULES.some(rule => typeof one.key === 'string' && one.key.startsWith(rule)) && !ENDED.includes(one.state))
       .map(one => ({ id: one.id, key: one.key, subject: one.subject ?? null, state: one.state, since: isTime(one.since) ? one.since : storeTimeOf(one.since) })),
@@ -159,6 +177,13 @@ export function judge(picture) {
       fixed.push({ kind: 'ban-dropped', chat: lane.name, what: `${ban.model} ban dropped: it runs that model` })
     }
   }
+  // MUST 2: an open ask routed to the person whose step is done or dropped asks about what is over: withdrawn.
+  const withdrawAsks = []
+  for (const ask of picture.asks ?? []) {
+    if (ask.stepState !== 'done' && ask.stepState !== 'dropped') continue
+    withdrawAsks.push({ id: ask.id, step: ask.step })
+    fixed.push({ kind: 'ask-withdrawn', chat: ask.owner ?? 'you', what: `${ask.id} withdrawn: its step ${ask.step} is ${ask.stepState}` })
+  }
   // Incidents about a wake that failed: closed when their chat answers again.
   const reopened = new Set(reopen.map(one => one.chat))
   // The board-wide incident (nobody answers the wake-ups) goes only when the rule's own condition is over: some chat answers and no
@@ -189,7 +214,7 @@ export function judge(picture) {
     : [`${head} · checked ${clockOf(now)}`, ...parts].join(' · ')
   return {
     at: now, trigger: picture.trigger ?? 'start', total, reachable, line, tone: parts.length > 0 || picture.tooSlow === true ? 'attention' : 'quiet', fixed, elsewhere, restartNeeded, nowhere, tooSlow: picture.tooSlow === true,
-    actions: { noteRun: picture.proofAt, reopen, noticeClears: noticeCleared, banDrops, closeIncidents },
+    actions: { noteRun: picture.proofAt, reopen, noticeClears: noticeCleared, banDrops, withdrawAsks, closeIncidents },
   }
 }
 
@@ -249,13 +274,18 @@ export async function apply(verdict, writers, now) {
   if (typeof writers.liftBan === 'function') {
     for (const drop of actions.banDrops) if (await attempt('ban-dropped', () => writers.liftBan(drop, now)) === true) done.add(`ban-dropped ${drop.chat}`)
   }
+  // MUST 2: the asks about a step that is over are withdrawn through the work API (`asks-withdrawn`, which checks them again).
+  if (typeof writers.withdrawAsks === 'function' && (actions.withdrawAsks ?? []).length > 0) {
+    const withdrawn = await attempt('ask-withdrawn', () => writers.withdrawAsks(actions.withdrawAsks))
+    for (const id of Array.isArray(withdrawn) ? withdrawn : []) done.add(`ask-withdrawn ${id}`)
+  }
   if (typeof writers.closeIncidents === 'function' && actions.closeIncidents.length > 0) {
     const list = actions.closeIncidents.filter(one => one.requires == null || reopened.includes(one.requires))
     const closed = list.length === 0 ? [] : await attempt('incident-gone', () => writers.closeIncidents(list))
     for (const id of Array.isArray(closed) ? closed : []) done.add(`incident-gone ${id}`)
   }
   // Only what was written stays in `fixed`; the id of an incident is in its `what` ("X154 gone after the check at ...").
-  const written = verdict.fixed.filter(one => (one.kind === 'incident-gone' ? done.has(`incident-gone ${one.what.split(' ')[0]}`) : done.has(`${one.kind} ${one.chat}`)))
+  const written = verdict.fixed.filter(one => (one.kind === 'incident-gone' || one.kind === 'ask-withdrawn' ? done.has(`${one.kind} ${one.what.split(' ')[0]}`) : done.has(`${one.kind} ${one.chat}`)))
   const result = {
     at: now, trigger: verdict.trigger ?? 'start', running: false, total: verdict.total, reachable: verdict.reachable, line: verdict.line, tone: verdict.tone,
     fixed: written, elsewhere: verdict.elsewhere, restartNeeded: verdict.restartNeeded, nowhere: verdict.nowhere, tooSlow: verdict.tooSlow,
