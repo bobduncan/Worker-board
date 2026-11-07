@@ -45,7 +45,7 @@ test('the 3 days are closed and backfilled; idle is null (not known); rollback a
     const output = run(data, store)
     const lines = linesOf(output)
     assert.deepEqual(lines.map(line => line.day), [dayName(3), dayName(2), dayName(1)])
-    for (const line of lines) assert.deepEqual([line.closed, line.backfilled, line.idleEstimated], [true, true, true])
+    for (const line of lines) assert.deepEqual([line.closed, line.backfilled, line.idleEstimated], [true, true, false])
     // Idle is not known for a backfilled day: null for every day (not an estimate, not 0).
     assert.deepEqual(lines.map(line => line.idleWithWorkMinutes), [null, null, null])
     assert.deepEqual(lines[1].interventions.map(one => one.kind), ['rollback'])

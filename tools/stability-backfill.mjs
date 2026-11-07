@@ -132,7 +132,7 @@ export async function backfill({ dataDir, storeDir, days = 14, now = Date.now() 
     if (!known) {
       unsure.push({ at: from, kind: 'woke-outside', what: 'Chats woken from outside and app restarts are not known for this day', why: `no wake attempt is recorded before ${firstWakeAt === null ? 'any' : stamp(firstWakeAt)}` })
     }
-    const line = dayLineOf({ day, interventions, unsure, alarms: alarmsOf(incidents, day), now, estimated: true, closed: true })
+    const line = dayLineOf({ day, interventions, unsure, alarms: alarmsOf(incidents, day), now, closed: true })
     lines.push({ ...line, idleWithWorkMinutes: null, backfilled: true })
   }
 
