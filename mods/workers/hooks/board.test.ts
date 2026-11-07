@@ -212,6 +212,11 @@ describe('5c (0.30.0): a kept board starts through a launcher, detached, its out
     expect(BOARD_LAUNCHER).toContain("log !== '-'")
     expect(boardLogOf(['node', 'server.mjs'])).toBeNull()
     expect(boardLogOf(['node', 'D:\\b\\server.mjs'])).toBe('D:\\b/data/board.log')
+    // The launch entry of a main board (`start-board.mjs`, "detached": true): its log is the board's, and it starts through the launcher.
+    expect(boardLogOf(['node', 'D:/p/worker-board/start-board.mjs'])).toBe('D:/p/worker-board/data/board.log')
+    const kept = launchArgv({ name: 'worker-board', argv: ['D:/Tools/node/node.exe', 'D:/p/worker-board/start-board.mjs'], url: 'http://127.0.0.1:4310/' }, 'D:/p')
+    expect(kept.slice(0, 2)).toEqual(['D:/Tools/node/node.exe', '-e'])
+    expect(kept.slice(3)).toEqual(['--', 'D:/p/worker-board/data/board.log', 'D:/p', 'D:/Tools/node/node.exe', 'D:/p/worker-board/start-board.mjs'])
   })
 })
 

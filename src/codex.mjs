@@ -5,9 +5,10 @@
 // OpenAI command line the person is signed in to; the board holds no key and calls no service itself.
 
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { writeAtomic } from './write.mjs'
 
@@ -49,6 +50,59 @@ export async function findCodex({ given = '', env = process.env, platform = proc
   return found.sort((a, b) => b.at - a.at)[0]?.path ?? onPath()
 }
 
+/**
+ * The board's own Codex home, OUTSIDE the board's folder: it holds a copy of the person's login (auth.json), so no copy,
+ * trial board, backup or tool run on the repo may ever carry it (chat 1, 2026-11-07). %LOCALAPPDATA%\worker-board\codex-home
+ * on Windows, else ~/.local/share/worker-board/codex-home; made on first use.
+ */
+export const cleanCodexHome = (env = process.env, platform = process.platform) => {
+  const local = platform === 'win32' ? env.LOCALAPPDATA ?? env.LocalAppData : null
+  return typeof local === 'string' && local !== '' ? join(local, 'worker-board', 'codex-home') : join(homedir(), '.local', 'share', 'worker-board', 'codex-home')
+}
+export const CLEAN_HOME = cleanCodexHome()
+
+/** The person's Codex home: CODEX_HOME of the board's environment, else ~/.codex. Only ever read. */
+export const userCodexHome = (env = process.env) => (typeof env.CODEX_HOME === 'string' && env.CODEX_HOME !== '' ? env.CODEX_HOME : join(homedir(), '.codex'))
+
+const SANDBOX = 'elevated'
+
+const topLevel = (text, key) => {
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\s*\[/.test(line)) return null
+    const found = new RegExp(`^\\s*${key}\\s*=\\s*"([^"]*)"`).exec(line)
+    if (found !== null) return found[1]
+  }
+  return null
+}
+
+/**
+ * B-codex-home: every Codex job runs with a clean CODEX_HOME of its own, so the person's hooks, notify program, plugins
+ * (computer-use, browser), MCP servers and Claude imports never start with a picture job (they flash windows and steal
+ * focus). It holds auth.json, copied from the person's home when missing or older (never written back), and a
+ * config.toml with the model and effort only. Answers the folder.
+ */
+export async function prepareCodexHome({ home = CLEAN_HOME, userHome = userCodexHome() } = {}) {
+  await mkdir(home, { recursive: true })
+  // auth.json (the sign-in) and cap_sid (the id the Windows sandbox's folder rights are made for: without the person's
+  // own, the sandboxed command hangs): each is copied when missing or older, read from the person's home only.
+  for (const name of ['auth.json', 'cap_sid']) {
+    const mine = join(home, name)
+    const theirs = join(userHome, name)
+    const [a, b] = await Promise.all([stat(mine).catch(() => null), stat(theirs).catch(() => null)])
+    if (b !== null && (a === null || a.mtimeMs < b.mtimeMs)) await copyFile(theirs, mine)
+  }
+  const config = await readFile(join(userHome, 'config.toml'), 'utf8').catch(() => '')
+  const lines = []
+  for (const key of ['model', 'model_reasoning_effort']) {
+    const value = topLevel(config, key)
+    if (value !== null && /^[\w.\-]+$/.test(value)) lines.push(`${key} = "${value}"`)
+  }
+  // Windows: without a sandbox level Codex finds the job folder read-only (as in the person's own setup).
+  if (process.platform === 'win32') lines.push('', '[windows]', `sandbox = "${SANDBOX}"`)
+  await writeAtomic(join(home, 'config.toml'), lines.map(line => `${line}\n`).join(''))
+  return home
+}
+
 const lastLine = text => text.split('\n').map(line => line.trim()).filter(line => line !== '').pop() ?? ''
 
 /**
@@ -57,7 +111,7 @@ const lastLine = text => text.split('\n').map(line => line.trim()).filter(line =
  * `seconds` how long it may take. Answers `{ ok: true, seconds }` or `{ ok: false, why, seconds }`; it never
  * throws. `onChild` is handed the way to stop it, and its folder.
  */
-export async function makePicture({ command, prompt, images, to, seconds, now = Date.now, onChild = () => {} }) {
+export async function makePicture({ command, prompt, images, to, seconds, now = Date.now, onChild = () => {}, codexHome = CLEAN_HOME, userHome = userCodexHome() }) {
   const began = now()
   const took = () => Math.round((now() - began) / 1000)
   let dir = null
@@ -65,9 +119,10 @@ export async function makePicture({ command, prompt, images, to, seconds, now = 
     dir = await mkdtemp(join(tmpdir(), 'worker-board-design-'))
     const own = dir
     const reply = join(dir, 'reply.txt')
+    const home = await prepareCodexHome({ home: codexHome, userHome })
     const args = [...command.slice(1), 'exec', '-C', dir, '-s', 'workspace-write', '--skip-git-repo-check', '--color', 'never', ...images.flatMap(image => ['-i', image.replace(/\\/g, '/')]), '-o', reply, '-']
     const ended = await new Promise(resolve => {
-      const child = spawn(command[0], args, { cwd: dir, stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true })
+      const child = spawn(command[0], args, { cwd: dir, env: { ...process.env, CODEX_HOME: home }, stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true })
       let said = ''
       let isLate = false
       const late = setTimeout(() => {

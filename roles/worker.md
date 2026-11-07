@@ -46,7 +46,7 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   ways to accomplish what i want it can verify what i originally asked so it can determine if it was actually done or
   not"). Every answer, rejection or note of the user's on a step stands in its `## Your words`, numbered, each with what it
   answered (the question, who asked it, its options, what was shown), so a bare "yes" keeps its meaning; `work next` and
-  `work take` show it, a fix step carries the words of the step it fixes. Before you ask the user, report done or suggest
+  `work take` show it, a fix step carries the words of the step it fixes, and below the step `work next` shows the person's earlier words on its whole recap row (every earlier try and the recap's comments): check each of them the same way. Before you ask the user, report done or suggest
   a new way, read them and say per point whether it is met or not met ("Your words 1, round not square: met"). Never ask
   what they answered there: the board refuses it with their answer (`<step>: the person answered this already ...`); act
   on that answer and ask only what is new, quoting it. An ask you file with no step stands under the one step you hold
@@ -176,7 +176,7 @@ step therefore says what it touches ("Touches: ...").
 - Every change to the board works for any project: no project, chat, folder or PC names in its code, page, job
   texts or examples; names, paths and words come from the settings or the project's files. Its test
   `test/anyProject.test.mjs` fails on a new tie.
-- Never grep, cat or read `data/spending.json` whole (one line of many MB; B1049: an orphaned `grep.exe` held it open and blocked the board's rewrite for hours): use the Spending tab (or `tools/spending-count.mjs`).
+- Never grep, cat or read `data/spending.json` whole (one line of many MB; B1049: an orphaned `grep.exe` held it open and blocked the board's rewrite for hours): use `node tools/spending-read.mjs` (or the Spending tab).
 - Nothing that holds words from a chat goes into the board's repository.
 
 ## A bug the person reported

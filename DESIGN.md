@@ -6821,9 +6821,11 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
     powershell -NoProfile -ExecutionPolicy Bypass -File "<the main checkout>/tools/land.ps1" <branch> [-Cold] [-By "<chat>"]
 
 - **What it checks, before anything changes** (each refusal is one line `refused: <why>`, exit 1, and a landings line; the boards
-  chosen are said on every run): a gate worktree a cut landing left is swept first (the junction with `cmd /c rmdir`, then
-  `git worktree remove` without force, then prune; one whose landing is still running, by the process id in the `.owner` file
-  beside it, is left); the main checkout is on `main` and clean (an untracked `.claude/` does not count); the branch contains main ("merge main into
+  chosen are said on every run): the main checkout's `node_modules` holds `happy-dom` (the page tests' package; the setting
+  `nodeModulesMarker`), else "has no happy-dom at the start of the landing (it was emptied): run npm ci"; a gate worktree a cut
+  landing left is swept next (the junction with `cmd /c rmdir`, then the marker checked again, then `git worktree remove` without
+  force, then prune; one whose landing is still running, by the process id in the `.owner` file beside it, is left); the main
+  checkout is on `main` and clean (an untracked `.claude/` does not count); the branch contains main ("merge main into
   <branch> first"); the branch has something to land; the trial copy is on main, clean, has its `local` remote and can
   fast-forward; in warm mode every board that answers says `version.canRestart` (else "needs -Cold"); no debugger is attached
   to a board (below); and the gate passes on the branch's exact head. Without `-Config` the boards come from git (the main
@@ -6836,9 +6838,19 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   app: none found is a refusal), with `NO_COLOR=1` and no `FORCE_COLOR`. It passes only on the run's own summary line (`src/landing.mjs`,
   `gatePassed`, colour codes stripped first): `ℹ fail 0` (the mod: ` 0 fail`) at the start of a line, every summary 0, the command's exit code 0; a missing
   summary is a failure, and "fail 0" inside a test's name is none (a grep under `set -e` once let a red merge through). The
-  run's output goes to `data/landings/<time>-<branch>.log`, which a refusal names, with the failing test files (a known flake is
-  rerun alone by the chat; the script never retries). Cleaned up always: the junction first
-  with `cmd /c rmdir` (never a recursive delete through it), then `git worktree remove` without force, then prune.
+  run's output goes to `data/landings/<time>-<branch>.log`, which a refusal names, with the failing test files. **A run that
+  fails under load** (2026-11-07: row-words was refused twice by live-board tests that pass alone, different sets each time; two
+  gates at once give EBUSY on a board folder): each failing test file is run again ALONE, one at a time, once (`node --test <file>`
+  in the gate worktree, setting `gateFile`), its output appended to the log under `===== rerun alone: <file> =====`; the first that
+  fails again refuses ("rerun alone: <file> failed again (<why>)"); all passing counts as passed, with the log line "N test
+  file(s) failed under load, all passed alone". Never a second full run, and no rerun for a run that names no files (no summary,
+  a crash). Cleaned up always: the junction first
+  with `cmd /c rmdir` (never a recursive delete through it), then two checks BEFORE `git worktree remove` (without force, then
+  prune): the junction is gone, and the main checkout's `node_modules` still holds `happy-dom`. Either failing stops the
+  landing (2026-11-07 10:04: `node_modules` was emptied at the end of a landing and nothing said so): the worktree is left
+  for a look, the gate log gets a `teardown:` line and the landings line the reason ("has no happy-dom after the gate (it was
+  emptied): run npm ci ..." or "the gate's junction ... could not be removed"); a refusal of the gate itself carries it as
+  "; and ...". The next run sweeps the leftover.
 - **One landing at a time**: `data/landing.lock` (`by`, `branch`, `at`, `pid`), made by an exclusive create. Held by another
   and younger than 15 minutes: refused ("a landing by <by> of <branch> holds the lock since HH:MM"); older: broken with the
   line "broke a stale landing lock of ...", one breaker at a time. Refreshed at every phase (a heartbeat, `lock-refresh`), so a live landing never looks stale; one taken over meanwhile is a refusal
@@ -6860,7 +6872,10 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   is touched): warm (the default: `POST /api/restart` with the page's token and Origin, the keeper starts the new
   code with the same token) or `-Cold` (new keepers first, then each old keeper before its child; start-board.mjs would only
   say "runs already" while the old board answers, so the keeper is started as it does, `node server.mjs` with the keeper's own
-  env words removed, appended to `data/board.log`). A board that does not answer is started with `node start-board.mjs`.
+  env words removed, appended to `data/board.log`). A board that does not answer right after the fast-forward may be between
+  the stop and the start of its own self-update (2026-11-05 22:03: 4310 was found "not answering" and started while it came
+  back by itself): it gets the come-back time (90 s) to answer first, and one that then runs the new commit counts as
+  restarted; only a board that stays silent is started with `node start-board.mjs`.
   A board counts as landed when it answers `/api/state` with `version.commit` equal to its folder's head (short or full, by
   prefix) within 90 s.
 - **Rollback**: a board that does not come back gets ONE revert commit on main whose tree is the old head's

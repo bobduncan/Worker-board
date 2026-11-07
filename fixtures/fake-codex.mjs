@@ -16,7 +16,7 @@ for await (const chunk of process.stdin) told += chunk
 // What it was started with, for a test that asks.
 if (process.env.FAKE_CODEX_LOG) {
   const images = args.flatMap((arg, index) => (arg === '-i' ? [args[index + 1]] : []))
-  await writeFile(process.env.FAKE_CODEX_LOG, JSON.stringify({ args, images, told, cwd: process.cwd() }))
+  await writeFile(process.env.FAKE_CODEX_LOG, JSON.stringify({ args, images, told, cwd: process.cwd(), codexHome: process.env.CODEX_HOME }))
 }
 
 if (told.includes('SLOW')) await new Promise(done => setTimeout(done, 30_000))

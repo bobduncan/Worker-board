@@ -94,7 +94,12 @@ test('launchEntry: a folder\'s entry is named after it and opens its own port; a
     port: 4320,
     url: 'http://127.0.0.1:4320',
   })
-  assert.deepEqual(launchEntry({ folder: 'C:\\x\\board', port: 4310, node, main: 'C:/x/Board/' }).runtimeArgs, ['C:/x/board/server.mjs'])
+  // The main board (also when `main` names its own folder): the launcher, detached; a copy has no `detached`.
+  const main = launchEntry({ folder: 'C:\\x\\board', port: 4310, node, main: 'C:/x/Board/' })
+  assert.deepEqual(main.runtimeArgs, ['C:/x/board/start-board.mjs'])
+  assert.equal(main.detached, true)
+  assert.deepEqual(launchEntry({ folder: 'C:\\x\\board', port: 4310, node }).runtimeArgs, ['C:/x/board/start-board.mjs'])
+  assert.equal('detached' in launchEntry({ folder: 'C:\\x\\board-one', port: 4320, node, main: 'C:\\x\\board' }), false)
 })
 
 test('withEntry: the entry replaces the one of its name or is added; the others stay', () => {

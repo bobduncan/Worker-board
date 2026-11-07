@@ -89,7 +89,7 @@ export function recapWaitsOf(recaps, reworkOf = null) {
 /**
  * The person's "Yes, clear them" (2026-11-04, the live Q595): where every row of the recaps stands with the person, whether or not it
  * shows a step, `[{ goal, path, key, title, steps, verdict, round }]`: `verdict` their standing one ('approved' or 'sent-back', the last
- * round that judged the row; null while they have not) and its `round`. The work API closes the open asks that name an approved row
+ * round that judged the row; null while they have not) and its `round`; `words`: `[{ round, at, verdict, comment }]`, every round's non-empty comment on the row, oldest first. The work API closes the open asks that name an approved row
  * (autopilot.mjs `recapClosesAsk`).
  */
 export function recapVerdictsOf(recaps) {
@@ -97,7 +97,10 @@ export function recapVerdictsOf(recaps) {
     const stand = standOf(recap.rounds ?? [])
     return (recap.rows ?? recap.parts ?? []).map(row => {
       const said = stand.get(row.key)
-      return { goal: recap.goal, path: recap.path, key: row.key, title: row.title, steps: row.steps ?? [], verdict: said?.verdict ?? null, round: said?.round ?? null }
+      // 2026-11-07: every comment of the person on the row, oldest round first (a row is matched to a part as `standOf` does, by its key).
+      const words = (recap.rounds ?? []).flatMap(round => round.parts.filter(part => part.key === row.key && String(part.comment ?? '').trim() !== '')
+        .map(part => ({ round: round.n, at: round.at, verdict: part.verdict, comment: String(part.comment).trim() })))
+      return { goal: recap.goal, path: recap.path, key: row.key, title: row.title, steps: row.steps ?? [], verdict: said?.verdict ?? null, round: said?.round ?? null, words }
     })
   })
 }
