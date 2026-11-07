@@ -752,7 +752,7 @@ refined before it goes to a worker): once for every new step, for a step queued 
 the redesign's Part 2), and once more when the user's answers wait to be folded in.
 Do the same for those. Read the step (`work list`, its record in the work store) and what it touches; a step on the
 worker board itself is refined to the board's design principles (`PRINCIPLES.md` in the board's folder), and its
-"What we build" names the incidents that would show it failing. Then write its refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
+"What we build" names the incidents that would show it failing. The refine reply shows the person's earlier words on the row: name each in what we build, or say why it no longer holds; a step made with `of` is a try in a chain, so its what names `Tried before:` (the Supervisor's chain-long rule reads it). Then write its refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
 `size`, `model`, `effort` and `questions` while refining, and `work refined B<id>` with `what` once every question is answered. The board
 writes the block in the form below; `refined` folds the questions away and moves a new step to refined, as the flow
 file says. What a refined step
@@ -1038,7 +1038,7 @@ types `recap feedback: G<n> <title>, round N: ...` into your chat, with the step
 the user's comment, the parts approved and how many are not decided yet. Act on it at once:
 
 - Each part sent back is a try of its own: file a step for it (or reopen its step) with the user's comment as the point to
-  fix, as for any feedback (`work new`, the comment word for word), and add it to the work block it belongs to (`work
+  fix, as for any feedback (`work new`, the comment word for word, with `of` the newest step of that row's chain (or a step the row names), so the board links the try to its row: it then shows every earlier word on the row with the step and the recap waits for it), and add it to the work block it belongs to (`work
   how-draft`, " · steps B<id>"), or a new block with its done-when line. Never answer the user in a chat: they read the board.
 - Write the next round as soon as the try of one row sent back is in, not when all are (the user, 2026-11-02, after round 1 of G60's
   recap: "the same pictures are provided and i see no evidence of what i asked it to fix/change"): the rows whose try is in get their
