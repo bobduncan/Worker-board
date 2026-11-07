@@ -121,15 +121,27 @@ const attemptsOf = (wakes, chat) => {
 const escaped = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
+ * Every moment an outbox record touched its chat: when it was put (`at`), taken, handed to a hand, typed and entered, each stage
+ * (a clear of the board's hand-over) and when it was delivered or settled. The board's own messages and clears are delivered, and
+ * start a new run, later than `at`, so a record reaches a chat at ANY of these times.
+ */
+export const timesOf = record => [
+  record.at, record.takenAt, record.handTakenAt, record.deliveredAt, record.settledAt, record.outcome?.typedAt, record.outcome?.enteredAt,
+  ...(Array.isArray(record.stages) ? record.stages.map(stage => stage?.at) : []),
+].filter(Number.isFinite)
+
+/**
  * Whether the board (or a chat through the board) reached `chat` shortly before `at`: a wake attempt of its own or of the whole
- * app (`*`), a message of the outbox that did not get dropped, or a `resume` command that names it. PURE.
+ * app (`*`), a message of the outbox that did not get dropped (any of its times in the window, see `timesOf`), or a `resume`
+ * command that names it. PURE.
  */
 export function isReached({ chat, at, wakes, outbox }) {
   if (attemptsOf(wakes, chat).some(attempt => attempt.at >= at - EXPLAIN_MS && attempt.at <= at + SLACK_MS)) return true
+  const inWindow = (record, before) => timesOf(record).some(time => time >= at - before && time <= at + SLACK_MS)
   return (outbox ?? []).some(record => {
     if (!Number.isFinite(record.at) || record.state === 'dropped') return false
-    if (record.to === chat) return record.at >= at - EXPLAIN_MS && record.at <= at + SLACK_MS
-    return record.command === 'resume' && record.at >= at - RESUME_EXPLAINS_MS && record.at <= at + SLACK_MS
+    if (record.to === chat) return inWindow(record, EXPLAIN_MS)
+    return record.command === 'resume' && inWindow(record, RESUME_EXPLAINS_MS)
       && new RegExp(`(^|[^A-Za-z0-9])${escaped(chat)}(?![0-9])`).test(String(record.text ?? ''))
   })
 }
@@ -158,13 +170,14 @@ const nearLanding = (landings, at) => (landings ?? []).some(landing => Math.abs(
 
 /**
  * The person's hands on the board in `day`, and what the records cannot tell apart. PURE. Inputs: `actions` (data/actions.jsonl),
- * `lastStop` (state.board.lastStop) and `kept` (the day line's earlier interventions: the board shows a stop for 15 minutes and
- * the reports hold only the newest run of a chat, so a finding drawn from those stays once made), `landings`, `reports`
+ * `lastStop` (state.board.lastStop), `kept` and `keptUnsure` (the day line's earlier interventions and unsure findings, of EVERY
+ * kind: the board shows a stop for 15 minutes and the reports hold only the newest run of a chat, so a finding drawn from those
+ * stays once made), `lanes` (the chats the board tracks as lanes, beside those the history names), `landings`, `reports`
  * (reports.json), `history` (parsed history.jsonl lines), `wakes` (wakes.json), `outbox` (outbox records, merged by id), `asks`
  * (the store's Q items), `live` (the chats a restart of the app would start again). Answers `{ interventions, unsure }`, each
  * `{ at, kind, what }` (unsure: also `why`), oldest first. A finding is made only when a record proves it: the rest is unsure.
  */
-export function interventionsOf({ actions = [], lastStop = null, kept = [], landings = [], reports = {}, history = [], wakes = {}, outbox = [], asks = [], day, live = null }) {
+export function interventionsOf({ actions = [], lastStop = null, kept = [], keptUnsure = [], lanes = [], landings = [], reports = {}, history = [], wakes = {}, outbox = [], asks = [], day, live = null }) {
   const from = dayStartOf(day)
   const to = nextDayStartOf(day)
   const inDay = at => Number.isFinite(at) && at >= from && at < to
@@ -195,6 +208,8 @@ export function interventionsOf({ actions = [], lastStop = null, kept = [], land
 
   // app-restart and woke-outside: a chat that started a run (or came back from off) with nobody reaching it first.
   const unexplained = []
+  // The chats the history tracks (lanes). A chat it does not know (the Advisor, the Supervisor) leaves only its run start behind.
+  const tracked = new Set([...lanes, ...history.map(line => line.chat).filter(chat => typeof chat === 'string')])
   const runs = runStartsOf({ reports, wakes })
   for (const [chat, starts] of runs) {
     for (const run of starts) if (inDay(run) && !isReached({ chat, at: run, wakes, outbox })) unexplained.push({ at: run, chat, source: 'run' })
@@ -232,14 +247,24 @@ export function interventionsOf({ actions = [], lastStop = null, kept = [], land
     }
   }
   const restartAt = restarts.map(one => one.at)
+  const inRestart = at => restartAt.some(start => at >= start - SLACK_MS && at <= start + MOMENT_MS + SLACK_MS)
   found.push(...restarts)
+  // What an earlier pass of the day found stays (any kind), unless an app restart now explains it as one of its chats' starts.
+  for (const one of kept) if (inDay(one.at) && one.kind !== 'app-restart' && !(one.kind === 'woke-outside' && inRestart(one.at))) found.push(one)
+  for (const one of keptUnsure) if (inDay(one.at) && !(one.kind === 'woke-outside' && inRestart(one.at))) unsure.push(one)
 
   const lastWake = new Map()
   for (const one of unexplained) {
-    if (restartAt.some(at => one.at >= at - SLACK_MS && one.at <= at + MOMENT_MS + SLACK_MS)) continue
+    if (inRestart(one.at)) continue
     if (nearLanding(landings, one.at)) continue
     if (one.at - (lastWake.get(one.chat) ?? -Infinity) <= SAME_WAKE_MS) continue
     lastWake.set(one.chat, one.at)
+    if (one.source === 'run' && tracked.size > 0 && !tracked.has(one.chat)) {
+      // No lane history for this chat: the records show a run began and nothing of the board reached it, not whether someone woke it
+      // for the board's words or opened it to talk (the person's own chat with the Advisor), nor whether it began with the app.
+      unsure.push({ at: one.at, kind: 'woke-outside', what: `${one.chat} began a run at ${stampText(one.at)} with no board wake or message before it`, why: 'the history does not track this chat: the records do not tell a wake for the board from the person opening it to talk' })
+      continue
+    }
     found.push({ at: one.at, kind: 'woke-outside', what: `${one.chat} was started at ${stampText(one.at)} with no board wake or message before it${one.source === 'run' ? ' (its run began then)' : ' (it came back from off)'}` })
   }
 
@@ -261,7 +286,9 @@ export function interventionsOf({ actions = [], lastStop = null, kept = [], land
       return seen.has(key) ? false : seen.add(key)
     })
   }
-  return { interventions: unique(found), unsure: unique(unsure) }
+  const interventions = unique(found)
+  // A finding the records later proved is no longer unsure.
+  return { interventions, unsure: unique(unsure).filter(one => !interventions.some(found => found.kind === one.kind && found.at === one.at)) }
 }
 
 /** Whether an incident was not a fault: closed with "No fault" or "obsolete" in its history, or gone by itself. */
@@ -434,7 +461,8 @@ export async function recordStability(state, { dir, items = new Map(), clock = D
     const all = [...items.values()]
     const live = Object.entries(reports.reports ?? {}).filter(([chat, report]) => report?.state !== 'ended' && Object.hasOwn(wakes.wakes ?? {}, chat)).map(([chat]) => chat)
     const { interventions, unsure } = interventionsOf({
-      actions, lastStop: state?.board?.lastStop ?? null, kept: before?.interventions ?? [], landings, reports, history, wakes,
+      actions, lastStop: state?.board?.lastStop ?? null, kept: before?.interventions ?? [], keptUnsure: before?.unsure ?? [],
+      lanes: (state?.chats ?? []).map(lane => lane?.name).filter(name => typeof name === 'string'), landings, reports, history, wakes,
       outbox: mergedOutbox(outbox), asks: all.filter(item => valueOf(item, 'Kind') === 'ask'), day, live,
     })
     const today = dayLineOf({ day, minutes, interventions, unsure, alarms: alarmsOf(all.filter(item => valueOf(item, 'Kind') === 'incident'), day), now })
