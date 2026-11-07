@@ -46,7 +46,7 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   ways to accomplish what i want it can verify what i originally asked so it can determine if it was actually done or
   not"). Every answer, rejection or note of the user's on a step stands in its `## Your words`, numbered, each with what it
   answered (the question, who asked it, its options, what was shown), so a bare "yes" keeps its meaning; `work next` and
-  `work take` show it, a fix step carries the words of the step it fixes. Before you ask the user, report done or suggest
+  `work take` show it, a fix step carries the words of the step it fixes, and below the step `work next` shows the person's earlier words on its whole recap row (every earlier try and the recap's comments): check each of them the same way. Before you ask the user, report done or suggest
   a new way, read them and say per point whether it is met or not met ("Your words 1, round not square: met"). Never ask
   what they answered there: the board refuses it with their answer (`<step>: the person answered this already ...`); act
   on that answer and ask only what is new, quoting it. An ask you file with no step stands under the one step you hold

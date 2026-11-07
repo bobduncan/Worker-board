@@ -52,6 +52,7 @@ import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, go
 import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
 import { writeView } from './view.mjs'
+import { rowWordsOf, rowWordsText } from './rowWords.mjs'
 import { YOUR_WORDS, answeredBefore, askPoint, isPersonsWords, isPopupAsk, withYourWords, yourWordsLine, yourWordsOf } from './yourWords.mjs'
 
 // B300: kept here for those who import them from the API.
@@ -503,7 +504,7 @@ function steady(body, w, chat) {
   const all = [...told, ...mine]
   const open = openOf(chat, w)
   if (all.length === 0) return { ok: true, result: { text: `Nothing is yours, ${chat}: no instruction is open and no step is taken, in progress or queued for you.`, items: [], open, changed: false } }
-  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items, w.readyHeld ?? null, w.now, w.recaps ?? null)).join('\n')}\n\n${serializeItem(all[0])}${qaWords(all[0], w.store.items)}`
+  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items, w.readyHeld ?? null, w.now, w.recaps ?? null)).join('\n')}\n\n${serializeItem(all[0])}${qaWords(all[0], w.store.items, w)}${rowWordsBlock(all[0], w)}`
   return { ok: true, result: { text, items: all.map(item => valueOf(item, 'Id')), id: valueOf(all[0], 'Id'), open, changed: false } }
 }
 
@@ -512,7 +513,7 @@ function steady(body, w, chat) {
  * that step's agreed points and its standard, the lines the board's check word used to carry (`Why:`, `Board warnings:`,
  * `Demand:`, from the task's Context), and where the job is written. '' for any other task.
  */
-function qaWords(item, items) {
+function qaWords(item, items, w = { store: { items } }) {
   if (!isQaTask(item)) return ''
   const checks = valueOf(item, 'Checks')
   const step = items.get(checks)
@@ -529,7 +530,17 @@ function qaWords(item, items) {
     ...(standard === null ? [] : [`Standard: ${standard}`]),
     ...context,
     ...(words.length === 0 ? [] : [`The person's words on ${checks} (check each point too, met or not met; never ask the person what they answered there):`, ...words]),
-  ].join('\n')
+  ].join('\n') + rowWordsBlock(step, w, { budget: 6000, chars: 400 })
+}
+
+/**
+ * 2026-11-07: the person's earlier words on the whole recap row a step is a try of (rowWords.mjs), below the step: '' for none, for
+ * a Quality Assurance task or a non-step. Computed for the one step shown. `limits` {budget, chars}: `work take` and a check give more room.
+ */
+function rowWordsBlock(item, w, limits = {}) {
+  if (item === undefined || kindOf(item) !== 'step' || isQaTask(item)) return ''
+  const text = rowWordsText(rowWordsOf(valueOf(item, 'Id'), w.store.items, w.recapRows ?? []), limits)
+  return text === '' ? '' : `\n\n${text}`
 }
 
 /**
@@ -704,9 +715,11 @@ async function take(body, w) {
   const done = await save(ordered(item), found.text, w)
   const port = w.testPort?.(w.who) ?? null
   // B814: the worker's own test-server port, for the vite of its worktree started as a plain background command.
-  const text = port === null ? undefined : `${serializeItem(ordered(item))}
+  // 2026-11-07: the person's earlier words on the whole recap row, once, below the step.
+  const row = rowWordsBlock(item, w, { budget: 6000, chars: 400 })
+  const text = port === null && row === '' ? undefined : `${serializeItem(ordered(item))}${row}${port === null ? '' : `
 
-Test server port for ${w.who}: ${port}. Start the game's vite of your worktree on it as a background command (--port ${port} --strictPort), never through .claude/launch.json or preview_start; stop it before work report.`
+Test server port for ${w.who}: ${port}. Start the game's vite of your worktree on it as a background command (--port ${port} --strictPort), never through .claude/launch.json or preview_start; stop it before work report.`}`
   return done.ok ? changed(ordered(item), text, { title: valueOf(item, 'Title'), ...(port === null ? {} : { testPort: port }) }) : done
 }
 
@@ -3232,16 +3245,22 @@ async function make(call, w) {
   }
   const priority = priorityOf(body, w)
   if (!priority.ok) return priority
+  // 2026-11-07: `of` names the step this is the next try of: the board links it (`Fix of`), so every earlier word on its row reaches it.
+  const of = line(body.of, 20)
+  if (/^G\d+$/i.test(of)) return refuse(400, 'Name the goal in "goal".')
+  if (of !== '' && !(/^B\d+$/.test(of) && w.store.items.get(of) !== undefined && kindOf(w.store.items.get(of)) === 'step')) {
+    return refuse(400, `"of" names the step this is the next try of (B<n>); ${of} is no step.`)
+  }
   const activitiesText = await readActivitiesText(w.dir, w.fs)
   const id = await nextId(w.dir, 'B', w.fs)
   // B856: the Bugs tab names its pictures by the step's own id, which is only known here: STEP_ID_TOKEN becomes the id.
   const withId = text => text.replaceAll(STEP_ID_TOKEN, id)
   const context = lines(body.text).map(one => `  ${withId(one).trim()}`)
   let item = said(ordered({
-    head: new Map([['Id', id], ['Kind', 'step'], ['Title', title], ['State', 'new'], ['Activity', names[index]], ...(goal === '' ? [] : [['Goal', goal]]), ['Since', stamp(w.now)]]),
+    head: new Map([['Id', id], ['Kind', 'step'], ['Title', title], ['State', 'new'], ['Activity', names[index]], ...(goal === '' ? [] : [['Goal', goal]]), ['Since', stamp(w.now)], ...(of === '' ? [] : [['Fix of', of]])]),
     sections: new Map(context.length === 0 ? [] : [['Context', context]]),
     problem: null,
-  }), w, 'made')
+  }), w, of === '' ? 'made' : `made, the next try of ${of}`)
   // B856: a step made with a picture (not from a how, whose block holds its own) keeps it as its Picture, shown in its window.
   const picture = body.what === undefined ? line(body.picture, 200) : ''
   if (picture !== '') item.sections.set('Picture', [withId(picture)])
@@ -3963,7 +3982,7 @@ async function refine(call, w) {
     const made = await makeAsk(w, { of: next, kind: 'decide', text: [question], via: 'refine', title: refineTitleOf(question) })
     if (made.ok) asked.push(made.id)
   }
-  return changed(next, undefined, { asks: asked })
+  return changed(next, `${serializeItem(next)}${rowWordsBlock(next, w)}`, { asks: asked })
 }
 
 /** B299: the open asks of a step's refine (`Via: refine`), oldest first. */
@@ -4111,7 +4130,7 @@ async function refined(call, w) {
     next = moved.item
   }
   const done = await save(next, found.text, w)
-  return done.ok ? changed(next) : done
+  return done.ok ? changed(next, `${serializeItem(next)}${rowWordsBlock(next, w)}`) : done
 }
 
 /** The person answers an ask; a step that waited only on its asks goes on (the flow's move by the server). */
