@@ -433,3 +433,18 @@ test('a zero tail of 2 MB is read out with no skipped line',async()=>place(async
   assert.equal(summary.coverage.pendingBytes,0)
   assert.equal(typeof (await ledgerOf(root)).readOut.cut,'number','read out')
 }))
+
+// (b) A fork copies old lines under their message ids. Read after the originals were folded, the copies must not be
+// counted a second time (live check: 157,501 against 149,482 fold-free). Mutant (folded ids not remembered): All is higher.
+test('a fork\'s copy of a folded message is not counted twice',async()=>place(async({root,transcripts})=>{
+  const start=await bigTranscripts(transcripts)
+  const copies=Array.from({length:300},(_,n)=>lineAt(`b${n*5}`,'c',start+n*5*60000)).join('')
+  await writeFile(join(transcripts,'c.jsonl'),copies)
+  const {utimes}=await import('node:fs/promises');const old=new Date(Date.now()-86400000);await utimes(join(transcripts,'c.jsonl'),old,old)
+  // The clock runs 3 s a call, so a scan reads about a chunk: the copies are read after the originals were folded.
+  let t=start+CAP_TOTAL*60000;const collector=createSpendingCollector({dir:root,transcripts,clock:()=>(t+=3000)});await collector.load()
+  for(let n=0;n<200;n++){await collector.scan([{session:'a',name:'Worker A',role:'worker'},{session:'b',name:'Worker B',role:'worker'},{session:'c',name:'Worker C',role:'worker'}]);const c=collector.summary(null).coverage;if(!c.pendingBytes&&!c.pendingFiles&&n>3)break}
+  const ledger=await ledgerOf(root)
+  assert.ok(ledger.folded.length>0)
+  assert.equal(collector.summary(null).messages,CAP_TOTAL)
+}))

@@ -1,5 +1,6 @@
 import {mkdir,open,readFile,readdir,stat} from 'node:fs/promises'
 import {join} from 'node:path'
+import {createHash} from 'node:crypto'
 import {writeAtomic} from '../../write.mjs'
 import {parseTail} from '../../transcript.mjs'
 import {attributeUsage,foldEvents,routingSummary} from './metrics.mjs'
@@ -8,6 +9,9 @@ const CHUNK=1024*1024,MAX_EVENTS=50000,MAX_FILES=32,TAIL_BYTES=16*CHUNK,MAX_BYTE
 // Round 4 (b): a ledger without day totals is read again once from the start, so the days the cap dropped are folded.
 const FOLD_VERSION=1
 const isZeros=bytes=>bytes.every(byte=>byte===0)
+// Round 4 (b): a message that was folded is known by a 12-hex hash of its id; a copy of it (a fork copies old lines) read
+// later is not counted twice.
+const hashOf=id=>createHash('sha1').update(id).digest('hex').slice(0,12)
 const statOf=path=>stat(path).catch(()=>null)
 // Round 4 (c): of 1,291 lines over 1 MB none was an answer (user lines, request blobs): only an answer's line hides
 // usage, so only it is counted as skipped. Its type stands in its first bytes.
@@ -111,6 +115,8 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
   // The events by message id, kept between scans: a chunk looks its answers up instead of building the map anew.
   const indexOf=()=>{if(byIdFor!==ledger.events){byId=new Map(ledger.events.map(e=>[e.messageId,e]));byIdFor=ledger.events}return byId}
   const file=join(dir,'spending.json')
+  let idSet=null,idSetFor=null
+  const foldedSet=()=>{if(idSetFor!==ledger.foldedIds||idSet===null){idSet=new Set((ledger.foldedIds??'').match(/.{12}/g)??[]);idSetFor=ledger.foldedIds}return idSet}
   const coverage=()=>({startedAt:ledger.startedAt,lastScanAt:ledger.lastScanAt,unknownMessages:ledger.unknown??0,skippedLongLines:ledger.skippedLongLines??0,pendingBytes:Object.values(ledger.scans).reduce((sum,scan)=>sum+Math.max(0,(scan.size??scan.offset)-scan.offset),0),pendingFiles:ledger.pendingFiles??0,childTranscripts:ledger.childTranscripts??0,unavailableTranscripts:ledger.unavailableTranscripts??0,discoveryLimited:ledger.discoveryLimited??false,retentionLimited:ledger.retentionLimited,retainedFrom:ledger.retentionLimited&&!Array.isArray(ledger.folded)?ledger.retainedFrom??null:null,collecting:busy,problem,unavailable,scope:'Recorded project chats and discovered native children, including Main and Advisors; missing or still-pending transcripts leave totals incomplete.'})
   return {
     async load(){
@@ -121,10 +127,10 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
           // Read every transcript again from its start: the messages the cap dropped come back and are folded into day
           // totals; the kept ones are merged by message id. The oversized lines and unknown messages are counted anew.
           for(const scan of Object.values(ledger.scans)){scan.offset=0;scan.taskId=null;delete scan.skippingLine}
-          ledger.readOut={};ledger.readOutAt={};ledger.folded=[];ledger.skippedLongLines=0;ledger.unknown=0;ledger.foldVersion=FOLD_VERSION;ledger.oversizedRule=OVERSIZED_RULE
+          ledger.readOut={};ledger.readOutAt={};ledger.folded=[];ledger.foldedIds='';ledger.foldedBefore=0;ledger.skippedLongLines=0;ledger.unknown=0;ledger.foldVersion=FOLD_VERSION;ledger.oversizedRule=OVERSIZED_RULE
         }}
       catch(error){if(error.code!=='ENOENT'){unavailable=true;problem='Spending history is unavailable. The previous file is preserved; repair or move it aside before restarting collection.'}}
-      if(ledger.foldVersion===undefined){ledger.foldVersion=FOLD_VERSION;ledger.folded=[]}
+      if(ledger.foldVersion===undefined){ledger.foldVersion=FOLD_VERSION;ledger.folded=[];ledger.foldedIds='';ledger.foldedBefore=0}
     },
     // B917 (X93): the board's every rebuild asked 5 summaries over all events, 374 ms each time; one is kept per period
     // while the events and outcomes are the same and its window starts in the same minute (the time and coverage fresh).
@@ -261,8 +267,20 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
         ledger.pendingFiles=jobs.filter(j=>!ledger.scans[j.key]).length
         ledger.unavailableTranscripts=Math.max(missing,jobs.filter(j=>ledger.scans[j.key]?.unavailable).length)
         if(changed){
-          let events=[...index.values()]
-          if(events.length>MAX_EVENTS){events.sort((a,b)=>a.sourceAt-b.sourceAt);ledger.folded=foldEvents(ledger.folded??[],events.slice(0,-MAX_EVENTS));events=events.slice(-MAX_EVENTS);ledger.retentionLimited=true;ledger.retainedFrom=events[0]?.sourceAt??null;byId=new Map(events.map(e=>[e.messageId,e]))}
+          let events=[...index.values()],rebuilt=false
+          // A copy of a message folded before (a fork's old lines) is dropped, not counted again.
+          const known=foldedSet()
+          if(known.size){const fresh=events.filter(e=>!(e.sourceAt<=(ledger.foldedBefore??0)&&known.has(hashOf(e.messageId))));if(fresh.length!==events.length){events=fresh;rebuilt=true}}
+          if(events.length>MAX_EVENTS){
+            events.sort((a,b)=>a.sourceAt-b.sourceAt)
+            const dropped=events.slice(0,-MAX_EVENTS),hashes=dropped.map(e=>hashOf(e.messageId))
+            ledger.folded=foldEvents(ledger.folded??[],dropped)
+            ledger.foldedIds=(ledger.foldedIds??'')+hashes.join('');ledger.foldedBefore=Math.max(ledger.foldedBefore??0,dropped[dropped.length-1].sourceAt)
+            for(const h of hashes)known.add(h)
+            idSetFor=ledger.foldedIds
+            events=events.slice(-MAX_EVENTS);ledger.retentionLimited=true;ledger.retainedFrom=events[0]?.sourceAt??null;rebuilt=true
+          }
+          if(rebuilt)byId=new Map(events.map(e=>[e.messageId,e]))
           ledger.events=events;byIdFor=events
         }
         ledger.lastScanAt=clock()
