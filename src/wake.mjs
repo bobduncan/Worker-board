@@ -138,6 +138,27 @@ export function reopenSpells(record, lanes, now) {
 }
 
 /**
+ * Start-up check, MUST 1 (2026-11-05, the person's screenshot): when the chat last failed to be woken in `spell` (the newest verdict of
+ * a failed attempt), or null.
+ */
+export function failedAtOf(record, chat, spell = null) {
+  const times = (entryOf(record, chat, spell)?.attempts ?? []).filter(one => one.verdict === 'failed').map(one => (isTime(one.verdictAt) ? one.verdictAt : one.at)).filter(isTime)
+  return times.length === 0 ? null : Math.max(...times)
+}
+
+/**
+ * Start-up check, MUST 1: whether the chat reports again after the last failed attempt of its spell. Then "could not wake" is stale: it
+ * ran since (a session that started after the failure, `report.run` no later than `now`, or a report that is not an ended one, heard
+ * after it). `report` the chat's kept report `{ state, at, run }`, or null.
+ */
+export function ranSince(record, chat, spell, report, now = Infinity) {
+  const failedAt = failedAtOf(record, chat, spell)
+  if (failedAt === null || report === null || report === undefined) return false
+  if (isTime(report.run) && report.run > failedAt && report.run <= now) return true
+  return report.state !== 'ended' && isTime(report.at) && report.at > failedAt && report.at <= now
+}
+
+/**
  * Decision 8, as the next path for this chat's spell: 'message' when no message was tried in it and a sender claims;
  * 'launch' when no launch was tried in it and (no sender claims, or the message failed); after both failed, 'message'
  * once more only for a new sender (`senderSince`, when the claiming chat began to claim, after the message's verdict);

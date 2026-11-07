@@ -55,7 +55,7 @@ import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { withLinks } from './work/links.mjs'
 import { clearOwed, clearedStageOf, modAtLeast } from './clearOwed.mjs'
-import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
+import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, standingAsksOf } from './recapCard.mjs'
@@ -765,6 +765,8 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     // The wait line (T22): also the word its turn ran on (`word`, null for a turn that was no word's), that turn's own start (`turn`) and
     // the board's receipt of its last turn start (`busyAt`), each only where the report has it (chatReport.mjs `parseReport`).
     report: reported?.entry == null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at, mod: reported.entry.mod ?? null,
+      // Start-up check, MUST 1: the session's start (the mod's run id), to tell that the chat ran after a failed wake (wake.mjs `ranSince`).
+      ...(Number.isFinite(reported.entry.run) ? { run: reported.entry.run } : {}),
       ...(reported.entry.word === undefined ? {} : { word: reported.entry.word }), ...(Number.isFinite(reported.entry.turn) ? { turn: reported.entry.turn } : {}), ...(Number.isFinite(reported.entry.busyAt) ? { busyAt: reported.entry.busyAt } : {}) },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
     offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
@@ -2172,7 +2174,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     own: lane.isLeftover ? null : ownChatOf({ lane, kept: keptOf(lane), apps, appFiles, elsewhere: appElsewhere }),
     // B986 (the review, 7): the kept report the wake's spell is read from when the title's chat has none (wake.mjs `spellOf`),
     // so the spell does not flip between that report and none, and the woken chat's own report is heard in it.
-    ownReport: lane.isLeftover || lane.report != null ? null : (({ state, since, at }) => ({ state, since, at }))(keptOf(lane) ?? {}),
+    ownReport: lane.isLeftover || lane.report != null ? null : (({ state, since, at, run }) => ({ state, since, at, run }))(keptOf(lane) ?? {}),
     isRunning: lane.isLeftover ? null : lane.state === 'off' ? false : runningOf(lane.name),
     // B143: the newest ask to remove this worker; the main chat and a leftover have none.
     removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
@@ -2768,9 +2770,11 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now }) {
     return kept.spell === target.spell && kept.attempts.length > 0 ? target : null
   }
   const targets = []
+  // Start-up check, MUST 1: a chat that reports again after its last failed attempt has nothing to say ("could not wake" is stale).
+  const hasRunSince = (lane, target) => ranSince(record, lane.name, target.spell, lane.report ?? lane.ownReport ?? null, now)
   const wakeOfLane = lane => {
     const target = targetOf(lane)
-    if (target !== null) {
+    if (target !== null && !hasRunSince(lane, target)) {
       targets.push(target)
       return { ...wakeOf(record, target, { senderClaims }), need: target.need, spell: target.spell }
     }

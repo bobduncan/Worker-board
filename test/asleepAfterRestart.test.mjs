@@ -346,6 +346,28 @@ test('change 4: an asleep chat being woken says so on its lane, quiet; one that 
   assert.deepEqual([build().wakeNotice, build().wakes], [null, {}])
 })
 
+test('start-up check, MUST 1: a chat that does not run but reports again after its failed wake (a session that started after it) has no "could not wake" notice, no failed flag and no final failure', () => {
+  const failed = () => {
+    const record = wakesOf(new Map([['Digger', { since: APP, at: at(18, 28) }]]))
+    Object.assign(record.record.wakes.get('Digger')[0].attempts[0], { verdict: 'failed', verdictAt: at(18, 30), why: 'no report within 2 minutes of the message' })
+    return record
+  }
+  const stateWith = run => buildState({
+    listText: '{"prefix":"Garden · ","main":"Lead","supervisor":"Watcher"}', appChatTexts: NAMES.map(app), tails: Object.fromEntries(NAMES.map(name => [`cli-${name}`, tail])),
+    planLineTexts: {}, work: storeWith(), adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: APP,
+  }, { lines: [], outbox: [], runs: [], now: at(18, 50), config, seen: { shown: {}, other: {} }, board: { startedAt: STARTED, offSince: null }, reports: new Map(REPORTS.map(([name, one]) => (name === 'Digger' ? [name, { ...one, run }] : [name, one]))), wakes: failed() })
+  // Before the control: its session started at 18:10, before the failed wake (18:30): the notice stands.
+  const before = stateWith(at(18, 10))
+  assert.equal(lane(before, 'Digger').isRunning, false)
+  assert.equal(before.wakeNotice.text, 'could not wake Digger: no report after the message (sent 18:28 by Lead); open its chat')
+  // Its session started at 18:40, after the failure: nothing stale to show.
+  const after = stateWith(at(18, 40))
+  assert.equal(lane(after, 'Digger').isRunning, false, 'still no process: only the stale line goes')
+  assert.equal(after.wakeNotice, null)
+  assert.equal(lane(after, 'Digger').wake.final, false)
+  assert.equal((lane(after, 'Digger').flags ?? []).some(flag => flag.kind === 'wake failed'), false)
+})
+
 test('change 4: the ⚙ row of the wake reads by itself, "last launch failed" or "message only" with its why', async () => {
   const { openPage } = await import('./pageHarness.mjs')
   const { asSent, build: page, ask, NOW: PAGE_NOW, MIN: PAGE_MIN } = await import('./partnerState.mjs')

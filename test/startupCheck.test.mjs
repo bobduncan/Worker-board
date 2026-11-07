@@ -13,7 +13,9 @@ import { listedWhere, readAccountFolders, readAppChats } from '../src/appChats.m
 import { recordFindings } from '../src/supervisor/incidents.mjs'
 import { apply, judge, liftBan, pictureOf } from '../src/startupCheck.mjs'
 import { createChecker } from '../src/startupCheckRun.mjs'
-import { claim, nextPath, wakesOfFile } from '../src/wake.mjs'
+import { buildView } from '../src/supervisor/view.mjs'
+import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
+import { claim, failedAtOf, nextPath, ranSince, wakesOfFile } from '../src/wake.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { bansOf } from '../src/work/handover.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
@@ -455,4 +457,82 @@ test('task 6: the board-wide incident (X158) is not closed while chats stay fail
   // Once the check re-opened some (a trigger after the failures), it goes.
   const after = await judged({ elsewhere: false, old: true, down: ['Worker 1', 'Worker 2', 'Worker 5', 'Supervisor'], trigger: 'start', triggerAt: AT_2125 })
   assert.equal(after.actions.closeIncidents.some(one => one.id === 'X158'), true)
+})
+
+// ---- MUST 1 (the person's screenshot, 2026-11-05 23:23): a chat that reports again clears its stale "could not wake" ----
+
+/** 22:00 on the evening; the Supervisor's session started again at 21:57:10 (after its last failed attempt, 21:23:13). */
+const AT_2200 = new Date(2026, 10, 5, 22, 0).getTime()
+const SUPERVISOR_RUN = new Date(2026, 10, 5, 21, 57, 10).getTime()
+const SUPERVISOR_REPORT = { state: 'ended', since: 1793862907525, background: false, run: SUPERVISOR_RUN, seq: 129, at: SUPERVISOR_RUN + 20_000, app: 'local_43a11efb-3de3-4577-802d-e91718ec94a1' }
+/** The evening's sources with the Supervisor not running but reporting again (`report` replaces its kept report). */
+const supervisorSources = async (report = SUPERVISOR_REPORT) => {
+  const sources = await sourcesOf({ elsewhere: false, down: ['Supervisor'], now: AT_2200 })
+  return { ...sources, reports: { ...sources.reports, Supervisor: report } }
+}
+
+test('MUST 1: the live Supervisor wake record (failed 20:31, 20:34, 21:20; last verdict 21:23:13) is stale once it reports again, and only then', async () => {
+  const record = wakesOfFile(await json('wakes.json'))
+  const spell = record.wakes.get('Supervisor').at(-1).spell
+  assert.equal(failedAtOf(record, 'Supervisor', spell), 1793910193309, '21:23:13, the newest verdict')
+  assert.equal(ranSince(record, 'Supervisor', spell, SUPERVISOR_REPORT, AT_2200), true, 'a session that started at 21:57 after the failure')
+  assert.equal(ranSince(record, 'Supervisor', spell, { state: 'busy', at: AT_2200 - 60_000, run: 1793831678075 }, AT_2200), true, 'a report that is not an ended one, heard after the failure')
+  // Not before the failure: the report of the morning of 11-05, and an ended report heard after it with the old run (a heartbeat).
+  assert.equal(ranSince(record, 'Supervisor', spell, { state: 'ended', at: 1793862907959, run: 1793831678075 }, AT_2200), false)
+  assert.equal(ranSince(record, 'Supervisor', spell, { state: 'ended', at: AT_2200 - 1000, run: 1793831678075 }, AT_2200), false)
+  // A run later than now is no proof; no report is none; a chat without a failed attempt has nothing stale.
+  assert.equal(ranSince(record, 'Supervisor', spell, { state: 'busy', at: AT_2200 + 5000, run: AT_2200 + 5000 }, AT_2200), false)
+  assert.equal(ranSince(record, 'Supervisor', spell, null, AT_2200), false)
+  assert.equal(ranSince(record, 'Worker 3', record.wakes.get('Worker 3').at(-1).spell, SUPERVISOR_REPORT, AT_2200), false)
+})
+
+test('MUST 1: the check clears the Supervisor wake notice, closes X157 and X158 ("gone after the check at 22:00"), wakes nobody, and a second check files nothing', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'startup-stale-'))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  await writeStore(dir, migrateBacklog('# Backlog\n\n## Work\n- [ ] B12 A fix (for Digger; about 1 h)\n', { now: AT_2200 }), undefined, { now: AT_2200 })
+  const board = body => workApi(body, { dir, now: AT_2200, prefix: '', as: 'server', roleOf: () => null })
+  const evening = await json('incidents.json')
+  await recordFindings(evening.map(one => ({ rule: one.source, key: one.key, subject: one.subject, text: one.title })), { work: board })
+  const sources = await supervisorSources()
+  sources.incidents = evening.map((one, index) => ({ ...one, id: `X${index + 1}` }))
+  const verdict = judge(pictureOf(sources))
+  assert.deepEqual(verdict.fixed.filter(one => one.kind === 'notice-cleared').map(one => one.chat), ['Supervisor'])
+  assert.deepEqual(verdict.actions.reopen, [], 'the Supervisor is not woken again: it reports')
+  // X157 is the 4th of the evening's incidents (made-up id X4), X158 the 5th (X5).
+  assert.deepEqual(verdict.actions.closeIncidents.map(one => one.id).filter(id => ['X4', 'X5'].includes(id)).sort(), ['X4', 'X5'])
+  const result = await apply(verdict, {
+    wakes: sources.wakes,
+    closeIncidents: async list => (await board({ action: 'incident-gone', gone: list.map(one => ({ id: one.id, why: one.why })) })).result.gone,
+  }, AT_2200)
+  assert.equal(result.fixed.some(one => one.kind === 'notice-cleared' && one.chat === 'Supervisor'), true, 'the clear is in `fixed`')
+  const store = await readStore(dir)
+  for (const id of ['X4', 'X5']) {
+    assert.equal(store.items.get(id).head.get('State'), 'gone', id)
+    assert.match((store.items.get(id).sections.get('History') ?? []).join('\n'), /gone after the check at 22:00/)
+  }
+  // The wake record is untouched by the clear (the state no longer names the chat; the record keeps what happened).
+  assert.equal(sources.wakes.wakes.get('Supervisor').at(-1).reopenedAt, undefined)
+  // A second check, fed the store as it is now: nothing left to close.
+  const after = [...(await readStore(dir)).items.values()].filter(item => item.head.get('Kind') === 'incident').map(item => ({ id: item.head.get('Id'), key: item.head.get('Key'), source: item.head.get('Source'), subject: item.head.get('Subject'), state: item.head.get('State'), since: item.head.get('Since') }))
+  const again = judge(pictureOf({ ...sources, incidents: after }))
+  assert.deepEqual(again.actions.closeIncidents.map(one => one.id).filter(id => ['X4', 'X5'].includes(id)), [])
+})
+
+test('MUST 1: without a report after the failure the Supervisor stays failed: no notice cleared, X157 and X158 stay', async () => {
+  const sources = withOldRuns(await supervisorSources({ ...SUPERVISOR_REPORT, run: 1793831678075, at: 1793862907959 }))
+  sources.reports.Supervisor = { ...SUPERVISOR_REPORT, run: 1793831678075, at: 1793862907959 }
+  const verdict = judge(pictureOf(sources))
+  assert.deepEqual(verdict.fixed.filter(one => one.kind === 'notice-cleared'), [])
+  assert.equal(verdict.actions.closeIncidents.some(one => ['X157', 'X158', 'X4', 'X5'].includes(one.id)), false)
+})
+
+test('MUST 1: no close and re-file loop for X158: the rule files nothing while the Supervisor wake is not a final failure any more', () => {
+  const NOW = new Date(2026, 10, 5, 22, 0).getTime()
+  const wake = { state: 'failed', final: false, need: false, spell: 0, attempts: [{ path: 'message', at: NOW - 3_000_000, by: 'Main', verdict: 'failed', verdictAt: NOW - 2_800_000, why: 'x', sentAt: NOW - 2_990_000 }] }
+  const view = buildView({
+    state: { chats: [{ name: 'Supervisor', isLeftover: false, isMain: false, isRunning: false, state: 'off', wake }], chatPrefix: '', check: null, wakes: { '*': { state: 'failed', attempts: [{ path: 'launch', verdict: 'failed', verdictAt: NOW - 2_000_000 }] } }, wakeBoardSince: null }, now: NOW,
+  })
+  const rule = id => WATCH_RULES.find(one => one.id === id)
+  assert.deepEqual(rule('nobody-answers-wakes').check(view, {}), [])
+  assert.deepEqual(rule('wake-failed').check(view, {}), [])
 })
