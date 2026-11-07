@@ -14,7 +14,6 @@ import { openQaTaskOf, qaStandOf } from '../work/qaTask.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
 import { ACTIVE, heldReason, openAskIds, workingOnOther } from '../work/parked.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
-import { withoutRethink } from '../work/rethink.mjs'
 import { envelopesOf, lastClearWhyOf } from '../work/handover.mjs'
 import { boardOffMs, checkpointLate, familyOf, reviewLateOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
 
@@ -215,7 +214,7 @@ function waitsOf(item, items) {
   const named = id => (stateOfId(id) === 'review' ? `the check of ${id}` : id)
   const blockers = (valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []
   const words = valueOf(item, 'Waits for')
-  const ids = withoutRethink(words).match(/\bB\d+\b/g) ?? []
+  const ids = (words ?? '').match(/\bB\d+\b/g) ?? []
   return [
     blockers.filter(holds).map(named).join(' and '),
     words !== null && words !== '-' && (ids.length === 0 || ids.some(holds)) ? words : '',
@@ -234,7 +233,7 @@ const ENDED = ['done', 'dropped']
  */
 function plannedWait(item, view, now, seen = new Set()) {
   if (valueOf(item, 'State') !== 'queued') return null
-  const named = field => withoutRethink(valueOf(item, field)).match(/\bB\d+\b/g) ?? []
+  const named = field => (valueOf(item, field) ?? '').match(/\bB\d+\b/g) ?? []
   const open = [...new Set([...named('Blocked by'), ...named('Waits for')])].filter(id => view.items.has(id) && !ENDED.includes(stateIn(view.items, id)))
   if (open.length === 0) return null
   const chain = new Set([...seen, valueOf(item, 'Id')])

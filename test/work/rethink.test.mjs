@@ -12,7 +12,7 @@ import { workApi } from '../../src/work/api.mjs'
 import { isReady, readyHold, waitIds, waitWords } from '../../src/work/guards.mjs'
 import { parseItem, valueOf } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
-import { rethinkLine, rethinkWords, withHold, withoutHoldOf } from '../../src/work/rethink.mjs'
+import { goalsToFree, rethinkLine, rethinkWords, withHold, withoutHoldOf } from '../../src/work/rethink.mjs'
 import { rethinkTopicsOf, topicOf } from '../../src/work/rethinkTopic.mjs'
 import { readStore, share, writeStore } from '../../src/work/store.mjs'
 import { yourWordsOf } from '../../src/work/yourWords.mjs'
@@ -85,12 +85,11 @@ test('the topic by the fix chain: a step up or down the chain names the part; wi
   assert.deepEqual([byFix.result.topic, byFix.result.held.includes('B1')], ['Side stairs', true])
   const board = await fresh(t)
   const chain = await hold(board, { of: 'B31' })
-  assert.deepEqual([chain.result.topic, chain.result.kind, sorted(chain.result.held)], ['the tries of B30', 'chain', ['B30', 'B31']])
+  assert.deepEqual([chain.result.topic, chain.result.kind, sorted(chain.result.held)], ['the tries of Stairs try', 'chain', ['B30', 'B31']])
   assert.deepEqual(chain.result.stop, [{ id: 'B31', owner: 'Worker 2' }])
-  assert.equal(valueOf(await board.item('B31'), 'Waits for'), `the rethink of G60 "the tries of B30" (${MINUTE})`)
-  // The same topic by its title alone.
-  const again = await hold(await fresh(t), { title: 'the tries of B30' })
-  assert.deepEqual(sorted(again.result.held), ['B30', 'B31'])
+  assert.equal(valueOf(await board.item('B31'), 'Waits for'), `the rethink of G60 "the tries of Stairs try" (${MINUTE})`)
+  // A title of a chain is no way to name it: name a step of it.
+  assert.equal((await hold(await fresh(t), { title: 'the tries of Stairs try' })).status, 409)
 })
 
 test('the words: each held step gets a point of its "Your words" with where it was said and the pictures named; the History says why it waits', async t => {
@@ -133,11 +132,12 @@ test('the end: rethink-free takes only the rethink words away; what a step waits
   assert.equal((await board.chat('Main', { action: 'rethink-free', goal: 'G60' })).status, 403)
 })
 
-test('the words are found in a Waits for, and only those: ids in a topic title do not hold a step', () => {
-  const line = rethinkLine('G60', 'the tries of B1068', '2026-11-07 10:55')
-  assert.equal(line, 'the rethink of G60 "the tries of B1068" (2026-11-07 10:55)')
+test('the hold words carry no step or ask id; a step that waits on a step AND a rethink stays held after the step is done', () => {
+  const line = rethinkLine('G60', 'the tries of B1068 and Q12 "stairs"', '2026-11-07 10:55')
+  assert.equal(line, `the rethink of G60 "the tries of and 'stairs'" (2026-11-07 10:55)`)
+  assert.doesNotMatch(line, /\b[BQ]\d+\b/)
   const held = file({ Id: 'B5', Kind: 'step', State: 'refined', Refined: 'ready', 'Waits for': line })
-  assert.deepEqual(waitIds(held), [], 'B1068 in the title is no step it waits for')
+  assert.deepEqual(waitIds(held), [], 'no id in the words')
   assert.equal(waitWords(held), line)
   assert.equal(readyHold(held, { store: { items: new Map() } }), `waits for: ${line}`)
   assert.equal(isReady(held, { store: { items: new Map() } }), false)
@@ -172,11 +172,36 @@ test('topicOf and rethinkTopicsOf: the topics the Focus page lists, each with it
   assert.deepEqual(topics.map(one => [one.title, one.kind, one.steps.map(row => row.id)]), [
     ['Side stairs', 'part', ['B1', 'B2', 'B6', 'B8']],
     ['Walls', 'part', ['B9']],
-    ['the tries of B30', 'chain', ['B30', 'B31']],
+    ['the tries of Stairs try', 'chain', ['B30', 'B31']],
   ])
   assert.deepEqual(topics[0].steps[0], { id: 'B1', title: 'Stairs try B1', state: 'in progress', owner: 'Worker 5' })
   // A topic whose steps are all done is not listed.
   const finished = new Map(items)
   finished.set('B9', step('B9', 'done'))
-  assert.deepEqual(rethinkTopicsOf(NODE, finished).map(one => one.title), ['Side stairs', 'the tries of B30'])
+  assert.deepEqual(rethinkTopicsOf(NODE, finished).map(one => one.title), ['Side stairs', 'the tries of Stairs try'])
+})
+
+test('a checkpoint on a step held for the rethink is the stop checkpoint: the step is given back (refined, still held), the worker free', async t => {
+  const board = await fresh(t)
+  await hold(board, { title: 'Side stairs' })
+  const before = await board.item('B1')
+  assert.equal(valueOf(before, 'State'), 'in progress')
+  const saved = await board.chat('Worker 5', { action: 'step', id: 'B1', commit: 'abc1234', next: 'stopped for the rethink' })
+  assert.equal(saved.ok, true, JSON.stringify(saved))
+  assert.match(saved.result.text, /given back/)
+  const after = await board.item('B1')
+  assert.deepEqual([valueOf(after, 'State'), valueOf(after, 'Owner'), valueOf(after, 'Checkpoint')?.startsWith('abc1234')], ['refined', null, true])
+  assert.match(valueOf(after, 'Waits for'), /^the rethink of G60 /)
+  // A step not held for a rethink stays with its worker on a checkpoint.
+  const other = await board.chat('Worker 5', { action: 'step', id: 'B31', commit: 'abc1234', next: 'x' })
+  assert.notEqual(valueOf(await board.item('B31'), 'State'), 'refined', JSON.stringify(other))
+})
+
+test('the tick frees a hold only for a recorded end: a goal missing from the map, or still evaluating, is never freed', () => {
+  const nodes = [{ id: 'G60', evaluationAsked: '2026-11-07 11:30' }, { id: 'G61', evaluationAsked: null }, { id: 'G62', evaluationAsked: null, state: 'done' }]
+  const holds = new Set(['G60', 'G61', 'G62', 'G99'])
+  assert.deepEqual(goalsToFree(nodes, holds), ['G61', 'G62'])
+  assert.deepEqual(goalsToFree(nodes, holds, new Set(['G61'])), ['G62'])
+  assert.deepEqual(goalsToFree([], holds), [])
+  assert.deepEqual(goalsToFree(nodes, new Set(['G60'])), [])
 })

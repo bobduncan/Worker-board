@@ -5,7 +5,6 @@
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
 import { linksOf } from './links.mjs'
-import { plainWaits } from './rethink.mjs'
 import { standardOf } from './standard.mjs'
 
 const VERDICTS = ['pass', 'fail', 'ask']
@@ -328,7 +327,7 @@ function namedStep(id, items) {
 /** 2026-10-31 (B689): the open steps a step is blocked by (its `Blocked by` and `Waits for`), each once, itself left out. */
 function openBlockersOf(item, items) {
   const id = valueOf(item, 'Id')
-  return [...new Set(`${valueOf(item, 'Blocked by') ?? ''} ${plainWaits(item)}`.match(/\bB\d+\b/g) ?? [])]
+  return [...new Set(`${valueOf(item, 'Blocked by') ?? ''} ${valueOf(item, 'Waits for') ?? ''}`.match(/\bB\d+\b/g) ?? [])]
     .filter(one => one !== id && items?.has(one) && isOpenStep(items.get(one)))
 }
 /** 2026-10-31 (B689): the open Quality Assurance task that checks the step `id` (its head `Checks`), the oldest of two, or null. */
@@ -549,7 +548,7 @@ function waitOf(item, items, held, now, depth, recaps = null) {
   const gone = named === null ? undefined : items?.get(named)
   const since = gone === undefined ? resultCheckAtMs(item) : sinceMs(valueOf(gone, 'Since'))
   // B630 (X54): a dropped fix with the step blocked by an open step is a plan (the fix is made again after that step).
-  const blocking = [...new Set(`${valueOf(item, 'Blocked by') ?? ''} ${plainWaits(item)}`.match(/\bB\d+\b/g) ?? [])]
+  const blocking = [...new Set(`${valueOf(item, 'Blocked by') ?? ''} ${valueOf(item, 'Waits for') ?? ''}`.match(/\bB\d+\b/g) ?? [])]
     .filter(one => one !== id && items?.has(one))
   const blockers = blocking.filter(one => isOpenStep(items.get(one)))
   if (blockers.length > 0) {

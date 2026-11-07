@@ -124,6 +124,6 @@ test('the state: focus.rethinkTopics lists the focus goal\'s parts with their op
   const focus = focusState(parseGoals(MAP), items, [], 'Team - ', 'Advisor', NOW)
   assert.deepEqual(focus.rethinkTopics.map(one => [one.title, one.kind, one.steps.map(row => [row.id, row.state, row.owner])]), [
     ['Side stairs', 'part', [['B200', 'in progress', 'Worker 5'], ['B210', 'refined', 'Worker 5']]],
-    ['the tries of B300', 'chain', [['B300', 'refined', 'Worker 5'], ['B301', 'new', 'Worker 5']]],
+    ['the tries of Try', 'chain', [['B300', 'refined', 'Worker 5'], ['B301', 'new', 'Worker 5']]],
   ])
 })

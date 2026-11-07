@@ -2,6 +2,7 @@
 // readers of `Waits for` import, because this one reads resultCheck.mjs (a cycle otherwise).
 
 import { valueOf } from './item.mjs'
+import { plainTitle } from './rethink.mjs'
 import { fixRootsOf, fixesOf } from './resultCheck.mjs'
 
 /** Whether the item is a step of the work (not a Quality Assurance task: its `Checks` names the step it checks). */
@@ -25,13 +26,14 @@ function withFixes(seeds, items) {
   return found
 }
 
-const TRIES = /^the tries of (B\d+)$/
+/** The title of a fix chain: its first step's title, no ids, cut at 60 characters. */
+const triesTitle = (root, items) => `the tries of ${plainTitle(valueOf(items.get(root), 'Title') ?? '').slice(0, 60).trim()}`
 
 /**
  * The topic of a goal: `{ ok, title, kind, steps }` or `{ ok: false, why }`. `node` the goal (its `parts`: `{ title, steps }`),
  * `items` the store's items by id, `rows` the recaps' rows (`{ steps }`), and what the person named: `title` (a part's title, or
- * "the tries of B<n>") and/or `of` (a step of the topic). The topic is the how's part that names `of` or a step up its fix chain
- * (its title as the goal writes it), else the fix chain of `of` ("the tries of B<root>"); its steps are the part's steps and every
+ * "the tries of ...") and/or `of` (a step of the topic). The topic is the how's part that names `of` or a step up its fix chain
+ * (its title as the goal writes it), else the fix chain of `of` ("the tries of <the first step's title>"); its steps are the part's steps and every
  * fix under them, or the chain, plus the steps of a recap row that names one of them.
  */
 export function topicOf({ node, items, rows = [], title = null, of = null }) {
@@ -51,12 +53,9 @@ export function topicOf({ node, items, rows = [], title = null, of = null }) {
       found = { title: parts[inPart].title, kind: 'part' }
       seeds = parts[inPart].steps
     } else {
-      found = { title: `the tries of ${up.at(-1)}`, kind: 'chain' }
+      found = { title: triesTitle(up.at(-1), items), kind: 'chain' }
       seeds = [up.at(-1)]
     }
-  } else if (named !== null && TRIES.test(named) && isWorkStep(items.get(TRIES.exec(named)[1]))) {
-    found = { title: named, kind: 'chain' }
-    seeds = [TRIES.exec(named)[1]]
   } else {
     return { ok: false, why: named === null ? 'Name the goal and a step of the topic.' : `${named} is no part of this goal's how: name a step of the topic in "of".` }
   }
@@ -75,7 +74,7 @@ const ENDED = ['done', 'dropped', 'closed']
 
 /**
  * The topics the Focus page lists to stop and rethink: each part of the goal's how with its open steps, then each open fix chain of
- * the goal that no part holds ("the tries of B<root>"). `{ title, kind, steps: [{ id, title, state, owner }] }`; only a topic with an
+ * the goal that no part holds ("the tries of <the first step's title>"). `{ title, kind, steps: [{ id, title, state, owner }] }`; only a topic with an
  * open step. `steps` the store's steps by id (a Map), `prefix` the chats' prefix, `titleOf` how a step's title reads.
  */
 export function rethinkTopicsOf(node, steps, { prefix = '', titleOf = item => valueOf(item, 'Title') ?? '' } = {}) {

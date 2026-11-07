@@ -77,7 +77,7 @@ import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
 import { checkSend, roundPage, rowsOf as rowsOfDemo, stampOf, withRound, wordsOfRound } from './src/demoFeedback.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, rethinkTalkWords, startEvaluation, undoLine } from './src/focus.mjs'
-import { rethinkHolds } from './src/work/rethink.mjs'
+import { goalsToFree, rethinkHolds } from './src/work/rethink.mjs'
 import { rowWordsOf, rowWordsText } from './src/work/rowWords.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { evaluationFor } from './src/goalGuard.mjs'
@@ -1180,7 +1180,11 @@ async function main(args) {
         part: evaluationPart, topic, held: ids, asked: { text, pictures, earlier },
       })
       readState.reset()
-      if (!started.ok) return started
+      if (!started.ok) {
+        // The evaluation did not start, so there is no end to wait for: the holds go at once.
+        await workAction({ action: 'rethink-free', goal: id }, 'server')
+        return started
+      }
       if (started.result.started) await partnerModeNow(state, mode => `a rethink the person asked for: ${id} "${topic}" on ${PARTNER_MODES[mode].label}`)
       if (started.words !== null) await toPartner(started.words, {}, state)
       await toPartner(rethinkTalkWords({ to: talker.name, goal: { id }, topic, held: ids, stopped, text, pictures }), {}, state)
@@ -1196,14 +1200,15 @@ async function main(args) {
    */
   const rethinkFreeNow = async state => {
     if (!writesMap || workWriters === null || workDir === null) return
-    const running = new Set(await evaluationsRunning({ goalsFile: projectFile(config, 'goals') }))
+    // Only an end that is recorded frees a hold: the goal is in the map and no longer has its evaluation lines (src/work/rethink.mjs goalsToFree).
+    const mapText = await readFile(projectFile(config, 'goals'), 'utf8')
+    const nodes = parseGoals(mapText).nodes
     const goals = new Set()
     for (const item of (await readStore(workDir)).items.values()) {
       if (item.head.get('Kind') !== 'step') continue
       for (const hold of rethinkHolds(item.head.get('Waits for'))) goals.add(/ (G\d+) /.exec(hold)[1])
     }
-    for (const goal of goals) {
-      if (running.has(goal) || rethinking.has(goal)) continue
+    for (const goal of goalsToFree(nodes, goals, rethinking)) {
       const done = await workAction({ action: 'rethink-free', goal }, 'server')
       if (!done.ok) throw new Error(`The rethink of ${goal} could not be freed: ${done.why}`)
       if (done.result.freed.length > 0 && (state.advisor ?? null) !== null) await toPartner(workWords(state.advisor.name, goal, `held for the rethink, now free: ${done.result.freed.join(', ')}; drop or keep each`), {}, state)

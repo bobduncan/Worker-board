@@ -748,7 +748,8 @@ async function step(body, w) {
   if (!isPlan) {
     const item = ordered(said(put(copy(found.item), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
     const done = await save(item, found.text, w)
-    return done.ok ? changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.`) : done
+    if (!done.ok) return done
+    return changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.${await giveBackStopped(item, w)}`)
   }
   const names = Array.isArray(body.names) ? body.names.map(one => line(one, 60)).filter(Boolean) : []
   const count = Number.isInteger(Number(body.steps)) && Number(body.steps) > 0 ? Number(body.steps) : null
@@ -763,7 +764,22 @@ async function step(body, w) {
   const planned = said(saved === null ? found.item : put(copy(found.item), 'Plan', planText(saved)), w, words)
   const item = ordered(checkpoint === null ? planned : said(put(copy(planned), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
   const done = await save(item, found.text, w)
-  return done.ok ? changed(item, `${id}: ${words}.${checkpoint === null ? '' : ` Checkpoint ${checkpoint.commit} · ${checkpoint.next}.`}`) : done
+  if (!done.ok) return done
+  return changed(item, `${id}: ${words}.${checkpoint === null ? '' : ` Checkpoint ${checkpoint.commit} · ${checkpoint.next}.${await giveBackStopped(item, w)}`}`)
+}
+
+/**
+ * Stop and rethink: a worker's checkpoint on a step held for a rethink is its stop checkpoint (the person's Stop reached it): the step
+ * goes back to refined by the SAME give-back as the holder timers' (`giveBackHeld`, the flow's server move), still held by its
+ * `Waits for`, and the worker is free. Answers a sentence for the worker's answer, '' when nothing was given back.
+ */
+async function giveBackStopped(item, w) {
+  const held = rethinkWords(item)
+  if (held === null || !GIVE_BACK_GONE.includes(stateOf(item))) return ''
+  const again = await load(valueOf(item, 'Id'), w, { kind: ['step'] })
+  if (!again.ok) return ''
+  const back = await giveBackHeld(again, { chat: w.who, why: `stopped for ${held}: its stop checkpoint is in`, gone: stateOf(item) === 'waiting on you' }, w)
+  return back.ok ? ' The step is given back (held for the rethink): you are free for other work.' : ''
 }
 
 /** A checkpoint's fields from work step: `{ ok, commit, next }` (commit "none" when not given), or a refusal. */
@@ -1424,7 +1440,7 @@ const noteWords = (item, w, text, where, shown = []) => withYourWords(item, { at
 
 /**
  * Stop and rethink (docs/stop-and-rethink.md, T13.2.1): the person says a topic of the goal `goal` is wrong. The topic is the
- * how's part `title` (or the one that names the step `of`), else the fix chain of `of` ("the tries of B<root>"), with the steps
+ * how's part `title` (or the one that names the step `of`), else the fix chain of `of` ("the tries of <its first step's title>"), with the steps
  * of a recap row that names one of them (`topicOf`). Its open steps (new to waiting on you) get `Waits for: the rethink of
  * G<n> "<title>" (<minute>)` next to what they wait for already, and the person's words (`text`, with the `pictures`) as a point of
  * their "Your words". Done, dropped and steps in review stay as they are. Answers `{ topic, held, stop }`: `stop` the held

@@ -48,7 +48,6 @@ import { STOP_HANDS_MS, isHandTaken } from './hands.mjs'
 import { isLate } from './store.mjs'
 import { WAKE_PENDING, triedWords } from './wake.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
-import { plainWaits } from './work/rethink.mjs'
 import { TRIES, passesBySelf } from './work/passing.mjs'
 import { isHolding } from './work/pause.mjs'
 import { isBlockWritten } from './work/refineWait.mjs'
@@ -358,7 +357,7 @@ export function recapDone(word, items) {
       tries.push({ id: null, at: isTime(at) ? at : null })
       continue
     }
-    const blockers = [...new Set(`${valueOf(item, 'Blocked by') ?? ''} ${plainWaits(item)}`.match(/\bB\d+\b/g) ?? [])].filter(one => one !== id)
+    const blockers = [...new Set(`${valueOf(item, 'Blocked by') ?? ''} ${valueOf(item, 'Waits for') ?? ''}`.match(/\bB\d+\b/g) ?? [])].filter(one => one !== id)
     const next = [...fixesOf(id, items), ...blockers.map(one => items.get(one)).filter(Boolean)]
       .map(one => ({ id: valueOf(one, 'Id'), at: after(one) })).filter(one => one.at !== null).sort((a, b) => a.at - b.at)
     if (next.length === 0) return null

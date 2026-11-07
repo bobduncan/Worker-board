@@ -7,7 +7,7 @@ import { isKeptLook } from './keptLook.mjs'
 import { REST_GUARD, workingOnOther } from './parked.mjs'
 import { fixesThrough, gitCheckPassed, needsResultCheck, resultCheckOf } from './resultCheck.mjs'
 import { refineAsksOf } from './stepAsks.mjs'
-import { plainWaits, rethinkWords } from './rethink.mjs'
+import { rethinkWords } from './rethink.mjs'
 
 const idsIn = value => (value ?? '').match(/\b[A-Z]\d+\b/g) ?? []
 const asksOf = (item, ctx) => [...(ctx.store?.items?.values() ?? [])]
@@ -18,7 +18,7 @@ const isHolding = ask => isOpen(ask) && !isKeptLook(ask)
 /** B305: what a step's `Blocked by` names no longer holds it: a step done or dropped, an ask answered or withdrawn. */
 export const CLEARED = ['done', 'dropped', 'answered', 'withdrawn']
 /** B306: the steps and asks a step's `Waits for` names (B<n>, Q<n>); its other words are only what they wait for. */
-export const waitIds = item => plainWaits(item).match(/\b[BQ]\d+\b/g) ?? []
+export const waitIds = item => (valueOf(item, 'Waits for') ?? '').match(/\b[BQ]\d+\b/g) ?? []
 /** B306: the words of a `Waits for` that names no id: they hold the step until the main chat or the person clears them. */
 export const waitWords = item => (waitIds(item).length === 0 ? valueOf(item, 'Waits for') : rethinkWords(item))
 /**

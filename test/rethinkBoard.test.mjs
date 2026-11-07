@@ -101,7 +101,7 @@ test('a rethink on a topic with a step in progress: the stop goes the Stop butto
   }
   await put(join(project, '.claude', 'goals.md'), GOALS)
   const ready = (id, more = {}) => file({ Id: id, Kind: 'step', Title: `Task ${id}`, State: 'refined', Refined: 'ready', Activity: 'Art', Goal: 'G60', Since: stamp(NOW - 60 * MIN), ...more }, [`- ${stamp(NOW - 60 * MIN)} Advisor: made`])
-  const building = file({ Id: 'B1', Kind: 'step', Title: 'The side stairs', State: 'in progress', Owner: 'Worker 5', Activity: 'Art', Goal: 'G60', Since: stamp(NOW - 20 * MIN) },
+  const building = file({ Id: 'B1', Kind: 'step', Title: 'The side stairs', State: 'in progress', Refined: 'ready', Owner: 'Worker 5', Activity: 'Art', Goal: 'G60', Since: stamp(NOW - 20 * MIN) },
     [`- ${stamp(NOW - 30 * MIN)} Worker 5: queued → taken`, `- ${stamp(NOW - 20 * MIN)} Worker 5: taken → in progress`])
   const items = new Map([['B1', building], ['B14', ready('B14')], ['B15', ready('B15')]])
   const work = join(project, '.claude', 'work')
@@ -137,7 +137,7 @@ test('a rethink on a topic with a step in progress: the stop goes the Stop butto
   assert.match(await head('B1', 'Waits for'), mark)
   assert.match(await head('B14', 'Waits for'), mark)
   assert.equal(await head('B15', 'Waits for'), null, 'the other part goes on')
-  assert.equal(await head('B1', 'Owner'), 'Worker 5', 'the Stop button leaves the step with its worker, saved at a safe point')
+  assert.equal(await head('B1', 'Owner'), 'Worker 5', 'until its stop checkpoint is in the step stays with its worker')
 
   // ONE STOP PATH: the word is the Stop button's (command stop, to the main chat, about the worker, by code for a mod that can), and
   // the partner got the evaluate word with the person's block, and the talk partner (no Product owner here: the partner) the talk word.
@@ -154,17 +154,23 @@ test('a rethink on a topic with a step in progress: the stop goes the Stop butto
   const talk = words.find(one => one.command === 'talk')
   assert.deepEqual([talk.to, /^rethink started by the person: G60 "Side stairs"; held: B1, B14; stopped: B1 \(Worker 5\); their words: "all wrong, stop it and rethink"; pictures: none\. Confirm it in the talk in one line\.$/.test(talk.text)], ['Advisor', true])
 
-  // NOT handed out again: a free worker is handed the control task of the Walls (B15), never B14 of the held topic.
-  assert.equal((await ping('Worker 2', { state: 'idle', since: Date.now() - MIN, background: false })).status, 200)
-  const first = await call('work', { action: 'turn-ended', chat: 'Worker 2', session: 'worker-2-id', since: Date.now() - 5 * MIN })
+  // The stop checkpoint is in: the step is given back (refined, still held), and the worker is free for other work.
+  const saved = await call('work', { action: 'step', chat: 'Worker 5', session: 'worker-5-id', id: 'B1', commit: 'abc1234', next: 'stopped for the rethink' })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  assert.equal(await head('B1', 'State'), 'refined')
+  assert.equal(await head('B1', 'Owner'), null)
+  assert.match(await head('B1', 'Waits for'), mark)
+  // It takes another ready step (the Walls' B15), never one of the held topic; nor does any other free worker.
+  assert.equal((await ping('Worker 5', { state: 'idle', since: Date.now() - MIN, background: false })).status, 200)
+  const first = await call('work', { action: 'turn-ended', chat: 'Worker 5', session: 'worker-5-id', since: Date.now() - 5 * MIN })
   assert.equal(first.status, 200, JSON.stringify(first.body))
   assert.equal(first.body.handover?.envelope?.step, 'B15', JSON.stringify(first.body.handover))
-  const second = await call('work', { action: 'turn-ended', chat: 'Worker 3', session: 'worker-3-id', since: Date.now() - 5 * MIN })
+  assert.equal((await ping('Worker 2', { state: 'idle', since: Date.now() - MIN, background: false })).status, 200)
+  const second = await call('work', { action: 'turn-ended', chat: 'Worker 2', session: 'worker-2-id', since: Date.now() - 5 * MIN })
   assert.equal(second.status, 200, JSON.stringify(second.body))
-  assert.notEqual(second.body.handover?.envelope?.step ?? null, 'B14', 'a held task is not handed out')
+  assert.ok(!['B1', 'B14'].includes(second.body.handover?.envelope?.step ?? null), 'a held task is not handed out')
   await pause(7_000)
-  assert.equal(await head('B14', 'Owner'), null)
-  assert.equal(await head('B14', 'State'), 'refined')
+  assert.deepEqual([await head('B14', 'Owner'), await head('B14', 'State'), await head('B1', 'State')], [null, 'refined', 'refined'])
 
   // The evaluation runs on the goal; a second rethink of it sends the words as "more" and holds the same steps again.
   const goals = await readFile(join(project, '.claude', 'goals.md'), 'utf8')
@@ -182,6 +188,7 @@ test('a rethink on a topic with a step in progress: the stop goes the Stop butto
   // The end: the partner's marked how-draft. The next free worker is handed B14 as any ready task, and the partner is told in one line.
   const drafted = await call('work', { action: 'how-draft', chat: 'Advisor', session: 'advisor-id', goal: 'G60', parts: ['Side stairs from a reference · about 1 h · steps B14', 'Walls · about 1 h · steps B15'], partnerDecides: ['Evaluation: stairs from a reference'] })
   assert.equal(drafted.status, 200, JSON.stringify(drafted.body))
+  // A tick before the end freed nothing (above); now the end is recorded.
   await until(async () => (await head('B14', 'Waits for')) === null, 'B14 freed when the evaluation ended')
   assert.equal(await head('B1', 'Waits for'), null)
   const line = await until(async () => (await outbox()).find(one => one.to === 'Advisor' && one.command === 'work' && /^held for the rethink, now free: B1, B14; drop or keep each$|now free/.test(one.text.split('\n').at(-1))), 'the partner\'s line')
@@ -191,7 +198,9 @@ test('a rethink on a topic with a step in progress: the stop goes the Stop butto
   await until(async () => {
     const reply = await call('work', { action: 'turn-ended', chat: 'Worker 3', session: 'worker-3-id', since: Date.now() })
     given = reply.body.handover?.envelope?.step ?? null
-    return given === 'B14'
-  }, 'B14 handed out after the rethink ended')
-  assert.equal(given, 'B14')
+    return ['B1', 'B14'].includes(given)
+  }, 'a task of the topic handed out after the rethink ended')
+  // Ticks after the end free nothing again and tell the partner once.
+  await pause(12_000)
+  assert.equal((await outbox()).filter(one => one.to === 'Advisor' && one.command === 'work' && /now free/.test(one.text)).length, 1)
 })
