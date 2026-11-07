@@ -168,6 +168,9 @@ const stampText = at => {
 const landingMs = landing => (Number.isFinite(landing.at) ? landing.at : Date.parse(landing.at))
 const nearLanding = (landings, at) => (landings ?? []).some(landing => Math.abs(landingMs(landing) - at) <= LANDING_EXPLAINS_MS)
 
+/** Why a start with no proof is unsure. */
+export const NO_PROOF_WHY = "no record shows who started it (the person, a chat's message or the app)"
+
 /**
  * The person's hands on the board in `day`, and what the records cannot tell apart. PURE. Inputs: `actions` (data/actions.jsonl),
  * `lastStop` (state.board.lastStop), `kept` and `keptUnsure` (the day line's earlier interventions and unsure findings, of EVERY
@@ -175,7 +178,8 @@ const nearLanding = (landings, at) => (landings ?? []).some(landing => Math.abs(
  * stays once made), `lanes` (the chats the board tracks as lanes, beside those the history names), `landings`, `reports`
  * (reports.json), `history` (parsed history.jsonl lines), `wakes` (wakes.json), `outbox` (outbox records, merged by id), `asks`
  * (the store's Q items), `live` (the chats a restart of the app would start again). Answers `{ interventions, unsure }`, each
- * `{ at, kind, what }` (unsure: also `why`), oldest first. A finding is made only when a record proves it: the rest is unsure.
+ * `{ at, kind, what }` (unsure: also `why`), oldest first. A finding is made only when a record proves it: the rest is unsure (a start
+ * of a chat that nothing of the board explains is unsure: no record shows who started it).
  */
 export function interventionsOf({ actions = [], lastStop = null, kept = [], keptUnsure = [], lanes = [], landings = [], reports = {}, history = [], wakes = {}, outbox = [], asks = [], day, live = null }) {
   const from = dayStartOf(day)
@@ -206,7 +210,8 @@ export function interventionsOf({ actions = [], lastStop = null, kept = [], kept
     else if (lastStop.start !== 'keeper') unsure.push({ at: lastStop.to, kind: 'restart-by-hand', what: 'The board started with no landing around it', why: 'the stop record does not say how it was started (hand or keeper)' })
   }
 
-  // app-restart and woke-outside: a chat that started a run (or came back from off) with nobody reaching it first.
+  // app-restart and unsure starts: a chat that started a run (or came back from off) with nobody reaching it first. Only an app
+  // restart (every live chat within 2 minutes) is proved by that; a lone start is unsure (unsure).
   const unexplained = []
   // The chats the history tracks (lanes). A chat it does not know (the Advisor, the Supervisor) leaves only its run start behind.
   const tracked = new Set([...lanes, ...history.map(line => line.chat).filter(chat => typeof chat === 'string')])
@@ -265,7 +270,7 @@ export function interventionsOf({ actions = [], lastStop = null, kept = [], kept
       unsure.push({ at: one.at, kind: 'woke-outside', what: `${one.chat} began a run at ${stampText(one.at)} with no board wake or message before it`, why: 'the history does not track this chat: the records do not tell a wake for the board from the person opening it to talk' })
       continue
     }
-    found.push({ at: one.at, kind: 'woke-outside', what: `${one.chat} was started at ${stampText(one.at)} with no board wake or message before it${one.source === 'run' ? ' (its run began then)' : ' (it came back from off)'}` })
+    unsure.push({ at: one.at, kind: 'woke-outside', what: `${one.chat} started at ${stampText(one.at)} with no board wake or message before it`, why: NO_PROOF_WHY })
   }
 
   // open-its-chat: the board asked the person to open a chat, and the person answered.
@@ -291,12 +296,11 @@ export function interventionsOf({ actions = [], lastStop = null, kept = [], kept
   return { interventions, unsure: unique(unsure).filter(one => !interventions.some(found => found.kind === one.kind && found.at === one.at)) }
 }
 
-/** Whether an incident was not a fault: closed with "No fault" or "obsolete" in its history, or gone by itself. */
-const isFalse = item => {
-  const state = valueOf(item, 'State')
-  if (state === 'gone') return true
-  return state === 'closed' && (item.sections?.get('History') ?? []).some(line => /closed: (No fault|obsolete)/i.test(line))
-}
+/**
+ * Whether an incident was a false alarm: State closed with a History line "closed: No fault" or "closed: obsolete", ONLY.
+ * Everything else is real, an incident that went gone by itself included (a real problem that went away).
+ */
+const isFalse = item => valueOf(item, 'State') === 'closed' && (item.sections?.get('History') ?? []).some(line => /closed: (No fault|obsolete)/i.test(line))
 
 /**
  * The incidents raised in `day` (their `First seen`, else their `Since`: an incident that was fixed or went gone later is
@@ -335,7 +339,7 @@ const dayBefore = day => {
 
 /**
  * The finish line over the day lines: `stableDays`, the days in a row (ending yesterday, or today if its line is closed) with no
- * intervention and under 10 minutes of idle-with-work; `isStable` from 3. A day with no line breaks the row. PURE.
+ * intervention and under 10 minutes of idle-with-work; `isStable` from 3. A day with no line, or with idle not known (null), breaks the row. PURE.
  */
 export function finishOf(lines) {
   const sorted = [...lines].sort((a, b) => (a.day < b.day ? 1 : -1))
@@ -344,7 +348,8 @@ export function finishOf(lines) {
   let expect = null
   for (const line of sorted) {
     if (expect !== null && line.day !== expect) break
-    if ((line.interventions ?? []).length > 0 || !(line.idleWithWorkMinutes < STABLE_IDLE_MINUTES)) break
+    // A null idle day (backfilled: not known) is not stable, it breaks the row; so does a day with a number at 10 or more.
+    if ((line.interventions ?? []).length > 0 || !Number.isFinite(line.idleWithWorkMinutes) || !(line.idleWithWorkMinutes < STABLE_IDLE_MINUTES)) break
     stableDays += 1
     expect = dayBefore(line.day)
   }
