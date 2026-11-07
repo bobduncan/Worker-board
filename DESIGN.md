@@ -5822,6 +5822,9 @@ One cause, one alarm: the evening of 2026-11-05 (the account switch) filed six a
   incident (X158) is not closed while a chat that was re-opened failed again (the rule would file it at once). The runner's bound covers the
   read of the state and the store too (a hang is the line "The check failed: ..." and the read is aborted); the Supervisor's per-chat rules use the
   last finished result while a check runs.
+  **Review 3.** The partner, its helper, the supervisor's chat and the Product owner carry `unjoined` too (their cards are built apart from the
+  worker lanes), so the notice is hidden for them; `reopenLanesOf` (wake.mjs, used by the server's G1 re-open) skips an unjoined lane, so a new
+  run does not message the stub of its title again; the check's `cliSessions` hold the lane's raw and chain-end ids.
   The line: "All 7 chats reachable · checked 22:30" or "4 of 6 ... · Worker 1's and Worker 5's chats are in your other Claude account:
   run /reimport-chats, then restart the app" / "restart the app so it reads the reimported chats: Worker 2" / "Worker 3 has no chat in
   the app: open one from the board", joined by " · ", never two lines, never a per-worker "not in the app's list".
