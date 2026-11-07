@@ -15,7 +15,9 @@
 #     board, the PC's list of boards cannot be read or names no trial copy (-NoTrial lands the main board alone).
 #  2. The gate: `npm test` (and, when the branch touches mods/workers/, the app's `claude.exe plugin test .`) on the exact head in
 #     a temporary worktree with a junction to the main checkout's node_modules, with NO_COLOR=1; the run's own summary line must
-#     say fail 0. The output goes to data/landings/<time>-<branch>.log; a refusal names the failing test files. The gate runs
+#     say fail 0. The output goes to data/landings/<time>-<branch>.log; a refusal names the failing test files. A full run that
+#     fails gets each failing test file run again alone, one at a time, once (the live-board tests flake under load); the first that
+#     fails again refuses, all passing counts as passed and the log says so. Never a second full run. The gate runs
 #     BEFORE the lock.
 #  3. One landing at a time: data/landing.lock, refreshed at every phase (a heartbeat), so a live landing never looks stale; a
 #     lock older than 15 minutes is a crashed landing's and is broken.
@@ -33,8 +35,8 @@
 #  An unexpected error or a cut after main moved is a rollback too, or exit 3 with the state; it is never silent.
 #  Exit 0 only for `landed`. Exit 1 refused, 2 rolled back, 3 rollback failed. Every run adds one line to data/landings.jsonl.
 #
-# -Config <json file> is for tests only: { main, boards: [{ dir, port }], remote, trialRemote, gateBoard, gateMod, claudeExe,
-# dataDir, tempRoot, nodeModules, nodeModulesMarker, comeBackSeconds, pollMs, gateMinutes, pushTimeoutSeconds, lockStaleMinutes,
+# -Config <json file> is for tests only: { main, boards: [{ dir, port }], remote, trialRemote, gateBoard, gateMod, gateFile ({file}
+# in it is the test file run again alone), claudeExe, dataDir, tempRoot, nodeModules, nodeModulesMarker, comeBackSeconds, pollMs, gateMinutes, pushTimeoutSeconds, lockStaleMinutes,
 # processesFile, connectionsFile, claudeProcesses, printBoards, printClaude, failAfter }. Without it the defaults are the PC's real boards: the
 # main checkout (the repository's first working tree) with the port the PC's list of boards gives it, and each trial copy (a board
 # of that list that is a clone of the main checkout: its remote `local`). The boards chosen are said on every run.
@@ -118,6 +120,7 @@ $mainDir = $null
 $boards = @()
 $gateBoardCommand = 'npm test'
 $gateModCommand = ''
+$gateFileCommand = 'node --test {file}'
 $claudeExeSetting = ''
 $dataDir = $null
 $tempRoot = $null
@@ -239,6 +242,7 @@ function Initialize-Settings {
   }
   $script:gateBoardCommand = [string](Get-Setting 'gateBoard' 'npm test')
   $script:gateModCommand = [string](Get-Setting 'gateMod' '')
+  $script:gateFileCommand = [string](Get-Setting 'gateFile' 'node --test {file}')
   $script:claudeExeSetting = [string](Get-Setting 'claudeExe' '')
   $script:nodeModules = Get-Full (Get-Setting 'nodeModules' (Join-Path $script:mainDir 'node_modules'))
   $script:nodeModulesMarker = [string](Get-Setting 'nodeModulesMarker' 'happy-dom')
@@ -627,7 +631,29 @@ function Invoke-Gate {
     $code = Invoke-GateCommand $gateBoardCommand $temp $script:gateLog
     $checked = Invoke-Landing @('gate-check', '--kind', 'board', '--file', $script:gateLog, '--exit', "$code")
     if ($null -eq $checked.json) { Refuse "the gate's result could not be read: $($checked.err) (see $($script:gateLog))" }
-    if (-not $checked.json.ok) { Refuse "the gate failed on $(Short $script:headFull): $(Get-GateWhy $checked) (see $($script:gateLog))" }
+    if (-not $checked.json.ok) {
+      # The live-board tests flake under load (two gates at once: EBUSY on a board folder, a board that is slow to stop). A run that
+      # names its failing files gets each of them run again ALONE, one at a time, once; the first that fails again refuses the landing.
+      # Never a second full run (chat 1's rule, 2026-11-07).
+      $why = Get-GateWhy $checked
+      $files = @()
+      if ($null -ne $checked.json.PSObject.Properties['files']) { $files = @($checked.json.files) }
+      if ($files.Count -eq 0) { Refuse "the gate failed on $(Short $script:headFull): $why (see $($script:gateLog))" }
+      Say "note: the gate failed with $($files.Count) failing test file(s): each is run again alone, once"
+      foreach ($file in $files) {
+        $aloneLog = "$($script:gateLog).alone"
+        [System.IO.File]::AppendAllText($script:gateLog, "`r`n===== rerun alone: $file =====`r`n")
+        $aloneCode = Invoke-GateCommand ($gateFileCommand.Replace('{file}', $file)) $temp $aloneLog
+        if (Test-Path -LiteralPath $aloneLog) { Add-FileBytes $script:gateLog $aloneLog }
+        $alone = Invoke-Landing @('gate-check', '--kind', 'board', '--file', $aloneLog, '--exit', "$aloneCode")
+        Remove-Item -LiteralPath $aloneLog -ErrorAction SilentlyContinue
+        if ($null -eq $alone.json) { Refuse "the gate failed on $(Short $script:headFull): $why; the rerun alone of $file could not be read: $($alone.err) (see $($script:gateLog))" }
+        if (-not $alone.json.ok) { Refuse "the gate failed on $(Short $script:headFull): $why; rerun alone: $file failed again ($($alone.json.why)) (see $($script:gateLog))" }
+      }
+      $passedAlone = "$($files.Count) test file(s) failed under load, all passed alone: the gate counts as passed"
+      [System.IO.File]::AppendAllText($script:gateLog, "`r`nrerun: $passedAlone`r`n")
+      Say "note: $passedAlone"
+    }
     # The mod's, only when the branch changes it.
     $changed = Invoke-Git $mainDir @('diff', '--name-only', $script:beforeFull, $script:headFull)
     if (@($changed.out -split "`n" | Where-Object { $_ -match '^mods/workers/' }).Count -gt 0) {

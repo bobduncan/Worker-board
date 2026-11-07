@@ -90,7 +90,7 @@ async function makeWorld(t, { live = false } = {}) {
   world.config = (changes = {}) => {
     const settings = {
       main: world.main, boards: [{ dir: world.main, port: world.ports[0] }, { dir: world.trial, port: world.ports[1] }], remote: 'origin', trialRemote: 'local',
-      gateBoard: world.gate('board-pass'), gateMod: world.gate('mod-pass'), tempRoot: world.tmp, nodeModules: join(world.main, 'node_modules'), nodeModulesMarker: 'marker.txt',
+      gateBoard: world.gate('board-pass'), gateMod: world.gate('mod-pass'), gateFile: `${world.gate('board-fail')} {file}`, tempRoot: world.tmp, nodeModules: join(world.main, 'node_modules'), nodeModulesMarker: 'marker.txt',
       comeBackSeconds: 20, pollMs: 200, lockStaleMinutes: 15, ...(live ? {} : { processesFile: world.processesFile, connectionsFile: world.connectionsFile }), ...changes,
     }
     writeFileSync(world.configFile, JSON.stringify(settings))
@@ -739,12 +739,36 @@ test('the gate runs without colour (NO_COLOR, no FORCE_COLOR) and a refusal name
   const first = await world.land('feat')
   assert.equal(first.status, 1, first.out)
   assert.match(readFileSync(world.landings()[0].gateLog, 'utf8'), /env NO_COLOR=1 FORCE_COLOR=unset/)
-  world.config({ gateBoard: world.gate('board-fail-files') })
+  world.config({ gateBoard: world.gate('board-fail-files'), gateFile: `${world.gate('board-fail')} {file}` })
   const failed = await world.land('feat')
   assert.equal(failed.status, 1)
-  assert.match(lines(failed.out).at(-1), /^refused: the gate failed on [0-9a-f]{7}: the summary says fail 2; failing test files: test\/alpha\.test\.mjs, test\/beta\.test\.mjs \(see /)
+  assert.match(lines(failed.out).at(-1), /^refused: the gate failed on [0-9a-f]{7}: the summary says fail 2; failing test files: test\/alpha\.test\.mjs, test\/beta\.test\.mjs; rerun alone: test\/alpha\.test\.mjs failed again \(the summary says fail 2\) \(see /)
+  const log = readFileSync(world.landings().at(-1).gateLog, 'utf8')
+  assert.match(log, /===== rerun alone: test\/alpha\.test\.mjs =====/)
+  assert.doesNotMatch(log, /rerun alone: test\/beta/, 'the first file that fails again ends the reruns')
   assert.deepEqual(readdirSync(world.tmp), [])
   assert.equal(world.worktrees(), 1)
+})
+
+test('a full run that fails under load is run again per failing test file, alone and once: all passing lands and the log says so; never a second full run', LONG, async t => {
+  const world = await makeWorld(t)
+  const head = world.branch('feat')
+  await world.boards()
+  world.config({ gateBoard: world.gate('board-fail-files'), gateFile: `${world.gate('board-pass')} {file}` })
+  const ran = await world.land('feat')
+  assert.equal(ran.status, 0, ran.out)
+  const out = lines(ran.out)
+  assert.ok(out.includes('note: the gate failed with 2 failing test file(s): each is run again alone, once'), ran.out)
+  assert.ok(out.includes('note: 2 test file(s) failed under load, all passed alone: the gate counts as passed'), ran.out)
+  const [line] = world.landings()
+  assert.equal(line.result, 'landed')
+  assert.equal(line.after, head)
+  const log = readFileSync(line.gateLog, 'utf8')
+  assert.equal(log.match(/^gate: /gm).length, 1, 'one full run only')
+  assert.match(log, /===== rerun alone: test\/alpha\.test\.mjs =====/)
+  assert.match(log, /===== rerun alone: test\/beta\.test\.mjs =====/)
+  assert.match(log, /\nrerun: 2 test file\(s\) failed under load, all passed alone: the gate counts as passed/)
+  assertCleanedUp(world)
 })
 
 test('the claude program for the mod gate is the app\'s CLI under its own data folder, never the desktop app; none is a refusal', LONG, async t => {

@@ -6817,8 +6817,13 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   app: none found is a refusal), with `NO_COLOR=1` and no `FORCE_COLOR`. It passes only on the run's own summary line (`src/landing.mjs`,
   `gatePassed`, colour codes stripped first): `ℹ fail 0` (the mod: ` 0 fail`) at the start of a line, every summary 0, the command's exit code 0; a missing
   summary is a failure, and "fail 0" inside a test's name is none (a grep under `set -e` once let a red merge through). The
-  run's output goes to `data/landings/<time>-<branch>.log`, which a refusal names, with the failing test files (a known flake is
-  rerun alone by the chat; the script never retries). Cleaned up always: the junction first
+  run's output goes to `data/landings/<time>-<branch>.log`, which a refusal names, with the failing test files. **A run that
+  fails under load** (2026-11-07: row-words was refused twice by live-board tests that pass alone, different sets each time; two
+  gates at once give EBUSY on a board folder): each failing test file is run again ALONE, one at a time, once (`node --test <file>`
+  in the gate worktree, setting `gateFile`), its output appended to the log under `===== rerun alone: <file> =====`; the first that
+  fails again refuses ("rerun alone: <file> failed again (<why>)"); all passing counts as passed, with the log line "N test
+  file(s) failed under load, all passed alone". Never a second full run, and no rerun for a run that names no files (no summary,
+  a crash). Cleaned up always: the junction first
   with `cmd /c rmdir` (never a recursive delete through it), then two checks BEFORE `git worktree remove` (without force, then
   prune): the junction is gone, and the main checkout's `node_modules` still holds `happy-dom`. Either failing stops the
   landing (2026-11-07 10:04: `node_modules` was emptied at the end of a landing and nothing said so): the worktree is left
