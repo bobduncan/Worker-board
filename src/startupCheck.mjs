@@ -25,7 +25,7 @@ export function checkLaneOf(lane, report, canLaunch) {
     name: lane.name,
     appSession: ids.appSession ?? report?.app ?? lane.appSession ?? null,
     paths: pathsOf(lane, canLaunch),
-    cliSession: lane.session ?? null, cliSessions: [ids.session].filter(Boolean),
+    cliSession: lane.session ?? null, cliSessions: [ids.session, lane.rawCliSessionId, lane.own?.session, lane.own?.launch].filter(Boolean),
     model: lane.model ?? null, isRunning: lane.isRunning ?? null,
   }
 }

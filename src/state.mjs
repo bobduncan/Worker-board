@@ -2227,6 +2227,11 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     const others = found.filter(chat => !chat.isLeftover && chat.name !== lane.name).map(chat => chat.cliSessionId)
     return unjoinedOf({ kept, file: apps.find(chat => chat.sessionId === kept.app) ?? null, laneSessions: [lane.session], others })
   }
+  // Review 3: the four side chats (the partner, its helper, the supervisor's chat, the Product owner) carry it too: their cards are built apart from the lanes.
+  const sideUnjoined = lane => {
+    const unjoined = lane === null || lane === undefined ? null : unjoinedOfLane({ isLeftover: false, name: lane.name, session: lane.session })
+    return unjoined === null ? {} : { unjoined }
+  }
   const sequenced = lanes.map(lane => withSequence({
     ...lane,
     ...(unjoinedOfLane(lane) === null ? {} : { unjoined: unjoinedOfLane(lane) }),
@@ -2657,9 +2662,10 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
       }
     })(),
     // Signals change 2: each side chat carries its one status too (`statusFor`), from its card, its running and its mod rollout.
-    advisor: advisor === null ? null : { ...advisor, ...statusFor({ ...advisorCard, isRunning: runningOf(advisor.name) }, { modRun: rollout?.runs.get(advisor.name) ?? null }), isRunning: runningOf(advisor.name), waiting: leaveOut(advisorWork.waiting, advisorOn), next: advisorNext, on: advisorOn },
+    advisor: advisor === null ? null : { ...advisor, ...sideUnjoined(advisor), ...statusFor({ ...advisorCard, isRunning: runningOf(advisor.name) }, { modRun: rollout?.runs.get(advisor.name) ?? null }), isRunning: runningOf(advisor.name), waiting: leaveOut(advisorWork.waiting, advisorOn), next: advisorNext, on: advisorOn },
     // B424: the partner's helper, on its own card under the Advisor's: how it stands, its task and its time.
     advisorHelper: helperLane === null ? null : {
+      ...sideUnjoined(helperLane),
       name: helperLane.name,
       session: helperLane.session,
       appSession: helperLane.appSession,
@@ -2685,6 +2691,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     },
     // The supervisor (spec 2026-10-24): the chat that sweeps (the list's "supervisor"): how it stands, for its sweeps.
     supervisorChat: supervisorLane === null ? null : {
+      ...sideUnjoined(supervisorLane),
       name: supervisorLane.name,
       session: supervisorLane.session,
       appSession: supervisorLane.appSession,
@@ -2708,6 +2715,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     // The Product owner (2026-10-31, roles/product-owner.md): the chat the list names "owner", shown under the Advisor's card:
     // how it stands, what it is on and what waits for it, and the setting the board holds it at (Opus, medium).
     productOwner: ownerLane === null ? null : {
+      ...sideUnjoined(ownerLane),
       name: ownerLane.name,
       session: ownerLane.session,
       appSession: ownerLane.appSession,

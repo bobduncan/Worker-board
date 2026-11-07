@@ -395,6 +395,30 @@ test('start-up check, review 2: a chat whose report names an app chat that runs 
   assert.equal(lane(build(), 'Digger').unjoined, undefined)
 })
 
+test('start-up check, review 3: the supervisor\'s chat (a side chat, not a worker lane) carries `unjoined` too: its notice, flag and final failure are hidden', () => {
+  const failed = () => {
+    const record = wakesOf(new Map([['Watcher', { since: BEFORE, at: at(18, 28) }]]))
+    Object.assign(record.record.wakes.get('Watcher')[0].attempts[0], { verdict: 'failed', verdictAt: at(18, 30), why: 'no report within 2 minutes of the message' })
+    return record
+  }
+  // Watcher's report names the app file local_Watcher2, which runs on cli-new (no lane follows it), last active at `activeAt`.
+  const stateWith = activeAt => buildState({
+    listText: '{"prefix":"Garden · ","main":"Lead","supervisor":"Watcher"}',
+    appChatTexts: [...NAMES.map(app), JSON.stringify({ title: 'Supervisor again', sessionId: 'local_Watcher2', cliSessionId: 'cli-new', cwd: PROJECT, isArchived: false, createdAt: 1, lastActivityAt: activeAt, lastAssistantUuid: 'u-2' })],
+    tails: Object.fromEntries(NAMES.map(name => [`cli-${name}`, tail])),
+    planLineTexts: {}, work: storeWith(), adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: APP,
+  }, { lines: [], outbox: [], runs: [], now: at(18, 50), config, seen: { shown: {}, other: {} }, board: { startedAt: STARTED, offSince: null }, reports: new Map([...REPORTS.filter(([name]) => name !== 'Watcher'), report('Watcher', 'ended', BEFORE, { app: 'local_Watcher2' })]), wakes: failed() })
+  const quiet = stateWith(at(18, 20))
+  assert.deepEqual(quiet.supervisorChat.unjoined, { at: at(18, 20), session: 'cli-new' })
+  assert.equal(quiet.supervisorChat.isRunning, false)
+  assert.match(quiet.wakeNotice?.text ?? '', /could not wake Watcher/, 'active before the failed wake: the notice stands')
+  const live = stateWith(at(18, 40))
+  assert.deepEqual(live.supervisorChat.unjoined, { at: at(18, 40), session: 'cli-new' })
+  assert.equal(live.wakeNotice, null)
+  assert.equal(live.supervisorChat.wake.final, false)
+  assert.equal((live.supervisorChat.flags ?? []).some(flag => flag.kind === 'wake failed'), false)
+})
+
 test('change 4: the ⚙ row of the wake reads by itself, "last launch failed" or "message only" with its why', async () => {
   const { openPage } = await import('./pageHarness.mjs')
   const { asSent, build: page, ask, NOW: PAGE_NOW, MIN: PAGE_MIN } = await import('./partnerState.mjs')

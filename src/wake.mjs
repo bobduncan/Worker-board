@@ -159,6 +159,17 @@ export function ranSince(record, chat, spell, report, now = Infinity) {
 }
 
 /**
+ * G1 and review 3: the lanes whose failed wake the app's return may have mended, `[{ chat, spell, listed, paths }]` for `reopenSpells`: those
+ * that do not run. Not a chat that runs on a session the board does not follow (`unjoined`, ownChat.mjs): a message would go to the stub
+ * of its title again and the red line return with new times; it must re-join (the start-up check says so).
+ */
+export function reopenLanesOf(lanes, canLaunch) {
+  return (lanes ?? []).filter(lane => lane.isLeftover !== true && lane.isRunning === false && lane.unjoined == null).map(lane => ({
+    chat: lane.name, spell: spellOf(lane), listed: wakeIdsOf(lane).why === null, paths: pathsOf(lane, canLaunch),
+  })).filter(lane => lane.spell !== null)
+}
+
+/**
  * Decision 8, as the next path for this chat's spell: 'message' when no message was tried in it and a sender claims;
  * 'launch' when no launch was tried in it and (no sender claims, or the message failed); after both failed, 'message'
  * once more only for a new sender (`senderSince`, when the claiming chat began to claim, after the message's verdict);

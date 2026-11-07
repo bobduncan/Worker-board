@@ -15,7 +15,7 @@ import { apply, asksOf, checkLaneOf, judge, liftBan, pictureOf } from '../src/st
 import { createChecker } from '../src/startupCheckRun.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
-import { claim, failedAtOf, nextPath, ranSince, wakesOfFile } from '../src/wake.mjs'
+import { claim, failedAtOf, nextPath, noteRun, ranSince, reopenLanesOf, reopenSpells, wakesOfFile } from '../src/wake.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { bansOf } from '../src/work/handover.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
@@ -795,4 +795,23 @@ test('review 2 (7): a re-opened wake that failed again keeps the board-wide inci
   assert.equal(verdict.actions.closeIncidents.some(one => one.id === 'X158'), false, 'the rule would file it again at once')
   const calm = judge(pictureOf(await sourcesOf({ elsewhere: false, down: ['Worker 1'], trigger: 'app-restart', triggerAt: RUN_2120 })))
   assert.equal(calm.actions.closeIncidents.some(one => one.id === 'X158'), true, 'without a failed-again chat it goes')
+})
+
+test('review 3 (2): a report with a new run re-opens nothing for a lane that is not joined (the same lane joined is re-opened)', async () => {
+  const lane = { name: 'Supervisor', isLeftover: false, isRunning: false, session: '2a0e22b5-4fb2-4aed-aa8c-9fc0d46ef6a1', appSession: SUP_STUB }
+  const open = async lanes => {
+    const record = wakesOfFile(await json('wakes.json'))
+    noteRun(record, AT_2200)
+    return reopenSpells(record, reopenLanesOf(lanes, true), AT_2200 + 1000)
+  }
+  assert.deepEqual(await open([lane]), ['Supervisor'], 'joined: tried again at the new run')
+  assert.deepEqual(await open([{ ...lane, unjoined: { at: AT_2125 - 1000, session: '07bea5e3-8c8e-4c44-9f0e-3d1f6a2b9c10' } }]), [], 'not joined: not messaged into the stub again')
+})
+
+test('review 3 (3): a lane without its own chat gives the check its raw and chain-end CLI ids, so an off chat a launch would reach is not "must re-join"', async () => {
+  const lane = checkLaneOf({ name: 'Worker 2', session: 'chain-end', rawCliSessionId: 'raw-id', appSession: 'local_x', isRunning: false }, null, true)
+  assert.deepEqual(lane.cliSessions.sort(), ['chain-end', 'raw-id'])
+  const sources = await supervisorLive()
+  sources.lanes = sources.lanes.map(one => (one.name === 'Supervisor' ? { ...one, cliSessions: [...one.cliSessions, '07bea5e3-8c8e-4c44-9f0e-3d1f6a2b9c10'] } : one))
+  assert.deepEqual(judge(pictureOf(sources)).notJoined, [], 'the file holds a session the lane can launch')
 })
