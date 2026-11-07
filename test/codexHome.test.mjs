@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { CLEAN_HOME, makePicture, prepareCodexHome, userCodexHome } from '../src/codex.mjs'
+import { CLEAN_HOME, cleanCodexHome, makePicture, prepareCodexHome, userCodexHome } from '../src/codex.mjs'
 
 const FAKE = [process.execPath, join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'fake-codex.mjs')]
 const USER_CONFIG = `model = "gpt-x"
@@ -92,8 +92,12 @@ test('auth.json is copied when missing or older, and the source is never written
   assert.deepEqual(await snapshot(user), before)
 })
 
-test('the person\'s home is CODEX_HOME of the environment, else ~/.codex; the default clean home is under data/', () => {
+test('the person\'s home is CODEX_HOME of the environment, else ~/.codex; the clean home is under LOCALAPPDATA, outside the board\'s folder', () => {
   assert.equal(userCodexHome({ CODEX_HOME: "D:/x" }), "D:/x")
   assert.ok(userCodexHome({}).split('\\').join('/').endsWith('/.codex'))
-  assert.ok(CLEAN_HOME.split('\\').join('/').endsWith('/data/codex-home'))
+  // It holds a copy of the login: never inside the repo, so no copy or backup of the board carries it.
+  const slash = path => path.split('\\').join('/').toLowerCase()
+  assert.equal(slash(cleanCodexHome({ LOCALAPPDATA: 'C:\\Users\\p\\AppData\\Local' }, 'win32')), 'c:/users/p/appdata/local/worker-board/codex-home')
+  const board = slash(fileURLToPath(new URL('..', import.meta.url)))
+  assert.ok(!slash(CLEAN_HOME).startsWith(board), `${CLEAN_HOME} lies inside the board's folder`)
 })

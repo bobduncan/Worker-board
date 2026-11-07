@@ -50,8 +50,16 @@ export async function findCodex({ given = '', env = process.env, platform = proc
   return found.sort((a, b) => b.at - a.at)[0]?.path ?? onPath()
 }
 
-/** The board's own Codex home: <board>/data/codex-home (data/ is git-ignored). */
-export const CLEAN_HOME = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'codex-home')
+/**
+ * The board's own Codex home, OUTSIDE the board's folder: it holds a copy of the person's login (auth.json), so no copy,
+ * trial board, backup or tool run on the repo may ever carry it (chat 1, 2026-11-07). %LOCALAPPDATA%\worker-board\codex-home
+ * on Windows, else ~/.local/share/worker-board/codex-home; made on first use.
+ */
+export const cleanCodexHome = (env = process.env, platform = process.platform) => {
+  const local = platform === 'win32' ? env.LOCALAPPDATA ?? env.LocalAppData : null
+  return typeof local === 'string' && local !== '' ? join(local, 'worker-board', 'codex-home') : join(homedir(), '.local', 'share', 'worker-board', 'codex-home')
+}
+export const CLEAN_HOME = cleanCodexHome()
 
 /** The person's Codex home: CODEX_HOME of the board's environment, else ~/.codex. Only ever read. */
 export const userCodexHome = (env = process.env) => (typeof env.CODEX_HOME === 'string' && env.CODEX_HOME !== '' ? env.CODEX_HOME : join(homedir(), '.codex'))
