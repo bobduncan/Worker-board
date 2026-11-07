@@ -1,7 +1,9 @@
 // The made-up gate of test/landScript.test.mjs: prints where it ran (the script runs it in a worktree of the branch's head,
 // with the junction to node_modules) and a summary the way the real gates do.
 //   node gate.mjs board-pass | board-fail | board-fail-files | no-summary | print-env | mod-pass | mod-fail | board-pass-then-copy <from> <to>
-import { copyFileSync, existsSync } from 'node:fs'
+//     | board-pass-then-empty (a gate that empties node_modules through the junction) | board-pass-then-block (a gate that leaves a
+//     real folder where the junction was, so rmdir cannot remove it)
+import { copyFileSync, existsSync, mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 
 const [mode, from, to] = process.argv.slice(2)
 console.log(`gate cwd: ${process.cwd()}`)
@@ -29,6 +31,16 @@ else if (mode === 'print-env') {
 else if (mode === 'board-pass-then-copy') {
   // A debugger comes during the gate: the list of connections the script reads changes before the gate ends.
   copyFileSync(from, to)
+  board(0)
+} else if (mode === 'board-pass-then-empty') {
+  // The harm of 2026-11-07: the target of the junction is emptied while the gate passes.
+  rmSync('node_modules/marker.txt')
+  board(0)
+} else if (mode === 'board-pass-then-block') {
+  // The junction is gone and a real folder with a file stands in its place: `rmdir` of it fails, and a recursive delete would be wrong.
+  rmdirSync('node_modules')
+  mkdirSync('node_modules')
+  writeFileSync('node_modules/held.txt', 'a real folder where the junction was')
   board(0)
 } else if (mode === 'board-fail') {
   board(2)
