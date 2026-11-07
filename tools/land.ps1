@@ -34,8 +34,8 @@
 #  Exit 0 only for `landed`. Exit 1 refused, 2 rolled back, 3 rollback failed. Every run adds one line to data/landings.jsonl.
 #
 # -Config <json file> is for tests only: { main, boards: [{ dir, port }], remote, trialRemote, gateBoard, gateMod, claudeExe,
-# dataDir, tempRoot, nodeModules, comeBackSeconds, pollMs, gateMinutes, pushTimeoutSeconds, lockStaleMinutes, processesFile,
-# connectionsFile, claudeProcesses, printBoards, printClaude, failAfter }. Without it the defaults are the PC's real boards: the
+# dataDir, tempRoot, nodeModules, nodeModulesMarker, comeBackSeconds, pollMs, gateMinutes, pushTimeoutSeconds, lockStaleMinutes,
+# processesFile, connectionsFile, claudeProcesses, printBoards, printClaude, failAfter }. Without it the defaults are the PC's real boards: the
 # main checkout (the repository's first working tree) with the port the PC's list of boards gives it, and each trial copy (a board
 # of that list that is a clone of the main checkout: its remote `local`). The boards chosen are said on every run.
 #
@@ -122,6 +122,8 @@ $claudeExeSetting = ''
 $dataDir = $null
 $tempRoot = $null
 $nodeModules = $null
+$nodeModulesMarker = 'happy-dom'
+$script:teardownWhy = $null
 $comeBackSeconds = 90
 $pollMs = 2000
 $gateMinutes = 60
@@ -239,6 +241,7 @@ function Initialize-Settings {
   $script:gateModCommand = [string](Get-Setting 'gateMod' '')
   $script:claudeExeSetting = [string](Get-Setting 'claudeExe' '')
   $script:nodeModules = Get-Full (Get-Setting 'nodeModules' (Join-Path $script:mainDir 'node_modules'))
+  $script:nodeModulesMarker = [string](Get-Setting 'nodeModulesMarker' 'happy-dom')
   $script:comeBackSeconds = [int](Get-Setting 'comeBackSeconds' 90)
   $script:pollMs = [int](Get-Setting 'pollMs' 2000)
   $script:gateMinutes = [int](Get-Setting 'gateMinutes' 60)
@@ -305,6 +308,15 @@ function Get-FolderHead($Board) {
   return $run.out
 }
 
+# The main checkout's node_modules must hold its marker package (happy-dom: the page tests need it) at the start of every landing,
+# after the sweep of a cut landing and again after the gate's junction is removed. On 2026-11-07 10:04 it was emptied right at the end
+# of a landing and nothing said so: the next gates would have failed with 48 "Cannot find package 'happy-dom'" and no reason.
+# Gives back $null when it is whole, else the refusal in one line.
+function Get-NodeModulesWhy([string]$When) {
+  if (Test-Path -LiteralPath (Join-Path $nodeModules $nodeModulesMarker)) { return $null }
+  return "$nodeModules has no $nodeModulesMarker $When (it was emptied): run npm ci in $mainDir, then land again"
+}
+
 # The trial copies first (a canary: a restart that does not take shows there before the live board is touched), then the main board.
 function Get-RestartOrder { return @(@($boards | Where-Object { $_.dir -ne $mainDir }) + @($boards | Where-Object { $_.dir -eq $mainDir })) }
 
@@ -313,8 +325,18 @@ function Get-RestartOrder { return @(@($boards | Where-Object { $_.dir -ne $main
 function Restart-BoardWarm($Board, [string]$Want) {
   $was = Get-BoardVersion $Board.port
   if ($null -eq $was) {
+    # Right after the fast-forward a board may be between the stop and the start of its own self-update (2026-11-05 22:03: 4310
+    # was found "not answering" and started while it was coming back by itself). It gets the come-back time to answer first.
+    Say "note: the board on $($Board.port) does not answer: waiting up to $comeBackSeconds s for it to come back by itself"
+    $deadline = (Get-Date).AddSeconds($comeBackSeconds)
+    while ($null -eq $was -and (Get-Date) -lt $deadline) {
+      Start-Sleep -Milliseconds $pollMs
+      $was = Get-BoardVersion $Board.port
+    }
+  }
+  if ($null -eq $was) {
     # The lead's rule: a board is started with start-board.mjs, never with a bare `node server.mjs`.
-    Say "note: the board on $($Board.port) does not answer: starting it with node start-board.mjs"
+    Say "note: the board on $($Board.port) still does not answer: starting it with node start-board.mjs"
     $started = Invoke-Native $node @('start-board.mjs', '--quiet') $Board.dir 90
     if ($started.code -ne 0) { return "$($Board.port) did not start: $(Git-Line $started)" }
   } elseif (Test-Commit $was.commit $Want) {
@@ -501,6 +523,8 @@ function Remove-LeftoverGates {
     if ($null -ne $item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
       $gone = Invoke-Native 'cmd.exe' @() '' 60 "/c rmdir `"$junction`""
       if (Test-Path -LiteralPath $junction) { Say "note: the junction $junction of a cut landing could not be removed ($($gone.err)): remove it with cmd /c rmdir, never a recursive delete"; continue }
+      $missing = Get-NodeModulesWhy 'after the sweep of a cut landing'
+      if ($null -ne $missing) { Refuse "$missing (the gate worktree $dir was left for a look)" }
     }
     if ($found[$dir]) {
       $removed = Invoke-Git $mainDir @('worktree', 'remove', $dir)
@@ -623,18 +647,32 @@ function Invoke-Gate {
       if (-not $modChecked.json.ok) { Refuse "the mod gate failed on $(Short $script:headFull): $(Get-GateWhy $modChecked) (see $($script:gateLog))" }
     }
   } finally {
-    # The junction FIRST, with rmdir: never a recursive delete through it (it points at the main checkout's node_modules).
+    # The junction FIRST, with rmdir: never a recursive delete through it (it points at the main checkout's node_modules). Then,
+    # BEFORE git removes the worktree, two checks: the junction is gone, and its target still holds its marker. Either one failing
+    # stops the landing: the worktree is left for a look, the gate log and the landing line say why (2026-11-07: node_modules was
+    # emptied at the end of a landing and nothing said so).
+    $teardown = $null
     if ($linked) {
       $gone = Invoke-Native 'cmd.exe' @() '' 60 "/c rmdir `"$temp\node_modules`""
-      if (Test-Path -LiteralPath "$temp\node_modules") { Say "note: the junction $temp\node_modules could not be removed ($($gone.err)): remove it with cmd /c rmdir, never a recursive delete" }
+      if (Test-Path -LiteralPath "$temp\node_modules") { $teardown = "the gate's junction $temp\node_modules could not be removed ($(Git-Line $gone)); the gate worktree was left: remove the junction with cmd /c rmdir (never a recursive delete), then the worktree, and land again" }
     }
-    if ($added -and -not (Test-Path -LiteralPath "$temp\node_modules")) {
+    if ($null -eq $teardown -and $added) {
+      $missing = Get-NodeModulesWhy 'after the gate'
+      if ($null -ne $missing) { $teardown = "$missing (the gate worktree $temp was left for a look)" }
+    }
+    if ($null -ne $teardown) {
+      [System.IO.File]::AppendAllText($script:gateLog, "`r`nteardown: $teardown`r`n")
+      Say "note: $teardown"
+      if ($script:refused) { $script:why = "$($script:why); and $teardown" } else { $script:teardownWhy = $teardown }
+    } elseif ($added) {
+      [System.IO.File]::AppendAllText($script:gateLog, "`r`nteardown: the junction is gone and $nodeModules holds $nodeModulesMarker; the gate worktree is removed`r`n")
       $removed = Invoke-Git $mainDir @('worktree', 'remove', $temp)
       if ($removed.code -ne 0) { Say "note: the gate worktree $temp was left ($(Git-Line $removed)): remove it by hand once you looked, never with the force flag" }
       Invoke-Git $mainDir @('worktree', 'prune') | Out-Null
     }
     if (-not (Test-Path -LiteralPath $temp)) { Remove-Item -LiteralPath $ownerFile -ErrorAction SilentlyContinue }
   }
+  if ($null -ne $script:teardownWhy) { Refuse $script:teardownWhy }
 }
 
 # ---- landing, restarting, rolling back --------------------------------------------------------------------------------
@@ -803,6 +841,10 @@ function Invoke-Run {
     $script:printOnly = $true
     return
   }
+  # 0. The main checkout's node_modules is whole: every gate links to it, and one emptied by mistake must be seen here, not as 48
+  # failing page tests ten minutes later.
+  $missing = Get-NodeModulesWhy 'at the start of the landing'
+  if ($null -ne $missing) { Refuse $missing }
   Remove-LeftoverGates
 
   # 1. Refusals before anything changes.

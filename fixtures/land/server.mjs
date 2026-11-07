@@ -2,8 +2,9 @@
 // lives in the made-up checkout as `server.mjs` (the script finds a board's processes by that name), reports the commit its
 // folder is on, and "restarts" on POST /api/restart without leaving its process: after 250 ms its `since` is new and its
 // commit is the folder's head again. `--stale-once` makes the first restart come back with the OLD commit, as a board does
-// whose restart did not take.
-//   node server.mjs --port 4500 [--stale-once] [--no-keeper] [--repo <folder>]
+// whose restart did not take. `--drop-after-move <seconds>` makes it stop answering for that long the first time its folder's head
+// has moved (a board between the stop and the start of its own self-update), then answer with the new commit.
+//   node server.mjs --port 4500 [--stale-once] [--no-keeper] [--repo <folder>] [--drop-after-move <seconds>]
 //     (without --port: the number in data/port.txt, as start-board.mjs gives it; --no-keeper: a board started without its keeper
 //     says version.canRestart false and refuses /api/restart; --repo: the folder whose commit it reports, this folder's by default)
 import { execFileSync } from 'node:child_process'
@@ -22,8 +23,24 @@ const NO_KEEPER = process.argv.includes('--no-keeper')
 const TOKEN = Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')
 const state = { commit: head(), since: Date.now() }
 let stale = process.argv.includes('--stale-once') ? 1 : 0
+const dropAt = process.argv.indexOf('--drop-after-move')
+const DROP_MS = dropAt >= 0 ? Number(process.argv[dropAt + 1]) * 1000 : 0
+let dropUntil = 0
+let dropped = false
 
 const server = createServer((req, res) => {
+  if (DROP_MS > 0 && !dropped && head() !== state.commit) {
+    dropped = true
+    dropUntil = Date.now() + DROP_MS
+    setTimeout(() => {
+      state.commit = head()
+      state.since = Date.now()
+    }, DROP_MS)
+  }
+  if (Date.now() < dropUntil) {
+    req.socket.destroy()
+    return undefined
+  }
   const { pathname } = new URL(req.url, 'http://x')
   const send = (code, type, body) => {
     res.writeHead(code, { 'content-type': type })
