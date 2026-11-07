@@ -165,6 +165,8 @@ test('makeProject: the whole project, its own copy of the board at the same vers
   assert.equal(listed.port, made.port)
   const launch = JSON.parse(await read(join(project, '.claude', 'launch.json')))
   assert.deepEqual(launch.configurations.map(one => [one.name, one.port]), [['worker-board', made.port]])
+  // The project's main board starts through its launcher, detached: it belongs to no chat.
+  assert.deepEqual([launch.configurations[0].runtimeArgs.map(one => one.split('/').pop()), launch.configurations[0].detached], [['start-board.mjs'], true])
   assert.equal(made.url, `http://127.0.0.1:${made.port}/`)
 
   // The project's own files.

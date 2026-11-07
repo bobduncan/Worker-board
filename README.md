@@ -189,6 +189,9 @@ and the briefings for the main chat and the workers.
 7. **The launch entry.** `node server.mjs --launch-entry` → it prints `Launch entry "worker-board" in
    <project>\.claude\launch.json`. With `"boards": ["worker-board"]` in `list.json`, every chat in the list starts
    the board when it does not answer, within 15 seconds: no need to start it yourself, also after a restart.
+   The main board's entry runs `start-board.mjs` with `"detached": true`: `/launch` starts the board through its launcher,
+   which ends with code 0 while the port answers, so the board belongs to no chat and logs to `data/board.log`.
+   A copy's entry keeps `server.mjs --history-from ...`.
    **Without the Workers mod** (B211): `node start-board.mjs` starts the board in the background when it does not run
    yet and prints where it runs (its own words go to `data\board.log`); a second call says it runs already. To have
    it start with every chat of the project, copy `examples\settings.json` to `<project>\.claude\settings.json` (or add
