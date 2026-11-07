@@ -10,8 +10,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { dayOf } from '../src/stability.mjs'
-import { mergeLines, readySpellsOf } from '../tools/stability-backfill.mjs'
-import { parseItem } from '../src/work/item.mjs'
+import { mergeLines } from '../tools/stability-backfill.mjs'
 
 const TOOL = fileURLToPath(new URL('../tools/stability-backfill.mjs', import.meta.url))
 const today = new Date()
@@ -40,14 +39,15 @@ async function fixture() {
 const run = (data, store, ...more) => execFileSync(process.execPath, [TOOL, data, store, '--days', '3', ...more], { encoding: 'utf8' })
 const linesOf = output => output.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
 
-test('the 3 days are closed, backfilled and estimated; idle, rollback and alarm come from the records', async () => {
+test('the 3 days are closed and backfilled; idle is null (not known); rollback and alarm come from the records', async () => {
   const { root, data, store } = await fixture()
   try {
     const output = run(data, store)
     const lines = linesOf(output)
     assert.deepEqual(lines.map(line => line.day), [dayName(3), dayName(2), dayName(1)])
     for (const line of lines) assert.deepEqual([line.closed, line.backfilled, line.idleEstimated], [true, true, true])
-    assert.deepEqual(lines.map(line => line.idleWithWorkMinutes), [30, 0, 0])
+    // Idle is not known for a backfilled day: null for every day (not an estimate, not 0).
+    assert.deepEqual(lines.map(line => line.idleWithWorkMinutes), [null, null, null])
     assert.deepEqual(lines[1].interventions.map(one => one.kind), ['rollback'])
     assert.deepEqual(lines[1].alarms, { real: 1, false: 0, ids: ['X1'] })
     // No actions log: every day carries an unsure resume-all with the why, never a guess.
@@ -88,9 +88,4 @@ test('--out writes the merged result there and leaves the data folder untouched'
   } finally {
     await rm(root, { recursive: true, force: true })
   }
-})
-
-test('a step is ready from "refined is ready" until it is queued; a step given back is ready again', () => {
-  const item = parseItem('Id: B2\nKind: step\nTitle: x\nState: done\n\n## History\n- 2026-11-01 09:00 A: refined is ready\n- 2026-11-01 09:10 server: refined → queued (x)\n- 2026-11-01 10:00 A: refined is ready\n')
-  assert.deepEqual(readySpellsOf(item), [[new Date(2026, 10, 1, 9).getTime(), new Date(2026, 10, 1, 9, 10).getTime()], [new Date(2026, 10, 1, 10).getTime(), Infinity]])
 })

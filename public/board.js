@@ -2309,24 +2309,24 @@ const stabilityDate = day => `${Number(day.slice(8, 10))} ${STABILITY_MONTHS[Num
 function stabilityView(stability) {
   const today = stability.today ?? null
   const days = stability.days ?? []
-  const idle = today?.idleWithWorkMinutes ?? 0
+  const idle = Number.isFinite(today?.idleWithWorkMinutes) ? today.idleWithWorkMinutes : null
   const interventions = today?.interventions ?? []
   const unsure = today?.unsure ?? []
   const alarms = today?.alarms ?? { real: 0, false: 0, ids: [] }
-  const missed = interventions.length > 0 || idle >= 10
+  const missed = interventions.length > 0 || (idle !== null && idle >= 10)
   const lines = today === null ? days : [...days, today]
   const series = pick => lines.map(pick)
   const since = stability.isStable === true ? [...days, ...(today?.closed === true ? [today] : [])].slice(-stability.stableDays)[0]?.day ?? null : null
   return {
     numbers: [
-      { key: 'idle', text: `${idle} min idle with work`, title: `${idle} min today with a worker free beside a step it could take${today?.idleEstimated === true ? ' (estimated)' : ''}`, isAmber: missed },
+      { key: 'idle', text: idle === null ? 'idle with work not known' : `${idle} min idle with work`, title: idle === null ? 'Not known today' : `${idle} min today with a worker free beside a step it could take${today?.idleEstimated === true ? ' (estimated)' : ''}`, isAmber: missed },
       { key: 'interventions', text: `${interventions.length} ${interventions.length === 1 ? 'intervention' : 'interventions'}`,
         title: [...interventions.map(one => one.what), ...unsure.map(one => `unsure: ${one.what}`)].join('\n') || 'No hands on the board today', isAmber: missed },
       { key: 'alarms', text: `${alarms.real + alarms.false} ${alarms.real + alarms.false === 1 ? 'alarm' : 'alarms'} (${alarms.false} false)`,
         title: alarms.ids.length === 0 ? 'No alarms today' : alarms.ids.join(', '), isAmber: false },
     ],
     sparks: [
-      { key: 'idle', name: 'Idle with work', values: series(one => one.idleWithWorkMinutes ?? 0) },
+      { key: 'idle', name: 'Idle with work', values: series(one => (Number.isFinite(one.idleWithWorkMinutes) ? one.idleWithWorkMinutes : null)) },
       { key: 'interventions', name: 'Interventions', values: series(one => (one.interventions ?? []).length) },
       { key: 'alarms', name: 'Alarms', values: series(one => (one.alarms?.real ?? 0) + (one.alarms?.false ?? 0)) },
     ],
@@ -2334,17 +2334,35 @@ function stabilityView(stability) {
   }
 }
 
-/** One sparkline: the series as a line in a 60 x 16 box, the last point (today) a dot. */
+/** What a sparkline value says in a hover: the number, or "not known" for a day with none (null). */
+const sparkWord = value => (value === null ? 'not known' : String(value))
+
+/**
+ * One sparkline: the series as a line in a 60 x 16 box, the last point (today) a dot. A null day (not known, e.g. a backfilled
+ * idle) is a GAP: no point and no 0, the line breaks there; a day alone between two gaps is a small dot.
+ */
 function drawSparkline(spark) {
   const [width, height] = [60, 16]
-  const top = Math.max(1, ...spark.values)
-  const points = spark.values.map((value, index) => [spark.values.length === 1 ? width / 2 : 1 + (index * (width - 2)) / (spark.values.length - 1), height - 1 - (value / top) * (height - 2)])
-  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': `${spark.name}: last ${spark.values.length - 1} days and today` }, 'stability-spark')
+  const known = spark.values.filter(value => value !== null)
+  const top = Math.max(1, ...known)
+  const count = spark.values.length
+  const points = spark.values.map((value, index) => (value === null ? null : [count === 1 ? width / 2 : 1 + (index * (width - 2)) / (count - 1), height - 1 - (value / top) * (height - 2)]))
+  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': `${spark.name}: last ${count - 1} days and today` }, 'stability-spark')
   svg.dataset.spark = spark.key
-  svg.append(svgEl('polyline', { points: points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '), fill: 'none' }))
-  if (points.length > 0) svg.append(svgEl('circle', { cx: points.at(-1)[0].toFixed(1), cy: points.at(-1)[1].toFixed(1), r: 1.8 }))
+  const runs = []
+  for (const point of points) {
+    if (point === null) runs.push(null)
+    else if (runs.length > 0 && runs.at(-1) !== null) runs.at(-1).push(point)
+    else runs.push([point])
+  }
+  const spot = ([x, y], radius) => svgEl('circle', { cx: x.toFixed(1), cy: y.toFixed(1), r: radius })
+  for (const run of runs.filter(one => one !== null)) {
+    if (run.length > 1) svg.append(svgEl('polyline', { points: run.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '), fill: 'none' }))
+    else if (run[0] !== points.at(-1)) svg.append(spot(run[0], 1))
+  }
+  if (points.length > 0 && points.at(-1) !== null) svg.append(spot(points.at(-1), 1.8))
   const title = svgEl('title')
-  title.textContent = `${spark.name}, per day: ${spark.values.join(' ')}`
+  title.textContent = `${spark.name}, per day: ${spark.values.map(sparkWord).join(' ')}`
   svg.append(title)
   return svg
 }

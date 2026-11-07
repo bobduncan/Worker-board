@@ -61,6 +61,34 @@ test('amber only on today\'s two numbers, and only when today already misses the
   } finally { await Promise.all([quiet.close(), loud.close(), idleOnly.close()]) }
 })
 
+test('a day with idle not known (null) is a gap in the idle sparkline, never a 0, and says "not known" in the hover', async () => {
+  const backfilled = days.map(one => ({ ...one, idleWithWorkMinutes: null, idleEstimated: true }))
+  const page = await open(stability(clean, { days: backfilled }))
+  try {
+    const [idle, interventions] = page.all('.stability-spark')
+    assert.equal(idle.querySelectorAll('polyline').length, 0, '14 gaps and today: no line at all, today a lone dot')
+    assert.equal(idle.querySelectorAll('circle').length, 1)
+    assert.match(idle.querySelector('title').textContent, /^Idle with work, per day: (not known ){14}4$/)
+    assert.equal(interventions.querySelectorAll('polyline').length, 1, 'the other sparklines are whole')
+  } finally { await page.close() }
+  // Gaps in the middle break the line in two; a null is not drawn at the bottom as 0.
+  const mixed = days.map((one, index) => ({ ...one, idleWithWorkMinutes: index === 6 ? null : 20 }))
+  const split = await open(stability(clean, { days: mixed }))
+  try {
+    const idle = split.find('[data-spark="idle"]')
+    assert.deepEqual(Array.from(idle.querySelectorAll('polyline')).map(node => node.getAttribute('points').split(' ').length), [6, 8])
+    assert.ok(!/ 0 /.test(idle.querySelector('title').textContent) && /20 not known 20/.test(idle.querySelector('title').textContent))
+  } finally { await split.close() }
+})
+
+test('a today line with idle not known says so and is not amber for it', async () => {
+  const page = await open(stability({ ...line(0), idleWithWorkMinutes: null }))
+  try {
+    assert.equal(numbers(page).idle.textContent, 'idle with work not known')
+    assert.equal(page.all('.is-attn').length, 0)
+  } finally { await page.close() }
+})
+
 test('the row stays hidden without the field', async () => {
   const page = await open()
   try {

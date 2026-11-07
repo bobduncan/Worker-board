@@ -9,18 +9,16 @@
 // result to that file and leaves the data folder untouched. It always prints the lines (after the `#` notes).
 //
 // What each number is, and from which day it is complete (the notes are printed with the lines):
-// - idleWithWorkMinutes is ESTIMATED (`idleEstimated: true`): a minute counts when some worker lane's last history state is `free`
-//   and some step was `refined is ready` and not yet queued/taken (the step's History lines in the store; a minute's resolution).
-//   No ban filter and no Touches/notBy/kept filter, so it is an over-estimate. A lane is a chat named "Worker <n>". The board off
-//   (a history gap) counts nothing. Complete from the later of the first Worker line in history.jsonl and the first "refined is
-//   ready" in the store.
+// - idleWithWorkMinutes is NOT KNOWN for a backfilled day: `null` (the minute record did not exist, and an estimate from the
+//   history and the store is too far off to count). The page draws a null day as a gap, finishOf treats it as not stable.
 // - interventions come from the same function the live loop uses (`interventionsOf`), fed the day's records. Per kind:
 //   resume-all: the actions log only exists from the landing; before its first line the day gets an `unsure` resume-all (never
-//   guessed). rollback: from the first line of landings.jsonl. woke-outside and app-restart: from the first wake attempt in
-//   wakes.json (before it nothing tells a wake from a start by hand, so those days run without wakes/reports/history and get an
-//   `unsure`). restart-by-hand: `lastStop` is board state, not a record, so it is not known before the live loop: every day gets an
+//   guessed). rollback: from the first line of landings.jsonl. app-restart: from the first wake attempt in wakes.json (before it
+//   nothing tells a wake from a start by hand, so those days run without wakes/reports/history and get an `unsure`). A lone start
+//   of a chat with no proof of who started it is `unsure`, never an intervention (the person, a chat's message or the app). restart-by-hand: `lastStop` is board state, not a record, so it is not known before the live loop: every day gets an
 //   `unsure`. open-its-chat: from the oldest ask in the store.
-// - alarms come from the X files (First seen, else Since): complete from the oldest incident in the store.
+// - alarms come from the X files (First seen, else Since): complete from the oldest incident in the store. False = closed with
+//   "No fault" or "obsolete" only; an incident that went gone is real.
 
 import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -62,49 +60,7 @@ const jsonOf = (text, fallback) => {
   }
 }
 
-const isWorker = chat => /^Worker \d+$/.test(chat)
 const landingMs = landing => (Number.isFinite(landing.at) ? landing.at : Date.parse(landing.at))
-
-/** The spells (ms) in which a step was ready, from its History lines: from "refined is ready" to the first "→ queued/taken/...". */
-export function readySpellsOf(item) {
-  const spells = []
-  let from = null
-  for (const line of item.sections?.get('History') ?? []) {
-    const stamp = line.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s(.*)$/)
-    if (stamp === null) continue
-    const at = sinceMs(stamp[1])
-    if (from === null && /refined is ready/.test(stamp[2])) from = at
-    else if (from !== null && /(→|->) (queued|taken|in progress|review|done|dropped)\b|\bdropped\b/.test(stamp[2])) {
-      spells.push([from, at])
-      from = null
-    }
-  }
-  if (from !== null) spells.push([from, Infinity])
-  return spells
-}
-
-/** The estimate of a day's idle-with-work minutes: the minutes with a free Worker lane and a ready step. PURE. */
-export function estimatedIdleOf({ day, history, spells }) {
-  const from = dayStartOf(day)
-  const to = nextDayStartOf(day)
-  const here = spells.filter(([start, end]) => start < to && end > from)
-  if (here.length === 0) return 0
-  const lines = [...history].filter(line => line.gap === true || isWorker(line.chat)).sort((a, b) => a.at - b.at)
-  const state = new Map()
-  let next = 0
-  let minutes = 0
-  for (let minute = from; minute < to; minute += MINUTE) {
-    // The lanes as they were at the start of the minute; a gap forgets them all (the board was not looking).
-    while (next < lines.length && lines[next].at <= minute) {
-      if (lines[next].gap === true) state.clear()
-      else state.set(lines[next].chat, lines[next].state)
-      next += 1
-    }
-    if (![...state.values()].includes('free')) continue
-    if (here.some(([start, end]) => start <= minute && end > minute)) minutes += 1
-  }
-  return minutes
-}
 
 /** Existing lines win, whatever their kind: a line already there is never rewritten. The result is sorted by day. PURE. */
 export function mergeLines(existing, fresh) {
@@ -137,12 +93,10 @@ export async function backfill({ dataDir, storeDir, days = 14, now = Date.now() 
   }
   const asks = items.filter(item => valueOf(item, 'Kind') === 'ask')
   const incidents = items.filter(item => valueOf(item, 'Kind') === 'incident')
-  const spells = items.filter(item => valueOf(item, 'Kind') === 'step').flatMap(readySpellsOf)
 
   // From which day each number is known.
   const attempts = Object.values(wakes.wakes ?? wakes).flatMap(list => (Array.isArray(list) ? list : []).flatMap(spell => (spell.attempts ?? []).map(attempt => attempt.at)))
   const first = {
-    idle: [firstDay([Math.min(...history.filter(line => isWorker(line.chat)).map(line => line.at))]), firstDay([Math.min(...spells.map(spell => spell[0]))])].filter(Boolean).sort().at(-1) ?? null,
     actions: firstDay([Math.min(...actions.map(action => action.at))]),
     landings: firstDay([Math.min(...landings.map(landingMs))]),
     // The first whole day: the day of the first attempt is only known from that moment.
@@ -179,15 +133,15 @@ export async function backfill({ dataDir, storeDir, days = 14, now = Date.now() 
       unsure.push({ at: from, kind: 'woke-outside', what: 'Chats woken from outside and app restarts are not known for this day', why: `no wake attempt is recorded before ${firstWakeAt === null ? 'any' : stamp(firstWakeAt)}` })
     }
     const line = dayLineOf({ day, interventions, unsure, alarms: alarmsOf(incidents, day), now, estimated: true, closed: true })
-    lines.push({ ...line, idleWithWorkMinutes: estimatedIdleOf({ day, history, spells }), backfilled: true })
+    lines.push({ ...line, idleWithWorkMinutes: null, backfilled: true })
   }
 
   const notes = [
-    `idle-with-work (estimated, no ban/Touches filter): complete from ${first.idle ?? 'never (no records)'}`,
+    `idle-with-work: not known for a backfilled day (null: a gap on the page, not stable for the finish line); known from the minute record`,
     `resume-all: not known before ${firstActionAt === null ? 'the actions log exists (it has no line yet)' : stamp(firstActionAt)}; those days carry an unsure`,
     `rollback: complete from ${first.landings ?? 'never (no landings)'}`,
     `restart-by-hand: not known before the live loop (lastStop is not a record); every day carries an unsure`,
-    `app-restart and woke-outside: complete from ${first.wakes ?? 'never (no wake attempts)'}; earlier days carry an unsure`,
+    `app-restart: complete from ${first.wakes ?? 'never (no wake attempts)'}; earlier days carry an unsure; a lone start with no proof is an unsure on every day`,
     `open-its-chat: complete from ${first.asks ?? 'never (no asks)'}`,
     `alarms: complete from ${first.incidents ?? 'never (no incidents)'}`,
   ]
