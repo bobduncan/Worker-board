@@ -5905,7 +5905,7 @@ function drawInstructions(state) {
     for (const row of group.rows) {
       const line = el('p', `instruction is-${row.tone}`)
       line.dataset.instruction = row.id
-      line.append(el('span', 'instruction-id', row.id), el('span', 'instruction-text', row.text), el('small', 'instruction-note', row.at === null || row.tone === 'closed' ? row.note : `${row.note} · ${ago(row.at, state.readAt)}`))
+      line.append(el('span', 'instruction-id', row.id), linkedEl('span', 'instruction-text', row.text), el('small', 'instruction-note', row.at === null || row.tone === 'closed' ? row.note : `${row.note} · ${ago(row.at, state.readAt)}`))
       box.append(line)
     }
     part.append(box)
@@ -7187,6 +7187,10 @@ const ASK_ID = /(?<![\w/.:#=-])([GQB]\d+)(?![\w/-]|\.\w)/g
 /** B507: a tab by the words the board shows on it, and the part of the Focus tab named after it ("the Focus tab, then Goals"). */
 const ASK_TAB = /(?<![\w-])(Vision|Focus|Plan|Backlog|Design|Spending) tab(?![\w-])(?:(?<=Focus tab),? then (Focus|Goals|Brainstorm)(?![\w-]))?/g
 const ASK_TAB_ADDRESS = { Vision: '#vision', Focus: '#advice/focus', Plan: '#advice/focus', Backlog: '#backlog', Design: '#design', Bugs: '#bugs', Spending: '#spending' }
+/** Links: a markdown link `[words](address)` a chat wrote; the address only counts when it is http(s) on this machine (see ASK_LOCAL). */
+const ASK_MARKDOWN_LINK = /\[([^\][\n]+)\]\(([^\s()]+)\)/g
+/** Links: an address on this machine only: http or https, host 127.0.0.1 or localhost, any port; no user name, no other host. */
+const ASK_LOCAL = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d{1,5})?(?:[/?#]|$)/i
 
 /**
  * An ask's words in pieces: words, `{ ask }` (a Q id `known.isAsk` knows), `{ step }` (a B id `known.isStep` knows),
@@ -7227,14 +7231,26 @@ function askLinkPieces(text, known) {
     }
     ids(words.slice(from))
   }
-  const all = String(text ?? '')
-  let from = 0
-  for (const found of all.matchAll(ASK_PAGE)) {
-    tabs(all.slice(from, found.index))
-    pieces.push({ path: found[1], isPicture: /\.(?:png|jpe?g|webp|gif)$/i.test(found[1]) })
-    from = found.index + found[1].length
+  // The pages, the tabs and the ids in words that are no markdown link.
+  const plain = all => {
+    let from = 0
+    for (const found of all.matchAll(ASK_PAGE)) {
+      tabs(all.slice(from, found.index))
+      pieces.push({ path: found[1], isPicture: /\.(?:png|jpe?g|webp|gif)$/i.test(found[1]) })
+      from = found.index + found[1].length
+    }
+    tabs(all.slice(from))
   }
-  tabs(all.slice(from))
+  // Links: `[words](address)` with an address on this machine is a `{ href, words }` piece; any other stays as written.
+  const whole = String(text ?? '')
+  let start = 0
+  for (const found of whole.matchAll(ASK_MARKDOWN_LINK)) {
+    if (!ASK_LOCAL.test(found[2])) continue
+    plain(whole.slice(start, found.index))
+    pieces.push({ href: found[2], words: found[1] })
+    start = found.index + found[0].length
+  }
+  plain(whole.slice(start))
   return pieces
 }
 
@@ -8790,10 +8806,10 @@ function section(title, children) {
 function noteParts(notes) {
   const isContext = part => part.title !== null && /context/i.test(part.title)
   const draw = part => {
-    const nodes = part.lines.map(line => el('p', '', line))
+    const nodes = part.lines.map(line => linkedEl('p', '', line))
     if (part.points.length > 0) {
       const list = el('ul')
-      for (const point of part.points) list.append(el('li', '', point))
+      for (const point of part.points) list.append(linkedEl('li', '', point))
       nodes.push(list)
     }
     return nodes
@@ -10284,7 +10300,7 @@ $('lanes').addEventListener('click', event => {
 })
 
 /** `#details=B14` in the address opens the details of that step: a link to it, and what a picture of it is taken with. */
-function openFromAddress(state) {
+function openFromAddress(state, { replace = false } = {}) {
   // B149: the links in a worker's answer: `#picture=<path>` shows that picture here, `#play=<branch>&<settings>`
   // makes this tab that branch's game, where the settings put it. Followed once.
   // B699: `#demo=<path of a demo.json>` opens that goal demo as a page. 2026-11-01: `#demo=<path>&part=<part key>` also scrolls to
@@ -10309,13 +10325,14 @@ function openFromAddress(state) {
     return
   }
   // B151: `#task=Units` opens the window of that working worker's task.
-  if (location.hash.startsWith('#task=') && detailsOf === null) {
+  // Links: on a hash change (`replace`) a new `#details=` or `#task=` takes the place of a window that is open.
+  if (location.hash.startsWith('#task=') && (detailsOf === null || replace)) {
     const name = decodeURIComponent(location.hash.slice('#task='.length))
     const lane = state.chats.find(one => one.name === name)
     if (lane !== undefined && laneWindowOf(lane, state.readAt, '') !== null) openDetails({ lane: name, task: true })
     return
   }
-  if (!location.hash.startsWith('#details=') || detailsOf !== null) return
+  if (!location.hash.startsWith('#details=') || (detailsOf !== null && !replace)) return
   openStepWindow(state, decodeURIComponent(location.hash.slice('#details='.length)))
 }
 
@@ -15171,13 +15188,26 @@ function followAddress(hash) {
   showAdvisorPane('goals')
   redrawGoals()
 }
-window.addEventListener('popstate', () => followAddress(location.hash))
+// Links: an address typed or followed on a tab that is open acts at once (the five that open a window, a picture, a demo or the
+// game, as at the first load), whatever window is open; both events can come for one change and the second finds nothing left.
+function followHashChange() {
+  followAddress(location.hash)
+  if (board !== null) openFromAddress(board, { replace: true })
+}
+window.addEventListener('popstate', followHashChange)
+window.addEventListener('hashchange', followHashChange)
+
+/** Links: an address on this board that opens a step window, a demo, a picture or the game (not a tab or a goal). */
+const OPENING_ADDRESS = /^#(?:details|task|demo|picture|play)=/
 
 /** B507: a link in an ask's words to a place on this board: closes the popup and goes there; Back returns. */
 function goToPlace(hash) {
   if ($('details').open) closeDetails()
-  history.pushState(null, '', hash)
+  // Links: an address that opens something is acted on at once and leaves no entry of its own (openFromAddress cleans it).
+  if (OPENING_ADDRESS.test(hash)) history.replaceState(null, '', hash)
+  else history.pushState(null, '', hash)
   followAddress(hash)
+  if (board !== null) openFromAddress(board, { replace: true })
 }
 
 // B195: the Advisor's tab in parts: the way to the next milestone first, then the game plan, the suggestions and
@@ -19080,6 +19110,7 @@ function linkedWords(text, state) {
   const known = { isAsk: id => needs.some(one => one.workId === id), isStep: id => steps.has(id), isGoal: id => goals.has(id) }
   return askLinkPieces(text, known).map(piece => {
     if (typeof piece === 'string') return piece
+    if (piece.href !== undefined) return markdownLink(piece)
     const link = el('button', 'ask-link', piece.place === undefined ? piece.ask ?? piece.step ?? piece.path : piece.words)
     link.type = 'button'
     if (piece.place !== undefined) {
@@ -19098,6 +19129,31 @@ function linkedWords(text, state) {
     }
     return link
   })
+}
+
+/**
+ * Links: a markdown link on this machine. This board's own address with a hash of the board opens in place (the click goes to
+ * goToPlace); any other local address opens in a new tab. Built as nodes, the words only ever text.
+ */
+function markdownLink(piece) {
+  let address = null
+  try {
+    address = new URL(piece.href)
+  } catch {
+    return `[${piece.words}](${piece.href})`
+  }
+  if (address.origin === location.origin && address.pathname === location.pathname && address.hash.length > 1 && (OPENING_ADDRESS.test(address.hash) || tabOfAddress(address.hash) !== null)) {
+    const here = el('button', 'ask-link', piece.words)
+    here.type = 'button'
+    here.dataset.place = address.hash
+    here.title = `Open ${address.hash}`
+    return here
+  }
+  const other = el('a', 'ask-link', piece.words)
+  other.href = address.href
+  other.target = '_blank'
+  other.rel = 'noopener'
+  return other
 }
 
 /** B426: a node of `tag` holding text whose ids and pages are links (linkedWords, with the board as it is now). */
