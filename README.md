@@ -491,7 +491,9 @@ Enter, and the main chat names itself, joins the list and starts the Advisor and
 
 ## What it writes
 
-`data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), when the board last ran,
+`data\` in its folder, which git ignores: the history, what you sent (`outbox.jsonl`), when the board last ran, the three daily
+stability numbers (`stability.jsonl`, with `actions.jsonl` and `ready-minutes.jsonl` beside it; shown as a row on the Overview, see
+"Stability numbers" in `DESIGN.md`),
 the Design tab's ideas and the level of "CPU for Claude" (`cpu.json`). Outside it: `<project>\.claude\board.json` while it runs (where the mod finds it), the
 pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), the evidence pictures of `tools/evidence.mjs` (under the step in the picture folder), and the work store
 (`work`, `.claude\work` unless set), on the chats' `work` calls and your clicks, with `backlog.md` written from it as a

@@ -4343,6 +4343,57 @@ build brief bind; the parts below replace what the older parts of this file say 
   (the sweep's keys, the gates), `test/supervisor/askAgain.test.mjs`, `test/supervisor/reviewStuck.test.mjs` (X116),
   `test/supervisor/page.test.mjs` (the head's three numbers, the gone card).
 
+## Stability numbers (2026-11-05)
+
+The person, 2026-11-05: "i want to measure so we can proof if stuff is going wrong"; "Yes, both" (the start-up check and three
+daily numbers; stable = 3 days in a row with 0 interventions and under 10 min idle-with-work). The plan
+(`.claude/plans/2026-11-05-stability-numbers-plan.md`) binds. The board READS its state and records and adds append-only logs;
+it changes nothing in start, wake, hand-over or status. The Overview row (`#stability`) shows the numbers; they are the board's
+own: the Supervisor does not file incidents from them.
+
+- **The three numbers**, one line a day (days are the person's local days):
+  1. `idleWithWorkMinutes`: the whole minutes of the day in which a worker lane was free (hand-over state `free`, so not paused,
+     not held by a limit) beside a ready step it could take (`match` gives it to that lane; a step whose model family the lane is
+     banned from by `gets no <family> steps` in its hand-over why is left out).
+  2. `interventions`: the person's hands on the board that a stable board would not need, `[{ at, kind, what }]`: `resume-all`
+     (a Resume all that ends a pause that was not the person's own), `restart-by-hand` (the board started by hand, no landing
+     within 5 min), `app-restart` (every chat began a run within 2 min with nothing of the board explaining it), `woke-outside`
+     (a chat started with no board wake, message or `resume` command naming it in the 5 min before), `open-its-chat` (an ask that
+     says "open its chat" and that the person answered), `rollback` (a landing that rolled back).
+  3. `alarms`: the incidents (`X*.md`) raised in the day (`First seen`, else `Since`): `real` and `false` (closed as "No fault" or
+     "obsolete", or gone by itself), with their ids.
+- **Unsure**: what the records cannot tell apart is listed in the line's `unsure` `[{ at, kind, what, why }]`, never guessed and
+  never counted (an interrupted chat going on by itself or typed into; a chat the history does not track; in the backfill, every
+  number the old records could not hold). A finding a later pass proves leaves `unsure`.
+- **The records** (in `data/`): `actions.jsonl` (one line per action of the person: `{ at, by: 'person', via, action, id }`,
+  written in the one place of the work API's dispatcher after a person's change returns ok, plus `/api/restart` and the person's
+  commands of `/api/say`; never a read or a list), `ready-minutes.jsonl` (one line a minute while the board owns the loops:
+  `{ at, free: [{ chat, could }] }`, an empty minute `free: []`, pruned to 31 days at the first write of a day), and
+  `stability.jsonl` (one line a day: `{ day, idleWithWorkMinutes, idleEstimated, interventions, unsure, alarms, writtenAt, closed }`).
+- **The loop** `stability` (`src/stability.mjs`, every minute beside `measure`): reads only today's part of the records from
+  their end, asynchronously, and rewrites today's line atomically; at the first pass of a new day the earlier line gets
+  `closed: true` and is never rewritten. A finding made earlier in the day stays (the board shows a stop for 15 minutes and the
+  reports hold only a chat's newest run).
+- **The finish line**: `stableDays` is the number of most recent days in a row (ending yesterday, or today if its line is
+  closed) with 0 interventions and under 10 min idle-with-work; `isStable` from 3. A day with no line breaks the row. The state
+  field `stability` holds `{ today, days (the last 14 closed), stableDays, isStable, finish }`.
+- **The page row**: muted, three sparklines of 14 days, the finish line in words ("N of 3 days", or "stable since <date>" in
+  green); amber only on today's two numbers while today already misses the finish line; hidden when the state has no `stability`.
+  The picture: `art-inbox/board-stability/row.png`.
+- **The backfill** (`tools/stability-backfill.mjs <data> <store> [--days 14] [--out <file>]`, run by hand once, output reviewed):
+  writes the closed lines (`closed: true, backfilled: true`) of the 14 days before the records existed into `stability.jsonl`
+  (or `--out`), never rewriting a line that is there; it reads the records read only. Idle-with-work is ESTIMATED
+  (`idleEstimated: true`): a minute with a free Worker lane in `history.jsonl` and a step between "refined is ready" and
+  "queued/taken" in the store's History, without the ban and Touches filters (an over-estimate). Interventions and alarms come
+  from the live loop's own functions fed the day's records. Where a record does not reach back, the day carries an `unsure` and
+  the tool prints, per number, from which day it is complete: idle-with-work from the first Worker line and the first
+  "refined is ready"; `resume-all` not before the first line of the actions log; `rollback` from the first landing;
+  `restart-by-hand` not before the live loop (`lastStop` is state, not a record); `app-restart` and `woke-outside` from the first
+  whole day after the first wake attempt in `wakes.json`; `open-its-chat` from the oldest ask; alarms from the oldest incident.
+- Tests: `test/stability.test.mjs` (the minute, each kind of intervention with its mutant, the own-pause rule, alarms, the finish
+  line, the midnight close), `test/work/actionsLog.test.mjs`, `test/stabilityPage.test.mjs`, `test/stabilityBackfill.test.mjs`
+  (the lines marked estimated and backfilled, a closed line never rewritten, `--out` leaves the data folder alone).
+
 ## The supervisor's incident cards (2026-10-24)
 
 The person, 2026-10-24, on the section's rows: "too much text. is it busy trying to send this to the advisor or not? what
