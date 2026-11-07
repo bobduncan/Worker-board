@@ -51,12 +51,17 @@ async function conversationAt(file) {
   return at
 }
 
-/** Clear after each step: the session a chat goes on under, following the cards that say it moved (a few at most). */
-async function followMoves(claude, id) {
+/**
+ * Clear after each step: the session a chat goes on under, following the cards that say it moved, to the end of the chain.
+ * G2 (2026-11-05): no cap on the hops (a copy 12 clears behind ended at a wrong session at eight); a seen set ends a loop.
+ */
+export async function followMoves(claude, id) {
   let current = id
-  for (let hop = 0; hop < 8; hop += 1) {
+  const seen = new Set([id])
+  for (;;) {
     const next = movedTo(await readCard(join(claude, 'chats', `${current}.json`)))
-    if (next === null || next === current || !SAFE_ID.test(next)) break
+    if (next === null || seen.has(next) || !SAFE_ID.test(next)) break
+    seen.add(next)
     current = next
   }
   return current
@@ -161,10 +166,12 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   // Plan (2026-10-19): the product plan beside it, for the Vision tab.
   const productPlan = home === '' ? null : join(home, ...config.productPlan.split('/'))
   const appFiles = new Set()
+  // H1: and the chat files in the account folders it does not read, by app id (the person's other Claude account).
+  const appElsewhere = new Map()
   const [listText, appChatTexts, adviceText, folders, askTexts, goalsText, work, threadTexts, productPlanText] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     // B986: and the app id of every chat file read, for a lane's own chat (ownChat.mjs).
-    readAppChats(config.appSessions, appFiles),
+    readAppChats(config.appSessions, appFiles, appElsewhere),
     plan === null ? null : readText(plan),
     readFolders().catch(() => null),
     readAsks(join(claude, 'asks')),
@@ -227,7 +234,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const recaps = (await readRecaps(config, goalsText).catch(() => [])).filter(one => goalRecap === null || one.goal !== goalRecap.goal || one.path === goalRecap.path)
 
   return {
-    listText, appChatTexts, appFiles: [...appFiles], moved, planLineTexts, planLineAt, tails, conversationAt: conversationAts, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
+    listText, appChatTexts, appFiles: [...appFiles], appElsewhere: Object.fromEntries(appElsewhere), moved, planLineTexts, planLineAt, tails, conversationAt: conversationAts, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
     pictureLists: await pictureLists(config, work, now),
     recaps,
     // 2026-11-01: the focus goal's recap file and the picture of each of its rows, for the recap card on the Focus page (src/recapCard.mjs).

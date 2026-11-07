@@ -20,7 +20,7 @@
 // attempt in the same tick it makes the job (the code check's "two carriers" risk).
 
 import { ASLEEP_LINE, isAppId } from './hands.mjs'
-import { NOT_LISTED_WHY, NOT_SHOWN_WHY, cannotWakeWhy, isNotListedAnswer, wakeIdsOf } from './ownChat.mjs'
+import { NOT_LISTED_WHY, NOT_SHOWN_WHY, OTHER_ACCOUNT_WHY, RESTART_WHY, cannotWakeWhy, isNotListedAnswer, wakeIdsOf } from './ownChat.mjs'
 import { boardLanes, isWakeWord, wakeWordOf, wakerOrder } from './say.mjs'
 import { envelopesOf } from './work/handover.mjs'
 import { isHolding } from './work/pause.mjs'
@@ -56,8 +56,11 @@ export const isSessionId = session => typeof session === 'string' && /^[0-9a-f]{
 
 const isTime = value => Number.isFinite(value)
 
-/** The record: `{ wakes: Map<chat, spellEntry[]> }`, newest spell last. */
-export const emptyWakes = () => ({ wakes: new Map() })
+/**
+ * The record: `{ wakes: Map<chat, spellEntry[]>, heardRunAt }`, newest spell last. `heardRunAt`: when the board last heard a
+ * report with a new `run` from any chat (G1: proof the app reloaded), null for none.
+ */
+export const emptyWakes = () => ({ wakes: new Map(), heardRunAt: null })
 
 /**
  * The spell of a lane that does not run: its `asleepSince`; an off chat without one, its report's since when its
@@ -81,6 +84,8 @@ const entriesOf = (record, chat) => record?.wakes?.get(chat) ?? []
 const newestOf = (record, chat) => entriesOf(record, chat).at(-1) ?? null
 const entryOf = (record, chat, spell) => (spell === null || spell === undefined ? newestOf(record, chat) : entriesOf(record, chat).findLast(one => one.spell === spell) ?? null)
 const isPending = attempt => attempt.verdict === null
+/** G1: the attempts of a spell that count: those made since its re-opening (`reopenedAt`), all of them before one. */
+const countedOf = entry => (isTime(entry?.reopenedAt) ? (entry.attempts ?? []).filter(one => one.at >= entry.reopenedAt) : entry?.attempts ?? [])
 
 /**
  * A new spell entry for `chat` when its newest is of another spell (life came, or a new sleep began); the server calls it
@@ -97,6 +102,74 @@ export function newSpell(record, chat, spell) {
 }
 
 /**
+ * G1 (2026-11-05): the board heard a report with a new `run` from a chat at `at`: the app (or that chat's process) is back.
+ * Kept as the newest such time; the server calls it when a chat's kept report changes its run.
+ * `heardRunAt` holds two kinds of ms time: the board's own clock when it heard a new run (G1), and a session's start
+ * (a run id) or a check's trigger moment (the start-up check); all are ms and only compared with a verdict's time.
+ */
+export function noteRun(record, at) {
+  if (!isTime(at) || (isTime(record.heardRunAt) && record.heardRunAt >= at)) return false
+  record.heardRunAt = at
+  return true
+}
+
+/**
+ * G1: a spell that failed because the app did not know the chat ("not found"), or that is spent (every path it could take was
+ * tried and failed), stops counting ONCE when both hold: the chat's own chat is listed now (`listed`), and the board heard a
+ * report with a new run (`noteRun`) after the spell's last verdict (the app reloaded: a chat it did not know may be known now).
+ * `reopenedAt` on the entry makes it once. `lanes`: `[{ chat, spell, listed, paths }]`, the lanes that do not run, with their
+ * current spell. The chats re-opened.
+ */
+export function reopenSpells(record, lanes, now) {
+  const opened = []
+  if (!isTime(record.heardRunAt) || !isTime(now)) return opened
+  for (const lane of lanes ?? []) {
+    const entry = newestOf(record, lane?.chat)
+    if (entry === null || entry.spell !== lane.spell || isTime(entry.reopenedAt) || lane.listed !== true || entry.attempts.length === 0) continue
+    if (entry.attempts.some(one => isPending(one) || one.verdict === 'woke')) continue
+    const paths = lane.paths ?? []
+    const isSpent = entry.attempts.some(one => one.unlisted === true) || (paths.length > 0 && paths.every(path => entry.attempts.some(one => one.path === path)))
+    const lastVerdict = Math.max(...entry.attempts.map(one => (isTime(one.verdictAt) ? one.verdictAt : one.at)))
+    if (!isSpent || !(record.heardRunAt > lastVerdict)) continue
+    entry.reopenedAt = now
+    opened.push(lane.chat)
+  }
+  return opened
+}
+
+/**
+ * Start-up check, MUST 1 (2026-11-05, the person's screenshot): when the chat last failed to be woken in `spell` (the newest verdict of
+ * a failed attempt), or null.
+ */
+export function failedAtOf(record, chat, spell = null) {
+  const times = (entryOf(record, chat, spell)?.attempts ?? []).filter(one => one.verdict === 'failed').map(one => (isTime(one.verdictAt) ? one.verdictAt : one.at)).filter(isTime)
+  return times.length === 0 ? null : Math.max(...times)
+}
+
+/**
+ * Start-up check, MUST 1: whether the chat reports again after the last failed attempt of its spell. Then "could not wake" is stale: it
+ * ran since (a session that started after the failure, `report.run` no later than `now`, or a report that is not an ended one, heard
+ * after it). `report` the chat's kept report `{ state, at, run }`, or null.
+ */
+export function ranSince(record, chat, spell, report, now = Infinity) {
+  const failedAt = failedAtOf(record, chat, spell)
+  if (failedAt === null || report === null || report === undefined) return false
+  if (isTime(report.run) && report.run > failedAt && report.run <= now) return true
+  return report.state !== 'ended' && isTime(report.at) && report.at > failedAt && report.at <= now
+}
+
+/**
+ * G1 and review 3: the lanes whose failed wake the app's return may have mended, `[{ chat, spell, listed, paths }]` for `reopenSpells`: those
+ * that do not run. Not a chat that runs on a session the board does not follow (`unjoined`, ownChat.mjs): a message would go to the stub
+ * of its title again and the red line return with new times; it must re-join (the start-up check says so).
+ */
+export function reopenLanesOf(lanes, canLaunch) {
+  return (lanes ?? []).filter(lane => lane.isLeftover !== true && lane.isRunning === false && lane.unjoined == null).map(lane => ({
+    chat: lane.name, spell: spellOf(lane), listed: wakeIdsOf(lane).why === null, paths: pathsOf(lane, canLaunch),
+  })).filter(lane => lane.spell !== null)
+}
+
+/**
  * Decision 8, as the next path for this chat's spell: 'message' when no message was tried in it and a sender claims;
  * 'launch' when no launch was tried in it and (no sender claims, or the message failed); after both failed, 'message'
  * once more only for a new sender (`senderSince`, when the claiming chat began to claim, after the message's verdict);
@@ -104,7 +177,7 @@ export function newSpell(record, chat, spell) {
  * with an app id, 'launch' with a CLI session id on a board that can launch).
  */
 export function nextPath(record, { chat, spell, senderClaims, senderSince = -Infinity, paths = ['message', 'launch'] }) {
-  const attempts = entryOf(record, chat, spell)?.attempts ?? []
+  const attempts = countedOf(entryOf(record, chat, spell))
   if (attempts.some(one => isPending(one) || one.verdict === 'woke')) return null
   // B986: the app answered that it has no such session (not found): no launch, no other try in this spell.
   if (attempts.some(one => one.unlisted === true)) return null
@@ -316,13 +389,15 @@ export function isWakeOnItsWay(record, chat, spell) {
  */
 export function statusOf(record, chat, spell = null) {
   const entry = entryOf(record, chat, spell)
-  const attempts = entry?.attempts ?? []
-  const base = { spell: entry?.spell ?? null, path: null, at: null, by: null, why: null, wokeAt: null, turnEndedAt: entry?.turnEndedAt ?? null, attempts: attempts.map(one => ({ ...one })) }
+  // G1: only the attempts since a re-opening count for the state; `attempts` lists all of them (the record keeps the pattern).
+  const attempts = countedOf(entry)
+  const base = { spell: entry?.spell ?? null, path: null, at: null, by: null, why: null, wokeAt: null, turnEndedAt: entry?.turnEndedAt ?? null, attempts: (entry?.attempts ?? []).map(one => ({ ...one })) }
   const woke = attempts.find(one => one.verdict === 'woke')
   if (woke !== undefined) return { ...base, state: 'woke', path: woke.path, at: woke.at, by: woke.by, wokeAt: woke.verdictAt }
   const newest = attempts.at(-1)
   if (newest === undefined) return { ...base, state: 'none' }
-  const more = { path: newest.path, at: newest.sentAt ?? newest.at, by: newest.by, why: newest.why }
+  // H1: the app's "not found" is said plainly: it reads the chats it was reimported with at its next start.
+  const more = { path: newest.path, at: newest.sentAt ?? newest.at, by: newest.by, why: newest.unlisted === true ? RESTART_WHY : newest.why }
   if (newest.verdict === 'failed') return { ...base, ...more, state: 'failed' }
   if (newest.path === 'launch') return { ...base, ...more, state: 'launched' }
   return { ...base, ...more, state: newest.sentAt === null ? 'on-its-way' : 'sent' }
@@ -348,6 +423,7 @@ export function triedWords(attempts, timeOf) {
   return (attempts ?? []).filter(one => one.verdict === 'failed').map(one => {
     if (one.path === 'launch') return `${one.why === FAILED_WHY.launch ? 'the app did not start it' : one.why} (launched ${timeOf(one.at)})`
     if (one.why === FAILED_WHY.message) return `no report after the message (sent ${timeOf(one.sentAt ?? one.at)} by ${one.by})`
+    if (one.unlisted === true) return `the app does not know the chat (${timeOf(one.at)} by ${one.by}): ${RESTART_WHY}`
     return `the message did not go (${timeOf(one.at)} by ${one.by}: ${one.why})`
   })
 }
@@ -365,7 +441,7 @@ export function noticeOf(record, targets, now, timeOf, { senderClaims = false, s
   const wakes = (targets ?? []).map(need => ({ need, wake: wakeOf(record, need, { senderClaims, senderSince }) }))
   const failed = wakes.filter(one => one.wake.final)
   const lines = failed.map(({ need, wake }) => {
-    const tried = [NOT_LISTED_WHY, NOT_SHOWN_WHY].includes(wake.why) ? [wake.why, ...triedWords(wake.attempts, timeOf)]
+    const tried = [NOT_LISTED_WHY, NOT_SHOWN_WHY, OTHER_ACCOUNT_WHY].includes(wake.why) ? [wake.why, ...triedWords(wake.attempts, timeOf)]
       : wake.why === 'no id' && wake.attempts.length === 0 ? ['the board has no id to reach it'] : triedWords(wake.attempts, timeOf)
     return `could not wake ${need.chat}: ${tried.join('; ') || wake.why}; open its chat`
   })
@@ -584,16 +660,18 @@ export function savedSpell(value) {
   return {
     spell: value.spell, attempts: value.attempts.map(savedAttempt).filter(one => one !== null), turnEndedAt: value.turnEndedAt,
     told: { failed: told.failed === true, nobody: told.nobody === true },
+    ...(isTime(value.reopenedAt) ? { reopenedAt: value.reopenedAt } : {}),
   }
 }
 
 /** The record as the file holds it: `{ "wakes": { "<chat>": [spellEntry, ...] } }`. */
-export const textOfWakes = record => `${JSON.stringify({ wakes: Object.fromEntries(record.wakes) })}\n`
+export const textOfWakes = record => `${JSON.stringify({ wakes: Object.fromEntries(record.wakes), ...(isTime(record.heardRunAt) ? { heardRunAt: record.heardRunAt } : {}) })}\n`
 
 /** The record a parsed file holds, left out the entries that are no spell; null when the file is not that shape. */
 export function wakesOfFile(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value) || value.wakes === null || typeof value.wakes !== 'object' || Array.isArray(value.wakes)) return null
   const record = emptyWakes()
+  if (isTime(value.heardRunAt)) record.heardRunAt = value.heardRunAt
   for (const [chat, entries] of Object.entries(value.wakes)) {
     if (chat === '' || !Array.isArray(entries)) continue
     const kept = entries.map(savedSpell).filter(one => one !== null).slice(-WAKE_SPELLS_KEPT)

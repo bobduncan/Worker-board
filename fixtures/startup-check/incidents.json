@@ -1,0 +1,56 @@
+[
+  {
+    "id": "X154",
+    "key": "wake-failed Worker 5 1793862908033",
+    "source": "wake-failed",
+    "subject": "Worker 5",
+    "state": "open",
+    "since": "2026-11-05 20:28",
+    "title": "could not wake Worker 5: the message did not go (20:33 by Main: Message not delivered: session local_88208666-fd8c-43e5-8f6a-b0b847115ba7 not found. (delivery: "
+  },
+  {
+    "id": "X155",
+    "key": "wake-failed Worker 1 1793862907591",
+    "source": "wake-failed",
+    "subject": "Worker 1",
+    "state": "open",
+    "since": "2026-11-05 20:28",
+    "title": "could not wake Worker 1: the message did not go (20:33 by Main: Message not delivered: session local_e92c96e7-9f9c-4b57-8f7d-7bfdfc3afcc8 not found. (delivery: "
+  },
+  {
+    "id": "X156",
+    "key": "wake-failed Worker 2 1793862907836",
+    "source": "wake-failed",
+    "subject": "Worker 2",
+    "state": "open",
+    "since": "2026-11-05 20:34",
+    "title": "could not wake Worker 2: no report after the message (sent 20:28 by Main); the app did not start it (launched 20:30)"
+  },
+  {
+    "id": "X157",
+    "key": "wake-failed Supervisor 0",
+    "source": "wake-failed",
+    "subject": "Supervisor",
+    "state": "open",
+    "since": "2026-11-05 20:40",
+    "title": "could not wake Supervisor: no report after the message (sent 20:31 by Main); the app did not start it (launched 20:34); no report after the message (sent 21:20 "
+  },
+  {
+    "id": "X158",
+    "key": "nobody-answers-wakes 2026-11-05",
+    "source": "nobody-answers-wakes",
+    "subject": "board",
+    "state": "open",
+    "since": "2026-11-05 20:43",
+    "title": "nobody answers the board's wake-ups: Supervisor could not be woken, and the launch when nobody ran failed"
+  },
+  {
+    "id": "X160",
+    "key": "wake-failed Main 1793907248149",
+    "source": "wake-failed",
+    "subject": "Main",
+    "state": "open",
+    "since": "2026-11-05 21:16",
+    "title": "could not wake Main: the app did not start it (launched 21:11)"
+  }
+]

@@ -1,0 +1,90 @@
+{
+  "wakes": {
+    "Worker 1": [
+      {
+        "spell": 1793862907591,
+        "attempts": [
+          {
+            "path": "message",
+            "at": 1793907210875,
+            "by": "Main",
+            "jobId": "wake:1793862907591:Worker 1",
+            "sentAt": null,
+            "runBefore": 1793829813678,
+            "verdict": "failed",
+            "verdictAt": 1793907210940,
+            "why": "Message not delivered: session local_e92c96e7-9f9c-4b57-8f7d-7bfdfc3afcc8 not found. (delivery: undelivered; message_id: x)",
+            "step": null,
+            "unlisted": true
+          }
+        ],
+        "turnEndedAt": null,
+        "told": {
+          "failed": false,
+          "nobody": false
+        }
+      }
+    ],
+    "Worker 2": [
+      {
+        "spell": 1793862907836,
+        "attempts": [
+          {
+            "path": "message",
+            "at": 1793906870682,
+            "by": "Main",
+            "jobId": "wake:1793862907836:Worker 2",
+            "sentAt": 1793906884678,
+            "runBefore": 1793830724955,
+            "verdict": "failed",
+            "verdictAt": 1793907011969,
+            "why": "no report within 2 minutes of the message",
+            "step": null
+          },
+          {
+            "path": "launch",
+            "at": 1793907011969,
+            "by": "board",
+            "jobId": "launch:1793907011969:Worker 2",
+            "sentAt": 1793907014798,
+            "runBefore": 1793830724955,
+            "verdict": "failed",
+            "verdictAt": 1793907192011,
+            "why": "the app did not start it",
+            "step": null
+          }
+        ],
+        "turnEndedAt": null,
+        "told": {
+          "failed": false,
+          "nobody": false
+        }
+      }
+    ],
+    "Worker 5": [
+      {
+        "spell": 1793862908033,
+        "attempts": [
+          {
+            "path": "message",
+            "at": 1793907210876,
+            "by": "Main",
+            "jobId": "wake:1793862908033:Worker 5",
+            "sentAt": null,
+            "runBefore": 1793831789315,
+            "verdict": "failed",
+            "verdictAt": 1793907210941,
+            "why": "Message not delivered: session local_88208666-fd8c-43e5-8f6a-b0b847115ba7 not found. (delivery: undelivered; message_id: x)",
+            "step": null,
+            "unlisted": true
+          }
+        ],
+        "turnEndedAt": null,
+        "told": {
+          "failed": false,
+          "nobody": false
+        }
+      }
+    ]
+  }
+}

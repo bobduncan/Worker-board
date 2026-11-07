@@ -2741,6 +2741,13 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .log-missed-line:hover { background: #3a1d14; }
 .log-missed-line:focus-visible { outline: 2px solid var(--free); outline-offset: -2px; }
 /* T9.4: no chat runs, so nobody can wake the chats words wait for: attention. */
+/* The start-up check's row (plan task 7): quiet and cool; the warn colour only when its line asks the person for something. */
+.check-row { display: flex; align-items: center; gap: 10px; margin: 0; padding: 4px 2px; color: var(--muted); font-size: 13px; }
+.check-row[hidden] { display: none; }
+.check-row.is-attention { color: var(--warn); }
+.check-row .check-spinner { width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--muted); border-radius: 50%; animation: check-turn 0.9s linear infinite; }
+.check-row .check-again { font-size: 12px; padding: 2px 8px; }
+@keyframes check-turn { to { transform: rotate(360deg); } }
 .nobody-runs { margin: 0; padding: 6px 10px; border-left: 3px solid var(--warn); border-radius: 6px; background: #2a1712; color: var(--warn); font-size: 13.5px; }
 @media (prefers-reduced-motion: reduce) { .log-line::before { transition: none; } }
 @media (max-width: 1250px) {

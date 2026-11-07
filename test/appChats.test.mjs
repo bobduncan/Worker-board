@@ -42,6 +42,7 @@ test('parseAppChat keeps the fields the board uses', () => {
     createdAt: 10,
     lastActivityAt: 20,
     completedTurns: 139,
+    isStub: false,
     effort: null,
     model: 'ignored',
     summary: { category: 'blocked', detail: 'waits for a pick', needsAction: 'Pick A or B', isCurrent: true },

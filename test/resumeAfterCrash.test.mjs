@@ -423,7 +423,7 @@ test('a resume that no chat could carry: one message in its spell, then "could n
   assert.equal(nextPath(record, { chat: 'Worker 3', spell: need.spell, senderClaims: true, paths: need.paths }), null)
   assert.deepEqual(resumesDue(state, outbox), [])
   const clockOf = ms => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
-  assert.match(noticeOf(record, [need], NOW, clockOf, { senderClaims: true }).text, /^could not wake Worker 3: the message did not go \(\d\d:\d\d by Worker 5: the app said no such session\); open its chat$/)
+  assert.match(noticeOf(record, [need], NOW, clockOf, { senderClaims: true }).text, /^could not wake Worker 3: the app does not know the chat \(\d\d:\d\d by Worker 5\): restart the app so it reads the reimported chats; open its chat$/)
 })
 
 test('T9.1.1: a worker that holds a Quality Assurance task in progress (no branch) is resumed as for any step', () => {
