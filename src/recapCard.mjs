@@ -9,13 +9,14 @@
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { hasChanged, isPending, makingOf, roundsOf } from './demoFeedback.mjs'
+import { hasChanged, isPending, isTriedSince, makingOf, roundsOf, standOf } from './demoFeedback.mjs'
 import { parseGoals } from './goals.mjs'
 import { readDemo, shownFolders, shownRoots } from './pictures.mjs'
 import { linksRecap, standsForPerson } from './work/autopilot.mjs'
 import { isKeptLook } from './work/keptLook.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
-import { checkedOf } from './work/resultCheck.mjs'
+import { reworkOf } from './recapRound.mjs'
+import { checkedOf, fixesOf } from './work/resultCheck.mjs'
 import { standardOf } from './work/standard.mjs'
 
 /** The card shows this many tiles at most, in one row, whatever waits (the person: "never more then 1 row"). */
@@ -134,6 +135,45 @@ export function recapMakingOf({ goal, recap, items }) {
     done: mine.filter(item => FINISHED.includes(valueOf(item, 'State'))).length, total: mine.length,
     doneSteps: mine.filter(item => valueOf(item, 'State') === 'done').map(item => valueOf(item, 'Id')),
   }
+}
+
+/**
+ * 2026-11-05 (G60's recap: rows 10 and 14 were sent back in round 1, rounds 2-5 judged other rows, their new tries were reported and nobody
+ * wrote round 6): the rows sent back in ANY earlier round that are not tried yet (`isTriedSince`), with a new try that is in. `{ goal, path,
+ * round, steps }` or null: `round` the last round + 1, `steps` per waiting row the newest try that is in (a step of its fix chains, not a
+ * Quality Assurance task, filed or reopened after that row's Send, in review or done, with nothing in the row's chains under way), rows in
+ * recap order, no step twice. The board tells the partner once for each (server.mjs `recapRoundNow`, words "is in"). Asks no verdict, counts nowhere.
+ */
+export function recapWaitingOf({ goal, recap, items, openChecks = new Set(), now = null }) {
+  if (typeof goal !== 'string' || recap === null || typeof recap !== 'object' || recap.goal !== goal) return null
+  const rounds = Array.isArray(recap.rounds) ? recap.rounds : []
+  if (rounds.length === 0) return null
+  const stand = standOf(rounds)
+  const sent = new Map(rounds.map(round => [round.n, sinceMs(round.at)]))
+  const steps = []
+  for (const row of Array.isArray(recap.rows) ? recap.rows : []) {
+    const said = stand.get(row.key)
+    const at = said?.verdict === 'sent-back' ? sent.get(said.round) : undefined
+    if (at === undefined || !Number.isFinite(at) || isTriedSince(row, at, recap.changedAt ?? null)) continue
+    const seen = new Set()
+    const queue = [...(row.steps ?? [])]
+    const tries = []
+    while (queue.length > 0 && seen.size < 80) {
+      const id = queue.shift()
+      if (seen.has(id)) continue
+      seen.add(id)
+      const item = items?.get?.(id)
+      if (item === undefined || valueOf(item, 'Kind') !== 'step') continue
+      if (valueOf(item, 'Checks') === null && (madeAtMs(item) >= at || isReopenedSince(item, at))) tries.push(item)
+      for (const fix of fixesOf(id, items)) queue.push(valueOf(fix, 'Id'))
+    }
+    const ins = tries.filter(item => ['review', 'done'].includes(valueOf(item, 'State')))
+    if (ins.length === 0 || reworkOf(row.steps ?? [], items, { openChecks, now }) !== null) continue
+    const newest = ins.map(item => valueOf(item, 'Id')).sort((a, b) => Number(b.slice(1)) - Number(a.slice(1)))[0]
+    if (!steps.includes(newest)) steps.push(newest)
+  }
+  if (steps.length === 0) return null
+  return { goal, path: typeof recap.path === 'string' ? recap.path : null, round: rounds.at(-1).n + 1, steps }
 }
 
 /**

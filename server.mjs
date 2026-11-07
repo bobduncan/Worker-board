@@ -97,7 +97,7 @@ import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, workApi } from './src/work/api.mjs'
 import { effortOf } from './src/work/effort.mjs'
-import { isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
+import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
@@ -129,6 +129,7 @@ import { activePages, blockersOf, reportedNotLogged, selfUpdater } from './src/s
 import { findGameFile } from './src/gameFile.mjs'
 import { absentAs, readKept, writeAtomic, writeUnflushed } from './src/write.mjs'
 import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
+import { fileHolders } from './src/work/holders.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
@@ -813,7 +814,7 @@ async function main(args) {
     await stalls.load()
     watchLoop(stalls)
   }
-  const loops = loopRecord({ now: clock, write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')), track: trackJob })
+  const loops = loopRecord({ now: clock, holders: isDemo ? null : files => fileHolders(files), write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')), track: trackJob })
   /** B404: the checks after a report that run now, by step id; a restart waits for them, the stuck-check pass skips them. */
   const runningChecks = new Map()
   /** B404: set once a restart was asked: the board takes no more work and its loops start nothing new. */
@@ -1194,9 +1195,20 @@ async function main(args) {
    */
   const recapRoundNow = async state => {
     const making = state.recapMaking ?? null
-    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause) || making === null) return
-    for (const step of recapRoundDue(making, store.outbox())) {
-      await toPartner(recapRoundWords(state.advisor.name, { goal: making.goal, round: making.round, step, path: making.path, job: join(HERE, 'roles', 'partner.md') }), {}, state)
+    const waiting = state.recapWaiting ?? null
+    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause) || (making === null && waiting === null)) return
+    // 2026-11-05: a row sent back in an earlier round whose try is in is told the same way ("is in"), once per step.
+    const told = new Set()
+    const lists = [
+      [making, making === null ? [] : recapRoundDue(making, store.outbox()), false],
+      [waiting, waiting === null ? [] : recapRoundDue({ goal: waiting.goal, doneSteps: waiting.steps }, store.outbox()), true],
+    ]
+    for (const [one, due, isIn] of lists) {
+      for (const step of due) {
+        if (told.has(step)) continue
+        told.add(step)
+        await toPartner(recapRoundWords(state.advisor.name, { goal: one.goal, round: one.round, step, path: one.path, job: join(HERE, 'roles', 'partner.md'), isIn }), {}, state)
+      }
     }
   }
   /**
@@ -2645,6 +2657,8 @@ async function main(args) {
         // Signals change 6: the Supervisor judges the incidents; its chat's name for the cards' words.
         supervisor: state.supervisorChat?.name ?? null,
         flow: stored?.ok === true ? stored.flow : null,
+        // Pause truth item 6: while the pause holds, a new step waits for Resume all, not for the Advisor.
+        pause: state.pause ?? null,
       })
       // 2026-10-28: the Advisor's "Next for it" ends with the steps the board will ask it to refine next (only the board holds the refine gate).
       const refineGateNow = Array.isArray(state.advisor?.next) ? firstLook(refineKept, state) : null
@@ -3312,7 +3326,15 @@ async function main(args) {
       }
       // B847: the older chats of a worker that a newer run of its routine replaced, archived by a chat whose mod can.
       if (can.has('restart') && modAtLeast(claim.mod, ARCHIVE_MOD) && !isHolding(state.pause)) {
-        for (const one of replacedChats({ lanes: state.chats ?? [], now: clock(), given: archiveGiven })) {
+        // Pause truth item 8: what a leftover's summary says it needs counts no more once the steps it names are done.
+        const storedSteps = await work()
+        const stepStateOf = id => (storedSteps?.ok === true ? storedSteps.items.get(id)?.head?.get('State') ?? null : null)
+        const stepEndedAtOf = id => {
+          const since = storedSteps?.ok === true ? storedSteps.items.get(id)?.head?.get('Since') : null
+          const at = typeof since === 'string' ? Date.parse(since.replace(' ', 'T')) : Number.NaN
+          return Number.isFinite(at) ? at : null
+        }
+        for (const one of replacedChats({ lanes: state.chats ?? [], now: clock(), given: archiveGiven, stepState: stepStateOf, stepEndedAt: stepEndedAtOf })) {
           archiveGiven.set(one.session, clock())
           if (!(await hasNothingUncommitted(one.cwd, gitRunner()))) continue
           archiveWhy.set(one.session, one.why)
@@ -3786,6 +3808,16 @@ async function main(args) {
         await loops.run('accept-cards', async () => {
           const carded = await workAction({ action: 'accept-cards' }, 'server')
           if (!carded.ok) throw new Error(carded.why ?? 'accept-cards was refused')
+        })
+        // Pause truth item 3: a popup ask whose step is done, or whose chat has no process (`isRunning === false`, never an unknown
+        // one), is withdrawn: nobody is left to withdraw it. On its own, so a failure stops no delivery.
+        await loops.run('popup-asks', async () => {
+          // Review 2: the Advisor, its helper, the Supervisor chat and the Product owner file popup asks too: they count as chats here.
+          const every = [...(state.chats ?? []), ...[state.advisor, state.advisorHelper, state.supervisorChat, state.productOwner].filter(one => one !== null && typeof one === 'object' && typeof one.name === 'string')]
+          const gone = chatsWithoutProcess(every)
+          const swept = await workAction({ action: 'popup-asks', gone, asking: chatsAsking(every) }, 'server')
+          if (!swept.ok) throw new Error(swept.why ?? 'popup-asks was refused')
+          if (swept.result.changed === true) readState.reset()
         })
         // The supervisor (spec 2026-10-24): an incident whose fix step is done is fixed; one whose fix was dropped, open again.
         // Only while the supervisor's view holds one being fixed: each work call reads the whole store.

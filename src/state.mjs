@@ -58,7 +58,7 @@ import { clearOwed, clearedStageOf, modAtLeast } from './clearOwed.mjs'
 import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
-import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, standingAsksOf } from './recapCard.mjs'
+import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, recapWaitingOf, standingAsksOf } from './recapCard.mjs'
 import { recapRoundOf, reworkOf } from './recapRound.mjs'
 import { guardOf, rebuildHoldsOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
@@ -345,6 +345,56 @@ function feedbackLine(words) {
   return one.length > FEEDBACK_CHARS ? `${one.slice(0, FEEDBACK_CHARS - 1).trimEnd()}…` : one
 }
 
+/**
+ * Pause truth item 2 (the real case: the card of Worker 5 said "said about 1 h 50 left, 5 h ago" at the app's restart, 08:15, for an
+ * estimate given at 23:38): when a card's time left was said. The card's own `at` is when its file was last written, and the Workers
+ * mod rewrites every card at a restart with the plan it held. The history records each look with the estimate's time: the
+ * chat's newest unbroken run of lines for this task with the same time left (`leftMs`) is one estimate, said when its oldest
+ * line says. A renewed plan (another time left), a new task or no history says `cardAt`.
+ */
+function estimateSaidAt(lines, chat, task, step, leftMs, cardAt, hasActed) {
+  // Review: a card the chat wrote itself (an entry of its transcript near the card's time, or no transcript to tell) is a new estimate.
+  if (hasActed) return cardAt
+  let said = null
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]
+    if (line.gap === true || line.chat !== chat) continue
+    if (line.task !== task || (line.step ?? null) !== (step ?? null) || line.leftMs !== leftMs || !Number.isFinite(line.estimateAt)) break
+    said = line.estimateAt
+  }
+  return Number.isFinite(said) && Number.isFinite(cardAt) && said <= cardAt ? said : cardAt
+}
+
+/**
+ * Pause truth item 2: when the newest entry of a transcript was written (its own time stamp), or null when none says. The file's
+ * time is no such time: the app's restart appends a `cost-state` line to every transcript, so every chat read as active then.
+ */
+function lastEntryAt(entries) {
+  const times = (entries ?? []).map(entry => entry.at).filter(Number.isFinite)
+  return times.length === 0 ? null : Math.max(...times)
+}
+
+/** Review 4: the clause for a step in review's wait that the board knows for sure, or null (nothing is said that is not known). */
+function reviewWaitClause(wait) {
+  switch (wait?.kind) {
+    case 'recap': return 'it waits for your verdict in the recap'
+    case 'accept': return 'it waits for your Accept'
+    case 'answer': return 'it waits for your answer'
+    case 'check': return 'its check waits for the hand-out, which the pause holds'
+    default: return null
+  }
+}
+
+/** Review 4 and 8: the pause view's steps in review (held, with no checkpoint) carry `waitsOn` where the board knows it. */
+function withReviewWaits(pause, items, held, now, recaps) {
+  const add = one => {
+    if (one.inReview !== true) return one
+    const clause = reviewWaitClause(reviewWaitOf(items.get(one.id), items, held, now, recaps))
+    return clause === null ? one : { ...one, waitsOn: clause }
+  }
+  return { ...pause, ...(pause.unsaved === undefined ? {} : { unsaved: pause.unsaved.map(add) }), ...(pause.offBoard === undefined ? {} : { offBoard: pause.offBoard.map(add) }) }
+}
+
 /** T13: whether a card's task holds a plan of its own: parts, a count of them, or a time (a topic alone is none). */
 const hasCardPlan = task => task.names !== null || task.steps > 0 || task.leftMs !== null || task.stepLeftMs !== null
 
@@ -407,7 +457,12 @@ function taskOf({ chat, plan, scan, state, before, lines, prefix, now, aliveAt =
     const { text, step: at, steps, names, leftMs } = plan.task
     // The time for the step it is on, and when it said so: like the task's own time, it counts down from there.
     const stepLeftMs = plan.task.stepLeftMs ?? null
-    task = { text, step: at, steps, names, leftMs, estimateAt: leftMs === null ? null : plan.at, stepLeftMs, stepEstimateAt: stepLeftMs === null ? null : plan.at, source: 'plan', by: null }
+    // Pause truth item 2: a card the mod only rewrote (the app's restart) with the same time left is not a new estimate.
+    // Review: healed only when the chat did not act near the card's time (no transcript entry within 5 min of it, or after it).
+    const newest = lastEntryAt(scan)
+    const hasActed = newest === null || !Number.isFinite(plan.at) || newest >= plan.at - 5 * MIN
+    const saidAt = leftMs === null ? plan.at : estimateSaidAt(lines, chat.name, text, at, leftMs, plan.at, hasActed)
+    task = { text, step: at, steps, names, leftMs, estimateAt: leftMs === null ? null : saidAt, stepLeftMs, stepEstimateAt: stepLeftMs === null ? null : saidAt, source: 'plan', by: null }
     // Its record may name other steps too ("after B93"): only a step of its own, or of nobody, counts.
     onStep ??= firstOpen(text.match(/\bB\d+\b/g) ?? [], chat.name)
   } else if (isBusy) {
@@ -732,7 +787,8 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     // A worker that works and has no time from anywhere: a fault to fix, and shown as one. The main chat hands
     // out work and answers the person; it has no task to time.
     isWithoutTime: state === 'working' && !chat.isMain && eta === null,
-    lastActivityAt: Math.max(chat.lastActivityAt ?? 0, tail?.modifiedAt ?? 0) || null,
+    // Pause truth item 2: the chat's last real entry, never its file's own time (the app restart appends a line to every transcript).
+    lastActivityAt: Math.max(chat.lastActivityAt ?? 0, lastEntryAt(entries) ?? tail?.modifiedAt ?? 0) || null,
     // B847: when the app made this chat and where it works: an older chat of a routine is told from it.
     createdAt: chat.createdAt ?? null,
     cwd: chat.cwd ?? null,
@@ -1635,7 +1691,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     .map(chat => ({ ...chat, removedAt: removedAt.get(chat.cliSessionId) ?? null }))
   const main = found.find(chat => chat.isMain)
   // What the history last said about each chat, also from before the board was last off.
-  const last = new Map(lines.filter(line => line.gap !== true).map(line => [line.chat, line]))
+  const last = new Map(lines.filter(line => line.gap !== true && typeof line.chat === 'string').map(line => [line.chat, line]))
   // B299: who waits for the person by the store's asks.
   const waits = storeWaits(raw.work, prefix)
   // B310: the notes each chat filed to the main chat: a pause for the limit may come that way.
@@ -2504,6 +2560,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     // T17.1 (the person: "the new recap, after round 1 is not finetuned to my feedback"): the focus goal's recap while its next round is being
     // made, `{ goal, path, round, done, total, doneSteps }`, or null. It asks no verdict: the page draws a quiet card and counts nothing.
     recapMaking,
+    // 2026-11-05: rows sent back in an earlier round whose new try is in, no next round asked for (src/recapCard.mjs `recapWaitingOf`).
+    recapWaiting: focus === null ? null : recapWaitingOf({ goal: focus.id, recap: raw.goalRecap ?? null, items: itemsById, openChecks: checksOpen, now }),
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
     store: shown.store,
     // B298: the person's words per chat, filed as instructions (work/lists.mjs).
@@ -2571,7 +2629,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     // B934 (X93): the board's newest stalls (stalls.mjs), which the rule board-slow cites.
     stalls: Array.isArray(stalls) ? stalls : [],
     restart,
-    pause,
+    // Review 4: a step in review is named with what it waits on only where the board knows it (reviewWaitOf's kind).
+    pause: pause === null ? null : withReviewWaits(pause, raw.work.items, reconciled?.ready?.held ?? null, now, recapWaits),
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many
     // workers there are, and the newest ask for workers.
     workers: (() => {

@@ -188,6 +188,22 @@ export function fixesOf(id, items) {
 }
 
 /**
+ * 2026-11-05: the steps up the `Fix of` chain of the step `id`, nearest first (B1048 → B1018 → B991): only steps, a loop ends it,
+ * at most 40 hops. Next to `fixesOf`, which goes down.
+ */
+export function fixRootsOf(id, items) {
+  const roots = []
+  const seen = new Set([id])
+  const upOf = at => (items?.get(at) === undefined ? null : valueOf(items.get(at), 'Fix of'))
+  for (let up = upOf(id); typeof up === 'string' && roots.length < 40 && !seen.has(up); up = upOf(up)) {
+    seen.add(up)
+    if (items?.get(up) === undefined || valueOf(items.get(up), 'Kind') !== 'step') break
+    roots.push(up)
+  }
+  return roots
+}
+
+/**
  * The review of B356: a step whose result check failed counts as checked once the fix that check made is done, and no
  * point of the check waits for the person. The second review: only that fix, named in the check's own line ("fix B<n>
  * for ..."), so a fix of an earlier round counts for nothing; a dropped one counts for nothing either.
@@ -279,7 +295,8 @@ export function chainTries(id, items) {
 export const TRIES_BEFORE_ANOTHER_WAY = 2
 /** B664: the line an open fix of a long chain carries, and the line the partner's other way starts its what with. */
 export const ANOTHER_WAY = 'Two rounds, then another way: the partner refines it another way'
-const TRIED_BEFORE = /\bTried before:/i
+/** B1042 (X152): "Tried before:", or a short part before the colon ("Tried before, bridges:"; at most 40 characters, one line). */
+const TRIED_BEFORE = /\bTried before\b[^:\n]{0,40}:/i
 
 /** B664: whether a step's what (its What we build, or its refine block) names the ways tried before ("Tried before: ..."). */
 export const hasTriedBefore = item => ['What we build', 'Refined'].some(name => (item?.sections?.get(name) ?? []).some(one => TRIED_BEFORE.test(one)))

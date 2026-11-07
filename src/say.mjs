@@ -672,7 +672,7 @@ export function spawnWhenAlone(state, outbox, lines) {
   if (main === null || workers.count > 0 || workers.ask?.isOpen === true) return null
   if ((state.chats ?? []).find(chat => chat.name === main)?.isRunning !== true) return null
   const asked = outbox.findLast(sent => sent.command === 'spawn' && sent.why === 'alone')
-  if (asked !== undefined && !lines.some(line => line.gap !== true && line.chat !== main && line.at > asked.at)) return null
+  if (asked !== undefined && !lines.some(line => line.gap !== true && typeof line.chat === 'string' && line.chat !== main && line.at > asked.at)) return null
   return spawnWords(main, 3, 'alone')
 }
 
@@ -1080,11 +1080,13 @@ export function recapFeedbackWords(to, { goal, title, step, round, approved, bac
  * done (`step`: a step of the goal filed or reopened after the person's Send): once per step, so the partner writes the round as soon as
  * one sent-back row's try is in, `pending` for the rest, and the person can judge what is ready (roles/partner.md, "Recap feedback").
  */
-export function recapRoundWords(to, { goal, round, step, path, job }) {
+export function recapRoundWords(to, { goal, round, step, path, job, isIn = false }) {
   return {
     to, ask: null, step, title: null, version: null, verdict: null, command: 'recap-round', about: goal,
     text: [
-      `recap: ${goal} round ${round}: ${step} is done; write the round with its row, \`pending\` for the rest`,
+      isIn
+        ? `recap: ${goal} round ${round}: ${step} is in (reported and checked; a row you were waiting on, sent back in an earlier round); write the round with its row, \`pending\` for the rest`
+        : `recap: ${goal} round ${round}: ${step} is done; write the round with its row, \`pending\` for the rest`,
       `Demo: ${path}`,
       `Your job: ${job}, "Recap feedback"`,
     ].join('\n'),

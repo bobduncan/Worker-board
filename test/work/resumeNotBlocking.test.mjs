@@ -161,7 +161,7 @@ test('2: a chat that holds steps counts once, with each step it holds, a stale h
   ]
   const pause = { state: 'resuming', since: RESUMED, by: 'person', pausedSince: PAUSED }
   const facts = pauseFacts({ pause, items, lanes, now: RESUMED + 5 * MIN })
-  assert.deepEqual(facts, { state: 'resuming', since: RESUMED, waiting: [{ chat: 'Board', ids: ['B1', 'B7'] }, { chat: 'Support', ids: ['B2'] }], isResumed: false, until: RESUMED + RESUME_WAIT_MS })
+  assert.deepEqual(facts, { state: 'resuming', since: RESUMED, pausedSince: PAUSED, waiting: [{ chat: 'Board', ids: ['B1', 'B7'] }, { chat: 'Support', ids: ['B2'] }], isResumed: false, until: RESUMED + RESUME_WAIT_MS })
   const back = lanes.map(lane => (lane.name === 'Board' ? { ...lane, turnAt: RESUMED + 2 * MIN } : lane))
   assert.deepEqual(pauseFacts({ pause, items, lanes: back, now: RESUMED + 5 * MIN }).waiting, [{ chat: 'Support', ids: ['B2'] }])
 })
@@ -216,11 +216,11 @@ test('2: after the 20 minutes the facts name for an hour, as information, the ho
     { name: 'Worker 1', isMain: false, state: 'free', between: null, turnAt: PAUSED - 5 * MIN },
   ]
   const pause = { state: 'running', since: RESUMED + 20 * MIN, by: 'server', pausedSince: PAUSED, resumedSince: RESUMED, notStarted: [{ chat: 'Worker 6', ids: ['B364'] }, { chat: 'Worker 1', ids: ['B188'] }] }
-  assert.deepEqual(pauseFacts({ pause, items, lanes, now: RESUMED + 30 * MIN }), { state: 'running', since: RESUMED + 20 * MIN, notStarted: [{ chat: 'Worker 6', ids: ['B364'] }, { chat: 'Worker 1', ids: ['B188'] }] })
+  assert.deepEqual(pauseFacts({ pause, items, lanes, now: RESUMED + 30 * MIN }), { state: 'running', since: RESUMED + 20 * MIN, pausedSince: PAUSED, resumedSince: RESUMED, notStarted: [{ chat: 'Worker 6', ids: ['B364'] }, { chat: 'Worker 1', ids: ['B188'] }] })
   const one = lanes.map(lane => (lane.name === 'Worker 1' ? { ...lane, turnAt: RESUMED + 25 * MIN } : lane))
   assert.deepEqual(pauseFacts({ pause, items, lanes: one, now: RESUMED + 30 * MIN }).notStarted, [{ chat: 'Worker 6', ids: ['B364'] }])
   // An hour after running, it is said no more; nor without a list.
-  assert.deepEqual(pauseFacts({ pause, items, lanes, now: RESUMED + 80 * MIN }), { state: 'running', since: RESUMED + 20 * MIN })
+  assert.deepEqual(pauseFacts({ pause, items, lanes, now: RESUMED + 80 * MIN }), { state: 'running', since: RESUMED + 20 * MIN, pausedSince: PAUSED, resumedSince: RESUMED })
   assert.deepEqual(pauseFacts({ pause: { state: 'running', since: RESUMED, by: 'server' }, items, lanes, now: RESUMED + MIN }), { state: 'running', since: RESUMED })
 })
 

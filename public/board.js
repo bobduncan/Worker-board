@@ -2203,6 +2203,48 @@ function pausedLanes(chats, pause) {
   return chats.map(lane => (lane?.state === 'interrupted' && (lane.asleep === true || !isUnsaved(lane)) ? { ...lane, state: 'suspended', suspended: { by: 'pause', since: pause.since ?? null, until: null, isBack: false } } : lane))
 }
 
+/**
+ * Pause truth item 1 (2026-11-05, the person's real pause: the cards said Paused, the day bars drew the same chats as
+ * orange "Stopped"): the day bars read the chats `pausedLanes` made suspended by the pause, the one decision, never a second
+ * copy of its rule. The part of such a chat's `interrupted` spans from the pause's start on is drawn `suspended` (the
+ * quiet purple of a pause); what came before the pause stays as it was. Plain data in, a copy out.
+ */
+function pausedToday(today, chats, pause) {
+  if (!Array.isArray(today) || !Array.isArray(chats)) return today
+  const window = pauseWindowOf(pause)
+  if (window === null) return today
+  // While the pause stands, the lanes whose card says Paused (laneStatus: free and interrupted ones under the person's pause);
+  // in a pause that is over, every lane: the person's pause held them all, and history kept them as free or interrupted.
+  const isOver = pause.state !== 'pausing'
+  const names = new Set(chats.filter(lane => isOver || laneStatus(lane)?.key === 'paused').map(lane => lane.name))
+  const draw = piece => ['interrupted', 'free'].includes(piece.state)
+  return today.map(lane => {
+    if (!names.has(lane.chat)) return lane
+    const spans = []
+    for (const piece of lane.spans) {
+      if (!draw(piece) || piece.to <= window.from || piece.from >= window.to) { spans.push(piece); continue }
+      const from = Math.max(piece.from, window.from)
+      const to = Math.min(piece.to, window.to)
+      if (piece.from < from) spans.push({ ...piece, to: from })
+      spans.push({ ...piece, from, to, state: 'suspended' })
+      if (to < piece.to) spans.push({ ...piece, from: to })
+    }
+    return { ...lane, spans }
+  })
+}
+
+/**
+ * Review 10: the time the person's pause held the chats, from the board's own record of it (state.pause: pausing since its start;
+ * resuming and running keep when the pause began, `pausedSince`, and when the resume began). `{ from, to }`, or null. Only the last
+ * pause is on record.
+ */
+function pauseWindowOf(pause) {
+  if (pause?.state === 'pausing') return Number.isFinite(pause.since) ? { from: pause.since, to: Infinity } : null
+  if (pause?.state === 'resuming') return Number.isFinite(pause.pausedSince) && Number.isFinite(pause.since) ? { from: pause.pausedSince, to: pause.since } : null
+  if (pause?.state === 'running') return Number.isFinite(pause.pausedSince) && Number.isFinite(pause.resumedSince) ? { from: pause.pausedSince, to: pause.resumedSince } : null
+  return null
+}
+
 /** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
 function heldText(held) {
   if (held.by === 'pause') return 'Paused by you · stopped at its checkpoint; goes on at Resume all'
@@ -2282,10 +2324,11 @@ function pauseRing(pause) {
     ...chats.filter(chat => chat.state === 'typing').map(chat => `A line is being typed into ${chat.name}.`),
     // B442: lines the pause holds back wait for the resume; they keep nothing from being safe.
     ...((pause.held ?? []).length === 0 ? [] : [`${pause.held.length === 1 ? '1 line waits' : `${pause.held.length} lines wait`} for the resume (${pause.held.map(one => `${one.chat}${one.step === null ? '' : `: ${one.step}`}`).join(', ')}).`]),
-    ...[
-      ...(pause.unsaved ?? []).map(one => `${one.id} (${one.chat})`),
-      ...(pause.offBoard ?? []).map(one => `${one.id} (${one.title}, not on the board)`),
-    ].map(what => `${what} has no checkpoint; it resumes from its branch and History.`),
+    // Pause truth item 7 and review 4, 8: a step in review has no chat to resume; what it waits on is said only where the board knows it.
+    ...[...(pause.unsaved ?? []), ...(pause.offBoard ?? [])].map(one => {
+      const where = one.title === undefined ? one.chat : `${one.title}, not on the board`
+      return one.inReview === true ? `${one.id} (${where}) is in review and has no checkpoint: no chat resumes it${one.waitsOn === undefined ? '' : `; ${one.waitsOn}`}.` : `${one.id} (${where}) has no checkpoint; it resumes from its branch and History.`
+    }),
   ]
   return {
     head: pause.isSafe ? 'All still: safe to restart' : 'Pausing…', tone: pause.isSafe ? 'ready' : '', isDone: pause.isSafe === true,
@@ -3035,6 +3078,25 @@ function alertsOf(lane, state) {
 }
 // alerts:end
 
+/**
+ * Pause truth item 4 (the real case: Main's last line, the app's summary of its turn at 22:33, said "Worker 3 running again; will pick up
+ * B1050" a day later, and Worker 3 never took it: the pause holds what would start a turn). The summary is a chat's past words and
+ * stays as they were; where it names a step the board still holds on its ready list while the pause stands, a line after it says
+ * what is so now. Null when the pause does not hold, or the line names no such step.
+ */
+function lastNotHandedOut(detail, state) {
+  // Review 7: the board's own word that the hand-out holds (a pause, a resume, a full limit: reconcile.mjs `handOutHeld`).
+  if (typeof detail !== 'string' || state?.reconciled?.handOutHeld !== true) return null
+  const ready = new Set((state.readyList?.ready ?? []).map(one => one.id))
+  const ids = [...new Set(detail.match(/\bB\d+\b/g) ?? [])].filter(id => ready.has(id))
+  if (ids.length === 0) return null
+  const one = ids.length === 1
+  const reason = state.pause?.state === 'pausing' ? `the pause holds ${one ? 'it' : 'them'}; ${one ? 'it goes' : 'they go'} out after Resume all`
+    : state.pause?.state === 'resuming' ? 'the hand-out is held while the resume goes on'
+      : 'the hand-out is held while a usage limit is full'
+  return `${ids.join(', ')} ${one ? 'is' : 'are'} not handed out yet: ${reason}.`
+}
+
 function drawMore(lane, state) {
   const more = el('div', 'more')
   const now = state.readAt
@@ -3096,6 +3158,8 @@ function drawMore(lane, state) {
     list.append(item)
   } else if (compacted !== null) list.append(el('li', 'muted', compacted.title))
   if (lane.statusDetail !== null) list.append(el('li', '', `Last: ${lane.statusDetail}`))
+  const notHandedOut = lastNotHandedOut(lane.statusDetail, state)
+  if (notHandedOut !== null) list.append(el('li', 'muted', notHandedOut))
   for (const folder of lane.folders) list.append(el('li', '', folderLine(folder, now)))
   if (lane.lastActivityAt !== null) list.append(el('li', 'muted', `Last activity ${ago(lane.lastActivityAt, now)}`))
   details.append(list)
@@ -22431,6 +22495,8 @@ async function read() {
     bannerAnswered(state)
     // 2026-10-28: while the person pauses, a chat stopped at its checkpoint shows as suspended (`pausedLanes`).
     if (state?.pause?.state === 'pausing') state.chats = pausedLanes(state.chats, state.pause)
+    // Pause truth item 1 and review 10: the day bars follow the cards, and a pause that is over stays drawn as the pause it was.
+    state.today = pausedToday(state.today, state.chats, state.pause)
     withAnswers(state)
     // Light state: the finished steps this page read whole stand whole again.
     withFullSteps(state)

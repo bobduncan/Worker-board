@@ -78,6 +78,13 @@ export function showsCheck(shows, sentAt) {
   return { state: shows.verdict === 'yes' ? 'yes' : 'no', why: oneLine(shows.why, COMMENT_CHARS) }
 }
 
+/**
+ * 2026-11-05: whether a row sent back at `sentAt` (ms) has its new try: the demo was written (`changedAt`, ms) in a later minute than the Send,
+ * and the row is not pending, says what changed, and a checker said after the Send that its close-up shows the person's words. One test for
+ * the verdicts that wait (src/recaps.mjs `recapWaitsOf`) and the rows a try is owed to (src/recapCard.mjs `recapWaitingOf`).
+ */
+export const isTriedSince = (row, sentAt, changedAt) => isAfterSend(changedAt, sentAt) && row?.pending !== true && row?.changed === true && showsCheck(row?.shows ?? null, sentAt).state === 'yes'
+
 /** Whether a row (of the page model) says what changed for the person's words. */
 export const hasChanged = row => typeof row?.changed === 'string' && row.changed.trim() !== ''
 /** Whether a row (of the page model) says its new try is not in yet. */
