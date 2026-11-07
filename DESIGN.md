@@ -42,6 +42,15 @@ time and the coverage anew. Five summaries 416 ms → 2 ms on the live ledger (t
   file a write is ~60 ms to text plus ~33 ms to disk, once per scan that changed something.
 The check: `tools/spending-count.mjs` counts every answer from the transcripts; on 2026-11-05 the 7-day numbers per
 chat matched the collector run fresh to 0% (tests: test/work/spendingEveryChat.test.mjs).
+**Round 4 (2026-11-05, the lead's final check).** (a) The read budget (5 s) starts after discovery; a read-out session
+whose transcript and subagents folder are both gone is not walked, one whose transcript or folder is newer than its mark
+(`readOutAt`) is, and ~100 more a scan in rotation (`readOutCursor`). (b) The events the 50 000 cap drops are folded into
+per-day, per-chat, per-model, effort and phase totals (`ledger.folded`, `foldEvents`; the cost is worked out per message
+first), so 30 days and All are complete and "Covers only from" stays away; a ledger without them (`foldVersion`) is read
+again once from the start. (d) An all-zero chunk advances the offset: no skipped line, no notice. (e) The mark phase groups
+jobs by session in one pass. (f) A summary is cached by the outcomes' content (not the array), built in one pass per
+period with the cost and day of an event remembered, and a window that moved past no message keeps its summary (the five
+summaries of the board on the live 50 000 events: 340 ms before, 2 ms across a scan, ~45 ms after a window move).
 
 > **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
