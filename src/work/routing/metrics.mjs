@@ -24,16 +24,18 @@ const calls=entry=>(entry.blocks??[]).filter(b=>b.type==='tool_use'&&/(?:^|__)wo
 const phaseOf=action=>['refine','refined','contract','new'].includes(action)?'spec':['checked','candidate-review'].includes(action)?'review':['route-raise'].includes(action)?'evaluate':null
 // `index` (a Map by message id) is filled in place, for a collector that keeps it between chunks; without it `previous` is copied.
 export function attributeUsage({entries,assignments=[],sourceSessionId,parentSessionId=null,chat=sourceSessionId,role,previous=[],index=null,cursor={}}){
-  const events=index??new Map(previous.map(e=>[e.messageId,e]));let unknown=0,taskId=cursor.taskId??null
+  const events=index??new Map(previous.map(e=>[e.messageId,e]));let unknown=0,taskId=cursor.taskId??null,takenAt=cursor.takenAt??null
   for(const entry of entries){
     if(entry.type!=='assistant')continue
     const child=parentSessionId!==null||entry.isSidechain===true
     const actions=calls(entry),take=actions.find(a=>a.action==='take'&&/^B\d+$/.test(a.id??''))
-    if(take&&!child)taskId=take.id
+    if(take&&!child){taskId=take.id;takenAt=Number.isFinite(entry.at)?entry.at:null}
+    // Round 5 (a): a compaction writes an older stretch again, so a message older than the take is no work of that task.
+    const active=taskId&&!child&&!(takenAt!==null&&Number.isFinite(entry.at)&&entry.at<takenAt)
     if(!entry.messageId||!Number.isFinite(entry.at)){unknown++;continue}
     const assignment=assignments.filter(a=>a.ownerSessionId===sourceSessionId&&entry.at>=a.createdAt&&(a.completedAt==null||entry.at<=a.completedAt)).sort((a,b)=>b.createdAt-a.createdAt)[0]
     const tagged=actions.find(a=>/^B\d+$/.test(a.id??'')&&phaseOf(a.action))
-    const next={messageId:entry.messageId,sourceSessionId,parentSessionId,chat,role:role??'unknown',sourceAt:entry.at,actualModel:entry.model??null,actualEffort:entry.effort??null,taskId:assignment?.taskId??tagged?.id??(child?null:taskId),rootTaskId:assignment?.rootTaskId??null,attemptId:assignment?.attemptId??null,phase:assignment?.phase??phaseOf(tagged?.action)??(!child&&role==='main'?'coordinate':taskId&&!child?'implement':'unattributed'),attribution:assignment?'assignment':tagged?'work-call':taskId&&!child?'active-task':'unattributed',isChild:child,...Object.fromEntries(tokenKeys.map(k=>[k,number(entry.usage?.[k])]))}
+    const next={messageId:entry.messageId,sourceSessionId,parentSessionId,chat,role:role??'unknown',sourceAt:entry.at,actualModel:entry.model??null,actualEffort:entry.effort??null,taskId:assignment?.taskId??tagged?.id??(active?taskId:null),rootTaskId:assignment?.rootTaskId??null,attemptId:assignment?.attemptId??null,phase:assignment?.phase??phaseOf(tagged?.action)??(!child&&role==='main'?'coordinate':active?'implement':'unattributed'),attribution:assignment?'assignment':tagged?'work-call':active?'active-task':'unattributed',isChild:child,...Object.fromEntries(tokenKeys.map(k=>[k,number(entry.usage?.[k])]))}
     const before=events.get(entry.messageId)
     if(before){
       // Message IDs are global. A fork's copied old lines are not newly generated answers.
@@ -44,9 +46,9 @@ export function attributeUsage({entries,assignments=[],sourceSessionId,parentSes
       if(before.sourceSessionId===sourceSessionId&&!merged.taskId&&next.taskId){merged.taskId=next.taskId;merged.phase=next.phase;merged.attribution=next.attribution}
       events.set(entry.messageId,merged)
     }else events.set(entry.messageId,next)
-    if(actions.some(a=>a.action==='report'&&a.id===taskId)&&!child)taskId=null
+    if(actions.some(a=>a.action==='report'&&a.id===taskId)&&!child){taskId=null;takenAt=null}
   }
-  return {events:index?null:[...events.values()],cursor:{taskId},unknown}
+  return {events:index?null:[...events.values()],cursor:{taskId,takenAt},unknown}
 }
 const round=n=>Math.round(n*1e8)/1e8
 // Round 4 (f): an event's cost and day are worked out once and kept with it, not again in every grouping of every
@@ -72,6 +74,22 @@ export function foldEvents(rows,events){
   }
   return [...byKey.values()]
 }
+/**
+ * Round 5 (e): the rows older than `before` are merged per task and month: one row per month start, chat, model, effort, phase
+ * and task. Every table groups by one of these (the daily one by day, which the tab shows for the last 31 days only), so each
+ * table's totals stay the same. Rows from `before` on stay per day.
+ */
+export const FOLD_MERGE_DAYS=60
+export function compactFolded(rows,before){
+  const out=new Map()
+  for(const row of rows){
+    const d=new Date(row.sourceAt),sourceAt=row.sourceAt<before?Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1):row.sourceAt
+    const key=[sourceAt,row.chat,row.actualModel,row.actualEffort,row.phase,row.taskId??null].join('|'),into=out.get(key)
+    if(!into){out.set(key,{...row,sourceAt});continue}
+    for(const k of ['messages','unknown','low','high',...tokenKeys])into[k]+=row[k]
+  }
+  return [...out.values()]
+}
 // Every grouping of a period in one pass over its events: `keys` names each grouping and how it keys an event (null:
 // the event is not in that grouping).
 function groupedMany(events,keys){
@@ -91,12 +109,13 @@ function groupedMany(events,keys){
   return Object.fromEntries(names.map(name=>[name,[...all[name].values()].map(g=>({...g,low:round(g.low),high:round(g.high)})).sort((a,b)=>b.high-a.high||a.key.localeCompare(b.key))]))
 }
 const grouped=(events,key)=>groupedMany(events,{one:key}).one
-export function routingSummary({events=[],folded=[],outcomes=[],now=Date.now(),days=7,coverage={}}){
+export function routingSummary({events=[],folded=[],outcomes=[],now=Date.now(),days=7,coverage={},held=null}){
   const asked=days===null?-Infinity:now-days*86400000
   // A folded day cannot be cut: it is one row at its day's start. When it holds the window's start, the window begins at
   // that day's start instead (up to 24 h more than asked, folded and kept events alike), and `coverage.widenedFrom` says so.
   // It does so only when the kept events begin after the asked start: if they reach back past it, the folded days are all older.
-  const widened=days!==null&&folded.some(e=>e.sourceAt<asked&&e.sourceAt+86400000>asked)&&!events.some(e=>e.sourceAt<=asked),from=widened?Math.floor(asked/86400000)*86400000:asked
+  // Round 5 (b): a `held` message (its file is read only part way) stays kept however old; it does not count as reaching back.
+  const widened=days!==null&&folded.some(e=>e.sourceAt<asked&&e.sourceAt+86400000>asked)&&!events.some(e=>e.sourceAt<=asked&&!held?.has(e.messageId)),from=widened?Math.floor(asked/86400000)*86400000:asked
   const selected=[...folded.filter(e=>e.sourceAt>=from&&e.sourceAt<=now),...events.filter(e=>e.sourceAt>=from&&e.sourceAt<=now)]
   const groups=groupedMany(selected,{total:()=> 'total',attributed:e=>e.taskId?'total':null,phases:e=>e.phase,models:e=>e.actualModel,efforts:e=>e.actualEffort,chats:e=>e.chat,tasks:e=>e.taskId??'Unassigned',daily:e=>dayOf(e.sourceAt)})
   const total=groups.total[0]??{low:0,high:0,messages:0,unknown:0,input:0,cacheRead:0,cacheWrite:0,output:0}

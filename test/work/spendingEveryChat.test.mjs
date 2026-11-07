@@ -8,7 +8,7 @@ import {createWriteStream} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createSpendingCollector,movedSubjects} from '../../src/work/routing/collector.mjs'
-import {attributeUsage,estimateUsage,foldEvents,routingSummary} from '../../src/work/routing/metrics.mjs'
+import {attributeUsage,compactFolded,estimateUsage,foldEvents,routingSummary,FOLD_MERGE_DAYS} from '../../src/work/routing/metrics.mjs'
 
 const at=Date.UTC(2026,10,5,9)
 // The shapes of a real transcript: an answer with its usage, and a tool's output (the bulk of a transcript).
@@ -510,7 +510,8 @@ test('a ledger that older code wrote after the day totals is read again once',as
   const first=createSpendingCollector({dir:root,transcripts,clock});await first.load();await scanAll(first)
   const same=createSpendingCollector({dir:root,transcripts,clock});await same.load()
   assert.equal(same.summary(null).coverage.pendingBytes,0,'a restart of the same code reads nothing again')
-  const ledger=await ledgerOf(root);ledger.folded=ledger.folded.slice(0,-3);ledger.lastScanAt+=60000
+  // Older code trims the oldest kept events without folding them, and writes lastScanAt alone.
+  const ledger=await ledgerOf(root);ledger.events=ledger.events.slice(100);ledger.lastScanAt+=60000
   await writeFile(join(root,'spending.json'),JSON.stringify(ledger))
   const again=createSpendingCollector({dir:root,transcripts,clock});await again.load();await scanAll(again)
   assert.equal(again.summary(null).messages,CAP_TOTAL)
@@ -534,4 +535,104 @@ test('a message still being read is not folded before its last line',async()=>pl
   for(let n=0;n<10;n++)await collector.scan([{session:'q',name:'Worker Q',role:'worker'}])
   const all=collector.summary(null)
   assert.equal(all.messages,50011);assert.equal(all.tokens.output,50010*20+215,'the later line of the split message counts')
+}))
+
+// ---- Round 5: follow-ups of the fold ----
+const usage={input:1,cacheWrite:0,cacheRead:0,output:1}
+const takeCall=id=>[{type:'tool_use',name:'mcp__workers__work',input:{action:'take',id}}]
+const msg=(id,time,blocks=[])=>({type:'assistant',messageId:id,at:time,model:'claude-sonnet-5-5',effort:'medium',usage,blocks})
+const taskOf=(events,id)=>events.get(id).taskId
+
+// (a) A compaction writes an older stretch of the chat again (same message ids) while a later task is the cursor. The old
+// message was never that task's: it is not linked. The take time rides in the cursor between chunks.
+// Mutant (no take time: the replayed message takes the task): 'old' is linked to B30.
+test('a replayed message older than the take of the current task is not linked to it',()=>{
+  const index=new Map(),T=Date.UTC(2026,9,18,8)
+  let cursor=attributeUsage({entries:[msg('old',T-3*86400000)],sourceSessionId:'s',chat:'W',role:'worker',index}).cursor
+  cursor=attributeUsage({entries:[msg('take',T,takeCall('B30'))],sourceSessionId:'s',chat:'W',role:'worker',index,cursor}).cursor
+  assert.equal(cursor.takenAt,T)
+  // the next chunk (the cursor comes back from the ledger): the replay, then a message after the take
+  cursor=attributeUsage({entries:[msg('old',T-3*86400000),msg('older2',T-86400000),msg('after',T+1000)],sourceSessionId:'s',chat:'W',role:'worker',index,cursor:JSON.parse(JSON.stringify(cursor))}).cursor
+  assert.equal(taskOf(index,'old'),null,'a replayed message');assert.equal(taskOf(index,'older2'),null,'a first copy that is older than the take');assert.equal(index.get('older2').phase,'unattributed')
+  assert.equal(taskOf(index,'take'),'B30');assert.equal(taskOf(index,'after'),'B30')
+  attributeUsage({entries:[msg('rep',T+2000,[{type:'tool_use',name:'mcp__workers__work',input:{action:'report',id:'B30'}}])],sourceSessionId:'s',chat:'W',role:'worker',index,cursor})
+  assert.equal(taskOf(index,'rep'),'B30')
+})
+
+// (b) The 30-day window widens to the folded day that holds its start when no kept message reaches back past the asked start.
+// A held message (its file ends in a cut line) is kept for good and must not switch that off.
+// Mutant (held ignored): the window is not widened and the boundary day is left out.
+test('a held message does not switch off the widening of the 30-day window',async()=>place(async({root})=>{
+  const DAY=86400000,now=Date.UTC(2026,10,7,10),dayStart=Date.UTC(2026,9,8)
+  const row={folded:true,sourceAt:dayStart,chat:'c',actualModel:'claude-opus-5-5',actualEffort:'high',phase:'implement',taskId:null,messages:222,unknown:0,low:1,high:2,input:1,cacheRead:0,cacheWrite:0,output:1}
+  const ev=(id,time)=>({messageId:id,sourceSessionId:'s',chat:'c',phase:'implement',sourceAt:time,actualModel:'claude-opus-5-5',actualEffort:'high',input:1,cacheWrite:0,cacheRead:0,output:1})
+  const events=[ev('stuck',now-40*DAY),ev('k1',now-5*DAY),ev('k2',now-DAY)]
+  await writeFile(join(root,'spending.json'),JSON.stringify(seeded({events,folded:[row],retentionLimited:true,scans:{s:{offset:5,size:50,taskId:null,lastMessageId:'stuck'}}})))
+  const collector=createSpendingCollector({dir:root,transcripts:join(root,'t'),clock:()=>now});await collector.load()
+  const month=collector.summary(30)
+  assert.equal(month.coverage.widenedFrom,dayStart);assert.equal(month.messages,222+2,'the boundary day is counted whole')
+  assert.equal(routingSummary({events,folded:[row],now,days:30}).coverage.widenedFrom,null,'without the held ids a kept old message reaches back')
+}))
+
+// (c) The in-memory set of folded ids follows the cut of the stored string: an id that was cut is not known any more,
+// as after a restart. Mutant (the set only grows): the copy of the cut id is dropped as folded.
+test('the set of folded ids is rebuilt when the stored string is cut',async()=>place(async({root,transcripts})=>{
+  const events=Array.from({length:50010},(_,n)=>({messageId:`e${n}`,sourceSessionId:'s',chat:'Worker A',phase:'unattributed',sourceAt:at+(n+1)*1000,actualModel:'claude-opus-5-5',actualEffort:null,input:1,cacheWrite:0,cacheRead:0,output:1}))
+  await writeFile(join(root,'spending.json'),JSON.stringify(seeded({events,foldedIds:hashOf('oldest')+'ab'.repeat(6*299999),foldedBefore:at+1000,retentionLimited:true,retainedFrom:at})))
+  await writeFile(join(transcripts,'a.jsonl'),answer('fresh','a')+'\n')
+  const collector=createSpendingCollector({dir:root,transcripts,clock:()=>at+1e8});await collector.load()
+  const subjects=[{session:'a',name:'Worker A',role:'worker'},{session:'b',name:'Worker B',role:'worker'}]
+  await collector.scan(subjects)
+  assert.ok(!(await ledgerOf(root)).foldedIds.startsWith(hashOf('oldest')),'the oldest id was cut')
+  // a fork copies the cut message; it is counted again, as it is after a restart
+  await writeFile(join(transcripts,'b.jsonl'),lineAt('oldest','b',at))
+  await collector.scan(subjects)
+  assert.equal(collector.summary(null).messages,50010+1+1)
+}))
+
+// (d) After a rollback the ledger is read again but its day totals stay: a re-read message at or before foldedBefore is in
+// them already. A transcript that is gone or rewritten no longer takes its folded days with it.
+// Mutant (the re-read wipes folded as before): the folded days of the emptied transcript are lost.
+test('a re-read after a rollback keeps the day totals and does not fold their messages again',async()=>place(async({root,transcripts})=>{
+  const start=await bigTranscripts(transcripts),clock=()=>start+CAP_TOTAL*60000+1000
+  const first=createSpendingCollector({dir:root,transcripts,clock});await first.load();await scanAll(first)
+  const ledger=await ledgerOf(root);ledger.lastScanAt+=60000
+  await writeFile(join(root,'spending.json'),JSON.stringify(ledger))
+  await writeFile(join(transcripts,'b.jsonl'),'')
+  const again=createSpendingCollector({dir:root,transcripts,clock});await again.load();await scanAll(again)
+  assert.equal(again.summary(null).messages,CAP_TOTAL,'nothing lost, nothing twice')
+  assert.equal(again.summary(null).chats.find(c=>c.key==='Worker B').messages,CAP_TOTAL/5)
+  assert.equal((await ledgerOf(root)).rereadBefore,undefined,'the re-read is over')
+  const third=createSpendingCollector({dir:root,transcripts,clock});await third.load()
+  assert.equal(third.summary(null).messages,CAP_TOTAL);assert.equal(third.summary(null).coverage.pendingBytes,0)
+}))
+
+// (e) Rows older than 60 days are merged per month. Each table's totals stay the same; rows of the last 60 days stay per day.
+// Mutant (task out of the merged key): the tasks table changes. Mutant (chat out of it): the chats table changes.
+test('folded rows older than 60 days are merged per month and every table keeps its totals',()=>{
+  const DAY=86400000,now=Date.UTC(2026,10,7,10),chats=['A','B','C'],models=['claude-opus-5-5','claude-sonnet-5-5'],efforts=['high','medium',null],phases=['implement','spec','coordinate']
+  const events=Array.from({length:150*24},(_,n)=>({messageId:`x${n}`,sourceAt:now-150*DAY+n*3600000,chat:chats[n%3],actualModel:models[n%2],actualEffort:efforts[n%3],phase:phases[n%7%3],taskId:n%11===0?null:`B${Math.floor(n/240)}`,input:n%5,cacheRead:n,cacheWrite:1,output:2}))
+  const rows=foldEvents([],events),cutoff=now-FOLD_MERGE_DAYS*DAY,merged=compactFolded(rows,cutoff)
+  assert.ok(merged.length<rows.length/2,`${rows.length} rows became ${merged.length}`)
+  assert.ok(merged.filter(r=>r.sourceAt>=cutoff).length===rows.filter(r=>r.sourceAt>=cutoff).length,'recent rows stay per day')
+  assert.ok(merged.filter(r=>r.sourceAt<cutoff).every(r=>new Date(r.sourceAt).getUTCDate()===1&&r.sourceAt%DAY===0),'old rows sit on a month start')
+  const a=routingSummary({events:[],folded:rows,now,days:null}),b=routingSummary({events:[],folded:merged,now,days:null})
+  const trim=t=>t.map(r=>[r.key,r.messages,r.unknown,r.low,r.high,r.input,r.cacheRead,r.cacheWrite,r.output])
+  for(const table of ['models','efforts','chats','phases','tasks'])assert.deepEqual(trim(b[table]),trim(a[table]),table)
+  assert.equal(b.messages,a.messages);assert.equal(b.attributedMessages,a.attributedMessages);assert.deepEqual(b.knownCost,a.knownCost);assert.deepEqual(b.tokens,a.tokens)
+  assert.equal(b.daily.reduce((n,d)=>n+d.messages,0),a.daily.reduce((n,d)=>n+d.messages,0))
+  assert.deepEqual(trim(b.daily.slice(-60)),trim(a.daily.slice(-60)),'the last 60 days stay per day')
+  assert.deepEqual(compactFolded(merged,cutoff),merged,'merging again changes nothing')
+})
+test('a fold in the collector merges the rows of the old days',async()=>place(async({root,transcripts})=>{
+  const DAY=86400000,now=Date.UTC(2026,10,7,10)
+  const events=Array.from({length:50010},(_,n)=>({messageId:`e${n}`,sourceSessionId:'s',chat:'Worker A',phase:'unattributed',sourceAt:now-100*DAY+Math.floor(n/10)*60000+(n<10?-DAY:0),actualModel:'claude-opus-5-5',actualEffort:null,input:1,cacheWrite:0,cacheRead:0,output:1}))
+  const day=k=>({folded:true,sourceAt:Date.UTC(2026,7,k),chat:'Worker A',actualModel:'claude-opus-5-5',actualEffort:null,phase:'unattributed',taskId:null,messages:3,unknown:0,low:1,high:1,input:3,cacheRead:0,cacheWrite:0,output:3})
+  await writeFile(join(root,'spending.json'),JSON.stringify(seeded({events,folded:[day(1),day(2),day(3)],retentionLimited:true})))
+  await writeFile(join(transcripts,'a.jsonl'),answer('fresh','a')+'\n')
+  const collector=createSpendingCollector({dir:root,transcripts,clock:()=>now});await collector.load()
+  await collector.scan([{session:'a',name:'Worker A',role:'worker'}])
+  const ledger=await ledgerOf(root)
+  assert.ok(ledger.folded.length>0&&ledger.folded.every(r=>new Date(r.sourceAt).getUTCDate()===1),'every old row is on a month start')
+  assert.equal(ledger.folded.reduce((n,r)=>n+r.messages,0),9+11)
 }))
