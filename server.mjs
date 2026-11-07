@@ -108,7 +108,7 @@ import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
 import { basesNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { readAccountFolders } from './src/appChats.mjs'
-import { asksOf, liftBan } from './src/startupCheck.mjs'
+import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
 import { HANDOVER_COMMAND, envelopesOf, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
 import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
@@ -2470,12 +2470,7 @@ async function main(args) {
       const prefix = state.chatPrefix ?? ''
       const reportsNow = reports === null ? {} : Object.fromEntries(reports)
       const outbox = store.outbox()
-      const lanes = boardLanes(state).map(lane => ({
-        name: lane.name,
-        // The chat the lane's reports come from (its own chat after H2), else the one the board shows, never a launch stub.
-        appSession: reportsNow[lane.name]?.app ?? wakeIdsOf(lane).appSession ?? lane.appSession ?? null,
-        cliSession: lane.session ?? null, model: lane.model ?? null, isRunning: lane.isRunning ?? null,
-      }))
+      const lanes = boardLanes(state).map(lane => checkLaneOf(lane, reportsNow[lane.name], canLaunchNow()))
       const stored = await readStore(workDir)
       const incidents = [...stored.items.values()].filter(item => item.head.get('Kind') === 'incident')
         .map(item => ({ id: item.head.get('Id'), key: item.head.get('Key'), source: item.head.get('Source'), subject: item.head.get('Subject'), state: item.head.get('State'), since: item.head.get('Since') }))

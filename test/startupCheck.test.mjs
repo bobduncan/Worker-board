@@ -11,7 +11,7 @@ import test from 'node:test'
 
 import { listedWhere, readAccountFolders, readAppChats } from '../src/appChats.mjs'
 import { recordFindings } from '../src/supervisor/incidents.mjs'
-import { apply, asksOf, judge, liftBan, pictureOf } from '../src/startupCheck.mjs'
+import { apply, asksOf, checkLaneOf, judge, liftBan, pictureOf } from '../src/startupCheck.mjs'
 import { createChecker } from '../src/startupCheckRun.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
@@ -563,7 +563,7 @@ async function storeWithAsks(t) {
 test('MUST 2: asksOf reads the open asks routed to the person with their step (Q666 has no Of: the first B<n> of its title) and the step\'s state', async t => {
   const dir = await storeWithAsks(t)
   const asks = asksOf((await readStore(dir)).items)
-  assert.deepEqual(asks.find(one => one.id === 'Q666'), { id: 'Q666', owner: 'Main', step: 'B1051', stepState: 'done' })
+  assert.deepEqual(asks.find(one => one.id === 'Q666'), { id: 'Q666', owner: 'Main', step: 'B1051', stepState: 'done', since: new Date(2026, 10, 5, 21, 41).getTime(), stepEndedAt: new Date(2026, 10, 5, 22, 4).getTime() })
   assert.deepEqual(asks.map(one => [one.id, one.step, one.stepState]).sort(), [['Q666', 'B1051', 'done'], ['Q700', 'B1051', 'done'], ['Q701', 'B1060', 'in progress'], ['Q703', 'B1061', 'dropped']])
   // Not read: another route (Q702), not open (Q704), an Of that is a goal (Q705: no step).
   assert.equal(asks.some(one => ['Q702', 'Q704'].includes(one.id)), false)
@@ -623,4 +623,176 @@ test('MUST 2: the work API\'s `asks-withdrawn` is the board\'s alone and checks 
   assert.equal(store.items.get('Q666').head.get('State'), 'withdrawn')
   assert.equal(store.items.get('Q701').head.get('State'), 'open')
   assert.equal(store.items.get('B1051').head.get('State'), 'done', 'the step is not touched')
+})
+
+// ---- Review 2 (Opus, 2026-11-07 09:3x): the live Supervisor trace, the not-joined cause and four smaller fixes ----
+
+const SUP_APP = 'local_43a11efb-3de3-4577-802d-e91718ec94a1'
+const SUP_STUB = 'local_2a0e22b5-4fb2-4aed-aa8c-9fc0d46ef6a1'
+/** The live files of 11-07: the report names 43a11efb (cli 07bea5e3 now), the wake messages the archived stub 2a0e22b5 (no answer, no turn). */
+const supervisorLive = async ({ activeAt = AT_2125 - 1000, extra = {} } = {}) => {
+  const sources = await sourcesOf({ elsewhere: false, down: ['Supervisor'], ...extra })
+  const folders = sources.folders.map(one => ({
+    ...one,
+    ids: [...one.ids, SUP_STUB],
+    chats: new Map([
+      ...[...one.chats].map(([id, chat]) => [id, id === SUP_APP ? { ...chat, cliSessionId: '07bea5e3-8c8e-4c44-9f0e-3d1f6a2b9c10', lastActivityAt: activeAt } : chat]),
+      ...(one.account === '7b36a87b-new' ? [[SUP_STUB, { isArchived: true, isStub: true, cliSessionId: '2a0e22b5-4fb2-4aed-aa8c-9fc0d46ef6a1' }]] : []),
+    ]),
+  }))
+  // The lane as the check reads it from the board's own lane (checkLaneOf): the wake's ids, not the report's app.
+  const board = { name: 'Supervisor', session: '2a0e22b5-4fb2-4aed-aa8c-9fc0d46ef6a1', appSession: SUP_APP, model: 'claude-sonnet-5-5', isRunning: false, own: { session: '2a0e22b5-4fb2-4aed-aa8c-9fc0d46ef6a1', appSession: SUP_STUB, isListed: true, isShown: true } }
+  const lane = checkLaneOf(board, sources.reports.Supervisor, true)
+  return { ...sources, folders, lanes: sources.lanes.map(one => (one.name === 'Supervisor' ? lane : one)), lane }
+}
+
+test('review 2 (1) and (2): the lane is read by the wake\'s own ids and paths, not by the app id its report names', async () => {
+  const { lane } = await supervisorLive()
+  assert.equal(lane.appSession, SUP_STUB, 'the wake messages the stub, so the check judges the stub')
+  assert.deepEqual(lane.paths, ['message', 'launch'])
+  assert.equal(checkLaneOf({ name: 'Worker 1', session: null, appSession: null, own: { isListed: false, elsewhere: 'old' } }, { app: W1_APP }, true).appSession, W1_APP, 'no ids of its own (another account): the report\'s app id fills in')
+  assert.deepEqual(checkLaneOf({ name: 'W', session: 'cli', appSession: 'local_x' }, null, false).paths, ['message'], 'no launch where the board cannot launch')
+  // The check's `final` is the notice\'s: with the lane\'s paths a lane that could only message is final after one failed message.
+  const record = wakesOfFile(await json('wakes.json'))
+  const oneMessage = pictureOf({ ...(await sourcesOf({ down: ['Worker 3'] })), wakes: record, lanes: [{ name: 'Supervisor', appSession: SUP_APP, isRunning: false, paths: ['message'] }] })
+  const both = pictureOf({ ...(await sourcesOf({ down: ['Worker 3'] })), wakes: record, lanes: [{ name: 'Supervisor', appSession: SUP_APP, isRunning: false }] })
+  assert.equal(oneMessage.wakes.Supervisor.final, both.wakes.Supervisor.final, 'the Supervisor spent both')
+  const spent = wakesOfFile({ wakes: { 'Worker 3': [{ spell: 5, attempts: [{ path: 'message', at: 1, by: 'Main', jobId: 'w', sentAt: 2, runBefore: null, verdict: 'failed', verdictAt: 3, why: 'x', step: null }], turnEndedAt: null, told: { failed: false, nobody: false } }] } })
+  const lonely = lanes => pictureOf({ ...{ now: AT_2125, folders: [], reports: {}, tooSlow: true }, wakes: spent, lanes }).wakes['Worker 3'].final
+  assert.equal(lonely([{ name: 'Worker 3', appSession: 'local_x', isRunning: false, paths: ['message'] }]), true, 'message only: one failed message is final')
+  assert.equal(lonely([{ name: 'Worker 3', appSession: 'local_x', isRunning: false, paths: ['message', 'launch'] }]), false, 'with a launch path it still has one to try')
+})
+
+test('review 2 (3): the live Supervisor case is `notJoined`: not woken again, not "no chat", one line saying it must re-join; X157 stays', async () => {
+  const sources = await supervisorLive({ extra: { trigger: 'start', triggerAt: AT_2125 } })
+  const picture = pictureOf(sources)
+  assert.deepEqual(picture.lanes.find(one => one.name === 'Supervisor').unjoined, { at: AT_2125 - 1000, session: '07bea5e3-8c8e-4c44-9f0e-3d1f6a2b9c10' })
+  const verdict = judge(picture)
+  assert.deepEqual(verdict.notJoined, ['Supervisor'])
+  assert.deepEqual(verdict.nowhere, [])
+  assert.deepEqual(verdict.actions.reopen.map(one => one.chat), [], 'a wake would go into a turn nobody on the board hears')
+  assert.match(verdict.line, /^6 of 7 chats reachable · checked 21:25 · Supervisor's chat runs but is not on the board's list: it must re-join$/)
+  assert.equal(verdict.tone, 'attention')
+  assert.equal(verdict.actions.closeIncidents.some(one => one.id === 'X157'), false)
+  const result = await apply(verdict, { wakes: sources.wakes }, AT_2125)
+  assert.deepEqual(result.notJoined, ['Supervisor'], 'in the result (state.check)')
+  // Not when the chat is known to the board: its file holds the lane's own session, or the report's, or another lane's; nor when it was quiet since the failure.
+  for (const session of ['2a0e22b5-4fb2-4aed-aa8c-9fc0d46ef6a1', '4b8fa69f-b1c7-4579-8096-5dfcd380a166']) {
+    const same = await supervisorLive()
+    same.folders = same.folders.map(one => ({ ...one, chats: new Map([...one.chats].map(([id, chat]) => [id, id === SUP_APP ? { ...chat, cliSessionId: session } : chat])) }))
+    assert.deepEqual(judge(pictureOf(same)).notJoined, [], session)
+  }
+  assert.deepEqual(judge(pictureOf(await supervisorLive({ activeAt: 1793862907000 }))).notJoined, [], 'active only before the report and the failure')
+})
+
+test('review 2 (4): while a check runs the last finished result still stands for the Supervisor\'s per-chat rules', () => {
+  const NOW = new Date(2026, 10, 7, 9, 30).getTime()
+  const failed = { state: 'failed', final: true, need: true, spell: 1, path: 'message', at: NOW - 60_000, by: 'Main', why: 'x', attempts: [{ path: 'message', at: NOW - 70_000, by: 'Main', verdict: 'failed', verdictAt: NOW - 60_000, why: 'no report', sentAt: NOW - 69_000 }] }
+  const view = buildView({
+    state: { chats: [{ name: 'Supervisor', isLeftover: false, isMain: false, isRunning: false, state: 'off', wake: failed }], chatPrefix: '', wakeBoardSince: null, wakes: {}, check: { at: NOW, trigger: 'button', running: true, total: 7, reachable: 6, line: 'x', tone: 'attention', fixed: [], elsewhere: [], restartNeeded: [], notJoined: ['Supervisor'], nowhere: [], tooSlow: false } }, now: NOW,
+  })
+  assert.deepEqual(WATCH_RULES.find(one => one.id === 'wake-failed').check(view, {}), [], 'a running check does not let the per-chat rule file')
+  assert.deepEqual(WATCH_RULES.find(one => one.id === 'check-unreachable').check(view, {}).map(one => one.key), ['check-unreachable not-joined'])
+})
+
+test('review 2 (5): an ask is withdrawn only when its step ended after the ask was put; an ask naming an old done step as context stays (Q666 still goes)', async t => {
+  const dir = await storeWithAsks(t)
+  await writeFile(join(dir, 'Q706.md'), 'Id: Q706\nKind: ask\nTitle: Context: B1051 is done. Which goal is next?\nState: open\nOwner: Main\nSince: 2026-11-06 10:00\nAsks: decide\nBlocking: no\nRoute: person\n\n## Text\nA question.\n')
+  const items = (await readStore(dir)).items
+  const asks = asksOf(items)
+  assert.equal(asks.find(one => one.id === 'Q706').stepState, 'done')
+  const judged = judge(pictureOf({ ...(await sourcesOf({ down: [], now: AT_2200 })), asks }))
+  assert.equal(judged.actions.withdrawAsks.some(one => one.id === 'Q706'), false, 'the check leaves it')
+  assert.equal(judged.actions.withdrawAsks.some(one => one.id === 'Q666'), true)
+  const board = body => workApi(body, { dir, now: AT_2200, prefix: '', as: 'server', roleOf: () => null })
+  assert.deepEqual((await board({ action: 'asks-withdrawn', withdraw: [{ id: 'Q706' }, { id: 'Q666' }] })).result.withdrawn, ['Q666'], 'the work API checks it again')
+})
+
+test('review 2 (6): a read of the state or store that never answers ends the check within the bound as a line, and the late answer is observed', { timeout: 5000 }, async () => {
+  const sources = await sourcesOf()
+  const { folders, ...rest } = sources
+  let aborted = false
+  const checker = createChecker({
+    clock: () => AT_2125,
+    readSources: ({ signal }) => { signal.addEventListener('abort', () => { aborted = true }); return new Promise((_, fail) => setTimeout(() => fail(new Error('late')), 200)) },
+    readFolders: async () => folders, writers: {}, boundMs: 50,
+  })
+  const result = await checker.start('start').done
+  assert.equal(result.running, false)
+  assert.equal(result.tone, 'attention')
+  assert.match(result.line, /^The check failed: the board's state could not be read in/)
+  assert.equal(aborted, true, 'the read is told it is no longer wanted')
+  await new Promise(done => setTimeout(done, 300))
+  assert.equal(checker.view().running, false)
+  assert.equal(checker.start('button').started, true, 'the next check runs')
+})
+
+test('review 2 (7): a re-opened wake that failed again keeps the board-wide incident (X158) open, even when another chat is re-opened in the same check', async () => {
+  const sources = await sourcesOf({ elsewhere: false, down: ['Worker 1', 'Supervisor'], trigger: 'app-restart', triggerAt: RUN_2120 })
+  // The Supervisor was re-opened before (reopenedAt) and its message failed again after that.
+  const entry = sources.wakes.wakes.get('Supervisor').at(-1)
+  entry.reopenedAt = entry.attempts.at(-1).verdictAt + 1000
+  entry.attempts.push({ path: 'message', at: entry.reopenedAt + 1000, by: 'Main', jobId: 'wake:0:Supervisor:2', sentAt: entry.reopenedAt + 2000, runBefore: null, verdict: 'failed', verdictAt: entry.reopenedAt + 130_000, why: 'no report within 2 minutes of the message', step: null })
+  entry.attempts.push({ path: 'launch', at: entry.reopenedAt + 130_000, by: 'board', jobId: 'launch:0:Supervisor:2', sentAt: entry.reopenedAt + 131_000, runBefore: null, verdict: 'failed', verdictAt: entry.reopenedAt + 300_000, why: 'the app did not start it', step: null })
+  const verdict = judge(pictureOf(sources))
+  assert.deepEqual(verdict.actions.reopen.map(one => one.chat), ['Worker 1'], 'another chat is re-opened')
+  assert.equal(verdict.actions.closeIncidents.some(one => one.id === 'X158'), false, 'the rule would file it again at once')
+  const calm = judge(pictureOf(await sourcesOf({ elsewhere: false, down: ['Worker 1'], trigger: 'app-restart', triggerAt: RUN_2120 })))
+  assert.equal(calm.actions.closeIncidents.some(one => one.id === 'X158'), true, 'without a failed-again chat it goes')
+})
+
+test('review 2 (4): while a check runs the last finished result still stands for the Supervisor\'s per-chat rules', () => {
+  const NOW = new Date(2026, 10, 7, 9, 30).getTime()
+  const failed = { state: 'failed', final: true, need: true, spell: 1, path: 'message', at: NOW - 60_000, by: 'Main', why: 'x', attempts: [{ path: 'message', at: NOW - 70_000, by: 'Main', verdict: 'failed', verdictAt: NOW - 60_000, why: 'no report', sentAt: NOW - 69_000 }] }
+  const view = buildView({
+    state: { chats: [{ name: 'Supervisor', isLeftover: false, isMain: false, isRunning: false, state: 'off', wake: failed }], chatPrefix: '', wakeBoardSince: null, wakes: {}, check: { at: NOW, trigger: 'button', running: true, total: 7, reachable: 6, line: 'x', tone: 'attention', fixed: [], elsewhere: [], restartNeeded: [], notJoined: ['Supervisor'], nowhere: [], tooSlow: false } }, now: NOW,
+  })
+  assert.deepEqual(WATCH_RULES.find(one => one.id === 'wake-failed').check(view, {}), [], 'a running check does not let the per-chat rule file')
+  assert.deepEqual(WATCH_RULES.find(one => one.id === 'check-unreachable').check(view, {}).map(one => one.key), ['check-unreachable not-joined'])
+})
+
+test('review 2 (5): an ask is withdrawn only when its step ended after the ask was put; an ask naming an old done step as context stays (Q666 still goes)', async t => {
+  const dir = await storeWithAsks(t)
+  await writeFile(join(dir, 'Q706.md'), 'Id: Q706\nKind: ask\nTitle: Context: B1051 is done. Which goal is next?\nState: open\nOwner: Main\nSince: 2026-11-06 10:00\nAsks: decide\nBlocking: no\nRoute: person\n\n## Text\nA question.\n')
+  const items = (await readStore(dir)).items
+  const asks = asksOf(items)
+  assert.equal(asks.find(one => one.id === 'Q706').stepState, 'done')
+  const judged = judge(pictureOf({ ...(await sourcesOf({ down: [], now: AT_2200 })), asks }))
+  assert.equal(judged.actions.withdrawAsks.some(one => one.id === 'Q706'), false, 'the check leaves it')
+  assert.equal(judged.actions.withdrawAsks.some(one => one.id === 'Q666'), true)
+  const board = body => workApi(body, { dir, now: AT_2200, prefix: '', as: 'server', roleOf: () => null })
+  assert.deepEqual((await board({ action: 'asks-withdrawn', withdraw: [{ id: 'Q706' }, { id: 'Q666' }] })).result.withdrawn, ['Q666'], 'the work API checks it again')
+})
+
+test('review 2 (6): a read of the state or store that never answers ends the check within the bound as a line, and the late answer is observed', { timeout: 5000 }, async () => {
+  const sources = await sourcesOf()
+  const { folders, ...rest } = sources
+  let aborted = false
+  const checker = createChecker({
+    clock: () => AT_2125,
+    readSources: ({ signal }) => { signal.addEventListener('abort', () => { aborted = true }); return new Promise((_, fail) => setTimeout(() => fail(new Error('late')), 200)) },
+    readFolders: async () => folders, writers: {}, boundMs: 50,
+  })
+  const result = await checker.start('start').done
+  assert.equal(result.running, false)
+  assert.equal(result.tone, 'attention')
+  assert.match(result.line, /^The check failed: the board's state could not be read in/)
+  assert.equal(aborted, true, 'the read is told it is no longer wanted')
+  await new Promise(done => setTimeout(done, 300))
+  assert.equal(checker.view().running, false)
+  assert.equal(checker.start('button').started, true, 'the next check runs')
+})
+
+test('review 2 (7): a re-opened wake that failed again keeps the board-wide incident (X158) open, even when another chat is re-opened in the same check', async () => {
+  const sources = await sourcesOf({ elsewhere: false, down: ['Worker 1', 'Supervisor'], trigger: 'app-restart', triggerAt: RUN_2120 })
+  // The Supervisor was re-opened before (reopenedAt) and its message failed again after that.
+  const entry = sources.wakes.wakes.get('Supervisor').at(-1)
+  entry.reopenedAt = entry.attempts.at(-1).verdictAt + 1000
+  entry.attempts.push({ path: 'message', at: entry.reopenedAt + 1000, by: 'Main', jobId: 'wake:0:Supervisor:2', sentAt: entry.reopenedAt + 2000, runBefore: null, verdict: 'failed', verdictAt: entry.reopenedAt + 130_000, why: 'no report within 2 minutes of the message', step: null })
+  entry.attempts.push({ path: 'launch', at: entry.reopenedAt + 130_000, by: 'board', jobId: 'launch:0:Supervisor:2', sentAt: entry.reopenedAt + 131_000, runBefore: null, verdict: 'failed', verdictAt: entry.reopenedAt + 300_000, why: 'the app did not start it', step: null })
+  const verdict = judge(pictureOf(sources))
+  assert.deepEqual(verdict.actions.reopen.map(one => one.chat), ['Worker 1'], 'another chat is re-opened')
+  assert.equal(verdict.actions.closeIncidents.some(one => one.id === 'X158'), false, 'the rule would file it again at once')
+  const calm = judge(pictureOf(await sourcesOf({ elsewhere: false, down: ['Worker 1'], trigger: 'app-restart', triggerAt: RUN_2120 })))
+  assert.equal(calm.actions.closeIncidents.some(one => one.id === 'X158'), true, 'without a failed-again chat it goes')
 })

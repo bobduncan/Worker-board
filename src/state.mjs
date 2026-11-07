@@ -19,7 +19,7 @@ import { DRAFTED_FOR_GO, NO_ROUND, focusStage, goWaitsForLines, goalAskList, goa
 import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
-import { keptFor, ownChatOf } from './ownChat.mjs'
+import { keptFor, ownChatOf, unjoinedOf } from './ownChat.mjs'
 import { partnerEffort } from './partnerEffort.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
@@ -55,7 +55,7 @@ import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { withLinks } from './work/links.mjs'
 import { clearOwed, clearedStageOf, modAtLeast } from './clearOwed.mjs'
-import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
+import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, failedAtOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, recapWaitingOf, standingAsksOf } from './recapCard.mjs'
@@ -2220,8 +2220,16 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const appFiles = Array.isArray(raw.appFiles) ? new Set(raw.appFiles.filter(id => typeof id === 'string')) : null
   // H1: the chat files of the account folders the board does not read, app id to the account folder's name.
   const appElsewhere = raw.appElsewhere !== null && typeof raw.appElsewhere === 'object' ? new Map(Object.entries(raw.appElsewhere).filter(([, account]) => typeof account === 'string')) : null
+  // Review 2: the lane's report names an app chat that runs on a session the board does not follow (ownChat.mjs `unjoinedOf`).
+  const unjoinedOfLane = lane => {
+    const kept = lane.isLeftover ? null : keptOf(lane)
+    if (kept === null || kept === undefined || typeof kept.app !== 'string') return null
+    const others = found.filter(chat => !chat.isLeftover && chat.name !== lane.name).map(chat => chat.cliSessionId)
+    return unjoinedOf({ kept, file: apps.find(chat => chat.sessionId === kept.app) ?? null, laneSessions: [lane.session], others })
+  }
   const sequenced = lanes.map(lane => withSequence({
     ...lane,
+    ...(unjoinedOfLane(lane) === null ? {} : { unjoined: unjoinedOfLane(lane) }),
     // T8.5: the Workers mod its last call said (else its kept report's), for the one predicate of the hand-over (`onSequence`).
     // B986 (X140): after the board's own restart (no call heard yet) and with the lane's title on another chat of the app's
     // list, the kept report's mod still counts: the worker on the sequence keeps change 3's timers, never the old resume word.
@@ -2830,7 +2838,10 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now }) {
   }
   const targets = []
   // Start-up check, MUST 1: a chat that reports again after its last failed attempt has nothing to say ("could not wake" is stale).
+  // Review 2: and a chat whose report names an app chat that runs on a session the board does not follow, active after the failure: the wake
+  // went to a turn nobody on the board hears, so its "could not wake" is not the news: it must re-join (the check says so).
   const hasRunSince = (lane, target) => ranSince(record, lane.name, target.spell, lane.report ?? lane.ownReport ?? null, now)
+    || (lane.unjoined != null && (failedAtOf(record, lane.name, target.spell) ?? -Infinity) < lane.unjoined.at)
   const wakeOfLane = lane => {
     const target = targetOf(lane)
     if (target !== null && !hasRunSince(lane, target)) {

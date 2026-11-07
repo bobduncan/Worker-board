@@ -5810,7 +5810,18 @@ One cause, one alarm: the evening of 2026-11-05 (the account switch) filed six a
   routed to the person (`Route: person`) whose step (its `Of`, else the first B<n> in its title, `src/work/askStep.mjs`) is done or
   dropped is withdrawn, "its step B1051 is done", through the work API's server action `asks-withdrawn` (the board runs as `server`, which
   `withdraw` refuses for another chat's ask, so the action checks each ask against its step again and withdraws it as the person's pass
-  does); it counts in `fixed` and in the result line's "fixed N".
+  does); it counts in `fixed` and in the result line's "fixed N". Only when the step ended after the ask was put (an ask that names an old
+  done step as context stays).
+  **Review 2 (Opus, 2026-11-07), the live Supervisor.** The check reads each lane by the WAKE's own ids (`checkLaneOf`: `wakeIdsOf` for the
+  app id a message goes to, `pathsOf` for the paths it can take, so the check's `final` is the notice's), never by the app id the lane's report
+  names. The new cause `not-joined` (`ownChat.mjs` `unjoinedOf`, in the picture and in the state's lane as `unjoined`): the chat its report names
+  (`report.app`) has a file in the folder in use, not archived, not a stub, whose `cliSessionId` is neither the lane's, nor the report's, nor
+  another lane's, and which was active after the report and after the wake's last failure. A wake goes into a turn nobody on the board hears:
+  no `wake-again`, not "no chat", `notJoined` in the result and the one line "Supervisor's chat runs but is not on the board's list: it must
+  re-join"; the state (`withWakes`) shows no "could not wake" for it; the Supervisor files `check-unreachable not-joined`. The board-wide
+  incident (X158) is not closed while a chat that was re-opened failed again (the rule would file it at once). The runner's bound covers the
+  read of the state and the store too (a hang is the line "The check failed: ..." and the read is aborted); the Supervisor's per-chat rules use the
+  last finished result while a check runs.
   The line: "All 7 chats reachable · checked 22:30" or "4 of 6 ... · Worker 1's and Worker 5's chats are in your other Claude account:
   run /reimport-chats, then restart the app" / "restart the app so it reads the reimported chats: Worker 2" / "Worker 3 has no chat in
   the app: open one from the board", joined by " · ", never two lines, never a per-worker "not in the app's list".

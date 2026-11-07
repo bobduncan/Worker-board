@@ -98,3 +98,18 @@ export function wakeIdsOf(lane) {
 
 /** Why no wake of `lane` can be tried (NOT_LISTED_WHY, NOT_SHOWN_WHY), or null. */
 export const cannotWakeWhy = lane => wakeIdsOf(lane).why
+
+/**
+ * Start-up check, review 2 (the Supervisor's red line, 2026-11-07): the chat the lane's report names (`kept.app`) runs, but on a CLI
+ * session the board does not follow: the app's file for that app id (`file`, from the folder in use, not archived, not a launch stub) holds a
+ * `cliSessionId` that is neither the lane's (`laneSessions`), nor the report's session, nor another lane's (`others`), and was active after
+ * the report. A message goes to the app id and starts a turn nobody on the board hears; the chat must re-join (`chat join`). `{ at, session }`
+ * (the file's last activity and its session), or null.
+ */
+export function unjoinedOf({ kept = null, file = null, laneSessions = [], others = [] }) {
+  if (!isText(kept?.app) || file === null || file === undefined || file.isArchived === true || file.isStub === true) return null
+  const session = file.cliSessionId
+  if (!isText(session) || session === kept.session || laneSessions.includes(session) || others.includes(session)) return null
+  if (!Number.isFinite(file.lastActivityAt) || !Number.isFinite(kept.at) || !(file.lastActivityAt > kept.at)) return null
+  return { at: file.lastActivityAt, session }
+}

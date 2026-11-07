@@ -4818,6 +4818,8 @@ async function asksWithdrawn(body, w) {
     const step = askStepOf(valueOf(loaded.item, 'Of'), valueOf(loaded.item, 'Title'))
     const state = step === null || !w.store.items.has(step) ? null : stateOf(w.store.items.get(step))
     if (state !== 'done' && state !== 'dropped') continue
+    // The step must have ended after the ask was put: an ask that names an old done step as context is still a question.
+    if (!(sinceMs(valueOf(w.store.items.get(step), 'Since')) > sinceMs(valueOf(loaded.item, 'Since')))) continue
     const done = await withdraw({ id: valueOf(loaded.item, 'Id'), why: `its step ${step} is ${state}` }, { ...w, role: 'person' })
     if (done.ok) withdrawn.push(valueOf(loaded.item, 'Id'))
   }

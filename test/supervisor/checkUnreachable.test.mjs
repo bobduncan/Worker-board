@@ -33,11 +33,15 @@ test('the per-chat wake rule stands down for the chats the newest check lists, a
   assert.deepEqual(rule('wake-failed').check(view, {}).map(one => one.subject), ['Worker 3'], 'only the genuine one')
   const all = viewOf(check({ elsewhere: ['Worker 1', 'Worker 5', 'Worker 2', 'Worker 3'] }))
   assert.deepEqual(rule('wake-failed').check(all, {}), [])
-  // Without a check (or while one runs, or one that is gone) the per-chat rule files as before.
-  for (const none of [null, check({ running: true, elsewhere: ['Worker 1'] })]) {
+  // Without a check, or with one that read too slowly, the per-chat rule files as before.
+  for (const none of [null, check({ tooSlow: true, elsewhere: ['Worker 1'] })]) {
     assert.equal(rule('wake-failed').check(viewOf(none), {}).length, 4, JSON.stringify(none))
     assert.deepEqual(rule('check-unreachable').check(viewOf(none), {}), [])
   }
+  // Review 2 (4): while a check runs, the last finished result still stands (the runner's view keeps its lists): no filing in those seconds.
+  const running = viewOf(check({ running: true, elsewhere: ['Worker 1'] }))
+  assert.equal(rule('wake-failed').check(running, {}).length, 3)
+  assert.deepEqual(rule('check-unreachable').check(running, {}).map(one => one.key), ['check-unreachable account-switch'])
 })
 
 test('the cause is gone: the next check lists nobody and the finding is absent (the gone clock closes the incident); a slow read files nothing', () => {

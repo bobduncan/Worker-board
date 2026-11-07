@@ -240,7 +240,8 @@ and the briefings for the main chat and the workers.
   run (some session started), the board re-reads reality once: the app's chats of every account folder, which chats run, the wake
   record, the models' bans and the open "could not wake" alarms. It mends what it can (a failed wake of a chat that is listed again
   is sent once more, such an alarm closes, also when the chat reports again by itself; a ban on a model its chat runs is lifted; an open question for you
-  about a step that is done or dropped is withdrawn, "ask-withdrawn") and says the rest in ONE line: "All 7 chats
+  about a step that is done or dropped (after the question was put) is withdrawn, "ask-withdrawn"). A chat that runs on a session the
+  board does not follow ("Supervisor's chat runs but is not on the board's list: it must re-join") is told in that line, not woken again) and says the rest in ONE line: "All 7 chats
   reachable · checked 22:30", or "Worker 1's and Worker 5's chats are in your other Claude account: run /reimport-chats, then
   restart the app" (amber only then). While it runs the row says "Checking 7 chats…" and no old alarm is shown. The result is
   `check` in `/api/state` and `data/check.json`. The account in use is a guess (the folder with the newest chat) and can flip

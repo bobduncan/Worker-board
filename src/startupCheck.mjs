@@ -7,11 +7,28 @@
 // `listedWhere`), the H1 texts (src/ownChat.mjs) and the C rule's bans (src/work/handover.mjs `bansOf`); nothing twice.
 
 import { listedWhere } from './appChats.mjs'
-import { OTHER_ACCOUNT_TAIL, RESTART_WHY } from './ownChat.mjs'
-import { noteRun, noticeOf, ranSince, reopenSpells, wakeOf } from './wake.mjs'
+import { OTHER_ACCOUNT_TAIL, RESTART_WHY, unjoinedOf, wakeIdsOf } from './ownChat.mjs'
+import { noteRun, noticeOf, pathsOf, ranSince, reopenSpells, wakeOf } from './wake.mjs'
 import { sameModel } from './work/effort.mjs'
 import { askStepOf } from './work/askStep.mjs'
 import { bansOf } from './work/handover.mjs'
+
+/**
+ * Review 2 (1) and (2): a board lane as the check reads it. The chat a wake goes to is the WAKE's own (`wakeIdsOf`: the message goes to its
+ * app id, a launch resumes its session), never the app id the lane's report names (that can be another file of the same title: the
+ * live Supervisor's report named 43a11efb while the wake messaged the archived stub 2a0e22b5); `paths` what those ids allow (`pathsOf`),
+ * so the check's `final` is the notice's. The report's app id only fills in where the wake has none (a chat in the other account).
+ */
+export function checkLaneOf(lane, report, canLaunch) {
+  const ids = wakeIdsOf(lane)
+  return {
+    name: lane.name,
+    appSession: ids.appSession ?? report?.app ?? lane.appSession ?? null,
+    paths: pathsOf(lane, canLaunch),
+    cliSession: lane.session ?? null, cliSessions: [ids.session].filter(Boolean),
+    model: lane.model ?? null, isRunning: lane.isRunning ?? null,
+  }
+}
 
 /** The rules whose incidents name a wake that failed: the check closes them when the chat answers again. */
 export const WAKE_RULES = ['wake-failed', 'nobody-answers-wakes', 'launch-failed']
@@ -31,7 +48,11 @@ export function asksOf(items) {
     if (item.head.get('Kind') !== 'ask' || item.head.get('State') !== 'open' || item.head.get('Route') !== 'person') continue
     const step = askStepOf(item.head.get('Of') ?? null, item.head.get('Title') ?? '')
     if (step === null) continue
-    asks.push({ id: item.head.get('Id'), owner: item.head.get('Owner') ?? null, step, stepState: step === null ? null : items.get(step)?.head.get('State') ?? null })
+    asks.push({
+      id: item.head.get('Id'), owner: item.head.get('Owner') ?? null, step, stepState: step === null ? null : items.get(step)?.head.get('State') ?? null,
+      // Review 2 (5): the step must have ended AFTER the ask was put (an ask that names an old done step as context stays).
+      since: storeTimeOf(item.head.get('Since')), stepEndedAt: step === null ? null : storeTimeOf(items.get(step)?.head.get('Since')),
+    })
   }
   return asks
 }
@@ -42,12 +63,15 @@ export function storeTimeOf(text) {
   return match === null ? null : new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime()
 }
 
+/** The paths a lane's ids allow when the picture is not told (tests): review 2 passes the lane's own (wake.mjs `pathsOf`), as the notice does. */
+const BOTH_PATHS = ['message', 'launch']
+
 /** The wake of a chat as the check reads it: its newest spell, whether it failed for good, and the app's "not found". */
-function wakeOfChat(record, chat) {
+function wakeOfChat(record, chat, paths = BOTH_PATHS) {
   const entry = record?.wakes?.get(chat)?.at(-1) ?? null
   if (entry === null) return { spell: null, state: 'none', final: false, notFound: false, verdictAt: null, reopenedAt: null }
   // Both paths could be taken: `final` is "every path was tried and failed" (the board's own word, wake.mjs `wakeOf`).
-  const wake = wakeOf(record, { chat, spell: entry.spell, paths: ['message', 'launch'] }, { senderClaims: true })
+  const wake = wakeOf(record, { chat, spell: entry.spell, paths }, { senderClaims: true })
   const counted = (entry.attempts ?? []).filter(one => !isTime(entry.reopenedAt) || one.at >= entry.reopenedAt)
   const verdicts = counted.map(one => one.verdictAt).filter(isTime)
   return {
@@ -77,6 +101,14 @@ export function pictureOf({ now, trigger = 'start', triggerAt = null, tooSlow = 
     return {
       name: lane.name, appSession: lane.appSession ?? null, cliSession: lane.cliSession ?? null, model: lane.model ?? null,
       isRunning: lane.isRunning ?? null, run: isTime(report?.run) ? report.run : null,
+      // Review 2: the lane's own paths (what its ids allow), so the check's `final` is the notice's.
+      paths: Array.isArray(lane.paths) ? lane.paths : BOTH_PATHS,
+      // Review 2: the chat its report names runs on a session the board does not follow (ownChat.mjs `unjoinedOf`): it must re-join.
+      unjoined: tooSlow === true ? null : unjoinedOf({
+        kept: report, file: folders.find(folder => folder.at === newest)?.chats.get(report?.app) ?? null,
+        laneSessions: [lane.cliSession, ...(lane.cliSessions ?? [])].filter(Boolean),
+        others: lanes.filter(other => other.name !== lane.name).flatMap(other => [other.cliSession, ...(other.cliSessions ?? []), reports?.[other.name]?.session]).filter(Boolean),
+      }),
       // Review 1 (3): a read that took too long knows nothing of the listing.
       listedWhere: tooSlow === true ? 'unknown' : listedWhere(lane.appSession, folders),
       // When its file in the folder in use was last active (the app writes it): older than a wake's "not found" means the app has not read it yet.
@@ -103,13 +135,13 @@ export function pictureOf({ now, trigger = 'start', triggerAt = null, tooSlow = 
     proofAt: proofs.length === 0 ? null : Math.max(...proofs),
     // MUST 1: `ranSince` the chat reports again after its last failed attempt: its "could not wake" is stale.
     wakes: Object.fromEntries(lanes.map(lane => {
-      const wake = wakeOfChat(wakes, lane.name)
+      const wake = wakeOfChat(wakes, lane.name, Array.isArray(lane.paths) ? lane.paths : BOTH_PATHS)
       return [lane.name, { ...wake, ranSince: wake.spell !== null && ranSince(wakes, lane.name, wake.spell, reports?.[lane.name] ?? null, now) }]
     })),
     pause: { state: pause?.state ?? null },
     ready: [...ready],
     bans: Object.fromEntries(lanes.map(lane => [lane.name, [...bansOf(envelopes?.[lane.name] ?? [], now)].map(([model, envelope]) => ({ model, envelope: envelope.id ?? null, failedAt: envelope.failedAt ?? envelope.settledAt ?? envelope.at ?? null }))])),
-    asks: asks.filter(one => typeof one?.id === 'string' && typeof one.step === 'string').map(one => ({ id: one.id, owner: one.owner ?? null, step: one.step, stepState: one.stepState ?? null })),
+    asks: asks.filter(one => typeof one?.id === 'string' && typeof one.step === 'string').map(one => ({ id: one.id, owner: one.owner ?? null, step: one.step, stepState: one.stepState ?? null, since: isTime(one.since) ? one.since : null, stepEndedAt: isTime(one.stepEndedAt) ? one.stepEndedAt : null })),
     incidents: incidents
       .filter(one => WAKE_RULES.some(rule => typeof one.key === 'string' && one.key.startsWith(rule)) && !ENDED.includes(one.state))
       .map(one => ({ id: one.id, key: one.key, subject: one.subject ?? null, state: one.state, since: isTime(one.since) ? one.since : storeTimeOf(one.since) })),
@@ -146,7 +178,14 @@ export function judge(picture) {
   const fixed = []
   const noticeWas = new Set()
   const noticeCleared = []
+  const notJoined = []
   for (const lane of picture.lanes) {
+    // Review 2: it does not run, its wake failed for good, and the chat its report names runs on a session the board does not follow:
+    // a wake goes into a turn nobody on the board hears. Not woken again, not "no chat": it must re-join (the live Supervisor, 11-07).
+    if (lane.isRunning === false && lane.unjoined != null && picture.wakes[lane.name]?.final === true && !(picture.wakes[lane.name].verdictAt >= lane.unjoined.at)) {
+      notJoined.push(lane.name)
+      continue
+    }
     // Review 1 (4): a lane that runs is reachable, whatever the folders say.
     if (lane.isRunning !== true && lane.listedWhere === 'elsewhere') { elsewhere.push(lane.name); continue }
     if (lane.isRunning !== true && lane.listedWhere === 'nowhere') { nowhere.push(lane.name); continue }
@@ -160,7 +199,7 @@ export function judge(picture) {
     }
     // The failure is older than the proof that the app is back: a run id newer than the failure's verdict.
     if (isTime(picture.proofAt) && isTime(wake.verdictAt) && picture.proofAt > wake.verdictAt && wake.reopenedAt === null) {
-      reopen.push({ chat: lane.name, spell: wake.spell })
+      reopen.push({ chat: lane.name, spell: wake.spell, paths: lane.paths })
       noticeWas.add(lane.name)
       fixed.push({ kind: 'wake-again', chat: lane.name, what: `woken again at ${clockOf(now)}: its chat is listed and the app is back` })
     } else if (wake.notFound && isTime(lane.fileAt) && isTime(wake.verdictAt) && lane.fileAt < wake.verdictAt) {
@@ -181,6 +220,7 @@ export function judge(picture) {
   const withdrawAsks = []
   for (const ask of picture.asks ?? []) {
     if (ask.stepState !== 'done' && ask.stepState !== 'dropped') continue
+    if (!(isTime(ask.since) && isTime(ask.stepEndedAt) && ask.stepEndedAt > ask.since)) continue
     withdrawAsks.push({ id: ask.id, step: ask.step })
     fixed.push({ kind: 'ask-withdrawn', chat: ask.owner ?? 'you', what: `${ask.id} withdrawn: its step ${ask.step} is ${ask.stepState}` })
   }
@@ -189,7 +229,9 @@ export function judge(picture) {
   // The board-wide incident (nobody answers the wake-ups) goes only when the rule's own condition is over: some chat answers and no
   // chat is left failed for good that this check did not re-open. Else the rule would file it again at once (a close/re-file loop).
   const stillFailed = picture.lanes.some(lane => lane.isRunning === false && picture.wakes[lane.name]?.final === true && !reopened.has(lane.name) && !noticeCleared.includes(lane.name))
-  const runs = (picture.lanes.some(lane => lane.isRunning === true) || noticeCleared.length > 0) && (reopened.size > 0 || !stillFailed)
+  // Review 2 (7): a chat re-opened before whose wake failed again keeps the board-wide incident open (else the rule files it again at once).
+  const failedAgain = picture.lanes.some(lane => lane.isRunning === false && picture.wakes[lane.name]?.final === true && picture.wakes[lane.name].reopenedAt !== null && !noticeCleared.includes(lane.name))
+  const runs = (picture.lanes.some(lane => lane.isRunning === true) || noticeCleared.length > 0) && !failedAgain && (reopened.size > 0 || !stillFailed)
   const closeIncidents = []
   for (const incident of picture.incidents) {
     const lane = picture.lanes.find(one => one.name === incident.subject)
@@ -204,16 +246,17 @@ export function judge(picture) {
     fixed.push({ kind: 'incident-gone', chat: incident.subject, what: `${incident.id} ${why}` })
   }
   const total = picture.lanes.length
-  const reachable = picture.tooSlow === true ? null : picture.lanes.filter(lane => lane.isRunning === true || ['here', 'unknown'].includes(lane.listedWhere)).length
+  const reachable = picture.tooSlow === true ? null : picture.lanes.filter(lane => (lane.isRunning === true || ['here', 'unknown'].includes(lane.listedWhere)) && !notJoined.includes(lane.name)).length
   const parts = []
   if (elsewhere.length > 0) parts.push(`${namesOf(elsewhere, true)} chats are in ${OTHER_ACCOUNT_TAIL}`)
   if (restartNeeded.length > 0) parts.push(`${RESTART_WHY}: ${namesOf(restartNeeded)}`)
+  if (notJoined.length > 0) parts.push(`${namesOf(notJoined, true)} ${notJoined.length === 1 ? 'chat runs but is' : 'chats run but are'} not on the board's list: ${notJoined.length === 1 ? 'it' : 'they'} must re-join`)
   if (nowhere.length > 0) parts.push(`${namesOf(nowhere)} ${nowhere.length === 1 ? 'has' : 'have'} no chat in the app: open ${nowhere.length === 1 ? 'one' : 'them'} from the board`)
   const head = reachable === total ? `All ${total} chats reachable` : `${reachable} of ${total} chats reachable`
   const line = picture.tooSlow === true ? `Checked ${clockOf(now)}, but the app's chat list could not be read in 30 s: checked again at the next start`
     : [`${head} · checked ${clockOf(now)}`, ...parts].join(' · ')
   return {
-    at: now, trigger: picture.trigger ?? 'start', total, reachable, line, tone: parts.length > 0 || picture.tooSlow === true ? 'attention' : 'quiet', fixed, elsewhere, restartNeeded, nowhere, tooSlow: picture.tooSlow === true,
+    at: now, trigger: picture.trigger ?? 'start', total, reachable, line, tone: parts.length > 0 || picture.tooSlow === true ? 'attention' : 'quiet', fixed, elsewhere, restartNeeded, notJoined, nowhere, tooSlow: picture.tooSlow === true,
     actions: { noteRun: picture.proofAt, reopen, noticeClears: noticeCleared, banDrops, withdrawAsks, closeIncidents },
   }
 }
@@ -221,10 +264,10 @@ export function judge(picture) {
 // ---- Task 4: the writes ----
 
 /** The wake notice of a chat as the record reads it now (wake.mjs `noticeOf`), or null: before and after a write they tell whether it went. */
-function noticeTextOf(record, chat, now) {
+function noticeTextOf(record, chat, now, paths = BOTH_PATHS) {
   const spell = record?.wakes?.get(chat)?.at(-1)?.spell
   if (spell === undefined) return null
-  return noticeOf(record, [{ chat, spell, paths: ['message', 'launch'], need: true }], now, clockOf, { senderClaims: true })?.text ?? null
+  return noticeOf(record, [{ chat, spell, paths, need: true }], now, clockOf, { senderClaims: true })?.text ?? null
 }
 
 /**
@@ -261,12 +304,12 @@ export async function apply(verdict, writers, now) {
   const noticesBefore = new Map()
   if (writers.wakes !== undefined && actions.reopen.length > 0) {
     reopened = await attempt('wake-again', () => {
-      for (const one of actions.reopen) noticesBefore.set(one.chat, noticeTextOf(writers.wakes, one.chat, now))
+      for (const one of actions.reopen) noticesBefore.set(one.chat, noticeTextOf(writers.wakes, one.chat, now, one.paths ?? BOTH_PATHS))
       noteRun(writers.wakes, actions.noteRun)
-      return reopenSpells(writers.wakes, actions.reopen.map(one => ({ chat: one.chat, spell: one.spell, listed: true, paths: ['message', 'launch'] })), now)
+      return reopenSpells(writers.wakes, actions.reopen.map(one => ({ chat: one.chat, spell: one.spell, listed: true, paths: one.paths ?? BOTH_PATHS })), now)
     }) ?? []
     for (const chat of reopened) done.add(`wake-again ${chat}`)
-    for (const chat of reopened) if (noticesBefore.get(chat) != null && noticeTextOf(writers.wakes, chat, now) === null) done.add(`notice-cleared ${chat}`)
+    for (const chat of reopened) if (noticesBefore.get(chat) != null && noticeTextOf(writers.wakes, chat, now, actions.reopen.find(one => one.chat === chat)?.paths ?? BOTH_PATHS) === null) done.add(`notice-cleared ${chat}`)
     if (reopened.length > 0) await attempt('wake-again', () => writers.saveWakes?.())
   }
   // MUST 1: a chat that reports again: the state no longer shows its "could not wake" (wake.mjs `ranSince`); nothing to write, the check says so.
@@ -288,7 +331,7 @@ export async function apply(verdict, writers, now) {
   const written = verdict.fixed.filter(one => (one.kind === 'incident-gone' || one.kind === 'ask-withdrawn' ? done.has(`${one.kind} ${one.what.split(' ')[0]}`) : done.has(`${one.kind} ${one.chat}`)))
   const result = {
     at: now, trigger: verdict.trigger ?? 'start', running: false, total: verdict.total, reachable: verdict.reachable, line: verdict.line, tone: verdict.tone,
-    fixed: written, elsewhere: verdict.elsewhere, restartNeeded: verdict.restartNeeded, nowhere: verdict.nowhere, tooSlow: verdict.tooSlow,
+    fixed: written, elsewhere: verdict.elsewhere, restartNeeded: verdict.restartNeeded, notJoined: verdict.notJoined ?? [], nowhere: verdict.nowhere, tooSlow: verdict.tooSlow,
     ...(failed.length > 0 ? { failed } : {}),
   }
   if (typeof writers.writeCheck === 'function') await attempt('check.json', () => writers.writeCheck(result))

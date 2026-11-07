@@ -1264,9 +1264,11 @@ const dayOfMs = ms => `${new Date(ms).getFullYear()}-${pad(new Date(ms).getMonth
 const CHECK_CAUSES = [
   { cause: 'account-switch', field: 'elsewhere', words: `your chats are in ${OTHER_ACCOUNT_TAIL}` },
   { cause: 'restart-needed', field: 'restartNeeded', words: RESTART_WHY },
+  { cause: 'not-joined', field: 'notJoined', words: "chat runs but is not on the board's list: it must re-join" },
   { cause: 'no-chat', field: 'nowhere', words: 'no chat in the app: open one from the board' },
 ]
-const isCheckFresh = view => view.check !== null && view.check?.running !== true && view.check?.tooSlow !== true
+// Review 2 (4): while a check runs, the last finished result still stands (the runner's view keeps its lists), so the per-chat rules do not file in those seconds.
+const isCheckFresh = view => view.check !== null && view.check?.tooSlow !== true
 const listedByCheck = (view, chat) => isCheckFresh(view) && CHECK_CAUSES.some(one => (view.check[one.field] ?? []).includes(chat))
 
 /**

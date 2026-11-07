@@ -368,6 +368,33 @@ test('start-up check, MUST 1: a chat that does not run but reports again after i
   assert.equal((lane(after, 'Digger').flags ?? []).some(flag => flag.kind === 'wake failed'), false)
 })
 
+test('start-up check, review 2: a chat whose report names an app chat that runs on a session the board does not follow (not joined) shows no "could not wake" after its failed wake', () => {
+  const failed = () => {
+    const record = wakesOf(new Map([['Digger', { since: APP, at: at(18, 28) }]]))
+    Object.assign(record.record.wakes.get('Digger')[0].attempts[0], { verdict: 'failed', verdictAt: at(18, 30), why: 'no report within 2 minutes of the message' })
+    return record
+  }
+  // The app's file `local_Digger2` is what Digger's report names; it was last active at `activeAt` on the session cli-new, which no lane follows.
+  const stateWith = activeAt => buildState({
+    listText: '{"prefix":"Garden · ","main":"Lead","supervisor":"Watcher"}',
+    appChatTexts: [...NAMES.map(app), JSON.stringify({ title: 'Digger again', sessionId: 'local_Digger2', cliSessionId: 'cli-new', cwd: PROJECT, isArchived: false, createdAt: 1, lastActivityAt: activeAt, lastAssistantUuid: 'u-2' })],
+    tails: Object.fromEntries(NAMES.map(name => [`cli-${name}`, tail])),
+    planLineTexts: {}, work: storeWith(), adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: APP,
+  }, { lines: [], outbox: [], runs: [], now: at(18, 50), config, seen: { shown: {}, other: {} }, board: { startedAt: STARTED, offSince: null }, reports: new Map(REPORTS.map(([name, one]) => (name === 'Digger' ? [name, { ...one, app: 'local_Digger2' }] : [name, one]))), wakes: failed() })
+  // Active at 18:20 (after its report, before the failed wake of 18:30): the notice stands, the wake went to a chat that was quiet.
+  const before = stateWith(at(18, 20))
+  assert.deepEqual(lane(before, 'Digger').unjoined, { at: at(18, 20), session: 'cli-new' })
+  assert.equal(before.wakeNotice?.text, 'could not wake Digger: no report after the message (sent 18:28 by Lead); open its chat')
+  // Active at 18:40, after the failure: the chat runs on a session the board does not follow; the state says nothing of the wake (the check says to re-join).
+  const after = stateWith(at(18, 40))
+  assert.equal(lane(after, 'Digger').isRunning, false)
+  assert.equal(after.wakeNotice, null)
+  assert.equal(lane(after, 'Digger').wake.final, false)
+  assert.equal((lane(after, 'Digger').flags ?? []).some(flag => flag.kind === 'wake failed'), false)
+  // A report that names the lane's own file (no other session) is joined: no field.
+  assert.equal(lane(build(), 'Digger').unjoined, undefined)
+})
+
 test('change 4: the ⚙ row of the wake reads by itself, "last launch failed" or "message only" with its why', async () => {
   const { openPage } = await import('./pageHarness.mjs')
   const { asSent, build: page, ask, NOW: PAGE_NOW, MIN: PAGE_MIN } = await import('./partnerState.mjs')

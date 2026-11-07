@@ -25,11 +25,25 @@ export function createChecker({ clock, readSources, readFolders, writers, afterA
   /** The check as the state shows it (`state.check`), or null before the first. */
   const view = () => {
     if (running === null) return last
-    return { ...(last ?? { total: null, reachable: null, line: null, tone: 'quiet', fixed: [], elsewhere: [], restartNeeded: [], nowhere: [], tooSlow: false }), at: running.at, trigger: running.trigger, running: true }
+    return { ...(last ?? { total: null, reachable: null, line: null, tone: 'quiet', fixed: [], elsewhere: [], restartNeeded: [], notJoined: [], nowhere: [], tooSlow: false }), at: running.at, trigger: running.trigger, running: true }
   }
 
   async function check(trigger, triggerAt) {
-    const sources = await readSources({ trigger, triggerAt })
+    // Review 2 (6): the state and the store are read inside the bound too, so a hang never leaves the check running for good; what answers
+    // late is observed (its failure is swallowed) and its signal says it is no longer wanted.
+    const abort = new AbortController()
+    let cut = null
+    const reading = Promise.resolve().then(() => readSources({ trigger, triggerAt, signal: abort.signal }))
+    reading.catch(() => {})
+    let sources
+    try {
+      sources = await Promise.race([
+        reading,
+        new Promise((_, fail) => { cut = setTimer(() => { abort.abort(); fail(new Error(`the board's state could not be read in ${Math.round(boundMs / 1000)} s`)) }, boundMs); cut?.unref?.() }),
+      ])
+    } finally {
+      clearTimer(cut)
+    }
     let tooSlow = false
     let late = null
     const folders = await Promise.race([
@@ -60,7 +74,7 @@ export function createChecker({ clock, readSources, readFolders, writers, afterA
       } catch (error) {
         const why = error?.message ?? String(error)
         log(`Check: ${why}`)
-        last = { at: clock(), trigger, running: false, total: last?.total ?? null, reachable: null, line: `The check failed: ${why}`, tone: 'attention', fixed: [], elsewhere: [], restartNeeded: [], nowhere: [], tooSlow: false, failed: [why] }
+        last = { at: clock(), trigger, running: false, total: last?.total ?? null, reachable: null, line: `The check failed: ${why}`, tone: 'attention', fixed: [], elsewhere: [], restartNeeded: [], notJoined: [], nowhere: [], tooSlow: false, failed: [why] }
       } finally {
         running = null
         onChange()
