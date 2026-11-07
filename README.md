@@ -518,7 +518,7 @@ and kept in `data\`; it is never printed or logged. To open a chat when none run
 the Claude app's own `claude.exe` with `--desktop --resume <session id>`, the id from its own list of chats and
 checked as a UUID; nothing a request carries goes into it.
 
-A file another program holds open (the measure loop failing with EPERM on `data/spending.json`, B1049) is named in the page's failing-loop line after 2 minutes: "held by grep.exe, pid 57736, since 19:52". The board only reads who holds it; it never ends a program. Never grep, cat or read `data/spending.json` whole (one line of many MB, and a program holding it blocks the board's rewrite): use the Spending tab (or `tools/spending-count.mjs`, which counts from the transcripts).
+A file another program holds open (the measure loop failing with EPERM on `data/spending.json`, B1049) is named in the page's failing-loop line after 2 minutes: "held by grep.exe, pid 57736, since 19:52". The board only reads who holds it; it never ends a program. Never grep, cat or read `data/spending.json` whole (one line of many MB, and a program holding it blocks the board's rewrite): use `node tools/spending-read.mjs` (or the Spending tab; `tools/spending-count.mjs` counts from the transcripts).
 
 ## Working on the board itself
 
