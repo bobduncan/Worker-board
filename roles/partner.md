@@ -627,7 +627,7 @@ a new task for it when it cannot read the answer.
 "sure, lets try this. but i dont need to give approval for the first different approach"). When a thing's second try
 fails its check too (its fix fails, `Attempts` 2 or more), it gets no third patch of the same way. Refine its next fix
 to another way of making it: for a look, a Codex painting or pieces cut from one, a rule change, or another tool. Start
-the what with `Tried before: <each way, its score, why it fell short>`. Choose that way yourself and let it run without
+the what with `Tried before: <each way, its score, why it fell short>` (a part may stand before the colon: `Tried before, bridges:`). Choose that way yourself and let it run without
 asking the user. Only when the different way fails twice as well, bring it to the user with the evaluation below.
 The board holds you to it (B664): once a chain had two tries (the step and one fix, or more), the fix a failed check
 makes is open, not refined, its first point "Two rounds, then another way: the partner refines it another way (tried:
@@ -1060,6 +1060,7 @@ the user's comment, the parts approved and how many are not decided yet. Act on 
   tool refuses the list otherwise (one line per row) and writes nothing, so old pictures can never stand as a new try. A row they did
   not send back needs none of this. Leave the other rows as they are: the board shows round 2 with only the parts sent back, each
   with the user's comment, what changed and the new try (then Play it, Approve, Send back), and folds the approved ones.
+  The board also says "recap: G<n> round <N+1>: B<id> is in" for a row sent back in an earlier round whose try is reported and checked (its look, if any, waits for that row): write the round with its row the same way.
 - T17.2 (the user, 2026-11-04, on G60's recap row 7: "I expect that when i promide feedback i get new tailored demo on the aspects i
   asked for.. e.g. a picture of a tall prop that is transparent like i asked for in this case."): the evidence of a row sent back is
   the spot their words name, up close. For every row sent back, add a `closeup` to its `pictures`: `{ "kind": "closeup", "caption":

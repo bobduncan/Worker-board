@@ -9,7 +9,7 @@
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { MOST_NAMED, stallOf } from './stallWords.mjs'
+import { JUMP_MS, MOST_NAMED, SLEEP_MS, stallOf } from './stallWords.mjs'
 import { writeUnflushed } from './write.mjs'
 
 /** A delay of the event loop, or a work call's wait, longer than this is a stall. */
@@ -31,8 +31,12 @@ const wordsOf = words => String(words ?? '').replace(/\s+/g, ' ').trim().slice(0
  * `every` ms apart when the loop is free; a delay over `overMs` is a loop stall. `slowCall(words, from, to)`: a work call that took over `overMs` is a call stall.
  * Each stall names what ran between its `from` and `to`. `recent()` the stalls, oldest first; `saved()` the last write.
  * `file` null keeps them in memory only.
+ * B1049: a stall of the loop (`tick`) is written as a sleep of the PC (`kind: 'sleep'`, naming no request or job) when it lasts over
+ * SLEEP_MS (10 min), spans a clock jump (`tick`'s monotonic time and the wall time disagree by over JUMP_MS) or began before the
+ * board did (`startedAt`): a sleep is kept and shown, never counted as a slow board. A work call (`slowCall`) is a sleep only when it
+ * was sent before the board began: however long it waited, the loop kept ticking, so the PC was awake (round 2).
  */
-export function stallLog({ now = Date.now, overMs = STALL_MS, most = MOST_STALLS, file = null, fs = { readFile, mkdir } } = {}) {
+export function stallLog({ now = Date.now, overMs = STALL_MS, most = MOST_STALLS, file = null, fs = { readFile, mkdir }, startedAt = now() } = {}) {
   const open = new Map()
   const ended = []
   let stalls = []
@@ -114,14 +118,21 @@ export function stallLog({ now = Date.now, overMs = STALL_MS, most = MOST_STALLS
    * The timer ran last at `from`, was due `every` ms later and ran at `to`: a delay over `overMs` is a stall of the loop,
    * with what ran from `from` to `to` (the block began after `from`).
    */
-  function tick(from, to, every = 0) {
+  function tick(from, to, every = 0, monoMs = null) {
     if (!Number.isFinite(from) || !Number.isFinite(to) || to - from - every <= overMs) return null
+    const ms = to - from - every
+    if (ms > SLEEP_MS || from < startedAt || (Number.isFinite(monoMs) && Math.abs(to - from - monoMs) > JUMP_MS)) return keep({ at: to, ms, kind: 'sleep', requests: [], jobs: [] })
     return keep({ at: to, ms: to - from - every, kind: 'loop', requests: during(from, to, 'request'), jobs: during(from, to, 'job') })
   }
 
   /** A work call (`words`) begun at `from` and answered at `to`: one over `overMs` is a stall, with what ran beside it. */
   function slowCall(words, from, to) {
     if (!Number.isFinite(from) || !Number.isFinite(to) || to - from <= overMs) return null
+    // Round 2: a call that waited long is not a sleep by its length: the loop kept ticking, so the PC was awake (a real sleep is
+    // logged by tick() from the timer's gap). Only a call sent before the board began is no case of this board.
+    // Round 3: a call sent before a sleep the timer logged began and answered after it ended is that sleep, not a call of 8.5 h.
+    const spans = stalls.some(one => one.kind === 'sleep' && from <= one.at - one.ms + JUMP_MS && to >= one.at)
+    if (from < startedAt || spans) return keep({ at: to, ms: to - from, kind: 'sleep', requests: [], jobs: [] })
     const call = wordsOf(words)
     return keep({ at: to, ms: to - from, kind: 'call', call, requests: during(from, to, 'request').filter(one => one !== call), jobs: during(from, to, 'job') })
   }
@@ -141,12 +152,15 @@ export function stallLog({ now = Date.now, overMs = STALL_MS, most = MOST_STALLS
  * Starts the timer that measures the loop's delay: every `every` ms it notes when it ran; a run later than its due time
  * by over the log's limit is a stall (`log.tick`). Answers the stop. `setTimer`/`clearTimer` are the clock's (the tests').
  */
-export function watchLoop(log, { every = TICK_MS, now = Date.now, setTimer = setInterval, clearTimer = clearInterval } = {}) {
+export function watchLoop(log, { every = TICK_MS, now = Date.now, mono = () => performance.now(), setTimer = setInterval, clearTimer = clearInterval } = {}) {
   let last = now()
+  let lastMono = mono()
   const timer = setTimer(() => {
     const at = now()
-    log.tick(last, at, every)
+    const atMono = mono()
+    log.tick(last, at, every, atMono - lastMono)
     last = at
+    lastMono = atMono
   }, every)
   timer?.unref?.()
   return () => clearTimer(timer)

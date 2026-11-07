@@ -42,7 +42,7 @@
 //   line), the app's form (a question or a popup in its chat: also an entry of that line, `formHandsOf`), and an ask the partner or the main chat handed on or the person took back.
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
-import { chainWaitOf, checkedOf, fixesOf } from './resultCheck.mjs'
+import { chainWaitOf, checkedOf, fixRootsOf, fixesOf } from './resultCheck.mjs'
 import { HANDED_KEPT_WORDS, HANDED_ON_WHO, KEPT_LOOK_WORDS, handedOnKeptWords, isKeptLook } from './keptLook.mjs'
 import { standardOf } from './standard.mjs'
 
@@ -181,7 +181,8 @@ export function recapAskOf(item, { focusGoal = null, recapSteps = [], items = ne
   }
   if (!['look', 'decide'].includes(kind) || !['worker', 'main'].includes(role)) return null
   const named = new Set((recapSteps ?? []).filter(one => one.goal === focusGoal).map(one => one.step))
-  const step = stepIdsIn(valueOf(item, 'Pictures')).find(id => named.has(id) && items?.get?.(id) !== undefined && valueOf(items.get(id), 'Goal') === focusGoal) ?? null
+  // 2026-11-05: a fix in the chain of a named step counts too (its look waits for that row); `step` stays the one the Pictures name.
+  const step = stepIdsIn(valueOf(item, 'Pictures')).find(id => (named.has(id) || fixRootsOf(id, items).some(root => named.has(root))) && items?.get?.(id) !== undefined && valueOf(items.get(id), 'Goal') === focusGoal) ?? null
   return step === null ? null : { to: 'recap', why: 'its step\'s part of the goal\'s recap asks it already', step }
 }
 
@@ -787,7 +788,9 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   // A verdict of a step of the focus goal waits for its recap (rule 1: the goal's recap and its verdicts reach the person there).
   const recapOr = (why, otherwise = decided) => {
     if (step === undefined || focusGoal === null || valueOf(step, 'Goal') !== focusGoal) return otherwise(`${why}, and its step is of no focus goal`)
-    const named = (recapSteps ?? []).some(one => one.step === of && (one.goal ?? focusGoal) === focusGoal)
+    // 2026-11-05: also a fix up whose chain a recap step stands (B1048 → B1018 → B991): the row waits for its new try.
+    const isNamed = id => (recapSteps ?? []).some(one => one.step === id && (one.goal ?? focusGoal) === focusGoal)
+    const named = isNamed(of) || fixRootsOf(of, items).some(isNamed)
     return !focusHasDemo || named ? { to: 'recap', why } : otherwise(`${why}, and the goal's demo is made without its step`)
   }
   // `again`: the board judges the asks it routed to the person itself anew (isBoardRoutedPerson).

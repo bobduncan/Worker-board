@@ -127,6 +127,7 @@ import { activePages, blockersOf, reportedNotLogged, selfUpdater } from './src/s
 import { findGameFile } from './src/gameFile.mjs'
 import { absentAs, readKept, writeAtomic, writeUnflushed } from './src/write.mjs'
 import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
+import { fileHolders } from './src/work/holders.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
@@ -809,7 +810,7 @@ async function main(args) {
     await stalls.load()
     watchLoop(stalls)
   }
-  const loops = loopRecord({ now: clock, write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')), track: trackJob })
+  const loops = loopRecord({ now: clock, holders: isDemo ? null : files => fileHolders(files), write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')), track: trackJob })
   /** B404: the checks after a report that run now, by step id; a restart waits for them, the stuck-check pass skips them. */
   const runningChecks = new Map()
   /** B404: set once a restart was asked: the board takes no more work and its loops start nothing new. */
@@ -1190,9 +1191,20 @@ async function main(args) {
    */
   const recapRoundNow = async state => {
     const making = state.recapMaking ?? null
-    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause) || making === null) return
-    for (const step of recapRoundDue(making, store.outbox())) {
-      await toPartner(recapRoundWords(state.advisor.name, { goal: making.goal, round: making.round, step, path: making.path, job: join(HERE, 'roles', 'partner.md') }), {}, state)
+    const waiting = state.recapWaiting ?? null
+    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause) || (making === null && waiting === null)) return
+    // 2026-11-05: a row sent back in an earlier round whose try is in is told the same way ("is in"), once per step.
+    const told = new Set()
+    const lists = [
+      [making, making === null ? [] : recapRoundDue(making, store.outbox()), false],
+      [waiting, waiting === null ? [] : recapRoundDue({ goal: waiting.goal, doneSteps: waiting.steps }, store.outbox()), true],
+    ]
+    for (const [one, due, isIn] of lists) {
+      for (const step of due) {
+        if (told.has(step)) continue
+        told.add(step)
+        await toPartner(recapRoundWords(state.advisor.name, { goal: one.goal, round: one.round, step, path: one.path, job: join(HERE, 'roles', 'partner.md'), isIn }), {}, state)
+      }
     }
   }
   /**

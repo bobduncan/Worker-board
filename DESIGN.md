@@ -2181,6 +2181,20 @@ step on "check pending" for good.
 - **No remote** (`src/work/check.mjs`): origin/<base> unread passes as "has no remote" only when `git remote` names no
   origin; git not answering, or an origin whose base cannot be read, is a fault. A repository with an origin whose base
   was never pushed now fails the check, as it should.
+- **A busy file names its holder** (B1049, X: 2026-11-04 22:26 an orphaned `grep.exe` held `data/spending.json` open and the
+  measure loop failed every few minutes with only "EPERM"): a loop that fails with EPERM, EBUSY or EACCES on a file
+  twice, the second failure at least a minute after the first (round 3: the real 11-04 pairs came 113 to 120 s apart, so a strict 2 min never fired), gets a read-only Restart Manager lookup (`fileHolders` in `src/work/holders.mjs`, beside B844's folder
+  reader; RmStartSession, RmRegisterResources, RmGetList, RmEndSession) on the files the error names (the board's own temp
+  files left out). The head's line then ends "; held by grep.exe, pid 57736, since 19:52": at most three programs named,
+  the rest counted, at most one lookup a minute per file and one lookup in flight at a time, nothing named off Windows or when PowerShell does not answer.
+  The streak of busy failures of a file is apart from the loop's failing: it starts at the first EPERM/EBUSY/EACCES failure and ends,
+  with its names, only when the loop succeeds more than 2 min after its last busy failure, so the no-op success the measure
+  loop returns while a measure runs (the real 11-04 case: a failure every 2 min) does not reset it (it ends after 2 min free), or at once when the loop
+  fails for another reason (EPERM turned ENOENT: no program holds the file, so no "held by" stands beside it); the lookup reads the
+  whole error line, not the 300 characters the page keeps (a long project path would lose its file name).
+  It only reads: no Stop button, no program ended by the board (the person ends it in Task Manager). Tests:
+  `test/loopHolders.test.mjs` (a child holds a scratch file without share-delete, the rename gets EPERM, the loop fails a
+  minute on a test clock, the line names the program and its pid; the real 113.2 s and 119.966 s pairs; a lookup that settles after the streak ended names nothing).
 - Tests: `test/loops.test.mjs` (fake clock: a loop that throws once and goes on, one failing every refresh logged once,
   the page line, the log file and its rotation, stuck checks and their cap, the restart's wait), `test/work/recheck.test.mjs`
   (the action on a store), `test/work/check.test.mjs` (no remote against a failed call).
@@ -3920,7 +3934,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
   <why>" on the Backlog tab, in work next and list, and in the health summary, which counts review chains, not steps),
   `chain-long` (B664, X8 a third time: a chain of fixes with three tries or more, its first step and every fix under it
-  not dropped, whose newest fix is at work with no "Tried before:" line in its what: a third patch of the same way; one
+  not dropped, whose newest fix is at work with no "Tried before:" line in its what (a short part may stand before the colon, "Tried before, bridges:"; B1042, X152): a third patch of the same way; one
   case per chain and newest fix; a fix the board made open for the partner's other way is no case yet), `open-fix` (B667,
   B664's check, principle 2: an open fix the partner never refines had no follow-up: a step in review whose last fix is
   new with no refine round written since it was made, over 60 min from then (`openFixMinutes`) and its newest refine word
@@ -3988,7 +4002,28 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   hand-over's and 5 to 8 jobs at once, so no single blocker is left): the 5 s the board aims at is measured, not an alarm. A
   call answered after 2 to 10 s goes to the stall log only; an alarm sounds only when a slow answer does harm: board-slow for
   calls answered after the chat gave up (10 s, two within 2 min), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
-  clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. What forces a rebuild is pinned end to end by
+  clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. **A sleep is no stall** (B1049 part 2: the PC
+  slept 2026-11-04 23:45 to 11-05 08:15 and `data/stalls.json` held it as 8.5 h of "the loop blocked"): a stall is written as
+  `kind: 'sleep'` (no requests or jobs named) when a stall of the loop lasts over 10 min, spans a clock jump (the wall clock and the monotonic
+  one, `watchLoop`, disagree by over 5 s) or began before the board did (a work call is a sleep only when sent before the board began); an older loop stall over 10 min reads as a sleep too
+  (`stallOf`). A sleep is kept and said in plain words ("the PC slept (not a slow board)"); board-slow counts no call that
+  waited through one and cites it as "slept: ...", never as a stall. Review (2026-11-05): a call is left out only when its chat
+  sent it before the sleep began (the call's send time is `at - ms`, within 5 s of the sleep's start); the chats sleep with
+  the PC, so a call sent inside the window proves the PC was awake and counts, however long it waited (an 11 min hang with
+  the PC awake trips board-slow). Round 2 (2026-11-05, an independent check): only the timer's stall of the loop (`tick`) is
+  written as a sleep by its length (over 10 min); a work call (`slowCall`) that waited over 10 min stays `kind: 'call'`
+  (it is a sleep only when sent before the board began), because the loop kept ticking while it waited: the PC was awake
+  (`isSleep` reads the 10 min rule only for an old stall of the loop). A "sleep" that a counted call was sent inside (sent
+  after it began plus 5 s, before it ended) was a hang of the board with the PC awake: board-slow cites it under stalls
+  as "the loop blocked 12 min to 13:12:00; calls were sent inside it: not a sleep", never under "slept:". A PC sleep
+  under 10 min is logged as a stall of the loop, because `performance.now` keeps counting through a Windows sleep (QPC),
+  so the clock-jump check does not fire there (it stays for clocks that stop in a sleep) and the 10 min rule alone
+  catches a long sleep. `from < startedAt` cannot happen for the timer `watchLoop` starts (it begins at the board's start);
+  it guards a caller that hands in an earlier `from`. Round 3 (the re-check): a call proves a "sleep" was a hang only when it was
+  sent over a minute before the window's end and the window is under an hour (a call sent at the wake tick of a real night
+  proves nothing; the live 08:15:06 entry stays "slept"), and `slowCall` writes a call that spans a logged sleep (sent before it
+  began, answered after it ended) as that sleep, not as an 8.5 h call. An awake loop hang over 10 min names no jobs (it is
+  written as a sleep by `tick`), and EPERM alternating with another error never reaches the lookup (the other error ends the streak). Pinned by `test/sleepStall.test.mjs`. What forces a rebuild is pinned end to end by
   `test/rebuildsBoard.test.mjs` (a copy of the board with its state kept an hour, `WORKER_BOARD_STATE_MS`, and one line per
   rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
   an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a
