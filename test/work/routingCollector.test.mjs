@@ -135,7 +135,7 @@ test('summary(30) on 50 000 events stays fast across a scan with equal outcomes 
     const transcripts=join(root,'transcripts');await mkdir(transcripts)
     const t0=Date.UTC(2026,10,1,12)
     const events=Array.from({length:50000},(_,n)=>({messageId:`e${n}`,sourceSessionId:'s',chat:`Worker ${n%7}`,phase:'implement',sourceAt:t0-n*50000,actualModel:'claude-sonnet-5-5',actualEffort:'medium',taskId:`B${n%400}`,input:10,cacheWrite:0,cacheRead:0,output:1}))
-    await writeFile(join(root,'spending.json'),JSON.stringify({version:1,events,scans:{},foldVersion:1,folded:[],oversizedRule:1}))
+    await writeFile(join(root,'spending.json'),JSON.stringify({version:1,events,scans:{},foldVersion:2,folded:[],oversizedRule:1}))
     let now=t0+1000
     const collector=createSpendingCollector({dir:root,transcripts,clock:()=>now});await collector.load()
     const results=()=>[{id:'B1',accepted:true,attempts:1},{id:'B2',accepted:false,attempts:2}]

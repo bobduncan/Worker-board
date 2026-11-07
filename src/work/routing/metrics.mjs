@@ -55,16 +55,16 @@ const costs=new WeakMap(),days=new Map()
 const costOf=e=>{let cost=costs.get(e);if(cost===undefined){cost=estimateUsage(e);costs.set(e,cost)}return cost}
 const dayOf=at=>{const day=Math.floor(at/86400000);let text=days.get(day);if(text===undefined){text=new Date(day*86400000).toISOString().slice(0,10);days.set(day,text)}return text}
 /**
- * Round 4 (b): a day's events the 50 000 cap drops are kept as totals, one row per day, chat, model, effort and phase:
+ * Round 4 (b): a day's events the 50 000 cap drops are kept as totals, one row per day, chat, model, effort, phase and task:
  * `{folded:true,sourceAt:<the day's start>,chat,actualModel,actualEffort,phase,messages,unknown,low,high,<tokens>}`,
  * its cost worked out per message before it was folded. A row counts as its `messages` in every grouping.
  */
 export function foldEvents(rows,events){
-  const byKey=new Map(rows.map(row=>[[row.sourceAt,row.chat,row.actualModel,row.actualEffort,row.phase].join('|'),row]))
+  const byKey=new Map(rows.map(row=>[[row.sourceAt,row.chat,row.actualModel,row.actualEffort,row.phase,row.taskId??null].join('|'),row]))
   for(const e of events){
-    const sourceAt=Math.floor(e.sourceAt/86400000)*86400000,key=[sourceAt,e.chat,e.actualModel,e.actualEffort,e.phase].join('|')
+    const sourceAt=Math.floor(e.sourceAt/86400000)*86400000,key=[sourceAt,e.chat,e.actualModel,e.actualEffort,e.phase,e.taskId??null].join('|')
     let row=byKey.get(key)
-    if(!row){row={folded:true,sourceAt,chat:e.chat,actualModel:e.actualModel,actualEffort:e.actualEffort,phase:e.phase,messages:0,unknown:0,low:0,high:0,input:0,cacheRead:0,cacheWrite:0,output:0};byKey.set(key,row)}
+    if(!row){row={folded:true,sourceAt,chat:e.chat,actualModel:e.actualModel,actualEffort:e.actualEffort,phase:e.phase,taskId:e.taskId??null,messages:0,unknown:0,low:0,high:0,input:0,cacheRead:0,cacheWrite:0,output:0};byKey.set(key,row)}
     const cost=e.folded?{known:true,low:e.low,high:e.high}:estimateUsage(e),count=e.folded?e.messages:1
     row.messages+=count;row.unknown+=e.folded?e.unknown:cost.known?0:1
     if(cost.known){row.low+=cost.low;row.high+=cost.high}
@@ -92,8 +92,11 @@ function groupedMany(events,keys){
 }
 const grouped=(events,key)=>groupedMany(events,{one:key}).one
 export function routingSummary({events=[],folded=[],outcomes=[],now=Date.now(),days=7,coverage={}}){
-  const from=days===null?-Infinity:now-days*86400000
-  // A folded day counts in a period that holds its start.
+  const asked=days===null?-Infinity:now-days*86400000
+  // A folded day cannot be cut: it is one row at its day's start. When it holds the window's start, the window begins at
+  // that day's start instead (up to 24 h more than asked, folded and kept events alike), and `coverage.widenedFrom` says so.
+  // It does so only when the kept events begin after the asked start: if they reach back past it, the folded days are all older.
+  const widened=days!==null&&folded.some(e=>e.sourceAt<asked&&e.sourceAt+86400000>asked)&&!events.some(e=>e.sourceAt<=asked),from=widened?Math.floor(asked/86400000)*86400000:asked
   const selected=[...folded.filter(e=>e.sourceAt>=from&&e.sourceAt<=now),...events.filter(e=>e.sourceAt>=from&&e.sourceAt<=now)]
   const groups=groupedMany(selected,{total:()=> 'total',attributed:e=>e.taskId?'total':null,phases:e=>e.phase,models:e=>e.actualModel,efforts:e=>e.actualEffort,chats:e=>e.chat,tasks:e=>e.taskId??'Unassigned',daily:e=>dayOf(e.sourceAt)})
   const total=groups.total[0]??{low:0,high:0,messages:0,unknown:0,input:0,cacheRead:0,cacheWrite:0,output:0}
@@ -108,7 +111,7 @@ export function routingSummary({events=[],folded=[],outcomes=[],now=Date.now(),d
   if(total.unknown||selected.some(e=>!e.taskId))suggestions.push({kind:'coverage',text:'Some spending cannot be priced or linked to a task. Improve coverage before claiming savings.'})
   if(relevant.some(o=>(o.attempts??0)>1))suggestions.push({kind:'quality',text:'Compare repair costs by task class before expanding cheaper model assignments.'})
   if(!selected.length)suggestions.push({kind:'coverage',text:'No reported usage in this period yet. The collector reads local transcripts without making model calls.'})
-  return {days,from:Number.isFinite(from)?from:null,until:now,priceBasis:PRICE_BASIS,knownCost:{low:round(total.low),high:round(total.high)},messages:total.messages,unknownCostMessages:total.unknown,tokens:Object.fromEntries(tokenKeys.map(k=>[k,selected.length&&!selected.some(e=>number(e[k])!==null)?null:total[k]])),attributedMessages:a.messages,attributionPercent:total.messages?Math.round(100*a.messages/total.messages):null,accepted:accepted.length,qualitySample:measured.length,firstPassPercent:measured.length?Math.round(100*measured.filter(o=>o.attempts===1).length/measured.length):null,attributedCostPerAccepted:accepted.length?{low:round(a.low/accepted.length),high:round(a.high/accepted.length)}:null,models,efforts:groups.efforts,chats:groups.chats,phases,tasks,daily:groups.daily.sort((a,b)=>a.key.localeCompare(b.key)),suggestions,comparison:{savingsPercent:null,why:'A matched baseline and completed quality trials are required.'},coverage:{...coverage,earliestMessage:selected.length?selected.reduce((first,e)=>Math.min(first,e.sourceAt),Infinity):null,includesUnfinishedAndFailedWork:true}}
+  return {days,from:Number.isFinite(from)?from:null,until:now,priceBasis:PRICE_BASIS,knownCost:{low:round(total.low),high:round(total.high)},messages:total.messages,unknownCostMessages:total.unknown,tokens:Object.fromEntries(tokenKeys.map(k=>[k,selected.length&&!selected.some(e=>number(e[k])!==null)?null:total[k]])),attributedMessages:a.messages,attributionPercent:total.messages?Math.round(100*a.messages/total.messages):null,accepted:accepted.length,qualitySample:measured.length,firstPassPercent:measured.length?Math.round(100*measured.filter(o=>o.attempts===1).length/measured.length):null,attributedCostPerAccepted:accepted.length?{low:round(a.low/accepted.length),high:round(a.high/accepted.length)}:null,models,efforts:groups.efforts,chats:groups.chats,phases,tasks,daily:groups.daily.sort((a,b)=>a.key.localeCompare(b.key)),suggestions,comparison:{savingsPercent:null,why:'A matched baseline and completed quality trials are required.'},coverage:{...coverage,widenedFrom:widened?from:null,earliestMessage:selected.length?selected.reduce((first,e)=>Math.min(first,e.sourceAt),Infinity):null,includesUnfinishedAndFailedWork:true}}
 }
 export function spendingCsv(summary){
   const cell=v=>{const text=String(v??'');return `"${text.match(/^[=+@\-\t\r]/)?"'":''}${text.replaceAll('"','""')}"`}

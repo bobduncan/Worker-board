@@ -51,6 +51,18 @@ again once from the start. (d) An all-zero chunk advances the offset: no skipped
 jobs by session in one pass. (f) A summary is cached by the outcomes' content (not the array), built in one pass per
 period with the cost and day of an event remembered, and a window that moved past no message keeps its summary (the five
 summaries of the board on the live 50 000 events: 340 ms before, 2 ms across a scan, ~45 ms after a window move).
+**Round 4, the lead's review (2026-11-07).** (1) A folded row keeps its task (`taskId` in the fold key), so "Linked to a
+task", "Finished tasks" and "Most expensive tasks" are the same folded or not; `FOLD_VERSION` 2 reads every ledger again once.
+(2) A folded day cannot be cut (one row at its day's start), so a window that starts inside one begins at that day's start
+instead (up to 24 h more than asked; `coverage.widenedFrom`, and a line on the tab says so), but only when the kept events
+begin after the asked start. (3) `foldedIds` keeps the newest 300 000 ids (`MAX_FOLDED_IDS`, ~70 days of messages: a fork's
+copy of a message folded earlier than that would be folded a second time); its Set is built only when an event is old enough
+to be a copy, and then added to, not rebuilt. (4) The coverage note says older days are kept as day totals. (5) The ledger
+carries `foldScanAt`, a copy of `lastScanAt` written with it; older code (a land.ps1 rollback) keeps `foldVersion`, trims
+without folding and writes `lastScanAt` alone, so the two differ and the ledger is read again once: a rollback is not a
+one-way step. (6) A message whose file is read only part way (`scan.lastMessageId`, cleared at the file's end) is not folded
+until its last line is read. Known limit of the oversized-line count (c): a long line counts as an answer by the first
+4,096 bytes only, so a real oversized answer is not seen; none was found on the live data.
 
 > **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the

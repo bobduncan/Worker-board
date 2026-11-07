@@ -7,7 +7,8 @@ import {attributeUsage,foldEvents,routingSummary} from './metrics.mjs'
 
 const CHUNK=1024*1024,MAX_EVENTS=50000,MAX_FILES=32,TAIL_BYTES=16*CHUNK,MAX_BYTES=96*CHUNK,MAX_SCAN_MS=5000,MAX_CHILDREN=4096,READ_OUT_SLICE=100
 // Round 4 (b): a ledger without day totals is read again once from the start, so the days the cap dropped are folded.
-const FOLD_VERSION=1
+// 2: a folded row keeps its task. The ids of folded messages are kept for the newest MAX_FOLDED_IDS only.
+const FOLD_VERSION=2,MAX_FOLDED_IDS=6*MAX_EVENTS
 const isZeros=bytes=>bytes.every(byte=>byte===0)
 // Round 4 (b): a message that was folded is known by a 12-hex hash of its id; a copy of it (a fork copies old lines) read
 // later is not counted twice.
@@ -116,6 +117,7 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
   const indexOf=()=>{if(byIdFor!==ledger.events){byId=new Map(ledger.events.map(e=>[e.messageId,e]));byIdFor=ledger.events}return byId}
   const file=join(dir,'spending.json')
   let idSet=null,idSetFor=null
+  // Built when a copy of a folded message can be among the events (rare), not at every start.
   const foldedSet=()=>{if(idSetFor!==ledger.foldedIds||idSet===null){idSet=new Set((ledger.foldedIds??'').match(/.{12}/g)??[]);idSetFor=ledger.foldedIds}return idSet}
   const coverage=()=>({startedAt:ledger.startedAt,lastScanAt:ledger.lastScanAt,unknownMessages:ledger.unknown??0,skippedLongLines:ledger.skippedLongLines??0,pendingBytes:Object.values(ledger.scans).reduce((sum,scan)=>sum+Math.max(0,(scan.size??scan.offset)-scan.offset),0),pendingFiles:ledger.pendingFiles??0,childTranscripts:ledger.childTranscripts??0,unavailableTranscripts:ledger.unavailableTranscripts??0,discoveryLimited:ledger.discoveryLimited??false,retentionLimited:ledger.retentionLimited,retainedFrom:ledger.retentionLimited&&!Array.isArray(ledger.folded)?ledger.retainedFrom??null:null,collecting:busy,problem,unavailable,scope:'Recorded project chats and discovered native children, including Main and Advisors; missing or still-pending transcripts leave totals incomplete.'})
   return {
@@ -123,10 +125,12 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
       try{const raw=JSON.parse(await readFile(file,'utf8'));if(!validLedger(raw))throw Error('Unsupported or corrupt spending ledger');ledger={...ledger,...raw};if(ledger.retentionLimited&&ledger.retainedFrom===undefined)ledger.retainedFrom=ledger.events.reduce((first,e)=>Math.min(first,e.sourceAt),Infinity);for(const [session,mark] of Object.entries(ledger.readOut??{}))if(typeof mark!=='number')delete ledger.readOut[session]
         // The count kept before counted every long line; checked on the live data (chat 1, 2026-11-05), none was an answer.
         if(ledger.oversizedRule!==OVERSIZED_RULE){ledger.skippedLongLines=0;ledger.oversizedRule=OVERSIZED_RULE}
-        if(ledger.foldVersion!==FOLD_VERSION){
+        if(ledger.foldVersion!==FOLD_VERSION||(ledger.foldScanAt??null)!==(ledger.lastScanAt??null)){
+          // (foldScanAt: the code that folds writes it with lastScanAt; older code writes lastScanAt alone and drops messages
+          // unfolded, so a ledger it wrote last is read again once.)
           // Read every transcript again from its start: the messages the cap dropped come back and are folded into day
           // totals; the kept ones are merged by message id. The oversized lines and unknown messages are counted anew.
-          for(const scan of Object.values(ledger.scans)){scan.offset=0;scan.taskId=null;delete scan.skippingLine}
+          for(const scan of Object.values(ledger.scans)){scan.offset=0;scan.taskId=null;delete scan.skippingLine;delete scan.lastMessageId}
           ledger.readOut={};ledger.readOutAt={};ledger.folded=[];ledger.foldedIds='';ledger.foldedBefore=0;ledger.skippedLongLines=0;ledger.unknown=0;ledger.foldVersion=FOLD_VERSION;ledger.oversizedRule=OVERSIZED_RULE
         }}
       catch(error){if(error.code!=='ENOENT'){unavailable=true;problem='Spending history is unavailable. The previous file is preserved; repair or move it aside before restarting collection.'}}
@@ -224,10 +228,13 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
               }
               // Only an answer's line carries usage: the rest (tool output, the bulk of a transcript) is never parsed.
               const answers=buffer.subarray(lineStart,end+1).toString('utf8').split('\n').filter(line=>line.includes('"type":"assistant"')).join('\n')
-              const found=attributeUsage({entries:parseTail(answers,false,true),sourceSessionId:subject.session,parentSessionId:subject.parentSessionId??null,chat:subject.name,role:subject.role,assignments,index,cursor:scan})
-              ledger.unknown+=found.unknown;scan={...scan,...found.cursor,offset:scan.offset+end+1};changed=true
+              const entries=parseTail(answers,false,true),lastAnswer=entries.findLast(e=>e.type==='assistant'&&e.messageId)?.messageId
+              const found=attributeUsage({entries,sourceSessionId:subject.session,parentSessionId:subject.parentSessionId??null,chat:subject.name,role:subject.role,assignments,index,cursor:scan})
+              ledger.unknown+=found.unknown;scan={...scan,...found.cursor,offset:scan.offset+end+1};if(lastAnswer)scan.lastMessageId=lastAnswer;changed=true
               await new Promise(done=>setImmediate(done))
             }
+            // The file is read to its end: no message of it is still being written.
+            if(scan.offset>=stat.size)delete scan.lastMessageId
             ledger.scans[subject.key]=scan
           }catch(error){missing++;ledger.scans[subject.key]={...(ledger.scans[subject.key]??{offset:0,taskId:null}),unavailable:true};if(error.code!=='ENOENT')problem=`Some local usage is unavailable (${error.code??'read failed'}).`}
           finally{await handle?.close()}
@@ -268,23 +275,27 @@ export function createSpendingCollector({dir,transcripts,chats=null,appSessions=
         ledger.unavailableTranscripts=Math.max(missing,jobs.filter(j=>ledger.scans[j.key]?.unavailable).length)
         if(changed){
           let events=[...index.values()],rebuilt=false
-          // A copy of a message folded before (a fork's old lines) is dropped, not counted again.
-          const known=foldedSet()
-          if(known.size){const fresh=events.filter(e=>!(e.sourceAt<=(ledger.foldedBefore??0)&&known.has(hashOf(e.messageId))));if(fresh.length!==events.length){events=fresh;rebuilt=true}}
+          // A copy of a message folded before (a fork's old lines) is dropped, not counted again. The ids are looked up only
+          // when an event is old enough to be such a copy.
+          if(ledger.foldedIds&&events.some(e=>e.sourceAt<=(ledger.foldedBefore??0))){const known=foldedSet();const fresh=events.filter(e=>!(e.sourceAt<=(ledger.foldedBefore??0)&&known.has(hashOf(e.messageId))));if(fresh.length!==events.length){events=fresh;rebuilt=true}}
           if(events.length>MAX_EVENTS){
             events.sort((a,b)=>a.sourceAt-b.sourceAt)
-            const dropped=events.slice(0,-MAX_EVENTS),hashes=dropped.map(e=>hashOf(e.messageId))
-            ledger.folded=foldEvents(ledger.folded??[],dropped)
-            ledger.foldedIds=(ledger.foldedIds??'')+hashes.join('');ledger.foldedBefore=Math.max(ledger.foldedBefore??0,dropped[dropped.length-1].sourceAt)
-            for(const h of hashes)known.add(h)
-            idSetFor=ledger.foldedIds
-            events=events.slice(-MAX_EVENTS);ledger.retentionLimited=true;ledger.retainedFrom=events[0]?.sourceAt??null;rebuilt=true
+            // A message whose file is read only part way may have lines still to come (output tokens, a task link): it
+            // stays kept, and is folded in a later scan.
+            const open=new Set(Object.values(ledger.scans).filter(s=>s.lastMessageId&&s.offset<(s.size??s.offset)).map(s=>s.lastMessageId)),cut=events.length-MAX_EVENTS
+            const dropped=events.slice(0,cut).filter(e=>!open.has(e.messageId)),hashes=dropped.map(e=>hashOf(e.messageId))
+            if(dropped.length){
+              ledger.folded=foldEvents(ledger.folded??[],dropped)
+              const before=ledger.foldedIds??'';ledger.foldedIds=(before+hashes.join('')).slice(-12*MAX_FOLDED_IDS);ledger.foldedBefore=Math.max(ledger.foldedBefore??0,dropped[dropped.length-1].sourceAt)
+              if(idSet!==null&&idSetFor===before){for(const h of hashes)idSet.add(h);idSetFor=ledger.foldedIds}
+            }
+            events=[...events.slice(0,cut).filter(e=>open.has(e.messageId)),...events.slice(cut)];ledger.retentionLimited=true;ledger.retainedFrom=events[0]?.sourceAt??null;rebuilt=true
           }
           if(rebuilt)byId=new Map(events.map(e=>[e.messageId,e]))
           ledger.events=events;byIdFor=events
         }
         ledger.lastScanAt=clock()
-        if(changed){await mkdir(dir,{recursive:true});await writeAtomic(file,JSON.stringify(ledger))}
+        if(changed){ledger.foldScanAt=ledger.lastScanAt;await mkdir(dir,{recursive:true});await writeAtomic(file,JSON.stringify(ledger))}
       }finally{busy=false}
     },
   }

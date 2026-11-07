@@ -2,12 +2,13 @@
 // holding the board, and the sessions cleared chats left (.claude/chats cards with `movedTo`) are counted under the chat.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {createHash} from 'node:crypto'
 import {mkdtemp,mkdir,writeFile,appendFile,rm,stat} from 'node:fs/promises'
 import {createWriteStream} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createSpendingCollector,movedSubjects} from '../../src/work/routing/collector.mjs'
-import {attributeUsage,estimateUsage} from '../../src/work/routing/metrics.mjs'
+import {attributeUsage,estimateUsage,foldEvents,routingSummary} from '../../src/work/routing/metrics.mjs'
 
 const at=Date.UTC(2026,10,5,9)
 // The shapes of a real transcript: an answer with its usage, and a tool's output (the bulk of a transcript).
@@ -342,7 +343,7 @@ test('the old count of long lines is started anew once',async()=>place(async({ro
 
 // ---- Round 4 (final check, 2026-11-05) ----
 const lineAt=(id,session,time)=>JSON.stringify({type:'assistant',sessionId:session,timestamp:new Date(time).toISOString(),message:{id,model:'claude-opus-5-5',content:[],usage:{input_tokens:10,cache_creation_input_tokens:0,cache_read_input_tokens:1000,output_tokens:20}}})+'\n'
-const seeded=extra=>({version:1,events:[],scans:{},foldVersion:1,folded:[],oversizedRule:1,...extra})
+const seeded=extra=>({version:1,events:[],scans:{},foldVersion:2,folded:[],oversizedRule:1,...extra})
 
 // (a) Discovery grew with the sessions and ate the read budget (781 sessions, ~3,000 in months). The budget starts after
 // it; a read-out session whose files are gone is not walked; one whose transcript is newer than its mark is, outside its turn.
@@ -447,4 +448,90 @@ test('a fork\'s copy of a folded message is not counted twice',async()=>place(as
   const ledger=await ledgerOf(root)
   assert.ok(ledger.folded.length>0)
   assert.equal(collector.summary(null).messages,CAP_TOTAL)
+}))
+
+// Round 4 review (1): a folded row lost the task of its messages, so 30 days and All showed too few linked messages, too few
+// finished tasks and the folded tasks under "Unassigned". Mutant (taskId out of the fold key and the row): the task figures differ.
+const hourly=(from,count,taskOf)=>Array.from({length:count},(_,n)=>({messageId:`h${n}`,sourceAt:from+n*3600000,chat:'c',actualModel:'claude-opus-5-5',actualEffort:'high',phase:'implement',taskId:taskOf(n),input:1,cacheRead:0,cacheWrite:0,output:1}))
+test('a folded day keeps its tasks: linked share, finished tasks and the tasks table equal the unfolded ones',()=>{
+  const DAY=86400000,from=Date.UTC(2026,9,1,0,30),all=hourly(from,40*24,n=>n<24*3?'B1':n%3===0?'B2':null)
+  const now=from+40*DAY,outcomes=[{id:'B1',accepted:true,attempts:1},{id:'B2',accepted:true,attempts:2}]
+  const folded=foldEvents([],all.slice(0,-240)),kept=all.slice(-240)
+  for(const days of [30,null]){
+    const a=routingSummary({events:kept,folded,outcomes,now,days})
+    const inside=days===null?all:all.filter(e=>e.sourceAt>=a.from)
+    const c=routingSummary({events:inside,folded:[],outcomes,now,days:null})
+    assert.equal(a.attributionPercent,c.attributionPercent,`linked share, ${days}`);assert.equal(a.attributedMessages,c.attributedMessages)
+    assert.equal(a.accepted,c.accepted,`finished tasks, ${days}`);assert.equal(a.firstPassPercent,c.firstPassPercent)
+    assert.deepEqual(a.tasks.map(t=>[t.key,t.messages]),c.tasks.map(t=>[t.key,t.messages]))
+  }
+  assert.ok(routingSummary({events:kept,folded,outcomes,now,days:null}).tasks.some(t=>t.key==='B1'&&t.messages===72),'a task seen only on folded days is listed')
+})
+
+// Round 4 review (2): a folded day is one row at its day's start, and the window filter dropped the day that holds the
+// window's start. Now the window begins at that day's start and says so. Mutant (from = asked): 30 days miss the boundary day.
+test('30 days count the folded day that holds the window\'s start whole, and the summary says from when',()=>{
+  const DAY=86400000,from=Date.UTC(2026,9,1,0,30),all=hourly(from,40*24,()=>null),folded=foldEvents([],all.slice(0,-240)),kept=all.slice(-240)
+  for(const iso of ['2026-11-09T00:01:00Z','2026-11-09T10:25:00Z','2026-11-09T23:59:00Z']){
+    const now=Date.parse(iso),got=routingSummary({events:kept,folded,outcomes:[],now,days:30}),start=Math.floor((now-30*DAY)/DAY)*DAY
+    assert.equal(got.messages,all.filter(e=>e.sourceAt>=start&&e.sourceAt<=now).length,iso)
+    assert.equal(got.from,start);assert.equal(got.coverage.widenedFrom,start)
+  }
+  const exact=routingSummary({events:kept,folded,outcomes:[],now:Date.parse('2026-11-09T00:00:00Z'),days:30})
+  assert.equal(exact.coverage.widenedFrom,null,'a window that starts on a day\'s start is not widened')
+  const week=routingSummary({events:kept,folded,outcomes:[],now:Date.parse('2026-11-09T10:25:00Z'),days:7})
+  assert.equal(week.coverage.widenedFrom,null,'kept events reach back past the window: nothing to widen');assert.equal(week.messages,kept.filter(e=>e.sourceAt>=week.from&&e.sourceAt<=week.until).length)
+  assert.equal(routingSummary({events:all,folded:[],outcomes:[],now:Date.parse('2026-11-09T10:25:00Z'),days:30}).coverage.widenedFrom,null,'nothing folded, nothing widened')
+})
+
+// Round 4 review (3): the folded ids grew for ever. Only the newest 300,000 are kept. Mutant (no trim): the string grows.
+const hashOf=id=>createHash('sha1').update(id).digest('hex').slice(0,12)
+test('the ids of folded messages are kept for the newest 300,000 only',async()=>place(async({root,transcripts})=>{
+  const events=Array.from({length:50010},(_,n)=>({messageId:`e${n}`,sourceSessionId:'s',chat:'Worker A',phase:'unattributed',sourceAt:at+(n+1)*1000,actualModel:'claude-opus-5-5',actualEffort:null,input:1,cacheWrite:0,cacheRead:0,output:1}))
+  await writeFile(join(root,'spending.json'),JSON.stringify(seeded({events,foldedIds:'ab'.repeat(6*300000),foldedBefore:1,retentionLimited:true,retainedFrom:at})))
+  await writeFile(join(transcripts,'a.jsonl'),answer('fresh','a')+'\n')
+  const collector=createSpendingCollector({dir:root,transcripts,clock:()=>at+1e8});await collector.load()
+  await collector.scan([{session:'a',name:'Worker A',role:'worker'}])
+  const ledger=await ledgerOf(root)
+  assert.equal(ledger.events.length,50000);assert.equal(ledger.foldedIds.length,12*300000)
+  assert.ok(ledger.foldedIds.endsWith(hashOf('e9')),'the newest ids are the ones kept')
+}))
+
+// Round 4 review (4): the notice said history stops at 50,000 messages.
+test('the coverage panel does not say that history is limited to 50,000 messages',async()=>{
+  const {readFile}=await import('node:fs/promises'),page=await readFile(new URL('../../public/spending.js',import.meta.url),'utf8')
+  assert.ok(!page.includes('History is limited to the latest 50,000'));assert.ok(page.includes('kept as day totals'))
+})
+
+// Round 4 review (5): older code (a rollback by land.ps1) keeps foldVersion, trims without folding and writes lastScanAt.
+// The ledger it wrote last is read again once. Mutant (foldScanAt not compared): the lost messages stay lost.
+test('a ledger that older code wrote after the day totals is read again once',async()=>place(async({root,transcripts})=>{
+  const start=await bigTranscripts(transcripts),clock=()=>start+CAP_TOTAL*60000+1000
+  const first=createSpendingCollector({dir:root,transcripts,clock});await first.load();await scanAll(first)
+  const same=createSpendingCollector({dir:root,transcripts,clock});await same.load()
+  assert.equal(same.summary(null).coverage.pendingBytes,0,'a restart of the same code reads nothing again')
+  const ledger=await ledgerOf(root);ledger.folded=ledger.folded.slice(0,-3);ledger.lastScanAt+=60000
+  await writeFile(join(root,'spending.json'),JSON.stringify(ledger))
+  const again=createSpendingCollector({dir:root,transcripts,clock});await again.load();await scanAll(again)
+  assert.equal(again.summary(null).messages,CAP_TOTAL)
+}))
+
+// Round 4 review (6): a message whose lines are split between two scans was folded after its first line, and its later
+// lines (more output tokens) were dropped as a fork's copy. A message of a file that is read only part way stays kept.
+// Mutant (fold the oldest whatever is read): the output of the message stays at its first line.
+test('a message still being read is not folded before its last line',async()=>place(async({root,transcripts})=>{
+  const out=(id,time,tokens)=>JSON.stringify({type:'assistant',sessionId:'q',timestamp:new Date(time).toISOString(),message:{id,model:'claude-opus-5-5',content:[],usage:{input_tokens:10,cache_creation_input_tokens:0,cache_read_input_tokens:1000,output_tokens:tokens}}})+'\n'
+  const early=at-86400000,first=Array.from({length:50010},(_,n)=>out(`n${n}`,at+n*60000,20)).join('')+out('split',early,8)
+  const filler=toolOutput(900000)+'\n'
+  await writeFile(join(transcripts,'q.jsonl'),first+filler+filler+out('split',early,215))
+  // The first scan ends after its 12th chunk, the one that holds the first line of 'split' (it ends 12,541,649 bytes in; a
+  // chunk is 1 MiB): the clock jumps at its 16th call (the 13th chunk's check), then runs on quietly.
+  let calls=0,ended=false
+  const collector=createSpendingCollector({dir:root,transcripts,clock:()=>at+40*86400000+(!ended&&++calls>=16?10000:0)});await collector.load()
+  await collector.scan([{session:'q',name:'Worker Q',role:'worker'}]);ended=true
+  assert.ok(collector.offsetOf('q')>=12541649&&collector.offsetOf('q')<12541649+1048576,'the first scan stopped after the first line of the split message')
+  assert.equal(collector.summary(null).messages,50011)
+  for(let n=0;n<10;n++)await collector.scan([{session:'q',name:'Worker Q',role:'worker'}])
+  const all=collector.summary(null)
+  assert.equal(all.messages,50011);assert.equal(all.tokens.output,50010*20+215,'the later line of the split message counts')
 }))
