@@ -11,7 +11,7 @@ import { monitorEventLoopDelay } from 'node:perf_hooks'
 import test from 'node:test'
 
 import { parseHistory } from '../src/history.mjs'
-import { MINUTES_KEEP_MS, alarmsOf, dayLineOf, finishOf, idleMinutesOf, interventionsOf, mergedOutbox, minuteKeeper, minuteOf, recordStability, tailLines } from '../src/stability.mjs'
+import { MINUTES_KEEP_MS, NO_PROOF_WHY, alarmsOf, dayLineOf, finishOf, idleMinutesOf, interventionsOf, mergedOutbox, minuteKeeper, minuteOf, recordStability, tailLines } from '../src/stability.mjs'
 import { parseItem } from '../src/work/item.mjs'
 
 const DAY = 24 * 60 * 60_000
@@ -126,25 +126,22 @@ const OWN_PAUSE = [act('pause-all', t(20, 15, 3)), act('resume-all', t(20, 27, 3
 const night = (more = {}) => interventionsOf({ actions: OWN_PAUSE, landings, reports, history, wakes, outbox, day: TODAY, ...more })
 const clock = at => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
-test('tonight: the records prove five woke-outside findings in the evening and the 20:27 Resume all is not one', () => {
-  const { interventions } = night()
+test('tonight: five starts in the evening have no proof of who started them: unsure, no intervention; the 20:27 Resume all is not one', () => {
+  const { interventions, unsure } = night()
   assert.equal(interventions.some(one => one.kind === 'resume-all'), false, 'the person ended their own pause')
-  const evening = interventions.filter(one => one.at >= t(20, 0))
-  assert.deepEqual(evening.map(one => `${clock(one.at)} ${one.kind} ${one.what.split(' was ')[0]}`), [
+  const evening = unsure.filter(one => one.at >= t(20, 0) && one.what.includes(' started at '))
+  assert.deepEqual(evening.map(one => `${clock(one.at)} ${one.kind} ${one.what.split(' started ')[0]}`), [
     '21:37:13 woke-outside Worker 2',
     '21:37:45 woke-outside Worker 1',
     '21:37:49 woke-outside Worker 5',
     '21:46:28 woke-outside Worker 4',
     '22:45:20 woke-outside Worker 3',
   ])
-  // The proof of each, record by record (the fixtures are the board's own, with every time of an outbox record):
-  // - 21:37:13 Worker 2, 21:37:45 Worker 1, 21:37:49 Worker 5: their runs began (reports.json / the runBefore of their next wake), no
-  //   wake attempt before (the next ones are 21:34 Worker 3, 22:03 Worker 4, 22:24 Worker 1, 22:45 Worker 5), and no outbox record to
-  //   them in the 5 minutes before: the board's clears of Workers 1 and 5 are only taken at 21:38:42 and delivered at 21:38:50.
-  // - 21:46:28 Worker 4 and 22:45:20 Worker 3: a run began; the outbox holds no record to either chat in the 5 minutes before, at
-  //   ANY of its times (the neighbours are 21:45:44 and 22:24:32 to Worker 3, 22:14:05 to Worker 4); the wakes hold none either.
-  assert.equal(interventions.filter(one => one.at < t(20, 0)).length, 0, 'the Advisor of 08:21 is unsure, not a finding')
-  assert.equal(interventions.length, 5)
+  for (const one of evening) assert.equal(one.why, NO_PROOF_WHY)
+  assert.equal(NO_PROOF_WHY, "no record shows who started it (the person, a chat's message or the app)")
+  // The records show runs began and nothing of the board reached those chats (no wake attempt, no outbox record in the 5 minutes
+  // before at ANY of its times); that does not prove the person did it, so it is not an intervention. 0 interventions that day.
+  assert.deepEqual(interventions, [])
 })
 
 test('the Advisor began a run at 08:21 with only that chat started: not an app restart, and the records cannot tell a wake from the person opening it', () => {
@@ -156,24 +153,28 @@ test('the Advisor began a run at 08:21 with only that chat started: not an app r
   assert.match(morning[0].why, /history does not track this chat/)
 })
 
-test('a chat the history does not track leaves only a run start: unsure; a chat of the history (or a lane of the state) is a finding', () => {
+test('a lone start with no proof is unsure whether or not the history tracks the chat; the chat the history does not track says so', () => {
   const run = t(16, 0, 30)
   const base = { reports: { reports: { Advisor: { run, state: 'idle' } } }, wakes: { wakes: { Advisor: [{ spell: 1, attempts: [] }] } }, day: TODAY }
   const other = [{ at: t(15, 0), chat: 'Worker 1', state: 'free' }]
   const none = interventionsOf(base)
-  assert.deepEqual(none.interventions.map(one => one.kind), ['woke-outside'], 'no history at all: nothing to tell the chats apart')
+  assert.deepEqual([none.interventions, none.unsure.map(one => one.kind)], [[], ['woke-outside']], 'no history at all')
+  assert.equal(none.unsure[0].why, NO_PROOF_WHY)
   const unknown = interventionsOf({ ...base, history: other })
   assert.deepEqual(unknown.interventions, [])
   assert.deepEqual(unknown.unsure.map(one => one.kind), ['woke-outside'])
-  assert.deepEqual(interventionsOf({ ...base, history: [{ at: t(15, 0), chat: 'Advisor', state: 'free' }] }).interventions.map(one => one.kind), ['woke-outside'])
-  assert.deepEqual(interventionsOf({ ...base, history: other, lanes: ['Advisor'] }).interventions.map(one => one.kind), ['woke-outside'])
+  assert.match(unknown.unsure[0].why, /history does not track this chat/)
+  for (const given of [{ history: [{ at: t(15, 0), chat: 'Advisor', state: 'free' }] }, { history: other, lanes: ['Advisor'] }]) {
+    const tracked = interventionsOf({ ...base, ...given })
+    assert.deepEqual([tracked.interventions, tracked.unsure.map(one => one.why)], [[], [NO_PROOF_WHY]])
+  }
 })
 
 test('a message or clear of the board is delivered after it was put: ANY of its times in the 5 minutes before the start reaches the chat', () => {
   const run = t(17, 0, 30)
   const reportsOf = { reports: { 'Worker 3': { run, state: 'idle' } } }
   const base = { 'Worker 3': [{ spell: 1, attempts: [] }] }
-  const kinds = box => interventionsOf({ reports: reportsOf, wakes: { wakes: base }, outbox: box, day: TODAY }).interventions.map(one => one.kind)
+  const kinds = box => interventionsOf({ reports: reportsOf, wakes: { wakes: base }, outbox: box, day: TODAY }).unsure.map(one => one.kind)
   const late = { id: 'a', at: run - 9 * MIN, to: 'Worker 3', command: 'handover', state: 'delivered' }
   assert.deepEqual(kinds([late]), ['woke-outside'], 'put 9 minutes before, nothing else: not reached')
   assert.deepEqual(kinds([{ ...late, deliveredAt: run - 20_000 }]), [], 'delivered 20 s before')
@@ -191,7 +192,7 @@ test('a message or clear of the board is delivered after it was put: ANY of its 
 test('tonight the clears of Workers 1 and 5 are delivered after their starts at 21:37: they did not start them', () => {
   const clear = outbox.find(one => one.id.startsWith('9dcc3f'))
   assert.ok(clear.takenAt > t(21, 38) && clear.deliveredAt > t(21, 38, 40), 'the clear of Worker 1: taken 21:38:42, delivered 21:38:50')
-  assert.equal(night().interventions.filter(one => one.at >= t(21, 37) && one.at < t(21, 38)).length, 3)
+  assert.equal(night().unsure.filter(one => one.at >= t(21, 37) && one.at < t(21, 38)).length, 3, 'still three starts with no proof (unsure)')
 })
 
 test('what an earlier pass of the day found stays, of every kind and unsure too, after the records move on', () => {
@@ -272,12 +273,17 @@ test('every chat the app starts again that starts a run within 2 minutes, with n
   const known = { wakes: { Main: [{ spell: 1, attempts: [] }], 'Worker 1': [{ spell: 1, attempts: [] }], 'Worker 2': [{ spell: 1, attempts: [] }] } }
   const done = interventionsOf({ reports: live, wakes: known, day: TODAY })
   assert.deepEqual(done.interventions.map(one => `${one.kind} ${clock(one.at)}`), ['app-restart 15:00:05'], 'one finding, not three woke-outside')
+  assert.deepEqual(done.unsure, [], 'the starts inside the restart are folded into it, not left unsure')
+  // An unsure start found earlier (kept) that falls inside a restart is folded too; one outside it stays unsure.
+  const keptUnsure = [{ at: t(15, 0, 40), kind: 'woke-outside', what: 'x', why: 'y' }, { at: t(11, 0), kind: 'woke-outside', what: 'z', why: 'y' }]
+  assert.deepEqual(interventionsOf({ reports: live, wakes: known, keptUnsure, day: TODAY }).unsure.map(one => one.at), [t(11, 0)])
   // A landing within 5 minutes explains it (the board restarted the app itself).
   const landed = interventionsOf({ reports: live, wakes: known, landings: [{ at: new Date(t(15, 3)).toISOString(), result: 'landed' }], day: TODAY })
   assert.deepEqual(landed.interventions, [])
-  // Not every chat: each is a woke-outside of its own.
+  // Not every chat: each start is unsure on its own.
   const partial = interventionsOf({ reports: live, wakes: known, live: ['Main', 'Worker 1', 'Worker 2', 'Worker 3'], day: TODAY })
-  assert.deepEqual(partial.interventions.map(one => one.kind), ['woke-outside', 'woke-outside', 'woke-outside'])
+  assert.deepEqual(partial.interventions, [], 'a start with no proof is no intervention')
+  assert.deepEqual(partial.unsure.map(one => one.kind), ['woke-outside', 'woke-outside', 'woke-outside'])
   // Found once, kept after the reports move on (a chat's report holds only its newest run).
   const kept = done.interventions
   const later = interventionsOf({ reports: { reports: {} }, wakes: known, kept, day: TODAY })
@@ -288,7 +294,7 @@ test('a start the board explains is no finding: its own attempt, a message, a re
   const run = t(16, 0, 30)
   const reportsOf = { reports: { 'Worker 1': { run, state: 'idle' } } }
   const base = { 'Worker 1': [{ spell: 1, attempts: [] }] }
-  const kinds = args => interventionsOf({ reports: reportsOf, day: TODAY, ...args }).interventions.map(one => one.kind)
+  const kinds = args => interventionsOf({ reports: reportsOf, day: TODAY, ...args }).unsure.map(one => one.kind)
   assert.deepEqual(kinds({ wakes: { wakes: base } }), ['woke-outside'])
   assert.deepEqual(kinds({ wakes: { wakes: { 'Worker 1': [{ spell: 1, attempts: [{ at: run - 30_000, by: 'Main', verdict: 'woke' }] }] } } }), [])
   assert.deepEqual(kinds({ wakes: { wakes: base }, outbox: [{ id: 'a', at: run - 2 * MIN, to: 'Worker 1', state: 'delivered' }] }), [])
@@ -300,7 +306,7 @@ test('a start the board explains is no finding: its own attempt, a message, a re
 
 test('an interrupted chat that goes on with nobody reaching it is unsure, never an intervention (the records cannot tell it from its own release)', () => {
   const { interventions, unsure } = night()
-  const evening = unsure.filter(one => one.at >= t(20, 0))
+  const evening = unsure.filter(one => one.at >= t(20, 0) && /interrupted/.test(one.what))
   assert.deepEqual(evening.map(one => `${clock(one.at)} ${one.kind}`), ['22:38:23 woke-outside'])
   assert.match(evening[0].what, /Worker 1 went from interrupted to working/)
   assert.match(evening[0].why, /do not tell/)
@@ -315,11 +321,13 @@ test('an ask that says "open its chat" and that the person answered that day is 
   assert.deepEqual(interventionsOf({ asks: [answered], day: '2026-11-04' }).interventions, [])
 })
 
-test('alarms: the incidents raised that day; gone and "No fault" are false, fixed and open are real (X154-X161 are all of 2026-11-05)', () => {
+test('alarms: false = closed with "No fault" or "obsolete" ONLY; gone, fixed and open are real (X154-X161 are all of 2026-11-05: 8 real, 0 false)', () => {
   const alarms = alarmsOf(incidents, TODAY)
   assert.deepEqual(alarms.ids, ['X154', 'X155', 'X156', 'X157', 'X158', 'X159', 'X160', 'X161'])
-  assert.equal(alarms.real, 3, 'X157, X158 and X161 are open')
-  assert.equal(alarms.false, 5, 'X154, X155, X156, X159 and X160 went gone')
+  assert.equal(alarms.real, 8, 'X157, X158 and X161 are open; X154, X155, X156, X159 and X160 went gone: a real problem that went away')
+  assert.equal(alarms.false, 0)
+  const gone = parseItem('Id: X9\nKind: incident\nTitle: t\nState: gone\nSince: 2026-11-05 09:00\nFirst seen: 2026-11-05 08:00\n\n## History\n- 2026-11-05 09:00 Supervisor: gone by itself\n')
+  assert.deepEqual({ real: alarmsOf([gone], TODAY).real, false: alarmsOf([gone], TODAY).false }, { real: 1, false: 0 })
   // X148 and X152 were raised on 11-04 and fixed on 11-05: the alarms of 11-04.
   assert.deepEqual(alarmsOf(incidents, '2026-11-04').ids, ['X148', 'X152', 'X153'])
   const closed = (id, line) => parseItem(`Id: ${id}\nKind: incident\nTitle: t\nState: closed\nSince: 2026-11-05 09:00\nFirst seen: 2026-11-05 08:00\n\n## History\n- 2026-11-05 09:00 Supervisor: ${line}\n`)
@@ -364,6 +372,9 @@ test('finishOf: days in a row ending yesterday (or a closed today) with no inter
   assert.deepEqual(finishOf([]), { stableDays: 0, isStable: false })
   // Unsure findings are not interventions.
   assert.deepEqual(finishOf([line(1, { unsure: [{ at: 1 }] }), line(2), line(3)]).stableDays, 3)
+  // A day whose idle is not known (null, backfilled) is not stable: it breaks the row, it is no 0.
+  assert.deepEqual(finishOf([line(1), line(2, { idleWithWorkMinutes: null }), line(3), line(4)]), { stableDays: 2, isStable: false }, 'the 4th and 3rd count; the null 2nd breaks the row')
+  assert.deepEqual(finishOf(fourteen.map(one => ({ ...one, idleWithWorkMinutes: null }))), { stableDays: 0, isStable: false })
 })
 
 test('tailLines reads from the end back to the first line older than the start, skipping a torn line, and gives [] for a missing file', async () => {
@@ -409,9 +420,9 @@ test('recordStability writes tonight\'s line; at the first pass of the next day 
     assert.equal(tonight.day, TODAY)
     assert.equal(tonight.closed, false)
     assert.equal(tonight.idleWithWorkMinutes, 3)
-    assert.equal(tonight.interventions.length, 5)
-    assert.equal(tonight.unsure.length, 2, 'the Advisor of 08:21 and Worker 1 of 22:38')
-    assert.deepEqual({ real: tonight.alarms.real, false: tonight.alarms.false }, { real: 3, false: 5 })
+    assert.equal(tonight.interventions.length, 0)
+    assert.equal(tonight.unsure.length, 7, 'the Advisor of 08:21, the five starts of the evening and Worker 1 of 22:38')
+    assert.deepEqual({ real: tonight.alarms.real, false: tonight.alarms.false }, { real: 8, false: 0 })
     assert.equal(tonight.writtenAt, now)
     assert.deepEqual(view.today, tonight)
     assert.deepEqual(view.days, [])
@@ -510,7 +521,8 @@ ${JSON.stringify({ at: t(20, 30), chat: 'Worker 3', state: 'free' })}
     const state = { board: { lastStop: { from: t(14, 0), to: t(14, 2), why: 'unknown', start: 'hand' } }, chats: ['Main', 'Worker 1', 'Worker 2', 'Worker 3'].map(lane) }
     await recordStability(state, { dir, items: new Map(), clock: () => t(21, 16) })
     const first = (await linesOf(file))[0]
-    assert.deepEqual(first.interventions.map(one => `${one.kind} ${clock(one.at)}`), ['restart-by-hand 14:02:00', 'woke-outside 20:30:00', 'app-restart 21:15:05'])
+    assert.deepEqual(first.interventions.map(one => `${one.kind} ${clock(one.at)}`), ['restart-by-hand 14:02:00', 'app-restart 21:15:05'])
+    assert.deepEqual(first.unsure.map(one => `${one.kind} ${clock(one.at)}`), ['woke-outside 20:30:00'], 'Worker 3 came back from off with no proof of who did it')
     await put('history.jsonl', '')
     // 21:30: the chats all started again on their own runs (the reports hold only the newest run), the stop is gone from the board.
     await put('reports.json', { reports: { Main: { run: t(21, 29), state: 'idle' }, 'Worker 1': { run: t(21, 29, 20), state: 'idle' }, 'Worker 2': { run: t(21, 29, 40), state: 'idle' }, 'Worker 3': { run: t(21, 29, 50), state: 'idle' } } })
@@ -519,7 +531,8 @@ ${JSON.stringify({ at: t(20, 30), chat: 'Worker 3', state: 'free' })}
     const second = (await linesOf(file))[0]
     assert.deepEqual(second.interventions.map(one => `${one.kind} ${one.at}`), first.interventions.map(one => `${one.kind} ${one.at}`), 'every kind stays')
     assert.equal(second.writtenAt, t(21, 30))
-    // The unsure ones stay too.
+    // The unsure ones stay too: the 20:30 start stays unsure after the history is gone.
+    assert.deepEqual(second.unsure.map(one => `${one.kind} ${clock(one.at)}`), ['woke-outside 20:30:00'])
     const withDoubt = { ...second, unsure: [{ at: t(21, 20), kind: 'woke-outside', what: 'x', why: 'y' }] }
     await writeFile(file, `${JSON.stringify(withDoubt)}\n`)
     await recordStability({ ...state, board: { lastStop: null } }, { dir, items: new Map(), clock: () => t(21, 31) })

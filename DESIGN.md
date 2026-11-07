@@ -4392,14 +4392,17 @@ own: the Supervisor does not file incidents from them.
      banned from by `gets no <family> steps` in its hand-over why is left out).
   2. `interventions`: the person's hands on the board that a stable board would not need, `[{ at, kind, what }]`: `resume-all`
      (a Resume all that ends a pause that was not the person's own), `restart-by-hand` (the board started by hand, no landing
-     within 5 min), `app-restart` (every chat began a run within 2 min with nothing of the board explaining it), `woke-outside`
-     (a chat started with no board wake, message or `resume` command naming it in the 5 min before), `open-its-chat` (an ask that
-     says "open its chat" and that the person answered), `rollback` (a landing that rolled back).
-  3. `alarms`: the incidents (`X*.md`) raised in the day (`First seen`, else `Since`): `real` and `false` (closed as "No fault" or
-     "obsolete", or gone by itself), with their ids.
+     within 5 min), `app-restart` (every chat began a run within 2 min with nothing of the board explaining it), `open-its-chat`
+     (an ask that says "open its chat" and that the person answered), `rollback` (a landing that rolled back). Only what a record
+     PROVES counts. A start of one chat (a new run, or off to working/free) that no board wake, outbox message or `resume` command
+     reached in the 5 min before is NOT an intervention (a false one breaks the finish line): it goes to `unsure` as `woke-outside`
+     with why "no record shows who started it (the person, a chat's message or the app)".
+  3. `alarms`: the incidents (`X*.md`) raised in the day (`First seen`, else `Since`): `real` and `false`, with their ids. FALSE is
+     State `closed` with a History line "closed: No fault" or "closed: obsolete", and nothing else. Everything else is real,
+     an incident that went `gone` by itself included (a real problem that went away). On 2026-11-05: X154-X161 = 8 real, 0 false.
 - **Unsure**: what the records cannot tell apart is listed in the line's `unsure` `[{ at, kind, what, why }]`, never guessed and
-  never counted (an interrupted chat going on by itself or typed into; a chat the history does not track; in the backfill, every
-  number the old records could not hold). A finding a later pass proves leaves `unsure`.
+  never counted (a lone start with no proof of who started it; an interrupted chat going on by itself or typed into; a chat the
+  history does not track; in the backfill, every number the old records could not hold). A finding a later pass proves leaves `unsure`.
 - **The records** (in `data/`): `actions.jsonl` (one line per action of the person: `{ at, by: 'person', via, action, id }`,
   written in the one place of the work API's dispatcher after a person's change returns ok, plus `/api/restart` and the person's
   commands of `/api/say`; never a read or a list), `ready-minutes.jsonl` (one line a minute while the board owns the loops:
@@ -4410,24 +4413,24 @@ own: the Supervisor does not file incidents from them.
   `closed: true` and is never rewritten. A finding made earlier in the day stays (the board shows a stop for 15 minutes and the
   reports hold only a chat's newest run).
 - **The finish line**: `stableDays` is the number of most recent days in a row (ending yesterday, or today if its line is
-  closed) with 0 interventions and under 10 min idle-with-work; `isStable` from 3. A day with no line breaks the row. The state
+  closed) with 0 interventions and under 10 min idle-with-work; `isStable` from 3. A day with no line, or whose idle is not known
+  (`null`, see the backfill), breaks the row. The state
   field `stability` holds `{ today, days (the last 14 closed), stableDays, isStable, finish }`.
-- **The page row**: muted, three sparklines of 14 days, the finish line in words ("N of 3 days", or "stable since <date>" in
+- **The page row**: muted, three sparklines of 14 days (a day with idle `null` is a gap in the idle sparkline: no point, not 0, and
+  "not known" in the hover), the finish line in words ("N of 3 days", or "stable since <date>" in
   green); amber only on today's two numbers while today already misses the finish line; hidden when the state has no `stability`.
   The picture: `art-inbox/board-stability/row.png`.
 - **The backfill** (`tools/stability-backfill.mjs <data> <store> [--days 14] [--out <file>]`, run by hand once, output reviewed):
   writes the closed lines (`closed: true, backfilled: true`) of the 14 days before the records existed into `stability.jsonl`
-  (or `--out`), never rewriting a line that is there; it reads the records read only. Idle-with-work is ESTIMATED
-  (`idleEstimated: true`): a minute with a free Worker lane in `history.jsonl` and a step between "refined is ready" and
-  "queued/taken" in the store's History, without the ban and Touches filters (an over-estimate). Interventions and alarms come
-  from the live loop's own functions fed the day's records. Where a record does not reach back, the day carries an `unsure` and
-  the tool prints, per number, from which day it is complete: idle-with-work from the first Worker line and the first
-  "refined is ready"; `resume-all` not before the first line of the actions log; `rollback` from the first landing;
-  `restart-by-hand` not before the live loop (`lastStop` is state, not a record); `app-restart` and `woke-outside` from the first
+  (or `--out`), never rewriting a line that is there; it reads the records read only. Idle-with-work is
+  `null` (`idleWithWorkMinutes`) on every backfilled day: NOT KNOWN (the minute record did not exist; an estimate from the history is
+  too far off). Interventions and alarms come from the live loop's own functions fed the day's records. Where a record does not
+  reach back, the day carries an `unsure` and the tool prints, per number, from which day it is complete: `resume-all` not before the first line of the actions log; `rollback` from the first landing;
+  `restart-by-hand` not before the live loop (`lastStop` is state, not a record); `app-restart` from the first
   whole day after the first wake attempt in `wakes.json`; `open-its-chat` from the oldest ask; alarms from the oldest incident.
 - Tests: `test/stability.test.mjs` (the minute, each kind of intervention with its mutant, the own-pause rule, alarms, the finish
   line, the midnight close), `test/work/actionsLog.test.mjs`, `test/stabilityPage.test.mjs`, `test/stabilityBackfill.test.mjs`
-  (the lines marked estimated and backfilled, a closed line never rewritten, `--out` leaves the data folder alone).
+  (the lines marked backfilled with idle null, a closed line never rewritten, `--out` leaves the data folder alone).
 
 ## The supervisor's incident cards (2026-10-24)
 
