@@ -2,10 +2,13 @@
 
 ## What the person gets (plain words)
 
-- **Say it:** on the Focus page's talk bar, you tell the Product owner in your own words that a topic is wrong, and
-  paste a picture if you like. Example: "the side stairs are all wrong, look at this, stop it and rethink".
-- **Within a minute:** the Product owner names the topic and what it stopped. For example: "G60, side stairs: B1068
-  (Worker 5) stopped, rethink started". It asks you first only when it cannot tell which topic you mean.
+- **Say it:** on the Focus page's talk bar, switch on "Stop and rethink" and pick the topic from a list of the goal's
+  parts (each part names its open tasks and their workers). Then write your words and paste a picture if you like.
+  Example: "all wrong, look at this, stop it and rethink".
+- **At once:** the board stops the topic. The Product owner confirms in the talk what was stopped, for example "G60,
+  side stairs: B1068 (Worker 5) stopped, rethink started".
+- **Later, from 11-10 at the earliest:** the Product owner may also start a rethink from your words alone (option B).
+  That needs a chat restart, so it waits for the end of chat 1's stability measure.
 - **Work stops:**
   - every waiting task on that topic is held;
   - a worker in the middle of one stops at a safe point and hands it back;
@@ -26,6 +29,23 @@
   this, stop the current work regarding this topic". Before that, for the G60 side stairs, through chat 2: a lessons
   list of every earlier "no", the current question answered, and a reference picture handed to the worker.
 - Where to say it: "1. A", the Product owner, in words with a picture. The design above: "1 yes".
+
+## Decision 2026-11-07: A, a page action (this overrides sections 2 and 5 below where they differ)
+
+The person: "1. A". Chat 1 asked for no mod change during its stability measure.
+- **The page starts the rethink** as the person, from the Focus talk bar: the "Stop and rethink" switch, the topic
+  picked from a list, words and pictures. There is no `work rethink` for chats yet, and no mod change.
+- **Where it runs:** the server, as a goals command, `POST /api/goals {command: 'rethink', id: G<n>, part | of, text,
+  pictures}`. It calls:
+  1. a work action as the person, `rethink-hold`, which finds the topic and writes the holds and the words, and
+     answers with the held steps and the workers to stop;
+  2. for each worker to stop, the SAME function the Stop button goes through (`sayNow` with `command: 'stop'`,
+     `sure: true`, to the main chat, B83/B769);
+  3. the evaluation start, `startEvaluation`, with the person's words, pictures and the topic's earlier words;
+  4. a talk word to the talk partner (the Product owner, else the partner): "rethink started by you: <topic>; held
+     ...; stopped ...; your words ...". The talk partner confirms it in the talk in one line.
+- **State:** `focus.rethinkTopics` lists the focus goal's parts with their open steps (id, title, state, owner), and
+  each open fix chain of the goal under no part, named by its newest step.
 
 ## How it works (for the builders)
 
@@ -107,10 +127,18 @@ What it reuses:
   person's word is needed (it is asked in chat 2). Then `npm run setup`.
 - Chats get the mod at their next start. The board asks the Product owner's chat to restart, as for any mod change.
 
-### 6. Stability area (chat 1)
-- Stopping a worker reuses the existing stop-a-task word; there is no new way to stop.
-- Chat 1 confirms this before the build. It also confirms that a step holding a `Waits for: the rethink` line counts
-  as a hold the person asked for, so the Supervisor's held and open-fix rules do not count it late.
+### 6. Stability area (chat 1's conditions, 2026-11-07)
+1. **One stop path.** Stopping a worker goes through the SAME server function the person's Stop button uses (B83).
+   There is no second copy of the stop logic.
+   - A live hand-over test: a rethink on a topic with a step in progress → the worker stops at a safe point → the
+     step is given back.
+   - It is NOT handed out again while `Waits for: the rethink of ...` stands.
+   - After `endTrip` it is handed out normally.
+2. **A person hold.** `Waits for: the rethink of` counts as a hold the person asked for in every Supervisor rule that
+   reads holds: review-held, open-fix, stale-checkpoint and ready-while-free. A held step is not ready. Pin this in a
+   test.
+3. **The mod.** No mod change during the 3-day stability measure (from 11-07; 11-10 at the earliest). Chat 1 prefers a
+   page action, where the talk bar posts the rethink as the person; the person's choice is open, see section 2.
 
 ## Tests
 - **`rethink` finds the topic** by a part, by a fix chain, and through a recap row.
