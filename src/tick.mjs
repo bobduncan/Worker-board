@@ -9,6 +9,7 @@
 
 import { workApi } from './work/api.mjs'
 import { valueOf } from './work/item.mjs'
+import { plainWaits } from './work/rethink.mjs'
 import { readStore } from './work/store.mjs'
 
 const NOTE_CHARS = 400
@@ -49,7 +50,7 @@ export function waitingOn(items, id) {
   const names = new RegExp(`\\b${id}\\b`)
   return [...items.values()]
     .filter(item => valueOf(item, 'Kind') === 'step' && !['done', 'dropped'].includes(valueOf(item, 'State')) && valueOf(item, 'Id') !== id
-      && names.test(`${valueOf(item, 'Blocked by') ?? ''} ${valueOf(item, 'Waits for') ?? ''}`))
+      && names.test(`${valueOf(item, 'Blocked by') ?? ''} ${plainWaits(item)}`))
     .map(item => ({ id: valueOf(item, 'Id'), worker: valueOf(item, 'Owner') ?? null }))
     .sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
 }

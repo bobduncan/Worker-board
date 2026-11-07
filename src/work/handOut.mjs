@@ -8,6 +8,7 @@
 import { familyOf, modelOf } from './effort.mjs'
 import { UNDER_WAY, overlapIn, readyHold } from './guards.mjs'
 import { isFix, sinceMs, valueOf } from './item.mjs'
+import { plainWaits } from './rethink.mjs'
 import { barredFrom, isQaTask, notDueWhy } from './qaTask.mjs'
 
 /**
@@ -51,7 +52,7 @@ function finishedAt(item) {
  */
 export function followUpOf(item, items, { now, followUpMs, prefix = '' }) {
   if (!(followUpMs > 0)) return null
-  const named = new Set([...idsIn(valueOf(item, 'Blocked by')), ...idsIn(valueOf(item, 'Waits for'))])
+  const named = new Set([...idsIn(valueOf(item, 'Blocked by')), ...idsIn(plainWaits(item))])
   for (const line of historyOf(item)) for (const id of idsIn(line.match(UNBLOCKED)?.[1])) named.add(id)
   const found = []
   for (const id of named) {

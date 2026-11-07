@@ -1173,4 +1173,12 @@ The count is per part (B669; the user, 2026-10-26: "yes"): a part is one `Part:`
    marked (step 3). When `Your answer:` says "Approve rebuilds by itself" is on, send your advised way at once, marked,
    make its steps, and give them a recap in your daily note: the ways, your pick and why.
 
+An evaluation the person asked for (stop and rethink, docs/stop-and-rethink.md): the `evaluate` word has an `Asked by the person (<time>):` block under
+its first line, with their words, `Pictures:` and the topic's earlier words (every "no" they gave on it). It runs the same way as one the guard
+started, with two differences. Their words and pictures are the first input: read the pictures before anything else, and compare every way you
+bring with their picture and say which of their earlier words it meets. The board has held the topic's tasks (`Waits for: the rethink of
+G<n> "<topic>"`) and stopped their workers, so nothing of it is built meanwhile. When your marked how-draft ends the evaluation the board clears
+those holds and types `held for the rethink, now free: B.., B..; drop or keep each`: drop the tasks the new way replaces ("replaced by the
+rethink of ..."), keep the rest, and make the new steps with `of` set to the newest try of the topic, so they carry every earlier word.
+
 Your card's line while you work: "Evaluate G<n>".

@@ -67,6 +67,7 @@ import { rolloutPlan } from './work/modRollout.mjs'
 import { chatsByRole } from './oldMods.mjs'
 import { clearingOf, decide, envelopesOf, lastClearWhyOf, laneWords, onSequence } from './work/handover.mjs'
 import { givenBackFrom } from './work/holderTimers.mjs'
+import { rethinkTopicsOf } from './work/rethinkTopic.mjs'
 import { countsOf, statusOf } from './chatStatus.mjs'
 import { factsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
@@ -1582,6 +1583,8 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     // B699: how many words the board sends before it says so (the card writes the number; no second copy of it in the page).
     demoWords: DEMO_WORDS,
     parts,
+    // Stop and rethink (docs/stop-and-rethink.md): the topics the talk bar can stop, each with its open steps.
+    rethinkTopics: rethinkTopicsOf(node, steps, { prefix, titleOf: item => withoutNotes(item.head.get('Title') ?? '') }),
     steps: stepList,
     partnerDecides: node.partnerDecides,
     youDecide: node.youDecide,
