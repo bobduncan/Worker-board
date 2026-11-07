@@ -5,9 +5,14 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { findCodex, makePicture } from '../src/codex.mjs'
+import { findCodex, makePicture as make } from '../src/codex.mjs'
 
 const FAKE = [process.execPath, join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'fake-codex.mjs')]
+
+// These tests never touch the person's Codex folder or the board's data folder: a home of their own.
+const HOMES = join(tmpdir(), `board-codex-homes-${process.pid}`)
+const makePicture = options => make({ codexHome: join(HOMES, 'clean'), userHome: join(HOMES, 'user'), ...options })
+test.after(() => rm(HOMES, { recursive: true, force: true }))
 
 async function folder(t) {
   const dir = await mkdtemp(join(tmpdir(), 'board-codex-test-'))
