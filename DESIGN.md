@@ -5626,6 +5626,8 @@ sweep dropping the line), `test/supervisor/staleCheckpoint.test.mjs` (mutant: th
 
 ## Waking a chat (change 4)
 
+*Since 2026-11-05 the start-up check ("The start-up check" below) re-opens a failed wake once when its chat is listed again, and says an account switch in one line.*
+
 Signals change 4, B908 (2026-11-02; the lead's brief "waking a chat is code only and honest", the code check and its
 Addendum of 15 decisions in `.claude/plans/2026-11-02-*`). It replaces the wake parts of T9.4 (start words), T13 part 3
 (the hands' asleep jobs), T13 part 4 and 4a (the opener's counters) above; their texts stay as the history.
@@ -5750,6 +5752,102 @@ spell holds and the woken chat's own report is heard in it.
 
 **Not in it.** The reimport of chats after an account switch (chat 1 fixes it with the person); the pause note's window
 (its own fix).
+
+**A failed wake is tried again, and an account switch is said plainly (G+H, 2026-11-05).** The evening of the person's
+account switch (~20:25): the app keeps one chat list per account (`claude-code-sessions<account><org>local_*.json`);
+the board reads only the folder with the newest chat (`readAppChats`), where Workers 1 and 5 were stale copies, so their
+own chats were "not in the app's list". The reimport (20:33) brought the real chats over, but the app reads new files only at
+a start: Main's message at 20:33:30 got "session local_e92c96e7... not found" (`unlisted`). At ~21:20 the app was back, yet
+nothing tried again: an `unlisted` attempt stops the spell for good, and a spent spell (Worker 2: message and launch both
+failed) has no try left. Now:
+- **G1, re-opened once.** The record keeps `heardRunAt`, the newest time the board heard a report with a NEW `run` from any
+  chat (`noteRun`, the server's `keepReport`: the app, or that chat's process, is back). `reopenSpells` (the server's wake
+  pass each minute, and at once when a new run is heard) sets `reopenedAt` on the newest spell of a lane that does not run when
+  ALL hold: the lane's own chat is listed now (`wakeIdsOf` has no `why`), no attempt is pending or woke, the spell failed as
+  `unlisted` or is spent (every path its ids allow was tried), and `heardRunAt` is after the spell's last verdict. Only the
+  attempts made since `reopenedAt` count (`countedOf`: `nextPath`, `statusOf`), so the notice (`final` false) goes by itself and
+  the message is claimed again by the next hand that may send; the old attempts stay in the record. Once per spell: a
+  second failure is final. Saved in `data/wakes.json` (`heardRunAt`, the entry's `reopenedAt`).
+- **G2, the whole clear chain.** `followMoves` (sources.mjs) follows the cards' `movedTo` to the end, with a seen set against a
+  loop; the old cap of eight hops ended a copy 12 clears behind at a wrong session. A launch resumes the id the app's FILE holds
+  (`rawCliSessionId`, set by the state; `ownChatOf` `launch`, `wakeIdsOf` `session`), never the end of the chain the app cannot
+  resume; a message still goes by the app id.
+- **H1, said plainly.** `readAppChats(dir, files, elsewhere)` also collects the app ids of the folders it does not read, with the
+  account folder's name. A lane whose own chat is listed there (`ownChatOf` `elsewhere`) says "your chats are in your other
+  Claude account: run /reimport-chats, then restart the app" (`OTHER_ACCOUNT_WHY`); a chat whose file the board reads but whose
+  wake the app answered "not found" says "restart the app so it reads the reimported chats" (`RESTART_WHY`, in the lane and the
+  notice). The reimport skill itself is the person's and unchanged.
+- **H2, a launch stub is never the chat.** An adopted transcript (`fromCliTranscript` or `adoptedFromOtherSurface`) with no
+  completed turn and no answer (`parseAppChat` `isStub`) is a leftover in `boardChats` and takes no title, and its `createdAt` never
+  drops a kept report (`keptFor`). The board's launch at 20:30 had made one (`local_8f2378dd`) that took Worker 2's place. The
+  reimport skill's `--titles` still compares recency by `lastActivityAt` alone and keeps such a stub: the person's, not changed here.
+
+Tests: `test/wakeAccount.test.mjs` (the evening's fixtures, `fixtures/wake-account`).
+
+## The start-up check (2026-11-05)
+
+Why: alarms per day over two weeks were 31, 11, 35, 3, 19, 1, 8, 2, 19, 23, 8, a quiet day after each fix and a new spike at
+every outside event (a crash, a pause, a landing, a Claude update, an account switch), each with a new theme. So the board gets
+ONE moment where it re-reads reality, instead of a fix per symptom. The person: "evaluate everything first with a button or loader".
+One cause, one alarm: the evening of 2026-11-05 (the account switch) filed six alarms (X154-X158, X160) for one cause.
+
+**Three parts and the writes** (`src/startupCheck.mjs`, pure and tested on the evening's fixtures `fixtures/startup-check`):
+- `pictureOf(sources)`: the sources read at the moment of the check, never from memory: every account folder of the app
+  (`readAccountFolders`, `listedWhere`: here, elsewhere, unknown, nowhere; a launch stub is no chat, H2), the lanes (the own chat's
+  app id from the kept report, which run, the model), the wake record, pause, the ready ids, the outbox's bans (`bansOf`, the C rule), the
+  open wake incidents. A run id later than the picture's own moment is no proof; a read that took too long (`tooSlow`) knows nothing of
+  the listing; a listed file that is not readable whole is `unknown`, and a lane that runs is never elsewhere or nowhere.
+  The account in use is a guess: the folder with the newest chat (the app does not mark it); it can flip right after a switch.
+- `judge(picture)`: the fixes and the ONE line. `wake-again` for a chat that is listed here, does not run, failed for good, when the
+  proof that the app is back (a newer run id, or the trigger's moment: a board start or a click) is after the failure (G1's
+  `noteRun` and `reopenSpells`, once per spell); `restartNeeded` when the app answered "not found" and the file is older than that
+  answer; `ban-dropped` for a ban on the model the lane runs; `incident-gone` for an open wake incident whose chat runs or was
+  re-opened (the board-wide one only when some chat was re-opened or none stays failed, else the rule would file it again at once).
+  `notice-cleared` (the person's screenshot of 23:23) also for a chat that does not run but reports again after its last failed attempt
+  (`wake.mjs` `ranSince`: a session that started after the failure, or a report that is not an ended one, heard after it): the state
+  (`withWakes`) shows no "could not wake" line, no failed flag and no final failure for it, so its incident (X157) and the board-wide one (X158)
+  close "gone after the check at HH:MM" and the rules do not file them again. `ask-withdrawn` (`asksOf` reads the store): an open ask
+  routed to the person (`Route: person`) whose step (its `Of`, else the first B<n> in its title, `src/work/askStep.mjs`) is done or
+  dropped is withdrawn, "its step B1051 is done", through the work API's server action `asks-withdrawn` (the board runs as `server`, which
+  `withdraw` refuses for another chat's ask, so the action checks each ask against its step again and withdraws it as the person's pass
+  does); it counts in `fixed` and in the result line's "fixed N". Only when the step ended after the ask was put (an ask that names an old
+  done step as context stays).
+  **Review 2 (Opus, 2026-11-07), the live Supervisor.** The check reads each lane by the WAKE's own ids (`checkLaneOf`: `wakeIdsOf` for the
+  app id a message goes to, `pathsOf` for the paths it can take, so the check's `final` is the notice's), never by the app id the lane's report
+  names. The new cause `not-joined` (`ownChat.mjs` `unjoinedOf`, in the picture and in the state's lane as `unjoined`): the chat its report names
+  (`report.app`) has a file in the folder in use, not archived, not a stub, whose `cliSessionId` is neither the lane's, nor the report's, nor
+  another lane's, and which was active after the report and after the wake's last failure. A wake goes into a turn nobody on the board hears:
+  no `wake-again`, not "no chat", `notJoined` in the result and the one line "Supervisor's chat runs but is not on the board's list: it must
+  re-join"; the state (`withWakes`) shows no "could not wake" for it; the Supervisor files `check-unreachable not-joined`. The board-wide
+  incident (X158) is not closed while a chat that was re-opened failed again (the rule would file it at once). The runner's bound covers the
+  read of the state and the store too (a hang is the line "The check failed: ..." and the read is aborted); the Supervisor's per-chat rules use the
+  last finished result while a check runs.
+  **Review 3.** The partner, its helper, the supervisor's chat and the Product owner carry `unjoined` too (their cards are built apart from the
+  worker lanes), so the notice is hidden for them; `reopenLanesOf` (wake.mjs, used by the server's G1 re-open) skips an unjoined lane, so a new
+  run does not message the stub of its title again; the check's `cliSessions` hold the lane's raw and chain-end ids.
+  The line: "All 7 chats reachable · checked 22:30" or "4 of 6 ... · Worker 1's and Worker 5's chats are in your other Claude account:
+  run /reimport-chats, then restart the app" / "restart the app so it reads the reimported chats: Worker 2" / "Worker 3 has no chat in
+  the app: open one from the board", joined by " · ", never two lines, never a per-worker "not in the app's list".
+- `apply(verdict, writers)`: through the existing writers; an incident that rests on a re-open closes only for the chats
+  `reopenSpells` really re-opened; the ban is lifted with the WHOLE outcome object (`store.update` merges one level); a failing writer is in
+  `failed`, a fix with no writer is not claimed; `data/check.json` by `writeAtomic`.
+- `src/startupCheckRun.mjs` `createChecker`: one check at a time, `running` in the state at once, a 30 s bound on the folder read
+  ("the app's chat list could not be read in 30 s"), a failure is the line "The check failed: ...", never a throw.
+
+**Triggers and the page.** At the board's start (once the first state is readable), on `POST /api/check` (the Overview's "Check
+everything", page token and Origin like `/api/restart`, answers `{ running: true }` at once), and on a new `run` id in a chat's report: that
+id is a SESSION start (the mod's `reportRun`), so any chat starting counts, as for G1; one check follows after a 10 s debounce for
+all that report within it (a check is ~100 ms on the fixtures and its fixes are idempotent: a second check right after changes nothing).
+`state.check = { at, trigger, running, total, reachable, line, tone, fixed, elsewhere, restartNeeded, nowhere, tooSlow }`. The page
+(`#check-row`): a loader and "Checking 7 chats…" while it runs, then the line with its time and the button; amber only for a line that asks the
+person for something; during the check of a board start the wake notice is not drawn and a chat whose wake failed reads "Checking".
+
+**The Supervisor.** The rule `check-unreachable` (key `check-unreachable <cause>`): ONE incident per cause naming the chats; the per-chat
+`wake-failed` and `nobody-answers-wakes` skip a chat the newest check lists. It goes when the next check lists nobody under it.
+
+Out of scope: pinging chats (reachable = listed and real), the reimport skill (the person's), the three daily numbers (chat 4's plan; the
+check only exposes `state.check`). Tests: `test/startupCheck.test.mjs`, `test/startupCheckLive.test.mjs` (a running board),
+`test/startupCheck.page.test.mjs`, `test/supervisor/checkUnreachable.test.mjs`; pictures: `test/startupCheckPicture.mjs`.
 
 Tests: `test/heldStepWayBack.test.mjs` (X140 replayed with its ids and times, 10:58 to 11:13: on the sequence, no
 resume-step, could not wake at once, one go on line, B968 given back from c3186b6 with its branch and plan; the cases and

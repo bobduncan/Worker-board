@@ -19,7 +19,7 @@ import { DRAFTED_FOR_GO, NO_ROUND, focusStage, goWaitsForLines, goalAskList, goa
 import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
-import { keptFor, ownChatOf } from './ownChat.mjs'
+import { keptFor, ownChatOf, unjoinedOf } from './ownChat.mjs'
 import { partnerEffort } from './partnerEffort.mjs'
 import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
@@ -55,7 +55,7 @@ import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { withLinks } from './work/links.mjs'
 import { clearOwed, clearedStageOf, modAtLeast } from './clearOwed.mjs'
-import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
+import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, failedAtOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, recapWaitingOf, standingAsksOf } from './recapCard.mjs'
@@ -821,6 +821,8 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     // The wait line (T22): also the word its turn ran on (`word`, null for a turn that was no word's), that turn's own start (`turn`) and
     // the board's receipt of its last turn start (`busyAt`), each only where the report has it (chatReport.mjs `parseReport`).
     report: reported?.entry == null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at, mod: reported.entry.mod ?? null,
+      // Start-up check, MUST 1: the session's start (the mod's run id), to tell that the chat ran after a failed wake (wake.mjs `ranSince`).
+      ...(Number.isFinite(reported.entry.run) ? { run: reported.entry.run } : {}),
       ...(reported.entry.word === undefined ? {} : { word: reported.entry.word }), ...(Number.isFinite(reported.entry.turn) ? { turn: reported.entry.turn } : {}), ...(Number.isFinite(reported.entry.busyAt) ? { busyAt: reported.entry.busyAt } : {}) },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
     offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
@@ -1676,7 +1678,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const apps = (Array.isArray(raw.appChatTexts) ? raw.appChatTexts : [])
     .map(text => parseAppChat(textOr(text, '')))
     .filter(chat => chat !== null)
-    .map(chat => (moved.has(chat.cliSessionId) ? { ...chat, cliSessionId: moved.get(chat.cliSessionId) } : chat))
+    // G2: and the id the app's file holds (`rawCliSessionId`): what a launch resumes, whatever the card chain says.
+    .map(chat => (moved.has(chat.cliSessionId) ? { ...chat, cliSessionId: moved.get(chat.cliSessionId), rawCliSessionId: chat.cliSessionId } : chat))
   const movedBack = new Map([...moved].map(([from, to]) => [to, from]))
   // B152: a chat whose card says it left the list of chats ("left": true) gets no lane, also while its chat stays
   // open in the app (one with Remote Control on cannot be closed). For two minutes after the card said so, its lane
@@ -2215,17 +2218,32 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const keptOf = lane => (lane.isLeftover || !(reports instanceof Map) ? null
     : keptFor({ name: lane.name, kept: reports.get(lane.name) ?? null, chat: shownChatOf(lane.name), chats: found }))
   const appFiles = Array.isArray(raw.appFiles) ? new Set(raw.appFiles.filter(id => typeof id === 'string')) : null
+  // H1: the chat files of the account folders the board does not read, app id to the account folder's name.
+  const appElsewhere = raw.appElsewhere !== null && typeof raw.appElsewhere === 'object' ? new Map(Object.entries(raw.appElsewhere).filter(([, account]) => typeof account === 'string')) : null
+  // Review 2: the lane's report names an app chat that runs on a session the board does not follow (ownChat.mjs `unjoinedOf`).
+  const unjoinedOfLane = lane => {
+    const kept = lane.isLeftover ? null : keptOf(lane)
+    if (kept === null || kept === undefined || typeof kept.app !== 'string') return null
+    const others = found.filter(chat => !chat.isLeftover && chat.name !== lane.name).map(chat => chat.cliSessionId)
+    return unjoinedOf({ kept, file: apps.find(chat => chat.sessionId === kept.app) ?? null, laneSessions: [lane.session], others })
+  }
+  // Review 3: the four side chats (the partner, its helper, the supervisor's chat, the Product owner) carry it too: their cards are built apart from the lanes.
+  const sideUnjoined = lane => {
+    const unjoined = lane === null || lane === undefined ? null : unjoinedOfLane({ isLeftover: false, name: lane.name, session: lane.session })
+    return unjoined === null ? {} : { unjoined }
+  }
   const sequenced = lanes.map(lane => withSequence({
     ...lane,
+    ...(unjoinedOfLane(lane) === null ? {} : { unjoined: unjoinedOfLane(lane) }),
     // T8.5: the Workers mod its last call said (else its kept report's), for the one predicate of the hand-over (`onSequence`).
     // B986 (X140): after the board's own restart (no call heard yet) and with the lane's title on another chat of the app's
     // list, the kept report's mod still counts: the worker on the sequence keeps change 3's timers, never the old resume word.
     mod: mods?.[lane.name] ?? lane.report?.mod ?? keptOf(lane)?.mod ?? null,
     // B986 (X140): the lane's own chat, the one its kept report names (src/ownChat.mjs): every wake goes by it, never by the title.
-    own: lane.isLeftover ? null : ownChatOf({ lane, kept: keptOf(lane), apps, appFiles }),
+    own: lane.isLeftover ? null : ownChatOf({ lane, kept: keptOf(lane), apps, appFiles, elsewhere: appElsewhere }),
     // B986 (the review, 7): the kept report the wake's spell is read from when the title's chat has none (wake.mjs `spellOf`),
     // so the spell does not flip between that report and none, and the woken chat's own report is heard in it.
-    ownReport: lane.isLeftover || lane.report != null ? null : (({ state, since, at }) => ({ state, since, at }))(keptOf(lane) ?? {}),
+    ownReport: lane.isLeftover || lane.report != null ? null : (({ state, since, at, run }) => ({ state, since, at, run }))(keptOf(lane) ?? {}),
     isRunning: lane.isLeftover ? null : lane.state === 'off' ? false : runningOf(lane.name),
     // B143: the newest ask to remove this worker; the main chat and a leftover have none.
     removal: lane.isLeftover || lane.isMain ? null : removalAsk(sent.findLast(message => message.command === 'remove' && message.about === lane.name), now),
@@ -2644,9 +2662,10 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
       }
     })(),
     // Signals change 2: each side chat carries its one status too (`statusFor`), from its card, its running and its mod rollout.
-    advisor: advisor === null ? null : { ...advisor, ...statusFor({ ...advisorCard, isRunning: runningOf(advisor.name) }, { modRun: rollout?.runs.get(advisor.name) ?? null }), isRunning: runningOf(advisor.name), waiting: leaveOut(advisorWork.waiting, advisorOn), next: advisorNext, on: advisorOn },
+    advisor: advisor === null ? null : { ...advisor, ...sideUnjoined(advisor), ...statusFor({ ...advisorCard, isRunning: runningOf(advisor.name) }, { modRun: rollout?.runs.get(advisor.name) ?? null }), isRunning: runningOf(advisor.name), waiting: leaveOut(advisorWork.waiting, advisorOn), next: advisorNext, on: advisorOn },
     // B424: the partner's helper, on its own card under the Advisor's: how it stands, its task and its time.
     advisorHelper: helperLane === null ? null : {
+      ...sideUnjoined(helperLane),
       name: helperLane.name,
       session: helperLane.session,
       appSession: helperLane.appSession,
@@ -2672,6 +2691,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     },
     // The supervisor (spec 2026-10-24): the chat that sweeps (the list's "supervisor"): how it stands, for its sweeps.
     supervisorChat: supervisorLane === null ? null : {
+      ...sideUnjoined(supervisorLane),
       name: supervisorLane.name,
       session: supervisorLane.session,
       appSession: supervisorLane.appSession,
@@ -2695,6 +2715,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     // The Product owner (2026-10-31, roles/product-owner.md): the chat the list names "owner", shown under the Advisor's card:
     // how it stands, what it is on and what waits for it, and the setting the board holds it at (Opus, medium).
     productOwner: ownerLane === null ? null : {
+      ...sideUnjoined(ownerLane),
       name: ownerLane.name,
       session: ownerLane.session,
       appSession: ownerLane.appSession,
@@ -2824,9 +2845,14 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now }) {
     return kept.spell === target.spell && kept.attempts.length > 0 ? target : null
   }
   const targets = []
+  // Start-up check, MUST 1: a chat that reports again after its last failed attempt has nothing to say ("could not wake" is stale).
+  // Review 2: and a chat whose report names an app chat that runs on a session the board does not follow, active after the failure: the wake
+  // went to a turn nobody on the board hears, so its "could not wake" is not the news: it must re-join (the check says so).
+  const hasRunSince = (lane, target) => ranSince(record, lane.name, target.spell, lane.report ?? lane.ownReport ?? null, now)
+    || (lane.unjoined != null && (failedAtOf(record, lane.name, target.spell) ?? -Infinity) < lane.unjoined.at)
   const wakeOfLane = lane => {
     const target = targetOf(lane)
-    if (target !== null) {
+    if (target !== null && !hasRunSince(lane, target)) {
       targets.push(target)
       return { ...wakeOf(record, target, { senderClaims }), need: target.need, spell: target.spell }
     }

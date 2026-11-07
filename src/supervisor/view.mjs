@@ -22,7 +22,8 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * list, state.mjs `readyList.ready`: `{ id, rank, keptFor, keptUntil, pinned }` in its order) and `held` (its `held`, or
  * null without a list). Signals change 4, B908: `wakes` (state.mjs: the wake record's newest spell per chat, `{ state, spell,
  * attempts, spells }`, the board-wide spell under "*"); each lane, the partner, its helper, the supervisor and the owner carry
- * their own `wake` (how its wake stands: `{ state, final, need, spell, attempts }`).
+ * their own `wake` (how its wake stands: `{ state, final, need, spell, attempts }`). `check`: the start-up check's newest result
+ * (`{ at, running, elsewhere, restartNeeded, nowhere, tooSlow, ... }`), or null.
  */
 export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], repairs = [], mods = null, settings = {}, seen = null, assets = null, now }) {
   const lanes = state.chats ?? []
@@ -65,6 +66,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     // Signals change 4: the wake record's newest spell per chat (the rules wake-failed, nobody-answers-wakes, handover-unanswered).
     wakes: Object.freeze({ ...(state.wakes !== null && typeof state.wakes === 'object' ? state.wakes : {}) }),
     wakeBoardSince: Number.isFinite(state.wakeBoardSince) ? state.wakeBoardSince : null,
+    // The start-up check (2026-11-05): the newest check's result (`state.check`), or null before the first; the rule check-unreachable reads it.
+    check: state.check !== null && typeof state.check === 'object' ? Object.freeze({ ...state.check }) : null,
     limits: limits ?? state.limits ?? {},
     pause: pause ?? state.pause ?? null,
     refused,

@@ -3207,6 +3207,67 @@ function freeLine(lane, clock = null) {
 }
 // lanefree:end
 
+// startcheck:start
+/** The start-up check (2026-11-05): whether the check of a board start is running now, so no failure of before it is shown as news. */
+function isStartChecking(state) {
+  return state?.check?.running === true && state.check.trigger === 'start'
+}
+
+/**
+ * While the check of a board start runs no failure of before it is news (plan task 7): the state the page draws has no wake notice, and
+ * a chat whose wake failed reads "Checking" (its flag, quiet). The result of the check decides what stays.
+ */
+function whileChecking(state) {
+  if (!isStartChecking(state)) return
+  // In place, on the state this read just parsed (as `withFullSteps` does).
+  const quiet = lane => { if (lane !== null && lane !== undefined && Array.isArray(lane.flags)) lane.flags = lane.flags.map(flag => (flag.kind === 'wake failed' ? { ...flag, kind: 'wake', text: 'Checking', button: null } : flag)) }
+  state.wakeNotice = null
+  for (const lane of [...(state.chats ?? []), state.advisor, state.advisorHelper, state.supervisorChat, state.productOwner]) quiet(lane)
+}
+
+/** Set when the person clicked Check everything, until a state shows the check over (or 15 s passed). */
+let checkClickedAt = null
+let checkSawRunning = false
+
+/** The Overview header's row: a loader and "Checking N chats…" while it runs, else its line, its time and the button. */
+function drawCheckRow(state) {
+  const row = $('check-row')
+  const check = state.check ?? null
+  row.hidden = check === null
+  if (check === null) return
+  if (check.running === true) checkSawRunning = true
+  else if (checkSawRunning) { checkClickedAt = null; checkSawRunning = false }
+  if (checkClickedAt !== null && Date.now() - checkClickedAt > 15_000) checkClickedAt = null
+  row.classList.toggle('is-attention', check.running !== true && check.tone === 'attention')
+  if (check.running === true) {
+    fill(row, [el('span', 'check-spinner', ''), el('span', 'check-line', `Checking ${check.total ?? ''} chats…`.replace('Checking  chats', 'Checking the chats'))])
+    return
+  }
+  const again = el('button', 'check-again', 'Check everything')
+  again.type = 'button'
+  again.id = 'check-again'
+  again.disabled = checkClickedAt !== null
+  again.title = 'Reads the app\'s chats, the wake record and the open alarms again and mends what it can'
+  fill(row, [el('span', 'check-line', check.line ?? ''), again])
+}
+
+$('check-row').addEventListener('click', async event => {
+  const button = event.target.closest?.('#check-again')
+  if (button === null || button === undefined || button.disabled) return
+  checkClickedAt = Date.now()
+  checkSawRunning = false
+  button.disabled = true
+  try {
+    const answer = await fetch('/api/check', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: '{}' })
+    if (!answer.ok) throw new Error(String(answer.status))
+    void read()
+  } catch {
+    checkClickedAt = null
+    button.disabled = false
+  }
+})
+// startcheck:end
+
 // laneflags:start
 /**
  * B300: the reconciler's flags on a lane (`lane.flags`), each a line, and for a chat that holds work but does not run a
@@ -22288,6 +22349,7 @@ function draw(state) {
   drawCpu(state)
   drawMainGame(state)
   drawLimits(state)
+  drawCheckRow(state)
   drawRestart(state)
   drawLanes(state)
   drawSupervisor(state)
@@ -22494,6 +22556,7 @@ async function read() {
     withAnswers(state)
     // Light state: the finished steps this page read whole stand whole again.
     withFullSteps(state)
+    whileChecking(state)
     draw(state)
     awaySince = null
     helpAtStart(state)

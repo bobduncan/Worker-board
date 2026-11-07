@@ -1,0 +1,42 @@
+{
+  "Worker 3": [
+    {
+      "id": "e3",
+      "at": 1793912000000,
+      "to": "Worker 3",
+      "kind": "task",
+      "step": "B1050",
+      "state": "failed",
+      "set": {
+        "model": "claude-sonnet-5-5",
+        "effort": "medium"
+      },
+      "failedAt": 1793912000000,
+      "settledAt": 1793912000000,
+      "outcome": {
+        "set": false,
+        "why": "the set failed (made up)"
+      }
+    }
+  ],
+  "Worker 4": [
+    {
+      "id": "e4",
+      "at": 1793912100000,
+      "to": "Worker 4",
+      "kind": "task",
+      "step": "B1050",
+      "state": "failed",
+      "set": {
+        "model": "claude-opus-5-5",
+        "effort": "medium"
+      },
+      "failedAt": 1793912100000,
+      "settledAt": 1793912100000,
+      "outcome": {
+        "set": false,
+        "why": "the set failed (made up)"
+      }
+    }
+  ]
+}
