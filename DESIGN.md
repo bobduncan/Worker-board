@@ -63,6 +63,16 @@ without folding and writes `lastScanAt` alone, so the two differ and the ledger 
 one-way step. (6) A message whose file is read only part way (`scan.lastMessageId`, cleared at the file's end) is not folded
 until its last line is read. Known limit of the oversized-line count (c): a long line counts as an answer by the first
 4,096 bytes only, so a real oversized answer is not seen; none was found on the live data.
+**Round 5 (2026-11-07), follow-ups.** (a) A message older than the current `take` (a compaction writes an older stretch again)
+is no work of that task (`takenAt` in the scan cursor). (b) A `held` message does not count as reaching back past a window's
+start, so the widening still shows. (c) The `foldedIds` Set is rebuilt from the string when ids were cut. (d) After a rollback
+the day totals stay (`rereadBefore`): re-read messages at or before `foldedBefore` are in them already, so nothing is lost
+or counted twice. (e) Rows older than 60 days (`FOLD_MERGE_DAYS`) are split by `compactFolded` into `part: 'dims'` rows
+(month, chat, model, effort, phase, `linked`: every table and total except Tasks) and `part: 'task'` rows (month, task: only
+the Tasks table and its task totals), so every total is exactly the same; newer rows stay per day and unsplit. A month row
+shows in the daily table on the month's first day (the tab shows the last 31 days only); `first` keeps its earliest day for
+"Covers only from". A window cuts both parts alike. Year of folded rows on a copy of the live ledger: 11,424 rows (3.1 MB)
+became 6,000 (1.5 MB); the five summaries stay ~250 ms (tests: test/work/spendingEveryChat.test.mjs).
 
 > **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
