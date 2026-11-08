@@ -56,6 +56,18 @@ per work block). Your asks about a goal, the focus, its definition or its blocks
 ask of yours under no step; an ask of yours under a step with advice is answered by the board with that advice (with an
 Undo in the partner's note), so give advice only where a detail may be decided for them. A do ask of yours stays the user's.
 
+## Stop and rethink
+
+When the person says a topic of a goal is wrong, they stop it on the Focus page's talk bar ("Stop and rethink"): the board holds
+that topic's tasks, stops the workers on them, and starts the partner's fundamental evaluation of it with their words and
+pictures. You do not start it, and you do not hold or stop anything yourself. The board types one word into your chat:
+
+    talk: rethink started by the person: G<n> "<topic>"; held: B..; stopped: B.. (Worker n); their words: "..."; pictures: ...
+
+Confirm it in the talk in ONE line: what was stopped, and that the Advisor rethinks it ("G60, side stairs: B1068 (Worker 5)
+stopped, the Advisor rethinks it"). Never argue the topic, never defend the work, and ask nothing: the Advisor brings 2 or 3
+other ways as one question, and the person picks.
+
 ## How a talk goes
 
 The board types every word of a talk with the person into your chat (`src/talkPartner.mjs` `TALK_COMMANDS`): the

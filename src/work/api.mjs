@@ -53,6 +53,9 @@ import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
 import { writeView } from './view.mjs'
 import { rowWordsOf, rowWordsText } from './rowWords.mjs'
+import { groupOfStep } from '../goalGuard.mjs'
+import { HOLDABLE, WITH_WORKER, heldBy, rethinkLine, rethinkWords, withHold, withoutHoldOf } from './rethink.mjs'
+import { topicOf } from './rethinkTopic.mjs'
 import { YOUR_WORDS, answeredBefore, askPoint, isPersonsWords, isPopupAsk, withYourWords, yourWordsLine, yourWordsOf } from './yourWords.mjs'
 
 // B300: kept here for those who import them from the API.
@@ -61,7 +64,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'accept-cards', 'popup-asks', 'autopilot', 'autopilot-undo', 'recap-answered', 'asset'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'rethink-hold', 'rethink-free', 'accept-cards', 'popup-asks', 'autopilot', 'autopilot-undo', 'recap-answered', 'asset'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -107,6 +110,9 @@ const ROLES = {
   obsolete: ['advisor'],
   // Your words (2026-10-30): the person's note on a step, from its window; the main chat's, for words the person said in its chat.
   words: ['person', 'main'],
+  // Stop and rethink (docs/stop-and-rethink.md): the page's goals command holds a topic's steps as the person; the board frees them when the evaluation ends.
+  'rethink-hold': ['person', 'server'],
+  'rethink-free': ['person', 'server'],
   // Part C of the asset providers (spec 2026-11-01, part 4): every role asks the board for an asset; nobody makes one itself.
   asset: ['main', 'worker', 'advisor', 'owner', 'supervisor', 'server'],
 }
@@ -742,7 +748,8 @@ async function step(body, w) {
   if (!isPlan) {
     const item = ordered(said(put(copy(found.item), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
     const done = await save(item, found.text, w)
-    return done.ok ? changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.`) : done
+    if (!done.ok) return done
+    return changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.${await giveBackStopped(item, w)}`)
   }
   const names = Array.isArray(body.names) ? body.names.map(one => line(one, 60)).filter(Boolean) : []
   const count = Number.isInteger(Number(body.steps)) && Number(body.steps) > 0 ? Number(body.steps) : null
@@ -757,7 +764,22 @@ async function step(body, w) {
   const planned = said(saved === null ? found.item : put(copy(found.item), 'Plan', planText(saved)), w, words)
   const item = ordered(checkpoint === null ? planned : said(put(copy(planned), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
   const done = await save(item, found.text, w)
-  return done.ok ? changed(item, `${id}: ${words}.${checkpoint === null ? '' : ` Checkpoint ${checkpoint.commit} · ${checkpoint.next}.`}`) : done
+  if (!done.ok) return done
+  return changed(item, `${id}: ${words}.${checkpoint === null ? '' : ` Checkpoint ${checkpoint.commit} · ${checkpoint.next}.${await giveBackStopped(item, w)}`}`)
+}
+
+/**
+ * Stop and rethink: a worker's checkpoint on a step held for a rethink is its stop checkpoint (the person's Stop reached it): the step
+ * goes back to refined by the SAME give-back as the holder timers' (`giveBackHeld`, the flow's server move), still held by its
+ * `Waits for`, and the worker is free. Answers a sentence for the worker's answer, '' when nothing was given back.
+ */
+async function giveBackStopped(item, w) {
+  const held = rethinkWords(item)
+  if (held === null || !GIVE_BACK_GONE.includes(stateOf(item))) return ''
+  const again = await load(valueOf(item, 'Id'), w, { kind: ['step'] })
+  if (!again.ok) return ''
+  const back = await giveBackHeld(again, { chat: w.who, why: `stopped for ${held}: its stop checkpoint is in`, gone: stateOf(item) === 'waiting on you' }, w)
+  return back.ok ? ' The step is given back (held for the rethink): you are free for other work.' : ''
 }
 
 /** A checkpoint's fields from work step: `{ ok, commit, next }` (commit "none" when not given), or a refusal. */
@@ -1405,12 +1427,76 @@ async function words(body, w) {
   const text = lines(body.text)
   if (text.length === 0) return refuse(400, 'Give the person\'s words in "text".')
   const where = line(body.where, 120).replace(/[()]/g, '') || (w.role === 'person' ? 'on the board' : `in ${bare(w.who, w.prefix)}'s chat`)
-  const noted = withYourWords(found.item, { at: stamp(w.now), how: `note (${where})`, answer: text })
+  const noted = noteWords(found.item, w, text, where)
   const item = said(noted, w, `the person's words noted: ${line(text.join(' '), 200)}`)
   const done = await save(item, found.text, w)
   if (!done.ok) return done
   const n = yourWordsOf(item).at(-1)?.n ?? 1
   return changed(item, `${id}: the person's words stand as point ${n} of its "Your words".`)
+}
+
+/** The person's words as a point of the step's "Your words": `where` they said it, the `shown` pictures named. */
+const noteWords = (item, w, text, where, shown = []) => withYourWords(item, { at: stamp(w.now), how: `note (${where})`, answer: text, shown })
+
+/**
+ * Stop and rethink (docs/stop-and-rethink.md, T13.2.1): the person says a topic of the goal `goal` is wrong. The topic is the
+ * how's part `title` (or the one that names the step `of`), else the fix chain of `of` ("the tries of <its first step's title>"), with the steps
+ * of a recap row that names one of them (`topicOf`). Its open steps (new to waiting on you) get `Waits for: the rethink of
+ * G<n> "<title>" (<minute>)` next to what they wait for already, and the person's words (`text`, with the `pictures`) as a point of
+ * their "Your words". Done, dropped and steps in review stay as they are. Answers `{ topic, held, stop }`: `stop` the held
+ * steps a worker holds (taken, in progress, waiting on you), for the board to stop through the Stop button's own word.
+ */
+async function rethinkHold(body, w) {
+  const goal = line(body.goal, 20)
+  if (!/^G\d+$/.test(goal)) return refuse(400, 'Name the goal and a step of the topic.')
+  const node = w.goalNode?.(goal) ?? null
+  if (node === null) return refuse(409, `${goal} is not in the goal map.`)
+  const text = lines(body.text)
+  if (text.length === 0) return refuse(400, "Give the person's words in \"text\".")
+  const topic = topicOf({ node, items: w.store.items, rows: w.recapRows ?? [], title: line(body.title, 200) || null, of: line(body.of, 20) || null })
+  if (!topic.ok) return refuse(409, topic.why)
+  const pictures = (Array.isArray(body.pictures) ? body.pictures : []).filter(one => typeof one === 'string' && one.trim() !== '').map(one => one.trim())
+  const minute = stamp(w.now)
+  const mark = rethinkLine(goal, topic.title, minute)
+  const held = []
+  const stop = []
+  for (const id of topic.steps) {
+    const open = w.store.items.get(id)
+    if (!HOLDABLE.includes(stateOf(open))) continue
+    const found = await load(id, w, { kind: ['step'] })
+    if (!found.ok) return found
+    let item = put(copy(found.item), 'Waits for', withHold(valueOf(found.item, 'Waits for'), goal, mark))
+    item = said(item, w, `held for ${mark}`)
+    item = noteWords(item, w, text, `rethink, ${minute}`, pictures)
+    const done = await save(ordered(item), found.text, w)
+    if (!done.ok) return done
+    held.push(id)
+    if (WITH_WORKER.includes(stateOf(found.item)) && valueOf(found.item, 'Owner') !== null) stop.push({ id, owner: bare(valueOf(found.item, 'Owner'), w.prefix) })
+  }
+  const part = topic.kind === 'part' ? topic.title : groupOfStep(node, w.store.items, topic.steps[0] ?? '').title
+  const says = held.length === 0 ? `${topic.title}: no open task to hold.` : `${topic.title}: held ${held.join(', ')}${stop.length === 0 ? '' : `; stop ${stop.map(one => `${one.id} (${one.owner})`).join(', ')}`}.`
+  return { ok: true, result: { id: goal, goal, topic: topic.title, kind: topic.kind, minute, evaluationPart: part, steps: topic.steps, held, stop, text: says, changed: held.length > 0 } }
+}
+
+/**
+ * Stop and rethink, the end: the evaluation of `goal` ended, so the hold words of its rethink leave every step's `Waits for`
+ * (only those words; what else a step waits for stays). Answers the open steps that were freed.
+ */
+async function rethinkFree(body, w) {
+  const goal = line(body.goal, 20)
+  if (!/^G\d+$/.test(goal)) return refuse(400, 'Name the goal.')
+  const freed = []
+  for (const held of heldBy(w.store.items, goal)) {
+    const found = await load(valueOf(held, 'Id'), w, { kind: ['step'] })
+    if (!found.ok) return found
+    const words = rethinkWords(found.item)
+    if (words === null) continue
+    const item = said(put(copy(found.item), 'Waits for', withoutHoldOf(valueOf(found.item, 'Waits for'), goal)), w, `no longer waits for: ${words} (the evaluation of ${goal} ended)`)
+    const done = await save(ordered(item), found.text, w)
+    if (!done.ok) return done
+    if (!CLOSED_STEP.includes(stateOf(found.item))) freed.push(valueOf(found.item, 'Id'))
+  }
+  return { ok: true, result: { id: goal, goal, freed, text: freed.length === 0 ? `${goal}: no open task was held for its rethink.` : `${goal}: free again: ${freed.join(', ')}.`, changed: freed.length > 0 } }
 }
 
 /** Information, never a question: a note `N<n>` to the person or to the main chat. */
@@ -3161,7 +3247,7 @@ async function blockOn(body, w, isBlock) {
 /** B542: a step's `Waits for` words when they name `on` and every step they name is done or dropped; else null. */
 function closedWaits(item, on, items) {
   const ids = waitIds(item)
-  if (!ids.includes(on) || !ids.every(one => STEP_ID.test(one) && CLOSED_STEP.includes(stateOf(items.get(one) ?? { head: new Map() })))) return null
+  if (rethinkWords(item) !== null || !ids.includes(on) || !ids.every(one => STEP_ID.test(one) && CLOSED_STEP.includes(stateOf(items.get(one) ?? { head: new Map() })))) return null
   return valueOf(item, 'Waits for')
 }
 
@@ -3183,7 +3269,7 @@ function clearedAtTake(item, w) {
     cleared = said(put(copy(cleared), 'Blocked by', left.length === 0 ? null : left.join(' and ')), w, `no longer blocked by ${gone.join(', ')} at its take (${gone.map(words).join(', ')})`)
   }
   const waits = waitIds(item)
-  if (waits.length > 0 && waits.every(one => STEP_ID.test(one) && passed(one))) {
+  if (waits.length > 0 && rethinkWords(item) === null && waits.every(one => STEP_ID.test(one) && passed(one))) {
     cleared = said(put(copy(cleared), 'Waits for', null), w, `no longer waits for: ${valueOf(item, 'Waits for')} at its take (${waits.map(words).join(', ')})`)
   }
   return cleared
@@ -4933,7 +5019,7 @@ const CHANGE = {
   'incidents-rekey': incidentsRekey,
   'incident-gone': incidentGone,
   'asks-withdrawn': asksWithdrawn,
-  take, step, ask, withdraw, note, words, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'add-to-queue': addToQueue, 'remove-from-queue': removeFromQueue, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
+  take, step, ask, withdraw, note, words, 'rethink-hold': rethinkHold, 'rethink-free': rethinkFree, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'add-to-queue': addToQueue, 'remove-from-queue': removeFromQueue, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,
   read,
