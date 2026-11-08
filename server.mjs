@@ -76,7 +76,9 @@ import { parseGoals } from './src/goals.mjs'
 import { activityFor, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
 import { checkSend, roundPage, rowsOf as rowsOfDemo, stampOf, withRound, wordsOfRound } from './src/demoFeedback.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, undoLine } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, rethinkTalkWords, startEvaluation, undoLine } from './src/focus.mjs'
+import { goalsToFree, rethinkHolds } from './src/work/rethink.mjs'
+import { rowWordsOf, rowWordsText } from './src/work/rowWords.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { evaluationFor } from './src/goalGuard.mjs'
 import { readSources } from './src/sources.mjs'
@@ -1010,6 +1012,8 @@ async function main(args) {
     const running = done.ok ? await loops.run('evaluations', () => evaluationsRunning({ goalsFile: projectFile(config, 'goals') })) : []
     const isKnown = Array.isArray(running)
     // B359: the partner's how-draft ended the goal guard's evaluation: back to the usual partner, unless another runs.
+    // Stop and rethink: and the steps held for it go free (not awaited: this may run inside the work API's turn).
+    if (done.ok && done.result?.evaluated === true) void loops.run('rethink-free', () => rethinkFreeNow(state))
     if (done.ok && done.result?.evaluated === true && isKnown && running.length === 0) await partnerMode(state, 'usual', 'the evaluation ended with the how: back to the usual partner')
     // 2026-10-24: Fable was for the evaluation that ended only: one that still runs keeps its own mode (Opus unless the person's A).
     else if (done.ok && done.result?.evaluated === true && isKnown) await loops.run('evaluations', async () => partnerModeNow(state, mode => `the evaluation ended with the how; another still runs, on ${PARTNER_MODES[mode].label}`))
@@ -1125,6 +1129,90 @@ async function main(args) {
     await store.say(message)
     readState.reset()
     return { ok: true, message }
+  }
+  /** Goals whose rethink is being started right now: the sweep below frees no hold of them in the meantime. */
+  const rethinking = new Set()
+  /**
+   * Stop and rethink (docs/stop-and-rethink.md, T13.2.1): the person's POST /api/goals {command: 'rethink', id, part | of, text, pictures}.
+   * In order: the holds and the person's words (the work API's rethink-hold, as the person), a stop for each worker on a held step
+   * (the Stop button's own word, `sayNow` with command 'stop': no second copy of the stop logic), the evaluation of that topic
+   * (src/focus.mjs startEvaluation), and one talk word to the talk partner. Answers `{ ok, result: { topic, held, stopped, notStopped,
+   * evaluation: 'started' | 'running' } }`; `running`: an evaluation of the goal ran already, the words went to the partner as more.
+   */
+  const rethinkNow = async body => {
+    if (!writesMap || workWriters === null || workDir === null) return { ok: false, status: 403, why: 'This board only shows: stop and rethink on the board that delivers.' }
+    const id = typeof body?.id === 'string' ? body.id.trim() : ''
+    if (!/^G\d+$/.test(id)) return { ok: false, status: 400, why: 'Name the goal by its id (G12).' }
+    const text = String(body?.text ?? '').replace(/\s+/g, ' ').trim()
+    if (text === '') return { ok: false, status: 400, why: 'Say what is wrong, in your words.' }
+    const state = await readState()
+    const talker = talkPartnerOf(state)
+    if ((state.advisor ?? null) === null || talker === null) return { ok: false, status: 409, why: 'No partner chat is on the board: the setting advisor names none.' }
+    const pictures = (Array.isArray(body.pictures) ? body.pictures : []).filter(one => typeof one === 'string' && one.trim() !== '').map(one => one.trim()).slice(0, 8)
+    for (const path of pictures) {
+      if (!(await stat(inProject(config.project, path)).then(file => file.isFile(), () => false))) return { ok: false, status: 409, why: 'A picture is not there any more: paste it again.' }
+    }
+    rethinking.add(id)
+    try {
+      const part = typeof body.part === 'string' && body.part.trim() !== '' ? body.part.trim() : null
+      const of = typeof body.of === 'string' && body.of.trim() !== '' ? body.of.trim() : null
+      const held = await workAction({ action: 'rethink-hold', goal: id, ...(part === null ? {} : { title: part }), ...(of === null ? {} : { of }), text, pictures }, 'person')
+      if (!held.ok) return held
+      const { topic, held: ids, stop, evaluationPart, steps: topicSteps, minute } = held.result
+      // The Stop button's word, once per worker (an earlier stop of that worker still open is refused by it, and said).
+      const main = state.workers?.main ?? state.restart?.main ?? null
+      const stopped = []
+      const notStopped = []
+      for (const owner of new Set(stop.map(one => one.owner))) {
+        const sent = main === null ? { ok: false, why: 'No main chat is on the board.' } : await sayNow({ to: main, command: 'stop', chat: owner, sure: true })
+        for (const one of stop.filter(other => other.owner === owner)) (sent.ok ? stopped : notStopped).push(sent.ok ? one : { ...one, why: sent.why })
+      }
+      const store = (await readStore(workDir)).items
+      const newest = [...topicSteps].sort((a, b) => Number(b.slice(1)) - Number(a.slice(1)))[0]
+      const found = newest === undefined ? null : rowWordsOf(newest, store, state.recapRows ?? [], { includeOwn: true })
+      // The words just given stand on the held steps too: they are no "earlier" words. The Workers mod refuses a line over maxMessageChars, so the
+      // earlier words get what the rest of the evaluate word leaves (the older ones are named by file, rowWordsText).
+      const earlier = found === null ? '' : rowWordsText({ ...found, words: found.words.filter(one => !(one.at === minute && String(one.words).replace(/\s+/g, ' ').trim() === text)) }, { budget: Math.max(300, config.maxMessageChars - 1500 - text.length), chars: 400 })
+      const started = await startEvaluation(id, {
+        canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
+        partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items: async () => [...(await readStore(workDir)).items.values()],
+        approveRebuilds: rebuildsApproved(config), maxChars: config.maxMessageChars,
+        part: evaluationPart, topic, held: ids, asked: { text, pictures, earlier },
+      })
+      readState.reset()
+      if (!started.ok) {
+        // The evaluation did not start, so there is no end to wait for: the holds go at once.
+        await workAction({ action: 'rethink-free', goal: id }, 'server')
+        return started
+      }
+      if (started.result.started) await partnerModeNow(state, mode => `a rethink the person asked for: ${id} "${topic}" on ${PARTNER_MODES[mode].label}`)
+      if (started.words !== null) await toPartner(started.words, {}, state)
+      await toPartner(rethinkTalkWords({ to: talker.name, goal: { id }, topic, held: ids, stopped, text, pictures }), {}, state)
+      return { ok: true, result: { topic, held: ids, stopped, notStopped, evaluation: started.result.running ? 'running' : 'started' } }
+    } finally {
+      rethinking.delete(id)
+    }
+  }
+  /**
+   * Stop and rethink, the end: a goal whose steps hold `Waits for: the rethink of G<n> ...` and whose evaluation no longer runs (its
+   * marked how-draft, a Go, the goal ticked) gets them cleared (the work API's rethink-free), and the partner one line: "held for
+   * the rethink, now free: B.., B..; drop or keep each". Not for a goal whose rethink is being started (`rethinking`).
+   */
+  const rethinkFreeNow = async state => {
+    if (!writesMap || workWriters === null || workDir === null) return
+    // Only an end that is recorded frees a hold: the goal is in the map and no longer has its evaluation lines (src/work/rethink.mjs goalsToFree).
+    const mapText = await readFile(projectFile(config, 'goals'), 'utf8')
+    const nodes = parseGoals(mapText).nodes
+    const goals = new Set()
+    for (const item of (await readStore(workDir)).items.values()) {
+      if (item.head.get('Kind') !== 'step') continue
+      for (const hold of rethinkHolds(item.head.get('Waits for'))) goals.add(/ (G\d+) /.exec(hold)[1])
+    }
+    for (const goal of goalsToFree(nodes, goals, rethinking)) {
+      const done = await workAction({ action: 'rethink-free', goal }, 'server')
+      if (!done.ok) throw new Error(`The rethink of ${goal} could not be freed: ${done.why}`)
+      if (done.result.freed.length > 0 && (state.advisor ?? null) !== null) await toPartner(workWords(state.advisor.name, goal, `held for the rethink, now free: ${done.result.freed.join(', ')}; drop or keep each`), {}, state)
+    }
   }
   const withdrawGuardAsk = (id, why) => {
     if (typeof id !== 'string' || !/^Q\d+$/.test(id)) return
@@ -1600,6 +1688,8 @@ async function main(args) {
       ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), providerOf: kind => providerFor(config, kind), tools: () => assetTools() } }),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
+      // Stop and rethink: the goal's parts, for the topic of a rethink-hold (src/work/rethinkTopic.mjs).
+      goalNode: id => (state.goals?.nodes ?? []).find(node => node.id === id) ?? null,
       // B518: a goal in its fundamental evaluation ('running') or that ended one ('ended'): its steps default to effort high (the model stays as given, 2026-10-25).
       // B669: when the evaluation is of one part of the goal, only that part's steps (`stepId`, of the store's `items`) get it.
       evaluationOf: (id, stepId, items) => evaluationFor((state.goals?.nodes ?? []).find(one => one.id === id), items, stepId),
@@ -3042,6 +3132,8 @@ async function main(args) {
       if (PLAN_MOVES.includes(body?.command)) return planNow(body)
       if ([...FOCUS_MOVES, ...FOCUS_DRAFTS].includes(body?.command)) return focusNow(body)
       if (body?.command === 'note-undo') return undoNow(body)
+      // Stop and rethink (docs/stop-and-rethink.md): holds, stops, the evaluation and a word to the talk partner.
+      if (body?.command === 'rethink') return rethinkNow(body)
       // B680: only a Stopped part of the focus goal is dropped (the store says which is Stopped).
       if (body?.command === 'part-drop') {
         const refused = partDropRefusal((await readState()).focus ?? null, body)
@@ -3871,6 +3963,8 @@ async function main(args) {
         loops.succeeded('reconcile')
         // B528: an evaluation that has not ended is asked of the partner again; on its own, so a failure stops no delivery.
         await loops.run('evaluate-again', () => evaluateAgainNow(state))
+        // Stop and rethink: the holds of a rethink whose evaluation ended are freed.
+        await loops.run('rethink-free', () => rethinkFreeNow(state))
         // B677: the goal demo asked of the partner once every part of the focus is done.
         await loops.run('goal-demo', () => demoNow(state))
         // T17.1: a next try of the recap's round that turned done is told to the partner (once per step).

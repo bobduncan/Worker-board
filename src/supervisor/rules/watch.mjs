@@ -33,6 +33,7 @@ import { DEAF_KEEP_MS } from '../../hearing.mjs'
 import { isSleep, stallWords } from '../../stallWords.mjs'
 import { isHandTaken } from '../../hands.mjs'
 import { triedWords } from '../../wake.mjs'
+import { isRethinkHold, rethinkWords } from '../../work/rethink.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -615,7 +616,8 @@ const BLOCKED_HOLD = /^blocked by B\d/
  * fixes). One blocker that waits for a check, a worker or anything else leaves the hold the board's own.
  */
 function personHold(view, held) {
-  if (PERSON_ASK_HOLD.test(held)) return true
+  // Stop and rethink: the person asked for the hold ("waits for: the rethink of G60 ..."); it lasts until their pick.
+  if (PERSON_ASK_HOLD.test(held) || isRethinkHold(held)) return true
   if (!BLOCKED_HOLD.test(held)) return false
   const ids = [...new Set(held.match(/B[0-9]+/g) ?? [])]
   return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps))
@@ -846,7 +848,8 @@ const lasting = ms => (ms < HOUR ? `${minutes(ms)} min` : `${Math.floor(ms / HOU
  * the stretch began, without one).
  */
 export function checkpointLate(item, view) {
-  if (stateOf(item) !== 'in progress' || isPaused(view) || isFull(view)) return null
+  // Stop and rethink: the person stopped the topic; its worker saves and hands the step back, a quiet checkpoint is no fault.
+  if (stateOf(item) !== 'in progress' || isPaused(view) || isFull(view) || rethinkWords(item) !== null) return null
   const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
   if (owner?.state !== 'working') return null
   const began = sinceMs(valueOf(item, 'Since'))

@@ -3499,3 +3499,11 @@ ul.task-history { list-style: none; display: flex; flex-direction: column; gap: 
 .setup-next { min-width: 120px; padding: 10px 22px; }
 .setup-next:disabled { background: var(--inset); border-color: var(--line); color: var(--muted); }
 body.is-in-setup { overflow: hidden; }
+.focus-rethink { display: flex; flex-direction: column; gap: 8px; }
+.focus-rethink-switch { align-self: flex-start; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--text); cursor: pointer; }
+.focus-rethink-switch.is-on { border-color: #7fb0ff; color: #7fb0ff; }
+.focus-rethink-topic { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); }
+.focus-rethink-add { align-self: flex-start; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); cursor: pointer; }
+.focus-rethink-note { margin: 0; font-size: 13px; }
+.focus-rethink-note.is-error { color: #ff8a8a; }
+.focus-rethink .main-picture-remove { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
