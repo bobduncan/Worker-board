@@ -57,7 +57,7 @@ function focusPage() {
     sendFocus: async body => { seen.sent.push(body); return {} },
   }
   vm.runInNewContext([
-    source('el'), source('once'), source('focusUi'), source('FOCUS_BOXES'), source('focusPageUi'), source('focusOnce'), source('redrawFocus'),
+    source('el'), source('once'), source('focusUi'), source('FOCUS_BOXES'), source('rethinkBox'), source('rethinkUiView'), source('focusPageUi'), source('focusOnce'), source('redrawFocus'),
     source('focusButton'), source('focusSay'),
     // 2026-11-01: a block's chip is drawn by focusChipEl (a link to the recap while it waits for the person's verdict), made with demoLink.
     source('demoLink'), source('targetLink'), source('focusChipEl'), source('focusRunCard'), source('focusAct'),

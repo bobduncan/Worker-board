@@ -6689,11 +6689,14 @@ const FOCUS_WAIT_PLACES = ['go', 'change', 'talk']
 /** B408: what the person does in Needs your attention, for its view: the order, Show closed, what is picked, sent, open. */
 const needsUi = () => ({ obsoleteSet: [...obsoleteUi.set], showsClosed: showsClosed(), order: $('needs-order').value, withPartnerOpen: withPartnerUi.isOpen, decidedOpen: decidedUi.isOpen, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
 
+// Stop and rethink: the switch, the topic, the pictures and the lines of the Focus talk bar (the code is under rethink:start).
+const rethinkBox = { on: false, topic: null, pictures: [], problem: null, line: null }
+const rethinkUiView = () => ({ on: rethinkBox.on, topic: rethinkBox.topic, pictures: rethinkBox.pictures.map(one => one.url), problem: rethinkBox.problem, line: rethinkBox.line })
 /**
  * B408: what the person does on the Focus page, for its view: the moves of focusUi (not the words typed, which a redraw
  * keeps), and what is picked, sent, refused or open on its cards (the switches, the gathered recaps and asks).
  */
-const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, dropping: focusUi.dropping, asked: [...focusUi.asked], partsOpen: { ...focusUi.partsOpen }, blocksView: focusUi.blocksView, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting] })
+const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, dropping: focusUi.dropping, asked: [...focusUi.asked], partsOpen: { ...focusUi.partsOpen }, blocksView: focusUi.blocksView, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting], rethink: rethinkUiView() })
 // redraw:end
 
 /** B408: Needs your attention, drawn from its view when that changed. */
@@ -13290,9 +13293,9 @@ function closeGoalAsk() {
   showGoalAsk()
 }
 
-function setAskPictures(pictures) {
-  for (const one of goalsAskBox.pictures) if (!pictures.includes(one)) URL.revokeObjectURL(one.url)
-  goalsAskBox.pictures = pictures
+function setAskPictures(pictures, box = goalsAskBox) {
+  for (const one of box.pictures) if (!pictures.includes(one)) URL.revokeObjectURL(one.url)
+  box.pictures = pictures
 }
 
 /** Shown under the frame of the goal it asks about, on a board that writes the map and has an Advisor. */
@@ -13331,12 +13334,12 @@ function showGoalAsk() {
 }
 
 /** A pasted or picked picture for the ask; why it was not taken otherwise. */
-function addAskPicture(file, why = null) {
-  goalsAskBox.problem = file === null ? why ?? 'The clipboard holds no picture.'
+function addAskPicture(file, why = null, box = goalsAskBox, show = showGoalAsk) {
+  box.problem = file === null ? why ?? 'The clipboard holds no picture.'
     : !TALK_TYPES.includes(file.type) ? 'Only a PNG, JPEG or WebP picture can go with an ask.'
-      : goalsAskBox.pictures.length >= ASK_PICTURES_MOST ? `At most ${ASK_PICTURES_MOST} pictures go with an ask.` : talkPictureProblem(file)
-  if (goalsAskBox.problem === null) setAskPictures([...goalsAskBox.pictures, { file, url: URL.createObjectURL(file), path: null }])
-  showGoalAsk()
+      : box.pictures.length >= ASK_PICTURES_MOST ? `At most ${ASK_PICTURES_MOST} pictures go with an ask.` : talkPictureProblem(file)
+  if (box.problem === null) setAskPictures([...box.pictures, { file, url: URL.createObjectURL(file), path: null }], box)
+  show()
 }
 
 async function sendGoalAsk() {
@@ -16461,10 +16464,150 @@ function drawAdvisorParts(state) {
 // B354: `asked`, the goals whose Done when the person asked the partner for on this page.
 // B680: `dropping`, the title of the Stopped part whose reason the person is writing.
 // Work blocks (2026-10-31): `blocksView`, the run's switch: 'all' (All work blocks) or 'open' (Open now), kept across a reload.
-const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, dropping: null, asked: [], partsOpen: {}, blocksView: 'all', words: { talk: '', notYet: '', new: '', bar: '', drop: '' } }
+const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, dropping: null, asked: [], partsOpen: {}, blocksView: 'all', words: { talk: '', notYet: '', new: '', bar: '', drop: '', rethink: '' } }
 // Work blocks: the switch as the person left it (localStorage), else All work blocks.
 try { if (localStorage.getItem('focus-blocks-view') === 'open') focusUi.blocksView = 'open' } catch { /* a browser without storage: All work blocks */ }
-const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar', 'focus-drop-words': 'drop' }
+const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar', 'focus-drop-words': 'drop', 'focus-rethink-words': 'rethink' }
+
+// rethink:start
+// Stop and rethink (docs/stop-and-rethink.md): the switch beside the Focus talk bar. On, the bar names a topic of the focus goal, takes
+// the person's words and pictures (the Goals ask box's, addAskPicture), and Send posts the goals command `rethink`. `topic` is the key of
+// the one picked (`part:<title>` or `chain:<title>`), `line` what the board answered, `problem` why it refused.
+const rethinkKey = topic => `${topic.kind}:${topic.title}`
+/** `<title> · <ids and workers of its open steps>`. */
+const rethinkLabel = topic => `${topic.title} · ${topic.steps.map(one => (one.owner ? `${one.id} (${one.owner})` : one.id)).join(', ')}`
+/** The topic the person picked, else the only one there is; null when none is chosen. */
+function rethinkChosen(topics) {
+  const picked = topics.find(one => rethinkKey(one) === rethinkBox.topic)
+  return picked ?? (topics.length === 1 ? topics[0] : null)
+}
+/** The body of the goals command: `part` for a part topic, `of` (its newest open step) for a chain topic. */
+function rethinkBody(goal, topic, text, pictures) {
+  const newest = [...topic.steps].sort((a, b) => Number(b.id.slice(1)) - Number(a.id.slice(1)))[0].id
+  return { command: 'rethink', id: goal, ...(topic.kind === 'part' ? { part: topic.title } : { of: newest }), text, pictures }
+}
+/** The line under the bar from the board's answer. */
+function rethinkDone(answer, topic) {
+  const ownerOf = id => topic.steps.find(one => one.id === id)?.owner ?? null
+  const named = (id, owner = ownerOf(id)) => (owner ? `${id} (${owner})` : id)
+  const held = (answer.held ?? []).map(id => named(id))
+  const lines = [`${held.length === 0 ? 'Nothing was open to stop' : `Stopped and held: ${held.join(', ')}`}. Your Advisor rethinks "${answer.topic ?? topic.title}"; your Product owner confirms it in the talk.`]
+  if (answer.evaluation === 'running') lines.push('An evaluation already ran: your words were added to it.')
+  const missed = answer.notStopped ?? []
+  if (missed.length > 0) lines.push(`Not stopped: ${missed.map(one => `${named(one.id, one.owner)}: ${one.why}`).join('; ')}`)
+  return lines.join(' ')
+}
+function rethinkRemoveHandle(index) {
+  setAskPictures(rethinkBox.pictures.filter((one, at) => at !== index), rethinkBox)
+  redrawFocus()
+}
+/** The talk bar with its switch; with the switch on, the topic picker, the words, the pictures and "Stop and rethink". */
+function focusBar(bar, topics) {
+  const plain = focusSay(bar.placeholder, 'focus-say is-slim', { box: 'focus-bar-words', act: bar.act, isEnabled: bar.isEnabled, title: bar.title })
+  if (topics.length === 0 && rethinkBox.line === null) return plain
+  const wrap = el('div', 'focus-rethink')
+  const isOn = rethinkBox.on && topics.length > 0
+  if (topics.length > 0) {
+    const toggle = el('button', `focus-rethink-switch${isOn ? ' is-on' : ''}`, 'Stop and rethink')
+    toggle.type = 'button'
+    toggle.setAttribute('role', 'switch')
+    toggle.setAttribute('aria-checked', String(isOn))
+    toggle.dataset.focusAct = 'rethink-switch'
+    toggle.disabled = focusUi.busy
+    toggle.title = 'Stop the work on one topic and have it rethought'
+    wrap.append(toggle)
+  }
+  if (!isOn) wrap.append(plain)
+  else {
+    const chosen = rethinkChosen(topics)
+    const pick = el('select', 'focus-rethink-topic')
+    pick.dataset.rethinkTopic = ''
+    pick.disabled = focusUi.busy
+    pick.setAttribute('aria-label', 'The topic to stop and rethink')
+    const none = el('option', '', 'Pick the topic…')
+    none.value = ''
+    pick.append(none, ...topics.map(topic => {
+      const option = el('option', '', rethinkLabel(topic))
+      option.value = rethinkKey(topic)
+      return option
+    }))
+    pick.value = chosen === null ? '' : rethinkKey(chosen)
+    const form = focusSay('Say what is wrong, in your words…', 'focus-say is-slim', { box: 'focus-rethink-words', act: 'rethink-send', label: 'Stop and rethink', isEnabled: bar.isEnabled, title: bar.title })
+    const send = form.querySelector('button')
+    if (focusUi.busy) {
+      send.textContent = 'Stopping…'
+      send.prepend(el('span', 'calm-spinner'))
+    }
+    const pictures = el('div', 'main-picture focus-rethink-pictures')
+    pictures.hidden = rethinkBox.pictures.length === 0
+    rethinkBox.pictures.forEach((one, index) => {
+      const image = el('img')
+      image.src = one.url
+      image.alt = `Picture ${index + 1} of the rethink`
+      const remove = el('button', 'main-picture-remove', '×')
+      remove.type = 'button'
+      remove.dataset.rethinkPicture = String(index)
+      remove.title = 'Take the picture away'
+      remove.setAttribute('aria-label', 'Take the picture away')
+      remove.disabled = focusUi.busy
+      const frame = el('span', 'main-picture-frame')
+      frame.append(image, remove)
+      pictures.append(frame)
+    })
+    const add = el('button', 'focus-rethink-add', 'Add a picture')
+    add.type = 'button'
+    add.dataset.focusAct = 'rethink-pick'
+    add.disabled = focusUi.busy || rethinkBox.pictures.length >= ASK_PICTURES_MOST
+    const file = el('input')
+    file.type = 'file'
+    file.accept = 'image/png,image/jpeg,image/webp'
+    file.multiple = true
+    file.hidden = true
+    file.dataset.rethinkFile = ''
+    wrap.append(pick, form, pictures, add, file)
+  }
+  if (rethinkBox.problem !== null) wrap.append(el('p', 'focus-rethink-note is-error', rethinkBox.problem))
+  else if (rethinkBox.line !== null) wrap.append(el('p', 'focus-rethink-note', rethinkBox.line))
+  return wrap
+}
+/** "Stop and rethink" sent: the words and pictures to the board; the switch, words and pictures reset once it is done. */
+async function sendRethink(focus) {
+  const topics = focus.rethinkTopics ?? []
+  const topic = rethinkChosen(topics)
+  const text = focusUi.words.rethink.trim()
+  rethinkBox.line = null
+  if (text === '') rethinkBox.problem = 'Say what is wrong, in your words.'
+  else if (topic === null) rethinkBox.problem = 'Pick the topic to stop.'
+  else {
+    rethinkBox.problem = null
+    const pictures = []
+    for (const one of rethinkBox.pictures) {
+      if (one.path === null) {
+        const kept = await keepTalkFile(one.file)
+        if (kept.path === undefined) {
+          rethinkBox.problem = `Not sent: ${kept.problem}`
+          return
+        }
+        one.path = kept.path
+      }
+      pictures.push(one.path)
+    }
+    const answer = await sendFocus(rethinkBody(focus.id, topic, text, pictures), '')
+    if (answer === null) {
+      // Refused: the board's why stands as the problem line; the words and pictures stay for another try.
+      rethinkBox.problem = focusUi.note?.text ?? 'Not done.'
+      focusUi.note = null
+    } else {
+      focusUi.note = null
+      rethinkBox.line = rethinkDone(answer, topic)
+      focusUi.words.rethink = ''
+      setAskPictures([], rethinkBox)
+      rethinkBox.on = false
+      rethinkBox.topic = null
+    }
+  }
+}
+// rethink:end
 
 /** B408: the Focus page, drawn from its view when that changed. */
 function focusOnce(state) {
@@ -18538,7 +18681,7 @@ function drawFocus(state) {
     const body = el('div', 'focus-body')
     if (view.stage === 'run') {
       const left = el('div', 'focus-column')
-      left.append(view.blocks?.chosen === 'open' && view.openNow !== null ? focusOpenNowCard(view) : focusRunCard(view), focusSay(view.talkBar.placeholder, 'focus-say is-slim', { box: 'focus-bar-words', act: view.talkBar.act, isEnabled: view.talkBar.isEnabled, title: view.talkBar.title }), ...[focusTalkLine(state)].filter(one => one !== null))
+      left.append(view.blocks?.chosen === 'open' && view.openNow !== null ? focusOpenNowCard(view) : focusRunCard(view), focusBar(view.talkBar, state.focus?.rethinkTopics ?? []), ...[focusTalkLine(state)].filter(one => one !== null))
       const right = el('div', 'focus-column')
       if (view.guard !== null && view.guard !== undefined) right.append(focusGuardCard(view.guard))
       if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck))
@@ -18636,6 +18779,14 @@ async function focusAct(act, goal = null, extra = null) {
   // "Change this goal": the box that starts its change.
   if (act === 'change-goal' && focus !== null) return openChangeGoal(focus.id)
   if (focusUi.busy) return
+  // Stop and rethink: the switch, and the picture button (the file box opens).
+  if (act === 'rethink-switch') {
+    rethinkBox.on = !rethinkBox.on
+    rethinkBox.problem = null
+    redrawFocus()
+    return $('focus-rethink-words')?.focus()
+  }
+  if (act === 'rethink-pick') return document.querySelector('#advisor-focus [data-rethink-file]')?.click()
   if (act === 'change-focus' || act === 'keep-focus') {
     if (act === 'change-focus') focusUi.picking = true
     else focusUi.picking = false
@@ -18706,6 +18857,7 @@ async function focusAct(act, goal = null, extra = null) {
       if (words('bar') === '') focusUi.note = { isProblem: true, text: 'Write what you want to tell your partner.' }
       else if (await sendFocus({ command: 'talk', id: focus.id, text: words('bar') }, 'Sent to your partner, in the talk about this goal.') !== null) focusUi.words.bar = ''
     }
+    else if (act === 'rethink-send' && focus !== null) await sendRethink(focus)
     // Focus 3: the run's moves: the goal definition is there; Undo of a decided line; an answer to the partner's question.
     else if (act === 'vibe-there-yes' && focus !== null) await sendFocus({ command: 'vibe-there-yes', id: focus.id }, 'Your partner re-checks it against its Done when and its goal definition: it gets its tick once that passed.')
     // Partner answers, the review's findings: a partner's answer is taken back, and the line says so (by the line's field).
@@ -18785,6 +18937,30 @@ $('advisor-focus').addEventListener('change', event => {
   if (event.target.dataset?.partnerAnswers === 'switch') sendWork({ action: 'partner-answers', on: event.target.checked }, 'partner-answers')
 })
 // The words typed stay while the page is drawn anew; Enter sends a box's words, Shift+Enter makes a new line.
+// Stop and rethink: the topic picked, pictures picked or pasted, one taken away again.
+$('advisor-focus').addEventListener('change', event => {
+  if (event.target.dataset?.rethinkTopic !== undefined) {
+    rethinkBox.topic = event.target.value === '' ? null : event.target.value
+    rethinkBox.problem = null
+    redrawFocus()
+  } else if (event.target.dataset?.rethinkFile !== undefined) {
+    for (const file of Array.from(event.target.files ?? [])) addAskPicture(file, null, rethinkBox, redrawFocus)
+    event.target.value = ''
+  }
+})
+$('advisor-focus').addEventListener('paste', event => {
+  if (event.target.id !== 'focus-rethink-words') return
+  if (focusUi.busy) return event.preventDefault()
+  const pasted = pastedTalk(event.clipboardData?.items)
+  if (pasted.ignore === true) return
+  event.preventDefault()
+  addAskPicture(pasted.take?.getAsFile() ?? null, pasted.problem ?? null, rethinkBox, redrawFocus)
+  $('focus-rethink-words')?.focus()
+})
+$('advisor-focus').addEventListener('click', event => {
+  const remove = event.target.closest('[data-rethink-picture]')
+  if (remove !== null && !focusUi.busy) rethinkRemoveHandle(Number(remove.dataset.rethinkPicture))
+})
 $('advisor-focus').addEventListener('input', event => {
   const key = FOCUS_BOXES[event.target.id]
   if (key !== undefined) focusUi.words[key] = event.target.value

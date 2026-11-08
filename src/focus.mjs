@@ -615,7 +615,11 @@ export async function evaluationsMode(ctx) {
   return partnerModeFor(nodes, nodes.some(node => node.state !== 'done' && (node.evaluationAsked ?? null) !== null) ? await ctx.items() : [])
 }
 
-/** The end of a guard's trip: "Evaluation asked" and the board's "Fable asked" taken from under the goal. */
+/**
+ * The end of a guard's trip: "Evaluation asked" and the board's "Fable asked" taken from under the goal. Stop and rethink: the
+ * `Waits for: the rethink of G<n> ...` lines of the goal's steps are in the store, not the map: the board's tick frees them once no
+ * evaluation of the goal runs (server.mjs `rethinkFreeNow`, the work API's `rethink-free`).
+ */
 function endTrip(text, id) {
   const cleared = setGoalLine(text, id, 'Evaluation asked', '')
   const asked = cleared.ok ? setGoalLine(cleared.text, id, 'Fable asked', '') : cleared
@@ -658,6 +662,93 @@ async function fireGuard(id, ctx) {
   const attempts = goalAttempts(node, ctx.items)
   const words = evaluateWords({ to: ctx.partner.name, goal: node, attempts, part: evaluationPartOf(node, attempts), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job, maxChars: ctx.maxChars })
   return { ok: true, result: { id, fired: true, mode: step.mode, ask: step.ask }, words, withdraw: step.withdraw ? step.ask : null }
+}
+
+/**
+ * Stop and rethink (docs/stop-and-rethink.md, T13.2.1): the person started the evaluation of goal `id` themselves, for one topic.
+ * Like `fireGuard` without the guard's trip test, under the map's turn: "Evaluation asked: <minute>" and, for the topic,
+ * "Evaluation part: <title>" go under the goal (none of them when one stands: an evaluation of that goal runs, there is no second;
+ * the person's words then go to the partner as "More from the person"). `ctx.part` the part's title as `groupOfStep` names it (the
+ * evaluation covers that part's steps), `ctx.topic` what the person called it, `ctx.asked` `{ text, pictures, earlier }` (the words,
+ * the picture paths, the topic's earlier words as `rowWordsText` writes them), `ctx.held` the steps held for it. The word to the
+ * partner is the `evaluate` word with the person's block under its first line. Answers `{ ok, result: { id, started, running }, words }`.
+ */
+export function startEvaluation(id, ctx) {
+  const run = guardTurn.then(() => underMapTurn(async () => begin(id, { fs: files, ...ctx, items: await (typeof ctx.items === 'function' ? ctx.items() : ctx.items) })))
+  guardTurn = run.catch(() => {})
+  return run
+}
+
+/** What the evaluate word keeps for itself of the board's line limit (its head, "Next steps", "Your answer" and "Your job"). */
+const EVALUATE_BODY_CHARS = 1000
+
+/**
+ * The block under the evaluate word's first line: what the person asked, their pictures, the topic, and its earlier words. The Workers
+ * mod refuses a line longer than `room`, so the earlier words (newest first) are cut from the end until the block fits; their older
+ * ones stand in the steps' "Your words", which the line before them names. Their own words are cut at 700 characters, the whole in the steps.
+ */
+export function askedBlock({ minute, text, pictures = [], earlier = '', topic = null, held = [], room = Infinity }) {
+  const words = oneLine(text, 4000)
+  const head = [
+    `Asked by the person (${minute}): "${words.length > 700 ? `${words.slice(0, 699).trimEnd()}…" (all of it in the Your words of the held steps)` : `${words}"`}`,
+    ...(pictures.length === 0 ? [] : [`Pictures: ${pictures.join(', ')}`]),
+    ...(topic === null ? [] : [`Topic: ${topic}${held.length === 0 ? '' : `; held until your how-draft ends the evaluation: ${held.join(', ')}`}`]),
+  ]
+  const lines = String(earlier).trim() === '' ? [] : String(earlier).trim().split('\n')
+  while (lines.length > 0 && [...head, ...lines].join('\n').length > room) lines.pop()
+  return [...head, ...lines].join('\n')
+}
+
+async function begin(id, ctx) {
+  const calm = { ok: true, result: { id, started: false, running: false }, words: null }
+  if (ctx.canWrite !== true) return refuse(403, 'This board only shows: work on the focus on the board that delivers.')
+  if ((ctx.partner ?? null) === null) return refuse(409, 'No partner chat is on the board: the setting advisor names none.')
+  if (!isId(id)) return refuse(400, 'Name the goal by its id (G12).')
+  const goalsAt = { file: ctx.goalsFile, historyDir: ctx.historyDir, now: ctx.now, fs: ctx.fs }
+  const minute = minuteOf(ctx.now)
+  const asked = ctx.asked ?? {}
+  const limit = ctx.maxChars ?? 2000
+  const block = askedBlock({ minute, text: asked.text ?? '', pictures: asked.pictures ?? [], earlier: asked.earlier ?? '', topic: ctx.topic ?? ctx.part ?? null, held: ctx.held ?? [], room: limit - EVALUATE_BODY_CHARS })
+  let node = null
+  let running = null
+  const done = await changeGoalsFile(text => {
+    const goal = parseGoals(text).byId.get(id)
+    if (goal === undefined) return { ok: false, why: 'gone' }
+    if (goal.state === 'done') return { ok: false, why: 'done' }
+    // One evaluation of a goal at a time: the board's own (a trip) or the person's earlier one.
+    if ((goal.evaluationAsked ?? null) !== null) {
+      running = goal
+      return { ok: false, why: 'running' }
+    }
+    node = goal
+    let lined = setGoalLine(text, id, 'Evaluation asked', minute)
+    if (lined.ok && typeof ctx.part === 'string' && ctx.part !== '') {
+      lined = setGoalLine(lined.text, id, 'Evaluation part', ctx.part)
+      node = { ...goal, evaluationPart: ctx.part }
+    }
+    return lined
+  }, goalsAt)
+  if (running !== null) {
+    const more = [`evaluate ${running.id} ${oneLine(running.title, 200)} (more from the person, ${minute})`, `More from the person: "${oneLine(asked.text, 1500)}"`, ...(asked.pictures ?? []).length === 0 ? [] : [`Pictures: ${asked.pictures.join(', ')}`]].join('\n')
+    return { ok: true, result: { id, started: false, running: true }, words: { to: ctx.partner.name, ask: null, step: null, title: null, version: null, verdict: null, command: 'evaluate', about: running.id, text: more } }
+  }
+  if (!done.ok) return done.why === 'done' ? calm : failed(done.why)
+  const attempts = goalAttempts(node, ctx.items)
+  const words = evaluateWords({ to: ctx.partner.name, goal: node, attempts, part: evaluationPartOf(node, attempts), approveRebuilds: ctx.approveRebuilds === true, job: ctx.job, maxChars: Math.max(0, limit - block.length - 1) })
+  const [head, ...rest] = words.text.split('\n')
+  return { ok: true, result: { id, started: true, running: false }, words: { ...words, text: [head, block, ...rest].join('\n') } }
+}
+
+/**
+ * Stop and rethink: the one word the talk partner gets when the person started a rethink from the page, typed as a talk word; it
+ * confirms it in the talk in one line (roles/product-owner.md, "Stop and rethink").
+ */
+export function rethinkTalkWords({ to, goal, topic, held = [], stopped = [], text, pictures = [] }) {
+  const list = ids => (ids.length === 0 ? 'none' : ids.join(', '))
+  return {
+    to, ask: null, step: null, title: null, version: null, verdict: null, command: 'talk', about: goal.id,
+    text: `rethink started by the person: ${goal.id} "${oneLine(topic, 200)}"; held: ${list(held)}; stopped: ${list(stopped.map(one => `${one.id} (${one.owner})`))}; their words: "${oneLine(text, 1000)}"; pictures: ${pictures.length === 0 ? 'none' : pictures.join(', ')}. Confirm it in the talk in one line.`,
+  }
 }
 
 /**

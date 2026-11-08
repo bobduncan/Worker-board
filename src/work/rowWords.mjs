@@ -26,9 +26,10 @@ const feedbackFileOf = path => String(path ?? '').replace(/[^/\\]*$/, '').replac
  * oldest first, or null when there are none. `items`: the store's items (Map id -> item); `recapRows`: `recapVerdictsOf` of the recaps.
  * The words: those under `## Your words` of every other step of the chain (the topmost step `id` is a fix of, every fix under
  * it, dropped ones too, and the steps of the recap rows `id` or a step above it belongs to), and the recap's comments on those
- * rows. The same words twice (a fix copied them) count once, and a point `id` carries itself is left out: it is shown with the step.
+ * rows. The same words twice (a fix copied them) count once, and a point `id` carries itself is left out: it is shown with the step
+ * (`includeOwn`: kept, for a reader that does not show the step itself, as the evaluation of a topic the person asked for).
  */
-export function rowWordsOf(id, items, recapRows = []) {
+export function rowWordsOf(id, items, recapRows = [], { includeOwn = false } = {}) {
   const roots = fixRootsOf(id, items)
   const given = new Set([id, ...roots])
   const rows = (Array.isArray(recapRows) ? recapRows : []).filter(row => (row.steps ?? []).some(step => given.has(step)))
@@ -49,9 +50,9 @@ export function rowWordsOf(id, items, recapRows = []) {
       }
     }
   }
-  const own = new Set(yourWordsOf(items?.get(id)).map(one => `${one.at}\n${oneLine(one.answer)}`))
+  const own = new Set(includeOwn ? [] : yourWordsOf(items?.get(id)).map(one => `${one.at}\n${oneLine(one.answer)}`))
   const found = []
-  for (const step of [...chain].filter(one => one !== id).sort((a, b) => numberOf(a) - numberOf(b))) {
+  for (const step of [...chain].filter(one => includeOwn || one !== id).sort((a, b) => numberOf(a) - numberOf(b))) {
     for (const point of yourWordsOf(items.get(step))) {
       found.push({ at: point.at, where: `${step}, ${point.ask ?? 'a note'}`, words: point.answer, file: step })
     }
