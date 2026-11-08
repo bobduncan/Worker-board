@@ -18643,7 +18643,13 @@ function focusRethinkCard(rethink) {
   const card = el('section', 'focus-card focus-rethink')
   card.append(el('h3', '', rethink.title))
   const lines = el('ul', 'focus-rethink-lines')
-  for (const text of [rethink.words, rethink.held, ...rethink.free, rethink.now]) if (text !== null) lines.append(el('li', '', text))
+  for (const text of [rethink.words, rethink.held, ...rethink.free]) if (text !== null) lines.append(el('li', '', text))
+  // The person, 2026-11-08: "i want a loader if we are waiting for this": while the Advisor still works on it (no pick asked yet),
+  // its line turns the board's calm spinner (the board rule: an instant answer or a visible wait).
+  const now = el('li', 'focus-rethink-now')
+  if (rethink.next.href === null) now.append(el('span', 'calm-spinner'))
+  now.append(document.createTextNode(rethink.now))
+  lines.append(now)
   const next = el('li', '')
   if (rethink.next.href === null) next.textContent = rethink.next.text
   else {

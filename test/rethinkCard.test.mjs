@@ -98,7 +98,14 @@ test('page: the card shows its heading and lines, calm, above Open now', async (
       'Next for you: one question with 2 or 3 ways, each with a picture. Nothing on it is built before your pick.',
     ])
     assert.equal(page.all('.focus-rethink.is-asking, .focus-rethink.is-evaluating, .focus-rethink .is-ask').length, 0, 'no attention colour')
+    // The person, 2026-11-08: "i want a loader if we are waiting for this": the Now line turns while the Advisor works.
+    assert.equal(page.all('.focus-rethink-now .calm-spinner').length, 1)
   } finally { await page.close() }
+})
+
+test('page: once the pick waits for the person, the Now line has no loader', async () => {
+  const page = await open({ ...RETHINK, ask: { id: 'Q684', title: 'Rebuild G6: which way?' } })
+  try { assert.equal(page.all('.focus-rethink-now .calm-spinner').length, 0) } finally { await page.close() }
 })
 
 test('page: a busy worker has no "is free" line; the partner without progress says when it started', async () => {
