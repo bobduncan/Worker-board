@@ -16,7 +16,7 @@ import { parseItem } from '../src/work/item.mjs'
 
 const DAY = 24 * 60 * 60_000
 const NOW = new Date(2026, 10, 5, 22, 40).getTime()
-const BAN = 'free; gets no sonnet steps: its set failed at 21:12 (the model menu did not answer) until 23:12'
+const BAN = 'free; gets no sonnet steps: its set failed at 21:12, until 23:12 (the model menu did not answer)'
 
 const file = (head, sections = {}) => parseItem(`${Object.entries(head).map(([key, value]) => `${key}: ${value}`).join('\n')}\n${Object.entries(sections).map(([name, lines]) => `\n## ${name}\n${lines.join('\n')}\n`).join('')}`)
 const sonnet = { Model: ['sonnet · routine work'] }
@@ -44,7 +44,7 @@ test('without the ban text each free worker could take all five ready steps', ()
 })
 
 test('a ban on another family leaves a Sonnet step open; the ban is read from the words "gets no <family> steps"', () => {
-  const opusBan = 'free; gets no opus steps: its set failed at 21:12 (x) until 23:12'
+  const opusBan = 'free; gets no opus steps: its set failed at 21:12, until 23:12 (x)'
   assert.deepEqual(minuteOf(stateOf({ lanes: [lane('Worker 3', opusBan)] }), items, '', NOW).free[0].could, IDS)
 })
 

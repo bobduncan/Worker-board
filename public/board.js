@@ -2690,7 +2690,7 @@ function timeOf(lane, now) {
   }
   if (found.status === 'Waiting for you') return plain('Blocked', 'bad', 'ETA')
   // T13 part 3: an asleep one is not "free to run": the line of the task it gets wakes it.
-  if (found.status === 'Asleep') return { ...plain('Asleep'), small: [asleepWords(lane)] }
+  if (found.status === 'Asleep') return { ...plain('Asleep'), small: found.why === null ? [asleepWords(lane)] : [asleepWords(lane), found.why] } // C2: its why (a ban) too
   if (found.status === 'Free') return plain('Free')
   if (found.status === 'Unknown') return plain('Unknown')
   if (found.status !== 'Working') return { ...plain(found.status), small: found.why === null ? [] : [found.why] }
@@ -3000,7 +3000,7 @@ function simpleIdle(lane) {
   if (found === null) return ''
   const label = statusLabel(found)
   if (found.status === 'Paused' && Number.isFinite(lane.suspended?.until)) return `${label} until ${clock(lane.suspended.until)}`
-  const hasWhy = found.why !== null && !['Unknown', 'Asleep'].includes(found.status)
+  const hasWhy = found.why !== null && found.status !== 'Unknown' // C2: an Asleep lane's ban why shows
   return hasWhy ? `${label} · ${found.why}` : label
 }
 // simpleidle:end
@@ -3451,8 +3451,8 @@ function drawLane(lane, state) {
   if (found?.status === 'Asleep') pill.title = `${asleepWords(lane)}. Its process ended; a message through the app wakes it.`
   else if (found?.status === 'Not running' && lane.state !== 'off') pill.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
   names.append(el('h3', '', lane.name), pill)
-  // The status's why beside it, in a few plain words (a step, a reason, a time); Unknown and Asleep carry theirs in the label.
-  if (found !== null && found.why !== null && !['Unknown', 'Asleep'].includes(found.status)) names.append(el('small', 'status-why', found.why))
+  // The status's why beside it, in a few plain words (a step, a reason, a time); Unknown carries its in the label; an Asleep lane shows its why only when it has one (C2, the ban).
+  if (found !== null && found.why !== null && found.status !== 'Unknown') names.append(el('small', 'status-why', found.why))
   // The model chip (runchip) beside the pill: what the chat runs at now, and a switch it waits for. None for a leftover.
   const runChip = lane.isLeftover ? null : drawRunChip(runChipOf(lane))
   if (runChip !== null) names.append(runChip)

@@ -1055,7 +1055,14 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   none). Then the chat counts as not paused at all: free, or between two turns, with the hand-out and the "may wait
   for you" hint as for any chat. Seen live 2026-10-18: Units paused at 11:39 "until 14:40" at 92%, the limit reset at
   13:00, and its lane said Suspended until 14:40. Without a reading after the pause (also when the board only works
-  out that a reset it knew of has passed), the pause stands. "paused for the weekly limit" pauses for the week. A
+  out that a reset it knew of has passed), the pause stands. "paused for the weekly limit" pauses for the week.
+  B995 (X140, 2026-11-04: Worker 4 paused after the board's week-stop word with "paused for the limit until 20:00", was read as
+  a 5-hour pause, lifted by a 40% 5-hour reading while the week stood at 100%, and "until 20:00" meant today, not the week's
+  reset): a pause note written after the board sent that chat its week-stop word for this week (the word before the note, its
+  weekResets after it; a word with no reset counts within 7 days; only a word that reached the chat, taken or delivered: one
+  waiting, failed or dropped never did, and a pause after it has another cause) is the week's pause: limit
+  week, until the word's reset (none without one; never the note's clock time), `asWeekPause` in `src/limits.mjs`. Without such a word it
+  reads as before. A
   suspended chat gets no step delivered and is no "may wait for you" hint. The lane says who held it and when it goes on; the time
   column shows that time. Nothing starts a chat by itself: once the time has passed the lane says the limit is
   back and the chat has not gone on, in the warning colour. A suspended chat asks the person nothing.
@@ -4037,7 +4044,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   slept 2026-11-04 23:45 to 11-05 08:15 and `data/stalls.json` held it as 8.5 h of "the loop blocked"): a stall is written as
   `kind: 'sleep'` (no requests or jobs named) when a stall of the loop lasts over 10 min, spans a clock jump (the wall clock and the monotonic
   one, `watchLoop`, disagree by over 5 s) or began before the board did (a work call is a sleep only when sent before the board began); an older loop stall over 10 min reads as a sleep too
-  (`stallOf`). A sleep is kept and said in plain words ("the PC slept (not a slow board)"); board-slow counts no call that
+  (`stallOf`). On Windows `performance.now` keeps counting through a PC sleep, so the two clocks do not disagree after one: a
+  sleep under 10 min is not told from a stall and is logged as a loop stall; only the 10 min rule catches a longer one (D's
+  note, 2026-11-08). A sleep is kept and said in plain words ("the PC slept (not a slow board)"); board-slow counts no call that
   waited through one and cites it as "slept: ...", never as a stall. Review (2026-11-05): a call is left out only when its chat
   sent it before the sleep began (the call's send time is `at - ms`, within 5 s of the sleep's start); the chats sleep with
   the PC, so a call sent inside the window proves the PC was awake and counts, however long it waited (an 11 min hang with
