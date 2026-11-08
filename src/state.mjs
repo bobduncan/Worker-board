@@ -16,7 +16,7 @@ import { finishedList } from './finished.mjs'
 import { askFacts, brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { DEMO_WORDS, demoGaveUp } from './focus.mjs'
 import { DRAFTED_FOR_GO, NO_ROUND, focusStage, goWaitsForLines, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
-import { limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
+import { asWeekPause, limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
 import { keptFor, ownChatOf, unjoinedOf } from './ownChat.mjs'
@@ -620,7 +620,7 @@ function finishedWith(waits) {
   return { ...waits, handover: parseHandover(waits.words) }
 }
 
-function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, briefOf = () => null, waits, notes = new Map(), pauseOver = () => false, movedInto = new Map(), reportOf = () => null }) {
+function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefix, stepOf = () => null, stepById = () => null, briefOf = () => null, waits, notes = new Map(), pauseOver = () => false, movedInto = new Map(), reportOf = () => null, weekWordsOf = () => [] }) {
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
@@ -692,7 +692,8 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // B310: or it filed that line as a work note to the main chat; the newer of the two forms decides.
   const sent = canPause ? pauseNote(entries, mains) : null
   const filed = canPause ? storePause(notes.get(chat.name.toLowerCase()), scan ?? entries, mains) : null
-  const word = [sent, filed].filter(Boolean).reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
+  // B995 (X140): a pause written after the board's week-stop word to this chat is the week's pause, to the word's reset.
+  const word = asWeekPause([sent, filed].filter(Boolean).reduce((a, b) => (a === null || b.at > a.at ? b : a), null), weekWordsOf(chat.name))
   // B312: a pause whose limit a newer reading shows back (`pauseOver`, settled once the limits are known) is over.
   const told = word === null || word.isPaused === false ? null : word
   const note = told !== null && pauseOver({ limit: told.limit ?? 'fiveHour', since: told.at, percent: told.percent ?? null }) ? null : told
@@ -1699,6 +1700,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const notes = notesToMain(raw.work, { prefix, main: list.main ?? 'main' })
   const context = {
     now, aliveAt, config, last, lines, prefix, waits, notes, movedInto: movedBack,
+    // B995: the week-stop words the board sent a chat and the sweep did not drop (waiting, taken, delivered or failed: sent).
+    weekWordsOf: name => sent.filter(message => message.command === 'week-stop' && message.to === name && ['waiting', 'taken', 'delivered', 'failed'].includes(message.state)),
     // How a message from the main chat is known: by its title, or by the app's id for it.
     main: { mainTitle: list.main === null ? null : `${prefix}${list.main}`, mainSession: main?.appSessionId ?? null },
   }

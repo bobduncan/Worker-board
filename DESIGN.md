@@ -1045,7 +1045,13 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   none). Then the chat counts as not paused at all: free, or between two turns, with the hand-out and the "may wait
   for you" hint as for any chat. Seen live 2026-10-18: Units paused at 11:39 "until 14:40" at 92%, the limit reset at
   13:00, and its lane said Suspended until 14:40. Without a reading after the pause (also when the board only works
-  out that a reset it knew of has passed), the pause stands. "paused for the weekly limit" pauses for the week. A
+  out that a reset it knew of has passed), the pause stands. "paused for the weekly limit" pauses for the week.
+  B995 (X140, 2026-11-04: Worker 4 paused after the board's week-stop word with "paused for the limit until 20:00", was read as
+  a 5-hour pause, lifted by a 40% 5-hour reading while the week stood at 100%, and "until 20:00" meant today, not the week's
+  reset): a pause note written after the board sent that chat its week-stop word for this week (the word before the note, its
+  weekResets after it; a word with no reset counts within 7 days; one the sweep dropped does not) is the week's pause: limit
+  week, until the word's reset (none without one; never the note's clock time), `asWeekPause` in `src/limits.mjs`. Without such a word it
+  reads as before. A
   suspended chat gets no step delivered and is no "may wait for you" hint. The lane says who held it and when it goes on; the time
   column shows that time. Nothing starts a chat by itself: once the time has passed the lane says the limit is
   back and the chat has not gone on, in the warning colour. A suspended chat asks the person nothing.
