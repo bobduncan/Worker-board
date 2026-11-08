@@ -61,8 +61,9 @@ const dayOf=at=>{const day=Math.floor(at/86400000);let text=days.get(day);if(tex
  * `{folded:true,sourceAt:<the day's start>,chat,actualModel,actualEffort,phase,messages,unknown,low,high,<tokens>}`,
  * its cost worked out per message before it was folded. A row counts as its `messages` in every grouping.
  */
+const rowKey=row=>row.part==='dims'?[row.sourceAt,row.chat,row.actualModel,row.actualEffort,row.phase,'dims',row.linked].join('|'):row.part==='task'?[row.sourceAt,'task',row.taskId??null].join('|'):[row.sourceAt,row.chat,row.actualModel,row.actualEffort,row.phase,row.taskId??null].join('|')
 export function foldEvents(rows,events){
-  const byKey=new Map(rows.map(row=>[[row.sourceAt,row.chat,row.actualModel,row.actualEffort,row.phase,row.taskId??null].join('|'),row]))
+  const byKey=new Map(rows.map(row=>[rowKey(row),row]))
   for(const e of events){
     const sourceAt=Math.floor(e.sourceAt/86400000)*86400000,key=[sourceAt,e.chat,e.actualModel,e.actualEffort,e.phase,e.taskId??null].join('|')
     let row=byKey.get(key)
@@ -75,18 +76,29 @@ export function foldEvents(rows,events){
   return [...byKey.values()]
 }
 /**
- * Round 5 (e): the rows older than `before` are merged per task and month: one row per month start, chat, model, effort, phase
- * and task. Every table groups by one of these (the daily one by day, which the tab shows for the last 31 days only), so each
- * table's totals stay the same. Rows from `before` on stay per day.
+ * Round 5 (e): a row older than `before` is split in two and merged per month (`part` says which):
+ * - `dims`: month start, chat, model, effort, phase and `linked` (has a task or not). It counts in every table and total
+ *   except the Tasks table.
+ * - `task`: month start and task (no chat, model, effort or phase). It counts only in the Tasks table and its task totals
+ *   (linked to a task, finished tasks, most expensive tasks, cost per accepted).
+ * Each row is counted once in each part, so every table's totals stay the same. Rows from `before` on stay per day and
+ * unsplit. A merged row keeps `first`, the earliest day it holds (for "Covers only from"). Merging again changes nothing (an already split row only has its month worked out again).
  */
 export const FOLD_MERGE_DAYS=60
+const SUMS=['messages','unknown','low','high',...tokenKeys]
 export function compactFolded(rows,before){
-  const out=new Map()
+  const out=new Map(),add=(key,row)=>{const into=out.get(key);if(!into)out.set(key,row);else{for(const k of SUMS)into[k]+=row[k];if(row.first<into.first)into.first=row.first}}
   for(const row of rows){
-    const d=new Date(row.sourceAt),sourceAt=row.sourceAt<before?Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1):row.sourceAt
-    const key=[sourceAt,row.chat,row.actualModel,row.actualEffort,row.phase,row.taskId??null].join('|'),into=out.get(key)
-    if(!into){out.set(key,{...row,sourceAt});continue}
-    for(const k of ['messages','unknown','low','high',...tokenKeys])into[k]+=row[k]
+    if(row.sourceAt>=before){add(rowKey(row),{...row});continue}
+    const d=new Date(row.sourceAt),sourceAt=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1),sums={first:row.first??row.sourceAt,...Object.fromEntries(SUMS.map(k=>[k,row[k]]))}
+    if(row.part!=='task'){
+      const dims={folded:true,part:'dims',sourceAt,chat:row.chat,actualModel:row.actualModel,actualEffort:row.actualEffort,phase:row.phase,linked:row.part==='dims'?row.linked:!!row.taskId,...sums}
+      add(rowKey(dims),dims)
+    }
+    if(row.part!=='dims'){
+      const task={folded:true,part:'task',sourceAt,taskId:row.taskId??null,...sums}
+      add(rowKey(task),task)
+    }
   }
   return [...out.values()]
 }
@@ -117,7 +129,9 @@ export function routingSummary({events=[],folded=[],outcomes=[],now=Date.now(),d
   // Round 5 (b): a `held` message (its file is read only part way) stays kept however old; it does not count as reaching back.
   const widened=days!==null&&folded.some(e=>e.sourceAt<asked&&e.sourceAt+86400000>asked)&&!events.some(e=>e.sourceAt<=asked&&!held?.has(e.messageId)),from=widened?Math.floor(asked/86400000)*86400000:asked
   const selected=[...folded.filter(e=>e.sourceAt>=from&&e.sourceAt<=now),...events.filter(e=>e.sourceAt>=from&&e.sourceAt<=now)]
-  const groups=groupedMany(selected,{total:()=> 'total',attributed:e=>e.taskId?'total':null,phases:e=>e.phase,models:e=>e.actualModel,efforts:e=>e.actualEffort,chats:e=>e.chat,tasks:e=>e.taskId??'Unassigned',daily:e=>dayOf(e.sourceAt)})
+  // Round 5 (e): a `dims` row counts in every table but the Tasks table, a `task` row only in the Tasks table.
+  const dim=f=>e=>e.part==='task'?null:f(e),linkedOf=e=>e.part==='dims'?e.linked:!!e.taskId
+  const groups=groupedMany(selected,{total:dim(()=> 'total'),attributed:dim(e=>linkedOf(e)?'total':null),phases:dim(e=>e.phase),models:dim(e=>e.actualModel),efforts:dim(e=>e.actualEffort),chats:dim(e=>e.chat),tasks:e=>e.part==='dims'?null:e.taskId??'Unassigned',daily:dim(e=>dayOf(e.sourceAt))})
   const total=groups.total[0]??{low:0,high:0,messages:0,unknown:0,input:0,cacheRead:0,cacheWrite:0,output:0}
   const ids=new Set(selected.map(e=>e.taskId).filter(Boolean));const relevant=outcomes.filter(o=>ids.has(o.id));const accepted=relevant.filter(o=>o.accepted===true)
   const a=groups.attributed[0]??{low:0,high:0,messages:0}
@@ -127,10 +141,10 @@ export function routingSummary({events=[],folded=[],outcomes=[],now=Date.now(),d
   const suggestions=[]
   if(selected.some(e=>e.actualModel?.includes('opus')&&e.phase==='coordinate'))suggestions.push({kind:'review',text:'Inspect routine coordination still using Opus. Sonnet is the proposed baseline; confirm its checks before switching.'})
   if(selected.some(e=>e.actualEffort==='xhigh'||e.actualEffort==='max'))suggestions.push({kind:'review',text:'Inspect extra-high and max effort tasks. Keep these settings where the risk requires them.'})
-  if(total.unknown||selected.some(e=>!e.taskId))suggestions.push({kind:'coverage',text:'Some spending cannot be priced or linked to a task. Improve coverage before claiming savings.'})
+  if(total.unknown||selected.some(e=>e.part!=='task'&&!linkedOf(e)))suggestions.push({kind:'coverage',text:'Some spending cannot be priced or linked to a task. Improve coverage before claiming savings.'})
   if(relevant.some(o=>(o.attempts??0)>1))suggestions.push({kind:'quality',text:'Compare repair costs by task class before expanding cheaper model assignments.'})
   if(!selected.length)suggestions.push({kind:'coverage',text:'No reported usage in this period yet. The collector reads local transcripts without making model calls.'})
-  return {days,from:Number.isFinite(from)?from:null,until:now,priceBasis:PRICE_BASIS,knownCost:{low:round(total.low),high:round(total.high)},messages:total.messages,unknownCostMessages:total.unknown,tokens:Object.fromEntries(tokenKeys.map(k=>[k,selected.length&&!selected.some(e=>number(e[k])!==null)?null:total[k]])),attributedMessages:a.messages,attributionPercent:total.messages?Math.round(100*a.messages/total.messages):null,accepted:accepted.length,qualitySample:measured.length,firstPassPercent:measured.length?Math.round(100*measured.filter(o=>o.attempts===1).length/measured.length):null,attributedCostPerAccepted:accepted.length?{low:round(a.low/accepted.length),high:round(a.high/accepted.length)}:null,models,efforts:groups.efforts,chats:groups.chats,phases,tasks,daily:groups.daily.sort((a,b)=>a.key.localeCompare(b.key)),suggestions,comparison:{savingsPercent:null,why:'A matched baseline and completed quality trials are required.'},coverage:{...coverage,widenedFrom:widened?from:null,earliestMessage:selected.length?selected.reduce((first,e)=>Math.min(first,e.sourceAt),Infinity):null,includesUnfinishedAndFailedWork:true}}
+  return {days,from:Number.isFinite(from)?from:null,until:now,priceBasis:PRICE_BASIS,knownCost:{low:round(total.low),high:round(total.high)},messages:total.messages,unknownCostMessages:total.unknown,tokens:Object.fromEntries(tokenKeys.map(k=>[k,selected.length&&!selected.some(e=>number(e[k])!==null)?null:total[k]])),attributedMessages:a.messages,attributionPercent:total.messages?Math.round(100*a.messages/total.messages):null,accepted:accepted.length,qualitySample:measured.length,firstPassPercent:measured.length?Math.round(100*measured.filter(o=>o.attempts===1).length/measured.length):null,attributedCostPerAccepted:accepted.length?{low:round(a.low/accepted.length),high:round(a.high/accepted.length)}:null,models,efforts:groups.efforts,chats:groups.chats,phases,tasks,daily:groups.daily.sort((a,b)=>a.key.localeCompare(b.key)),suggestions,comparison:{savingsPercent:null,why:'A matched baseline and completed quality trials are required.'},coverage:{...coverage,widenedFrom:widened?from:null,earliestMessage:selected.length?selected.reduce((first,e)=>Math.min(first,e.first??e.sourceAt),Infinity):null,includesUnfinishedAndFailedWork:true}}
 }
 export function spendingCsv(summary){
   const cell=v=>{const text=String(v??'');return `"${text.match(/^[=+@\-\t\r]/)?"'":''}${text.replaceAll('"','""')}"`}

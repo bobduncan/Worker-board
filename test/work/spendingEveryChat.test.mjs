@@ -607,22 +607,44 @@ test('a re-read after a rollback keeps the day totals and does not fold their me
   assert.equal(third.summary(null).messages,CAP_TOTAL);assert.equal(third.summary(null).coverage.pendingBytes,0)
 }))
 
-// (e) Rows older than 60 days are merged per month. Each table's totals stay the same; rows of the last 60 days stay per day.
-// Mutant (task out of the merged key): the tasks table changes. Mutant (chat out of it): the chats table changes.
-test('folded rows older than 60 days are merged per month and every table keeps its totals',()=>{
+// (e) Rows older than 60 days are split in dimension rows (chat, model, effort, phase, linked; every table but Tasks) and task
+// rows (task; only the Tasks table), both merged per month. Each table's totals stay the same; newer rows stay per day.
+// Mutant (a task row counted in the totals): messages and costs double. Mutant (a dimension row counted in the Tasks table):
+// the Unassigned and task rows double.
+test('folded rows older than 60 days are split in dimension and task rows and every table keeps its totals',()=>{
   const DAY=86400000,now=Date.UTC(2026,10,7,10),chats=['A','B','C'],models=['claude-opus-5-5','claude-sonnet-5-5'],efforts=['high','medium',null],phases=['implement','spec','coordinate']
   const events=Array.from({length:150*24},(_,n)=>({messageId:`x${n}`,sourceAt:now-150*DAY+n*3600000,chat:chats[n%3],actualModel:models[n%2],actualEffort:efforts[n%3],phase:phases[n%7%3],taskId:n%11===0?null:`B${Math.floor(n/240)}`,input:n%5,cacheRead:n,cacheWrite:1,output:2}))
   const rows=foldEvents([],events),cutoff=now-FOLD_MERGE_DAYS*DAY,merged=compactFolded(rows,cutoff)
+  const months=new Set(merged.filter(r=>r.sourceAt<cutoff).map(r=>r.sourceAt))
+  assert.ok(months.size>=4,`the old rows span ${months.size} months`)
   assert.ok(merged.length<rows.length/2,`${rows.length} rows became ${merged.length}`)
   assert.ok(merged.filter(r=>r.sourceAt>=cutoff).length===rows.filter(r=>r.sourceAt>=cutoff).length,'recent rows stay per day')
-  assert.ok(merged.filter(r=>r.sourceAt<cutoff).every(r=>new Date(r.sourceAt).getUTCDate()===1&&r.sourceAt%DAY===0),'old rows sit on a month start')
-  const a=routingSummary({events:[],folded:rows,now,days:null}),b=routingSummary({events:[],folded:merged,now,days:null})
+  assert.ok(merged.filter(r=>r.sourceAt>=cutoff).every(r=>r.part===undefined),'recent rows are not split')
+  assert.ok(merged.filter(r=>r.sourceAt<cutoff).every(r=>new Date(r.sourceAt).getUTCDate()===1&&r.sourceAt%DAY===0&&(r.part==='dims'||r.part==='task')),'old rows sit on a month start and are split')
+  assert.ok(merged.filter(r=>r.part==='task').every(r=>r.chat===undefined&&r.phase===undefined),'a task row has no dimensions')
+  assert.ok(merged.filter(r=>r.part==='dims').every(r=>r.taskId===undefined&&typeof r.linked==='boolean'),'a dimension row has no task')
+  const outcomes=['B0','B1','B2','B3','B4','B5','B6'].map((id,n)=>({id,accepted:n%2===0,attempts:1+n%3}))
+  const opts={events:[],now,days:null,outcomes}
+  const a=routingSummary({...opts,folded:rows}),b=routingSummary({...opts,folded:merged})
   const trim=t=>t.map(r=>[r.key,r.messages,r.unknown,r.low,r.high,r.input,r.cacheRead,r.cacheWrite,r.output])
   for(const table of ['models','efforts','chats','phases','tasks'])assert.deepEqual(trim(b[table]),trim(a[table]),table)
-  assert.equal(b.messages,a.messages);assert.equal(b.attributedMessages,a.attributedMessages);assert.deepEqual(b.knownCost,a.knownCost);assert.deepEqual(b.tokens,a.tokens)
+  assert.ok(b.tasks.some(t=>t.key==='Unassigned')&&b.tasks.some(t=>t.outcome),'the tasks table has an Unassigned row and outcomes')
+  for(const k of ['messages','unknownCostMessages','attributedMessages','attributionPercent','accepted','qualitySample','firstPassPercent'])assert.equal(b[k],a[k],k)
+  assert.deepEqual(b.knownCost,a.knownCost);assert.deepEqual(b.tokens,a.tokens);assert.deepEqual(b.attributedCostPerAccepted,a.attributedCostPerAccepted);assert.deepEqual(b.suggestions,a.suggestions)
+  assert.equal(b.coverage.earliestMessage,a.coverage.earliestMessage)
+  // The daily table: the days of the last 60 stay; a month before shows as one row on its first day, with the month's total.
+  const monthOf=k=>k.slice(0,7),perMonth=d=>{const m={};for(const r of d.filter(r=>r.key<=new Date(cutoff).toISOString().slice(0,10))){const t=m[monthOf(r.key)]??=[0,0,0,0,0,0,0,0];[r.messages,r.unknown,r.low,r.high,r.input,r.cacheRead,r.cacheWrite,r.output].forEach((v,i)=>t[i]+=v)}return m}
+  const close=(x,y)=>{assert.deepEqual(Object.keys(x),Object.keys(y));for(const m of Object.keys(x))x[m].forEach((v,i)=>assert.ok(Math.abs(v-y[m][i])<1e-6,`${m} ${i}`))}
+  close(perMonth(b.daily),perMonth(a.daily))
   assert.equal(b.daily.reduce((n,d)=>n+d.messages,0),a.daily.reduce((n,d)=>n+d.messages,0))
-  assert.deepEqual(trim(b.daily.slice(-60)),trim(a.daily.slice(-60)),'the last 60 days stay per day')
+  assert.deepEqual(trim(b.daily.filter(d=>d.key>new Date(cutoff).toISOString().slice(0,10))),trim(a.daily.filter(d=>d.key>new Date(cutoff).toISOString().slice(0,10))),'the last 60 days stay per day')
   assert.deepEqual(compactFolded(merged,cutoff),merged,'merging again changes nothing')
+  // Rows folded later join the split rows of their month.
+  const more=foldEvents(merged,[{messageId:'late',sourceAt:Date.UTC(2026,8,1,5),chat:'A',actualModel:'claude-opus-5-5',actualEffort:'high',phase:'implement',taskId:'B1',input:1,cacheRead:0,cacheWrite:0,output:1}])
+  const both=compactFolded(more,cutoff),after=routingSummary({...opts,folded:both})
+  assert.equal(after.messages,a.messages+1);assert.equal(after.tasks.reduce((n,t)=>n+t.messages,0),a.messages+1)
+  // A window cuts a split month in both parts alike.
+  for(const d of [30,200]){const x=routingSummary({...opts,folded:rows,days:d,now}),y=routingSummary({...opts,folded:merged,days:d,now});assert.equal(y.tasks.reduce((n,t)=>n+t.messages,0),y.messages,`window ${d}: the tasks table and the totals agree`);if(d===30)assert.deepEqual(trim(y.tasks),trim(x.tasks))}
 })
 test('a fold in the collector merges the rows of the old days',async()=>place(async({root,transcripts})=>{
   const DAY=86400000,now=Date.UTC(2026,10,7,10)
@@ -634,5 +656,6 @@ test('a fold in the collector merges the rows of the old days',async()=>place(as
   await collector.scan([{session:'a',name:'Worker A',role:'worker'}])
   const ledger=await ledgerOf(root)
   assert.ok(ledger.folded.length>0&&ledger.folded.every(r=>new Date(r.sourceAt).getUTCDate()===1),'every old row is on a month start')
-  assert.equal(ledger.folded.reduce((n,r)=>n+r.messages,0),9+11)
+  assert.equal(ledger.folded.filter(r=>r.part==='dims').reduce((n,r)=>n+r.messages,0),9+11)
+  assert.equal(ledger.folded.filter(r=>r.part==='task').reduce((n,r)=>n+r.messages,0),9+11)
 }))
