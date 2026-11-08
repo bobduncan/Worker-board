@@ -144,3 +144,26 @@ test('the day bars keep the history\'s state and name it through the old-state m
     assert.deepEqual({ ...page.constants.STATES }, { working: STATUSES.WORKING, waiting: STATUSES.WAITING, free: STATUSES.FREE, unknown: STATUSES.UNKNOWN, interrupted: STATUSES.STOPPED, suspended: STATUSES.PAUSED, off: STATUSES.NOT_RUNNING })
   } finally { await page.close() }
 })
+
+// B1051 (X153), C2: an Asleep lane shows its why (the ban why) as a small line; one without a why shows no empty tag.
+// Mutant: the Asleep exclusion put back in timeOf, simpleIdle or the names block.
+test('an Asleep lane shows its ban why in the lane, its row and its time column; one without a why shows no tag', async () => {
+  const ban = 'free; gets no sonnet steps: its set failed at 11:30, until 12:30 (Session x not found.)'
+  const chats = [lane(STATUSES.ASLEEP, { name: 'Banned sleeper', why: ban }), lane(STATUSES.ASLEEP, { name: 'Plain sleeper' })]
+  const page = await openPage({ state: stateOf(chats), now: NOW })
+  try {
+    const banned = laneNamed(page, 'Banned sleeper')
+    const whys = [...banned.querySelectorAll('small.status-why')].map(one => one.textContent)
+    assert.deepEqual(whys, [ban], 'the names block draws the why once, as a small line')
+    assert.equal(banned.querySelectorAll('.pill').length, 1, 'still one pill')
+    assert.ok(banned.querySelector('.pill').title.includes('asleep since'), 'the pill tooltip keeps the asleep words')
+    assert.ok(banned.textContent.includes('gets no sonnet steps'), 'the lane holds the ban words')
+    const rows = page.all('#simple-workers .simple-worker')
+    const row = name => rows.find(found => found.querySelector('.simple-name')?.textContent === name)
+    assert.ok(row('Banned sleeper').textContent.includes('gets no sonnet steps'), 'the Workers row holds the ban words')
+    assert.ok(row('Banned sleeper').textContent.includes('Asleep'), 'and still says Asleep')
+    const plain = laneNamed(page, 'Plain sleeper')
+    assert.equal(plain.querySelectorAll('.status-why').length, 0, 'no empty tag without a why')
+    assert.ok(!row('Plain sleeper').textContent.includes('·  ') && !/Asleep · since \d\d:\d\d ·/.test(row('Plain sleeper').textContent), 'no empty why in its row')
+  } finally { await page.close() }
+})
