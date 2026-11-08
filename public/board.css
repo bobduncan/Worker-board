@@ -311,6 +311,11 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-open-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .focus-open-line { color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
 .focus-open-chip { font-size: 12.5px; padding: 2px 10px; }
+/* Stop and rethink: the card of the person's own rethink (calm, the normal card) and the neutral label on its block. */
+.focus-rethink { margin-bottom: 14px; }
+.focus-rethink-lines { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
+.focus-rethink-pick { display: inline-block; text-decoration: none; }
+.focus-rethought { color: var(--muted); border: 1px solid #3a4a63; border-radius: 999px; white-space: nowrap; }
 .focus-plan li .focus-plan-what { display: flex; flex-direction: column; gap: 2px; }
 .focus-plan li .focus-plan-what > span { flex: none; }
 .focus-plan li .focus-plan-done-when { color: var(--muted); white-space: normal; overflow-wrap: anywhere; }

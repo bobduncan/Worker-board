@@ -10,13 +10,13 @@ import { join } from 'node:path'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
 import test from 'node:test'
 
-import { parseHistory } from '../src/history.mjs'
-import { MINUTES_KEEP_MS, NO_PROOF_WHY, alarmsOf, dayLineOf, finishOf, idleMinutesOf, interventionsOf, mergedOutbox, minuteKeeper, minuteOf, recordStability, tailLines } from '../src/stability.mjs'
+import { gapsOf, parseHistory } from '../src/history.mjs'
+import { MINUTES_KEEP_MS, NO_PROOF_WHY, alarmsOf, dayLineOf, finishOf, idleMinutesOf, interventionsOf, mergedOutbox, minuteKeeper, measuredOf, minuteOf, pausesOf, recordStability, tailLines, viewOf } from '../src/stability.mjs'
 import { parseItem } from '../src/work/item.mjs'
 
 const DAY = 24 * 60 * 60_000
 const NOW = new Date(2026, 10, 5, 22, 40).getTime()
-const BAN = 'free; gets no sonnet steps: its set failed at 21:12 (the model menu did not answer) until 23:12'
+const BAN = 'free; gets no sonnet steps: its set failed at 21:12, until 23:12 (the model menu did not answer)'
 
 const file = (head, sections = {}) => parseItem(`${Object.entries(head).map(([key, value]) => `${key}: ${value}`).join('\n')}\n${Object.entries(sections).map(([name, lines]) => `\n## ${name}\n${lines.join('\n')}\n`).join('')}`)
 const sonnet = { Model: ['sonnet · routine work'] }
@@ -44,7 +44,7 @@ test('without the ban text each free worker could take all five ready steps', ()
 })
 
 test('a ban on another family leaves a Sonnet step open; the ban is read from the words "gets no <family> steps"', () => {
-  const opusBan = 'free; gets no opus steps: its set failed at 21:12 (x) until 23:12'
+  const opusBan = 'free; gets no opus steps: its set failed at 21:12, until 23:12 (x)'
   assert.deepEqual(minuteOf(stateOf({ lanes: [lane('Worker 3', opusBan)] }), items, '', NOW).free[0].could, IDS)
 })
 
@@ -537,6 +537,68 @@ ${JSON.stringify({ at: t(20, 30), chat: 'Worker 3', state: 'free' })}
     await writeFile(file, `${JSON.stringify(withDoubt)}\n`)
     await recordStability({ ...state, board: { lastStop: null } }, { dir, items: new Map(), clock: () => t(21, 31) })
     assert.deepEqual((await linesOf(file))[0].unsure.map(one => one.at), [t(21, 20)])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+// 2026-11-08 (the lead): a day paused or off for most of it is NOT MEASURED. The records are trimmed copies of the board's own
+// (test/fixtures/stability/actions-1108.jsonl: the person's Pause all of 7 Nov 13:32 and Resume all of 8 Nov 22:16; history-1108.jsonl:
+// the board's gap line of 7 Nov 13:52, the board running again at 8 Nov 22:13). On the 8th the board was paused all day and off
+// until 22:13: 1337 minutes paused, 1334 off, the two overlapping.
+const NM_ACTIONS = jsonl('actions-1108.jsonl')
+const NM_HISTORY = parseHistory(text('history-1108.jsonl'))
+const nm = (day, now, closed = false, more = {}) => measuredOf({ day, now, closed, actions: NM_ACTIONS, gaps: gapsOf(NM_HISTORY, now), ...more })
+
+test('2026-11-08: paused all day and off until 22:13 is not measured, today (22:30, half of the part so far) and closed (the whole day)', () => {
+  assert.deepEqual(pausesOf(NM_ACTIONS), [{ from: 1794054725471, to: 1794172608866 }])
+  assert.deepEqual(nm('2026-11-08', t(22, 30, 0, 8)), { measured: false, pausedMinutes: 1337, offMinutes: 1334, why: 'paused' })
+  assert.deepEqual(nm('2026-11-08', t(0, 5, 0, 9), true), { measured: false, pausedMinutes: 1337, offMinutes: 1334, why: 'paused' })
+  // Off for more minutes than paused: the cause is off.
+  assert.equal(nm('2026-11-08', t(22, 30, 0, 8), false, { actions: [] }).why, 'off')
+  assert.equal(nm('2026-11-08', t(22, 30, 0, 8), false, { gaps: [] }).why, 'paused')
+})
+
+test('a day with a short pause is measured; so is 7 Nov (paused 13:32, board off 13:52, 628 of 1440 minutes: under half)', () => {
+  const short = [{ at: t(10, 0, 0, 8), action: 'pause-all' }, { at: t(10, 30, 0, 8), action: 'resume-all' }]
+  assert.deepEqual(nm('2026-11-08', t(22, 30, 0, 8), false, { actions: short, gaps: [] }), { measured: true, pausedMinutes: 30, offMinutes: 0, why: null })
+  assert.deepEqual(nm('2026-11-07', t(0, 5, 0, 8), true), { measured: true, pausedMinutes: 628, offMinutes: 607, why: null })
+  // Exactly half is not over half; one minute over is.
+  const half = [{ at: t(0, 0, 0, 8), action: 'pause-all' }, { at: t(12, 0, 0, 8), action: 'resume-all' }]
+  assert.equal(nm('2026-11-08', t(0, 5, 0, 9), true, { actions: half, gaps: [] }).measured, true)
+  half[1].at += MIN
+  assert.equal(nm('2026-11-08', t(0, 5, 0, 9), true, { actions: half, gaps: [] }).measured, false)
+  // Early in a day only the part so far counts: 20 minutes paused out of 30 elapsed is not measured yet.
+  const early = [{ at: t(0, 0, 0, 8), action: 'pause-all' }, { at: t(0, 20, 0, 8), action: 'resume-all' }]
+  assert.equal(nm('2026-11-08', t(0, 30, 0, 8), false, { actions: early, gaps: [] }).measured, false)
+  assert.equal(nm('2026-11-08', t(12, 0, 0, 8), false, { actions: early, gaps: [] }).measured, true)
+})
+
+test('finishOf: a day not measured breaks the row and is never a stable day, closed or not', () => {
+  const line = (index, more = {}) => ({ day: `2026-10-${String(index).padStart(2, '0')}`, idleWithWorkMinutes: 0, interventions: [], closed: true, ...more })
+  const five = [1, 2, 3, 4, 5].map(index => line(index))
+  assert.deepEqual(finishOf(five), { stableDays: 5, isStable: true })
+  assert.deepEqual(finishOf(five.map(one => (one.day === '2026-10-03' ? { ...one, measured: false, notMeasuredWhy: 'paused' } : one))), { stableDays: 2, isStable: false }, 'the 4th and 5th count; the paused 3rd breaks the row')
+  assert.deepEqual(finishOf(five.map(one => ({ ...one, measured: true }))), { stableDays: 5, isStable: true })
+  assert.deepEqual(finishOf([...five.slice(0, 4), line(5, { measured: false })]), { stableDays: 0, isStable: false })
+  assert.deepEqual(viewOf([...five.slice(0, 4), line(5, { measured: false })], t(12, 0, 0, 8)).stableDays, 0, 'the view says the same')
+})
+
+test('recordStability: 8 Nov 22:30 is written not measured (paused); the 7th, closed in that pass, is measured by the whole day', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'stability-nm-'))
+  try {
+    await writeFile(join(dir, 'actions.jsonl'), text('actions-1108.jsonl'))
+    await writeFile(join(dir, 'history.jsonl'), text('history-1108.jsonl'))
+    // The 7th's last pass was at 13:50, before the board went off: it was half a day then, measured false by mistake of a short look.
+    const stale = { day: '2026-11-07', idleWithWorkMinutes: 2, idleEstimated: false, interventions: [], unsure: [], alarms: { real: 0, false: 0, ids: [] }, writtenAt: t(13, 50, 0, 7), closed: false, measured: false, pausedMinutes: 18, offMinutes: 0, notMeasuredWhy: 'paused' }
+    await writeFile(join(dir, 'stability.jsonl'), `${JSON.stringify(stale)}
+`)
+    const view = await recordStability({}, { dir, items: new Map(), clock: () => t(22, 30, 0, 8) })
+    const [seventh, eighth] = await linesOf(join(dir, 'stability.jsonl'))
+    assert.deepEqual([seventh.closed, seventh.measured, seventh.pausedMinutes, seventh.notMeasuredWhy], [true, true, 628, undefined])
+    assert.deepEqual([eighth.day, eighth.measured, eighth.notMeasuredWhy, eighth.pausedMinutes, eighth.offMinutes], ['2026-11-08', false, 'paused', 1337, 1334])
+    assert.equal(view.today.measured, false)
+    assert.deepEqual([view.stableDays, view.isStable], [1, false], 'the measured 7th counts, the 8th is open')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

@@ -16,6 +16,6 @@ test('5: the daily note is read by the name of the chat the API takes it from: t
   // 2026-10-31 (B689): the workers' cards follow, so the Focus page names a worker only where its card shows the step.
   // Work blocks (2026-10-31): and the goal recaps, whose rounds the person sent start a new round of the goal's work.
   // 2026-11-01: and whether Autopilot is on (a last argument: an ask routed to the recap stands with the person only then).
-  assert.match(source, /focusState\(goalMap, itemsOf\(raw\.work\), brainstorms\.threads, prefix, advisorChat\?\.name \?\? null, now, chats, recapWaits, raw\.recaps \?\? null, \{ autopilot: config\.autopilot === true \}\)/)
+  assert.match(source, /focusState\(goalMap, itemsOf\(raw\.work\), brainstorms\.threads, prefix, advisorChat\?\.name \?\? null, now, chats, recapWaits, raw\.recaps \?\? null, \{ autopilot: config\.autopilot === true, partnerLane: advisorCard \?\? null \}\)/)
 })
 

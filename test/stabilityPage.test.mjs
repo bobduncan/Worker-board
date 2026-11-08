@@ -115,3 +115,30 @@ test('the state carries the field with the finish words; a board that keeps none
   assert.deepEqual(asSent(withField.stability), asSent({ ...given, finish: FINISH_WORDS }))
   assert.equal('stability' in buildState(raw, options), false)
 })
+
+test('a day not measured (paused or off for most of it) is a gap in all three sparklines, "not measured" in the hover, and never amber', async () => {
+  const paused = days.map((one, index) => (index === 6 ? { ...one, measured: false, notMeasuredWhy: 'paused', pausedMinutes: 1337, offMinutes: 1334 } : one))
+  const page = await open(stability(clean, { days: paused }))
+  try {
+    for (const spark of page.all('.stability-spark')) {
+      assert.deepEqual(Array.from(spark.querySelectorAll('polyline')).map(node => node.getAttribute('points').split(' ').length), [6, 8], `${spark.dataset.spark}: the line breaks at the 7th day`)
+      assert.match(spark.querySelector('title').textContent, /^[A-Za-z ]+, per day: (\S+ ){6}not measured (\S+ ){7}\S+$/)
+    }
+  } finally { await page.close() }
+})
+
+test('today not measured says "not measured (paused)" or "(off)", with the minutes in the hover, a gap at the end of the sparklines, and no amber', async () => {
+  const today = line(0, { idle: 40, interventions: [{ at: NOW, kind: 'app-restart', what: 'x' }], closed: false })
+  for (const [why, words] of [['paused', 'not measured (paused)'], ['off', 'not measured (off)']]) {
+    const page = await open(stability({ ...today, measured: false, notMeasuredWhy: why, pausedMinutes: 1337, offMinutes: 1334 }))
+    try {
+      assert.deepEqual(page.all('.stability-number').map(node => node.textContent), [words])
+      assert.match(page.find('.stability-number').title, /1337 min paused, 1334 min off/)
+      assert.equal(page.all('.is-attn').length, 0, 'even with 40 idle minutes and an intervention it is not amber')
+      for (const spark of page.all('.stability-spark')) {
+        assert.equal(spark.querySelectorAll('circle').length, 0, 'no dot for today')
+        assert.match(spark.querySelector('title').textContent, / not measured$/)
+      }
+    } finally { await page.close() }
+  }
+})

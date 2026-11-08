@@ -1,0 +1,15 @@
+{"at":1794051532012,"chat":"Worker 5","state":"working","task":"","step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":1794050933090,"source":null,"by":null}
+{"at":1794051591558,"chat":"Worker 1","state":"working","task":"B1069 Quality Assurance: B1068 Side stairs","step":0,"steps":0,"leftMs":2365973,"estimateAt":1794051587180,"startedAt":1794051542478,"source":"step","by":null}
+{"at":1794051591558,"chat":"Worker 5","state":"free","task":null,"step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":null,"source":null,"by":null}
+{"at":1794051711587,"chat":"Worker 1","state":"free","task":null,"step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":null,"source":null,"by":null}
+{"at":1794055960495,"gap":true}
+{"at":1794172417857,"chat":"Main","state":"free","task":null,"step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":null,"source":null,"by":null}
+{"at":1794172417857,"chat":"Worker 1","state":"free","task":null,"step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":null,"source":null,"by":null}
+{"at":1794172417857,"chat":"Worker 5","state":"free","task":null,"step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":null,"source":null,"by":null}
+{"at":1794172417857,"chat":"Worker 3","state":"free","task":null,"step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":null,"source":null,"by":null}
+{"at":1794172417857,"chat":"Worker 4","state":"free","task":null,"step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":null,"source":null,"by":null}
+{"at":1794172417857,"chat":"Worker 2","state":"free","task":null,"step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":null,"source":null,"by":null}
+{"at":1794173288147,"chat":"Worker 1","state":"working","task":"B1070 Fix: Look against the reference:","step":0,"steps":0,"leftMs":7200000,"estimateAt":1794173280750,"startedAt":1794173269172,"source":"step","by":null}
+{"at":1794173288147,"chat":"Worker 5","state":"working","task":"","step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":1794173282799,"source":null,"by":null}
+{"at":1794173348156,"chat":"Worker 1","state":"free","task":null,"step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":null,"source":null,"by":null}
+{"at":1794173348156,"chat":"Worker 5","state":"free","task":null,"step":null,"steps":null,"leftMs":null,"estimateAt":null,"startedAt":null,"source":null,"by":null}

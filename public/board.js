@@ -2313,12 +2313,18 @@ function stabilityView(stability) {
   const interventions = today?.interventions ?? []
   const unsure = today?.unsure ?? []
   const alarms = today?.alarms ?? { real: 0, false: 0, ids: [] }
-  const missed = interventions.length > 0 || (idle !== null && idle >= 10)
+  // 2026-11-08: a day paused or off for most of it is not measured: no numbers, never amber, a gap in every sparkline.
+  const isUnmeasured = one => one?.measured === false
+  const notMeasured = isUnmeasured(today)
+  const missed = !notMeasured && (interventions.length > 0 || (idle !== null && idle >= 10))
   const lines = today === null ? days : [...days, today]
-  const series = pick => lines.map(pick)
+  const series = pick => lines.map(one => (isUnmeasured(one) ? null : pick(one)))
+  const gaps = lines.map(isUnmeasured)
+  const whyWords = `not measured (${today?.notMeasuredWhy === 'off' ? 'off' : 'paused'})`
+  const whyTitle = `Not measured today: the board was ${today?.notMeasuredWhy === 'off' ? 'off' : 'paused'} for most of it (${today?.pausedMinutes ?? 0} min paused, ${today?.offMinutes ?? 0} min off). It does not count toward the finish line.`
   const since = stability.isStable === true ? [...days, ...(today?.closed === true ? [today] : [])].slice(-stability.stableDays)[0]?.day ?? null : null
   return {
-    numbers: [
+    numbers: notMeasured ? [{ key: 'not-measured', text: whyWords, title: whyTitle, isAmber: false }] : [
       { key: 'idle', text: idle === null ? 'idle with work not known' : `${idle} min idle with work`, title: idle === null ? 'Not known today' : `${idle} min today with a worker free beside a step it could take${today?.idleEstimated === true ? ' (estimated)' : ''}`, isAmber: missed },
       { key: 'interventions', text: `${interventions.length} ${interventions.length === 1 ? 'intervention' : 'interventions'}`,
         title: [...interventions.map(one => one.what), ...unsure.map(one => `unsure: ${one.what}`)].join('\n') || 'No hands on the board today', isAmber: missed },
@@ -2326,9 +2332,9 @@ function stabilityView(stability) {
         title: alarms.ids.length === 0 ? 'No alarms today' : alarms.ids.join(', '), isAmber: false },
     ],
     sparks: [
-      { key: 'idle', name: 'Idle with work', values: series(one => (Number.isFinite(one.idleWithWorkMinutes) ? one.idleWithWorkMinutes : null)) },
-      { key: 'interventions', name: 'Interventions', values: series(one => (one.interventions ?? []).length) },
-      { key: 'alarms', name: 'Alarms', values: series(one => (one.alarms?.real ?? 0) + (one.alarms?.false ?? 0)) },
+      { key: 'idle', name: 'Idle with work', values: series(one => (Number.isFinite(one.idleWithWorkMinutes) ? one.idleWithWorkMinutes : null)), gaps },
+      { key: 'interventions', name: 'Interventions', values: series(one => (one.interventions ?? []).length), gaps },
+      { key: 'alarms', name: 'Alarms', values: series(one => (one.alarms?.real ?? 0) + (one.alarms?.false ?? 0)), gaps },
     ],
     finish: { words: stability.finish ?? '', end: since === null ? `${Math.min(stability.stableDays ?? 0, STABLE_NEEDED)} of ${STABLE_NEEDED} days` : `stable since ${stabilityDate(since)}`, isStable: since !== null },
   }
@@ -2362,7 +2368,7 @@ function drawSparkline(spark) {
   }
   if (points.length > 0 && points.at(-1) !== null) svg.append(spot(points.at(-1), 1.8))
   const title = svgEl('title')
-  title.textContent = `${spark.name}, per day: ${spark.values.map(sparkWord).join(' ')}`
+  title.textContent = `${spark.name}, per day: ${spark.values.map((value, index) => (spark.gaps?.[index] === true ? 'not measured' : sparkWord(value))).join(' ')}`
   svg.append(title)
   return svg
 }
@@ -2684,7 +2690,7 @@ function timeOf(lane, now) {
   }
   if (found.status === 'Waiting for you') return plain('Blocked', 'bad', 'ETA')
   // T13 part 3: an asleep one is not "free to run": the line of the task it gets wakes it.
-  if (found.status === 'Asleep') return { ...plain('Asleep'), small: [asleepWords(lane)] }
+  if (found.status === 'Asleep') return { ...plain('Asleep'), small: found.why === null ? [asleepWords(lane)] : [asleepWords(lane), found.why] } // C2: its why (a ban) too
   if (found.status === 'Free') return plain('Free')
   if (found.status === 'Unknown') return plain('Unknown')
   if (found.status !== 'Working') return { ...plain(found.status), small: found.why === null ? [] : [found.why] }
@@ -2994,7 +3000,7 @@ function simpleIdle(lane) {
   if (found === null) return ''
   const label = statusLabel(found)
   if (found.status === 'Paused' && Number.isFinite(lane.suspended?.until)) return `${label} until ${clock(lane.suspended.until)}`
-  const hasWhy = found.why !== null && !['Unknown', 'Asleep'].includes(found.status)
+  const hasWhy = found.why !== null && found.status !== 'Unknown' // C2: an Asleep lane's ban why shows
   return hasWhy ? `${label} · ${found.why}` : label
 }
 // simpleidle:end
@@ -3445,8 +3451,8 @@ function drawLane(lane, state) {
   if (found?.status === 'Asleep') pill.title = `${asleepWords(lane)}. Its process ended; a message through the app wakes it.`
   else if (found?.status === 'Not running' && lane.state !== 'off') pill.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
   names.append(el('h3', '', lane.name), pill)
-  // The status's why beside it, in a few plain words (a step, a reason, a time); Unknown and Asleep carry theirs in the label.
-  if (found !== null && found.why !== null && !['Unknown', 'Asleep'].includes(found.status)) names.append(el('small', 'status-why', found.why))
+  // The status's why beside it, in a few plain words (a step, a reason, a time); Unknown carries its in the label; an Asleep lane shows its why only when it has one (C2, the ban).
+  if (found !== null && found.why !== null && found.status !== 'Unknown') names.append(el('small', 'status-why', found.why))
   // The model chip (runchip) beside the pill: what the chat runs at now, and a switch it waits for. None for a leftover.
   const runChip = lane.isLeftover ? null : drawRunChip(runChipOf(lane))
   if (runChip !== null) names.append(runChip)
@@ -15640,6 +15646,33 @@ function blockChipOf(part, open, card = null, namesWorker = false) {
 }
 
 /**
+ * Stop and rethink (the person, 2026-11-08: "i dont know where to look and who is waiting for what right now"): the run's card
+ * while the state's `focus.rethink` is set: what they asked, what was stopped, who has it now and what comes to them next. Null
+ * without it. Calm, the board's normal card; every word comes from the state.
+ */
+function focusRethinkView(focus) {
+  const rethink = focus?.rethink ?? null
+  if (rethink === null) return null
+  const partner = rethink.partner ?? null
+  const progress = partner === null ? null : partner.progress ?? null
+  const left = partner === null || !Number.isFinite(partner.minutesLeft) ? null : partner.minutesLeft
+  const now = `Now: your Advisor rethinks it${progress !== null || left !== null ? ` · ${[progress, left === null ? null : `about ${left} min`].filter(one => one !== null).join(', ')}` : ` · started ${rethink.at}`}`
+  const ask = rethink.ask ?? null
+  return {
+    title: `You asked to stop and rethink: ${rethink.part}`,
+    words: typeof rethink.words === 'string' && rethink.words !== '' ? `Your words (${rethink.at}): "${rethink.words}"` : null,
+    held: `Stopped and held: ${(rethink.held ?? []).map(one => `${one.id} ${one.title}`).join(', ')}`,
+    // Only a worker whose lane says free right now (the state's `isFree`) is named as free.
+    free: (rethink.freed ?? []).filter(one => one.isFree === true && typeof one.worker === 'string').map(one => `${one.worker} is free for other work`),
+    now,
+    next: ask === null
+      ? { text: 'Next for you: one question with 2 or 3 ways, each with a picture. Nothing on it is built before your pick.', href: null }
+      : { text: `Your pick waits: ${ask.title}`, href: `#details=${ask.id}` },
+    partTitle: rethink.partTitle ?? rethink.part,
+  }
+}
+
+/**
  * Work blocks (the person, 2026-10-31: "the done when will only show the unfinished workblocks ... filtered once per
  * evaluation"): the run's "Open now" card: the round's line and one line per block open in it (the state's `openNow`): a
  * tick once done, its title, "Rework: <line>" for a block that was there before the round or "New: <line>" for one made in
@@ -15656,14 +15689,17 @@ function focusOpenNowView(focus, card = null) {
     const label = one.kind === 'rework' ? 'Rework' : 'New'
     const shown = blockChipOf(part, one, card, true)
     // 2026-11-01: a block that waits for the person's verdict has its chip open the recap (at its row where the state knows it).
-    return { title: part.title, isDone, kind: one.kind, line: line === '' ? label : `${label}: ${line}`, chip: shown.chip, tone: shown.tone, isRework: shown.isRework, ...(shown.isVerdict ? { verdict: shown.link } : {}) }
+    // Stop and rethink: the block the person's rethink holds is "Being rethought", never ticked.
+    const isRethought = focus.rethink != null && part.title === (focus.rethink.partTitle ?? focus.rethink.part)
+    return { title: part.title, isDone: isDone && !isRethought, isRethought, kind: one.kind, line: line === '' ? label : `${label}: ${line}`, chip: shown.chip, tone: shown.tone, isRework: shown.isRework, ...(shown.isVerdict ? { verdict: shown.link } : {}) }
   }).filter(one => one !== null)
   const done = rows.filter(one => one.isDone).length
+  const rethought = rows.filter(one => one.isRethought).length
   // T20.1: the line counts the way the cards do: "1 of 5 done · 4 wait for your verdict · 3 being reworked". What waits for your verdict is the
   // recap card's own count (rows ready to judge and kept looks, the popup's N), never a count of blocks; the blocks being reworked are counted.
   const waits = card?.count ?? 0
   const reworked = rows.filter(one => one.isRework).length
-  const counts = `${done} of ${rows.length} done${waits > 0 ? ` · ${waits} ${waits === 1 ? 'waits' : 'wait'} for your verdict` : ''}${reworked > 0 ? ` · ${reworked} being reworked` : ''}`
+  const counts = rethought === rows.length && rows.length > 0 ? 'being rethought' : `${done} of ${rows.length} done${rethought > 0 ? ` · ${rethought} being rethought` : ''}${waits > 0 ? ` · ${waits} ${waits === 1 ? 'waits' : 'wait'} for your verdict` : ''}${reworked > 0 ? ` · ${reworked} being reworked` : ''}`
   // "opened by the change of 31 Oct": a why that names its own day ("the change of 2026-10-31") says it once.
   const why = String(round.why ?? '').replace(/\s+of\s+\d{4}-\d\d-\d\d$/, '')
   return {
@@ -15897,6 +15933,9 @@ function focusView(focus, goals, can = null, ui = {}) {
     if (view.recheck?.tone === 'asked') view.vibeThere = null
     // B359: the goal guard: attempts so far, the evaluation, a rebuild for the person.
     view.guard = focusGuardView(focus)
+    // Stop and rethink: the person's own rethink has its card; the board's "Your partner evaluates the approach" card is for an evaluation it started itself.
+    view.rethink = focusRethinkView(focus)
+    if (view.rethink !== null && view.guard?.tone === 'evaluating') view.guard = null
   }
   if (stage === 'done') view.pick = pickOf(`${focus.id} is done. What do you want to work on next?`)
   else if (ui.picking === true && allowed) {
@@ -17103,7 +17142,12 @@ function focusOpenNowCard(view) {
     const what = el('span', 'focus-open-what')
     what.append(el('b', 'focus-bullet-text', one.title), el('small', 'focus-open-line', one.line))
     row.append(mark, what)
-    if (one.chip !== null) row.append(focusChipEl(one.chip, one.tone, one.verdict ?? null, 'focus-open-chip'))
+    // Stop and rethink: a neutral label in place of the tick and the chip.
+    if (one.isRethought === true) {
+      mark.title = 'being rethought'
+      mark.setAttribute('aria-label', 'being rethought')
+      row.append(el('span', 'focus-open-chip focus-rethought', 'Being rethought'))
+    } else if (one.chip !== null) row.append(focusChipEl(one.chip, one.tone, one.verdict ?? null, 'focus-open-chip'))
     list.append(row)
   }
   card.append(list)
@@ -18600,6 +18644,30 @@ function focusRecheckCard(recheck) {
   return card
 }
 
+/** Stop and rethink: the run's card of the person's rethink: their words, what was held, who has it, what comes to them next. */
+function focusRethinkCard(rethink) {
+  const card = el('section', 'focus-card focus-rethink')
+  card.append(el('h3', '', rethink.title))
+  const lines = el('ul', 'focus-rethink-lines')
+  for (const text of [rethink.words, rethink.held, ...rethink.free]) if (text !== null) lines.append(el('li', '', text))
+  // The person, 2026-11-08: "i want a loader if we are waiting for this": while the Advisor still works on it (no pick asked yet),
+  // its line turns the board's calm spinner (the board rule: an instant answer or a visible wait).
+  const now = el('li', 'focus-rethink-now')
+  if (rethink.next.href === null) now.append(el('span', 'calm-spinner'))
+  now.append(document.createTextNode(rethink.now))
+  lines.append(now)
+  const next = el('li', '')
+  if (rethink.next.href === null) next.textContent = rethink.next.text
+  else {
+    const pick = el('a', 'quiet-button focus-rethink-pick', rethink.next.text)
+    pick.href = rethink.next.href
+    next.append(pick)
+  }
+  lines.append(next)
+  card.append(lines)
+  return card
+}
+
 /** B359: the run's card of the goal guard. */
 function focusGuardCard(guard) {
   const card = el('section', `focus-card focus-guard is-${guard.tone}`)
@@ -18664,6 +18732,7 @@ function drawFocus(state) {
   // T22 wave 2: what Go and Change this goal asked of the partner, with where it stands.
   const waitStrip = focusWaitStrip(state, view)
   if (waitStrip !== null) parts.push(waitStrip)
+  if (view.stage === 'run' && view.back === undefined && (view.rethink ?? null) !== null) parts.push(focusRethinkCard(view.rethink))
   // 2026-11-01: the recap card, under the head and above the work blocks; the asks for the recap whose step no part names yet stand
   // under it as before, and with no card (nothing waits) every one of them stays where Autopilot put it.
   const allRecapAsks = recapAsksFor(state, view.head?.id ?? null)

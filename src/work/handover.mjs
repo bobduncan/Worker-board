@@ -300,14 +300,14 @@ export function bansOf(envelopes, now = null) {
 
 const failedModels = (envelopes, now) => new Set(bansOf(envelopes, now).keys())
 
-/** The lane's why for a worker with a ban standing: "free; gets no sonnet steps: its set failed at 11:30 (<why>)", or null. */
+/** The lane's why for a worker with a ban standing: "free; gets no sonnet steps: its set failed at 11:30, until 13:30 (<why>)", or null. */
 function banWhy(envelopes, now) {
   const bans = [...bansOf(envelopes, now)]
   if (bans.length === 0) return null
   const parts = bans.map(([model, envelope]) => {
     const when = failedAtOf(envelope)
     const why = `${envelope.outcome?.why ?? envelope.why ?? 'no reason given'}`.replace(/\s+/g, ' ').trim().slice(0, 80)
-    return `${familyOf(model) ?? model}${BAN_WHY_MARK}${stamp(when).slice(11)} (${why}) until ${stamp(when + BAN_MS).slice(11)}`
+    return `${familyOf(model) ?? model}${BAN_WHY_MARK}${stamp(when).slice(11)}, until ${stamp(when + BAN_MS).slice(11)} (${why})`
   })
   return `free; gets no ${parts.join('; gets no ')}`
 }
