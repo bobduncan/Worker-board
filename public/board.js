@@ -2313,12 +2313,18 @@ function stabilityView(stability) {
   const interventions = today?.interventions ?? []
   const unsure = today?.unsure ?? []
   const alarms = today?.alarms ?? { real: 0, false: 0, ids: [] }
-  const missed = interventions.length > 0 || (idle !== null && idle >= 10)
+  // 2026-11-08: a day paused or off for most of it is not measured: no numbers, never amber, a gap in every sparkline.
+  const isUnmeasured = one => one?.measured === false
+  const notMeasured = isUnmeasured(today)
+  const missed = !notMeasured && (interventions.length > 0 || (idle !== null && idle >= 10))
   const lines = today === null ? days : [...days, today]
-  const series = pick => lines.map(pick)
+  const series = pick => lines.map(one => (isUnmeasured(one) ? null : pick(one)))
+  const gaps = lines.map(isUnmeasured)
+  const whyWords = `not measured (${today?.notMeasuredWhy === 'off' ? 'off' : 'paused'})`
+  const whyTitle = `Not measured today: the board was ${today?.notMeasuredWhy === 'off' ? 'off' : 'paused'} for most of it (${today?.pausedMinutes ?? 0} min paused, ${today?.offMinutes ?? 0} min off). It does not count toward the finish line.`
   const since = stability.isStable === true ? [...days, ...(today?.closed === true ? [today] : [])].slice(-stability.stableDays)[0]?.day ?? null : null
   return {
-    numbers: [
+    numbers: notMeasured ? [{ key: 'not-measured', text: whyWords, title: whyTitle, isAmber: false }] : [
       { key: 'idle', text: idle === null ? 'idle with work not known' : `${idle} min idle with work`, title: idle === null ? 'Not known today' : `${idle} min today with a worker free beside a step it could take${today?.idleEstimated === true ? ' (estimated)' : ''}`, isAmber: missed },
       { key: 'interventions', text: `${interventions.length} ${interventions.length === 1 ? 'intervention' : 'interventions'}`,
         title: [...interventions.map(one => one.what), ...unsure.map(one => `unsure: ${one.what}`)].join('\n') || 'No hands on the board today', isAmber: missed },
@@ -2326,9 +2332,9 @@ function stabilityView(stability) {
         title: alarms.ids.length === 0 ? 'No alarms today' : alarms.ids.join(', '), isAmber: false },
     ],
     sparks: [
-      { key: 'idle', name: 'Idle with work', values: series(one => (Number.isFinite(one.idleWithWorkMinutes) ? one.idleWithWorkMinutes : null)) },
-      { key: 'interventions', name: 'Interventions', values: series(one => (one.interventions ?? []).length) },
-      { key: 'alarms', name: 'Alarms', values: series(one => (one.alarms?.real ?? 0) + (one.alarms?.false ?? 0)) },
+      { key: 'idle', name: 'Idle with work', values: series(one => (Number.isFinite(one.idleWithWorkMinutes) ? one.idleWithWorkMinutes : null)), gaps },
+      { key: 'interventions', name: 'Interventions', values: series(one => (one.interventions ?? []).length), gaps },
+      { key: 'alarms', name: 'Alarms', values: series(one => (one.alarms?.real ?? 0) + (one.alarms?.false ?? 0)), gaps },
     ],
     finish: { words: stability.finish ?? '', end: since === null ? `${Math.min(stability.stableDays ?? 0, STABLE_NEEDED)} of ${STABLE_NEEDED} days` : `stable since ${stabilityDate(since)}`, isStable: since !== null },
   }
@@ -2362,7 +2368,7 @@ function drawSparkline(spark) {
   }
   if (points.length > 0 && points.at(-1) !== null) svg.append(spot(points.at(-1), 1.8))
   const title = svgEl('title')
-  title.textContent = `${spark.name}, per day: ${spark.values.map(sparkWord).join(' ')}`
+  title.textContent = `${spark.name}, per day: ${spark.values.map((value, index) => (spark.gaps?.[index] === true ? 'not measured' : sparkWord(value))).join(' ')}`
   svg.append(title)
   return svg
 }

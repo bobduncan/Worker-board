@@ -89,3 +89,22 @@ test('--out writes the merged result there and leaves the data folder untouched'
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('a past day the board was paused or off for over half of is marked not measured; the others are measured', async () => {
+  const { root, data, store } = await fixture()
+  try {
+    // Day 3: the person paused at 00:00 and resumed on day 2 at 06:00 (a whole day paused). Day 1: the board off from 02:00 (a gap line) to the next line at 20:00.
+    const actions = [{ at: dayAt(3, 0), by: 'person', via: 'work', action: 'pause-all', id: null }, { at: dayAt(2, 6), by: 'person', via: 'work', action: 'resume-all', id: null }]
+    await writeFile(join(data, 'actions.jsonl'), `${actions.map(one => JSON.stringify(one)).join('\n')}\n`)
+    const history = [
+      { at: dayAt(3, 8), chat: 'Worker 1', state: 'working' }, { at: dayAt(1, 2), gap: true }, { at: dayAt(1, 20), chat: 'Worker 1', state: 'free' },
+    ]
+    await writeFile(join(data, 'history.jsonl'), `${history.map(one => JSON.stringify(one)).join('\n')}\n`)
+    const lines = linesOf(run(data, store))
+    assert.deepEqual(lines.map(line => [line.measured, line.notMeasuredWhy ?? null]), [[false, 'paused'], [true, null], [false, 'off']])
+    assert.equal(lines[1].pausedMinutes, 360)
+    assert.equal(lines[2].offMinutes, 18 * 60)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
