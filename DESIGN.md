@@ -42,6 +42,27 @@ time and the coverage anew. Five summaries 416 ms → 2 ms on the live ledger (t
   file a write is ~60 ms to text plus ~33 ms to disk, once per scan that changed something.
 The check: `tools/spending-count.mjs` counts every answer from the transcripts; on 2026-11-05 the 7-day numbers per
 chat matched the collector run fresh to 0% (tests: test/work/spendingEveryChat.test.mjs).
+**Round 4 (2026-11-05, the lead's final check).** (a) The read budget (5 s) starts after discovery; a read-out session
+whose transcript and subagents folder are both gone is not walked, one whose transcript or folder is newer than its mark
+(`readOutAt`) is, and ~100 more a scan in rotation (`readOutCursor`). (b) The events the 50 000 cap drops are folded into
+per-day, per-chat, per-model, effort and phase totals (`ledger.folded`, `foldEvents`; the cost is worked out per message
+first), so 30 days and All are complete and "Covers only from" stays away; a ledger without them (`foldVersion`) is read
+again once from the start. (d) An all-zero chunk advances the offset: no skipped line, no notice. (e) The mark phase groups
+jobs by session in one pass. (f) A summary is cached by the outcomes' content (not the array), built in one pass per
+period with the cost and day of an event remembered, and a window that moved past no message keeps its summary (the five
+summaries of the board on the live 50 000 events: 340 ms before, 2 ms across a scan, ~45 ms after a window move).
+**Round 4, the lead's review (2026-11-07).** (1) A folded row keeps its task (`taskId` in the fold key), so "Linked to a
+task", "Finished tasks" and "Most expensive tasks" are the same folded or not; `FOLD_VERSION` 2 reads every ledger again once.
+(2) A folded day cannot be cut (one row at its day's start), so a window that starts inside one begins at that day's start
+instead (up to 24 h more than asked; `coverage.widenedFrom`, and a line on the tab says so), but only when the kept events
+begin after the asked start. (3) `foldedIds` keeps the newest 300 000 ids (`MAX_FOLDED_IDS`, ~70 days of messages: a fork's
+copy of a message folded earlier than that would be folded a second time); its Set is built only when an event is old enough
+to be a copy, and then added to, not rebuilt. (4) The coverage note says older days are kept as day totals. (5) The ledger
+carries `foldScanAt`, a copy of `lastScanAt` written with it; older code (a land.ps1 rollback) keeps `foldVersion`, trims
+without folding and writes `lastScanAt` alone, so the two differ and the ledger is read again once: a rollback is not a
+one-way step. (6) A message whose file is read only part way (`scan.lastMessageId`, cleared at the file's end) is not folded
+until its last line is read. Known limit of the oversized-line count (c): a long line counts as an answer by the first
+4,096 bytes only, so a real oversized answer is not seen; none was found on the live data.
 
 > **For any project (B191).** Every change to the worker board works for any project. No game, chat, folder
 > or PC names in the code, the page, the job texts (`roles/`) or the examples: names, paths and words come from the
