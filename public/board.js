@@ -15640,6 +15640,33 @@ function blockChipOf(part, open, card = null, namesWorker = false) {
 }
 
 /**
+ * Stop and rethink (the person, 2026-11-08: "i dont know where to look and who is waiting for what right now"): the run's card
+ * while the state's `focus.rethink` is set: what they asked, what was stopped, who has it now and what comes to them next. Null
+ * without it. Calm, the board's normal card; every word comes from the state.
+ */
+function focusRethinkView(focus) {
+  const rethink = focus?.rethink ?? null
+  if (rethink === null) return null
+  const partner = rethink.partner ?? null
+  const progress = partner === null ? null : partner.progress ?? null
+  const left = partner === null || !Number.isFinite(partner.minutesLeft) ? null : partner.minutesLeft
+  const now = `Now: your Advisor rethinks it${progress !== null || left !== null ? ` · ${[progress, left === null ? null : `about ${left} min`].filter(one => one !== null).join(', ')}` : ` · started ${rethink.at}`}`
+  const ask = rethink.ask ?? null
+  return {
+    title: `You asked to stop and rethink: ${rethink.part}`,
+    words: typeof rethink.words === 'string' && rethink.words !== '' ? `Your words (${rethink.at}): "${rethink.words}"` : null,
+    held: `Stopped and held: ${(rethink.held ?? []).map(one => `${one.id} ${one.title}`).join(', ')}`,
+    // Only a worker whose lane says free right now (the state's `isFree`) is named as free.
+    free: (rethink.freed ?? []).filter(one => one.isFree === true && typeof one.worker === 'string').map(one => `${one.worker} is free for other work`),
+    now,
+    next: ask === null
+      ? { text: 'Next for you: one question with 2 or 3 ways, each with a picture. Nothing on it is built before your pick.', href: null }
+      : { text: `Your pick waits: ${ask.title}`, href: `#details=${ask.id}` },
+    partTitle: rethink.partTitle ?? rethink.part,
+  }
+}
+
+/**
  * Work blocks (the person, 2026-10-31: "the done when will only show the unfinished workblocks ... filtered once per
  * evaluation"): the run's "Open now" card: the round's line and one line per block open in it (the state's `openNow`): a
  * tick once done, its title, "Rework: <line>" for a block that was there before the round or "New: <line>" for one made in
@@ -15656,14 +15683,17 @@ function focusOpenNowView(focus, card = null) {
     const label = one.kind === 'rework' ? 'Rework' : 'New'
     const shown = blockChipOf(part, one, card, true)
     // 2026-11-01: a block that waits for the person's verdict has its chip open the recap (at its row where the state knows it).
-    return { title: part.title, isDone, kind: one.kind, line: line === '' ? label : `${label}: ${line}`, chip: shown.chip, tone: shown.tone, isRework: shown.isRework, ...(shown.isVerdict ? { verdict: shown.link } : {}) }
+    // Stop and rethink: the block the person's rethink holds is "Being rethought", never ticked.
+    const isRethought = focus.rethink != null && part.title === (focus.rethink.partTitle ?? focus.rethink.part)
+    return { title: part.title, isDone: isDone && !isRethought, isRethought, kind: one.kind, line: line === '' ? label : `${label}: ${line}`, chip: shown.chip, tone: shown.tone, isRework: shown.isRework, ...(shown.isVerdict ? { verdict: shown.link } : {}) }
   }).filter(one => one !== null)
   const done = rows.filter(one => one.isDone).length
+  const rethought = rows.filter(one => one.isRethought).length
   // T20.1: the line counts the way the cards do: "1 of 5 done · 4 wait for your verdict · 3 being reworked". What waits for your verdict is the
   // recap card's own count (rows ready to judge and kept looks, the popup's N), never a count of blocks; the blocks being reworked are counted.
   const waits = card?.count ?? 0
   const reworked = rows.filter(one => one.isRework).length
-  const counts = `${done} of ${rows.length} done${waits > 0 ? ` · ${waits} ${waits === 1 ? 'waits' : 'wait'} for your verdict` : ''}${reworked > 0 ? ` · ${reworked} being reworked` : ''}`
+  const counts = rethought === rows.length && rows.length > 0 ? 'being rethought' : `${done} of ${rows.length} done${rethought > 0 ? ` · ${rethought} being rethought` : ''}${waits > 0 ? ` · ${waits} ${waits === 1 ? 'waits' : 'wait'} for your verdict` : ''}${reworked > 0 ? ` · ${reworked} being reworked` : ''}`
   // "opened by the change of 31 Oct": a why that names its own day ("the change of 2026-10-31") says it once.
   const why = String(round.why ?? '').replace(/\s+of\s+\d{4}-\d\d-\d\d$/, '')
   return {
@@ -15897,6 +15927,9 @@ function focusView(focus, goals, can = null, ui = {}) {
     if (view.recheck?.tone === 'asked') view.vibeThere = null
     // B359: the goal guard: attempts so far, the evaluation, a rebuild for the person.
     view.guard = focusGuardView(focus)
+    // Stop and rethink: the person's own rethink has its card; the board's "Your partner evaluates the approach" card is for an evaluation it started itself.
+    view.rethink = focusRethinkView(focus)
+    if (view.rethink !== null && view.guard?.tone === 'evaluating') view.guard = null
   }
   if (stage === 'done') view.pick = pickOf(`${focus.id} is done. What do you want to work on next?`)
   else if (ui.picking === true && allowed) {
@@ -17103,7 +17136,12 @@ function focusOpenNowCard(view) {
     const what = el('span', 'focus-open-what')
     what.append(el('b', 'focus-bullet-text', one.title), el('small', 'focus-open-line', one.line))
     row.append(mark, what)
-    if (one.chip !== null) row.append(focusChipEl(one.chip, one.tone, one.verdict ?? null, 'focus-open-chip'))
+    // Stop and rethink: a neutral label in place of the tick and the chip.
+    if (one.isRethought === true) {
+      mark.title = 'being rethought'
+      mark.setAttribute('aria-label', 'being rethought')
+      row.append(el('span', 'focus-open-chip focus-rethought', 'Being rethought'))
+    } else if (one.chip !== null) row.append(focusChipEl(one.chip, one.tone, one.verdict ?? null, 'focus-open-chip'))
     list.append(row)
   }
   card.append(list)
@@ -18600,6 +18638,24 @@ function focusRecheckCard(recheck) {
   return card
 }
 
+/** Stop and rethink: the run's card of the person's rethink: their words, what was held, who has it, what comes to them next. */
+function focusRethinkCard(rethink) {
+  const card = el('section', 'focus-card focus-rethink')
+  card.append(el('h3', '', rethink.title))
+  const lines = el('ul', 'focus-rethink-lines')
+  for (const text of [rethink.words, rethink.held, ...rethink.free, rethink.now]) if (text !== null) lines.append(el('li', '', text))
+  const next = el('li', '')
+  if (rethink.next.href === null) next.textContent = rethink.next.text
+  else {
+    const pick = el('a', 'quiet-button focus-rethink-pick', rethink.next.text)
+    pick.href = rethink.next.href
+    next.append(pick)
+  }
+  lines.append(next)
+  card.append(lines)
+  return card
+}
+
 /** B359: the run's card of the goal guard. */
 function focusGuardCard(guard) {
   const card = el('section', `focus-card focus-guard is-${guard.tone}`)
@@ -18664,6 +18720,7 @@ function drawFocus(state) {
   // T22 wave 2: what Go and Change this goal asked of the partner, with where it stands.
   const waitStrip = focusWaitStrip(state, view)
   if (waitStrip !== null) parts.push(waitStrip)
+  if (view.stage === 'run' && view.back === undefined && (view.rethink ?? null) !== null) parts.push(focusRethinkCard(view.rethink))
   // 2026-11-01: the recap card, under the head and above the work blocks; the asks for the recap whose step no part names yet stand
   // under it as before, and with no card (nothing waits) every one of them stays where Autopilot put it.
   const allRecapAsks = recapAsksFor(state, view.head?.id ?? null)

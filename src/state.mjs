@@ -68,6 +68,7 @@ import { chatsByRole } from './oldMods.mjs'
 import { clearingOf, decide, envelopesOf, lastClearWhyOf, laneWords, onSequence } from './work/handover.mjs'
 import { givenBackFrom } from './work/holderTimers.mjs'
 import { rethinkTopicsOf } from './work/rethinkTopic.mjs'
+import { rethinkFocusOf } from './work/rethinkFocus.mjs'
 import { countsOf, statusOf } from './chatStatus.mjs'
 import { factsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
@@ -1585,6 +1586,8 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     parts,
     // Stop and rethink (docs/stop-and-rethink.md): the topics the talk bar can stop, each with its open steps.
     rethinkTopics: rethinkTopicsOf(node, steps, { prefix, titleOf: item => withoutNotes(item.head.get('Title') ?? '') }),
+    // The rethink that runs now (derived, never stored): src/work/rethinkFocus.mjs.
+    rethink: rethinkFocusOf({ node, items: items ?? [], prefix, lanes, partnerLane: options.partnerLane ?? null, titleOf: item => withoutNotes(item.head.get('Title') ?? '') }),
     steps: stepList,
     partnerDecides: node.partnerDecides,
     youDecide: node.youDecide,
@@ -2376,7 +2379,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   // B878 (X116): where each step a goal's recap shows stands with the person (src/recaps.mjs), for what a step in review waits for.
   // T20.1: a part a step of which (or a fix in its chains) is under way is being reworked: it waits for no verdict (`rework`).
   const recapWaits = recapWaitsOf(raw.recaps, (recap, part) => reworkOf(part.steps, itemsById, { openChecks: checksOpen, workerOf: workerOfStep, now }))
-  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits, raw.recaps ?? null, { autopilot: config.autopilot === true })
+  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits, raw.recaps ?? null, { autopilot: config.autopilot === true, partnerLane: advisorCard ?? null })
   // The chats on the board by name, for a store's owner (with or without the list's prefix).
   const chatNames = [...names, ...[advisorChat, helperChat, ownerChat].filter(one => one !== undefined).map(one => one.name)]
   // Autopilot (2026-10-31): each asking chat's role, as the work API names them, for where an ask goes (src/work/autopilot.mjs).
