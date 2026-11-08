@@ -900,7 +900,7 @@ export function fiveHourStopDue(state, outbox) {
 }
 
 /** B812 (X109): the board's stop words, the week's (B742) and the 5-hour limit's (B758). */
-export const isStopWord = command => command === 'week-stop' || command === 'five-hour-stop'
+export const isLimitStopWord = command => command === 'week-stop' || command === 'five-hour-stop'
 
 /**
  * B812 (X109: at 22:06 three looks of the board ran side by side; each read the outbox before the others wrote, so Worker 4

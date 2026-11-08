@@ -103,7 +103,7 @@ import { effortOf } from './src/work/effort.mjs'
 import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
-import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isStopWord, mootWhy, maySend, nextSpawn, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
+import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
@@ -3290,7 +3290,7 @@ async function main(args) {
       // T13 part 3: not an asleep chat: free, or resuming by itself, as the board's page says.
       const off = ((await readState()).chats ?? []).filter(lane => !lane.isLeftover && lane.isRunning === false && lane.asleep !== true).map(lane => lane.name)
       // B769: a stop or remove of this worker the board carries out by code: its mod tells it at its next tool call.
-      const stopping = store.outbox().findLast(message => isStopWord(message) && message.about === checked.chat && message.state === 'waiting')
+      const stopping = store.outbox().findLast(message => isTaskStopWord(message) && message.about === checked.chat && message.state === 'waiting')
       const stop = stopping === undefined ? {} : { stop: { id: stopping.id, kind: stopping.command, task: stopTaskOf(stopping) } }
       // Signals change 2c: and the board's status of every chat of the roles map's set, read AFTER the hand-out and the state's reset
       // (src/chatStatus.mjs handedWithStatuses), so a worker just handed an envelope sees its new status. `off` stays one more
@@ -3362,11 +3362,13 @@ async function main(args) {
       // B769: the person's stop and remove words carried out by code: a stop is settled once its worker's turn ended; a
       // remove is a job for a chat that may close chats (never the worker itself), once its worker is idle or off.
       const removing = []
-      for (const message of store.outbox().filter(one => isStopWord(one) && one.state === 'waiting' && one.about !== checked.chat)) {
-        const step = stopStep(message, lanes.find(lane => lane.name === message.about))
+      for (const message of store.outbox().filter(one => isTaskStopWord(one) && one.state === 'waiting' && one.about !== checked.chat)) {
+        const lane = lanes.find(one => one.name === message.about)
+        const step = stopStep(message, lane)
+        // B1071 (X2): closed delivered with its why, as the outbox sweep does at every refresh; `store.settle` touches taken words
+        // only, so this word (waiting) was never settled here.
         if (step === 'settle') {
-          await store.settle(message.to, { typed: [message.id] }, clock())
-          readState.reset()
+          if (await store.close(message.id, 'delivered', stopSettleWhy(message, lane), clock(), { deliveredAt: clock() })) readState.reset()
         } else if (step === 'remove' && can.has('restart')) removing.push(message.id)
       }
       const removed = removing.length === 0 ? [] : await store.takeHands(checked.chat, clock(), keep, message => removing.includes(message.id))

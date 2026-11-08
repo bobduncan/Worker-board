@@ -215,11 +215,11 @@ test('B768: a lookup is due when the newest reading is ten minutes old, not agai
 
 // B769: the person's Stop task and Remove worker, by code.
 test('B769: a stop is settled once its worker\'s turn ended after it, or its chat is off; a remove then becomes a job', async () => {
-  const { STOP_HANDS_MS, isStopWord, stopStep, stopTaskOf } = await import('../src/hands.mjs')
+  const { STOP_HANDS_MS, isTaskStopWord, stopStep, stopTaskOf } = await import('../src/hands.mjs')
   const stop = { id: 's', at: 100, to: 'Main', command: 'stop', about: 'Worker 1', byCode: true, text: 'stop task\nName: Worker 1\nTask: B12 "Lava"\nWhy: stopped with the button', state: 'waiting' }
   const remove = { ...stop, id: 'r', command: 'remove', text: 'remove worker' }
-  assert.equal(isStopWord(stop), true)
-  assert.equal(isStopWord({ ...stop, byCode: undefined }), false)
+  assert.equal(isTaskStopWord(stop), true)
+  assert.equal(isTaskStopWord({ ...stop, byCode: undefined }), false)
   assert.equal(stopTaskOf(stop), 'B12 "Lava"')
   const working = { name: 'Worker 1', isRunning: true, report: { state: 'busy', since: 200 } }
   const ended = { name: 'Worker 1', isRunning: true, report: { state: 'idle', since: 200 } }

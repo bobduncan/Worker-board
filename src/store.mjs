@@ -8,7 +8,8 @@ import { join } from 'node:path'
 
 import { takeStop } from './boardSelf.mjs'
 import { changes, GAP_MS, lastByChat, parseHistory, startGap } from './history.mjs'
-import { isStopWord, waitsLong } from './say.mjs'
+import { STOP_HANDS_MS, isTaskStopWord } from './hands.mjs'
+import { isLimitStopWord, waitsLong } from './say.mjs'
 import { isStoppedWhy } from './stopped.mjs'
 import { AGAIN_AFTER_MS, TRIES, passesBySelf } from './work/passing.mjs'
 import { heldMs } from './work/pause.mjs'
@@ -58,7 +59,10 @@ const TAKEN_SHOWN_MS = 10 * 60_000
 const isPlain = message => (message.command ?? null) === null || message.command === 'resume'
 // B812 (X109): a stop word waits for its worker however long its turn runs; the outbox sweep closes it once the worker
 // holds no step not yet reported, or the limit reset (src/work/outboxSweep.mjs).
-export const keepMs = (message, keep) => (isAnswer(message) || isStopWord(message.command) ? Infinity
+// B1071 (X2): the person's stop or remove by code waits STOP_HANDS_MS for the board to carry it out (the outbox sweep settles it
+// once its worker stopped), then the main chat may take it: it is kept that long and a plain word's keep after it.
+export const keepMs = (message, keep) => (isAnswer(message) || isLimitStopWord(message.command) ? Infinity
+  : isTaskStopWord(message) ? STOP_HANDS_MS + keep.messageMs
   : isPlain(message) || ['step', 'refined', 'work', 'incident', 'handover'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
 /**
  * B891 (the result check of B880: a word went twice): a hand's call that gave no answer in time may still have acted (the
