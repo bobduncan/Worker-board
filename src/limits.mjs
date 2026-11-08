@@ -147,7 +147,13 @@ function pauseLimit(words) {
   const named = words.match(name)
   const all = [...words.matchAll(/(\d{1,3})\s*%/g)]
   const percent = named !== null ? Number(named[1]) : all.length === 1 ? Number(all[0][1]) : null
-  return { limit, percent: percent !== null && percent <= 100 ? percent : null }
+  return { limit, percent: percent !== null && percent <= 100 ? percent : null, ...(weekFigure(words) === null ? {} : { weekPercent: weekFigure(words) }) }
+}
+
+/** B995: the figure after the week's name in a pause note's words, null when it names none (a 5-hour pause read as the week's). */
+function weekFigure(words) {
+  const named = words.match(/\bweek\w*\b[^%\n;]*?(\d{1,3})\s*%/i)
+  return named !== null && Number(named[1]) <= 100 ? Number(named[1]) : null
 }
 
 const FIVE_HOURS = 5 * 60 * MIN
@@ -155,6 +161,24 @@ const WEEK = 7 * 24 * 60 * MIN
 /** Below this percent a limit counts as back, when the pause named none. */
 export const PAUSE_BACK_PERCENT = 50
 
+/**
+ * B995 (X140, 2026-11-04: Worker 4 paused after the board's week-stop word with "paused for the limit until 20:00"; read as a
+ * 5-hour pause, a 40% 5-hour reading lifted it while the week stood at 100%, and "until 20:00" was today, not the week's
+ * reset): a pause note (pauseNote, storePause) written AFTER the board sent that chat its week-stop word for this week
+ * is a pause for the week. words are the week-stop words sent to the chat, { at, weekResets } (the caller keeps those
+ * that were sent, not dropped). A word counts when it is before the note and the reset it carried is after it; one with no
+ * reset counts while the note is within 7 days of it. The result: limit: 'week', until the word's reset (null without
+ * one; never the clock match of the note), percent the week's figure the note named, else null. The newest word that
+ * counts decides. A note that is not a pause, names the week itself, or has no such word before it comes back as it was.
+ */
+export function asWeekPause(note, words) {
+  if (note === null || note === undefined || note.isPaused === false || note.limit === 'week') return note
+  const counts = (Array.isArray(words) ? words : [])
+    .filter(one => Number.isFinite(one?.at) && one.at < note.at && (Number.isFinite(one.weekResets) ? one.weekResets > note.at : note.at - one.at <= WEEK))
+    .reduce((a, b) => (a === null || b.at > a.at ? b : a), null)
+  if (counts === null) return note
+  return { ...note, limit: 'week', until: Number.isFinite(counts.weekResets) ? counts.weekResets : null, percent: note.weekPercent ?? null }
+}
 /**
  * B312: whether a worker's own pause for the limit (`{ limit, since, percent }`, from its note) is over before the time
  * it named, by the limits as the board read them (`limitsOf`): a reading of that window taken after the pause began
