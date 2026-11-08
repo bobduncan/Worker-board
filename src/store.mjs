@@ -246,6 +246,15 @@ function storeOver(lines, messages, alive, write) {
      * turn's start with its reason. The judging is src/work/outboxSweep.mjs `unconfirmedWords` (never a hand's take: B880's own net
      * holds those); only a word still `taken` is closed here: what the mod said meanwhile stands. The number closed.
      */
+    async tell(id, now) {
+      // B1071 (review): the time the board handed a task stop word to its worker (its mod tells it at its next tool call), once;
+      // only a turn that ends after it settles the word (hands.mjs `stopStep`).
+      const message = messages.find(one => one.id === id)
+      if (message === undefined || message.state !== 'waiting' || Number.isFinite(message.toldAt)) return false
+      message.toldAt = now
+      await write.outbox([{ id, toldAt: now }])
+      return true
+    },
     async deliverUnconfirmed(list) {
       const closed = []
       for (const { id, deliveredAt, why } of list) {

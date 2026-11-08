@@ -1,10 +1,11 @@
 // B1071 (X2 came back a 4th time, 2026-11-08 22:41): the person's Stop of Worker 1 on B1070 at 22:28:30 was the first stop the
-// board carried out by code. It reached the worker within a minute (its stop checkpoint at 22:28:47 gave the step back), and its
-// turn ended (idle from 22:34:48), but the word to the main chat (outbox c3429a0b005cdb29) stayed waiting, expired on the 10 min
-// keep at 22:38:30 and rule 8 named it. Two causes: only a hand's call settled such a word, and through a settle that touches
-// taken words only; and the keep was a plain word's 10 min, shorter than the 15 the hands are given. Now every refresh settles it
-// as done at the event that gives the step back, it is kept STOP_HANDS_MS and a plain word's keep, and rule 8 waits STOP_HANDS_MS
-// for it and names it once per stop. The real word's ids and times; made-up other chats.
+// board carried out by code. It reached the worker within a minute (its mod told it at its next tool call; its stop checkpoint gave
+// the step back at 22:28:47), and its turn ended (idle from 22:34:48), but the word to the main chat (outbox c3429a0b005cdb29) stayed
+// waiting, expired on the 10 min keep at 22:38:30 and rule 8 named it. Two causes: only a hand's call settled such a word, and through
+// a settle that touches taken words only; and the keep was a plain word's 10 min, shorter than the 15 the hands are given. Now the
+// board stamps when it handed the stop to its worker (`toldAt`), every refresh settles the word as done once the worker, told, ended
+// its turn or gave its step back, the word is kept STOP_HANDS_MS and a plain word's keep, and rule 8 waits as long and names it once
+// per stop. The real word's ids and times; made-up other chats.
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -18,15 +19,19 @@ import { sweepOutbox, whyClosed } from '../src/work/outboxSweep.mjs'
 
 const MIN = 60_000
 const AT = 1794173310680 // 2026-11-08 22:28:30, the stop word
+const TOLD = AT + 10_000 // its mod told Worker 1 at its next tool call, and the board stamps the time
 const CHECKPOINT = AT + 17_000 // 22:28:47, Worker 1's stop checkpoint gave B1070 back
 const IDLE = 1794173688680 // 22:34:48, Worker 1's turn ended
 const keep = { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN }
+/** A time as the board writes it, in this PC's own zone. */
+const hm = at => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
-const STOP = Object.freeze({
+const UNTOLD = Object.freeze({
   id: 'c3429a0b005cdb29', at: AT, to: 'Main', ask: null, step: null, title: null, version: null, verdict: null, command: 'stop', about: 'Worker 1',
   text: 'stop task\nName: Worker 1\nTask: B1070 "B1070 Fix: Look against the reference:"\nWhy: stopped with the button',
   taskStep: 'B1070', taskText: 'B1070 Fix: Look against the reference:', laneState: 'working', state: 'waiting', byCode: true,
 })
+const STOP = Object.freeze({ ...UNTOLD, toldAt: TOLD })
 const worker = report => ({ name: 'Worker 1', isMain: false, isLeftover: false, isRunning: true, state: report.state, report })
 const working = worker({ state: 'working', since: AT - 5 * MIN })
 const ended = worker({ state: 'idle', since: IDLE })
@@ -48,17 +53,33 @@ test('the keep of a task stop is STOP_HANDS_MS and a plain word\'s keep: the mai
   assert.ok(keepMs(STOP, keep) > STOP_HANDS_MS)
 })
 
-test('X2: the stop checkpoint at 22:28:47 gave B1070 back: the word is settled as done, though the worker still works', () => {
-  assert.deepEqual(whyClosed(STOP, ctx(working, givenBack, CHECKPOINT + 5_000)), { state: 'delivered', why: 'carried out by code: Worker 1 no longer holds B1070 (refined)' })
-  // Still holding it, its turn running: the word waits.
-  assert.equal(whyClosed(STOP, ctx(working, holds, CHECKPOINT + 5_000)), null)
+test('the board stamps when it first handed the stop to its worker, once', async () => {
+  const store = memoryStore()
+  store.outbox().push({ ...UNTOLD })
+  assert.equal(await store.tell(UNTOLD.id, TOLD), true)
+  assert.equal(await store.tell(UNTOLD.id, TOLD + MIN), false)
+  assert.equal(store.outbox()[0].toldAt, TOLD)
 })
 
-test('X2: the turn that ended at 22:34:48 settles it as done too, with or without the store', () => {
-  assert.deepEqual(whyClosed(STOP, ctx(ended, holds, IDLE + 1_000)), { state: 'delivered', why: 'carried out by code: Worker 1\'s turn ended after it (22:34)' })
+test('X2: the stop checkpoint at 22:28:47 gave B1070 back: the word is settled as done, though the worker still works', () => {
+  assert.deepEqual(whyClosed(STOP, ctx(working, givenBack, CHECKPOINT + 5_000)), { state: 'delivered', why: 'carried out by code: Worker 1 was told and no longer holds B1070 (refined)' })
+  // Still holding it, its turn running: the word waits; also while its step waits on the person (a rethink stops that too).
+  assert.equal(whyClosed(STOP, ctx(working, holds, CHECKPOINT + 5_000)), null)
+  assert.equal(whyClosed(STOP, ctx(working, new Map([item('B1070', 'waiting on you', 'Worker 1')]), CHECKPOINT + 5_000)), null)
+  // A step the store does not show: the board cannot tell, so it waits.
+  assert.equal(whyClosed(STOP, ctx(working, new Map(), CHECKPOINT + 5_000)), null)
+  // Never told, and the person moved the step on meanwhile: nothing left to stop, closed as moot, never as done.
+  assert.deepEqual(whyClosed(UNTOLD, ctx(working, givenBack, CHECKPOINT + 5_000)), { state: 'dropped', why: 'Worker 1 no longer holds B1070 (refined): nothing to stop' })
+})
+
+test('X2: the turn that ended at 22:34:48, after it was told, settles it as done too, with or without the store', () => {
+  assert.deepEqual(whyClosed(STOP, ctx(ended, holds, IDLE + 1_000)), { state: 'delivered', why: `carried out by code: Worker 1 was told at ${hm(TOLD)} and its turn ended at ${hm(IDLE)}` })
   assert.equal(whyClosed(STOP, ctx(ended, null, IDLE + 1_000)).state, 'delivered')
-  // A turn that ended BEFORE the word is no sign it stopped: it waits.
-  assert.equal(whyClosed(STOP, ctx(worker({ state: 'idle', since: AT - MIN }), holds, AT + MIN)), null)
+  // Its turn ended after the word, but it was never told (no tool call came): no proof it stopped, so it waits; off too.
+  assert.equal(whyClosed(UNTOLD, ctx(ended, holds, IDLE + 1_000)), null)
+  assert.equal(whyClosed(UNTOLD, ctx({ ...ended, isRunning: false }, holds, IDLE + 1_000)), null)
+  // A turn that ended before it was told is no sign it stopped.
+  assert.equal(whyClosed(STOP, ctx(worker({ state: 'idle', since: AT + 5_000 }), holds, AT + MIN)), null)
 })
 
 test('never by a timer alone: a worker that holds its step and works on is not settled, also at 20 min; past its keep the word expires', () => {
@@ -81,25 +102,26 @@ test('X2: the refresh after 22:34:48 closes the real word delivered, with its wh
   const [word] = store.outbox()
   assert.equal(word.state, 'delivered')
   assert.equal(word.deliveredAt, IDLE + 2_000)
-  assert.match(word.why, /^carried out by code: Worker 1's turn ended after it/)
+  assert.match(word.why, /^carried out by code: Worker 1 was told at \d\d:\d\d and its turn ended at \d\d:\d\d$/)
 })
 
-test('rule 8: the settled stop is never named; one not settled is named only after STOP_HANDS_MS, once per stop, with who holds it', () => {
+test('rule 8: the settled stop is never named; one not settled is named only after the hands\' 15 min and a plain word\'s limit, once per stop, with who holds it', () => {
   const rule = WATCH_RULES.find(one => one.id === 'undelivered')
   const findings = (lane, outbox, now) => rule.check(buildView({ state: board(lane), items: holds, outbox, keep, settings: {}, now }))
   // Settled: nothing at 22:41 (when X2 came back) nor later.
   assert.deepEqual(findings(ended, [{ ...STOP, state: 'delivered', deliveredAt: IDLE + 2_000 }], AT + 13 * MIN), [])
   // Still waiting before the next sweep closes it, but its worker stopped: settled already in the rule's eyes, never named.
-  assert.deepEqual(findings(ended, [{ ...STOP }], AT + 16 * MIN), [])
-  // The worker never stopped: 12 min is past the rule's 10 but within the hands' 15: nothing yet.
+  assert.deepEqual(findings(ended, [{ ...STOP }], AT + 26 * MIN), [])
+  // The worker never stopped: 12 min is past the rule's 10 but within the hands' 15; 20 min is within the main chat's 10 after them.
   assert.deepEqual(undeliveredWords(buildView({ state: board(working), items: holds, outbox: [{ ...STOP }], keep, settings: {}, now: AT + 12 * MIN })), [])
-  // At 16 min one finding for this stop, keyed by its word, naming the main chat it waits for and the worker.
-  const late = findings(working, [{ ...STOP }], AT + 16 * MIN)
+  assert.deepEqual(findings(working, [{ ...STOP }], AT + 20 * MIN), [])
+  // At 26 min one finding for this stop, keyed by its word, naming the main chat it waits for and the worker.
+  const late = findings(working, [{ ...STOP }], AT + 26 * MIN)
   assert.equal(late.length, 1)
   assert.equal(late[0].key, 'undelivered stop Worker 1 c3429a0b005cdb29')
-  assert.match(late[0].text, /^the person's stop of Worker 1 on B1070 \(22:28\) is not settled after 16 min$/)
+  assert.equal(late[0].text, `the person's stop of Worker 1 on B1070 (${hm(AT)}) is not settled after 26 min`)
   assert.match(late[0].evidence, /^the word c3429a0b005cdb29 waits for Main; Worker 1 is working since /)
   // A second stop of the same worker is a finding of its own, not the first one's again.
-  const again = findings(working, [{ ...STOP }, { ...STOP, id: 'second', at: AT + MIN }], AT + 17 * MIN)
+  const again = findings(working, [{ ...STOP }, { ...STOP, id: 'second', at: AT + MIN }], AT + 27 * MIN)
   assert.deepEqual(again.map(one => one.key), ['undelivered stop Worker 1 c3429a0b005cdb29', 'undelivered stop Worker 1 second'])
 })

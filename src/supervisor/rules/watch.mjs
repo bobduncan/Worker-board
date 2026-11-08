@@ -468,8 +468,8 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   // hold before its release (B285).
   const held = message.at + heldMs(message, view.now, view.pause)
   const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
-  // B1071 (X2): a task stop by code waits STOP_HANDS_MS for the board to carry it out before it is late.
-  const limit = isTaskStopWord(message) ? Math.max(judged.limit, STOP_HANDS_MS) : judged.limit
+  // B1071 (X2): a task stop by code waits STOP_HANDS_MS for the board to carry it out, then the main chat may take it: late after both.
+  const limit = isTaskStopWord(message) ? STOP_HANDS_MS + judged.limit : judged.limit
   if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
   // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
   if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)

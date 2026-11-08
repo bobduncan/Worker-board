@@ -3292,6 +3292,8 @@ async function main(args) {
       // B769: a stop or remove of this worker the board carries out by code: its mod tells it at its next tool call.
       const stopping = store.outbox().findLast(message => isTaskStopWord(message) && message.about === checked.chat && message.state === 'waiting')
       const stop = stopping === undefined ? {} : { stop: { id: stopping.id, kind: stopping.command, task: stopTaskOf(stopping) } }
+      // B1071 (review): the time it was first handed to the worker, so a turn that ends after it settles it (stopStep).
+      if (stopping !== undefined && stopping.command === 'stop' && await store.tell(stopping.id, clock())) readState.reset()
       // Signals change 2c: and the board's status of every chat of the roles map's set, read AFTER the hand-out and the state's reset
       // (src/chatStatus.mjs handedWithStatuses), so a worker just handed an envelope sees its new status. `off` stays one more
       // release for a mod older than 0.28.0.

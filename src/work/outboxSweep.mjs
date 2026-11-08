@@ -17,6 +17,7 @@ import { stamp } from './migrate.mjs'
 import { OLD_CHECK_WHY } from './qaTask.mjs'
 import { readStore } from './store.mjs'
 import { RESUME_KIND, TIMED_STATES, markerStep } from './holderTimers.mjs'
+import { WITH_WORKER } from './rethink.mjs'
 import { workLineWhy } from './workLines.mjs'
 
 const firstLine = text => String(text ?? '').split('\n')[0]
@@ -184,8 +185,12 @@ function taskStopWhy(message, ctx) {
   if (message.command === 'stop' && ctx.items instanceof Map && typeof message.taskStep === 'string') {
     const item = ctx.items.get(message.taskStep)
     const prefix = ctx.prefix ?? ''
-    const holds = item !== undefined && ['taken', 'in progress'].includes(value(item, 'State')) && plainName(value(item, 'Owner'), prefix) === plainName(message.about, prefix)
-    if (!holds) return { state: 'delivered', why: `carried out by code: ${message.about} no longer holds ${message.taskStep}${item === undefined ? '' : ` (${value(item, 'State')})`}` }
+    // A step the store does not show: the board cannot tell, so the word waits (as a limit stop does).
+    const holds = item === undefined || (WITH_WORKER.includes(value(item, 'State')) && plainName(value(item, 'Owner'), prefix) === plainName(message.about, prefix))
+    // Told and given back (its stop checkpoint): done; never told, the step moved on by the person: moot.
+    if (!holds) return Number.isFinite(message.toldAt)
+      ? { state: 'delivered', why: `carried out by code: ${message.about} was told and no longer holds ${message.taskStep} (${value(item, 'State')})` }
+      : { state: 'dropped', why: `${message.about} no longer holds ${message.taskStep} (${value(item, 'State')}): nothing to stop` }
   }
   return isLate(message, ctx.now, ctx.keep) ? expired(message, ctx.keep) : null
 }

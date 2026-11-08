@@ -224,7 +224,12 @@ test('B769: a stop is settled once its worker\'s turn ended after it, or its cha
   const working = { name: 'Worker 1', isRunning: true, report: { state: 'busy', since: 200 } }
   const ended = { name: 'Worker 1', isRunning: true, report: { state: 'idle', since: 200 } }
   const before = { name: 'Worker 1', isRunning: true, report: { state: 'idle', since: 50 } }
-  assert.deepEqual([stopStep(stop, working), stopStep(stop, ended), stopStep(stop, before)], ['wait', 'settle', 'wait'])
+  // B1071 (review): a stop is over only once its worker was told (toldAt) and its turn ended after that, or its chat went off.
+  const told = { ...stop, toldAt: 150 }
+  assert.deepEqual([stopStep(told, working), stopStep(told, ended), stopStep(told, before)], ['wait', 'settle', 'wait'])
+  assert.deepEqual([stopStep(stop, ended), stopStep(stop, { name: 'Worker 1', isRunning: false })], ['wait', 'wait'], 'never told: it waits')
+  assert.equal(stopStep({ ...stop, toldAt: 250 }, ended), 'wait', 'a turn that ended before it was told')
+  assert.equal(stopStep(told, { name: 'Worker 1', isRunning: false }), 'settle')
   assert.deepEqual([stopStep(remove, ended), stopStep(remove, { name: 'Worker 1', isRunning: false })], ['remove', 'remove'])
   // A worker the board no longer shows: nothing more to do.
   assert.deepEqual([stopStep(stop, undefined), stopStep(remove, undefined)], ['settle', 'settle'])

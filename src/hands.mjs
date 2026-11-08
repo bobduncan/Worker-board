@@ -131,10 +131,16 @@ export const stopTaskOf = message => /^Task: (.{1,200})$/m.exec(String(message?.
  * takes it out), or 'wait'.
  */
 export function stopStep(message, lane) {
-  const isOver = lane === undefined || lane.isRunning === false
-    || (['idle', 'asking'].includes(lane.report?.state) && Number.isFinite(lane.report?.since) && lane.report.since > message.at)
+  if (lane === undefined) return 'settle'
+  // B1071 (review): a stop is over only once its worker was told (`toldAt`: the board handed it at the worker's tool call) and then
+  // its turn ended, or its chat went off after being told; a turn that ended before it heard the stop proves nothing. A remove needs
+  // no telling: the worker idle or off after it is enough for a hand to take it out.
+  const told = message.command === 'remove' ? message.at : message.toldAt
+  if (!Number.isFinite(told)) return 'wait'
+  const isOver = lane.isRunning === false
+    || (['idle', 'asking'].includes(lane.report?.state) && Number.isFinite(lane.report?.since) && lane.report.since > told)
   if (!isOver) return 'wait'
-  return message.command === 'remove' ? (lane === undefined ? 'settle' : 'remove') : 'settle'
+  return message.command === 'remove' ? 'remove' : 'settle'
 }
 
 /**
@@ -144,8 +150,8 @@ export function stopStep(message, lane) {
 export function stopSettleWhy(message, lane, clock = at => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })) {
   if (stopStep(message, lane) !== 'settle') return null
   if (lane === undefined) return `carried out by code: ${message.about} is not on the board`
-  if (lane.isRunning === false) return `carried out by code: ${message.about}'s chat does not run`
-  return `carried out by code: ${message.about}'s turn ended after it (${clock(lane.report.since)})`
+  if (lane.isRunning === false) return `carried out by code: ${message.about} was told at ${clock(message.toldAt)} and its chat does not run`
+  return `carried out by code: ${message.about} was told at ${clock(message.toldAt)} and its turn ended at ${clock(lane.report.since)}`
 }
 
 /** T14: the first Workers mod that says whether its chat may send by code (`can: ['send']`). */
