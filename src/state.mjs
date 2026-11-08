@@ -1703,8 +1703,9 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const notes = notesToMain(raw.work, { prefix, main: list.main ?? 'main' })
   const context = {
     now, aliveAt, config, last, lines, prefix, waits, notes, movedInto: movedBack,
-    // B995: the week-stop words the board sent a chat and the sweep did not drop (waiting, taken, delivered or failed: sent).
-    weekWordsOf: name => sent.filter(message => message.command === 'week-stop' && message.to === name && ['waiting', 'taken', 'delivered', 'failed'].includes(message.state)),
+    // B995: the week-stop words that reached the chat (taken or delivered). One waiting, failed or dropped never did: a pause
+    // note after it has another cause (the person's pause, the 5-hour limit) and is no week pause (chat 1's review, 2026-11-08).
+    weekWordsOf: name => sent.filter(message => message.command === 'week-stop' && message.to === name && ['taken', 'delivered'].includes(message.state)),
     // How a message from the main chat is known: by its title, or by the app's id for it.
     main: { mainTitle: list.main === null ? null : `${prefix}${list.main}`, mainSession: main?.appSessionId ?? null },
   }

@@ -1049,7 +1049,8 @@ as the title". The picture is `art-inbox/worker-board/2026-10-13-b113-limits-res
   B995 (X140, 2026-11-04: Worker 4 paused after the board's week-stop word with "paused for the limit until 20:00", was read as
   a 5-hour pause, lifted by a 40% 5-hour reading while the week stood at 100%, and "until 20:00" meant today, not the week's
   reset): a pause note written after the board sent that chat its week-stop word for this week (the word before the note, its
-  weekResets after it; a word with no reset counts within 7 days; one the sweep dropped does not) is the week's pause: limit
+  weekResets after it; a word with no reset counts within 7 days; only a word that reached the chat, taken or delivered: one
+  waiting, failed or dropped never did, and a pause after it has another cause) is the week's pause: limit
   week, until the word's reset (none without one; never the note's clock time), `asWeekPause` in `src/limits.mjs`. Without such a word it
   reads as before. A
   suspended chat gets no step delivered and is no "may wait for you" hint. The lane says who held it and when it goes on; the time

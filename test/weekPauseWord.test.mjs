@@ -88,9 +88,14 @@ for (const [form, turn] of [['work note', filedTurn], ['message', sentTurn]]) {
   })
 }
 
-test('B995: a word the sweep dropped is no word for this week', () => {
-  const lane = board(build({ outbox: [word({ state: 'dropped' })] }))
-  assert.notEqual(lane.state, 'suspended')
+test('B995: only a word that reached the chat counts: one dropped, failed or still waiting is no word for this week', () => {
+  // Mutant: 'failed' or 'waiting' counted as sent (chat 1's review, 2026-11-08): that case reads as a week pause.
+  for (const state of ['dropped', 'failed', 'waiting']) {
+    const lane = board(build({ outbox: [word({ state, deliveredAt: undefined })] }))
+    assert.notEqual(lane.state, 'suspended', `a ${state} word`)
+  }
+  const taken = board(build({ outbox: [word({ state: 'taken', deliveredAt: undefined })] }))
+  assert.equal(taken.state, 'suspended', 'a taken word reached it')
 })
 
 test('asWeekPause: every case', () => {
