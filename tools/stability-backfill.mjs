@@ -17,6 +17,9 @@
 //   nothing tells a wake from a start by hand, so those days run without wakes/reports/history and get an `unsure`). A lone start
 //   of a chat with no proof of who started it is `unsure`, never an intervention (the person, a chat's message or the app). restart-by-hand: `lastStop` is board state, not a record, so it is not known before the live loop: every day gets an
 //   `unsure`. open-its-chat: from the oldest ask in the store.
+// - measured (2026-11-08): a day paused or off for over half of it is `measured: false` (not measured: a gap on the page, never a
+//   stable day). Off time is the history's gap lines (complete as far as the history reaches back); pause time is the actions log's
+//   pause-all ... resume-all (only from its first line: an earlier pause is not known and a day before it is measured by its off time).
 // - alarms come from the X files (First seen, else Since): complete from the oldest incident in the store. False = closed with
 //   "No fault" or "obsolete" only; an incident that went gone is real.
 
@@ -24,8 +27,8 @@ import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { parseHistory } from '../src/history.mjs'
-import { alarmsOf, dayLineOf, dayOf, dayStartOf, interventionsOf, mergedOutbox, nextDayStartOf } from '../src/stability.mjs'
+import { gapsOf, parseHistory } from '../src/history.mjs'
+import { alarmsOf, dayLineOf, dayOf, dayStartOf, interventionsOf, measuredOf, mergedOutbox, nextDayStartOf } from '../src/stability.mjs'
 import { parseItem, sinceMs, valueOf } from '../src/work/item.mjs'
 
 const MINUTE = 60_000
@@ -108,6 +111,7 @@ export async function backfill({ dataDir, storeDir, days = 14, now = Date.now() 
   const firstWakeAt = attempts.length > 0 ? Math.min(...attempts) : null
   const stamp = at => new Date(at).toLocaleString('sv-SE').slice(0, 16)
 
+  const gaps = gapsOf(history, now)
   const lines = []
   const start = new Date(sinceMs(today))
   for (let back = days; back >= 1; back -= 1) {
@@ -132,7 +136,7 @@ export async function backfill({ dataDir, storeDir, days = 14, now = Date.now() 
     if (!known) {
       unsure.push({ at: from, kind: 'woke-outside', what: 'Chats woken from outside and app restarts are not known for this day', why: `no wake attempt is recorded before ${firstWakeAt === null ? 'any' : stamp(firstWakeAt)}` })
     }
-    const line = dayLineOf({ day, interventions, unsure, alarms: alarmsOf(incidents, day), now, closed: true })
+    const line = dayLineOf({ day, interventions, unsure, alarms: alarmsOf(incidents, day), now, closed: true, measure: measuredOf({ day, now, closed: true, actions, gaps }) })
     lines.push({ ...line, idleWithWorkMinutes: null, backfilled: true })
   }
 
@@ -143,6 +147,7 @@ export async function backfill({ dataDir, storeDir, days = 14, now = Date.now() 
     `restart-by-hand: not known before the live loop (lastStop is not a record); every day carries an unsure`,
     `app-restart: complete from ${first.wakes ?? 'never (no wake attempts)'}; earlier days carry an unsure; a lone start with no proof is an unsure on every day`,
     `open-its-chat: complete from ${first.asks ?? 'never (no asks)'}`,
+    `not measured (paused or off over half the day): off time from the history's gap lines; pause time not known before ${firstActionAt === null ? 'the actions log exists' : stamp(firstActionAt)}`,
     `alarms: complete from ${first.incidents ?? 'never (no incidents)'}`,
   ]
   return { lines, notes, first }

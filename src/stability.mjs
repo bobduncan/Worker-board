@@ -5,6 +5,7 @@
 
 import { open, readFile } from 'node:fs/promises'
 
+import { gapsOf } from './history.mjs'
 import { modelOf } from './work/effort.mjs'
 import { match } from './work/handOut.mjs'
 import { BAN_WHY_MARK } from './work/handover.mjs'
@@ -327,9 +328,62 @@ export function idleMinutesOf(minutes, day) {
   return counted.size
 }
 
-/** The day's line. PURE. `estimated` is the backfill's: true where the minute record did not exist. */
-export function dayLineOf({ day, minutes = [], interventions = [], unsure = [], alarms, now, estimated = false, closed = false }) {
-  return { day, idleWithWorkMinutes: idleMinutesOf(minutes, day), idleEstimated: estimated, interventions, unsure, alarms: alarms ?? { real: 0, false: 0, ids: [] }, writtenAt: now, closed }
+// 2026-11-08 (the lead): a day on which the board was paused or off for most of it is NOT MEASURED, and never counts toward the
+// finish line. The test: pause minutes + off minutes (the union, so a minute that was both counts once) over HALF of the part of
+// the day that has passed. For today that is the part elapsed so far (the line is rewritten every minute, so it can turn measured
+// again); for a closed day it is the whole day.
+/** More than this share of the day paused or off makes it not measured. */
+export const NOT_MEASURED_SHARE = 0.5
+
+/** The stretches the person's pause-all ... resume-all actions held the board paused: `[{ from, to }]`, the last open one to Infinity. PURE. */
+export function pausesOf(actions) {
+  const out = []
+  let from = null
+  for (const action of [...actions].filter(one => Number.isFinite(one?.at)).sort((a, b) => a.at - b.at)) {
+    if (action.action === 'pause-all' && from === null) from = action.at
+    else if (action.action === 'resume-all' && from !== null) {
+      out.push({ from, to: action.at })
+      from = null
+    }
+  }
+  if (from !== null) out.push({ from, to: Infinity })
+  return out
+}
+
+/** The length of the union of `spans` ({ from, to }) cut to [from, to). */
+const unionMs = (spans, from, to) => {
+  const cut = spans.map(span => ({ from: Math.max(span.from, from), to: Math.min(span.to, to) })).filter(span => span.to > span.from).sort((a, b) => a.from - b.from)
+  let total = 0
+  let end = -Infinity
+  for (const span of cut) {
+    total += Math.max(0, span.to - Math.max(span.from, end))
+    end = Math.max(end, span.to)
+  }
+  return total
+}
+
+/**
+ * Whether `day` was measured: `{ measured, pausedMinutes, offMinutes, why }`. `actions` are data/actions.jsonl (pause-all and
+ * resume-all), `gaps` the stretches the board was off (`gapsOf` over history.jsonl's gap lines). The part of the day is from its
+ * start to `now` (to its end when `closed`). `why` is `paused` or `off` (the larger share; paused on a tie), null when measured. PURE.
+ */
+export function measuredOf({ day, now, closed = false, actions = [], gaps = [] }) {
+  const from = dayStartOf(day)
+  const to = closed ? nextDayStartOf(day) : Math.min(now, nextDayStartOf(day))
+  const pauses = pausesOf(actions)
+  const paused = unionMs(pauses, from, to)
+  const off = unionMs(gaps, from, to)
+  const both = unionMs([...pauses, ...gaps], from, to)
+  const measured = !(to > from && both > (to - from) * NOT_MEASURED_SHARE)
+  return { measured, pausedMinutes: Math.round(paused / MINUTE), offMinutes: Math.round(off / MINUTE), why: measured ? null : (paused >= off ? 'paused' : 'off') }
+}
+
+/** The day's line. PURE. `estimated` is the backfill's: true where the minute record did not exist. `measure` is `measuredOf`'s answer. */
+export function dayLineOf({ day, minutes = [], interventions = [], unsure = [], alarms, now, estimated = false, closed = false, measure = null }) {
+  return {
+    day, idleWithWorkMinutes: idleMinutesOf(minutes, day), idleEstimated: estimated, interventions, unsure, alarms: alarms ?? { real: 0, false: 0, ids: [] }, writtenAt: now, closed,
+    ...(measure === null ? {} : { measured: measure.measured, pausedMinutes: measure.pausedMinutes, offMinutes: measure.offMinutes, ...(measure.measured ? {} : { notMeasuredWhy: measure.why }) }),
+  }
 }
 
 const dayBefore = day => {
@@ -339,7 +393,8 @@ const dayBefore = day => {
 
 /**
  * The finish line over the day lines: `stableDays`, the days in a row (ending yesterday, or today if its line is closed) with no
- * intervention and under 10 minutes of idle-with-work; `isStable` from 3. A day with no line, or with idle not known (null), breaks the row. PURE.
+ * intervention and under 10 minutes of idle-with-work; `isStable` from 3. A day with no line, with idle not known (null) or NOT MEASURED
+ * (`measured: false`: paused or off for most of it) breaks the row. PURE.
  */
 export function finishOf(lines) {
   const sorted = [...lines].sort((a, b) => (a.day < b.day ? 1 : -1))
@@ -348,6 +403,8 @@ export function finishOf(lines) {
   let expect = null
   for (const line of sorted) {
     if (expect !== null && line.day !== expect) break
+    // A day not measured (paused or off for most of it) is no stable day: it breaks the row.
+    if (line.measured === false) break
     // A null idle day (backfilled: not known) is not stable, it breaks the row; so does a day with a number at 10 or more.
     if ((line.interventions ?? []).length > 0 || !Number.isFinite(line.idleWithWorkMinutes) || !(line.idleWithWorkMinutes < STABLE_IDLE_MINUTES)) break
     stableDays += 1
@@ -426,6 +483,12 @@ export function mergedOutbox(lines) {
   return [...byId.values()].filter(record => Number.isFinite(record.at))
 }
 
+/** A closed line's measured fields, from the actions and the history's gap lines. */
+const measureOf = ({ day, now, closed, actions, history }) => {
+  const measure = measuredOf({ day, now, closed, actions, gaps: gapsOf(history, now) })
+  return { measured: measure.measured, pausedMinutes: measure.pausedMinutes, offMinutes: measure.offMinutes, ...(measure.measured ? {} : { notMeasuredWhy: measure.why }) }
+}
+
 /** The 14 closed lines the state shows, newest last. */
 export const SHOWN_DAYS = 14
 
@@ -463,7 +526,11 @@ export async function recordStability(state, { dir, items = new Map(), clock = D
     ])
     const lines = stored.filter(line => typeof line?.day === 'string')
     // The first pass of a new day closes the lines before it, once. A closed line is kept as it is.
-    const closed = lines.map(line => (line.day < day && line.closed !== true ? { ...line, closed: true } : line))
+    // A line closed now gets its measured value for the WHOLE day (its last pass may have been hours before: the board was off).
+    const closing = lines.filter(line => line.day < day && line.closed !== true)
+    const wide = closing.length === 0 ? [] : await tailLines(files.history, dayStartOf(closing[0].day) - 2 * 60 * MINUTE)
+    const closes = ({ notMeasuredWhy, ...line }) => ({ ...line, closed: true, ...measureOf({ day: line.day, now, closed: true, actions, history: wide }) })
+    const closed = lines.map(line => (line.day < day && line.closed !== true ? closes(line) : line))
     const before = closed.find(line => line.day === day)
     if (before?.closed === true) return viewOf(closed, now)
     const all = [...items.values()]
@@ -473,7 +540,7 @@ export async function recordStability(state, { dir, items = new Map(), clock = D
       lanes: (state?.chats ?? []).map(lane => lane?.name).filter(name => typeof name === 'string'), landings, reports, history, wakes,
       outbox: mergedOutbox(outbox), asks: all.filter(item => valueOf(item, 'Kind') === 'ask'), day, live,
     })
-    const today = dayLineOf({ day, minutes, interventions, unsure, alarms: alarmsOf(all.filter(item => valueOf(item, 'Kind') === 'incident'), day), now })
+    const today = dayLineOf({ day, minutes, interventions, unsure, alarms: alarmsOf(all.filter(item => valueOf(item, 'Kind') === 'incident'), day), now, measure: measuredOf({ day, now, actions, gaps: gapsOf(history, now) }) })
     const next = [...closed.filter(line => line.day !== day), today].sort((a, b) => (a.day < b.day ? -1 : 1))
     await writeUnflushed(files.stability, `${next.map(line => JSON.stringify(line)).join('\n')}\n`)
     return viewOf(next, now)

@@ -4449,6 +4449,17 @@ own: the Supervisor does not file incidents from them.
   reach back, the day carries an `unsure` and the tool prints, per number, from which day it is complete: `resume-all` not before the first line of the actions log; `rollback` from the first landing;
   `restart-by-hand` not before the live loop (`lastStop` is state, not a record); `app-restart` from the first
   whole day after the first wake attempt in `wakes.json`; `open-its-chat` from the oldest ask; alarms from the oldest incident.
+- **Not measured (2026-11-08, the lead)**: a day on which the board was paused or off for most of it is `measured: false` and
+  never counts toward the finish line. The test (`measuredOf`): pause minutes + off minutes (the union, so a minute that was both
+  counts once) over half of the part of the day that has passed: for today the part so far (the line is rewritten every minute, so
+  it can turn measured again), for a closed day the whole day. Pause time is the person's `pause-all` ... `resume-all` in
+  `actions.jsonl` (an open pause runs to now); off time is the history's gap lines (`gapsOf`: from the gap line to the next
+  line). The line gains `measured`, `pausedMinutes`, `offMinutes` and, when not measured, `notMeasuredWhy` (`paused` or `off`,
+  the larger share, paused on a tie). A line closed at the first pass of a new day gets these recomputed for the whole day (its
+  last pass may be hours old: the board was off). `finishOf` breaks the row on a not-measured day. The page draws it as a gap in
+  all three sparklines ("not measured" in the hover), today's numbers read "not measured (paused)" or "(off)", never amber. The
+  backfill marks past days the same way (off time from the history; pause time only from the first line of the actions log). A line
+  with no `measured` field is measured. On 2026-11-08 (paused all day, board off until 22:13): 1337 min paused, 1334 off, not measured.
 - Tests: `test/stability.test.mjs` (the minute, each kind of intervention with its mutant, the own-pause rule, alarms, the finish
   line, the midnight close), `test/work/actionsLog.test.mjs`, `test/stabilityPage.test.mjs`, `test/stabilityBackfill.test.mjs`
   (the lines marked backfilled with idle null, a closed line never rewritten, `--out` leaves the data folder alone).
