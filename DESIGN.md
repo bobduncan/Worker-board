@@ -4025,7 +4025,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   calls answered after the chat gave up (10 s, two within 2 min), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
   clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. **A sleep is no stall** (B1049 part 2: the PC
   slept 2026-11-04 23:45 to 11-05 08:15 and `data/stalls.json` held it as 8.5 h of "the loop blocked"): a stall is written as
-  `kind: 'sleep'` (no requests or jobs named) when a stall of the loop lasts over 10 min, spans a clock jump (the wall clock and the monotonic
+  `kind: 'sleep'` (no requests or jobs named) when a stall of the loop lasts over 10 min, spans a clock jump where the clocks disagree (C2, 2026-11-08: on Windows `performance.now` keeps counting through a PC sleep, so the monotonic clock does not pause and the two clocks do not disagree: a sleep under 10 min is not detected by the clock-jump test and is logged as a loop stall, only the 10 min rule catches a longer one) (the wall clock and the monotonic
   one, `watchLoop`, disagree by over 5 s) or began before the board did (a work call is a sleep only when sent before the board began); an older loop stall over 10 min reads as a sleep too
   (`stallOf`). A sleep is kept and said in plain words ("the PC slept (not a slow board)"); board-slow counts no call that
   waited through one and cites it as "slept: ...", never as a stall. Review (2026-11-05): a call is left out only when its chat

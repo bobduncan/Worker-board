@@ -74,7 +74,7 @@ test('guard: a real failed set with nothing delivered after it stays banned (no 
 test('visibility: a banned lane\'s why names the model, the time and the reason; the state\'s own reading (no ready list) shows it too', () => {
   const failed = { ...failedByDrop, outcome: { ...failedByDrop.outcome, why: 'Session x not found.' } }
   const found = decideFor(lane('Worker 4'), [failed], SOON)
-  assert.equal(found.why, 'free; gets no sonnet steps: its set failed at 21:20 (Session x not found.) until 23:20')
+  assert.equal(found.why, 'free; gets no sonnet steps: its set failed at 21:20, until 23:20 (Session x not found.)')
   assert.equal(laneWords(found), found.why)
   const worker = lane('Worker 4')
   const noReady = decide({ worker, items, ready: [], envelopes: [failed], setFor: setterFor(worker, items, CONFIG), now: SOON, installed: HANDOVER_MOD })
