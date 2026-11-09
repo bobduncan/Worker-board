@@ -116,8 +116,11 @@ export function usageDue({ readings = [], givenAt = -Infinity, now }) {
 export const STOP_MOD = '0.26.1'
 export const STOP_HANDS_MS = 15 * 60_000
 
-/** B769: a stop or remove word the board carries out by code. */
-export const isStopWord = message => (message?.command === 'stop' || message?.command === 'remove') && message.byCode === true && typeof message.about === 'string'
+/**
+ * B769: a stop or remove word the board carries out by code (the person's Stop task and Remove worker). B1071 (X2): one name
+ * per meaning: the limits' stop words are say.mjs `isLimitStopWord`.
+ */
+export const isTaskStopWord = message => (message?.command === 'stop' || message?.command === 'remove') && message.byCode === true && typeof message.about === 'string'
 
 /** B769: the task a stop word names ("Task: B12 \"...\""), or ''. */
 export const stopTaskOf = message => /^Task: (.{1,200})$/m.exec(String(message?.text ?? ''))?.[1] ?? ''
@@ -128,10 +131,27 @@ export const stopTaskOf = message => /^Task: (.{1,200})$/m.exec(String(message?.
  * takes it out), or 'wait'.
  */
 export function stopStep(message, lane) {
-  const isOver = lane === undefined || lane.isRunning === false
-    || (['idle', 'asking'].includes(lane.report?.state) && Number.isFinite(lane.report?.since) && lane.report.since > message.at)
+  if (lane === undefined) return 'settle'
+  // B1071 (review): a stop is over only once its worker was told (`toldAt`: the board handed it at the worker's tool call) and then
+  // its turn ended, or its chat went off after being told; a turn that ended before it heard the stop proves nothing. A remove needs
+  // no telling: the worker idle or off after it is enough for a hand to take it out.
+  const told = message.command === 'remove' ? message.at : message.toldAt
+  if (!Number.isFinite(told)) return 'wait'
+  const isOver = lane.isRunning === false
+    || (['idle', 'asking'].includes(lane.report?.state) && Number.isFinite(lane.report?.since) && lane.report.since > told)
   if (!isOver) return 'wait'
-  return message.command === 'remove' ? (lane === undefined ? 'settle' : 'remove') : 'settle'
+  return message.command === 'remove' ? 'remove' : 'settle'
+}
+
+/**
+ * B1071 (X2, 2026-11-08 22:28: the person's stop of Worker 1 worked in a minute, and its word stayed waiting until it expired): why a
+ * task stop word is settled as done by what `lane` shows (stopStep's 'settle'), or null. `clock` writes a time as HH:MM.
+ */
+export function stopSettleWhy(message, lane, clock = at => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })) {
+  if (stopStep(message, lane) !== 'settle') return null
+  if (lane === undefined) return `carried out by code: ${message.about} is not on the board`
+  if (lane.isRunning === false) return `carried out by code: ${message.about} was told at ${clock(message.toldAt)} and its chat does not run`
+  return `carried out by code: ${message.about} was told at ${clock(message.toldAt)} and its turn ended at ${clock(lane.report.since)}`
 }
 
 /** T14: the first Workers mod that says whether its chat may send by code (`can: ['send']`). */
@@ -201,7 +221,7 @@ export function isHandWord(message, { canSend = true, canSet = false, canRestart
 export const isForHandsYet = (message, now, workers = null) =>
   (HAND_COMMANDS.includes(message?.command) && typeof message?.about === 'string')
   || (isHandWord(message, { canSend: true, canSet: true, canRestart: true, canSpawn: true, workers }) && now - message.at < HANDS_FIRST_MS)
-  || (isStopWord(message) && now - message.at < STOP_HANDS_MS)
+  || (isTaskStopWord(message) && now - message.at < STOP_HANDS_MS)
 
 /**
  * T12 (the person, 2026-10-28: every worker its own routine, so the app's Routines page shows one card per worker): the

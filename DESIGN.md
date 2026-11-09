@@ -2651,6 +2651,37 @@ slowest answered in 45 s; this the only one held longer, and the only "no sessio
    round behind a hanging call) is in no doubt and free at once. Rule 8 names a word in doubt ("in doubt: Worker 2's mod
    gave no answer"). `test/work/doubtHandWord.test.mjs`; the running-board test covers both give-backs.
 
+### The person's stop by code is settled when its worker stops (B1071)
+
+X2 came back a 4th time at 22:41 on 2026-11-08 (120 seen; B532, B813 and B880 each held for a while). The person's Stop
+of Worker 1 on B1070 at 22:28:30 was the first stop the board carried out by code (B769): it reached the worker within a
+minute, its stop checkpoint gave the step back at 22:28:47 and its turn ended at 22:34:48, yet the word to the main chat
+(outbox `c3429a0b005cdb29`) stayed waiting, expired on the 10 min keep at 22:38:30 and rule 8 named it. Two causes: only
+a hand's call settled such a word, through `store.settle`, which touches taken words only, so a waiting stop word was
+never settled; and `keepMs` read the limits' stop words by a name the task stops shared (`isStopWord` was two exports), so
+the person's stop got a plain word's 10 min, shorter than the 15 the hands are given. Now:
+
+1. One name per meaning: `isLimitStopWord` (say.mjs: the week's and the 5-hour stop) and `isTaskStopWord` (hands.mjs:
+   the person's Stop task and Remove worker, `byCode`).
+2. The board stamps when it first hands a stop to its worker (`toldAt`, store.mjs `tell`: its mod tells the worker at
+   its next tool call). Every refresh's outbox sweep settles a waiting task stop as done (`delivered`, `deliveredAt`,
+   its why: "carried out by code: ...") at the event that already gives its step back: the worker, told, ended its turn
+   after that or its chat went off, or it left the board (`stopStep`, `stopSettleWhy`); or, told, it no longer holds the
+   step the word names (its stop checkpoint gave it back; held means taken, in progress or waiting on you, rethink.mjs
+   `WITH_WORKER`). A turn that ended before the worker was told proves nothing, and a step the store does not show is
+   no sign: the word waits. Never told while the person moved the step on: closed `dropped`, nothing to stop. A remove
+   needs no telling: it waits for a hand while its worker is on the board. Never by a timer: an unsettled one is kept STOP_HANDS_MS and a plain word's keep, so the main chat may
+   still take it after the hands' 15 min, then it expires. The hand's own settle closes it the same way (`store.close`).
+3. Rule 8 counts a word the sweep would settle as done as no undelivered word; it waits STOP_HANDS_MS and then
+   `undeliveredMinutes` (the main chat's own time to take it) for a task stop, and names one not settled by then as a finding of its own per stop (key
+   `undelivered stop <worker> <word id>`), with the step it stops, who holds the word (the main chat it waits for, or
+   the hand that took it) and how the worker stands.
+
+The Supervisor's wanted rule (a spawn failing with "$.tool.call is not available") did not fit this case: one such
+failure stands in the outbox, on 2026-10-31 (a spawn of the Product owner), none since. Incidents that would show this
+failing: X2 again with a stop or remove word as its evidence; a stop word shown waiting on the page after its worker
+stopped. Tests: `test/taskStopSettle.test.mjs` (the real word, ids and times).
+
 ## A step's title without its note (B292)
 
 The person, 2026-10-17, of Support's lane showing B29's whole line: "tasks still dont have a compact name. i dont

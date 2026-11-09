@@ -8,8 +8,8 @@
 // rule 8 stop naming it; one that still matters stays failed, for the person to see.
 
 import { shownChats } from '../bridge.mjs'
-import { heldTooLong, isHandTaken, isMootSpawn, mootWhy } from '../hands.mjs'
-import { RESUME_STEP, isStopWord, waitsLong } from '../say.mjs'
+import { heldTooLong, isHandTaken, isMootSpawn, isTaskStopWord, mootWhy, stopSettleWhy } from '../hands.mjs'
+import { RESUME_STEP, isLimitStopWord, waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { familyOf, sameModel } from './effort.mjs'
@@ -17,6 +17,7 @@ import { stamp } from './migrate.mjs'
 import { OLD_CHECK_WHY } from './qaTask.mjs'
 import { readStore } from './store.mjs'
 import { RESUME_KIND, TIMED_STATES, markerStep } from './holderTimers.mjs'
+import { WITH_WORKER } from './rethink.mjs'
 import { workLineWhy } from './workLines.mjs'
 
 const firstLine = text => String(text ?? '').split('\n')[0]
@@ -51,7 +52,9 @@ export function whyClosed(message, ctx) {
     return why === null ? null : { state: 'dropped', why }
   }
   // B812 (X109): a stop word waits for its worker's next idle moment however long its turn runs, while it holds a step.
-  if (isStopWord(message.command)) return stopWordWhy(message, ctx)
+  if (isLimitStopWord(message.command)) return stopWordWhy(message, ctx)
+  // B1071 (X2): the person's stop or remove by code is settled as done once its worker stopped.
+  if (isTaskStopWord(message)) return taskStopWhy(message, ctx)
   // T8.5: an envelope with a task matters while that task is still given to its worker (the decision takes it back and
   // closes the envelope itself; this catches a task the person moved meanwhile). One without a task waits until late.
   if (message.command === 'handover') {
@@ -162,6 +165,34 @@ function stopWordWhy(message, ctx) {
   const name = plainName(message.to, ctx.prefix ?? '')
   const holds = [...ctx.items.values()].some(item => ['taken', 'in progress'].includes(value(item, 'State')) && plainName(value(item, 'Owner'), ctx.prefix ?? '') === name)
   return holds ? null : { state: 'dropped', why: `${message.to} holds no step not yet reported, so there is no work to stop` }
+}
+
+/**
+ * B1071 (X2, 2026-11-08 22:28: the person's Stop of Worker 1 on B1070 reached it in a minute, its stop checkpoint gave the step back
+ * at 22:28:47 and its turn ended; the word to the main chat stayed waiting, expired at 10 min and rule 8 named it, the 4th time X2
+ * came back). Until then only a hand's call settled such a word, through a settle that touches taken words only: a waiting one was
+ * never settled. Now every refresh settles it as done (`delivered`, with its why) at the event that already gives the step back:
+ * - a stop: its worker's turn ended after it, or its chat does not run or left the board (hands.mjs `stopStep`, `stopSettleWhy`);
+ *   or the step it names is no longer held by its worker (its stop checkpoint gave it back, or the person moved it);
+ * - a remove: only once its worker left the board; a hand takes it out otherwise.
+ * Never by a timer: an unsettled word is kept STOP_HANDS_MS and a plain word's keep (store.mjs `keepMs`), then expires.
+ */
+function taskStopWhy(message, ctx) {
+  if (message.state !== 'waiting') return null
+  const lane = (ctx.lanes ?? []).find(one => !one.isLeftover && one.name === message.about)
+  const settled = stopSettleWhy(message, lane, at => stamp(at).slice(11, 16))
+  if (settled !== null) return { state: 'delivered', why: settled }
+  if (message.command === 'stop' && ctx.items instanceof Map && typeof message.taskStep === 'string') {
+    const item = ctx.items.get(message.taskStep)
+    const prefix = ctx.prefix ?? ''
+    // A step the store does not show: the board cannot tell, so the word waits (as a limit stop does).
+    const holds = item === undefined || (WITH_WORKER.includes(value(item, 'State')) && plainName(value(item, 'Owner'), prefix) === plainName(message.about, prefix))
+    // Told and given back (its stop checkpoint): done; never told, the step moved on by the person: moot.
+    if (!holds) return Number.isFinite(message.toldAt)
+      ? { state: 'delivered', why: `carried out by code: ${message.about} was told and no longer holds ${message.taskStep} (${value(item, 'State')})` }
+      : { state: 'dropped', why: `${message.about} no longer holds ${message.taskStep} (${value(item, 'State')}): nothing to stop` }
+  }
+  return isLate(message, ctx.now, ctx.keep) ? expired(message, ctx.keep) : null
 }
 
 /** A chat's name for comparing: without the list's prefix, in lower case. */
@@ -317,7 +348,8 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
     const closed = whyClosed(message, ctx)
     if (closed !== null && (message.state === 'waiting' || closed.state === 'dropped')) closing.set(message.id, { id: message.id, ...closed })
   }
-  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : {})
+  // B1071: a stop settled as done is closed delivered, at this sweep.
+  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : one.state === 'delivered' ? { deliveredAt: now } : {})
   return [...settled, ...closing.values()]
 }
 

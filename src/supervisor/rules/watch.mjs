@@ -31,7 +31,7 @@ import { BOARD_TRIES } from '../../refineGate.mjs'
 import { rebuildHoldOf } from '../../goalGuard.mjs'
 import { DEAF_KEEP_MS } from '../../hearing.mjs'
 import { isSleep, stallWords } from '../../stallWords.mjs'
-import { isHandTaken } from '../../hands.mjs'
+import { STOP_HANDS_MS, isHandTaken, isTaskStopWord } from '../../hands.mjs'
 import { triedWords } from '../../wake.mjs'
 import { isRethinkHold, rethinkWords } from '../../work/rethink.mjs'
 
@@ -368,11 +368,14 @@ function repairRepeats(view) {
  * wake it, not word by word.
  */
 function undelivered(view) {
-  const late = undeliveredWords(view)
+  const all = undeliveredWords(view)
+  // B1071 (X2): a task stop by code is one finding per stop, keyed by its word, never one per chat that the next stop reopens.
+  const stops = all.filter(isTaskStopWord).map(message => stopFinding(view, message))
+  const late = all.filter(message => !isTaskStopWord(message))
   const stopped = stoppedOfView(view)
   const byChat = new Map()
   for (const message of late) byChat.set(message.to, [...(byChat.get(message.to) ?? []), message])
-  return [...byChat].sort(([a], [b]) => byId(a, b)).map(([chat, words]) => {
+  return [...stops, ...[...byChat].sort(([a], [b]) => byId(a, b)).map(([chat, words]) => {
     const oldest = words.reduce((a, b) => (b.at < a.at ? b : a))
     const stop = stopped.get(chat) ?? null
     if (stop !== null) {
@@ -391,7 +394,24 @@ function undelivered(view) {
       // B813: a failed word with its last why. B880: and the hand that holds a taken word, or failed it.
       evidence: words.map(one => `${clockOf(one.at)} ${one.command ?? 'answer'}${one.about ? ` ${one.about}` : ''} (${one.state}${handOf(one)}${one.state === 'failed' && typeof one.why === 'string' && one.why.trim() !== '' ? `: ${shortWhy(one.why)}` : ''})`).join('; '),
     }
-  })
+  })]
+}
+
+/**
+ * B1071 (X2): the finding of one task stop by code not settled within STOP_HANDS_MS (rule 8 waits that long for it: `isUndelivered`):
+ * its own key (`undelivered stop <worker> <word>`), the step it stops and who holds it now: the main chat it waits for, or the hand
+ * that took it, and what the worker's chat shows.
+ */
+function stopFinding(view, message) {
+  const lane = view.lanes.find(one => !one.isLeftover && one.name === message.about)
+  const step = typeof message.taskStep === 'string' ? ` on ${message.taskStep}` : ''
+  const holder = isHandTaken(message) ? `held by ${message.takenBy}'s mod` : message.state === 'waiting' ? `waits for ${message.to}` : `${message.state}${handOf(message)}`
+  const worker = lane === undefined ? `${message.about} is not on the board` : `${message.about} ${lane.isRunning === false ? 'does not run' : `is ${lane.report?.state ?? 'not reported'}${Number.isFinite(lane.report?.since) ? ` since ${clockOf(lane.report.since)}` : ''}`}`
+  return {
+    rule: 'undelivered', key: `undelivered stop ${message.about} ${message.id}`, subject: message.about, since: message.at,
+    text: `the person's ${message.command} of ${message.about}${step} (${clockOf(message.at)}) is not settled after ${minutes(view.now - message.at)} min`,
+    evidence: `the word ${message.id} ${holder}; ${worker}`,
+  }
 }
 
 /**
@@ -417,7 +437,8 @@ export function wordMatters(view) {
   // T9.4: the chats known not to run (outboxSweep.mjs): a start word one of them holds is closed, so it matters to no rule.
   const off = new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor].filter(chat => chat?.isRunning === false).map(chat => chat.name))
   const ctx = { all: view.outbox, items: view.items, assets: view.assets ?? undefined, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped: stoppedOfView(view), prefix: view.prefix ?? '', main: view.lanes.find(chat => chat.isMain === true)?.name ?? null, off, handedBack: view.handedBack ?? [], lanes: view.lanes, onBoard: new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor, view.owner].filter(chat => typeof chat?.name === 'string').map(chat => chat.name)) }
-  return message => whyClosed(message, ctx)?.state !== 'dropped'
+  // B1071: a task stop the sweep settles as done (`delivered`) matters to no rule either.
+  return message => !['dropped', 'delivered'].includes(whyClosed(message, ctx)?.state)
 }
 
 /**
@@ -441,12 +462,14 @@ export function undeliveredWords(view) {
 export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   // The person pauses: the bridge holds every word until Resume all.
   if (judged === null) return false
-  const { limit, stillWaits, waking } = judged
+  const { stillWaits, waking } = judged
   if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to))) return false
   // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
   // hold before its release (B285).
   const held = message.at + heldMs(message, view.now, view.pause)
   const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
+  // B1071 (X2): a task stop by code waits STOP_HANDS_MS for the board to carry it out, then the main chat may take it: late after both.
+  const limit = isTaskStopWord(message) ? STOP_HANDS_MS + judged.limit : judged.limit
   if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
   // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
   if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)
