@@ -907,12 +907,21 @@ const text = () => readFileSync(SCRIPT, 'utf8')
 
 /** The lines of the script that push; the git calls are arrays like @('push', $remote, 'main'). */
 const pushLines = source => source.split('\n').filter(line => /'push'/.test(line))
-const forcesAPush = source => pushLines(source).some(line => /--force|--mirror|'-f'|\+main|--delete|:main/.test(line))
+const forcesAPush = source => pushLines(source).some(line => /--force|--mirror|'-f'|\+main|:main/.test(line))
+/** 2026-11-09: the one push that deletes is the branch clean-up's, of a name that is checked (never main, fully merged) first. */
+const DELETE_PUSH = "@('push', $remote, '--delete', $Name)"
 
-test('no push in the script is forced, and no command in it takes work back by force', () => {
+test('no push in the script is forced, and no command in it takes work back by force; the one delete is of a checked branch name, never main', () => {
   const source = text()
   assert.ok(pushLines(source).length >= 2, 'the landing\'s push and the revert\'s push are both there')
   assert.equal(forcesAPush(source), false)
+  const deletes = pushLines(source).filter(line => /--delete/.test(line))
+  assert.equal(deletes.length, 1, 'one push deletes: the branch clean-up')
+  assert.ok(deletes[0].includes(DELETE_PUSH), deletes[0])
+  const removeRemote = source.slice(source.indexOf('function Remove-RemoteBranch'), source.indexOf(DELETE_PUSH))
+  assert.ok(removeRemote.includes("if ($Name -eq 'main') { return 'main is never removed' }"), 'main is refused before the delete')
+  assert.ok(removeRemote.includes('Get-NotOnMainWhy $Heads[$Name] $Heads[\'main\']'), 'the merge check comes before the delete')
+  assert.ok(/if \(\$null -ne \$why\) \{ return \$why \}/.test(removeRemote), 'an unmerged branch returns before the delete')
   assert.ok(!/--force/.test(source), 'no --force anywhere (a git worktree remove without it)')
   assert.ok(!/\s-f(\s|$)/.test(source), 'no -f anywhere')
   for (const forbidden of ['reset --hard', 'checkout --', "'checkout'", "'restore'", "'stash'", "'clean'"]) assert.ok(!source.includes(forbidden), forbidden)
