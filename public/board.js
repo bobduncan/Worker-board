@@ -12584,19 +12584,26 @@ const goalAskStepUi = new Map()
  */
 function goalStepControl(node, block) {
   const now = goalAskStepUi.get(`${node.id}:${block.id}`)
+  // The record first: a step already made from this answer (the board's state names it), also after a reload.
+  const made = node.asks.find(one => one.id === block.id)?.step ?? null
+  if (made !== null && now?.phase !== 'making') return stepMadeLine(made)
   if (now === undefined) return goalButton('goals-tool', 'Make a step from this', { askAction: 'step', askId: block.id })
   if (now.phase === 'making') {
     const button = goalButton('goals-tool is-making', 'Making…')
     button.disabled = true
     return button
   }
-  const line = el('span', `goal-ask-step is-${now.phase}`)
-  if (now.phase === 'refused') {
-    line.append(el('small', 'muted', `Not made: ${now.why} `), goalButton('goals-tool', 'Try again', { askAction: 'step', askId: block.id }))
-    return line
-  }
-  const link = el('a', 'step-id', now.step)
-  link.href = `#details=${now.step}`
+  if (now.phase === 'made') return stepMadeLine(now.step)
+  const line = el('span', 'goal-ask-step is-refused')
+  line.append(el('small', 'muted', `Not made: ${now.why} `), goalButton('goals-tool', 'Try again', { askAction: 'step', askId: block.id }))
+  return line
+}
+
+/** "Step B<n> made", the step a link to its window. */
+function stepMadeLine(step) {
+  const line = el('span', 'goal-ask-step is-made')
+  const link = el('a', 'step-id', step)
+  link.href = `#details=${step}`
   line.append('Step ', link, ' made')
   return line
 }

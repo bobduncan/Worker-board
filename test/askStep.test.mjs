@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { askStepMark, askToStep } from '../src/goalSteps.mjs'
 import { parseGoals } from '../src/goals.mjs'
 import { openPage, reply } from './pageHarness.mjs'
-import { asSent, build } from './partnerState.mjs'
+import { asSent, build, parsed } from './partnerState.mjs'
 
 const GOALS = ['# Goals', 'Last id: G6', 'Last ask: A2', 'Focus: G6', '', '- [~] G6 Benches that match the picture', '  Steps: B12',
   '  Ask (A1, 2026-10-15 18:40): what differs most from the picture?',
@@ -27,7 +27,7 @@ function ports(text = GOALS) {
   return {
     made,
     readMap: async () => text,
-    existing: async mark => made.find(one => one.mark === mark)?.id ?? null,
+    existing: async (goal, ask) => made.find(one => one.mark === askStepMark(goal, ask))?.id ?? null,
     make: async step => {
       made.push({ ...step, id: `B${100 + made.length}` })
       return { ok: true, result: { step: `B${99 + made.length}` } }
@@ -102,11 +102,43 @@ test('the page: the click shows "Making…", then "Step B<n> made" with its link
   }
 })
 
+test('the page draws the made line from the records: a fresh state with the step present shows the line and no button; a dropped step shows the button', async () => {
+  const stepItem = state => parsed(`Id: B88
+Kind: step
+Title: The shading
+State: ${state}
+Activity: Garden
+Goal: G6
+Since: 2026-10-19 10:00
+
+## Context
+  ${askStepMark('G6', 'A1')}
+`)
+  const stateOf = state => asSent({ ...build([stepItem(state)], undefined, GOALS), goalsEdit: { canWrite: true } })
+  const page = await openPage({ state: stateOf('new'), hash: 'advice/goals/G6' })
+  try {
+    assert.equal(page.text('.goal-ask-step'), 'Step B88 made')
+    assert.equal(page.find('.goal-ask-step a').getAttribute('href'), '#details=B88')
+    assert.equal(page.all('[data-ask-action="step"]').length, 0)
+    assert.deepEqual(page.sent('/api/goals'), [])
+  } finally {
+    await page.close()
+  }
+  const dropped = await openPage({ state: stateOf('dropped'), hash: 'advice/goals/G6' })
+  try {
+    assert.equal(dropped.all('.goal-ask-step').length, 0)
+    assert.equal(dropped.all('[data-ask-action="step"]').length, 1)
+  } finally {
+    await dropped.close()
+  }
+})
+
 // ---------------------------------------------------------------------------------------------------------------------
-// The real case: a copy of the real store and goal map, an answer under a real goal, the server's own route
+// The real case (G12, A1, kept verbatim in test/fixtures/ask-step): a temp copy, the server's own route
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const REAL = join(ROOT, '..', '.claude')
+// A slice of the real goal map (G12 with its answered ask A1) and a minimal work store, committed: the test reads no real store.
+const FIXTURE = join(ROOT, 'test', 'fixtures', 'ask-step', '.claude')
 const COPIED = ['server.mjs', 'run-game.mjs', 'start-board.mjs', 'package.json', 'src', 'public', 'roles', 'examples', 'fixtures']
 
 const freePort = () => new Promise(done => {
@@ -144,7 +176,7 @@ async function stop(child) {
   await gone
 }
 
-test('on a copy of the real store: the route makes one step under the real goal, links it, makes no second, refuses the unknown, and no word goes to any chat', { timeout: 300_000 }, async t => {
+test('on a temp copy of the fixture (the real case G12 / A1): the route makes one step under the real goal, links it, makes no second, refuses the unknown, and no word goes to any chat', { timeout: 300_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'board-askstep-'))
   const started = []
   t.after(async () => {
@@ -153,11 +185,9 @@ test('on a copy of the real store: the route makes one step under the real goal,
   })
   const [board, project, app, transcripts] = ['board', 'project', 'app', 'transcripts'].map(name => join(dir, name))
   for (const part of COPIED) await cp(join(ROOT, part), join(board, part), { recursive: true })
-  await mkdir(join(project, '.claude'), { recursive: true })
-  await cp(join(REAL, 'work'), join(project, '.claude', 'work'), { recursive: true })
+  await cp(FIXTURE, join(project, '.claude'), { recursive: true })
   const goalsFile = join(project, '.claude', 'goals.md')
-  await cp(join(REAL, 'goals.md'), goalsFile)
-  // A real goal with a real answered ask: G12, A1.
+  // The real goal G12 with its real answered ask A1.
   const real = parseGoals(await readFile(goalsFile, 'utf8')).byId.get('G12')
   assert.equal(real.asks[0].id, 'A1')
   assert.ok(real.asks[0].answer !== null, 'the real G12 holds an answered ask')

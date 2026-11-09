@@ -90,6 +90,18 @@ async function missingOnce(body, ports) {
 export const askStepMark = (goal, ask) => `From the goal map: the Advisor's answer ${ask} under ${goal}.`
 
 /**
+ * The step already made from an answer: the id of a step (not dropped) whose context holds the answer's mark line, else
+ * null. `items`: the work store's items. The one record both the idempotence and the page's "Step B<n> made" read.
+ */
+export function stepMadeFrom(items, goal, ask) {
+  const mark = askStepMark(goal, ask)
+  for (const [id, item] of items ?? []) {
+    if (item.head.get('Kind') === 'step' && item.head.get('State') !== 'dropped' && (item.sections?.get('Context') ?? []).some(one => one.trim() === mark)) return id
+  }
+  return null
+}
+
+/**
  * "Make a step from this" (reactive board, brief B): an Advisor's answer under a goal made into a step by the board
  * itself, in the state the Brainstorm's Create gives its steps (`ports.make` is that maker, B754): the goal, a title
  * from the answer's first words, the answer's words as its text. No effort, no model, no word to any chat. Idempotent on
@@ -115,7 +127,7 @@ async function askOnce(body, ports) {
   if (ask === undefined) return refuse(404, `${askId} is no longer under ${id}.`)
   if (ask.answer === null) return refuse(409, 'The Advisor has not answered that ask yet.')
   const mark = askStepMark(id, askId)
-  const had = await ports.existing(mark)
+  const had = await ports.existing(id, askId)
   if (had !== null) return { ok: true, result: { step: had, again: true } }
   const words = plain(ask.answer.text)
   const made = await ports.make({
