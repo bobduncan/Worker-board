@@ -2222,7 +2222,8 @@ step on "check pending" for good.
   own re-run, in the first 5 minutes after a board start, nor while a landing runs (`data/landing.lock`, not stale): the rule
   `skips` says so. Its fix is `recheck` with `again`: the action `recheck-base` writes one line, "check run again by the board (faults
   gone): <why>" (no "check pending" line, so every reader still sees the failed check it re-runs). A pass is written as every pass
-  is and closes a back word that still waits in the outbox (`handover.mjs` `decide`); a failure is written "check run again by the
+  is; the outbox sweep (`outboxSweep.mjs` `whyClosed`) closes a back word still waiting for the worker, made before the pass, with the why
+  "its check passed since (board re-run)"; a failure is written "check run again by the
   board: failed: <faults>": `report-check-twice` counts only "check failed" lines, and the hand-over's back word keeps the key of the
   failed check it told (so none is sent again). A re-run whose start stands over 2 minutes without an outcome is stuck like a pending
   check (`stuckChecks`). Tests: `test/supervisor/faultsGone.test.mjs`; real cases `fixtures/faults-gone/` (B1042, B1071).
