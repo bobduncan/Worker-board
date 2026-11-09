@@ -24,3 +24,20 @@ a design that breaks one says which and why.
    settings' `models`, and never Fable without the person's yes) hold for all.
 8. **When in doubt, hold and say so once.** Never act silently, never loop.
 9. **Simple over clever.** Fewer moving parts; remove before adding.
+
+## The person's side (2026-11-09)
+
+The person: "see if we have principles e.g. always reactive, not too much text, visually distinctive for importants, use
+code more than chats ... i submit things but i see not enough loaders. or it tries to react directly to the CHAT instead of
+code just submitting an item in a queue and then waiting for the chat to pick it up".
+
+10. **Always reactive.** Every click answers at once. If a chat must act, a loader shows on the spot that names who has it
+    and since when, and turns Done, Late or Stopped by itself. It never says "on it" or "thinking" when nobody is.
+11. **Queue, don't call.** A click is stored by code at once, as an item or a line. A chat picks it up when its turn
+    comes, and the page shows the stored state. A decision the person makes is written by code, never by a chat that
+    "records" it.
+12. **One status per thing.** One wait system for every click, with no second guess beside it that can disagree.
+13. **Little text, honest words.** Short and plain: context, problem, what each button does. Say what the board did,
+    never a chat that no longer does it. Pictures and links show exactly what is asked about.
+14. **Colour only for what needs the person.** Amber, orange or red mark what waits for them; plain information stays
+    calm.
