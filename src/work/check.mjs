@@ -461,6 +461,28 @@ export async function basesNow({ repos, run }) {
   }))
 }
 
+/**
+ * P2 (T2.11), for the repair rule faults-gone: what stands in each repository of `repos` now, by its name: `{ name, base,
+ * heads, remotes, remoteUnmerged, worktrees }`. `heads` the local branches, `remotes` the remote-tracking branches
+ * ("origin/b1-x"), `remoteUnmerged` those of them origin's base lacks, `worktrees` the paths git lists (the main checkout
+ * included); each null where git did not answer (the rule then waits: Principle 3).
+ */
+export async function faultsNow({ repos, run }) {
+  return Promise.all(repos.map(async ({ dir, base }) => {
+    const [heads, remotes, unmerged, worktrees] = await Promise.all([
+      run(['-C', dir, 'for-each-ref', '--format=%(refname:short)', 'refs/heads']),
+      run(['-C', dir, 'for-each-ref', '--format=%(refname:short)', 'refs/remotes']),
+      run(['-C', dir, 'for-each-ref', '--no-merged', `origin/${base}`, '--format=%(refname:short)', 'refs/remotes']),
+      run(['-C', dir, 'worktree', 'list', '--porcelain']),
+    ])
+    return {
+      name: nameOf(dir), base, heads: heads === null ? null : linesOf(heads), remotes: remotes === null ? null : linesOf(remotes),
+      remoteUnmerged: unmerged === null ? null : linesOf(unmerged),
+      worktrees: worktrees === null ? null : String(worktrees).split('\n').map(one => one.replace(/\r$/, '')).filter(one => one.startsWith('worktree ')).map(one => one.slice('worktree '.length)),
+    }
+  }))
+}
+
 /** B527: the line a report names its mutant with, as the refusal says it. */
 export const BITE_LINE = 'Tests bite: <what was undone in a copy> → <the assertion that failed>'
 

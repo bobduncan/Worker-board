@@ -14,7 +14,7 @@ import { modAtLeast, handedBackOf } from '../clearOwed.mjs'
 import { match } from './handOut.mjs'
 import { GIVEN_BACK, GIVE_BACK_MINUTES, RESUME_KIND, RESUME_MINUTES, continuationLine, continuationOf, holderTimers } from './holderTimers.mjs'
 import { sinceMs, valueOf } from './item.mjs'
-import { reportCheckFailedOf } from './resultCheck.mjs'
+import { gitCheckPassed, reportCheckFailedOf } from './resultCheck.mjs'
 import { holdEndOf } from './pause.mjs'
 import { familyOf } from './effort.mjs'
 import { stamp } from './migrate.mjs'
@@ -428,6 +428,12 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
       const isTyped = inFlight.outcome?.typed === true || inFlight.state === 'delivered'
       return result(isTyped ? STATES.OFFERED : STATES.HANDING, null, { step: id })
     }
+  }
+  // P2 (T2.11): the back words still waiting for a worker whose step's check passed since (the board's own re-run, the repair
+  // faults-gone) are stale: closed, not handed over later.
+  if (last !== null && last.kind === 'back' && last.state === 'waiting' && typeof last.back === 'string') {
+    const item = items.get(last.back.split(' ')[0])
+    if (item !== undefined && gitCheckPassed(item)) return result(STATES.WORKING, null, { close: last.id })
   }
   // An envelope without a task (the back words, a restart, or a clear alone an older board wrote) still on its way: nothing new beside it.
   // A turn that ended after it was carried ends it; the net marks one that never answered, once.
