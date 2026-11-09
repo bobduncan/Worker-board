@@ -6155,6 +6155,9 @@ visibly). The states and the words stay; what they say is now only what the boar
   Until then quiet: "<Chat>'s turn ended at HH:MM without it · <Chat> still working" (a background task, the partner waiting on its
   helper, a worker stopping at a safe point). Judge lines stay quiet (`turnLate` false). With no report at all (a chat on an
   older mod) no guess either way (chat 1's ruling): quiet "… without it · no report from <Chat>: not confirmed", never Late.
+  The rest counts from the later of `restAt` and the idle's own since: a busy report the board missed (a turn on another word,
+  unheard) leaves an older `restAt` kept, and a rest never began before its idle. A chat that asks (an `asking` report) reads quiet
+  "… without it · <Chat> asks you in its chat", never "still working".
 - **A missed idle still counts.** The report entry keeps the last idle of a mod that names its word (`lastIdle` `{ word, since }`,
   carried through later reports and data/reports.json), and `turnAnswer` reads it: an idle that no pass saw before an `ended` replaced
   it (the pass was skipped by `loops.single`) still ends that word's turn. Chosen over a rerun with a dirty flag: the fact lives with the
@@ -6166,6 +6169,7 @@ visibly). The states and the words stay; what they say is now only what the boar
   Late names the person's action: the turn on it ended, "ask <Chat> in its chat"; its session ended or went quiet, "open <Chat>'s
   chat"; not delivered yet, "open <Chat>'s chat so its mod takes it". Send again only for a word its chat has not taken (as before P3),
   never on an "on it" or turn-ended line.
+  The judge lines get the same clocks as the person's lines (`heard`, `wall`, `unknownMs`): stale after 2 min heard, rule 8 in wall time.
 - **No silent end.** A word the outbox sweep closes shows "closed: <why>" (state `closed`, quiet) for 10 minutes (`CLOSED_SHOWN_MS`,
   from `closedAt`, else the first moment the board saw it closed, kept in `waitsFirstSeen`; the sweep's own reason, `wordJudge`'s
   `whyClosed`). A person's word that expired before it reached its chat is Late "Not delivered: expired after N min" (N the age it

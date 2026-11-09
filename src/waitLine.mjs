@@ -237,14 +237,18 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
     const rest = restNow()
     const from = Math.max(at, rest.since ?? at)
     if (turnLate && rest.isAtRest && paused !== true && running(from) > TURN_GRACE_MS) return { ...lateLine(from, lead, rest.isSession ? openIt : askIt), ...more }
-    return line('sent', lead, rest.isAtRest ? '' : isStale || isQuiet ? noNews : `${chat} still working`, at, more)
+    // An asking report: the chat waits for the person's answer in its own chat (P3 fix), never "still working".
+    const busyWords = report.state === 'asking' && !isStale ? `${chat} asks you in its chat` : isStale || isQuiet ? noNews : `${chat} still working`
+    return line('sent', lead, rest.isAtRest ? '' : busyWords, at, more)
   }
   // Whether the chat is at rest now, and since when: a fresh idle report with no background work and a lane neither Working nor Waiting for
   // you (rest since `restAt`, the board's receipt of that rest, else the report's since); or its session ended (an `ended` report, the lane not running).
   function restNow() {
     if (lane?.isRunning === false || (isReport && report.state === 'ended')) return { isAtRest: true, isSession: true, since: isReport && report.state === 'ended' ? report.since : null }
     const isIdle = isReport && !isStale && !isQuiet && report.state === 'idle' && report.background !== true && !['Working', 'Waiting for you'].includes(lane?.status)
-    return isIdle ? { isAtRest: true, isSession: false, since: isTime(report.restAt) ? report.restAt : report.since } : { isAtRest: false }
+    // The later of `restAt` and the idle's own since (P3 fix): a busy report the board missed (a turn on another word, unheard) leaves an
+    // older restAt kept; the rest can never have begun before the idle it is part of.
+    return isIdle ? { isAtRest: true, isSession: false, since: isTime(report.restAt) ? Math.max(report.restAt, report.since) : report.since } : { isAtRest: false }
   }
   if (isTime(word.answeredAt)) return ended(word.answeredAt, word.answeredBound === true)
   // The Supervisor's judge word says its own turn's end (`endedAt`, supervisor/index.mjs `markWord`): exact, never guessed.
@@ -882,7 +886,7 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     waits[asked.id] = { ...line, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command, place, about: asked.about ?? null, goal: goalOfWord(asked, place, threads), ask: asked.ask ?? null, sentAt: asked.at, title }
   }
   // Place 8: an incident that waits for the Supervisor's judgment, a line of its own each.
-  Object.assign(waits, judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, paused, running, staleMs }))
+  Object.assign(waits, judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, paused, running, heard, wall, unknownMs, staleMs }))
   if (firstSeen instanceof Map) for (const id of firstSeen.keys()) if (!byId.has(id.startsWith(CLOSED_KEY) ? id.slice(CLOSED_KEY.length) : id)) firstSeen.delete(id)
   return waits
 }

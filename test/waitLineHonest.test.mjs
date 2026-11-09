@@ -364,3 +364,44 @@ test('review 1 (judge): a judge line whose turn ended without the judgment stays
   const line = waitsOf({ state: { chats: [], advisor: null, supervisorChat: supervisor }, outbox: [judgeWord], now: NOW, keep, judge: judgeFor([judgeWord], supervisor), reports: new Map([['Supervisor', report('idle', at(30), { word: 'j1', turn: at(35) })]]), items: new Map([['X5', item]]) })['j1#X5']
   assert.deepEqual([line.state, line.lead], ['sent', `Supervisor's turn ended at ${hhmm(at(30))} without it`])
 })
+
+// ==== The verifier's three findings on P3 (each checked with a mutant the test kills) ====
+test('verifier 1: a judge line counts HEARD time for stale (a deaf stall is no chat\'s fault) and rule 8\'s wall time after the pause', () => {
+  const supervisor = lane({ name: 'Supervisor', status: 'Free', state: 'free' })
+  const item = { sections: new Map(), head: new Map([['Id', 'X5'], ['Kind', 'incident'], ['State', 'with the supervisor'], ['Since', `${new Date(at(39)).getFullYear()}-11-09 ${hhmm(at(39))}`], ['Title', 'x']]) }
+  const run = (judgeWord, rep, state = {}) => waitsOf({ state: { chats: [], advisor: null, supervisorChat: supervisor, ...state }, outbox: [judgeWord], now: NOW, keep, judge: judgeFor([judgeWord], supervisor, { pause: state.pause ?? null }), reports: new Map([['Supervisor', rep]]), items: new Map([['X5', item]]) })['j1#X5']
+  const onIt = { id: 'j1', to: 'Supervisor', command: 'judge', kind: 'judge', ask: null, about: 'X5', incidents: ['X5'], text: 'judge', at: at(40), state: 'delivered', takenAt: at(39), deliveredAt: at(39) }
+  const busy = report('busy', at(35), { word: 'j1', turn: at(35), at: at(3) })
+  assert.equal(run(onIt, busy).state, 'late', 'three minutes heard without a report: stale')
+  assert.equal(run(onIt, busy, { deaf: [{ from: at(3), to: at(1) }] }).state, 'picked-up', 'two of the three minutes the board heard no chat: one counts, not stale')
+  // Rule 8 counts wall time after the person's pause: the pause ended 15 minutes ago, so 15, not the word's 30 (a word lost for good).
+  const lost = { ...onIt, at: at(30), state: 'failed', final: true, why: 'refused', takenAt: undefined, deliveredAt: undefined }
+  const late = run(lost, null, { pause: { state: 'running', since: at(15) } })
+  assert.deepEqual([late.state, late.lead], ['late', 'Not picked up after 15 min'])
+})
+
+test('verifier 2: a busy report the board missed leaves an older restAt: the grace counts from the real rest, never "No answer since" the old one', () => {
+  // The turn on w1 ends 10:01; the chat works on w2 from 10:03 to 10:09, unheard; at 10:10 its idle on w2 comes in.
+  const t = (h, m) => new Date(2026, 10, 9, h, m).getTime()
+  const free = lane({ status: 'Free', state: 'free' })
+  const reports = new Map()
+  const checked = { ok: true, chat: 'Advisor' }
+  noteReport(reports, { session: 's', report: { state: 'idle', since: t(10, 1), background: false, run: 1, seq: 1, word: 'w1' } }, checked, t(10, 1))
+  noteReport(reports, { session: 's', report: { state: 'idle', since: t(10, 9), background: false, run: 1, seq: 9, word: 'w2' } }, checked, t(10, 10))
+  const rep = reports.get('Advisor')
+  const w = recapWord({ at: t(9, 50), takenAt: t(9, 51), deliveredAt: t(9, 51), answeredAt: t(10, 1) })
+  const now = t(10, 10)
+  const line = lineOf(w, { advisor: free, rep: { ...rep, at: now - 2000 }, now, outbox: [w], running: from => now - from, heard: from => now - from })
+  assert.notEqual(line.lead, 'No answer since 10:01')
+  assert.deepEqual([line.state, line.lead], ['sent', 'Advisor\'s turn ended at 10:01 without it'])
+  // Once the grace from the real rest (10:09) has passed, it is Late from then.
+  const later = t(10, 15)
+  const lateLine = lineOf(w, { advisor: free, rep: { ...rep, at: later - 2000 }, now: later, outbox: [w], running: from => later - from, heard: from => later - from })
+  assert.deepEqual([lateLine.state, lateLine.lead], ['late', 'No answer since 10:09'])
+})
+
+test('verifier 3: an asking report (the chat waits for the person in its own chat) says "asks you in its chat", never "still working"', () => {
+  const w = recapWord({ answeredAt: at(20) })
+  const asking = lineOf(w, { advisor: lane({ status: 'Waiting for you', state: 'waiting' }), rep: report('asking', at(15), { word: 'other', turn: at(15) }) })
+  assert.deepEqual([asking.state, asking.rest], ['sent', 'Advisor asks you in its chat'])
+})
