@@ -9816,19 +9816,21 @@ async function askQuestionPictures(question) {
   problems.delete(key)
   sending.add(key)
   redrawQuestions()
+  let isUnsent = false
   if (isRefine) {
     // Reactive board, brief P4a: ONE call: the board writes its request under the step's Feedback, then queues the refine word.
     const { result, problem } = advisor === null ? { result: null, problem: 'the board has no Advisor' }
       : await clickCall('/api/backlog', { action: 'refine-send', via: 'refine-pictures', step: question.stepId, answers: [], feedback: '', request: words }, key)
     sending.delete(key)
     if (problem !== null) problems.set(key, `Not done: ${problem}`)
-    else if (result.notSent !== undefined) problems.set(key, notSentWords(result.notSent, result.notSentAt))
+    // A word not queued is drawn from the board's record (the step's "Not sent" line), never from this page's memory.
+    isUnsent = problem === null && result.notSent !== undefined
     await read()
   } else {
     sending.delete(key)
     await send({ to: question.from, text: words }, key)
   }
-  if (!problems.has(key)) pictureAsked.set(questionKey(question), Date.now())
+  if (!problems.has(key) && !isUnsent) pictureAsked.set(questionKey(question), Date.now())
   redrawQuestions()
 }
 
@@ -12665,7 +12667,7 @@ function goalAskBlockNode(node, block, canEdit) {
   }
   if (buttons.children.length > 0) box.append(buttons)
   // Reactive board, brief P4a round 2: an ask that stands under this goal with its word not queued: from the board's record, with a Retry (the stored click id).
-  const unsent = block.answer === null ? unsentLine(node.id) : null
+  const unsent = block.answer === null ? unsentLine(`${node.id}:${block.id}`) : null
   if (unsent !== null) box.append(unsent)
   return box
 }
@@ -13444,9 +13446,13 @@ async function sendGoalAsk() {
   const earlier = goalsAskBox.written?.goal === goal ? goalsAskBox.written : null
   let result
   if (earlier !== null && earlier.click) {
-    await retryClickOf(earlier.click, '/api/goals')
-    const unsent = (board?.clicksUnsent ?? []).find(one => one.click === earlier.click)
-    result = unsent === undefined ? { id: earlier.id } : { id: earlier.id, click: earlier.click, notSent: unsent.why, notSentAt: unsent.at }
+    const retried = await retryClickOf(earlier.click, '/api/goals')
+    // The retry's own answer decides: never "Asked" for a click the board does not know or refuses.
+    if (!retried.ok) {
+      if (retried.status === 404) goalsAskBox.written = null
+      return fail(retried.status === 404 ? `${earlier.id} stands under the goal, but the board has no record of that click: not found, send it anew.` : `Not sent: ${retried.text || 'the board did not answer'}`)
+    }
+    result = { id: earlier.id, click: earlier.click, ...(retried.result?.notSent === undefined ? {} : { notSent: retried.result.notSent, notSentAt: retried.result.notSentAt }) }
   } else {
     const called = await clickCall('/api/goals', { command: 'ask', id: goal, text, pictures, page: GOALS_PAGE }, `goal-ask:${goal}`)
     if (called.problem !== null) return fail(`Not sent: ${called.problem}`)
@@ -13460,6 +13466,8 @@ async function sendGoalAsk() {
     return fail(`${id ?? 'The ask'} stands under the goal, but ${notSentWords(result.notSent, result.notSentAt)} "Send again" types it again.`)
   }
   goalsAskBox.busy = false
+  // The ask is no change the page's undo takes back (as sendGoals counted it).
+  goalsUi.undoable = 0
   closeGoalAsk()
   goalsSay(`Asked ${advisor} (${id}). The answer comes under the goal and under Needs your attention.`, 'ok')
 }
@@ -23015,24 +23023,32 @@ async function sendBacklog(body) {
 const clickIds = new Map()
 let clickCounter = 0
 const newClickId = () => globalThis.crypto?.randomUUID?.() ?? `c${Date.now().toString(36)}${(clickCounter += 1).toString(36)}${Math.random().toString(36).slice(2, 10)}`
-/** The id of the click that `key` names: the same one while its call got no answer, a new one after any answer. */
-const clickFor = key => {
-  if (!clickIds.has(key)) clickIds.set(key, newClickId())
-  return clickIds.get(key)
+/**
+ * The id of the click that `key` names: kept only for a resend of the identical input (`sig`) after a call that got no answer;
+ * another input gets a new id, and so does any click after an answer.
+ */
+const clickFor = (key, sig = '') => {
+  if (clickIds.get(key)?.sig !== sig) clickIds.set(key, { id: newClickId(), sig })
+  return clickIds.get(key).id
 }
+/** The board's refusal of a click id that came with another input: the page then sends the input once more under a new id. */
+const isClash = text => /different input under this click/.test(text)
 
 /**
  * One call for one click. `body` goes to `route` with the click id. `{ result, problem }`: `result` is what the board
  * answered (it holds `notSent` and `notSentAt` when the input stands but its word was not queued), `problem` why the board
  * did not take the click at all (nothing was stored).
  */
-async function clickCall(route, body, key) {
-  const click = clickFor(key)
+async function clickCall(route, body, key, again = false) {
+  const click = clickFor(key, JSON.stringify(body))
   try {
     const answer = await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ ...body, click }) })
     // Any answer ends this click's id, but a board that failed (5xx) may have stored the input: the retry keeps the id.
     if (answer.status < 500) clickIds.delete(key)
-    if (!answer.ok) return { result: null, problem: (await answer.text()).trim() || `refused (${answer.status})` }
+    if (!answer.ok) {
+      const why = (await answer.text()).trim() || `refused (${answer.status})`
+      return answer.status === 409 && isClash(why) && !again ? clickCall(route, body, key, true) : { result: null, problem: why }
+    }
     const result = await answer.json()
     showPaste(result?.paste ?? null)
     return { result, problem: null }
@@ -23061,23 +23077,29 @@ function unsentLine(key) {
 
 /** The Retry of a card: the same click again by its id; the board does not write the input twice, it queues the word once more. */
 async function retryClickOf(click, route) {
+  let done = { ok: false, status: 0, result: null, text: 'the board\'s server does not answer' }
   try {
-    await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(route === '/api/backlog' ? { action: 'click-retry', click } : { command: 'click-retry', click }) })
+    const answer = await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(route === '/api/backlog' ? { action: 'click-retry', click } : { command: 'click-retry', click }) })
+    done = answer.ok ? { ok: true, status: answer.status, result: await answer.json().catch(() => null), text: '' } : { ok: false, status: answer.status, result: null, text: (await answer.text()).trim() }
+    // B212: without a Workers mod the retried word is on the clipboard, as the first send's is.
+    if (done.ok) showPaste(done.result?.paste ?? null)
   } catch {
     // The record stands with its Retry: the next read draws it.
   }
   await read()
+  return done
 }
 document.addEventListener('click', event => {
   const retry = event.target.closest?.('[data-click-retry]')
   if (!retry || retry.disabled) return
   retry.disabled = true
-  void retryClickOf(retry.dataset.clickRetry, retry.dataset.clickRoute)
+  // Enabled again after any answer (the card may not be drawn anew when the record is unchanged).
+  void retryClickOf(retry.dataset.clickRetry, retry.dataset.clickRoute).finally(() => { retry.disabled = false })
 })
 // oneclick:end
 
 /** Sends an answer or a message. `id` is the request it answers, or null for the chat with the advisor. */
-async function send(message, id, via = null) {
+async function send(message, id, via = null, isRetried = false) {
   const key = id ?? 'talk'
   sending.add(key)
   problems.delete(key)
@@ -23088,11 +23110,15 @@ async function send(message, id, via = null) {
     const answer = await fetch('/api/say', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
-      body: JSON.stringify(via === null ? message : { ...message, via, click: clickFor(key) }),
+      body: JSON.stringify(via === null ? message : { ...message, via, click: clickFor(key, JSON.stringify(message)) }),
     })
     // Reactive board, brief P4a: any answer ends the click's id (a board that failed, 5xx, keeps it for the retry).
     if (answer.status < 500) clickIds.delete(key)
-    if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
+    if (!answer.ok) {
+      problem = (await answer.text()).trim() || `refused (${answer.status})`
+      // The same click id with another input: sent once more under a new id.
+      if (answer.status === 409 && isClash(problem) && via !== null && !isRetried) return send(message, id, via, true)
+    }
     // B212: no Workers mod takes the board's words: they are on the clipboard, to be pasted into the chat.
     else showPaste((await answer.json().catch(() => null))?.paste ?? null)
   } catch {

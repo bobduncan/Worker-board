@@ -12,7 +12,7 @@
 // every word of the page); this file keeps only the click's record (data/clicks.jsonl, merged by click id) and its log
 // line in data/actions.jsonl.
 
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 
 import { appendLines } from './write.mjs'
 
@@ -36,6 +36,7 @@ export const hhmm = at => {
 }
 
 const KEEP = 500
+const DAY_MS = 24 * 60 * 60_000
 
 /**
  * The records of the clicks, by click id: `{ click, via, key, route, at, say, writeResult, word, notSent, notSentAt }`.
@@ -44,29 +45,59 @@ const KEEP = 500
  * page's route a retry goes to. Kept in `file` (one JSON line each, the last line of a click wins); `file` null keeps
  * them in memory only (a board that writes nothing).
  */
-export function clickLedger({ file = null, append = appendLines, read = path => readFile(path, 'utf8') } = {}) {
+export function clickLedger({ file = null, append = appendLines, read = path => readFile(path, 'utf8'), mtime = path => stat(path).then(one => `${one.mtimeMs}:${one.size}`, () => null) } = {}) {
   const records = new Map()
   const inflight = new Map()
-  let loaded = file === null
-  const load = async () => {
-    if (loaded) return
-    loaded = true
+  let loading = file === null ? Promise.resolve() : null
+  let seen = null
+  const trim = () => { while (records.size > KEEP) records.delete(records.keys().next().value) }
+  /** Reads the file into the records (the last line of a click wins). */
+  const reread = async () => {
     let text = ''
+    seen = await mtime(file)
     try {
       text = await read(file)
     } catch (error) {
       if (error?.code !== 'ENOENT') console.error(`The clicks record could not be read (${error?.code ?? error?.message ?? 'unknown'}).`)
     }
+    const fresh = new Map()
     for (const line of text.split(/\r?\n/)) {
       if (line.trim() === '') continue
       try {
         const one = JSON.parse(line)
-        if (typeof one?.click === 'string') records.set(one.click, one)
+        if (typeof one?.click === 'string') {
+          fresh.delete(one.click)
+          fresh.set(one.click, one)
+        }
       } catch {
         // A torn line is skipped.
       }
     }
-    while (records.size > KEEP) records.delete(records.keys().next().value)
+    records.clear()
+    for (const [click, one] of fresh) records.set(click, one)
+    trim()
+  }
+  // The load promise is kept: no get or put runs before the file is read. Another board process on the project may
+  // write the file too: it is read anew whenever its modification time changed.
+  const load = async () => {
+    if (loading === null) loading = reread()
+    await loading
+    if (file !== null && (await mtime(file)) !== seen) {
+      loading = reread()
+      await loading
+    }
+  }
+  const write = async record => {
+    records.delete(record.click)
+    records.set(record.click, record)
+    trim()
+    if (file === null) return
+    try {
+      await append(file, `${JSON.stringify(record)}\n`)
+      seen = await mtime(file)
+    } catch (error) {
+      console.error(`The clicks record could not be written (${error?.code ?? error?.message ?? 'unknown'}).`)
+    }
   }
   return {
     load,
@@ -76,21 +107,32 @@ export function clickLedger({ file = null, append = appendLines, read = path => 
     },
     put: async record => {
       await load()
-      records.delete(record.click)
-      records.set(record.click, record)
-      while (records.size > KEEP) records.delete(records.keys().next().value)
-      if (file !== null) {
-        try {
-          await append(file, `${JSON.stringify(record)}\n`)
-        } catch (error) {
-          console.error(`The clicks record could not be written (${error?.code ?? error?.message ?? 'unknown'}).`)
-        }
+      await write(record)
+    },
+    /** Ends the not-sent records of `key` (other than `except`): the word went another way; recorded with its time. */
+    supersede: async (key, except, at, why) => {
+      await load()
+      for (const one of [...records.values()]) {
+        if (one.key === key && key !== null && one.click !== except && typeof one.notSent === 'string' && one.superseded === undefined && one.closed === undefined) await write({ ...one, superseded: { at, why } })
       }
     },
-    /** The clicks whose word was not queued, newest last: `{ click, via, key, route, why, at }` for the cards' Retry. */
+    /**
+     * Ends the not-sent records that `moved(record)` says the talk has moved on from (superseded, with its why), and those
+     * older than a day ("closed: ..."). `at` is the time now.
+     */
+    settle: async (moved, at) => {
+      await load()
+      for (const one of [...records.values()]) {
+        if (typeof one.notSent !== 'string' || one.superseded !== undefined || one.closed !== undefined) continue
+        const why = moved(one)
+        if (typeof why === 'string') await write({ ...one, superseded: { at, why } })
+        else if (Number.isFinite(one.at) && at - one.at > DAY_MS) await write({ ...one, closed: { at, why: 'closed: not sent for more than 24 hours' } })
+      }
+    },
+    /** The clicks whose word was not queued and not ended, newest last: `{ click, via, key, route, why, at }` for the cards' Retry. */
     unsent: async () => {
       await load()
-      return [...records.values()].filter(one => typeof one.notSent === 'string').map(one => ({ click: one.click, via: one.via, key: one.key ?? null, route: one.route ?? null, why: one.notSent, at: one.notSentAt ?? null }))
+      return [...records.values()].filter(one => typeof one.notSent === 'string' && one.superseded === undefined && one.closed === undefined).map(one => ({ click: one.click, via: one.via, key: one.key ?? null, route: one.route ?? null, why: one.notSent, at: one.notSentAt ?? null }))
     },
     /** Only one call of a click runs at a time: a double click waits for the first. */
     once: (click, run) => {
@@ -102,6 +144,9 @@ export function clickLedger({ file = null, append = appendLines, read = path => 
     },
   }
 }
+
+/** The refusal of a click id that comes with another input. */
+export const CLASH = { ok: false, status: 409, why: 'a different input under this click' }
 
 /** What a failed `say` is told as, one plain line. */
 const whyOf = said => String(said?.why ?? said?.message ?? 'the word could not be queued').replace(/\s+/g, ' ').trim().slice(0, 300)
@@ -120,10 +165,13 @@ const whyOf = said => String(said?.why ?? said?.message ?? 'the word could not b
  * Answers `{ ok: true, result }`: `result` is the write's result with `click`, and `said` (the word's id) or `notSent`
  * and `notSentAt`; a refused write answers its refusal.
  */
-export function oneClick({ ledger, click, via, action = null, key = null, route = null, toRole = 'talk', now, write, sayBody, say, log = null }) {
+export function oneClick({ ledger, click, via, action = null, key = null, route = null, toRole = 'talk', hash = null, now, write, sayBody, say, log = null }) {
   if (NEVER_VIA.includes(via)) throw new Error(`A click never logs as ${via}.`)
   return ledger.once(click, async () => {
     const before = await ledger.get(click)
+    // One click id is one input: the same id with another input is refused, and the page then sends it under a new id.
+    if (before !== null && hash !== null && typeof before.hash === 'string' && before.hash !== hash) return CLASH
+    if (before !== null && (before.superseded !== undefined || before.closed !== undefined)) return { ok: false, status: 409, why: before.superseded !== undefined ? `That word is not sent any more: ${before.superseded.why}.` : `That click is closed: ${before.closed.why}.` }
     if (before !== null && typeof before.word === 'string') return { ok: true, result: { ...(before.writeResult ?? {}), click, said: before.word, again: true, ...(before.paste === undefined ? {} : { paste: before.paste }) } }
     let writeResult = before?.writeResult ?? null
     let body = before?.say ?? null
@@ -142,8 +190,10 @@ export function oneClick({ ledger, click, via, action = null, key = null, route 
       said = { ok: false, why: error?.message ?? 'the queue failed' }
     }
     const id = said.ok ? said.message?.id ?? said.result?.said ?? null : null
-    const record = { click, via, key: keyOf, route, toRole: before?.toRole ?? toRole, at, say: body, writeResult, ...(said.ok ? { word: id ?? 'queued', ...(said.message?.paste === undefined ? {} : { paste: said.message.paste }) } : { notSent: whyOf(said), notSentAt: hhmm(at) }) }
+    const record = { click, via, key: keyOf, route, ...(hash === null ? {} : { hash }), toRole: before?.toRole ?? toRole, at, say: body, writeResult, ...(said.ok ? { word: id ?? 'queued', ...(said.message?.paste === undefined ? {} : { paste: said.message.paste }) } : { notSent: whyOf(said), notSentAt: hhmm(at) }) }
     await ledger.put(record)
+    // A word queued for this key ends the older "not sent" lines of it (they would type the word a second time).
+    if (said.ok) await ledger.supersede(keyOf, click, at, 'a later word for it was queued')
     if (before === null && log !== null) await log({ via, action: action ?? via, id: keyOf, click })
     return { ok: true, result: { ...writeResult, click, ...(said.ok ? { said: record.word, ...(record.paste === undefined ? {} : { paste: record.paste }) } : { notSent: record.notSent, notSentAt: record.notSentAt }) } }
   })
@@ -156,7 +206,7 @@ export function oneClick({ ledger, click, via, action = null, key = null, route 
 export async function retryClick({ ledger, click, now, say, log = null }) {
   const before = await ledger.get(click)
   if (before === null) return { ok: false, status: 404, why: 'That click is not on the board any more: do it again.' }
-  return oneClick({ ledger, click, via: before.via, key: before.key, route: before.route, toRole: before.toRole ?? 'talk', now, write: async () => ({ ok: true, result: before.writeResult ?? {} }), sayBody: () => before.say, say, log })
+  return oneClick({ ledger, click, via: before.via, key: before.key, route: before.route, toRole: before.toRole ?? 'talk', hash: null, now, write: async () => ({ ok: true, result: before.writeResult ?? {} }), sayBody: () => before.say, say, log })
 }
 
 /** The commands of the board's words a brainstorm click types again ("type it again"). */
@@ -190,4 +240,32 @@ export function brainstormClickOf(body) {
     default:
       return null
   }
+}
+
+/**
+ * Whether the input of a "not sent" record has moved on (its why, else null): the talk's question was answered or the talk is
+ * over, the ask was answered or is gone, the refine step is done or the Advisor holds an open ask for it. Pure: it reads the
+ * state the page reads.
+ */
+export function movedOn(record, state) {
+  const said = record.say ?? {}
+  if (record.route === '/api/brainstorm') {
+    const thread = (state?.brainstorms?.threads ?? []).find(one => one.path === record.key)
+    if (thread === undefined) return 'the talk is gone'
+    if (thread.state === 'done' || thread.state === 'discarded') return 'the talk is over'
+    if (said.command === 'brainstorm-answer' && (thread.latest?.n !== said.n || thread.proposal !== null)) return 'the talk moved on'
+    return null
+  }
+  if (record.route === '/api/goals') {
+    const goal = (state?.goals?.nodes ?? []).find(one => one.id === said.goal)
+    const ask = (goal?.asks ?? []).find(one => one.id === said.ask)
+    if (ask === undefined) return 'the ask is gone'
+    return (ask.answer ?? null) !== null ? 'the ask is answered' : null
+  }
+  if (record.route === '/api/backlog') {
+    const step = (state?.backlog ?? []).flatMap(activity => activity.steps ?? []).find(one => one.id === said.step)
+    if (step === undefined || step.status === 'done') return 'the step is gone or finished'
+    return step.refineAsk?.isOpen === true ? 'the Advisor is on it' : null
+  }
+  return null
 }

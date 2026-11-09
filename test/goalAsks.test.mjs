@@ -201,6 +201,6 @@ test('the page has the box to ask in under the frame: words, pictures, Send; and
   assert.doesNotMatch(script, /send\(\{ to: advisor, command: 'goal-ask'/)
   assert.match(script, /sendGoals\(\{ command: 'read', id: goal, ask: askId \}\)/)
   // Review B258: when the words did not reach the Advisor, "Send again" is the retry of the same click (its id), it writes no second ask.
-  assert.match(script, /const earlier = goalsAskBox\.written\?\.goal === goal \? goalsAskBox\.written : null\n  let result\n  if \(earlier !== null && earlier\.click\) \{\n    await retryClickOf\(earlier\.click, '\/api\/goals'\)/)
+  assert.match(script, /const earlier = goalsAskBox\.written\?\.goal === goal \? goalsAskBox\.written : null\n  let result\n  if \(earlier !== null && earlier\.click\) \{\n    const retried = await retryClickOf\(earlier\.click, '\/api\/goals'\)/)
   assert.match(script, /'Answers to your asks'/)
 })

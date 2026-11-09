@@ -151,13 +151,16 @@ test('Focus: a fresh page whose state holds a not-sent talk answer shows the lin
 })
 
 test('Goals: a fresh page whose state holds a not-sent ask shows the line and its Retry under the ask, with no call made first', async () => {
-  const goals = ['# Goals', 'Last id: G6', 'Last ask: A1', 'Focus: G6', '', '- [~] G6 Benches that match the picture', '  Steps: B12', '  Ask (A1, 2026-11-09 09:00): why are the benches grey?', ''].join('\n')
-  const unsent = { click: 'click-dddd-4444', via: 'goal-ask', key: 'G6', route: '/api/goals', why: 'no chat on the board takes it', at: '09:10' }
+  const goals = ['# Goals', 'Last id: G6', 'Last ask: A1', 'Focus: G6', '', '- [~] G6 Benches that match the picture', '  Steps: B12', '  Ask (A1, 2026-11-09 09:00): why are the benches grey?', '  Ask (A2, 2026-11-09 09:05): and the gate?', ''].join('\n')
+  const unsent = { click: 'click-dddd-4444', via: 'goal-ask', key: 'G6:A2', route: '/api/goals', why: 'no chat on the board takes it', at: '09:10' }
   const stateWith = more => asSent({ ...build([], undefined, goals), goalsEdit: { canWrite: true }, ...more })
   const page = await openPage({ state: stateWith({ clicksUnsent: [unsent] }), hash: 'advice/goals/G6' })
   try {
     assert.deepEqual(page.requests.filter(one => one.method === 'POST'), [], 'nothing was sent yet')
-    assert.equal(page.text('.goal-ask-block .click-unsent'), 'Not sent: no chat on the board takes it, 09:10. Your input stands. Retry')
+    // Keyed by the ask: A1 (sent, waiting) shows no line, A2 shows it.
+    assert.equal(page.all('.goal-ask-block .click-unsent').length, 1)
+    assert.equal(page.text('[data-ask-block="A2"] .click-unsent'), 'Not sent: no chat on the board takes it, 09:10. Your input stands. Retry')
+    assert.equal(page.all('[data-ask-block="A1"] .click-unsent').length, 0)
     await page.click('.goal-ask-block .click-retry')
     assert.deepEqual(page.sent('/api/goals').map(one => one.body), [{ command: 'click-retry', click: 'click-dddd-4444' }])
     assert.deepEqual(page.sent('/api/say'), [])
@@ -212,4 +215,74 @@ test('a plain talk Send carries a click id: kept while the board did not answer 
     assert.equal(new Set(calls.slice(0, 3).map(body => body.click)).size, 1, 'a failed call is retried with the same click id')
     assert.notEqual(calls[3].click, calls[0].click, 'a click after an answer has a new id')
   } finally { await page.close() }
+})
+
+// ---- Round 3 (the review) ----
+
+test('one id per input: a changed input after a failed call gets a new id (A cut off, then B is sent as its own click); the board\'s "different input" refusal is answered by one more send under a new id', async () => {
+  let down = true
+  const page = await openPage({ state: stateOf([]), answers: request => (request.url === '/api/say' && down ? reply('cut off', 500) : reply({ id: 'w1' })) })
+  try {
+    const send = async text => {
+      await page.type('#say-text', text)
+      page.find('#say').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true }))
+      await settle()
+    }
+    await send('A: the gate first')
+    down = false
+    await send('B: the pond first')
+    const [a, b] = page.sent('/api/say').map(one => one.body)
+    assert.notEqual(a.click, b.click, 'B is another input: another click')
+  } finally { await page.close() }
+  let clashes = 0
+  const texts = [[PATH, `${HEAD}${Q1}${A1}${Q2}`]]
+  const brainstorm = await brainstormPage(texts, { answers: request => (request.url === '/api/brainstorm' && clashes++ === 0 ? reply('a different input under this click', 409) : reply({})) })
+  try {
+    await brainstorm.click('[data-option="A"]')
+    const calls = brainstorm.sent('/api/brainstorm').map(one => one.body)
+    assert.equal(calls.length, 2)
+    assert.notEqual(calls[0].click, calls[1].click)
+    assert.deepEqual(without(calls[0]), without(calls[1]))
+  } finally { await brainstorm.close() }
+})
+
+test('Goals "Send again": the retry\'s own answer decides: a click the board does not know shows "not found: send it anew", never "Asked"', async () => {
+  const goals = ['# Goals', 'Last id: G6', 'Last ask: A1', 'Focus: G6', '', '- [~] G6 Benches that match the picture', '  Steps: B12', ''].join('\n')
+  const page = await openPage({
+    state: () => asSent({ ...build([], undefined, goals), goalsEdit: { canWrite: true } }),
+    answers: request => (request.url === '/api/goals' && request.body.command === 'click-retry' ? reply('That click is not on the board any more: do it again.', 404)
+      : reply(request.url === '/api/goals' ? { id: 'A1', click: 'click-ffff-6666', notSent: 'no chat on the board takes it', notSentAt: '09:10' } : {})),
+    hash: 'advice/goals/G6',
+  })
+  try {
+    await page.click('[data-goal-tool="ask"]')
+    await page.type('#goals-ask-text', 'why are the benches grey?')
+    await page.click('#goals-ask-send')
+    await page.click('#goals-ask-send')
+    assert.match(page.text('#goals-ask-note'), /not found, send it anew/)
+    assert.doesNotMatch(page.text('#goals-ask-note'), /Asked/)
+    assert.equal(page.find('#goals-ask').hidden, false, 'the box stays open')
+  } finally { await page.close() }
+})
+
+test('the Retry button handles its answer: the retried word is put on the clipboard without a Workers mod, and the button is enabled again after any answer', async () => {
+  const unsent = { click: 'click-gggg-7777', via: 'brainstorm-answer', key: PATH, route: '/api/brainstorm', why: 'locked', at: '09:05' }
+  const texts = [[PATH, `${HEAD}${Q1}${A1}`]]
+  const page = await brainstormPage(texts, { state: stateOf(texts, { clicksUnsent: [unsent] }), answers: () => reply('refused again', 409) })
+  try {
+    await page.click('#brainstorm-card .click-retry')
+    assert.equal(page.find('#brainstorm-card .click-retry').disabled, false, 'enabled again after the answer')
+  } finally { await page.close() }
+  const copied = await brainstormPage(texts, { state: stateOf(texts, { clicksUnsent: [unsent] }), answers: () => reply({ said: 'w9', paste: { text: 'brainstorm answer\nThread: t', chat: 'Garden · Advisor' } }) })
+  try {
+    await copied.click('#brainstorm-card .click-retry')
+    assert.ok(copied.all('.paste-note').length > 0, 'the paste bar shows the retried word')
+  } finally { await copied.close() }
+})
+
+test('Refine "Ask for pictures": a word not queued is drawn from the board\'s record only, not from the page\'s memory', async () => {
+  const script = (await import('node:fs/promises')).readFile
+  const source = await script(new URL('../public/board.js', import.meta.url), 'utf8')
+  const asked = source.slice(source.indexOf('async function askQuestionPictures('), source.indexOf("$('details').addEventListener('click'", source.indexOf('async function askQuestionPictures(')))
+  assert.doesNotMatch(asked, /notSentWords/)
 })

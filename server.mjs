@@ -21,7 +21,7 @@
 // (see `mayUse` and `maySend`).
 
 import { spawn } from 'node:child_process'
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs'
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -71,7 +71,7 @@ import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
-import { brainstormClickOf, clickIdOf, clickLedger, oneClick, retryClick } from './src/clicks.mjs'
+import { CLASH, brainstormClickOf, clickIdOf, clickLedger, movedOn, oneClick, retryClick } from './src/clicks.mjs'
 import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
 import { parseGoals } from './src/goals.mjs'
 import { activityFor, askToStep, missingToSteps, stepMadeFrom } from './src/goalSteps.mjs'
@@ -1772,6 +1772,8 @@ async function main(args) {
   const clicks = clickLedger({ file: isDemo || isShowOnly || workWriters === null ? null : join(HERE, 'data', 'clicks.jsonl') })
   const logClick = actionsFile === null ? null : entry => keepPersonAction(actionsFile, entry, clock())
   const sayLine = value => String(value ?? '').replace(/\s+/g, ' ').trim()
+  /** What input a click id was for: the body without the id (the same id with another input is refused). */
+  const bodyHash = body => createHash('sha1').update(JSON.stringify({ ...body, click: undefined })).digest('hex')
   const NOT_A_CLICK = { ok: false, status: 400, why: 'A click id is 8 to 64 letters, digits, - or _.' }
   /** One action of a click; the state is read anew after it, so the cards draw its record (the "not sent" line, its Retry). */
   const clickNow = async args => {
@@ -2318,7 +2320,7 @@ async function main(args) {
     // (the person deletes it once read).
     const shownAside = []
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
-    return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside, check: checker?.view() ?? null, clicksUnsent: await clicks.unsent() }
+    return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside, check: checker?.view() ?? null, clicksUnsent: (await clicks.settle(one => movedOn(one, state), clock()), await clicks.unsent()) }
   }), STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
@@ -3064,11 +3066,12 @@ async function main(args) {
       if (click !== null) {
         return clicks.once(click, async () => {
           const before = await clicks.get(click)
+          if (before !== null && typeof before.hash === 'string' && before.hash !== bodyHash(body)) return CLASH
           if (before !== null && typeof before.word === 'string') return { ok: true, message: { id: before.word, again: true, ...(before.paste === undefined ? {} : { paste: before.paste }) } }
           const via = ['talk-send', 'main-talk-send', 'recheck'].includes(body.via) ? body.via : 'say'
           const done = await sayNow({ ...body, click: undefined, via: undefined })
           if (done.ok && typeof done.message?.id === 'string') {
-            await clicks.put({ click, via, key: null, route: null, at: clock(), word: done.message.id, ...(done.message.paste === undefined ? {} : { paste: done.message.paste }) })
+            await clicks.put({ click, via, key: null, route: null, hash: bodyHash(body), at: clock(), word: done.message.id, ...(done.message.paste === undefined ? {} : { paste: done.message.paste }) })
             if (logClick !== null) await logClick({ via, action: 'say', id: null, click })
           }
           return done
@@ -3182,7 +3185,7 @@ async function main(args) {
         if (click === null) return { ok: false, status: 400, why: 'A click id is needed.' }
         const nothing = (!Array.isArray(body.answers) || body.answers.length === 0) && String(body.feedback ?? '').trim() === '' && String(body.request ?? '').trim() === ''
         return clickNow({
-          ledger: clicks, click, via: body.via === 'refine-pictures' ? 'refine-pictures' : 'refine-send', action: 'refine-answer', key: typeof body.step === 'string' ? body.step : null, route: '/api/backlog', now: clock, log: logClick,
+          ledger: clicks, click, via: body.via === 'refine-pictures' ? 'refine-pictures' : 'refine-send', action: 'refine-answer', key: typeof body.step === 'string' ? body.step : null, route: '/api/backlog', hash: bodyHash(body), now: clock, log: logClick,
           write: async () => (nothing ? { ok: true, result: { step: body.step } } : backlogRoute({ ...body, action: 'refine-answer', click: undefined, via: undefined })),
           toRole: 'advisor',
           sayBody: () => ({ to: null, command: 'refine', step: body.step }),
@@ -3204,7 +3207,7 @@ async function main(args) {
       if (body?.command === 'click-retry') return retryNow(body)
       if (click !== null && body?.command === 'ask') {
         return clickNow({
-          ledger: clicks, click, via: 'goal-ask', action: 'ask', key: typeof body.id === 'string' ? body.id : null, route: '/api/goals', now: clock, log: logClick,
+          ledger: clicks, click, via: 'goal-ask', action: 'ask', key: result => `${body.id}:${result?.id ?? ''}`, route: '/api/goals', hash: bodyHash(body), now: clock, log: logClick,
           write: async () => goalsRoute({ ...body, click: undefined }),
           toRole: 'advisor',
           sayBody: result => (typeof result?.id !== 'string' ? null : { to: null, command: 'goal-ask', goal: body.id, ask: result.id, text: String(body.text ?? ''), pictures: Array.isArray(body.pictures) ? body.pictures : [] }),
@@ -3295,7 +3298,7 @@ async function main(args) {
       }
       return clickNow({
         ledger: clicks, click, via: clicked.via, action: body.command, key: clicked.key ?? (result => result.path ?? body.path ?? null), route: '/api/brainstorm', now: clock, log: logClick,
-        write: clicked.noWrite === true ? async () => ({ ok: true, result: body.command === 'change' ? { path: body.path, text: sayLine(body.text) } : { path: body.path } }) : write,
+        hash: bodyHash(body), write: clicked.noWrite === true ? async () => ({ ok: true, result: body.command === 'change' ? { path: body.path, text: sayLine(body.text) } : { path: body.path } }) : write,
         sayBody: result => clicked.word({ ...result, path: result.path ?? body.path }, null),
         say: clickSay,
       })

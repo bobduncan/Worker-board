@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { NEVER_VIA, brainstormClickOf, clickIdOf, clickLedger, hhmm, oneClick, retryClick } from '../src/clicks.mjs'
+import { NEVER_VIA, brainstormClickOf, clickIdOf, clickLedger, hhmm, movedOn, oneClick, retryClick } from '../src/clicks.mjs'
 import { interventionsOf } from '../src/stability.mjs'
 import { keepPersonAction } from '../src/work/api.mjs'
 
@@ -206,4 +206,98 @@ test('every brainstorm click names its word, its via and its card; the commands 
   assert.equal(brainstormClickOf({ command: 'discard', path: PATH }), null)
   assert.equal(brainstormClickOf({ command: 'create', path: PATH }), null)
   assert.equal(brainstormClickOf({ command: 'again', path: PATH, word: { command: 'stop' } }), null, 'only a brainstorm word is typed again')
+})
+
+// ---- Round 3 (the review): the line ends, one id per input, the load race, a second process ----
+
+test('the same click id with another input is refused ("a different input under this click"), and the new input goes under a new id: B is stored and queued after A was cut off', async () => {
+  const p = ports()
+  await click(p, 'click-0020', { hash: 'hash-A' })
+  const clash = await click(p, 'click-0020', { hash: 'hash-B' })
+  assert.deepEqual([clash.ok, clash.status, clash.why], [false, 409, 'a different input under this click'])
+  assert.deepEqual([p.made.written.length, p.made.queued.length], [1, 1], 'nothing of B yet')
+  const fresh = await click(p, 'click-0021', { hash: 'hash-B' })
+  assert.equal(fresh.ok, true)
+  assert.deepEqual([p.made.written.length, p.made.queued.length], [2, 2], 'B is stored and queued')
+  // The identical input again with its id: the first result.
+  assert.equal((await click(p, 'click-0020', { hash: 'hash-A' })).result.again, true)
+})
+
+test('the load is awaited: a get during the first load does not take a recorded click for a new one', async () => {
+  const text = `${JSON.stringify({ click: 'click-0030', via: 'x', key: 'k', at: 1, say: { command: 'x' }, writeResult: {}, word: 'w1' })}\n`
+  const ledger = clickLedger({ file: 'x', read: () => new Promise(done => setTimeout(() => done(text), 20)), mtime: async () => 'm', append: async () => {} })
+  const p = ports()
+  p.ledger = ledger
+  const [unsent, again] = await Promise.all([ledger.unsent(), click(p, 'click-0030')])
+  assert.deepEqual(unsent, [])
+  assert.equal(again.result.again, true)
+  assert.deepEqual([p.made.written.length, p.made.queued.length], [0, 0], 'no second input, no second word')
+})
+
+test('a second process on the same file: the ledger is read anew when the file changed, so a retry done in one is seen as done in the other', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'clicks-'))
+  try {
+    const file = join(dir, 'clicks.jsonl')
+    const a = clickLedger({ file })
+    const b = clickLedger({ file })
+    const first = ports({ failQueue: 'locked' })
+    first.ledger = a
+    await click(first, 'click-0040')
+    assert.equal((await b.unsent()).length, 1, 'B sees the click not sent')
+    let queued = 0
+    const retried = await retryClick({ ledger: a, click: 'click-0040', now: () => AT, say: async body => { queued += 1; return { ok: true, message: { id: 'w-late', ...body } } } })
+    assert.equal(retried.result.said, 'w-late')
+    assert.deepEqual(await b.unsent(), [], 'B sees it as done')
+    const again = await retryClick({ ledger: b, click: 'click-0040', now: () => AT, say: async () => { queued += 1; return { ok: true, message: { id: 'w-twice' } } } })
+    assert.equal(again.result.said, 'w-late')
+    assert.equal(queued, 1, 'the word went once')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a not-sent line ends: when a later word for its key is queued, when the talk moved on, and after 24 hours; a Retry on it is refused with the why', async () => {
+  const p = ports({ failQueue: 'locked' })
+  await click(p, 'click-0050')
+  assert.equal((await p.ledger.unsent()).length, 1)
+  // "Type it to your partner again" (another click on the same key) is queued: the older line ends, with its time.
+  const other = ports()
+  other.ledger = p.ledger
+  await click(other, 'click-0051')
+  assert.deepEqual(await p.ledger.unsent(), [])
+  assert.equal((await p.ledger.get('click-0050')).superseded.why, 'a later word for it was queued')
+  const refused = await retryClick({ ledger: p.ledger, click: 'click-0050', now: p.now, say: p.say })
+  assert.deepEqual([refused.ok, refused.status], [false, 409])
+  assert.match(refused.why, /not sent any more: a later word for it was queued/)
+  assert.equal(other.made.queued.length, 1)
+  // The talk moved on (settle with a state check).
+  const q = ports({ failQueue: 'locked' })
+  await click(q, 'click-0052')
+  await q.ledger.settle(() => 'the talk moved on', AT + 1000)
+  assert.deepEqual(await q.ledger.unsent(), [])
+  assert.equal((await q.ledger.get('click-0052')).superseded.why, 'the talk moved on')
+  // Older than a day: closed quietly.
+  const r = ports({ failQueue: 'locked' })
+  await click(r, 'click-0053')
+  await r.ledger.settle(() => null, AT + 25 * 60 * 60_000)
+  assert.deepEqual(await r.ledger.unsent(), [])
+  assert.match((await r.ledger.get('click-0053')).closed.why, /^closed: /)
+  assert.match((await retryClick({ ledger: r.ledger, click: 'click-0053', now: r.now, say: r.say })).why, /closed: /)
+})
+
+test('movedOn: a brainstorm answer for another question, a talk that is over, an answered ask and a step the Advisor holds', () => {
+  const record = (route, key, say) => ({ route, key, say })
+  const state = {
+    brainstorms: { threads: [{ path: 't1', state: 'running', latest: { n: 2 }, proposal: null }, { path: 't2', state: 'done', latest: { n: 1 } }] },
+    goals: { nodes: [{ id: 'G6', asks: [{ id: 'A1', answer: { text: 'x' } }, { id: 'A2', answer: null }] }] },
+    backlog: [{ steps: [{ id: 'B12', status: 'new', refineAsk: { isOpen: true } }, { id: 'B13', status: 'new' }] }],
+  }
+  assert.equal(movedOn(record('/api/brainstorm', 't1', { command: 'brainstorm-answer', n: 2 }), state), null)
+  assert.equal(movedOn(record('/api/brainstorm', 't1', { command: 'brainstorm-answer', n: 1 }), state), 'the talk moved on')
+  assert.equal(movedOn(record('/api/brainstorm', 't2', { command: 'brainstorm-wrap' }), state), 'the talk is over')
+  assert.equal(movedOn(record('/api/brainstorm', 'gone', {}), state), 'the talk is gone')
+  assert.equal(movedOn(record('/api/goals', 'G6:A1', { goal: 'G6', ask: 'A1' }), state), 'the ask is answered')
+  assert.equal(movedOn(record('/api/goals', 'G6:A2', { goal: 'G6', ask: 'A2' }), state), null)
+  assert.equal(movedOn(record('/api/backlog', 'B12', { step: 'B12' }), state), 'the Advisor is on it')
+  assert.equal(movedOn(record('/api/backlog', 'B13', { step: 'B13' }), state), null)
 })

@@ -175,6 +175,21 @@ test('one call stores the answer and queues one word; the same click id queues n
   assert.equal((await lines('outbox.jsonl')).filter(one => one.command === 'refine').length, 1, 'a refused write queues no word')
   assert.deepEqual((await lines('actions.jsonl')).map(one => one.via), ['talk-send', 'brainstorm-wrap', 'goal-ask', 'refine-send'])
 
+  // 7. The /api/say click branch (a plain Send): the same id twice queues one word and writes one actions line; the same id with other words is refused.
+  const say = { to: 'Advisor', text: 'hello partner', via: 'talk-send', click: 'click-real-0006' }
+  const said = await (await post('/api/say', say)).json()
+  const saidAgain = await (await post('/api/say', say)).json()
+  assert.equal(saidAgain.id, said.id)
+  assert.equal((await lines('outbox.jsonl')).filter(one => String(one.text ?? '').includes('hello partner')).length, 1, 'one word for one click id')
+  assert.equal((await lines('actions.jsonl')).filter(one => one.click === 'click-real-0006').length, 1)
+  const other = await post('/api/say', { ...say, text: 'something else' })
+  assert.equal(other.status, 409)
+  assert.match(await other.text(), /different input under this click/)
+  assert.equal((await lines('outbox.jsonl')).filter(one => String(one.text ?? '').includes('something else')).length, 0)
+  // The same id with another input on a route is refused too, and the new input under a new id is stored and queued.
+  const clash = await post('/api/brainstorm', { command: 'wrap', path: TALK, click: 'click-real-0002', via: 'other' })
+  assert.equal(clash.status, 409)
+
   // A click id that is no id is refused, and nothing is written for it.
   const bad = await post('/api/brainstorm', { command: 'wrap', path: TALK, click: 'x' })
   assert.equal(bad.status, 400)
