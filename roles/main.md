@@ -385,4 +385,5 @@ All chats share the plan's limits. Look them up once in your first turn after ea
 the board reads the reset time from that. Never spend extra usage without asking. Never stop or start the user's
 board yourself, and never force-push a base branch. A change to the worker board itself goes live only with
 `tools/land.ps1 <branch> -By "<your chat>"` on the lead's or the person's go, never by hand, and in the BACKGROUND (run_in_background) with a wait for its notice, because the gate takes about ten minutes and a
-foreground call dies after two to ten (DESIGN.md, "Going live: tools/land.ps1").
+foreground call dies after two to ten (DESIGN.md, "Going live: tools/land.ps1"). Never ask the user or Autopilot to land (2026-11-09:
+such a `work ask` is refused): a step ready to land is told to chat 1 (board dev), which asks the user for their own yes and gives the go.

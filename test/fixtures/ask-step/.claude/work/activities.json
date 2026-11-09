@@ -1,0 +1,22 @@
+{
+ "preamble": [
+  "# Backlog",
+  "",
+  "Lava Tactics. A `## ` heading is an activity; `#focus` after it puts it in the primary focus. A step is a `- [ ]`",
+  "line, ticked `- [x]` when it is done; `@you` marks a step only you can do. An open step starts with its id (`B14`):",
+  "name a step by it. A new step takes the highest id in the file plus one; an id never changes and is never used",
+  "again. After its id, a `@you` step says what it asks of you: `Verify:` (look or play, and say whether it is as",
+  "intended), `Decide:` (choose between options), `Provide:` (give information or material only you have) or `Do:`",
+  "(an action only you can take). A step in progress names its branch, `(branch name)`: no branch exists without an",
+  "open step here, and a finished step's branch is deleted."
+ ],
+ "activities": [
+  {
+   "name": "Board work",
+   "isFocus": true,
+   "steps": [],
+   "notes": [],
+   "loose": []
+  }
+ ]
+}

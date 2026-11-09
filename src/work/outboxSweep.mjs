@@ -15,11 +15,14 @@ import { stoppedOf } from '../stopped.mjs'
 import { familyOf, sameModel } from './effort.mjs'
 import { stamp } from './migrate.mjs'
 import { OLD_CHECK_WHY } from './qaTask.mjs'
+import { gitCheckAtMs, gitCheckPassed } from './resultCheck.mjs'
 import { readStore } from './store.mjs'
 import { RESUME_KIND, TIMED_STATES, markerStep } from './holderTimers.mjs'
 import { WITH_WORKER } from './rethink.mjs'
 import { workLineWhy } from './workLines.mjs'
 
+/** P2: why a waiting "back to you" word is closed when its step's check passed since. */
+export const BACK_PASSED_WHY = 'its check passed since (board re-run)'
 const firstLine = text => String(text ?? '').split('\n')[0]
 const span = ms => (ms >= 2 * 3_600_000 ? `${Math.round(ms / 3_600_000)} hours` : `${Math.round(ms / 60_000)} min`)
 
@@ -67,6 +70,12 @@ export function whyClosed(message, ctx) {
         return { state: 'dropped', why: `${message.to} no longer holds ${id}` }
       }
       return isLate(message, now, keep) ? expired(message, keep) : null
+    }
+    // P2 (T2.11): a "back to you" word still waiting (kind back, `back` = "<step> <failed check>") is stale once its step's board check
+    // passed after the word was made (the repair faults-gone re-ran it): closed here, not handed over later.
+    if (message.kind === 'back' && message.state === 'waiting' && typeof message.back === 'string' && items instanceof Map) {
+      const held = items.get(message.back.split(' ')[0])
+      if (held !== undefined && gitCheckPassed(held) && gitCheckAtMs(held) > message.at) return { state: 'dropped', why: BACK_PASSED_WHY }
     }
     // X107/X3 (2026-11-02 15:12-15:14, Worker 2): a clear that failed ("a new prompt came in before the clear") and that a
     // later envelope's clear to the same chat finished is no undelivered word: its purpose is done.

@@ -47,6 +47,7 @@ import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mj
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { ASKS_NOTHING_WHY, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, asksNothingOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
+import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
@@ -927,6 +928,14 @@ async function ask(body, w, { alone = false } = {}) {
   const context = lines(body.context ?? body.text).map(one => (repeats(one) ? line(one, TEXT_CHARS).slice(given.length).trim() : one)).filter(one => one.trim() !== '')
   const text = given === '' ? context : [given, ...context]
   if (text.length === 0) return refuse(400, 'Say what you ask in "title", the question itself, and its context in "text".')
+  // No landing asks (2026-11-09; the live Q701, and Q686 to Q690: Autopilot's yes to a chat's own ask landed B1079 and B1071 without
+  // chat 1's go or the person's yes): a chat never asks the person or Autopilot to land, merge to main, go live or put a step's work
+  // live; it tells chat 1 (src/work/landingAsk.mjs; Autopilot routes one filed anyway to the person). Before the title's shape: a
+  // shorter title would only meet this refusal next.
+  if (!['person', 'server'].includes(w.role)) {
+    const lands = landingAskOf([...text, ...lines(body.options, LINE_CHARS)].join(' '))
+    if (lands !== null) return refuse(409, `${LANDING_ASK_WHY} (refused: "${line(lands, 160)}")`)
+  }
   const problem = via === null && w.role !== 'person' ? titleProblem(line(text[0], TEXT_CHARS)) : null
   if (problem !== null) return refuse(400, given === '' ? `An ask leads with its "title"; without one, the first line of "text" is the title. ${problem}` : problem)
   // B474: the chat asked this already, under the same step or goal, and it stands open or was answered a moment ago
@@ -2655,6 +2664,9 @@ async function recheck(body, w) {
   return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), ...lastReport(item), touches: touchesLines(item) } })
 }
 
+/** P2: the History words that start the board's own re-run of a failed check (the rule faults-gone), and the start of the failure that ends it. */
+export const AGAIN_START = 'check run again by the board (faults gone)'
+export const AGAIN_FAILED = 'check run again by the board: failed'
 /** B404: how long a step may stand on "check pending" before the board runs its check again. */
 export const STUCK_CHECK_MS = 2 * 60_000
 const CHECK_LINE = /^- (\d{4}-\d\d-\d\d \d\d:\d\d) server: check (passed|failed|pending)\b/
@@ -2669,7 +2681,9 @@ const REPORTED_LINE = / → review\b|: reported again\b|: check asked again\b/
 export function stuckChecks(items, now, skip = new Set()) {
   return [...items].filter(item => valueOf(item, 'Kind') === 'step' && stateOf(item) === 'review' && !skip.has(valueOf(item, 'Id')))
     .filter(item => {
-      const last = (item.sections.get('History') ?? []).map(one => CHECK_LINE.exec(String(one).trim())).filter(Boolean).at(-1)
+      const lines = (item.sections.get('History') ?? []).map(one => String(one).trim())
+      // P2: the start of the board's own re-run stands for a pending check until its failure is written (a pass is a check line).
+      const last = lines.map(one => CHECK_LINE.exec(one) ?? (one.includes(` server: ${AGAIN_START}`) ? [one, one.slice(2, 18), 'pending'] : one.includes(` server: ${AGAIN_FAILED}`) ? [one, one.slice(2, 18), 'failed'] : null)).filter(Boolean).at(-1)
       if (last === undefined || last[2] !== 'pending' || !(now - sinceMs(last[1]) > STUCK_CHECK_MS)) return false
       const history = (item.sections.get('History') ?? []).map(String)
       const from = history.findLastIndex(one => REPORTED_LINE.test(one))
@@ -2701,7 +2715,11 @@ async function recheckBase(body, w) {
   const id = valueOf(found.item, 'Id')
   if (stateOf(found.item) !== 'review') return refuse(409, `${id} is ${stateOf(found.item)}: only a step in review is checked again.`)
   const why = line(body.why, 200)
-  const item = appendHistory(said(found.item, w, `check run again${why === '' ? '' : `: ${why}`}`), 'server', 'check pending', w.now)
+  // P2: the rule faults-gone (`again`) writes the re-run's start as the marker alone: no "check pending" line, so every reader of the
+  // board's check lines still sees the failed check it re-runs (its key, its back word) until the re-run ends (`check`).
+  const item = body.again === true
+    ? appendHistory(found.item, 'server', `${AGAIN_START}${why === '' ? '' : `: ${why}`}`, w.now)
+    : appendHistory(said(found.item, w, `check run again${why === '' ? '' : `: ${why}`}`), 'server', 'check pending', w.now)
   const done = await save(item, found.text, w)
   if (!done.ok) return done
   return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), ...lastReport(item), touches: touchesLines(item) } })
@@ -2768,6 +2786,16 @@ async function check(body, w) {
   if (!found.ok) return found
   const passed = body.passed === true
   const outcome = lines(body.lines, LINE_CHARS).join('; ')
+  // P2: a check that ends the board's own re-run (the last History line is its start) and fails is written as "check run again by the
+  // board: failed: ...", not as a failed check: report-check-twice counts only the checks of reports, and the hand-over's "back to you"
+  // word keeps its key (the failed check it re-ran), so none is sent again. A pass is written as every pass is.
+  const lastLine = String((found.item.sections.get('History') ?? []).at(-1) ?? '')
+  if (!passed && lastLine.includes(` server: ${AGAIN_START}`)) {
+    const item = appendHistory(found.item, 'server', `${AGAIN_FAILED}${outcome === '' ? '' : `: ${outcome}`}`, w.now)
+    const done = await save(item, found.text, w)
+    if (!done.ok) return done
+    return changed(item, undefined, {})
+  }
   // 2026-10-25: a check that passed with warnings keeps its pass lines and says the warnings after them
   // ("check passed with warnings: <lines> | warnings: <warnings>"); `work next` shows them while it is the owner's
   // newest report (boardWarningsOf). A failed check names its faults (facts) only.

@@ -160,7 +160,7 @@ test('the "ⓘ" beside Autopilot: a focusable button described by a calm box tha
 test('Needs your attention with Autopilot on: only the person\'s asks, counted on top; one quiet line; the wake lines always stay', async () => {
   const items = [
     askOf('Q1', { Title: 'Icons or words on the bar?', Options: 'A icons | B words', Advice: 'A', Route: 'partner' }),
-    askOf('Q2', { Title: 'Merge B12 into main', Asks: 'do', Route: 'main' }),
+    askOf('Q2', { Title: 'Export the map of B12', Asks: 'do', Route: 'main' }),
     askOf('Q3', { Title: 'Approve the hedge at 64 of 75?', Asks: 'look', Of: 'B12', Route: 'recap' }),
     askOf('Q4', { Title: 'Sign in to the seed shop account?', Options: 'A now | B later', Advice: 'A', Route: 'person' }),
   ]
@@ -196,7 +196,7 @@ test('Needs your attention with Autopilot on: only the person\'s asks, counted o
 })
 
 test('the task window of an ask with the main chat or waiting for the recap names its route', async () => {
-  const items = [askOf('Q2', { Title: 'Merge B12 into main', Asks: 'do', Route: 'main' })]
+  const items = [askOf('Q2', { Title: 'Export the map of B12', Asks: 'do', Route: 'main' })]
   const page = await openPage({ state: asSent(garden(items, { autopilot: true })), hash: 'details=Q2' })
   try {
     assert.match(words(page.find('#details')), /With the main chat \(Autopilot\)/)

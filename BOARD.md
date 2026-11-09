@@ -382,7 +382,7 @@ group them under a new goal; Ctrl+Z undoes; the tree beside the outline shows th
 zoomed into, "Diagram" and "Outline" hide either side, "Hide done" leaves out the goals done with all inside them done (kept in the browser; "+n done hidden" where they stood shows them again; on a phone behind the bar's "…"), a click on a box zooms in, dragging a box moves it; on a phone
 the outline alone and a "…" menu on every row; "Ask the Advisor…" in the frame or a row's menu asks the Advisor a
 question about that goal, with pictures pasted or picked: the ask stands under the goal, violet, until the Advisor's
-answer comes there, with its pictures and "More ↗" for its whole page; "Make a step from this", "Ask again" and
+answer comes there, with its pictures and "More ↗" for its whole page; "Make a step from this" (the board files the step itself, once per answer: the button reads "Making…", then "Step B<n> made" with a link to the step; no word goes to a chat), "Ask again" and
 "Done" (read) under it; an answer not read is also a line under Needs your attention), **Brainstorm** (think something
 through with your partner, one question at a time: "+ New brainstorm…" or "Brainstorm this" on a goal starts one with
 your opening words; the list at the left is a slim row per brainstorm in three groups, the newest first in each:

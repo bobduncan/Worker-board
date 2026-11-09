@@ -766,8 +766,7 @@ again, never a second ask (the review of B258). The Advisor writes `Answer (<dat
 (roles/partner.md, "Asks from the goal map"; the page in `goalAsks`, `.claude/goal-asks`, beside the threads, not in
 the game). The frame shows each ask as a violet block: the question with its id, time and "waiting for the Advisor",
 or the answer with the pictures it names and "More ↗" (the page in the board's file window, from the project's
-folder or the asks' folder), and the buttons "Make a step from this" (Talk to Main, prefilled with the goal, the ask
-and the answer; B259 gives the main chat words of its own), "Ask again" and "Done", which writes `Read: <date time>`
+folder or the asks' folder), and the buttons "Make a step from this" (reactive board, 2026-11-09: the board files the step itself through the goals route, command `ask-step`, with the B754 maker `writeGoalStep`: state new, the goal, a title from the answer's first sentence, the answer's words and the line `From the goal map: the Advisor's answer A<n> under G<n>.` as its context; that line makes a second click answer the step already made, `askToStep` in `src/goalSteps.mjs`; the button reads "Making…", then "Step B<n> made" with a `#details=B<n>` link, or why it was refused in its place; no effort, no model, no word to a chat), "Ask again" and "Done", which writes `Read: <date time>`
 under the answer (`read`). A read ask folds away with the frame's lines ("1 ask read"). An ask not answered or not
 read stands in the tree as a violet dashed box after the goals inside (a click lights its block; nothing drops on
 it), in the outline as a tag ("1 ask pending", "answer to read") and in the frame's line. An answer not read is a
@@ -2213,6 +2212,20 @@ step on "check pending" for good.
   check failed only on "not merged" lines and the branch is no longer among the branches the base lacks (`basesNow`'s
   `unmerged`: merged, or gone with its commits on the base). Once per failed check; git silent, a branch still unmerged or a
   second fault leaves the step. Tests: `test/supervisor/mergedNow.test.mjs`.
+- **Branch or worktree left, gone later** (P2 of the one wait system, T2.11: the person, 2026-11-09, "i dont want to wait for a week"): the repair
+  rule `faults-gone` checks a step in review again, without a new report, when its last board check failed only on faults it can
+  test and every one is gone now: "the branch X is still there" (X is in no repository's local branches), "the worktree P is still
+  on/there" (no repository lists P), "the branch X is still on origin of R" (the remote branch is gone, or now on origin's base);
+  the view's `branches` (`check.mjs` `faultsNow`). Once per failed check (its key names the check's minute). It looks at nothing
+  for a step whose check runs (`live.checking`, a "check pending" line), after a report that came after the failed check, after its
+  own re-run, in the first 5 minutes after a board start, nor while a landing runs (`data/landing.lock`, not stale): the rule
+  `skips` says so. Its fix is `recheck` with `again`: the action `recheck-base` writes one line, "check run again by the board (faults
+  gone): <why>" (no "check pending" line, so every reader still sees the failed check it re-runs). A pass is written as every pass
+  is; the outbox sweep (`outboxSweep.mjs` `whyClosed`) closes a back word still waiting for the worker, made before the pass, with the why
+  "its check passed since (board re-run)"; a failure is written "check run again by the
+  board: failed: <faults>": `report-check-twice` counts only "check failed" lines, and the hand-over's back word keeps the key of the
+  failed check it told (so none is sent again). A re-run whose start stands over 2 minutes without an outcome is stuck like a pending
+  check (`stuckChecks`). Tests: `test/supervisor/faultsGone.test.mjs`; real cases `fixtures/faults-gone/` (B1042, B1071).
 - **A restart** stops taking work (the Workers mod gets 503 "The board restarts: try again in a moment."), starts no
   new look, pass or check, and waits up to 10 s for the reconciler's pass and the running checks before it ends; it
   also ends when the page's connection drops before the answer is out.
@@ -6957,6 +6970,20 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   the landed branch <name> from origin"; the landings line's `branches` holds `swept`, `kept` ("<name> (<why>)") and `landed`
   (`{ remote, local }`, each "removed" or "kept: <why>"). Pinned by `test/landScript.test.mjs` (the first landing, and the test with
   a pushed branch checked out in a worktree, a merged leftover, an unmerged one, an unlisted one and main) and `test/landing.test.mjs`.
+- **No landing asks** (2026-11-09, the person's "Yes, build it"): B1079 went live at 11:14 without chat 1's go or the person's yes,
+  because Worker 5 asked Q701 "Put B1079's fix live on the board now?", Autopilot took its advice and the worker landed on that; B1071
+  ran the same way (Q686 to Q690). A step lands only on chat 1's go, after the person's own yes, which chat 1 asks for, so a chat
+  never asks the person or Autopilot to land: `work ask` refuses (409) an ask whose title, text or options ask to land, merge to main,
+  go live or put a step's work live, from any chat, with the words "A landing goes on chat 1's go, after the person's yes, which chat
+  1 asks for. Do not ask the person or Autopilot: tell chat 1 (board dev) through a note to main ('For chat 1: <step> ready to land,
+  <branch> <hash>, gate <line>'), keep a checkpoint 'waits for chat 1's go', and land with tools/land.ps1 only on its go." In depth,
+  Autopilot never answers such an ask that was filed anyway (`autopilotRoute`: to the person, before any advice, on every pass). One
+  matcher for both (`src/work/landingAsk.mjs`, `landingAskOf`): a sentence names the landing as a verb ("land it", "to land", "lands
+  it", "go live", "put ... live", "merge main", "merge ... to main") and what the board lands (a step id, a fix, a branch, main, the
+  board(s), chat 1, the go, live); "landing" (a flight of stairs has one) and the noun "land" (a tile) are left alone, so is a plain
+  statement of the rule in an ask's context ("the step lands on chat 1's go once you pick"). Pinned by `test/work/landingAsk.test.mjs`
+  with the words of the real asks (refused: Q701, Q686, Q687, Q689, Q655, Q639, Q644, Q637; not refused: Q698, Q664, Q685, Q661, Q653,
+  Q646). Not in it: a lane state for a step that waits for a go (T2.11).
 - **Landing**: fast-forward of main to the gated head (the sha, not the branch's name), `git push <remote> main` (never a
   force: force-pushes are denied in the project's settings, README "The allow rules"), the trial copy fast-forwarded from its
   `local` remote. A push that fails or times out is checked with `git ls-remote` first: when the remote has the head the landing

@@ -125,7 +125,7 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
 
   // Before Autopilot: four open asks, each the person's or the partner's as today.
   ok(await asChat('Digger', { action: 'take', minutes: 30, id: 'B12', branch: 'b12' }), 'take')
-  const merge = await asChat('Digger', { action: 'ask', of: 'B12', kind: 'do', title: 'Merge B12 into main', text: 'Merge B12 into main once its check passed.' })
+  const merge = await asChat('Digger', { action: 'ask', of: 'B12', kind: 'do', title: 'Export the map of B12', text: 'Export the map of B12 once its check passed.' })
   ok(merge, 'the do')
   // The ruling of 2026-10-31: the partner's advice is taken only for an ask under a step (its own step: a second question under
   // B12 would join the open one there, one question per task).
@@ -154,7 +154,7 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
   assert.equal(word.text, `autopilot: do ${mergeId} if a chat can, else escalate it with one line why`)
   const next = await asChat('Lead', { action: 'next' })
   ok(next, 'next')
-  assert.match(next.body.result?.text ?? next.body.text, new RegExp(`Asks you do for the person \\(Autopilot[^\\n]*\\n- ${mergeId} do from Digger on B12: Merge B12 into main`))
+  assert.match(next.body.result?.text ?? next.body.text, new RegExp(`Asks you do for the person \\(Autopilot[^\\n]*\\n- ${mergeId} do from Digger on B12: Export the map of B12`))
   // Needs your attention: only the goal's question; the quiet line's count; the routed asks for their windows.
   const shown = await until(async () => {
     const now = await state()
@@ -165,7 +165,7 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
   assert.deepEqual(shown.routedAway.map(one => [one.id, one.route]), [[mergeId, 'main'], [lookId, 'recap']])
 
   // The main chat does it.
-  ok(await asChat('Lead', { action: 'partner-answer', id: mergeId, text: 'Merged B12 into main.', why: 'a chat can merge' }), 'the main chat\'s answer')
+  ok(await asChat('Lead', { action: 'partner-answer', id: mergeId, text: 'Exported the map of B12.', why: 'a chat can export' }), 'the main chat\'s answer')
   assert.equal(await head(mergeId, 'Answered by'), 'main')
 
   // The recap's Send: the part that shows B12 sent back closes the checker's look with the person's words.
