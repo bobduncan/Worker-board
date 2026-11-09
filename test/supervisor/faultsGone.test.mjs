@@ -32,7 +32,7 @@ const inReview = (id, ...history) => item({ Id: id, Kind: 'step', Title: `Step $
 const failedOn = (minutes, ...faults) => `- ${stamp(ago(minutes))} server: check failed: ${['work in lantern', ...faults].join('; ')}`
 
 /** What git says about the repository of the real cases, with its branch and worktree gone. */
-const REPO = { name: 'worker-board', base: 'main', heads: ['main', 'other'], remotes: ['origin/main'], remoteUnmerged: [], worktrees: ['C:/Web/lava-tactics-project/worker-board'] }
+const REPO = { name: 'worker-board', base: 'main', heads: ['main', 'other'], remotes: ['origin/main'], remoteUnmerged: [], worktrees: ['D:/proj/worker-board'] }
 const facts = (more = {}) => [{ ...REPO, ...more }]
 const stuck = (store, branches, more = {}) => findStuck({ items: store, lanes: [], now: NOW, branches, ...more }).filter(one => one.check === 'faults-gone')
 
@@ -51,8 +51,8 @@ test('the real case B1042: branch and worktree left, both gone now, is checked a
 test('faults-gone fires only when EVERY fault is gone: a branch still local, a worktree still listed (any slash, any case), git silent, or no look: nothing', async () => {
   const store = items(await fixture('B1042'))
   assert.equal(stuck(store, facts({ heads: ['main', 'b1042-chain-long'] })).length, 0)
-  assert.equal(stuck(store, facts({ worktrees: ['C:/Web/lava-tactics-project/worker-board', 'C:/Web/lava-tactics-project/w1-b1042'] })).length, 0)
-  assert.equal(stuck(store, facts({ worktrees: ['c:\\web\\lava-tactics-project\\W1-B1042\\'] })).length, 0)
+  assert.equal(stuck(store, facts({ worktrees: ['D:/proj/worker-board', 'D:/proj/w1-b1042'] })).length, 0)
+  assert.equal(stuck(store, facts({ worktrees: ['d:\\proj\\W1-B1042\\'] })).length, 0)
   assert.equal(stuck(store, facts({ heads: null })).length, 0)
   assert.equal(stuck(store, facts({ worktrees: null })).length, 0)
   assert.equal(stuck(store, []).length, 0)
