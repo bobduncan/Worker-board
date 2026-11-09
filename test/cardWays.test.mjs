@@ -26,6 +26,8 @@ const CARDS = {
   unfiled: { id: 'unfiled:Digger:1', kind: 'unfiled', from: 'Digger', canAnswer: false, talk: 'window', title: 'Digger wrote questions in its chat but filed no ask' },
   idle: { id: 'idle:Digger:1', kind: 'idle', from: 'Digger', canAnswer: false, talk: 'window', title: 'Digger holds B12 and B14 but is not working and asked you nothing: it may wait for you' },
   'old-mod': { id: 'old-mod', kind: 'old-mod', from: null, canAnswer: false },
+  // P1 of the one wait system (2026-11-09): a recorded wait on a chat past its limit; its step is linked in the title.
+  'wait late': { id: 'wait:Digger:1', kind: 'wait late', from: 'Digger', canAnswer: false, talk: 'window', step: 'B12', title: 'Digger waits for chat 1 (its go to land) since 11:18 (95 min) on B12' },
 }
 /** A way the person can act on: a form, a button, or a link. */
 const ACTS = new Set(['form', 'talk', 'nudge', 'check', 'pause'])
@@ -53,6 +55,8 @@ test('a hint carries the way to the chat and a button that asks the chat to act,
   assert.equal(idle[1].label, 'Ask it to go on or report')
   assert.match(idle[1].text, /^Your turn has ended while you hold B12 and B14, with nothing running and no ask open: go on with it, file what you need from me with work ask, or report it\.$/)
   assert.match(page.nudgeWords({ kind: 'idle', title: 'X holds B7 but is not working' }).text, /hold B7,/)
+  // The Late of a recorded wait: the way to the chat only (the wait is on purpose: no nudge).
+  assert.deepEqual(ways(CARDS['wait late']), [{ way: 'talk', to: 'wait:Digger:1', label: 'Open Digger\'s chat' }])
 })
 
 test('a quiet worker gets Check now; a quiet main chat and a question of the app\'s form are the app\'s', () => {
@@ -63,7 +67,7 @@ test('a quiet worker gets Check now; a quiet main chat and a question of the app
 })
 
 test('the cards draw their ways: the hint\'s buttons, Check now, and the nudge goes to the chat as the person\'s line', () => {
-  assert.match(script, /if \(need\.kind === 'unfiled' \|\| need\.kind === 'idle'\) return \[\.\.\.parts, \.\.\.wayButtons\(need, inWindow\)\]/)
+  assert.match(script, /if \(need\.kind === 'unfiled' \|\| need\.kind === 'idle' \|\| need\.kind === 'wait late'\) return \[\.\.\.parts, \.\.\.wayButtons\(need, inWindow\)\]/)
   assert.match(script, /const check = String\(need\.id\)\.startsWith\('quiet:'\) \? wayButtons\(need\) : \[\]/)
   assert.match(script, /await send\(\{ to: way\.to, text: way\.text \}, `nudge:\$\{id\}`\)/)
   assert.match(script, /send\(\{ to: board\.workers\.main, command: 'sync', chat: check\.dataset\.cardSync \}, `sync:\$\{check\.dataset\.cardSync\}`\)/)
