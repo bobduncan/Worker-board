@@ -71,6 +71,7 @@ import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
+import { brainstormClickOf, clickIdOf, clickLedger, oneClick, retryClick } from './src/clicks.mjs'
 import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
 import { parseGoals } from './src/goals.mjs'
 import { activityFor, askToStep, missingToSteps, stepMadeFrom } from './src/goalSteps.mjs'
@@ -1766,6 +1767,33 @@ async function main(args) {
   }
   // Stability (2026-11-05): the person's actions log. Not on the demo, nor on a board that only shows: they write nothing.
   const actionsFile = isDemo || isShowOnly || workWriters === null ? null : join(HERE, 'data', 'actions.jsonl')
+  // Reactive board, brief P4a: one click is one server action. The click's record (data/clicks.jsonl) holds its word's id or
+  // `not sent: <why>, HH:MM`; its one line in the actions log carries the click id (src/clicks.mjs).
+  const clicks = clickLedger({ file: isDemo || isShowOnly || workWriters === null ? null : join(HERE, 'data', 'clicks.jsonl') })
+  const logClick = actionsFile === null ? null : entry => keepPersonAction(actionsFile, entry, clock())
+  const sayLine = value => String(value ?? '').replace(/\s+/g, ' ').trim()
+  const NOT_A_CLICK = { ok: false, status: 400, why: 'A click id is 8 to 64 letters, digits, - or _.' }
+  /** One action of a click; the state is read anew after it, so the cards draw its record (the "not sent" line, its Retry). */
+  const clickNow = async args => {
+    const done = await oneClick(args)
+    readState.reset()
+    return done
+  }
+  /** The click's word, typed as every word of the page: `sayNow` checks it against the state read anew after the write. */
+  const clickSay = async (body, role = 'talk') => {
+    // The chat is found when the word is queued, so a retry reaches a partner that joined the board after the click.
+    const state = await readState()
+    const to = body.to ?? (role === 'advisor' ? state.advisor?.name ?? null : talkPartnerOf(state)?.name ?? null)
+    return to === null ? { ok: false, status: 409, why: 'no chat on the board takes it' } : sayNow({ ...body, to })
+  }
+  /** The retry of a click whose word was not queued: the input stands, the word is typed once more. */
+  const retryNow = async body => {
+    const click = clickIdOf(body)
+    if (typeof click !== 'string') return NOT_A_CLICK
+    const done = await retryClick({ ledger: clicks, click, now: clock, say: clickSay, log: logClick })
+    readState.reset()
+    return done
+  }
   // Stability (2026-11-05): the per-minute record of idle-with-work, written by the look below where the board owns the loops.
   const keepMinute = isDemo || isShowOnly || workDir === null ? null : minuteKeeper({ file: join(HERE, 'data', 'ready-minutes.jsonl'), clock })
   // Stability (2026-11-05, task 3): the day line (data/stability.jsonl), made in the same loop as the minute record.
@@ -2290,7 +2318,7 @@ async function main(args) {
     // (the person deletes it once read).
     const shownAside = []
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
-    return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside, check: checker?.view() ?? null }
+    return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside, check: checker?.view() ?? null, clicksUnsent: await clicks.unsent() }
   }), STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
@@ -3029,6 +3057,23 @@ async function main(args) {
       return path === null ? { ok: false, status: 409, why: 'Too many pictures in this minute: wait a minute.' } : { ok: true, result: { path } }
     },
     say: sayNow = async body => {
+      // Reactive board, brief P4a: a plain word of the page (the talk's Send, Talk to Main, the re-check) that carries a click id
+      // is queued once: the same id again answers the first word and queues no second. Its one line goes to the actions log.
+      const click = clickIdOf(body)
+      if (click === false) return NOT_A_CLICK
+      if (click !== null) {
+        return clicks.once(click, async () => {
+          const before = await clicks.get(click)
+          if (before !== null && typeof before.word === 'string') return { ok: true, message: { id: before.word, again: true, ...(before.paste === undefined ? {} : { paste: before.paste }) } }
+          const via = ['talk-send', 'main-talk-send', 'recheck'].includes(body.via) ? body.via : 'say'
+          const done = await sayNow({ ...body, click: undefined, via: undefined })
+          if (done.ok && typeof done.message?.id === 'string') {
+            await clicks.put({ click, via, key: null, route: null, at: clock(), word: done.message.id, ...(done.message.paste === undefined ? {} : { paste: done.message.paste }) })
+            if (logClick !== null) await logClick({ via, action: 'say', id: null, click })
+          }
+          return done
+        })
+      }
       // What is answered here would never arrive: this board has no bridge.
       // Focus 2: a copy with a goal map of its own keeps the words of its brainstorms in its own outbox.
       const isOwnTalk = writesMap && typeof body?.command === 'string' && body.command.startsWith('brainstorm')
@@ -3127,7 +3172,23 @@ async function main(args) {
     },
     // B221: the person closes or deletes a step on the Backlog tab, through the work API (the store, then its view).
     // B285: the state is read anew after a change, so an ask made next (Send answers · refine again) knows the block.
-    backlog: async body => {
+    backlog: async function backlogRoute(body) {
+      // Reactive board, brief P4a: "Send answers" and "Ask for pictures" of a refine are ONE action: the answers written into
+      // the step's block, then the refine word to the Advisor (`action: 'refine-send'`, with a click id).
+      const click = clickIdOf(body)
+      if (click === false) return NOT_A_CLICK
+      if (body?.action === 'click-retry') return retryNow({ click: body.click })
+      if (body?.action === 'refine-send') {
+        if (click === null) return { ok: false, status: 400, why: 'A click id is needed.' }
+        const nothing = (!Array.isArray(body.answers) || body.answers.length === 0) && String(body.feedback ?? '').trim() === '' && String(body.request ?? '').trim() === ''
+        return clickNow({
+          ledger: clicks, click, via: body.via === 'refine-pictures' ? 'refine-pictures' : 'refine-send', action: 'refine-answer', key: typeof body.step === 'string' ? body.step : null, route: '/api/backlog', now: clock, log: logClick,
+          write: async () => (nothing ? { ok: true, result: { step: body.step } } : backlogRoute({ ...body, action: 'refine-answer', click: undefined, via: undefined })),
+          toRole: 'advisor',
+          sayBody: () => ({ to: null, command: 'refine', step: body.step }),
+          say: clickSay,
+        })
+      }
       const done = await editStep(body, { now: clock(), work: workWriters })
       work.reset?.()
       readState.reset()
@@ -3136,7 +3197,20 @@ async function main(args) {
     // B256: the person changes the goal map on the Goals part. Only the board that delivers writes it; then the state
     // is read anew, so the page draws the file as it now is: also after a refusal, often a change made elsewhere.
     plan: async body => planNow(body),
-    goals: async body => {
+    goals: async function goalsRoute(body) {
+      // Reactive board, brief P4a: "Ask the Advisor" is ONE action: the Ask line under the goal, then its word to the Advisor.
+      const click = clickIdOf(body)
+      if (click === false) return NOT_A_CLICK
+      if (body?.command === 'click-retry') return retryNow(body)
+      if (click !== null && body?.command === 'ask') {
+        return clickNow({
+          ledger: clicks, click, via: 'goal-ask', action: 'ask', key: typeof body.id === 'string' ? body.id : null, route: '/api/goals', now: clock, log: logClick,
+          write: async () => goalsRoute({ ...body, click: undefined }),
+          toRole: 'advisor',
+          sayBody: result => (typeof result?.id !== 'string' ? null : { to: null, command: 'goal-ask', goal: body.id, ask: result.id, text: String(body.text ?? ''), pictures: Array.isArray(body.pictures) ? body.pictures : [] }),
+          say: clickSay,
+        })
+      }
       // A page from before the plan's own way sends its Vision words here: they take that way all the same.
       if (PLAN_MOVES.includes(body?.command)) return planNow(body)
       if ([...FOCUS_MOVES, ...FOCUS_DRAFTS].includes(body?.command)) return focusNow(body)
@@ -3189,24 +3263,42 @@ async function main(args) {
     // B259: the person's brainstorm on the Brainstorm part: its thread, and on Create the goal map. Only the board that
     // delivers writes; then the state is read anew.
     brainstorm: async body => {
-      const done = await editThread(body, {
-        canWrite: writesMap,
-        dir: projectFile(config, 'brainstorms'),
-        folder: config.brainstorms,
-        goalsFile: projectFile(config, 'goals'),
-        historyDir: projectFile(config, 'goalsHistory'),
-        now: clock(),
-        // "Change this goal" (2026-10-31): a ticked drop of a change's proposal is the work store's drop, as the person.
-        drop: (id, why) => workAction({ action: 'drop', id, why }, 'person'),
-        // 2026-10-31: a ticked step of the proposal is written by the board while it creates, so the Created line names its id.
-        step: async ({ thread, index, goal }) => {
-          if (isShowOnly || workDir === null) return { ok: false, why: 'This board cannot write a step.' }
-          const made = await writeGoalStep(goalStepFor(thread, index, goal))
-          return made.ok ? { ok: true, result: { id: made.result.step } } : { ok: false, why: made.why }
-        },
+      // Reactive board, brief P4a: a click that carries its id is ONE action: the input stored and its word queued.
+      const click = clickIdOf(body)
+      if (click === false) return NOT_A_CLICK
+      if (body?.command === 'click-retry') return retryNow(body)
+      const write = async () => {
+        const done = await editThread(body, {
+          canWrite: writesMap,
+          dir: projectFile(config, 'brainstorms'),
+          folder: config.brainstorms,
+          goalsFile: projectFile(config, 'goals'),
+          historyDir: projectFile(config, 'goalsHistory'),
+          now: clock(),
+          // "Change this goal" (2026-10-31): a ticked drop of a change's proposal is the work store's drop, as the person.
+          drop: (id, why) => workAction({ action: 'drop', id, why }, 'person'),
+          // 2026-10-31: a ticked step of the proposal is written by the board while it creates, so the Created line names its id.
+          step: async ({ thread, index, goal }) => {
+            if (isShowOnly || workDir === null) return { ok: false, why: 'This board cannot write a step.' }
+            const made = await writeGoalStep(goalStepFor(thread, index, goal))
+            return made.ok ? { ok: true, result: { id: made.result.step } } : { ok: false, why: made.why }
+          },
+        })
+        readState.reset()
+        return done
+      }
+      const clicked = click === null ? null : brainstormClickOf(body)
+      if (clicked === null) return write()
+      if (clicked.noWrite === true) {
+        if (!writesMap) return { ok: false, status: 403, why: 'This board only shows: brainstorm on the board that delivers.' }
+        if (body.command === 'change' && sayLine(body.text) === '') return { ok: false, status: 400, why: 'Say what to change.' }
+      }
+      return clickNow({
+        ledger: clicks, click, via: clicked.via, action: body.command, key: clicked.key ?? (result => result.path ?? body.path ?? null), route: '/api/brainstorm', now: clock, log: logClick,
+        write: clicked.noWrite === true ? async () => ({ ok: true, result: body.command === 'change' ? { path: body.path, text: sayLine(body.text) } : { path: body.path } }) : write,
+        sayBody: result => clicked.word({ ...result, path: result.path ?? body.path }, null),
+        say: clickSay,
       })
-      readState.reset()
-      return done
     },
     onError: error => loops.failed('request', error),
     onAnswered: () => loops.succeeded('request'),

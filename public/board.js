@@ -9816,10 +9816,13 @@ async function askQuestionPictures(question) {
   sending.add(key)
   redrawQuestions()
   if (isRefine) {
-    const problem = advisor === null ? 'the board has no Advisor' : await sendBacklog({ action: 'refine-answer', step: question.stepId, answers: [], feedback: '', request: words })
+    // Reactive board, brief P4a: ONE call: the board writes its request under the step's Feedback, then queues the refine word.
+    const { result, problem } = advisor === null ? { result: null, problem: 'the board has no Advisor' }
+      : await clickCall('/api/backlog', { action: 'refine-send', via: 'refine-pictures', step: question.stepId, answers: [], feedback: '', request: words }, key)
     sending.delete(key)
     if (problem !== null) problems.set(key, `Not done: ${problem}`)
-    else await send({ to: advisor, command: 'refine', step: question.stepId }, key)
+    else if (result.notSent !== undefined) problems.set(key, notSentWords(result.notSent, result.notSentAt))
+    await read()
   } else {
     sending.delete(key)
     await send({ to: question.from, text: words }, key)
@@ -13432,20 +13435,25 @@ async function sendGoalAsk() {
     }
     pictures.push(one.path)
   }
-  // An ask written on an earlier try is typed again, never written twice.
-  let id = goalsAskBox.written?.goal === goal ? goalsAskBox.written.id : null
-  if (id === null) {
-    const written = await sendGoals({ command: 'ask', id: goal, text })
-    if (typeof written?.id !== 'string') return fail('Not sent: the ask could not be written under the goal (the line above the map says why).')
-    id = written.id
-    goalsAskBox.written = { goal, id }
+  // Reactive board, brief P4a: ONE call: the board writes the Ask line under the goal and queues its word to the Advisor.
+  // "Send again" after a word that was not queued is the Retry of that click: the same id, the ask is not written twice.
+  const earlier = goalsAskBox.written?.goal === goal ? goalsAskBox.written : null
+  let result
+  if (earlier !== null && earlier.click) {
+    await retryClickOf(earlier.click, '/api/goals')
+    const unsent = (board?.clicksUnsent ?? []).find(one => one.click === earlier.click)
+    result = unsent === undefined ? { id: earlier.id } : { id: earlier.id, click: earlier.click, notSent: unsent.why, notSentAt: unsent.at }
+  } else {
+    const called = await clickCall('/api/goals', { command: 'ask', id: goal, text, pictures, page: GOALS_PAGE }, `goal-ask:${goal}`)
+    if (called.problem !== null) return fail(`Not sent: ${called.problem}`)
+    result = called.result
+    await read()
   }
-  const key = `goal-ask:${id}`
-  await send({ to: advisor, command: 'goal-ask', goal, ask: id, text, pictures }, key)
-  if (problems.has(key)) {
-    const why = problems.get(key)
-    problems.delete(key)
-    return fail(`${id} stands under the goal, but the words did not reach ${advisor}: ${why.replace(/^Not sent: /, '').replace(/\.$/, '')}. "Send again" types it again.`)
+  const id = result.id ?? null
+  if (result.notSent !== undefined) {
+    // The ask stands under the goal; "Send again" is its Retry by the click id.
+    goalsAskBox.written = { goal, id, click: result.click }
+    return fail(`${id ?? 'The ask'} stands under the goal, but ${notSentWords(result.notSent, result.notSentAt)} "Send again" types it again.`)
   }
   goalsAskBox.busy = false
   closeGoalAsk()
@@ -14110,6 +14118,7 @@ function brainstormData(state) {
   return [state.brainstorms ?? null, advisor?.name ?? null, advisor?.role ?? null, advisor?.isRunning ?? null, advisor?.state ?? null, advisor?.doingNow ?? null, Math.floor((state.readAt ?? 0) / 60_000),
     // What the partner's card says it is busy with, and where the thread stands in its queue (the Advisor lane's "Next for it").
     advisor?.on ?? null, advisor?.turnAt ?? null, (advisor?.next ?? []).map(row => [row?.kind ?? null, row?.id ?? null, row?.thread ?? null, row?.stand?.kind ?? null, row?.stand?.since ?? null]),
+    state.clicksUnsent ?? null,
     state.goalsEdit?.canWrite ?? null, state.restart?.main ?? null, (state.goals?.nodes ?? []).map(node => [node.id, node.title, (node.parts ?? []).map(part => part.title), (node.partsDropped ?? []).map(part => part.title)]),
     brainstormUi.open, brainstormUi.newAbout === undefined ? 'closed' : brainstormUi.newAbout,
     [...brainstormUi.unticked].map(([path, keys]) => [path, [...keys]]), [...brainstormUi.failedSteps], brainstormUi.changing, brainstormUi.confirm, brainstormUi.busy, brainstormUi.note,
@@ -14231,6 +14240,9 @@ function brainstormCard(thread, state) {
     parts.push(box)
   }
   if (brainstormUi.note !== null && brainstormUi.note.path === thread.path) parts.push(el('p', `brainstorm-note${brainstormUi.note.isProblem ? ' is-error' : ''}`, brainstormUi.note.text))
+  // Reactive board, brief P4a: an input of this talk that stands with its word not queued: why and when, with a Retry (the click id again).
+  const unsent = unsentLine(thread.path)
+  if (unsent !== null) parts.push(unsent)
   // 2026-10-31: a line the board cannot read is the partner's to write anew (the board tells it); the person is never shown one.
   // Only the "…" menu counts them, quietly.
   if (thread.state === 'discarded') parts.push(el('p', 'muted brainstorm-over', 'Discarded: nothing of it was created.'))
@@ -14707,6 +14719,18 @@ async function sendBrainstorm(body) {
   return result
 }
 
+/**
+ * Reactive board, brief P4a: one click of a brainstorm is ONE call: the board stores the input and queues its word. The
+ * result, or null with its reason under the card. A word that was not queued leaves the input standing, and the card's
+ * "Not sent" line with its Retry is drawn from the board's record (`unsentLine`); `result.notSent` tells it.
+ */
+async function clickBrainstorm(body, path, via = null) {
+  const { result, problem } = await clickCall('/api/brainstorm', via === null ? body : { ...body, via }, `brainstorm:${path ?? 'new'}:${body.command}:${body.n ?? ''}`)
+  if (problem !== null) brainstormUi.note = { path, isProblem: true, text: `Not done: ${problem}` }
+  await read()
+  return result
+}
+
 /** Words to a chat; their problem, if any, under the card. True when they went. */
 async function sayBrainstorm(message, path) {
   const key = `brainstorm:${path}:${message.command}${Number.isInteger(message.step) ? `:${message.step}` : ''}`
@@ -14754,7 +14778,8 @@ async function brainstormAct(act, path, key = null) {
     brainstormUi.busy = true
     brainstormUi.note = null
     redrawBrainstorm()
-    if (await sayBrainstorm({ to: advisor, thread: path, ...word }, path)) brainstormUi.note = { path, isProblem: false, text: who === 'partner' ? 'Typed into the Advisor\'s chat again.' : `Typed into your ${who}'s chat again.` }
+    const again = await clickBrainstorm({ command: 'again', path, word }, path)
+    if (again !== null && again.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: who === 'partner' ? 'Typed into the Advisor\'s chat again.' : `Typed into your ${who}'s chat again.` }
     brainstormUi.busy = false
     return redrawBrainstorm()
   }
@@ -14797,25 +14822,24 @@ async function brainstormAct(act, path, key = null) {
       const words = (brainstormUi.other.get(path) ?? '').trim()
       const answer = act === 'skip' ? { command: 'skip' } : act === 'back' ? { command: 'back', to: n - 1 }
         : key !== null ? { command: 'answer', key, words } : { command: 'answer', key: 'Other', words }
-      if (await sendBrainstorm({ path, n, ...answer }) !== null) {
-        brainstormUi.other.delete(path)
-        await sayBrainstorm({ to: advisor, command: 'brainstorm-answer', thread: path, n }, path)
-      }
+      if (await clickBrainstorm({ path, n, ...answer }, path) !== null) brainstormUi.other.delete(path)
     } else if (act === 'understood-yes') {
       // "Change this goal": the yes is written under what the partner understood, then typed to it: it writes the proposal.
-      if (await sendBrainstorm({ command: 'understood', path, yes: true }) !== null && await sayBrainstorm({ to: advisor, command: 'brainstorm-understood', thread: path }, path)) {
-        brainstormUi.note = { path, isProblem: false, text: 'Your partner writes the new goal and the tasks it needs.' }
-      }
+      const yes = await clickBrainstorm({ command: 'understood', path, yes: true }, path)
+      if (yes !== null && yes.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: 'Your partner writes the new goal and the tasks it needs.' }
     } else if (act === 'send-not-quite') {
       const words = brainstormUi.notQuiteWords.trim()
       if (words === '') brainstormUi.note = { path, isProblem: true, text: 'Say what is not quite it.' }
-      else if (await sendBrainstorm({ command: 'understood', path, words }) !== null) {
-        brainstormUi.notQuite = null
-        brainstormUi.notQuiteWords = ''
-        if (await sayBrainstorm({ to: advisor, command: 'brainstorm-not-quite', thread: path }, path)) brainstormUi.note = { path, isProblem: false, text: `Sent to your ${who}: it asks on.` }
+      else {
+        const quite = await clickBrainstorm({ command: 'understood', path, words }, path)
+        if (quite !== null) {
+          brainstormUi.notQuite = null
+          brainstormUi.notQuiteWords = ''
+          if (quite.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: `Sent to your ${who}: it asks on.` }
+        }
       }
     } else if (act === 'wrap') {
-      if (await sendBrainstorm({ command: 'wrap', path }) !== null) await sayBrainstorm({ to: advisor, command: 'brainstorm-wrap', thread: path }, path)
+      await clickBrainstorm({ command: 'wrap', path }, path)
     } else if (act === 'discard') {
       await sendBrainstorm({ command: 'discard', path })
     } else if (act === 'close') {
@@ -14824,10 +14848,14 @@ async function brainstormAct(act, path, key = null) {
     } else if (act === 'send-change') {
       const words = brainstormUi.changeWords.trim()
       if (words === '') brainstormUi.note = { path, isProblem: true, text: 'Say what the Advisor should change.' }
-      else if (await sayBrainstorm({ to: advisor, command: 'brainstorm-change', thread: path, text: words }, path)) {
-        brainstormUi.changing = null
-        brainstormUi.changeWords = ''
-        brainstormUi.note = { path, isProblem: false, text: 'Sent to the Advisor: it writes the proposal anew.' }
+      else {
+        // The person's words stand with the board's record of the click; the word is queued with them.
+        const changed = await clickBrainstorm({ command: 'change', path, text: words }, path)
+        if (changed !== null) {
+          brainstormUi.changing = null
+          brainstormUi.changeWords = ''
+          if (changed.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: 'Sent to the Advisor: it writes the proposal anew.' }
+        }
       }
     } else if (act === 'steps-again') {
       // The steps the main chat was not reached with, asked again; the ones that go are done with.
@@ -14975,13 +15003,12 @@ $('brainstorm-new').addEventListener('submit', async event => {
   brainstormUi.busy = true
   brainstormUi.note = null
   redrawBrainstorm()
-  const started = await sendBrainstorm({ command: 'start', title, goal: brainstormUi.newAbout ?? null, opening })
+  const started = await clickBrainstorm({ command: 'start', title, goal: brainstormUi.newAbout ?? null, opening }, null)
   if (started !== null) {
     $('brainstorm-new-title').value = ''
     $('brainstorm-new-opening').value = ''
     brainstormUi.newAbout = undefined
     brainstormUi.open = started.path
-    await sayBrainstorm({ to: advisor, command: 'brainstorm', thread: started.path }, started.path)
   }
   brainstormUi.busy = false
   redrawBrainstorm()
@@ -15043,21 +15070,13 @@ $('change-goal-form').addEventListener('submit', async event => {
   $('change-goal-start').disabled = true
   $('change-goal-start').textContent = 'Starting…'
   try {
-    let started = null
-    let why = null
-    try {
-      const answer = await fetch('/api/brainstorm', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ command: 'start', kind: 'change', goal, title: `Change: ${node?.title ?? goal}`, opening: words }) })
-      if (answer.ok) started = await answer.json()
-      else why = (await answer.text()).trim() || `refused (${answer.status})`
-    } catch {
-      why = 'the board\'s server does not answer.'
-    }
+    // Reactive board, brief P4a: one call: the board starts the talk and queues its first word.
+    const { result: started, problem: why } = await clickCall('/api/brainstorm', { command: 'start', kind: 'change', goal, title: `Change: ${node?.title ?? goal}`, opening: words }, `change-goal:${goal}`)
     if (started === null) return changeGoalSay(`Not started: ${why}`, true)
     $('change-goal-words').value = ''
     $('change-goal').close()
     await read()
     showBrainstormThread(started.path)
-    await sayBrainstorm({ to: advisor, command: 'brainstorm', thread: started.path }, started.path)
     redrawBrainstorm()
   } finally {
     changeGoalUi.busy = false
@@ -18839,7 +18858,17 @@ function drawFocus(state) {
   // B360: without a run on the page (or while the focus is being changed), the gathered recaps stand under it.
   if (!recapsDrawn) parts.push(...gatheredCards(state))
   if (toggle !== null && !switchDrawn) parts.push(toggle)
-  if (focusUi.note !== null) parts.splice(view.head === null ? 0 : 1, 0, el('p', `focus-note${focusUi.note.isProblem ? ' is-error' : ''}`, focusUi.note.text))
+  if (focusUi.note !== null) {
+    const note = el('p', `focus-note${focusUi.note.isProblem ? ' is-error' : ''}`, focusUi.note.text)
+    if (focusUi.note.retry) {
+      const retry = el('button', 'click-retry', 'Retry')
+      retry.type = 'button'
+      retry.dataset.clickRetry = focusUi.note.retry.click
+      retry.dataset.clickRoute = focusUi.note.retry.route
+      note.append(' ', retry)
+    }
+    parts.splice(view.head === null ? 0 : 1, 0, note)
+  }
   // The box typed in keeps its words, and the cursor where it was.
   const active = document.activeElement
   const typing = box.contains(active) && active.id in FOCUS_BOXES ? { id: active.id, at: active.selectionStart } : null
@@ -19022,24 +19051,17 @@ async function focusAnswer(focus) {
   const answer = picked !== null ? { key: picked, words } : { key: 'Other', words }
   const path = thread.path
   const n = ask.question.n
-  try {
-    const written = await fetch('/api/brainstorm', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ command: 'answer', path, n, ...answer }) })
-    if (!written.ok) {
-      focusUi.note = { isProblem: true, text: `Not sent: ${(await written.text()).trim() || `refused (${written.status})`}` }
-      return await read()
-    }
-  } catch {
-    focusUi.note = { isProblem: true, text: 'Not sent: the board\'s server does not answer.' }
-    return
+  // Reactive board, brief P4a: ONE call: the board writes the answer under the question and queues its word to the partner.
+  const { result, problem } = await clickCall('/api/brainstorm', { command: 'answer', path, n, ...answer, via: 'talk-send' }, `focus:${path}:${n}`)
+  if (problem !== null) {
+    focusUi.note = { isProblem: true, text: `Not sent: ${problem}` }
+    return await read()
   }
   focusUi.words.talk = ''
   focusUi.picked = null
-  const key = `focus:${path}:${n}`
-  await send({ to: talkName(board), command: 'brainstorm-answer', thread: path, n }, key)
-  if (problems.has(key)) {
-    focusUi.note = { isProblem: true, text: `${problems.get(key).replace(/\.?$/, '.')} Your answer stands in the thread: answer again on the Brainstorm part to type it once more.` }
-    problems.delete(key)
-  }
+  // The answer stands in the thread; a word that was not queued says so, with a Retry that reuses the click id.
+  if (result.notSent !== undefined) focusUi.note = { isProblem: true, text: notSentWords(result.notSent, result.notSentAt), retry: { click: result.click, route: '/api/brainstorm' } }
+  await read()
 }
 
 $('advisor-focus').addEventListener('click', event => {
@@ -19307,7 +19329,7 @@ $('advisor-way').addEventListener('click', event => {
   // Off at once, so a second click sends nothing; the next redraw shows how it stands.
   button.disabled = true
   button.textContent = 'Asking…'
-  send({ to: advisor, command: 'recheck' }, 'recheck')
+  send({ to: advisor, command: 'recheck' }, 'recheck', 'recheck')
 })
 $('advisor-way').addEventListener('click', event => {
   if (board === null) return
@@ -20083,7 +20105,7 @@ $('main-say').addEventListener('submit', async event => {
   sending.delete('main-talk')
   // Taken away or pasted anew while it was kept: nothing is sent, and the new one stays.
   if (slot.picture !== pending) return drawMainTalk(board)
-  if (pending === null || picture !== null) await send({ to: board.mainTalk.name, text, ...(picture === null ? {} : { picture }) }, 'main-talk')
+  if (pending === null || picture !== null) await send({ to: board.mainTalk.name, text, ...(picture === null ? {} : { picture }) }, 'main-talk', 'main-talk-send')
   if (!problems.has('main-talk')) {
     $('main-text').value = ''
     setSlotPicture(slot, null)
@@ -21247,6 +21269,8 @@ function refineButtons(step, state) {
     line.append(advice)
   }
   if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
+  const unsent = unsentLine(step.id)
+  if (unsent !== null) line.append(unsent)
   return line
 }
 
@@ -21279,8 +21303,8 @@ async function refineClick(button) {
   answers = answers.filter(one => one.answer.trim() !== writtenAnswer(step.id, one.index))
   sending.add(key)
   redrawNeeds()
-  let problem = null
-  if (answers.length > 0 || feedback.trim() !== '') problem = await sendBacklog({ action: 'refine-answer', step: step.id, answers, feedback })
+  // Reactive board, brief P4a: ONE call: the board writes the answers under the step, then queues the refine word to the Advisor.
+  const { problem } = await clickCall('/api/backlog', { action: 'refine-send', step: step.id, answers, feedback }, `refine-send:${step.id}`)
   if (problem === null) {
     for (const name of fields) {
       drafts.delete(name)
@@ -21288,8 +21312,9 @@ async function refineClick(button) {
     }
     // What was reopened is answered anew: it is closed again.
     for (const mark of [...reopened]) if (mark.startsWith(`${step.id}|`)) reopened.delete(mark)
+    // A word that was not queued stands with its "Not sent" line and Retry on the step, drawn from the board's record.
     sending.delete(key)
-    return send({ to: advisor, command: 'refine', step: step.id }, key)
+    return read()
   }
   sending.delete(key)
   problems.set(key, `Not done: ${problem}`)
@@ -22982,8 +23007,79 @@ async function sendBacklog(body) {
   }
 }
 
+// oneclick:start
+/**
+ * Reactive board, brief P4a: ONE CLICK IS ONE SERVER ACTION. The page makes one call for a click: the board stores the
+ * person's input and queues its word in one action; the page never types the word itself with a second call. The click
+ * has an id, made here and kept for that click's retries (a call that got no answer); the board keeps it with the input,
+ * and a second call with the same id gives the first result and queues no second word.
+ */
+const clickIds = new Map()
+let clickCounter = 0
+const newClickId = () => globalThis.crypto?.randomUUID?.() ?? `c${Date.now().toString(36)}${(clickCounter += 1).toString(36)}${Math.random().toString(36).slice(2, 10)}`
+/** The id of the click that `key` names: the same one while its call got no answer, a new one after any answer. */
+const clickFor = key => {
+  if (!clickIds.has(key)) clickIds.set(key, newClickId())
+  return clickIds.get(key)
+}
+
+/**
+ * One call for one click. `body` goes to `route` with the click id. `{ result, problem }`: `result` is what the board
+ * answered (it holds `notSent` and `notSentAt` when the input stands but its word was not queued), `problem` why the board
+ * did not take the click at all (nothing was stored).
+ */
+async function clickCall(route, body, key) {
+  const click = clickFor(key)
+  try {
+    const answer = await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ ...body, click }) })
+    // Any answer ends this click's id, but a board that failed (5xx) may have stored the input: the retry keeps the id.
+    if (answer.status < 500) clickIds.delete(key)
+    if (!answer.ok) return { result: null, problem: (await answer.text()).trim() || `refused (${answer.status})` }
+    const result = await answer.json()
+    showPaste(result?.paste ?? null)
+    return { result, problem: null }
+  } catch {
+    return { result: null, problem: 'the board\'s server does not answer.' }
+  }
+}
+
+/** The words of an input that stands but whose word was not queued. */
+const notSentWords = (why, at) => `Not sent: ${String(why).replace(/\.$/, '')}${at ? `, ${at}` : ''}. Your input stands.`
+
+/** The line of a card for its inputs that stand with "not sent": what the board's record says, with a Retry. Null when none. */
+function unsentLine(key) {
+  const rows = (board?.clicksUnsent ?? []).filter(one => one.key === key)
+  if (rows.length === 0) return null
+  const line = el('p', 'problem click-unsent')
+  const last = rows.at(-1)
+  line.append(`${notSentWords(last.why, last.at)} `)
+  const retry = el('button', 'click-retry', 'Retry')
+  retry.type = 'button'
+  retry.dataset.clickRetry = last.click
+  retry.dataset.clickRoute = last.route ?? '/api/brainstorm'
+  line.append(retry)
+  return line
+}
+
+/** The Retry of a card: the same click again by its id; the board does not write the input twice, it queues the word once more. */
+async function retryClickOf(click, route) {
+  try {
+    await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(route === '/api/backlog' ? { action: 'click-retry', click } : { command: 'click-retry', click }) })
+  } catch {
+    // The record stands with its Retry: the next read draws it.
+  }
+  await read()
+}
+document.addEventListener('click', event => {
+  const retry = event.target.closest?.('[data-click-retry]')
+  if (!retry || retry.disabled) return
+  retry.disabled = true
+  void retryClickOf(retry.dataset.clickRetry, retry.dataset.clickRoute)
+})
+// oneclick:end
+
 /** Sends an answer or a message. `id` is the request it answers, or null for the chat with the advisor. */
-async function send(message, id) {
+async function send(message, id, via = null) {
   const key = id ?? 'talk'
   sending.add(key)
   problems.delete(key)
@@ -22994,8 +23090,10 @@ async function send(message, id) {
     const answer = await fetch('/api/say', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
-      body: JSON.stringify(message),
+      body: JSON.stringify(via === null ? message : { ...message, via, click: clickFor(key) }),
     })
+    // Reactive board, brief P4a: any answer ends the click's id (a board that failed, 5xx, keeps it for the retry).
+    if (answer.status < 500) clickIds.delete(key)
     if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
     // B212: no Workers mod takes the board's words: they are on the clipboard, to be pasted into the chat.
     else showPaste((await answer.json().catch(() => null))?.paste ?? null)
@@ -23265,7 +23363,7 @@ $('say').addEventListener('submit', async event => {
   $('say-send').disabled = false
   // Not kept, or taken away or pasted anew meanwhile: nothing is sent, and what is in the box stays.
   if (slot.picture !== pending || (pending !== null && picture === null)) return slot.redraw()
-  await send({ to: board.advisor.name, text, ...(picture === null ? {} : { picture }) }, null)
+  await send({ to: board.advisor.name, text, ...(picture === null ? {} : { picture }) }, null, 'talk-send')
   if (!problems.has('talk') && slot.picture === pending) setSlotPicture(slot, null)
 })
 
