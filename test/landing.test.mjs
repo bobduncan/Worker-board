@@ -224,8 +224,12 @@ test('the landings line has the fields in a fixed order, one line of plain ASCII
   })
   assert.ok(!line.includes('\n'))
   const read = JSON.parse(line)
-  assert.deepEqual(Object.keys(read), ['at', 'by', 'branch', 'head', 'before', 'after', 'trial', 'result', 'why', 'boards', 'cold', 'gateLog'])
+  assert.deepEqual(Object.keys(read), ['at', 'by', 'branch', 'head', 'before', 'after', 'trial', 'result', 'why', 'boards', 'cold', 'gateLog', 'branches'])
   assert.equal(read.result, 'landed')
+  // 2026-11-09: the branches, empty when the run gave none; as given otherwise.
+  assert.deepEqual(read.branches, { swept: [], kept: [], landed: null })
+  const withBranches = JSON.parse(landingLine({ at: 'A', by: 'b', branch: 'c', head: 'h', before: 'b', after: 'a', result: 'landed', branches: { swept: ['old'], kept: ['ahead (not fully merged into main)'], landed: { remote: 'removed', local: 'kept: checked out in x' } } }))
+  assert.deepEqual(withBranches.branches, { swept: ['old'], kept: ['ahead (not fully merged into main)'], landed: { remote: 'removed', local: 'kept: checked out in x' } })
   assert.deepEqual(read.boards, [{ port: 4310, commit: 'aaaaaaa', since: 1762279200000 }, { port: 4314, commit: 'aaaaaaa', since: 1762279201000 }])
   assert.equal(read.cold, false)
 })

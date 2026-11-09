@@ -198,11 +198,54 @@ test('a landing: main moves to the gated head, the remote and the trial copy fol
   const written = world.landings()
   assert.equal(written.length, 1)
   const [line] = written
-  assert.deepEqual(Object.keys(line), ['at', 'by', 'branch', 'head', 'before', 'after', 'trial', 'result', 'why', 'boards', 'cold', 'gateLog'])
+  assert.deepEqual(Object.keys(line), ['at', 'by', 'branch', 'head', 'before', 'after', 'trial', 'result', 'why', 'boards', 'cold', 'gateLog', 'branches'])
   assert.deepEqual([line.by, line.branch, line.head, line.before, line.after, line.trial, line.result, line.why, line.cold], ['chat 3', 'feat', head, world.before, head, head, 'landed', null, false])
   assert.deepEqual(line.boards.map(one => [one.port, one.commit]), world.ports.map(port => [port, head.slice(0, 7)]))
   assert.ok(line.boards.every(one => Number.isFinite(one.since)))
   assert.match(line.gateLog, /landings[\\/]\d{8}-\d{6}-feat\.log$/)
+  // 2026-11-09: the landed branch is cleaned up: the local one is gone (it was never on the remote); the line and a say line hold it.
+  assert.equal(git(world.main, 'branch', '--list', 'feat'), '', 'the local branch is removed')
+  assert.deepEqual(line.branches, { swept: [], kept: [], landed: { remote: 'kept: not on the remote', local: 'removed' } })
+  assert.ok(out.includes('branch feat: kept on origin: not on the remote; removed locally'), ran.out)
+})
+
+// 2026-11-09, the person: "i want workers to be able to clean up after them selves" (Worker 5 had to ask for the delete of its remote
+// branch: a chat may not `git push --delete`). Mutants: the delete after the landing skipped (feat stays on the remote); the sweep
+// skipped (old-merged stays); the merge check of the sweep forced true (old-ahead is deleted).
+test('a landed branch goes from the remote; one checked out in a worktree is kept locally; the sweep deletes landed leftovers that are fully merged, keeps the rest and never main', LONG, async t => {
+  const world = await makeWorld(t, { live: true })
+  const head = world.branch('feat')
+  git(world.main, 'push', '-q', 'origin', 'feat')
+  // The worker's own worktree still has feat checked out: the local branch stays, with the why.
+  git(world.main, 'worktree', 'add', '-q', join(world.root, 'wt-feat'), 'feat')
+  // Leftovers on the remote, each listed as landed before: old-merged is at main's head (fully merged), old-ahead has a commit of
+  // its own; not-landed is fully merged but no landing lists it; main is listed (a made-up line) and never touched.
+  git(world.main, 'push', '-q', 'origin', 'main:refs/heads/old-merged')
+  const ahead = world.branch('old-ahead')
+  git(world.main, 'push', '-q', 'origin', 'old-ahead')
+  git(world.main, 'branch', '-D', 'old-ahead')
+  git(world.main, 'push', '-q', 'origin', 'main:refs/heads/not-landed')
+  mkdirSync(world.data, { recursive: true })
+  const landedLine = branch => JSON.stringify({ at: '2026-11-08T20:00:00.000Z', by: 'Worker 5', branch, head: world.before, before: world.before, after: world.before, trial: world.before, result: 'landed', why: null, boards: [], cold: false, gateLog: null })
+  writeFileSync(join(world.data, 'landings.jsonl'), [landedLine('old-merged'), landedLine('old-ahead'), landedLine('main'), JSON.stringify({ ...JSON.parse(landedLine('refused-one')), result: 'refused' })].join('\n') + '\n')
+  await world.boards()
+  const ran = await world.land('feat', '-By', 'chat 3')
+  assert.equal(ran.status, 0, ran.out)
+  const out = lines(ran.out)
+  const remoteBranches = git(world.remote, 'branch', '--list', '--format=%(refname:short)').split('\n').map(one => one.trim()).filter(Boolean).sort()
+  assert.deepEqual(remoteBranches, ['main', 'not-landed', 'old-ahead'], 'feat and old-merged are gone; the unmerged, the unlisted and main stay')
+  assert.equal(git(world.remote, 'rev-parse', 'old-ahead'), ahead, 'the unmerged branch is untouched')
+  assert.equal(git(world.main, 'rev-parse', 'feat'), head, 'the local branch checked out in a worktree stays')
+  assert.ok(out.includes('note: swept the landed branch old-merged from origin: every commit of it is on main'), ran.out)
+  assert.ok(out.includes('note: the landed branch old-ahead is kept on origin: not fully merged into main'), ran.out)
+  assert.ok(out.some(line => line.startsWith(`branch feat: removed from origin; kept locally: checked out in ${join(world.root, 'wt-feat').replace(/\\/g, '/')}`)), ran.out)
+  const line = world.landings().at(-1)
+  assert.deepEqual([line.result, line.branches.swept, line.branches.kept, line.branches.landed.remote], ['landed', ['old-merged'], ['old-ahead (not fully merged into main)'], 'removed'])
+  assert.match(line.branches.landed.local, /^kept: checked out in /)
+  // The worktree of the test is the worker's, not a gate's: everything else of the run is cleaned up.
+  assert.deepEqual(readdirSync(world.tmp), [])
+  assert.equal(world.worktrees(), 2)
+  assert.equal(existsSync(join(world.data, 'landing.lock')), false)
 })
 
 test('a branch that does not contain main is refused before anything changes: main, the remote and the boards stay as they were', LONG, async t => {

@@ -6924,6 +6924,19 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   the inspector port and the client with its command line ("stop it first"); an inspector nobody is connected to is a note,
   the warm restart replaces such a process fine. It runs before the gate and again under the lock, always before the
   fast-forward: nothing changes while it refuses.
+- **The branches clean themselves up** (2026-11-09, the person: "i want workers to be able to clean up after them selves";
+  Worker 5 had to ask the person to delete `b1071-stop-word-settle` on the remote, because a chat may not `git push --delete`,
+  and the board's report check fails on a branch left behind). After a landing the landed branch is deleted on the remote and in
+  the main checkout, each only when every commit of it is on main (`git merge-base --is-ancestor`; it is: main was fast-forwarded to
+  its head) and the local one only when no worktree has it checked out (then "kept locally: checked out in <folder>": the worker
+  removes its folder with `tools/remove-task-folder.mjs`, then the branch). At the start of every landing a sweep deletes on the
+  remote every branch `data/landings.jsonl` lists as landed that is still there and fully merged into the remote's main (one fetch
+  first, so the remote's commits can be compared); one with commits of its own is kept and said ("kept on origin: not fully merged
+  into main"), so is one the remote refuses. Never main, never a branch that is not fully merged, never with force, and never a
+  refusal: what could not be removed is a note. The say lines: "branch <name>: removed from origin; removed locally" and "note: swept
+  the landed branch <name> from origin"; the landings line's `branches` holds `swept`, `kept` ("<name> (<why>)") and `landed`
+  (`{ remote, local }`, each "removed" or "kept: <why>"). Pinned by `test/landScript.test.mjs` (the first landing, and the test with
+  a pushed branch checked out in a worktree, a merged leftover, an unmerged one, an unlisted one and main) and `test/landing.test.mjs`.
 - **Landing**: fast-forward of main to the gated head (the sha, not the branch's name), `git push <remote> main` (never a
   force: force-pushes are denied in the project's settings, README "The allow rules"), the trial copy fast-forwarded from its
   `local` remote. A push that fails or times out is checked with `git ls-remote` first: when the remote has the head the landing

@@ -9,6 +9,8 @@
 # What it does, in order (DESIGN.md, "Going live: tools/land.ps1"):
 #  0. Sweeps the gate worktrees (land-gate-*) a cut landing left: the junction first with `cmd /c rmdir` (never a recursive
 #     delete), then `git worktree remove` without force, then prune. One that belongs to a landing still running is left.
+#     Then the branches: every branch data/landings.jsonl lists as landed that is still on the remote is deleted there, when every
+#     commit of it is on the remote's main (never main, never one not fully merged, never with force); the rest is said and kept.
 #  1. Refuses, with one line "refused: <why>" and a line in data/landings.jsonl, before anything changes: the main checkout is
 #     not clean, the branch does not contain main, there is nothing to land, the trial copy cannot fast-forward, a board was
 #     started without its keeper (warm mode needs -Cold), the gate fails on the branch's exact head, a debugger is attached to a
@@ -32,6 +34,9 @@
 #  6. Otherwise it rolls back: ONE revert commit on main whose tree is the old head's (never a reset: the remote keeps its
 #     history), the trial copy and both boards restarted on the LOCAL revert first, whatever the remote says, and the revert pushed
 #     last. Exit 2 "rolled back: <why>"; exit 3 when something failed, with the state of main, the remote and each board.
+#  7. After a landing the landed branch is cleaned up (2026-11-09, the person: workers clean up after themselves; a chat may not
+#     delete a remote branch itself): deleted on the remote and in the main checkout, each only when fully merged and the local one
+#     only when no worktree has it checked out; what is kept is said with why. The landings line's `branches` holds all of it.
 #  An unexpected error or a cut after main moved is a rollback too, or exit 3 with the state; it is never silent.
 #  Exit 0 only for `landed`. Exit 1 refused, 2 rolled back, 3 rollback failed. Every run adds one line to data/landings.jsonl.
 #
@@ -127,6 +132,8 @@ $tempRoot = $null
 $nodeModules = $null
 $nodeModulesMarker = 'happy-dom'
 $script:teardownWhy = $null
+# The branches: what the sweep at the start did and what became of the landed branch (the landings line's `branches`).
+$script:branches = [ordered]@{ swept = @(); kept = @(); landed = $null }
 $comeBackSeconds = 90
 $pollMs = 2000
 $gateMinutes = 60
@@ -545,6 +552,114 @@ function Remove-LeftoverGates {
   Invoke-Git $mainDir @('worktree', 'prune') | Out-Null
 }
 
+# ---- the branches (2026-11-09, the person: "i want workers to be able to clean up after them selves") -------------------
+# A chat may not delete a branch on the remote itself (auto mode refuses `git push --delete`), and the board's report check fails on a
+# branch left behind. So the landing does it, and only for a branch every commit of which is on main: a fully merged branch holds
+# nothing that is not on main already. Never main, never one that is not fully merged, and never with force. Nothing here stops a
+# landing: what could not be removed is said and written in the landings line as kept, with why.
+
+# Whether every commit of $Sha is on $Main (both refs or shas known in the main checkout). $null when so, else why not.
+function Get-NotOnMainWhy([string]$Sha, [string]$Main) {
+  $contains = Invoke-Git $mainDir @('merge-base', '--is-ancestor', $Sha, $Main)
+  if ($contains.code -eq 0) { return $null }
+  if ($contains.code -eq 1) { return 'not fully merged into main' }
+  return "could not be compared with main ($(Git-Line $contains))"
+}
+
+# The remote's branches as it has them now: name -> sha. $null when the remote could not be read.
+function Get-RemoteHeads {
+  $ls = Invoke-Git $mainDir @('ls-remote', '--heads', $remote) 60
+  if ($ls.code -ne 0) { return $null }
+  $heads = @{}
+  foreach ($line in ($ls.out -split "`n")) {
+    $parts = $line.Trim() -split '\s+'
+    if ($parts.Count -eq 2 -and $parts[1] -like 'refs/heads/*') { $heads[$parts[1].Substring(11)] = $parts[0] }
+  }
+  return $heads
+}
+
+# Deletes $Name on the remote (never main) once its commit there is on main's commit there; $null, or why it was kept.
+function Remove-RemoteBranch([string]$Name, [hashtable]$Heads) {
+  if ($Name -eq 'main') { return 'main is never removed' }
+  if (-not $Heads.ContainsKey($Name)) { return 'not on the remote' }
+  if (-not $Heads.ContainsKey('main')) { return "the remote has no main" }
+  # A commit pushed from another clone is not here yet: fetch that branch, so it can be compared.
+  foreach ($sha in @($Heads[$Name], $Heads['main'])) {
+    $known = Invoke-Git $mainDir @('cat-file', '-e', "$sha^{commit}")
+    if ($known.code -ne 0) { Invoke-Git $mainDir @('fetch', '-q', $remote, $Name, 'main') $pushTimeoutSeconds | Out-Null }
+  }
+  $why = Get-NotOnMainWhy $Heads[$Name] $Heads['main']
+  if ($null -ne $why) { return $why }
+  $deleted = Invoke-Git $mainDir @('push', $remote, '--delete', $Name) $pushTimeoutSeconds
+  if ($deleted.code -ne 0) { return "the remote refused the delete ($(Git-Line $deleted))" }
+  return $null
+}
+
+# Deletes the local branch $Name (never main) when it is fully merged and checked out nowhere; $null, or why it was kept.
+function Remove-LocalBranch([string]$Name) {
+  if ($Name -eq 'main') { return 'main is never removed' }
+  $exists = Invoke-Git $mainDir @('rev-parse', '--verify', '--quiet', "refs/heads/$Name^{commit}")
+  if ($exists.code -ne 0) { return 'no local branch' }
+  $listed = Invoke-Git $mainDir @('worktree', 'list', '--porcelain')
+  if ($listed.code -eq 0) {
+    $where = $null
+    foreach ($line in ($listed.out -split "`n")) {
+      if ($line -like 'worktree *') { $where = $line.Substring(9).Trim() }
+      if ($line.Trim() -eq "branch refs/heads/$Name") { return "checked out in $where (remove that worktree with tools/remove-task-folder.mjs, then the branch)" }
+    }
+  }
+  $why = Get-NotOnMainWhy "refs/heads/$Name" 'refs/heads/main'
+  if ($null -ne $why) { return $why }
+  $deleted = Invoke-Git $mainDir @('branch', '-d', $Name)
+  if ($deleted.code -ne 0) { return "git branch -d refused ($(Git-Line $deleted))" }
+  return $null
+}
+
+# The sweep at the start: every branch data/landings.jsonl lists as landed (but main and the one landing now) that is still on the
+# remote goes, when every commit of it is on the remote's main. One fetch first, so the remote's commits can be compared here.
+function Invoke-BranchSweep {
+  if ($null -eq $landingsLog -or -not (Test-Path -LiteralPath $landingsLog)) { return }
+  $landedNames = @{}
+  foreach ($line in (Get-Content -LiteralPath $landingsLog)) {
+    if ($line.Trim() -eq '') { continue }
+    try { $entry = $line | ConvertFrom-Json } catch { continue }
+    if ($null -eq $entry.PSObject.Properties['result'] -or $entry.result -ne 'landed') { continue }
+    $name = [string]$entry.branch
+    if ($name -eq '' -or $name -eq 'main' -or $name -eq $Branch) { continue }
+    $landedNames[$name] = $true
+  }
+  if ($landedNames.Count -eq 0) { return }
+  $heads = Get-RemoteHeads
+  if ($null -eq $heads) { Say "note: the branches landed before could not be swept: $remote could not be read"; return }
+  $leftovers = @($landedNames.Keys | Where-Object { $heads.ContainsKey($_) } | Sort-Object)
+  if ($leftovers.Count -eq 0) { return }
+  $fetched = Invoke-Git $mainDir @('fetch', '-q', $remote) $pushTimeoutSeconds
+  if ($fetched.code -ne 0) { Say "note: the branches landed before could not be swept: fetch from $remote failed ($(Git-Line $fetched))"; return }
+  foreach ($name in $leftovers) {
+    $why = Remove-RemoteBranch $name $heads
+    if ($null -eq $why) {
+      $script:branches.swept += $name
+      Say "note: swept the landed branch $name from ${remote}: every commit of it is on main"
+    } else {
+      $script:branches.kept += "$name ($why)"
+      Say "note: the landed branch $name is kept on ${remote}: $why"
+    }
+  }
+}
+
+# After a landing: the landed branch goes from the remote and from the main checkout, each only when fully merged (it is: main was
+# fast-forwarded to its head) and the local one only when no worktree has it checked out.
+function Remove-LandedBranch {
+  $heads = Get-RemoteHeads
+  if ($null -eq $heads) { $remoteWhy = "$remote could not be read" } else { $remoteWhy = Remove-RemoteBranch $Branch $heads }
+  $localWhy = Remove-LocalBranch $Branch
+  $said = @()
+  if ($null -eq $remoteWhy) { $said += "removed from $remote" } else { $said += "kept on ${remote}: $remoteWhy" }
+  if ($null -eq $localWhy) { $said += 'removed locally' } else { $said += "kept locally: $localWhy" }
+  $script:branches.landed = [ordered]@{ remote = $(if ($null -eq $remoteWhy) { 'removed' } else { "kept: $remoteWhy" }); local = $(if ($null -eq $localWhy) { 'removed' } else { "kept: $localWhy" }) }
+  Say "branch ${Branch}: $($said -join '; ')"
+}
+
 # ---- the gate ---------------------------------------------------------------------------------------------------------
 # A path is the app's command-line program only under its own data folder (Claude-Data\<id>\claude-code\<version>\<hash>), never the
 # desktop app's claude.exe (under WindowsApps or anywhere else), which would open a window instead of testing.
@@ -848,6 +963,7 @@ function Write-LandingLine {
     $fields = [ordered]@{
       at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ'); by = $By; branch = $Branch; head = $script:headFull; before = $script:beforeFull
       after = $script:afterFull; trial = $script:trialFull; result = $script:result; why = $script:why; boards = @($script:boardsAfter); cold = [bool]$Cold; gateLog = $script:gateLog
+      branches = [ordered]@{ swept = @($script:branches.swept); kept = @($script:branches.kept); landed = $script:branches.landed }
     }
     $file = Join-Path $script:work 'fields.json'
     Write-Utf8 $file (ConvertTo-Json -InputObject $fields -Compress -Depth 5)
@@ -872,6 +988,8 @@ function Invoke-Run {
   $missing = Get-NodeModulesWhy 'at the start of the landing'
   if ($null -ne $missing) { Refuse $missing }
   Remove-LeftoverGates
+  # 0b. Branches landed before and still on the remote go, when fully merged (a worker may not delete them itself). Never a refusal.
+  try { Invoke-BranchSweep } catch { Say "note: the branches landed before could not be swept: $($_.Exception.Message)" }
 
   # 1. Refusals before anything changes.
   Test-Ready $false
@@ -942,6 +1060,8 @@ function Invoke-Run {
     }
     $logFile = Join-Path $dataDir 'board.log'
     if (Test-Path -LiteralPath $logFile) { Get-Content -LiteralPath $logFile -Tail 3 | ForEach-Object { Say $_.Substring(0, [Math]::Min(140, $_.Length)) } }
+    # 7. The landed branch is cleaned up: gone from the remote and the main checkout (fully merged: main is at its head).
+    try { Remove-LandedBranch } catch { Say "note: the branch $Branch could not be cleaned up: $($_.Exception.Message)" }
     Say "landed: $Branch by $By"
   } else {
     # 6. Roll back with a revert commit.

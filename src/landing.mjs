@@ -261,9 +261,13 @@ export function inspectorDecision({ boards, processes = [], connections = [] }) 
 
 /**
  * One line of data/landings.jsonl: the fields in a fixed order, plain ASCII. `after` is null for a refusal. `result` is one of
- * RESULTS. `boards` is `[{ port, commit, since }]` as they answered after the restart.
+ * RESULTS. `boards` is `[{ port, commit, since }]` as they answered after the restart. `branches` (2026-11-09, workers clean up after
+ * themselves): `{ swept, kept, landed }`: the landed branches the sweep at the start deleted on the remote, those it kept with why
+ * ("<name> (<why>)"), and what became of the landed branch after the landing (`{ remote, local }`, each "removed" or "kept: <why>";
+ * null before that point).
  */
-export function landingLine({ at, by, branch, head, before, after = null, trial = null, result, why = null, boards = [], cold = false, gateLog = null }) {
+export function landingLine({ at, by, branch, head, before, after = null, trial = null, result, why = null, boards = [], cold = false, gateLog = null, branches = null }) {
   if (!RESULTS.includes(result)) throw new Error(`result must be one of ${RESULTS.join(', ')}, not ${result}`)
-  return asciiJson({ at, by, branch, head, before, after: result === 'refused' ? null : after, trial, result, why, boards, cold: cold === true, gateLog })
+  const cleaned = { swept: Array.isArray(branches?.swept) ? branches.swept : [], kept: Array.isArray(branches?.kept) ? branches.kept : [], landed: branches?.landed ?? null }
+  return asciiJson({ at, by, branch, head, before, after: result === 'refused' ? null : after, trial, result, why, boards, cold: cold === true, gateLog, branches: cleaned })
 }
