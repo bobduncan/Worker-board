@@ -99,6 +99,6 @@ test('the page: the button stands in the Next milestone part, sends the word, an
   assert.match(part, /button\.dataset\.recheck = 'yes'/)
   assert.match(part, /button\.disabled = runs \|\| sending\.has\('recheck'\)/)
   assert.match(part, /Re-check the goals now/)
-  assert.match(script, /send\(\{ to: advisor, command: 'recheck' \}, 'recheck'\)/)
+  assert.match(script, /send\(\{ to: advisor, command: 'recheck' \}, 'recheck', 'recheck'\)/)
   assert.match(script, /once\('way', \[[^\]]*state\.advisor\?\.roundRuns \?\? null, sending\.has\('recheck'\), problems\.get\('recheck'\) \?\? null, waitKeyOf\(placeWaitOf\(state, 'talk', \{ command: 'recheck' \}\)\)\]/)
 })
