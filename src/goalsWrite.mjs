@@ -8,7 +8,7 @@ import { access, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/pr
 import { FOCUS_LINE, GOAL_LINE, LAST_LINE, doneBulletOf, hasDoneWhen, hasRun, nextAskId, nextGoalId, parseGoals, partOf } from './goals.mjs'
 import { besideOf, moveInPlace, writeAtomic, writeNew } from './write.mjs'
 
-const files = { readFile, writeFile, rename, rm, mkdir, access, open }
+export const files = { readFile, writeFile, rename, rm, mkdir, access, open }
 
 /**
  * B221: a file with one change made to it (`change`: the text before, as latin1, to `{ ok, text }` or `{ ok: false,
@@ -751,7 +751,7 @@ export const reopenHow = (text, id) => replaceOwn(text, id, ['How agreed'], [])
 
 const pad = value => String(value).padStart(2, '0')
 /** This machine's day, as the copy is named. */
-const dayOf = ms => `${new Date(ms).getFullYear()}-${pad(new Date(ms).getMonth() + 1)}-${pad(new Date(ms).getDate())}`
+export const dayOf = ms => `${new Date(ms).getFullYear()}-${pad(new Date(ms).getMonth() + 1)}-${pad(new Date(ms).getDate())}`
 /** B258: this machine's minute, as an ask and its Read mark are dated ("2026-10-15 20:05"). */
 const minuteOf = ms => `${dayOf(ms)} ${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`
 

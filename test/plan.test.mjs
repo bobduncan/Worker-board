@@ -287,19 +287,19 @@ test('withPlanWork: what the partner is preparing from the board\'s words, until
     { command: 'plan-deeper', about: 'P1', at: at - 600_000, state: 'delivered' },
     { command: 'plan-deeper', about: 'P1', at, state: 'delivered' },
     { command: 'plan-ask', about: 'P5', at, state: 'waiting' },
-    { command: 'plan-marks', about: 'plan', at, state: 'delivered' },
+    { command: 'plan-feature-add', about: 'plan', at, state: 'delivered' },
     { command: 'plan-goals-agree', about: 'plan', at, state: 'failed' },
     { command: 'focus', about: 'G1', at, state: 'delivered' },
   ]
   const work = (asks, pageAt, now = at + 120_000) => withPlanWork(planState(page, asks, 'p.md'), sent, pageAt, now).working.map(one => [one.command, one.about, one.state])
   // No answer yet: the newest word per part, its state; a word not about the plan is not shown.
-  assert.deepEqual(work([old], null), [['plan-goals-agree', 'plan', 'failed'], ['plan-marks', 'plan', 'working'], ['plan-ask', 'P5', 'waiting'], ['plan-deeper', 'P1', 'working']])
+  assert.deepEqual(work([old], null), [['plan-goals-agree', 'plan', 'failed'], ['plan-feature-add', 'plan', 'working'], ['plan-ask', 'P5', 'waiting'], ['plan-deeper', 'P1', 'working']])
   // A deeper question filed after the word ends Go deeper's work.
-  assert.deepEqual(work([deeper], null).map(([command]) => command), ['plan-goals-agree', 'plan-marks', 'plan-ask'])
+  assert.deepEqual(work([deeper], null).map(([command]) => command), ['plan-goals-agree', 'plan-feature-add', 'plan-ask'])
   // The page written after the words ends them all.
   assert.deepEqual(work([], at + 1), [])
   // Half an hour without an answer: late.
-  assert.equal(work([], null, at + 31 * 60_000).find(([command]) => command === 'plan-marks')[2], 'late')
+  assert.equal(work([], null, at + 31 * 60_000).find(([command]) => command === 'plan-feature-add')[2], 'late')
   assert.equal(withPlanWork(null, sent, null, at), null)
   assert.equal(PLAN_LATE_MS, 30 * 60_000)
 })

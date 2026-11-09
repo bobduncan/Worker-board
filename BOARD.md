@@ -411,12 +411,12 @@ come), **Refine** (the steps by where their refine stands) and **Chat** (a chat 
 
 ## Vision (2026-10-19)
 
-The product plan (`productPlan`, the game's `docs/product-plan.md`, written by the partner): the answers every goal and
+The product plan (`productPlan`, the game's `docs/product-plan.md`, written by the partner, except the person's own decisions: the board writes those into it at once): the answers every goal and
 step falls back to. Five steps, broad to narrow, **1 · Vision → 2 · Features → 3 · Standards → 4 · Plan → 5 · Focus**
 (the new order of 2026-10-21; a ✓ on a step that is settled), and an **Interview**, the guided path: the partner's
 questions and every decision that waits on the person across the five steps, one per slide, each decision with the
 buttons of its step (Yes, mine; Prepare now or Wait; Confirm; Change; Make it my focus) and a box for the person's
-own words about that one (Send my words: a change of it, or a new focus proposal), sent at once and marked sent;
+own words about that one (Send my words: a change of it, or a new focus proposal; a decision is written into the plan at once and leaves the slide because the plan says so, and its word goes to the partner, who commits the page);
 while decisions wait, every step shows a bar "n decisions wait for you" with **Start**, and once none waits the
 Interview says **All decided**. The vision: the page's pitch in large type, then a
 card per answer: its title, its state (decided green, assumed blue, open amber; **settled ✓** in teal once a deeper
@@ -439,7 +439,7 @@ picture, name, complex and built tags (the why of a complex one in plain grey un
 above the cards, a bar names the features still not sure, with Show them, since the step's ✓ waits for them; a
 pressed **?** is dashed (not sure is an answer); above the overview, **Tradeoffs to decide before the plan**: each
 complex feature later or not sure with its picture, the partner's advice (prepare now: what, the cost now, what a
-late add touches; or wait: why) and **Prepare now** · **Wait**, sent at once; the step's ✓ and the plan's **Check
+late add touches; or wait: why) and **Prepare now** · **Wait**, written into the plan at once; the step's ✓ and the plan's **Check
 the plan** wait for every choice, and the Interview asks them first among the features' decisions; the person's marks wait in a
 blue bar ("2 marks not sent yet") until **Send to your partner**; a box for a feature they miss. Plan: **Check the
 plan** on top (the partner lays every goal per milestone and proposes each missing one with its why: a feature
@@ -451,8 +451,7 @@ next focus the partner proposes on **Propose the next focus** (its why, when and
 my focus**: only the person's click sets it. The interview: one slide per question, in the page's order (deeper ones under their card, then the
 features', then the goals'), as the help tour's cards: the options as picture cards (the advised one marked), the
 person's own words as the last card, the question, why it is asked, a dot per slide, **Back**, **Don't know**,
-**Answer: A**, **Next**; Change adds a slide with the part as it is and a box for the person's words. Nothing is
-written by the board: the moves go to the partner (`roles/protocol.md`).
+**Answer: A**, **Next**; Change adds a slide with the part as it is and a box for the person's words. The board writes only the person's own decisions (a Confirm, a mark, Prepare now or Wait, Not now, Good enough) into the plan, at once and with no partner chat needed; every other move goes to the partner (`roles/protocol.md`).
 
 ## Backlog (`06-backlog.png`)
 

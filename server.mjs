@@ -75,14 +75,15 @@ import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
 import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
 import { parseGoals } from './src/goals.mjs'
 import { activityFor, askToStep, missingToSteps, stepMadeFrom } from './src/goalSteps.mjs'
-import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
+import { PLAN_MOVES, planDecide } from './src/planMoves.mjs'
 import { checkSend, roundPage, rowsOf as rowsOfDemo, stampOf, withRound, wordsOfRound } from './src/demoFeedback.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, rethinkTalkWords, startEvaluation, undoLine } from './src/focus.mjs'
 import { goalsToFree, rethinkHolds } from './src/work/rethink.mjs'
 import { rowWordsOf, rowWordsText } from './src/work/rowWords.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { evaluationFor } from './src/goalGuard.mjs'
-import { readSources } from './src/sources.mjs'
+import { productPlanFile, readSources } from './src/sources.mjs'
+import { partnerPageAt } from './src/planWrite.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { modAtLeast } from './src/clearOwed.mjs'
 import { ARCHIVE_MOD, archiveJobId, archivedBy, hasNothingUncommitted, replacedChats } from './src/replacedChats.mjs'
@@ -137,6 +138,8 @@ import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './sr
 import { fileHolders } from './src/work/holders.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+/** The board's own writes into the product plan (src/planWrite.mjs): a data file, so the record survives a restart. */
+const PLAN_WRITES_FILE = join(HERE, 'data', 'plan-writes.json')
 /** Never 0.0.0.0: the board shows private chats and can type into one. */
 const HOST = '127.0.0.1'
 const BODY_BYTES = 16 * 1024
@@ -982,8 +985,11 @@ async function main(args) {
    */
   const planNow = async body => {
     const state = await readState()
-    const done = planMove(body, { canWrite: writesMap, partner: state.advisor ?? null, job: join(HERE, 'roles', 'partner.md') })
+    // 2026-11-09 (reactive board, brief A): the person's own decisions are written into the plan file first, at once; the word then says so.
+    const done = await planDecide(body, { canWrite: writesMap, partner: state.advisor ?? null, job: join(HERE, 'roles', 'partner.md'), file: productPlanFile(config), writesFile: PLAN_WRITES_FILE, now: clock() })
     if (!done.ok) return done
+    // Written, and no partner chat to tell: the result carries the quiet note for the page.
+    if (done.words === null) return { ok: true, result: done.result }
     return toPartner(done.words, done.result, state)
   }
   const focusNow = async body => {
@@ -2239,7 +2245,9 @@ async function main(args) {
     if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
     blockRead()
-    const raw = await readRaw()
+    // 2026-11-09: the plan's time as the partner's answer: the board's own write of a decision is not one (src/planWrite.mjs `partnerPageAt`).
+    const fresh = await readRaw()
+    const raw = { ...fresh, productPlanAt: await partnerPageAt(fresh.productPlanAt ?? null, PLAN_WRITES_FILE, productPlanFile(config)) }
     const keptReadings = await readingsOnDisk()
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
     keep.pause = raw.work?.pause ?? null
