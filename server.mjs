@@ -73,7 +73,7 @@ import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
 import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
 import { parseGoals } from './src/goals.mjs'
-import { activityFor, missingToSteps } from './src/goalSteps.mjs'
+import { activityFor, askToStep, missingToSteps } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
 import { checkSend, roundPage, rowsOf as rowsOfDemo, stampOf, withRound, wordsOfRound } from './src/demoFeedback.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, rethinkTalkWords, startEvaluation, undoLine } from './src/focus.mjs'
@@ -1077,7 +1077,7 @@ async function main(args) {
     const stored = await readStore(workDir)
     const activity = step.goal === null ? stored?.activities?.[0]?.name ?? null : activityFor(step.goal, stored?.items, stored?.activities)
     if (activity === null) return { ok: false, status: 409, why: 'The work store has no activity to put the step under.' }
-    const made = await workAction({ action: 'new', title: step.title, activity, ...(step.goal === null ? {} : { goal: step.goal }), text: [`Description: ${step.description}`, `Time: ${step.cost}`, 'From the goal map.'] }, 'person')
+    const made = await workAction({ action: 'new', title: step.title, activity, ...(step.goal === null ? {} : { goal: step.goal }), text: [`Description: ${step.description}`, ...(step.cost === '' ? [] : [`Time: ${step.cost}`]), 'From the goal map.', ...(step.mark === undefined ? [] : [step.mark])] }, 'person')
     if (!made.ok) return made
     // "Change this goal" (2026-10-31): a step of a change is also named under the Done when bullets it is for; work blocks
     // (2026-10-31): in a proposal of work blocks, on the Part lines of the blocks it is for.
@@ -3150,6 +3150,23 @@ async function main(args) {
           makeStep: step => workAction(step, 'person'),
           changeMap: change => changeGoalsFile(change, goalsAt),
           activity: goal => activityFor(goal, store?.items, store?.activities),
+        })
+        readState.reset()
+        return done
+      }
+      // Reactive board, brief B: "Make a step from this" on an Advisor's answer: the board files the step itself (the B754
+      // maker), once per answer; no word goes to any chat.
+      if (body?.command === 'ask-step') {
+        if (!writesMap || workWriters === null || isShowOnly || workDir === null) return { ok: false, status: 403, why: 'This board only shows: make the step on the board that delivers.' }
+        const done = await askToStep({ id: body.id, ask: body.ask }, {
+          readMap: () => readFile(projectFile(config, 'goals'), 'utf8').catch(absentAs('')),
+          existing: async mark => {
+            for (const [id, item] of (await readStore(workDir))?.items ?? []) {
+              if (item.head.get('Kind') === 'step' && item.head.get('State') !== 'dropped' && (item.sections?.get('Context') ?? []).some(one => one.trim() === mark)) return id
+            }
+            return null
+          },
+          make: step => writeGoalStep(step),
         })
         readState.reset()
         return done
