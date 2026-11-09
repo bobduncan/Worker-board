@@ -121,7 +121,7 @@ function isHeldRow(lane) {
  * Sent (a ring), Picked up (a loader), Done (a tick) and Late, the only one in the attention colour. The chat's own status pill
  * stands beside it as every view draws it (the board-dev chat's condition 3): never a second status. A code answer has no line.
  */
-const WAIT_SIGNS = { sent: '○', done: '✓', late: '!' }
+const WAIT_SIGNS = { sent: '○', done: '✓', late: '!', closed: '–' }
 /** How long a Done line stays on a card whose wait is over (a check's, a recap's): as long as the supervisor's head keeps "checked 15:26". */
 const WAIT_DONE_SHOWN_MS = 10 * 60_000
 
@@ -152,9 +152,10 @@ function waitViewOf(part, id) {
   const line = typeof id === 'string' && id !== '' ? part?.waits?.[id] ?? null : null
   if (line === null || typeof line !== 'object') return null
   const now = Number.isFinite(part?.readAt) ? part.readAt : Date.now()
-  const isShown = line.state !== 'done' || !Number.isFinite(line.at) || now - line.at < WAIT_DONE_SHOWN_MS
+  // P3: a closed line ("closed: <why>") shows as long as a Done line does; both go quietly.
+  const isShown = !['done', 'closed'].includes(line.state) || !Number.isFinite(line.at) || now - line.at < WAIT_DONE_SHOWN_MS
   return {
-    id, state: line.state, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null, sentAt: Number.isFinite(line.sentAt) ? line.sentAt : null,
+    id, state: line.state, asOf: Number.isFinite(part?.waitsAsOf) ? part.waitsAsOf : null, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null, sentAt: Number.isFinite(line.sentAt) ? line.sentAt : null,
     link: typeof line.link?.step === 'string' ? { step: line.link.step, text: String(line.link.text ?? line.link.step) } : null,
     canSendAgain: line.canSendAgain === true && part?.waitAgain === true, isShown, pill: waitPillOf(waitLaneOf(part, line.chat)),
     again: { isSending: sending.has(`wait-again:${id}`), problem: problems.get(`wait-again:${id}`) ?? null },
@@ -241,6 +242,8 @@ function drawWaitLine(view) {
     line.append(again)
   }
   if (view.pill !== null) line.append(el('span', `pill is-${view.pill.key}`, view.pill.label))
+  // P3: the lines of an earlier pass (this one failed on the board): said under their clock, never as if they were live.
+  if (view.asOf !== null && view.asOf !== undefined) words.append(el('span', 'wait-asof muted', ` · as of ${clock(view.asOf)}`))
   // A refused Send again says why, under the line's words.
   if (typeof view.again?.problem === 'string') words.append(el('span', 'wait-problem', ` · ${view.again.problem}`))
   return line
@@ -4790,7 +4793,9 @@ const needLook = need => (need.isClosed === true ? ' is-closed' : isAnswered(nee
  */
 const answerWaitOf = (need, part) => (isAnswered(need) ? waitViewOf(part, need.answer?.id) : null)
 /** T22: an answered card that still waits for its chat (its line not Done): it stays as a slim card with its line, also without "Show closed". */
-const isWaitingAnswer = (need, part) => need.isClosed !== true && (answerWaitOf(need, part)?.state ?? 'done') !== 'done'
+// P3: a missing line reads as done only when the board's pass for the lines went well; after an error (`waitsAsOf` set) a missing line is
+// unknown, and the card stays. A closed line ends its wait as a Done one does.
+const isWaitingAnswer = (need, part) => need.isClosed !== true && !['done', 'closed'].includes(answerWaitOf(need, part)?.state ?? (Number.isFinite(part?.waitsAsOf) && isAnswered(need) && typeof need.answer?.id === 'string' ? 'unknown' : 'done'))
 // closed:end
 const showsClosed = () => $('needs-closed').checked
 
@@ -6602,7 +6607,7 @@ function waitsPart(state, ids) {
   const chats = [...(state.chats ?? []), state.advisor, state.advisorHelper, state.supervisorChat, state.productOwner]
     .filter(lane => typeof lane?.name === 'string' && lane.isLeftover !== true && names.has(lane.name))
     .map(lane => ({ name: lane.name, status: lane.status ?? null, since: lane.since ?? null, state: lane.state ?? null, asleep: lane.asleep === true, isRunning: lane.isRunning ?? null }))
-  return { waits, chats, readAt: Object.keys(waits).length === 0 ? null : minuteOf(state.readAt), waitAgain: state.waitAgain === true }
+  return { waits, chats, readAt: Object.keys(waits).length === 0 ? null : minuteOf(state.readAt), waitAgain: state.waitAgain === true, waitsAsOf: Number.isFinite(state.waitsAsOf) ? minuteOf(state.waitsAsOf) : null }
 }
 
 /** Needs your attention as drawn (drawNeeds): its cards in the daily note's order, the log's lines, the partner's parts, Information. */

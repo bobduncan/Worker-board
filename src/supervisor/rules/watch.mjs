@@ -433,12 +433,27 @@ const stoppedOfView = view => stoppedChats(view.outbox, { chats: view.lanes, adv
  * summary's "Words not delivered" (health.mjs): a word the sweep drops is in neither.
  */
 export function wordMatters(view) {
+  const ctx = closeCtxOf(view)
+  // B1071: a task stop the sweep settles as done (`delivered`) matters to no rule either.
+  return message => !['dropped', 'delivered'].includes(whyClosed(message, ctx)?.state)
+}
+
+/**
+ * P3 (the wait line, no silent end): why the outbox sweep closes (or would close) a word, in its words, or null: the same judgement
+ * as `wordMatters`, so a card says "closed: <why>" with the sweep's own reason.
+ */
+export function wordWhyClosed(view) {
+  const ctx = closeCtxOf(view)
+  return message => whyClosed(message, ctx)?.why ?? null
+}
+
+/** What the outbox sweep judges a word by (`whyClosed`'s ctx), from a view. */
+function closeCtxOf(view) {
   const runs = new Map(view.lanes.filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
   // T9.4: the chats known not to run (outboxSweep.mjs): a start word one of them holds is closed, so it matters to no rule.
   const off = new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor].filter(chat => chat?.isRunning === false).map(chat => chat.name))
   const ctx = { all: view.outbox, items: view.items, assets: view.assets ?? undefined, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped: stoppedOfView(view), prefix: view.prefix ?? '', main: view.lanes.find(chat => chat.isMain === true)?.name ?? null, off, handedBack: view.handedBack ?? [], lanes: view.lanes, onBoard: new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor, view.owner].filter(chat => typeof chat?.name === 'string').map(chat => chat.name)) }
-  // B1071: a task stop the sweep settles as done (`delivered`) matters to no rule either.
-  return message => !['dropped', 'delivered'].includes(whyClosed(message, ctx)?.state)
+  return ctx
 }
 
 /**

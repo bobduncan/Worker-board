@@ -308,8 +308,11 @@ function storeOver(lines, messages, alive, write) {
     async update(id, fields) {
       const message = messages.find(one => one.id === id)
       if (message === undefined) return false
-      Object.assign(message, fields)
-      await write.outbox([{ id, ...fields }])
+      // P3: `pickedUpAt` (the first busy or asking report that named the word) is written once, never overwritten.
+      const { pickedUpAt, ...rest } = fields
+      const kept = Number.isFinite(message.pickedUpAt) || pickedUpAt === undefined ? rest : fields
+      Object.assign(message, kept)
+      await write.outbox([{ id, ...kept }])
       return true
     },
     /**
