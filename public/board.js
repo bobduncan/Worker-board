@@ -17258,13 +17258,15 @@ function focusNoteCard(view) {
   return card
 }
 
-// Vision (2026-10-19): the Vision tab, its own state, its drawing and its moves. The partner writes the page; the board
-// types your moves and answers to it (src/planMoves.mjs `planMove`, the store's `answer`). Your feature marks and goal
-// confirms wait on the page until you send them, in one word.
-const visionUi = { page: null, at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, sent: [], startKind: null, startSent: false, startAgain: false, startWords: '', strategy: null, changingStrategy: false, onlyChanges: false, notNow: [] }
+// Vision (2026-10-19): the Vision tab, its own state, its drawing and its moves. The partner writes the page, except your
+// own decisions (a confirm, a mark, a tradeoff, a not now, a good enough): the board writes those into it at once
+// (2026-11-09, src/planMoves.mjs `planDecide`), so a slide leaves because the page says so. The board types your other moves
+// and answers to the partner (`planMove`, the store's `answer`). Your feature marks and goal confirms wait on the page
+// until you send them, in one word.
+const visionUi = { page: null, at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, sent: [], startKind: null, startSent: false, startAgain: false, startWords: '', strategy: null, changingStrategy: false, onlyChanges: false }
 
 function visionData(state) {
-  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, state.focus?.id ?? null, state.focus?.stage ?? null, (visionUi.sent ?? []).join(','), visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note, visionUi.startKind, visionUi.startSent, visionUi.startAgain, state.planStart ?? null, visionUi.strategy, visionUi.changingStrategy, visionUi.onlyChanges, visionUi.notNow.join(','),
+  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, state.focus?.id ?? null, state.focus?.stage ?? null, (visionUi.sent ?? []).join(','), visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note, visionUi.startKind, visionUi.startSent, visionUi.startAgain, state.planStart ?? null, visionUi.strategy, visionUi.changingStrategy, visionUi.onlyChanges,
     // While the partner prepares something, the minute, for "sent 2 min ago"; and the partner's name.
     (state.plan?.working ?? []).length > 0 || (state.planStart ?? null) !== null ? Math.floor(state.readAt / MIN) : null, state.advisor?.name ?? null]
 }
@@ -17830,7 +17832,7 @@ function planOverview(milestones) {
 
 /** A goal's card: its picture, Done when, sub-goals in order, why or cause, its steps, and Yes, Change, Not now. */
 function planGoalCard(goal, can, off) {
-  const later = goal.state === 'later' || (visionUi.notNow.includes(goal.id) && goal.state === 'proposed')
+  const later = goal.state === 'later'
   const row = el('div', `vision-goal is-${later ? 'later' : goal.state}`)
   row.dataset.goalCard = goal.id
   const shown = el('div', 'vision-goal-picture')
@@ -18347,13 +18349,13 @@ async function visionAct(act, id) {
     const [part, index] = String(id).split(':')
     visionUi.gallery = { ...visionUi.gallery, [part]: Number(index) }
   } else if (act === 'settle') {
-    return toPartner({ command: 'plan-settled', id }, `${id} is settled: your partner marks it so.`)
+    return toPartner({ command: 'plan-settled', id }, `${id} is settled: it is written in your plan.`)
   } else if (act === 'confirm-standard') {
     visionUi.standardConfirms = visionUi.standardConfirms.includes(id) ? visionUi.standardConfirms.filter(one => one !== id) : [...visionUi.standardConfirms, id]
   } else if (act === 'undo-standard-confirms') {
     visionUi.standardConfirms = []
   } else if (act === 'send-standard-confirms') {
-    if (await toPartner({ command: 'plan-standards-confirm', text: view.standards.pending.join(', ') }, 'Your confirms went to your partner: it marks the standards confirmed and writes each into its definition of done.')) visionUi.standardConfirms = []
+    if (await toPartner({ command: 'plan-standards-confirm', text: view.standards.pending.join(', ') }, 'Your standards are confirmed in your plan; your partner writes each into its definition of done.')) visionUi.standardConfirms = []
   } else if (act === 'propose-standards') {
     return toPartner({ command: 'plan-standards' }, 'Your partner proposes a standard per kind your goals need: they come here as cards.')
   } else if (act === 'measure') {
@@ -18373,17 +18375,17 @@ async function visionAct(act, id) {
   } else if (act === 'undo-confirms') {
     visionUi.confirms = []
   } else if (act === 'confirm') {
-    if (slide?.kind === 'decide' && slide.id === id) visionUi.sent = [...visionUi.sent, id]
-    return toPartner({ command: 'plan-confirm', id }, `${id} is your decision now: your partner writes it so.`)
+    // 2026-11-09: the board writes the decision into the plan at once; the slide leaves because the plan now says so, not from page memory.
+    return toPartner({ command: 'plan-confirm', id }, `${id} is your decision now: it is written in your plan.`)
   } else if (act === 'deeper') {
     return toPartner({ command: 'plan-deeper', id }, `Your partner prepares up to five deeper questions on ${id}: they come in the interview.`)
   } else if (act === 'send-marks') {
-    if (await toPartner({ command: 'plan-marks', text: view.features.pending.join('; ') }, 'Your marks went to your partner: it writes them into the plan.')) visionUi.marks = {}
+    if (await toPartner({ command: 'plan-marks', text: view.features.pending.join('; ') }, 'Your marks are written in your plan.')) visionUi.marks = {}
   } else if (act === 'feature-add' || act === 'goals-change') {
     if (visionUi.extra.trim() === '') visionUi.note = { isProblem: true, text: 'Write it in the box first.' }
     else if (await toPartner({ command: act === 'feature-add' ? 'plan-feature-add' : 'plan-goals-change', text: visionUi.extra.trim() }, act === 'feature-add' ? 'Sent to your partner: it adds the feature, with a picture.' : 'Sent to your partner: it proposes a changed preset.')) visionUi.extra = ''
   } else if (act === 'send-confirms') {
-    if (await toPartner({ command: 'plan-goals-confirm', text: view.goals.pending.join(', ') }, 'Your confirms went to your partner: it marks the goals confirmed.')) visionUi.confirms = []
+    if (await toPartner({ command: 'plan-goals-confirm', text: view.goals.pending.join(', ') }, 'Your goals are confirmed in your plan.')) visionUi.confirms = []
   } else if (act === 'resend') {
     // A late or lost word without words of the person's in it, sent again as it was.
     const [command, about] = String(id).split('|')
@@ -18417,9 +18419,7 @@ async function visionAct(act, id) {
     return toPartner({ command: 'plan-tradeoffs' }, 'Your partner weighs every complex feature later or not sure: prepare now, or wait, with the cost now and later.')
   } else if (act === 'tradeoff-now') {
     const [part, choice] = String(id).split(':')
-    if (await toPartner({ command: 'plan-tradeoff', id: part, text: choice }, `${part}: ${choice === 'prepare' ? 'prepare now' : 'wait'}, sent to your partner.`)) {
-      visionUi.sent = [...visionUi.sent, part]
-    }
+    await toPartner({ command: 'plan-tradeoff', id: part, text: choice }, `${part}: ${choice === 'prepare' ? 'prepare now' : 'wait'}, written in your plan.`)
   } else if (act === 'check-plan') {
     return toPartner({ command: 'plan-check' }, 'Your partner looks at the whole plan again: what changes comes on step 4, each with its cause.')
   } else if (act === 'pick-strategy') {
@@ -18440,10 +18440,7 @@ async function visionAct(act, id) {
   } else if (act === 'only-changes') {
     visionUi.onlyChanges = !visionUi.onlyChanges
   } else if (act === 'not-now') {
-    if (await toPartner({ command: 'plan-not-now', id }, `${id}: not now, sent to your partner.`)) {
-      visionUi.notNow = [...visionUi.notNow, id]
-      visionUi.confirms = visionUi.confirms.filter(one => one !== id)
-    }
+    if (await toPartner({ command: 'plan-not-now', id }, `${id}: not now, written in your plan.`)) visionUi.confirms = visionUi.confirms.filter(one => one !== id)
   } else if (act === 'show-goal') {
     const card = document.querySelector(`.vision-goal[data-goal-card="${CSS.escape(String(id))}"]`)
     if (card !== null) {
@@ -18459,10 +18456,10 @@ async function visionAct(act, id) {
     // /api/plan refused it, "Not a move of the Vision tab"): it goes the Focus page's way, a focus move of /api/goals.
     if (await visionSend('/api/goals', { command: 'focus', id }, `${id} is your focus now: on the Focus tab your partner drafts its goal definition and its how.`)) visionUi.sent = [...visionUi.sent, `focus:${id}`]
   } else if (['mark-now', 'confirm-standard-now', 'confirm-goal-now'].includes(act)) {
-    // A decision of the Interview, sent at once; the slide says so and the next one comes.
+    // A decision of the Interview, written into the plan at once (2026-11-09); the slide leaves because the plan says so.
     const [part, mark] = String(id).split(':')
     const body = act === 'mark-now' ? { command: 'plan-marks', text: `${part} ${mark}` } : act === 'confirm-standard-now' ? { command: 'plan-standards-confirm', text: part } : { command: 'plan-goals-confirm', text: part }
-    if (await toPartner(body, `${part}: sent to your partner.`)) visionUi.sent = [...visionUi.sent, part]
+    await toPartner(body, `${part}: written in your plan.`)
   } else if (act === 'goals-agree') {
     return toPartner({ command: 'plan-goals-agree' }, 'Your partner puts the confirmed goals into your goal map: they show on the Focus tab\'s Goals part.')
   } else if (act === 'send-change' && slide?.kind === 'change') {

@@ -226,11 +226,13 @@ The rules:
    the rest under "Details", so the four that matter most come first. Two more lines per answer (2026-10-20): `- Advice:
    <one line>`, your verdict on the card as its partner ("solid; nothing left to ask; ask again after M1 is played",
    or "thin: go deeper on the player"), and `- Settled: (you, <date>)` once the card is done for now: you write it
-   when a deeper round is answered, or when the board types `plan: P<n> settled` (the user's **Good enough**). A
+   when a deeper round is answered, or, for the user's **Good enough**, the board writes it itself and types `plan: P<n> settled` to tell you. A
    settled card shows "settled ✓"; a change or another deeper round takes the line away. The log's lines under
    `## The log` as
-   `- hit P<n>: ...`, `- gap: ...`, `- overturned P<n>: ...`. The board writes nothing into the page: on a card's
-   **Yes, mine** or **Confirm** it types `plan: P<n> confirmed` (write the state `decided (you, <date>)`); on **Change**
+   `- hit P<n>: ...`, `- gap: ...`, `- overturned P<n>: ...`. The board writes the user's own decisions into the page itself, at once
+   (2026-11-09, the user: "i submit things but i see not enough loaders"): on a card's **Yes, mine** or **Confirm** it
+   writes the state `decided (you, <date>)` and then types `plan: P<n> confirmed` (the card is written; go on from it,
+   never write it again); on **Change**
    `plan: P<n> change` with `Words:` (rewrite the answer from them, state `decided (you, <date>)`; when the words leave
    a choice open, ask it as a question with options instead). On an open card's **Get options from your partner** it
    types `plan: P<n> ask`: file that question now (rule 2), with pictures where it is about looks. Each question's
@@ -311,8 +313,9 @@ Ask only about the unsure ones and the complex ones not must or no (`F<n>: ...`,
 architecture check from the marks: a complex feature later or unsure means the structure is checked again at every
 milestone, so every milestone not started yet begins with a goal "Architecture check before <the milestone>" (Done
 when: the structure is checked against the later features, and what to prepare now is named, or a rebuild planned
-with its cost; serves P6); with none, only when a complex feature arrives. The user's marks come as `plan: features marked` with `Marks: F3 later; F5 must`: write each
-`Mark: <mark> (you, <date>)`. A feature they miss comes as `plan: feature add` with `Words:`: add it with the next F
+with its cost; serves P6); with none, only when a complex feature arrives. The user's marks are written by the board (`Mark: <mark> (you, <date>)`, a milestone as `Mark: must|later` and a
+`Milestone: M<n>` line) and come to you as `plan: features marked` with `Marks: F3 later; F5 must`: go on from them,
+never write them again. A feature they miss comes as `plan: feature add` with `Words:`: add it with the next F
 id, its marks and picture by the same rules. `plan: F<n> change` with `Words:`: rewrite that feature.
 
 **Tradeoffs** (the user, 2026-10-21: "?" is a fine answer, "I don't know yet"; but "if the change is very complex,
@@ -326,7 +329,7 @@ Complex line, written with the features and on `plan: tradeoffs` (for each such 
 Advise now only for a massive overhaul later (many parts, every unit or map, the tests again) against a small cost
 now; wait for what adds cleanly later (a save file, a screen, one more kind). The board shows the tradeoffs apart, on
 top of Features and first in the Interview; the person's choice comes as `plan: F<n> tradeoff` with `Choice: prepare`
-or `Choice: wait`: write `- Tradeoff: prepare (you, <date>)` or `wait` under the Prepare line. Their Features step and
+or `Choice: wait`: the board has written `- Tradeoff: prepare (you, <date>)` or `wait` already; go on from it. Their Features step and
 the plan check wait for every choice; the feature's mark stays as it was (not sure is fine).
 
 **The plan** (step 4; the user, 2026-10-24: "I want him to recommend goals/subgoals in to make this a reality"): your
@@ -354,7 +357,7 @@ plan to make the vision real, in the strategy the user chooses first.
   under it as a sub-goal, starts its Change line with its own goal id (`merge G23 into G41`, `move G43 under G6`): the
   board then shows it inside that goal, not as a goal of its own (the user, 2026-10-25: "i cant see which goals belong
   to which milestone and which goals have subgoals").
-- **Not now.** `plan: S<n> not now` (or `M<n>`): write `- State: not now (you, <date>)`; it stays on the page, out of
+- **Not now.** `plan: S<n> not now` (or `M<n>`): the board has written `- State: not now (you, <date>)` already; it stays on the page, out of
   the goal map, until the user says Yes to it later.
 - **Laid by Fable at max effort** (the user, 2026-10-25: "i want to let future plans be made by fable max"; their
   standing yes for Fable, for laying plans only). Laying or re-laying the plan (a strategy, a check, a goals change, a
@@ -434,7 +437,7 @@ changes them here or in the Interview, then **Put the goals in my goal map** (`p
 - `- Goal: G<n>` when it is a goal of the goal map already (keep the user's existing goals: map them, do not invent
   new ones beside them).
 
-The user's words: `plan: goals confirmed` with `Goals: S1, S4`: write `State: confirmed (you, <date>)`.
+The user's words: `plan: goals confirmed` with `Goals: S1, S4`: the board has written `State: confirmed (you, <date>)` already; go on from it.
 `plan: S<n> change` with `Words:`: rewrite that goal. `plan: goals change` with `Words:`: propose the preset anew from
 them, the confirmed goals kept unless the words change them. `plan: goals agreed`: write the confirmed goals into the
 goal map (`.claude/goals.md`, its rules at its top): a goal with `Goal: G<n>` gets its Done when and `Serves:` there;
@@ -528,8 +531,8 @@ light and atmosphere, screens, sound: from the goals' sub-goals and the must fea
 - `- Gap: <what is below the bar> → <the goal it becomes>`, or nothing when all meet it.
 
 Ask about a standard with the slides as everywhere (`K<n>: ...`, rule 2): the bar's choices with pictures (48 or 64
-pixels tall; subtle or bold effects). The user's words: `plan: standards confirmed` with `Standards: K1, K3`: write
-`State: confirmed (you, <date>)` and the bar into each definition of done. `plan: K<n> change` with `Words:`: rewrite
+pixels tall; subtle or bold effects). The user's words: `plan: standards confirmed` with `Standards: K1, K3`: the board has
+written `State: confirmed (you, <date>)` already; you write the bar into each definition of done. `plan: K<n> change` with `Words:`: rewrite
 that standard. `plan: standards change` with `Words:`: rewrite them all from the words. `plan: standards agreed`:
 every gap becomes a goal of the preset and the goal map (as `plan: goals agreed`), under the milestone its count comes
 from, with the foundation as its first sub-goal and `Serves:` the kind's answers; a gap goal's steps carry the
