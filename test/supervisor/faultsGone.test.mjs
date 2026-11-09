@@ -17,6 +17,7 @@ import { buildView } from '../../src/supervisor/view.mjs'
 import { STUCK_CHECK_MS, stuckChecks, workApi } from '../../src/work/api.mjs'
 import { faultsNow } from '../../src/work/check.mjs'
 import { HANDOVER_COMMAND, HANDOVER_MOD, decide } from '../../src/work/handover.mjs'
+import { whyClosed } from '../../src/work/outboxSweep.mjs'
 import { parseItem, valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { reportCheckFailedOf } from '../../src/work/resultCheck.mjs'
@@ -250,25 +251,30 @@ test('no back word is sent for a failure of the re-run: the hand-over keeps the 
   })
 })
 
-test('a pass of the re-run closes the back word that still waits for the worker; a word already taken, or a failure, is left', async () => {
+test('the outbox sweep closes a waiting back word once its step check passed since (the re-run); a later word, another step, a taken word, a failure stay', async () => {
   await withStore(async dir => {
     const board = await failedStore(dir)
     await board.at(30)({ action: 'recheck-base', id: 'B1', why: 'x', again: true })
-    const now = new Date(2026, 10, 9, 8, 45).getTime()
-    const idle = worker(now - 20 * MIN)
     const key = `B1 ${reportCheckFailedOf(await board.item()).stamp}`
-    const decideNow = (store, envelopes) => decide({ worker: idle, items: new Map([['B1', store]]), ready: [], envelopes, now })
-    // Still failed (the re-run has not ended): a waiting back word stays on its way.
-    assert.equal(decideNow(await board.item(), [backWord(key, 'waiting')]).close, null)
+    const at = minutes => board.start + minutes * MIN
+    const judge = (store, word, more = {}) => whyClosed(word, { all: [word], items: new Map([['B1', store]]), runs: new Map(), goals: [], now: at(60), keep: { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN }, closing: new Map(), ...more })
+    const early = { ...backWord(key, 'waiting'), at: at(20) }
+    // Still failed (the re-run has not ended): the waiting back word stays on its way.
+    assert.equal(judge(await board.item(), early), null)
     const passed = await board.at(31)({ action: 'check', id: 'B1', passed: true, lines: ['work in lantern', 'branch gone'] })
     assert.equal(passed.ok, true, passed.why)
     const store = await board.item()
-    const lines = await board.history()
-    assert.match(lines.at(-2), / server: check passed: work in lantern; branch gone$/)
+    assert.match((await board.history()).at(-2), / server: check passed: work in lantern; branch gone$/)
     assert.equal(valueOf(store, 'State'), 'done')
-    assert.equal(decideNow(store, [backWord(key, 'waiting')]).close, 'e1')
-    assert.equal(decideNow(store, [backWord(key, 'delivered')]).close, null)
-    assert.equal(decideNow(store, [{ ...backWord(key, 'waiting'), kind: 'restart', back: null }]).close, null)
+    assert.deepEqual(judge(store, early), { state: 'dropped', why: 'its check passed since (board re-run)' })
+    // Made after the pass, for another step, already taken, or not a back word: stays.
+    assert.equal(judge(store, { ...early, at: at(40) }), null)
+    assert.equal(judge(store, { ...early, back: key.replace('B1', 'B2') }), null)
+    assert.equal(judge(store, { ...early, state: 'taken' }), null)
+    assert.equal(judge(store, { ...early, kind: 'restart', back: null }), null)
+    // A pass long ago, then a failure: the check does not stand passed, so the word stays.
+    const failedLater = inReview('B1', `- ${stamp(at(25))} server: check passed: x`, `- ${stamp(at(28))} server: check failed: x`)
+    assert.equal(judge(failedLater, early), null)
   })
 })
 
