@@ -12,6 +12,9 @@
 // worktree, or folder of one, named for the step is left in the project folder (worktrees.mjs `stepLeftovers`); a
 // leftover fails the check with a line that names its path and how to remove it.
 //
+// B1079 (X162): a branch left on the remote whose every commit is on the remote's base is a warning (the next landing sweeps it;
+// a chat may not delete a remote branch), not a send-back; a local leftover or unmerged work on the remote still sends the step back.
+//
 // B527: six of the twelve failed result checks of 2026-10-24 were tests that pass without the fix. A step whose change
 // touches a test file is therefore reported with the mutant its tests caught ("Tests bite: <what was undone in a copy>
 // → <the assertion that failed>").
@@ -340,14 +343,21 @@ async function baseFact({ dir, base }, run) {
   return fact('pass', `${base} of ${name} equals origin/${base}`)
 }
 
-/** The facts of the step's branch `own` in the repository at `dir`: gone from it and from its remote (left: back to the worker). */
-async function branchFacts(dir, own, run) {
+/** The facts of the step's branch `own` in the repository at `dir`: gone from it (left: back to the worker) and from its remote (left: back, unless every commit of it is on the remote's base: a warning, B1079). */
+async function branchFacts(dir, own, run, base = 'main') {
   const name = nameOf(dir)
   const [branches, remotes] = await Promise.all([readBranches([dir], run), run(['-C', dir, 'for-each-ref', '--format=%(refname:short)', 'refs/remotes'])])
   if (branches === null) return [fact('fail', `git did not answer: the branches of ${name} are not known`)]
   if (branches.includes(own)) return [fact('back', `the branch ${own} is still there`)]
   const left = linesOf(remotes).find(ref => ref.endsWith(`/${own}`))
-  return left === undefined ? [] : [fact('back', `the branch ${own} is still on ${left.split('/')[0]} of ${name}`)]
+  if (left === undefined) return []
+  const remote = left.split('/')[0]
+  // B1079 (X162: B1071 was sent back 3 times for a branch a chat may not delete on the remote): a branch on the remote whose
+  // every commit is on the remote's base is only a warning, the next landing's sweep deletes it; one with commits of its own
+  // (unmerged work), or one git cannot compare, is still sent back.
+  const merged = await run(['-C', dir, 'merge-base', '--is-ancestor', left, `${remote}/${base}`])
+  if (merged !== null) return [fact('warn', `the branch ${own} still stands on ${remote} of ${name}: the next landing sweeps it`)]
+  return [fact('back', `the branch ${own} is still on ${remote} of ${name}`)]
 }
 
 /**
@@ -370,8 +380,11 @@ async function gitFacts(held, unheld, { id, branch, result, merged, repos, run, 
   for (const commit of unheld) facts.push(fact('back', `the commit ${commit} is in no repository the board knows: name in merged only the commits on a base branch`))
   const own = typeof branch === 'string' ? branch.trim() : ''
   const isOnBase = own !== '' && found.some(({ repo }) => repo.base === own)
-  if (own !== '' && !isOnBase) for (const { repo } of found) facts.push(...await branchFacts(repo.dir, own, run))
-  facts.push(fact('pass', isOnBase ? `worked on ${own} itself` : 'branch gone'))
+  const standing = []
+  if (own !== '' && !isOnBase) for (const { repo } of found) standing.push(...await branchFacts(repo.dir, own, run, repo.base))
+  facts.push(...standing)
+  // B1079: a merged branch left on the remote is a warning that says so; "branch gone" would be untrue then.
+  if (!standing.some(one => one.is === 'warn')) facts.push(fact('pass', isOnBase ? `worked on ${own} itself` : 'branch gone'))
   // Worktree clean-up: no worktree on the step's branch in any repository of the work, and none (or its folder) named for the step.
   const left = []
   for (const [at, { repo }] of found.entries()) {
