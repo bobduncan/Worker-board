@@ -2665,6 +2665,12 @@ async function main(args) {
     const fresh = await readState()
     return { checked: checkTake(body, fresh), state: fresh }
   }
+  /**
+   * Rule 15 (2026-11-09): a side chat of the app (no chat of the list: the board shows no lane for its session) may give the
+   * person's words, and only those: the one call the bridge takes from a chat it does not show (the work API gives it the role
+   * `side`, which may do nothing else). Its name is the title its mod sends; it counts as no refused call.
+   */
+  const sideWords = (checked, asked, body) => !checked.ok && checked.status === 409 && asked.action === 'words' && typeof body?.chat === 'string' && body.chat.trim() !== ''
   /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
   const bridgeWorkOnce = async (body, checked) => {
     // T8.5: the version its mod said with this very call (noteMod keeps it before the call is answered).
@@ -3274,19 +3280,16 @@ async function main(args) {
       const stall = callStall(asked.action, session)
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
       try {
-        const { checked, state } = await checkFresh(body)
-        noteRefused(body, checked)
+        const fresh = await checkFresh(body)
+        const checked = sideWords(fresh.checked, asked, body) ? { ok: true, chat: body.chat.trim().slice(0, 80), isSide: true } : fresh.checked
         noteMod(body, checked)
-        // Rule 15 (2026-11-09): a side chat of the app (no chat of the list: the board shows no lane for its session) may give the
-        // person's words, and only those: the one call the bridge takes from a chat it does not show (the work API gives it the
-        // role `side`, which may do nothing else). Its name is the title its mod sends.
-        const isSide = !checked.ok && checked.status === 409 && asked.action === 'words' && typeof body?.chat === 'string' && body.chat.trim() !== ''
-        const taken = isSide ? { ok: true, chat: body.chat.trim().slice(0, 80), isSide: true } : checked
-        if (!taken.ok) return taken
-        stall.by(taken.chat)
-        if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, taken, state))
-        if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, taken)
-        return await requests.answer(session, request, () => bridgeWorkOnce(asked, taken))
+        if (checked.isSide !== true) noteRefused(body, checked)
+        const state = fresh.state
+        if (!checked.ok) return checked
+        stall.by(checked.chat)
+        if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
+        if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, checked)
+        return await requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
       } finally {
         stall.done()
         hearing?.answered(request, clock())
