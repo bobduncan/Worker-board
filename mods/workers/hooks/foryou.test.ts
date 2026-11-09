@@ -79,4 +79,25 @@ describe('B317: the "For you" block at the end of an answer, as asks to file', (
     expect(leftOutLine(['"Keep the golem?" asks what Q7 asks', 3, ''])).toBe('Not filed on the worker board from your last "For you" block, as asked already: "Keep the golem?" asks what Q7 asks. If one of them is a new question after all, file it with work ask.')
     expect(leftOutLine([])).toBe(null)
   })
+
+  test('a look with Context, Problem, Approve and Send back lines keeps them as text lines of the item, never as options', () => {
+    const [look] = forYouItems(answer(
+      '> **For you**',
+      '> 1. **Answer:** Keep the Cavern 2 corridor as it is, or reopen it later? I advise keeping it.',
+      '>    Context: The new one-way stairs rule (B1072) changed World 1\'s Cavern 2',
+      '>    Problem: 3 squares of its west corridor can no longer be reached',
+      '>    **Approve:** keep it as it is for now',
+      '>    Send back: a later step makes the corridor reachable again',
+      '>    [See the picture: Cavern 2](http://127.0.0.1:4310/#picture=art-inbox/b1072/cavern2.png)',
+      '>    [Play it: Cavern 2](http://127.0.0.1:4310/#play=main&screen=sandbox)',
+    ))
+    expect(look.options).toEqual([])
+    expect(look.kind).toBe('look')
+    expect(look.text.slice(1)).toEqual([
+      'Context: The new one-way stairs rule (B1072) changed World 1\'s Cavern 2',
+      'Problem: 3 squares of its west corridor can no longer be reached',
+      '**Approve:** keep it as it is for now',
+      'Send back: a later step makes the corridor reachable again',
+    ])
+  })
 })

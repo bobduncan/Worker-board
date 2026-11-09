@@ -10,6 +10,7 @@ import { parseConfig } from '../src/config.mjs'
 import { demoPage } from '../src/demo.mjs'
 import { roundPage } from '../src/demoFeedback.mjs'
 import { parseItem } from '../src/work/item.mjs'
+import { lookFormOf } from '../src/work/lookForm.mjs'
 import { openPage, reply, settle } from './pageHarness.mjs'
 import { MIN, NOW, asSent, build, sinceOf } from './partnerState.mjs'
 
@@ -258,5 +259,30 @@ test('a block made in this round is being built, not reworked: it keeps its own 
     assert.match(words(page.find('.focus-round')), /· 1 of 5 done · 1 waits for your verdict · 2 being reworked · /)
     assert.doesNotMatch(words(page.all('.focus-open-block')[4]), /Being reworked/)
     assert.equal(words(page.all('.focus-open-block')[4].querySelector('.focus-chip')), 'Digger is on it')
+  } finally { await page.close() }
+})
+
+test('a kept look with Context, Problem, Approve and Send back draws them, the buttons line above the bar, and no "About" line; an old look is drawn as before', async () => {
+  const state = withLooks(1)
+  const give = popupOf(state, ['Row 1'])
+  const form = ['Context: The new one-way stairs rule (B1072) changed World 1\'s Cavern 2', 'Problem: 3 squares of its west corridor can no longer be reached', 'Approve: keep it as it is for now', 'Send back: a later step makes the corridor reachable again', 'See the second picture.']
+  give.looks[0] = { ...give.looks[0], about: 'About B1072: One-way stairs', text: form.join('\n'), form: lookFormOf(form.join('\n')) }
+  give.looks[1] = { ...give.looks[1], about: 'About B9: Bridge', text: 'It looks fine.', form: lookFormOf('It looks fine.') }
+  const page = await opened(state, give)
+  try {
+    await page.click('[data-tab="advice"]')
+    await page.click('.focus-recap-open')
+    await settle(10)
+    const [kept, old] = page.all('.demo-section.is-looks .demo-row')
+    assert.deepEqual(page.all('.demo-section.is-looks .demo-row').length, 2)
+    assert.deepEqual([...kept.querySelectorAll('.demo-look-form')].map(words), ['Context The new one-way stairs rule (B1072) changed World 1\'s Cavern 2', 'Problem 3 squares of its west corridor can no longer be reached'])
+    assert.equal(kept.querySelectorAll('.demo-row-about').length, 0, 'no About line')
+    assert.equal(words(kept.querySelector('.demo-look-buttons')), 'Approve: keep it as it is for now · Send back: a later step makes the corridor reachable again')
+    assert.deepEqual([...kept.querySelectorAll('.demo-row-note')].map(words).slice(-1), ['See the second picture.'], 'other lines stay under Problem')
+    assert.ok(!words(kept).includes('Approve: keep it as it is for now Context'), 'the labelled lines are not repeated as plain text')
+    assert.deepEqual(classesOf(kept).slice(-2), ['demo-look-buttons', 'demo-feedback'], 'the buttons line is right above the bar')
+    // An old look: today's About line and its text, no form lines.
+    assert.equal(words(old.querySelector('.demo-row-about')), 'About B9: Bridge')
+    assert.equal(old.querySelectorAll('.demo-look-form, .demo-look-buttons').length, 0)
   } finally { await page.close() }
 })

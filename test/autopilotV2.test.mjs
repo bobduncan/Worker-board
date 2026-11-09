@@ -365,7 +365,7 @@ test('the pass and the filing keep such a look as the partner\'s hand-over is: i
   assert.ok(store.get('B821').sections.get('Context').some(line => line.trim() === 'Recap verdict: waits (Q641)'))
   assert.equal(store.get('B821').head.get('State'), 'in progress', 'the step it held goes on')
   // Filed while Autopilot is on: kept at once, with its line.
-  const filed = await workApi({ action: 'ask', chat: 'Worker 5', of: 'B821', kind: 'look', text: ['Is the lava shore\'s colour right beside the painting?'], advice: 'yes', pictures: ['pictures/B821/shore.png'] }, { ...apiCtx(dir, NOW + MIN), as: undefined, autopilot: true })
+  const filed = await workApi({ action: 'ask', chat: 'Worker 5', of: 'B821', kind: 'look', text: ['Is the lava shore\'s colour right beside the painting?', 'Context: The shore colour changed in B821', 'Problem: it may sit too dark beside the painting', 'Approve: keep it', 'Send back: a later step lightens it'], advice: 'yes', pictures: ['pictures/B821/shore.png'] }, { ...apiCtx(dir, NOW + MIN), as: undefined, autopilot: true })
   assert.equal(filed.ok, true, filed.why)
   assert.equal(filed.result.route, 'recap')
   store = (await readStore(dir)).items
