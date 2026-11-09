@@ -80,6 +80,8 @@ const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incident
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'autopilot-undo', 'add-to-queue', 'remove-from-queue'])
+/** P5: the why of a note the board marks read by itself (src/stillTrue.mjs): "came down: X1 fixed, X2 gone". */
+const CAME_DOWN = /^came down: \S/
 const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'popup-asks', 'autopilot', 'recap-answered'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
@@ -295,7 +297,9 @@ async function act(body, ctx) {
       if (OWNER_AS_PARTNER.has(action)) role = 'advisor'
     }
   }
-  if (PERSON.has(action) && role !== 'person') return refuse(403, 'Only the person does that, on the board.')
+  // P5: the one thing of the person's the board may do, mark a note read once the thing it is about came down (src/stillTrue.mjs): only with that why.
+  const mayServerRead = action === 'read' && role === 'server' && CAME_DOWN.test(line(body.why, 300))
+  if (PERSON.has(action) && role !== 'person' && !mayServerRead) return refuse(403, 'Only the person does that, on the board.')
   if (role === 'supervisor' && !SUPERVISOR_MAY.has(action)) return refuse(403, 'The supervisor chat reads, files incidents and judges them (work incident, drop X<n>, new "Fix of X<n>", incident-fix), nothing else.')
   // Signals change 6: it closes incidents only; a step's drop stays the main chat's and the person's.
   if (role === 'supervisor' && action === 'drop' && !/^X\d+$/.test(line(body.id, 20))) return refuse(403, 'The supervisor chat drops only an incident (X<n>), never a step.')
@@ -2306,8 +2310,11 @@ async function partnerSetting(body, w) {
 
 async function makeNote(w, to, text, of, via = null, from = w.who) {
   const id = await nextId(w.dir, 'N', w.fs)
+  // P5: the Supervisor's note names the incidents it is about (X<n> in its words or its About), so the board can take it down once they are
+  // fixed or gone (src/stillTrue.mjs); a note of no incident has no such field.
+  const incidents = via === 'supervisor' ? [...new Set([...(text.join(' ').match(/\bX\d+\b/g) ?? []), ...(typeof of === 'string' && /^X\d+$/.test(of) ? [of] : [])])] : []
   const item = said({
-    head: new Map([['Id', id], ['Kind', 'note'], ['From', from], ['To', to], ...(via === null ? [] : [['Via', via]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', line(text.join(' '), LINE_CHARS)]]),
+    head: new Map([['Id', id], ['Kind', 'note'], ['From', from], ['To', to], ...(via === null ? [] : [['Via', via]]), ...(incidents.length === 0 ? [] : [['Incidents', incidents.join(', ')]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', line(text.join(' '), LINE_CHARS)]]),
     sections: new Map([['Text', text], ...(of === null ? [] : [['About', [of]]])]),
     problem: null,
   }, w, 'noted')
@@ -4482,7 +4489,8 @@ async function read(body, w) {
   // B360, the review: a recap is not read away: it is overturned, marked seen (B390), or approves itself.
   if (isRecap(found.item)) return refuse(409, `${valueOf(found.item, 'Id')} is a recap: overturn it, mark it seen, or let it approve itself.`)
   if (stateOf(found.item) === 'read') return { ok: true, result: { id: valueOf(found.item, 'Id'), text: 'Read already.', changed: false } }
-  const item = said(put(put(copy(found.item), 'State', 'read'), 'Since', stamp(w.now)), w, 'read')
+  // P5: the board's own mark (role server, only with a "came down:" why) says why in the note's History.
+  const item = said(put(put(copy(found.item), 'State', 'read'), 'Since', stamp(w.now)), w, w.role === 'server' ? line(body.why, 300) : 'read')
   const done = await save(item, found.text, w)
   return done.ok ? changed(item) : done
 }
@@ -5063,13 +5071,16 @@ async function asksWithdrawn(body, w) {
   const withdrawn = []
   for (const one of Array.isArray(body.withdraw) ? body.withdraw : []) {
     const loaded = await load(line(one?.id, 20), w, { kind: ['ask'] })
-    if (!loaded.ok || stateOf(loaded.item) !== 'open' || valueOf(loaded.item, 'Route') !== 'person') continue
+    if (!loaded.ok || stateOf(loaded.item) !== 'open') continue
+    // P5 (2026-11-09, still-true): the board's re-check of every item passes `anyRoute`: an ask of any Route about an ended step is stale, but a
+    // kept look never (it waits for the goal's recap whatever its step does). Without it only the person's asks, as the start-up check sends them.
+    if (body.anyRoute === true ? isKeptLook(loaded.item) : valueOf(loaded.item, 'Route') !== 'person') continue
     const step = askStepOf(valueOf(loaded.item, 'Of'), valueOf(loaded.item, 'Title'))
     const state = step === null || !w.store.items.has(step) ? null : stateOf(w.store.items.get(step))
     if (state !== 'done' && state !== 'dropped') continue
     // The step must have ended after the ask was put: an ask that names an old done step as context is still a question.
     if (!(sinceMs(valueOf(w.store.items.get(step), 'Since')) > sinceMs(valueOf(loaded.item, 'Since')))) continue
-    const done = await withdraw({ id: valueOf(loaded.item, 'Id'), why: `its step ${step} is ${state}` }, { ...w, role: 'person' })
+    const done = await withdraw({ id: valueOf(loaded.item, 'Id'), why: `its step ${step} is ${state}${body.anyRoute === true ? ' (still-true)' : ''}` }, { ...w, role: 'person' })
     if (done.ok) withdrawn.push(valueOf(loaded.item, 'Id'))
   }
   return { ok: true, result: { withdrawn, text: withdrawn.length === 0 ? 'No ask withdrawn.' : `Withdrawn: ${withdrawn.join(', ')}.`, changed: withdrawn.length > 0 } }

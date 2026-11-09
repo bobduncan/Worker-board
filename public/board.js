@@ -1162,6 +1162,8 @@ function incidentCardOf(card, byId, now = Date.now()) {
     const seen = Math.max(0, ...covered.map(one => one.count || 0))
     lines = [`${covered.map(one => one.id).join(' ')} · ${gistOf(covered[0]?.title)}${seen > 1 ? ` (seen ${seen}×)` : ''}`]
   }
+  // P5: an open fix names its chain to the open end ("waits for its fix B978, in review since 11-04 → B1011 → B1030, not refined since 11-04").
+  if (typeof card.chain === 'string') lines.push(card.chain)
   return {
     key: card.key, step: card.step, href: card.step === null ? null : `#details=${card.step}`,
     // The card without a fix step says how many incidents it lists: the person counts them against the head's "N open".
@@ -2509,7 +2511,12 @@ function drawRestart(state) {
     return node
   }
   const parts = []
-  for (const text of stoppedLines(restart, state.chats ?? [])) parts.push(line('alert', text))
+  // P5: each chat it names opens that chat's window.
+  for (const text of stoppedLines(restart, state.chats ?? [])) {
+    const node = line('alert', '')
+    node.append(...chatPieces(text, restart.interrupted))
+    parts.push(node)
+  }
   // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
   const down = restart.notRunning ?? []
   const isAtHand = restart.off !== null || restart.interrupted.length > 0 || (pause !== null && pause.state !== 'running')
@@ -6104,10 +6111,56 @@ function wakeNoticeText(notice) {
 }
 // nobodyruns:end
 
-/** Signals change 4: that line, in the attention colour (the class the older lines had, so the CSS holds); null for none. */
+// chatlinks:start
+/**
+ * P5 (2026-11-09, the person's "I want to click the chat it names"): the pieces of `text` with each chat name of `names` as a link that opens that
+ * chat's task window (`#task=<name>`, the address the page already opens a lane's window with; the click is the page's `[data-place]` one). The
+ * longest name first (a name inside another is not cut); `rest(segment)` gives the nodes of the words between (a step id there is a link too:
+ * `linkedWords`); the words themselves stay as they were.
+ */
+function chatPieces(text, names, rest = segment => [segment]) {
+  const known = [...new Set((names ?? []).filter(name => typeof name === 'string' && name !== ''))].sort((a, b) => b.length - a.length)
+  const pieces = []
+  let from = 0
+  // Scanned from left to right: at each place the longest name that starts there is a link (no regular expression: a name may hold any sign).
+  for (let at = 0; at < text.length;) {
+    const name = known.find(one => text.startsWith(one, at))
+    if (name === undefined) { at += 1; continue }
+    if (at > from) pieces.push(...rest(text.slice(from, at)))
+    const link = el('button', 'ask-link', name)
+    link.type = 'button'
+    link.dataset.place = `#task=${encodeURIComponent(name)}`
+    link.title = `Opens ${name}'s task window`
+    pieces.push(link)
+    at += name.length
+    from = at
+  }
+  if (from < text.length) pieces.push(...rest(text.slice(from)))
+  return pieces
+}
+
+/** The chats a wake notice's own text names ("could not wake Worker 2: ..." and its quiet "could not wake Worker 2 at 10:32; ..."), so its links need no lane. */
+function wakeNoticeChats(notice) {
+  return [...String(notice?.text ?? '').matchAll(/could not wake (.+?)(?::| at \d\d:\d\d;)/g)].map(found => found[1])
+}
+// chatlinks:end
+
+/** The names of every chat of the board (the lanes, the partner, its helper, the Supervisor, the Product owner): what a line may name. */
+function boardChatNames(state) {
+  return [...(state?.chats ?? []), state?.advisor, state?.advisorHelper, state?.supervisorChat, state?.productOwner].filter(lane => lane != null && typeof lane.name === 'string').map(lane => lane.name)
+}
+
+/**
+ * Signals change 4: that line, in the attention colour (the class the older lines had, so the CSS holds); null for none. P5: a chat it names
+ * is a link to that chat's window and a step id a link to its step; a notice whose every line is quiet ("nothing waits for it now") is not in
+ * the attention colour.
+ */
 function drawWakeNotice(notice) {
   const text = wakeNoticeText(notice)
-  return text === null ? null : el('p', 'nobody-runs', text)
+  if (text === null) return null
+  const node = el('p', notice.tone === 'quiet' ? 'nobody-runs-quiet' : 'nobody-runs')
+  node.append(...chatPieces(text, [...wakeNoticeChats(notice), ...boardChatNames(board)], segment => linkedWords(segment, board)))
+  return node
 }
 
 /** Calm panel: the instructions a chat missed, one red line each under Needs your attention; a click opens the log. */

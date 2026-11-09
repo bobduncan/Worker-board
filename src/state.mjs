@@ -2936,7 +2936,8 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now }) {
   const nobody = nobodyRunsSpell(built, sent)
   return {
     ...built, chats, ...roles,
-    wakeNotice: noticeOf(record, targets, now, hourMinute, { senderClaims, nobody }),
+    // P5: the kept reports the lanes read (the same `lane.report` the hasRunSince above reads), so the notice itself leaves out a chat that ran since its failed wake.
+    wakeNotice: noticeOf(record, targets, now, hourMinute, { senderClaims, nobody, reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }),
     wakes: newestSpells(record),
     // The review of 2026-11-02 (7): the board-wide spell now (nobody runs since), for the rule nobody-answers-wakes.
     wakeBoardSince: nobody?.since ?? null,

@@ -194,6 +194,8 @@ already. The board shows each one "with the supervisor" until you close it or na
 it needs no question to the person. Read an incident's whole record (its evidence, counts and History) with
 `work list` and its `id` (`work list X<n>`), never a file.
 
+A note the board files for the person about an incident names it (`Incidents: X1, X2`), and comes down by itself, marked read with "came down: ...", once every incident it names is fixed, gone, closed or dropped (`src/stillTrue.mjs`): you never clear one.
+
 1. Judge each one:
    - **No fault: a false alarm, or no fault left (B685)**: the board behaves as it should, the case was handled already with no step
      of its own, or it is one of "What is no incident" (above): close it, `work drop X<n>` with `why` (one line: what made

@@ -11,6 +11,7 @@ import { OTHER_ACCOUNT_TAIL, RESTART_WHY, unjoinedOf, wakeIdsOf } from './ownCha
 import { noteRun, noticeOf, pathsOf, ranSince, reopenSpells, wakeOf } from './wake.mjs'
 import { sameModel } from './work/effort.mjs'
 import { askStepOf } from './work/askStep.mjs'
+import { isKeptLook } from './work/keptLook.mjs'
 import { bansOf } from './work/handover.mjs'
 
 /**
@@ -40,12 +41,15 @@ const isTime = value => Number.isFinite(value)
 /**
  * MUST 2: the store's open asks routed to the person, each with the step it is about and that step's state: `[{ id, owner, step,
  * stepState }]` (a step the store does not hold has no state: null; an ask about no step is not listed). `items` the store's items (`readStore`). The step is the ask's
- * `Of`, else the first B<n> in its title (src/work/askStep.mjs).
+ * `Of`, else the first B<n> in its title (src/work/askStep.mjs). P5 (2026-11-09, src/stillTrue.mjs): `anyRoute` lists the open asks of EVERY
+ * Route (a partner's or the recap's ask about an ended step is as stale as the person's), never a kept look (its step ending is no news: it
+ * waits for the goal's recap).
  */
-export function asksOf(items) {
+export function asksOf(items, { anyRoute = false } = {}) {
   const asks = []
   for (const item of items?.values?.() ?? []) {
-    if (item.head.get('Kind') !== 'ask' || item.head.get('State') !== 'open' || item.head.get('Route') !== 'person') continue
+    if (item.head.get('Kind') !== 'ask' || item.head.get('State') !== 'open' || (!anyRoute && item.head.get('Route') !== 'person')) continue
+    if (anyRoute && isKeptLook(item)) continue
     const step = askStepOf(item.head.get('Of') ?? null, item.head.get('Title') ?? '')
     if (step === null) continue
     asks.push({

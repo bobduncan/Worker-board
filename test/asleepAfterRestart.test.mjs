@@ -359,7 +359,8 @@ test('start-up check, MUST 1: a chat that does not run but reports again after i
   // Before the control: its session started at 18:10, before the failed wake (18:30): the notice stands.
   const before = stateWith(at(18, 10))
   assert.equal(lane(before, 'Digger').isRunning, false)
-  assert.equal(before.wakeNotice.text, 'could not wake Digger: no report after the message (sent 18:28 by Lead); open its chat')
+  // P5 (2026-11-09): nothing waits for Digger any more, so the line stands, but quiet.
+  assert.deepEqual(before.wakeNotice, { tone: 'quiet', text: 'could not wake Digger at 18:30; nothing waits for it now' })
   // Its session started at 18:40, after the failure: nothing stale to show.
   const after = stateWith(at(18, 40))
   assert.equal(lane(after, 'Digger').isRunning, false, 'still no process: only the stale line goes')
@@ -384,7 +385,7 @@ test('start-up check, review 2: a chat whose report names an app chat that runs 
   // Active at 18:20 (after its report, before the failed wake of 18:30): the notice stands, the wake went to a chat that was quiet.
   const before = stateWith(at(18, 20))
   assert.deepEqual(lane(before, 'Digger').unjoined, { at: at(18, 20), session: 'cli-new' })
-  assert.equal(before.wakeNotice?.text, 'could not wake Digger: no report after the message (sent 18:28 by Lead); open its chat')
+  assert.equal(before.wakeNotice?.text, 'could not wake Digger at 18:30; nothing waits for it now')
   // Active at 18:40, after the failure: the chat runs on a session the board does not follow; the state says nothing of the wake (the check says to re-join).
   const after = stateWith(at(18, 40))
   assert.equal(lane(after, 'Digger').isRunning, false)
@@ -450,7 +451,8 @@ test('review (3): after the take-back ended its need, "could not wake" and its i
   }, { lines: [], outbox: [], runs: [], now: NOW, config, seen: { shown: {}, other: {} }, board: { startedAt: STARTED, offSince: null }, reports: new Map(REPORTS), wakes: facts })
   const weeder = lane(raw, 'Weeder')
   assert.deepEqual([weeder.wake.need, weeder.wake.final, weeder.flags[0]?.kind], [false, true, 'wake failed'])
-  assert.match(raw.wakeNotice.text, /could not wake Weeder: no report after the message \(sent 18:20 by Lead\); open its chat/)
+  // P5: the line stands for the whole spell, now quiet (nothing waits for Weeder); the flag and the incident below stay as they were.
+  assert.deepEqual(raw.wakeNotice, { tone: 'quiet', text: 'could not wake Weeder at 18:22; nothing waits for it now' })
   const found = WATCH_RULES.find(one => one.id === 'wake-failed').check(buildView({ state: raw, items: new Map(), outbox: [], settings: {}, now: NOW }), { seen: new Map(), observed: [] })
   assert.deepEqual(found.map(one => one.key), [`wake-failed Weeder ${APP}`])
 })

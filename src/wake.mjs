@@ -436,11 +436,21 @@ export function triedWords(attempts, timeOf) {
  * (launched 10:32); no report after the message (sent 10:35 by Advisor); open its chat". "nobody answers the board's
  * wake-ups: open any chat" first when the board-wide spell's launch failed, or no sender claims and every need (at least
  * one) failed or waits for a chat that can send. Replaces nobodyRunsText, wakeFailedText and openerNote.
+ * P5 (2026-11-09, src/stillTrue.mjs): `reports` the kept reports by chat name (an object or a Map, `{ state, at, run }`): a chat that ran since
+ * its failed wake (`ranSince`) leaves the notice, the line is stale. A chat nothing waits for any more (`need.need === false`) gets a QUIET line
+ * ("could not wake X at 10:32; nothing waits for it now"): the tone is 'quiet' when every line is quiet, 'attention' as soon as one is not.
  */
-export function noticeOf(record, targets, now, timeOf, { senderClaims = false, senderSince = -Infinity, nobody = null } = {}) {
+export function noticeOf(record, targets, now, timeOf, { senderClaims = false, senderSince = -Infinity, nobody = null, reports = null } = {}) {
+  const reportOf = chat => (reports instanceof Map ? reports.get(chat) : reports?.[chat]) ?? null
   const wakes = (targets ?? []).map(need => ({ need, wake: wakeOf(record, need, { senderClaims, senderSince }) }))
-  const failed = wakes.filter(one => one.wake.final)
+  const failed = wakes.filter(one => one.wake.final && !ranSince(record, one.need.chat, one.need.spell ?? null, reportOf(one.need.chat), now))
+  const quiet = []
   const lines = failed.map(({ need, wake }) => {
+    if (need.need === false) {
+      const text = `could not wake ${need.chat} at ${timeOf(failedAtOf(record, need.chat, need.spell ?? null) ?? now)}; nothing waits for it now`
+      quiet.push(text)
+      return text
+    }
     const tried = [NOT_LISTED_WHY, NOT_SHOWN_WHY, OTHER_ACCOUNT_WHY].includes(wake.why) ? [wake.why, ...triedWords(wake.attempts, timeOf)]
       : wake.why === 'no id' && wake.attempts.length === 0 ? ['the board has no id to reach it'] : triedWords(wake.attempts, timeOf)
     return `could not wake ${need.chat}: ${tried.join('; ') || wake.why}; open its chat`
@@ -450,7 +460,7 @@ export function noticeOf(record, targets, now, timeOf, { senderClaims = false, s
   const needs = wakes.filter(one => one.need.need !== false)
   const isEveryone = senderClaims !== true && needs.length > 0 && needs.every(one => one.wake.final || one.wake.state === 'waiting-sender')
   if (isBoardFailed || isEveryone) lines.unshift('nobody answers the board\'s wake-ups: open any chat')
-  return lines.length === 0 ? null : { tone: 'attention', text: lines.join(' · ') }
+  return lines.length === 0 ? null : { tone: lines.every(line => quiet.includes(line)) ? 'quiet' : 'attention', text: lines.join(' · ') }
 }
 
 /**
