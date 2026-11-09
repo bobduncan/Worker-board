@@ -384,6 +384,14 @@ adds it as a line to the builder's open question under that step ("Also from the
 your check, which the check carries even when you leave it out; the person is asked once, in the builder's question. Any second
 question on a step that has the person's open ask joins that ask as a line, whoever asks it.
 
+Name the ask that carries an ask point (B1103; X163: B1091 got five check tasks, as its look points were asked in its goal's
+evaluation ask and its checkers rightly filed none). When an open ask of the step or of its goal already asks the person what your
+`ask:` point needs, never ask again: end the point with that ask's id, `ask: <point> (Q712)`. The step then waits for the person's
+answer there, and the board makes its check task again once that ask is answered. File a new ask under the step only when no open
+ask asks it. A check that waits for the person with no ask filed or named gets one more check task after 30 minutes, its `Why:`
+saying "its checker filed no ask point"; when that one's check does the same, the board makes no more, the step reads "its
+checker filed no ask point", and the partner is asked to file or name it.
+
 ## Pausing for the limit
 
 A worker that stops because the limit runs low first brings its work to a safe point (committed, and pushed where its

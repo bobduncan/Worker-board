@@ -6688,6 +6688,16 @@ from Opus extra high to Opus high. (Spec 2026-10-27, "Quality Assurance tasks".)
    whose check waits for the person (`ask:` points) waits for the person, not for a check, from the check line until the worker
    that checked has filed its ask (`reviewWaitOf`, UNCHECKED_MS = 30 minutes; after that, with still no ask of the step filed
    since the line, it waits for a check again, so nothing wedges): the repair makes no second task in between.
+   B1103 (X163: B1091 got five check tasks in 100 minutes, as the ask that carried its 7 look points was the evaluation ask Q712
+   of its goal, and its checkers rightly asked the person nothing new): an ask point may name the open ask that carries it,
+   `ask: <point> (Q712)`, of the step or of its goal (`namedAskIds`, `namedAsksOf`; the partner names one with a `work note` of
+   the step since the line that names it). While a named ask is open the step waits for the person's answer ("waits for your
+   answer to its check in Q712"); once it, or an ask of the step, was answered or withdrawn since the line, it waits for its check
+   again at once; a named ask that is not open counts for nothing. The guard: past UNCHECKED_MS with no ask filed or named, the
+   new task's `Why:` is `UNASKED_WHY` ("its checker filed no ask point: file its check again; name the open ask ..."); when the
+   check of such a task waits that way again, the step is kind `unasked` ("its checker filed no ask point"), the repair makes no
+   third task and wakes the partner once per wait (key `unasked B<id> <time>`) to file the ask or name the open one; the watch
+   judges it late as a dropped fix. Test: `test/supervisor/namedAskWait.test.mjs` (B1091's records replayed).
    B1081: never for a step with an open fix (`openFixesOf`), a report again included: `qaStep` refuses (409, "waits for its fix
    B<n>: no Quality Assurance task while it is open"), the check path asks for none and `qa-task` refuses, as `work checked`
    would refuse its check; the step closes by itself once that fix passes.
