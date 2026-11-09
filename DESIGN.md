@@ -6947,7 +6947,11 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
   `data/landings/<stamp>-<branch>.log` younger than 90 minutes that no landings line names yet, since the script takes the lock only
   AFTER the gate; server.mjs passes it to BOTH paths, the turn-end `decideFor` and the periodic `handoverPass`): B1081's land.ps1 was
   Worker 4's while the board handed the step to Worker 5. The "go on" line still goes. And a landed line for the step's branch
-  (`landedLines`, `landings` in the facts) is the holder's progress, so no give-back fires right after the release.
+  (`landedLines`, `landings` in the facts) is the holder's progress, so no give-back fires right after the release. The log names
+  a branch cleaned (land.ps1: every other character is "-"), so the guard compares both sides as the log would name them
+  (`logBranchName`: "qa/b866-x" is "qa-b866-x"); the two reads are tried apart, so a torn landings file leaves the lock's fact standing.
+  The Late card's one way opens the worker's chat in the Claude app by its app id (`claude://claude.ai/epitaxy/<id>`, as the pause
+  banner's link does); without the id it opens the worker's answer window and says so ("Open Worker 4's answer").
 - **The clear's `on`**: `unblock id on=<who>` must name the standing who (without the prefix, any case), else 409 with the way;
   `on=b1080` in any case is the step id B1080 (the Blocked by path), never a chat. A rename follows the who (names.mjs).
 - **Words**: roles/worker.md ("Record every wait on a chat"), roles/main.md, and the landing refusal's words (`LANDING_ASK_WHY`:

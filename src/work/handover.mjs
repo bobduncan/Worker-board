@@ -18,6 +18,7 @@ import { reportCheckFailedOf } from './resultCheck.mjs'
 import { holdEndOf } from './pause.mjs'
 import { familyOf } from './effort.mjs'
 import { stamp } from './migrate.mjs'
+import { logBranchName } from '../landing.mjs'
 
 const MIN = 60_000
 /** The Workers mod that carries out the board's envelope: a worker on an older one is handed nothing (T8.5 step 6). */
@@ -402,8 +403,9 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
     // P1 (2026-11-09, the double hold guard): no give-back of a step whose branch a landing is running for now (`landing`, the
     // landing lock's branch): the landing would finish on a step held by nobody, or by a second worker (B1081: Worker 5 took a
     // step whose land.ps1 Worker 4 was running). The "go on" line still goes; the give-back waits for the landing to end.
+    // Both as the gate log names a branch (`logBranchName`: "qa/b866-x" is "qa-b866-x"): `landing` may come from that name.
     const branch = valueOf(holding, 'Branch')
-    const isLanding = typeof landing === 'string' && landing !== '' && typeof branch === 'string' && branch.trim().toLowerCase() === landing.trim().toLowerCase()
+    const isLanding = typeof landing === 'string' && landing !== '' && typeof branch === 'string' && logBranchName(branch) !== '' && logBranchName(branch) === logBranchName(landing)
     if (isLanding && timed.giveBack !== null) return result(STATES.WORKING, null, { step: id, asked: timed.asked, giveBack: null, close: null, envelope: null, goOn: null, landing })
     const resume = timed.resume === null ? null
       : { kind: RESUME_KIND, step: null, clear: null, restart: false, set: null, line: timed.resume.line, back: null, resume: timed.resume.marker }

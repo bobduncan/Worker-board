@@ -115,6 +115,8 @@ export function lockHolder(file, now = Date.now()) {
 
 /** A gate log older than this with no landings line is a cut landing's (the gate takes 10 to 60 minutes): no landing runs for it. */
 export const RUNNING_LOG_MS = 90 * 60_000
+/** A branch as the gate log's name carries it (tools/land.ps1: every other character becomes "-"), lower case: "qa/b866-x" is "qa-b866-x". */
+export const logBranchName = branch => String(branch ?? '').trim().replace(/[^A-Za-z0-9._-]/g, '-').toLowerCase()
 const LOG_NAME = /^\d{8}-\d{6}-(.+)\.log$/
 
 /**

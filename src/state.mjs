@@ -103,6 +103,8 @@ const FEEDBACK_CHARS = 300
 const BOARD_WORDS = /^(?:restart for mod|spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|list step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|set model and effort|set effort|backlog step from the goal map|check sync)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
 const LANE_FLAGS = ['stuck', 'check failed', 'not merged', 'back', 'card', 'waits']
+/** The app's own id of a chat (`local_` and a uuid): the one the app opens a chat by (`claude://claude.ai/epitaxy/<id>`). */
+const APP_SESSION_ID = /^local_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -1130,6 +1132,9 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       ...blank,
       // No `workId`: the page reads that as an ask of the store (storeAskParts); `step` names the step.
       ...(flag.id === null ? {} : { step: flag.id }),
+      // The worker's chat, for the card's one way (the app opens a chat by its app id, `claude://claude.ai/epitaxy/<id>`): its name,
+      // and its app session when the board knows one (else the page offers the worker's answer window and says so).
+      chat: { name: lane.name, session: typeof lane.appSession === 'string' && APP_SESSION_ID.test(lane.appSession) ? lane.appSession : null },
       version: null,
       canAnswer: false,
       task: cardOf(lane.task),

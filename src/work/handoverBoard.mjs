@@ -214,13 +214,18 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
   const sent = outbox.outbox()
   const localOnly = await localOnlyOf(state.readyList?.ready, read.items, isPushed)
   // P1: `landingNow()` the branch a landing runs for now (the server reads the landing lock), or null.
+  // Each read on its own: a throw in one leaves the other's fact standing.
   let landing = null
   let landings = []
   try {
     landing = typeof landingNow === 'function' ? await landingNow() : null
-    landings = typeof landingsOf === 'function' ? await landingsOf() : []
   } catch {
     landing = null
+  }
+  try {
+    landings = typeof landingsOf === 'function' ? await landingsOf() : []
+  } catch {
+    landings = []
   }
   const facts = factsOf({ lane, state, items: read.items, pause: read.pause ?? null, sent, config, installed, now, event, localOnly, wakes, landing, landings })
   let decision = decide(facts)

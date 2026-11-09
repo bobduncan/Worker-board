@@ -50,7 +50,9 @@ const b1081 = ({ waits = null, history = [], owner = 'Worker 4', state = 'in pro
   { Id: 'B1081', Kind: 'step', Title: 'Fix: the board makes a check task for a step whose fix is still open', Priority: 'fix', State: state, Owner: owner, Activity: 'Garden', Goal: 'G15', ...(waits === null ? {} : { 'Waits on': waits }), Since: stamp(at(10, 58)), Branch: branch, Checkpoint: `8522bc6c · gate green, branch pushed; wait for its go · ${stamp(WAIT_AT)}`, 'Taken for': '30 min', Refined: 'ready' },
   { History: [`- ${stamp(at(10, 58))} Worker 4: queued → taken`, `- ${stamp(at(10, 58))} Worker 4: taken → in progress`, `- ${stamp(WAIT_AT)} Worker 4: checkpoint 8522bc6c · gate green, branch pushed; wait for its go`, ...history] })
 
-const app = name => JSON.stringify({ title: `${PREFIX}${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: PROJECT, isArchived: false, createdAt: name.length, lastActivityAt: at(11, 19), lastAssistantUuid: 'u-1' })
+/** The app's id of a chat: `local_` and a uuid (the fourth one for Worker 4). */
+const appId = name => `local_00000000-0000-4000-8000-${String(NAMES.indexOf(name) + 1).padStart(12, '0')}`
+const app = name => JSON.stringify({ title: `${PREFIX}${name}`, sessionId: appId(name), cliSessionId: `cli-${name}`, cwd: PROJECT, isArchived: false, createdAt: name.length, lastActivityAt: at(11, 19), lastAssistantUuid: 'u-1' })
 const typed = (when, said) => JSON.stringify({ type: 'user', timestamp: new Date(when).toISOString(), message: { role: 'user', content: said } })
 const answer = (when, said) => JSON.stringify({ type: 'assistant', timestamp: new Date(when).toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: said }] } })
 const tail = { text: [typed(at(10, 58), 'Take B1081.'), answer(at(11, 19), 'Gate green, branch pushed; waiting for chat 1\'s go.')].join('\n'), isCut: false, modifiedAt: at(11, 19) }
@@ -97,7 +99,9 @@ test('blocker 1: the Late card is drawn on the page (its kind, its tag, the step
   assert.equal(words(drawn[0].querySelector('.kind')), '!')
   assert.match(words(drawn[0].querySelector('h4')), /^Worker 4 waits for chat 1 \(its go to land\) since 11:18 \(95 min\) on B1081$/)
   assert.deepEqual([...drawn[0].querySelectorAll('h4 button.ask-link')].map(link => link.dataset.askLink), ['B1081'], 'the step is linked in the title')
-  assert.deepEqual([...drawn[0].querySelectorAll('button.choice')].map(words), ['Open Worker 4\'s chat'])
+  // Its one way really opens the worker's chat: a link to the app by the chat's id (as the pause banner's link does).
+  assert.deepEqual([...drawn[0].querySelectorAll('.choices a.choice')].map(link => [words(link), link.getAttribute('href')]), [['Open Worker 4\'s chat', `claude://claude.ai/epitaxy/${appId('Worker 4')}`]])
+  assert.deepEqual([...drawn[0].querySelectorAll('.choices button')].map(words), [])
   // Its window: the card's head opens the details without a throw, with the title and the board's text.
   drawn[0].querySelector('[data-details]').click()
   await new Promise(done => setTimeout(done, 50))
@@ -105,6 +109,7 @@ test('blocker 1: the Late card is drawn on the page (its kind, its tag, the step
   assert.ok(box, 'the details window is there')
   assert.match(words(box), /Worker 4 waits for chat 1 \(its go to land\) since 11:18 \(95 min\) on B1081/)
   assert.match(words(box), /It recorded at 11:18 that it waits for chat 1/)
+  assert.deepEqual([...box.querySelectorAll('a.choice')].map(link => link.getAttribute('href')), [`claude://claude.ai/epitaxy/${appId('Worker 4')}`], 'the window has the link too')
   assert.deepEqual(page.errors ?? [], [])
 })
 
@@ -133,6 +138,15 @@ test('blocker 2: the periodic pass gives nothing back while a landing runs for t
   assert.equal(runningLanding({ dir: data, now: at(11, 56) }), 'locked-branch')
   assert.equal(runningLanding({ dir: data, now: at(12, 30) }), null, 'a stale lock names nothing')
   await rm(join(data, 'landing.lock'))
+  // A branch with a slash: the log carries it cleaned (land.ps1: every other character is "-"), and the guard compares both cleaned.
+  const slashed = join(data, 'landings', '20261109-150000-qa-b866-x.log')
+  await writeFile(slashed, 'gate running\n')
+  utimesSync(slashed, new Date(at(15, 0)), new Date(at(15, 0)))
+  assert.equal(runningLanding({ dir: data, now: at(15, 5) }), 'qa-b866-x')
+  const slashBuilt = build({ now: at(11, 46), waits: null, history: GO_ONS, work: storeWith([parseItem(b1081({ history: GO_ONS, branch: 'qa/b866-x' }))]) })
+  assert.equal(decided(slashBuilt, at(11, 46), { landing: 'qa-b866-x' }).giveBack, null, 'qa/b866-x is guarded by its log name')
+  assert.notEqual(decided(slashBuilt, at(11, 46), { landing: 'qa-b866-y' }).giveBack, null)
+  await rm(slashed)
 
   // The pass: the live 11:46 (two "go on" lines, nothing since 11:30) without the record, through handoverPass.
   const dir = await mkdtemp(join(tmpdir(), 'waits-pass-'))
@@ -151,6 +165,9 @@ test('blocker 2: the periodic pass gives nothing back while a landing runs for t
   assert.deepEqual([bare.state, bare.owner, bare.passed.decided.map(one => one.chat)], ['refined', null, ['Worker 4', 'Worker 5']], 'without the guard the live give-back')
   const guarded = await run({ landingNow: () => BRANCH })
   assert.deepEqual([guarded.state, guarded.owner], ['in progress', 'Worker 4'], 'the lock branch holds the step with Worker 4')
+  // A throw in the landed lines' reading leaves the running landing's fact standing (and the other way round).
+  assert.equal((await run({ landingNow: () => BRANCH, landingsOf: () => { throw new Error('torn file') } })).state, 'in progress', 'the landing fact survives a throw in landingsOf')
+  assert.equal((await run({ landingNow: () => { throw new Error('no lock') }, landingsOf: () => [{ branch: BRANCH, at: at(11, 40), result: 'landed' }] })).state, 'in progress', 'the landed line survives a throw in landingNow')
   // The log-based reading, as the server wires it.
   await writeFile(log, 'gate running\n')
   utimesSync(log, new Date(at(11, 45)), new Date(at(11, 45)))

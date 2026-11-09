@@ -27,10 +27,10 @@ const CARDS = {
   idle: { id: 'idle:Digger:1', kind: 'idle', from: 'Digger', canAnswer: false, talk: 'window', title: 'Digger holds B12 and B14 but is not working and asked you nothing: it may wait for you' },
   'old-mod': { id: 'old-mod', kind: 'old-mod', from: null, canAnswer: false },
   // P1 of the one wait system (2026-11-09): a recorded wait on a chat past its limit; its step is linked in the title.
-  'wait late': { id: 'wait:Digger:1', kind: 'wait late', from: 'Digger', canAnswer: false, talk: 'window', step: 'B12', title: 'Digger waits for chat 1 (its go to land) since 11:18 (95 min) on B12' },
+  'wait late': { id: 'wait:Digger:1', kind: 'wait late', from: 'Digger', canAnswer: false, talk: 'window', step: 'B12', chat: { name: 'Digger', session: 'local_00000000-0000-4000-8000-000000000002' }, title: 'Digger waits for chat 1 (its go to land) since 11:18 (95 min) on B12' },
 }
 /** A way the person can act on: a form, a button, or a link. */
-const ACTS = new Set(['form', 'talk', 'nudge', 'check', 'pause'])
+const ACTS = new Set(['form', 'talk', 'nudge', 'check', 'pause', 'chat'])
 
 test('every kind of card under Needs your attention carries an answer form, a button or a link', () => {
   assert.deepEqual(KINDS.sort(), Object.keys(CARDS).sort())
@@ -56,7 +56,9 @@ test('a hint carries the way to the chat and a button that asks the chat to act,
   assert.match(idle[1].text, /^Your turn has ended while you hold B12 and B14, with nothing running and no ask open: go on with it, file what you need from me with work ask, or report it\.$/)
   assert.match(page.nudgeWords({ kind: 'idle', title: 'X holds B7 but is not working' }).text, /hold B7,/)
   // The Late of a recorded wait: the way to the chat only (the wait is on purpose: no nudge).
-  assert.deepEqual(ways(CARDS['wait late']), [{ way: 'talk', to: 'wait:Digger:1', label: 'Open Digger\'s chat' }])
+  assert.deepEqual(ways(CARDS['wait late']), [{ way: 'chat', to: 'Digger', href: 'claude://claude.ai/epitaxy/local_00000000-0000-4000-8000-000000000002', label: 'Open Digger\'s chat' }])
+  // Without the chat's app id: the worker's answer window, and the label says so.
+  assert.deepEqual(ways({ ...CARDS['wait late'], chat: { name: 'Digger', session: null } }), [{ way: 'talk', to: 'wait:Digger:1', label: 'Open Digger\'s answer' }])
 })
 
 test('a quiet worker gets Check now; a quiet main chat and a question of the app\'s form are the app\'s', () => {

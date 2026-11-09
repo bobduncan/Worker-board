@@ -5228,8 +5228,12 @@ function oldModParts(need, state) {
  */
 function cardWays(need, canCheck) {
   if (need.kind === 'old-mod') return [{ way: 'pause' }]
-  // P1: the Late of a recorded wait: open the worker's chat (its step is linked in the title); no nudge, the wait is on purpose.
-  if (need.kind === 'wait late') return [{ way: 'talk', to: need.id, label: `Open ${need.from}'s chat` }]
+  // P1: the Late of a recorded wait: open the worker's chat in the app (its app id, as the pause banner's link does); without the id,
+  // the worker's answer window, said so. Its step is linked in the title; no nudge: the wait is on purpose.
+  if (need.kind === 'wait late') {
+    const session = need.chat?.session ?? null
+    return session === null ? [{ way: 'talk', to: need.id, label: `Open ${need.from}'s answer` }] : [{ way: 'chat', to: need.from, href: `claude://claude.ai/epitaxy/${session}`, label: `Open ${need.from}'s chat` }]
+  }
   if (need.kind === 'unfiled' || need.kind === 'idle') {
     const talk = { way: 'talk', to: need.talk === 'main' || need.talk === 'advisor' ? need.talk : need.id }
     talk.label = need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`
@@ -5262,6 +5266,12 @@ function wayButtons(need, inWindow = false) {
       open.type = 'button'
       open.dataset.openTalk = way.to
       parts.push(open)
+    } else if (way.way === 'chat') {
+      // P1: a link that opens the chat in the Claude app (the card's and the window's).
+      const open = el('a', 'choice', way.label)
+      open.href = way.href
+      open.title = `Opens ${way.to}'s chat in the Claude app`
+      parts.push(open)
     } else if (way.way === 'nudge') {
       const at = nudged.get(need.id) ?? null
       const key = `nudge:${need.id}`
@@ -5284,8 +5294,8 @@ function wayButtons(need, inWindow = false) {
   }
   if (parts.length === 0) return []
   const row = el('div', 'choices')
-  row.append(...parts.filter(part => part.tagName === 'BUTTON'))
-  return [row, ...parts.filter(part => part.tagName !== 'BUTTON')]
+  row.append(...parts.filter(part => part.tagName === 'BUTTON' || part.tagName === 'A'))
+  return [row, ...parts.filter(part => part.tagName !== 'BUTTON' && part.tagName !== 'A')]
 }
 
 /** B533: a hint's nudge: its line typed into the chat as the person's own; the button says when it went. */
