@@ -218,6 +218,14 @@ export function fixesThrough(item, items) {
 const numberOf = item => Number(String(valueOf(item, 'Id')).slice(1))
 const isOpenStep = item => !['done', 'dropped'].includes(valueOf(item, 'State'))
 
+/**
+ * B1081: the open fixes of the step `id` (neither done nor dropped), ids oldest first. The one rule of an open fix: while it
+ * names one, the step waits for that fix (`reviewWaitOf` kind 'fix', a report again included), the board makes no Quality
+ * Assurance task for it (api.mjs `qaStep`), `checked` refuses its check and `report` refuses a report again of it once its
+ * board check passed; the step closes by itself once that fix passes (`closeFixed`, B356).
+ */
+export const openFixesOf = (id, items) => fixesOf(id, items).filter(isOpenStep).sort((a, b) => numberOf(a) - numberOf(b)).map(one => valueOf(one, 'Id'))
+
 /** B665: when a step left the open steps (ms): its last move to done or dropped in its History, else its Since; NaN while it is open. */
 const LEFT = /→ (?:done|dropped)$/
 function leftAtMs(item) {
@@ -487,6 +495,9 @@ export function reportCheckFailedOf(item) {
  * B878: `recaps` (src/recaps.mjs `recapWaitsOf`): a step whose fix was dropped while its part waits for the person's verdict
  * in a goal's recap is kind 'recap' (`goal`, `path`, `part`), "waits for your verdict in the recap of G<n>"; a part sent back
  * counts the dropped wait from the Send back (`sentBack`); a "no longer blocked by" line ends a block as B665's blocker does.
+ * B1081: the order. A failed report check first (kind 'report'), then an open fix (`openFixesOf`) before any check: a step with an
+ * open fix is kind 'fix' also when it was reported again since its check (no check line since its report) or its check waits
+ * for the person, as `checked` refuses its check while that fix is open; the board makes no check task for it (api.mjs `qaStep`).
  */
 export function reviewWaitOf(item, items, held = null, now = null, recaps = null) {
   return waitOf(item, items, held, now, 0, recaps)
@@ -506,12 +517,16 @@ function waitOf(item, items, held, now, depth, recaps = null) {
   const id = valueOf(item, 'Id')
   const result = resultCheckOf(item)
   if (result === 'passed') return null
-  // B585: the first check is asked when the board's own check passes, not when the step went to review.
-  if (result === null) {
+  const fixes = fixesOf(id, items).sort((a, b) => numberOf(a) - numberOf(b))
+  const open = fixes.filter(isOpenStep).at(-1)
+  // B585: the first check is asked when the board's own check passes, not when the step went to review. B1081 (B934 reported
+  // again at 10:42 while its fix B978 was open: the board made the checks B1078 and B1080, and `checked` refused both): a step
+  // with an open fix waits for that fix, a report again included; it has no first check while that fix is open.
+  if (result === null && open === undefined) {
     const asked = gitCheckAtMs(item)
     return { kind: 'check', fix: null, since: Number.isFinite(asked) ? asked : sinceMs(valueOf(item, 'Since')), text: 'waits for its first check' }
   }
-  if (result === 'waits') {
+  if (result === 'waits' && open === undefined) {
     const asks = [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === id)
     const at = resultCheckAtMs(item)
     const answer = { kind: 'answer', fix: null, since: at, text: 'waits for your answer to its check' }
@@ -523,8 +538,6 @@ function waitOf(item, items, held, now, depth, recaps = null) {
     if (!hasAsked && Number.isFinite(now) && Number.isFinite(at) && now - at < UNCHECKED_MS) return answer
     return { kind: 'check', fix: null, since: at, text: 'waits for its check again' }
   }
-  const fixes = fixesOf(id, items).sort((a, b) => numberOf(a) - numberOf(b))
-  const open = fixes.filter(isOpenStep).at(-1)
   if (open !== undefined) {
     const fix = valueOf(open, 'Id')
     const chain = openFixChain(id, items)
