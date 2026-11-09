@@ -3022,6 +3022,8 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .demo-row-title { display: flex; align-items: baseline; gap: 10px; margin: 0; font-size: 18px; color: var(--tone); }
 .demo-verdict { padding: 1px 9px; border: 1px solid var(--tone); border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; white-space: nowrap; }
 .demo-row-note { margin: 4px 0 0; color: var(--muted); }
+.demo-look-form b { color: var(--text, inherit); }
+.demo-look-buttons { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 .demo-row-about { margin: 4px 0 0; font-weight: 600; }
 .play-notice { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: var(--bg, #fff); color: var(--text, #111); }
 .play-notice-line { font-size: 18px; margin: 0; }

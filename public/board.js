@@ -10753,8 +10753,17 @@ function demoLooksSection(looks, feedback, draft) {
     head.append(el('span', 'demo-verdict', look.asks === 'do' ? 'To do' : 'A look'), title)
     card.append(head)
     // B993: what the look is about, in words of its own (the step and the ask its words link), so the card stands alone.
-    if (typeof look.about === 'string' && look.about !== '') card.append(el('p', 'demo-row-about', look.about))
-    for (const line of String(look.text ?? '').split('\n').filter(one => one.trim() !== '')) {
+    // 2026-11-08: a look with the form (the server reads it, src/work/lookForm.mjs) shows Context and Problem, and what each button does above them.
+    const form = look.form ?? null
+    const hasForm = form !== null && ['context', 'problem', 'approve', 'sendBack'].every(key => typeof form[key] === 'string' && form[key] !== '')
+    if (hasForm) {
+      for (const [label, words] of [['Context', form.context], ['Problem', form.problem]]) {
+        const row = el('p', 'demo-row-note demo-look-form')
+        row.append(el('b', '', label), ' ', ...demoWordsNodes(words))
+        card.append(row)
+      }
+    } else if (typeof look.about === 'string' && look.about !== '') card.append(el('p', 'demo-row-about', look.about))
+    for (const line of hasForm ? form.rest : String(look.text ?? '').split('\n').filter(one => one.trim() !== '')) {
       const words = el('p', 'demo-row-note')
       words.append(...demoWordsNodes(line))
       card.append(words)
@@ -10779,6 +10788,7 @@ function demoLooksSection(looks, feedback, draft) {
       play.title = 'Starts the game in a new tab, as the look asks'
       card.append(play)
     }
+    if (hasForm) card.append(el('p', 'demo-look-buttons', `Approve: ${form.approve} · Send back: ${form.sendBack}`))
     if (feedback !== null && feedback.canSend && draft !== null) card.append(demoFeedbackBar(look.key, draft, look.asks === 'do'))
     part.append(card)
   }

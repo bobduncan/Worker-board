@@ -25,6 +25,7 @@ import { isAlike, joinTarget, stepOfAsk } from './askPlace.mjs'
 import { askStepOf } from './askStep.mjs'
 import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, refineTitleOf, sameAsk, titleProblem } from './askWords.mjs'
 import { ASKED_AGAIN, JUST_ANSWERED_MS, STILL_OPEN, askTextOf, closedMsOf, forYouRepeat, isWithdrawn, openRepeat, repeatFactsOf } from './askRepeat.mjs'
+import { isLookForm, lookFormOf, lookFormRefusal } from './lookForm.mjs'
 import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
@@ -1016,6 +1017,13 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
   const pilot = w.autopilot === true && !['person', 'server'].includes(w.role) && via !== 'form'
     ? autopilotRoute(askShape({ owner: w.who, kind, of: isAlone ? goal : valueOf(of.item, 'Id'), options, advice, via, text, pictures }), routeCtx(w))
     : null
+  // 2026-11-08 (the person about Q692: "i also dont understand what its asking me"): a look kept for the recap (`pilot.kept`) carries
+  // Context, Problem, Approve and Send back as four lines (src/work/lookForm.mjs); without them it is refused, with the block filled in.
+  if (pilot?.kept === true && !isLookForm(lookFormOf(text))) {
+    const stepId = isAlone ? pilot.step ?? null : valueOf(of.item, 'Id')
+    const stepItem = stepId === null ? undefined : w.store.items.get(stepId)
+    return { ...refuse(409, lookFormRefusal({ step: stepItem === undefined ? null : { id: stepId, title: valueOf(stepItem, 'Title') ?? '' }, text })), lookForm: true }
+  }
   // An ask under no step that names a step of the focus goal's recap (`pilot.step`) is put under that step by the board's pass
   // (`routeAsk`): filed without a route here, so nothing is routed to a recap it has no step in. Its chat is told what it is
   // told of any ask the board has not routed (the normal "For you" block, below) before the pass puts it under the step.
@@ -3677,6 +3685,12 @@ async function askForYou(value, since, w) {
     // Your words: what the person answered on the step already is not filed again; the chat is told their answer.
     if (!made.ok && made.answeredBefore !== undefined) {
       left.push(`"${line(text[0], 100).trimEnd()}" the person answered on ${of} already (${made.answeredBefore.at}${made.answeredBefore.ask === null ? '' : `, ${made.answeredBefore.ask}`}): "${line(made.answeredBefore.answer, 300)}"`)
+      continue
+    }
+    // A look the recap keeps without its form is refused with the form to copy: told to the chat, never filed alone instead.
+    if (!made.ok && made.lookForm === true) {
+      left.push(`"${line(text[0], 100).trimEnd()}" was refused: ${made.why}`)
+      unfiled += 1
       continue
     }
     if (!made.ok && of !== null) made = await ask(fields, w, { alone: true })

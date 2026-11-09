@@ -12,6 +12,7 @@
 //   feedback.json: { "rounds": [ { "n": 1, "at": "2026-10-31 12:40", "parts": [ { "key": "5. Round shapes", "verdict": "sent-back", "comment": "still stepped" } ] } ] }
 
 import { sinceMs } from './work/item.mjs'
+import { lookFormOf } from './work/lookForm.mjs'
 
 /** The file beside a demo.json that keeps the person's rounds. */
 export const FEEDBACK_FILE = 'feedback.json'
@@ -95,7 +96,7 @@ export const rowsOf = page => page.sections.flatMap((section, at) => section.row
 
 /** One look kept for the recap as the popup draws it (T20.1): `looks` of `roundPage`'s options, cleaned: its key, title, words, pictures and play link. */
 const lookOf = look => ({
-  key: String(look.key), ask: String(look.ask ?? ''), asks: look.asks === 'do' ? 'do' : 'look', title: oneLine(look.title, 300), text: String(look.text ?? '').trim(), about: oneLine(look.about ?? '', 500),
+  key: String(look.key), ask: String(look.ask ?? ''), asks: look.asks === 'do' ? 'do' : 'look', title: oneLine(look.title, 300), text: String(look.text ?? '').trim(), form: lookFormOf(String(look.text ?? '')), about: oneLine(look.about ?? '', 500),
   pictures: (Array.isArray(look.pictures) ? look.pictures : []).filter(path => typeof path === 'string' && path !== '').map(path => ({ path, caption: path.split('/').at(-1) })),
   play: typeof look.play === 'string' && look.play !== '' ? look.play : null,
 })

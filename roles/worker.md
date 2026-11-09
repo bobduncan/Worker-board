@@ -252,6 +252,7 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
   `work answered-in-chat Q<id>` with their words. An ask you no longer need: `work withdraw Q<id>`;
   a step that waits on you is reported only once its asks are answered or withdrawn. Information for the person or the main
   chat: `work note`. An instruction of the user's that you finished: `work close I<id>` with what came of it.
+- A look about a step of the focus goal goes to the recap (Autopilot on), so write it with four short lines in its text: `Context: <what changed or where this is, plain words>`, `Problem: <what is wrong now>`, `Approve: <what stays if the user approves>`, `Send back: <what a later step changes>`. Its title stays the question. Its pictures and Play link show the very place it asks about: for a side effect in another map, a picture of THAT map and a Play link to it, never the step's own evidence. Without the four lines the board refuses the look (409) and gives the block filled in to copy.
 - An ask you stop for is blocking (B567): file it with `blocking` true, so your step waits on the person by name. While
   a step of yours waits on the person, or is parked (its answers came while you were on another step: it resumes after
   that one is reported, and `work next` hands it back first), the board gives you your next task when you end your

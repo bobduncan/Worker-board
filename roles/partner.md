@@ -1032,6 +1032,8 @@ most, and again when the user presses "Ask your partner again". Make it at once,
 
 ### Recap feedback
 
+A kept look shows Context, Problem and what each button does; when the user sends one back, its Send back line says what the later step changes.
+
 B860: the user judges a demo inside its popup: each part (a row) gets Approve or Send back with a comment, and one Send. The
 board keeps it beside the demo (`feedback.json`), writes it as the user's words on the demo's step (the list's `"step"`) and
 types `recap feedback: G<n> <title>, round N: ...` into your chat, with the step, the demo's path, each part sent back with
