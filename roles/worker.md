@@ -157,6 +157,9 @@ step therefore says what it touches ("Touches: ...").
   minutes and a foreground call dies after two to ten, which cuts the landing in half (the next run sweeps what it left). It gates the exact head, takes the one landing lock, fast-forwards main, pushes, brings the trial copy
   up, restarts both boards and rolls back with a revert commit when one does not come back. Merge main into your branch
   first; its answer is one line (`landed`, `refused: <why>` or `rolled back: <why>`) and a line in `data/landings.jsonl`.
+  Never ask to land (2026-11-09): a `work ask` that asks the person or Autopilot to land, merge to main, go live or put a step's work
+  live is refused. Tell chat 1 (board dev) through a note to main (`For chat 1: <step> ready to land, <branch> <hash>, gate <line>`),
+  keep a checkpoint "waits for chat 1's go", and land only on its go.
 - Lessons of a task go into the repository's documents, not into a chat.
 - A change to the Workers mod (B570): raise its version (plugin.json and `MOD_VERSION`), and after your merge bring it
   onto the PC once: `claude plugin marketplace update <marketplace>` and `claude plugin update <mod>@<marketplace>`

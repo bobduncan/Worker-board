@@ -431,7 +431,7 @@ test('Needs your attention with Autopilot v2 on: one goal-start card, the two ha
     gardenAsk('Q2', { Title: 'Sign in to the seed shop account', Asks: 'do' }),
     gardenAsk('Q3', { Title: 'Pay the hosting bill for the garden site before the end of the month', Asks: 'do', Of: 'B12', Blocking: 'yes' }),
     gardenAsk('Q4', { Title: 'Icons or words on the bar?', Route: 'partner' }),
-    gardenAsk('Q5', { Title: 'Merge B12 into main', Asks: 'do', Route: 'main' }),
+    gardenAsk('Q5', { Title: 'Export the map of B12', Asks: 'do', Route: 'main' }),
     gardenAsk('Q6', { Title: 'Approve the hedge at 64 of 75?', Asks: 'look', Of: 'B12', Route: 'recap' }),
     gardenAsk('Q7', { Title: 'Shorter names in the shop?', Advice: 'yes', Route: 'advice' }),
     gardenAsk('Q8', { Title: 'How tall should the bar be?', Route: 'partner' }),
