@@ -13330,7 +13330,7 @@ function showGoalAsk() {
   const note = $('goals-ask-note')
   note.classList.toggle('is-error', goalsAskBox.problem !== null)
   note.textContent = goalsAskBox.problem ?? (board.advisor.isRunning === false
-    ? `${board.advisor.name}'s chat is not running: the main chat is asked to start it, then it answers under the goal.`
+    ? `${board.advisor.name}'s chat is not running: the board wakes it, then it answers under the goal.`
     : 'The Advisor answers under the goal; do other things meanwhile. Ctrl+V pastes a picture.')
   const shown = goalsAskBox.pictures.map((one, index) => {
     const image = el('img')
@@ -14601,7 +14601,7 @@ function proposalPart(thread, canWrite) {
     const buttons = el('div', 'brainstorm-buttons')
     const create = brainstormButton('Create what\'s ticked', 'create', 'goals-action is-send')
     create.disabled = brainstormUi.busy || !view.canCreate
-    create.title = 'The goals go into the map now; the main chat is asked for each step'
+    create.title = 'The goals go into the map now, and the board makes each ticked task'
     buttons.append(create, brainstormButton(brainstormUi.changing === thread.path ? 'Change… ▾' : 'Change…', 'change'))
     part.append(buttons)
     if (brainstormUi.changing === thread.path) part.append(brainstormChangeBox())
@@ -14822,7 +14822,8 @@ async function brainstormAct(act, path, key = null) {
         // "Change this goal": what was done, and a drop the store refused, with why.
         const notDropped = (made.notDropped ?? []).map(one => `${one.id} not dropped: ${one.why}`).join(' ')
         if (isChanging && brainstormUi.note === null) brainstormUi.note = { path, isProblem: notDropped !== '', text: `Done: the goal's draft is under ${thread.goal?.id ?? 'its goal'}${steps.length > 0 ? `; ${asked} of ${steps.length} new task${steps.length === 1 ? '' : 's'} made` : ''}${(made.dropped ?? []).length > 0 ? `; dropped ${made.dropped.join(', ')}` : ''}.${notDropped === '' ? '' : ` ${notDropped}`}` }
-        else if (brainstormUi.note === null) brainstormUi.note = { path, isProblem: false, text: `Created: ${goals || 'no goals'}${steps.length > 0 ? `; the main chat is asked for ${asked} of ${steps.length} step${steps.length === 1 ? '' : 's'}` : ''}.` }
+        // Principle 13 (say what the board did): the tasks the board made, and only those it could not make as asked of the main chat.
+        else if (brainstormUi.note === null) brainstormUi.note = { path, isProblem: false, text: `Created: ${goals || 'no goals'}${steps.length > 0 ? `; ${madeAlready.size} of ${steps.length} task${steps.length === 1 ? '' : 's'} made${asked > madeAlready.size ? `, ${asked - madeAlready.size} asked of the main chat` : ''}` : ''}.` }
       }
     }
   } finally {
@@ -16039,7 +16040,7 @@ function focusAsk(thread, partner, main = null) {
   }
   const waiting = partner === null || partner === undefined ? 'No partner chat is on the board.'
     : partner.isRunning === false && main?.isRunning === false ? `Your partner's chat is not running, and neither is ${main.name}, which could start it: open one of the two chats.`
-      : partner.isRunning === false ? 'Your partner\'s chat is not running: the main chat is asked to start it.'
+      : partner.isRunning === false ? 'Your partner\'s chat is not running: the board wakes it.'
       : 'Your partner is thinking…'
   return { question: null, waiting, restart: false }
 }
@@ -16792,7 +16793,8 @@ function focusTalkCard(state, can) {
     }
     if (ask.question.picture) card.append(picture(ask.question.picture, 'Every option side by side'))
   } else {
-    const waiting = el('p', `focus-waiting${/not running|No partner|over|No talk/.test(ask.waiting) ? ' is-off' : ''}`, ask.waiting)
+    // Principle 14 (colour only for what needs the person): only a line the person must act on is coloured.
+    const waiting = el('p', `focus-waiting${/open one of|No partner/.test(ask.waiting) ? ' is-off' : ''}`, ask.waiting)
     if (ask.restart) waiting.append(' ', focusButton({ label: 'Start the talk', act: 'restart-talk', isEnabled: can.canWrite, title: can.canWrite ? 'A talk about this goal with your partner, as when you picked it' : can.whyNot }, 'goals-action is-send'))
     card.append(waiting)
   }
@@ -18910,7 +18912,7 @@ async function focusAct(act, goal = null, extra = null) {
       if (id !== null && await sendFocus({ command: 'done-when', id: goal ?? focus?.id }, 'Your partner is asked to write its Done when.') !== null) focusUi.asked = [...new Set([...focusUi.asked, id])]
     } else if (act === 'goal-demo' && focus !== null) await sendFocus({ command: 'goal-demo', id: focus.id }, 'Your partner is asked for the goal demo.')
     else if (act === 'vibe-agree' && focus !== null) await sendFocus({ command: 'vibe-agree', id: focus.id }, 'Agreed. Your partner proposes the how next.')
-    else if (act === 'how-go' && focus !== null) await sendFocus({ command: 'how-go', id: focus.id }, 'Go: your partner makes the steps, and the main chat hands them out.')
+    else if (act === 'how-go' && focus !== null) await sendFocus({ command: 'how-go', id: focus.id }, 'Go: your partner makes the steps, and the board hands them out.')
     else if (act === 'send-not-yet' && focus !== null && focusUi.notYet !== null) {
       if (words('notYet') === '') focusUi.note = { isProblem: true, text: 'Say what is missing, in your words.' }
       else if (focusUi.notYet === 'there') {

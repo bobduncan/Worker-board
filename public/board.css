@@ -2921,7 +2921,7 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 
 /* B354: a goal without a Done when is not picked: its row says so and asks the partner; a part shows its standard. */
 .focus-done-when { color: var(--muted); white-space: nowrap; }
-.focus-done-when.is-asked { color: var(--waiting); }
+.focus-done-when.is-asked { color: var(--muted); font-style: italic; }
 .focus-done-when-line { color: var(--muted); }
 .focus-standard { align-self: flex-start; color: var(--muted); overflow-wrap: anywhere; }
 .focus-standard-picture { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; overflow-wrap: anywhere; }

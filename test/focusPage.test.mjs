@@ -297,8 +297,8 @@ test('Focus 2: the talk answers the partner\'s open question here, as the Brains
   assert.deepEqual(page.focusAsk(threads[0], { name: 'Partner', isRunning: true }), { question: { n: 3, why: null, picture: null, options: [] }, waiting: null, restart: false })
   const answered = brainstormsState([{ path: 'talks/b.md', text: THREAD + 'Answer (09:06): Other — no\n', at: 1 }], 'talks').threads[0]
   assert.deepEqual(page.focusAsk(answered, { name: 'Partner', isRunning: true }), { question: null, waiting: 'Your partner is thinking…', restart: false })
-  assert.equal(page.focusAsk(answered, { name: 'Partner', isRunning: false }).waiting, 'Your partner\'s chat is not running: the main chat is asked to start it.')
-  assert.equal(page.focusAsk(answered, { name: 'Partner', isRunning: false }, { name: 'Main', isRunning: true }).waiting, 'Your partner\'s chat is not running: the main chat is asked to start it.')
+  assert.equal(page.focusAsk(answered, { name: 'Partner', isRunning: false }).waiting, 'Your partner\'s chat is not running: the board wakes it.')
+  assert.equal(page.focusAsk(answered, { name: 'Partner', isRunning: false }, { name: 'Main', isRunning: true }).waiting, 'Your partner\'s chat is not running: the board wakes it.')
   // Nobody can start it while the main chat does not run either: the person opens one of the two (2026-10-21).
   assert.equal(page.focusAsk(answered, { name: 'Partner', isRunning: false }, { name: 'Main', isRunning: false }).waiting,
     'Your partner\'s chat is not running, and neither is Main, which could start it: open one of the two chats.')

@@ -57,6 +57,20 @@ two statuses on one card.
 
   (Audit 7, 10.)
 
+## Chat 1's ruling (2026-11-09)
+Chat 1 leads the wait system as ONE design, together with goal T2.11 ("every item on your list re-checks itself").
+
+Its conditions:
+- one source of truth: the wait line's records (the outbox and the mod's turn report), never a guess from a queue or
+  "delivered = preparing";
+- every person action is stored at once as a record of what it is about and who has it; the page only derives from the
+  records on each refresh;
+- a time limit after delivery too, with Send again, and the honest words "no answer since HH:MM";
+- the guessing views (the Vision working lines, the talk and brainstorm "thinking") are retired in the same change.
+
+**Timing:** Parts 1 and 4 now. Parts 2 and 3 after the 3-day stability measure (Thursday 11-12 at the earliest), from
+chat 1's plan, built by chat 2 with Sonnet builders.
+
 ## Order and landing
 - Part 1 and the focus button land first: they are small.
 - Then Part 2, on chat 1's design or conditions.
