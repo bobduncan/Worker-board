@@ -79,7 +79,9 @@ test('reviewWaitOf: what a step in review waits for, in words', () => {
   // A point for the person: their answer while the ask is open, the check again once it is answered.
   const waits = `- ${stamp(ago(40))} Checker: result check waits for you: 1 of 2 points pass; 1 for you to judge`
   assert.equal(reviewWaitOf(reviewed('B7', 90, [waits]), items(ask('Q1', 'B7', 'open'))).text, 'waits for your answer to its check')
-  assert.deepEqual(reviewWaitOf(reviewed('B7', 90, [waits]), items(ask('Q1', 'B7', 'answered'))), { kind: 'check', fix: null, since: ago(40), text: 'waits for its check again' })
+  // B1103: answered since the check line (an answer from before it is no answer to this check).
+  const answeredQ1 = item({ Id: 'Q1', Kind: 'ask', Title: 'Ask Q1', State: 'answered', Of: 'B7', Since: stamp(ago(30)) })
+  assert.deepEqual(reviewWaitOf(reviewed('B7', 90, [waits]), items(answeredQ1)), { kind: 'check', fix: null, since: ago(40), text: 'waits for its check again' })
   // Nothing to say: not in review, its board check not passed, no result check needed, or its check passed.
   assert.equal(reviewWaitOf(fixStep('B7', 'B1', 'queued'), items()), null)
   assert.equal(reviewWaitOf(item({ Id: 'B7', Kind: 'step', State: 'review' }, { 'What we build': ['- a lamp'], History: [`- ${stamp(ago(5))} server: check pending`] }), items()), null)

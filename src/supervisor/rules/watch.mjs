@@ -769,9 +769,10 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
   // T8.5 step 6: the board's check of the report failed and the worker has not reported again: the hand-over's decision
   // tells it at its first turn's end (its rule 3), so the step waits for its worker by design, never late here.
   if (wait.kind === 'report') return not
-  if (wait.kind === 'dropped') {
+  // B1103: a check whose checkers twice filed no ask point waits for the partner's word (the repair `unchecked`), late as a dropped fix.
+  if (wait.kind === 'dropped' || wait.kind === 'unasked') {
     if (isPaused(view)) return not
-    const key = `fix-dropped ${id}`
+    const key = wait.kind === 'unasked' ? `unasked ${id}` : `fix-dropped ${id}`
     const ms = spanOf(view, seenOf, key, afterPause(view, wait.since))
     return { ...not, late: ms > FIX_DROPPED_MS, key, ms }
   }

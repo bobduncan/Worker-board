@@ -628,7 +628,11 @@ Every point passes: the board closes the step. A failed point: the board makes t
 refined from them, on the board's list for the worker that built it first, the step's `Attempts` counted up), and the step
 waits in review until its fix is done and checked (a fix has a Quality Assurance task of its own). A point that is the user's to
 judge: the worker that checked asks them under the step; once they answered, the board files the check again by itself, or makes
-a new task for it when it cannot read the answer.
+a new task for it when it cannot read the answer. An ask point may instead name the open ask that already asks it, `ask: <point>
+(Q712)`, of the step or of its goal (B1103): the step waits for that answer. When two checks in a row left ask points with no ask
+filed or named, the board makes no more check tasks and gives you one word ("its checkers filed no ask and named none, twice"):
+when an open ask already asks the person, name it with `work note` of the step, "its ask points are carried by Q<n>"; otherwise
+file the ask under the step (`work ask`, kind look, with the check's evidence). Never ask the person twice.
 
 **Two rounds, then another way** (the user, 2026-10-25, on maps stuck at 46 to 60 of 75 after rounds of small patches:
 "sure, lets try this. but i dont need to give approval for the first different approach"). When a thing's second try
