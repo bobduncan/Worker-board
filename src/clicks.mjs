@@ -45,6 +45,9 @@ const DAY_MS = 24 * 60 * 60_000
  * page's route a retry goes to. Kept in `file` (one JSON line each, the last line of a click wins); `file` null keeps
  * them in memory only (a board that writes nothing).
  */
+/** The size a file stamp (`mtime:size`) holds; 0 for a file that is not there. */
+const sizeOf = stamp => (stamp === null || stamp === undefined ? (stamp === null ? 0 : Number.NaN) : Number(String(stamp).split(':')[1]))
+
 export function clickLedger({ file = null, append = appendLines, read = path => readFile(path, 'utf8'), mtime = path => stat(path).then(one => `${one.mtimeMs}:${one.size}`, () => null) } = {}) {
   const records = new Map()
   const inflight = new Map()
@@ -87,14 +90,23 @@ export function clickLedger({ file = null, append = appendLines, read = path => 
       await loading
     }
   }
+  /** The record of a click if it still stands not sent (not sent, not ended, no word since), else null. */
+  const stillNotSent = click => {
+    const now = records.get(click)
+    return now !== undefined && typeof now.notSent === 'string' && now.word === undefined && now.superseded === undefined && now.closed === undefined ? now : null
+  }
   const write = async record => {
     records.delete(record.click)
     records.set(record.click, record)
     trim()
     if (file === null) return
     try {
-      await append(file, `${JSON.stringify(record)}\n`)
-      seen = await mtime(file)
+      const line = `${JSON.stringify(record)}\n`
+      const sizeBefore = sizeOf(seen)
+      await append(file, line)
+      // Marked as seen only when the file grew by exactly this line; another process's line in between means: read it anew.
+      const after = await mtime(file)
+      seen = sizeOf(after) === sizeBefore + Buffer.byteLength(line) ? after : undefined
     } catch (error) {
       console.error(`The clicks record could not be written (${error?.code ?? error?.message ?? 'unknown'}).`)
     }
@@ -113,7 +125,11 @@ export function clickLedger({ file = null, append = appendLines, read = path => 
     supersede: async (key, except, at, why) => {
       await load()
       for (const one of [...records.values()]) {
-        if (one.key === key && key !== null && one.click !== except && typeof one.notSent === 'string' && one.superseded === undefined && one.closed === undefined) await write({ ...one, superseded: { at, why } })
+        if (one.key !== key || key === null || one.click === except) continue
+        // The record is read anew just before the write: a newer word record of the click is never overwritten.
+        await load()
+        const now = stillNotSent(one.click)
+        if (now !== null) await write({ ...now, superseded: { at, why } })
       }
     },
     /**
@@ -125,8 +141,13 @@ export function clickLedger({ file = null, append = appendLines, read = path => 
       for (const one of [...records.values()]) {
         if (typeof one.notSent !== 'string' || one.superseded !== undefined || one.closed !== undefined) continue
         const why = moved(one)
-        if (typeof why === 'string') await write({ ...one, superseded: { at, why } })
-        else if (Number.isFinite(one.at) && at - one.at > DAY_MS) await write({ ...one, closed: { at, why: 'closed: not sent for more than 24 hours' } })
+        const isOld = Number.isFinite(one.at) && at - one.at > DAY_MS
+        if (typeof why !== 'string' && !isOld) continue
+        // Read anew just before the write: a newer word record of the click is never overwritten.
+        await load()
+        const now = stillNotSent(one.click)
+        if (now === null) continue
+        await write(typeof why === 'string' ? { ...now, superseded: { at, why } } : { ...now, closed: { at, why: 'closed: not sent for more than 24 hours' } })
       }
     },
     /** The clicks whose word was not queued and not ended, newest last: `{ click, via, key, route, why, at }` for the cards' Retry. */
@@ -206,7 +227,7 @@ export function oneClick({ ledger, click, via, action = null, key = null, route 
 export async function retryClick({ ledger, click, now, say, log = null }) {
   const before = await ledger.get(click)
   if (before === null) return { ok: false, status: 404, why: 'That click is not on the board any more: do it again.' }
-  return oneClick({ ledger, click, via: before.via, key: before.key, route: before.route, toRole: before.toRole ?? 'talk', hash: null, now, write: async () => ({ ok: true, result: before.writeResult ?? {} }), sayBody: () => before.say, say, log })
+  return oneClick({ ledger, click, via: before.via, key: before.key, route: before.route, toRole: before.toRole ?? 'talk', hash: before.hash ?? null, now, write: async () => ({ ok: true, result: before.writeResult ?? {} }), sayBody: () => before.say, say, log })
 }
 
 /** The commands of the board's words a brainstorm click types again ("type it again"). */
@@ -248,23 +269,24 @@ export function brainstormClickOf(body) {
  * state the page reads.
  */
 export function movedOn(record, state) {
+  // Only positive evidence ends a line: the item is found and is done, answered or moved on. A missing item is no evidence (a
+  // failed read, a thread past the newest 50, an empty backlog); what is really gone is closed by the 24 hours.
   const said = record.say ?? {}
   if (record.route === '/api/brainstorm') {
     const thread = (state?.brainstorms?.threads ?? []).find(one => one.path === record.key)
-    if (thread === undefined) return 'the talk is gone'
+    if (thread === undefined) return null
     if (thread.state === 'done' || thread.state === 'discarded') return 'the talk is over'
     if (said.command === 'brainstorm-answer' && (thread.latest?.n !== said.n || thread.proposal !== null)) return 'the talk moved on'
     return null
   }
   if (record.route === '/api/goals') {
-    const goal = (state?.goals?.nodes ?? []).find(one => one.id === said.goal)
-    const ask = (goal?.asks ?? []).find(one => one.id === said.ask)
-    if (ask === undefined) return 'the ask is gone'
-    return (ask.answer ?? null) !== null ? 'the ask is answered' : null
+    const ask = ((state?.goals?.nodes ?? []).find(one => one.id === said.goal)?.asks ?? []).find(one => one.id === said.ask)
+    return ask !== undefined && (ask.answer ?? null) !== null ? 'the ask is answered' : null
   }
   if (record.route === '/api/backlog') {
     const step = (state?.backlog ?? []).flatMap(activity => activity.steps ?? []).find(one => one.id === said.step)
-    if (step === undefined || step.status === 'done') return 'the step is gone or finished'
+    if (step === undefined) return null
+    if (step.status === 'done') return 'the step is finished'
     return step.refineAsk?.isOpen === true ? 'the Advisor is on it' : null
   }
   return null

@@ -295,9 +295,95 @@ test('movedOn: a brainstorm answer for another question, a talk that is over, an
   assert.equal(movedOn(record('/api/brainstorm', 't1', { command: 'brainstorm-answer', n: 2 }), state), null)
   assert.equal(movedOn(record('/api/brainstorm', 't1', { command: 'brainstorm-answer', n: 1 }), state), 'the talk moved on')
   assert.equal(movedOn(record('/api/brainstorm', 't2', { command: 'brainstorm-wrap' }), state), 'the talk is over')
-  assert.equal(movedOn(record('/api/brainstorm', 'gone', {}), state), 'the talk is gone')
+  // A missing item is no evidence (a failed read, a thread past the newest 50, an empty backlog): the line stays.
+  assert.equal(movedOn(record('/api/brainstorm', 'gone', {}), state), null)
+  assert.equal(movedOn(record('/api/goals', 'G6:A2', { goal: 'G6', ask: 'A2' }), { ...state, goals: null }), null)
+  assert.equal(movedOn(record('/api/goals', 'G6:A9', { goal: 'G6', ask: 'A9' }), state), null)
+  assert.equal(movedOn(record('/api/backlog', 'B12', { step: 'B12' }), { ...state, backlog: [] }), null)
   assert.equal(movedOn(record('/api/goals', 'G6:A1', { goal: 'G6', ask: 'A1' }), state), 'the ask is answered')
   assert.equal(movedOn(record('/api/goals', 'G6:A2', { goal: 'G6', ask: 'A2' }), state), null)
   assert.equal(movedOn(record('/api/backlog', 'B12', { step: 'B12' }), state), 'the Advisor is on it')
   assert.equal(movedOn(record('/api/backlog', 'B13', { step: 'B13' }), state), null)
+})
+
+// ---- Round 4 (the re-review) ----
+
+test('a line stays when its item is missing (goals null, the thread not in the list, an empty backlog): settle ends nothing and the Retry still works', async () => {
+  const cases = [
+    ['/api/goals', 'G6:A2', { goal: 'G6', ask: 'A2' }, { goals: null }],
+    ['/api/brainstorm', PATH, { command: 'brainstorm-answer', n: 1 }, { brainstorms: { threads: [] } }],
+    ['/api/backlog', 'B12', { step: 'B12' }, { backlog: [] }],
+  ]
+  for (const [route, key, say, state] of cases) {
+    const p = ports({ failQueue: 'locked' })
+    await click(p, 'click-0060', { route, key })
+    await p.ledger.put({ ...(await p.ledger.get('click-0060')), say })
+    await p.ledger.settle(record => movedOn(record, state), AT + 1000)
+    assert.equal((await p.ledger.unsent()).length, 1, `${route}: the line stays`)
+    const retried = await retryClick({ ledger: p.ledger, click: 'click-0060', now: p.now, say: async body => ({ ok: true, message: { id: 'w-late', ...body } }) })
+    assert.equal(retried.result.said, 'w-late', `${route}: the Retry works`)
+  }
+})
+
+test('the file is not marked as seen after our own append when another process appended in between: A sees B\'s record', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'clicks-'))
+  try {
+    const file = join(dir, 'clicks.jsonl')
+    const b = clickLedger({ file })
+    let once = true
+    const a = clickLedger({
+      file,
+      append: async (path, text) => {
+        await (await import('../src/write.mjs')).appendLines(path, text)
+        if (once) {
+          once = false
+          await b.put({ click: 'click-from-b', via: 'x', key: 'k', at: 1, word: 'w-b' })
+        }
+      },
+    })
+    await a.put({ click: 'click-from-a', via: 'x', key: 'k', at: 1, word: 'w-a' })
+    assert.equal((await a.get('click-from-b'))?.word, 'w-b', 'B\'s record, appended between A\'s append and its stat, is read')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('settle and supersede never overwrite a newer word record of a click', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'clicks-'))
+  try {
+    const file = join(dir, 'clicks.jsonl')
+    let ledger
+    let hook = null
+    ledger = clickLedger({ file, append: async (path, text) => { await (await import('../src/write.mjs')).appendLines(path, text); if (hook !== null) await hook() } })
+    for (const id of ['click-0070', 'click-0071']) await ledger.put({ click: id, via: 'x', key: 'k', route: '/api/goals', at: AT, notSent: 'locked', notSentAt: '14:07', say: {} })
+    // While the first is being ended, the second goes by its retry (a word record is put).
+    hook = async () => {
+      hook = null
+      await ledger.put({ click: 'click-0071', via: 'x', key: 'k', route: '/api/goals', at: AT, word: 'w-late' })
+    }
+    await ledger.settle(() => 'the talk moved on', AT + 1000)
+    assert.equal((await ledger.get('click-0070')).superseded.why, 'the talk moved on')
+    assert.equal((await ledger.get('click-0071')).word, 'w-late')
+    assert.equal((await ledger.get('click-0071')).superseded, undefined, 'the word record is not overwritten')
+    // And supersede likewise.
+    for (const id of ['click-0072', 'click-0073']) await ledger.put({ click: id, via: 'x', key: 'k2', route: '/api/goals', at: AT, notSent: 'locked', say: {} })
+    hook = async () => {
+      hook = null
+      await ledger.put({ click: 'click-0073', via: 'x', key: 'k2', route: '/api/goals', at: AT, word: 'w-73' })
+    }
+    await ledger.supersede('k2', 'click-other', AT, 'a later word for it was queued')
+    assert.equal((await ledger.get('click-0073')).word, 'w-73')
+    assert.equal((await ledger.get('click-0073')).superseded, undefined)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a retry keeps the input\'s hash: the id then still refuses another input', async () => {
+  const p = ports({ failQueue: 'locked' })
+  await click(p, 'click-0080', { hash: 'hash-A' })
+  await retryClick({ ledger: p.ledger, click: 'click-0080', now: p.now, say: async body => ({ ok: true, message: { id: 'w-r', ...body } }) })
+  assert.equal((await p.ledger.get('click-0080')).hash, 'hash-A')
+  const other = await click(p, 'click-0080', { hash: 'hash-B' })
+  assert.equal(other.status, 409)
 })
