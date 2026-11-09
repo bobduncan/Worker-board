@@ -955,9 +955,9 @@ reach them as before. Everything else you decide: take the worker's advice, or d
   that advice (`Answered by: autopilot`, "autopilot: took the advice") and stands in today's note with an Undo, when it is
   filed or at the switch-on (never at a later pass: the user may have it open). Never so (the review of 2026-11-04): an ask
   that names what only their hands can do, a goal's rebuild (the user's decision of 2026-11-04: "Rebuild G<n>:" is theirs, file
-  it with your advice as always), an accept, send back or mark done (yours to judge), a look with pictures, an ask about
+  it with your advice as always), an accept, send back or mark done (yours to judge), a look with pictures or a Play link, an ask about
   what the user meant or said (yours), the focus goal's own verdict or re-check (theirs) and a recap row's verdict (theirs).
-- **A worker's or the main chat's look with pictures of a step of the focus goal** (an art or map look), with or without
+- **A worker's or the main chat's look with pictures or a Play link of a step of the focus goal** (an art or map look), with or without
   advice, is neither the board's advice nor yours: Autopilot keeps it for the goal's recap at once, as it keeps your
   hand-over of a look ("Autopilot keeps this look for the goal's recap" on its card; its step goes on).
 - **Anything else that is not the user's comes to you** (`Route: partner`), whatever the Focus page's switch says: a decide,

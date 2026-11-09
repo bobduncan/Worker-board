@@ -373,6 +373,24 @@ test('the pass and the filing keep such a look as the partner\'s hand-over is: i
   assert.equal(isKeptLook(store.get(filed.result.id)), true)
 })
 
+test('B1104 (Q713): a look filed with a Play link and no pictures is kept for the recap at the filing, as one with pictures is; of another goal the partner gets it', async t => {
+  const dir = await storeWith({
+    B821: stepText('B821', { Title: 'Fix: the ring reads round', State: 'in progress', Owner: 'Worker 5', Goal: 'G60', Branch: 'b821' }),
+    B891: stepText('B891', { Title: 'Other goal step', State: 'in progress', Owner: 'Worker 5', Goal: 'G7', Branch: 'b891' }),
+  })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const text = ['Do the plank bridges now look like bridges?', 'Context: The planks changed in B821', 'Problem: the wood may look painted on', 'Approve: keep them', 'Send back: a later step repaints them']
+  const file = (chat, of, at) => workApi({ action: 'ask', chat, of, kind: 'look', text, advice: 'yes', play: 'b821&arena=bridges' }, { ...apiCtx(dir, NOW + at * MIN), as: undefined, autopilot: true })
+  const focus = await file('Worker 5', 'B821', 1)
+  assert.equal(focus.ok, true, focus.why)
+  assert.equal(focus.result.route, 'recap', 'of the focus goal: kept for its recap, never answered with the advice')
+  const store = (await readStore(dir)).items
+  assert.deepEqual(store.get(focus.result.id).sections.get('Route'), [KEPT_LOOK_WORDS])
+  const other = await file('Worker 5', 'B891', 2)
+  assert.equal(other.ok, true, other.why)
+  assert.equal(other.result.route, 'partner', 'of another goal: the partner judges it, never the advice')
+})
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The page.
 

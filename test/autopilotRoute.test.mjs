@@ -466,3 +466,16 @@ test('2026-11-02: the sweep judges an ask the board itself routed to the person 
   // A bare Route: person without the board's line is the default, which the pass routes anyway.
   assert.equal(isBoardRoutedPerson(ask('Q42', { Title: 'Icons or words?', Owner: 'Painter', Asks: 'decide', Route: 'person' })), false)
 })
+
+test('B1104 (Q713): a look with a Play link and no pictures is a look at the place: a focus-goal one waits for the recap, another goal\'s goes to the partner, never the advice', () => {
+  // Q713's record: Worker 3's look "Do the plank bridges now look like bridges?", Asks look, Advice yes, a Play link, no Pictures.
+  const planks = (of, more = {}, play = ['main&arena=bridges']) => ask('Q713', { Title: 'Do the plank bridges now look like bridges? I advise yes.', Owner: 'Painter', Asks: 'look', Advice: 'yes', Via: 'chat', Of: of },
+    null, { ...(play === null ? {} : { Play: play }), ...more })
+  const focus = autopilotRoute(planks('B24'), ctx)
+  assert.equal(focus.to, 'recap', 'of a step of the focus goal it waits for the recap')
+  assert.equal(focus.kept, true, 'as a kept look')
+  assert.equal(autopilotRoute(planks('B23'), ctx).to, 'partner', 'of another goal the partner judges it, never the advice')
+  assert.equal(autopilotRoute(planks('B24', {}, null), ctx).to, 'advice', 'with no Play link and no pictures it stays a plain look that takes its advice')
+  assert.equal(autopilotRoute(planks('B23', {}, null), ctx).to, 'advice', 'likewise of another goal')
+  assert.equal(autopilotRoute(planks('B24', {}, ['']), ctx).to, 'advice', 'an empty Play section is no link')
+})

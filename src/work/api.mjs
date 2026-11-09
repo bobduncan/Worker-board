@@ -1028,7 +1028,7 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
   // sweep would route it (src/work/autopilot.mjs); the app's question form stays the person's, in its chat.
   const setting = w.autopilot === true ? { on: true } : w.store.partnerAnswers
   const pilot = w.autopilot === true && !['person', 'server'].includes(w.role) && via !== 'form'
-    ? autopilotRoute(askShape({ owner: w.who, kind, of: isAlone ? goal : valueOf(of.item, 'Id'), options, advice, via, text, pictures }), routeCtx(w))
+    ? autopilotRoute(askShape({ owner: w.who, kind, of: isAlone ? goal : valueOf(of.item, 'Id'), options, advice, via, text, pictures, play }), routeCtx(w))
     : null
   // 2026-11-08 (the person about Q692: "i also dont understand what its asking me"): a look kept for the recap (`pilot.kept`) carries
   // Context, Problem, Approve and Send back as four lines (src/work/lookForm.mjs); without them it is refused, with the block filled in.
@@ -1162,12 +1162,12 @@ async function joinOpenAskOf(w, step, kind, text, { anyKind = false, options, ad
  * Autopilot (2026-10-31): an ask as the routing reads it, before it is written (`autopilotRoute` takes the store's items): its
  * asking chat, kind, step or goal, options, advice, Via, pictures and words.
  */
-function askShape({ owner, kind, of = null, options = [], advice = '', via = null, text = [], pictures = [] }) {
+function askShape({ owner, kind, of = null, options = [], advice = '', via = null, text = [], pictures = [], play = '' }) {
   return {
     head: new Map([['Kind', 'ask'], ['Title', line(askTitleOf(text).title, 200)], ['State', 'open'], ['Owner', owner], ['Asks', kind], ...(of === null ? [] : [['Of', of]]),
       ...(options.length === 0 ? [] : [['Options', options.join(' | ')]]), ...(advice === '' ? [] : [['Advice', advice]]), ...(via === null ? [] : [['Via', via]]),
       ...(pictures.length === 0 ? [] : [['Pictures', pictures.join(', ')]])]),
-    sections: new Map([['Text', text]]),
+    sections: new Map([['Text', text], ...(play === '' ? [] : [['Play', [play]]])]),
   }
 }
 
