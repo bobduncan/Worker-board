@@ -4493,8 +4493,9 @@ own: the Supervisor does not file incidents from them.
   AFTER the day's last comeback (a close before it was undone). A real alarm (`alarms.real > 0`) breaks the 3-day row;
   false alarms never do. `finishOf` also gives `brokenByAlarm` (the day of the line that ended the row when it had a real
   alarm); the page says "broken by a real alarm on 8 Nov", the alarms number "(1 came back · 1 false)" and the hover marks the
-  ids "(came back)"; no amber. Closed lines before this rule are counted anew ONCE at the first pass (`alarmsVersion: 2`; only
-  `alarms` changes; a line at version 2 is never rewritten; skipped when the store gave no items). X2 came back 8 Nov 22:41,
+  ids "(came back)"; no amber. The alarms of the 14 shown closed lines follow the records on every pass (`alarmsVersion: 2`;
+  only `alarms` changes, so a day that closed with an incident open turns false once a later "closed: No fault" follows its
+  comeback; skipped when the store gave no items). X2 came back 8 Nov 22:41,
   X162 on 9 Nov 10:40 (it was closed No fault at 08:38, so the comeback is real).
 - **The page row**: muted, three sparklines of 14 days (a day with idle `null` is a gap in the idle sparkline: no point, not 0, and
   "not known" in the hover), the finish line in words ("N of 3 days", or "stable since <date>" in

@@ -566,11 +566,17 @@ export async function recordStability(state, { dir, items = new Map(), clock = D
     const closes = ({ notMeasuredWhy, ...line }) => ({ ...line, closed: true, ...measureOf({ day: line.day, now, closed: true, actions, history: wide }) })
     const all = [...items.values()]
     const incidents = all.filter(item => valueOf(item, 'Kind') === 'incident')
-    // 2026-11-09: the alarms of a line before today are counted anew ONCE with the comeback rule (alarmsVersion 2); a line at
-    // version 2 is never rewritten. Only when the store gave items (an empty store would wipe the alarms).
-    const recount = line => (line.day < day && items.size > 0 && line.alarmsVersion !== ALARMS_VERSION ? { ...line, alarms: alarmsOf(incidents, line.day), alarmsVersion: ALARMS_VERSION } : line)
+    // 2026-11-09: the alarms of the shown lines before today follow the records on every pass (a day that closed with an
+    // incident open turns false once a later "closed: No fault" follows its comeback). Only when the store gave items (an
+    // empty store would wipe the alarms). The other fields of a closed line stay as they are.
+    const shown = new Set(lines.map(line => line.day).filter(one => one < day).sort().slice(-SHOWN_DAYS))
+    const recount = line => {
+      if (!shown.has(line.day) || items.size === 0) return line
+      const alarms = alarmsOf(incidents, line.day)
+      return line.alarmsVersion === ALARMS_VERSION && JSON.stringify(alarms) === JSON.stringify(line.alarms) ? line : { ...line, alarms, alarmsVersion: ALARMS_VERSION }
+    }
     const closed = lines.map(line => recount(line.day < day && line.closed !== true ? closes(line) : line))
-    const recounted = closed.some((line, index) => line !== lines[index] && line.alarmsVersion === ALARMS_VERSION && lines[index].alarmsVersion !== ALARMS_VERSION)
+    const recounted = closed.some((line, index) => line !== lines[index])
     const before = closed.find(line => line.day === day)
     if (before?.closed === true) {
       if (recounted) await writeUnflushed(files.stability, `${closed.map(line => JSON.stringify(line)).join('\n')}\n`)

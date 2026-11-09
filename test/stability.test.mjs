@@ -411,25 +411,29 @@ test('finishOf: a closed day with a real alarm breaks the row and names the day;
   assert.deepEqual(finishOf([line(1, { alarms: real }), line(2), line(3), line(4)]).stableDays, 3, 'the oldest day breaks the row, the three after it count')
 })
 
-test('the closed lines are counted anew ONCE: a version-1 line gets X2 and version 2; a version-2 line is not rewritten', async () => {
+test('the shown closed lines follow the records on every pass: only their alarms change, never with an empty store', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'stability-recount-'))
   try {
     const file = join(dir, 'stability.jsonl')
     const old = { day: '2026-11-08', idleWithWorkMinutes: 7, idleEstimated: false, interventions: [], unsure: [], alarms: { real: 0, false: 0, ids: [] }, writtenAt: 1, closed: true, measured: false, pausedMinutes: 1337, offMinutes: 1334, notMeasuredWhy: 'paused' }
-    const kept = { ...old, day: '2026-11-07', alarms: { real: 5, false: 0, ids: ['X1'] }, alarmsVersion: 2 }
-    await writeFile(file, `${[kept, old].map(one => JSON.stringify(one)).join('\n')}\n`)
-    const items = new Map([['X2', X2]])
+    const seventh = { ...old, day: '2026-11-07', alarms: { real: 5, false: 0, ids: ['X1'] }, alarmsVersion: 2 }
+    await writeFile(file, `${[seventh, old].map(one => JSON.stringify(one)).join('\n')}\n`)
     const now = new Date(2026, 10, 9, 12, 0).getTime()
-    await recordStability({}, { dir, items, clock: () => now })
+    // An empty store never wipes the alarms of a closed line.
+    await recordStability({}, { dir, items: new Map(), clock: () => now })
+    assert.deepEqual((await linesOf(file)).slice(0, 2), [seventh, old])
+    await recordStability({}, { dir, items: new Map([['X2', X2]]), clock: () => now })
     const [seven, eight] = await linesOf(file)
-    assert.deepEqual(seven, kept, 'a line at version 2 is never rewritten')
+    assert.deepEqual(seven, { ...seventh, alarms: { real: 0, false: 0, ids: [], cameBack: [] } }, 'a shown line follows the records, at version 2 too')
     assert.deepEqual(eight, { ...old, alarms: { real: 1, false: 0, ids: ['X2'], cameBack: ['X2'] }, alarmsVersion: 2 }, 'only the alarms and the version change')
-    // A second pass leaves both as they are.
+    // The 9th closes with X162 open (real); a later "closed: No fault" after its comeback turns it false on the next pass.
     await recordStability({}, { dir, items: new Map([['X2', X2], ['X162', X162]]), clock: () => now + 60_000 })
-    const again = await linesOf(file)
-    assert.deepEqual(again.slice(0, 2), [seven, eight])
-    assert.equal(again[2].day, '2026-11-09')
-    assert.deepEqual(brief(again[2].alarms), { real: 1, false: 0, ids: ['X162'], cameBack: ['X162'] })
+    assert.deepEqual(brief((await linesOf(file))[2].alarms), { real: 1, false: 0, ids: ['X162'], cameBack: ['X162'] })
+    const tenth = new Date(2026, 10, 10, 9, 0).getTime()
+    await recordStability({}, { dir, items: new Map([['X2', X2], ['X162', X162_CLOSED]]), clock: () => tenth })
+    const [, , ninth] = await linesOf(file)
+    assert.equal(ninth.closed, true)
+    assert.deepEqual(brief(ninth.alarms), { real: 0, false: 1, ids: ['X162'], cameBack: ['X162'] }, 'the closed 9th follows the later No fault close')
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
 
