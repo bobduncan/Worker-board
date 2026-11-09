@@ -45,7 +45,8 @@ import { advisorNextOf, advisorWorkOf, leaveOut } from './work/advisorWork.mjs'
 import { openQaTaskOf, qaStandOf } from './work/qaTask.mjs'
 import { holdsRefine, isBlockWritten } from './work/refineWait.mjs'
 import { recapsOf } from './work/recap.mjs'
-import { isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
+import { afterPause, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
+import { lateWaitOf, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { EFFORTS, effortPlan, runSettings } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
@@ -71,7 +72,7 @@ import { givenBackFrom } from './work/holderTimers.mjs'
 import { rethinkTopicsOf } from './work/rethinkTopic.mjs'
 import { rethinkFocusOf } from './work/rethinkFocus.mjs'
 import { countsOf, statusOf } from './chatStatus.mjs'
-import { factsOf } from './work/handoverBoard.mjs'
+import { factsOf, offMsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
@@ -102,6 +103,8 @@ const FEEDBACK_CHARS = 300
 const BOARD_WORDS = /^(?:restart for mod|spawn workers|remove worker|prepare restart|resume|start "|backlog step from the Design tab|list step from the Design tab|queue step from the Design tab|queue step from the backlog|advisor recommendation|refine step|check step|step refined|ask from the goal map|partner effort|set model and effort|set effort|backlog step from the goal map|check sync)\b/
 /** B300: the reconciler's flags a lane shows; an old ask stands under Needs your attention, a broken file on top. */
 const LANE_FLAGS = ['stuck', 'check failed', 'not merged', 'back', 'card', 'waits']
+/** The app's own id of a chat (`local_` and a uuid): the one the app opens a chat by (`claude://claude.ai/epitaxy/<id>`). */
+const APP_SESSION_ID = /^local_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** How long a window of the 5-hour limit lasts. */
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
@@ -709,7 +712,10 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // The person, 2026-10-25 ("red interrupted feels errory, if they stop working due to conscious choice suspended feels
   // better"): a chat stopped while its step waits for other open steps is parked on purpose, not cut off.
   const isStopped = reported !== null ? reported.state === 'interrupted' : wasCutOff
-  const parked = paused === null && isStopped && step?.blockedBy?.length > 0 ? { by: 'parked', on: step.blockedBy, limit: null, since: null, named: null } : null
+  // P1 of the one wait system (2026-11-09, the B1081 case): a stopped chat whose step records a wait on a chat (`Waits on`,
+  // work/waitsOn.mjs) is parked on purpose too (the same shape, kind 'chat'): no "go on" line, no give-back, no stall.
+  const parked = paused === null && isStopped && step?.blockedBy?.length > 0 ? { by: 'parked', on: step.blockedBy, limit: null, since: null, named: null }
+    : paused === null && isStopped ? waitSuspension(step?.waitsOn ?? null) : null
   // Suspended is the board's own fact, whatever the chat reports.
   const state = paused !== null || parked !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // Redesign Part 1: what the chat says of its question to the person, or what its transcript shows.
@@ -1049,7 +1055,7 @@ function answerOf(outbox, id, version = null, to = null) {
  * question form that the mod could not file, and a chat that wrote questions in its chat without filing an ask is a
  * warning (`unfiled`) with the way to its chat, never a question to answer here.
  */
-function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = null, advisorWaits = null, helper = null, waits, idle = [] }) {
+function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = null, advisorWaits = null, helper = null, waits, idle = [], late = [] }) {
   const live = lanes.filter(lane => !lane.isLeftover)
   const helpers = helper === null ? [] : [helper]
   const names = new Set([...live, ...helpers].map(lane => lane.name))
@@ -1108,6 +1114,34 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       isAdvisor,
       // Where its chat is on the board: Talk to Main, the Advisor's tab, or a worker's last answer in this card's window.
       talk: lane.isMain === true ? 'main' : isAdvisor ? 'advisor' : 'window',
+    })
+  }
+  // P1 of the one wait system (2026-11-09): a chat wait past its limit (`lateWaitOf`): one Late, linked to the step, with the
+  // person's action. The step stays with its holder: the board gives nothing back for a wait it was told of.
+  for (const flag of late) {
+    const lane = live.find(one => one.name === flag.chat)
+    if (lane === undefined || lane.isMain === true) continue
+    items.push({
+      id: `wait:${lane.name}:${flag.since}`,
+      from: lane.name,
+      kind: 'wait late',
+      // The step's id in the title: the page links every id it names (B426), so the card leads to the step too.
+      title: `${flag.text}${flag.id === null ? '' : ` on ${flag.id}`}`,
+      text: `It recorded at ${hourMinute(flag.since)} that it waits for ${flag.who} (${flag.what}) and has waited ${flag.minutes} minutes of the board's running time. The board holds its step for it: no "go on" line, nothing given back. Ask ${flag.who} for its answer, or tell ${lane.name} in its chat to go on without it (work unblock ${flag.id ?? 'B<n>'}).`,
+      at: flag.since,
+      ...blank,
+      // No `workId`: the page reads that as an ask of the store (storeAskParts); `step` names the step.
+      ...(flag.id === null ? {} : { step: flag.id }),
+      // The worker's chat, for the card's one way (the app opens a chat by its app id, `claude://claude.ai/epitaxy/<id>`): its name,
+      // and its app session when the board knows one (else the page offers the worker's answer window and says so).
+      chat: { name: lane.name, session: typeof lane.appSession === 'string' && APP_SESSION_ID.test(lane.appSession) ? lane.appSession : null },
+      version: null,
+      canAnswer: false,
+      task: cardOf(lane.task),
+      waits: { at: flag.since, words: flag.text, questions: [], plan: null, handover: null },
+      isMain: false,
+      isAdvisor: false,
+      talk: 'window',
     })
   }
   // B308: a worker that holds steps, has ended its turn with nothing running and asked nothing (the reconciler's `idle
@@ -1765,7 +1799,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     const blockedBy = (String(item.head.get('Blocked by') ?? '').match(/\bB\d+\b/g) ?? [])
       .filter(one => !['done', 'dropped'].includes(raw.work.items.get(one)?.head.get('State') ?? 'done'))
     // B363: a step taken with branch none has its work outside git: no branch to show or play.
-    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null, blockedBy, ...savedWith(item) }
+    // P1: the holder's recorded wait on a chat (`Waits on`), or null.
+    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null, blockedBy, waitsOn: waitsOnOf(item), ...savedWith(item) }
   }
   // B438, the review: every step the store holds for a chat and is not finished with, with its state, oldest first.
   const storeStepsOf = name => itemsOf(raw.work)
@@ -1999,7 +2034,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const knownIds = new Set(withId.map(one => one.id))
   function whyNot(step, lane) {
     for (const limit of ['fiveHour', 'week']) if (limits[limit]?.level === 'full') return { reason: 'limit', limit, until: limits[limit].resetsAt }
-    if (lane?.state === 'suspended') return { reason: 'suspended', worker: lane.name, until: lane.suspended.until, isBack: lane.suspended.isBack, by: lane.suspended.by }
+    if (lane?.state === 'suspended') return { reason: 'suspended', worker: lane.name, until: lane.suspended.until, isBack: lane.suspended.isBack, by: lane.suspended.by, ...(lane.suspended.kind === 'chat' ? { kind: 'chat', on: lane.suspended.on, what: lane.suspended.what ?? null, since: lane.suspended.since } : {}) }
     if (step.after !== null) {
       const ids = [...new Set(step.after.match(/\bB\d+\b/g) ?? [])]
       const open = ids.filter(id => openIds.has(id))
@@ -2278,6 +2313,22 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   })))
   // Signals change 7: each worker's hand-over, decided once, for the step it holds (`held`) and its lane's line below.
   const handovers = new Map(sequenced.map(lane => [lane.name, handoverOf(lane)]))
+  // P1 (2026-11-09): a chat wait past its limit (config `waitOnMinutes` of the board's running time, after its off spells and the
+  // person's pauses as the holder timers count: `offMsOf(gaps)`): one Late under Needs your attention, linked to the step; the step
+  // stays with its holder (no give-back). `[{ chat, id, who, what, since, minutes, text }]`.
+  // Read from each held step's record (not the lane, which may read unknown or off for a while); none while the person pauses, and the
+  // pause's time is no waiting (`afterPause`, as the holder timers count).
+  const lateWaits = !workOk || isHolding(pauseRecord) ? [] : [...raw.work.items.values()]
+    .filter(item => item.head.get('Kind') === 'step' && ['taken', 'in progress'].includes(item.head.get('State')) && waitsOnOf(item) !== null)
+    .map(item => {
+      const bare = name => String(name ?? '').replace(prefix, '').trim().toLowerCase()
+      const lane = sequenced.find(one => !one.isLeftover && bare(one.name) === bare(item.head.get('Owner')))
+      return lane === undefined ? null : lateWaitOf({
+        chat: lane.name, wait: waitsOnOf(item), stepId: item.head.get('Id'),
+        runningMs: from => { const since = afterPause(pauseRecord, from); return now - since - offMsOf(gaps, now)(since) },
+        limitMs: (Number.isInteger(config.waitOnMinutes) ? config.waitOnMinutes : 90) * MIN,
+      })
+    }).filter(one => one !== null)
   // Signals change 7 (B914, 2026-11-02): when the board saw each chat's own plan words change (by chat: `{ key, at }`), for
   // their age where the store's Plan does not date them; kept by the server in memory (a restart only makes them un-aged).
   const planMemory = new Map(planSeen instanceof Map ? planSeen : Object.entries(planSeen ?? {}))
@@ -2550,7 +2601,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     },
     // Focus 4: the partner's cards marked, for the group "From your partner".
     forYou: markPartner([
-      ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, helper: helperLane, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold') }),
+      ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, helper: helperLane, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold'), late: lateWaits }),
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
       // Autopilot (2026-10-31): only what is routed to the person, while it is on (src/work/autopilot.mjs).

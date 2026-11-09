@@ -12,12 +12,13 @@
 
 import { modAtLeast, handedBackOf } from '../clearOwed.mjs'
 import { match } from './handOut.mjs'
-import { GIVEN_BACK, GIVE_BACK_MINUTES, RESUME_KIND, RESUME_MINUTES, continuationLine, continuationOf, holderTimers } from './holderTimers.mjs'
+import { GIVEN_BACK, GIVE_BACK_MINUTES, RESUME_KIND, RESUME_MINUTES, continuationLine, continuationOf, holderTimers, markerStep } from './holderTimers.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 import { reportCheckFailedOf } from './resultCheck.mjs'
 import { holdEndOf } from './pause.mjs'
 import { familyOf } from './effort.mjs'
 import { stamp } from './migrate.mjs'
+import { logBranchName } from '../landing.mjs'
 
 const MIN = 60_000
 /** The Workers mod that carries out the board's envelope: a worker on an older one is handed nothing (T8.5 step 6). */
@@ -358,7 +359,7 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * give in the same call, the envelope to write, the envelope the net fired for (marked once), one that waits in the outbox
  * and is to be closed (its task went back).
  */
-export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null }) {
+export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null, landing = null, landings = [] }) {
   const name = worker.name
   const isTurnEnd = event?.kind === 'turn-ended'
   const turnSince = isTurnEnd && Number.isFinite(event.since) ? event.since : -Infinity
@@ -382,7 +383,12 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
   // 1. The pause and the limits come first: nothing starts a turn; the clear waits for the resume (open question 3).
   if (paused || limitFull || worker.state === 'suspended') {
     const why = paused ? PAUSED_WHY : LIMIT_WHY
-    return result(STATES.SUSPENDED, why, inFlight === null ? {} : { takeBack: { id: inFlight.step, why }, close: closeOf(inFlight), step: inFlight.step })
+    // P1 (2026-11-09): a "go on" line still waiting for a holder whose lane is parked now (it recorded its wait after the line) is
+    // closed: the line would only wake it to wait.
+    const held = holdingOf(items, name, prefix)
+    const staleGoOn = held === undefined ? null : resumes.find(one => one.state === 'waiting' && markerStep(one.resume) === valueOf(held, 'Id')) ?? null
+    const closing = inFlight !== null ? closeOf(inFlight) : staleGoOn === null ? null : staleGoOn.id
+    return result(STATES.SUSPENDED, why, inFlight === null ? (closing === null ? {} : { close: closing }) : { takeBack: { id: inFlight.step, why }, close: closing, step: inFlight.step })
   }
   // 2. Its own step: the take ended the hand-over.
   const holding = holdingOf(items, name, prefix)
@@ -390,10 +396,17 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
     const id = valueOf(holding, 'Id')
     // Signals change 3: a holder that stopped gets one "go on" line, and its step goes back when it does not go on.
     const timed = holderTimers({
-      worker, holding, items, prefix, envelopes: resumes, stops, pause, runningMs,
+      worker, holding, items, prefix, envelopes: resumes, stops, pause, runningMs, landings,
       resumeMs: timers.resumeMs ?? RESUME_MINUTES * MIN, giveBackMs: timers.giveBackMs ?? GIVE_BACK_MINUTES * MIN,
     })
     if (timed === null) return result(STATES.WORKING, null, { step: id })
+    // P1 (2026-11-09, the double hold guard): no give-back of a step whose branch a landing is running for now (`landing`, the
+    // landing lock's branch): the landing would finish on a step held by nobody, or by a second worker (B1081: Worker 5 took a
+    // step whose land.ps1 Worker 4 was running). The "go on" line still goes; the give-back waits for the landing to end.
+    // Both as the gate log names a branch (`logBranchName`: "qa/b866-x" is "qa-b866-x"): `landing` may come from that name.
+    const branch = valueOf(holding, 'Branch')
+    const isLanding = typeof landing === 'string' && landing !== '' && typeof branch === 'string' && logBranchName(branch) !== '' && logBranchName(branch) === logBranchName(landing)
+    if (isLanding && timed.giveBack !== null) return result(STATES.WORKING, null, { step: id, asked: timed.asked, giveBack: null, close: null, envelope: null, goOn: null, landing })
     const resume = timed.resume === null ? null
       : { kind: RESUME_KIND, step: null, clear: null, restart: false, set: null, line: timed.resume.line, back: null, resume: timed.resume.marker }
     return result(STATES.WORKING, null, {
