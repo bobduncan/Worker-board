@@ -108,7 +108,8 @@ import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isF
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
-import { basesNow, patientReportCheck } from './src/work/check.mjs'
+import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
+import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { readAccountFolders } from './src/appChats.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
@@ -4052,7 +4053,13 @@ async function main(args) {
         // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule
         // base-equal); workAction runs the check that the action answers
         bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),
-        recheck: (id, why) => workAction({ action: 'recheck-base', id, why }, 'server'),
+        recheck: (id, why, more = {}) => workAction({ action: 'recheck-base', id, why, ...more }, 'server'),
+        // P2 (T2.11), the rule faults-gone: what stands in each repository now, whether a landing runs (data/landing.lock, a lock not
+        // stale), when this board started, and the steps whose check runs now.
+        branches: () => faultsNow({ repos: knownRepos(), run: gitRunner() }),
+        landing: () => { const held = lockHolder(join(HERE, 'data', 'landing.lock'), clock()); return held !== null && held.ageMs < STALE_LOCK_MS },
+        startedAt: () => startedAt,
+        checking: () => [...runningChecks.keys()],
         // B482: what the main chat was told and since when a wait was seen, kept over a restart
         noted: {
           load: async () => {
