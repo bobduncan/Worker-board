@@ -6030,7 +6030,7 @@ conditions.md, mock.png, audit.md).
 action's own result: the recap's next tries filed after the Send, the obsolete check's record answered, the asked sweep
 ended by its chat's turn; for an action without such a source the fallback "<Chat> answered HH:MM" once the turn that ran on
 the word ended (see "Which turn is the word's" below; an `ended` report, closed or crashed mid-turn, is no answer); an action
-with its own source whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it"), **Late** (a word failed for
+with its own source whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it" for 5 minutes, then Late: see "The wait line: honest limits" below), **Late** (a word failed for
 good, "could not be delivered: <why>"; rule 8's own judgement of this word, `watch.mjs isUndelivered`, the one function
 `undeliveredWords` uses, so the card and the alarm never disagree; or every way to wake the chat failed,
 `wakeOf(...).final`, with `triedWords`), **Picked up** (the word arrived, delivered or taken by its own chat, and the turn that
@@ -6132,6 +6132,32 @@ pauses, and for a spell that is not the record's newest entry of the chat) makes
 until the next hand takes it, with the job id `wakeJobId` the hands route gives a claim), else a launch at once (`launchFor`
 with `again`). A refusal stands under the line, in Needs your attention, the recap's popup and the supervisor's head. A
 word failed for good, and a chat the board has no id to reach, get none (the line says to open the chat).
+
+### The wait line: records, honest limits, no silent end (T2.11 P3, 2026-11-09)
+
+Plan: `.claude/plans/2026-11-09-one-wait-system-plan.md`, part P3 (rule 1: a wait is a record, never a guess; rule 2: every wait ends
+visibly). The states and the words stay; what they say is now only what the board knows (`src/waitLine.mjs`, `waitsNow`):
+- **Picked up is a record.** `pickedUpAt` is written on the word by `waitsNow` once, at the first busy or asking report that names the
+  word (`store.update` never overwrites it); the line reads it before the live report, so a later report of another turn does not undo it.
+- **Waits for its turn** is counted from the END of the turn that was running when the word arrived (the `ahead` logic, the report's own
+  turn), never from the delivery. While the chat is busy on something else it is quiet: "waits for its turn: <Chat> busy since HH:MM".
+  Idle and not picking the word up for rule 8's limit (`undeliveredMinutes`, `wordJudge`'s `limitMs`) in running time: Late.
+- **On it** is Late ("No answer since HH:MM") only when the chat stopped (an `ended` report, the lane not running) or its report went
+  stale (older than `unknownAfterSeconds`, running time); a fresh turn that runs long is quiet ("<Chat> is on it · since HH:MM · for 95 min",
+  from `JUDGE_LONGEST_MS`, the one constant). No limit per kind. The judge line (`needsPill` false) needs the same fresh report.
+- **A turn that ended without the result** (an action with its own Done source) is quiet for 5 minutes (`TURN_GRACE_MS`), then Late.
+- **Merged prompts, until the mod release** (a mod that does not report every merged word): a word whose chat began a turn after it
+  arrived, on a word that stood ahead of it, reads quiet "<Chat>'s turn at HH:MM may have taken it (not confirmed)": never Late.
+- **Late counts the board's running time** (`runningOf`: the last pause's end and the board's off time `state.gaps` do not count) and
+  names the person's action while Send again exists only for a chat that does not run: "open <Chat>'s chat: the word waits there".
+- **No silent end.** A word the outbox sweep closes shows "closed: <why>" (state `closed`, quiet) for 10 minutes (`CLOSED_SHOWN_MS`,
+  from `closedAt`; the sweep's own reason, `wordJudge`'s `whyClosed`). A person's word that expired before it reached its chat is
+  Late "Not delivered: expired after N min" and keeps its words (`text`). A word past 24 h without a Done says "no answer recorded in
+  24 h" for one more day (`ENDED_SHOWN_MS`), quietly.
+- **A failed pass keeps the lines.** `waitsNow` gives `{ waits, asOf }` (`lastGoodWaits`): on an error the last good lines come back and the
+  state says `waitsAsOf`; the page draws them with "as of HH:MM" and Needs your attention reads a missing line as done only while
+  `waitsAsOf` is not set.
+Tests: `test/waitLineHonest.test.mjs` (one per point, from Worker 3's real report for Q707's answer).
 
 ### Wave 2 (T22, 2026-11-04)
 
