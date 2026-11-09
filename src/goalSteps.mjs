@@ -105,8 +105,8 @@ export function stepMadeFrom(items, goal, ask) {
  * "Make a step from this" (reactive board, brief B): an Advisor's answer under a goal made into a step by the board
  * itself, in the state the Brainstorm's Create gives its steps (`ports.make` is that maker, B754): the goal, a title
  * from the answer's first words, the answer's words as its text. No effort, no model, no word to any chat. Idempotent on
- * the answer's own id: a second click finds the step the first made (`ports.existing(mark)`, the id of an open step whose
- * context holds the mark) and answers it with `again: true`. `ports`: `readMap()`, `existing(mark)`, `make(step)`
+ * the answer's own id: a second click finds the step the first made (`ports.existing(goal, ask)`, the id of a step, not dropped, whose
+ * context holds the mark) and answers it with `again: true`. `ports`: `readMap()`, `existing(goal, ask)`, `make(step)`
  * (answers `{ ok, result: { step } }`). Answers `{ ok, result: { step, again } }` or a refusal.
  */
 let askTurn = Promise.resolve()

@@ -12593,7 +12593,6 @@ function goalStepControl(node, block) {
     button.disabled = true
     return button
   }
-  if (now.phase === 'made') return stepMadeLine(now.step)
   const line = el('span', 'goal-ask-step is-refused')
   line.append(el('small', 'muted', `Not made: ${now.why} `), goalButton('goals-tool', 'Try again', { askAction: 'step', askId: block.id }))
   return line
@@ -12620,12 +12619,14 @@ async function makeStepFromAnswer(goal, askId) {
       headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
       body: JSON.stringify({ command: 'ask-step', id: goal, ask: askId, page: GOALS_PAGE }),
     })
-    if (answer.ok) goalAskStepUi.set(key, { phase: 'made', step: (await answer.json()).step })
+    // Made: the state read next names the step (or, if it was dropped meanwhile, does not); the page keeps no "made" of its own.
+    if (answer.ok) await answer.json()
     else goalAskStepUi.set(key, { phase: 'refused', why: (await answer.text()).trim() || `refused (${answer.status})` })
   } catch {
     goalAskStepUi.set(key, { phase: 'refused', why: 'the board\'s server does not answer.' })
   }
   await read()
+  if (goalAskStepUi.get(key)?.phase === 'making') goalAskStepUi.delete(key)
   redrawGoals()
 }
 

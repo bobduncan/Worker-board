@@ -63,6 +63,17 @@ test('an unknown goal, an unknown ask, an ask not answered yet and a bad id are 
 // ---------------------------------------------------------------------------------------------------------------------
 // The page
 
+const stepOf = state => parsed(`Id: B77
+Kind: step
+Title: The shading
+State: ${state}
+Activity: Garden
+Goal: G6
+Since: 2026-10-19 10:00
+
+## Context
+  ${askStepMark('G6', 'A1')}
+`)
 const pageState = () => asSent({ ...build([], undefined, GOALS), goalsEdit: { canWrite: true } })
 
 test('the page: the click shows "Making…", then "Step B<n> made" with its link, on a fresh state too; a refusal shows its why in place', async () => {
@@ -71,7 +82,9 @@ test('the page: the click shows "Making…", then "Step B<n> made" with its link
     if (request.url !== '/api/goals') return reply({})
     return new Promise(done => { release = () => done(reply({ step: 'B77', again: false })) })
   }
-  const page = await openPage({ state: pageState(), answers, hash: 'advice/goals/G6' })
+  // The record: once the board has made the step, the next state names it (as the real state does).
+  const withStep = requests => (requests.some(one => one.url === '/api/goals') ? asSent({ ...build([stepOf('new')], undefined, GOALS), goalsEdit: { canWrite: true } }) : pageState())
+  const page = await openPage({ state: withStep, answers, hash: 'advice/goals/G6' })
   try {
     const button = () => page.all('.goal-ask-block .goals-tool').find(one => /Make a step|Making/.test(one.textContent))
     assert.equal(button().textContent, 'Make a step from this')
@@ -130,6 +143,19 @@ Since: 2026-10-19 10:00
     assert.equal(dropped.all('[data-ask-action="step"]').length, 1)
   } finally {
     await dropped.close()
+  }
+})
+
+test('the state wins over the page: after the call, a record without the step (dropped meanwhile) brings the button back, no "made" line from page memory', async () => {
+  const answers = request => reply(request.url === '/api/goals' ? { step: 'B77', again: false } : {})
+  const page = await openPage({ state: pageState(), answers, hash: 'advice/goals/G6' })
+  try {
+    await page.click('[data-ask-action="step"]')
+    assert.deepEqual(page.sent('/api/goals').map(one => one.body.command), ['ask-step'])
+    assert.equal(page.all('.goal-ask-step').length, 0, 'the state holds no step: no made line')
+    assert.equal(page.all('[data-ask-action="step"]').length, 1)
+  } finally {
+    await page.close()
   }
 })
 
