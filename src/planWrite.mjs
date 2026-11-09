@@ -3,7 +3,10 @@
 // everything else. A change touches only the lines of the item named; every other byte stays, CRLF or LF as the file
 // has it. The file is written the way the goals file is (goalsWrite.mjs `rewrite`: read anew right before, written
 // beside, put in place, started again when somebody else wrote it in between).
+import { stat } from 'node:fs/promises'
+
 import { dayOf, files, rewrite } from './goalsWrite.mjs'
+import { writeAtomic } from './write.mjs'
 
 // The file is handled as its bytes (latin1): a UTF-8 "·" reads "Â·" here and a lone latin1 "·" (one stands in the real
 // plan) reads "·", so a heading is found either way, and every byte a change does not touch stays what it was.
@@ -12,7 +15,16 @@ const FEATURE_HEAD = /^###\s+(F\d+)\s*Â?[·:-]/
 const STANDARD_HEAD = /^###\s+(K\d+)\s*Â?[·:-]/
 const MILESTONE_HEAD = /^###\s+(M\d+\+?)\s*Â?[·:-]/
 const GOAL_HEAD = /^####\s+(S\d+)\s*Â?[·:-]/
-const ANY_HEAD = /^#{1,6}\s/
+// Where an item ends, as plan.mjs reads it: at the next section heading ("## ...") or at the next item of its own section;
+// any other heading ("### Notes" inside an answer) stays inside the item.
+const SECTION_HEAD = /^##\s+[^#]/
+const ENDS = {
+  answer: line => SECTION_HEAD.test(line),
+  feature: line => SECTION_HEAD.test(line) || FEATURE_HEAD.test(line),
+  standard: line => SECTION_HEAD.test(line) || STANDARD_HEAD.test(line),
+  milestone: line => SECTION_HEAD.test(line) || MILESTONE_HEAD.test(line) || GOAL_HEAD.test(line),
+  goal: line => SECTION_HEAD.test(line) || MILESTONE_HEAD.test(line) || GOAL_HEAD.test(line),
+}
 // The same line shape plan.mjs reads: "- Key: value" or "- Key (inside): value".
 const LINE = /^-\s+([A-Z][A-Za-z ]*?)(?:\s*\(([^)]*)\))?:\s*(.*)$/
 
@@ -45,7 +57,7 @@ function blockOf(file, kind, id) {
   if (starts.length === 0) return refuse(404, `${id} is not in the plan.`)
   if (starts.length > 1) return refuse(409, `${id} stands twice in the plan: the partner has to tidy it first.`)
   let end = starts[0] + 1
-  while (end < file.parts.length && !ANY_HEAD.test(file.parts[end].text)) end += 1
+  while (end < file.parts.length && !ENDS[kind](file.parts[end].text)) end += 1
   return { ok: true, start: starts[0], end }
 }
 
@@ -133,9 +145,10 @@ export function decideText(text, ops, date) {
  * |'standard', id }` (confirmed) or `{ kind: 'goal'|'milestone', id, what: 'notnow' }`. All of them or none: an id that is
  * not in the plan refuses the whole move. `{ ok: true, changed }` or `{ ok: false, status, why }`.
  */
-export async function writeDecisions(file, ops, now, fs = files) {
+export async function writeDecisions(file, ops, now, fs = files, { log = null } = {}) {
   if (typeof file !== 'string' || file === '') return { ok: false, status: 409, why: 'There is no product plan file to write the decision in.' }
   let changed = false
+  const before = log === null ? null : await mtimeOf(file)
   const written = await rewrite(file, latin => {
     const done = decideText(latin, ops, dayOf(now))
     if (!done.ok) return done
@@ -143,8 +156,46 @@ export async function writeDecisions(file, ops, now, fs = files) {
     changed = true
     return { ok: true, text: done.text }
   }, fs)
+  if (written.ok && log !== null) await noteBoardWrite(log, file, before, ops, now, fs)
   if (written.ok || written.why === 'same') return { ok: true, changed }
   if (written.status !== undefined) return { ok: false, status: written.status, why: written.text }
   if (written.why === 'gone') return { ok: false, status: 409, why: 'The product plan file is not there: the decision was not written.' }
   return { ok: false, status: 409, why: 'The product plan file could not be written just now (somebody else is writing it): try again.' }
+}
+
+const mtimeOf = file => stat(file).then(one => one.mtimeMs, () => null)
+
+async function readLog(logFile, fs) {
+  try {
+    const kept = JSON.parse((await fs.readFile(logFile)).toString('utf8'))
+    return kept !== null && typeof kept === 'object' && !Array.isArray(kept) ? kept : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * The record of the board's own writes (a data file, so it survives a restart): per plan file the time the file got from the
+ * board's last write (`mtime`), the time it had from the last write that was not the board's (`partnerAt`), and the ids
+ * written. A write of the partner changes the time again, so it is told apart by the time alone.
+ */
+async function noteBoardWrite(logFile, file, before, ops, now, fs) {
+  const after = await mtimeOf(file)
+  if (after === null) return
+  const kept = await readLog(logFile, fs)
+  const last = kept[file]
+  const partnerAt = last !== undefined && last.mtime === before ? last.partnerAt : before
+  kept[file] = { mtime: after, partnerAt, ids: ops.map(one => one.id), at: now }
+  await writeAtomic(logFile, JSON.stringify(kept, null, 1), fs).catch(() => {})
+}
+
+/**
+ * The time of the plan file as the answered check reads it (src/plan.mjs `withPlanWork`, "the page written after the word"):
+ * a time that is the board's own last write is not an answer of the partner, so it reads as the time of the write before it;
+ * a later write of the partner changes the time and counts. `mtime`: the file's time now.
+ */
+export async function partnerPageAt(mtime, logFile, file, fs = files) {
+  if (mtime === null || mtime === undefined || logFile === null || logFile === undefined) return mtime ?? null
+  const last = (await readLog(logFile, fs))[file]
+  return last !== undefined && last.mtime === mtime ? (last.partnerAt ?? null) : mtime
 }

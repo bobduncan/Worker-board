@@ -232,7 +232,9 @@ The rules:
    `- hit P<n>: ...`, `- gap: ...`, `- overturned P<n>: ...`. The board writes the user's own decisions into the page itself, at once
    (2026-11-09, the user: "i submit things but i see not enough loaders"): on a card's **Yes, mine** or **Confirm** it
    writes the state `decided (you, <date>)` and then types `plan: P<n> confirmed` (the card is written; go on from it,
-   never write it again); on **Change**
+   never write it again, but commit and push the page: the board runs no git, so its lines are yours to commit, with the page
+   as the game's repository says; **on start,** a plan with uncommitted board lines is committed first, before anything else
+   you write into it); on **Change**
    `plan: P<n> change` with `Words:` (rewrite the answer from them, state `decided (you, <date>)`; when the words leave
    a choice open, ask it as a question with options instead). On an open card's **Get options from your partner** it
    types `plan: P<n> ask`: file that question now (rule 2), with pictures where it is about looks. Each question's
@@ -315,7 +317,8 @@ milestone, so every milestone not started yet begins with a goal "Architecture c
 when: the structure is checked against the later features, and what to prepare now is named, or a rebuild planned
 with its cost; serves P6); with none, only when a complex feature arrives. The user's marks are written by the board (`Mark: <mark> (you, <date>)`, a milestone as `Mark: must|later` and a
 `Milestone: M<n>` line) and come to you as `plan: features marked` with `Marks: F3 later; F5 must`: go on from them,
-never write them again. A feature they miss comes as `plan: feature add` with `Words:`: add it with the next F
+never write them again; run the "Plan changes" check for each marked feature and place it again (a changed mark can
+contradict its `Milestone:` line); commit and push the page. A feature they miss comes as `plan: feature add` with `Words:`: add it with the next F
 id, its marks and picture by the same rules. `plan: F<n> change` with `Words:`: rewrite that feature.
 
 **Tradeoffs** (the user, 2026-10-21: "?" is a fine answer, "I don't know yet"; but "if the change is very complex,
@@ -348,8 +351,9 @@ plan to make the vision real, in the strategy the user chooses first.
 - **The same plan twice.** Start from the plan as it stands and change only what a cause demands; every change names
   its cause. When nothing changed in the vision, the features, the standards or the strategy, keep the plan and write
   `Checked: (<date>) Nothing changed: the plan stands`.
-- **Plan changes.** When you write a change to a vision card, a feature's mark or milestone, or a standard, run the
-  check in the same turn. A change to a goal or milestone that exists gets, under it: `- Change: <move G12 from M2 |
+- **Plan changes.** When you write a change to a vision card, a feature's mark or milestone, or a standard, or when the board's
+  marks come (`plan: features marked`: the board wrote them, and a changed mark can contradict the feature's `Milestone:`
+  line, which the board leaves as it was), run the check in the same turn and place each marked feature again. A change to a goal or milestone that exists gets, under it: `- Change: <move G12 from M2 |
   merge G4, G6 | split G12 | drop G7 | rename <old title> | new>`, `- Cause: <the change that led to it, in a few
   words>`, and for a goal with steps `- Steps: <where they go: "B12 and B14 move here"; "B20 in progress: it stops
   first">`. Never propose a drop or merge that loses a step. A kept goal needs no Change line. Keep a Change line short:

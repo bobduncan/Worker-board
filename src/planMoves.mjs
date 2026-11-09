@@ -85,7 +85,7 @@ export async function planDecide(body, ctx) {
   const isAlone = (ctx.partner ?? null) === null && PLAN_DECISIONS.includes(body?.command)
   const checked = planMove(body, { ...ctx, partner: isAlone ? { name: '' } : ctx.partner, written: true })
   if (!checked.ok || checked.decision === null) return checked.ok ? planMove(body, { ...ctx, written: false }) : checked
-  const written = await writeDecisions(ctx.file ?? null, checked.decision, ctx.now ?? Date.now(), ctx.fs)
+  const written = await writeDecisions(ctx.file ?? null, checked.decision, ctx.now ?? Date.now(), ctx.fs, { log: ctx.writesFile ?? null })
   if (!written.ok) return refuse(written.status, written.why)
   if (isAlone) return { ok: true, result: { ...checked.result, note: NO_PARTNER_NOTE }, decision: checked.decision, words: null }
   return checked

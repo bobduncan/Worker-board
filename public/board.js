@@ -17266,15 +17266,17 @@ function focusNoteCard(view) {
 const visionUi = { page: null, at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, sent: [], startKind: null, startSent: false, startAgain: false, startWords: '', strategy: null, changingStrategy: false, onlyChanges: false }
 
 function visionData(state) {
-  return [state.plan ?? null, visionCan(state), state.goalsEdit?.whyNot ?? null, state.focus?.id ?? null, state.focus?.stage ?? null, (visionUi.sent ?? []).join(','), visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note, visionUi.startKind, visionUi.startSent, visionUi.startAgain, state.planStart ?? null, visionUi.strategy, visionUi.changingStrategy, visionUi.onlyChanges,
+  return [state.plan ?? null, visionCan(state), state.goalsEdit?.canWrite === true, state.goalsEdit?.whyNot ?? null, state.focus?.id ?? null, state.focus?.stage ?? null, (visionUi.sent ?? []).join(','), visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note, visionUi.startKind, visionUi.startSent, visionUi.startAgain, state.planStart ?? null, visionUi.strategy, visionUi.changingStrategy, visionUi.onlyChanges,
     // While the partner prepares something, the minute, for "sent 2 min ago"; and the partner's name.
     (state.plan?.working ?? []).length > 0 || (state.planStart ?? null) !== null ? Math.floor(state.readAt / MIN) : null, state.advisor?.name ?? null]
 }
 function redrawVision() {
   if (board !== null && board !== undefined) once('vision', visionData(board), () => drawVision(board))
 }
-// 2026-11-09: a decision is written by the board, so it needs no partner chat; a word to the partner is refused by the server without one.
-const visionCan = state => state.goalsEdit?.canWrite === true
+const visionCan = state => state.goalsEdit?.canWrite === true && (state.advisor ?? null) !== null
+// 2026-11-09: the person's own decisions (a confirm, a mark, a tradeoff, a not now, a good enough) are written by the board, so they need
+// no partner chat; the buttons of the judgment words keep `visionCan`. Set at each drawing of the tab.
+let visionDecides = false
 
 function visionButton(label, act, { id = null, className = '', isEnabled = true, title = '' } = {}) {
   const button = el('button', `vision-button ${className}`.trim(), label)
@@ -17329,6 +17331,7 @@ function drawVision(state) {
   // The first page shown with a plan stays, as if picked: the moves that follow (an answer, the arrow keys) read it.
   if (view !== null && visionUi.page === null) Object.assign(visionUi, { page: view.page, at: view.at })
   const can = visionCan(state)
+  visionDecides = state.goalsEdit?.canWrite === true
   // Why the buttons are off: a copy or the demo only shows; without a partner chat nobody takes the words.
   const off = state.goalsEdit?.whyNot ?? ((state.advisor ?? null) === null ? 'No partner chat is on the board: the setting advisor names none.' : 'This board only shows.')
   const main = el('main', 'vision')
@@ -17354,7 +17357,7 @@ function drawVision(state) {
     top.append(steps)
   }
   main.append(top)
-  if (!can) main.append(el('p', 'vision-note', `The buttons are off here. ${off}`))
+  if (!can) main.append(el('p', 'vision-note', `${visionDecides ? 'The buttons that ask your partner are off here.' : 'The buttons are off here.'} ${off}`))
   if (visionUi.note !== null) main.append(el('p', `vision-note${visionUi.note.isProblem ? ' is-problem' : ''}`, visionUi.note.text))
   if (view !== null && view.working.length > 0) main.append(visionWorking(view.working, state, can, off))
   // Decisions waiting (the user, 2026-10-21: "when in the flow is this supposed to happen"): a bar on every step.
@@ -17581,9 +17584,9 @@ function visionPage(view, can, off) {
           const busy = visionButton('Settling…', 'settle', { id: card.id, className: 'is-busy', isEnabled: false })
           busy.prepend(visionSpinner())
           buttons.append(busy)
-        } else buttons.append(visionButton('Good enough', 'settle', { id: card.id, isEnabled: can, title: off }))
+        } else buttons.append(visionButton('Good enough', 'settle', { id: card.id, isEnabled: visionDecides, title: off }))
       }
-      if (card.state === 'assumed' || card.source?.startsWith('from ')) buttons.append(visionButton(card.state === 'assumed' ? 'Confirm' : 'Yes, mine', 'confirm', { id: card.id, isEnabled: can, title: off }))
+      if (card.state === 'assumed' || card.source?.startsWith('from ')) buttons.append(visionButton(card.state === 'assumed' ? 'Confirm' : 'Yes, mine', 'confirm', { id: card.id, isEnabled: visionDecides, title: off }))
       buttons.append(visionButton('Change', 'change', { id: card.id, isEnabled: can, title: off }))
     }
     foot.append(buttons)
@@ -17607,7 +17610,7 @@ function featuresPage(view, can, off) {
   if (pending.length > 0) {
     const bar = el('div', 'vision-pending')
     bar.append(el('span', '', `${pending.length} mark${pending.length === 1 ? '' : 's'} not sent yet: ${pending.join(', ')}`), el('span', 'grow'),
-      visionButton('Undo', 'undo-marks'), visionButton('Send to your partner', 'send-marks', { className: 'is-primary', isEnabled: can && !view.busy.marks, title: view.busy.marks ? 'Your partner is still writing your last marks.' : off }))
+      visionButton('Undo', 'undo-marks'), visionButton('Send to your partner', 'send-marks', { className: 'is-primary', isEnabled: visionDecides && !view.busy.marks, title: view.busy.marks ? 'Your partner is still writing your last marks.' : off }))
     parts.push(bar)
   }
   const grid = el('div', 'vision-grid is-features')
@@ -17633,7 +17636,7 @@ function featuresPage(view, can, off) {
     if (card.source !== null) foot.append(el('p', 'vision-meta muted', `${card.isPending ? 'yours, not sent yet' : card.source}`))
     const chips = el('div', 'vision-marks')
     for (const [mark, label] of view.features.markOptions) {
-      const chip = visionButton(label, 'mark', { id: `${card.id}:${mark}`, className: `vision-mark is-${mark}`, isEnabled: can, title: off })
+      const chip = visionButton(label, 'mark', { id: `${card.id}:${mark}`, className: `vision-mark is-${mark}`, isEnabled: visionDecides, title: off })
       chip.setAttribute('aria-pressed', String(card.mark === mark))
       chip.title = mark === 'unsure' ? 'Not sure yet: the step waits for a mark' : label
       chips.append(chip)
@@ -17739,7 +17742,7 @@ function planPage(view, can, off) {
   if (pending.length > 0) {
     const bar = el('div', 'vision-pending')
     bar.append(el('span', '', `${pending.length} goal${pending.length === 1 ? '' : 's'} to confirm: ${pending.join(', ')}`), el('span', 'grow'),
-      visionButton('Undo', 'undo-confirms'), visionButton('Send to your partner', 'send-confirms', { className: 'is-primary', isEnabled: can && !view.busy.confirms, title: view.busy.confirms ? 'Your partner is still writing your last confirms.' : off }))
+      visionButton('Undo', 'undo-confirms'), visionButton('Send to your partner', 'send-confirms', { className: 'is-primary', isEnabled: visionDecides && !view.busy.confirms, title: view.busy.confirms ? 'Your partner is still writing your last confirms.' : off }))
     parts.push(bar)
   }
   for (const milestone of milestones) {
@@ -17879,9 +17882,9 @@ function planGoalCard(goal, can, off) {
   const meta = [goal.serves.length > 0 ? `serves ${goal.serves.join(', ')}` : null, goal.goal === null ? null : `is ${goal.goal} in your goal map`].filter(Boolean).join(' · ')
   if (meta !== '') body.append(el('p', 'vision-meta muted', meta))
   const buttons = el('div', 'vision-goal-buttons')
-  if (goal.state !== 'confirmed') buttons.append(visionButton(goal.state === 'confirming' ? 'Undo yes' : 'Yes', 'confirm-goal', { id: goal.id, className: goal.state === 'confirming' ? '' : 'is-primary', isEnabled: can, title: off }))
+  if (goal.state !== 'confirmed') buttons.append(visionButton(goal.state === 'confirming' ? 'Undo yes' : 'Yes', 'confirm-goal', { id: goal.id, className: goal.state === 'confirming' ? '' : 'is-primary', isEnabled: visionDecides, title: off }))
   buttons.append(visionButton('Change', 'change', { id: goal.id, isEnabled: can, title: off }))
-  if (!later && goal.state !== 'confirmed') buttons.append(visionButton('Not now', 'not-now', { id: goal.id, isEnabled: can, title: off }))
+  if (!later && goal.state !== 'confirmed') buttons.append(visionButton('Not now', 'not-now', { id: goal.id, isEnabled: visionDecides, title: off }))
   if (goal.slide >= 0) buttons.append(visionButton('Your partner asks →', 'goto', { id: String(goal.slide), className: 'is-primary' }))
   row.append(shown, body, buttons)
   return row
@@ -17921,7 +17924,7 @@ function tradeoffSection(view, can, off) {
     else if (card.prepare === null || card.prepare.advice === null) buttons.append(visionButton(view.busy.tradeoffs ? 'Your partner is weighing…' : 'Get the tradeoff', 'get-tradeoffs', { id: card.id, isEnabled: can && !view.busy.tradeoffs, title: off }))
     else {
       for (const [choice, label] of [['prepare', 'Prepare now'], ['wait', 'Wait']]) {
-        const button = visionButton(label, 'tradeoff-now', { id: `${card.id}:${choice}`, className: card.choice === choice ? 'is-chosen' : (card.choice === null && (choice === 'prepare') === (card.prepare.advice === 'now')) ? 'is-primary' : '', isEnabled: can, title: off })
+        const button = visionButton(label, 'tradeoff-now', { id: `${card.id}:${choice}`, className: card.choice === choice ? 'is-chosen' : (card.choice === null && (choice === 'prepare') === (card.prepare.advice === 'now')) ? 'is-primary' : '', isEnabled: visionDecides, title: off })
         button.setAttribute('aria-pressed', String(card.choice === choice))
         buttons.append(button)
       }
@@ -18051,7 +18054,7 @@ function standardsPage(view, can, off) {
   if (pending.length > 0) {
     const bar = el('div', 'vision-pending')
     bar.append(el('span', '', `${pending.length} standard${pending.length === 1 ? '' : 's'} to confirm: ${pending.join(', ')}`), el('span', 'grow'),
-      visionButton('Undo', 'undo-standard-confirms'), visionButton('Send to your partner', 'send-standard-confirms', { className: 'is-primary', isEnabled: can && !view.busy.standardConfirms, title: view.busy.standardConfirms ? 'Your partner is still writing your last confirms.' : off }))
+      visionButton('Undo', 'undo-standard-confirms'), visionButton('Send to your partner', 'send-standard-confirms', { className: 'is-primary', isEnabled: visionDecides && !view.busy.standardConfirms, title: view.busy.standardConfirms ? 'Your partner is still writing your last confirms.' : off }))
     parts.push(bar)
   }
   parts.push(el('p', 'vision-check', "The guard: the board keeps a task of a kind off its list until that kind's standard is confirmed and its foundation is built; the foundation's own tasks go first. Every task of the kind is checked against the bar."))
@@ -18067,7 +18070,7 @@ function standardsPage(view, can, off) {
     const meta = [card.source, card.kind === '' ? null : `kind ${card.kind}`, card.done === '' ? null : `definition of done: ${card.done}`].filter(one => one !== null).join(' · ')
     if (meta !== '') body.append(el('p', 'vision-meta muted', meta))
     const buttons = el('div', 'vision-goal-buttons')
-    if (card.state !== 'confirmed') buttons.append(visionButton(card.state === 'confirming' ? 'Unconfirm' : 'Confirm', 'confirm-standard', { id: card.id, isEnabled: can, title: off }))
+    if (card.state !== 'confirmed') buttons.append(visionButton(card.state === 'confirming' ? 'Unconfirm' : 'Confirm', 'confirm-standard', { id: card.id, isEnabled: visionDecides, title: off }))
     buttons.append(visionButton('Change', 'change', { id: card.id, isEnabled: can, title: off }))
     if (card.measureWork === 'waiting' || card.measureWork === 'working') {
       const busy = visionButton('Measuring…', 'measure', { id: card.id, className: 'is-busy', isEnabled: false })
@@ -18193,7 +18196,7 @@ function visionSlide(view, can, off) {
   } else if (slide.kind === 'decide') {
     if (slide.isSent) buttons.append(el('span', 'muted', 'Sent: your partner writes it.'))
     else {
-      for (const action of slide.actions) buttons.append(visionButton(action.label, action.act, { id: action.id, className: action.isPrimary ? 'is-primary' : '', isEnabled: can || action.act === 'page', title: off }))
+      for (const action of slide.actions) buttons.append(visionButton(action.label, action.act, { id: action.id, className: action.isPrimary ? 'is-primary' : '', isEnabled: ['page', 'confirm', 'confirm-standard-now', 'confirm-goal-now', 'tradeoff-now', 'mark-now'].includes(action.act) ? (action.act === 'page' || visionDecides) : can, title: off }))
       buttons.append(visionButton('Send my words', 'decide-words', { id: slide.id, isEnabled: can, title: off }))
     }
   } else if (slide.kind === 'open') {

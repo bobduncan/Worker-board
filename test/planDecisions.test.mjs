@@ -4,7 +4,7 @@
 // works on a COPY of a plan file in a temp folder; made-up names, except the real-case test, which copies the game's plan.
 import assert from 'node:assert/strict'
 import { request } from 'node:http'
-import { copyFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
@@ -13,6 +13,7 @@ import vm from 'node:vm'
 
 import { createBoard } from '../server.mjs'
 import { parsePlan, planState, withPlanWork } from '../src/plan.mjs'
+import { partnerPageAt } from '../src/planWrite.mjs'
 import { NO_PARTNER_NOTE, PLAN_DECISIONS, planDecide } from '../src/planMoves.mjs'
 import { openPage, reply, settle } from './pageHarness.mjs'
 import { asSent, build } from './partnerState.mjs'
@@ -120,16 +121,17 @@ async function until(check) {
   return false
 }
 
+const WROTE = " The board wrote the lines: do not write them again, and commit and push the page as the game's repository says."
 const CRLF = text => text.replace(/\n/g, '\r\n')
 const swap = (text, from, to) => {
   assert.ok(text.includes(from), from)
   return text.replace(from, to)
 }
 
-async function planFile(text = PAGE) {
+async function planFile(text = PAGE, encoding = 'latin1') {
   const dir = await mkdtemp(join(tmpdir(), 'plan-decide-'))
   const file = join(dir, 'product-plan.md')
-  await writeFile(file, text, 'latin1')
+  await writeFile(file, text, encoding)
   return { dir, file, text: async () => (await readFile(file)).toString('latin1') }
 }
 const ctxOf = file => ({ canWrite: true, partner: { name: 'Garden - Partner' }, job: 'J', file, now: NOW })
@@ -139,37 +141,38 @@ const wordOf = done => done.words.text.split('\n')
 const CASES = [
   { name: 'plan-confirm (Yes, mine / Confirm on an answer)', body: { command: 'plan-confirm', id: 'P7' }, bad: { command: 'plan-confirm', id: 'P9' },
     after: text => swap(text, '- State: assumed (partner, 2026-10-18) · revisit after the first bench', `- State: decided (you, ${DAY})`),
-    said: 'The person confirmed P7; it is written in the plan. Go on from it. Do not write it again.' },
+    said: 'The person confirmed P7; it is written in the plan. Go on from it.' + WROTE },
   { name: 'plan-settled (Good enough)', body: { command: 'plan-settled', id: 'P2' }, bad: { command: 'plan-settled', id: 'P9' },
     after: text => swap(text, '- State: decided (you, 2026-10-19)\n- Answer: warm wood', `- State: decided (you, 2026-10-19)\n- Settled: (you, ${DAY})\n- Answer: warm wood`),
-    said: 'The person marked P2 good enough; it is written in the plan. Go on from it. Do not write it again.' },
+    said: 'The person marked P2 good enough; it is written in the plan. Go on from it.' + WROTE },
   { name: 'plan-marks (Must, Later, No and a milestone)', body: { command: 'plan-marks', text: 'F3 must; F2 M1; F1 no' }, bad: { command: 'plan-marks', text: 'F3 must; F9 no' },
     after: text => swap(swap(swap(text, '- Mark: ?\n', `- Mark: must (you, ${DAY})\n`), '- Mark: later (package A, 2026-10-19)\n', `- Mark: must (you, ${DAY})\n- Milestone: M1 (you, ${DAY})\n`),
       '- Mark: must (from vision.md, 2026-10-10)\n', `- Mark: no (you, ${DAY})\n`),
-    said: 'The person marked these features; the marks are written in the plan. Go on from them. Do not write it again.' },
+    said: 'The person marked these features; the marks are written in the plan. Go on from them: run your "Plan changes" check for each marked feature and place it again (a changed mark moves its Milestone).' + WROTE },
   { name: 'plan-goals-confirm (Confirm goal now and Send)', body: { command: 'plan-goals-confirm', text: 'S1, S2' }, bad: { command: 'plan-goals-confirm', text: 'S1, S9' },
     // S2 is agreed by the partner already: it stays as it is.
     after: text => swap(text, '#### S1 · Two benches by the path\n\n- State: proposed', `#### S1 · Two benches by the path\n\n- State: confirmed (you, ${DAY})`),
-    said: 'The person confirmed these goals; they are written in the plan. Go on from them. Do not write it again.' },
+    said: 'The person confirmed these goals; they are written in the plan. Go on from them.' + WROTE },
   { name: 'plan-standards-confirm (Confirm standard now and Send)', body: { command: 'plan-standards-confirm', text: 'K2' }, bad: { command: 'plan-standards-confirm', text: 'K9' },
     after: text => swap(text, '### K2 · Paths\n\n- State: proposed', `### K2 · Paths\n\n- State: confirmed (you, ${DAY})`),
-    said: 'The person confirmed these standards; they are written in the plan. Go on from them. Do not write it again.' },
+    said: 'The person confirmed these standards; they are written in the plan. Go on from them.' + WROTE },
   { name: 'plan-tradeoff (Prepare now or Wait)', body: { command: 'plan-tradeoff', id: 'F2', text: 'prepare' }, bad: { command: 'plan-tradeoff', id: 'F9', text: 'wait' },
     after: text => swap(text, '- Prepare: now · a water layer · now: 2 days · later: every path again\n', `- Prepare: now · a water layer · now: 2 days · later: every path again\n- Tradeoff: prepare (you, ${DAY})\n`),
-    said: 'The person chose prepare for F2; it is written in the plan. Go on from it. Do not write it again.' },
+    said: 'The person chose prepare for F2; it is written in the plan. Go on from it.' + WROTE },
   { name: 'plan-not-now (a goal)', body: { command: 'plan-not-now', id: 'S3' }, bad: { command: 'plan-not-now', id: 'S9' },
     after: text => swap(text, '#### S3 · A pond with fish\n\n- State: proposed', `#### S3 · A pond with fish\n\n- State: not now (you, ${DAY})`),
-    said: 'The person put S3 on not now; it is written in the plan. Go on from it. Do not write it again.' },
+    said: 'The person put S3 on not now; it is written in the plan. Go on from it.' + WROTE },
 ]
 
 for (const one of CASES) {
-  for (const [label, wrap] of [['LF', text => text], ['CRLF', CRLF]]) {
+  // The file as latin1 bytes (the dots are the lone latin1 byte), CRLF, and as UTF-8 (the dots are two bytes, as the real plan has them).
+  for (const [label, wrap, enc] of [['LF', text => text, 'latin1'], ['CRLF', CRLF, 'latin1'], ['UTF-8', text => text, 'utf8']]) {
     test(`${one.name}: the right line is written, every other byte stays (${label}), the word says it is written`, async () => {
-      const plan = await planFile(wrap(PAGE))
+      const plan = await planFile(wrap(PAGE), enc)
       try {
         const done = await planDecide(one.body, ctxOf(plan.file))
         assert.equal(done.ok, true)
-        assert.equal(await plan.text(), wrap(one.after(PAGE)))
+        assert.equal(await plan.text(), Buffer.from(wrap(one.after(PAGE)), enc).toString('latin1'))
         // The word to the partner still goes out: its first line as before, then that the decision is written.
         const lines = wordOf(done)
         assert.equal(lines[0].startsWith('plan: '), true)
@@ -489,9 +492,99 @@ test('the page, clicked, with no partner chat: Confirm is enabled, writes the an
     assert.match(await plan.text(), /- State: decided \(you, 2026-11-09\)/)
     assert.equal(page.all('[data-vision-act="confirm"][data-vision-id="P7"]').length, 0)
     assert.equal(page.text('#view-vision').includes(NO_PARTNER_NOTE), true)
+    // The judgment buttons need a partner and are off; Good enough is a decision and is on.
+    await page.click('[data-vision-act="page"][data-vision-id="vision"]')
+    assert.equal(page.all('[data-vision-act="deeper"]').length > 0 && page.all('[data-vision-act="deeper"]').every(one => one.disabled), true)
+    assert.equal(page.all('[data-vision-act="settle"]').length > 0 && page.all('[data-vision-act="settle"]').every(one => !one.disabled), true)
   } finally {
     await settle(10)
     await page.close()
     await rm(plan.dir, { recursive: true, force: true })
+  }
+})
+
+test('the board own write is not the partner answer: a pending word stays pending after a decision; a later write of the partner answers it', async () => {
+  const plan = await planFile()
+  const log = join(plan.dir, 'plan-writes.json')
+  const ctx = { ...ctxOf(plan.file), writesFile: log }
+  try {
+    const old = new Date(Date.now() - 3_600_000)
+    await utimes(plan.file, old, old)
+    const wordAt = Date.now() - 1_800_000
+    const sent = [{ command: 'plan-change', about: 'P7', at: wordAt, state: 'delivered' }, { command: 'plan-check', about: 'plan', at: wordAt, state: 'delivered' }]
+    const pending = async () => {
+      const at = (await stat(plan.file)).mtimeMs
+      const given = withPlanWork(planState(await plan.text(), [], 'p.md'), sent, await partnerPageAt(at, log, plan.file), Date.now())
+      return given.working.map(one => one.command).sort()
+    }
+    assert.deepEqual(await pending(), ['plan-change', 'plan-check'])
+    // Two decisions: the file is newer than the words, and still no answer of the partner.
+    assert.equal((await planDecide({ command: 'plan-confirm', id: 'P7' }, ctx)).ok, true)
+    assert.equal((await planDecide({ command: 'plan-goals-confirm', text: 'S1' }, ctx)).ok, true)
+    assert.equal((await stat(plan.file)).mtimeMs > wordAt, true)
+    assert.deepEqual(await pending(), ['plan-change', 'plan-check'])
+    const kept = JSON.parse(await readFile(log, 'utf8'))[plan.file]
+    assert.deepEqual(kept.ids, ['S1'])
+    assert.equal(kept.partnerAt, old.getTime())
+    // The partner writes the page later: the words are answered, and a decision after that does not bring them back.
+    await writeFile(plan.file, `${await plan.text()}- Advice: solid.
+`, 'latin1')
+    const later = new Date(Date.now() + 60_000)
+    await utimes(plan.file, later, later)
+    assert.deepEqual(await pending(), [])
+    assert.equal((await planDecide({ command: 'plan-standards-confirm', text: 'K2' }, ctx)).ok, true)
+    assert.deepEqual(await pending(), [])
+  } finally {
+    await rm(plan.dir, { recursive: true, force: true })
+  }
+})
+
+test('an item ends where plan.mjs ends it: a heading inside an answer or a goal that is not an item stays inside it', async () => {
+  const text = [
+    '# G', '', '## P7 · The road', '', '### Notes', '', '- State: assumed (partner, 2026-10-18)', '- Point: **First** a bench', '',
+    '## Goals preset', '', '### M1 · A corner', '', '#### S1 · Benches', '', '##### Notes', '', '- State: proposed', '- Done when: x', '',
+  ].join(String.fromCharCode(10))
+  const plan = await planFile(text)
+  try {
+    const before = parsePlan(text)
+    assert.deepEqual([before.answers[0].state, before.milestones[0].goals[0].state], ['assumed', 'proposed'])
+    assert.equal((await planDecide({ command: 'plan-confirm', id: 'P7' }, ctxOf(plan.file))).ok, true)
+    assert.equal((await planDecide({ command: 'plan-goals-confirm', text: 'S1' }, ctxOf(plan.file))).ok, true)
+    const after = await plan.text()
+    const read = parsePlan(after)
+    assert.deepEqual([read.answers[0].state, read.milestones[0].goals[0].state], ['decided', 'confirmed'])
+    assert.equal(after.split('- State:').length - 1, 2)
+  } finally {
+    await rm(plan.dir, { recursive: true, force: true })
+  }
+})
+
+test('the page, clicked: a server that says ok but did not write leaves the slide where it is (the plan decides, not page memory)', async () => {
+  const GOALS = ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '    Done when: you judge a fight fun', ''].join(String.fromCharCode(10))
+  const base = asSent({ ...build([], undefined, GOALS), goalsEdit: { canWrite: true } })
+  const noP5 = PAGE.replace(/## P5 [^]*?(?=## P7)/, '')
+  const opened = []
+  const plans = []
+  try {
+    // The confirm of an assumed answer, then the tradeoff (the answer decided already).
+    for (const [text, first, button] of [[noP5, 'interview', '[data-vision-act="confirm"][data-vision-id="P7"]'],
+      [noP5.replace('- State: assumed (partner, 2026-10-18) · revisit after the first bench', '- State: decided (you, 2026-10-18)'), 'interview', '[data-vision-act="tradeoff-now"][data-vision-id="F2:wait"]']]) {
+      const plan = await planFile(text)
+      plans.push(plan)
+      const page = await openPage({ state: async () => ({ ...base, plan: planState(await plan.text(), [], 'docs/product-plan.md') }), answers: async () => reply({ said: 'm1' }), now: NOW + 5000 })
+      opened.push(page)
+      await page.click('[data-tab="vision"]')
+      if (first !== null) await page.click(`[data-vision-act="page"][data-vision-id="${first}"]`)
+      assert.equal(page.all(button).length, 1, button)
+      await page.click(button)
+      assert.equal(page.sent('/api/plan').length, 1)
+      await settle(20)
+      if (first !== null) await page.click(`[data-vision-act="page"][data-vision-id="${first}"]`)
+      assert.equal(page.all(button).length, 1, `${button} stays: the plan was not written`)
+    }
+  } finally {
+    await settle(10)
+    for (const page of opened) await page.close()
+    for (const plan of plans) await rm(plan.dir, { recursive: true, force: true })
   }
 })

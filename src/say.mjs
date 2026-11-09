@@ -225,13 +225,13 @@ export function planWords(command, { to, id, words = null, job, written = false 
   const done = {
     'plan-confirm': `The person confirmed ${id}; it is written in the plan. Go on from it.`,
     'plan-settled': `The person marked ${id} good enough; it is written in the plan. Go on from it.`,
-    'plan-marks': 'The person marked these features; the marks are written in the plan. Go on from them.',
+    'plan-marks': 'The person marked these features; the marks are written in the plan. Go on from them: run your "Plan changes" check for each marked feature and place it again (a changed mark moves its Milestone).',
     'plan-goals-confirm': 'The person confirmed these goals; they are written in the plan. Go on from them.',
     'plan-standards-confirm': 'The person confirmed these standards; they are written in the plan. Go on from them.',
     'plan-tradeoff': `The person chose ${said} for ${id}; it is written in the plan. Go on from it.`,
     'plan-not-now': `The person put ${id} on not now; it is written in the plan. Go on from it.`,
   }[command]
-  const wrote = written && done !== undefined ? [`${done} Do not write it again.`] : []
+  const wrote = written && done !== undefined ? [`${done} The board wrote the lines: do not write them again, and commit and push the page as the game's repository says.`] : []
   const head = {
     // The trial's gap 1 (2026-10-24): the empty Vision tab's start slide, what the person builds and their words: the
     // interview begins, with P1 partly answered.
