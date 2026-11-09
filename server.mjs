@@ -983,6 +983,8 @@ async function main(args) {
     // 2026-11-09 (reactive board, brief A): the person's own decisions are written into the plan file first, at once; the word then says so.
     const done = await planDecide(body, { canWrite: writesMap, partner: state.advisor ?? null, job: join(HERE, 'roles', 'partner.md'), file: productPlanFile(config), now: clock() })
     if (!done.ok) return done
+    // Written, and no partner chat to tell: the result carries the quiet note for the page.
+    if (done.words === null) return { ok: true, result: done.result }
     return toPartner(done.words, done.result, state)
   }
   const focusNow = async body => {

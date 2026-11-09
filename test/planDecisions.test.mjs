@@ -13,7 +13,9 @@ import vm from 'node:vm'
 
 import { createBoard } from '../server.mjs'
 import { parsePlan, planState, withPlanWork } from '../src/plan.mjs'
-import { PLAN_DECISIONS, planDecide } from '../src/planMoves.mjs'
+import { NO_PARTNER_NOTE, PLAN_DECISIONS, planDecide } from '../src/planMoves.mjs'
+import { openPage, reply, settle } from './pageHarness.mjs'
+import { asSent, build } from './partnerState.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
@@ -24,7 +26,8 @@ const visionView = (...args) => JSON.parse(JSON.stringify(made.visionView(...arg
 
 const NOW = new Date(2026, 10, 9, 12, 0).getTime()
 const DAY = '2026-11-09'
-const REAL = 'C:/Web/lava-tactics-project/lava-tactics/docs/product-plan.md'
+// A snapshot of the game's own plan (2026-11-09), bytes as they are: CRLF, UTF-8 dots and one lone latin1 dot. The live file is never read.
+const REAL = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'product-plan-2026-11-09.md')
 
 const PAGE = `# Garden: the product plan
 
@@ -106,6 +109,16 @@ Pitch: A garden you can sit in.
 - Count: 3, from S2
 - Bar: gravel, lit at night
 `
+
+/** The page and the file settle after real file I/O: wait (at most about 2 s) until the check holds. */
+async function until(check) {
+  for (let turn = 0; turn < 100; turn += 1) {
+    if (await check()) return true
+    await settle(2)
+    await new Promise(done => setTimeout(done, 20))
+  }
+  return false
+}
 
 const CRLF = text => text.replace(/\n/g, '\r\n')
 const swap = (text, from, to) => {
@@ -242,7 +255,7 @@ test('the judgment words stay words: nothing is written, the word does not claim
     assert.deepEqual(PLAN_DECISIONS.length, 7)
     // Refusals before any write: a board that only shows, no partner.
     assert.equal((await planDecide({ command: 'plan-confirm', id: 'P7' }, { ...ctxOf(plan.file), canWrite: false })).status, 403)
-    assert.equal((await planDecide({ command: 'plan-confirm', id: 'P7' }, { ...ctxOf(plan.file), partner: null })).status, 409)
+    assert.equal((await planDecide({ command: 'plan-deeper', id: 'P7' }, { ...ctxOf(plan.file), partner: null })).status, 409)
     assert.equal((await planDecide({ command: 'plan-confirm', id: 'P7' }, { ...ctxOf(null) })).status, 409)
     assert.equal((await planDecide({ command: 'plan-confirm', id: 'P7' }, ctxOf(join(plan.dir, 'gone.md')))).status, 409)
     assert.equal(await plan.text(), PAGE)
@@ -321,9 +334,12 @@ test('the route: POST /api/plan writes the decision first, then the word goes to
   assert.equal(typed[0].words.text.split(String.fromCharCode(10))[0], 'plan: P7 confirmed')
 })
 
-test('the real case: the game\'s own plan, copied: a Confirm, a mark and a Not now are written and read back as decided, marked and later', async t => {
-  const real = await stat(REAL).then(() => true, () => false)
-  if (!real) return t.skip('the game\'s plan is not on this machine')
+test('the real case: a snapshot of the game own plan, copied: a Confirm, a mark and a Not now are written and read back as decided, marked and later', async () => {
+  const snapshot = await readFile(REAL)
+  assert.equal(snapshot.includes(Buffer.from([0x0d, 0x0a])), true)
+  assert.equal(snapshot.includes(Buffer.from([0xc2, 0xb7])), true)
+  // The lone latin1 dot: a 0xB7 that no 0xC2 precedes.
+  assert.equal(snapshot.some((byte, at) => byte === 0xb7 && snapshot[at - 1] !== 0xc2), true)
   const dir = await mkdtemp(join(tmpdir(), 'plan-real-'))
   const file = join(dir, 'product-plan.md')
   try {
@@ -371,11 +387,111 @@ test('the page keeps no memory of these decisions: their clicks do not mark a sl
     assert.ok(at > 0, act)
     return acts.slice(at, acts.indexOf('} else if (', at + 10))
   }
-  for (const act of ['confirm', 'tradeoff-now', 'not-now', 'send-marks', 'send-confirms', 'send-standard-confirms', 'settle']) {
+  // The decisions the page test above clicks are checked there; these need slides or cards that test does not open.
+  for (const act of ['not-now', 'send-marks', 'send-confirms', 'send-standard-confirms', 'settle']) {
     assert.equal(clickOf(act).includes('visionUi.sent'), false, act)
     assert.equal(clickOf(act).includes('visionUi.notNow'), false, act)
   }
   // mark-now, confirm-standard-now and confirm-goal-now share one branch.
   const now = acts.slice(acts.indexOf("['mark-now', 'confirm-standard-now', 'confirm-goal-now']"))
   assert.equal(now.slice(0, now.indexOf('} else if (')).includes('visionUi.sent'), false)
+})
+
+test('no partner chat on the board: the decision is written, no word goes out, the result says so quietly; a board that only shows still refuses', async () => {
+  const plan = await planFile()
+  try {
+    const done = await planDecide({ command: 'plan-confirm', id: 'P7' }, { ...ctxOf(plan.file), partner: null })
+    assert.equal(done.ok, true)
+    assert.equal(done.words, null)
+    assert.equal(done.result.note, NO_PARTNER_NOTE)
+    assert.equal(NO_PARTNER_NOTE, 'Written. No partner chat on the board: it reads it when one starts.')
+    assert.equal(await plan.text(), swap(PAGE, '- State: assumed (partner, 2026-10-18) · revisit after the first bench', `- State: decided (you, ${DAY})`))
+    // A word to the partner has nobody to go to: still refused, as before.
+    assert.equal((await planDecide({ command: 'plan-change', id: 'P7', text: 'x' }, { ...ctxOf(plan.file), partner: null })).status, 409)
+    // Only showing refuses before writing.
+    const before = await plan.text()
+    assert.equal((await planDecide({ command: 'plan-goals-confirm', text: 'S1' }, { ...ctxOf(plan.file), partner: null, canWrite: false })).status, 403)
+    assert.equal(await plan.text(), before)
+    // An id that is not there is refused with nothing written, alone or not.
+    assert.equal((await planDecide({ command: 'plan-goals-confirm', text: 'S9' }, { ...ctxOf(plan.file), partner: null })).status, 404)
+    assert.equal(await plan.text(), before)
+  } finally {
+    await rm(plan.dir, { recursive: true, force: true })
+  }
+})
+
+test('the page, clicked: Confirm writes the answer, the slide stays gone with no "preparing" text after a fresh state and a fresh load', async () => {
+  // P5 (open) left out, so the Interview opens on the decision itself.
+  const text = PAGE.replace(/## P5 [^]*?(?=## P7)/, '')
+  const plan = await planFile(text)
+  const GOALS = ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '    Done when: you judge a fight fun', ''].join(String.fromCharCode(10))
+  const base = asSent({ ...build([], undefined, GOALS), goalsEdit: { canWrite: true } })
+  const typed = []
+  // What the server gives: the plan read from the file now, with the words the board has typed (the outbox).
+  const state = async () => ({ ...base, plan: withPlanWork(planState(await plan.text(), [], 'docs/product-plan.md'), typed, NOW - 60_000, NOW + 5000) })
+  const answers = async request => {
+    if (request.url !== '/api/plan') return reply({})
+    const done = await planDecide(request.body, ctxOf(plan.file))
+    if (!done.ok) return reply(done.why, done.status)
+    typed.push({ command: request.body.command, about: done.words.about, at: NOW + 1000, state: 'waiting' })
+    return reply({ ...done.result, said: 'm1' })
+  }
+  const opened = []
+  try {
+    for (const round of [1, 2]) {
+      const page = await openPage({ state, answers, now: NOW + 5000 })
+      opened.push(page)
+      await page.click('[data-tab="vision"]')
+      const confirm = '[data-vision-act="confirm"][data-vision-id="P7"]'
+      if (round === 1) {
+        assert.equal(page.all(confirm).length, 1)
+        await page.click(confirm)
+        await until(() => page.all(confirm).length === 0)
+        assert.deepEqual(page.sent('/api/plan').map(one => one.body), [{ command: 'plan-confirm', id: 'P7' }])
+        assert.match(await plan.text(), /- State: decided \(you, 2026-11-09\)/)
+        // The Interview goes on to the next decisions; each click is written, and its button is gone at once.
+        for (const [act, id, line] of [['tradeoff-now', 'F2:wait', /- Tradeoff: wait \(you, 2026-11-09\)/], ['confirm-standard-now', 'K2', /### K2 · Paths[^\x00]*?- State: confirmed/], ['confirm-goal-now', 'S1', /#### S1 [^\x00]*?- State: confirmed \(you, 2026-11-09\)/]]) {
+          const button = `[data-vision-act="${act}"][data-vision-id="${id}"]`
+          await page.click('[data-vision-act="page"][data-vision-id="interview"]')
+          assert.equal(page.all(button).length, 1, `${button}: ${page.text('#view-vision').slice(0, 600)}`)
+          await page.click(button)
+          await until(async () => line.test(await plan.text()) && page.all(button).length === 0)
+          assert.match(await plan.text(), line)
+          assert.equal(page.all(button).length, 0, button)
+        }
+      }
+      // Gone after the state the server gives now, and on a fresh load of the page (round 2): no page memory is kept.
+      assert.equal(page.all(confirm).length, 0)
+      assert.equal(/preparing/i.test(page.text('#view-vision')), false)
+      assert.equal(page.all('.vision-working-line').length, 0)
+    }
+  } finally {
+    await settle(10)
+    for (const page of opened) await page.close()
+    await rm(plan.dir, { recursive: true, force: true })
+  }
+})
+
+test('the page, clicked, with no partner chat: Confirm is enabled, writes the answer and says so quietly', async () => {
+  const plan = await planFile(PAGE.replace(/## P5 [^]*?(?=## P7)/, ''))
+  const GOALS = ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '    Done when: you judge a fight fun', ''].join(String.fromCharCode(10))
+  const base = asSent({ ...build([], undefined, GOALS), goalsEdit: { canWrite: true } })
+  const state = async () => ({ ...base, advisor: null, plan: planState(await plan.text(), [], 'docs/product-plan.md') })
+  const answers = async request => {
+    const done = await planDecide(request.body, { ...ctxOf(plan.file), partner: null })
+    return done.ok ? reply(done.result) : reply(done.why, done.status)
+  }
+  const page = await openPage({ state, answers, now: NOW + 5000 })
+  try {
+    await page.click('[data-tab="vision"]')
+    await page.click('[data-vision-act="confirm"][data-vision-id="P7"]')
+    await until(() => page.text('#view-vision').includes(NO_PARTNER_NOTE))
+    assert.match(await plan.text(), /- State: decided \(you, 2026-11-09\)/)
+    assert.equal(page.all('[data-vision-act="confirm"][data-vision-id="P7"]').length, 0)
+    assert.equal(page.text('#view-vision').includes(NO_PARTNER_NOTE), true)
+  } finally {
+    await settle(10)
+    await page.close()
+    await rm(plan.dir, { recursive: true, force: true })
+  }
 })

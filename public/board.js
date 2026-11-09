@@ -17273,7 +17273,8 @@ function visionData(state) {
 function redrawVision() {
   if (board !== null && board !== undefined) once('vision', visionData(board), () => drawVision(board))
 }
-const visionCan = state => state.goalsEdit?.canWrite === true && (state.advisor ?? null) !== null
+// 2026-11-09: a decision is written by the board, so it needs no partner chat; a word to the partner is refused by the server without one.
+const visionCan = state => state.goalsEdit?.canWrite === true
 
 function visionButton(label, act, { id = null, className = '', isEnabled = true, title = '' } = {}) {
   const button = el('button', `vision-button ${className}`.trim(), label)
@@ -18277,8 +18278,9 @@ async function visionSend(url, body, done) {
     const answer = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(body) })
     ok = answer.ok
     if (answer.ok) {
-      visionUi.note = { isProblem: false, text: done }
-      showPaste((await answer.json().catch(() => null))?.paste ?? null)
+      const given = await answer.json().catch(() => null)
+      visionUi.note = { isProblem: false, text: typeof given?.note === 'string' ? given.note : done }
+      showPaste(given?.paste ?? null)
     } else visionUi.note = { isProblem: true, text: `Not done: ${(await answer.text()).trim() || `refused (${answer.status})`}` }
   } catch {
     visionUi.note = { isProblem: true, text: 'Not done: the board\'s server does not answer.' }

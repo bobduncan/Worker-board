@@ -80,9 +80,16 @@ export function planMove(body, ctx) {
  * for the partner, which says the decision is written. A judgment word (Go deeper, Change, ...) writes nothing.
  */
 export async function planDecide(body, ctx) {
-  const checked = planMove(body, { ...ctx, written: true })
+  // 2026-11-09: the person's decision is written even with no partner chat on the board (code writes it); only a board that
+  // merely shows (`canWrite` false) refuses. Then there is no word: the partner reads the plan when it starts.
+  const isAlone = (ctx.partner ?? null) === null && PLAN_DECISIONS.includes(body?.command)
+  const checked = planMove(body, { ...ctx, partner: isAlone ? { name: '' } : ctx.partner, written: true })
   if (!checked.ok || checked.decision === null) return checked.ok ? planMove(body, { ...ctx, written: false }) : checked
   const written = await writeDecisions(ctx.file ?? null, checked.decision, ctx.now ?? Date.now(), ctx.fs)
   if (!written.ok) return refuse(written.status, written.why)
+  if (isAlone) return { ok: true, result: { ...checked.result, note: NO_PARTNER_NOTE }, decision: checked.decision, words: null }
   return checked
 }
+
+/** What the page shows quietly when the decision is written and no partner chat is there to be told. */
+export const NO_PARTNER_NOTE = 'Written. No partner chat on the board: it reads it when one starts.'
