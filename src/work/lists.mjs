@@ -83,14 +83,15 @@ export function storeWaits(work, prefix = '') {
   // Partner answers, the review's findings: a blocking ask routed to the partner holds its chat for the partner, not for
   // the person (`partner`: per chat the ids of such asks).
   const forPartner = new Map()
-  const forYou = open.filter(item => valueOf(item, 'Via') !== 'refine' && !isRoutedToPartner(item))
+  // Rule 15: an ask held for the person's words (Route asker) asks nobody and blocks nobody.
+  const forYou = open.filter(item => valueOf(item, 'Via') !== 'refine' && !isRoutedToPartner(item) && valueOf(item, 'Route') !== 'asker')
     .sort((a, b) => Number(valueOf(a, 'Id').slice(1)) - Number(valueOf(b, 'Id').slice(1)))
   for (const item of open.filter(one => valueOf(one, 'Blocking') === 'yes' && isRoutedToPartner(one))) {
     const name = plainName(valueOf(item, 'Owner'), prefix)
     forPartner.set(name, [...(forPartner.get(name) ?? []), valueOf(item, 'Id')])
   }
   return {
-    blocking: new Set(open.filter(item => valueOf(item, 'Blocking') === 'yes' && !isRoutedToPartner(item)).map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    blocking: new Set(open.filter(item => valueOf(item, 'Blocking') === 'yes' && !isRoutedToPartner(item) && valueOf(item, 'Route') !== 'asker').map(item => plainName(valueOf(item, 'Owner'), prefix))),
     partner: forPartner,
     form: new Set(open.filter(item => valueOf(item, 'Via') === 'form').map(item => plainName(valueOf(item, 'Owner'), prefix))),
     // B280: the chats with an open ask of their own for the person, blocking or not; a refine question is the refine's.

@@ -72,7 +72,7 @@ import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
-import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
+import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, keepGoalWords, setGoalSteps } from './src/goalsWrite.mjs'
 import { parseGoals } from './src/goals.mjs'
 import { activityFor, askToStep, missingToSteps, stepMadeFrom } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planDecide } from './src/planMoves.mjs'
@@ -1634,7 +1634,8 @@ async function main(args) {
    * back). Only to a chat the board shows; copied without the Workers mod. What to paste, or null.
    */
   const sendWakes = async done => {
-    const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []
+    // Rule 15: and `wakes`, a word to each asking chat whose ask the person's words held (work `words`), or whose hold ended.
+    const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null, ...(done.result.wakes ?? [])].filter(one => one !== null) : []
     let paste = null
     for (const wake of isShowOnly ? [] : wakes) {
       const state = await readState()
@@ -1669,6 +1670,12 @@ async function main(args) {
       waitOnMinutes: config.waitOnMinutes,
       // Focus 2: the partner's drafts of the focus (the work tool's definition-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
+      // Rule 15: the person's words from any chat, kept under the goal as a point of its Your words (the work tool's words of a G<n>).
+      goalWords: async body => {
+        const done = await keepGoalWords(body, { canWrite: writesMap, file: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() })
+        readState.reset()
+        return done
+      },
       // B358: the partner's re-check of a goal (the work tool's checked of a G<n>), written into the goal map.
       goalChecked: async body => {
         const done = await goalChecked(body, {
@@ -2670,7 +2677,7 @@ async function main(args) {
     }
     // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
     // And the partner's hand-over of a look that Autopilot keeps for the recap: the worker its blocking ask held goes on (`wake`).
-    if (body?.action === 'partner-answer' || body?.action === 'escalate') await sendWakes(done)
+    if (body?.action === 'partner-answer' || body?.action === 'escalate' || body?.action === 'words') await sendWakes(done)
     // T8.5: a worker on the sequence: its turn end is the trigger. The board decides once and answers the envelope (or, while
     // its set is on its way, that it comes with a take); the mod clears only when an envelope says so. No pull line.
     if (body?.action === 'turn-ended' && done.ok && await sequenceLane(checked.chat, mod) !== null) {
@@ -3267,9 +3274,14 @@ async function main(args) {
       const stall = callStall(asked.action, session)
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
       try {
-        const { checked, state } = await checkFresh(body)
-        noteRefused(body, checked)
-        noteMod(body, checked)
+        const { checked: known, state } = await checkFresh(body)
+        // Rule 15 (2026-11-09): a side chat of the app (no chat of the list: the board shows no lane for its session) may give the
+        // person's words, and only those: the one call the bridge takes from a chat it does not show (the work API gives it the
+        // role `side`, which may do nothing else). Its name is the title its mod sends.
+        const isSide = !known.ok && known.status === 409 && asked.action === 'words' && typeof body?.chat === 'string' && body.chat.trim() !== ''
+        const checked = isSide ? { ok: true, chat: body.chat.trim().slice(0, 80), isSide: true } : known
+        noteRefused(body, known)
+        noteMod(body, known)
         if (!checked.ok) return checked
         stall.by(checked.chat)
         if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
@@ -3997,6 +4009,14 @@ async function main(args) {
         await loops.run('goal-demo', () => demoNow(state))
         // T17.1: a next try of the recap's round that turned done is told to the partner (once per step).
         await loops.run('recap-round', () => recapRoundNow(state))
+        // Rule 15: a hold the asking chat left alone for 60 minutes of the board's running time ends: the ask goes back to its route. On its
+        // own, so a failure stops no delivery; the word to the chat is the normal wake.
+        await loops.run('holds-ended', async () => {
+          const ended = await workAction({ action: 'holds-ended', gaps: state.gaps ?? [] }, 'server')
+          if (!ended.ok) throw new Error(ended.why ?? 'holds-ended was refused')
+          await sendWakes(ended)
+          if (ended.result.changed === true) readState.reset()
+        })
         // B404: a step that has stood on "check pending" for more than 2 minutes (a restart right after a report ended
         // its check) is checked again; the checks that run now are skipped.
         await loops.run('stuck-checks', async () => {

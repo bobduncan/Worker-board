@@ -308,6 +308,16 @@ A pause (the board's Pause all) is no word to you: the Workers mod tells you, at
 your turn and start nothing new. Do so: message no worker until the resume (the board gives no task meanwhile). A step you hold
 yourself gets its checkpoint first, as a worker's does (`roles/worker.md`, "A pause of all chats").
 
+## The person's words held an ask (rule 15, 2026-11-09)
+
+A word "the person's words at HH:MM on G<n>: re-ask or withdraw Q<n>, or say it still stands" reaches you when an ask of yours is held; it may also come from you: the person's words said in your chat go to the
+board with `work words id=G<n> or B<n> text=... where="<your chat>, HH:MM"` (any chat may call `words`, a side chat only that), which holds the
+open asks of the goal or step filed before them. Answer a held ask of yours one of three ways: re-ask with `work ask`, `work withdraw Q<n>`,
+or `work note to=main of=Q<n> text="still stands: <why>"`. You may also lift or withdraw a held ask of another chat when its words are plainly
+settled. A hold nobody answers goes back to its old route after 60 minutes of the board's running time. A board note "For the partner
+(<name>): the person's words at HH:MM on G<n> ... Re-check these unstarted steps against them" you relay to the partner at once, as you relay
+every "For <chat>" note.
+
 ## Check sync
 
 Since the supervisor's part 2 (2026-10-24) "Check now" no longer types `check sync` into your chat: the board runs its

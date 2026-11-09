@@ -9243,6 +9243,34 @@ function taskPart(title, nodes) {
   return part
 }
 
+// heldasks:start
+/**
+ * Rule 15 (2026-11-09): an ask held for the person's words (Route asker) stands on no list of the person's, but its step's window shows
+ * it with its hold line, so nothing disappears without a trace: `[{ id, title, text }]`, `text` the line the window draws.
+ */
+function heldAskRows(item) {
+  return (item?.heldAsks ?? []).map(one => ({ id: one.id, title: one.title, text: `${one.id}: ${one.title} · ${one.line}` }))
+}
+
+/**
+ * Rule 15: the person's words kept under a goal (its "Your words" points, `{ at, text }`, `at` "2026-11-09 16:20", `text` the words with
+ * "(in <chat>)" at its end), each as one quiet line: `Your words, 16:20 in chat 2: "<words>"`.
+ */
+function goalWordsRows(words) {
+  return (words ?? []).filter(one => typeof one?.text === 'string' && one.text.trim() !== '').map(one => {
+    const found = one.text.match(/^([\s\S]*?)\s*\(in ([^()]*)\)$/)
+    const minute = String(one.at ?? '').match(/(\d\d:\d\d)\s*$/)?.[1] ?? null
+    return `Your words${minute === null ? '' : `, ${minute}`}${found === null ? '' : ` in ${found[2]}`}: "${found === null ? one.text : found[1]}"`
+  })
+}
+// heldasks:end
+
+/** Rule 15: the step window's quiet part for the asks held for the person's words; nothing without any. */
+function heldAsksNodes(item) {
+  const rows = heldAskRows(item)
+  return rows.length === 0 ? [] : [taskPart('Held for your words', rows.map(row => el('p', 'muted task-held', row.text)))]
+}
+
 /** B701: where a step stands, in a line, for a Summary that has no check to tell it. */
 function taskStanding(item) {
   const owner = item.owner ?? 'its worker'
@@ -10119,7 +10147,7 @@ function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, str
     nav.append(button)
   }
   const content = el('div', 'task-body')
-  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus), [storyNode(item, state), statusNode(item, state)]))
+  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus), [storyNode(item, state), statusNode(item, state)]), ...heldAsksNodes(item))
   else if (tab === 'checks') content.append(...taskChecks(item, strip))
   else if (tab === 'history') {
     const list = el('ul', 'task-history')
@@ -12242,6 +12270,8 @@ function drawGoals(state) {
       summary.append(toggle)
     }
     const parts = [head, summary, goalsLinesOpen && lines.length > 0 ? fill(el('ul', 'goals-frame-lines'), lines.map(line => el('li', '', line))) : null]
+    // Rule 15: the person's words said in any chat, one quiet line each, with the chat and the time.
+    for (const words of goalWordsRows(focus.yourWords)) parts.push(el('p', 'muted goals-words', words))
     if (canEdit) {
       // The links it has, each with its ×.
       const links = [...focus.enables.map(target => ['Enables', target]), ...focus.alsoPartOf.map(target => ['Also part of', target])]

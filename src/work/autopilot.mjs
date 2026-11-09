@@ -53,7 +53,8 @@ export { HANDED_KEPT_WORDS, HANDED_ON_WHO, KEPT_LOOK_WORDS, handedOnKeptWords, i
 
 export const ROUTES = ['partner', 'advice', 'recap', 'main', 'person']
 /** The routes that take an ask away from Needs your attention while it is open. */
-export const ROUTED_AWAY = ['partner', 'advice', 'recap', 'main']
+// Rule 15 (2026-11-09): and `asker`, an ask held for the person's words until its chat re-asks it, withdraws it or says it still stands (askHold.mjs).
+export const ROUTED_AWAY = ['partner', 'advice', 'recap', 'main', 'asker']
 
 /** The settings panel's line under Autopilot, as the person agreed it (2026-10-31). */
 export const AUTOPILOT_ON_WORDS = 'The work runs until a goal is ready. You are asked when a goal starts, when it is ready, and for what no chat can do. Everything else is decided for you, with Undo.'

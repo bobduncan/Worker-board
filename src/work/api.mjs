@@ -46,7 +46,7 @@ import { KEPT_WORDS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, 
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { ASKS_NOTHING_WHY, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, asksNothingOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
-import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
+import { HELD, afterPause, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
 import { WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, waitWhatOf, waitWhoOf, waitWhoProblem, waitsOnLine, waitsOnOf } from './waitsOn.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
@@ -57,6 +57,8 @@ import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs
 import { writeView } from './view.mjs'
 import { rowWordsOf, rowWordsText } from './rowWords.mjs'
 import { groupOfStep } from '../goalGuard.mjs'
+import { HOLD_MINUTES, HOLD_ROUTE, heldAsksDue, heldFrom, holdHistory, holdLine, isHeld, saysStillStands } from './askHold.mjs'
+import { offMsOf } from './handoverBoard.mjs'
 import { HOLDABLE, WITH_WORKER, heldBy, rethinkLine, rethinkWords, withHold, withoutHoldOf } from './rethink.mjs'
 import { topicOf } from './rethinkTopic.mjs'
 import { YOUR_WORDS, answeredBefore, askPoint, isPersonsWords, isPopupAsk, withYourWords, yourWordsLine, yourWordsOf } from './yourWords.mjs'
@@ -67,7 +69,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'rethink-hold', 'rethink-free', 'accept-cards', 'popup-asks', 'autopilot', 'autopilot-undo', 'recap-answered', 'asset'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'rethink-hold', 'rethink-free', 'accept-cards', 'popup-asks', 'autopilot', 'autopilot-undo', 'recap-answered', 'holds-ended', 'asset'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -80,7 +82,7 @@ const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incident
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'autopilot-undo', 'add-to-queue', 'remove-from-queue'])
-const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'popup-asks', 'autopilot', 'recap-answered'])
+const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'popup-asks', 'autopilot', 'recap-answered', 'holds-ended'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -112,7 +114,8 @@ const ROLES = {
   // B775: the check's verdicts are the partner's alone; the person starts the check and closes what they tick.
   obsolete: ['advisor'],
   // Your words (2026-10-30): the person's note on a step, from its window; the main chat's, for words the person said in its chat.
-  words: ['person', 'main'],
+  // Rule 15: and `side`, any other chat the person talks in (it says where and when they said it).
+  words: ['person', 'main', 'side'],
   // Stop and rethink (docs/stop-and-rethink.md): the page's goals command holds a topic's steps as the person; the board frees them when the evaluation ends.
   'rethink-hold': ['person', 'server'],
   'rethink-free': ['person', 'server'],
@@ -288,6 +291,9 @@ async function act(body, ctx) {
       if (named.ok) who = named.name
     }
     role = ctx.roleOf?.(who) ?? null
+    // Rule 15 (2026-11-09): the person's words reach the board from any chat, also a side chat of the app that is no chat of the
+    // list ("2. Worker board goal management", the live Q711 and Q712); every other action of such a chat stays refused.
+    if (role === null && action === 'words') role = 'side'
     if (role === null) return refuse(403, `${who} is no chat of the list.`)
     if (role === 'helper') role = helps(body) ? 'advisor' : 'worker'
     if (role === 'owner') {
@@ -945,7 +951,7 @@ async function ask(body, w, { alone = false } = {}) {
   // B474: the chat asked this already, under the same step or goal, and it stands open or was answered a moment ago
   // (the P3 questions filed four times each, Q236 to Q248; Q160 and Q162): the person is not asked it twice.
   if (via === null && w.role !== 'person') {
-    const mine = [...w.store.items.values()].filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix)
+    const mine = [...w.store.items.values()].filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix) && !isHeld(one)
       && (stateOf(one) === 'open' || (stateOf(one) === 'answered' && w.now - closedMsOf(one) <= JUST_ANSWERED_MS)))
     const same = openRepeat(text.join(' '), isAlone ? goal : valueOf(of.item, 'Id'), mine.map(repeatFactsOf))
     if (same !== undefined) {
@@ -1060,7 +1066,12 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
     : route !== null && route !== 'person' ? autopilotFiledWords(id, route)
       : forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play, places: placesIn([title, ...options, advice].join(' '), placesKnown(w, id)) }, w.boardUrl ?? '')
   const routed = route === null ? {} : { route }
-  if (isAlone) return changed(question, `${block}${unlinkedNote}`, routed)
+  // Rule 15: the chat re-asks what the person's words held: the held ask under the same step or goal is withdrawn, re-asked as this one.
+  const endHold = () => (['person', 'server'].includes(w.role) || via === 'form' ? null : endHoldByReask(w, isAlone ? goal : stepId, id))
+  if (isAlone) {
+    await endHold()
+    return changed(question, `${block}${unlinkedNote}`, routed)
+  }
   // The ruling: the step reads that it waits for the goal's recap, so the goal demo is asked with it and gives it its own row.
   let item = said(underStep(of.item, [`Asked ${id} (${kind}${blocking ? ', blocking' : ''}): ${title}`, ...(route === 'recap' ? [recapVerdictWords('waits', id)] : [])]), w, `asked ${id}`)
   let moved = ''
@@ -1071,10 +1082,26 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
   }
   const done = await save(item, of.text, w)
   if (!done.ok) return done
+  await endHold()
   // Your words: the step holds the person's words: the answer ends saying so, so the chat reads them before it goes on.
   const words = yourWordsLine(of.item)
   const placedNote = placed === null ? '' : `\n\nNote: its pictures are ${placed.to}'s, so it is filed of ${placed.to}, not ${placed.from}: the person's answer counts for ${placed.to}.`
   return changed(question, `${block}${moved}${unlinkedNote}${placedNote}${words === '' ? '' : `\n${words}`}`, { ...routed, ...(isGiven ? {} : { of: stepId }), ...(placed === null ? {} : { placed }) })
+}
+
+/**
+ * Rule 15: the hold ends when the asking chat asks anew: every ask of this chat held under the same step or goal (`of`) is withdrawn
+ * with `re-asked as <new>`, one History line on each; the new ask is routed as any new ask. A fault is never the new ask's.
+ */
+async function endHoldByReask(w, of, newId) {
+  const held = [...w.store.items.values()].filter(one => isHeld(one) && valueOf(one, 'Of') === of && isOwner(one, w.who, w.prefix) && valueOf(one, 'Id') !== newId)
+  for (const one of held) {
+    const id = valueOf(one, 'Id')
+    const done = await withdraw({ id, why: `re-asked as ${newId}` }, w)
+    if (!done.ok) continue
+    const fresh = await load(newId, w, { kind: ['ask'] })
+    if (fresh.ok) await save(said(copy(fresh.item), w, `re-asked: replaces ${id}, which was held for the person's words`), fresh.text, w)
+  }
 }
 
 /**
@@ -1440,20 +1467,86 @@ async function answeredInChat(body, w) {
 /**
  * Your words (2026-10-30): a note of the person's on a step (`id` B<n>, `text`, `where` they said it), a point of its
  * "Your words": from the step's window ("Add a note"), or by the main chat for words the person said in its chat.
+ * Rule 15 (2026-11-09): and from any chat (role `side`, which says `where`: the chat and the time), on a goal (`id` G<n>) too: the
+ * words stand under the goal in the goal map, and the open asks they may change are held (src/work/askHold.mjs), the goal's
+ * unstarted steps are named to the partner in one note.
  */
 async function words(body, w) {
-  const found = await load(body.id, w, { kind: ['step'] })
-  if (!found.ok) return found
-  const id = valueOf(found.item, 'Id')
+  const id = line(body.id, 20)
+  const isGoal = GOAL_ID.test(id)
   const text = lines(body.text)
   if (text.length === 0) return refuse(400, 'Give the person\'s words in "text".')
-  const where = line(body.where, 120).replace(/[()]/g, '') || (w.role === 'person' ? 'on the board' : `in ${bare(w.who, w.prefix)}'s chat`)
-  const noted = noteWords(found.item, w, text, where)
-  const item = said(noted, w, `the person's words noted: ${line(text.join(' '), 200)}`)
-  const done = await save(item, found.text, w)
-  if (!done.ok) return done
-  const n = yourWordsOf(item).at(-1)?.n ?? 1
-  return changed(item, `${id}: the person's words stand as point ${n} of its "Your words".`)
+  const given = line(body.where, 120).replace(/[()]/g, '')
+  if (w.role === 'side' && given === '') return refuse(400, 'Say where the person said it: the chat and the time (where).')
+  const where = given || (w.role === 'person' ? 'on the board' : `in ${bare(w.who, w.prefix)}'s chat`)
+  const minute = stamp(w.now).slice(11)
+  let found = null
+  if (isGoal) {
+    if (w.hasGoal?.(id) !== true) return refuse(409, `${id} is not in the goal map.`)
+    if (typeof w.goalWords !== 'function') return refuse(409, 'This board keeps no goal map: nothing was kept.')
+    const kept = await w.goalWords({ id, at: stamp(w.now), words: text.join(' '), where })
+    if (!kept.ok) return kept
+  } else {
+    found = await load(id, w, { kind: ['step'] })
+    if (!found.ok) return found
+    const noted = noteWords(found.item, w, text, where)
+    const item = said(noted, w, `the person's words noted: ${line(text.join(' '), 200)}`)
+    const done = await save(item, found.text, w)
+    if (!done.ok) return done
+    found = { ...found, item }
+  }
+  const held = await holdAsksFor(w, { goal: isGoal ? id : null, step: isGoal ? null : id, minute, where, words: text.join(' ') })
+  if (!held.ok) return held
+  const n = found === null ? null : yourWordsOf(found.item).at(-1)?.n ?? 1
+  const holds = held.held.length === 0 ? '' : ` Held for the asking chat to re-check: ${held.held.join(', ')}.`
+  return { ok: true, result: { id, text: `${id}: the person's words stand${n === null ? ' under the goal' : ` as point ${n} of its "Your words"`}.${holds}`, changed: true, held: held.held, wakes: held.wakes, ...(held.note === null ? {} : { note: held.note }) } }
+}
+
+/**
+ * Rule 15: the open asks the person's words may change are held: every open ask of the goal (`Of` the goal, or a step of the goal),
+ * or, for words on a step, of that step alone. Only asks filed before the words; one already held stays as it is. Each gets `Route:
+ * asker`, a Route-section line naming the route it held from and a History line; its asking chat gets a word (`wakes`), to
+ * re-ask it, withdraw it or say it still stands. A goal's unstarted steps (new, refined, queued) are named to the partner in one note.
+ */
+async function holdAsksFor(w, { goal, step, minute, where, words: said_ }) {
+  const items = [...w.store.items.values()]
+  const goalOf = id => (id === null ? null : valueOf(w.store.items.get(id) ?? { head: new Map() }, 'Goal'))
+  const targets = items.filter(one => kindOf(one) === 'ask' && stateOf(one) === 'open' && !isHeld(one)
+    && Number.isFinite(askFiledMs(one)) && askFiledMs(one) < w.now
+    && (goal !== null ? valueOf(one, 'Of') === goal || (valueOf(one, 'Of') !== null && goalOf(valueOf(one, 'Of')) === goal) : valueOf(one, 'Of') === step))
+    .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+  const held = []
+  const wakes = []
+  const about = goal ?? step
+  for (const one of targets) {
+    const id = valueOf(one, 'Id')
+    const loaded = await load(id, w, { kind: ['ask'] })
+    if (!loaded.ok || stateOf(loaded.item) !== 'open' || isHeld(loaded.item)) continue
+    const item = copy(loaded.item)
+    const from = valueOf(item, 'Route')
+    put(item, 'Route', HOLD_ROUTE)
+    item.sections.set('Route', [...(item.sections.get('Route') ?? []), holdLine(from, minute, where)])
+    const done = await save(ordered(said(item, w, holdHistory(minute, about))), loaded.text, w)
+    if (!done.ok) return done
+    held.push(id)
+    const owner = valueOf(item, 'Owner')
+    if (owner !== null) wakes.push({ to: owner, id, line: `the person's words at ${minute} on ${about}: re-ask or withdraw ${id}, or say it still stands`, kind: 'words' })
+  }
+  let note = null
+  if (goal !== null) {
+    const open = items.filter(one => kindOf(one) === 'step' && valueOf(one, 'Goal') === goal && ['new', 'refined', 'queued'].includes(stateOf(one)))
+      .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
+    if (open.length > 0) {
+      // To the main chat, for the partner: a note is read only where its To is main or the person (lists.mjs `notesToMain`), and
+      // the main chat relays what is "For <chat>" (roles/main.md), as it does for the side chats.
+      const partner = [...(w.chats ?? [])].find(name => w.roleOf?.(name) === 'advisor') ?? 'the partner'
+      const list = open.map(one => `${valueOf(one, 'Id')} (${line(valueOf(one, 'Title') ?? '', 60)})`).join(', ')
+      const text = `For the partner (${partner}): the person's words at ${minute} on ${goal} (${where}): "${line(said_, 300)}". Re-check these unstarted steps against them: ${list}.`
+      const made = await makeNote(w, 'main', [text], goal, null, 'server')
+      if (made.ok) note = valueOf(made.item, 'Id')
+    }
+  }
+  return { ok: true, held, wakes, note }
 }
 
 /** The person's words as a point of the step's "Your words": `where` they said it, the `shown` pictures named. */
@@ -1520,6 +1613,47 @@ async function rethinkFree(body, w) {
   return { ok: true, result: { id: goal, goal, freed, text: freed.length === 0 ? `${goal}: no open task was held for its rethink.` : `${goal}: free again: ${freed.join(', ')}.`, changed: freed.length > 0 } }
 }
 
+/**
+ * Rule 15: a held ask goes back to the route in its `held from <route>` line (person when it names none). `stillStands`: its chat said
+ * the ask still stands (the why, may be ''); otherwise the chat did nothing in the hold's time and the ask comes back quietly:
+ * a Route-section line and a History line say which.
+ */
+async function releaseHold(found, w, { stillStands = null, since = '' } = {}) {
+  const now = stamp(w.now).slice(11)
+  const held = heldFrom(found.item)
+  const chat = bare(valueOf(found.item, 'Owner') ?? w.who, w.prefix)
+  const item = copy(found.item)
+  put(item, 'Route', held?.route ?? 'person')
+  const route = stillStands === null ? `not re-checked by ${chat} since your words at ${since || held?.minute || '?'}` : `still stands (${now}): ${stillStands || 'no reason given'}`
+  item.sections.set('Route', [...(item.sections.get('Route') ?? []), route])
+  const history = stillStands === null ? `hold ended: ${chat} did not re-check it in ${HOLD_MINUTES} minutes of the board's running time` : `hold lifted: ${chat} says it still stands`
+  const done = await save(ordered(said(item, w, history)), found.text, w)
+  return done.ok ? { ok: true, item } : done
+}
+
+/**
+ * Rule 15, the server's pass: the held asks whose chat did nothing for 60 minutes of the board's running time (`body.gaps`, the
+ * state's off times, as handoverBoard.mjs `offMsOf` counts them) come back. Never while the person pauses: the time
+ * they paused is no time of the chat's. Answers the ids `released`; the word to the chat is the normal `wakes`.
+ */
+async function holdsEnded(body, w) {
+  if (isHolding(w.store.pause)) return { ok: true, result: { released: [], wakes: [], text: 'Paused: no hold ends.', changed: false } }
+  const off = offMsOf(body.gaps, w.now)
+  const counted = from => afterPause(w.store.pause, from)
+  const due = heldAsksDue({ items: w.store.items, now: w.now, runningMs: from => w.now - counted(from) - off(counted(from)) })
+  const released = []
+  const wakes = []
+  for (const one of due) {
+    const found = await load(one.id, w, { kind: ['ask'] })
+    if (!found.ok || !isHeld(found.item)) continue
+    const done = await releaseHold(found, w, { since: one.since })
+    if (!done.ok) continue
+    released.push(one.id)
+    if (one.chat !== null) wakes.push({ to: one.chat, id: one.id, line: `${one.id} was held for the person's words at ${one.since} and nobody re-checked it: it is the ${one.route}'s again; withdraw it or re-ask it if it changed`, kind: 'words' })
+  }
+  return { ok: true, result: { released, wakes, text: released.length === 0 ? 'No hold ended.' : `Hold ended: ${released.join(', ')}.`, changed: released.length > 0 } }
+}
+
 /** Information, never a question: a note `N<n>` to the person or to the main chat. */
 async function note(body, w) {
   if (typeof body.of === 'string' && GOAL_ID.test(body.of)) return dailyNoteMade(body, w)
@@ -1533,6 +1667,12 @@ async function note(body, w) {
   if (body.of !== undefined) {
     const of = await load(body.of, w)
     if (!of.ok) return of
+    // Rule 15: "still stands: <why>" from the chat that asked a held ask (or the main chat, or the person) ends its hold; the note below is
+    // filed to the main chat as any note, so one call does both.
+    if (isHeld(of.item) && saysStillStands(text.join(' ')) && (['main', 'person'].includes(w.role) || isOwner(of.item, w.who, w.prefix))) {
+      const lifted = await releaseHold(of, w, { stillStands: line(text.join(' ').replace(/^still stands:?\s*/i, ''), 300) })
+      if (!lifted.ok) return lifted
+    }
   }
   // The supervisor (spec 2026-10-24): the board's line to the person about a new or returning incident.
   const via = w.role === 'server' && body.via === 'supervisor' ? 'supervisor' : null
@@ -3741,7 +3881,7 @@ async function askForYou(value, since, w) {
   const all = [...w.store.items.values()]
   // Warnings (2026-10-19): an ask's time to the millisecond (`Filed`; an older one at the end of its minute).
   // B480: an ask withdrawn unanswered asked nothing, also in the same words.
-  const known = all.filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix) && (stateOf(one) === 'open' || askFiledMs(one) >= since) && !isWithdrawn(one))
+  const known = all.filter(one => kindOf(one) === 'ask' && isOwner(one, w.who, w.prefix) && (stateOf(one) === 'open' || askFiledMs(one) >= since) && !isWithdrawn(one) && !isHeld(one))
     .map(one => askKey(askWordsOf(one)))
   // B474: the asks an item may repeat in other words: the chat's own filed this turn, its own still open, and the other
   // chats' open ones (Q193 before Q197). B480: a withdrawn ask was never answered, so asking it again is a new question
@@ -3749,8 +3889,8 @@ async function askForYou(value, since, w) {
   const asks = all.filter(one => kindOf(one) === 'ask')
   const repeats = {
     turn: asks.filter(one => isOwner(one, w.who, w.prefix) && askFiledMs(one) >= since && !isWithdrawn(one)).map(repeatFactsOf),
-    own: asks.filter(one => isOwner(one, w.who, w.prefix) && stateOf(one) === 'open').map(repeatFactsOf),
-    others: asks.filter(one => !isOwner(one, w.who, w.prefix) && stateOf(one) === 'open').map(repeatFactsOf),
+    own: asks.filter(one => isOwner(one, w.who, w.prefix) && stateOf(one) === 'open' && !isHeld(one)).map(repeatFactsOf),
+    others: asks.filter(one => !isOwner(one, w.who, w.prefix) && stateOf(one) === 'open' && !isHeld(one)).map(repeatFactsOf),
   }
   const asked = []
   const left = []
@@ -5151,6 +5291,7 @@ const CHANGE = {
   'approve-recaps': approveRecaps,
   'accept-cards': acceptCards,
   'popup-asks': popupAsks,
+  'holds-ended': holdsEnded,
   'recheck-stuck': recheckStuck,
   'recheck-base': recheckBase,
   'qa-task': qaTask,

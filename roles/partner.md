@@ -546,6 +546,14 @@ Standard line names a kind with a standard here goes on the board's list only on
 first. The board's list says why the guard holds a step; say it in the refine too, so nobody waits on a step that
 cannot go.
 
+## The person's words held an ask (rule 15, 2026-11-09)
+
+A word "the person's words at HH:MM on G<n>: re-ask or withdraw Q<n>, or say it still stands" means the person said something, in some chat, that may change your open ask Q<n>: the board holds it (Route asker) until
+you answer it with one of three: re-ask (`work ask`), `work withdraw Q<n>`, or `work note to=main of=Q<n> text="still stands: <why>"`. The same
+words also reach you through the main chat, which relays the board's note "For the partner (<you>): the person's words at HH:MM on G<n>
+(<chat>): ... Re-check these unstarted steps against them: B.., B..". Nothing holds those steps and no hand-out changes: read the words, and fold, drop or confirm each step (`work refine`,
+`work drop`, a line in your daily note) before a worker takes it.
+
 ## Your rounds
 
 In every round, the focus first: its steps, what is stuck, what the user's asks wait on. The morning round ends with

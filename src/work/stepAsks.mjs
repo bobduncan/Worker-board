@@ -4,6 +4,7 @@
 // questions: open, the step waits for the person; answered since the block was last written, its answer waits for the
 // Advisor's next round, as an answered question in the block does. PURE.
 
+import { HOLD_ROUTE } from './askHold.mjs'
 import { valueOf } from './item.mjs'
 import { isKeptLook } from './keptLook.mjs'
 import { linksOf } from './links.mjs'
@@ -83,6 +84,6 @@ export function refineAsksOf(items, step) {
  * The open asks under a step: `refined` is refused while one is, and a queue asked before the refine waits for them.
  * With the step itself (`step`), the decisions an agreed how brings to the person are left out (`isHowDecision`). And a look the partner
  * handed over that Autopilot keeps for the recap (2026-11-02): it holds no worker and no refine, so only the step's done guard ("no open
- * look", guards.mjs) still counts it.
+ * look", guards.mjs) still counts it. Rule 15: and an ask held for the person's words (Route asker) asks nobody and holds nothing.
  */
-export const openAsksOf = (items, stepId, step = null) => asksOfStep(items, stepId).filter(ask => valueOf(ask, 'State') === 'open' && !isHowDecision(ask, step) && !isKeptLook(ask))
+export const openAsksOf = (items, stepId, step = null) => asksOfStep(items, stepId).filter(ask => valueOf(ask, 'State') === 'open' && valueOf(ask, 'Route') !== HOLD_ROUTE && !isHowDecision(ask, step) && !isKeptLook(ask))
