@@ -6031,7 +6031,7 @@ conditions.md, mock.png, audit.md).
 action's own result: the recap's next tries filed after the Send, the obsolete check's record answered, the asked sweep
 ended by its chat's turn; for an action without such a source the fallback "<Chat> answered HH:MM" once the turn that ran on
 the word ended (see "Which turn is the word's" below; an `ended` report, closed or crashed mid-turn, is no answer); an action
-with its own source whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it" for 5 minutes, then Late: see "The wait line: honest limits" below), **Late** (a word failed for
+with its own source whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it", Late 5 minutes after the chat came to rest: see "The wait line: honest limits" below), **Late** (a word failed for
 good, "could not be delivered: <why>"; rule 8's own judgement of this word, `watch.mjs isUndelivered`, the one function
 `undeliveredWords` uses, so the card and the alarm never disagree; or every way to wake the chat failed,
 `wakeOf(...).final`, with `triedWords`), **Picked up** (the word arrived, delivered or taken by its own chat, and the turn that
@@ -6126,7 +6126,7 @@ stands under the supervisor's head; the recap's Send draws its line in the popup
 page's card "G6 · Your recap · feedback sent" while no verdict waits. A Done line's link opens its step; a Done line goes
 after 10 minutes.
 
-**Send again** (a Late line whose chat does not run, while no wake is pending; only where the state says `waitAgain`): the
+**Send again** (a Late line of a word its chat has not taken, whose chat does not run, while no wake is pending; only where the state says `waitAgain`): the
 page posts `wake-again` to /api/say; `wakeAgainNow` (refused while the board ends, where it does not run the loops, while the person
 pauses, and for a spell that is not the record's newest entry of the chat) makes ONE attempt through the record (wake.mjs
 `personAgain`, change 7, outside the cap of one try per path): the message way when a chat that may send claims (the record holds it `by` "the board"
@@ -6144,21 +6144,38 @@ visibly). The states and the words stay; what they say is now only what the boar
   turn), never from the delivery. While the chat is busy on something else it is quiet: "waits for its turn: <Chat> busy since HH:MM".
   Idle and not picking the word up for rule 8's limit (`undeliveredMinutes`, `wordJudge`'s `limitMs`) in running time: Late.
 - **On it** is Late ("No answer since HH:MM") only when the chat stopped (an `ended` report, the lane not running) or its report went
-  stale (older than `unknownAfterSeconds`, running time); a fresh turn that runs long is quiet ("<Chat> is on it · since HH:MM · for 95 min",
-  from `JUDGE_LONGEST_MS`, the one constant). No limit per kind. The judge line (`needsPill` false) needs the same fresh report.
-- **A turn that ended without the result** (an action with its own Done source) is quiet for 5 minutes (`TURN_GRACE_MS`), then Late.
+  stale: older than `REPORT_STALE_MS` (2 min, the Unknown pill's `UNKNOWN_ATTENTION_MS`) of the board's HEARD running time (`heardOf`:
+  from the later of the report and the board's start, the deaf spans `state.deaf` left out, as watch.mjs `deafMs`), so a board stall or
+  a landing restart turns no line amber. Past `unknownAfterSeconds` and before that it says quietly "· no news from <Chat> since HH:MM".
+  A fresh turn that runs long is quiet ("<Chat> is on it · since HH:MM · for 95 min", from `JUDGE_LONGEST_MS`, the one constant). No
+  limit per kind. The judge line (`needsPill` false) needs the same fresh report. While the person pauses, a stopped or quiet chat
+  reads quietly "<Chat> was on it since HH:MM · its chat stopped" (or "went quiet").
+- **A turn that ended without the result** (an action with its own Done source) is Late only while the chat is at REST now: a fresh
+  idle report with no background work, the lane neither Working nor Waiting for you, or its session ended. The 5 minutes
+  (`TURN_GRACE_MS`) count from the later of the turn's end and the moment it came to rest (the report's `restAt`, bridge.mjs `restOf`).
+  Until then quiet: "<Chat>'s turn ended at HH:MM without it · <Chat> still working" (a background task, the partner waiting on its
+  helper, a worker stopping at a safe point). Judge lines stay quiet (`turnLate` false).
+- **A missed idle still counts.** The report entry keeps the last idle of a mod that names its word (`lastIdle` `{ word, since }`,
+  carried through later reports and data/reports.json), and `turnAnswer` reads it: an idle that no pass saw before an `ended` replaced
+  it (the pass was skipped by `loops.single`) still ends that word's turn. Chosen over a rerun with a dirty flag: the fact lives with the
+  report, so no timing of the passes can lose it, also across a restart.
 - **Merged prompts, until the mod release** (a mod that does not report every merged word): a word whose chat began a turn after it
   arrived, on a word that stood ahead of it, reads quiet "<Chat>'s turn at HH:MM may have taken it (not confirmed)": never Late.
-- **Late counts the board's running time** (`runningOf`: the last pause's end and the board's off time `state.gaps` do not count) and
-  names the person's action while Send again exists only for a chat that does not run: "open <Chat>'s chat: the word waits there".
+- **Late counts the board's running time** (`runningOf`: the last pause's end and the board's off time `state.gaps` do not count) for
+  P3's new rules; rule 8's own "Not picked up after N min" stays in wall time after the pause (`wallOf`), as rule 8 counts it. Every
+  Late names the person's action: the turn on it ended, "ask <Chat> in its chat"; its session ended or went quiet, "open <Chat>'s
+  chat"; not delivered yet, "open <Chat>'s chat so its mod takes it". Send again only for a word its chat has not taken (as before P3),
+  never on an "on it" or turn-ended line.
 - **No silent end.** A word the outbox sweep closes shows "closed: <why>" (state `closed`, quiet) for 10 minutes (`CLOSED_SHOWN_MS`,
-  from `closedAt`; the sweep's own reason, `wordJudge`'s `whyClosed`). A person's word that expired before it reached its chat is
-  Late "Not delivered: expired after N min" and keeps its words (`text`). A word past 24 h without a Done says "no answer recorded in
-  24 h" for one more day (`ENDED_SHOWN_MS`), quietly.
+  from `closedAt`, else the first moment the board saw it closed, kept in `waitsFirstSeen`; the sweep's own reason, `wordJudge`'s
+  `whyClosed`). A person's word that expired before it reached its chat is Late "Not delivered: expired after N min" (N the age it
+  expired at, `closedAt`) and keeps its words (`text`); past 24 h it is not rewritten. A word past 24 h without a Done says "no answer
+  recorded in 24 h" for one more day (`ENDED_SHOWN_MS`), quietly; both are marked `isEnded`, so Needs your attention lets the card go.
 - **A failed pass keeps the lines.** `waitsNow` gives `{ waits, asOf }` (`lastGoodWaits`): on an error the last good lines come back and the
-  state says `waitsAsOf`; the page draws them with "as of HH:MM" and Needs your attention reads a missing line as done only while
-  `waitsAsOf` is not set.
-Tests: `test/waitLineHonest.test.mjs` (one per point, from Worker 3's real report for Q707's answer).
+  state says `waitsAsOf`; the page draws them with "as of HH:MM" (in the line's key, `waitKeyOf`) and Needs your attention reads a
+  missing line as done only while `waitsAsOf` is not set.
+Tests: `test/waitLineHonest.test.mjs` (one per point, from Worker 3's real report for Q707's answer; "review 1" to "review 10" the two
+core reviews of 2026-11-09, each checked with a mutant).
 
 ### Wave 2 (T22, 2026-11-04)
 

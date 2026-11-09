@@ -90,7 +90,7 @@ test('Late is rule 8\'s own judgement of this word (isUndelivered, the alarm\'s 
   assert.equal(isUndelivered(board, old), true, 'over undeliveredMinutes (10) and still waiting')
   assert.deepEqual(undeliveredWords(board).map(one => one.id), ['w1'], 'the alarm names the same word')
   const late = lineOf(old)
-  assert.deepEqual([late.state, late.lead, late.rest, late.canSendAgain], ['late', 'Not picked up after 12 min', "it waits in Advisor's queue · open Advisor's chat: the word waits there", false])
+  assert.deepEqual([late.state, late.lead, late.rest, late.canSendAgain], ['late', 'Not picked up after 12 min', "it waits in Advisor's queue · open Advisor's chat so its mod takes it", false])
   // Under the limit: no Late, whatever the minutes.
   assert.equal(lineOf(word({ at: at(9) })).state, 'sent')
   // The person pauses: rule 8 names nothing, and neither does the line.

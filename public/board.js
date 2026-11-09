@@ -155,7 +155,7 @@ function waitViewOf(part, id) {
   // P3: a closed line ("closed: <why>") shows as long as a Done line does; both go quietly.
   const isShown = !['done', 'closed'].includes(line.state) || !Number.isFinite(line.at) || now - line.at < WAIT_DONE_SHOWN_MS
   return {
-    id, state: line.state, asOf: Number.isFinite(part?.waitsAsOf) ? part.waitsAsOf : null, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null, sentAt: Number.isFinite(line.sentAt) ? line.sentAt : null,
+    id, state: line.state, asOf: Number.isFinite(part?.waitsAsOf) ? part.waitsAsOf : null, isEnded: line.isEnded === true, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null, sentAt: Number.isFinite(line.sentAt) ? line.sentAt : null,
     link: typeof line.link?.step === 'string' ? { step: line.link.step, text: String(line.link.text ?? line.link.step) } : null,
     canSendAgain: line.canSendAgain === true && part?.waitAgain === true, isShown, pill: waitPillOf(waitLaneOf(part, line.chat)),
     again: { isSending: sending.has(`wait-again:${id}`), problem: problems.get(`wait-again:${id}`) ?? null },
@@ -212,7 +212,8 @@ function placeWaitOf(part, place, about = {}) {
  * reads as none, so the card draws again when it goes.
  */
 function waitKeyOf(view) {
-  return view === null || view === undefined || view.isShown !== true ? null : [view.id, view.state, view.lead, view.rest, view.canSendAgain, view.pill?.label ?? null, view.again?.isSending ?? null, view.again?.problem ?? null]
+  // P3 (the review of 2026-11-09, 6): "as of HH:MM" and an ended wait are drawn too, so they are in the key.
+  return view === null || view === undefined || view.isShown !== true ? null : [view.id, view.state, view.lead, view.rest, view.canSendAgain, view.pill?.label ?? null, view.again?.isSending ?? null, view.again?.problem ?? null, view.asOf ?? null, view.isEnded === true]
 }
 
 /** The line as drawn: its sign (a ring, a loader, a tick, "!"), its lead in bold, the rest, a link to what came of it, Send again, and the pill. */
@@ -4795,7 +4796,8 @@ const answerWaitOf = (need, part) => (isAnswered(need) ? waitViewOf(part, need.a
 /** T22: an answered card that still waits for its chat (its line not Done): it stays as a slim card with its line, also without "Show closed". */
 // P3: a missing line reads as done only when the board's pass for the lines went well; after an error (`waitsAsOf` set) a missing line is
 // unknown, and the card stays. A closed line ends its wait as a Done one does.
-const isWaitingAnswer = (need, part) => need.isClosed !== true && !['done', 'closed'].includes(answerWaitOf(need, part)?.state ?? (Number.isFinite(part?.waitsAsOf) && isAnswered(need) && typeof need.answer?.id === 'string' ? 'unknown' : 'done'))
+// P3 (the review of 2026-11-09, 9): a line past a day ("no answer recorded in 24 h", an expired word's) has ended its wait too (`isEnded`).
+const isWaitingAnswer = (need, part) => need.isClosed !== true && answerWaitOf(need, part)?.isEnded !== true && !['done', 'closed'].includes(answerWaitOf(need, part)?.state ?? (Number.isFinite(part?.waitsAsOf) && isAnswered(need) && typeof need.answer?.id === 'string' ? 'unknown' : 'done'))
 // closed:end
 const showsClosed = () => $('needs-closed').checked
 

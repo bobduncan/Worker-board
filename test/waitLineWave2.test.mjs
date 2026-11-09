@@ -307,7 +307,8 @@ test('place 8, an incident that waits for the Supervisor\'s judgment: a line of 
   const waiting = new Map([['X1', incident('X1', 'with the supervisor', at(59))], ['X2', incident('X2', 'with the supervisor', at(4))]])
   const both = waitsFor({ state, outbox: [older, elsewhere], items: waiting })
   assert.deepEqual(Object.keys(both).sort(), ['j1#X1', 'j2#X2'])
-  assert.deepEqual([both['j1#X1'].state, both['j1#X1'].lead], ['late', `No answer since ${hhmm(at(50))}`])
+  // The review of 2026-11-09 (1): a judge line stays quiet when its turn ended without the judgment, as before P3.
+  assert.deepEqual([both['j1#X1'].state, both['j1#X1'].lead], ['sent', `Supervisor's turn ended at ${hhmm(at(50))} without it`])
   // Once judged (or ended by code) it is Done, whichever word names it.
   const judged = waitsFor({ state, outbox: [older, elsewhere], items: new Map([['X1', incident('X1', 'closed', at(1))], ['X2', waiting.get('X2')]]) })
   assert.deepEqual([judged['j1#X1'].state, judged['j1#X1'].rest], ['done', 'false alarm: no fault left'])

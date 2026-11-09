@@ -61,7 +61,7 @@ test('finding 1: an answered ask stays while its word\'s line waits (it turns La
     const slim = page.find('#needs .need.is-slim')
     assert.equal(slim.dataset.id, 'work:Q5')
     // P3 (2026-11-09): a Late line names the person's action.
-    assert.equal(words(slim.querySelector('.wait-line .wait-words')), "Not picked up after 30 min · it waits in Digger's queue · open Digger's chat: the word waits there")
+    assert.equal(words(slim.querySelector('.wait-line .wait-words')), "Not picked up after 30 min · it waits in Digger's queue · open Digger's chat so its mod takes it")
   } finally { await page.close() }
   // Its line is Done (kept 15 minutes ago): it went 5 minutes ago. Done 5 minutes ago: it stays (closed, as an answered card).
   assert.equal(serverState({ reports, outbox: [answerWord({ state: 'delivered', takenAt: at(29), deliveredAt: at(29), answeredAt: at(15) })] }).state.forYou.some(one => one.workId === 'Q5'), false)

@@ -39,15 +39,17 @@
 // the outbox sweep drops it) still reads as Done: `outlives`.
 //
 // P3 (T2.11, 2026-11-09, DESIGN.md "The wait line: records, honest limits, no silent end"): a wait is a record, not a guess. `pickedUpAt` is
-// written once; waiting counts from the end of the turn ahead; "on it" is Late only for a stopped chat or a stale report; a turn that ended
-// without the result is Late after 5 minutes; a merged prompt is never Late; Late counts running time and names the person's action;
-// a closed or expired or 24-hour-old word says so; a failed pass keeps the last lines (`lastGoodWaits`).
+// written once; waiting counts from the end of the turn ahead; "on it" is Late only for a stopped chat or a report stale for 2 minutes of
+// heard running time; a turn that ended without the result is Late 5 minutes after the chat came to rest (never while it still works);
+// a merged prompt is never Late; Late names the person's action; a closed or expired or 24-hour-old word says so, and the last two end
+// their wait; a failed pass keeps the last lines (`lastGoodWaits`). The review of 2026-11-09 (two core reviews) set the last of these.
 //
 // PURE: every fact is passed in, `now` included, and rule 8's judgement as `judge` (the supervisor's `wordJudge`: nothing
 // outside the supervisor imports its parts). The server puts the lines in the state as `waits`, by word id (`waitsOf`: only
 // the words an action of the person typed, the last 24 h); the page draws a line where it finds a word id.
 
 import { refinedAt } from './backlog.mjs'
+import { UNKNOWN_ATTENTION_MS } from './chatStatus.mjs'
 import { blocksOf } from './goals.mjs'
 import { STOP_HANDS_MS, isHandTaken } from './hands.mjs'
 import { isLate } from './store.mjs'
@@ -73,6 +75,12 @@ export const CLOSED_SHOWN_MS = 10 * MIN
 export const ENDED_SHOWN_MS = 24 * 60 * MIN
 /** A chat's report older than this (running time) is unknown (config `unknownAfterSeconds`); the server gives its own. */
 export const REPORT_FRESH_MS = 30_000
+/**
+ * P3 (the review of 2026-11-09, 2): an "on it" line turns Late for a quiet chat only after this much of the board's heard running time (the
+ * Unknown pill's own attention age, chatStatus.mjs `UNKNOWN_ATTENTION_MS`): a board stall or a landing restart is no chat's fault. Before it,
+ * past `REPORT_FRESH_MS`, the line says quietly "no news from X since HH:MM".
+ */
+export const REPORT_STALE_MS = UNKNOWN_ATTENTION_MS
 /** How often the server keeps what the lines saw (a turn ended, an action's result) while no page asks for the state. */
 export const WAITS_KEEP_MS = 30_000
 /** The four states, in the order the first that holds wins. */
@@ -98,6 +106,8 @@ const INCIDENT_WAITS = ['open', 'came back', 'with the supervisor', 'with the ad
  * attempt's `by`): the line then reads "waking X (message on its way, held by the board)".
  */
 export const AGAIN_BY = 'the board'
+/** The key under which `waitsOf` keeps the first moment it saw a word closed, in the server's `firstSeen` map (beside a result's own). */
+const CLOSED_KEY = 'closed:'
 /** How far a retried word is followed to the copy that stands for it (store.mjs `retriedAs`). */
 const RETRY_HOPS = 6
 
@@ -166,25 +176,39 @@ const oneLine = (words, max = 120) => String(words ?? '').replace(/\s+/g, ' ').t
  *   the line of a word that the outbox sweep closed or a newer word superseded stands while its own wait does (an incident that still
  *   waits for its judgment: the review of 2026-11-04, "the line goes only when the incident is judged or ended by code").
  */
-export function waitLineOf({ word, lane = null, report = null, ahead = false, wake = null, done = null, now, keep = {}, queue = 0, judge, paused = false, own: ownGiven = undefined, outlives = false, needsPill = true, exact = false, progress = null, keepsClosed = false, running = from => now - from, staleMs = REPORT_FRESH_MS, showsClosed = true }) {
+export function waitLineOf({ word, lane = null, report = null, ahead = false, wake = null, done = null, now, keep = {}, queue = 0, judge, paused = false, own: ownGiven = undefined, outlives = false, needsPill = true, exact = false, progress = null, keepsClosed = false, running = from => now - from, heard = running, wall = from => now - from, unknownMs = REPORT_FRESH_MS, staleMs = REPORT_STALE_MS, showsClosed = true, turnLate = true, closedSeenAt = null }) {
   if (word === null || word === undefined || typeof word.to !== 'string' || !isTime(word.at)) return null
   if (['stopped', 'copied'].includes(word.state)) return null
   const hasResult = isTime(word.doneAt) || (done !== null && done !== undefined)
   const chat = lane?.name ?? word.to
   const line = (state, lead, rest, at, more = {}) => ({ state, lead, rest, at, chat, canSendAgain: false, link: null, seen: null, ...more })
-  // P3, no silent end: a word the outbox sweep closes (dropped, or one that no longer matters and waits for the sweep) says why, quietly, for CLOSED_SHOWN_MS.
+  // P3, no silent end: a word the outbox sweep closes (dropped, or one that no longer matters and waits for the sweep) says why, quietly, for
+  // CLOSED_SHOWN_MS, dated by its `closedAt`, else by the first moment the board saw it closed (`closedSeenAt`, kept by `waitsOf`), never
+  // by the clock of each draw (the review of 2026-11-09, 3: a line dated `now` never went).
   if ((word.state === 'dropped' || !judge.matters(word)) && !((outlives && hasResult) || keepsClosed)) {
     const why = oneLine(word.state === 'dropped' && typeof word.why === 'string' ? word.why : judge.whyClosed?.(word))
-    const closedAt = isTime(word.closedAt) ? word.closedAt : word.state === 'dropped' ? word.at : now
+    const closedAt = isTime(word.closedAt) ? word.closedAt : word.state === 'dropped' ? word.at : isTime(closedSeenAt) ? closedSeenAt : now
     return showsClosed && why !== '' && now - closedAt < CLOSED_SHOWN_MS ? line('closed', `closed: ${why}`, '', closedAt) : null
   }
   const own = ownGiven ?? hasOwnDone(word)
   // P3: Late is counted in the board's RUNNING time (rule 8's: a person's pause and the board's off time do not count), and names what
-  // the person does: until Send again exists for a running chat, open its chat, where the word waits.
+  // the person does (the review of 2026-11-09, 7): a turn on it ended, "ask X in its chat"; its session ended or went quiet, "open X's
+  // chat"; not delivered yet, "open X's chat so its mod takes it". Send again only for a word its chat has not taken (`arrived` null,
+  // as before P3: for a taken word it could only wake the chat), and never on an "on it" line.
   const isPending = WAKE_PENDING.includes(wake?.state)
   const noId = wake?.why === 'no id' && (wake.attempts ?? []).length === 0
-  const canAgain = lane?.isRunning === false && !isPending && !noId && paused !== true
-  const lateLine = (since, words) => line('late', `No answer since ${clockOf(since)}`, canAgain ? words : `${words} · open ${chat}'s chat: the word waits there`, since, { canSendAgain: canAgain })
+  const arrived = arrivedAt(word)
+  const canAgain = arrived === null && lane?.isRunning === false && !isPending && !noId && paused !== true
+  const askIt = `ask ${chat} in its chat`
+  const openIt = `open ${chat}'s chat`
+  const lateLine = (since, words, action) => line('late', `No answer since ${clockOf(since)}`, `${words} · ${action}`, since)
+  // The report as the board heard it: fresh (under the unknown limit), quiet (past it, before REPORT_STALE_MS), or stale; `heard` the
+  // board's running time since board start, its deaf spans left out (watch.mjs `deafMs`).
+  const isReport = report !== null && report !== undefined && isTime(report.since)
+  const quietFor = isReport && isTime(report.at) ? heard(report.at) : 0
+  const isStale = isReport && quietFor > staleMs
+  const isQuiet = isReport && !isStale && quietFor > unknownMs
+  const noNews = `no news from ${chat} since ${isReport && isTime(report.at) ? clockOf(report.at) : '?'}`
   // 1. Done, as kept on the word first (the review of 2026-11-02, 2a: once seen, it stays), then as seen now.
   if (isTime(word.doneAt)) {
     const link = done?.link ?? (typeof word.doneStep === 'string' ? { step: word.doneStep, text: `See ${word.doneStep} →` } : null)
@@ -201,14 +225,29 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
   }
   // A turn seen ended at `at` (exact), or moved past by `at` (bound: the chat's later turn began then, so the word's turn ended
   // before: "by", never an exact time).
-  const ended = (at, isBound = false) => (own ? (paused !== true && running(at) > TURN_GRACE_MS ? { ...lateLine(at, `${chat}'s turn ended ${isBound ? 'by' : 'at'} ${clockOf(at)} without it`), isTurnEnded: true, ...(isBound ? { isBound } : {}) }
-      : line('sent', `${chat}'s turn ended ${isBound ? 'by' : 'at'} ${clockOf(at)} without it`, '', at, { isTurnEnded: true, ...(isBound ? { isBound } : {}) }))
-    : line('done', `${chat} answered ${isBound ? 'by ' : ''}${clockOf(at)}`, '', at, { isFallback: true, ...(isBound ? { isBound } : {}) }))
+  // P3 (the review of 2026-11-09, 1): the turn ended without the result is Late only while the chat is at REST now (`restNow`), counted from
+  // the later of the turn's end and the moment it came to rest (its background work or a later turn done: the report's `restAt`); while it
+  // still works (a background task, the partner waiting on its helper, a worker stopping at a safe point) it is quiet. Judge lines never.
+  const ended = (at, isBound = false) => {
+    const more = { isTurnEnded: true, ...(isBound ? { isBound } : {}) }
+    if (!own) return line('done', `${chat} answered ${isBound ? 'by ' : ''}${clockOf(at)}`, '', at, { isFallback: true, ...(isBound ? { isBound } : {}) })
+    const lead = `${chat}'s turn ended ${isBound ? 'by' : 'at'} ${clockOf(at)} without it`
+    const rest = restNow()
+    const from = Math.max(at, rest.since ?? at)
+    if (turnLate && rest.isAtRest && paused !== true && running(from) > TURN_GRACE_MS) return { ...lateLine(from, lead, rest.isSession ? openIt : askIt), ...more }
+    return line('sent', lead, rest.isAtRest ? '' : isStale || isQuiet ? noNews : `${chat} still working`, at, more)
+  }
+  // Whether the chat is at rest now, and since when: a fresh idle report with no background work and a lane neither Working nor Waiting for
+  // you (rest since `restAt`, the board's receipt of that rest, else the report's since); or its session ended (an `ended` report, the lane not running).
+  function restNow() {
+    if (lane?.isRunning === false || (isReport && report.state === 'ended')) return { isAtRest: true, isSession: true, since: isReport && report.state === 'ended' ? report.since : null }
+    const isIdle = isReport && !isStale && !isQuiet && report.state === 'idle' && report.background !== true && !['Working', 'Waiting for you'].includes(lane?.status)
+    return isIdle ? { isAtRest: true, isSession: false, since: isTime(report.restAt) ? report.restAt : report.since } : { isAtRest: false }
+  }
   if (isTime(word.answeredAt)) return ended(word.answeredAt, word.answeredBound === true)
   // The Supervisor's judge word says its own turn's end (`endedAt`, supervisor/index.mjs `markWord`): exact, never guessed.
   if (isTime(word.endedAt)) return ended(word.endedAt)
-  const arrived = arrivedAt(word)
-  const hasReport = report !== null && report !== undefined && isTime(report.since) && arrived !== null
+  const hasReport = isReport && arrived !== null
   // The mod names the word its turn ran on (`report.word`, a string, or null for a turn that was no word's): then the board knows
   // the turn of this word, it does not guess it from busy and idle. A report without it is from an older mod (the older rule).
   const isNamed = hasReport && report.word !== undefined
@@ -223,11 +262,15 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
   // was not in it. Send again only for a chat that does not run, while no wake is pending, nobody pauses, and the board has
   // an id to reach it (one without could only be refused: open its chat).
   // P3: a person's word that expired before it reached its chat is attention and keeps its words (nothing was done with them).
+  // Its age is the one it expired at (`closedAt`, the store's), never one that grows with each draw (the review of 2026-11-09, 9).
   if (arrived === null && word.command !== 'sweep' && (word.state === 'expired' || (word.state === 'waiting' && isLate(word, now, keep)))) {
-    return line('late', `Not delivered: expired after ${minutes(running(word.at))} min`, `your words: "${oneLine(word.text, 160)}"`, word.at, { text: String(word.text ?? '').slice(0, 600) })
+    const age = word.state === 'expired' && isTime(word.closedAt) ? word.closedAt - word.at : running(word.at)
+    return line('late', `Not delivered: expired after ${minutes(age)} min`, `your words: "${oneLine(word.text, 160)}"`, word.at, { text: String(word.text ?? '').slice(0, 600), isExpired: true })
   }
+  // Rule 8's own Late, "Not picked up after N min": N in WALL time after the person's pause, as rule 8 counts it (watch.mjs `isUndelivered`),
+  // so the card and the alarm say one number (the review of 2026-11-09, 10); running time is only for P3's new rules.
   if (isLostForGood(word, now, keep)) {
-    return line('late', `Not picked up after ${minutes(running(word.at))} min`, `could not be delivered: ${oneLine(word.why) || 'the chat did not take it'}`, word.at)
+    return line('late', `Not picked up after ${minutes(wall(word.at))} min`, `could not be delivered: ${oneLine(word.why) || 'the chat did not take it'}`, word.at)
   }
   const isUndelivered = judge.isUndelivered(word) === true
   const wakeFailed = arrived === null && wake?.final === true
@@ -236,8 +279,8 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
     const cause = noId ? `the board has no id to wake ${chat}: open its chat`
       : wakeFailed || tried.length > 0 ? `${chat} did not wake: ${tried.join('; ') || wake?.why || 'no way left to wake it'}`
         : word.state === 'failed' && oneLine(word.why) !== '' ? `it could not be typed: ${oneLine(word.why)}`
-          : `it waits in ${chat}'s queue${lane?.isRunning === false ? '' : ` · open ${chat}'s chat: the word waits there`}`
-    return line('late', `Not picked up after ${minutes(running(word.at))} min`, cause, word.at, { canSendAgain: canAgain })
+          : `it waits in ${chat}'s queue${canAgain ? '' : ` · open ${chat}'s chat so its mod takes it`}`
+    return line('late', `Not picked up after ${minutes(wall(word.at))} min`, cause, word.at, { canSendAgain: canAgain })
   }
   // The supervisor's own sweep word expires in ten minutes by design (rule 8 leaves it out): no wait any more.
   if (word.state === 'expired' || (word.state === 'waiting' && isLate(word, now, keep))) return null
@@ -247,21 +290,23 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
   // turn's own start. Late only when the chat stopped or its report went stale (older than the lane's unknown limit): a fresh turn
   // that runs long is quiet ("on it for 95 min"), there are no limits per kind. Without `word` (an older mod; a word its chat took
   // inside a turn that runs, taken and never typed: on in that turn, from the take) the older rule stands.
-  const isStale = hasReport && isTime(report.at) && running(report.at) > staleMs
+  // The stale limit is REPORT_STALE_MS of heard running time (the review of 2026-11-09, 2); a quiet report before it says "no news".
   if (isNamed || isTime(word.pickedUpAt)) {
     const isLive = isOurs && (report.state === 'busy' ? !needsPill || lane?.status === 'Working' : report.state === 'asking' && (!needsPill || lane?.status === 'Waiting for you'))
     const pickedAt = isTime(word.pickedUpAt) ? word.pickedUpAt : isLive || (isOurs && report.state === 'ended') ? turnOf(report) : null
     if (pickedAt !== null) {
       const isStopped = (hasReport && report.state === 'ended') || lane?.isRunning === false
-      if (paused !== true && (isStopped || isStale)) {
-        const heard = isStopped ? (hasReport && report.state === 'ended' ? report.since : pickedAt) : report.at
-        return lateLine(Math.max(heard, pickedAt), `${chat} was on it since ${clockOf(pickedAt)}; ${isStopped ? 'its chat stopped' : 'its chat went quiet'}`)
+      const was = `${chat} was on it since ${clockOf(pickedAt)}`
+      const why = isStopped ? 'its chat stopped' : 'its chat went quiet'
+      if (isStopped || isStale) {
+        // While the person pauses the chats: said quietly, never Late (the review of 2026-11-09, 8).
+        if (paused === true) return line('sent', was, why, pickedAt)
+        const at = isStopped ? (hasReport && report.state === 'ended' ? report.since : pickedAt) : report.at
+        return lateLine(Math.max(at, pickedAt), `${was}; ${why}`, openIt)
       }
-      if (!isStopped && !isStale) {
-        const span = running(pickedAt)
-        const seen = isLive && !isTime(word.pickedUpAt) ? { pickedUpAt: pickedAt } : null
-        return line('picked-up', `${chat} is on it`, `since ${clockOf(pickedAt)}${span >= JUDGE_LONGEST_MS ? ` · for ${minutes(span)} min` : ''}`, pickedAt, { seen })
-      }
+      const span = running(pickedAt)
+      const seen = isLive && !isTime(word.pickedUpAt) ? { pickedUpAt: pickedAt } : null
+      return line('picked-up', `${chat} is on it`, `since ${clockOf(pickedAt)}${span >= JUDGE_LONGEST_MS ? ` · for ${minutes(span)} min` : ''}${isQuiet ? ` · ${noNews}` : ''}`, pickedAt, { seen })
     }
   } else if (hasReport && !isStale && (needsPill ? lane?.status === 'Working' : report.state === 'busy') && (report.since >= arrived || word.state === 'taken')) {
     return line('picked-up', `${chat} is on it`, `since ${clockOf(Math.max(report.since, arrived))}`, Math.max(report.since, arrived))
@@ -272,7 +317,7 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
   if (lane?.isRunning === false) return line('sent', sent, wakingWords(chat, lane, wake), word.at)
   if (arrived !== null) {
     const turn = waitingTurn({ report: hasReport ? report : null, ahead, arrived, chat, paused, running, limitMs: judge.limitMs ?? DELIVERY_LIMIT_MS })
-    if (turn.isLate) return lateLine(turn.since, turn.words)
+    if (turn.isLate) return lateLine(turn.since, turn.words, askIt)
     return line('sent', sent, turn.words, word.at)
   }
   if (word.state === 'failed') return line('sent', sent, `${chat} could not take it; the board tries again`, word.at)
@@ -320,7 +365,12 @@ function turnAnswer({ word, report, arrived, isNamed, isOurs, ahead }) {
   if (!isNamed) {
     return report.state === 'idle' && report.since >= arrived && isTime(report.busyAt) && report.busyAt >= arrived ? { at: report.since, isBound: false } : null
   }
-  if (isOurs) return report.state === 'idle' ? { at: report.since, isBound: false } : null
+  if (isOurs && report.state === 'idle') return { at: report.since, isBound: false }
+  // The review of 2026-11-09, 4: the last idle the chat reported (`lastIdle`, kept on the report entry by bridge.mjs `noteReport`), so an
+  // idle on this word that no pass saw before an `ended` (or a later turn) replaced it still ends the word's turn, exactly.
+  const idle = report.lastIdle
+  if (idle?.word === word.id && isTime(idle.since) && idle.since >= arrived) return { at: idle.since, isBound: false }
+  if (isOurs) return null
   const isLater = isTime(report.turn) && word.state === 'delivered' && isTime(word.deliveredAt) && report.turn > word.deliveredAt
   return isLater && ahead !== true && ['busy', 'idle', 'asking'].includes(report.state) ? { at: report.turn, isBound: true } : null
 }
@@ -643,7 +693,7 @@ function judgmentOf(state, fix) {
  * came back after it) is no wait of this word. `{ [<word id>#<incident id>]: line }`; no kept result: the incident's state is the
  * store's, kept for good, and one judge word covers many incidents.
  */
-export function judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, paused, running = from => now - from, staleMs = REPORT_FRESH_MS }) {
+export function judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, paused, running = from => now - from, heard = running, wall = from => now - from, unknownMs = REPORT_FRESH_MS, staleMs = REPORT_STALE_MS }) {
   const newest = new Map()
   for (const word of outbox) {
     if (word?.command !== 'judge' || !Array.isArray(word.incidents) || !isTime(word.at) || now - word.at >= WAITS_KEPT_MS) continue
@@ -667,7 +717,7 @@ export function judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, 
     const queue = outbox.filter(one => one.to === word.to && one.state === 'waiting' && one.isHeld !== true && one.id !== word.id && isTime(one.at) && one.at < word.at).length
     const line = waitLineOf({
       word, lane, report, wake: lane?.wake ?? null, done: judgment === null ? null : { at: since, words: judgment.words, link: judgment.link }, now, keep, queue, judge, paused,
-      own: true, outlives: true, needsPill: false, exact: true, keepsClosed: isWaiting, running, staleMs, showsClosed: false,
+      own: true, outlives: true, needsPill: false, exact: true, keepsClosed: isWaiting, running, heard, wall, unknownMs, staleMs, showsClosed: false, turnLate: false,
     })
     if (line === null) continue
     out[`${word.id}#${id}`] = { ...line, seen: line.seen?.doneAt === undefined ? line.seen : null, place: 'judge', word: word.id, command: 'judge', about: id, ask: null, goal: null, sentAt: word.at, title: String(valueOf(item, 'Title') ?? '').slice(0, 160) }
@@ -719,6 +769,31 @@ export function runningOf(state, now) {
 }
 
 /**
+ * P3 (the review of 2026-11-09, 2): the board's HEARD running time since `from`, for a report's quiet: counted from the later of `from` and
+ * the board's start (`startedAt`: a report kept across a restart did not go quiet while the board was down), the pause and off time left
+ * out as `runningOf` does, and the stretches the board heard no chat though chats ran (`state.deaf`, watch.mjs `deafMs`): a board stall or
+ * a landing restart is no chat's fault.
+ */
+export function heardOf(state, now, startedAt = null) {
+  const running = runningOf(state, now)
+  const deaf = Array.isArray(state?.deaf) ? state.deaf : []
+  return from => {
+    if (!isTime(from)) return 0
+    const start = isTime(startedAt) ? Math.max(from, startedAt) : from
+    const off = deaf.reduce((sum, span) => sum + (isTime(span?.from) && isTime(span?.to) ? Math.max(0, Math.min(span.to, now) - Math.max(span.from, start)) : 0), 0)
+    return Math.max(0, running(start) - off)
+  }
+}
+
+/** Rule 8's clock for "Not picked up after N min": WALL time since `from`, from the end of the person's last pause (watch.mjs `isUndelivered`). */
+export function wallOf(state, now) {
+  return from => {
+    const start = afterPause(state?.pause ?? null, from)
+    return isTime(start) ? Math.max(0, now - start) : 0
+  }
+}
+
+/**
  * P3 (no silent end): the last lines made well, kept by the server. `made(waits, at)` keeps them and gives `{ waits, asOf: null }`;
  * `failed(at)` (a pass that threw) gives the kept lines with `asOf`, the time they were made (else `at` with no lines), so the page draws
  * them under "as of HH:MM" and a card never loses its line, nor reads a missing one as done, because one pass failed.
@@ -753,9 +828,11 @@ function lanesOf(state) {
  * results are read from the same `state` the page draws (its backlog steps, goal map, brainstorm threads, lanes) and the store's `items`;
  * an incident that waits for the Supervisor's judgment has a line of its own under `<word id>#<incident id>` (`judgeLinesOf`).
  */
-export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = null, items = null, obsolete = null, sweep = null, firstSeen = null, staleMs = REPORT_FRESH_MS }) {
+export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = null, items = null, obsolete = null, sweep = null, firstSeen = null, unknownMs = REPORT_FRESH_MS, staleMs = REPORT_STALE_MS, startedAt = null }) {
   const paused = isHolding(state?.pause) || state?.pause?.state === 'resuming'
   const running = runningOf(state, now)
+  const heard = heardOf(state, now, startedAt)
+  const wall = wallOf(state, now)
   const byId = new Map(outbox.filter(word => typeof word?.id === 'string').map(word => [word.id, word]))
   // The place of each word in the outbox, which is the order its chat takes them in (store.mjs `take`) and types them.
   const placeOf = new Map(outbox.map((word, place) => [word?.id, place]))
@@ -784,19 +861,27 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     const ahead = ranOn !== undefined && ranOn.to === word.to && ranOn.id !== word.id && ['taken', 'delivered'].includes(ranOn.state) && placeOf.get(ranOn.id) < placeOf.get(word.id)
     // Wave 2: a place with a Done source of its own says "turn ended without it" when its turn ended without the result; the talk has none.
     const isOwnPlace = OWN_PLACES.includes(place)
-    const first = waitLineOf({ word, lane, report, ahead, wake: lane?.wake ?? null, done, now, keep, queue, judge, paused, outlives: isOwnPlace, progress, running, staleMs, ...(WAVE2_PLACES.includes(place) ? { own: isOwnPlace } : {}) })
+    // The first moment the board saw a word closed that has no `closedAt` of its own (one the sweep would close): its "closed" line is dated by it.
+    const closedKey = `${CLOSED_KEY}${word.id}`
+    const closedSeenAt = firstSeen instanceof Map ? firstSeen.get(closedKey) ?? null : null
+    const first = waitLineOf({ word, lane, report, ahead, wake: lane?.wake ?? null, done, now, keep, queue, judge, paused, outlives: isOwnPlace, progress, running, heard, wall, unknownMs, staleMs, closedSeenAt, ...(WAVE2_PLACES.includes(place) ? { own: isOwnPlace } : {}) })
+    if (firstSeen instanceof Map && !isTime(word.closedAt) && closedSeenAt === null && (first?.state === 'closed' || (first === null && word.state !== 'dropped' && !judge.matters(word)))) firstSeen.set(closedKey, first?.at ?? now)
     if (first === null) continue
-    // P3, no silent end: a word past a day without a Done says so for one more day ("no answer recorded in 24 h"), quietly: the chat
-    // may have answered in its own chat, which the board did not see. A closed line has none (it shows ten minutes).
+    // P3, no silent end: a word past a day without a Done says so for one more day ("no answer recorded in 24 h"), quietly, and its wait has
+    // ENDED (`isEnded`: Needs your attention lets its card go): the chat may have answered in its own chat, which the board did not see. A
+    // closed line has none (it shows ten minutes). An expired word's line is not rewritten (the review of 2026-11-09, 9): it keeps its
+    // attention and the person's words, and is marked ended too.
     const isOld = now - asked.at >= WAITS_KEPT_MS
     if (isOld && first.state === 'closed') continue
-    const line = isOld && first.state !== 'done' ? { ...first, state: 'sent', lead: `Sent ${clockOf(asked.at)}`, rest: 'no answer recorded in 24 h', canSendAgain: false, link: null, seen: null, at: asked.at } : first
+    const line = !isOld || first.state === 'done' ? first
+      : first.isExpired === true ? { ...first, isEnded: true, seen: null }
+        : { ...first, state: 'sent', lead: `Sent ${clockOf(asked.at)}`, rest: 'no answer recorded in 24 h', canSendAgain: false, link: null, seen: null, at: asked.at, isEnded: true }
     const title = String(asked.text ?? '').split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 160)
     waits[asked.id] = { ...line, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command, place, about: asked.about ?? null, goal: goalOfWord(asked, place, threads), ask: asked.ask ?? null, sentAt: asked.at, title }
   }
   // Place 8: an incident that waits for the Supervisor's judgment, a line of its own each.
   Object.assign(waits, judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, paused, running, staleMs }))
-  if (firstSeen instanceof Map) for (const id of firstSeen.keys()) if (!byId.has(id)) firstSeen.delete(id)
+  if (firstSeen instanceof Map) for (const id of firstSeen.keys()) if (!byId.has(id.startsWith(CLOSED_KEY) ? id.slice(CLOSED_KEY.length) : id)) firstSeen.delete(id)
   return waits
 }
 
