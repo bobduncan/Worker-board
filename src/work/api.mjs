@@ -33,7 +33,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, openFixesOf, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
+import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, NAME_THE_ASK, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, openFixesOf, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
 import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
@@ -543,6 +543,8 @@ function qaWords(item, items, w = { store: { items } }) {
     `Quality Assurance task: check ${checks}${step === undefined ? '' : ` "${valueOf(step, 'Title') ?? ''}" (${stateOf(step)})`} against its agreed points and its standard. Read roles/worker.md, "A Quality Assurance task"; you file the check with work checked ${checks}; you never work report this task.`,
     ...(points.length === 0 ? [] : ['Agreed points:', ...points.map(one => `- ${one}`)]),
     ...(standard === null ? [] : [`Standard: ${standard}`]),
+    // B1103: an ask point an open ask already asks names that ask; the person is never asked twice.
+    `Ask points: ${NAME_THE_ASK}.`,
     ...context,
     ...(words.length === 0 ? [] : [`The person's words on ${checks} (check each point too, met or not met; never ask the person what they answered there):`, ...words]),
   ].join('\n') + rowWordsBlock(step, w, { budget: 6000, chars: 400 })

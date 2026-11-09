@@ -250,7 +250,7 @@ export function commandLine(command) {
 
 function stopTree(child, name) {
   try {
-    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
     else child.kill(name)
   } catch {
     // already gone
@@ -299,7 +299,7 @@ export async function runOneAtATime({
     }
     const exited = new Promise((resolve) => {
       forceExit = () => resolve(signalExit(signalled))
-      child = spawn(commandLine(command), { shell: true, stdio: 'inherit', cwd, env: { ...env, HEAVY_RUN_HELD: '1' } })
+      child = spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...env, HEAVY_RUN_HELD: '1' } })
       child.on('error', (error) => {
         say(`one-at-a-time: could not start the command: ${error.message}`)
         resolve(127)

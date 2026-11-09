@@ -214,7 +214,7 @@ test('place 6 (the review of 2026-11-04): a stop is Done when the lane no longer
   const stateOf = w => ({ chats: [lead, w], advisor: null })
   const idle = new Map([['Lead', said('idle', at(10), { word: 's1', turn: at(19) })]])
   const lineOf = (w, word = stop) => waitsFor({ state: stateOf(w), outbox: [word], reports: idle }).s1
-  assert.equal(lineOf(worker()).state, 'sent', 'the worker still holds the task: the main chat\'s turn ended without it')
+  assert.equal(lineOf(worker()).state, 'late', 'the worker still holds the task: the main chat\'s turn ended 10 minutes ago without it (P3: Late after 5 min)')
   // The review's probe: the task is gone but the worker is not "free" (off, suspended, interrupted): it holds nothing.
   for (const state of ['off', 'suspended', 'interrupted', 'free']) assert.deepEqual([state, lineOf(worker({ task: null, state })).state], [state, 'done'])
   // The task changed (a short free moment was missed, the worker took another): done.
@@ -222,8 +222,8 @@ test('place 6 (the review of 2026-11-04): a stop is Done when the lane no longer
   assert.equal(lineOf(worker({ task: { stepId: null, text: 'water' } }), { ...stop, taskStep: undefined }).rest, 'stopped', 'a task with no id is told by its words')
   // It was working when told and now does not work (no longer running the task): done; one that waits for the person still holds it.
   assert.equal(lineOf(worker({ state: 'suspended' })).state, 'done')
-  assert.equal(lineOf(worker({ state: 'waiting' })).state, 'sent')
-  assert.equal(lineOf(worker({ state: 'suspended' }), { ...stop, laneState: 'waiting' }).state, 'sent', 'it was not working when told: only the task decides')
+  assert.equal(lineOf(worker({ state: 'waiting' })).state, 'late', 'P3: the turn ended 10 min ago without it')
+  assert.equal(lineOf(worker({ state: 'suspended' }), { ...stop, laneState: 'waiting' }).state, 'late', 'it was not working when told: only the task decides (its turn ended without it)')
   // A word from before the board named the task: the task gone is the result.
   assert.equal(lineOf(worker({ task: null, state: 'suspended' }), { ...stop, taskStep: undefined, taskText: undefined, laneState: undefined }).state, 'done')
   // A stop or remove the board carries out by code has no line for STOP_HANDS_MS (15 min); the main chat that takes it after all gets one.
@@ -307,6 +307,7 @@ test('place 8, an incident that waits for the Supervisor\'s judgment: a line of 
   const waiting = new Map([['X1', incident('X1', 'with the supervisor', at(59))], ['X2', incident('X2', 'with the supervisor', at(4))]])
   const both = waitsFor({ state, outbox: [older, elsewhere], items: waiting })
   assert.deepEqual(Object.keys(both).sort(), ['j1#X1', 'j2#X2'])
+  // The review of 2026-11-09 (1): a judge line stays quiet when its turn ended without the judgment, as before P3.
   assert.deepEqual([both['j1#X1'].state, both['j1#X1'].lead], ['sent', `Supervisor's turn ended at ${hhmm(at(50))} without it`])
   // Once judged (or ended by code) it is Done, whichever word names it.
   const judged = waitsFor({ state, outbox: [older, elsewhere], items: new Map([['X1', incident('X1', 'closed', at(1))], ['X2', waiting.get('X2')]]) })
