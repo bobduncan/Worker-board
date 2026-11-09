@@ -168,12 +168,14 @@ test('the real route: a Confirm is written into the plan first, then the word go
 
 test('the real route with no partner chat: the decision is written, no word goes out, the answer carries the quiet note', { timeout: 300_000 }, async t => {
   const { board, planFile, asPerson, outbox, plan } = await startBoard(t, { withAdvisor: false })
-  const before = (await outbox()).length
+  // The board may type its own start-up words (a spawn word to Main) at any time: only words not for Main count.
+  const planWords = async () => (await outbox()).filter(message => message.to !== 'Main')
+  const before = (await planWords()).length
   const done = await asPerson('/api/plan', { command: 'plan-confirm', id: 'P7' })
   assert.equal(done.status, 200, done.body)
   assert.equal(JSON.parse(done.body).note, 'Written. No partner chat on the board: it reads it when one starts.')
   assert.match(await plan(), /- State: decided /)
-  assert.equal((await outbox()).length, before, 'nothing is typed to anyone')
+  assert.equal((await planWords()).length, before, 'no plan word is typed to anyone')
   assert.equal((await asPerson('/api/plan', { command: 'plan-deeper', id: 'P7' })).status, 409)
   assert.equal(JSON.parse(await readFile(join(board, 'data', 'plan-writes.json'), 'utf8'))[planFile].ids[0], 'P7')
 })
