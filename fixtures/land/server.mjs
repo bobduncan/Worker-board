@@ -18,7 +18,7 @@ const at = process.argv.indexOf('--port')
 const PORT = Number(at >= 0 ? process.argv[at + 1] : readFileSync(join(HERE, 'data', 'port.txt'), 'utf8'))
 const repoAt = process.argv.indexOf('--repo')
 const REPO = repoAt >= 0 ? process.argv[repoAt + 1] : HERE
-const head = () => execFileSync('git', ['-C', REPO, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim()
+const head = () => execFileSync('git', ['-C', REPO, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8', windowsHide: true }).trim()
 const NO_KEEPER = process.argv.includes('--no-keeper')
 const TOKEN = Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('')
 const state = { commit: head(), since: Date.now() }

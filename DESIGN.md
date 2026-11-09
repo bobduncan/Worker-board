@@ -6208,6 +6208,13 @@ what was typed so it can be pasted into the app.
   tail, the plan line, the worktree list, the state table one test per row.
 - The sending endpoint: refused without the token, refused from another origin, accepted with both.
 - The mod's part with `claude plugin test`: a waiting message is submitted once; a delivered one never again.
+- No terminal windows (2026-11-09, the person: "i keep getting these terminmal popups"): every program the code starts is
+  started with `windowsHide: true` (spawn, spawnSync, exec, execSync, execFile, execFileSync, fork). Without it, a process
+  that has no console of its own (a board started by start-board.mjs is `detached`) opens a new, visible console, and with
+  Windows Terminal as the PC's default terminal that is a window popping up. The land test's made-up board
+  (fixtures/land/server.mjs) did that with git on every gate. `test/windowsHide.test.mjs` fails any such call outside
+  `test/`, naming its file and line. **A branch in flight that adds a start without it fails the gate once it merges main:
+  add `windowsHide: true` to that call.**
 
 ## The person's feedback on the first board (2026-10-12, during step 2)
 

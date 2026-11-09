@@ -176,13 +176,13 @@ async function dataUrl(file) {
 /** Ends what is left of the browser started with this profile: the first process's tree, then any by its profile. */
 function closeLeft(child, profile) {
   if (child.exitCode === null && child.signalCode === null) {
-    if (process.platform === 'win32') spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' })
+    if (process.platform === 'win32') spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore', windowsHide: true })
     else child.kill('SIGKILL')
   }
   if (process.platform !== 'win32') return
   // Never this PowerShell itself, whose own command line holds the profile's path too.
   const query = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains('user-data-dir=${profile.replace(/'/g, "''")}') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
-  spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { stdio: 'ignore' })
+  spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', query], { stdio: 'ignore', windowsHide: true })
 }
 
 /**
@@ -196,7 +196,7 @@ export async function shootPage({ browser = findBrowser(), html, url, layoutScri
   const profile = join(work, 'profile')
   const page = join(work, 'evidence.html')
   if (url === undefined) await writeFile(page, html)
-  const child = spawn(browser, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore' })
+  const child = spawn(browser, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore', windowsHide: true })
   let socket
   const deadline = setTimeout(() => socket?.close(), timeoutMs)
   try {
