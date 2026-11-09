@@ -6666,6 +6666,7 @@ function focusPageView(state, ui) {
   return {
     ...cards,
     focus: state.focus ?? null,
+    clicksUnsent: state.clicksUnsent ?? null,
     goals: state.goals ?? null,
     brainstorms: state.brainstorms ?? null,
     advisor: (state.advisor ?? null) === null ? null : { ...runnerOf(state.advisor), effort: state.advisor.effort ?? null },
@@ -12073,7 +12074,7 @@ const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, u
 
 function goalsData(state) {
   const editing = goalsUi.editing === null ? null : { kind: goalsUi.editing.kind, id: goalsUi.editing.id }
-  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, goalsHideDone, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null, goalAskWaitKeys(state), [...goalAskStepUi]]
+  return [state.goals ?? null, state.clicksUnsent ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, goalsHideDone, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null, goalAskWaitKeys(state), [...goalAskStepUi]]
 }
 
 const canEditGoals = state => state?.goalsEdit?.canWrite === true
@@ -12663,6 +12664,9 @@ function goalAskBlockNode(node, block, canEdit) {
     if (block.state === 'answered') buttons.append(goalButton('goals-tool is-read', 'Done', { askAction: 'done', askId: block.id }))
   }
   if (buttons.children.length > 0) box.append(buttons)
+  // Reactive board, brief P4a round 2: an ask that stands under this goal with its word not queued: from the board's record, with a Retry (the stored click id).
+  const unsent = block.answer === null ? unsentLine(node.id) : null
+  if (unsent !== null) box.append(unsent)
   return box
 }
 
@@ -16864,6 +16868,9 @@ function focusTalkCard(state, can) {
   // T22 wave 2, place 7: where the last word of the talk stands (the board says "thinking" whenever the chat runs, not whether it took the word).
   const talkLine = focusTalkLine(state)
   if (talkLine !== null) card.append(talkLine)
+  // Reactive board, brief P4a round 2: an answer of this talk that stands with its word not queued, from the board's record, with a Retry (the stored click id).
+  const unsent = unsentLine(state.focus.thread)
+  if (unsent !== null) card.append(unsent)
   card.append(effortSwitch(state, can))
   return card
 }
@@ -18859,15 +18866,7 @@ function drawFocus(state) {
   if (!recapsDrawn) parts.push(...gatheredCards(state))
   if (toggle !== null && !switchDrawn) parts.push(toggle)
   if (focusUi.note !== null) {
-    const note = el('p', `focus-note${focusUi.note.isProblem ? ' is-error' : ''}`, focusUi.note.text)
-    if (focusUi.note.retry) {
-      const retry = el('button', 'click-retry', 'Retry')
-      retry.type = 'button'
-      retry.dataset.clickRetry = focusUi.note.retry.click
-      retry.dataset.clickRoute = focusUi.note.retry.route
-      note.append(' ', retry)
-    }
-    parts.splice(view.head === null ? 0 : 1, 0, note)
+    parts.splice(view.head === null ? 0 : 1, 0, el('p', `focus-note${focusUi.note.isProblem ? ' is-error' : ''}`, focusUi.note.text))
   }
   // The box typed in keeps its words, and the cursor where it was.
   const active = document.activeElement
@@ -19060,7 +19059,6 @@ async function focusAnswer(focus) {
   focusUi.words.talk = ''
   focusUi.picked = null
   // The answer stands in the thread; a word that was not queued says so, with a Retry that reuses the click id.
-  if (result.notSent !== undefined) focusUi.note = { isProblem: true, text: notSentWords(result.notSent, result.notSentAt), retry: { click: result.click, route: '/api/brainstorm' } }
   await read()
 }
 

@@ -762,7 +762,7 @@ call (a click id; reactive board, brief P4a), the board types `ask from the goal
 Advisor's chat (`goal-ask`, `src/say.mjs`, to the Advisor only; a chat that is not running is started through the
 main chat, as any word to it). Only an ask that stands under that goal, not answered yet, is typed, in the map's own
 words; when the words do not reach the Advisor, the box keeps the ask with its words fixed and "Send again" is the Retry of that
-click (`click-retry`, the same click id), never a second ask (the review of B258). The Advisor writes `Answer (<date time>, <title>): …` and `More: <page>` under the ask
+click (`click-retry`, the same click id), never a second ask (the review of B258); the ask's block under the goal also draws "Not sent: <why>, HH:MM" with a Retry from `state.clicksUnsent`, after a reload as well. The Advisor writes `Answer (<date time>, <title>): …` and `More: <page>` under the ask
 (roles/partner.md, "Asks from the goal map"; the page in `goalAsks`, `.claude/goal-asks`, beside the threads, not in
 the game). The frame shows each ask as a violet block: the question with its id, time and "waiting for the Advisor",
 or the answer with the pictures it names and "More ↗" (the page in the board's file window, from the project's
@@ -2414,7 +2414,7 @@ beside the mockup `focus-vibe.png`: `art-inbox/focus-mockups/inc2-vibe.png`, `in
   turn). Drawn by `drawFocus` with `focusUi` (a move on its way, its line, the Not yet box, the words of each box and
   the option picked, kept while the page redraws); `focusAct` sends the moves, `focusAnswer` is ONE call to `/api/brainstorm`
   (`answer`, `via: 'talk-send'`, a click id): the board writes the answer into the thread and queues `brainstorm answer` itself, as for
-  the Brainstorm part (`src/clicks.mjs`; a word not queued leaves the answer in the thread with "Not sent: <why>, HH:MM" and a Retry).
+  the Brainstorm part (`src/clicks.mjs`; a word not queued leaves the answer in the thread; the talk card draws "Not sent: <why>, HH:MM" and its Retry from `state.clicksUnsent` (the board's record), so it shows after a reload too, and the Retry sends the stored click id).
 - **The partner** (`roles/partner.md`, from the Advisor's job, which keeps refining, goal linking and rounds): "The
   focus" in three moves (talk until the goal definition is clear and keep the draft, never build; on `goal definition: agreed` propose the
   how; on `how: go` make the steps with `work new` and the goal, refine them itself, write their ids into the parts,

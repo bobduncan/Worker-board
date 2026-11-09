@@ -89,7 +89,7 @@ test('Brainstorm: a word the board did not queue leaves the input standing: "Not
   const unsent = { click: 'click-aaaa-1111', via: 'brainstorm-answer', key: PATH, route: '/api/brainstorm', why: 'no chat on the board takes it', at: '14:07' }
   const page = await brainstormPage([[PATH, `${HEAD}${Q1}${A1}`]], { state: stateOf([[PATH, `${HEAD}${Q1}${A1}`]], { clicksUnsent: [unsent] }) })
   try {
-    assert.equal(page.text('.click-unsent'), 'Not sent: no chat on the board takes it, 14:07. Your input stands. Retry')
+    assert.equal(page.text('#brainstorm-card .click-unsent'), 'Not sent: no chat on the board takes it, 14:07. Your input stands. Retry')
     await page.click('.click-unsent .click-retry')
     assert.deepEqual(page.sent('/api/brainstorm').map(one => one.body), [{ command: 'click-retry', click: 'click-aaaa-1111' }], 'the same click id, no new input')
     assert.deepEqual(page.sent('/api/say'), [])
@@ -110,8 +110,8 @@ test('Brainstorm: the answer that came back "not sent" shows its line at once, f
   })
   try {
     await page.click('[data-option="A"]')
-    assert.equal(page.all('.click-unsent').length, 1)
-    assert.match(page.text('.click-unsent'), /^Not sent: the outbox is locked, 09:05\./)
+    assert.equal(page.all('#brainstorm-card .click-unsent').length, 1)
+    assert.match(page.text('#brainstorm-card .click-unsent'), /^Not sent: the outbox is locked, 09:05\./)
     assert.deepEqual(page.sent('/api/say'), [])
   } finally { await page.close() }
 })
@@ -131,18 +131,41 @@ test('Focus: the talk\'s Send is ONE call (the answer under the question and its
   } finally { await page.close() }
 })
 
-test('Focus: a talk answer whose word was not queued says so on the page with a Retry on the same click id', async () => {
+test('Focus: a fresh page whose state holds a not-sent talk answer shows the line and its Retry, with no call made first; the Retry sends the stored click id', async () => {
   const texts = [[PATH, `${HEAD}${Q1}${A1}${Q2}`]]
-  const page = await openPage({ state: stateOf(texts), answers: request => reply(request.url === '/api/brainstorm' ? { click: 'click-cccc-3333', notSent: 'no chat on the board takes it', notSentAt: '09:10' } : {}) })
+  const unsent = { click: 'click-cccc-3333', via: 'talk-send', key: PATH, route: '/api/brainstorm', why: 'no chat on the board takes it', at: '09:10' }
+  const page = await openPage({ state: stateOf(texts, { clicksUnsent: [unsent] }) })
   try {
     await page.click('[data-tab="advice"]')
-    await page.click('[data-focus-option="B"]')
-    await page.click('[data-focus-act="talk"]')
-    assert.match(page.text('.focus-note'), /^Not sent: no chat on the board takes it, 09:10\. Your input stands\./)
-    await page.click('.focus-note .click-retry')
-    assert.deepEqual(page.sent('/api/brainstorm').at(-1).body, { command: 'click-retry', click: 'click-cccc-3333' })
+    assert.deepEqual(page.requests.filter(one => one.method === 'POST'), [], 'nothing was sent yet')
+    assert.equal(page.text('.focus-talk .click-unsent'), 'Not sent: no chat on the board takes it, 09:10. Your input stands. Retry')
+    await page.click('.focus-talk .click-retry')
+    assert.deepEqual(page.sent('/api/brainstorm').map(one => one.body), [{ command: 'click-retry', click: 'click-cccc-3333' }])
     assert.deepEqual(page.sent('/api/say'), [])
   } finally { await page.close() }
+  const none = await openPage({ state: stateOf(texts) })
+  try {
+    await none.click('[data-tab="advice"]')
+    assert.equal(none.all('.focus-talk .click-unsent').length, 0, 'no record, no line')
+  } finally { await none.close() }
+})
+
+test('Goals: a fresh page whose state holds a not-sent ask shows the line and its Retry under the ask, with no call made first', async () => {
+  const goals = ['# Goals', 'Last id: G6', 'Last ask: A1', 'Focus: G6', '', '- [~] G6 Benches that match the picture', '  Steps: B12', '  Ask (A1, 2026-11-09 09:00): why are the benches grey?', ''].join('\n')
+  const unsent = { click: 'click-dddd-4444', via: 'goal-ask', key: 'G6', route: '/api/goals', why: 'no chat on the board takes it', at: '09:10' }
+  const stateWith = more => asSent({ ...build([], undefined, goals), goalsEdit: { canWrite: true }, ...more })
+  const page = await openPage({ state: stateWith({ clicksUnsent: [unsent] }), hash: 'advice/goals/G6' })
+  try {
+    assert.deepEqual(page.requests.filter(one => one.method === 'POST'), [], 'nothing was sent yet')
+    assert.equal(page.text('.goal-ask-block .click-unsent'), 'Not sent: no chat on the board takes it, 09:10. Your input stands. Retry')
+    await page.click('.goal-ask-block .click-retry')
+    assert.deepEqual(page.sent('/api/goals').map(one => one.body), [{ command: 'click-retry', click: 'click-dddd-4444' }])
+    assert.deepEqual(page.sent('/api/say'), [])
+  } finally { await page.close() }
+  const none = await openPage({ state: stateWith({}), hash: 'advice/goals/G6' })
+  try {
+    assert.equal(none.all('.goal-ask-block .click-unsent').length, 0)
+  } finally { await none.close() }
 })
 
 test('Goals: "Ask the Advisor" Send is ONE call to /api/goals (the Ask line under the goal and its word), none to /api/say; a word not queued keeps the box open and "Send again" is the Retry by the click id', async () => {
