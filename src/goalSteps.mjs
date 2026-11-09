@@ -85,3 +85,54 @@ async function missingOnce(body, ports) {
   if (made.length === 0 && failed.length > 0) return refuse(409, failed[0].why)
   return { ok: true, result: { id, made, failed } }
 }
+
+/** The line a step made from an Advisor's answer carries in its context: the one record that says an answer has its step. */
+export const askStepMark = (goal, ask) => `From the goal map: the Advisor's answer ${ask} under ${goal}.`
+
+/**
+ * The step already made from an answer: the id of a step (not dropped) whose context holds the answer's mark line, else
+ * null. `items`: the work store's items. The one record both the idempotence and the page's "Step B<n> made" read.
+ */
+export function stepMadeFrom(items, goal, ask) {
+  const mark = askStepMark(goal, ask)
+  for (const [id, item] of items ?? []) {
+    if (item.head.get('Kind') === 'step' && item.head.get('State') !== 'dropped' && (item.sections?.get('Context') ?? []).some(one => one.trim() === mark)) return id
+  }
+  return null
+}
+
+/**
+ * "Make a step from this" (reactive board, brief B): an Advisor's answer under a goal made into a step by the board
+ * itself, in the state the Brainstorm's Create gives its steps (`ports.make` is that maker, B754): the goal, a title
+ * from the answer's first words, the answer's words as its text. No effort, no model, no word to any chat. Idempotent on
+ * the answer's own id: a second click finds the step the first made (`ports.existing(goal, ask)`, the id of a step, not dropped, whose
+ * context holds the mark) and answers it with `again: true`. `ports`: `readMap()`, `existing(goal, ask)`, `make(step)`
+ * (answers `{ ok, result: { step } }`). Answers `{ ok, result: { step, again } }` or a refusal.
+ */
+let askTurn = Promise.resolve()
+export function askToStep(body, ports) {
+  const run = askTurn.then(() => askOnce(body, ports))
+  askTurn = run.catch(() => {})
+  return run
+}
+
+async function askOnce(body, ports) {
+  const id = typeof body?.id === 'string' ? body.id : ''
+  const askId = typeof body?.ask === 'string' ? body.ask : ''
+  if (!/^G\d+$/.test(id)) return refuse(400, 'Name the goal by its id (G12).')
+  if (!/^A\d+$/.test(askId)) return refuse(400, 'Name the ask by its id (A3).')
+  const node = parseGoals(await ports.readMap()).byId.get(id)
+  if (node === undefined) return refuse(404, 'That goal is no longer in the map.')
+  const ask = node.asks.find(one => one.id === askId)
+  if (ask === undefined) return refuse(404, `${askId} is no longer under ${id}.`)
+  if (ask.answer === null) return refuse(409, 'The Advisor has not answered that ask yet.')
+  const mark = askStepMark(id, askId)
+  const had = await ports.existing(id, askId)
+  if (had !== null) return { ok: true, result: { step: had, again: true } }
+  const words = plain(ask.answer.text)
+  const made = await ports.make({
+    title: stepTitleOf(words.split(/(?<=[.!?])\s/)[0], id), goal: id, description: words, cost: '', mark,
+  })
+  if (!made.ok) return refuse(made.status ?? 409, made.why)
+  return { ok: true, result: { step: made.result.step, again: false } }
+}

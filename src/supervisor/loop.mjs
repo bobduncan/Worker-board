@@ -92,7 +92,7 @@ export async function applySync(findings, ports, noted = new Set()) {
       }
     } else if (fix.do === 'recheck') {
       // B598: the board's check of a step run again (its base branch equals the remote's now); tried again next run.
-      const done = await Promise.resolve().then(() => ports.recheck(fix.id, fix.why))
+      const done = await Promise.resolve().then(() => ports.recheck(fix.id, fix.why, fix.again === true ? { again: true } : {}))
         .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
       if (done?.ok === true) row(one, 'Fixed', `${one.text}: checked again`)
       else row(one, 'For Main', `${one.text}: not checked again (${done?.why ?? 'no answer'})`)
@@ -291,7 +291,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     const items = await ports.items()
     const assets = typeof ports.assets === 'function' ? await ports.assets() : null
     const view = buildView({
-      state, items, assets, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), bases: await lookBases(ports),
+      state, items, assets, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), bases: await lookBases(ports), branches: await lookBranches(ports), live: lookLive(ports),
       repairs: memory.repairs, mods: typeof ports.mods === 'function' ? await ports.mods() : null, settings: ports.settings ?? {}, now,
     })
     const repairs = runRules(rules, view, { seen, observed })
@@ -303,7 +303,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
       unblock: (id, on, why) => ports.apply({ action: 'unblock', id, on, why }),
       unpin: id => ports.apply({ action: 'pin', id, for: '' }),
       // B598: through its own port when given (the server runs the check after it), else the work API as the board
-      recheck: (id, why) => (typeof ports.recheck === 'function' ? ports.recheck(id, why) : ports.apply({ action: 'recheck-base', id, why })),
+      recheck: (id, why, more = {}) => (typeof ports.recheck === 'function' ? ports.recheck(id, why, more) : ports.apply({ action: 'recheck-base', id, why, ...more })),
       // T9.4: the person's note, one of the board's (Via supervisor), as the incident lines are
       person: ({ of, text }) => ports.apply({ action: 'note', to: 'you', text, of, via: 'supervisor' }),
       apply: ports.apply,
@@ -409,6 +409,37 @@ async function lookBases(ports) {
   } catch {
     return []
   }
+}
+
+/**
+ * P2 (T2.11): what stands in each repository now (check.mjs `faultsNow`), through the runner's port `branches()`, for the rule
+ * faults-gone; none without the port, or when the look fails (the rule waits).
+ */
+async function lookBranches(ports) {
+  if (typeof ports.branches !== 'function') return []
+  try {
+    const found = await ports.branches()
+    return Array.isArray(found) ? found : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * P2: the board's own facts for the rule faults-gone, through the ports `landing()` (a landing runs now), `startedAt()` (when
+ * this board started) and `checking()` (the steps whose check runs now). A port that is missing or fails says nothing: the rule
+ * reads a missing start as no grace, and a landing it cannot read as one that runs (Principle 3).
+ */
+function lookLive(ports) {
+  const ask = (port, fallback) => {
+    if (typeof ports[port] !== 'function') return fallback
+    try {
+      return ports[port]()
+    } catch {
+      return fallback
+    }
+  }
+  return { landing: typeof ports.landing === 'function' ? ask('landing', true) : false, startedAt: ask('startedAt', null), checking: ask('checking', []) }
 }
 
 /**

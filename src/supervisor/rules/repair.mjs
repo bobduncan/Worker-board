@@ -642,6 +642,82 @@ function mergedNow(view) {
   return found
 }
 
+/** P2 (T2.11): the faults of a failed check that the rule faults-gone can test, as the check words them (check.mjs `branchFacts`, worktrees.mjs `worktreeLine`). */
+const LOCAL_FAULT = /^the branch (\S+) is still there$/
+const REMOTE_FAULT = /^the branch (\S+) is still on (\S+) of (\S+)$/
+const TREE_FAULT = /^the worktree (.+?) is still (?:on \S+|there):/
+/** P2: the History lines that end a failed check's case: a report, a person's "Check again" (the check after them is theirs). */
+const REPORTED_LINE = / → review\b|: reported again\b|: check asked again\b/
+/** P2: the board's own re-run by this rule (api.mjs `recheckBase` with `again`), and the minutes after a board start in which it looks at nothing. */
+const AGAIN_RUN = /\bserver: check run again by the board\b/
+export const FAULTS_GONE_START_MS = 5 * MIN
+const slashedPath = path => String(path).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+
+/**
+ * P2 (T2.11, the person: "i dont want to wait for a week"): a step in review whose last board check failed only on faults the
+ * board can test, and every one of them is gone now, is checked again without a new report: the branch left locally (gone from
+ * every repository), a worktree left (no repository lists it), a branch left on origin with commits of its own (gone from
+ * origin, or now on origin's base). The view's `branches` (check.mjs `faultsNow`). Once per failed check (its key names the
+ * check's minute; the re-run's own line ends the case). Not while the step's check runs (`live.checking`, or its last line is
+ * "check pending"), nor after a report that came after the failed check; not in the first minutes after a board start nor while a
+ * landing runs (`skips`: the landing's sweep and the person's pushes are under way). A git that did not answer, a fault it
+ * cannot test (a folder, a base off its remote, work not merged) or one still standing: nothing. A check that fails again is
+ * written as "check run again by the board: failed: ..." (api.mjs `check`): the report-check-twice rule and the hand-over's
+ * "back to you" word read only the board's own check lines, so neither counts it.
+ */
+function faultsGone(view) {
+  const { branches = [], live = {} } = view
+  const { steps } = factsOf(view)
+  if (!Array.isArray(branches) || branches.length === 0) return []
+  const found = []
+  for (const item of steps.filter(one => stateOf(one) === 'review')) {
+    const id = idOf(item)
+    if ((live.checking ?? []).includes(id)) continue
+    const history = (item.sections?.get('History') ?? []).map(one => String(one).trim())
+    const checks = history.map((line, index) => ({ index, hit: BOARD_CHECK.exec(line) })).filter(one => one.hit !== null)
+    const last = checks.at(-1)
+    if (last === undefined || last.hit[2] !== 'failed') continue
+    const after = history.slice(last.index + 1)
+    if (after.some(line => REPORTED_LINE.test(line) || AGAIN_RUN.test(line))) continue
+    const faults = String(last.hit[3] ?? '').split('; ').map(one => one.trim().replace(/^back:\s*/, '')).filter(one => one !== '' && !one.startsWith('work in '))
+    if (faults.length === 0) continue
+    const said = []
+    let isGone = true
+    for (const fault of faults) {
+      const local = LOCAL_FAULT.exec(fault)
+      const remote = REMOTE_FAULT.exec(fault)
+      const tree = TREE_FAULT.exec(fault)
+      if (local !== null) {
+        if (branches.some(repo => !Array.isArray(repo.heads)) || branches.some(repo => repo.heads.includes(local[1]))) isGone = false
+        else said.push(`the branch ${local[1]} is gone`)
+      } else if (remote !== null) {
+        const repo = branches.find(one => one.name === remote[3])
+        const ref = `${remote[2]}/${remote[1]}`
+        if (repo === undefined || !Array.isArray(repo.remotes)) isGone = false
+        else if (!repo.remotes.includes(ref)) said.push(`${ref} is gone`)
+        else if (Array.isArray(repo.remoteUnmerged) && !repo.remoteUnmerged.includes(ref)) said.push(`${ref} is on ${repo.base} now`)
+        else isGone = false
+      } else if (tree !== null) {
+        if (branches.some(repo => !Array.isArray(repo.worktrees)) || branches.some(repo => repo.worktrees.some(path => slashedPath(path) === slashedPath(tree[1])))) isGone = false
+        else said.push(`the worktree ${tree[1].split(/[\\/]/).pop()} is gone`)
+      } else isGone = false
+      if (!isGone) break
+    }
+    if (!isGone) continue
+    const why = said.join(', ')
+    found.push(finding('faults-gone', `faults-gone ${id} ${last.hit[1]}`, id, `${id}: its check failed only on what is gone now, and ${why}`, { do: 'recheck', id, why, again: true }))
+  }
+  return found
+}
+
+/** P2: why faults-gone looks at nothing now (the loop shows the reason), or null: a landing runs, or the board started minutes ago. */
+function faultsGoneSkips(view) {
+  const { live = {}, now } = view
+  if (live.landing === true) return 'a landing runs'
+  if (Number.isFinite(live.startedAt) && now - live.startedAt < FAULTS_GONE_START_MS) return 'the board started minutes ago'
+  return null
+}
+
 /**
  * Every repair rule of the board's self-check, in the order the answer shows them. B590: `countsBy: 'key'` marks a rule
  * whose key names a pair (the step and what it waited on), so repair-repeats counts it by that key; without it a repair
@@ -662,6 +738,7 @@ export const REPAIR_RULES = [
   { id: 'held-elsewhere', kind: 'repair', says: 'a step in progress over an hour while its worker is on another step, with nothing naming why', check: heldElsewhere },
   { id: 'base-equal', kind: 'repair', says: 'a step in review whose check failed only on its base branch against the remote\'s, now equal', check: baseEqual },
   { id: 'merged-now', kind: 'repair', says: 'a step in review whose check failed only on work not merged, its branch now merged or gone', check: mergedNow },
+  { id: 'faults-gone', kind: 'repair', says: 'a step in review whose check failed only on a branch or worktree left, now gone, or a branch on origin now merged', check: faultsGone, skips: faultsGoneSkips },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
 ]
 
@@ -688,7 +765,7 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  * What is stuck now: `[{ check, key, text, fix, ... }]`, in the order of `CHECKS`, from every repair rule but the
  * worktrees' (the loop looks at those). `key` names the finding (one note to the main chat per key, ever; the board's
  * wake for it carries it as `syncKey`); `text` says what stands; `fix` what to do: `{ do: 'unblock', id, on }`,
- * `{ do: 'unpin', id }`, `{ do: 'give-back', id, chat, why }` (signals change 3: a gone owner's step back on the list), `{ do: 'recheck', id, why }` (B598: the board's check run again), `{ do: 'qa', id }`, `{ do: 'qa-drop', id, why }` and `{ do: 'qa-end', id }` (T9.1.1: the board makes a step's Quality Assurance task, drops one whose step left review or is not due, or ends one whose check was filed), `{ do: 'person', id, text }` (T9.4: a note to the
+ * `{ do: 'unpin', id }`, `{ do: 'give-back', id, chat, why }` (signals change 3: a gone owner's step back on the list), `{ do: 'recheck', id, why }` (B598: the board's check run again; P2: with `again: true` its failure is written as "check run again by the board: failed"), `{ do: 'qa', id }`, `{ do: 'qa-drop', id, why }` and `{ do: 'qa-end', id }` (T9.1.1: the board makes a step's Quality Assurance task, drops one whose step left review or is not due, or ends one whose check was filed), `{ do: 'person', id, text }` (T9.4: a note to the
  * person about `id`, its lines in `text`), `{ do: 'wake', chat, id, text }` (a line typed to the chat), `{ do: 'woken', at }` (woken
  * a moment ago: it waits for that), `{ do: 'send', text }` (a note to the main chat is the fix), `{ do: 'hand', chat, id,
  * text }` (the helper's work to the partner, and the main chat told), or `{ do: 'main', text }` (the board cannot fix
@@ -696,11 +773,11 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  * The input: `items` (the store), `lanes` (the board's chats, state.mjs), `partner` and `helper` (their cards, or null),
  * `outbox` (the board's messages), `limits` (state.mjs), `pause` (the store's), `refused` (`[{ name, session, first,
  * at }]`, the names the board refused a chat under), `prefix`, `now`, `appStartedAt` (when the app last started, or
- * null), `focus` (the focus goal's id, or null), `bases` (B598: check.mjs `basesNow`, or none). The review: `seen` (a Map) holds since when the
+ * null), `focus` (the focus goal's id, or null), `bases` (B598: check.mjs `basesNow`, or none), `branches` (P2: check.mjs `faultsNow`) and `live` (P2: `{ landing, startedAt, checking }`). The review: `seen` (a Map) holds since when the
  * runner has seen what only counts once it has lasted (an owner missing from the list, the helper not running); what
  * is seen now is added to `observed` (an array), so the runner keeps it and forgets the rest.
  */
-export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], appStartedAt = null, focus = null, bases = [], ready = [], recaps = [], seen = new Map(), observed = [] }) {
-  const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused, appStartedAt, focus, bases, ready, recaps }
+export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], appStartedAt = null, focus = null, bases = [], branches = [], live = {}, ready = [], recaps = [], seen = new Map(), observed = [] }) {
+  const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused, appStartedAt, focus, bases, branches, live, ready, recaps }
   return REPAIR_RULES.filter(rule => rule.id !== 'worktrees').flatMap(rule => rule.check(view, { seen, observed }))
 }

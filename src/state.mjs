@@ -16,6 +16,7 @@ import { finishedList } from './finished.mjs'
 import { askFacts, brainstormNeeds, brainstormsState } from './brainstorm.mjs'
 import { DEMO_WORDS, demoGaveUp } from './focus.mjs'
 import { DRAFTED_FOR_GO, NO_ROUND, focusStage, goWaitsForLines, goalAskList, goalAskNeeds, goalCounts, parseGoals, unlinkedSteps } from './goals.mjs'
+import { stepMadeFrom } from './goalSteps.mjs'
 import { asWeekPause, limitStop, limitsOf, newestPerWindow, parseUsageHistory, pauseLifted, pauseNote, storePause, usageReadings } from './limits.mjs'
 import { mentionedPaths } from './pictures.mjs'
 import { milestoneFromGoals } from './milestone.mjs'
@@ -2851,7 +2852,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
       if (goalMap === null) return null
       const counts = goalCounts(goalMap, backlog)
       // B289: with the open steps no goal names.
-      return { file: config.goals, roots: goalMap.roots, problems: goalMap.problems, nodes: goalMap.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null })), unlinked: unlinkedSteps(goalMap, backlog, config.advisorSuggestions) }
+      return { file: config.goals, roots: goalMap.roots, problems: goalMap.problems, nodes: goalMap.nodes.map(one => ({ ...one, counts: counts.get(one.id) ?? null, asks: one.asks.map(ask => ({ ...ask, step: workOk ? stepMadeFrom(raw.work.items, one.id, ask.id) : null })) })), unlinked: unlinkedSteps(goalMap, backlog, config.advisorSuggestions) }
     })(),
     goalsFile: config.goals,
     // B985: the fixes a goal's open Rebuild ask holds (the refine gate types no word for them).

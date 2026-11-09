@@ -149,7 +149,7 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// goals:start'), script.indexOf('// goals:end'))}
-Object.assign(this, { goalAskBlocks, goalAskPictures, goalFrameLine, goalOutlineRows, goalStepWords, goalTreeDrop, goalTreeLayout })`, made)
+Object.assign(this, { goalAskBlocks, goalAskPictures, goalFrameLine, goalOutlineRows, goalTreeDrop, goalTreeLayout })`, made)
 const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
 const stateGoals = text => {
@@ -173,15 +173,11 @@ test('the frame shows each ask as a block: pending, answered with its pictures, 
   assert.deepEqual(page.goalAskPictures({ text: 'see ./art/a.webp and art/b.JPG, and art/a.webp again', more: 'art/c.png' }), ['art/a.webp', 'art/b.JPG', 'art/c.png'])
 })
 
-test('the outline tags a goal with its pending asks and an answer to read; a step from an answer names the goal and the ask', () => {
+test('the outline tags a goal with its pending asks and an answer to read', () => {
   const tags = text => page.goalOutlineRows(stateGoals(text), 'G5', new Set()).find(row => row.id === 'G6').tags
   assert.deepEqual(tags(GOALS), ['1 ask pending'])
   assert.deepEqual(tags(ANSWERED), ['answer to read'])
   assert.deepEqual(tags(markAskRead(ANSWERED, 'G6', 'A1', '2026-10-15 19:40').text), [])
-  const goals = stateGoals(ANSWERED)
-  const node = goals.nodes.find(one => one.id === 'G6')
-  assert.equal(page.goalStepWords(node, page.goalAskBlocks(node, true)[0]),
-    'Make a backlog step from the goal map, for G6 Benches that match the picture, from my ask A1: what differs most from the picture? The Advisor\'s answer: the shading: three tones there, one here. (more in .claude/goal-asks/2026-10-15-benches.md)')
 })
 
 test('in the tree an ask stands as a violet box after the goals inside, and nothing can be dropped on it', () => {

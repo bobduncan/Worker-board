@@ -74,7 +74,7 @@ import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
 import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
 import { parseGoals } from './src/goals.mjs'
-import { activityFor, missingToSteps } from './src/goalSteps.mjs'
+import { activityFor, askToStep, missingToSteps, stepMadeFrom } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planMove } from './src/planMoves.mjs'
 import { checkSend, roundPage, rowsOf as rowsOfDemo, stampOf, withRound, wordsOfRound } from './src/demoFeedback.mjs'
 import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, rethinkTalkWords, startEvaluation, undoLine } from './src/focus.mjs'
@@ -109,7 +109,8 @@ import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isF
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
-import { basesNow, patientReportCheck } from './src/work/check.mjs'
+import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
+import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { readAccountFolders } from './src/appChats.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
@@ -1078,7 +1079,7 @@ async function main(args) {
     const stored = await readStore(workDir)
     const activity = step.goal === null ? stored?.activities?.[0]?.name ?? null : activityFor(step.goal, stored?.items, stored?.activities)
     if (activity === null) return { ok: false, status: 409, why: 'The work store has no activity to put the step under.' }
-    const made = await workAction({ action: 'new', title: step.title, activity, ...(step.goal === null ? {} : { goal: step.goal }), text: [`Description: ${step.description}`, `Time: ${step.cost}`, 'From the goal map.'] }, 'person')
+    const made = await workAction({ action: 'new', title: step.title, activity, ...(step.goal === null ? {} : { goal: step.goal }), text: [`Description: ${step.description}`, ...(step.cost === '' ? [] : [`Time: ${step.cost}`]), 'From the goal map.', ...(step.mark === undefined ? [] : [step.mark])] }, 'person')
     if (!made.ok) return made
     // "Change this goal" (2026-10-31): a step of a change is also named under the Done when bullets it is for; work blocks
     // (2026-10-31): in a proposal of work blocks, on the Part lines of the blocks it is for.
@@ -3157,6 +3158,18 @@ async function main(args) {
         readState.reset()
         return done
       }
+      // Reactive board, brief B: "Make a step from this" on an Advisor's answer: the board files the step itself (the B754
+      // maker), once per answer; no word goes to any chat.
+      if (body?.command === 'ask-step') {
+        if (!writesMap || workWriters === null || isShowOnly || workDir === null) return { ok: false, status: 403, why: 'This board only shows: make the step on the board that delivers.' }
+        const done = await askToStep({ id: body.id, ask: body.ask }, {
+          readMap: () => readFile(projectFile(config, 'goals'), 'utf8').catch(absentAs('')),
+          existing: async (goal, ask) => stepMadeFrom((await readStore(workDir))?.items, goal, ask),
+          make: step => writeGoalStep(step),
+        })
+        readState.reset()
+        return done
+      }
       // B358: a goal ticked on the Goals part gets its re-check by the partner first, while a partner is on the board.
       if (body?.command === 'state' && body?.state === 'done' && ((await readState()).advisor ?? null) !== null) return focusNow({ command: 'goal-done', id: body.id, overturn: body.overturn === true })
       const done = await editGoals(body, {
@@ -4043,7 +4056,13 @@ async function main(args) {
         // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule
         // base-equal); workAction runs the check that the action answers
         bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),
-        recheck: (id, why) => workAction({ action: 'recheck-base', id, why }, 'server'),
+        recheck: (id, why, more = {}) => workAction({ action: 'recheck-base', id, why, ...more }, 'server'),
+        // P2 (T2.11), the rule faults-gone: what stands in each repository now, whether a landing runs (data/landing.lock, a lock not
+        // stale), when this board started, and the steps whose check runs now.
+        branches: () => faultsNow({ repos: knownRepos(), run: gitRunner() }),
+        landing: () => { const held = lockHolder(join(HERE, 'data', 'landing.lock'), clock()); return held !== null && held.ageMs < STALE_LOCK_MS },
+        startedAt: () => startedAt,
+        checking: () => [...runningChecks.keys()],
         // B482: what the main chat was told and since when a wait was seen, kept over a restart
         noted: {
           load: async () => {
