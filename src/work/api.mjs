@@ -48,6 +48,7 @@ import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, route
 import { ASKS_NOTHING_WHY, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, asksNothingOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
+import { WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, waitWhatOf, waitWhoOf, waitWhoProblem, waitsOnLine, waitsOnOf } from './waitsOn.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
@@ -710,6 +711,8 @@ async function take(body, w) {
   // Signals change 3: a continuation (a step the board gave back, taken anew) keeps its plan, on the part it stood on.
   const kept = continuationOf(found.item) === null ? null : planOf(started.item)
   item = put(copy(clearedAtTake(started.item, w)), 'Plan', null)
+  // P1: a wait on a chat is the holder's record of its own spell: a take starts anew.
+  if (waitsOnOf(item) !== null) item = said(put(item, 'Waits on', null), w, `no longer waits on ${waitsOnOf(found.item).who} at its take`)
   // Signals change 7 (B914, 2026-11-02): the take's minutes as a fixed record (`Taken for`), the size of a step without a
   // refine Size; nothing later overwrites it (`work step minutes` moves the Plan's `until` only). A continuation writes it anew.
   put(item, 'Taken for', takenForLine(minutes))
@@ -751,7 +754,8 @@ async function step(body, w) {
     const item = ordered(said(put(copy(found.item), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
     const done = await save(item, found.text, w)
     if (!done.ok) return done
-    return changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.${await giveBackStopped(item, w)}`)
+    // P1: the forgotten record: a checkpoint while a wait on a chat stands reminds the holder of it.
+    return changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.${waitReminder(waitsOnOf(item), id)}${await giveBackStopped(item, w)}`)
   }
   const names = Array.isArray(body.names) ? body.names.map(one => line(one, 60)).filter(Boolean) : []
   const count = Number.isInteger(Number(body.steps)) && Number(body.steps) > 0 ? Number(body.steps) : null
@@ -2598,7 +2602,8 @@ async function report(body, w) {
     moved = allowed.ok ? { ok: true, item: said(found.item, w, 'reported again') } : refuse(409, allowed.why)
   } else moved = move(found.item, 'review', w.role, w)
   if (!moved.ok) return moved
-  const reported = underStep(moved.item, [`Reported ${isAgain ? 'again ' : ''}by ${w.who} on ${at(w.now)}: ${result}${merged === '' ? '' : ` (merged ${merged})`}`])
+  // P1: a report ends the holder's wait on a chat (the step goes to its check; the board holds nothing for the chat now).
+  const reported = underStep(waitsOnOf(moved.item) === null ? moved.item : put(copy(moved.item), 'Waits on', null), [`Reported ${isAgain ? 'again ' : ''}by ${w.who} on ${at(w.now)}: ${result}${merged === '' ? '' : ` (merged ${merged})`}`])
   const item = appendHistory(whole > RESULT_CHARS ? appendHistory(reported, 'server', `result cut: ${whole} characters, the first ${RESULT_CHARS} kept`, w.now) : reported, 'server', 'check pending', w.now)
   const done = await save(item, found.text, w)
   if (!done.ok) return done
@@ -3281,8 +3286,14 @@ const serverWhy = (body, w) => (w.role === 'server' && line(body.why, 200) !== '
 async function blockOn(body, w, isBlock) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
-  const on = typeof body.on === 'string' ? body.on.trim() : ''
+  let on = typeof body.on === 'string' ? body.on.trim() : ''
+  // P1 (2026-11-09): a step id in any case is a step id ("b1080" is B1080, never a chat); an `on` that is no step id is a chat the
+  // holder waits on (`Waits on`, waitsOn.mjs); an unblock with no `on` clears a standing chat wait first (the holder's, the main
+  // chat's or the person's), before B306's Waits for.
+  if (/^b\d+$/i.test(on)) on = on.toUpperCase()
+  if (!isBlock && on === '' && waitsOnOf(found.item) !== null) return waitOn(found, '', w, false, body)
   if (!isBlock && on === '') return clearWaits(found, w)
+  if (on !== '' && !STEP_ID.test(on)) return waitOn(found, on, w, isBlock, body)
   if (!STEP_ID.test(on)) return refuse(400, 'Name the step it waits on in "on" (B12).')
   if (isBlock && !w.store.items.has(on)) return refuse(404, `${on}: no such item in the store.`)
   const id = valueOf(found.item, 'Id')
@@ -3298,6 +3309,44 @@ async function blockOn(body, w, isBlock) {
   if (waits !== null) item = said(put(item, 'Waits for', null), w, `no longer waits for: ${waits}${serverWhy(body, w)}`)
   const done = await save(ordered(item), found.text, w)
   return done.ok ? changed(ordered(item)) : done
+}
+
+/**
+ * P1 of the one wait system (2026-11-09, the B1081 case): the holder's record that it waits on a chat, `Waits on: <who> · <what> ·
+ * <when>`. Written (`block`) only by the owner of a taken or in-progress step, on a chat of the board or a side chat ("chat 1"), never
+ * on an id, the person or itself (`waitWhoProblem`); the same who again keeps the first since. Cleared (`unblock`, with `on=<who>` or
+ * no `on`) by the owner, the main chat or the person; another worker gets 403. The lane reads it as parked on purpose (state.mjs), so
+ * no "go on" line and no give-back for WAIT_ON_MINUTES of running time; past it the person sees a Late.
+ */
+async function waitOn(found, on, w, isBlock, body) {
+  const id = valueOf(found.item, 'Id')
+  const owner = valueOf(found.item, 'Owner')
+  const isHolder = owner !== null && isOwner(found.item, w.who, w.prefix)
+  const standing = waitsOnOf(found.item)
+  if (isBlock) {
+    if (!isHolder || !TIMED_STATES.includes(stateOf(found.item))) return refuse(isHolder ? 409 : 403, `${id}: only the chat that holds it taken or in progress records a wait on a chat (${owner ?? 'nobody'} holds it, ${stateOf(found.item)}).`)
+    const problem = waitWhoProblem(on, { self: w.who, names: Array.isArray(w.chats) ? w.chats : [], prefix: w.prefix })
+    if (problem !== null) return refuse(400, `${id}: ${problem}.`)
+    // The record keeps the list's bare name (the prefix may hold the field's own " · ").
+    on = waitWhoOf(on, { names: Array.isArray(w.chats) ? w.chats : [], prefix: w.prefix })
+    // The same who again (with or without the list's prefix, in any case) keeps the first since.
+    if (standing !== null && plain(standing.who, w.prefix) === plain(on, w.prefix)) {
+      return { ok: true, result: { id, text: `${id} waits on ${standing.who} since ${waitClock(standing.since)} already (${standing.what}): the record stands; work unblock ${id} once it answered.`, changed: false } }
+    }
+    const what = waitWhatOf(body.why)
+    const limit = Number.isInteger(w.waitOnMinutes) && w.waitOnMinutes >= 1 ? w.waitOnMinutes : WAIT_ON_MINUTES
+    const item = ordered(said(put(copy(found.item), 'Waits on', waitsOnLine(on, what, w.now)), w, `waits on ${on} · ${what}${standing === null ? '' : ` (before: ${standing.who})`}`))
+    const done = await save(item, found.text, w)
+    if (!done.ok) return done
+    return changed(item, `${id} waits on ${on} (${what}) since ${waitClock(w.now)}. The board holds it for you: no "go on" line and no give-back for ${limit} min of its running time; past that the person sees it as late. work unblock ${id} once ${on} answered, then go on.`)
+  }
+  if (!['main', 'person'].includes(w.role) && !isHolder) return refuse(403, `${id}: only ${owner ?? 'its holder'}, the main chat or the person clears what it waits on.`)
+  if (standing === null) return { ok: true, result: { id, text: `${id} waits on no chat: nothing to clear.`, changed: false } }
+  // `on=<who>` names the standing who (with or without the prefix, any case), else nothing is cleared.
+  if (on !== '' && plain(on, w.prefix) !== plain(standing.who, w.prefix)) return refuse(409, `${id} waits on ${standing.who}, not on ${on}: work unblock ${id} on="${standing.who}" (or without "on") clears it.`)
+  const item = ordered(said(put(copy(found.item), 'Waits on', null), w, `no longer waits on ${standing.who} (${standing.what}, since ${standing.at})`))
+  const done = await save(item, found.text, w)
+  return done.ok ? changed(item, `${id} no longer waits on ${standing.who}.`) : done
 }
 
 /** B542: a step's `Waits for` words when they name `on` and every step they name is done or dropped; else null. */
@@ -4644,7 +4693,8 @@ async function giveBackHeld(found, back, w) {
   if (!isOwner(found.item, chat, w.prefix) || !states.includes(stateOf(found.item))) return refuse(409, `${id} is ${stateOf(found.item)} for ${valueOf(found.item, 'Owner') ?? 'nobody'}: only a step ${states.join(' or ')} for ${chat} is given back.`)
   const moved = move(found.item, 'refined', 'server', w, { ...flowCtx(w, [found.item]), giveBack: id }, ` (${why})`)
   if (!moved.ok) return moved
-  let next = put(moved.item, 'Owner', null)
+  // P1: a give-back ends the holder's wait on a chat with the step.
+  let next = put(put(moved.item, 'Owner', null), 'Waits on', null)
   const pinned = valueOf(found.item, 'Pinned')
   if (pinned !== null && plain(pinned, w.prefix) === plain(chat, w.prefix)) next = said(put(next, 'Pinned', null), w, `unpinned from ${pinned}: given back by the board`)
   next = ordered(next)
@@ -4753,7 +4803,7 @@ async function takeBackGiven(found, back, w) {
   if (chat === '' || !isOwner(found.item, chat, w.prefix)) return refuse(409, `${id} is given to ${valueOf(found.item, 'Owner') ?? 'nobody'}, not to ${chat || 'nobody'}.`)
   const moved = move(found.item, 'refined', 'server', w, flowCtx(w, [found.item]), ` (taken back from ${chat}: ${why}${back?.stuck === true ? '; stuck' : ''})`)
   if (!moved.ok) return moved
-  const next = ordered(put(moved.item, 'Owner', null))
+  const next = ordered(put(put(moved.item, 'Owner', null), 'Waits on', null))
   const done = await save(next, found.text, w)
   return done.ok ? changed(next) : done
 }

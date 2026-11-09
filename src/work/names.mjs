@@ -41,6 +41,13 @@ export function renamedItem(item, from, to, prefix = '') {
     head.set(key, to)
     isMoved = true
   }
+  // P1 of the one wait system (2026-11-09): the who of a step's `Waits on: <who> · <what> · <when>` follows the rename too.
+  const waits = kindOf(item) === 'step' ? valueOf(item, 'Waits on') : null
+  const waitParts = waits === null ? null : String(waits).split(' · ')
+  if (waitParts !== null && waitParts.length === 3 && names(waitParts[0], from, prefix)) {
+    head.set('Waits on', [to, waitParts[1], waitParts[2]].join(' · '))
+    isMoved = true
+  }
   // T9.1.1: a Quality Assurance task's `Not by` is a list of chats (names joined with ", "): each one that is `from` follows.
   const notBy = kindOf(item) === 'step' ? valueOf(item, 'Not by') : null
   if (notBy !== null) {

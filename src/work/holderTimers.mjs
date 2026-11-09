@@ -13,6 +13,7 @@
 // state and report), the outbox (its resume envelopes, the person's stop words) and pause.json; nothing is stored anew.
 
 import { afterPause, checkpointOf } from './pause.mjs'
+import { waitsOnOf } from './waitsOn.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 import { isKeptLook } from './keptLook.mjs'
 
@@ -154,6 +155,17 @@ export const GO_ON_MOST = 2
 /** After the last line, a busy spell longer than this starts the give-back's 15 minutes anew (a shorter one does not). */
 export const LONG_BUSY_MS = 2 * MIN
 
+/** P1 (2026-11-09): the History's record and clear of a wait on a chat ("waits on chat 1 · ...", "no longer waits on chat 1 ..."). */
+const WAIT_MARK = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\s+[^:]{1,80}: (?:no longer )?waits on \S/
+/** When the holder recorded or cleared a wait on a chat: progress of its own, so the spell and the "go on" count start anew. */
+const waitMarksOf = item => historyOf(item).map(line => WAIT_MARK.exec(line)).filter(Boolean).map(hit => sinceMs(hit[1])).filter(finite)
+/** P1: when a landing of the step's branch landed (`landings`, data/landings.jsonl): the holder's progress too (the release itself). */
+const landedAtOf = (item, landings) => {
+  const branch = String(valueOf(item, 'Branch') ?? '').trim().toLowerCase()
+  if (branch === '' || branch === 'none' || branch === '-') return -Infinity
+  return Math.max(-Infinity, ...(Array.isArray(landings) ? landings : []).filter(one => one?.result === 'landed' && String(one.branch ?? '').trim().toLowerCase() === branch && finite(one.at)).map(one => one.at))
+}
+
 /** When the step's History says the board asked holder `name` to go on since `from` (its take), oldest first. */
 function goOnsOf(item, name, prefix, from) {
   return historyOf(item).map(line => GO_ON_LINE.exec(line)).filter(hit => hit !== null && plain(hit[2], prefix) === plain(name, prefix))
@@ -192,11 +204,15 @@ function busySpellAfter(worker, at) {
  * `{ line, marker }` the line due now, `giveBack` `{ step, chat, askedAt }` due now, `close` the waiting line to close
  * with the give-back.
  */
-export function holderTimers({ worker, holding, items = new Map(), prefix = '', envelopes = [], stops = [], pause = null, runningMs, resumeMs = RESUME_MINUTES * MIN, giveBackMs = GIVE_BACK_MINUTES * MIN }) {
+export function holderTimers({ worker, holding, items = new Map(), prefix = '', envelopes = [], stops = [], pause = null, runningMs, resumeMs = RESUME_MINUTES * MIN, giveBackMs = GIVE_BACK_MINUTES * MIN, landings = [] }) {
   const id = valueOf(holding, 'Id')
   const name = worker.name
   if (!TIMED_STATES.includes(valueOf(holding, 'State')) || !STOPPED_LANES.includes(worker.state)) return null
   if (finite(worker.removedAt) || worker.removal?.isOpen === true || (worker.suspended ?? null) !== null) return null
+  // P1 of the one wait system (2026-11-09): a holder that recorded a wait on a chat (`Waits on`, waitsOn.mjs) is nudged by nobody
+  // and gives nothing back, whatever its lane reads (interrupted, unknown after a report blip, off after a failed wake): the wait
+  // is a record; its limit is the person's Late (state.mjs `lateWaits`).
+  if (waitsOnOf(holding) !== null) return null
   if (PAUSE_STATES.includes(pause?.state)) return null
   const asks = [...items.values()].filter(item => valueOf(item, 'Kind') === 'ask')
   // The lead's live check (2026-11-02, change 3 BROKEN): the timers paused for ANY open ask of the worker (its own, under
@@ -212,7 +228,10 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
 
   // The progress the store knows: the take or last state change, the checkpoint, the person's answer to an ask of it.
   const answered = asks.filter(ask => valueOf(ask, 'State') === 'answered' && isMine(ask, name, prefix)).map(ask => sinceMs(valueOf(ask, 'Since')) + MIN - 1)
-  const progressAt = Math.max(-Infinity, ...[changedAt, checkpointOf(holding)?.at, ...answered].filter(finite))
+  // P1: the record and the clear of a wait on a chat, and the landing of the step's branch, are the holder's progress too.
+  const waitMarks = waitMarksOf(holding)
+  const landedAt = landedAtOf(holding, landings)
+  const progressAt = Math.max(-Infinity, ...[changedAt, checkpointOf(holding)?.at, ...answered, ...waitMarks, landedAt].filter(finite))
   const report = worker.report ?? null
   const stoppedAt = report === null ? -Infinity : ['idle', 'ended'].includes(report.state) ? (finite(report.since) ? report.since : report.at) : report.at
   const since = Math.max(progressAt, ...[stoppedAt, worker.turnAt].filter(finite))
@@ -223,14 +242,16 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   // The lead's review (2026-11-01): at most GO_ON_MOST lines per holder and step (since its take). After the last one the
   // give-back's 15 minutes count whatever short turns come: only a checkpoint after it, or a busy spell of over
   // LONG_BUSY_MS after it, starts them anew, and no further line goes.
-  const noted = goOnsOf(holding, name, prefix, takenAt)
-  const sent = mine.filter(one => !finite(takenAt) || one.at >= takenAt)
+  // P1: the "go on" lines count from the take, or from the last record or clear of a wait on a chat (an unblock starts them anew).
+  const countFrom = Math.max(...[takenAt, ...waitMarks].filter(finite))
+  const noted = goOnsOf(holding, name, prefix, countFrom)
+  const sent = mine.filter(one => !finite(countFrom) || one.at >= countFrom)
   if (Math.max(noted.length, sent.length) >= GO_ON_MOST) {
     // The last line's time: its envelope, else (an outbox that let it go) the History's line.
     const lastAt = Math.max(-Infinity, ...[asked?.at, noted.at(-1)].filter(finite))
     const checkpointAt = checkpointOf(holding)?.at
     const busy = busySpellAfter(worker, lastAt)
-    const from = Math.max(lastAt, ...[checkpointAt, busy !== null && busy.ms > LONG_BUSY_MS ? busy.end : null].filter(at => finite(at) && at > lastAt))
+    const from = Math.max(lastAt, ...[checkpointAt, landedAt, busy !== null && busy.ms > LONG_BUSY_MS ? busy.end : null].filter(at => finite(at) && at > lastAt))
     const isOver = runningMs(afterPause(pause, from)) >= giveBackMs
     return { since, asked: lastAt, resume: null, giveBack: isOver ? { step: id, chat: name, askedAt: lastAt } : null, close: isOver && asked?.state === 'waiting' ? asked.id : null }
   }

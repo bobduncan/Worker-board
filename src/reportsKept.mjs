@@ -31,7 +31,11 @@ export function savedEntry(value, now) {
   const { state, since, background, run, seq, at, session, mod, busyAt } = value
   // B986: the app's id of the chat the report came from (`app`), when the board knew it: a lane's own chat (ownChat.mjs).
   const app = typeof value.app === 'string' && /^local_[\w-]{1,80}$/.test(value.app) ? value.app : undefined
-  return { state, since, background, run, seq, at, session, mod, busyAt, ...(value.word === undefined ? {} : { word: value.word }), ...(value.turn === undefined ? {} : { turn: value.turn }), ...(app === undefined ? {} : { app }) }
+  // P3 (the wait line): the last idle of a mod that names its word, and when the chat came to rest (bridge.mjs `restOf`), when kept.
+  const idle = value.lastIdle
+  const lastIdle = idle !== null && typeof idle === 'object' && (idle.word === null || isWordId(idle.word)) && isTime(idle.since) && idle.since <= now ? { word: idle.word, since: idle.since } : undefined
+  const restAt = isTime(value.restAt) && value.restAt <= now ? value.restAt : undefined
+  return { state, since, background, run, seq, at, session, mod, busyAt, ...(value.word === undefined ? {} : { word: value.word }), ...(value.turn === undefined ? {} : { turn: value.turn }), ...(app === undefined ? {} : { app }), ...(lastIdle === undefined ? {} : { lastIdle }), ...(restAt === undefined ? {} : { restAt }) }
 }
 
 /** The reports as the file holds them: `{ "reports": { "<chat>": entry } }`. */

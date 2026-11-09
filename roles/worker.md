@@ -159,7 +159,13 @@ step therefore says what it touches ("Touches: ...").
   first; its answer is one line (`landed`, `refused: <why>` or `rolled back: <why>`) and a line in `data/landings.jsonl`.
   Never ask to land (2026-11-09): a `work ask` that asks the person or Autopilot to land, merge to main, go live or put a step's work
   live is refused. Tell chat 1 (board dev) through a note to main (`For chat 1: <step> ready to land, <branch> <hash>, gate <line>`),
-  keep a checkpoint "waits for chat 1's go", and land only on its go.
+  record the wait (below), and land only on its go.
+- Record every wait on a chat (P1 of the one wait system, 2026-11-09): while you wait for another chat's answer (chat 1's go
+  to land, a review, a picture), write `work block id=B<n> on="chat 1" why="its go to land"` — never only in a checkpoint. The
+  board then shows you as waiting on purpose, sends no "go on" line and gives the step to nobody for 90 minutes of its running
+  time; past that the user sees it as late, and the step still stays yours. Once the answer came: `work unblock B<n>`, then
+  go on (a checkpoint while the wait stands reminds you; your report, a take and a give-back clear it). `on` is a chat of the
+  board or a side chat ("chat 1"); a wait on the user is a blocking ask, a wait on a fix is `on=B<n>`.
 - Lessons of a task go into the repository's documents, not into a chat.
 - A change to the Workers mod (B570): raise its version (plugin.json and `MOD_VERSION`), and after your merge bring it
   onto the PC once: `claude plugin marketplace update <marketplace>` and `claude plugin update <mod>@<marketplace>`

@@ -20,7 +20,7 @@ export const HEAD_KEYS = {
   // Signals change 7 (B914, 2026-11-02): `Taken for` the minutes its take named ("90 min"), a fixed record nothing later
   // overwrites (B855's take of 90 min was gone from the Plan's `until` 4 minutes after it): the size of a step with no
   // refine Size (work/held.mjs).
-  step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Pinned', 'Queued by', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Since', 'Estimate', 'Branch', 'Checkpoint', 'Plan', 'Taken for', 'Fix of', 'Checks', 'Not by', 'Attempts', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
+  step: ['Id', 'Kind', 'Title', 'Priority', 'State', 'Owner', 'Pinned', 'Queued by', 'Activity', 'Goal', 'Blocked by', 'Waits for', 'Waits on', 'Since', 'Estimate', 'Branch', 'Checkpoint', 'Plan', 'Taken for', 'Fix of', 'Checks', 'Not by', 'Attempts', 'Pictures', 'Refined', 'Asks', 'Queue when refined', 'Queue note', 'Line'],
   // B299: `Advice` is the option the asking chat advises; `Via` says how it was asked: form (the app's question form,
   // answered in the chat only) or refine (a question of the Advisor's refine of the step it is Of). Warnings
   // (2026-10-19): `Filed` when it was filed, to the millisecond, as an instruction's (`askFiledMs`). Partner answers
