@@ -766,8 +766,7 @@ again, never a second ask (the review of B258). The Advisor writes `Answer (<dat
 (roles/partner.md, "Asks from the goal map"; the page in `goalAsks`, `.claude/goal-asks`, beside the threads, not in
 the game). The frame shows each ask as a violet block: the question with its id, time and "waiting for the Advisor",
 or the answer with the pictures it names and "More ↗" (the page in the board's file window, from the project's
-folder or the asks' folder), and the buttons "Make a step from this" (Talk to Main, prefilled with the goal, the ask
-and the answer; B259 gives the main chat words of its own), "Ask again" and "Done", which writes `Read: <date time>`
+folder or the asks' folder), and the buttons "Make a step from this" (reactive board, 2026-11-09: the board files the step itself through the goals route, command `ask-step`, with the B754 maker `writeGoalStep`: state new, the goal, a title from the answer's first sentence, the answer's words and the line `From the goal map: the Advisor's answer A<n> under G<n>.` as its context; that line makes a second click answer the step already made, `askToStep` in `src/goalSteps.mjs`; the button reads "Making…", then "Step B<n> made" with a `#details=B<n>` link, or why it was refused in its place; no effort, no model, no word to a chat), "Ask again" and "Done", which writes `Read: <date time>`
 under the answer (`read`). A read ask folds away with the frame's lines ("1 ask read"). An ask not answered or not
 read stands in the tree as a violet dashed box after the goals inside (a click lights its block; nothing drops on
 it), in the outline as a tag ("1 ask pending", "answer to read") and in the frame's line. An answer not read is a
