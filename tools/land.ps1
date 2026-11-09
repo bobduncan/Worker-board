@@ -553,8 +553,8 @@ function Remove-LeftoverGates {
 }
 
 # ---- the branches (2026-11-09, the person: "i want workers to be able to clean up after them selves") -------------------
-# A chat may not delete a branch on the remote itself (auto mode refuses `git push --delete`), and the board's report check fails on a
-# branch left behind. So the landing does it, and only for a branch every commit of which is on main: a fully merged branch holds
+# A chat may not delete a branch on the remote itself (auto mode refuses `git push --delete`), and the board's report check (B1079: a branch merged into main and left on the remote is only a
+# warning; unmerged work sends the step back) did not like a branch left behind. So the landing does it, and only for a branch every commit of which is on main: a fully merged branch holds
 # nothing that is not on main already. Never main, never one that is not fully merged, and never with force. Nothing here stops a
 # landing: what could not be removed is said and written in the landings line as kept, with why.
 

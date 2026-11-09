@@ -55,6 +55,22 @@ test('without a merged commit the branch tells: by its reflog, its remote, or th
   assert.deepEqual(game, { passed: false, lines: ['work in garden', 'main of garden is not the same as origin/main', 'the branch b7-paths is still there'] })
 })
 
+// B1079 (X162): B1071 merged at 08:17, its branch stayed on origin, a chat may not delete it there, and the check sent it back 3 times.
+test('a branch left on origin with every commit on origin/main is a warning; one with commits of its own, or a local one, is sent back', async () => {
+  const left = { ...world, [`/projects/tools/board ${reflog}`]: '', [`/projects/tools/board ${remotes}`]: 'origin/main\norigin/b5-lamps\n' }
+  const merged = { ...left, '/projects/tools/board merge-base --is-ancestor origin/b5-lamps origin/main': '' }
+  const done = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', repos, run: git(merged) })
+  assert.equal(done.passed, true)
+  assert.deepEqual(done.warnings, ['the branch b5-lamps still stands on origin of board: the next landing sweeps it'])
+  assert.ok(!done.lines.includes('branch gone'))
+  // Unmerged work on origin (git answers "no" or not at all): back, as before.
+  const unmerged = await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', repos, run: git(left) })
+  assert.deepEqual(unmerged.lines, ['work in board', 'back: the branch b5-lamps is still on origin of board'])
+  // A local branch is the worker's to remove (branch -d), merged or not.
+  const local = { ...merged, [`/projects/tools/board ${heads}`]: 'main\nb5-lamps\n' }
+  assert.deepEqual((await reportCheck({ id: 'B5', branch: 'b5-lamps', result: SAID + 'x', repos, run: git(local) })).lines, ['work in board', 'back: the branch b5-lamps is still there'])
+})
+
 test('no merged commit and no branch anywhere: the check fails, saying it could not tell', async () => {
   const nowhere = await reportCheck({ id: 'B301', branch: 'b301-gone', result: SAID + 'x', merged: 'deadbee', repos, run: git(world) })
   assert.deepEqual(nowhere, { passed: false, lines: ['could not tell which repository B301\'s work is in'] })

@@ -6935,7 +6935,7 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   fast-forward: nothing changes while it refuses.
 - **The branches clean themselves up** (2026-11-09, the person: "i want workers to be able to clean up after them selves";
   Worker 5 had to ask the person to delete `b1071-stop-word-settle` on the remote, because a chat may not `git push --delete`,
-  and the board's report check fails on a branch left behind). After a landing the landed branch is deleted on the remote and in
+  and the board's report check failed on a branch left behind; since B1079 it warns, not fails, on a remote branch every commit of which is on the remote's main: "still stands on origin: the next landing sweeps it"; a local branch, or one on the remote with commits not on main, still sends the step back). After a landing the landed branch is deleted on the remote and in
   the main checkout, each only when every commit of it is on main (`git merge-base --is-ancestor`; it is: main was fast-forwarded to
   its head) and the local one only when no worktree has it checked out (then "kept locally: checked out in <folder>": the worker
   removes its folder with `tools/remove-task-folder.mjs`, then the branch). At the start of every landing a sweep deletes on the
