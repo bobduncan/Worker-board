@@ -3,8 +3,9 @@
 // Node's own modules only, so the script can copy this file and its caller aside at its start and run them from there
 // (the landing moves the checkout the script came from).
 
-import { linkSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, linkSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
+import { basename, join } from 'node:path'
 
 /** A landing lock older than this is a crashed landing's: it is broken. */
 export const STALE_LOCK_MS = 15 * 60_000
@@ -110,6 +111,57 @@ export function lockHolder(file, now = Date.now()) {
   const at = typeof read?.at === 'string' && Number.isFinite(Date.parse(read.at)) ? read.at : null
   if (at === null) return { by: 'unknown', branch: 'unknown', at: new Date(modified).toISOString(), pid: null, ageMs: now - modified }
   return { by: typeof read.by === 'string' ? read.by : 'unknown', branch: typeof read.branch === 'string' ? read.branch : 'unknown', at, pid: Number.isInteger(read.pid) ? read.pid : null, ageMs: now - Date.parse(at) }
+}
+
+/** A gate log older than this with no landings line is a cut landing's (the gate takes 10 to 60 minutes): no landing runs for it. */
+export const RUNNING_LOG_MS = 90 * 60_000
+const LOG_NAME = /^\d{8}-\d{6}-(.+)\.log$/
+
+/**
+ * The landed lines of `<dir>/landings.jsonl`, oldest first: `[{ branch, at (ms), result, gateLog }]`; a line that cannot be read is
+ * left out; no file, none. P1 of the one wait system (2026-11-09): a landed line for a step's branch is its holder's progress
+ * (holderTimers.mjs), so no give-back fires right after the release.
+ */
+export function landedLines({ dir }) {
+  const file = join(dir, 'landings.jsonl')
+  if (!existsSync(file)) return []
+  const lines = []
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (line.trim() === '') continue
+    try {
+      const read = JSON.parse(line)
+      const at = Date.parse(read?.at)
+      if (!Number.isFinite(at) || typeof read.branch !== 'string') continue
+      lines.push({ branch: read.branch, at, result: typeof read.result === 'string' ? read.result : 'unknown', gateLog: typeof read.gateLog === 'string' ? basename(read.gateLog) : null })
+    } catch {
+      // a torn line: left out
+    }
+  }
+  return lines
+}
+
+/**
+ * The branch a landing (tools/land.ps1) runs for now, or null. The lock while it stands and is younger than its stale limit (the
+ * script takes it only AFTER the gate), else the newest gate log `<dir>/landings/<stamp>-<branch>.log` younger than RUNNING_LOG_MS
+ * that no landings line names yet (`gateLog`): the gate of a landing in progress. P1 (2026-11-09, the double hold guard): the
+ * hand-over gives no step back whose branch this names.
+ */
+export function runningLanding({ dir, now = Date.now(), staleMs = STALE_LOCK_MS, logMaxMs = RUNNING_LOG_MS }) {
+  const held = lockHolder(join(dir, 'landing.lock'), now)
+  if (held !== null && held.ageMs < staleMs && typeof held.branch === 'string' && held.branch !== 'unknown') return held.branch
+  const logs = join(dir, 'landings')
+  if (!existsSync(logs)) return null
+  const named = new Set(landedLines({ dir }).map(one => one.gateLog).filter(one => one !== null))
+  const open = readdirSync(logs).filter(name => LOG_NAME.test(name) && !named.has(name)).map(name => {
+    let modified = Number.NaN
+    try {
+      modified = statSync(join(logs, name)).mtimeMs
+    } catch {
+      modified = Number.NaN
+    }
+    return { name, branch: LOG_NAME.exec(name)[1], modified }
+  }).filter(one => Number.isFinite(one.modified) && now - one.modified < logMaxMs).sort((a, b) => b.modified - a.modified)
+  return open.length === 0 ? null : open[0].branch
 }
 
 /**

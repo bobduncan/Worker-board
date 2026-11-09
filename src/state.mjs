@@ -44,7 +44,7 @@ import { advisorNextOf, advisorWorkOf, leaveOut } from './work/advisorWork.mjs'
 import { openQaTaskOf, qaStandOf } from './work/qaTask.mjs'
 import { holdsRefine, isBlockWritten } from './work/refineWait.mjs'
 import { recapsOf } from './work/recap.mjs'
-import { isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
+import { afterPause, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
 import { lateWaitOf, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { EFFORTS, effortPlan, runSettings } from './work/effort.mjs'
@@ -1122,11 +1122,13 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       id: `wait:${lane.name}:${flag.since}`,
       from: lane.name,
       kind: 'wait late',
-      title: flag.text,
+      // The step's id in the title: the page links every id it names (B426), so the card leads to the step too.
+      title: `${flag.text}${flag.id === null ? '' : ` on ${flag.id}`}`,
       text: `It recorded at ${hourMinute(flag.since)} that it waits for ${flag.who} (${flag.what}) and has waited ${flag.minutes} minutes of the board's running time. The board holds its step for it: no "go on" line, nothing given back. Ask ${flag.who} for its answer, or tell ${lane.name} in its chat to go on without it (work unblock ${flag.id ?? 'B<n>'}).`,
       at: flag.since,
       ...blank,
-      ...(flag.id === null ? {} : { workId: flag.id, step: flag.id }),
+      // No `workId`: the page reads that as an ask of the store (storeAskParts); `step` names the step.
+      ...(flag.id === null ? {} : { step: flag.id }),
       version: null,
       canAnswer: false,
       task: cardOf(lane.task),
@@ -2308,10 +2310,19 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   // P1 (2026-11-09): a chat wait past its limit (config `waitOnMinutes` of the board's running time, after its off spells and the
   // person's pauses as the holder timers count: `offMsOf(gaps)`): one Late under Needs your attention, linked to the step; the step
   // stays with its holder (no give-back). `[{ chat, id, who, what, since, minutes, text }]`.
-  const lateWaits = workOk ? sequenced.filter(lane => !lane.isLeftover).map(lane => lateWaitOf(lane, {
-    stepId: lane.task?.stepId ?? lane.storeSteps?.find(one => ['taken', 'in progress'].includes(one.state))?.id ?? null,
-    runningMs: from => now - from - offMsOf(gaps, now)(from), limitMs: (Number.isInteger(config.waitOnMinutes) ? config.waitOnMinutes : 90) * MIN,
-  })).filter(one => one !== null) : []
+  // Read from each held step's record (not the lane, which may read unknown or off for a while); none while the person pauses, and the
+  // pause's time is no waiting (`afterPause`, as the holder timers count).
+  const lateWaits = !workOk || isHolding(pauseRecord) ? [] : [...raw.work.items.values()]
+    .filter(item => item.head.get('Kind') === 'step' && ['taken', 'in progress'].includes(item.head.get('State')) && waitsOnOf(item) !== null)
+    .map(item => {
+      const bare = name => String(name ?? '').replace(prefix, '').trim().toLowerCase()
+      const lane = sequenced.find(one => !one.isLeftover && bare(one.name) === bare(item.head.get('Owner')))
+      return lane === undefined ? null : lateWaitOf({
+        chat: lane.name, wait: waitsOnOf(item), stepId: item.head.get('Id'),
+        runningMs: from => { const since = afterPause(pauseRecord, from); return now - since - offMsOf(gaps, now)(since) },
+        limitMs: (Number.isInteger(config.waitOnMinutes) ? config.waitOnMinutes : 90) * MIN,
+      })
+    }).filter(one => one !== null)
   // Signals change 7 (B914, 2026-11-02): when the board saw each chat's own plan words change (by chat: `{ key, at }`), for
   // their age where the store's Plan does not date them; kept by the server in memory (a restart only makes them un-aged).
   const planMemory = new Map(planSeen instanceof Map ? planSeen : Object.entries(planSeen ?? {}))

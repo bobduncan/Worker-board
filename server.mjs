@@ -33,7 +33,7 @@ import { minutesOf } from './src/backlog.mjs'
 import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, modSaid, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession, withModHeader } from './src/bridge.mjs'
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
-import { STALE_LOCK_MS, lockHolder } from './src/landing.mjs'
+import { landedLines, runningLanding } from './src/landing.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { backgroundOf } from './src/chatReport.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
@@ -1658,6 +1658,8 @@ async function main(args) {
     return {
       // The supervisor's Task 5: the board's health summary for the supervisor chat's sweep (src/supervisor/health.mjs).
       ...(supervisor === null ? {} : { health: () => supervisor.health() }),
+      // P1 of the one wait system: the limit of a recorded wait on a chat, for the work API's answer (src/work/waitsOn.mjs).
+      waitOnMinutes: config.waitOnMinutes,
       // Focus 2: the partner's drafts of the focus (the work tool's definition-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
       // B358: the partner's re-check of a goal (the work tool's checked of a G<n>), written into the goal map.
@@ -2438,7 +2440,7 @@ async function main(args) {
       const state = await readState()
       const lane = (state.chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
       if (lane === null || !onSequence({ ...lane, mod: typeof mod === 'string' ? mod : lane.mod ?? null }, config)) return null
-      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event, isPushed, wakes: wakeFacts(), landingNow: () => (held => (held !== null && held.ageMs < STALE_LOCK_MS ? held.branch : null))(lockHolder(join(HERE, 'data', 'landing.lock'), clock())) })
+      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event, isPushed, wakes: wakeFacts(), landingNow: () => runningLanding({ dir: join(HERE, 'data'), now: clock() }), landingsOf: () => landedLines({ dir: join(HERE, 'data') }) })
       if (done.envelope !== null || done.decision.takeBack !== null || done.decision.give !== null || done.decision.net !== null) {
         work.reset?.()
         readState.reset()
@@ -3958,7 +3960,7 @@ async function main(args) {
         // a limit, a new mod, a report gone idle, the net), for every worker on it; on its own, so a failure stops no delivery.
         if (config.handover === 'sequence') {
           await loops.run('handover', async () => {
-            const passed = await handoverPass({ state: await readState(), dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), isPushed, wakes: wakeFacts() })
+            const passed = await handoverPass({ state: await readState(), dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), isPushed, wakes: wakeFacts(), landingNow: () => runningLanding({ dir: join(HERE, 'data'), now: clock() }), landingsOf: () => landedLines({ dir: join(HERE, 'data') }) })
             if (passed.wrote > 0) {
               work.reset?.()
               readState.reset()

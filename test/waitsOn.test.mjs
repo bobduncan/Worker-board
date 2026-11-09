@@ -201,7 +201,7 @@ test('past 90 minutes of RUNNING time one Late under Needs your attention, linke
   assert.equal(lane.state, 'suspended')
   const cards = late.state.forYou.filter(one => one.kind === 'wait late')
   assert.equal(cards.length, 1, JSON.stringify(late.state.forYou.map(one => [one.kind, one.title])))
-  assert.deepEqual([cards[0].from, cards[0].title, cards[0].workId, cards[0].at], ['Worker 4', 'Worker 4 waits for chat 1 (its go to land) since 11:18 (95 min)', 'B1081', WAIT_AT])
+  assert.deepEqual([cards[0].from, cards[0].title, cards[0].step, cards[0].workId, cards[0].at], ['Worker 4', 'Worker 4 waits for chat 1 (its go to land) since 11:18 (95 min) on B1081', 'B1081', undefined, WAIT_AT])
   assert.match(cards[0].text, /Ask chat 1 for its answer, or tell Worker 4 in its chat to go on without it \(work unblock B1081\)/)
   assert.deepEqual([decided(late, WAIT_AT + 95 * MIN).giveBack, decided(late, WAIT_AT + 95 * MIN).envelope], [null, null])
   // The board was off from 11:30 to 12:00: 65 running minutes, no Late (the wall clock is not the limit).

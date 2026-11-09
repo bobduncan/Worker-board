@@ -14,8 +14,8 @@ import { stamp } from './migrate.mjs'
 export const WAIT_ON_MINUTES = 90
 const MIN = 60_000
 const SEP = ' · '
-/** The field: who · what · when. */
-const LINE = /^(.+?) · (.+?) · (\d{4}-\d{2}-\d{2} \d{2}:\d{2})$/
+/** The field: who · what · when. The who is the list's bare name (never with the prefix, which may hold " · " itself). */
+const LINE = /^(.+?) · (.+) · (\d{4}-\d{2}-\d{2} \d{2}:\d{2})$/
 /** An id of the store: a step, an ask, an incident, an instruction (any case). */
 const AN_ID = /^[bqxi]\d+$/i
 /** The person, in any of their names. */
@@ -45,6 +45,17 @@ export function waitsOnOf(item) {
 
 /** The field's line for a wait on `who` for `what`, written `now`. */
 export const waitsOnLine = (who, what, now) => `${who}${SEP}${what}${SEP}${stamp(now).slice(0, 16)}`
+
+/**
+ * The who as the record keeps it: the list's name when `who` names a chat of the list (with or without the prefix, any case), else the
+ * word itself without the prefix (a side chat "chat 1"). The prefix ("Garden · ") may hold the field's own separator.
+ */
+export function waitWhoOf(who, { names = [], prefix = '' } = {}) {
+  const word = String(who ?? '').trim()
+  const plain = name => String(name ?? '').replace(prefix, '').trim().toLowerCase()
+  const listed = names.find(name => plain(name) === plain(word))
+  return listed === undefined ? (prefix !== '' && word.toLowerCase().startsWith(prefix.toLowerCase()) ? word.slice(prefix.length).trim() : word) : String(listed).replace(prefix, '').trim()
+}
 
 /** What the holder waits for, from the call's `why`, in a few words; "its answer" when none. */
 export const waitWhatOf = why => {
@@ -86,15 +97,15 @@ export function chatWaitWords(held) {
 }
 
 /**
- * The Late past the limit: `{ chat, id, who, what, since, minutes, text }` for a lane whose chat wait has run `limitMs` of the board's
- * running time (`runningMs(from)`, the board's time since `from` without its off spells), else null. The person's action is in `text`.
+ * The Late past the limit: `{ chat, id, who, what, since, minutes, text }` for a step whose recorded wait (`wait`, `waitsOnOf`) has
+ * run `limitMs` of the board's running time (`runningMs(from)`: the board's time since `from` without its off spells and the person's
+ * pauses), else null. Read from the step's record, not the lane: a lane that reads unknown or off for a while is late all the same.
+ * The person's action is in the card's text (state.mjs `needsOf`).
  */
-export function lateWaitOf(lane, { stepId = null, runningMs, limitMs = WAIT_ON_MINUTES * MIN } = {}) {
-  const held = lane?.suspended ?? null
-  if (!isChatWait(held) || !Number.isFinite(held.since) || typeof runningMs !== 'function') return null
-  const ran = runningMs(held.since)
+export function lateWaitOf({ chat, wait, stepId = null, runningMs, limitMs = WAIT_ON_MINUTES * MIN }) {
+  if (wait === null || wait === undefined || !Number.isFinite(wait.since) || typeof runningMs !== 'function') return null
+  const ran = runningMs(wait.since)
   if (!(ran >= limitMs)) return null
   const minutes = Math.floor(ran / MIN)
-  const who = held.on[0]
-  return { chat: lane.name, id: stepId, who, what: held.what ?? 'its answer', since: held.since, minutes, text: `${lane.name} ${chatWaitWords(held)} (${minutes} min)` }
+  return { chat, id: stepId, who: wait.who, what: wait.what, since: wait.since, minutes, text: `${chat} ${chatWaitWords(waitSuspension(wait))} (${minutes} min)` }
 }

@@ -21,6 +21,8 @@ const KINDS = {
   idle: { sign: '!', tag: 'May wait for you' },
   // B541: chats on an older Workers mod than the one installed: the one way to bring them up to date.
   'old-mod': { sign: '!', tag: 'Restart to update' },
+  // P1 of the one wait system (2026-11-09): a worker's recorded wait on a chat past its limit: a Late, with the way to its chat and its step.
+  'wait late': { sign: '!', tag: 'Waits late' },
 }
 /** What a step in the backlog says it asks of the person. */
 const ASKS = { verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' }
@@ -5140,7 +5142,7 @@ function answerPart(need, state, isFolded, inWindow = false) {
     const what = { approve: 'approved', reject: 'rejected', done: 'marked done' }[earlier.verdict] ?? 'answered'
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
-  if (need.kind === 'unfiled' || need.kind === 'idle') return [...parts, ...wayButtons(need, inWindow)]
+  if (need.kind === 'unfiled' || need.kind === 'idle' || need.kind === 'wait late') return [...parts, ...wayButtons(need, inWindow)]
   if (need.kind === 'old-mod') return [...parts, ...oldModParts(need, state)]
   // B533: a quiet worker's card carries Check now; a question of the app's own form is answered in its chat only.
   if (!need.canAnswer) {
@@ -5226,6 +5228,8 @@ function oldModParts(need, state) {
  */
 function cardWays(need, canCheck) {
   if (need.kind === 'old-mod') return [{ way: 'pause' }]
+  // P1: the Late of a recorded wait: open the worker's chat (its step is linked in the title); no nudge, the wait is on purpose.
+  if (need.kind === 'wait late') return [{ way: 'talk', to: need.id, label: `Open ${need.from}'s chat` }]
   if (need.kind === 'unfiled' || need.kind === 'idle') {
     const talk = { way: 'talk', to: need.talk === 'main' || need.talk === 'advisor' ? need.talk : need.id }
     talk.label = need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`
@@ -7275,7 +7279,7 @@ function waitingOf(need, now) {
   if (task !== null && Number.isFinite(task.startedAt)) lines.push(`Since ${clock(task.startedAt)} (${span(now - task.startedAt)})`)
   const waits = need.waits ?? null
   // B533: a hint of the board's (B301, B308): its window says what the board found, with its buttons, apart.
-  const isHint = need.kind === 'unfiled' || need.kind === 'idle'
+  const isHint = need.kind === 'unfiled' || need.kind === 'idle' || need.kind === 'wait late'
   const where = (need.answer ?? null) !== null ? 'answered' : isHint ? 'hint' : need.canAnswer ? 'here' : 'chat'
   return {
     task: lines,

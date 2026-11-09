@@ -48,7 +48,7 @@ import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, route
 import { ASKS_NOTHING_WHY, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, asksNothingOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
-import { WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, waitWhatOf, waitWhoProblem, waitsOnLine, waitsOnOf } from './waitsOn.mjs'
+import { WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, waitWhatOf, waitWhoOf, waitWhoProblem, waitsOnLine, waitsOnOf } from './waitsOn.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
@@ -3267,9 +3267,11 @@ const serverWhy = (body, w) => (w.role === 'server' && line(body.why, 200) !== '
 async function blockOn(body, w, isBlock) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
-  const on = typeof body.on === 'string' ? body.on.trim() : ''
-  // P1 (2026-11-09): an `on` that is no step id is a chat the holder waits on (`Waits on`, waitsOn.mjs); an unblock with no `on`
-  // clears a standing chat wait first (the holder's, the main chat's or the person's), before B306's Waits for.
+  let on = typeof body.on === 'string' ? body.on.trim() : ''
+  // P1 (2026-11-09): a step id in any case is a step id ("b1080" is B1080, never a chat); an `on` that is no step id is a chat the
+  // holder waits on (`Waits on`, waitsOn.mjs); an unblock with no `on` clears a standing chat wait first (the holder's, the main
+  // chat's or the person's), before B306's Waits for.
+  if (/^b\d+$/i.test(on)) on = on.toUpperCase()
   if (!isBlock && on === '' && waitsOnOf(found.item) !== null) return waitOn(found, '', w, false, body)
   if (!isBlock && on === '') return clearWaits(found, w)
   if (on !== '' && !STEP_ID.test(on)) return waitOn(found, on, w, isBlock, body)
@@ -3306,17 +3308,23 @@ async function waitOn(found, on, w, isBlock, body) {
     if (!isHolder || !TIMED_STATES.includes(stateOf(found.item))) return refuse(isHolder ? 409 : 403, `${id}: only the chat that holds it taken or in progress records a wait on a chat (${owner ?? 'nobody'} holds it, ${stateOf(found.item)}).`)
     const problem = waitWhoProblem(on, { self: w.who, names: Array.isArray(w.chats) ? w.chats : [], prefix: w.prefix })
     if (problem !== null) return refuse(400, `${id}: ${problem}.`)
-    if (standing !== null && standing.who.toLowerCase() === on.toLowerCase()) {
+    // The record keeps the list's bare name (the prefix may hold the field's own " · ").
+    on = waitWhoOf(on, { names: Array.isArray(w.chats) ? w.chats : [], prefix: w.prefix })
+    // The same who again (with or without the list's prefix, in any case) keeps the first since.
+    if (standing !== null && plain(standing.who, w.prefix) === plain(on, w.prefix)) {
       return { ok: true, result: { id, text: `${id} waits on ${standing.who} since ${waitClock(standing.since)} already (${standing.what}): the record stands; work unblock ${id} once it answered.`, changed: false } }
     }
     const what = waitWhatOf(body.why)
+    const limit = Number.isInteger(w.waitOnMinutes) && w.waitOnMinutes >= 1 ? w.waitOnMinutes : WAIT_ON_MINUTES
     const item = ordered(said(put(copy(found.item), 'Waits on', waitsOnLine(on, what, w.now)), w, `waits on ${on} · ${what}${standing === null ? '' : ` (before: ${standing.who})`}`))
     const done = await save(item, found.text, w)
     if (!done.ok) return done
-    return changed(item, `${id} waits on ${on} (${what}) since ${waitClock(w.now)}. The board holds it for you: no "go on" line and no give-back for ${WAIT_ON_MINUTES} min of its running time; past that the person sees it as late. work unblock ${id} once ${on} answered, then go on.`)
+    return changed(item, `${id} waits on ${on} (${what}) since ${waitClock(w.now)}. The board holds it for you: no "go on" line and no give-back for ${limit} min of its running time; past that the person sees it as late. work unblock ${id} once ${on} answered, then go on.`)
   }
   if (!['main', 'person'].includes(w.role) && !isHolder) return refuse(403, `${id}: only ${owner ?? 'its holder'}, the main chat or the person clears what it waits on.`)
   if (standing === null) return { ok: true, result: { id, text: `${id} waits on no chat: nothing to clear.`, changed: false } }
+  // `on=<who>` names the standing who (with or without the prefix, any case), else nothing is cleared.
+  if (on !== '' && plain(on, w.prefix) !== plain(standing.who, w.prefix)) return refuse(409, `${id} waits on ${standing.who}, not on ${on}: work unblock ${id} on="${standing.who}" (or without "on") clears it.`)
   const item = ordered(said(put(copy(found.item), 'Waits on', null), w, `no longer waits on ${standing.who} (${standing.what}, since ${standing.at})`))
   const done = await save(item, found.text, w)
   return done.ok ? changed(item, `${id} no longer waits on ${standing.who}.`) : done
