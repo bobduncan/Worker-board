@@ -152,6 +152,12 @@ export async function appStartedAt(appSessions) {
   return null
 }
 
+/** The product plan's file (the setting `productPlan`, in the game's folder or the project's own while there is none), or null. */
+export function productPlanFile(config) {
+  const home = config.gameRepo === '' ? config.project : config.gameRepo
+  return home === '' ? null : join(home, ...config.productPlan.split('/'))
+}
+
 /**
  * `readFolders()` answers the working folders (see folders.mjs). B296, B301: `readWork()` answers the work store (see
  * work/read.mjs, `storeKeeper`); undefined where the board has none. The backlog file is not read: it is the store's view.
@@ -164,7 +170,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const home = config.gameRepo === '' ? config.project : config.gameRepo
   const plan = home === '' ? null : join(home, ...config.gamePlan.split('/'))
   // Plan (2026-10-19): the product plan beside it, for the Vision tab.
-  const productPlan = home === '' ? null : join(home, ...config.productPlan.split('/'))
+  const productPlan = productPlanFile(config)
   const appFiles = new Set()
   // H1: and the chat files in the account folders it does not read, by app id (the person's other Claude account).
   const appElsewhere = new Map()

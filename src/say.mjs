@@ -215,10 +215,23 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
 /**
  * Plan (2026-10-19): the Plan part's word to the partner about an answer of the product plan: `plan: P5 confirmed`
  * (the answer is the person's decision now) or `plan: P5 change` with their words (the partner rewrites the answer).
- * The partner writes the page (roles/partner.md, "The plan interview"); the board writes nothing.
+ * The partner writes the page (roles/partner.md, "The plan interview"), except the person's own decisions: the board writes
+ * those first (src/planMoves.mjs `planDecide`), and `written` makes the word say so.
  */
-export function planWords(command, { to, id, words = null, job }) {
+export function planWords(command, { to, id, words = null, job, written = false }) {
   const said = String(words ?? '').replace(/\s+/g, ' ').trim()
+  // 2026-11-09 (reactive board, brief A): the person's own decisions are written into the plan by the board before this word
+  // goes out; the word says so, and the partner goes on from it without writing it again.
+  const done = {
+    'plan-confirm': `The person confirmed ${id}; it is written in the plan. Go on from it.`,
+    'plan-settled': `The person marked ${id} good enough; it is written in the plan. Go on from it.`,
+    'plan-marks': 'The person marked these features; the marks are written in the plan. Go on from them: run your "Plan changes" check for each marked feature and place it again (a changed mark moves its Milestone).',
+    'plan-goals-confirm': 'The person confirmed these goals; they are written in the plan. Go on from them.',
+    'plan-standards-confirm': 'The person confirmed these standards; they are written in the plan. Go on from them.',
+    'plan-tradeoff': `The person chose ${said} for ${id}; it is written in the plan. Go on from it.`,
+    'plan-not-now': `The person put ${id} on not now; it is written in the plan. Go on from it.`,
+  }[command]
+  const wrote = written && done !== undefined ? [`${done} The board wrote the lines: do not write them again, and commit and push the page as the game's repository says.`] : []
   const head = {
     // The trial's gap 1 (2026-10-24): the empty Vision tab's start slide, what the person builds and their words: the
     // interview begins, with P1 partly answered.
@@ -254,7 +267,7 @@ export function planWords(command, { to, id, words = null, job }) {
     'plan-strategy': ['plan: strategy', `Strategy: ${said}`],
     'plan-not-now': [`plan: ${id} not now`],
   }[command]
-  return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id === '' ? 'plan' : id, text: [...head, `Your job: ${job}, "The plan interview"`].join('\n') }
+  return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id === '' ? 'plan' : id, text: [...head, ...wrote, `Your job: ${job}, "The plan interview"`].join('\n') }
 }
 
 /**

@@ -1,10 +1,13 @@
 // The Vision tab's moves on the product plan (2026-10-19), each a word to the partner, on a way of their own (2026-10-24,
 // the user: "we have nothing so it should not rely on a focus"): they shared the Focus page's way, which worked out
 // focus facts, running evaluations and the partner's effort for every word, so a project with no focus yet could not
-// start its plan. The partner is the page's only writer: nothing is written here (roles/partner.md, "The plan
-// interview").
+// start its plan. 2026-11-09 (reactive board, brief A): the person's own decisions (Yes, mine and Confirm, the goals' and
+// standards' confirms, the feature marks, Prepare now or Wait, Not now, Good enough) are written into the plan by the
+// board at once (`planDecide`, src/planWrite.mjs); the word to the partner then says so. Everything else is the partner's
+// to write (roles/partner.md, "The plan interview").
 
 import { planWords } from './say.mjs'
+import { writeDecisions } from './planWrite.mjs'
 
 export const PLAN_MOVES = ['plan-confirm', 'plan-change', 'plan-ask', 'plan-deeper', 'plan-marks', 'plan-feature-add', 'plan-goals-confirm', 'plan-goals-change', 'plan-goals-agree',
   // Standards (2026-10-20): a vision card settled by the person; the standards proposed, confirmed, changed, measured, their gaps into goals.
@@ -24,6 +27,21 @@ const MARKS_LINE = /^F\d+ (must|later|no|unsure|M\d+\+?)(; F\d+ (must|later|no|u
 const GOALS_LINE = /^S\d+(, S\d+)*$/
 const STANDARDS_LINE = /^K\d+(, K\d+)*$/
 
+/** The person's decisions the board writes itself: the plan file changes the moment they are made. */
+export const PLAN_DECISIONS = ['plan-confirm', 'plan-settled', 'plan-marks', 'plan-goals-confirm', 'plan-standards-confirm', 'plan-tradeoff', 'plan-not-now']
+
+/** What a decision writes (src/planWrite.mjs `writeDecisions`), from its checked id and words. */
+function decisionOf(command, id, words) {
+  if (command === 'plan-confirm') return [{ kind: 'answer', id, what: 'decided' }]
+  if (command === 'plan-settled') return [{ kind: 'answer', id, what: 'settled' }]
+  if (command === 'plan-marks') return words.split('; ').map(one => ({ kind: 'feature', id: one.split(' ')[0], what: 'mark', mark: one.split(' ')[1] }))
+  if (command === 'plan-goals-confirm') return words.split(', ').map(one => ({ kind: 'goal', id: one }))
+  if (command === 'plan-standards-confirm') return words.split(', ').map(one => ({ kind: 'standard', id: one }))
+  if (command === 'plan-tradeoff') return [{ kind: 'feature', id, what: 'tradeoff', choice: words }]
+  if (command === 'plan-not-now') return [{ kind: id.startsWith('M') ? 'milestone' : 'goal', id, what: 'notnow' }]
+  return null
+}
+
 const refuse = (status, why) => ({ ok: false, status, why })
 const oneLine = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 
@@ -31,8 +49,9 @@ const oneLine = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().
  * A move of the Vision tab: Confirm an answer, Change an answer, feature or goal (with the person's words), ask for
  * options or deeper questions, send the feature marks or goal confirms in one word, add a feature, change the whole goal
  * preset, put the goals in the goal map, the standards' and tradeoffs' moves, and the start. `ctx`: `canWrite` (the
- * board that delivers), `partner` (state.advisor), `job` (the partner's rules file). `{ ok, result, words }`: the word
- * for the partner, or a refusal.
+ * board that delivers), `partner` (state.advisor), `job` (the partner's rules file), `written` (the caller writes the
+ * person's decision before the word goes out: the word says so). `{ ok, result, words, decision }`: the word for the
+ * partner and, for a decision of the person's (PLAN_DECISIONS), what to write; or a refusal.
  */
 export function planMove(body, ctx) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return refuse(400, 'Not a request.')
@@ -49,5 +68,28 @@ export function planMove(body, ctx) {
   if (command === 'plan-goals-confirm' && !GOALS_LINE.test(words)) return refuse(400, 'Give the goals as "S1, S2".')
   if (command === 'plan-standards-confirm' && !STANDARDS_LINE.test(words)) return refuse(400, 'Give the standards as "K1, K2".')
   if (command === 'plan-tradeoff' && !['prepare', 'wait'].includes(words)) return refuse(400, 'Choose prepare or wait.')
-  return { ok: true, result: { id: id === '' ? null : id }, words: planWords(command, { to: ctx.partner.name, id, words, job: ctx.job }) }
+  return {
+    ok: true, result: { id: id === '' ? null : id }, decision: PLAN_DECISIONS.includes(command) ? decisionOf(command, id, words) : null,
+    words: planWords(command, { to: ctx.partner.name, id, words, job: ctx.job, written: ctx.written === true && PLAN_DECISIONS.includes(command) }),
+  }
 }
+
+/**
+ * A move of the Vision tab as the route takes it: checked, the person's decision written into the plan file (`ctx.file`,
+ * `ctx.now`; nothing is written when any id of it is not in the plan, and the move is refused with why), then the word
+ * for the partner, which says the decision is written. A judgment word (Go deeper, Change, ...) writes nothing.
+ */
+export async function planDecide(body, ctx) {
+  // 2026-11-09: the person's decision is written even with no partner chat on the board (code writes it); only a board that
+  // merely shows (`canWrite` false) refuses. Then there is no word: the partner reads the plan when it starts.
+  const isAlone = (ctx.partner ?? null) === null && PLAN_DECISIONS.includes(body?.command)
+  const checked = planMove(body, { ...ctx, partner: isAlone ? { name: '' } : ctx.partner, written: true })
+  if (!checked.ok || checked.decision === null) return checked.ok ? planMove(body, { ...ctx, written: false }) : checked
+  const written = await writeDecisions(ctx.file ?? null, checked.decision, ctx.now ?? Date.now(), ctx.fs, { log: ctx.writesFile ?? null })
+  if (!written.ok) return refuse(written.status, written.why)
+  if (isAlone) return { ok: true, result: { ...checked.result, note: NO_PARTNER_NOTE }, decision: checked.decision, words: null }
+  return checked
+}
+
+/** What the page shows quietly when the decision is written and no partner chat is there to be told. */
+export const NO_PARTNER_NOTE = 'Written. No partner chat on the board: it reads it when one starts.'

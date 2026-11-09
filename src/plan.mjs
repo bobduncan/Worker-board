@@ -1,7 +1,8 @@
 // Plan (brainstorm of 2026-10-19): the product plan, the answers every goal and step falls back to (roles/partner.md,
 // "The plan interview"), read from the game's `docs/product-plan.md` (the setting `productPlan`; the project's own
 // folder while there is no game folder yet) for the Vision tab.
-// The partner writes the page; the board only reads it and types the person's moves and answers to the partner.
+// The partner writes the page; the board reads it, types the person's moves and answers to the partner, and (2026-11-09,
+// src/planWrite.mjs) writes the person's own decisions into it at once: a confirm, a mark, a tradeoff, a not now, a good enough.
 // Under the page's title a line "Pitch: <one sentence>". One heading per answer, "## P<n> · <title>", and under it
 // lines "- State: decided (from ..., <date>)", "- Answer: <one line>", "- Point: **<lead>** <words>" (two to four),
 // "- Picture: <path> · <caption>", "- Known: ..." (an open one), "- Overturned (<date>): ...". The heading
@@ -464,18 +465,21 @@ export function planState(text, items, path) {
 
 /** What a word to the partner about the plan asks of it, for the Vision tab's line "Your partner is preparing ...". */
 const WORK_WORDS = {
-  'plan-deeper': 'deeper questions', 'plan-ask': 'the options', 'plan-marks': 'your marks', 'plan-feature-add': 'your new feature',
-  'plan-goals-confirm': 'your confirmed goals', 'plan-goals-change': 'a changed preset', 'plan-goals-agree': 'the goals into your goal map',
-  'plan-change': 'your change', 'plan-confirm': 'your confirm',
-  'plan-settled': 'your good enough', 'plan-standards': 'the standards', 'plan-standards-confirm': 'your confirmed standards',
+  // 2026-11-09 (reactive board, brief A): the person's own decisions (plan-confirm, plan-marks, plan-goals-confirm,
+  // plan-standards-confirm, plan-tradeoff, plan-not-now, plan-settled) are written into the plan by the board at once:
+  // they are done, so no line says the partner is preparing them.
+  'plan-deeper': 'deeper questions', 'plan-ask': 'the options', 'plan-feature-add': 'your new feature',
+  'plan-goals-change': 'a changed preset', 'plan-goals-agree': 'the goals into your goal map',
+  'plan-change': 'your change',
+  'plan-standards': 'the standards',
   'plan-standards-change': 'the changed standards', 'plan-standards-agree': 'the gaps into goals', 'plan-measure': 'the measure of today',
   // The new order (2026-10-21): the plan check, and a proposed next focus.
   'plan-check': 'the plan check', 'plan-focus': 'a next focus',
-  'plan-tradeoffs': 'the tradeoffs', 'plan-tradeoff': 'your tradeoff',
+  'plan-tradeoffs': 'the tradeoffs',
   // 2026-10-24: the person's answer of a plan question, from which the partner prepares the card's next question.
   'plan-answer': 'the next question from your answer',
-  // 2026-10-24: the plan laid in the strategy you chose; a goal or milestone you set aside for now.
-  'plan-strategy': 'the plan in your strategy', 'plan-not-now': 'your not now',
+  // 2026-10-24: the plan laid in the strategy you chose.
+  'plan-strategy': 'the plan in your strategy',
 }
 
 /** The card a word answers ("P1" for an answer of "P1.2: ..."), when it is the person's answer of a plan question. */
