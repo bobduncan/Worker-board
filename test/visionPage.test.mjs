@@ -367,6 +367,8 @@ test('the guided path: a decision per slide with its step, its buttons, sent onc
   const focused = visionView(checked.path === undefined ? null : planState(`${PAGE}\n## Next focus\n\n- Proposed: G3 · Two benches\n`, ITEMS, 'p.md'), UI, { id: 'G3', title: 'Two benches', doneWhen: 'sat on both', stage: 'run' })
   assert.deepEqual([focused.focus.current, focused.focus.proposal.isCurrent, focused.slides.some(one => one.id === 'focus:G3')], [{ id: 'G3', title: 'Two benches', doneWhen: 'sat on both', stage: 'run' }, true, false])
   assert.match(script, /function focusStepPage\(view, can, off\)/)
+  // 2026-11-09: "Make it my focus" goes the Focus page's way (/api/goals), never the plan's, which refuses a focus move.
+  assert.match(script, /act === 'focus-accept'\) \{[\s\S]{0,300}visionSend\('\/api\/goals', \{ command: 'focus', id \}/)
   assert.match(script, /'Recommend again'/)
 })
 

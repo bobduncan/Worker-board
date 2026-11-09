@@ -18452,8 +18452,9 @@ async function visionAct(act, id) {
   } else if (act === 'propose-focus') {
     if (await toPartner({ command: 'plan-focus', text: visionUi.extra.trim() }, 'Your partner proposes the next focus: it comes on step 5 with its why.')) visionUi.extra = ''
   } else if (act === 'focus-accept') {
-    // Only your click makes a goal your focus; the partner then starts the talk about it on the Focus tab.
-    if (await toPartner({ command: 'focus', id }, `${id} is your focus now: on the Focus tab your partner drafts its goal definition and its how.`)) visionUi.sent = [...visionUi.sent, `focus:${id}`]
+    // Only your click makes a goal your focus; the partner then starts the talk about it on the Focus tab. 2026-11-09 (the audit:
+    // /api/plan refused it, "Not a move of the Vision tab"): it goes the Focus page's way, a focus move of /api/goals.
+    if (await visionSend('/api/goals', { command: 'focus', id }, `${id} is your focus now: on the Focus tab your partner drafts its goal definition and its how.`)) visionUi.sent = [...visionUi.sent, `focus:${id}`]
   } else if (['mark-now', 'confirm-standard-now', 'confirm-goal-now'].includes(act)) {
     // A decision of the Interview, sent at once; the slide says so and the next one comes.
     const [part, mark] = String(id).split(':')
