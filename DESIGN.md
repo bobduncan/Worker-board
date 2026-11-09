@@ -4459,7 +4459,7 @@ build brief bind; the parts below replace what the older parts of this file say 
 ## Stability numbers (2026-11-05)
 
 The person, 2026-11-05: "i want to measure so we can proof if stuff is going wrong"; "Yes, both" (the start-up check and three
-daily numbers; stable = 3 days in a row with 0 interventions and under 10 min idle-with-work). The plan
+daily numbers; stable = 3 days in a row with 0 interventions, 0 real alarms and under 10 min idle-with-work). The plan
 (`.claude/plans/2026-11-05-stability-numbers-plan.md`) binds. The board READS its state and records and adds append-only logs;
 it changes nothing in start, wake, hand-over or status. The Overview row (`#stability`) shows the numbers; they are the board's
 own: the Supervisor does not file incidents from them.
@@ -4491,9 +4491,18 @@ own: the Supervisor does not file incidents from them.
   `closed: true` and is never rewritten. A finding made earlier in the day stays (the board shows a stop for 15 minutes and the
   reports hold only a chat's newest run).
 - **The finish line**: `stableDays` is the number of most recent days in a row (ending yesterday, or today if its line is
-  closed) with 0 interventions and under 10 min idle-with-work; `isStable` from 3. A day with no line, or whose idle is not known
+  closed) with 0 interventions, 0 real alarms and under 10 min idle-with-work; `isStable` from 3. A day with no line, or whose idle is not known
   (`null`, see the backfill), breaks the row. The state
   field `stability` holds `{ today, days (the last 14 closed), stableDays, isStable, finish }`.
+- **Comebacks count (2026-11-09, the person's yes)**: an incident belongs to a day when its `First seen` (else `Since`) is that
+  day OR a History line of that day says `came back` (the server writes "came back (seen N times)"); each counts once a day, and
+  `alarms.cameBack` lists the ids that came back. A comeback is real unless a "closed: No fault" or "closed: obsolete" line comes
+  AFTER the day's last comeback (a close before it was undone). A real alarm (`alarms.real > 0`) breaks the 3-day row;
+  false alarms never do. `finishOf` also gives `brokenByAlarm` (the day of the line that ended the row when it had a real
+  alarm); the page says "broken by a real alarm on 8 Nov", the alarms number "(1 came back · 1 false)" and the hover marks the
+  ids "(came back)"; no amber. Closed lines before this rule are counted anew ONCE at the first pass (`alarmsVersion: 2`; only
+  `alarms` changes; a line at version 2 is never rewritten; skipped when the store gave no items). X2 came back 8 Nov 22:41,
+  X162 on 9 Nov 10:40 (it was closed No fault at 08:38, so the comeback is real).
 - **The page row**: muted, three sparklines of 14 days (a day with idle `null` is a gap in the idle sparkline: no point, not 0, and
   "not known" in the hover), the finish line in words ("N of 3 days", or "stable since <date>" in
   green); amber only on today's two numbers while today already misses the finish line; hidden when the state has no `stability`.

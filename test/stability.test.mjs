@@ -377,6 +377,62 @@ test('finishOf: days in a row ending yesterday (or a closed today) with no inter
   assert.deepEqual(finishOf(fourteen.map(one => ({ ...one, idleWithWorkMinutes: null }))), { stableDays: 0, isStable: false })
 })
 
+// -- comebacks (2026-11-09): X2 and X162, trimmed copies of the real files ----------------------------------------------------
+const X2 = parseItem(text('X2.md'))
+const X162 = parseItem(text('X162.md'))
+const X162_CLOSED = parseItem(text('X162-closed-after.md'))
+const brief = alarms => ({ real: alarms.real, false: alarms.false, ids: alarms.ids, cameBack: alarms.cameBack })
+
+test('X2 (raised 24 Oct, came back 8 Nov 22:41, state fix) is a real alarm on 8 Nov, once, with its comeback; not on 9 Nov', () => {
+  assert.deepEqual(brief(alarmsOf([X2], '2026-11-08')), { real: 1, false: 0, ids: ['X2'], cameBack: ['X2'] })
+  assert.deepEqual(brief(alarmsOf([X2], '2026-11-09')), { real: 0, false: 0, ids: [], cameBack: [] })
+  assert.deepEqual(brief(alarmsOf([X2], '2026-10-24')), { real: 1, false: 0, ids: ['X2'], cameBack: [] }, 'raised that day, no comeback')
+  assert.deepEqual(alarmsOf([X2], '2026-10-30').cameBack, ['X2'], 'an older comeback counts on its own day')
+  assert.deepEqual(alarmsOf([X2], '2026-11-04').ids, [], 'gone by itself is no comeback')
+  // The same incident twice in the list, or raised and back on one day: one alarm.
+  assert.equal(alarmsOf([X2, X2], '2026-11-08').real, 1)
+})
+
+test('X162 (raised 9 Nov 08:35, closed No fault 08:38, back 10:40) counts once on 9 Nov: real while open, false once a No fault close follows the comeback', () => {
+  assert.deepEqual(brief(alarmsOf([X162], '2026-11-09')), { real: 1, false: 0, ids: ['X162'], cameBack: ['X162'] })
+  assert.deepEqual(brief(alarmsOf([X162_CLOSED], '2026-11-09')), { real: 0, false: 1, ids: ['X162'], cameBack: ['X162'] })
+  // A state closed whose only No fault close is BEFORE the comeback stays real.
+  const stillClosed = parseItem(text('X162.md').replace('State: fix', 'State: closed'))
+  assert.deepEqual(brief(alarmsOf([stillClosed], '2026-11-09')), { real: 1, false: 0, ids: ['X162'], cameBack: ['X162'] })
+  assert.deepEqual(brief(alarmsOf([X2, X162], '2026-11-09')), { real: 1, false: 0, ids: ['X162'], cameBack: ['X162'] })
+})
+
+test('finishOf: a closed day with a real alarm breaks the row and names the day; a day with only false alarms does not', () => {
+  const line = (index, more = {}) => ({ day: `2026-10-${String(index).padStart(2, '0')}`, idleWithWorkMinutes: 0, interventions: [], closed: true, ...more })
+  const real = { real: 1, false: 0, ids: ['X2'], cameBack: ['X2'] }
+  const falseOnly = { real: 0, false: 2, ids: ['X7', 'X8'], cameBack: [] }
+  assert.deepEqual(finishOf([line(1), line(2, { alarms: real }), line(3), line(4)]), { stableDays: 2, isStable: false, brokenByAlarm: '2026-10-02' })
+  assert.deepEqual(finishOf([line(1), line(2), line(3, { alarms: falseOnly }), line(4)]), { stableDays: 4, isStable: true })
+  assert.deepEqual(finishOf([line(1, { alarms: real }), line(2), line(3), line(4)]).stableDays, 3, 'the oldest day breaks the row, the three after it count')
+})
+
+test('the closed lines are counted anew ONCE: a version-1 line gets X2 and version 2; a version-2 line is not rewritten', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'stability-recount-'))
+  try {
+    const file = join(dir, 'stability.jsonl')
+    const old = { day: '2026-11-08', idleWithWorkMinutes: 7, idleEstimated: false, interventions: [], unsure: [], alarms: { real: 0, false: 0, ids: [] }, writtenAt: 1, closed: true, measured: false, pausedMinutes: 1337, offMinutes: 1334, notMeasuredWhy: 'paused' }
+    const kept = { ...old, day: '2026-11-07', alarms: { real: 5, false: 0, ids: ['X1'] }, alarmsVersion: 2 }
+    await writeFile(file, `${[kept, old].map(one => JSON.stringify(one)).join('\n')}\n`)
+    const items = new Map([['X2', X2]])
+    const now = new Date(2026, 10, 9, 12, 0).getTime()
+    await recordStability({}, { dir, items, clock: () => now })
+    const [seven, eight] = await linesOf(file)
+    assert.deepEqual(seven, kept, 'a line at version 2 is never rewritten')
+    assert.deepEqual(eight, { ...old, alarms: { real: 1, false: 0, ids: ['X2'], cameBack: ['X2'] }, alarmsVersion: 2 }, 'only the alarms and the version change')
+    // A second pass leaves both as they are.
+    await recordStability({}, { dir, items: new Map([['X2', X2], ['X162', X162]]), clock: () => now + 60_000 })
+    const again = await linesOf(file)
+    assert.deepEqual(again.slice(0, 2), [seven, eight])
+    assert.equal(again[2].day, '2026-11-09')
+    assert.deepEqual(brief(again[2].alarms), { real: 1, false: 0, ids: ['X162'], cameBack: ['X162'] })
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
 test('tailLines reads from the end back to the first line older than the start, skipping a torn line, and gives [] for a missing file', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'stability-tail-'))
   try {
@@ -436,7 +492,7 @@ test('recordStability writes tonight\'s line; at the first pass of the next day 
     now = t(0, 1, 0, 6)
     const next = await recordStability({}, { dir, items: itemsOf(), clock: () => now })
     const [closed, fresh] = await linesOf(file)
-    assert.deepEqual(closed, { ...lastOfDay, closed: true })
+    assert.deepEqual(closed, { ...lastOfDay, closed: true, alarms: alarmsOf(incidents, TODAY), alarmsVersion: 2 }, 'closed once; its alarms counted anew once with the comeback rule')
     assert.equal(fresh.day, '2026-11-06')
     assert.equal(fresh.closed, false)
     assert.equal(fresh.interventions.length, 0)

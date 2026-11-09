@@ -297,23 +297,50 @@ export function interventionsOf({ actions = [], lastStop = null, kept = [], kept
   return { interventions, unsure: unique(unsure).filter(one => !interventions.some(found => found.kind === one.kind && found.at === one.at)) }
 }
 
-/**
- * Whether an incident was a false alarm: State closed with a History line "closed: No fault" or "closed: obsolete", ONLY.
- * Everything else is real, an incident that went gone by itself included (a real problem that went away).
- */
-const isFalse = item => valueOf(item, 'State') === 'closed' && (item.sections?.get('History') ?? []).some(line => /closed: (No fault|obsolete)/i.test(line))
+/** A History line of the server: "- 2026-11-08 22:41 server: came back (seen 119 times)": the day and the minute ("2026-11-08 22:41"). */
+const COMEBACK_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s+[^:]+:\s*came back\b/
+const CLOSE_LINE = /^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s+[^:]+:\s*closed: (No fault|obsolete)/i
+
+/** The minutes ("2026-11-08 22:41") of an incident's "came back" History lines of `day`, oldest first. */
+const comebacksOf = (item, day) => (item.sections?.get('History') ?? []).map(line => line.match(COMEBACK_LINE)?.[1]).filter(at => at !== undefined && at.slice(0, 10) === day).sort()
 
 /**
- * The incidents raised in `day` (their `First seen`, else their `Since`: an incident that was fixed or went gone later is
- * the alarm of the day it was raised, never counted twice): `{ real, false, ids }`. PURE.
+ * Whether an incident was a false alarm on `day`: State closed with a History line "closed: No fault" or "closed: obsolete", ONLY.
+ * An incident that came back on `day` is false only when such a close line comes AFTER the day's last comeback (a close before it
+ * was undone by the comeback). Everything else is real, an incident that went gone by itself included (a real problem that went away).
+ */
+const isFalse = (item, day) => {
+  if (valueOf(item, 'State') !== 'closed') return false
+  const last = comebacksOf(item, day).at(-1) ?? null
+  return (item.sections?.get('History') ?? []).some(line => {
+    const at = line.match(CLOSE_LINE)?.[1]
+    return at !== undefined && (last === null || at > last)
+  })
+}
+
+/**
+ * The incidents that count in `day`: the ones raised in it (their `First seen`, else their `Since`) and the ones whose History says
+ * they "came back" in it (a problem that comes back counts on the day it comes back). Each counts once a day:
+ * `{ real, false, ids, cameBack }`, `cameBack` the ids that came back in `day`. PURE.
  */
 export function alarmsOf(incidents, day) {
-  const mine = [...incidents].filter(item => {
-    if (valueOf(item, 'Kind') !== 'incident') return false
-    return String(valueOf(item, 'First seen') ?? valueOf(item, 'Since') ?? '').slice(0, 10) === day
+  const all = [...incidents].filter(item => valueOf(item, 'Kind') === 'incident')
+  const back = new Set(all.filter(item => comebacksOf(item, day).length > 0).map(item => valueOf(item, 'Id')))
+  const seen = new Set()
+  const mine = all.filter(item => {
+    const id = valueOf(item, 'Id')
+    if (seen.has(id)) return false
+    const raised = String(valueOf(item, 'First seen') ?? valueOf(item, 'Since') ?? '').slice(0, 10) === day
+    if (!raised && !back.has(id)) return false
+    seen.add(id)
+    return true
   })
-  const falses = mine.filter(isFalse)
-  return { real: mine.length - falses.length, false: falses.length, ids: mine.map(item => valueOf(item, 'Id')).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))) }
+  const falses = mine.filter(item => isFalse(item, day))
+  const order = (a, b) => Number(a.slice(1)) - Number(b.slice(1))
+  return {
+    real: mine.length - falses.length, false: falses.length, ids: mine.map(item => valueOf(item, 'Id')).sort(order),
+    cameBack: mine.map(item => valueOf(item, 'Id')).filter(id => back.has(id)).sort(order),
+  }
 }
 
 /** The day's idle-with-work minutes: the distinct whole minutes of the day in which some free lane had a ready step to take. */
@@ -381,7 +408,7 @@ export function measuredOf({ day, now, closed = false, actions = [], gaps = [] }
 /** The day's line. PURE. `estimated` is the backfill's: true where the minute record did not exist. `measure` is `measuredOf`'s answer. */
 export function dayLineOf({ day, minutes = [], interventions = [], unsure = [], alarms, now, estimated = false, closed = false, measure = null }) {
   return {
-    day, idleWithWorkMinutes: idleMinutesOf(minutes, day), idleEstimated: estimated, interventions, unsure, alarms: alarms ?? { real: 0, false: 0, ids: [] }, writtenAt: now, closed,
+    day, idleWithWorkMinutes: idleMinutesOf(minutes, day), idleEstimated: estimated, interventions, unsure, alarms: alarms ?? { real: 0, false: 0, ids: [], cameBack: [] }, writtenAt: now, closed,
     ...(measure === null ? {} : { measured: measure.measured, pausedMinutes: measure.pausedMinutes, offMinutes: measure.offMinutes, ...(measure.measured ? {} : { notMeasuredWhy: measure.why }) }),
   }
 }
@@ -393,7 +420,8 @@ const dayBefore = day => {
 
 /**
  * The finish line over the day lines: `stableDays`, the days in a row (ending yesterday, or today if its line is closed) with no
- * intervention and under 10 minutes of idle-with-work; `isStable` from 3. A day with no line, with idle not known (null) or NOT MEASURED
+ * intervention, no real alarm and under 10 minutes of idle-with-work; `isStable` from 3. `brokenByAlarm` is the day of the line
+ * that ended the row when it had a real alarm (a false alarm never breaks it). A day with no line, with idle not known (null) or NOT MEASURED
  * (`measured: false`: paused or off for most of it) breaks the row. PURE.
  */
 export function finishOf(lines) {
@@ -401,8 +429,11 @@ export function finishOf(lines) {
   if (sorted.length > 0 && sorted[0].closed !== true) sorted.shift()
   let stableDays = 0
   let expect = null
+  let brokenByAlarm = null
   for (const line of sorted) {
     if (expect !== null && line.day !== expect) break
+    // A real alarm breaks the row (2026-11-09): a problem that came back counts on its day, a false alarm does not.
+    if ((line.alarms?.real ?? 0) > 0) { brokenByAlarm = line.day; break }
     // A day not measured (paused or off for most of it) is no stable day: it breaks the row.
     if (line.measured === false) break
     // A null idle day (backfilled: not known) is not stable, it breaks the row; so does a day with a number at 10 or more.
@@ -410,7 +441,7 @@ export function finishOf(lines) {
     stableDays += 1
     expect = dayBefore(line.day)
   }
-  return { stableDays, isStable: stableDays >= STABLE_DAYS }
+  return { stableDays, isStable: stableDays >= STABLE_DAYS, ...(brokenByAlarm === null ? {} : { brokenByAlarm }) }
 }
 
 // -- reading: today's part of each record, from the end, asynchronously ----------------------------------------------------
@@ -492,8 +523,11 @@ const measureOf = ({ day, now, closed, actions, history }) => {
 /** The 14 closed lines the state shows, newest last. */
 export const SHOWN_DAYS = 14
 
+/** The version of the alarm count a closed line carries: 2 = a problem that came back counts on the day it came back. */
+export const ALARMS_VERSION = 2
+
 /** The finish line in words, as the state field and the page say it. */
-export const FINISH_WORDS = 'stable = 3 days in a row with 0 interventions and under 10 min idle-with-work'
+export const FINISH_WORDS = 'stable = 3 days in a row with 0 interventions, 0 real alarms and under 10 min idle-with-work'
 
 /** The names of the files the writer reads and writes, in the board's data folder. */
 export const filesOf = dir => ({
@@ -530,17 +564,25 @@ export async function recordStability(state, { dir, items = new Map(), clock = D
     const closing = lines.filter(line => line.day < day && line.closed !== true)
     const wide = closing.length === 0 ? [] : await tailLines(files.history, dayStartOf(closing[0].day) - 2 * 60 * MINUTE)
     const closes = ({ notMeasuredWhy, ...line }) => ({ ...line, closed: true, ...measureOf({ day: line.day, now, closed: true, actions, history: wide }) })
-    const closed = lines.map(line => (line.day < day && line.closed !== true ? closes(line) : line))
-    const before = closed.find(line => line.day === day)
-    if (before?.closed === true) return viewOf(closed, now)
     const all = [...items.values()]
+    const incidents = all.filter(item => valueOf(item, 'Kind') === 'incident')
+    // 2026-11-09: the alarms of a line before today are counted anew ONCE with the comeback rule (alarmsVersion 2); a line at
+    // version 2 is never rewritten. Only when the store gave items (an empty store would wipe the alarms).
+    const recount = line => (line.day < day && items.size > 0 && line.alarmsVersion !== ALARMS_VERSION ? { ...line, alarms: alarmsOf(incidents, line.day), alarmsVersion: ALARMS_VERSION } : line)
+    const closed = lines.map(line => recount(line.day < day && line.closed !== true ? closes(line) : line))
+    const recounted = closed.some((line, index) => line !== lines[index] && line.alarmsVersion === ALARMS_VERSION && lines[index].alarmsVersion !== ALARMS_VERSION)
+    const before = closed.find(line => line.day === day)
+    if (before?.closed === true) {
+      if (recounted) await writeUnflushed(files.stability, `${closed.map(line => JSON.stringify(line)).join('\n')}\n`)
+      return viewOf(closed, now)
+    }
     const live = Object.entries(reports.reports ?? {}).filter(([chat, report]) => report?.state !== 'ended' && Object.hasOwn(wakes.wakes ?? {}, chat)).map(([chat]) => chat)
     const { interventions, unsure } = interventionsOf({
       actions, lastStop: state?.board?.lastStop ?? null, kept: before?.interventions ?? [], keptUnsure: before?.unsure ?? [],
       lanes: (state?.chats ?? []).map(lane => lane?.name).filter(name => typeof name === 'string'), landings, reports, history, wakes,
       outbox: mergedOutbox(outbox), asks: all.filter(item => valueOf(item, 'Kind') === 'ask'), day, live,
     })
-    const today = dayLineOf({ day, minutes, interventions, unsure, alarms: alarmsOf(all.filter(item => valueOf(item, 'Kind') === 'incident'), day), now, measure: measuredOf({ day, now, actions, gaps: gapsOf(history, now) }) })
+    const today = dayLineOf({ day, minutes, interventions, unsure, alarms: alarmsOf(incidents, day), now, measure: measuredOf({ day, now, actions, gaps: gapsOf(history, now) }) })
     const next = [...closed.filter(line => line.day !== day), today].sort((a, b) => (a.day < b.day ? -1 : 1))
     await writeUnflushed(files.stability, `${next.map(line => JSON.stringify(line)).join('\n')}\n`)
     return viewOf(next, now)

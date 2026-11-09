@@ -1,0 +1,18 @@
+Id: X162
+Kind: incident
+Title: B1071: the board's check failed 3 times in a row (Worker 5)
+State: closed
+Source: report-check-twice
+Subject: B1071
+Key: report-check-twice B1071
+Since: 2026-11-09 10:44
+First seen: 2026-11-09 08:35
+Last seen: 2026-11-09 10:40
+Count: 41
+
+## History
+- 2026-11-09 08:35 server: opened by the rule report-check-twice
+- 2026-11-09 08:38 Supervisor: closed: No fault left: B1071's branch is now merged into main
+- 2026-11-09 08:41 server: old case still standing (began 08:24, before it was closed at 08:38)
+- 2026-11-09 10:40 server: came back (seen 41 times; old case outlived its close)
+- 2026-11-09 10:50 Supervisor: closed: No fault left: the comeback was the leftover origin branch

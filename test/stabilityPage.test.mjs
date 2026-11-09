@@ -142,3 +142,27 @@ test('today not measured says "not measured (paused)" or "(off)", with the minut
     } finally { await page.close() }
   }
 })
+
+test('comebacks (2026-11-09): "(1 came back · 1 false)", the hover marks the id that came back, no amber', async () => {
+  const back = line(0, { idle: 4, alarms: { real: 1, false: 1, ids: ['X2', 'X158'], cameBack: ['X2'] } })
+  const page = await open(stability(back))
+  try {
+    const shown = numbers(page)
+    assert.equal(shown.alarms.textContent, '2 alarms (1 came back · 1 false)')
+    assert.equal(shown.alarms.title, 'X2 (came back), X158')
+    assert.equal(page.all('.is-attn').length, 0)
+    assert.equal(page.all('.stability-number.is-attn').length, 0)
+  } finally { await page.close() }
+  const none = await open(stability(clean))
+  try { assert.equal(numbers(none).alarms.textContent, '2 alarms (1 false)', 'no comeback: the words as before') } finally { await none.close() }
+})
+
+test('a row broken by a real alarm says so at the finish end; one that is not does not', async () => {
+  const broken = await open(stability(line(0), { stableDays: 1, brokenByAlarm: '2026-11-08' }))
+  const plain = await open(stability(line(0), { stableDays: 1 }))
+  try {
+    assert.match(broken.text('.stability-finish'), / · 1 of 3 days · broken by a real alarm on 8 Nov$/)
+    assert.doesNotMatch(plain.text('.stability-finish'), /broken/)
+    assert.equal(broken.all('.is-attn').length, 0)
+  } finally { await Promise.all([broken.close(), plain.close()]) }
+})

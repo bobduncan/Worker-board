@@ -2313,6 +2313,7 @@ function stabilityView(stability) {
   const interventions = today?.interventions ?? []
   const unsure = today?.unsure ?? []
   const alarms = today?.alarms ?? { real: 0, false: 0, ids: [] }
+  const cameBack = alarms.cameBack ?? []
   // 2026-11-08: a day paused or off for most of it is not measured: no numbers, never amber, a gap in every sparkline.
   const isUnmeasured = one => one?.measured === false
   const notMeasured = isUnmeasured(today)
@@ -2328,15 +2329,15 @@ function stabilityView(stability) {
       { key: 'idle', text: idle === null ? 'idle with work not known' : `${idle} min idle with work`, title: idle === null ? 'Not known today' : `${idle} min today with a worker free beside a step it could take${today?.idleEstimated === true ? ' (estimated)' : ''}`, isAmber: missed },
       { key: 'interventions', text: `${interventions.length} ${interventions.length === 1 ? 'intervention' : 'interventions'}`,
         title: [...interventions.map(one => one.what), ...unsure.map(one => `unsure: ${one.what}`)].join('\n') || 'No hands on the board today', isAmber: missed },
-      { key: 'alarms', text: `${alarms.real + alarms.false} ${alarms.real + alarms.false === 1 ? 'alarm' : 'alarms'} (${alarms.false} false)`,
-        title: alarms.ids.length === 0 ? 'No alarms today' : alarms.ids.join(', '), isAmber: false },
+      { key: 'alarms', text: `${alarms.real + alarms.false} ${alarms.real + alarms.false === 1 ? 'alarm' : 'alarms'} (${cameBack.length > 0 ? `${cameBack.length} came back · ` : ''}${alarms.false} false)`,
+        title: alarms.ids.length === 0 ? 'No alarms today' : alarms.ids.map(id => (cameBack.includes(id) ? `${id} (came back)` : id)).join(', '), isAmber: false },
     ],
     sparks: [
       { key: 'idle', name: 'Idle with work', values: series(one => (Number.isFinite(one.idleWithWorkMinutes) ? one.idleWithWorkMinutes : null)), gaps },
       { key: 'interventions', name: 'Interventions', values: series(one => (one.interventions ?? []).length), gaps },
       { key: 'alarms', name: 'Alarms', values: series(one => (one.alarms?.real ?? 0) + (one.alarms?.false ?? 0)), gaps },
     ],
-    finish: { words: stability.finish ?? '', end: since === null ? `${Math.min(stability.stableDays ?? 0, STABLE_NEEDED)} of ${STABLE_NEEDED} days` : `stable since ${stabilityDate(since)}`, isStable: since !== null },
+    finish: { words: stability.finish ?? '', end: since === null ? `${Math.min(stability.stableDays ?? 0, STABLE_NEEDED)} of ${STABLE_NEEDED} days${typeof stability.brokenByAlarm === 'string' ? ` · broken by a real alarm on ${stabilityDate(stability.brokenByAlarm)}` : ''}` : `stable since ${stabilityDate(since)}`, isStable: since !== null },
   }
 }
 
