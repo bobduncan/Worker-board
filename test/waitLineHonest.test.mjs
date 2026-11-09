@@ -291,9 +291,18 @@ test('review 5: Send again only for a word its chat has not taken; none on an "o
   const waiting = word({ state: 'waiting', at: at(30), takenAt: undefined, deliveredAt: undefined })
   assert.equal(lineOf(waiting, { advisor: off }).canSendAgain, true, 'not taken, the chat does not run: Send again')
   const turn = lineOf(recapWord({ answeredAt: at(20) }), { advisor: off })
-  assert.deepEqual([turn.state, turn.canSendAgain], ['late', false], 'taken, its turn ended without it')
+  assert.deepEqual([turn.state, turn.canSendAgain], ['sent', false], 'taken, its turn ended without it (no report: not confirmed)')
   const onIt = lineOf(word({ pickedUpAt: at(9) }), { advisor: off, rep: report('busy', at(9), { word: 'w1' }) })
   assert.deepEqual([onIt.state, onIt.canSendAgain], ['late', false], 'on it, its chat stopped')
+})
+
+// Chat 1's ruling (2026-11-09): with no report at all (a chat on an older mod) the turn-ended line guesses neither way.
+test('ruling: a turn ended without it and no report at all says "no report: not confirmed", never "still working", never Late', () => {
+  const off = lane({ isRunning: false, status: 'Not running', state: 'off' })
+  const turn = lineOf(recapWord({ answeredAt: at(20) }), { advisor: off })
+  assert.equal(turn.state, 'sent')
+  assert.equal(turn.rest, 'no report from Advisor: not confirmed')
+  assert.ok(!/still working/.test(`${turn.lead} ${turn.rest}`))
 })
 
 test('review 6 and 9 (page): the line\'s key holds "as of" and its end; a line marked ended lets its card go', async () => {

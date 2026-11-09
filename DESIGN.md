@@ -6153,7 +6153,8 @@ visibly). The states and the words stay; what they say is now only what the boar
   idle report with no background work, the lane neither Working nor Waiting for you, or its session ended. The 5 minutes
   (`TURN_GRACE_MS`) count from the later of the turn's end and the moment it came to rest (the report's `restAt`, bridge.mjs `restOf`).
   Until then quiet: "<Chat>'s turn ended at HH:MM without it · <Chat> still working" (a background task, the partner waiting on its
-  helper, a worker stopping at a safe point). Judge lines stay quiet (`turnLate` false).
+  helper, a worker stopping at a safe point). Judge lines stay quiet (`turnLate` false). With no report at all (a chat on an
+  older mod) no guess either way (chat 1's ruling): quiet "… without it · no report from <Chat>: not confirmed", never Late.
 - **A missed idle still counts.** The report entry keeps the last idle of a mod that names its word (`lastIdle` `{ word, since }`,
   carried through later reports and data/reports.json), and `turnAnswer` reads it: an idle that no pass saw before an `ended` replaced
   it (the pass was skipped by `loops.single`) still ends that word's turn. Chosen over a rerun with a dirty flag: the fact lives with the

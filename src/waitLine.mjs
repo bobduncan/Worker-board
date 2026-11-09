@@ -232,6 +232,8 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
     const more = { isTurnEnded: true, ...(isBound ? { isBound } : {}) }
     if (!own) return line('done', `${chat} answered ${isBound ? 'by ' : ''}${clockOf(at)}`, '', at, { isFallback: true, ...(isBound ? { isBound } : {}) })
     const lead = `${chat}'s turn ended ${isBound ? 'by' : 'at'} ${clockOf(at)} without it`
+    // Chat 1's ruling (2026-11-09): with no report at all (a chat on an older mod) no guess either way: never "still working", never Late.
+    if (!isReport) return line('sent', lead, `no report from ${chat}: not confirmed`, at, more)
     const rest = restNow()
     const from = Math.max(at, rest.since ?? at)
     if (turnLate && rest.isAtRest && paused !== true && running(from) > TURN_GRACE_MS) return { ...lateLine(from, lead, rest.isSession ? openIt : askIt), ...more }
