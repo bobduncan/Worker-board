@@ -131,7 +131,7 @@ test('B978: Autopilot\'s pass for the main chat that neither drops nor sends a w
 
   // A pass that sends the main chat its word does reset it: the next read rebuilds after the word (an hour's cache otherwise).
   assert.equal((await board.asChat('Digger', { action: 'take', minutes: 30, id: 'B12', branch: 'b12' })).status, 200)
-  const ask = await board.asChat('Digger', { action: 'ask', of: 'B12', kind: 'do', title: 'Merge B12 into main', text: 'Merge B12 into main once its check passed.' })
+  const ask = await board.asChat('Digger', { action: 'ask', of: 'B12', kind: 'do', title: 'Export the map of B12', text: 'Export the map of B12 once its check passed.' })
   assert.equal(ask.status, 200, JSON.stringify(ask.body))
   const word = await until(async () => (await board.outbox()).find(one => one.to === 'Lead' && one.kind === 'main-ask'), 'the main chat\'s word')
   // (The pass resets it when the word is written down, a moment after it stands in the outbox: read until then.)

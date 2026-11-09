@@ -100,7 +100,7 @@ test('an answered do needs no fold round: the step is given once it is answered 
   try {
     await oracle({ action: 'refine', id: 'B3', summary: 'One knot per kite.' })
     assert.equal((await oracle({ action: 'refined', size: '30 min', id: 'B3', what: ['the knot'] })).ok, true)
-    assert.equal((await kite({ action: 'ask', of: 'B3', kind: 'do', blocking: true, text: 'Give the go to land after the other step.' })).ok, true)
+    assert.equal((await kite({ action: 'ask', of: 'B3', kind: 'do', blocking: true, text: 'Export the map after the other step.' })).ok, true)
     // Open, it still holds the step: the worker waits for the action.
     assert.match((await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })).why, /waits for the answer to Q1$/)
     await person({ action: 'answer', id: 'Q1', text: 'After B1, on the lead\'s go.' })
@@ -134,7 +134,7 @@ test('a do answered no still waits for the fold round: the answer may change the
   try {
     await oracle({ action: 'refine', id: 'B3', summary: 'One knot per kite.' })
     assert.equal((await oracle({ action: 'refined', size: '30 min', id: 'B3', what: ['the knot'] })).ok, true)
-    await kite({ action: 'ask', of: 'B3', kind: 'do', text: 'Give the go to land after B1.' })
+    await kite({ action: 'ask', of: 'B3', kind: 'do', text: 'Export the map after B1.' })
     await person({ action: 'answer', id: 'Q1', text: 'No, merge it into B1 instead.' })
     const held = await server({ action: 'advance', id: 'B3', to: 'queued', for: 'Sail' })
     assert.match(held.why, /waits for the partner to fold in the answer to Q1$/)

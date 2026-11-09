@@ -67,7 +67,7 @@ test('the sweep routes each open ask once, with one History line; one handed on 
     // Autopilot v2, on purpose: Q1 carries no advice (with it the board takes it), and Q3 rebuilds a goal that is not the focus (a
     // rebuild of the focus goal with advice is taken too).
     Q1: ask('Q1', { Title: 'Icons or words on the bar?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Via: 'chat' }),
-    Q2: ask('Q2', { Title: 'Merge B21 into main', Owner: 'Painter', Asks: 'do', Via: 'chat' }),
+    Q2: ask('Q2', { Title: 'Export the map of B21', Owner: 'Painter', Asks: 'do', Via: 'chat' }),
     Q3: ask('Q3', { Title: 'Rebuild G7: which way?', Owner: 'Partner', Asks: 'decide', Of: 'G7', Options: 'A walls | B pool', Advice: 'A' }),
     Q4: ask('Q4', { Title: 'Icons or words on the map?', Owner: 'Painter', Asks: 'decide', Options: 'A icons | B words', Advice: 'A', Route: 'person' }, null, { Route: ['Your partner hands this to you: a new look is yours'] }),
     Q5: ask('Q5', { Title: 'Which bar colour?', Owner: 'Painter', Asks: 'decide', Advice: 'blue', Route: 'partner' }),
@@ -195,7 +195,7 @@ test('recap: without a focus goal for its step, a waiting ask goes to the person
 
 test('main: the main chat\'s work next lists its asks; it answers one or hands it on; after 30 minutes the board hands it to the person', async t => {
   const dir = await storeWith({
-    Q30: ask('Q30', { Title: 'Merge B21 into main', Owner: 'Painter', Asks: 'do', Via: 'chat' }),
+    Q30: ask('Q30', { Title: 'Export the map of B21', Owner: 'Painter', Asks: 'do', Via: 'chat' }),
     Q31: ask('Q31', { Title: 'Restart the main board so it shows the popup?', Owner: 'Painter', Asks: 'decide', Advice: 'yes', Via: 'chat' }),
     Q32: ask('Q32', { Title: 'Reset the test map', Owner: 'Partner', Asks: 'do' }),
   })
@@ -205,10 +205,10 @@ test('main: the main chat\'s work next lists its asks; it answers one or hands i
   assert.deepEqual(done.result.mainAsks, ['Q30', 'Q31', 'Q32'])
   const next = await chat(dir, 'Lead', { action: 'next' })
   assert.equal(next.ok, true, next.why)
-  assert.match(next.result.text, /^Asks you do for the person \(Autopilot; roles\/main\.md, "Autopilot"\):\n- Q30 do from Painter: Merge B21 into main\n- Q31 decide from Painter: Restart the main board so it shows the popup\? · advised: yes\n- Q32 do from Partner: Reset the test map/)
+  assert.match(next.result.text, /^Asks you do for the person \(Autopilot; roles\/main\.md, "Autopilot"\):\n- Q30 do from Painter: Export the map of B21\n- Q31 decide from Painter: Restart the main board so it shows the popup\? · advised: yes\n- Q32 do from Partner: Reset the test map/)
   // Only the main chat answers an ask routed to it; the partner answers only its own.
   assert.equal((await chat(dir, 'Partner', { action: 'partner-answer', id: 'Q30', text: 'done', why: 'merged' })).status, 409)
-  const did = await chat(dir, 'Lead', { action: 'partner-answer', id: 'Q30', text: 'Merged B21 into main.', why: 'a chat can merge' })
+  const did = await chat(dir, 'Lead', { action: 'partner-answer', id: 'Q30', text: 'Exported the map of B21.', why: 'a chat can export' })
   assert.equal(did.ok, true, did.why)
   assert.equal(did.result.wake.to, 'Painter')
   const handed = await chat(dir, 'Lead', { action: 'escalate', id: 'Q31', why: 'the board on that port is the person\'s own to restart' })
@@ -292,7 +292,7 @@ test('a chat\'s new ask is routed at once while Autopilot is on, and its chat is
   const dir = await storeWith({ B21, B22, B40: step('B40', { Title: 'Plant the hedge', State: 'in progress', Owner: 'Painter', Goal: 'G29' }) })
   t.after(() => rm(dir, { recursive: true, force: true }))
   const on = { autopilot: true }
-  const asked = await chat(dir, 'Painter', { action: 'ask', of: 'B40', kind: 'do', title: 'Merge B40 into main', text: 'Merge B40 into main when the check passed.' }, NOW, on)
+  const asked = await chat(dir, 'Painter', { action: 'ask', of: 'B40', kind: 'do', title: 'Export the map of B40', text: 'Export the map of B40 when the check passed.' }, NOW, on)
   assert.equal(asked.ok, true, asked.why)
   assert.match(asked.result.text, /goes to the main chat \(Autopilot\)/)
   const partner = await chat(dir, 'Partner', { action: 'ask', of: 'B40', kind: 'decide', title: 'Shorter names in the shop?', text: 'Shorter names fit the cards.', advice: 'yes' }, NOW, on)

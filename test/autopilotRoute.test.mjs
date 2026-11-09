@@ -103,7 +103,7 @@ test('every row of the plan: partner, advice, recap, main and person (Autopilot 
   // A look of a step at or above its target is no recap wait: its advice is taken (v2, on purpose: it went to the partner).
   assert.equal(routeOf(ask('Q27', { Title: 'Does the moat look right?', Owner: 'Painter', Asks: 'look', Of: 'B24', Advice: 'yes' })), 'advice')
   // main: a do a chat can carry out, from a worker, the partner or the main chat; never the Product owner's.
-  assert.equal(routeOf(ask('Q28', { Title: 'Merge B21 into main', Owner: 'Painter', Asks: 'do' })), 'main')
+  assert.equal(routeOf(ask('Q28', { Title: 'Export the map of B21', Owner: 'Painter', Asks: 'do' })), 'main')
   assert.equal(routeOf(ask('Q29', { Title: 'Run the map export', Owner: 'Partner', Asks: 'do' })), 'main')
   assert.equal(routeOf(ask('Q30', { Title: 'Press Go under the plan', Owner: 'Keeper', Asks: 'do' })), 'person')
   // Never the main chat's: marking a step done, accepting it, sending it back (v2, on purpose: the partner judges it, it was the person's).

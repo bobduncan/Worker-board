@@ -44,6 +44,7 @@
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
 import { chainWaitOf, checkedOf, fixRootsOf, fixesOf } from './resultCheck.mjs'
 import { HANDED_KEPT_WORDS, HANDED_ON_WHO, KEPT_LOOK_WORDS, handedOnKeptWords, isKeptLook } from './keptLook.mjs'
+import { LANDING_ROUTE_WHY, landingAskOfItem } from './landingAsk.mjs'
 import { standardOf } from './standard.mjs'
 
 // A look the partner handed over, or a worker's look with pictures, that Autopilot keeps for the recap (src/work/keptLook.mjs): its
@@ -807,6 +808,10 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   const judged = via === 'accept' ? { head: item.head, sections: new Map() } : item
   const hands = handsMatchOf(judged, list) ?? (handedWhy === null ? null : handsMatchOf({ head: new Map([['Title', handedWhy]]), sections: new Map() }, list))
   if (hands !== null) return { to: 'person', why: `only the person's hands: ${hands.name} ("${hands.phrase}")`, hands: hands.name }
+  // No landing asks (2026-11-09; the live Q701 and Q686 to Q690): an ask to land, merge to main, go live or put a step's work live is
+  // never Autopilot's to answer, whatever its advice: the person's, so chat 1 can ask them for their own yes (src/work/landingAsk.mjs;
+  // the work API refuses a new one, this holds for one filed anyway and for every pass). After their hands, which name what they do.
+  if (landingAskOfItem(item) !== null) return { to: 'person', why: LANDING_ROUTE_WHY }
   // Never Fable without the person's yes (the person, 2026-10-24: "you cant run fable without my permission"): an ask that names
   // Fable in its words or options is theirs, whatever its advice, so neither the board nor the partner says yes for them.
   if (/\bFable\b/i.test(`${title(item)} ${text(item)} ${valueOf(item, 'Options') ?? ''}`)) return { to: 'person', why: 'only the person says yes to Fable' }

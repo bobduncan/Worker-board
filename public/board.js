@@ -11600,15 +11600,6 @@ function goalAskPictures(answer) {
   return [...new Set(found.map(path => path.replace(/^\.\//, '')))]
 }
 
-/**
- * B258: what "Make a step from this" puts into Talk to Main, for the person to change and send: the goal, the ask and
- * the answer, as plain words. (B259 gives the main chat words of its own for a step from the map.)
- */
-function goalStepWords(node, block) {
-  const answer = block.answer === null ? '' : ` The Advisor's answer: ${block.answer.text}${block.answer.more ? ` (more in ${block.answer.more})` : ''}`
-  return `Make a backlog step from the goal map, for ${goalLabel(node)}, from my ask ${block.id}: ${block.question}${/[.?!]$/.test(block.question) ? '' : '.'}${answer}`
-}
-
 /** A node's own lines folded to one: "Done when: … · 1 ask pending · 1 note · 1 missing" ("" when it has none of these). */
 function goalFrameLine(node) {
   const parts = []
@@ -12086,7 +12077,7 @@ const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, u
 
 function goalsData(state) {
   const editing = goalsUi.editing === null ? null : { kind: goalsUi.editing.kind, id: goalsUi.editing.id }
-  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, goalsHideDone, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null, goalAskWaitKeys(state)]
+  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, goalsHideDone, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null, goalAskWaitKeys(state), [...goalAskStepUi]]
 }
 
 const canEditGoals = state => state?.goalsEdit?.canWrite === true
@@ -12591,6 +12582,61 @@ function goalLabelNodes(node, lead = '') {
 
 const ASK_STATES = { pending: 'waiting for the Advisor', answered: 'answered', read: 'read' }
 
+/** Reactive board, brief B: where each answer's "Make a step from this" stands on this page: "G<n>:A<n>" -> { phase: 'making' | 'made' | 'refused', step, why }. */
+const goalAskStepUi = new Map()
+
+/**
+ * "Make a step from this": the button while nothing was asked; "Making…" while the board files the step; then a line in
+ * its place, "Step B<n> made" with a link to the step, or why the board refused. The step is made by the board itself.
+ */
+function goalStepControl(node, block) {
+  const now = goalAskStepUi.get(`${node.id}:${block.id}`)
+  // The record first: a step already made from this answer (the board's state names it), also after a reload.
+  const made = node.asks.find(one => one.id === block.id)?.step ?? null
+  if (made !== null && now?.phase !== 'making') return stepMadeLine(made)
+  if (now === undefined) return goalButton('goals-tool', 'Make a step from this', { askAction: 'step', askId: block.id })
+  if (now.phase === 'making') {
+    const button = goalButton('goals-tool is-making', 'Making…')
+    button.disabled = true
+    return button
+  }
+  const line = el('span', 'goal-ask-step is-refused')
+  line.append(el('small', 'muted', `Not made: ${now.why} `), goalButton('goals-tool', 'Try again', { askAction: 'step', askId: block.id }))
+  return line
+}
+
+/** "Step B<n> made", the step a link to its window. */
+function stepMadeLine(step) {
+  const line = el('span', 'goal-ask-step is-made')
+  const link = el('a', 'step-id', step)
+  link.href = `#details=${step}`
+  line.append('Step ', link, ' made')
+  return line
+}
+
+/** The board makes the step of an answer (the goals route, command ask-step); this page only shows how far it is. */
+async function makeStepFromAnswer(goal, askId) {
+  const key = `${goal}:${askId}`
+  if (goalAskStepUi.get(key)?.phase === 'making') return
+  goalAskStepUi.set(key, { phase: 'making' })
+  redrawGoals()
+  try {
+    const answer = await fetch('/api/goals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
+      body: JSON.stringify({ command: 'ask-step', id: goal, ask: askId, page: GOALS_PAGE }),
+    })
+    // Made: the state read next names the step (or, if it was dropped meanwhile, does not); the page keeps no "made" of its own.
+    if (answer.ok) await answer.json()
+    else goalAskStepUi.set(key, { phase: 'refused', why: (await answer.text()).trim() || `refused (${answer.status})` })
+  } catch {
+    goalAskStepUi.set(key, { phase: 'refused', why: 'the board\'s server does not answer.' })
+  }
+  await read()
+  if (goalAskStepUi.get(key)?.phase === 'making') goalAskStepUi.delete(key)
+  redrawGoals()
+}
+
 /**
  * B258: one ask under the goal zoomed into: the question, the answer with its pictures and its page (More ↗, from the
  * project's folder or the asks' folder), and, on a board that writes the map, what the person can do with it.
@@ -12617,7 +12663,7 @@ function goalAskBlockNode(node, block, canEdit) {
     buttons.append(more)
   }
   if (canEdit && block.answer !== null) {
-    buttons.append(goalButton('goals-tool', 'Make a step from this', { askAction: 'step', askId: block.id }), goalButton('goals-tool', 'Brainstorm this', { askAction: 'brainstorm', askId: block.id }), goalButton('goals-tool', 'Ask again', { askAction: 'again', askId: block.id }))
+    buttons.append(goalStepControl(node, block), goalButton('goals-tool', 'Brainstorm this', { askAction: 'brainstorm', askId: block.id }), goalButton('goals-tool', 'Ask again', { askAction: 'again', askId: block.id }))
     if (block.state === 'answered') buttons.append(goalButton('goals-tool is-read', 'Done', { askAction: 'done', askId: block.id }))
   }
   if (buttons.children.length > 0) box.append(buttons)
@@ -13413,7 +13459,7 @@ async function sendGoalAsk() {
   goalsSay(`Asked ${advisor} (${id}). The answer comes under the goal and under Needs your attention.`, 'ok')
 }
 
-/** B258: what the person does with an answer: a step from it (Talk to Main, prefilled), ask again, or Done (read). */
+/** B258: what the person does with an answer: a step from it (the board files it), ask again, or Done (read). */
 function goalsAskAction(kind, goal, askId) {
   const node = board?.goals ? goalById(board.goals, goal) : null
   const block = node === null ? undefined : goalAskBlocks(node, true).find(one => one.id === askId)
@@ -13422,13 +13468,7 @@ function goalsAskAction(kind, goal, askId) {
   if (kind === 'again') return openGoalAsk(goal)
   // B259: the answer as the opening of a brainstorm on the goal.
   if (kind === 'brainstorm') return openBrainstorm(goal, `About my ask ${block.id}: ${block.question}${block.answer === null ? '' : ` The Advisor answered: ${block.answer.text}`}`.slice(0, 2000))
-  if (kind === 'step') {
-    // After what was typed there already, and no longer than a message may be.
-    showSide('main')
-    const draft = $('main-text').value.trim()
-    $('main-text').value = `${draft === '' ? '' : `${draft}\n\n`}${goalStepWords(node, block)}`.slice(0, board.maxMessageChars ?? 2000)
-    $('main-text').focus()
-  }
+  if (kind === 'step') return makeStepFromAnswer(goal, askId)
 }
 
 /** An ask's block in the frame, brought into sight and lit for a moment (from its box in the tree). */

@@ -47,6 +47,7 @@ import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mj
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { ASKS_NOTHING_WHY, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, asksNothingOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
 import { HELD, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
+import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
@@ -927,6 +928,14 @@ async function ask(body, w, { alone = false } = {}) {
   const context = lines(body.context ?? body.text).map(one => (repeats(one) ? line(one, TEXT_CHARS).slice(given.length).trim() : one)).filter(one => one.trim() !== '')
   const text = given === '' ? context : [given, ...context]
   if (text.length === 0) return refuse(400, 'Say what you ask in "title", the question itself, and its context in "text".')
+  // No landing asks (2026-11-09; the live Q701, and Q686 to Q690: Autopilot's yes to a chat's own ask landed B1079 and B1071 without
+  // chat 1's go or the person's yes): a chat never asks the person or Autopilot to land, merge to main, go live or put a step's work
+  // live; it tells chat 1 (src/work/landingAsk.mjs; Autopilot routes one filed anyway to the person). Before the title's shape: a
+  // shorter title would only meet this refusal next.
+  if (!['person', 'server'].includes(w.role)) {
+    const lands = landingAskOf([...text, ...lines(body.options, LINE_CHARS)].join(' '))
+    if (lands !== null) return refuse(409, `${LANDING_ASK_WHY} (refused: "${line(lands, 160)}")`)
+  }
   const problem = via === null && w.role !== 'person' ? titleProblem(line(text[0], TEXT_CHARS)) : null
   if (problem !== null) return refuse(400, given === '' ? `An ask leads with its "title"; without one, the first line of "text" is the title. ${problem}` : problem)
   // B474: the chat asked this already, under the same step or goal, and it stands open or was answered a moment ago
