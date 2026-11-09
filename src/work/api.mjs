@@ -1495,7 +1495,9 @@ async function words(body, w) {
     if (!done.ok) return done
     found = { ...found, item }
   }
-  const held = await holdAsksFor(w, { goal: isGoal ? id : null, step: isGoal ? null : id, minute, where, words: text.join(' ') })
+  // The board's own recap and demo paths write the person's answer as words (`recheck: false`): the recap closes the asks it answers
+  // itself (`recapClosesAsk`), so those words hold nothing. Every other words call is a decision that may change the open asks.
+  const held = body.recheck === false ? { ok: true, held: [], wakes: [], note: null } : await holdAsksFor(w, { goal: isGoal ? id : null, step: isGoal ? null : id, minute, where, words: text.join(' ') })
   if (!held.ok) return held
   const n = found === null ? null : yourWordsOf(found.item).at(-1)?.n ?? 1
   const holds = held.held.length === 0 ? '' : ` Held for the asking chat to re-check: ${held.held.join(', ')}.`

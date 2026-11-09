@@ -180,6 +180,14 @@ test('the hold ends three ways: the chat re-asks (the held one is withdrawn "re-
   assert.equal(field(await items(other), 'Q711', 'State'), 'withdrawn')
 })
 
+test('the board\'s own recap words (recheck: false) hold nothing: the recap closes the asks it answers itself', async t => {
+  const b = await open(t)
+  const said = await workApi({ action: 'words', id: 'B1091', text: ['Sent back in the recap of G60, round 1: 1. Stairs: "taller, please"'], where: 'in the recap', recheck: false }, ctx(b, NOW, 'person'))
+  assert.equal(said.ok, true, said.why)
+  assert.deepEqual([said.result.held, said.result.wakes], [[], []])
+  assert.equal(field(await items(b), 'Q711', 'Route'), 'partner', 'the recap\'s words held nothing')
+})
+
 test('words on a step from the main chat hold only that step\'s asks and note nobody', async t => {
   const b = await open(t)
   const said = await chat(b, 'Main', wordsOn('B1091'))

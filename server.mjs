@@ -1428,7 +1428,7 @@ async function main(args) {
       // The person's words stand on the demo's step; a step that is gone does not stop the feedback (it is kept and the partner has it).
       let notedOn = null
       if (found.base.step !== null && workDir !== null) {
-        const noted = await workAction({ action: 'words', id: found.base.step, text: said.lines.join('\n'), where: 'in the goal demo' }, 'person')
+        const noted = await workAction({ action: 'words', id: found.base.step, text: said.lines.join('\n'), where: 'in the goal demo', recheck: false }, 'person')
         if (noted.ok) notedOn = found.base.step
       }
       // B878 (X116): the person's Approve closes the steps the part shows that wait in review (done, their verdict in the
@@ -1453,7 +1453,7 @@ async function main(args) {
         }
         for (const part of said.back) {
           for (const id of part.steps.filter(inReview)) {
-            await workAction({ action: 'words', id, text: `Sent back in the recap of ${found.base.goal}, round ${checked.round}: ${part.title}: "${part.comment}"`, where: 'in the goal demo' }, 'person')
+            await workAction({ action: 'words', id, recheck: false, text: `Sent back in the recap of ${found.base.goal}, round ${checked.round}: ${part.title}: "${part.comment}"`, where: 'in the goal demo' }, 'person')
             backSteps.push(id)
           }
         }
@@ -3274,19 +3274,19 @@ async function main(args) {
       const stall = callStall(asked.action, session)
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
       try {
-        const { checked: known, state } = await checkFresh(body)
+        const { checked, state } = await checkFresh(body)
+        noteRefused(body, checked)
+        noteMod(body, checked)
         // Rule 15 (2026-11-09): a side chat of the app (no chat of the list: the board shows no lane for its session) may give the
         // person's words, and only those: the one call the bridge takes from a chat it does not show (the work API gives it the
         // role `side`, which may do nothing else). Its name is the title its mod sends.
-        const isSide = !known.ok && known.status === 409 && asked.action === 'words' && typeof body?.chat === 'string' && body.chat.trim() !== ''
-        const checked = isSide ? { ok: true, chat: body.chat.trim().slice(0, 80), isSide: true } : known
-        noteRefused(body, known)
-        noteMod(body, known)
-        if (!checked.ok) return checked
-        stall.by(checked.chat)
-        if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
-        if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, checked)
-        return await requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
+        const isSide = !checked.ok && checked.status === 409 && asked.action === 'words' && typeof body?.chat === 'string' && body.chat.trim() !== ''
+        const taken = isSide ? { ok: true, chat: body.chat.trim().slice(0, 80), isSide: true } : checked
+        if (!taken.ok) return taken
+        stall.by(taken.chat)
+        if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, taken, state))
+        if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, taken)
+        return await requests.answer(session, request, () => bridgeWorkOnce(asked, taken))
       } finally {
         stall.done()
         hearing?.answered(request, clock())
