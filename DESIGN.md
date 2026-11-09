@@ -2213,6 +2213,20 @@ step on "check pending" for good.
   check failed only on "not merged" lines and the branch is no longer among the branches the base lacks (`basesNow`'s
   `unmerged`: merged, or gone with its commits on the base). Once per failed check; git silent, a branch still unmerged or a
   second fault leaves the step. Tests: `test/supervisor/mergedNow.test.mjs`.
+- **Branch or worktree left, gone later** (P2 of the one wait system, T2.11: the person, 2026-11-09, "i dont want to wait for a week"): the repair
+  rule `faults-gone` checks a step in review again, without a new report, when its last board check failed only on faults it can
+  test and every one is gone now: "the branch X is still there" (X is in no repository's local branches), "the worktree P is still
+  on/there" (no repository lists P), "the branch X is still on origin of R" (the remote branch is gone, or now on origin's base);
+  the view's `branches` (`check.mjs` `faultsNow`). Once per failed check (its key names the check's minute). It looks at nothing
+  for a step whose check runs (`live.checking`, a "check pending" line), after a report that came after the failed check, after its
+  own re-run, in the first 5 minutes after a board start, nor while a landing runs (`data/landing.lock`, not stale): the rule
+  `skips` says so. Its fix is `recheck` with `again`: the action `recheck-base` writes one line, "check run again by the board (faults
+  gone): <why>" (no "check pending" line, so every reader still sees the failed check it re-runs). A pass is written as every pass
+  is; the outbox sweep (`outboxSweep.mjs` `whyClosed`) closes a back word still waiting for the worker, made before the pass, with the why
+  "its check passed since (board re-run)"; a failure is written "check run again by the
+  board: failed: <faults>": `report-check-twice` counts only "check failed" lines, and the hand-over's back word keeps the key of the
+  failed check it told (so none is sent again). A re-run whose start stands over 2 minutes without an outcome is stuck like a pending
+  check (`stuckChecks`). Tests: `test/supervisor/faultsGone.test.mjs`; real cases `fixtures/faults-gone/` (B1042, B1071).
 - **A restart** stops taking work (the Workers mod gets 503 "The board restarts: try again in a moment."), starts no
   new look, pass or check, and waits up to 10 s for the reconciler's pass and the running checks before it ends; it
   also ends when the page's connection drops before the answer is out.
