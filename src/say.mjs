@@ -14,6 +14,7 @@ import { SYNC_BOARD, lastSyncAnswer } from './sync.mjs'
 import { isTalkPicture } from './talkPicture.mjs'
 import { OWNER_ROLE, isOwnerName, isTalkWord, talkPartnerOf } from './talkPartner.mjs'
 import { isHolding } from './work/pause.mjs'
+import { chatWaitWords, isChatWait } from './work/waitsOn.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
 
@@ -46,7 +47,7 @@ export function workerState(lane) {
     free: 'free',
     working: on === '' ? 'working' : `working on ${on}`,
     waiting: on === '' ? 'waiting for you' : `waiting for you, on ${on}`,
-    suspended: `${lane.suspended?.by === 'parked' ? `suspended on purpose until ${lane.suspended.on.join(' and ')} done` : `suspended for the limit${until}`}${on === '' ? '' : `, on ${on}`}`,
+    suspended: `${isChatWait(lane.suspended) ? `suspended on purpose: ${chatWaitWords(lane.suspended)}` : lane.suspended?.by === 'parked' ? `suspended on purpose until ${lane.suspended.on.join(' and ')} done` : `suspended for the limit${until}`}${on === '' ? '' : `, on ${on}`}`,
     // The review of chat-reports: a chat that reported idle with its task open says that, not more.
     interrupted: `${lane.report?.state === 'idle' ? 'idle with its task open' : 'cut off in the middle of its turn'}${on === '' ? '' : `, on ${on}`}`,
     // B315: its card was left "working" by a quit app; its process does not run. A reporting chat says why.
@@ -118,7 +119,8 @@ const cardWords = lane => {
 }
 const PAUSES = { pausing: 'the board pauses all chats', resuming: 'the board resumes all chats' }
 const pauseWords = (lane, state) => [
-  lane?.state === 'suspended' && lane.suspended?.by === 'parked' ? `suspended on purpose until ${lane.suspended.on.join(' and ')} done`
+  lane?.state === 'suspended' && isChatWait(lane.suspended) ? `suspended on purpose: ${chatWaitWords(lane.suspended)}`
+    : lane?.state === 'suspended' && lane.suspended?.by === 'parked' ? `suspended on purpose until ${lane.suspended.on.join(' and ')} done`
     : lane?.state === 'suspended' ? `suspended for the limit${Number.isFinite(lane.suspended?.until) ? ` until ${timeOfDay(lane.suspended.until)}` : ''}${lane.suspended?.isBack === true ? ', the limit is back' : ''}` : null,
   Object.hasOwn(PAUSES, state.pause?.state ?? '') ? `${PAUSES[state.pause.state]}${Number.isFinite(state.pause.since) ? ` (since ${timeOfDay(state.pause.since)})` : ''}` : null,
 ].filter(Boolean).join('; ') || 'none'

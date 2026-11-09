@@ -358,7 +358,7 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * give in the same call, the envelope to write, the envelope the net fired for (marked once), one that waits in the outbox
  * and is to be closed (its task went back).
  */
-export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null }) {
+export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null, landing = null }) {
   const name = worker.name
   const isTurnEnd = event?.kind === 'turn-ended'
   const turnSince = isTurnEnd && Number.isFinite(event.since) ? event.since : -Infinity
@@ -394,6 +394,12 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
       resumeMs: timers.resumeMs ?? RESUME_MINUTES * MIN, giveBackMs: timers.giveBackMs ?? GIVE_BACK_MINUTES * MIN,
     })
     if (timed === null) return result(STATES.WORKING, null, { step: id })
+    // P1 (2026-11-09, the double hold guard): no give-back of a step whose branch a landing is running for now (`landing`, the
+    // landing lock's branch): the landing would finish on a step held by nobody, or by a second worker (B1081: Worker 5 took a
+    // step whose land.ps1 Worker 4 was running). The "go on" line still goes; the give-back waits for the landing to end.
+    const branch = valueOf(holding, 'Branch')
+    const isLanding = typeof landing === 'string' && landing !== '' && typeof branch === 'string' && branch.trim().toLowerCase() === landing.trim().toLowerCase()
+    if (isLanding && timed.giveBack !== null) return result(STATES.WORKING, null, { step: id, asked: timed.asked, giveBack: null, close: null, envelope: null, goOn: null, landing })
     const resume = timed.resume === null ? null
       : { kind: RESUME_KIND, step: null, clear: null, restart: false, set: null, line: timed.resume.line, back: null, resume: timed.resume.marker }
     return result(STATES.WORKING, null, {

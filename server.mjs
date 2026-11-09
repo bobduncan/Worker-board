@@ -33,6 +33,7 @@ import { minutesOf } from './src/backlog.mjs'
 import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, modSaid, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession, withModHeader } from './src/bridge.mjs'
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
+import { STALE_LOCK_MS, lockHolder } from './src/landing.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { backgroundOf } from './src/chatReport.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
@@ -2437,7 +2438,7 @@ async function main(args) {
       const state = await readState()
       const lane = (state.chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
       if (lane === null || !onSequence({ ...lane, mod: typeof mod === 'string' ? mod : lane.mod ?? null }, config)) return null
-      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event, isPushed, wakes: wakeFacts() })
+      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event, isPushed, wakes: wakeFacts(), landingNow: () => (held => (held !== null && held.ageMs < STALE_LOCK_MS ? held.branch : null))(lockHolder(join(HERE, 'data', 'landing.lock'), clock())) })
       if (done.envelope !== null || done.decision.takeBack !== null || done.decision.give !== null || done.decision.net !== null) {
         work.reset?.()
         readState.reset()

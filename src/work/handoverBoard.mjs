@@ -44,7 +44,7 @@ const textOf = envelope => [
 const MIN = 60_000
 
 /** The off time of the board since `from`, out of the state's gaps (history.mjs `gapsOf`). */
-const offMsOf = (gaps, now) => from => (Number.isFinite(from) ? (gaps ?? []).reduce((sum, gap) => sum + Math.max(0, Math.min(gap.to, now) - Math.max(gap.from, from)), 0) : 0)
+export const offMsOf = (gaps, now) => from => (Number.isFinite(from) ? (gaps ?? []).reduce((sum, gap) => sum + Math.max(0, Math.min(gap.to, now) - Math.max(gap.from, from)), 0) : 0)
 
 /**
  * What the worker's chat must be set to for step `id` (`{ model, effort }`), or null when it runs it already: the step's
@@ -72,10 +72,12 @@ const stopsOf = (sent, name) => (sent ?? []).filter(one => (one?.command === 'st
  * The facts of one worker's decision, out of the state, a fresh read of the store and the outbox. Signals change 4: `wakes`
  * the server's wake facts (`{ record, senderClaims, canLaunch }`, src/wake.mjs), or null where none is kept.
  */
-export function factsOf({ lane, state, items, pause, sent, config, installed = null, now, event, localOnly = new Set(), wakes = null }) {
+export function factsOf({ lane, state, items, pause, sent, config, installed = null, now, event, localOnly = new Set(), wakes = null, landing = null }) {
   const prefix = state.chatPrefix ?? ''
   return {
     worker: lane, items, prefix,
+    // P1 (2026-11-09): the branch a landing (tools/land.ps1) is running for now, from its lock, or null: no give-back of its step.
+    landing: typeof landing === 'string' && landing !== '' ? landing : null,
     ready: state.readyList?.ready ?? [],
     paused: isHolding(pause),
     limitFull: ['fiveHour', 'week'].some(kind => state.limits?.[kind]?.level === 'full'),
@@ -204,11 +206,18 @@ export async function closeClearOnly(outbox, now) {
  * One worker's decision carried out: `{ decision, envelope }` (the message written, or null). `apply(body)` is the work
  * API as the server. A give the API refuses moves to the next candidate in the same call (at most three).
  */
-export async function handOver({ lane, state, dir, outbox, apply, config, installed = null, now, newId, event, fs, isPushed = null, log, wakes = null }) {
+export async function handOver({ lane, state, dir, outbox, apply, config, installed = null, now, newId, event, fs, isPushed = null, log, wakes = null, landingNow = null }) {
   const read = await readStore(dir, fs)
   const sent = outbox.outbox()
   const localOnly = await localOnlyOf(state.readyList?.ready, read.items, isPushed)
-  const facts = factsOf({ lane, state, items: read.items, pause: read.pause ?? null, sent, config, installed, now, event, localOnly, wakes })
+  // P1: `landingNow()` the branch a landing runs for now (the server reads the landing lock), or null.
+  let landing = null
+  try {
+    landing = typeof landingNow === 'function' ? await landingNow() : null
+  } catch {
+    landing = null
+  }
+  const facts = factsOf({ lane, state, items: read.items, pause: read.pause ?? null, sent, config, installed, now, event, localOnly, wakes, landing })
   let decision = decide(facts)
   // Signals change 3: the give-back of a holder that did not go on (giveBack.mjs, the work API's give-back path). Its
   // waiting "go on" line is closed only once the step went back: a refused give-back changes nothing.

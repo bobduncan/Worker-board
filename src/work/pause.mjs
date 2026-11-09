@@ -7,6 +7,7 @@
 // task in flight back, and the resume decides each worker's hand-over anew.) Nothing here reads a chat's words.
 
 import { sinceMs, valueOf } from './item.mjs'
+import { waitsOnOf } from './waitsOn.mjs'
 
 export const PAUSE_FILE = 'pause.json'
 export const PAUSE_STATES = ['pausing', 'resuming', 'running']
@@ -22,8 +23,11 @@ export const HELD = ['taken', 'in progress', 'waiting on you', 'review']
  * kept the banner up for twenty minutes, and its name for an hour after).
  */
 export const RESUMED = HELD.filter(state => state !== 'review')
-/** Whether a resume waits for and wakes the chat holding this step (`RESUMED`). */
-const isResumed = (items, holder) => RESUMED.includes(valueOf(items?.get?.(holder.id), 'State') ?? '')
+/**
+ * Whether a resume waits for and wakes the chat holding this step (`RESUMED`). P1 (2026-11-09): not a step whose holder recorded a
+ * wait on a chat (`Waits on`, waitsOn.mjs): it waits on purpose, and a resume would only wake it to wait again.
+ */
+const isResumed = (items, holder) => RESUMED.includes(valueOf(items?.get?.(holder.id), 'State') ?? '') && waitsOnOf(items?.get?.(holder.id)) === null
 /**
  * The review of Pause 2: the states in which the board hands out nothing that starts a turn. Since 2026-10-19 pausing
  * only: while resuming everything goes as when running. Resuming is there to get chats started; holding the person's

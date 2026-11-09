@@ -10,6 +10,7 @@
 // (the mod refreshes `at` with every 5 s ping, so a live chat's age is seconds). Times are the board's own clock (`now`).
 
 import { BAN_WHY_MARK, UNANSWERED_WHY } from './work/handover.mjs'
+import { chatWaitWords, isChatWait } from './work/waitsOn.mjs'
 
 const MIN = 60_000
 
@@ -67,6 +68,8 @@ const finite = value => Number.isFinite(value)
 
 /** Why a suspended lane is paused, in a few words: the limit (and until when), or the steps it is parked behind. */
 function pausedWhy(held) {
+  // P1 (2026-11-09): a wait on a chat, recorded by the holder: "waits for chat 1 (its go to land) since 11:24".
+  if (isChatWait(held)) return chatWaitWords(held)
   if (held?.by === 'parked') return `until ${(held.on ?? []).join(' and ')}`
   const limit = LIMIT_NAMES[held?.limit] ?? 'session limit'
   const who = held?.by === 'app' ? 'stopped by the app at the' : 'paused for the'

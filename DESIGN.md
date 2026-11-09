@@ -6891,6 +6891,47 @@ seven decisions on it shaped what follows.
   cleared; each popup back after a reload, scrolled, nothing sent; the header after a key, while a field has the focus, not
   from a hidden tab, not for a popup left open), `test/keepOnReload.test.mjs`, `test/boardBanner.page.test.mjs`.
 
+## Waits on: a worker that waits on purpose is not stuck (P1 of the one wait system, 2026-11-09)
+
+The B1081 case: Worker 4 wrote at 11:18 in its checkpoint "wait for its go", went idle at 11:19, got "go on" lines at 11:24 and
+11:30 and was given back at 11:46, while it did the right thing: it waited for chat 1's go to land. The plan's rule 1: a wait is a
+record with a who, a what and a since, never a guess (idle + holds a step). Chat 1's plan `.claude/plans/2026-11-09-one-wait-system-plan.md`,
+part P1 (rev 2, three reviews folded in); built by chat 3.
+
+- **The record**: the step's head field `Waits on: <who> · <what> · <YYYY-MM-DD HH:MM>` (`src/work/waitsOn.mjs`), its own field,
+  separate from `Waits for` (B306: rethink holds, cleared by the main chat or the person only, `clearWaits`) and from `Blocked by`
+  (steps). Written and cleared in the work API's `blockOn` BEFORE the step-id check: an `on` that is no step id is a chat.
+  `work block id=B<n> on="chat 1" why="its go to land"`: only the owner of a taken or in-progress step; `who` a chat of the board
+  (the list's names, with or without the prefix) or a side chat "chat 0" to "chat 4"; an id (B/Q/X/I, any case), the person ("you",
+  "the person", "me") and the own name are refused with "a wait on the person is a blocking ask; a wait on a fix is on=B<n>". The
+  same who again keeps the first since (the record stands, `changed: false`). `work unblock id=B<n>` (no `on`, or `on=<who>`): the
+  owner, the main chat or the person clear it; another worker gets 403; without a chat wait an unblock with no `on` is B306's clear
+  of `Waits for`, as before. A report, a take and a give-back (the board's and a take-back of a given task) clear it too.
+- **The lane**: a stopped chat (its report idle while it holds the step: interrupted) whose step records a wait is parked on
+  purpose, in the parked shape every reader already treats as on purpose, with its kind: `suspended { by: 'parked', kind: 'chat',
+  on: [who], what, since, limit: null, named: null }` (state.mjs `card`, `waitSuspension`; `heldUntil` keeps `until: null`). So the
+  holder timers run none (no "go on" line, no give-back: `holderTimers` returns null for a suspended lane), the Supervisor's health
+  line says "(on purpose: waits for chat 1 (its go to land) since 11:24)" and is not odd, the status pill reads Paused with that
+  why, the cards and `say` the same words (`chatWaitWords`), the page's Not started line "Worker 4 waits for chat 1 (its go to land)
+  since 11:24" and the lane's "Waits on purpose · for chat 1 ... since 11:24; goes on once it is unblocked".
+- **The limit**: `waitOnMinutes` (90) of the board's RUNNING time, counted as the holder timers count (`offMsOf(gaps)`: the board's
+  off spells and the person's pauses are no waiting). Past it: NO give-back and no go-on line (the lane stays parked), the step stays
+  with its holder, and ONE Late under Needs your attention (`lateWaitOf`, kind `wait late`): "Worker 4 waits for chat 1's go to land
+  since 11:24 (95 min)", linked to the step, with the person's action (ask the chat, or tell the worker to go on and unblock).
+- **The forgotten record**: the answer to `work step` with a checkpoint while a wait stands says "You still wait on chat 1 since
+  HH:MM (its go to land): work unblock B<n> once it gave its answer." Chat 1's go messages say "unblock first" (roles/main.md).
+- **Resume all** leaves a step with a standing wait out of its resume list (pause.mjs `isResumed`): a resume would only wake the
+  chat to wait again; the chat is woken by the answer it waits for.
+- **The double hold guard**: the hand-over's decision gives no step back whose branch a landing is running for now (`landing`, the
+  landing lock's branch while the lock is younger than its stale limit: server.mjs `landingNow`, handoverBoard `factsOf`, handover.mjs
+  `decide`): B1081's land.ps1 was Worker 4's while the board handed the step to Worker 5. The "go on" line still goes.
+- **Words**: roles/worker.md ("Record every wait on a chat"), roles/main.md, and the landing refusal's words (`LANDING_ASK_WHY`:
+  "record the wait: work block id=<step> on=\"chat 1\" why=\"its go to land\" (never only in a checkpoint)"). The work tool's text
+  for block/unblock in the Workers mod still says "step it waits on" until the mod release after Thursday 11-12: the roles carry the
+  new use. Not in it: a lane state of its own for "waits for a go" (T2.11).
+- Pinned by `test/waitsOn.test.mjs` (the B1081 case through the API, the state and the hand-over's decision; the Late past 90
+  running minutes and none at 95 wall minutes with a 30-min off spell; Resume all; the landing guard; the words).
+
 ## Going live: tools/land.ps1 (2026-11-04)
 
 Until now every landing of the worker board was done by hand or with a scratch script: merge, push, bring the trial copy

@@ -387,3 +387,7 @@ board yourself, and never force-push a base branch. A change to the worker board
 `tools/land.ps1 <branch> -By "<your chat>"` on the lead's or the person's go, never by hand, and in the BACKGROUND (run_in_background) with a wait for its notice, because the gate takes about ten minutes and a
 foreground call dies after two to ten (DESIGN.md, "Going live: tools/land.ps1"). Never ask the user or Autopilot to land (2026-11-09:
 such a `work ask` is refused): a step ready to land is told to chat 1 (board dev), which asks the user for their own yes and gives the go.
+A worker that waits for another chat records it (`work block id=B<n> on="chat 1" why="..."`, P1 of the one wait system, 2026-11-09): its
+lane says "waits for chat 1 (its go to land) since HH:MM", the board sends it no "go on" line and gives nothing back; past 90 minutes of
+running time the user sees one Late. You, the holder or the user clear it with `work unblock B<n>`; when you give such a chat its go,
+say "unblock first".

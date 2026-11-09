@@ -2163,7 +2163,7 @@ function whyText(why) {
   const said = (tone, words) => ({ tone, text: `Not started: ${words}` })
   switch (why.reason) {
     case 'limit': return said('limit', `the ${LIMIT_NAMES[why.limit] ?? 'session'} limit is reached${why.limit === 'fiveHour' && why.until !== null ? `, work goes on at ${clock(why.until)}` : ''}`)
-    case 'suspended': return why.by === 'parked' ? said('wait', `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
+    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${clock(why.since)}` : ''}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
     case 'after': {
       if (!Array.isArray(why.steps)) return said('wait', `after ${why.words}`)
       // B542: a step in review is waited on for its check.
@@ -2248,6 +2248,8 @@ function pauseWindowOf(pause) {
 /** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
 function heldText(held) {
   if (held.by === 'pause') return 'Paused by you · stopped at its checkpoint; goes on at Resume all'
+  // P1 (2026-11-09): a wait the holder recorded on a chat (`Waits on`): on purpose, with who and since when.
+  if (held.by === 'parked' && held.kind === 'chat') return `Waits on purpose · for ${held.on[0]}${held.what ? ` (${held.what})` : ''}${Number.isFinite(held.since) ? ` since ${clock(held.since)}` : ''}; goes on once it is unblocked`
   if (held.by === 'parked') return `Paused on purpose · goes on once ${held.on.join(' and ')} ${held.on.length === 1 ? 'is' : 'are'} done`
   const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
   if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
@@ -4335,7 +4337,8 @@ function removalView(lane, main, now) {
   if (status === 'Waiting for you') reasons.push(`It waits for you${what === null ? '' : ` on ${what}`}: your answer would no longer be taken.`)
   if (status === 'Paused') {
     const until = Number.isFinite(lane.suspended?.until) ? ` until ${clock(lane.suspended.until)}` : ''
-    reasons.push(lane.suspended?.by === 'parked' ? `It is paused on purpose${what === null ? '' : ` with ${what}`}: that task would not go on.`
+    reasons.push(lane.suspended?.by === 'parked' && lane.suspended.kind === 'chat' ? `It waits on purpose for ${lane.suspended.on[0]}${what === null ? '' : ` with ${what}`}: that task would not go on.`
+      : lane.suspended?.by === 'parked' ? `It is paused on purpose${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : `It paused for the limit${until}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
   }
   if (status === 'Stopped') reasons.push(`It is stopped in the middle of ${what ?? 'its turn'}: that work would not be resumed.`)
