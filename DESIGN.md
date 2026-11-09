@@ -4026,6 +4026,13 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   again, so it sat in review an hour with nothing said) its worker's new report: "waits for <worker> to report again: its
   report check failed at HH:MM (<why in a few words>)", for a step in review whose last board check line is "check failed" with
   no report after it; a re-report ends it, the board's new check then pending as before; a dropped step says nothing).
+  B1081 (B934 reported again at 10:42 while its fix B978 was open: the board made the check tasks B1078 and B1080, and `work
+  checked` refused both) put the order in one rule, `openFixesOf`: after a failed report check, an open fix comes before any
+  check. A step with an open fix waits for that fix ("waits for its fix B<n>"), also when it was reported again since its check
+  or its check waits for the person; the board's check path, the task maker `qaStep`, the work action `qa-task`, the repair
+  `unchecked` and `work checked` all read it, so the board never makes a check it then refuses. A report again of a step in
+  review whose board check passed and whose fix is open is refused, naming the fix: the step closes by itself once that fix
+  passes (B356). One whose board check failed may still be reported again.
   Since T8.5 step 6 the board's word for it is the hand-over's `back` envelope, typed at the worker's first turn's end
   without that report, once per failed check ("The hand-over as one sequence", rule 3 of the decision); the 30-minute
   word of the reconciler (`REPORT_AGAIN_MINUTES`) and the report part of `review-stuck` are gone, and the health
@@ -6603,6 +6610,9 @@ from Opus extra high to Opus high. (Spec 2026-10-27, "Quality Assurance tasks".)
    whose check waits for the person (`ask:` points) waits for the person, not for a check, from the check line until the worker
    that checked has filed its ask (`reviewWaitOf`, UNCHECKED_MS = 30 minutes; after that, with still no ask of the step filed
    since the line, it waits for a check again, so nothing wedges): the repair makes no second task in between.
+   B1081: never for a step with an open fix (`openFixesOf`), a report again included: `qaStep` refuses (409, "waits for its fix
+   B<n>: no Quality Assurance task while it is open"), the check path asks for none and `qa-task` refuses, as `work checked`
+   would refuse its check; the step closes by itself once that fix passes.
 3. **Hand-out** (`handOut.mjs`): rank -1 on the ready list, before a fix (0) and the focus goal's tasks (1); never held for the
    person's pick; no follow-up of anyone. `match` and the work API's `give` never give it to a chat in its `Not by` (a pin
    neither); an idle builder holds back no new worker for it (`workerStart`). "Never given to" is the stored `Not by` joined with

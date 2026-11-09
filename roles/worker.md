@@ -238,6 +238,8 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
   every agreed point against the standard. A failed point comes back as a fix step, "Fix: <the failed points>", on the
   board's list: the board gives it to you when you are free at that moment, else to any worker; do it as any step; the
   step it fixes waits in review and is done with it.
+  Never report that step again while its fix is open (B1081): the board refuses it, naming the fix; the step closes by
+  itself once its fix passes its check. Report it again only when the board's check of your report failed.
 - A step whose work is outside git (pictures or pages in the project's folder, in no repository; B363): take it with
   branch `none`, report it with `merged` none and name the files it made in the result, by their paths in the project
   (`<picture folder>/b12/page.html`, or the folder `<picture folder>/b12/`). The board's check is then that a file

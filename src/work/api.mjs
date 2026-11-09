@@ -33,7 +33,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, needsResultCheck, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
+import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, openFixesOf, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
 import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
@@ -2550,7 +2550,11 @@ function acceptPlan(ask, text) {
   return { ok: true, step, reading, note }
 }
 
-/** The chat reports its step: in progress → review; the board's check is pending; the main chat gets a note. */
+/**
+ * The chat reports its step: in progress → review; the board's check is pending; the main chat gets a note. A report again of
+ * a step in review whose board check passed and whose fix is open is refused (B1081): it waits for that fix and closes by itself
+ * once that fix passes (B356).
+ */
 async function report(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
   if (!found.ok) return found
@@ -2571,6 +2575,14 @@ async function report(body, w) {
   }
   // B304: a report from review runs the board's check again (the flow's move review → review), say after a fix.
   const isAgain = stateOf(found.item) === 'review'
+  // B1081 (B934 reported again at 10:42 while its fix B978 was open, and the board made checks `checked` then refused): a step
+  // whose board check passed and whose fix is open waits for that fix (resultCheck.mjs `openFixesOf`); a report again would
+  // start a check nobody may file. One whose board check failed may be reported again: that check is the worker's to mend.
+  const fixesOpen = isAgain && gitCheckPassed(found.item) ? openFixesOf(id, w.store.items) : []
+  if (fixesOpen.length > 0) {
+    const fix = fixesOpen.at(-1)
+    return refuse(409, `${id} waits for its fix ${fixesOpen.join(', ')}: do not report ${id} again; it closes by itself once ${fix} passes its check (B356). Work on ${fix} instead, or wait for it.`)
+  }
   let moved
   if (isAgain) {
     const allowed = mayMove(w.store.flow, found.item, 'review', w.role, flowCtx(w, [found.item]))
@@ -2772,8 +2784,10 @@ async function check(body, w) {
   await afterDone(item, w)
   const recheck = stateOf(item) === 'done' ? await closeFixed(item, w) : null
   // B356: the board's check passed and the step waits for its result check, none asked yet. T9.1.1: the board makes its
-  // Quality Assurance task (no word to the Advisor).
+  // Quality Assurance task (no word to the Advisor). B1081: by the review wait's one rule, so a step with an open fix (reported
+  // again) waits for that fix and gets no task `checked` would refuse.
   const isWaiting = passed && stateOf(item) === 'review' && needsResultCheck(item) && resultCheckOf(item) === null
+    && reviewWaitOf(item, new Map([...w.store.items, [valueOf(item, 'Id'), item]]))?.kind === 'check'
   const ask = isWaiting ? await qaAsk(item, w) : recheck
   return changed(item, undefined, ask === null ? {} : ask)
 }
@@ -2899,8 +2913,9 @@ async function checked(body, w) {
   const holder = checkHolder(id, w)
   if (!holder.ok) return holder
   if (stateOf(found.item) !== 'review') return refuse(409, `${id} is ${stateOf(found.item)}: only a step in review is checked.`)
-  // The review: one fix at a time; its own check closes this step once it is done.
-  const open = fixesOf(id, w.store.items).filter(one => !['done', 'dropped'].includes(stateOf(one))).map(one => valueOf(one, 'Id'))
+  // The review: one fix at a time; its own check closes this step once it is done. B1081: the one rule of an open fix
+  // (resultCheck.mjs `openFixesOf`), which the review wait and the task maker read too, so no task is made for this refusal.
+  const open = openFixesOf(id, w.store.items)
   if (open.length > 0) return refuse(409, `${id} has an open fix, ${open.join(', ')}: check that one once it is reported; the board asks for ${id} again after it, when ${id} is not done with it.`)
   const evidence = line(body.evidence, 300)
   if (evidence === '') return refuse(400, 'Name the evidence picture in "evidence", by its path, or "none (<why>)".')
@@ -3119,13 +3134,17 @@ async function fixStep(origin, failed, w, points = failed, size = '', { open = f
  * `Built by:`, `Why:` (resultCheck.mjs `checkWhy`: a check again), `Board warnings:` and `Demand:`. `why` and `warnings`
  * stand in for the step's own when given; `personSaid` the person's words that answered an ask point. One open task per step:
  * made again, it answers the open one (`made: false`), the store read fresh, so two asks in one minute make one. Answers
- * `{ ok, id, made }`.
+ * `{ ok, id, made }`. B1081: none is made for a step with an open fix (a 409): it waits for that fix, and `checked` refuses
+ * its check while that fix is open.
  */
 async function qaStep(checked, w, { why, warnings, personSaid = null } = {}) {
   const checkedId = valueOf(checked, 'Id')
   const read = await readStore(w.dir, w.fs)
   const open = openQaTaskOf(read.items, checkedId)
   if (open !== null) return { ok: true, id: valueOf(open, 'Id'), made: false }
+  // B1081: a step with an open fix waits for that fix (resultCheck.mjs `openFixesOf`): `checked` would refuse the task's check.
+  const fixesOpen = openFixesOf(checkedId, read.items)
+  if (fixesOpen.length > 0) return refuse(409, `${checkedId} waits for its fix ${fixesOpen.join(', ')}: no Quality Assurance task while it is open; ${checkedId} closes by itself once that fix passes.`)
   const activity = valueOf(checked, 'Activity')
   const goal = valueOf(checked, 'Goal')
   const builders = buildersWithFixes(checked, read.items)
@@ -3177,8 +3196,9 @@ async function qaStep(checked, w, { why, warnings, personSaid = null } = {}) {
 
 /**
  * T9.1.1: the board makes the Quality Assurance task of the step `id` (the supervisor's repair rule `unchecked` asks for it
- * through here): only for a step that waits for its result check (resultCheck.mjs `reviewWaitOf`, kind check). Idempotent:
- * a step with an open task answers it. `{ id }` in the answer is the task's.
+ * through here): only for a step that waits for its result check (resultCheck.mjs `reviewWaitOf`, kind check; B1081: never one
+ * with an open fix, also after a report again: it waits for that fix). Idempotent: a step with an open task answers it. `{ id }`
+ * in the answer is the task's.
  */
 async function qaTask(body, w) {
   const found = await load(body.id, w, { kind: ['step'] })
@@ -3211,7 +3231,7 @@ async function closeFixed(item, w) {
     if (!fixesThrough(found.item, items)) {
       // The second review: the step is not through (a point for the person, a report since): with no fix of it open,
       // the partner checks it again, so it does not wait in review for nobody.
-      const open = fixesOf(originId, items).some(one => !['done', 'dropped'].includes(stateOf(one)))
+      const open = openFixesOf(originId, items).length > 0
       // B565: the task says why it comes: its fix is done, its open ask points kept (T9.1.1: in its Context, as the word had it).
       return open ? null : qaAsk(found.item, w, { why: checkWhy(found.item, items) })
     }
