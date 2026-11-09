@@ -55,6 +55,10 @@ test('the real case: B1093 checked at 15:36, Q712 of its goal open, 31 minutes l
   assert.equal(wait.kind, 'answer')
   assert.equal(wait.ask, 'Q712')
   assert.equal(wait.text, 'waits for your answer to its check in Q712')
+  // Chat 3's P6 (Rule 15): an ask held for the person's words stays open with Route asker: the step keeps waiting for it.
+  const held = item({ Id: 'Q712', Kind: 'ask', Title: 'Rebuild G60: where?', State: 'open', Of: 'G60', Route: 'asker', Since: '2026-11-09 15:10', Filed: String(at(15, 10)) })
+  const heldStore = items(step('15:36', ['ask: the bridges read as bridges (Q712)']), q711, held, B1092, B1093)
+  assert.deepEqual([reviewWaitOf(heldStore.get('B1091'), heldStore, null, at(17, 30)).kind, stuck(heldStore, at(17, 30)).length], ['answer', 0])
   // Once Q712 is answered (16:01, after the check line), the step waits for its check again: one task, its Why the answer.
   const answered = items(step('15:36', ['ask: the bridges read as bridges (Q712)']), q711, q712('answered'), B1092, B1093)
   assert.deepEqual(stuck(answered, now).map(one => one.fix), [{ do: 'qa', id: 'B1091' }])

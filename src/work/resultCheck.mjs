@@ -549,7 +549,8 @@ function waitOf(item, items, held, now, depth, recaps = null) {
     // line. Until it has (an ask of the step filed since the line, answered or withdrawn by now), and for UNCHECKED_MS after the
     // line, the step still waits for the person; later it waits for a check again, so a checker that never asked wedges nothing.
     // B1103: an ask of the step, or a named one, answered or withdrawn since the line counts too: its answer is the check's to read.
-    const endedSince = one => valueOf(one, 'State') !== 'open' && sinceMs(valueOf(one, 'Since')) >= at
+    // Both times are to the minute: an answer in the check line's own minute may be from before it, so only a later minute counts.
+    const endedSince = one => valueOf(one, 'State') !== 'open' && sinceMs(valueOf(one, 'Since')) > at
     const hasAsked = asks.some(one => askFiledMs(one) >= at || endedSince(one)) || named.some(endedSince)
     if (!hasAsked && Number.isFinite(now) && Number.isFinite(at) && now - at < UNCHECKED_MS) return answer
     // B1103, the guard: a check task made because its checker filed no ask point gets no second one when its own check waited with
