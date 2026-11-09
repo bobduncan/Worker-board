@@ -72,6 +72,22 @@ test('Q711, open at the 15:05 check and answered at 15:09, makes the check due a
   assert.equal(checkWhy(store.get('B1091'), store), 'its ask point is answered: file its check again')
 })
 
+test('an answer in the check line\'s own minute counts for nothing: it may be from before the line (B1109)', () => {
+  // The store keeps both times to the minute. Q711 of the step, or Q712 of its goal named by the ask point, answered at 15:36,
+  // the minute of the 15:36 check line: the checker's 30 minutes still run (the step waits for the person), and no QA task is made.
+  const q711Same = item({ Id: 'Q711', Kind: 'ask', Title: 'Where do you want stairs seen from the side?', State: 'answered', Of: 'B1091', Since: '2026-11-09 15:36', Filed: String(at(14, 53)) })
+  const q712Same = item({ Id: 'Q712', Kind: 'ask', Title: 'Rebuild G60: where?', State: 'answered', Of: 'G60', Since: '2026-11-09 15:36', Filed: String(at(15, 10)) })
+  const own = items(step('15:36'), q711Same, B1092, B1093)
+  const named = items(step('15:36', ['ask: the bridges read as bridges (Q712)']), q711, q712Same, B1092, B1093)
+  for (const [name, store] of [['own ask', own], ['named ask', named]]) {
+    assert.equal(reviewWaitOf(store.get('B1091'), store, null, at(15, 50)).kind, 'answer', `${name}: the checker's 30 minutes`)
+    assert.deepEqual(stuck(store, at(15, 50)), [], `${name}: no QA task within them`)
+  }
+  // One minute later (15:37) the same answer is the check's to read: the step waits for its check again at once.
+  const later = items(step('15:36'), item({ ...Object.fromEntries(q711Same.head), Since: '2026-11-09 15:37' }), B1092, B1093)
+  assert.equal(reviewWaitOf(later.get('B1091'), later, null, at(15, 50)).kind, 'check')
+})
+
 test('a named ask that is not open, or is no ask of the step or its goal, counts for nothing', () => {
   // Q711 was answered at 15:09, before the 15:36 line; Q999 is of another goal; Q404 is not in the store.
   const other = item({ Id: 'Q999', Kind: 'ask', Title: 'x', State: 'open', Of: 'G7', Since: '2026-11-09 15:00', Filed: String(at(15, 0)) })
