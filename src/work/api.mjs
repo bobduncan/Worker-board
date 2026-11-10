@@ -285,7 +285,7 @@ async function act(body, ctx) {
   } else if (ctx.as === 'side') {
     // Rule 15: a side chat of the app (the bridge decided it is none of the board's chats: its session is unknown and its name matches no
     // shown chat, bridge.mjs `sideWordsOf`) may only say the person's words. It never gets a list role, whatever its name: a duplicate
-    // "Game - Main" from another session must not move Main's lane or the main chat's work.
+    // a second chat titled like the main chat, from another session, must not move Main's lane or the main chat's work.
     who = line(body.chat, 80)
     if (who === '') return refuse(400, 'Name the chat.')
     role = 'side'

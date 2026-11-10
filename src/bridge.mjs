@@ -211,7 +211,7 @@ export function checkTake(body, state) {
 /**
  * Rule 15 (2026-11-09, review 2026-11-10): whether a refused call is a side chat's words. A side chat of the app (no chat of the list)
  * may give the person's words, and only those. It counts only when the board shows its session under no name AND the name it says is
- * the name of no shown chat (exact, or without the list's prefix in any case): a second "Game - Main" from another session must never
+ * the name of no shown chat (exact, or without the list's prefix in any case): a second chat titled like the main chat from another session must never
  * pass for Main and move its lane state or mod version. `checked` is the refusal of `checkTake`, `state` the board's state.
  */
 export function sideWordsOf(checked, asked, body, state) {

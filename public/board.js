@@ -6574,7 +6574,9 @@ function drawNeeds(state) {
   // Autopilot v2 (the person's "B", 2026-11-02): while it is on, what was routed away is never shown nor counted here: no "With your
   // partner" line, and "Decided for you" folds into the one line on top with today's count (drawAutopilotLine); the older answers
   // stay in the daily notes.
-  fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawHandsLine(handsLine), ...drawHeldLines(heldLines), isPilot ? null : drawWithPartner(state), isPilot ? null : drawDecidedForYou(state), ...recaps])
+  fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawHandsLine(handsLine), isPilot ? null : drawWithPartner(state), isPilot ? null : drawDecidedForYou(state), ...recaps])
+  // Rule 15: the held asks' quiet lines stand under everything else (never cards, never counted); appended apart, so the list above keeps its shape.
+  box.append(...drawHeldLines(heldLines).filter(Boolean))
   // T20: the Product owner's recap card is the first card, the dashed "Autopilot cleared" line right under it.
   const firstCards = [recapAttention === null ? null : drawRecapAttention(recapAttention), recapMaking === null ? null : drawRecapMaking(recapMaking), cleared === null ? null : drawClearedLine(cleared)].filter(one => one !== null)
   if (firstCards.length > 0) box.prepend(...firstCards)
