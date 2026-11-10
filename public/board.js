@@ -94,10 +94,10 @@ function laneStatus(lane) {
  * Unknown always says "no report for N", Asleep since when. The age is the board's, set when it read the state (never the
  * page's clock).
  */
-function statusLabel(found) {
+function statusLabel(found, now = Date.now()) {
   if (found === null) return ''
   if (found.status === 'Unknown') return found.age !== null ? `Unknown · no report for ${ageSpan(found.age)}` : found.isReported ? 'Unknown · no report yet' : 'Unknown'
-  if (found.status === 'Asleep' && found.since !== null) return `Asleep · since ${clock(found.since)}`
+  if (found.status === 'Asleep' && found.since !== null) return `Asleep · since ${sinceClock(found.since, now)}`
   if (found.age !== null && found.age > AGE_SHOWN_MS) return `${found.status} · ${ageSpan(found.age)} ago`
   return found.status
 }
@@ -137,10 +137,10 @@ function waitLaneOf(part, name) {
 }
 
 /** The pill beside a line: the chat's own status (`laneStatus`), its words without the age, which would draw the card anew every few seconds. */
-function waitPillOf(lane) {
+function waitPillOf(lane, now = Date.now()) {
   const found = laneStatus(lane)
   if (found === null) return null
-  return { key: found.key, label: found.status === 'Asleep' && found.since !== null ? `Asleep · since ${clock(found.since)}` : found.status }
+  return { key: found.key, label: found.status === 'Asleep' && found.since !== null ? `Asleep · since ${sinceClock(found.since, now)}` : found.status }
 }
 
 /**
@@ -344,6 +344,18 @@ const pad = value => String(value).padStart(2, '0')
 function clock(ms) {
   const date = new Date(ms)
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/**
+ * A lane's "since" time: the clock for today, "yesterday 23:54" for yesterday, "8 Nov 23:54" for an older day (the person's
+ * local day, `now`'s). `clockOf` writes the time of day. The same words as `sinceClock` in src/chatStatus.mjs.
+ */
+function sinceClock(ms, now = Date.now(), clockOf = clock) {
+  const day = new Date(ms)
+  const back = Math.round((new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate()) - new Date(day.getFullYear(), day.getMonth(), day.getDate())) / 86_400_000)
+  if (back === 0 || back < 0) return clockOf(ms)
+  if (back === 1) return `yesterday ${clockOf(ms)}`
+  return `${day.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][day.getMonth()]} ${clockOf(ms)}`
 }
 
 /** A length of time: "40 min", "1 h 50". */
@@ -2169,7 +2181,7 @@ function whyText(why) {
   const said = (tone, words) => ({ tone, text: `Not started: ${words}` })
   switch (why.reason) {
     case 'limit': return said('limit', `the ${LIMIT_NAMES[why.limit] ?? 'session'} limit is reached${why.limit === 'fiveHour' && why.until !== null ? `, work goes on at ${clock(why.until)}` : ''}`)
-    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${clock(why.since)}` : ''}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
+    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${sinceClock(why.since)}` : ''}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
     case 'after': {
       if (!Array.isArray(why.steps)) return said('wait', `after ${why.words}`)
       // B542: a step in review is waited on for its check.
@@ -2255,7 +2267,7 @@ function pauseWindowOf(pause) {
 function heldText(held) {
   if (held.by === 'pause') return 'Paused by you · stopped at its checkpoint; goes on at Resume all'
   // P1 (2026-11-09): a wait the holder recorded on a chat (`Waits on`): on purpose, with who and since when.
-  if (held.by === 'parked' && held.kind === 'chat') return `Waits on purpose · for ${held.on[0]}${held.what ? ` (${held.what})` : ''}${Number.isFinite(held.since) ? ` since ${clock(held.since)}` : ''}; goes on once it is unblocked`
+  if (held.by === 'parked' && held.kind === 'chat') return `Waits on purpose · for ${held.on[0]}${held.what ? ` (${held.what})` : ''}${Number.isFinite(held.since) ? ` since ${sinceClock(held.since)}` : ''}; goes on once it is unblocked`
   if (held.by === 'parked') return `Paused on purpose · goes on once ${held.on.join(' and ')} ${held.on.length === 1 ? 'is' : 'are'} done`
   const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
   if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
@@ -2684,7 +2696,7 @@ function timeOf(lane, now) {
   const found = laneStatus(lane)
   // T13 part 3: a chat whose process ended while its turn ran (or it held a task) resumes by itself: the board sends it
   // its resume word. No alarm: nothing is wrong yet. Idle with its task open, or cut off: Stopped, quiet.
-  if (found.status === 'Stopped') return { ...plain(found.why ?? 'Stopped', 'muted', 'Stopped'), small: lane.asleep === true ? [asleepWords(lane)] : [] }
+  if (found.status === 'Stopped') return { ...plain(found.why ?? 'Stopped', 'muted', 'Stopped'), small: lane.asleep === true ? [asleepWords(lane, now)] : [] }
   if (found.status === 'Paused') {
     // B113: held by the limit. The figure is when it goes on; once that has passed it needs a hand.
     const held = lane.suspended ?? null
@@ -2699,7 +2711,7 @@ function timeOf(lane, now) {
   }
   if (found.status === 'Waiting for you') return plain('Blocked', 'bad', 'ETA')
   // T13 part 3: an asleep one is not "free to run": the line of the task it gets wakes it.
-  if (found.status === 'Asleep') return { ...plain('Asleep'), small: found.why === null ? [asleepWords(lane)] : [asleepWords(lane), found.why] } // C2: its why (a ban) too
+  if (found.status === 'Asleep') return { ...plain('Asleep'), small: found.why === null ? [asleepWords(lane, now)] : [asleepWords(lane, now), found.why] } // C2: its why (a ban) too
   if (found.status === 'Free') return plain('Free')
   if (found.status === 'Unknown') return plain('Unknown')
   if (found.status !== 'Working') return { ...plain(found.status), small: found.why === null ? [] : [found.why] }
@@ -2738,8 +2750,8 @@ function timeOf(lane, now) {
  * T13 part 3: the quiet note of an asleep chat (its process ended while its last report stands; the board wakes it with a
  * message): since when, and what wakes it.
  */
-function asleepWords(lane) {
-  const since = Number.isFinite(lane.asleepSince) ? `asleep since ${clock(lane.asleepSince)}` : 'asleep'
+function asleepWords(lane, now = Date.now()) {
+  const since = Number.isFinite(lane.asleepSince) ? `asleep since ${sinceClock(lane.asleepSince, now)}` : 'asleep'
   if (lane.state === 'interrupted') return `${since}; the board sends it its resume word`
   if (lane.state === 'free') return `${since}, wakes when it gets a task`
   return `${since}, wakes when a word comes for it`
@@ -2771,9 +2783,9 @@ function leftView(lane, now) {
 }
 
 /** A free worker's one line: since when it is free ("free since 13:01"); null when that is not known. */
-function freeShort(lane, clockOf = null) {
+function freeShort(lane, clockOf = null, now = Date.now()) {
   if (lane.state !== 'free' || clockOf === null || !Number.isFinite(lane.idle?.since)) return null
-  return `free since ${clockOf(lane.idle.since)}`
+  return `free since ${sinceClock(lane.idle.since, now, clockOf)}`
 }
 
 /** The column "Next in queue": the next step by its id and title, why it is not started, and how many come after it. */
@@ -3003,11 +3015,11 @@ function simpleSteps(focus, chats = [], now = Date.now()) {
 
 // simpleidle:start
 /** B343: what a chat's row says in place of its time when it does not work: a few plain words. */
-function simpleIdle(lane) {
+function simpleIdle(lane, now = Date.now()) {
   // Signals change 2: the chat's one status, with its why where it has one; the same status as the pill and the head count.
   const found = laneStatus(lane)
   if (found === null) return ''
-  const label = statusLabel(found)
+  const label = statusLabel(found, now)
   if (found.status === 'Paused' && Number.isFinite(lane.suspended?.until)) return `${label} until ${clock(lane.suspended.until)}`
   const hasWhy = found.why !== null && found.status !== 'Unknown' // C2: an Asleep lane's ban why shows
   return hasWhy ? `${label} · ${found.why}` : label
@@ -5006,8 +5018,8 @@ function decidedToggleText(view, isOpen) {
 }
 
 /** A lane's one status, with how old it is (chatstatus): the same text in every view. */
-function laneStateText(lane) {
-  return statusLabel(laneStatus(lane))
+function laneStateText(lane, now = Date.now()) {
+  return statusLabel(laneStatus(lane), now)
 }
 // partner-answers:end
 

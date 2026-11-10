@@ -83,7 +83,7 @@ test('1: the chosen height outlives a window made narrow and wide again; only th
 test('2: a free worker says since when it is free, in one line; the rest of what it said is in its tooltip', () => {
   const clockOf = at => page.clock(at)
   const at = NOW - 42 * MIN
-  assert.equal(page.freeShort({ state: 'free', idle: { since: at, from: 'app', isSilent: false } }, clockOf), `free since ${page.clock(at)}`)
+  assert.equal(page.freeShort({ state: 'free', idle: { since: at, from: 'app', isSilent: false } }, clockOf, NOW), `free since ${page.clock(at)}`)
   assert.equal(page.freeShort({ state: 'free', idle: null }, clockOf), null)
   assert.equal(page.freeShort({ state: 'free', idle: { since: at } }), null)
   assert.equal(page.freeShort({ state: 'working', idle: { since: at } }, clockOf), null)

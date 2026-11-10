@@ -2721,7 +2721,7 @@ make Information smaller or bigger. Nothing is gone: what leaves a row is in its
    line: the step it is about, who sent it, its words without "Report from ...:" (`infoLine`); a click opens the whole
    note with its Read button; "Mark all read" reads each new one in turn. All read and hidden, the box is one line.
    Since the calm panel (2026-10-19) this box is the log, folded by default behind one quiet line.
-2. One line per worker: its task, or "free since 13:01" (`freeShort`). Since signals change 7 a worker's task is the step
+2. One line per worker: its task, or "free since 13:01" (`freeShort`; a time of another day names the day: "free since yesterday 23:39", "since 8 Nov 23:54", `sinceClock`, the same words as `sinceClock` in `src/chatStatus.mjs`, for every lane since). Since signals change 7 a worker's task is the step
    the store says it holds, with the time left of its size and a thin bar; since, checkpoint and plan on hover ("A worker's
    row from the board's records"). "Now:" and "Between turns" are in the task's
    tooltip and its details; the compaction note shows only when it warns, else on hovering the name; "No active task"
