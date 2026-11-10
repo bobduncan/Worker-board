@@ -6694,7 +6694,14 @@ from Opus extra high to Opus high. (Spec 2026-10-27, "Quality Assurance tasks".)
    `ask: <point> (Q712)`, of the step or of its goal (`namedAskIds`, `namedAsksOf`; the partner names one with a `work note` of
    the step since the line that names it). While a named ask is open the step waits for the person's answer ("waits for your
    answer to its check in Q712"); once it, or an ask of the step, was answered or withdrawn since the line, it waits for its check
-   again at once; a named ask that is not open counts for nothing. The guard: past UNCHECKED_MS with no ask filed or named, the
+   again at once. B1118 (B1096: its check at 21:53 named Q718, which the person had approved at 21:50, and waited 30 minutes): a
+   named ask that is answered counts whenever it was answered, before the line too: the step waits for its check again at once,
+   its task's `Why:` `ANSWERED_WHY; JUDGE_ANSWERED` ("its ask point is answered: file its check again; an ask point whose named
+   ask is answered is judged from that answer, pass or fail, never left for the person"), which the QA brief (`NAME_THE_ASK`)
+   says too; a named ask withdrawn before the line counts for nothing. Its guard: when the check of a task made for an answered
+   ask point names only asks answered by its line again, the step is kind `unasked` with `answered` ("its checker left an
+   answered ask for the person"), no third task, and the partner gets one word to read that answer (test
+   `test/supervisor/answeredAskRecheck.test.mjs`, B1096's records replayed). The guard: past UNCHECKED_MS with no ask filed or named, the
    new task's `Why:` is `UNASKED_WHY` ("its checker filed no ask point: file its check again; name the open ask ..."); when the
    check of such a task waits that way again, the step is kind `unasked` ("its checker filed no ask point"), the repair makes no
    third task and wakes the partner once per wait (key `unasked B<id> <time>`) to file the ask or name the open one; the watch

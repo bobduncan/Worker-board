@@ -10,7 +10,7 @@ import test from 'node:test'
 import { applySync } from '../../src/supervisor/loop.mjs'
 import { findStuck } from '../../src/supervisor/rules/repair.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
-import { NAME_THE_ASK, UNASKED_WHY, checkWhy, namedAskIds, reviewWaitOf } from '../../src/work/resultCheck.mjs'
+import { ANSWERED_WHY, JUDGE_ANSWERED, NAME_THE_ASK, UNASKED_WHY, checkWhy, namedAskIds, reviewWaitOf } from '../../src/work/resultCheck.mjs'
 
 const at = (hh, mm) => new Date(2026, 10, 9, hh, mm).getTime()
 const item = (head, sections = {}) => ({ head: new Map(Object.entries(head)), sections: new Map(Object.entries(sections)) })
@@ -62,14 +62,14 @@ test('the real case: B1093 checked at 15:36, Q712 of its goal open, 31 minutes l
   // Once Q712 is answered (16:01, after the check line), the step waits for its check again: one task, its Why the answer.
   const answered = items(step('15:36', ['ask: the bridges read as bridges (Q712)']), q711, q712('answered'), B1092, B1093)
   assert.deepEqual(stuck(answered, now).map(one => one.fix), [{ do: 'qa', id: 'B1091' }])
-  assert.equal(checkWhy(answered.get('B1091'), answered), 'its ask point is answered: file its check again')
+  assert.equal(checkWhy(answered.get('B1091'), answered), `${ANSWERED_WHY}; ${JUDGE_ANSWERED}`)
 })
 
 test('Q711, open at the 15:05 check and answered at 15:09, makes the check due at once, not 30 minutes later', () => {
   const store = items(step('15:05'), q711, B1092)
   const wait = reviewWaitOf(store.get('B1091'), store, null, at(15, 10))
   assert.equal(wait.kind, 'check')
-  assert.equal(checkWhy(store.get('B1091'), store), 'its ask point is answered: file its check again')
+  assert.equal(checkWhy(store.get('B1091'), store), `${ANSWERED_WHY}; ${JUDGE_ANSWERED}`)
 })
 
 test('an answer in the check line\'s own minute counts for nothing: it may be from before the line (B1109)', () => {
@@ -79,19 +79,25 @@ test('an answer in the check line\'s own minute counts for nothing: it may be fr
   const q712Same = item({ Id: 'Q712', Kind: 'ask', Title: 'Rebuild G60: where?', State: 'answered', Of: 'G60', Since: '2026-11-09 15:36', Filed: String(at(15, 10)) })
   const own = items(step('15:36'), q711Same, B1092, B1093)
   const named = items(step('15:36', ['ask: the bridges read as bridges (Q712)']), q711, q712Same, B1092, B1093)
-  for (const [name, store] of [['own ask', own], ['named ask', named]]) {
-    assert.equal(reviewWaitOf(store.get('B1091'), store, null, at(15, 50)).kind, 'answer', `${name}: the checker's 30 minutes`)
-    assert.deepEqual(stuck(store, at(15, 50)), [], `${name}: no QA task within them`)
-  }
+  assert.equal(reviewWaitOf(own.get('B1091'), own, null, at(15, 50)).kind, 'answer', "own ask: the checker's 30 minutes")
+  assert.deepEqual(stuck(own, at(15, 50)), [], 'own ask: no QA task within them')
+  // B1118: a named ask that is answered is the check's to judge from whenever it was answered: its check again is due at once.
+  // (B1093 was made for an answered ask point itself, so its check naming an answered ask again trips the B1118 guard.)
+  assert.equal(reviewWaitOf(named.get('B1091'), named, null, at(15, 50)).kind, 'unasked', 'named ask: answered, after a task for that')
+  const first = items(step('15:36', ['ask: the bridges read as bridges (Q712)']), q711, q712Same, B1092)
+  assert.equal(reviewWaitOf(first.get('B1091'), first, null, at(15, 50)).kind, 'check', 'named ask: answered')
   // One minute later (15:37) the same answer is the check's to read: the step waits for its check again at once.
   const later = items(step('15:36'), item({ ...Object.fromEntries(q711Same.head), Since: '2026-11-09 15:37' }), B1092, B1093)
   assert.equal(reviewWaitOf(later.get('B1091'), later, null, at(15, 50)).kind, 'check')
 })
 
-test('a named ask that is not open, or is no ask of the step or its goal, counts for nothing', () => {
-  // Q711 was answered at 15:09, before the 15:36 line; Q999 is of another goal; Q404 is not in the store.
+test('a named ask that is no ask of the step or its goal counts for nothing; one answered before the line counts (B1118)', () => {
+  // Q999 is of another goal; Q404 is not in the store. Q711 was answered at 15:09, before the 15:36 line: B1118, its check again
+  // is due at once, judged from that answer.
   const other = item({ Id: 'Q999', Kind: 'ask', Title: 'x', State: 'open', Of: 'G7', Since: '2026-11-09 15:00', Filed: String(at(15, 0)) })
-  for (const name of ['Q711', 'Q999', 'Q404']) {
+  const answered = items(step('15:36', ['ask: the bridges read as bridges (Q711)']), q711, other, B1092)
+  assert.equal(reviewWaitOf(answered.get('B1091'), answered, null, at(15, 50)).kind, 'check', 'Q711: answered')
+  for (const name of ['Q999', 'Q404']) {
     const store = items(step('15:36', [`ask: the bridges read as bridges (${name})`]), q711, other, B1092, B1093)
     assert.equal(reviewWaitOf(store.get('B1091'), store, null, at(15, 50)).kind, 'answer', `${name}: the checker's 30 minutes`)
     assert.equal(reviewWaitOf(store.get('B1091'), store, null, at(16, 7)).kind, 'check', `${name}: a check again`)

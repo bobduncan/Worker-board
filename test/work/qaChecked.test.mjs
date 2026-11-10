@@ -154,7 +154,7 @@ test('a point only the person can judge ends the task and leaves the step in rev
     assert.equal(valueOf(second, 'Checks'), id)
     assert.equal(valueOf(second, 'State'), 'refined')
     const context = second.sections.get('Context').map(one => one.trim())
-    assert.ok(context.includes('Why: its ask point is answered: file its check again'), context.join('\n'))
+    assert.ok(context.includes('Why: its ask point is answered: file its check again; an ask point whose named ask is answered is judged from that answer, pass or fail, never left for the person'), context.join('\n'))
     assert.ok(context.includes('The person said: Warm, but make it a bit more orange'))
     // Never two open at once: the repair's own call finds it.
     const again = await store.server({ action: 'qa-task', id })

@@ -629,7 +629,9 @@ refined from them, on the board's list for the worker that built it first, the s
 waits in review until its fix is done and checked (a fix has a Quality Assurance task of its own). A point that is the user's to
 judge: the worker that checked asks them under the step; once they answered, the board files the check again by itself, or makes
 a new task for it when it cannot read the answer. An ask point may instead name the open ask that already asks it, `ask: <point>
-(Q712)`, of the step or of its goal (B1103): the step waits for that answer. When two checks in a row left ask points with no ask
+(Q712)`, of the step or of its goal (B1103): the step waits for that answer; a named ask already answered is judged from that
+answer (B1118), and when a check again leaves it for the person anyway, the board makes no more check tasks and gives you one word
+to read that answer and tell the main chat in a `work note` of the step whether it passes. When two checks in a row left ask points with no ask
 filed or named, the board makes no more check tasks and gives you one word ("its checkers filed no ask and named none, twice"):
 when an open ask already asks the person, name it with `work note` of the step, "its ask points are carried by Q<n>"; otherwise
 file the ask under the step (`work ask`, kind look, with the check's evidence). Never ask the person twice.
