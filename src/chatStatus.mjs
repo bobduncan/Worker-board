@@ -63,6 +63,18 @@ export const STATUS_OF_STATE = Object.freeze({
 
 const LIMIT_NAMES = { fiveHour: 'session limit', week: 'weekly limit' }
 const hourMinute = ms => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
+/**
+ * A lane's "since" time as the page writes it (board.js `sinceClock`): the clock for today, "yesterday 23:54" for yesterday,
+ * "8 Nov 23:54" for an older day, by the local day of `now`.
+ */
+export function sinceClock(ms, now) {
+  const day = new Date(ms)
+  const today = new Date(now)
+  const back = Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()) - new Date(day.getFullYear(), day.getMonth(), day.getDate())) / 86_400_000)
+  if (back <= 0) return hourMinute(ms)
+  if (back === 1) return `yesterday ${hourMinute(ms)}`
+  return `${day.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][day.getMonth()]} ${hourMinute(ms)}`
+}
 const hourMinuteSecond = ms => `${hourMinute(ms)}:${String(new Date(ms).getSeconds()).padStart(2, '0')}`
 const finite = value => Number.isFinite(value)
 
@@ -138,7 +150,7 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
     // Signals change 3: the hand-over asked it to go on (its "go on" line of this stopped spell).
     if (finite(handover?.asked)) return out(STATUSES.STOPPED, `asked to go on at ${hourMinute(handover.asked)}`, asleep ? lane.asleepSince : report?.since)
     if (asleep) return out(STATUSES.STOPPED, 'resumes by itself', lane.asleepSince)
-    if (report?.state === 'idle') return out(STATUSES.STOPPED, `task open since ${hourMinute(report.since)}`, report.since)
+    if (report?.state === 'idle') return out(STATUSES.STOPPED, `task open since ${sinceClock(report.since, now)}`, report.since)
     return out(STATUSES.STOPPED, finite(lane.cutOffAt) ? `cut off at ${hourMinute(lane.cutOffAt)}` : 'cut off by a restart', lane.cutOffAt)
   }
   // 11. Asleep: the process ended while the chat is idle (a message wakes it). Before Free: an asleep chat is not "free to run".
