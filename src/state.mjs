@@ -68,7 +68,7 @@ import { guardOf, rebuildHoldsOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
 import { chatsByRole } from './oldMods.mjs'
-import { clearingOf, decide, envelopesOf, lastClearWhyOf, laneWords, onSequence } from './work/handover.mjs'
+import { clearingOf, decide, envelopesOf, holdingOf, lastClearWhyOf, laneWords, onSequence } from './work/handover.mjs'
 import { givenBackFrom } from './work/holderTimers.mjs'
 import { rethinkTopicsOf } from './work/rethinkTopic.mjs'
 import { rethinkFocusOf } from './work/rethinkFocus.mjs'
@@ -2445,6 +2445,13 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   // `isRunning`, `asleep`, `report` and `handover` stay as the decisions read them; nothing here is read back by one.
   const isPersonPause = pause?.state === 'pausing'
   const plainOwner = owner => String(owner ?? '').replace(prefix, '').trim().toLowerCase()
+  /** The id of the held ask of the lane's own that sits under the step it is on, or null (a held ask under another step it holds does not count). */
+  const heldAskOfLane = lane => {
+    if (lane.isMain === true || !workOk) return null
+    const step = holdingOf(raw.work.items, lane.name, prefix)
+    if (step === undefined) return null
+    return itemsOf(raw.work).find(one => isHeld(one) && one.head.get('Of') === step.head.get('Id') && plainOwner(one.head.get('Owner')) === lane.name.toLowerCase())?.head.get('Id') ?? null
+  }
   const statusFor = (lane, { handover = null, modRun = null } = {}) => {
     if (lane.isLeftover === true) return { status: null, why: null, since: null, reportAt: null, age: null }
     // The moved card keeps `cleared.at` after a clear (register.tsx): a new conversation that has not reported reads Restarting.
@@ -2452,9 +2459,9 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     const isUnsaved = isPersonPause && (pause.unsaved ?? []).some(one => one?.chat === lane.name && ((lane.task?.stepId ?? null) === null || one.id === lane.task.stepId))
     // The lazy clear (R3, D6): the clear stage of its envelope in flight, for the Handing pill's why.
     const clearing = handover?.state === 'handing' ? clearingOf(envelopesOf(sent, lane.name, prefix)) : null
-    // Rule 15: a worker that holds a step with an ask held for the person's words waits for its own re-check: quiet, never "Stopped".
-    const heldAsk = lane.isMain === true || !workOk ? null : itemsOf(raw.work).find(one => isHeld(one) && plainOwner(one.head.get('Owner')) === lane.name.toLowerCase()
-      && ['taken', 'in progress', 'waiting on you'].includes(raw.work.items.get(one.head.get('Of'))?.head.get('State')) && plainOwner(raw.work.items.get(one.head.get('Of'))?.head.get('Owner')) === lane.name.toLowerCase())?.head.get('Id') ?? null
+    // Rule 15: a worker whose step (the one the holder timers go by, handover.mjs `holdingOf`) has an ask of its own held for the person's
+    // words waits for its own re-check: quiet, never "Stopped".
+    const heldAsk = heldAskOfLane(lane)
     return statusOf({ lane: heldAsk === null ? lane : { ...lane, heldAsk }, handover, modRun, clearedAt: Number.isFinite(cleared) ? cleared : null, isPersonPause, isUnsaved, clearing, now, unknownAfterMs })
   }
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
@@ -2556,7 +2563,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     const back = lane.isLeftover === true || !workOk ? [] : givenBackFrom(raw.work.items, lane.name, prefix)
       .map(one => ({ kind: now - one.at < HOUR ? 'given back' : 'given back old', id: one.id, text: `did not resume ${one.id}, given back ${hourMinute(one.at)}`, button: null }))
     const modRun = lane.onSequence === true ? null : rollout?.runs.get(lane.name) ?? null
-    return { ...lane, flags: [...flagsOf(lane.name), ...waits, ...told, ...back], effortRun: run, modRun, handover, ...statusFor(lane, { handover, modRun }) }
+    return { ...lane, flags: [...flagsOf(lane.name), ...waits, ...told, ...back], effortRun: run, modRun, handover, heldAsk: heldAskOfLane(lane), ...statusFor(lane, { handover, modRun }) }
   })
   // Autopilot (2026-10-31): the open asks routed to the main chat or to a goal's recap (the recap card counts the second).
   const routedAway = !workOk ? [] : routedAwayOf(raw.work, { names: chatNames, prefix })

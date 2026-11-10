@@ -221,8 +221,8 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   // partner handed over that Autopilot keeps for the recap (keptLook.mjs, the person's "A" of 2026-11-02) holds no worker
   // either: it is never blocking, so this rule covers it.
   if (asks.some(ask => valueOf(ask, 'State') === 'open' && valueOf(ask, 'Of') === id && valueOf(ask, 'Blocking') === 'yes')) return null
-  // Rule 15: an ask of the step held for the person's words, blocking or not, is a wait too: its chat re-checks it, so no go-on and no give-back.
-  if (asks.some(ask => valueOf(ask, 'State') === 'open' && valueOf(ask, 'Of') === id && valueOf(ask, 'Route') === 'asker')) return null
+  // Rule 15: an ask of the step held for the person's words, the holder's own, blocking or not, is a wait too: its chat re-checks it, so no go-on and no give-back.
+  if (asks.some(ask => valueOf(ask, 'State') === 'open' && valueOf(ask, 'Of') === id && valueOf(ask, 'Route') === 'asker' && isMine(ask, name, prefix))) return null
   const changedAt = sinceMs(valueOf(holding, 'Since'))
   const took = lastTakenAt(holding)
   const takenAt = finite(took) ? took : changedAt

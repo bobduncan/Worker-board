@@ -15,6 +15,12 @@ import { stamp } from '../../src/work/migrate.mjs'
 import { openAskIds } from '../../src/work/parked.mjs'
 import { reconcile } from '../../src/work/reconcile.mjs'
 import { storeFromText } from '../../src/work/read.mjs'
+import { healthSummary } from '../../src/supervisor/health.mjs'
+import { buildView } from '../../src/supervisor/view.mjs'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import vm from 'node:vm'
 import { buildState } from '../withStore.mjs'
 
 const MIN = 60_000
@@ -57,6 +63,7 @@ test('review 4: a step whose only open ask is held reads as holding nothing: no 
 })
 
 /** The board at NOW: Worker 4 idle on B1081, waiting on you, with the asks given. */
+let lastWork = null
 function build(items) {
   const work = storeFromText('## Garden\n', { now: ago(300) })
   for (const item of items) {
@@ -70,6 +77,7 @@ function build(items) {
     listText: JSON.stringify({ prefix: PREFIX, main: 'Lead' }), appChatTexts: NAMES.map(app), tails: Object.fromEntries(NAMES.map(name => [`cli-${name}`, tail])), planLineTexts: {},
     work, adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: ago(300),
   }
+  lastWork = work
   return buildState(raw, { lines: [], outbox: [], runs: [], now: NOW, config, seen: { shown: {}, other: {} }, board: { startedAt: ago(300), offSince: null }, reports: new Map([report('Lead', ago(60)), report('Worker 4', ago(40)), report('Advisor', ago(60))]) })
 }
 const laneOf = (state, name) => state.chats.find(one => one.name === name)
@@ -113,4 +121,38 @@ test('round 3, point 3c: the lane of a worker whose step has a held ask reads qu
   // The pure reading: only an interrupted lane with a held ask; a working one is working.
   const base = { state: 'interrupted', isRunning: true, report: { state: 'idle', since: NOW - MIN, at: NOW } }
   assert.deepEqual([statusOf({ lane: { ...base, heldAsk: 'Q50' }, now: NOW }).status, statusOf({ lane: { ...base, state: 'working', heldAsk: 'Q50' }, now: NOW }).status], ['Paused', 'Working'])
+})
+
+test('round 4, point 1: the lane reads a held ask only of the step it is on (the one the holder timers go by), not of another step it holds', () => {
+  const onB1 = build([step('B1', 'in progress'), ask('Q50', 'B1', { held: true }), step('B2', 'in progress')])
+  assert.equal(laneOf(onB1, 'Worker 4').heldAsk, 'Q50')
+  assert.equal(laneOf(onB1, 'Worker 4').why, 'waits for its re-check of Q50')
+  const onB2 = build([step('B2', 'in progress'), step('B1', 'in progress'), ask('Q50', 'B1', { held: true })])
+  assert.equal(laneOf(onB2, 'Worker 4').heldAsk, null)
+  assert.equal(laneOf(onB2, 'Worker 4').status, 'Stopped')
+})
+
+test('round 4, point 2: only a held ask the holder itself owns pauses its timers; another chat\'s held ask under its step does not', () => {
+  const decideAt = (minutes, asks) => decide({ worker: stopped(T0 + minutes * MIN), items: new Map([checkpointed(), ...asks].map(one => [one.head.get('Id'), one])), envelopes: [], now: T0 + minutes * MIN })
+  assert.equal(decideAt(5, [ask('Q38', 'B12', { held: true, owner: 'Worker 1' })]).envelope, null)
+  assert.notEqual(decideAt(5, [ask('Q38', 'B12', { held: true, owner: 'Advisor' })]).envelope, null, "the Advisor's held ask holds nobody's timers")
+})
+
+test('round 4, point 3: the health line of a stopped lane whose step has a held ask of its own is not odd and names the re-check', () => {
+  const state = build([step('B1081', 'in progress'), ask('Q50', 'B1081', { held: true })])
+  const line = healthSummary(buildView({ state, items: lastWork.items, now: NOW }), NOW).split("\n").find(one => one.includes('Worker 4 (')) ?? ''
+  assert.match(line, /its step waits for its re-check of Q50/, line)
+  assert.doesNotMatch(line, /^- !/)
+})
+
+const board = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'board.js'), 'utf8')
+const cutOf = name => board.slice(board.indexOf(`// ${name}:start`), board.indexOf(`// ${name}:end`))
+const removal = {}
+vm.runInNewContext(`const MIN = 60000\n${cutOf('times')}\n${cutOf('chatstatus')}\n${cutOf('remove')}\nObject.assign(this, { removalView })`, removal)
+
+test('round 4, point 4: the Remove warning of a lane paused for its re-check says so, not that it paused for the limit', () => {
+  const lane = more => ({ name: 'Worker 1', isMain: false, isLeftover: false, state: 'interrupted', status: 'Paused', task: { text: 'Build it', step: 1, steps: 2 }, queue: [], eta: null, suspended: null, removal: null, ...more })
+  const reasons = more => JSON.parse(JSON.stringify(removal.removalView(lane(more), 'Lead', NOW))).reasons
+  assert.deepEqual(reasons({ heldAsk: 'Q50' }), ['It is paused for its re-check of Q50 with "Build it", step 1 of 2: that task would not go on.'])
+  assert.match(reasons({ heldAsk: null })[0], /^It paused for the limit/)
 })
