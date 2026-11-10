@@ -510,3 +510,23 @@ test('the Overview: a quiet line with the same words and a link to the step; no 
     assert.doesNotMatch(line.className, /amber|attention|warn/)
   } finally { await page.close() }
 })
+
+test('11. an ask held for the person\'s words (rule 15): its step waits for the asker\'s re-check, quiet, never "you"; an unheld ask reads as before', () => {
+  const step = item('Id: B9011', 'Kind: step', 'Title: Side stairs', 'State: waiting on you', 'Owner: Studio · Worker 3', 'Goal: G15', 'Since: 2026-11-10 14:00')
+  const ask = (id, { held, blocking }) => parseItem(['Id: ' + id, 'Kind: ask', 'Title: Which stairs', 'State: open', 'Owner: Studio · Worker 3', 'Of: B9011', `Blocking: ${blocking}`, 'Asks: decide', `Route: ${held ? 'asker' : 'person'}`, '',
+    '## Route', ...(held ? ['held from person: your words at 14:05 may change this (chat 2)'] : []), '', '## History', '- 2026-11-10 13:50 Worker 3: asked (decide)',
+    ...(held ? ['- 2026-11-10 14:05 server: held: the person\'s words at 14:05 on G15 may change this'] : []), ''].join('\n'))
+  const read = (...asks) => stepStatusOf(step, { items: itemsOf(step, ...asks), now: NOW, prefix: 'Studio · ' })
+  // A held BLOCKING ask: the step waits for Worker 3's re-check (Worker 3 is the ask's Owner), linked to the ask; quiet.
+  const blocking = read(ask('Q711', { held: true, blocking: 'yes' }))
+  assert.deepEqual([blocking.kind, blocking.words, blocking.who, blocking.link, blocking.tone], ['held-ask', 'waits for Worker 3\'s re-check of Q711 (your words at 14:05)', 'Worker 3', '#details=Q711', 'quiet'])
+  // A held NON-blocking ask reads the same (the step has no unheld blocking ask).
+  const open = read(ask('Q712', { held: true, blocking: 'no' }))
+  assert.deepEqual([open.kind, open.words, open.link], ['held-ask', 'waits for Worker 3\'s re-check of Q712 (your words at 14:05)', '#details=Q712'])
+  // The same asks unheld read as before: the person's.
+  assert.deepEqual(['blocking', 'non-blocking'].map(kind => read(ask('Q713', { held: false, blocking: kind === 'blocking' ? 'yes' : 'no' })).kind), ['you', 'you'])
+  // A held ask beside an unheld blocking one: the step still needs the person.
+  assert.equal(read(ask('Q711', { held: true, blocking: 'yes' }), ask('Q714', { held: false, blocking: 'yes' })).kind, 'you')
+  // Through the state's index (stepStatusesOf) as well.
+  assert.equal(stepStatusesOf(itemsOf(step, ask('Q711', { held: true, blocking: 'yes' })), { now: NOW, prefix: 'Studio · ' }).B9011.kind, 'held-ask')
+})

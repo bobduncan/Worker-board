@@ -22,6 +22,7 @@ import { refinedOfItem, refineWaitOf } from './work/refineWait.mjs'
 import { idleWorkers } from './work/handOut.mjs'
 import { waitsOnOf } from './work/waitsOn.mjs'
 import { afterPause, isHolding } from './work/pause.mjs'
+import { heldFrom, isHeld } from './work/askHold.mjs'
 
 const MIN = 60_000
 
@@ -92,6 +93,17 @@ export function advisorWordOf(item, { items = new Map(), outbox = [], now = null
 
 const status = (kind, label, words, tone, extra = {}) => ({ id: null, kind, label, words, tone, who: null, why: null, since: null, link: null, ...extra })
 
+/** A step whose open ask is held for the person's words (rule 15): "waits for Worker 3's re-check of Q711 (your words at 14:05)", linked to the ask. */
+function heldAskStatus(asks, stepOwner, prefix, base) {
+  const first = asks[0]
+  const ids = asks.map(ask => valueOf(ask, 'Id'))
+  const askerName = valueOf(first, 'Owner') ?? stepOwner
+  const asker = askerName === null ? 'its asking chat' : bare(askerName, prefix)
+  const minute = heldFrom(first)?.minute
+  const words = `waits for ${asker}'s re-check of ${ids.join(', ')}${minute === undefined ? '' : ` (your words at ${minute})`}`
+  return status('held-ask', 'Re-check', words, 'quiet', { ...base, who: asker, why: ids.join(', '), link: `#details=${ids[0]}` })
+}
+
 /** The states in which a step is at work, the only ones whose blocking asks can wait for the partner (partnerAnswers.mjs). */
 const AT_WORK = ['taken', 'in progress', 'waiting on you']
 
@@ -116,7 +128,10 @@ export function stepStatusOf(step, ctx = {}) {
   const base = { id, link, since: Number.isFinite(since) ? since : null }
   const owner = valueOf(step, 'Owner') === null ? null : bare(valueOf(step, 'Owner'), prefix)
   // B392: a step at work whose open blocking asks all wait for the partner waits for the partner, not for the person.
-  const partnerWait = AT_WORK.includes(state) ? stepWaitsForPartner(step, asksOfStep(id, items, asksOf)) : null
+  // Rule 15 (P6): an ask held for the person's words asks nobody and blocks nobody (askHold.mjs `isHeld`), so it is left out here too.
+  const allAsks = AT_WORK.includes(state) ? asksOfStep(id, items, asksOf) : []
+  const heldAsks = allAsks.filter(ask => valueOf(ask, 'State') === 'open' && isHeld(ask))
+  const partnerWait = AT_WORK.includes(state) ? stepWaitsForPartner(step, allAsks.filter(ask => !isHeld(ask))) : null
   const forPartner = () => status('partner', 'Waits for your partner', `waits for your partner: ${partnerWait.join(', ')}`, 'partner', { ...base, who: owner, why: partnerWait.join(', ') })
   switch (state) {
     case 'done': return status('done', 'Done', 'done', 'done', base)
@@ -128,7 +143,13 @@ export function stepStatusOf(step, ctx = {}) {
       const checking = openChecks.has(id) || boardCheckPending(step) || reportCheckFailedOf(step) !== null || wait?.kind === 'check'
       return status('review', 'In review', checking ? 'being checked' : wait?.text ?? 'in review', 'review', { ...base, why: wait?.text ?? null, since: wait?.since ?? base.since, who: owner })
     }
-    case 'waiting on you': return partnerWait !== null ? forPartner() : status('you', 'Needs you', 'waits on you', 'you', { ...base, who: owner })
+    case 'waiting on you': {
+      if (partnerWait !== null) return forPartner()
+      // Every open blocking ask is held: the step waits for the asking chat's re-check, not for the person (quiet, never "you").
+      const blocking = allAsks.some(ask => valueOf(ask, 'State') === 'open' && valueOf(ask, 'Blocking') === 'yes' && !isHeld(ask))
+      if (heldAsks.length > 0 && !blocking) return heldAskStatus(heldAsks, owner, prefix, base)
+      return status('you', 'Needs you', 'waits on you', 'you', { ...base, who: owner })
+    }
     case 'taken':
     case 'in progress': {
       const wait = waitsOnOf(step)

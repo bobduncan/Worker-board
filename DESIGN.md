@@ -7047,7 +7047,7 @@ standard K6 Screens had no foundation built) while the Goals/Focus part said "B1
   (a refine also `toAdvisor`, `held`, `where`, `line`). Kinds: done, dropped, review (the review's own `reviewWaitOf`: its words
   whenever it is a failed report check, "being checked" while its check runs), you, partner (the step's open blocking asks all
   routed to the partner, `stepWaitsForPartner`, or a new step's refine questions all routed to it: "waits for your partner: Q<n>"),
-  waits-on (P1's `Waits on`), working, given, held (the hand-out's own why, word for word, from the ready list's `held`
+  held-ask (a waiting step whose open asks are held for the person's words, rule 15, askHold.mjs `isHeld`: quiet, never "you": "waits for Worker 3's re-check of Q711 (your words at 14:05)", linked to the ask), waits-on (P1's `Waits on`), working, given, held (the hand-out's own why, word for word, from the ready list's `held`
   (src/work/handOut.mjs `readyList`): outside the focus, a standard without its foundation, blocked by, waits for), ready ("waiting
   for a worker": only on the hand-out's `ready`), refine: "waits for the Advisor" only while a word to it is in flight (a refine, a
   refine asked again, a partner word about one of its asks), by the refine gate's own `refineAsk` (src/work/askOpen.mjs: on its way,
