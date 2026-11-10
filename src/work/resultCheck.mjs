@@ -491,10 +491,13 @@ export function reportCheckFailedOf(item) {
  * for the person with no ask of the step filed since its line is not yet kind 'check' (UNCHECKED_MS): the checker is filing it.
  * B1103 (X163): an ask point that names the open ask carrying it ("ask: <point> (Q712)", of the step or its goal; or a note about
  * the step since the line that names it) makes it kind 'answer' (`ask`, and "in Q712" for an ask of the goal) while that ask is
- * open, and kind 'check' once it was answered or withdrawn since the line; a named ask that is not open counts for nothing. Past
+ * open, and kind 'check' once it was withdrawn since the line, or answered at any time (B1118: an answer from before the line is the
+ * check's to judge from, not the person's to give again); a named ask withdrawn before the line counts for nothing. Past
  * UNCHECKED_MS with no ask filed or named it is kind 'check' with `unasked` (its task's Why says so, `UNASKED_WHY`), but kind
  * 'unasked' ("its checker filed no ask point", `points` the ask points, `since` the line + UNCHECKED_MS) when the task whose check
- * it is was made that way already: no third task.
+ * it is was made that way already: no third task. B1118: likewise kind 'unasked' with `answered` and `asks` ("its checker left an
+ * answered ask for the person") when the task whose check it is was made for an answered ask point (`ANSWERED_WHY`) and its check
+ * again names only asks answered by its line.
  * 2026-10-31 (B689): kind 'fix' also says what the chain's last link waits for itself (`last`, `chainWaitOf`), unless a hold or
  * a missing refine says it already: "waits for its fix B821, which waits for B674 <its title>", "waits for its fix B821: being
  * checked by <the owner of its QA task>", "waits for its fix B8, whose fix B9 waits for its first check".
@@ -551,11 +554,23 @@ function waitOf(item, items, held, now, depth, recaps = null) {
     // B1103: an ask of the step, or a named one, answered or withdrawn since the line counts too: its answer is the check's to read.
     // Both times are to the minute: an answer in the check line's own minute may be from before it, so only a later minute counts.
     const endedSince = one => valueOf(one, 'State') !== 'open' && sinceMs(valueOf(one, 'Since')) > at
-    const hasAsked = asks.some(one => askFiledMs(one) >= at || endedSince(one)) || named.some(endedSince)
+    // B1118 (B1096: its check at 21:53 named Q718, which the person had approved at 21:50, and waited 30 minutes): a named ask that
+    // is answered counts whenever it was answered, before the line or after: the checker judges from that answer. A withdrawn one
+    // counts only after the line, as before.
+    const answered = named.filter(one => valueOf(one, 'State') === 'answered')
+    const hasAsked = asks.some(one => askFiledMs(one) >= at || endedSince(one)) || named.some(endedSince) || answered.length > 0
+    // B1118, the guard: a check task made because its ask point was answered, whose check again left an ask point for the person
+    // naming an ask answered by its line (the checker saw the answer and still did not judge from it): no third task. The step says
+    // so, and the repair `unchecked` gives the partner one word. An answer after the line is new to that check: no guard.
+    const seen = answered.filter(one => !(sinceMs(valueOf(one, 'Since')) > at))
+    if (seen.length > 0 && answered.length === seen.length && madeFor(id, items, ANSWERED_WHY)) {
+      const points = checkedOf(item)?.points.filter(one => one.verdict === 'ask').length ?? 0
+      return { kind: 'unasked', fix: null, since: at, points, answered: true, asks: seen.map(one => valueOf(one, 'Id')), text: 'its checker left an answered ask for the person' }
+    }
     if (!hasAsked && Number.isFinite(now) && Number.isFinite(at) && now - at < UNCHECKED_MS) return answer
     // B1103, the guard: a check task made because its checker filed no ask point gets no second one when its own check waited with
     // no ask filed or named again; the step says so, and the repair `unchecked` gives the partner one word to file or name it.
-    if (!hasAsked && madeUnasked(id, items)) {
+    if (!hasAsked && madeFor(id, items, UNASKED_WHY)) {
       const points = checkedOf(item)?.points.filter(one => one.verdict === 'ask').length ?? 0
       return { kind: 'unasked', fix: null, since: Number.isFinite(at) ? at + UNCHECKED_MS : at, points, text: 'its checker filed no ask point' }
     }
@@ -616,8 +631,12 @@ function waitOf(item, items, held, now, depth, recaps = null) {
  * named for UNCHECKED_MS (`reviewWaitOf`, `unasked`); a check that waits that way again after such a task makes none (kind 'unasked').
  */
 export const UNASKED_WHY = 'its checker filed no ask point: file its check again'
+/** B1118: the `Why:` of a check task the board made because an ask point's ask was answered (`checkWhy`). */
+export const ANSWERED_WHY = 'its ask point is answered: file its check again'
+/** B1118: how a checker reads an ask point whose ask the person answered: in the QA brief (`NAME_THE_ASK`) and such a task's `Why:`. */
+export const JUDGE_ANSWERED = 'an ask point whose named ask is answered is judged from that answer, pass or fail, never left for the person'
 /** B1103: how a checker carries an ask point, in such a task's `Why:` and the QA brief (api.mjs `qaWords`). */
-export const NAME_THE_ASK = 'name the open ask that carries each ask point ("ask: <point> (Q<n>)", of the step or its goal) rather than ask the person again; file an ask under the step only when no open ask asks it'
+export const NAME_THE_ASK = 'name the open ask that carries each ask point ("ask: <point> (Q<n>)", of the step or its goal) rather than ask the person again; file an ask under the step only when no open ask asks it; ' + JUDGE_ANSWERED
 
 /**
  * B1103: the asks an ask point names as the one that carries it: "ask: <point> (Q712)", the ask ids in the brackets that end it
@@ -646,11 +665,14 @@ function namedAsksOf(item, items, at) {
     .filter(one => one !== undefined && valueOf(one, 'Kind') === 'ask' && (valueOf(one, 'Of') === id || (goal !== null && valueOf(one, 'Of') === goal)))
 }
 
-/** B1103: whether the newest Quality Assurance task of the step that ended (done) was made because its checker filed no ask point. */
-function madeUnasked(id, items) {
+/**
+ * B1103: whether the newest Quality Assurance task of the step that ended (done) was made for `why`: because its checker filed no
+ * ask point (`UNASKED_WHY`); B1118: because its ask point was answered (`ANSWERED_WHY`).
+ */
+function madeFor(id, items, why) {
   const done = [...(items?.values() ?? [])].filter(one => valueOf(one, 'Checks') === id && valueOf(one, 'State') === 'done')
     .sort((a, b) => numberOf(a) - numberOf(b)).at(-1)
-  return (done?.sections?.get('Context') ?? []).some(one => one.trim().startsWith(`Why: ${UNASKED_WHY}`))
+  return (done?.sections?.get('Context') ?? []).some(one => one.trim().startsWith(`Why: ${why}`))
 }
 
 /**
@@ -717,7 +739,7 @@ export function checkWhy(item, items) {
   // B1103: a check again because its checker filed no ask point says so (`UNASKED_WHY`), and how to carry the points this time.
   const why = wait.fix !== null ? `its fix ${wait.fix} is done: file its check again`
     : wait.unasked === true ? `${UNASKED_WHY}; ${NAME_THE_ASK}`
-      : resultCheckOf(item) === 'waits' ? 'its ask point is answered: file its check again' : null
+      : resultCheckOf(item) === 'waits' ? `${ANSWERED_WHY}; ${JUDGE_ANSWERED}` : null
   if (why === null) return null
   const id = valueOf(item, 'Id')
   const asks = [...(items?.values() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === id && valueOf(one, 'State') === 'open')

@@ -209,6 +209,24 @@ export function checkTake(body, state) {
 }
 
 /**
+ * Rule 15 (2026-11-09, review 2026-11-10): whether a refused call is a side chat's words. A side chat of the app (no chat of the list)
+ * may give the person's words, and only those. It counts only when the board shows its session under no name AND the name it says is
+ * the name of no shown chat (exact, or without the list's prefix in any case): a second chat titled like the main chat from another session must never
+ * pass for Main and move its lane state or mod version. `checked` is the refusal of `checkTake`, `state` the board's state.
+ */
+export function sideWordsOf(checked, asked, body, state) {
+  if (checked?.ok !== false || checked.status !== 409 || asked?.action !== 'words') return false
+  const name = typeof body?.chat === 'string' ? body.chat.trim() : ''
+  if (name === '' || name.length > 80 || !isUnknownSession(body, state)) return false
+  const prefix = String(state?.chatPrefix ?? '')
+  const plain = chat => {
+    const words = String(chat ?? '').replace(/\s+/g, ' ').trim()
+    return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
+  }
+  return !shownChats(state).some(one => one.name === name || plain(one.name) === plain(name))
+}
+
+/**
  * B463: the refusal of a name the board does not show a session under. A chat renamed in the app goes on under its old
  * name until it learns the new one, so the refusal says the name the board shows that session under, when it shows it
  * (the Workers mod joins under it and asks again, once). The name is written as a JSON string, so it stays exact.

@@ -945,3 +945,14 @@ export async function editGoals(body, { canWrite, file, historyDir, now, fs = fi
   if (mine.length > UNDO_MOST) undone.splice(undone.indexOf(mine[0]), 1)
   return { ok: true, result: newId === null ? {} : { id: newId } }
 }
+
+/**
+ * Rule 15 (2026-11-09): the person's words said in any chat, kept under the goal as a point of its "Your words", `Your words:
+ * <date time> · <words> (in <where>)`, the form the goal page reads (goals.mjs). `{ id, at, words, where }`; the same writer
+ * and history folder as every change of the goal map. Answers `{ ok: true }` or `{ ok: false, status, why }`.
+ */
+export async function keepGoalWords({ id, at, words, where }, { canWrite, file, historyDir, now, fs = files }) {
+  if (canWrite !== true) return { ok: false, status: 403, why: 'This board only shows: the goal map is changed on the board that delivers.' }
+  const done = await changeGoalsFile(text => addYourWords(text, id, at, `${oneLine(words, 1900)} (in ${oneLine(where, 120)})`), { file, historyDir, now, fs })
+  return done.ok ? { ok: true, result: {} } : { ok: false, status: 409, why: `${id}: the goal map could not take the words (${done.why ?? done.reason ?? 'refused'}).` }
+}

@@ -3,6 +3,7 @@
 // `overlaps(item)` is the server's: the id of a taken step whose Touches overlap this one's, or null.
 
 import { valueOf } from './item.mjs'
+import { isHeld } from './askHold.mjs'
 import { isKeptLook } from './keptLook.mjs'
 import { REST_GUARD, workingOnOther } from './parked.mjs'
 import { fixesThrough, gitCheckPassed, needsResultCheck, resultCheckOf } from './resultCheck.mjs'
@@ -14,7 +15,9 @@ const asksOf = (item, ctx) => [...(ctx.store?.items?.values() ?? [])]
   .filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'Of') === valueOf(item, 'Id'))
 const isOpen = ask => valueOf(ask, 'State') === 'open'
 // A look the partner handed over that Autopilot keeps for the goal's recap holds no worker (2026-11-02): it parks no step and its step goes on.
-const isHolding = ask => isOpen(ask) && !isKeptLook(ask)
+// Rule 15: nor does an ask held for the person's words (Route asker): it asks nobody until its chat re-asks, withdraws or releases it.
+const isHeldBlocking = ask => isHeld(ask) && valueOf(ask, 'Blocking') === 'yes'
+const isHolding = ask => isOpen(ask) && !isKeptLook(ask) && !isHeld(ask)
 /** B305: what a step's `Blocked by` names no longer holds it: a step done or dropped, an ask answered or withdrawn. */
 export const CLEARED = ['done', 'dropped', 'answered', 'withdrawn']
 /** B306: the steps and asks a step's `Waits for` names (B<n>, Q<n>); its other words are only what they wait for. */
@@ -85,11 +88,12 @@ export const GUARDS = {
     const owner = valueOf(item, 'Owner')
     return isFree(item, ctx) && owner !== null && (ctx.freeChats?.has(owner) ?? false)
   },
-  'an ask with Blocking yes is open': (item, ctx) => asksOf(item, ctx).some(ask => isOpen(ask) && valueOf(ask, 'Blocking') === 'yes'),
+  'an ask with Blocking yes is open': (item, ctx) => asksOf(item, ctx).some(ask => isOpen(ask) && !isHeld(ask) && valueOf(ask, 'Blocking') === 'yes'),
   // B567: an ask under it is open; how long its worker has rested on it is the reconciler's to see (the lanes).
   [REST_GUARD]: (item, ctx) => asksOf(item, ctx).some(isHolding),
   // B567: and its worker is not on another step now: it stays parked until that one is reported.
-  'its asks are answered': (item, ctx) => !asksOf(item, ctx).some(isHolding) && workingOnOther(ctx.store?.items ?? new Map(), item, ctx.prefix ?? '') === null,
+  // Rule 15: a blocking ask held for the person's words keeps the step where it is: its chat re-checks the ask, and the step goes on or waits with it.
+  'its asks are answered': (item, ctx) => !asksOf(item, ctx).some(isHolding) && !asksOf(item, ctx).some(isHeldBlocking) && workingOnOther(ctx.store?.items ?? new Map(), item, ctx.prefix ?? '') === null,
   // B356: "the check" is the board's own, and for a step with agreed points or a Standard line also the result check
   // by a helper that did not build it (resultCheck.mjs), on a board with a partner to make it. T9.1.1: a Quality Assurance task
   // (its head `Checks`) has no board check and no result check of its own: its worker's `work checked` ends it.

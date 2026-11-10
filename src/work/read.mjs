@@ -4,6 +4,8 @@
 // backlog file instead (the person, 2026-10-17: "I want to prevent confusing behavior. I rather have it fail.").
 
 import { storeAsBacklog, storeProblems } from './adapter.mjs'
+import { isHeld } from './askHold.mjs'
+import { askPartsOf } from './askWords.mjs'
 import { DEFAULT_FLOW, nextMoves, statesOf } from './flow.mjs'
 import { isFix, valueOf } from './item.mjs'
 import { withLinks } from './links.mjs'
@@ -157,6 +159,8 @@ export function itemOfStep(work, key) {
     effort: effortOf(item), model: modelOf(item), owner: valueOf(item, 'Owner'), state: valueOf(item, 'State'),
     // Your words (2026-10-30): the person's answers, rejections and notes on it, each with what it answered, oldest first.
     yourWords: yourWordsOf(item),
+    // Rule 15: the asks held for the person's words stand on no list of theirs; the step's window shows them with their hold line.
+    heldAsks: [...work.items.values()].filter(one => isHeld(one) && valueOf(one, 'Of') === id).map(one => ({ id: valueOf(one, 'Id'), title: askPartsOf(one).title, line: (one.sections.get('Route') ?? []).map(row => row.trim()).filter(row => row.startsWith('held from')).at(-1) ?? 'held for the person’s words' })),
     // The calm window's three lines (Context, Problem, Solution): the step's ## Context lines, and its ## Refined block as written.
     context: section('Context').filter(one => !/^\(the refine block stands/i.test(one)), refinedLines: section('Refined'),
   }

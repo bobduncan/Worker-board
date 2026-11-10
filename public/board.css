@@ -350,6 +350,10 @@ button, textarea, select { font: inherit; color: inherit; }
 .hands-line a:hover { text-decoration: underline; }
 .hands-line.is-blocking { border-color: var(--attn-line); background: var(--attn-bg); }
 .hands-line.is-blocking .hands-line-head { color: var(--attn-text); }
+/* Rule 15: an ask held for the person's words: one quiet line, no frame and no attention colour (nothing is the person's to do). */
+.held-line { margin: 2px 0 6px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.held-line a { color: var(--muted); text-decoration: none; }
+.held-line a:hover { text-decoration: underline; }
 .autopilot-setting .cpu-count { max-width: 30em; }
 /* 2026-11-01 (the person: "a little tooltip next to the autopilot setting with making it clear what is and isnt being signalled"):
    the small "ⓘ" right of the Autopilot label. A click (Enter, Space) opens a calm box (no attention colour: it is information)

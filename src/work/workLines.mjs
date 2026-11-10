@@ -122,6 +122,15 @@ export function workLineWhy(message, items, { prefix = '', now = Date.now(), ass
     if (state !== 'open') return `${id} is ${state}`
     return value(item, 'Route') === 'main' ? null : `${id} is no longer the main chat's`
   }
+  if (message.kind === 'words') {
+    // Rule 15: the word that the person's words hold an ask (re-ask or withdraw it, or say it still stands) matters only while the ask is
+    // open and held: answered, withdrawn, re-asked (a re-ask withdraws it) or released, it is done, never "undelivered" for ever. The word
+    // that the hold ran out (the ask is the person's again) holds while the ask is open: its chat may still withdraw or re-ask it.
+    if (item === undefined) return gone
+    if (state !== 'open') return `${id} is ${state}`
+    const isRelease = /nobody re-checked it/.test(String(message.text ?? ''))
+    return isRelease || value(item, 'Route') === 'asker' ? null : `${id} is no longer held`
+  }
   // A step's line to its owner, or (kind check) the word that its board check failed: the step still that chat's, and
   // open (a check's word: still in review).
   if (item === undefined) return gone
