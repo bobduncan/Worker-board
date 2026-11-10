@@ -136,7 +136,22 @@ function commandsOf(text) {
 }
 /** The labels of the words typed with no command and no ask: `send({ to: …, text … }, <label>)`. */
 function noCommandLabelsOf(text) {
-  return [...text.matchAll(/\bsend\(\{ to: ([^}]*?)\}, ([^,)]+)/g)].filter(one => !/\bcommand:|\bask:/.test(one[1]) && /\btext\b/.test(one[1])).map(one => one[2].trim())
+  const labels = []
+  for (const start of text.matchAll(/\bsend\(\{ to: /g)) {
+    // The object is read by its braces, so a spread such as `...(picture === null ? {} : { picture })` does not end it early.
+    let depth = 1
+    let at = start.index + start[0].length
+    const bodyFrom = at
+    while (at < text.length && depth > 0) {
+      if (text[at] === '{') depth += 1
+      else if (text[at] === '}') depth -= 1
+      at += 1
+    }
+    const body = text.slice(bodyFrom, at - 1)
+    const label = /^, ([^,)]+)/.exec(text.slice(at))
+    if (label !== null && !/\bcommand:|\bask:/.test(body) && /\btext\b/.test(body)) labels.push(label[1].trim())
+  }
+  return labels
 }
 
 /** What is wrong with a page text: each command with no line and not in the allow-list, and each tracked command no card draws. */
@@ -186,6 +201,9 @@ test('the gate bites: a new command or a new word with no command, added to the 
   assert.deepEqual(problemsOf(`${script}\nawait sendFocus({ command: 'brand-new-word', id: focus.id }, '')`), ['brand-new-word: no line (not tracked, not drawn) and not in the allow-list'])
   assert.deepEqual(problemsOf(`${script}\nsend({ to: main, command: 'new-thing' }, 'x')`), ['new-thing: no line (not tracked, not drawn) and not in the allow-list'])
   assert.deepEqual(problemsOf(`${script}\nawait clickCall('/api/backlog', { action: 'new-click', step }, key)`), ['new-click: no line (not tracked, not drawn) and not in the allow-list'])
+  // A new send with a spread in its object (the shape of Talk to Main and the Advisor talk Send) is read too.
+  assert.deepEqual(problemsOf(`${script}\nawait send({ to: main, text, ...(picture === null ? {} : { picture }) }, 'spread-label', 'x')`), ["send(… 'spread-label'): a word with no command has no line and is not in the no-command list"])
+  assert.deepEqual(noCommandLabelsOf(script).sort(), ["'main-talk'", '`nudge:${id}`', 'key', 'null'].sort(), 'the four real ones, the two with spreads among them')
   assert.deepEqual(problemsOf(`${script}\nawait send({ to: main, text: 'hello' }, 'brand-new-label')`), ["send(… 'brand-new-label'): a word with no command has no line and is not in the no-command list"])
   const undrawn = script.replace(/const FOCUS_LINE_COMMANDS = \{[^}]*\}/, one => one.replaceAll("'done-when'", "'gone'"))
   assert.notEqual(undrawn, script)

@@ -392,7 +392,7 @@ days ago) and **Closed** (done, created, discarded, or closed by you); each row 
 "stopped"), or "no answer from your partner" where the records say the word got none (its line is Late), "done", "closed", "created" or "discarded" (the
 dates and counts are in the row's tooltip); with a Product owner listed (the list of chats' `"owner"`, 2026-10-31) the words
 say "your Product owner", and every talk goes to it, its card under the Advisor's; at the right the open one has a head
-(its title, the same word on your turn or at the end, a small "…" menu: the thread file, "Type it to your partner again" only where the records say so (its line is Late), "Close it" on an old open
+(its title, the same word on your turn or at the end, a small "…" menu: the thread file, "Type it to your partner again" only where the records say so (its line is Late or ended, or, past a day or two, the thread's own "No answer from <chat> since HH:MM"), "Close it" on an old open
 one (done, with nothing created, and the board's line `Closed (HH:MM): by the person`), Discard, and on a question also
 Skip, Back and "Enough, wrap up") and one calm card (every click here is one call, and a word the board could not queue shows "Not sent: <why>, HH:MM" with a Retry): while your partner
 has the turn the card's one status is the line of the word you sent ("waits for <chat> to pick it up", "<chat> is on it since HH:MM",

@@ -13755,10 +13755,11 @@ function brainstormPartnerView(thread, partner) {
 }
 
 /**
- * Whether the records say the word may be typed again (P4b, chat 1's rule): its line is Late. The quiet "turn ended at HH:MM without it" and
+ * Whether the records say the word may be typed again (P4b, chat 1's rule): its line is Late, or has ended ("no answer recorded in 24 h", and the
+ * thread-record line past P3's window: `stuckLineOf`). The quiet "turn ended at HH:MM without it" and
  * "still working" lines offer none: the chat may still answer, and a Retry then would type the word twice. Nothing else offers "Type it to your partner again": not a clock, not the thread.
  */
-const brainstormCanAgain = wait => wait !== null && wait !== undefined && wait.state === 'late'
+const brainstormCanAgain = wait => wait !== null && wait !== undefined && (wait.state === 'late' || wait.isEnded === true)
 
 /** The one small word a thread carries in the list and in its head, and its tone: your turn, the partner's states, or how it ended. */
 function brainstormStatusOf(thread, partner, now = null, isStuck = false) {
@@ -14140,7 +14141,20 @@ function threadWaitView(state, thread) {
   const ids = [...placeWaitIds(state, 'change', { about: thread.path }), ...placeWaitIds(state, 'talk', { about: thread.path })]
     .sort((a, b) => (state.waits[b].sentAt ?? 0) - (state.waits[a].sentAt ?? 0))
   const view = waitViewOf(state, ids[0] ?? null)
-  return view !== null && view.isShown ? view : null
+  if (view !== null && view.isShown) return view
+  return brainstormTurnOf(thread) === 'partner' ? stuckLineOf(state, thread) : null
+}
+
+/**
+ * P4b round 2c (chat 1's answer for a stuck talk past P3's 24/48 h window): the thread record's own line, for as long as the thread still gives
+ * the partner the turn and its last talk word's turn ended without the next stage (`state.stuckTalks`, src/waitLine.mjs `stuckTalksOf`): the quiet
+ * "No answer from <chat> since HH:MM (day)", ended, so the Retry shows. P3's window for every other word stays as it is.
+ */
+function stuckLineOf(state, thread) {
+  const found = (state.stuckTalks ?? []).find(one => one.path === thread.path)
+  if (found === undefined || !Number.isFinite(found.since)) return null
+  const day = new Date(found.since).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+  return { id: `stuck:${thread.path}`, state: 'sent', isTurnEnded: false, asOf: null, isEnded: true, lead: `No answer from ${found.chat} since ${clock(found.since)} (${day})`, rest: '', chat: found.chat, title: null, sentAt: found.since, link: null, canSendAgain: false, isShown: true, pill: null, again: { isSending: false, problem: null } }
 }
 
 /** "Change this goal": the titles of the backlog's steps by their ids, for the re-plan's covered steps and drops. */

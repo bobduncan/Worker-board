@@ -12,7 +12,7 @@ import { parseConfig } from '../src/config.mjs'
 import { wordJudge } from '../src/supervisor/index.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { talkPartnerOf } from '../src/talkPartner.mjs'
-import { waitsOf } from '../src/waitLine.mjs'
+import { stuckTalksOf, talkDone, waitsOf } from '../src/waitLine.mjs'
 import { openPage, reply } from './pageHarness.mjs'
 import { MIN, asSent, build } from './partnerState.mjs'
 
@@ -167,3 +167,54 @@ test('a newer word of the person\'s for the talk (the Focus talk bar\'s, or a cl
 })
 
 void MIN
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Round 2c: the same-minute Done, the Retry on an ended line, and the stuck talk past P3's window (chat 1's answer: from the thread record)
+
+test('a question stamped in the same minute as the word is its Done (the latest, unanswered; or what it understood); a proposal needs a later minute', () => {
+  const head = text => `${HEAD.replace('09:00', '10:00')}${text}`
+  const q1 = '## Q1 (10:01)\nWhere first?\n- A: Gate (advised)\n- B: Pond\nAnswer (10:02): A\n'
+  const t = text => threadOf(head(text))
+  const answerWord = { at: new Date(2026, 9, 19, 10, 2, 30).getTime(), about: PATH, command: 'brainstorm-answer' }
+  const now = new Date(2026, 9, 19, 11, 0).getTime()
+  // The answer at 10:02:30 and Q2 "(10:02)": Done.
+  assert.equal(talkDone(answerWord, t(`${q1}\n## Q2 (10:02)\nHow bright?\n- A: Dim (advised)\n- B: Bright\n`), now)?.words, 'a new question')
+  // A question of the same minute that is already answered is no next stage of this word.
+  assert.equal(talkDone(answerWord, t(`${q1}\n## Q2 (10:02)\nHow bright?\n- A: Dim (advised)\n- B: Bright\nAnswer (10:03): A\n`), now), null)
+  // New brainstorm Start: the word at 10:00:20 and Q1 stamped 10:00.
+  const startWord = { at: new Date(2026, 9, 19, 10, 0, 20).getTime(), about: PATH, command: 'brainstorm' }
+  assert.equal(talkDone(startWord, t('## Q1 (10:00)\nWhere first?\n- A: Gate (advised)\n- B: Pond\n'), now)?.words, 'a new question')
+  assert.equal(talkDone(startWord, t(''), now), null)
+  // A proposal in the same minute is not: a Change word is sent while a proposal already stands.
+  const proposal = '\n## Proposal (10:02)\nDecided:\n- the gate first\nGoals:\n- [ ] Paths by the gate — under G6 — Done when: found at night\nSteps:\n- [ ] Make a path sprite — Units — about 1 h\nNote: x\n'
+  assert.equal(talkDone({ ...answerWord, command: 'brainstorm-change' }, t(`${q1}${proposal}`), now), null)
+})
+
+test('the Retry also shows on an ended line ("no answer recorded in 24 h"), in the card; the row reads "no answer"', async () => {
+  const ended = { w1: { state: 'sent', lead: 'Sent 09:05', rest: 'no answer recorded in 24 h', at: at(9, 5), chat: 'Advisor', canSendAgain: false, link: null, isEnded: true, place: 'talk', command: 'brainstorm-answer', about: PATH, goal: 'G6', ask: null, sentAt: at(9, 5), title: 'x' } }
+  const page = await stuckPage(ended)
+  try {
+    assert.equal(words(page.find('#brainstorm-card .brainstorm-again')), 'Type it to your partner again')
+    assert.match(words(page.find('.brainstorm-row .brainstorm-status')), /^no answer from your partner/)
+  } finally { await page.close() }
+})
+
+test('a stuck talk past P3\'s 48 h window: the thread record gives the quiet "No answer from <chat> since HH:MM (day)" with the Retry, and the row never says "with your partner"', async () => {
+  const outbox = [word({ answeredAt: at(9, 8) })]
+  const now = at(9, 8) + 50 * 60 * MIN
+  const stuck = stuckTalksOf({ state: { brainstorms: { threads: [threadOf(STUCK)] } }, outbox, now })
+  assert.deepEqual(stuck, [{ path: PATH, since: at(9, 8), chat: 'Advisor' }])
+  // P3's window is untouched: 50 h after the word its line is gone.
+  assert.deepEqual(Object.keys(waitsFor({ outbox, report: ended, now })), [])
+  // Not stuck: the next stage stands, the turn is not seen to end, or the talk is over.
+  assert.deepEqual(stuckTalksOf({ state: { brainstorms: { threads: [threadOf(`${STUCK}${Q3}`)] } }, outbox, now }), [])
+  assert.deepEqual(stuckTalksOf({ state: { brainstorms: { threads: [threadOf(STUCK)] } }, outbox: [word()], now }), [])
+  assert.deepEqual(stuckTalksOf({ state: { brainstorms: { threads: [threadOf(STUCK.replace('State: running', 'State: done'))] } }, outbox, now }), [])
+  const page = await stuckPage({}, { stuckTalks: stuck, readAt: now })
+  try {
+    assert.match(words(page.find('#brainstorm-card .wait-line .wait-words')), /^No answer from Advisor since 09:08 \(\w{3} \d+ Oct\)$/)
+    assert.equal(words(page.find('#brainstorm-card .brainstorm-again')), 'Type it to your partner again')
+    assert.match(words(page.find('.brainstorm-row .brainstorm-status')), /^no answer from your partner/)
+    assert.doesNotMatch(words(page.find('.brainstorm-row')), /with your partner/)
+  } finally { await page.close() }
+})
