@@ -71,7 +71,7 @@ const GOALS = ['Last id: G60', 'Focus: G60', '', '- [~] G60 Every map painted wh
 const app = name => JSON.stringify({ title: `Studio · ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: 'C:\\anywhere', isArchived: false, createdAt: 1, lastActivityAt: NOW - MIN, lastAssistantUuid: 'u' })
 
 /** The board's state at `now` with the two real steps (and `more`), the plan with K6, the goal map with focus G60 and `outbox`. */
-function stateWith({ now = NOW, outbox = [], words = null, more = [], lines = [], reports = null, goalRecap = null, pause = null } = {}) {
+function stateWith({ now = NOW, outbox = [], words = null, more = [], lines = [], reports = null, goalRecap = null, pause = null, chats = ['Lead', 'Worker 1', 'Advisor'], noWorkSeen = null } = {}) {
   const work = storeFromText('## Look\n', { now: now - 60 * MIN })
   for (const one of [B1096(), B1030(), ...more]) {
     work.items.set(valueOf(one, 'Id'), one)
@@ -79,9 +79,9 @@ function stateWith({ now = NOW, outbox = [], words = null, more = [], lines = []
   }
   if (pause !== null) work.pause = pause
   return buildState({
-    listText: '{"prefix":"Studio · ","main":"Lead"}', appChatTexts: ['Lead', 'Worker 1', 'Advisor'].map(app), tails: {}, planLineTexts: {}, adviceText: null, folders: null,
+    listText: '{"prefix":"Studio · ","main":"Lead"}', appChatTexts: chats.map(app), tails: {}, planLineTexts: {}, adviceText: null, folders: null,
     askTexts: [], pictureLists: {}, work, goalsText: GOALS, productPlanText: PLAN, ...(goalRecap === null ? {} : { goalRecap }),
-  }, { lines, outbox, ...(words === null ? {} : { words }), runs: [], now, ...(reports === null ? {} : { reports: new Map(reports), board: { startedAt: now - 120 * MIN, offSince: null } }), config: { ...parseConfig('{"advisor":"Advisor"}', {}), project: 'C:\\anywhere', productPlan: 'docs/product-plan.md' } })
+  }, { lines, outbox, ...(words === null ? {} : { words }), runs: [], now, noWorkSeen, ...(reports === null ? {} : { reports: new Map(reports), board: { startedAt: now - 120 * MIN, offSince: null } }), config: { ...parseConfig('{"advisor":"Advisor"}', {}), project: 'C:\\anywhere', productPlan: 'docs/product-plan.md' } })
 }
 /** B1030's words, as its status says them since the review: no word in flight, with when the last one went. */
 const B1030_NO_WORD = 'refine open: no word in flight (last sent 4 Nov 23:20)'
@@ -229,8 +229,11 @@ async function codeFiles(dir) {
   }
   return out
 }
-/** Whether `text` holds `phrase` as words (case-insensitive): "is on it" is not in "is on its way". */
-const holds = (text, phrase) => new RegExp(`(?<![a-z])${phrase}(?![a-z])`, 'i').test(text)
+/**
+ * Whether `text` holds `phrase` as words: "is on it" is not in "is on its way". Case-insensitive, but a phrase that starts with a
+ * capital ("Refining", the Advisor card's and the Focus chip's word) only as written: "the Advisor is refining it" is a sentence.
+ */
+const holds = (text, phrase) => new RegExp(`(?<![a-z])${phrase}(?![a-z])`, /^[A-Z]/.test(phrase) ? '' : 'i').test(text)
 /**
  * The strings of code that write a status phrase (test/stringLiterals.mjs: every literal, joined across `+`, a template's static
  * parts, never a comment): `[{ line, phrase, text }]`.
@@ -253,7 +256,26 @@ const NOT_A_STEP_STATUS = [
   ['public/board.js', '  is on it', "a block's worker (its card, B689) and a step's card worker beside its status"],
   ['public/board.js', 'The Advisor is on it', "the Refine button's hover while the Advisor's card names the refine"],
   ['public/board.js', 'put on the list for a worker', 'what an idea sent asks of the main chat'],
+  // The review: "on it" and "Refining" are guarded too; these say no step's status (a long text by its start, PREFIX characters).
+  ['public/board.js', 'The Advisor on it now', "the Refine part's group title (its steps go by their status, src/stepStatus.mjs refineGroupOf)"],
+  ['public/board.js', 'Refining', "a Focus block's plain chip word on a board with no chip"],
+  ['public/board.js', 'Your words on this task: every chat on it reads them', "the Your words part's hint"],
+  ['public/board.js', 'Next for you: one question with 2 or 3 ways, each with a picture. Noth', "the brainstorm's hint"],
+  ['public/board.js', 'Switching… the main chat sets it; the line turns solid once your partn', "the partner's mode switch"],
+  ['public/board.js', '  done ·   on the backlog ·   not on it yet', "a goal's way totals"],
+  ['src/rounds.mjs', "Your focus:     ( ). Write today's note on it", "the partner's daily round word"],
+  ['src/say.mjs', 'Own rows: give each of these steps a row of its own', 'a word to the main chat about a recap'],
+  ['src/supervisor/rules/watch.mjs', 'a step in progress whose worker works on it for hours', "a rule's description"],
+  ['src/waitLine.mjs', '  was on it since  ', 'a word picked up by its chat (P3), not a step'],
+  ['src/work/api.mjs', "\n\nTest server port for  :  . Start the game's vite of your worktree on", "the work tool's test port line"],
+  ['mods/workers/hooks/chats.ts', 'This chat is " ", a worker in a project where the main chat', "a worker's role text"],
+  ['mods/workers/hooks/chats.ts', '(3) the focus goal: its id, its goal definition and how as agreed or d', "the partner's role text"],
+  ['mods/workers/hooks/hands.test.ts', 'Message delivered to session local_w1 ("Worker 1"); its turn has start', "a mod test's delivery line"],
+  ['mods/workers/hooks/register.tsx', "The project's work items, kept by the person's worker board: one recor", "the work tool's description"],
 ]
+/** An exception names a long literal by its start (at least this many characters); a short one word for word. */
+const PREFIX = 30
+const isException = (at, text) => NOT_A_STEP_STATUS.some(([where, words]) => where === at && (words === text || (words.length >= PREFIX && text.startsWith(words))))
 
 test('the guard: the known status phrases are written only by src/stepStatus.mjs', async () => {
   const files = [join(ROOT, 'server.mjs'), ...(await Promise.all(CODE_DIRS.map(dir => codeFiles(join(ROOT, dir))))).flat()]
@@ -262,7 +284,7 @@ test('the guard: the known status phrases are written only by src/stepStatus.mjs
     const at = relative(ROOT, file).replace(/\\/g, '/')
     if (at === 'src/stepStatus.mjs') continue
     for (const one of phraseWriters(await readFile(file, 'utf8'))) {
-      if (NOT_A_STEP_STATUS.some(([where, words]) => where === at && words === one.text)) continue
+      if (isException(at, one.text)) continue
       writers.push(`${at}:${one.line} "${one.phrase}" in ${JSON.stringify(one.text.slice(0, 80))}`)
     }
   }
@@ -271,13 +293,18 @@ test('the guard: the known status phrases are written only by src/stepStatus.mjs
   assert.deepEqual(phraseWriters("const a = 'waiting for a worker'\n// waiting for a worker\n/* nobody on it */\n").map(one => one.line), [1, 1], 'two phrases of one string, no comment')
   // The review: a phrase split across `+`, over lines too, a template's static part, and a code line that starts with `*`.
   assert.deepEqual(phraseWriters("const a = 'waiting for ' +\n  'a worker'").map(one => one.phrase), ['waiting for a worker', 'for a worker'])
-  assert.deepEqual(phraseWriters('const b = `${who} is on it`').map(one => one.phrase), ['is on it'])
+  assert.deepEqual(phraseWriters('const b = `${who} is on it`').map(one => one.phrase), ['is on it', 'on it'])
   assert.deepEqual(phraseWriters("const c = 2\n  * 'being refined'.length").map(one => one.phrase), ['being refined'])
   assert.deepEqual(phraseWriters("const d = /\"x/.test(s) ? 'being refined' : ''").map(one => one.phrase), ['being refined'], 'a regex with a quote in it is no string')
   assert.deepEqual(phraseWriters("const e = 'its way'\nconst f = 'it is on its way'"), [], 'words, not letters')
   // And stepStatus.mjs does write them.
   assert.ok(phraseWriters(await readFile(join(ROOT, 'src', 'stepStatus.mjs'), 'utf8')).length >= 3)
-  for (const phrase of ['for a worker', 'being refined', 'is on it']) assert.ok(STATUS_PHRASES.includes(phrase), phrase)
+  for (const phrase of ['for a worker', 'being refined', 'is on it', 'on it', 'Refining']) assert.ok(STATUS_PHRASES.includes(phrase), phrase)
+  // The review: "on it" and "Refining" outside stepStatus are writers ("The Advisor on it now", the Advisor card's "Refining B1030"),
+  // a sentence's "refining" is not; an exception names its literal (a long one by its start).
+  assert.deepEqual(phraseWriters("const g = 'The Advisor on it now'\nconst h = `Refining ${id}, round 3`\nconst i = 'the Advisor is refining it'").map(one => [one.line, one.phrase]), [[1, 'on it'], [2, 'Refining']])
+  assert.ok(isException('public/board.js', 'The Advisor on it now') && !isException('public/board.js', 'The Advisor on it now and then'), 'a short exception word for word')
+  assert.ok(isException('src/say.mjs', 'Own rows: give each of these steps a row of its own, and more'), 'a long one by its start')
 })
 
 // ---- the review's points ----
@@ -529,4 +556,105 @@ test('11. an ask held for the person\'s words (rule 15): its step waits for the 
   assert.equal(read(ask('Q711', { held: true, blocking: 'yes' }), ask('Q714', { held: false, blocking: 'yes' })).kind, 'you')
   // Through the state's index (stepStatusesOf) as well.
   assert.equal(stepStatusesOf(itemsOf(step, ask('Q711', { held: true, blocking: 'yes' })), { now: NOW, prefix: 'Studio · ' }).B9011.kind, 'held-ask')
+})
+
+// ---- the last review's four points ----
+
+/** B9003 waits on you, its one blocking ask routed to the partner (test 5): the step waits for the partner. */
+const partnerWaitItems = () => [item('Id: B9003', 'Kind: step', 'Title: Asks the partner', 'State: waiting on you', 'Owner: Worker 1', 'Goal: G15', 'Since: 2026-11-10 21:00'),
+  item('Id: Q901', 'Kind: ask', 'State: open', 'Of: B9003', 'Blocking: yes', 'Route: partner', 'Asks: decide', 'Title: Which way')]
+
+test('12. the task window\'s "Where it stands" says the step\'s one status: a partner wait, a failed report check, a Waits on; only done and dropped say their state', async () => {
+  const page = {}
+  vm.runInNewContext(['const capitalized = text => text.charAt(0).toUpperCase() + text.slice(1)', fn('taskStanding'), 'Object.assign(this, { taskStanding })'].join('\n'), page)
+  const items = itemsOf(...partnerWaitItems())
+  const partner = stepStatusOf(items.get('B9003'), { items, now: NOW })
+  assert.equal(page.taskStanding({ state: 'waiting on you', owner: 'Worker 1' }, partner), 'It waits for your partner: Q901.')
+  const checked = item('Id: B9001', 'Kind: step', 'Title: Report checked', 'State: review', 'Owner: Worker 4', 'Goal: G15', 'Since: 2026-11-10 20:00', '', '## History',
+    '- 2026-11-10 20:00 Worker 4: in progress → review', '- 2026-11-10 20:00 server: check pending', '- 2026-11-10 20:01 server: check failed: a worktree of the step is left: C:/anywhere/b1')
+  assert.equal(page.taskStanding({ state: 'review', owner: 'Worker 4' }, stepStatusOf(checked, { items: itemsOf(checked), now: NOW })), 'It waits for Worker 4 to report again: its report check failed at 20:01 (a worktree of the step is left).')
+  // Done and dropped carry no status in the state: their own state.
+  assert.deepEqual([page.taskStanding({ state: 'done' }, null), page.taskStanding({ state: 'dropped' }, null)], ['It is done.', 'It was dropped.'])
+  // The window itself: B1081 is in progress and waits on chat 1 (P1): "It waits for chat 1: its go to land.", never "is working on it".
+  const state = stateWith({ outbox: B1030_WORDS, more: [B1081()] })
+  const details = await openPage({ state: plain(state), now: NOW, hash: 'details=B1081' })
+  try {
+    const part = details.all('.task-part').find(one => words(one.querySelector('h3') ?? { textContent: '' }) === 'Where it stands')
+    assert.ok(part !== undefined, 'the Summary has its Where it stands')
+    assert.equal(words(part.querySelector('p')), 'It waits for chat 1: its go to land.')
+  } finally { await details.close() }
+})
+
+test('13. the backlog\'s In progress rows take the step\'s one status, words and tone: a partner wait is not "Waiting on you", a Waits on not "In progress"', () => {
+  const page = { document: { createElement: () => ({}) }, problems: new Map(), sending: new Set() }
+  vm.runInNewContext(['const MIN = 60000', slice('// times:start', '// times:end'), slice('// chatstatus:start', '// chatstatus:end'), slice('// coordinate:start', '// coordinate:end'), fn('queueChoice'),
+    'Object.assign(this, { coordinateList, backlogBlocks })'].join('\n'), page)
+  const state = stateWith({ outbox: B1030_WORDS, more: [...partnerWaitItems(), B1081()] })
+  const blocks = plain(page.backlogBlocks(page.coordinateList(plain(state.backlog)), plain(state.readyList)))
+  const rows = blocks.find(block => block.key === 'progress').rows
+  const row = id => rows.find(one => one.step.id === id)
+  assert.deepEqual([row('B9003').state, row('B9003').tone], ['Waits for your partner: Q901', 'partner'])
+  assert.deepEqual([row('B1081').state, row('B1081').tone], ['Waits for chat 1: its go to land', 'progress'])
+})
+
+test('14. the Refine part and the Advisor card read the same words as the status: B1030 stopped after 3 board rounds is Stopped, with Send again; a word in flight is "Refining"', () => {
+  const keep = { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN }
+  // The live B1030: three refine words of the board's own, all delivered on 4 Nov (outbox.jsonl, folded); outboxNow drops them.
+  const board = B1030_WORDS.map(one => ({ ...one, board: true }))
+  const state = stateWith({ outbox: outboxNow(board, NOW, keep), words: outboxKnown(board, NOW, keep) })
+  assert.match(state.stepStatus.B1030.words, /^its refine stopped after 3 rounds: no word in flight/)
+  const row = state.backlog.flatMap(activity => activity.steps).find(one => one.id === 'B1030')
+  // The refine gate's own reading stays its own (outboxNow); the part's group is the status's.
+  assert.deepEqual([row.refineState, row.refineGroup, row.refineStopped?.rounds], ['answered', 'stopped', 3])
+  const page = {}
+  vm.runInNewContext(`${slice('// advisorrefine:start', '// advisorrefine:end')}\n${slice('// refinelist:start', '// refinelist:end')}\nObject.assign(this, { advisorRefine, refineGroups })`, page)
+  const groups = plain(page.refineGroups(plain(state.backlog)))
+  assert.deepEqual(groups.filter(group => group.steps.some(one => one.id === 'B1030')).map(group => group.title), ['Stopped: no new answers since its last rounds'])
+  assert.deepEqual(plain(page.advisorRefine(plain(state.backlog))), { step: 'B1030', text: 'Refine of B1030 stopped after 3 rounds without new answers', tone: 'stopped', canSend: true })
+  // A word in its hand (delivered a minute ago) and one on its way: the card's line is the status's.
+  const inHand = { id: 'w4', to: 'Advisor', command: 'refine', about: 'B1030', round: 3, at: NOW - 2 * MIN, state: 'delivered', deliveredAt: NOW - MIN }
+  const asking = stateWith({ outbox: [...B1030_WORDS, inHand], words: [...B1030_WORDS, inHand] })
+  assert.deepEqual(plain(page.advisorRefine(plain(asking.backlog))), { step: 'B1030', text: 'Refining B1030, round 3', tone: 'working' })
+  assert.deepEqual(page.refineGroups(plain(asking.backlog)).find(group => group.state === 'asking').steps.map(one => one.id), ['B1030'])
+  const onItsWay = { ...inHand, state: 'waiting', deliveredAt: undefined }
+  assert.equal(page.advisorRefine(plain(stateWith({ outbox: [...B1030_WORDS, onItsWay], words: [...B1030_WORDS, onItsWay] }).backlog)).text, 'B1030 to refine, on its way')
+})
+
+test('15. the none-ready episode: worker A busy while B stays free is the same episode (no second partner word, no second note per cause); the signal gone and back is a new one', async () => {
+  const items = itemsOf(B1096())
+  const list = handOut(items)
+  const base = { items, focus: 'G60', goals: [{ id: 'G60', children: [] }], ...list, now: NOW }
+  const rule = REPAIR_RULES.find(one => one.id === 'none-ready')
+  const viewOf = (signal, outbox = []) => ({ noWork: signal, items, lanes: [], partner: { name: 'Advisor' }, outbox, now: NOW, prefix: '', limits: {}, pause: null })
+  const ports = { wake: async () => ({ id: 'm' }), person: async () => { throw new Error('never the person') } }
+  // A free 30 minutes, B 20: the signal names A, and its episode begins.
+  const first = noneReadyOf({ ...base, lanes: [lane('Worker A', { since: NOW - 30 * MIN }), lane('Worker B', { since: NOW - 20 * MIN })] })
+  assert.equal(first.worker, 'Worker A')
+  const told = rule.check(viewOf(first), {})
+  const sent = await applySync(told, ports, new Set())
+  const partnerWord = told.find(one => one.fix.do === 'wake')
+  // A gets busy, B stays free: the state's kept episode holds it.
+  const seen = { since: first.episodeSince, free: first.freeFrom }
+  const second = noneReadyOf({ ...base, seen, lanes: [lane('Worker A', { free: false }), lane('Worker B', { since: NOW - 20 * MIN })] })
+  assert.equal(second.worker, 'Worker B')
+  assert.equal(second.episodeSince, first.episodeSince)
+  const again = rule.check(viewOf(second, [{ id: 'p', to: 'Advisor', syncKey: partnerWord.key, state: 'delivered', at: NOW }]), {})
+  assert.deepEqual(again.filter(one => one.fix.do === 'wake'), [], 'no second word to the partner')
+  assert.deepEqual((await applySync(again, ports, new Set(sent.keys))).note, [], 'no second note per cause')
+  // B's report goes idle → ended (a new since): still the same episode, counted from its first free since.
+  const ended = noneReadyOf({ ...base, seen: { since: second.episodeSince, free: second.freeFrom }, lanes: [lane('Worker A', { free: false }), { ...lane('Worker B', { since: NOW - MIN }), asleep: true, report: { state: 'ended', since: NOW - MIN } }] })
+  assert.deepEqual([ended.episodeSince, ended.freeSince], [first.episodeSince, NOW - 20 * MIN])
+  // Through the state: the kept episode goes from read to read, and the signal gone ends it; back again it is a new one.
+  const report = (name, st, since) => [name, { state: st, since, background: false, run: 1, seq: 1, at: NOW - 5_000, session: `cli-${name}`, mod: '0.19.0', busyAt: null }]
+  const chats = ['Lead', 'Worker 1', 'Worker 2', 'Advisor']
+  const lead = [report('Lead', 'idle', NOW - 5_000), report('Advisor', 'idle', NOW - 5_000)]
+  const s1 = stateWith({ chats, reports: [...lead, report('Worker 1', 'idle', NOW - 30 * MIN), report('Worker 2', 'idle', NOW - 20 * MIN)] })
+  assert.deepEqual([s1.noWork.worker, s1.noWorkSeen.since], ['Worker 1', NOW - 30 * MIN])
+  const s2 = stateWith({ chats, noWorkSeen: s1.noWorkSeen, reports: [...lead, report('Worker 1', 'busy', NOW - MIN), report('Worker 2', 'idle', NOW - 20 * MIN)] })
+  assert.deepEqual([s2.noWork.worker, s2.noWork.episodeSince], ['Worker 2', NOW - 30 * MIN])
+  const s3 = stateWith({ chats, noWorkSeen: s2.noWorkSeen, reports: [...lead, report('Worker 1', 'busy', NOW - MIN), report('Worker 2', 'busy', NOW - MIN)] })
+  assert.deepEqual([s3.noWork, s3.noWorkSeen], [null, null])
+  const s4 = stateWith({ chats, noWorkSeen: s3.noWorkSeen, reports: [...lead, report('Worker 1', 'busy', NOW - MIN), report('Worker 2', 'idle', NOW - 15 * MIN)] })
+  assert.equal(s4.noWork.episodeSince, NOW - 15 * MIN, 'a new episode')
+  assert.notDeepEqual(rule.check(viewOf(s4.noWork), {}).map(one => one.key), told.map(one => one.key))
 })

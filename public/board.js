@@ -9353,14 +9353,20 @@ function heldAsksNodes(item) {
   return rows.length === 0 ? [] : [taskPart('Held for your words', rows.map(row => el('p', 'muted task-held', row.text)))]
 }
 
-/** B701: where a step stands, in a line, for a Summary that has no check to tell it. */
-function taskStanding(item) {
-  const owner = item.owner ?? 'its worker'
+/**
+ * B701: where a step stands, in a line, for a Summary that has no check to tell it. P7, the review (a partner wait said "Worker 2
+ * waits for your answer." under the chip "Waits for your partner"): the step's one status (`status`, state.mjs `stepStatus`), its
+ * words as a line ("It waits for your partner: Q901."); only a step the state carries no status for (done, dropped) says its state.
+ */
+function taskStanding(item, status = null) {
+  if (status !== null && typeof status?.words === 'string' && status.words !== '') {
+    const words = status.words
+    const line = /^waits\b/.test(words) ? `It ${words}` : /^being\b/.test(words) ? `It is ${words}` : capitalized(words)
+    return /[.!?]$/.test(line) ? line : `${line}.`
+  }
   if (item.state === 'done') return 'It is done.'
   if (item.state === 'dropped') return 'It was dropped.'
-  if (item.state === 'review') return 'It is built and waits for its check.'
-  if (item.state === 'waiting on you') return `${owner} waits for your answer.`
-  return `${owner} is working on it.`
+  return `State: ${item.state ?? 'unknown'}.`
 }
 
 /** B701: the options of an open question: cards to click, the advised one marked, a box for an idea of your own, and Send. */
@@ -10114,7 +10120,7 @@ function drawStepWindow(box, { state, subject, lane, step, item, head, notes, sc
 }
 
 /** B701: the Summary tab: only the parts that have something to say. */
-function taskSummary(item, asks, guardAsk, lead = []) {
+function taskSummary(item, asks, guardAsk, lead = [], status = null) {
   const view = summaryOf(item)
   const parts = []
   // Your words (2026-10-30): the person's words on the step stand first; without any, only "Add a note", last.
@@ -10129,7 +10135,7 @@ function taskSummary(item, asks, guardAsk, lead = []) {
   if (view.now !== null) pictures.append(taskFigure(view.now, 'Now', 'the latest try'))
   if (pictures.children.length > 0) parts.push(pictures)
   if (view.why.length > 0) parts.push(taskPart('Why we\'re not there yet', view.why.map(one => el('p', '', one))))
-  if (view.tried.length === 0) parts.push(taskPart('Where it stands', [el('p', '', taskStanding(item))]))
+  if (view.tried.length === 0) parts.push(taskPart('Where it stands', [el('p', '', taskStanding(item, status))]))
   else {
     const list = el('ul', 'task-tried')
     for (const one of view.tried) {
@@ -10236,7 +10242,7 @@ function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, str
     nav.append(button)
   }
   const content = el('div', 'task-body')
-  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus), [storyNode(item, state), statusNode(item, state)]), ...heldAsksNodes(item))
+  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus), [storyNode(item, state), statusNode(item, state)], status), ...heldAsksNodes(item))
   else if (tab === 'checks') content.append(...taskChecks(item, strip))
   else if (tab === 'history') {
     const list = el('ul', 'task-history')
@@ -11593,7 +11599,7 @@ const REFINE_HELD = ['taken', 'in progress', 'waiting on you', 'review']
 function refineGroups(activities) {
   const steps = (activities ?? []).flatMap(activity => (activity.steps ?? [])
     .filter(step => typeof step.id === 'string' && (step.status === 'open' || step.status === 'queued') && !REFINE_HELD.includes(step.flow?.state))
-    .map(step => ({ state: step.refineState ?? 'none', row: { key: step.key, id: step.id, title: step.title, activity: activity.name } })))
+    .map(step => ({ state: step.refineGroup ?? step.refineState ?? 'none', row: { key: step.key, id: step.id, title: step.title, activity: activity.name } })))
   return REFINE_GROUPS.map(([state, title]) => ({ state, title, steps: steps.filter(one => one.state === state).map(one => one.row) }))
 }
 
@@ -19876,22 +19882,20 @@ function drawMessage({ key, kind, time, who, text, picture: shown = null, note =
  */
 function advisorRefine(backlog) {
   const steps = (backlog ?? []).flatMap(activity => activity.steps ?? [])
-  // The one it has in hand first, else one on its way.
-  const asks = steps.filter(step => step.refineAsk?.isOpen === true)
-  const asked = asks.find(step => step.refineAsk.state === 'delivered') ?? asks[0]
-  if (asked !== undefined) {
-    const round = asked.refineAsk.round ?? 1
-    const text = asked.refineAsk.state === 'delivered' ? `Refining ${asked.id}${round > 1 ? `, round ${round}` : ''}` : `${asked.id} to refine, on its way`
-    return { step: asked.id, text, tone: 'working' }
-  }
+  // The one it has in hand first, else one on its way. P7, the review: from the step's one status (its word in flight, read from
+  // the same words as every status, `stepStatus.refining`), never a second reading of the outbox.
+  const asks = steps.filter(step => step.stepStatus?.toAdvisor === true && typeof step.stepStatus.refining === 'string')
+  const asked = asks.find(step => step.stepStatus.inHand === true) ?? asks[0]
+  if (asked !== undefined) return { step: asked.id, text: asked.stepStatus.refining, tone: 'working' }
   // Answers folded in only for a step not taken up yet (open or queued), as the board's own refining does (B285).
   const isUp = step => step.status === 'open' || step.status === 'queued'
-  const stopped = steps.find(step => step.refineState === 'stopped' && isUp(step))
+  const groupOf = step => step.refineGroup ?? step.refineState
+  const stopped = steps.find(step => groupOf(step) === 'stopped' && isUp(step))
   if (stopped !== undefined) {
-    const rounds = stopped.refineStop?.rounds ?? 3
+    const rounds = stopped.refineStopped?.rounds ?? stopped.refineStop?.rounds ?? 3
     return { step: stopped.id, text: `Refine of ${stopped.id} stopped after ${rounds} round${rounds === 1 ? '' : 's'} without new answers`, tone: 'stopped', canSend: true }
   }
-  const answered = steps.find(step => step.refineState === 'answered' && isUp(step))
+  const answered = steps.find(step => groupOf(step) === 'answered' && isUp(step))
   // B464: they wait for the Advisor, not for you: in its own colour, not the one that asks you. P7 (B1030 read "Your answers on
   // B1030 wait for the Advisor" with nothing sent): the line is the step's one status from the server (`stepStatus.line`): it waits
   // for the Advisor only while a word to it is open in the outbox, else it says nothing was sent.
@@ -20962,11 +20966,16 @@ function backlogBlocks(list, readyList, { showDone = false } = {}) {
       : step.status === 'progress' ? UNDER_WAY_STATES['in progress'] : step.status === 'queued' ? UNDER_WAY_STATES.queued : null
     if (under !== null) {
       const owner = item?.owner ?? step.worker ?? ''
+      // P7, the review (a partner wait read "Waiting on you" in the person's colour, a step waiting on a chat "In progress"): the
+      // words and tone are the step's one status (state.mjs `stepStatus`); only a row without one says its state's plain word.
+      const status = typeof step.stepStatus?.words === 'string' && step.stepStatus.words !== '' ? step.stepStatus : null
+      const said = status === null ? under[0] : status.words.charAt(0).toUpperCase() + status.words.slice(1)
+      const tone = status === null ? under[1] : status.tone === 'working' ? 'progress' : status.tone
       // 2026-10-26 (the person: "it says worker 4 is doing something"): a step in review is not its builder at work. Its worker
       // column says who built it, and its state whom it waits for: the Advisor's check (where that stands), or what it says in its title.
       const isReview = state === 'review'
       rows.progress.push({
-        ...base, who: isReview && owner !== '' ? `built by ${owner}` : owner, state: isReview ? checkStandWords(step.reviewStand) ?? under[0] : under[0], tone: under[1],
+        ...base, who: isReview && owner !== '' ? `built by ${owner}` : owner, state: isReview ? checkStandWords(step.reviewStand) ?? said : said, tone,
         order: Object.values(UNDER_WAY_STATES).indexOf(under),
       })
       continue

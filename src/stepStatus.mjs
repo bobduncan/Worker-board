@@ -35,7 +35,7 @@ export const NO_WORD = 'refine open: no word in flight'
 export const NOT_ASKED = 'waits for its refine: nothing sent to the Advisor yet'
 /** The Focus chip of a block whose refined step is on the hand-out's list. */
 export const ON_THE_LIST = 'On the list for a worker'
-export const STATUS_PHRASES = Object.freeze(['waiting for a worker', 'wait for the Advisor', 'waits for the Advisor', 'nobody on it', 'for a worker', 'being refined', 'is on it'])
+export const STATUS_PHRASES = Object.freeze(['waiting for a worker', 'wait for the Advisor', 'waits for the Advisor', 'nobody on it', 'for a worker', 'being refined', 'is on it', 'on it', 'Refining'])
 
 const bare = (name, prefix = '') => {
   const words = String(name ?? '').trim()
@@ -173,7 +173,11 @@ export function stepStatusOf(step, ctx = {}) {
       const word = advisorWordOf(step, { items, outbox, now, byAbout, asksOf })
       if (word !== null) {
         const isHeld = isHeldWord(word)
-        return refine(isHeld ? 'its word to the Advisor waits for Resume all' : WAITS_FOR_THE_ADVISOR, 'asked', { toAdvisor: !isHeld, held: isHeld, since: word.at ?? base.since })
+        // The Advisor card's "Refining B1030, round 3" (the word arrived: in its hand) or "B1030 to refine, on its way", from this word.
+        const inHand = !isHeld && word.state === 'delivered'
+        const round = roundOf(word)
+        const refining = isHeld ? null : inHand ? `Refining ${id}${round > 1 ? `, round ${round}` : ''}` : `${id} to refine, on its way`
+        return refine(isHeld ? 'its word to the Advisor waits for Resume all' : WAITS_FOR_THE_ADVISOR, 'asked', { toAdvisor: !isHeld, held: isHeld, since: word.at ?? base.since, inHand, refining })
       }
       const asks = asksOfStep(id, items, asksOf).filter(ask => valueOf(ask, 'State') === 'open')
       // A refine question routed to the partner (Route: partner) waits for the partner's answer, not for the person's.
@@ -256,6 +260,21 @@ export function blockChipWords(state, statuses) {
 /** The chip of a block that waits (kept for its callers): `blockChipWords('waiting', statuses)`. */
 export const blockWaitWords = statuses => blockChipWords('waiting', statuses)
 
+/**
+ * The Refine part's group of a step (board.js `refineGroups`: none, asking, answers, answered, stopped, ready), from its one
+ * status, so the part and the status never disagree (the review: the live B1030 read "refine stopped after 3 rounds" in its
+ * status while the part listed it as answered, with no Send again): a refine with its word in flight or held is `asking`, one the
+ * gate stopped on `stopped`, one waiting for the person's answers `answers`, one never asked `none`; a refine open with no word in
+ * flight is where its block stands (`fallback`, the backlog row's reading from the same words), never asking or stopped then
+ * (`plain`, the block's own stand without a word). Any other status: `fallback`.
+ */
+export function refineGroupOf(one, fallback, plain = 'answered') {
+  if (one?.kind !== 'refine') return fallback
+  if (one.where === 'asked') return 'asking'
+  if (one.where === 'stopped' || one.where === 'answers' || one.where === 'none') return one.where
+  return fallback === 'asking' || fallback === 'stopped' ? plain : fallback
+}
+
 /** The Advisor card's line for a step whose refine answers are in (board.js `advisorRefine`): its status, never a guess. */
 export const advisorLineOf = (id, one) => (one?.kind === 'refine' && one.toAdvisor === true ? `Your answers on ${id} wait for the Advisor` : `${id}: ${one?.words ?? NO_WORD}`)
 
@@ -336,15 +355,24 @@ function leftOutWhy(one, { items, skip }) {
  * nobody has yet (`leftOutWhy`; `skip` the state's `{ id → why }` of the refine gate's line and the rebuild holds); with none left,
  * null. `statuses` the state's `stepStatus` (else each is read here). A lane is free since its Workers mod's own report says so
  * (`report.since`): the rule and the Overview count the same minutes, from the same signal (the state's `noWork`).
+ * The review (keyed on free[0]'s since alone, the next free worker's since made a new key when the first got busy, and a report
+ * gone idle → ended a new since: the partner was woken again): `seen` is the episode the state kept from its last read (state.mjs
+ * `noWorkSeen`, `{ since, free }`): `episodeSince` (the stamp the rule's keys go by) stays its `since` while the signal stands,
+ * else the longest-free worker's `freeSince`; and a worker free at the last read counts from its first free since there (`free`,
+ * by name) whatever its report says since. `freeFrom` the free workers' since by name, for the state to keep.
  */
-export function noneReadyOf({ items = new Map(), focus = null, goals = [], ready = null, held = null, lanes = [], pause = null, gaps = [], now, prefix = '', restFree = [], stuck = new Set(), statuses = null, skip = new Map(), ...ctx }) {
+export function noneReadyOf({ items = new Map(), focus = null, goals = [], ready = null, held = null, lanes = [], pause = null, gaps = [], now, prefix = '', restFree = [], stuck = new Set(), statuses = null, skip = new Map(), seen = null, ...ctx }) {
   if (typeof focus !== 'string' || !Array.isArray(ready) || ready.length > 0 || !Number.isFinite(now) || isHolding(pause) || pause?.state === 'resuming') return null
   const inFocus = focusGoalsOf(focus, goals)
   const unstarted = [...items.values()].filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && UNSTARTED.includes(valueOf(item, 'State')) && inFocus.has(valueOf(item, 'Goal')))
   if (unstarted.length === 0) return null
+  const keptFree = seen?.free !== null && typeof seen?.free === 'object' ? seen.free : {}
+  const freeFrom = {}
   const free = idleWorkers(lanes, { items, prefix, restFree, stuck: stuck instanceof Set ? stuck : new Set(stuck ?? []) }).map(lane => {
-    const from = lane.report?.since ?? null
-    if (!Number.isFinite(from)) return null
+    const said = lane.report?.since ?? null
+    if (!Number.isFinite(said)) return null
+    const from = Number.isFinite(keptFree[lane.name]) ? Math.min(keptFree[lane.name], said) : said
+    freeFrom[lane.name] = from
     const start = afterPause(pause, from)
     return { name: lane.name, from, runningMs: now - start - offBetween(gaps, start, now) }
   }).filter(one => one !== null && one.runningMs >= FREE_SIGNAL_MINUTES * MIN).sort((a, b) => b.runningMs - a.runningMs)
@@ -366,7 +394,7 @@ export function noneReadyOf({ items = new Map(), focus = null, goals = [], ready
   if (causes.length === 0) return null
   const worker = free[0]
   return {
-    goal: focus, worker: worker.name, freeSince: worker.from, minutes: Math.floor(worker.runningMs / MIN), causes, left,
+    goal: focus, worker: worker.name, freeSince: worker.from, episodeSince: Number.isFinite(seen?.since) ? seen.since : worker.from, freeFrom, minutes: Math.floor(worker.runningMs / MIN), causes, left,
     text: `focus goal ${focus} has work, none can be handed out: ${causes.map(one => one.words).join('; ')}`, link: causes[0].link,
   }
 }

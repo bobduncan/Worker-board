@@ -761,7 +761,8 @@ function noneReady(view) {
   const signal = view.noWork ?? null
   const { isHeld, isFull } = factsOf(view)
   if (signal === null || isHeld || isFull || !Array.isArray(signal.causes) || signal.causes.length === 0) return []
-  const episode = stamp(signal.freeSince)
+  // The review: the episode's stamp (the signal's `episodeSince`, kept by the state while the signal stands), not free[0]'s since.
+  const episode = stamp(Number.isFinite(signal.episodeSince) ? signal.episodeSince : signal.freeSince)
   const free = `(${signal.worker} free for ${signal.minutes} min)`
   const notes = signal.causes.map(cause => {
     const text = `focus goal ${signal.goal} has work, none can be handed out: ${cause.words} ${free}`

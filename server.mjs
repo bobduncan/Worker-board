@@ -2289,6 +2289,9 @@ async function main(args) {
   // Signals change 7 (B914, 2026-11-02): the board's own memory of when each worker's plan words changed (state.mjs
   // `planLineOf`), in memory as the asleep map was kept: a restart forgets it, which only makes the words look new.
   let planSeen = {}
+  // P7, the review: the none-ready episode (state.mjs `noWorkSeen`), in memory as planSeen: a restart starts it from the
+  // longest-free worker's since again.
+  let noWorkSeen = null
   const readState = cached(() => trackJob('state rebuild', async () => {
     if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
@@ -2329,10 +2332,12 @@ async function main(args) {
       providers,
       // Signals change 7 (B914): when each worker's own plan words last changed, as the last read saw them (memory only).
       planSeen,
+      noWorkSeen,
       now: clock(),
       config: { ...config, project },
     })
     planSeen = state.planSeen ?? {}
+    noWorkSeen = state.noWorkSeen ?? null
     // Only the board that runs the loops writes; a copy beside it reads what that one kept.
     if (READINGS_FILE !== null && !isShowOnly && JSON.stringify(state.limitReadings) !== JSON.stringify(keptReadings)) {
       await writeAtomic(READINGS_FILE, JSON.stringify(state.limitReadings)).catch(error => loops.failed('limit-readings', error))

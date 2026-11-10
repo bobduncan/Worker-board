@@ -67,7 +67,7 @@ import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitO
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, recapWaitingOf, standingAsksOf } from './recapCard.mjs'
 import { recapRoundOf, reworkOf } from './recapRound.mjs'
-import { blockChipWords, noneReadyOf, stepStatusOf, stepStatusesOf } from './stepStatus.mjs'
+import { blockChipWords, noneReadyOf, refineGroupOf, stepStatusOf, stepStatusesOf } from './stepStatus.mjs'
 import { guardOf, rebuildHoldsOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
@@ -1718,7 +1718,7 @@ export function buildState(raw, options) {
   return withLinks(raw?.work?.items, () => builtState(raw, options))
 }
 
-function builtState(raw, { lines = [], outbox = [], words = null, refineKept = null, runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], finishedSeen = {}, taskTimes = [], stability = null, mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, now, config }) {
+function builtState(raw, { lines = [], outbox = [], words = null, refineKept = null, runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], finishedSeen = {}, taskTimes = [], stability = null, mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, noWorkSeen = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -2583,6 +2583,14 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     part.toJudge = rows.length + looks.length
     part.recapAt = rows.length > 0 ? { path: recapRound.path, key: rows[0].key } : recapRound.path !== null ? { path: recapRound.path, key: looks[0].key } : { ask: looks[0].ask }
   }
+  /** P7, the review: a backlog row's Refine part group (`refineGroup`) and its stop (`refineStopped`), from `stepWords` and its status. */
+  const viewRefine = (step, item) => {
+    if (step.id === null) return { refineGroup: refineStateOf({ refined: step.refined }), refineStopped: null }
+    const plain = refineStateOf({ refined: step.refined })
+    const where = refineStateOf({ refined: step.refined, refineAsk: refineAsk(step, stepWords, now) })
+    const stop = where === 'none' || where === 'answered' ? refineStop({ ...step, item }, stepWords) : null
+    return { refineGroup: refineGroupOf(stepStatus[step.id] ?? null, stop === null ? where : 'stopped', plain), refineStopped: stop }
+  }
   const built = {
     readAt: now,
     // Signals change 7: when the board saw each worker's own plan words change, for the server to hand back at the next read.
@@ -2704,6 +2712,10 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
           // B285, B286: where its refine stands; B312: `stopped` when the board stopped on it (`refineStop`).
           refineState: stop === null ? where : 'stopped',
           refineStop: stop,
+          // P7, the review: the Refine part's group and the Advisor card's stop read the same words as the one status (every word,
+          // timed as outboxNow times them: `stepWords`), and the status itself (src/stepStatus.mjs `refineGroupOf`): the live B1030
+          // said "refine stopped after 3 rounds" while `refineState` (outboxNow, the refine gate's own reading) said answered.
+          ...viewRefine(step, item),
           // B301: when the store moved it to done, or null.
           doneAt: step.id === null ? null : doneAtOf.get(step.id)?.at ?? null,
           // B296: where it stands in the flow (flow.json), for the strip in its window.
@@ -2935,8 +2947,12 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   built.noWork = !workOk ? null : noneReadyOf({
     items: itemsById, focus: goalMap?.focus ?? null, goals: goalMap?.nodes ?? [], ready: reconciled?.ready?.ready ?? null, held: reconciled?.ready?.held ?? null,
     lanes: built.chats ?? [], pause: pauseRecord, gaps, now, prefix, restFree: reconciled?.restFree ?? [], stuck: new Set(reconciled?.handedBack ?? []),
-    statuses: stepStatus, skip,
+    statuses: stepStatus, skip, seen: noWorkSeen,
   })
+  // P7, the review: the none-ready episode, for the server to hand back at the next read (as planSeen): it begins when the signal
+  // does and holds while it stands, whichever worker is free longest; it ends only when the signal is gone (a read without the
+  // store keeps it as it was).
+  built.noWorkSeen = !workOk ? noWorkSeen : built.noWork === null ? null : { since: built.noWork.episodeSince, free: built.noWork.freeFrom }
   // The Product owner (2026-10-31): who the person talks with now, the owner or else the partner (src/talkPartner.mjs).
   return { ...withWakes(built, { wakes, sent, pauseRecord, items: workOk ? raw.work.items : null, prefix, now }), talkPartner: talkPartnerOf(built) }
 }
