@@ -627,20 +627,35 @@ export function talkDone(word, thread, now = Date.now()) {
 }
 
 /**
+ * Whether the thread gives the partner the turn, as the page's `brainstormTurnOf` reads it (a second copy: the page cannot import this file): not
+ * over (done or discarded), no proposal waiting for the person's tick or created, no open question and no open "what I understood" waiting for them.
+ * A "wrapping up" thread with no proposal yet is the partner's.
+ */
+function partnerHasTurn(thread) {
+  if (['done', 'discarded'].includes(thread?.state)) return false
+  if ((thread.proposal ?? null) !== null) return false
+  if (thread.state === 'running' && thread.latest != null && (thread.latest.answer ?? null) === null) return false
+  return !(thread.state === 'running' && thread.understood?.isOpen === true && (thread.understood.answer ?? null) === null)
+}
+
+/**
  * P4b round 2c (chat 1's answer for a stuck talk past P3's 24/48 h line window): the brainstorm threads whose LAST talk word ended (its turn was
- * seen to end, `answeredAt`/`endedAt`) without the thread's next stage, from the outbox and the thread record, not from P3's line: `[{ path,
+ * seen to end, `answeredAt`/`endedAt`; else its `closedAt`, else its own time) without the thread's next stage, from the outbox and the thread record, not from P3's line: `[{ path,
  * since, chat }]`, `since` the end of that turn. The page shows the quiet "no answer from <partner> since HH:MM" with its Retry for as long as
  * the thread still gives the partner the turn; a change thread (its Done is a proposal) and the board's own words are left out.
  */
 export function stuckTalksOf({ state, outbox = [], now }) {
   const found = []
   for (const thread of state?.brainstorms?.threads ?? []) {
-    if (thread?.kind === 'change' || thread?.state !== 'running') continue
+    if (thread?.kind === 'change' || !partnerHasTurn(thread)) continue
     const mine = outbox.filter(word => isTime(word?.at) && typeof word.to === 'string' && BRAINSTORM_COMMANDS.includes(word.command) && (word.about === thread.path || String(word.text ?? '').includes(`Thread: ${thread.path}`)))
       .sort((a, b) => b.at - a.at)
     const last = mine[0]
-    const end = isTime(last?.answeredAt) ? last.answeredAt : isTime(last?.endedAt) ? last.endedAt : null
-    if (end === null || talkDone(last, thread, now) !== null) continue
+    if (last === undefined) continue
+    // The end of the word's turn when it was seen; else (it expired before delivery, its chat never reported, the sweep closed it) the word's own
+    // close, else its own time: the thread still gives the partner the turn, and that is what the person needs to know.
+    const end = [last.answeredAt, last.endedAt, last.closedAt, last.at].find(isTime)
+    if (talkDone(last, thread, now) !== null) continue
     found.push({ path: thread.path, since: end, chat: last.to })
   }
   return found

@@ -206,9 +206,8 @@ test('a stuck talk past P3\'s 48 h window: the thread record gives the quiet "No
   assert.deepEqual(stuck, [{ path: PATH, since: at(9, 8), chat: 'Advisor' }])
   // P3's window is untouched: 50 h after the word its line is gone.
   assert.deepEqual(Object.keys(waitsFor({ outbox, report: ended, now })), [])
-  // Not stuck: the next stage stands, the turn is not seen to end, or the talk is over.
+  // Not stuck: the next stage stands, or the talk is over (a turn never seen to end is dated by the word: the last test).
   assert.deepEqual(stuckTalksOf({ state: { brainstorms: { threads: [threadOf(`${STUCK}${Q3}`)] } }, outbox, now }), [])
-  assert.deepEqual(stuckTalksOf({ state: { brainstorms: { threads: [threadOf(STUCK)] } }, outbox: [word()], now }), [])
   assert.deepEqual(stuckTalksOf({ state: { brainstorms: { threads: [threadOf(STUCK.replace('State: running', 'State: done'))] } }, outbox, now }), [])
   const page = await stuckPage({}, { stuckTalks: stuck, readAt: now })
   try {
@@ -217,4 +216,18 @@ test('a stuck talk past P3\'s 48 h window: the thread record gives the quiet "No
     assert.match(words(page.find('.brainstorm-row .brainstorm-status')), /^no answer from your partner/)
     assert.doesNotMatch(words(page.find('.brainstorm-row')), /with your partner/)
   } finally { await page.close() }
+})
+
+test('stuckTalksOf: a "wrapping up" thread with no proposal is the partner\'s; a last word whose turn end was never seen is dated by its close, else its own time', () => {
+  const now = at(9, 5, 20) + 50 * 60 * MIN
+  const only = (text, outbox) => stuckTalksOf({ state: { brainstorms: { threads: [threadOf(text)] } }, outbox, now })
+  const wrapping = STUCK.replace('State: running', 'State: wrapping up')
+  assert.deepEqual(only(wrapping, [word({ command: 'brainstorm-wrap', answeredAt: at(9, 8) })]), [{ path: PATH, since: at(9, 8), chat: 'Advisor' }])
+  // A thread that waits for the person (an open question) or holds a proposal is not stuck with the partner.
+  assert.deepEqual(only(`${STUCK}${Q3}`, [word({ answeredAt: at(9, 8) })]), [])
+  assert.deepEqual(only(wrapping.replace(/\n$/, '\n') + '\n## Proposal (09:20)\nDecided:\n- x\nGoals:\n- [ ] A — under G6 — Done when: y\nSteps:\n- [ ] S — Units — about 1 h\nNote: n\n', [word({ command: 'brainstorm-wrap', answeredAt: at(9, 8) })]), [])
+  // The turn end never seen: the word expired before delivery (its close), the sweep closed it, or its chat never reported (its own time).
+  assert.deepEqual(only(STUCK, [word({ state: 'expired', closedAt: at(9, 30), takenAt: undefined, deliveredAt: undefined })]), [{ path: PATH, since: at(9, 30), chat: 'Advisor' }])
+  assert.deepEqual(only(STUCK, [word()]), [{ path: PATH, since: at(9, 5, 20), chat: 'Advisor' }])
+  assert.deepEqual(only(STUCK, []), [], 'no talk word: nothing')
 })
