@@ -396,7 +396,7 @@ function partnerAsk(view) {
  * no open Quality Assurance task: the board makes one at once. B1103 (X163): at most once after a check that waited with no ask
  * filed or named: when the check of a task made for that waits so again (kind 'unasked'), no task is made; the step reads "its
  * checker filed no ask point" and the partner gets one word (once per wait, the outbox keeps its key) to file the ask or name the
- * open one that carries it (the work API's `qa-task`, no word to the partner, no 30 minutes of
+ * open one that carries it; B1118: likewise when a task made for an answered ask point leaves it for the person again (the work API's `qa-task`, no word to the partner, no 30 minutes of
  * waiting: the maker is idempotent, so the check path and this rule in one minute make one). A board with no partner chat has no
  * step that waits for a check, and makes none. Clearing needs no partner: an open QA task whose step is no longer in review (done,
  * dropped, gone) is dropped, with why, so no worker checks a closed step; so is one nobody took (refined or given) whose step
@@ -453,7 +453,13 @@ function unchecked(view) {
  * B1103: the one word to the partner for a step whose checks twice waited for the person with no ask filed or named (resultCheck.mjs
  * `reviewWaitOf` kind 'unasked'): file the ask under the step, or name the open ask that already asks it; never ask the person twice.
  */
-const unaskedWords = (id, wait) => `${id}'s result check waits for the person on ${wait.points === 1 ? '1 ask point' : `${wait.points} ask points`}, but its checkers filed no ask and named none, twice: the board makes no more Quality Assurance tasks for it. When an open ask (of ${id} or its goal) already asks the person, name it: work note of ${id} "its ask points are carried by Q<n>". Otherwise file the ask: work ask of ${id}, kind look, with its check's evidence. Never ask the person twice.`
+const unaskedWords = (id, wait) => wait.answered === true ? answeredWords(id, wait) : `${id}'s result check waits for the person on ${wait.points === 1 ? '1 ask point' : `${wait.points} ask points`}, but its checkers filed no ask and named none, twice: the board makes no more Quality Assurance tasks for it. When an open ask (of ${id} or its goal) already asks the person, name it: work note of ${id} "its ask points are carried by Q<n>". Otherwise file the ask: work ask of ${id}, kind look, with its check's evidence. Never ask the person twice.`
+/**
+ * B1118: the one word to the partner for a step whose check again, made because its ask point was answered, left an ask point for
+ * the person naming an ask answered by its line (resultCheck.mjs `reviewWaitOf` kind 'unasked' with `answered`): the answer stands;
+ * never ask the person again.
+ */
+const answeredWords = (id, wait) => `${id}'s result check left ${wait.points === 1 ? '1 ask point' : `${wait.points} ask points`} for the person naming ${wait.asks.join(' and ')}, which is answered already, twice: the board makes no more Quality Assurance tasks for it. Read the answer in ${wait.asks.join(' and ')}: it judges that point (pass or fail). Tell the main chat in a work note of ${id} which, so its check can be filed from it. Never ask the person again.`
 
 /** One plain line of a title for a note: whitespace folded, quotes out, at most `max` characters. */
 const titleLine = (value, max = 100) => String(value ?? '').replace(/["“”]/g, "'").replace(/\s+/g, ' ').trim().slice(0, max)

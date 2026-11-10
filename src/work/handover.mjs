@@ -201,7 +201,7 @@ const hourMinuteOf = ms => `${two(new Date(ms).getHours())}:${two(new Date(ms).g
 const settledAt = envelope => [envelope?.settledAt, envelope?.deliveredAt, envelope?.failedAt].find(Number.isFinite) ?? envelope?.at ?? -Infinity
 
 /** The step the worker holds now (taken, in progress or waiting on you), or undefined. */
-const holdingOf = (items, name, prefix) => [...items.values()].find(item => kindOf(item) === 'step' && HOLDS.includes(stateOf(item)) && isMine(item, name, prefix))
+export const holdingOf = (items, name, prefix) => [...items.values()].find(item => kindOf(item) === 'step' && HOLDS.includes(stateOf(item)) && isMine(item, name, prefix))
 
 const isQueuedFor = (items, id, name, prefix) => {
   const item = items.get(id)

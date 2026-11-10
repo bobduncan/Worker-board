@@ -4381,7 +4381,8 @@ function removalView(lane, main, now) {
   if (status === 'Waiting for you') reasons.push(`It waits for you${what === null ? '' : ` on ${what}`}: your answer would no longer be taken.`)
   if (status === 'Paused') {
     const until = Number.isFinite(lane.suspended?.until) ? ` until ${clock(lane.suspended.until)}` : ''
-    reasons.push(lane.suspended?.by === 'parked' && lane.suspended.kind === 'chat' ? `It waits on purpose for ${lane.suspended.on[0]}${what === null ? '' : ` with ${what}`}: that task would not go on.`
+    reasons.push(lane.suspended === null && typeof lane.heldAsk === 'string' ? `It is paused for its re-check of ${lane.heldAsk}${what === null ? '' : ` with ${what}`}: that task would not go on.`
+      : lane.suspended?.by === 'parked' && lane.suspended.kind === 'chat' ? `It waits on purpose for ${lane.suspended.on[0]}${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : lane.suspended?.by === 'parked' ? `It is paused on purpose${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : `It paused for the limit${until}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
   }
@@ -5081,6 +5082,31 @@ function handsLineView(list) {
   return { items, isBlocking: list.some(need => need.blocking === true) }
 }
 // handsline:end
+
+// heldlines:start
+/**
+ * Rule 15 (the person must never lose a question): the asks held for the person's words stand as one quiet line each under the cards
+ * (the state's needs of kind `held`, goal-level ones too): `[{ id, words, href, title }]`. They are no card and no count, and only the
+ * line draws them: `without` is the needs that are cards.
+ */
+function heldLinesView(needs) {
+  return (needs ?? []).filter(need => need?.kind === 'held' && typeof need.ask === 'string').map(need => ({ id: need.ask, words: String(need.title ?? need.ask), href: `#details=${need.ask}`, title: `Open ${need.ask}: held until its chat re-checks it, or for 60 minutes of the board's running time` }))
+}
+/** The needs that are cards: every one but the held lines. */
+const withoutHeldLines = needs => (needs ?? []).filter(need => need?.kind !== 'held')
+// heldlines:end
+
+/** Rule 15: the quiet lines of the asks held for the person's words (heldLinesView), each opening its ask's window. */
+function drawHeldLines(view) {
+  return view.map(one => {
+    const line = el('p', 'held-line')
+    const link = el('a', 'held-line-ask', one.words)
+    link.href = one.href
+    link.title = one.title
+    line.append(link)
+    return line
+  })
+}
 
 /** Autopilot v2: the one quiet line of what only the person's hands can do (handsLineView), under the cards; it counts as one. */
 function drawHandsLine(view) {
@@ -6535,7 +6561,9 @@ function drawNeeds(state) {
   const recapAttention = recapMaking !== null ? null : recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
   // The review of 2026-11-04: an ask the recap card counts as a kept look or do is no card of its own beside it (never counted twice).
   const inRecapCard = new Set(recapAttention === null ? [] : (state.recapCard?.looks ?? []).map(one => one.target?.ask).filter(id => typeof id === 'string'))
-  const forYou = inRecapCard.size === 0 ? state.forYou : state.forYou.filter(need => !inRecapCard.has(need.workId))
+  // Rule 15: the held asks are quiet lines under the cards, never cards and never counted.
+  const heldLines = heldLinesView(state.forYou)
+  const forYou = withoutHeldLines(inRecapCard.size === 0 ? state.forYou : state.forYou.filter(need => !inRecapCard.has(need.workId)))
   // Calm panel: the open asks the backlog held are cards as every other ask (`panelNeeds`), its ticked ones closed.
   const every = panelNeeds({ ...state, forYou })
   // Autopilot v2: what only the person's hands can do is one quiet line under the cards, not a card each (handsNeedsOf).
@@ -6586,6 +6614,8 @@ function drawNeeds(state) {
   // partner" line, and "Decided for you" folds into the one line on top with today's count (drawAutopilotLine); the older answers
   // stay in the daily notes.
   fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawHandsLine(handsLine), isPilot ? null : drawWithPartner(state), isPilot ? null : drawDecidedForYou(state), ...recaps])
+  // Rule 15: the held asks' quiet lines stand under everything else (never cards, never counted); appended apart, so the list above keeps its shape.
+  box.append(...drawHeldLines(heldLines).filter(Boolean))
   // T20: the Product owner's recap card is the first card, the dashed "Autopilot cleared" line right under it.
   const firstCards = [recapAttention === null ? null : drawRecapAttention(recapAttention), recapMaking === null ? null : drawRecapMaking(recapMaking), cleared === null ? null : drawClearedLine(cleared)].filter(one => one !== null)
   if (firstCards.length > 0) box.prepend(...firstCards)
@@ -7312,7 +7342,7 @@ function taskCheckLines(points) {
  * it filed that is not answered yet, else the one that was answered last. Null when the lane has none.
  */
 function needOfLane(needs, name) {
-  const mine = needs.filter(need => need.from === name && need.kind !== 'intervene' && need.activity === undefined && need.isClosed !== true)
+  const mine = needs.filter(need => need.from === name && need.kind !== 'intervene' && need.kind !== 'held' && need.activity === undefined && need.isClosed !== true)
   const isOpen = need => (need.answer ?? null) === null
   return (mine.find(need => need.id.startsWith(`chat:${name}:`) && isOpen(need)) ?? mine.find(isOpen) ?? mine[0] ?? null)?.id ?? null
 }
@@ -9295,6 +9325,34 @@ function taskPart(title, nodes) {
   return part
 }
 
+// heldasks:start
+/**
+ * Rule 15 (2026-11-09): an ask held for the person's words (Route asker) stands on no list of the person's, but its step's window shows
+ * it with its hold line, so nothing disappears without a trace: `[{ id, title, text }]`, `text` the line the window draws.
+ */
+function heldAskRows(item) {
+  return (item?.heldAsks ?? []).map(one => ({ id: one.id, title: one.title, text: `${one.id}: ${one.title} · ${one.line}` }))
+}
+
+/**
+ * Rule 15: the person's words kept under a goal (its "Your words" points, `{ at, text }`, `at` "2026-11-09 16:20", `text` the words with
+ * "(in <chat>)" at its end), each as one quiet line: `Your words, 16:20 in chat 2: "<words>"`.
+ */
+function goalWordsRows(words) {
+  return (words ?? []).filter(one => typeof one?.text === 'string' && one.text.trim() !== '').map(one => {
+    const found = one.text.match(/^([\s\S]*?)\s*\(in ([^()]*)\)$/)
+    const minute = String(one.at ?? '').match(/(\d\d:\d\d)\s*$/)?.[1] ?? null
+    return `Your words${minute === null ? '' : `, ${minute}`}${found === null ? '' : ` in ${found[2]}`}: "${found === null ? one.text : found[1]}"`
+  })
+}
+// heldasks:end
+
+/** Rule 15: the step window's quiet part for the asks held for the person's words; nothing without any. */
+function heldAsksNodes(item) {
+  const rows = heldAskRows(item)
+  return rows.length === 0 ? [] : [taskPart('Held for your words', rows.map(row => el('p', 'muted task-held', row.text)))]
+}
+
 /** B701: where a step stands, in a line, for a Summary that has no check to tell it. */
 function taskStanding(item) {
   const owner = item.owner ?? 'its worker'
@@ -10178,7 +10236,7 @@ function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, str
     nav.append(button)
   }
   const content = el('div', 'task-body')
-  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus), [storyNode(item, state), statusNode(item, state)]))
+  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus), [storyNode(item, state), statusNode(item, state)]), ...heldAsksNodes(item))
   else if (tab === 'checks') content.append(...taskChecks(item, strip))
   else if (tab === 'history') {
     const list = el('ul', 'task-history')
@@ -12303,6 +12361,8 @@ function drawGoals(state) {
       summary.append(toggle)
     }
     const parts = [head, summary, goalsLinesOpen && lines.length > 0 ? fill(el('ul', 'goals-frame-lines'), lines.map(line => el('li', '', line))) : null]
+    // Rule 15: the person's words said in any chat, one quiet line each, with the chat and the time.
+    for (const words of goalWordsRows(focus.yourWords)) parts.push(el('p', 'muted goals-words', words))
     if (canEdit) {
       // The links it has, each with its ×.
       const links = [...focus.enables.map(target => ['Enables', target]), ...focus.alsoPartOf.map(target => ['Also part of', target])]

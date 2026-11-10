@@ -182,6 +182,8 @@ function onPurposeOf(lane, held, view) {
   const id = valueOf(held, 'Id')
   const waits = waitsOf(held, view.items)
   if (waits.length > 0) return `its step ${id} waits for ${waits.join('; ')}`
+  // Rule 15: an ask of its own held for the person's words: its chat re-checks it, on purpose.
+  if (typeof lane.heldAsk === 'string') return `its step waits for its re-check of ${lane.heldAsk}`
   if (valueOf(held, 'State') === 'waiting on you' || openAskIds(view.items, id).length > 0) return `its step ${id} waits for your answer`
   return null
 }

@@ -43,6 +43,7 @@
 //   line), the app's form (a question or a popup in its chat: also an entry of that line, `formHandsOf`), and an ask the partner or the main chat handed on or the person took back.
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
+import { isHoldLine } from './askHold.mjs'
 import { chainWaitOf, checkedOf, fixRootsOf, fixesOf } from './resultCheck.mjs'
 import { HANDED_KEPT_WORDS, HANDED_ON_WHO, KEPT_LOOK_WORDS, handedOnKeptWords, isKeptLook } from './keptLook.mjs'
 import { LANDING_ROUTE_WHY, landingAskOfItem } from './landingAsk.mjs'
@@ -54,7 +55,8 @@ export { HANDED_KEPT_WORDS, HANDED_ON_WHO, KEPT_LOOK_WORDS, handedOnKeptWords, i
 
 export const ROUTES = ['partner', 'advice', 'recap', 'main', 'person']
 /** The routes that take an ask away from Needs your attention while it is open. */
-export const ROUTED_AWAY = ['partner', 'advice', 'recap', 'main']
+// Rule 15 (2026-11-09): and `asker`, an ask held for the person's words until its chat re-asks it, withdraws it or says it still stands (askHold.mjs).
+export const ROUTED_AWAY = ['partner', 'advice', 'recap', 'main', 'asker']
 
 /** The settings panel's line under Autopilot, as the person agreed it (2026-10-31). */
 export const AUTOPILOT_ON_WORDS = 'The work runs until a goal is ready. You are asked when a goal starts, when it is ready, and for what no chat can do. Everything else is decided for you, with Undo.'
@@ -86,19 +88,26 @@ const historyOf = item => (item?.sections?.get('History') ?? []).map(String)
 export const isAutopilotRouted = item => historyOf(item).some(one => / autopilot: routed to \w+$/.test(one))
 
 /**
+ * The lines on an ask's card that somebody wrote: the Route section without the board's own hold and release lines (rule 15, askHold.mjs:
+ * the person's words held the ask and the hold ran out; that is no chat's or person's hand-over, so the sweep judges a released ask
+ * as the board-routed one it was).
+ */
+const handedLines = item => (item?.sections?.get('Route') ?? []).filter(one => one.trim() !== '' && !isHoldLine(one))
+
+/**
  * Whether an ask's `Route: person` is only the board's own route: its History says "autopilot: routed to person" and nothing
  * is written on its card (no chat handed it on, the person took no answer back). The switch-on's sweep judges such an ask anew
  * (the person, 2026-11-02: "if autopilot is turned on, the outstanding, needing for attentions get reevaluated and possible
  * resolved if autopilot would answer them"); an ask somebody handed to the person is never judged again.
  */
-export const isBoardRoutedPerson = item => valueOf(item, 'Route') === 'person' && isAutopilotRouted(item) && !(item?.sections?.get('Route') ?? []).some(one => one.trim() !== '')
+export const isBoardRoutedPerson = item => valueOf(item, 'Route') === 'person' && isAutopilotRouted(item) && handedLines(item).length === 0
 
 /**
  * Whether an ask's `Route: person` is somebody's word: a line on its card (the partner or the main chat handed it on, the
  * board's timeout, the person took an answer back) or the board's own route. A bare `Route: person` is the default, which the
  * board may route again.
  */
-export const isExplicitPerson = item => valueOf(item, 'Route') === 'person' && ((item?.sections?.get('Route') ?? []).some(one => one.trim() !== '') || isAutopilotRouted(item))
+export const isExplicitPerson = item => valueOf(item, 'Route') === 'person' && (handedLines(item).length > 0 || isAutopilotRouted(item))
 
 /** How long the person's answer on a step counts as an earlier answer for a later verdict card of that step. */
 export const EARLIER_MS = 24 * 60 * 60_000

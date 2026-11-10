@@ -6697,7 +6697,14 @@ from Opus extra high to Opus high. (Spec 2026-10-27, "Quality Assurance tasks".)
    `ask: <point> (Q712)`, of the step or of its goal (`namedAskIds`, `namedAsksOf`; the partner names one with a `work note` of
    the step since the line that names it). While a named ask is open the step waits for the person's answer ("waits for your
    answer to its check in Q712"); once it, or an ask of the step, was answered or withdrawn since the line, it waits for its check
-   again at once; a named ask that is not open counts for nothing. The guard: past UNCHECKED_MS with no ask filed or named, the
+   again at once. B1118 (B1096: its check at 21:53 named Q718, which the person had approved at 21:50, and waited 30 minutes): a
+   named ask that is answered counts whenever it was answered, before the line too: the step waits for its check again at once,
+   its task's `Why:` `ANSWERED_WHY; JUDGE_ANSWERED` ("its ask point is answered: file its check again; an ask point whose named
+   ask is answered is judged from that answer, pass or fail, never left for the person"), which the QA brief (`NAME_THE_ASK`)
+   says too; a named ask withdrawn before the line counts for nothing. Its guard: when the check of a task made for an answered
+   ask point names only asks answered by its line again, the step is kind `unasked` with `answered` ("its checker left an
+   answered ask for the person"), no third task, and the partner gets one word to read that answer (test
+   `test/supervisor/answeredAskRecheck.test.mjs`, B1096's records replayed). The guard: past UNCHECKED_MS with no ask filed or named, the
    new task's `Why:` is `UNASKED_WHY` ("its checker filed no ask point: file its check again; name the open ask ..."); when the
    check of such a task waits that way again, the step is kind `unasked` ("its checker filed no ask point"), the repair makes no
    third task and wakes the partner once per wait (key `unasked B<id> <time>`) to file the ask or name the open one; the watch
@@ -7535,3 +7542,34 @@ live data is read, no chat can be typed to. Before = main's `public/` (`git arch
 - **Leftover (item 8, review 9):** the named steps must also have ended after the leftover's last activity (`stepEndedAt`, the step's Since).
 - **Server wiring (review 5):** `test/pauseTruthBoard.test.mjs` runs a board on a made-up project; mutants: popup-asks call out, `pause: state.pause`
   out, `stepState` out, `stepEndedAt` out each fail it; the `say.mjs` guard has its own test.
+
+## Rule 15: a decision anywhere updates the board's open questions at once (2026-11-09)
+
+**Why.** The person, 2026-11-09, chat 2: "when we redesign/discuss things, the signals ont he board aint updated with the new information and
+thats confusing." The stairs were settled in chat 2 (every map painted whole by Codex, no more stair rounds), yet Q711 (Worker 5, of B1091) and Q712
+(the Advisor, of G60) stayed open with options against the decision; only hand messages fixed it, because chat 2 is a side chat of the app, not a chat
+of the board's list, and the work tool refused it ("is no chat of the list").
+
+**Who may call `words`.** The person (the page), the main chat, and a side chat of the app (role `side`, which `src/work/api.mjs` gives only to a call made `as: 'side'`;
+the bridge makes it only for a session the board shows under no name AND a name no shown chat has, `sideWordsOf` in `src/bridge.mjs`, so a duplicate "Game - Main" never moves Main's lane or mod version, and a side call notes no mod): a side chat may call nothing
+else (everything else stays 403) and must say `where` (the chat and the time, else 400). Workers and the partner get 403 on `words`, and the main chat does not withdraw another chat's ask. `id` is a step (B<n>, as before) or a goal (G<n>): the words
+stand under the goal in the goal map as `Your words: <date time> · <words> (in <where>)` (`keepGoalWords`, the same writer and history folder as
+every change of the map; the Goals part draws one quiet line each), or as a point of the step's "Your words".
+
+**The record.** Every OPEN ask, owned by a chat the board shows (not the board's own Accept cards, not `Via: form` popups or `Via: refine`, not a recap or verdict look, never one released before), of the goal (`Of` the goal, or a step of the goal) or, for words on a step, of that step alone, filed BEFORE the
+words and not held already, gets `Route: asker`, a line in its `## Route` section (`held from <old route>: your words at HH:MM may change this
+(<chat>)`) and a History line. A held ask is in no list of the person's (`ROUTED_AWAY`, `storeWaits`, `reconcile`), no wait of any step
+(`openAsksOf`), not the partner's (`isRoutedToPartner`) and never re-routed or answered by Autopilot; its step's window shows it ("Held for your
+words" and, for goal-level asks too, one quiet `held` line on Needs your attention: "Q711 held: Worker 5 re-checks it after your words at 16:20"; no card, no count). A held ask counts for no step state either (`openAskIds`, `guards.mjs`, `hasBlockingAsk`). Its asking chat gets one word through the result's `wakes` (`the person's words at HH:MM on G<n>: re-ask or withdraw Q<n>, or say it
+still stands`). The unstarted steps of the goal (new, refined, queued) are named in ONE note from the board to the main chat, "For the partner (<name>): ..." (a note is read only where its To is main or the person, lists.mjs `notesToMain`; the main chat relays it, as it relays every "For <chat>" note); no step is held.
+
+**How the hold ends.** (1) The chat re-asks under the same goal (or its question joins another chat's open ask): its held asks of the goal are withdrawn `re-asked as Q<new>` (a held ask is no repeat).
+(2) `work withdraw Q<n>`. (3) `work note to=main of=Q<n> text="still stands: <why>"` from the asking chat (or the main chat or the person): the
+ask comes back to the person with a `still stands` line; the note is filed to main as any note. (4) Nobody does any of this within 60
+minutes of the board's RUNNING time (`src/work/askHold.mjs` `heldAsksDue`, off time left out as `offMsOf` counts it, never while the person pauses):
+the server's `holds-ended` action (only while something is held, and only with the board running: not while pausing or resuming), called in `reconcilePass`, sends the ask back to the PERSON (`Route: person`, `Since` and `Filed` restamped so no old route's clock fires at once; Autopilot's sweep judges it anew) with a quiet line `not re-checked by <chat> since your
+words at HH:MM`. A released ask is never held again by later words; a re-ask is a new ask.
+
+**Tests.** `test/work/wordsRecheck.test.mjs` (mutants: no Filed guard, a side chat allowed every action, no word to the chat, 1 minute instead of 60,
+no pause skip, `where` not required, the step window's rows gone: each fails it).
+
