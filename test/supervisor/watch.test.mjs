@@ -263,7 +263,7 @@ test('repair-repeats (B590): a rule whose key carries an hour still counts by it
 })
 
 test('repair-repeats (B590): the rules\' tables say which count by key, also a rule that is gone', () => {
-  assert.deepEqual([...COUNTS_BY_KEY].sort(), ['blocked', 'review-wait'])
+  assert.deepEqual([...COUNTS_BY_KEY].sort(), ['blocked', 'none-ready', 'review-wait'])
   assert.equal(REPAIR_RULES.find(rule => rule.id === 'blocked').countsBy, 'key')
   assert.equal(REPAIR_RULES.some(rule => rule.id === 'review-wait'), false)
 })

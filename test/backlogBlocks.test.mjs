@@ -116,7 +116,8 @@ test('the blocks in order, In progress above the Queue; each task in the block o
     ['B15', false, 'blocked by B1 (in progress)', false, false],
     ['B14', true, '', false, false],
   ])
-  assert.deepEqual(fresh.rows.map(row => [row.step.id, row.wait]), [['B20', 'waits for its refine']])
+  // P7: the server's one status of the step (no word to the Advisor in the outbox): never "being refined" by guess.
+  assert.deepEqual(fresh.rows.map(row => [row.step.id, row.wait]), [['B20', 'waits for its refine: nothing sent to the Advisor yet']])
   // Every row carries its goal.
   assert.deepEqual(blocks.flatMap(block => block.rows.map(row => row.goal)), ['G33', 'G9', null, 'G9', 'G33', 'G9', 'G9', 'G9', 'G9', 'G9', 'G9'])
   // Finished only with "Show finished", in its own block at the end.

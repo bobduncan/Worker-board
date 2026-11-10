@@ -31,6 +31,7 @@ import { UNCHECKED_MS, gitCheckPassed, needsResultCheck, resultCheckAtMs, result
 import { asksOfStep } from '../../work/stepAsks.mjs'
 import { heldReason } from '../../work/parked.mjs'
 import { goOnLine, goneWords } from '../../work/holderTimers.mjs'
+import { advisorStillWaitText, advisorWaitText, noneReadyOf } from '../../stepStatus.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -481,7 +482,7 @@ function askedAgain(view, { rule, id, since, wake, person }) {
   if (made < ASKS_AGAIN) {
     const key = `${base} ${n} ${stamp(from)}`
     if (words.some(message => message.syncKey === key || message.state === 'waiting')) return []
-    const text = `${id} waits for the Advisor for ${minutes(now - from)} min: asked again (${made + 1} of ${ASKS_AGAIN})`
+    const text = advisorWaitText(id, `for ${minutes(now - from)} min: asked again (${made + 1} of ${ASKS_AGAIN})`)
     return [finding(rule, key, id, text, { do: 'wake', chat: partner.name, id, text: wake(made + 1) })]
   }
   // The third ask has its period too, whenever it went.
@@ -490,7 +491,7 @@ function askedAgain(view, { rule, id, since, wake, person }) {
   const isTold = [...items.values()].some(item => valueOf(item, 'Kind') === 'note' && valueOf(item, 'Via') === 'supervisor'
     && (item.sections?.get('About') ?? [])[0]?.trim() === id && String(valueOf(item, 'Text') ?? '').startsWith(person.starts) && sinceMs(valueOf(item, 'Since')) >= first)
   if (isTold) return []
-  const text = `${id} still waits for the Advisor after ${ASKS_AGAIN} asks: told to you`
+  const text = advisorStillWaitText(id, `after ${ASKS_AGAIN} asks: told to you`)
   return [finding(rule, `${base} person ${stamp(since)}`, id, text, { do: 'person', id, text: person.lines })]
 }
 
@@ -739,6 +740,30 @@ function faultsGoneSkips(view) {
  * whose key names a pair (the step and what it waited on), so repair-repeats counts it by that key; without it a repair
  * counts by its rule and subject.
  */
+/**
+ * P7 (one status per step, chat 1's plan 2026-11-09): the focus goal has unstarted steps, the hand-out's ready list is empty and
+ * a worker has been free for 10 of the board's running minutes (src/stepStatus.mjs `noneReadyOf`, from the hand-out's own ready
+ * list, its holds and its `idleWorkers`): one note to the main chat and one word to the partner per cause (a step and its status,
+ * "focus goal G60 has work, none can be handed out: B1096 held (<the hand-out's why>)"), never to the person. The main chat's note
+ * goes once per key (loop.mjs `noted`); the partner's word once per key too: a cause whose word is in the outbox is not found again.
+ */
+function noneReady(view) {
+  const signal = noneReadyOf({
+    items: view.items, focus: view.focus, goals: view.goals, ready: Array.isArray(view.held) ? view.ready : null, held: view.held,
+    lanes: view.lanes, pause: view.pause, gaps: view.gaps, now: view.now, prefix: view.prefix, outbox: view.outbox,
+  })
+  if (signal === null) return []
+  return signal.causes.flatMap(cause => {
+    const key = `none-ready ${signal.goal} ${cause.key}`
+    const text = `${cause.text} (${signal.worker} free for ${signal.minutes} min)`
+    const toMain = finding('none-ready', `${key} main`, cause.id, text, { do: 'send', text: `${text}: see ${cause.id} (${cause.link})` })
+    const partner = view.partner?.name ?? null
+    const partnerKey = `${key} partner`
+    const isSent = (view.outbox ?? []).some(message => message.syncKey === partnerKey)
+    return partner === null || isSent ? [toMain] : [toMain, finding('none-ready', partnerKey, cause.id, text, { do: 'wake', chat: partner, id: cause.id, text: `${text}: look at ${cause.id} (${cause.link}) and its refine or its standard` })]
+  })
+}
+
 export const REPAIR_RULES = [
   { id: 'blocked', kind: 'repair', says: 'a step blocked by one done, dropped or in review, or by one the store does not hold', check: blocked, countsBy: 'key' },
   { id: 'owner-gone', kind: 'repair', says: 'a step held by, or pinned to, a chat no longer in the list', check: ownerGone },
@@ -755,6 +780,7 @@ export const REPAIR_RULES = [
   { id: 'base-equal', kind: 'repair', says: 'a step in review whose check failed only on its base branch against the remote\'s, now equal', check: baseEqual },
   { id: 'merged-now', kind: 'repair', says: 'a step in review whose check failed only on work not merged, its branch now merged or gone', check: mergedNow },
   { id: 'faults-gone', kind: 'repair', says: 'a step in review whose check failed only on a branch or worktree left, now gone, or a branch on origin now merged', check: faultsGone, skips: faultsGoneSkips },
+  { id: 'none-ready', kind: 'repair', says: 'the focus goal has work, none can be handed out, and a worker is free for 10 running minutes: told to the main chat and the partner, once per cause', check: noneReady, countsBy: 'key' },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
 ]
 

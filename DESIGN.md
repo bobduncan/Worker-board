@@ -315,7 +315,9 @@ what to do next; takes no tasks"), a teal accent and a light for its sign:
   that it took (taken or typed) whose item is still open (incident to X<n>, refine to B<n>, partner-ask to
   Q<n>; `advisorWorkOf`, the state's `advisor.on`). Its card's own text and its step count move to the tooltip.
   No such word: today's line.
-- *What it refines* (B287), as on the Advisor tab: "Refining B31, round 2", or "Your answers on B31 wait for it".
+- *What it refines* (B287), as on the Advisor tab: "Refining B31, round 2", or "Your answers on B31 wait for the Advisor" only
+  while a word to it about B31 is open in the outbox; else the step's one status ("B1030: refine open: nothing sent to the
+  Advisor", P7).
 - *What waits for it*: what was sent to it and is not in its chat yet, counted by kind ("2 waiting for it: 1 refine, 1
   message"; rounds of the clock too), else "Nothing waits for it". 2026-10-26 (the person: "is the advisor currently
   working on them or not. is it in its queue?"): under its line, "Waiting for it:" lists ALL its waiting work, each a link
@@ -455,7 +457,8 @@ the part "Refine questions" lists a line per step with how many wait ("B31 Fence
 waiting longest first, `refineLines`), counted once per step in the badge, and "Answer them →" opens the step's window,
 where they are answered with Yes / No (B293). This replaces B275's "a refine keeps its own place". The Advisor's tab
 shows beside its state what it refines ("Refining B31, round 2", "B31 to refine, on its way") or the answers that wait
-for it to fold them in ("Your answers on B31 wait for it", `advisorRefine`); the Advisor's card on the Overview shows
+for it to fold them in ("Your answers on B31 wait for the Advisor" while a word to it is open, else the step's one status, P7,
+`advisorRefine`); the Advisor's card on the Overview shows
 the same once it is there (B280).
 
 **A refined step is one compact description (B293).** The person approved what "refined" means on 2026-10-17 (the
@@ -7027,6 +7030,33 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
 - Pinned by `test/waitsOn.test.mjs` (the B1081 case through the API, the state and the hand-over's decision; the Late past 90
   running minutes and none at 95 wall minutes with a 30-min off spell; Resume all; the landing guard; the words).
 
+## One status per step (P7 of the one wait system, 2026-11-10)
+
+The person, 2026-11-10 ~21:30, on three wrong signals ("something is not right"; then "1 yes"): the hand-out knew B1096 was held (its
+standard K6 Screens had no foundation built) while the Goals/Focus part said "B1096 · waiting for a worker", and the Advisor card said
+"Your answers on B1030 wait for the Advisor" with nothing sent. Cause: each view worked a step's status out itself.
+
+- **One reading** (`src/stepStatus.mjs` `stepStatusOf(step, ctx)`, pure): `{ id, kind, label, words, tone, who, why, since, link }`
+  (a refine also `toAdvisor`, `held`, `line`). Kinds: done, dropped, review (the review's own `reviewWaitOf`, "being checked" while its
+  check runs), you, waits-on (P1's `Waits on`), working, given, held (the hand-out's own why, word for word, from the ready list's
+  `held` (src/work/handOut.mjs `readyList`): outside the focus, a standard without its foundation, blocked by, waits for), ready ("waiting for a worker": only on the
+  hand-out's `ready`), refine ("waits for the Advisor" only while a refine, answer or partner word about it is open in the outbox:
+  held or waiting, taken or delivered under 30 minutes with no block written, or on the Advisor's own list, `refineWaitOf`; else
+  "refine open: nothing sent to the Advisor"). It adds no rule of its own.
+- **Every view reads it**: the state carries `stepStatus` (by id) and each backlog row's `stepStatus`; the Focus parts (a waiting
+  block's `chip`, the rework words of Open now and the recap popup, `recapRound.mjs` `reworkOf`), the Goals step rows' badge (its
+  words on hover), the Advisor card's line, the worker rows' task column (the held step's status beside its title when it is not that
+  worker at work, and on hover), the details window's state chip (its label, its words on hover), the backlog's Refined and Not refined
+  yet rows, and the Supervisor's incident cards (`live.statuses`). The page works out none itself.
+- **The guard** (`test/stepStatus.test.mjs`): the known status phrases ("waiting for a worker", "wait(s) for the Advisor", "nobody on
+  it") may be written only by `src/stepStatus.mjs`; the test greps `src`, `public`, `mods` and `server.mjs` (comments left out).
+- **The signal, never to the person**: the focus goal has unstarted steps (new, refined), the ready list is empty and a worker is
+  free (the hand-out's `idleWorkers`) for 10 of the board's running minutes (after the person's pause and the board's off spells):
+  the repair rule `none-ready` tells the main chat once per cause (a note, `noted`) and types the partner once per cause (its word's
+  `syncKey`): "focus goal G60 has work, none can be handed out: B1096 held (<the hand-out's why>)". The Overview's simple view shows
+  the same words as one quiet line (`state.noWork`) with a link to the step; no amber.
+- Not in it: the hand-out's and the review's rules (read only), lane states, wake.
+
 ## Going live: tools/land.ps1 (2026-11-04)
 
 Until now every landing of the worker board was done by hand or with a scratch script: merge, push, bring the trial copy
@@ -7454,7 +7484,8 @@ things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state 
 6. **A new step waits for Resume all while the pause holds** (`src/supervisor/cards.mjs` `stepState`/`incidentCards` `isPaused`;
    `supervisor/index.mjs` `view` from `live.pause`; server.mjs passes `state.pause`). The refine word to the Advisor is one of the lines the
    pause holds (`pause.held`), so the card of a `new` fix step (B1042, B1051 in the real case) says "new · waits for Resume all" while the
-   pause is `pausing`, and "waits for the Advisor" otherwise. Mutants: the pause not passed on, the words not switched (each kills one
+   pause is `pausing`, and its one status otherwise (P7: "waits for the Advisor" only while a word to it is open, `state.stepStatus`
+   passed as `live.statuses`; without it only "new"). Mutants: the pause not passed on, the words not switched (each kills one
    `item 6` test).
 7. **A step in review is not "resumed from its branch"** (`src/work/pause.mjs` `holdersOf` gives `state`, `pauseFacts` marks `unsaved` entries
    `inReview: true`; `public/board.js` `pauseRing` notes). A resume neither waits for nor wakes a chat for a step in review (`RESUMED`

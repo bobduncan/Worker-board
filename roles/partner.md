@@ -757,6 +757,11 @@ into your chat, marked as theirs: `(answered on the worker board, HH:MM) N<id> "
 
 ## Refine a step
 
+The board's word "focus goal G<n> has work, none can be handed out: B<n> <its status>" (the repair `none-ready`, P7, 2026-11-10;
+once per cause) means a worker has been free for 10 running minutes while every step of the focus goal waits: refine the step it
+names when its refine is open with nothing sent to you, or settle what holds it (its standard, its blocker) with the main chat. Never
+pass it to the person.
+
 The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your chat when the user clicks "Refine" in
 a step's window: it is their word. It also types it by itself, one step at a time (B285, the user: every step is
 refined before it goes to a worker): once for every new step, for a step queued before it was refined (from before
@@ -1068,7 +1073,7 @@ the user's comment, the parts approved and how many are not decided yet. Act on 
   `"play": "<arena name>"` (see "The goal demo"). A row whose try is not in yet (a step not started, blocked) gets `"pending": "<why,
   one line, e.g. B925 not started>"` instead: the popup shows it as being reworked beside their words and asks nothing of it. (T20.1: the
   board also shows a row as being reworked, whatever the file says, while a step it names, or a fix in their chains, is under way
-  in the store: "Being reworked: B981 · waiting for a worker". Name the steps of every row, `"steps"`, so the popup and the cards
+  in the store: "Being reworked: B981 · <its one status>" ("held: <the hand-out's why>", "Worker 4 is on it"; P7). Name the steps of every row, `"steps"`, so the popup and the cards
   count the row only when nothing more is done on it.) The
   tool refuses the list otherwise (one line per row) and writes nothing, so old pictures can never stand as a new try. A row they did
   not send back needs none of this. Leave the other rows as they are: the board shows round 2 with only the parts sent back, each

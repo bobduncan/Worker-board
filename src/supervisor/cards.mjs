@@ -58,14 +58,16 @@ function afterWords(step, steps) {
  * Redesign Part 2 (2026-10-25): the board hands out every task, so a refined one is on its list for a worker and a
  * queued one is given to its worker. `items` the store's items (`steps` when left out).
  */
-export function stepState(step, { lanes = [], steps = new Map(), items = steps, isPaused = false } = {}) {
+export function stepState(step, { lanes = [], steps = new Map(), items = steps, isPaused = false, status = null } = {}) {
   const state = valueOf(step, 'State')
   const id = valueOf(step, 'Id')
   const owner = valueOf(step, 'Owner') ?? lanes.find(one => one.task?.stepId === id)?.name ?? null
   switch (state) {
     // Pause truth item 6: while the pause holds, the refine word to the Advisor is held with every line that would start a turn.
-    case 'new': return { text: isPaused ? 'new · waits for Resume all' : 'new · waits for the Advisor', tone: 'wait' }
-    case 'refined': return { text: 'refined · on the list', tone: 'wait' }
+    // P7 (one status per step): beyond the pause, a new or refined step says its one status (state.mjs `stepStatus`, src/stepStatus.mjs:
+    // a word to the Advisor open in the outbox, or held by the hand-out with its why); without it, only its state, never a guess.
+    case 'new':
+    case 'refined': return { text: isPaused && state === 'new' ? 'new · waits for Resume all' : status === null ? state : `${state} · ${status.words}`, tone: 'wait' }
     case 'queued': return { text: `${owner === null ? 'queued' : `queued for ${owner}`}${afterWords(step, steps)}`, tone: 'wait' }
     case 'taken':
     case 'in progress': {
@@ -134,7 +136,7 @@ function fixStepOf(incident, named, steps) {
  * (B573: what the section counts as in work; null without a step in the store), `word` the incident's own state, said
  * for the card without a fix step (the others carry null).
  */
-export function incidentCards({ incidents = [], items = null, lanes = [], words = new Map(), hasSupervisor = true, isPaused = false } = {}) {
+export function incidentCards({ incidents = [], items = null, lanes = [], words = new Map(), hasSupervisor = true, isPaused = false, statuses = null } = {}) {
   const steps = items instanceof Map ? items : new Map()
   const stepsOnly = new Map([...steps].filter(([, item]) => valueOf(item, 'Kind') === 'step'))
   const named = new Map()
@@ -156,7 +158,7 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
   const latest = list => Math.max(...list.map(one => (Number.isFinite(one.since) ? one.since : -Infinity)))
   const cards = [...groups].map(([id, list]) => {
     const step = stepsOnly.get(id)
-    const state = step !== undefined ? stepState(step, { lanes, steps: stepsOnly, items: steps, isPaused })
+    const state = step !== undefined ? stepState(step, { lanes, steps: stepsOnly, items: steps, isPaused, status: statuses?.[id] ?? null })
       : { text: items instanceof Map ? 'task not in the store' : 'task not read yet', tone: 'idle' }
     const at = Math.max(step === undefined ? -Infinity : activityOf(step) || -Infinity, latest(list))
     return { key: id, step: id, title: step === undefined ? null : valueOf(step, 'Title'), state, phase: step === undefined ? null : valueOf(step, 'State'), incidents: list.map(one => ({ id: one.id, word: null })), at: Number.isFinite(at) ? at : 0 }

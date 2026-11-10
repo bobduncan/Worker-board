@@ -109,6 +109,12 @@ function statusLabel(found) {
  * the state gave `held` (null when it holds none); the main chat, the Advisor, its helper and the Product owner keep their
  * card's task as before.
  */
+/** P7 (one status per step): a step's one status as the server worked it out (state.mjs `stepStatus`, src/stepStatus.mjs), or null. */
+function stepStatusFor(state, id) {
+  const one = typeof id === 'string' ? state?.stepStatus?.[id] : undefined
+  return one !== null && typeof one === 'object' && typeof one.words === 'string' ? one : null
+}
+
 function isHeldRow(lane) {
   return lane !== null && typeof lane === 'object' && Object.hasOwn(lane, 'held') && lane.isMain !== true && lane.isLeftover !== true
 }
@@ -1963,12 +1969,29 @@ function drawSimpleOverview(state) {
   chips.append(busy)
   if (view.limit !== null) chips.append(el('span', `simple-chip is-${view.limit.tone}`, view.limit.text))
   parts.push(chips)
+  // P7: the focus goal has work and none can be handed out while a worker is free (state.mjs `noWork`): one quiet line with a link
+  // to the step (the same words Main and the partner get; no amber: the person has nothing to do).
+  const noWork = noWorkLine(state.noWork ?? null)
+  if (noWork !== null) parts.push(noWork)
   // B322, B335: a new project's Initialise button stands here too: the simple view hides the workers.
   const setup = setupChat(state)
   if (setup !== null) parts.push(setupBox(setup, hasOtherChats(state)))
   fill($('simple-bar'), parts)
   drawSimpleColumns(state)
   showOverviewMode()
+}
+
+/** P7: the Overview's quiet line of the signal "the focus goal has work, none can be handed out" (state.mjs `noWork`), or null. */
+function noWorkLine(signal) {
+  if (signal === null || typeof signal?.text !== 'string' || signal.text === '') return null
+  const line = el('p', 'simple-nowork muted')
+  line.append(`${signal.text} (${signal.worker} free for ${signal.minutes} min) `)
+  if (typeof signal.link === 'string' && signal.link !== '') {
+    const link = el('a', 'simple-nowork-link', 'See the task')
+    link.href = signal.link
+    line.append(link)
+  }
+  return line
 }
 
 /** A thin bar filled to `percent`, as the simple view draws its bars. */
@@ -3527,7 +3550,10 @@ function drawLane(lane, state) {
     // The task: its id and title from the store; since, its checkpoint and its plan words only on hover (and in its window).
     const title = el('p', 'task clip held-task')
     title.append(el('span', 'task-code', lane.held.id), ' ', lane.held.title)
-    title.title = [`${lane.held.id} ${lane.held.title}`, ...heldHover(lane.held, state.readAt)].join('\n')
+    // P7: the held step's one status from the server (state.mjs `stepStatus`); said in the row only when it is not this worker at work on it.
+    const status = stepStatusFor(state, lane.held.id)
+    if (status !== null && status.kind !== 'working') title.append(' ', el('span', 'task-status muted', `· ${status.words}`))
+    title.title = [`${lane.held.id} ${lane.held.title}`, ...(status === null ? [] : [`Status: ${status.words}`]), ...heldHover(lane.held, state.readAt)].join('\n')
     what.append(title)
   } else if (isHeld) {
     const free = freeShort(lane, clock)
@@ -6907,7 +6933,9 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
         // B293: a step refined in the newer form says its goal, its size, and its questions or Ready, in place of "Step".
         ...(refined ?? [{ text: 'Step', tone: 'kind' }]),
         // Where the step itself stands, when the backlog says so: worked on, or ticked.
-        ...(step.status === 'progress' ? [{ text: 'In progress', tone: 'plain' }] : step.status === 'done' ? [{ text: 'Finished', tone: 'plain' }] : []),
+        // P7: else its one status from the server (state.mjs `stepStatus`), its words beside the label.
+        ...(step.status === 'progress' ? [{ text: 'In progress', tone: 'plain' }] : step.status === 'done' ? [{ text: 'Finished', tone: 'plain' }]
+          : (step.stepStatus ?? null) !== null ? [{ text: `${step.stepStatus.label}: ${step.stepStatus.words}`, tone: 'plain' }] : []),
         ...(lane === null ? [] : [{ text: `For: ${lane}`, tone: 'to' }]),
       ],
       at: null,
@@ -8603,7 +8631,11 @@ function detailsHead(view, sign, now) {
   // B425: a title cut short shows the whole one on hover.
   if (typeof view.fullTitle === 'string' && view.fullTitle !== view.title) heading.title = view.fullTitle
   const chips = el('p', 'details-chips')
-  for (const chip of view.chips) chips.append(el('span', `chip is-${chip.tone}`, chip.text))
+  for (const chip of view.chips) {
+    const one = el('span', `chip is-${chip.tone}`, chip.text)
+    if (typeof chip.title === 'string' && chip.title !== '') one.title = chip.title
+    chips.append(one)
+  }
   if ((view.at ?? null) !== null) chips.append(el('span', 'chip is-time', `Asked ${ago(view.at, now)}`))
   names.append(heading, chips)
   const close = el('button', 'icon-button', '✕')
@@ -10113,8 +10145,10 @@ function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, str
   const now = state.readAt
   const tab = TASK_TABS.some(([key]) => key === detailsOf.tab) ? detailsOf.tab : 'summary'
   const failed = summaryOf(item).failed
+  // P7: its state chip is the step's one status (its label, its words on hover), not its raw state.
+  const status = stepStatusFor(state, item.id)
   const chips = [
-    { text: capitalized(item.state), tone: item.state === 'done' ? 'good' : 'kind' },
+    { text: status === null ? capitalized(item.state) : status.label, tone: item.state === 'done' ? 'good' : 'kind', ...(status === null ? {} : { title: status.words }) },
     ...(failed > 0 ? [{ text: `${failed} check${failed === 1 ? '' : 's'} failed`, tone: 'bad' }] : []),
     ...(item.owner === null || item.owner === undefined ? [] : [{ text: item.owner, tone: 'plain' }]),
     ...(item.goal === null || item.goal === undefined ? [] : [{ text: `Goal: ${goalNameOf(item.goal, state.goals?.nodes)}`, tone: 'goal' }]),
@@ -12017,6 +12051,8 @@ function goalStepBadge(step) {
   if (state === 'done' || step.status === 'done') return ['Done', 'done']
   // B392: a step whose open blocking asks all wait for the partner is not the person's yet.
   if ((step.flow?.waitsForPartner ?? []).length > 0) return ['Waits for your partner', 'partner']
+  // P7: the step's one status from the server (state.mjs `stepStatus`, src/stepStatus.mjs): a step the hand-out holds reads Held.
+  if (step.stepStatus !== null && step.stepStatus !== undefined) return [step.stepStatus.label, step.stepStatus.tone]
   if (state === 'waiting on you' || step.status === 'you') return ['Needs you', 'you']
   if (state === 'in progress' || state === 'taken' || (state === null && step.status === 'progress')) return ['Working', 'working']
   if (state === 'review') return ['In review', 'review']
@@ -12045,7 +12081,7 @@ function goalStepsView(goals, goalId, backlog, ui = {}) {
   const all = [...named, ...others].map(id => byId.get(id)).filter(step => step !== undefined && rowStateOf(step) !== 'dropped').map((step, index) => {
     const [badge, tone] = goalStepBadge(step)
     const line = String(step.item?.summary?.[0] ?? step.item?.what?.[0] ?? step.line ?? '').replace(/\s+/g, ' ').trim()
-    return { n: index + 1, id: step.id, key: step.key ?? step.id, title: step.title, line: line.length > 140 ? `${line.slice(0, 139)}…` : line, badge, tone, chat: step.worker ?? '' }
+    return { n: index + 1, id: step.id, key: step.key ?? step.id, title: step.title, line: line.length > 140 ? `${line.slice(0, 139)}…` : line, badge, tone, chat: step.worker ?? '', status: tone === 'done' ? null : step.stepStatus?.words ?? null }
   })
   const done = all.filter(row => row.tone === 'done')
   const open = all.filter(row => row.tone !== 'done')
@@ -12429,7 +12465,10 @@ function drawGoalSteps(state) {
       words.append(el('b', '', row.title), ...(row.line === '' ? [] : [el('small', '', row.line)]))
       open.append(words)
       const side = el('span', 'goal-step-side')
-      side.append(el('span', `goal-step-badge tone-${row.tone}`, row.badge), ...(row.chat === '' ? [] : [el('small', '', row.chat)]))
+      const badge = el('span', `goal-step-badge tone-${row.tone}`, row.badge)
+      // P7: the badge's whole status on hover ("held: <the hand-out's why>").
+      if (typeof row.status === 'string' && row.status !== '') badge.title = `${row.id} · ${row.status}`
+      side.append(badge, ...(row.chat === '' ? [] : [el('small', '', row.chat)]))
       const more = el('button', 'goal-step-more', '⋮')
       more.type = 'button'
       more.dataset.goalStepMenu = row.key
@@ -15593,7 +15632,7 @@ function focusDayWords(stamp) {
 /** Work blocks: the chips of a block on the Focus page, by its state (B680, B689, Redesign Part 2). */
 // 2026-11-01 (the person: "says waiting for verdict or something"): `verdict`, a block that waits for their verdict in the goal's
 // recap; "Waiting, nobody on it now" stays for work that waits for another task.
-const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached', waiting: 'Waiting, nobody on it now', stuck: 'Stuck: its fix stopped', verdict: 'Waits for your verdict →' }
+const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached', waiting: 'Waiting', stuck: 'Stuck: its fix stopped', verdict: 'Waits for your verdict →' }
 
 // recapready:start
 /** The recap card shows this many tiles at most, in one row: the person's "never more then 1 row" (src/recapCard.mjs MOST_TILES). */
@@ -15748,7 +15787,9 @@ function blockChipOf(part, open, card = null, namesWorker = false) {
     return { chip: typeof link?.path === 'string' ? 'Waits for your verdict in the recap →' : FOCUS_CHIPS.verdict, tone: 'verdict', link, isVerdict: true, isRework: false }
   }
   // Open now names the worker of a block in progress in its chip; All work blocks keeps "In progress" (its row names the worker beside the bar).
-  const chip = namesWorker && part.state === 'now' && typeof part.owner === 'string' && part.owner !== '' ? `${part.owner} is on it` : FOCUS_CHIPS[part.state] ?? null
+  // P7: a block that waits says the server's words (state.mjs `focusState` `chip`: "Held: B1096 · <the hand-out's why>", or that nobody is on it).
+  const chip = namesWorker && part.state === 'now' && typeof part.owner === 'string' && part.owner !== '' ? `${part.owner} is on it`
+    : part.state === 'waiting' && typeof part.chip === 'string' && part.chip !== '' ? part.chip : FOCUS_CHIPS[part.state] ?? null
   return { chip, tone: part.state, link: null, isVerdict: false, isRework: false }
 }
 
@@ -19782,8 +19823,12 @@ function advisorRefine(backlog) {
     return { step: stopped.id, text: `Refine of ${stopped.id} stopped after ${rounds} round${rounds === 1 ? '' : 's'} without new answers`, tone: 'stopped', canSend: true }
   }
   const answered = steps.find(step => step.refineState === 'answered' && isUp(step))
-  // B464: they wait for the Advisor, not for you: in its own colour, not the one that asks you.
-  return answered === undefined ? null : { step: answered.id, text: `Your answers on ${answered.id} wait for the Advisor`, tone: 'answered' }
+  // B464: they wait for the Advisor, not for you: in its own colour, not the one that asks you. P7 (B1030 read "Your answers on
+  // B1030 wait for the Advisor" with nothing sent): the line is the step's one status from the server (`stepStatus.line`): it waits
+  // for the Advisor only while a word to it is open in the outbox, else it says nothing was sent.
+  if (answered === undefined) return null
+  const status = answered.stepStatus ?? null
+  return { step: answered.id, text: status?.line ?? `${answered.id}: answers in`, tone: 'answered' }
 }
 // advisorrefine:end
 
@@ -20872,10 +20917,13 @@ function backlogBlocks(list, readyList, { showDone = false } = {}) {
     if (state === 'refined') {
       const hold = typeof step.id === 'string' ? held.get(step.id) ?? null : null
       const { canAdd, canRemove } = queueChoice({ state, isAdded: base.isAdded, pinned, choice: hold?.choice })
-      rows.refined.push({ ...base, who: forWho, canAdd, why: canAdd ? '' : hold?.why ?? '', canRemove })
+      // P7: what holds it is the step's one status (the hand-out's own why, src/stepStatus.mjs), as every view says it.
+      rows.refined.push({ ...base, who: forWho, canAdd, why: canAdd ? '' : step.stepStatus?.why ?? hold?.why ?? '', canRemove })
       continue
     }
-    rows.new.push({ ...base, who: forWho, wait: step.status === 'you' ? 'waits for your answer' : REFINE_WAITS[step.refineState] ?? '', canRemove: queueChoice({ isAdded: base.isAdded, pinned }).canRemove })
+    // P7: what a new step waits for is its one status (a word to the Advisor open in the outbox, or nothing sent), not its refine state alone.
+    const waits = step.status === 'you' ? 'waits for your answer' : step.refineState === 'stopped' ? REFINE_WAITS.stopped : step.stepStatus?.words ?? REFINE_WAITS[step.refineState] ?? ''
+    rows.new.push({ ...base, who: forWho, wait: waits, canRemove: queueChoice({ isAdded: base.isAdded, pinned }).canRemove })
   }
   const sorted = {
     progress: rows.progress.sort((a, b) => Number(b.isFix) - Number(a.isFix) || a.order - b.order || blockNumber(b.step) - blockNumber(a.step)),

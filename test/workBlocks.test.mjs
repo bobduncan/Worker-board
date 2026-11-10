@@ -395,7 +395,8 @@ test('the Focus page: a block made in the round is "New" with a "new" tag in All
     await page.click('[data-focus-blocks="open"]')
     const last = page.all('.focus-open-block').at(-1)
     assert.equal(last.querySelector('.focus-open-line').textContent, 'New: every bench has a lantern')
-    assert.equal(last.querySelector('.focus-chip').textContent, 'On the list for a worker')
+    // P7: B40's refine is not ready, so the hand-out holds it: the chip says so in the hand-out's words.
+    assert.equal(last.querySelector('.focus-chip').textContent, 'Held: B40 · its refine is not ready')
   } finally {
     await page.close()
   }

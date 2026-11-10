@@ -114,7 +114,7 @@ test('the popup: a row being reworked says which step and who, with no picture, 
     assert.deepEqual(classesOf(ready), ['demo-row-title', 'demo-row-note', 'demo-pictures', 'demo-feedback'])
     // A row being reworked: the title, then one line, nothing else.
     assert.deepEqual(classesOf(ground), ['demo-row-title', 'demo-reworking'], 'no note, no picture')
-    assert.equal(words(ground.querySelector('.demo-reworking')), 'Being reworked: B22 · waiting for a worker')
+    assert.equal(words(ground.querySelector('.demo-reworking')), 'Being reworked: B22 · waits for its refine: nothing sent to the Advisor yet')
     assert.equal(words(cliffs.querySelector('.demo-reworking')), 'Being reworked: B33 · Worker 4')
     assert.equal(ground.querySelectorAll('.demo-picture, .demo-feedback, [data-demo-verdict]').length, 0)
     // The section of the kept looks.
@@ -220,18 +220,18 @@ test('Open now in the same words as the recap: one block waits for the verdict i
     assert.deepEqual(page.all('.focus-open-block').map(one => [words(one.querySelector('.focus-bullet-text')), one.querySelector('.focus-chip')?.textContent ?? null]), [
       ['Block 1', null],
       ['Block 2', 'Waits for your verdict in the recap →'],
-      ['Block 3', 'Being reworked: B32 · waiting for a worker'],
-      ['Block 4', 'Being reworked: B42 · waiting for a worker'],
+      ['Block 3', 'Being reworked: B32 · waits for its refine: nothing sent to the Advisor yet'],
+      ['Block 4', 'Being reworked: B42 · waits for its refine: nothing sent to the Advisor yet'],
       ['Block 5', 'Being reworked: B5 · Digger is on it'],
     ])
-    // The worker is the one whose card shows the step (Digger's does, B5 is his); a step nobody's card shows is "waiting for a worker".
+    // The worker is the one whose card shows the step (Digger's does, B5 is his); a step nobody's card shows says its one status (P7: no word to the Advisor yet).
     // The block that waits for the verdict opens the recap at its row; "Waiting, nobody on it now" is said of none of them.
     assert.deepEqual(page.all('.focus-open-block .focus-chip.is-verdict').map(one => [one.tagName, one.dataset.demo, one.dataset.demoPart]), [['A', PATH, 'Ring']])
     assert.equal(page.all('.focus-open-block .focus-chip.is-rework').length, 3)
     assert.doesNotMatch(page.text('.focus-open-now'), /Waiting, nobody on it now|In progress/)
     // All work blocks says the same of each block.
     await page.click('[data-focus-blocks="all"]')
-    assert.deepEqual(page.all('.focus-part .focus-chip').map(words), ['Done', 'Waits for your verdict in the recap →', 'Being reworked: B32 · waiting for a worker', 'Being reworked: B42 · waiting for a worker', 'Being reworked: B5 · Digger is on it'])
+    assert.deepEqual(page.all('.focus-part .focus-chip').map(words), ['Done', 'Waits for your verdict in the recap →', 'Being reworked: B32 · waits for its refine: nothing sent to the Advisor yet', 'Being reworked: B42 · waits for its refine: nothing sent to the Advisor yet', 'Being reworked: B5 · Digger is on it'])
   } finally { await page.close() }
 })
 

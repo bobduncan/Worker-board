@@ -59,9 +59,9 @@ test('rework: the newest step under way among a row\'s steps and every fix in th
     built('B3', { result: 'failed', fix: 'B33' }), built('B33', { result: 'failed', fix: 'B34', fixOf: 'B3' }), step('B34', 'new', 'B33'),
     built('B1', { result: 'passed' }),
   ])
-  assert.deepEqual(reworkOf(['B2'], items), { step: 'B22', state: 'new', worker: null, words: 'B22 · waiting for a worker' })
-  assert.deepEqual(reworkOf(['B3', 'B1'], items), { step: 'B34', state: 'new', worker: null, words: 'B34 · waiting for a worker' }, 'a row of two steps: the one under way decides')
-  assert.deepEqual(reworkOf(['B2'], items, { workerOf: id => (id === 'B22' ? 'Worker 4' : null) }), { step: 'B22', state: 'new', worker: 'Worker 4', words: 'B22 · waiting for a worker' }, 'a card that shows a step under a state that is not taken is still "waiting for a worker"')
+  assert.deepEqual(reworkOf(['B2'], items), { step: 'B22', state: 'new', worker: null, words: 'B22 · waits for its refine: nothing sent to the Advisor yet' })
+  assert.deepEqual(reworkOf(['B3', 'B1'], items), { step: 'B34', state: 'new', worker: null, words: 'B34 · waits for its refine: nothing sent to the Advisor yet' }, 'a row of two steps: the one under way decides')
+  assert.deepEqual(reworkOf(['B2'], items, { workerOf: id => (id === 'B22' ? 'Worker 4' : null) }), { step: 'B22', state: 'new', worker: 'Worker 4', words: 'B22 · waits for its refine: nothing sent to the Advisor yet' }, 'a card that shows a step under a state that is not taken still says its one status')
   assert.equal(reworkOf(['B1'], items), null, 'every link built and checked: ready')
   assert.equal(reworkOf([], items), null)
   // Every link done or in review with its check done is ready, however long the chain.
@@ -101,8 +101,8 @@ const live = (more = {}) => {
 test('the live shape: the Ring is ready; the Ground and the Cliffs, with a fix new at the end of their chains, are being reworked, asked nothing and counted nowhere', () => {
   const state = live()
   assert.deepEqual(state.recapRound.ready, 1)
-  assert.deepEqual(state.recapRound.reworking.map(one => [one.key, one.rework.step, one.rework.words]), [['Ground', 'B22', 'B22 · waiting for a worker'], ['Cliffs', 'B34', 'B34 · waiting for a worker']])
-  assert.deepEqual(state.recapRound.rework, { Ground: { step: 'B22', state: 'new', worker: null, words: 'B22 · waiting for a worker' }, Cliffs: { step: 'B34', state: 'new', worker: null, words: 'B34 · waiting for a worker' } })
+  assert.deepEqual(state.recapRound.reworking.map(one => [one.key, one.rework.step, one.rework.words]), [['Ground', 'B22', 'B22 · waits for its refine: nothing sent to the Advisor yet'], ['Cliffs', 'B34', 'B34 · waits for its refine: nothing sent to the Advisor yet']])
+  assert.deepEqual(state.recapRound.rework, { Ground: { step: 'B22', state: 'new', worker: null, words: 'B22 · waits for its refine: nothing sent to the Advisor yet' }, Cliffs: { step: 'B34', state: 'new', worker: null, words: 'B34 · waits for its refine: nothing sent to the Advisor yet' } })
   assert.equal(state.recapRound.toJudge, 1)
   // The card counts the one ready row, and says nothing of the other two.
   assert.deepEqual([state.recapCard.count, state.recapCard.tiles.map(one => one.title), state.recapCard.isBuilt], [1, ['Ring'], false])
@@ -162,12 +162,12 @@ test('readGoalRecap carries every row of the file, with its steps and whether it
 
 const list = (rows = ['1. Ring', '2. Ground', '3. Cliffs']) => ({ goal: 'G6', title: 'The polish', step: 'B7', sections: [{ kind: 'open', rows: rows.map(title => ({ title, pictures: [{ kind: 'final', caption: 'in the game', path: `${title.split('. ')[1]}.png` }] })) }] })
 const lookOf = (ask, more = {}) => ({ ask, key: lookKey(ask), title: `Does ${ask} look right?`, text: 'It stands low.', advice: 'yes', step: 'B9', pictures: ['art/B9/after.jpg'], play: null, ...more })
-const rework = new Map([['2. Ground', { step: 'B22', worker: null, words: 'B22 · waiting for a worker' }], ['3. Cliffs', { step: 'B34', worker: 'Worker 4', words: 'B34 · Worker 4' }]])
+const rework = new Map([['2. Ground', { step: 'B22', worker: null, words: 'B22 · waits for its refine: nothing sent to the Advisor yet' }], ['3. Cliffs', { step: 'B34', worker: 'Worker 4', words: 'B34 · Worker 4' }]])
 const keysOf = shown => shown.sections.flatMap(section => section.rows).map(one => one.key)
 
 test('the popup: a row being reworked says which step and who, shows no old picture and asks nothing, in round 1 and later; it is no part of the Send', () => {
   const first = roundPage(demoPage(list(), 'pictures/g6/recap'), null, { rework })
-  assert.deepEqual(first.sections[0].rows.map(one => [one.key, one.reworking ?? false, one.rework?.words ?? null, one.pictures.length]), [['1. Ring', false, null, 1], ['2. Ground', true, 'B22 · waiting for a worker', 0], ['3. Cliffs', true, 'B34 · Worker 4', 0]])
+  assert.deepEqual(first.sections[0].rows.map(one => [one.key, one.reworking ?? false, one.rework?.words ?? null, one.pictures.length]), [['1. Ring', false, null, 1], ['2. Ground', true, 'B22 · waits for its refine: nothing sent to the Advisor yet', 0], ['3. Cliffs', true, 'B34 · Worker 4', 0]])
   assert.deepEqual([first.feedback.round, first.feedback.parts, first.feedback.answerable, first.feedback.toJudge], [1, 3, 1, 1])
   const refused = checkSend(first, { round: 1, parts: [{ key: '2. Ground', verdict: 'approved' }] })
   assert.deepEqual([refused.ok, refused.status], [false, 400])

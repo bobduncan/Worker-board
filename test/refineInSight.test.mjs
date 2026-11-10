@@ -69,7 +69,9 @@ test('the Advisor\'s refine state: the step it refines, or the answers that wait
   assert.equal(advisorPage.advisorRefine(backlog([step('B30'), step('B31', { refineState: 'answers' })])), null)
   assert.deepEqual(plain(advisorPage.advisorRefine(backlog([step('B30', { refineState: 'answered' }), step('B31', { refineAsk: { isOpen: true, round: 2, state: 'delivered' } })]))), { step: 'B31', text: 'Refining B31, round 2', tone: 'working' })
   assert.deepEqual(plain(advisorPage.advisorRefine(backlog([step('B31', { refineAsk: { isOpen: true, round: 1, state: 'waiting' } })]))), { step: 'B31', text: 'B31 to refine, on its way', tone: 'working' })
-  assert.deepEqual(plain(advisorPage.advisorRefine(backlog([step('B30', { refineState: 'answered' })]))), { step: 'B30', text: 'Your answers on B30 wait for the Advisor', tone: 'answered' })
+  // P7: the line is the step's one status from the server (`stepStatus.line`): "wait for the Advisor" only while a word to it is open.
+  assert.deepEqual(plain(advisorPage.advisorRefine(backlog([step('B30', { refineState: 'answered', stepStatus: { kind: 'refine', toAdvisor: true, line: 'Your answers on B30 wait for the Advisor' } })]))), { step: 'B30', text: 'Your answers on B30 wait for the Advisor', tone: 'answered' })
+  assert.deepEqual(plain(advisorPage.advisorRefine(backlog([step('B30', { refineState: 'answered', stepStatus: { kind: 'refine', toAdvisor: false, line: 'B30: refine open: nothing sent to the Advisor' } })]))), { step: 'B30', text: 'B30: refine open: nothing sent to the Advisor', tone: 'answered' })
   assert.equal(advisorPage.advisorRefine(undefined), null)
   // Shown beside the Advisor's state on its tab.
   assert.match(script, /const refine = advisorRefine\(state\.backlog\)/)

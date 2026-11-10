@@ -9,11 +9,12 @@
 import { roundPage } from './demoFeedback.mjs'
 import { fixesOf, reviewWaitOf, reportCheckFailedOf, boardCheckPending } from './work/resultCheck.mjs'
 import { valueOf } from './work/item.mjs'
+import { reworkWordsOf, stepStatusOf } from './stepStatus.mjs'
 
 /** The states in which a step is under way: made, given, taken, being worked on, or waiting for an answer mid-build. */
 export const UNDER_WAY_STATES = ['new', 'refined', 'queued', 'taken', 'in progress', 'waiting on you']
-/** What a worker reads when nobody's card shows the step yet. */
-export const WAITING_FOR_A_WORKER = 'waiting for a worker'
+/** P7: what a step on the hand-out's ready list reads (the phrase is src/stepStatus.mjs's, the one status per step). */
+export { WAITING_FOR_A_WORKER } from './stepStatus.mjs'
 /** The key a kept look has among the rows of the popup's round (the answers of one Send are keyed by it). */
 export const LOOK_PREFIX = 'look:'
 export const lookKey = ask => `${LOOK_PREFIX}${ask}`
@@ -36,24 +37,13 @@ export function isUnderWay(item, items, { openChecks = new Set(), now = null } =
 }
 
 /**
- * What a step under way is doing, in the words after its id on "Being reworked: B981 · <this>" (the review of 2026-11-04): a step in review
- * with its check still to run is "being checked", one new, refined or queued is "waiting for a worker", one taken or in progress is
- * "<worker> is on it" (a worker the board does not know: "a worker is on it"), one waiting on the person "waits on you".
- */
-export function reworkPhraseOf(state, worker = null) {
-  if (state === 'review') return 'being checked'
-  if (state === 'taken' || state === 'in progress') return `${worker ?? 'a worker'} is on it`
-  if (state === 'waiting on you') return 'waits on you'
-  return WAITING_FOR_A_WORKER
-}
-
-/**
  * The step under way among `stepIds` and every fix in their chains (all links, a fix of a fix too) that a row or block is being reworked on,
  * `{ step, state, worker, words }`, or null when none is: the steps are built and checked, or only waiting for the person. The review of
  * 2026-11-04: the step a worker holds first (its card shows it, or it is taken or in progress: `worker` is `workerOf(step)`, else its owner),
- * the newest of them; else the newest step under way. `words` is `reworkPhraseOf` after the id ("B981 · waiting for a worker").
+ * the newest of them; else the newest step under way. `words` is the step's one status after the id (P7: src/stepStatus.mjs
+ * `stepStatusOf`, "B1096 · held: <the hand-out's why>"; `statusOf(item)` the caller's, with the ready list and the outbox).
  */
-export function reworkOf(stepIds, items, { openChecks = new Set(), workerOf = () => null, now = null } = {}) {
+export function reworkOf(stepIds, items, { openChecks = new Set(), workerOf = () => null, now = null, statusOf = null } = {}) {
   const seen = new Set()
   const queue = [...(Array.isArray(stepIds) ? stepIds : [])]
   const under = []
@@ -78,8 +68,9 @@ export function reworkOf(stepIds, items, { openChecks = new Set(), workerOf = ()
   const step = valueOf(item, 'Id')
   const state = valueOf(item, 'State')
   const worker = whoOf(item)
-  // `words`: what follows "Being reworked:" in the popup and on the chips.
-  return { step, state, worker, words: `${step} · ${reworkPhraseOf(state, worker)}` }
+  // `words`: what follows "Being reworked:" in the popup and on the chips: the step's one status (P7), never worked out here.
+  const one = statusOf !== null ? statusOf(item) : stepStatusOf(item, { items, openChecks, now, workerOf: id => whoOf(items.get(id) ?? item) })
+  return { step, state, worker, words: reworkWordsOf(step, one) }
 }
 
 /**

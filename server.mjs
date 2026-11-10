@@ -2806,6 +2806,8 @@ async function main(args) {
         flow: stored?.ok === true ? stored.flow : null,
         // Pause truth item 6: while the pause holds, a new step waits for Resume all, not for the Advisor.
         pause: state.pause ?? null,
+        // P7: every step's one status (state.mjs `stepStatus`), which a card of a new or refined fix step says.
+        statuses: state.stepStatus ?? null,
       })
       // 2026-10-28: the Advisor's "Next for it" ends with the steps the board will ask it to refine next (only the board holds the refine gate).
       const refineGateNow = Array.isArray(state.advisor?.next) ? firstLook(refineKept, state) : null

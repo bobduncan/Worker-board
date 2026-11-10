@@ -63,6 +63,7 @@ import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitO
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, recapWaitingOf, standingAsksOf } from './recapCard.mjs'
 import { recapRoundOf, reworkOf } from './recapRound.mjs'
+import { blockWaitWords, noneReadyOf, stepStatusOf, stepStatusesOf } from './stepStatus.mjs'
 import { guardOf, rebuildHoldsOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
@@ -1529,8 +1530,12 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     // refined yet waits for its refine (`refining`).
     const held = known.filter(one => NOT_HANDED.includes(one.head.get('State')))
     const isWaiting = !atWork && !isQueued
-    const isReady = isWaiting && held.some(one => one.head.get('State') === 'refined')
-    const isRefining = isWaiting && !isReady && held.length > 0
+    // P7 (one status per step): a refined step is on the list only when the hand-out's own ready list has it (`options.statusOf`,
+    // src/stepStatus.mjs); one it holds (a standard without its foundation, a blocker) is held, with the hand-out's why.
+    const statusOf = typeof options.statusOf === 'function' ? options.statusOf : null
+    const isReady = isWaiting && held.some(one => one.head.get('State') === 'refined' && (statusOf === null || statusOf(one)?.kind !== 'held'))
+    const isRefining = isWaiting && !isReady && held.some(one => one.head.get('State') === 'new' || statusOf === null)
+    const heldStatuses = statusOf === null ? [] : held.map(one => statusOf(one)).filter(one => one?.kind === 'held')
     // 2026-11-01: a block whose open step waits for the person's verdict in the goal's recap (and nothing else of it is at work, queued or
     // waiting to be given) is `verdict`, which the page words "Waits for your verdict"; "waiting" stays for work that waits for another task.
     const verdictStep = open.find(one => one.waitsForVerdict)
@@ -1540,7 +1545,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const isStopped = known.length > 0 && done === known.length && !reached
     const gone = (node.partsDropped ?? []).findLast(one => one.title === part.title)
     const state = gone !== undefined ? 'dropped' : isStopped ? 'stopped' : known.length > 0 && done === known.length ? 'done' : atWork ? 'now'
-      : isReady ? 'ready' : isRefining ? 'refining' : isQueued ? 'next' : verdictStep !== undefined ? 'verdict' : open.some(one => one.tone === 'wait') ? 'waiting' : open.length > 0 ? 'stuck' : 'next'
+      : isReady ? 'ready' : isRefining ? 'refining' : isQueued ? 'next' : verdictStep !== undefined ? 'verdict' : heldStatuses.length > 0 || open.some(one => one.tone === 'wait') ? 'waiting' : open.length > 0 ? 'stuck' : 'next'
     const fix = state === 'next' ? fixAhead(known, steps, prefix) : null
     // B354: what the part's results are checked against: its steps' standards, each once; a "none (why)" is left out.
     const standards = [...new Set(known.map(standardOf).filter(one => one !== null && !/^none\b/i.test(one)))]
@@ -1551,11 +1556,11 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const kind = round === null || state === 'dropped' ? null : openKindOf(known, round.ms, round.n === 1)
     // T20.1 (the person, 2026-11-04: "of the 5 open now, only 1 is done ... Waiting, nobody on it now"): a block that had work before the round
     // and has a step under way (its steps, or a fix in their chains) is being reworked: the newest such step and its worker.
-    const rework = kind !== 'rework' || ['done', 'dropped', 'stopped'].includes(state) ? null : reworkOf(part.steps, all, { openChecks: verdictAsks.openChecks, workerOf: id => workerOn(id, all, lanes, prefix), now })
+    const rework = kind !== 'rework' || ['done', 'dropped', 'stopped'].includes(state) ? null : reworkOf(part.steps, all, { openChecks: verdictAsks.openChecks, workerOf: id => workerOn(id, all, lanes, prefix), now, ...(statusOf === null ? {} : { statusOf }) })
     if (kind !== null) openNow.push({ index, title: part.title, kind, ...(rework === null ? {} : { rework }) })
     // Work blocks: the block's done-when line, only where it has one.
     const line = typeof part.doneWhen === 'string' && part.doneWhen.trim() !== '' ? { doneWhen: part.doneWhen.trim() } : {}
-    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...line, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }), ...(state === 'verdict' ? { verdictAt: verdictStep.verdictAt } : {}) }
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...line, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }), ...(state === 'verdict' ? { verdictAt: verdictStep.verdictAt } : {}), ...(state === 'waiting' ? { chip: blockWaitWords(heldStatuses) } : {}) }
   })
   // B680: a Stopped part counts neither done nor open, a dropped one is out of the whole.
   const whole = parts.filter(part => part.state !== 'dropped')
@@ -2434,8 +2439,13 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const workerOfStep = id => workerOn(id, itemsById, chats, prefix)
   // B878 (X116): where each step a goal's recap shows stands with the person (src/recaps.mjs), for what a step in review waits for.
   // T20.1: a part a step of which (or a fix in its chains) is under way is being reworked: it waits for no verdict (`rework`).
-  const recapWaits = recapWaitsOf(raw.recaps, (recap, part) => reworkOf(part.steps, itemsById, { openChecks: checksOpen, workerOf: workerOfStep, now }))
-  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits, raw.recaps ?? null, { autopilot: config.autopilot === true, partnerLane: advisorCard ?? null })
+  // P7 (one status per step): every step's one status, from the hand-out's ready list (its `ready` and its `held` with their whys),
+  // the review's and the Advisor's own functions and the outbox (src/stepStatus.mjs). Every view reads it; the page works out none.
+  const statusCtx = { items: itemsById, held: reconciled?.ready?.held ?? null, ready: reconciled?.ready?.ready ?? null, outbox: sent, now, workerOf: workerOfStep, openChecks: checksOpen, prefix }
+  const recapWaits = recapWaitsOf(raw.recaps, (recap, part) => reworkOf(part.steps, itemsById, { openChecks: checksOpen, workerOf: workerOfStep, now, statusOf: item => stepStatusOf(item, statusCtx) }))
+  const stepStatus = workOk ? stepStatusesOf(itemsById, { ...statusCtx, recaps: recapWaits }) : {}
+  const statusOfItem = item => stepStatus[item.head.get('Id')] ?? stepStatusOf(item, { ...statusCtx, recaps: recapWaits })
+  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits, raw.recaps ?? null, { autopilot: config.autopilot === true, partnerLane: advisorCard ?? null, statusOf: statusOfItem })
   // The chats on the board by name, for a store's owner (with or without the list's prefix).
   const chatNames = [...names, ...[advisorChat, helperChat, ownerChat].filter(one => one !== undefined).map(one => one.name)]
   // Autopilot (2026-10-31): each asking chat's role, as the work API names them, for where an ask goes (src/work/autopilot.mjs).
@@ -2675,6 +2685,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
           reviewStand: step.id === null ? null : checkStands.get(step.id) ?? null,
           // B299: the step as the store holds it, for its window.
           item,
+          // P7: its one status (src/stepStatus.mjs), which the backlog, the Goals rows, the Advisor card and its window show.
+          stepStatus: step.id === null ? null : stepStatus[step.id] ?? null,
         }
       }),
     })),
@@ -2873,11 +2885,19 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     // Focus 1 (spec 2026-10-18): the focus goal for the Focus part, and the parts the tab's bar shows.
     // The review of Focus 3: the partner by the chat the board shows for it, the one the work API gives the role advisor.
     focus,
+    // P7: every step's one status by id (src/stepStatus.mjs `stepStatusOf`): the page draws these words and works out none.
+    stepStatus,
     advisorParts: config.advisorParts,
     // T9.3 part 1: whether each kind of asset's provider can work now, as the board last checked (src/providers); the
     // Design tab's part "Asset providers" draws it.
     providers: (Array.isArray(providers) ? providers : []).map(({ kind, provider, mode, ok, why }) => ({ kind, provider, mode, ok, why })),
   }
+  // P7: the focus goal has work and none can be handed out while a worker is free for 10 running minutes: the Overview's quiet line
+  // (the same words the Supervisor's rule none-ready sends Main and the partner; never the person's).
+  built.noWork = !workOk ? null : noneReadyOf({
+    items: itemsById, focus: goalMap?.focus ?? null, goals: goalMap?.nodes ?? [], ready: reconciled?.ready?.ready ?? null, held: reconciled?.ready?.held ?? null,
+    lanes: built.chats ?? [], pause: pauseRecord, gaps, now, prefix, outbox: sent, openChecks: checksOpen, workerOf: workerOfStep,
+  })
   // The Product owner (2026-10-31): who the person talks with now, the owner or else the partner (src/talkPartner.mjs).
   return { ...withWakes(built, { wakes, sent, pauseRecord, items: workOk ? raw.work.items : null, prefix, now }), talkPartner: talkPartnerOf(built) }
 }
