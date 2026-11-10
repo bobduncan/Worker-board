@@ -608,6 +608,21 @@ export function changeDone(word, thread, now = Date.now()) {
 }
 
 /**
+ * Reactive board, P4b round 2 (chat 1's pick B, 2026-11-10): the Done of a word of a brainstorm talk that is no change of a goal: the thread's
+ * next stage from the thread record, as `changeDone` reads the change thread's: a new question, what it understood, a proposal written after
+ * the word (dated by `threadTimes`, never by the clock of each draw), or the thread done or discarded. Null while none stands; a word that names
+ * no thread (the Focus talk bar's) has none. With it the talk word is an own-result word: its chat's turn ended without it is P3's own
+ * "turn ended at HH:MM without it" (Late after the grace, with the chat at rest), never a Done "answered" for a turn that wrote nothing.
+ */
+export function talkDone(word, thread, now = Date.now()) {
+  if (thread === undefined || thread === null) return null
+  const from = minuteOf(word.at)
+  const next = (threadTimes(thread, now) ?? []).filter(one => isTime(one.ms) && one.ms > from).sort((a, b) => a.ms - b.ms)[0]
+  if (next !== undefined) return { at: next.ms, words: { question: 'a new question', understood: 'what it understood', proposal: 'a proposal' }[next.kind], link: null }
+  return ['done', 'discarded'].includes(thread.state) ? { at: null, words: thread.state === 'done' ? 'the talk is over' : 'the talk is discarded', link: null } : null
+}
+
+/**
  * Place 3: what the partner wrote after the word that is no result of it: the next question it waits for the person's answer to, or what
  * it understood and waits for their yes (written after the word, still unanswered). Shown as "<Partner> answered: a question for you".
  */
@@ -749,6 +764,7 @@ function doneOfPlace(word, place, { state, items, steps, goals, threads, now }) 
       case 'refine': return refineDone(word, steps.get(word.about))
       case 'go': return goDone(word, goals.get(word.about), items, state?.focus ?? null)
       case 'change': return changeDone(word, threadOf(word, threads), now)
+      case 'talk': return talkDone(word, threadOf(word, threads), now)
       case 'goal-ask': return goalAskDone(word, goals.get(word.goal))
       case 'overturn': return overturnDone(word, items)
       case 'worker': return workerDone(word, (state?.chats ?? []).find(one => one?.name === word.about && one.isLeftover !== true))
@@ -874,7 +890,8 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     const ranOn = typeof report?.word === 'string' ? byId.get(report.word) : undefined
     const ahead = ranOn !== undefined && ranOn.to === word.to && ranOn.id !== word.id && ['taken', 'delivered'].includes(ranOn.state) && placeOf.get(ranOn.id) < placeOf.get(word.id)
     // Wave 2: a place with a Done source of its own says "turn ended without it" when its turn ended without the result; the talk has none.
-    const isOwnPlace = OWN_PLACES.includes(place)
+    // P4b round 2: a word of a brainstorm talk (its thread known) has the thread's next stage as its own Done, as a change thread's word has.
+    const isOwnPlace = OWN_PLACES.includes(place) || (place === 'talk' && threadOf(word, threads) !== null)
     // The first moment the board saw a word closed that has no `closedAt` of its own (one the sweep would close): its "closed" line is dated by it.
     const closedKey = `${CLOSED_KEY}${word.id}`
     const closedSeenAt = firstSeen instanceof Map ? firstSeen.get(closedKey) ?? null : null

@@ -145,13 +145,13 @@ test('place 3, Change this goal: only a new goal-definition draft, written after
   const midnight = thread({ started: '2026-11-03 23:50', latest: { n: 1, at: '23:55', answer: { key: 'A' } }, proposal: { at: '00:10', objective: 'After midnight', created: null } })
   const ofMidnight = waitsOf({ state: stateOf([midnight]), outbox: [{ ...word, at: new Date(2026, 10, 4, 0, 5).getTime() }], now: late, keep, judge: wordJudge({ state: stateOf([midnight]), items: new Map(), outbox: [], settings: {}, now: late }), items: new Map() }).c1
   assert.deepEqual([ofMidnight.state, ofMidnight.rest], ['done', 'new definition'])
-  // A brainstorm that changes no goal: the Focus talk, no result of its own.
+  // A brainstorm that changes no goal: its talk word's own Done is the thread's next stage (P4b round 2): a new question written after the word.
   const free = thread({ kind: null, latest: { n: 1, at: hhmm(at(1)), answer: null } })
   const talk = waitsFor({ state: stateOf([free]), outbox: [word], reports: new Map([['Advisor', said('idle', at(1), { word: 'c1', turn: at(2) })]]) })
   assert.equal(talk.c1.place, 'talk')
-  assert.equal(talk.c1.state, 'sent', 'its question is no "Done" of a talk with no result of its own')
+  assert.deepEqual([talk.c1.state, talk.c1.rest], ['done', 'a new question'], 'the next question of the thread is the Done of a talk word')
   const answered = waitsFor({ state: stateOf([free]), outbox: [{ ...word, ...typed() }], reports: new Map([['Advisor', said('idle', at(1), { word: 'c1', turn: at(2) })]]) }).c1
-  assert.deepEqual([answered.state, answered.lead, answered.isFallback], ['done', `Advisor answered ${hhmm(at(1))}`, true])
+  assert.deepEqual([answered.state, answered.rest, answered.isFallback], ['done', 'a new question', undefined])
 })
 
 test('place 4, a goal ask: Done when the partner\'s answer stands under that goal, "answered under G<n>"', () => {

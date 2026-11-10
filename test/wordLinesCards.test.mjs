@@ -127,3 +127,54 @@ test('the partner\'s chat is not running: muted, as landed (fa21ca6), and only w
     assert.equal(lined.all('#brainstorm-card .wait-line').length, 1)
   } finally { await lined.close() }
 })
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Round 2 (the review of 2026-11-10, finding 2): the Brainstorm card's own "Sent…" notes (page memory) are gone: the line is the one status
+// after the REAL buttons: Type it again, Yes that's it, Not quite, Change.
+
+const CHANGE_THREAD = '# Brainstorm: Change: Paths\nGoal: G6 The polish\nKind: change\nStarted: 2026-10-19 09:00 · State: running\nOpening: Rethink the paths.\n\n## Q1 (09:01)\nWhere first?\n- A: By the gate (advised)\n- B: By the pond\nAnswer (09:02): A\n\n## Understood (09:10)\nA path is right when a visitor finds the gate.\n'
+const PROPOSAL = '\n## Proposal (09:20)\nDecided:\n- the gate first\nGoals:\n- [ ] Paths by the gate — under G6 — Done when: a visitor finds the gate at night\nSteps:\n- [ ] Make a path sprite — Units — about 1 h\nNote: most visitors come in by the gate.\n'
+const noNote = page => page.all('#brainstorm-card .brainstorm-note').map(words)
+const statusCount = page => page.all('#brainstorm-card .wait-line, #brainstorm-card .click-unsent, #brainstorm-card .brainstorm-note, #brainstorm-card .brainstorm-waiting').length
+const openWith = async (threadText, waits) => {
+  const made = asSent({ ...build([], undefined, GOALS, { threadTexts: [{ path: PATH, text: threadText, at: 1 }] }), goalsEdit: { canWrite: true }, waits })
+  const page = await openPage({ state: { ...made, talkPartner: talkPartnerOf(made) }, answers: () => reply({}) })
+  await page.click('[data-tab="advice"]')
+  await page.click('[data-advisor-pane="brainstorm"]')
+  return page
+}
+const lineOf = (command, lineState = 'sent') => ({ w1: { state: lineState, lead: lineState === 'late' ? 'Not picked up after 12 min' : `Sent ${hhmm(NOW - 3 * MIN)}`, rest: 'waits for Advisor to pick it up', at: NOW - 3 * MIN, chat: 'Advisor', canSendAgain: false, link: null, place: 'talk', command, about: PATH, goal: 'G6', ask: null, sentAt: NOW - 3 * MIN, title: 'words' } })
+
+test('Brainstorm: after Type it again, Yes that\'s it, Not quite and Change no note of the page stands beside the line: one status', async () => {
+  const again = await openWith(THREAD, lineOf('brainstorm-answer', 'late'))
+  try {
+    await again.click('.brainstorm-again')
+    assert.deepEqual(noNote(again), [], 'no "Typed into the Advisor\'s chat again."')
+    assert.equal(again.sent('/api/brainstorm').length, 1)
+    assert.equal(statusCount(again), 1)
+  } finally { await again.close() }
+  const yes = await openWith(CHANGE_THREAD, lineOf('brainstorm-understood'))
+  try {
+    await yes.click('[data-brainstorm-act="understood-yes"]')
+    assert.deepEqual(noNote(yes), [], 'no "Your partner writes the new goal…"')
+    assert.equal(statusCount(yes), 1)
+  } finally { await yes.close() }
+  const quite = await openWith(CHANGE_THREAD, lineOf('brainstorm-not-quite'))
+  try {
+    await quite.click('[data-brainstorm-act="not-quite"]')
+    await quite.type('#brainstorm-not-quite-text', 'the gate too')
+    await quite.click('[data-brainstorm-act="send-not-quite"]')
+    assert.equal(quite.sent('/api/brainstorm').length, 1)
+    assert.deepEqual(noNote(quite), [], 'no "Sent to your partner: it asks on."')
+    assert.equal(statusCount(quite), 1)
+  } finally { await quite.close() }
+  const change = await openWith(`${THREAD}${PROPOSAL}`, lineOf('brainstorm-change'))
+  try {
+    await change.click('[data-brainstorm-act="change"]')
+    await change.type('#brainstorm-change-text', 'add one for the pond')
+    await change.click('[data-brainstorm-act="send-change"]')
+    assert.equal(change.sent('/api/brainstorm').length, 1)
+    assert.deepEqual(noNote(change), [], 'no "Sent to the Advisor: it writes the proposal anew."')
+    assert.equal(statusCount(change), 1)
+  } finally { await change.close() }
+})

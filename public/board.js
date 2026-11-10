@@ -13761,7 +13761,7 @@ function brainstormPartnerView(thread, partner) {
 const brainstormCanAgain = wait => wait !== null && wait !== undefined && (wait.state === 'late' || wait.isTurnEnded === true)
 
 /** The one small word a thread carries in the list and in its head, and its tone: your turn, the partner's states, or how it ended. */
-function brainstormStatusOf(thread, partner, now = null) {
+function brainstormStatusOf(thread, partner, now = null, isStuck = false) {
   const turn = brainstormTurnOf(thread)
   if (turn === 'person') return { word: 'your turn', tone: 'person' }
   if (turn === 'over') {
@@ -13770,8 +13770,9 @@ function brainstormStatusOf(thread, partner, now = null) {
     // 2026-10-31: the person closed it ("Close it", or by hand with the board's Closed line).
     return (thread.closed ?? null) !== null ? { word: 'closed', tone: 'done' } : { word: 'done', tone: 'done' }
   }
-  // P4b: the word says whose turn it is, never how the partner is doing: that is the card's line.
-  return { word: `with your ${talkWho(partner)}`, tone: 'waiting' }
+  // P4b: the word says whose turn it is, never how the partner is doing: that is the card's line. Except where the records say the word got
+  // no answer (its line is Late, or its turn ended without it): then the row does not read as if the partner holds it.
+  return isStuck ? { word: `no answer from your ${talkWho(partner)}`, tone: 'stuck' } : { word: `with your ${talkWho(partner)}`, tone: 'waiting' }
 }
 
 /** What a thread says about itself in a tooltip: its kind, who it is with, how it stands, when it started, and the goal it is about. */
@@ -13955,7 +13956,7 @@ function brainstormLeftKey(title) { return String(title ?? '').replace(/\s+/g, '
  * or its proposal created, also while its state still says running). `running` (active, then older) and `done` (closed) as
  * before. `partner` is the state's talkPartner (talkPartnerIn), `now` the state's time.
  */
-function brainstormListView(threads, partner = null, now = null) {
+function brainstormListView(threads, partner = null, now = null, isStuckOf = () => false) {
   const active = []
   const older = []
   const closed = []
@@ -13963,7 +13964,7 @@ function brainstormListView(threads, partner = null, now = null) {
   for (const thread of threads ?? []) {
     const day = String(thread.started ?? '').slice(0, 10)
     const count = thread.questions === 0 ? null : `${thread.questions} question${thread.questions === 1 ? '' : 's'}`
-    const status = brainstormStatusOf(thread, partner, now)
+    const status = brainstormStatusOf(thread, partner, now, isStuckOf(thread) === true)
     const movedAt = brainstormLastMoveMs(thread)
     const age = Number.isFinite(now) && movedAt !== null ? brainstormAge(movedAt, now) : null
     const word = age === null ? status.word : `${status.word.replace(/ · nothing sent$/, '')} · ${age}`
@@ -14129,7 +14130,9 @@ function brainstormData(state) {
     // 2026-10-31: where the new tasks of a created proposal stand now (the Result card).
     (state.brainstorms?.threads ?? []).filter(thread => thread.path === brainstormChosen(state.brainstorms?.threads ?? [], brainstormUi.open) && (thread.proposal?.created ?? null) !== null).map(thread => brainstormResultOf(thread, state)),
     // T22 wave 2: the line of the chosen thread's last word, and the minute while it shows (a Done line goes after 10 minutes).
-    (state.brainstorms?.threads ?? []).filter(thread => thread.path === brainstormChosen(state.brainstorms?.threads ?? [], brainstormUi.open)).map(thread => waitKeyOf(threadWaitView(state, thread)))]
+    (state.brainstorms?.threads ?? []).filter(thread => thread.path === brainstormChosen(state.brainstorms?.threads ?? [], brainstormUi.open)).map(thread => waitKeyOf(threadWaitView(state, thread))),
+    // P4b round 2: the list's row says "no answer" for a thread whose line is Late or turn-ended: each thread's flag is in the key.
+    (state.brainstorms?.threads ?? []).map(thread => brainstormCanAgain(threadWaitView(state, thread)))]
 }
 
 /** T22 wave 2, places 3 and 7: the line of the newest word of the person's about a thread (a change of a goal, or a talk), as a part draws it; null for none or one past its Done. */
@@ -14168,7 +14171,7 @@ function drawBrainstorm(state) {
   const waits = (state.brainstormNeeds ?? []).length
   $('advisor-brainstorm-count').textContent = waits === 0 ? '' : String(waits)
   const partner = talkPartnerIn(state)
-  const list = brainstormListView(threads, partner, state.readAt ?? null)
+  const list = brainstormListView(threads, partner, state.readAt ?? null, thread => brainstormCanAgain(threadWaitView(state, thread)))
   const chosen = brainstormChosen(threads, brainstormUi.open)
   const start = el('button', 'brainstorm-start', '+ New brainstorm…')
   start.type = 'button'
@@ -14271,7 +14274,7 @@ function brainstormHead(thread, view, canWrite, isLive) {
   const title = el('h3', 'brainstorm-title', thread.title)
   title.title = view.tip
   // P4b: whose turn it is shows in the head; while the partner has it, the card's one status is the line under the head (the list says "with your partner").
-  head.append(title, ...(view.status.tone === 'waiting' ? [] : [el('small', `brainstorm-status is-${view.status.tone}`, view.status.word)]), el('span', 'brainstorm-gap'), brainstormMenu(thread, view, canWrite, isLive))
+  head.append(title, ...(['waiting', 'stuck'].includes(view.status.tone) ? [] : [el('small', `brainstorm-status is-${view.status.tone}`, view.status.word)]), el('span', 'brainstorm-gap'), brainstormMenu(thread, view, canWrite, isLive))
   return head
 }
 
@@ -14785,8 +14788,8 @@ async function brainstormAct(act, path, key = null) {
     brainstormUi.busy = true
     brainstormUi.note = null
     redrawBrainstorm()
-    const again = await clickBrainstorm({ command: 'again', path, word }, path)
-    if (again !== null && again.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: who === 'partner' ? 'Typed into the Advisor\'s chat again.' : `Typed into your ${who}'s chat again.` }
+    // P4b: the word's own line is the status: no "Typed into…" note beside it.
+    await clickBrainstorm({ command: 'again', path, word }, path)
     brainstormUi.busy = false
     return redrawBrainstorm()
   }
@@ -14832,8 +14835,7 @@ async function brainstormAct(act, path, key = null) {
       if (await clickBrainstorm({ path, n, ...answer }, path) !== null) brainstormUi.other.delete(path)
     } else if (act === 'understood-yes') {
       // "Change this goal": the yes is written under what the partner understood, then typed to it: it writes the proposal.
-      const yes = await clickBrainstorm({ command: 'understood', path, yes: true }, path)
-      if (yes !== null && yes.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: 'Your partner writes the new goal and the tasks it needs.' }
+      await clickBrainstorm({ command: 'understood', path, yes: true }, path)
     } else if (act === 'send-not-quite') {
       const words = brainstormUi.notQuiteWords.trim()
       if (words === '') brainstormUi.note = { path, isProblem: true, text: 'Say what is not quite it.' }
@@ -14842,7 +14844,6 @@ async function brainstormAct(act, path, key = null) {
         if (quite !== null) {
           brainstormUi.notQuite = null
           brainstormUi.notQuiteWords = ''
-          if (quite.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: `Sent to your ${who}: it asks on.` }
         }
       }
     } else if (act === 'wrap') {
@@ -14861,7 +14862,6 @@ async function brainstormAct(act, path, key = null) {
         if (changed !== null) {
           brainstormUi.changing = null
           brainstormUi.changeWords = ''
-          if (changed.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: 'Sent to the Advisor: it writes the proposal anew.' }
         }
       }
     } else if (act === 'steps-again') {
@@ -17271,7 +17271,8 @@ function focusPickCard(view, state) {
     if (row.hasDoneWhen) line.append(pickButton(row))
     else if (asked !== null) {
       line.append(drawWaitLine(asked))
-      if (asked.state === 'late') {
+      // Late, or ended ("no answer recorded in 24 h"): the word will not come by itself, so the button is back.
+      if (asked.state === 'late' || asked.isEnded === true) {
         const again = focusButton(view.pick.askAgain, 'goals-action focus-ask-done-when')
         again.dataset.focusGoal = row.id
         line.append(again)
@@ -18656,7 +18657,7 @@ function focusVibeThereCard(view, can, forRecap = [], state = null) {
     card.append(see)
   } else {
     // P4b: with a line of the demo's word on this card, the line is the one status: the card's own sentence says no more.
-    if (state === null || focusWordLine(state, FOCUS_LINE_COMMANDS.there).length === 0) card.append(el('p', 'focus-demo-wait', demo.text))
+    if (state === null || focusWordLine(state, ['goal-demo']).length === 0) card.append(el('p', 'focus-demo-wait', demo.text))
     if (demo.again !== null) card.append(focusButton(demo.again, 'focus-ask-demo'))
   }
   const lines = el('ul', 'focus-ticks')
@@ -18860,8 +18861,10 @@ function drawFocus(state) {
       const left = el('div', 'focus-column')
       left.append(view.blocks?.chosen === 'open' && view.openNow !== null ? focusOpenNowCard(view) : focusRunCard(view), focusBar(view.talkBar, state.focus?.rethinkTopics ?? []), ...[focusTalkLine(state)].filter(one => one !== null))
       const right = el('div', 'focus-column')
+      // P4b: the 'there' line stands once: under the question's card when it is drawn, else under the re-check card.
+      const isThereDrawn = recapReady === null && view.vibeThere !== null
       if (view.guard !== null && view.guard !== undefined) right.append(focusGuardCard(view.guard))
-      if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck), ...focusWordLine(state, FOCUS_LINE_COMMANDS.there))
+      if (view.recheck !== null && view.recheck !== undefined) right.append(focusRecheckCard(view.recheck), ...(isThereDrawn ? [] : focusWordLine(state, FOCUS_LINE_COMMANDS.there)))
       // Autopilot (2026-10-31): the asks that wait for the goal's recap, under the goal; "Did we reach the goal?" lists them first.
       const forRecap = recapReady === null ? allRecapAsks : []
       // 2026-11-01 (the coordinator): while the recap card shows (verdicts wait) "Did we reach the goal?" is not drawn at all: the recap

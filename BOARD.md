@@ -389,7 +389,7 @@ your opening words; the list at the left is a slim row per brainstorm in three g
 **Active** (running, its last move within 3 days, or waiting on you), **Older, still open** (running, its last move over 3
 days ago) and **Closed** (done, created, discarded, or closed by you); each row its title and one small word with its age:
 "your turn · 2 h ago", "with your partner · 6 days ago" (whose turn it is, never how the partner does: no "thinking", no
-"stopped"), "done", "closed", "created" or "discarded" (the
+"stopped"), or "no answer from your partner" where the records say the word got none (its line is Late, or its turn ended without it), "done", "closed", "created" or "discarded" (the
 dates and counts are in the row's tooltip); with a Product owner listed (the list of chats' `"owner"`, 2026-10-31) the words
 say "your Product owner", and every talk goes to it, its card under the Advisor's; at the right the open one has a head
 (its title, the same word on your turn or at the end, a small "…" menu: the thread file, "Type it to your partner again" only where the records say so (its line is Late, or its turn ended without the answer), "Close it" on an old open
