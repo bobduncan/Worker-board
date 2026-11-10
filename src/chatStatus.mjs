@@ -131,6 +131,8 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
   if (hand === 'restarting' || (modRun !== null && (modRun.status === 'asked' || modRun.status === 'due'))) return out(STATUSES.RESTARTING, 'the new Workers mod')
   const isNewConversation = finite(clearedAt) && now - clearedAt <= RESTART_SHOWN_MS && !(reportAt !== null && reportAt >= clearedAt)
   if (isNewConversation) return out(STATUSES.RESTARTING, 'a new conversation', clearedAt)
+  // Rule 15: a step held with an ask held for the person's words: its chat re-checks that ask; quiet, not a stopped worker.
+  if (state === 'interrupted' && typeof lane.heldAsk === 'string' && !asleep) return out(STATUSES.PAUSED, `waits for its re-check of ${lane.heldAsk}`, report?.since)
   // 9. Stopped: idle or ended while holding a step.
   if (state === 'interrupted') {
     // Signals change 3: the hand-over asked it to go on (its "go on" line of this stopped spell).

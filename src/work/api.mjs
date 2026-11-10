@@ -1064,7 +1064,7 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
     if (joined.found) {
       // Rule 15: a question that joins another chat's ask is a re-ask too: this chat's held asks under the goal end with it.
       const target = joined.done?.result?.merged
-      if (typeof target === 'string' && !['person', 'server'].includes(w.role)) await endHoldByReask(w, valueOf(of.item, 'Id'), target)
+      if (typeof target === 'string' && !['person', 'server'].includes(w.role)) await endHoldByReask(w, reasksOf(body, text), target)
       return joined.done
     }
   }
@@ -1080,7 +1080,7 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
       : forYouBlock({ id, of: stepId ?? goal, kind, blocking, title, options, advice, pictures, play, places: placesIn([title, ...options, advice].join(' '), placesKnown(w, id)) }, w.boardUrl ?? '')
   const routed = route === null ? {} : { route }
   // Rule 15: the chat re-asks what the person's words held: the held ask under the same step or goal is withdrawn, re-asked as this one.
-  const endHold = () => (['person', 'server'].includes(w.role) || via === 'form' ? null : endHoldByReask(w, isAlone ? goal : stepId, id))
+  const endHold = () => (['person', 'server'].includes(w.role) || via === 'form' ? null : endHoldByReask(w, reasksOf(body, text), id))
   if (isAlone) {
     await endHold()
     return changed(question, `${block}${unlinkedNote}`, routed)
@@ -1103,18 +1103,23 @@ Note: ${unlinked} is no link the person can open (the game runs only while the b
 }
 
 /**
- * Rule 15: the hold ends when the asking chat asks anew: every ask of this chat held under the goal of the new ask (`of`, its step or
- * its goal: the person's words on a goal hold the asks of its steps, so a re-ask under another step of the goal answers them too) is
- * withdrawn with `re-asked as <new>`, one History line on each; the new ask is routed as any new ask. A fault is never the new ask's.
+ * The held asks a new ask names as the ones it asks again: `why` ("re-asks Q711", the one field the Workers mod forwards), `reasks`
+ * (for a later mod), or "re-asks Q711" / "replaces Q711" in its title or words. An unrelated question never ends a hold: the chat
+ * would lose the one the person's words held (it files Q716 before it reads the word, Q711 is withdrawn, and nobody asks it again).
  */
-async function endHoldByReask(w, of, newId) {
-  const goalOfId = id => (GOAL_ID.test(id ?? '') ? id : valueOf(w.store.items.get(id) ?? { head: new Map() }, 'Goal'))
-  const goal = goalOfId(of)
-  const isSame = one => {
-    const at = valueOf(one, 'Of')
-    return at === of || (goal !== null && at !== null && goalOfId(at) === goal)
-  }
-  const held = [...w.store.items.values()].filter(one => isHeld(one) && isSame(one) && isOwner(one, w.who, w.prefix) && valueOf(one, 'Id') !== newId)
+function reasksOf(body, text) {
+  const words = [body.why, body.reasks, body.title, ...text].map(one => String(one ?? '')).join(' ')
+  const named = [...words.matchAll(/\b(?:re-?asks?|replaces?)\s+(Q\d+)\b/gi)].map(one => one[1].toUpperCase())
+  const listed = (Array.isArray(body.reasks) ? body.reasks : [body.reasks]).map(one => String(one ?? '').trim().toUpperCase()).filter(one => /^Q\d+$/.test(one))
+  return new Set([...named, ...listed])
+}
+
+/**
+ * Rule 15: the hold ends when the asking chat asks the held ask again, naming it (`reasksOf`): each such ask of this chat that is held
+ * is withdrawn with `re-asked as <new>`, one History line on each; the new ask is routed as any new ask. A fault is never the new ask's.
+ */
+async function endHoldByReask(w, named, newId) {
+  const held = [...w.store.items.values()].filter(one => isHeld(one) && named.has(valueOf(one, 'Id')) && isOwner(one, w.who, w.prefix) && valueOf(one, 'Id') !== newId)
   for (const one of held) {
     const id = valueOf(one, 'Id')
     const done = await withdraw({ id, why: `re-asked as ${newId}` }, w)
@@ -1567,7 +1572,8 @@ async function holdAsksFor(w, { goal, step, minute, where, words: said_ }) {
     if (!done.ok) return done
     held.push(id)
     const owner = valueOf(item, 'Owner')
-    if (owner !== null) wakes.push({ to: owner, id, line: `the person's words at ${minute} on ${about}: re-ask or withdraw ${id}, or say it still stands`, kind: 'words' })
+    // The words themselves: goal words live only in the goal map and `work next` does not show them.
+    if (owner !== null) wakes.push({ to: owner, id, line: `the person's words at ${minute} on ${about}: "${line(said_, 300)}" — re-ask ${id} with work ask (why="re-asks ${id}"), withdraw it, or say it still stands`, kind: 'words' })
   }
   let note = null
   if (goal !== null) {
@@ -1582,7 +1588,7 @@ async function holdAsksFor(w, { goal, step, minute, where, words: said_ }) {
       // One note to Main per goal per window: while the note about this goal is unread, later words add to it (a person who thinks
       // aloud in chat 2 would otherwise fill Main's list with one note per sentence).
       const standing = items.find(one => kindOf(one) === 'note' && stateOf(one) === 'unread' && valueOf(one, 'From') === 'server' && valueOf(one, 'To') === 'main'
-        && (one.sections.get('About') ?? []).includes(goal) && (one.sections.get('Text') ?? [])[0]?.startsWith('For the partner ('))
+        && valueOf(one, 'Main read') === null && (one.sections.get('About') ?? []).includes(goal) && (one.sections.get('Text') ?? [])[0]?.startsWith('For the partner ('))
       if (standing !== undefined) {
         const loaded = await load(valueOf(standing, 'Id'), w, { kind: ['note'] })
         if (loaded.ok && stateOf(loaded.item) === 'unread') {
@@ -1700,8 +1706,11 @@ async function holdsEnded(body, w) {
   // Not while the person pauses, and not while the board resumes either: a resume (up to 20 minutes) would count the whole pause as running time.
   if (w.store.pause != null && w.store.pause.state !== 'running') return { ok: true, result: { released: [], wakes: [], text: 'Paused: no hold ends.', changed: false } }
   const off = offMsOf(body.gaps, w.now)
-  const counted = from => afterPause(w.store.pause, from)
-  const due = heldAsksDue({ items: w.store.items, now: w.now, runningMs: from => w.now - counted(from) - off(counted(from)) })
+  // The board's running time since `from`: the pause's span is taken out, never the whole stretch before its end (a pause must not
+  // restart the 60 minutes: a hold would then last for ever under pauses).
+  const pause = w.store.pause
+  const paused = from => (Number.isFinite(pause?.pausedSince) && Number.isFinite(pause?.since) ? Math.max(0, Math.min(w.now, pause.since) - Math.max(from, pause.pausedSince)) : 0)
+  const due = heldAsksDue({ items: w.store.items, now: w.now, runningMs: from => w.now - from - paused(from) - off(from) })
   const released = []
   const wakes = []
   for (const one of due) {
@@ -2094,6 +2103,8 @@ async function autopilot(body, w) {
       // take-back (their words stand on its card).
       const isAgain = isBoardRoutedPerson(item)
       if (valueOf(item, 'Via') === 'refine') continue
+      // Rule 15: an ask that was held and released stays with the person: no pass routes it again (it would escalate and be held again).
+      if (wasReleased(item)) continue
       if (!isAgain && (isAutopilotRouted(item) || (route !== null && !(route === 'person' && !isExplicitPerson(item))))) continue
       const decided = autopilotRoute(item, isAgain ? { ...ctx, again: true } : ctx)
       if (isAgain && decided.to === 'person') continue

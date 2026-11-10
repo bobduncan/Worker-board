@@ -16,7 +16,7 @@ import vm from 'node:vm'
 import { parseGoals } from '../../src/goals.mjs'
 import { keepGoalWords } from '../../src/goalsWrite.mjs'
 import { workApi } from '../../src/work/api.mjs'
-import { HOLD_MINUTES, heldAsksDue, isHeld, isHoldLine } from '../../src/work/askHold.mjs'
+import { HOLD_MINUTES, heldAsksDue, isHeld, isHoldLine, wasReleased } from '../../src/work/askHold.mjs'
 import { DEFAULT_FLOW } from '../../src/work/flow.mjs'
 import { parseItem } from '../../src/work/item.mjs'
 import { reconcile } from '../../src/work/reconcile.mjs'
@@ -99,7 +99,8 @@ test('the person\'s words on G60 from a side chat: Q711 and Q712 are held, the o
   assert.equal(section(all, 'Q713', 'History').length, 1)
   // A word to each asking chat, through the normal `wakes` of the result.
   assert.deepEqual(said.result.wakes.map(one => [one.to, one.id, one.kind]), [['Worker 5', 'Q711', 'words'], ['Advisor', 'Q712', 'words']])
-  assert.equal(said.result.wakes[0].line, 'the person\'s words at 16:20 on G60: re-ask or withdraw Q711, or say it still stands')
+  // The word carries the person's words themselves (goal words live only in the goal map) and names the re-ask that ends the hold.
+  assert.equal(said.result.wakes[0].line, `the person's words at 16:20 on G60: "${DECISION}" — re-ask Q711 with work ask (why="re-asks Q711"), withdraw it, or say it still stands`)
   // One note to the partner: the unstarted steps of the goal, not the one in progress, not another goal's.
   const note = all.get(said.result.note)
   // To the main chat, for the partner: only a note To main (or the person) is read by anyone (lists.mjs notesToMain); Main relays it.
@@ -157,7 +158,7 @@ test('the hold ends three ways: the chat re-asks (the held one is withdrawn "re-
   const b = await open(t)
   await side(b, wordsOn('G60'))
   // Worker 5 asks again under B1091, in the held ask's own words: a held ask is no repeat.
-  const again = await chat(b, 'Worker 5', { action: 'ask', of: 'B1091', kind: 'decide', title: 'Which stairs for Q711?', text: ['Which stairs for Q711?'] }, NOW + 5 * MIN)
+  const again = await chat(b, 'Worker 5', { action: 'ask', of: 'B1091', kind: 'decide', title: 'Which stairs for Q711?', why: 're-asks Q711', text: ['Which stairs for Q711?'] }, NOW + 5 * MIN)
   assert.equal(again.ok, true, again.why)
   assert.equal(again.result.id, 'Q715')
   let all = await items(b)
@@ -320,8 +321,8 @@ test('review 5 and 6: no release while the board resumes either; a release goes 
   await side(b, wordsOn('G60'))
   await writeFile(join(b.dir, 'pause.json'), JSON.stringify({ state: 'resuming', since: NOW + 5 * MIN, by: 'person' }))
   assert.deepEqual((await server(b, { action: 'holds-ended', gaps: [] }, NOW + 120 * MIN)).result.released, [], 'resuming counts no running time')
-  await writeFile(join(b.dir, 'pause.json'), JSON.stringify({ state: 'running', since: NOW + 100 * MIN, by: 'person' }))
-  assert.deepEqual((await server(b, { action: 'holds-ended', gaps: [] }, NOW + 120 * MIN)).result.released, [], 'the 60 minutes count from the end of the pause')
+  await writeFile(join(b.dir, 'pause.json'), JSON.stringify({ state: 'running', since: NOW + 100 * MIN, pausedSince: NOW + 5 * MIN, by: 'person' }))
+  assert.deepEqual((await server(b, { action: 'holds-ended', gaps: [] }, NOW + 120 * MIN)).result.released, [], 'the pause (95 minutes) is taken out: 25 running minutes')
   const at = NOW + 161 * MIN
   const ended = await server(b, { action: 'holds-ended', gaps: [] }, at)
   assert.deepEqual(ended.result.released, ['Q711', 'Q712'])
@@ -367,7 +368,7 @@ test('review 8: a re-ask of the same goal ends the chat\'s holds there too, also
   t.after(() => rm(b.dir, { recursive: true, force: true }))
   await side(b, wordsOn('G60'))
   // By goal, not by exact step: Q711 is of B1091, the new ask is of B1094 (the same goal).
-  const under = await chat(b, 'Worker 5', { action: 'ask', of: 'B1094', kind: 'decide', title: 'Which stairs now?', text: ['Which stairs now?'] }, NOW + 5 * MIN)
+  const under = await chat(b, 'Worker 5', { action: 'ask', of: 'B1094', kind: 'decide', title: 'Which stairs now?', why: 're-asks Q711', text: ['Which stairs now?'] }, NOW + 5 * MIN)
   assert.equal(under.ok, true, under.why)
   assert.equal(field(await items(b), 'Q711', 'State'), 'withdrawn')
   assert.match(section(await items(b), 'Q711', 'History').at(-1), /withdrawn: re-asked as Q\d+$/)
@@ -380,11 +381,11 @@ test('review 8: a re-ask of the same goal ends the chat\'s holds there too, also
   })
   t.after(() => rm(held.dir, { recursive: true, force: true }))
   await side(held, wordsOn('G60'))
-  const joined = await chat(held, 'Worker 5', { action: 'ask', of: 'B1095', kind: 'decide', title: 'A different stairs question?', text: ['A different stairs question?'] }, NOW + 5 * MIN)
+  const joined = await chat(held, 'Worker 5', { action: 'ask', of: 'B1095', kind: 'decide', title: 'A different stairs question?', why: 're-asks Q741', text: ['A different stairs question?'] }, NOW + 5 * MIN)
   assert.equal(joined.ok, true, joined.why)
   assert.equal(joined.result.merged, 'Q740', "the question joined the other chat's ask")
   const all = await items(held)
-  assert.deepEqual(['Q711', 'Q741'].map(id => field(all, id, 'State')), ['withdrawn', 'withdrawn'])
+  assert.deepEqual(['Q711', 'Q741'].map(id => field(all, id, 'State')), ['open', 'withdrawn'], 'only the named one ends')
   assert.match(section(all, 'Q741', 'History').at(-1), /withdrawn: re-asked as Q740$/)
 })
 
@@ -450,9 +451,9 @@ test('review 13: the person\'s words on a goal add to the unread note about that
   assert.match(words, /Every map is painted whole by Codex/)
   assert.match(words, /And the stairs are smaller too/)
   assert.match(field(all, first.result.note, 'Text'), /^For the partner \(Advisor\): the person's words at 16:20/)
-  // Read by the main chat (no longer unread): the next words make a new note.
-  const file = join(b.dir, `${first.result.note}.md`)
-  await writeFile(file, (await readFile(file, 'utf8')).replace('State: unread', 'State: read'))
+  // Read by the main chat with its real read (`work next` sets `Main read`, the State stays unread): the next words make a new note.
+  assert.match((await chat(b, 'Main', { action: 'next' }, NOW + 15 * MIN)).result.text, /Notes for you/)
+  assert.notEqual(field(await items(b), first.result.note, 'Main read'), null)
   const third = await side(b, wordsOn('G60', { text: ['Later still.'] }), NOW + 20 * MIN)
   assert.notEqual(third.result.note, first.result.note)
 })
@@ -480,4 +481,95 @@ test('review 3: the held asks, goal-level too, are one quiet line each; the page
   assert.deepEqual(plain(heldPage.heldLinesView(needs)).map(one => [one.id, one.words, one.href]), [['Q711', 'Q711 held: Worker 5 re-checks it after your words at 16:20', '#details=Q711']])
   assert.deepEqual(plain(heldPage.withoutHeldLines(needs)).map(one => one.id), ['work:Q713'])
   assert.deepEqual(plain(heldPage.heldLinesView([])), [])
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Round 3 (2026-11-10, the verifier): a re-ask must name the held ask; a release is remembered in the History; a pause is taken out of the 60 minutes.
+
+test("round 3, point 1: an unrelated new ask under the goal leaves the held ask held; one that says why=\"re-asks Q711\" ends it; the join path too; the title or text may name it", async t => {
+  const b = await board({ B1094: step('B1094', 'in progress', { Owner: 'Worker 5' }) })
+  t.after(() => rm(b.dir, { recursive: true, force: true }))
+  await side(b, wordsOn('G60'))
+  const unrelated = await chat(b, 'Worker 5', { action: 'ask', of: 'B1094', kind: 'decide', title: 'Which roof tiles?', text: ['Which roof tiles?'] }, NOW + 5 * MIN)
+  assert.equal(unrelated.ok, true, unrelated.why)
+  assert.equal(field(await items(b), 'Q711', 'State'), 'open')
+  assert.equal(field(await items(b), 'Q711', 'Route'), 'asker', 'an unrelated question never ends the hold')
+  const named = await chat(b, 'Worker 5', { action: 'ask', of: 'B1094', kind: 'decide', title: 'Which stairs now?', why: 're-asks Q711', text: ['Which stairs now?'] }, NOW + 6 * MIN)
+  assert.equal(named.ok, true, named.why)
+  assert.match(section(await items(b), 'Q711', 'History').at(-1), new RegExp(`withdrawn: re-asked as ${named.result.id}$`))
+  // Another chat's held ask is never ended by this chat's re-ask, and the words in the title count too.
+  const other = await board({ B1094: step('B1094', 'in progress', { Owner: 'Worker 6' }), Q750: ask('Q750', { Owner: 'Worker 6', Of: 'B1094', Route: 'person' }, 50) })
+  t.after(() => rm(other.dir, { recursive: true, force: true }))
+  await side(other, wordsOn('G60'))
+  await chat(other, 'Worker 6', { action: 'ask', of: 'B1094', kind: 'decide', title: 'Replaces Q711 for real', text: ['x'] }, NOW + 5 * MIN)
+  assert.equal(field(await items(other), 'Q711', 'Route'), 'asker', 'Q711 is Worker 5\'s')
+  const titled = await chat(other, 'Worker 6', { action: 'ask', of: 'B1094', kind: 'decide', title: 'Which stairs, replaces Q750?', text: ['x'] }, NOW + 6 * MIN)
+  assert.equal(titled.ok, true, titled.why)
+  assert.equal(field(await items(other), 'Q750', 'State'), 'withdrawn')
+  // The join path: an unrelated question that joins another chat's ask ends nothing; one that names the held ask ends it.
+  const held = await board({
+    B1095: step('B1095', 'in progress', { Owner: 'Worker 5' }),
+    Q740: ask('Q740', { Owner: 'Worker 6', Of: 'B1095', Route: 'person' }, -10),
+  })
+  t.after(() => rm(held.dir, { recursive: true, force: true }))
+  await side(held, wordsOn('G60'))
+  const plainJoin = await chat(held, 'Worker 5', { action: 'ask', of: 'B1095', kind: 'decide', title: 'Something else entirely?', text: ['Something else entirely?'] }, NOW + 5 * MIN)
+  assert.equal(plainJoin.result.merged, 'Q740')
+  assert.equal(field(await items(held), 'Q711', 'Route'), 'asker')
+  const namedJoin = await chat(held, 'Worker 5', { action: 'ask', of: 'B1095', kind: 'decide', title: 'The stairs again?', why: 're-asks Q711', text: ['The stairs again?'] }, NOW + 6 * MIN)
+  assert.equal(namedJoin.result.merged, 'Q740')
+  assert.match(section(await items(held), 'Q711', 'History').at(-1), /withdrawn: re-asked as Q740$/)
+})
+
+test('round 3, point 2: a release is read from the History, so an escalate that replaces the Route section does not make the ask holdable again; the sweep leaves it with the person', async t => {
+  const b = await open(t)
+  await side(b, wordsOn('G60'))
+  await server(b, { action: 'holds-ended', gaps: [] }, NOW + 61 * MIN)
+  // What `escalate` does to a released ask that was routed to the partner meanwhile: Route and the Route section replaced.
+  const file = join(b.dir, 'Q711.md')
+  const text = (await readFile(file, 'utf8')).replace('Route: person', 'Route: partner').replace(/## Route\n(?:[^\n]+\n)+/,'## Route\nYour partner hands this to you: no advice\n')
+  await writeFile(file, text)
+  assert.equal(wasReleased(parseItem(text)), true, 'the History says it')
+  assert.deepEqual((await side(b, wordsOn('G60', { text: ['More words.'] }), NOW + 90 * MIN)).result.held, ['Q714'])
+  // Autopilot never routes a released ask again: Q712 stays Route person after the pass.
+  await server(b, { action: 'autopilot', on: true }, NOW + 95 * MIN)
+  assert.equal(field(await items(b), 'Q712', 'Route'), 'person')
+  assert.equal(section(await items(b), 'Q712', 'History').some(one => / autopilot: routed to /.test(one)), false)
+})
+
+test('round 3, point 4: the unread-note check also needs `Main read` empty; after the main chat reads the note (its real read), later words make a new one', async t => {
+  const b = await open(t)
+  const first = await side(b, wordsOn('G60'))
+  assert.match((await chat(b, 'Main', { action: 'next' }, NOW + 5 * MIN)).result.text, /Notes for you/)
+  const second = await side(b, wordsOn('G60', { text: ['A later thought.'] }), NOW + 10 * MIN)
+  assert.notEqual(second.result.note, first.result.note)
+  assert.doesNotMatch(section(await items(b), first.result.note, 'Text').join(' '), /A later thought/)
+})
+
+test('round 3, point 5: a pause is taken out of the 60 minutes, not a restart of them: held at 16:20, paused 16:40 to 17:00, due at 17:40', async t => {
+  const b = await open(t)
+  await side(b, wordsOn('G60'))
+  await writeFile(join(b.dir, 'pause.json'), JSON.stringify({ state: 'running', since: NOW + 40 * MIN, pausedSince: NOW + 20 * MIN, by: 'person' }))
+  assert.deepEqual((await server(b, { action: 'holds-ended', gaps: [] }, NOW + 79 * MIN)).result.released, [])
+  assert.deepEqual((await server(b, { action: 'holds-ended', gaps: [] }, NOW + 80 * MIN)).result.released, ['Q711', 'Q712'])
+})
+
+test('round 3, point 6: the hold word carries the person\'s words themselves, cut at 300 characters', async t => {
+  const b = await open(t)
+  const long = `${'Stairs are final. '.repeat(30)}THE END`
+  const said = await side(b, wordsOn('G60', { text: [long] }))
+  const line = said.result.wakes[0].line
+  assert.match(line, /^the person's words at 16:20 on G60: "Stairs are final\./)
+  assert.doesNotMatch(line, /THE END/)
+  assert.ok(line.length < 560, String(line.length))
+  assert.match(line, /re-ask Q711 with work ask \(why="re-asks Q711"\), withdraw it, or say it still stands$/)
+})
+
+const waitingPage = {}
+vm.runInNewContext(`${script.slice(script.indexOf('// waiting:start'), script.indexOf('// waiting:end'))}\nObject.assign(this, { needOfLane })`, waitingPage)
+
+test('round 3, point 7: the lane\'s need to open is never a held line', () => {
+  const needs = [{ id: 'held:Q711', kind: 'held', ask: 'Q711', from: 'Worker 5', title: 'Q711 held' }, { id: 'work:Q713', kind: 'input', workId: 'Q713', from: 'Worker 5', title: 'x' }]
+  assert.equal(waitingPage.needOfLane(needs, 'Worker 5'), 'work:Q713')
+  assert.equal(waitingPage.needOfLane([needs[0]], 'Worker 5'), null)
 })

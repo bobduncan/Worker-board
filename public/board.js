@@ -7301,7 +7301,7 @@ function taskCheckLines(points) {
  * it filed that is not answered yet, else the one that was answered last. Null when the lane has none.
  */
 function needOfLane(needs, name) {
-  const mine = needs.filter(need => need.from === name && need.kind !== 'intervene' && need.activity === undefined && need.isClosed !== true)
+  const mine = needs.filter(need => need.from === name && need.kind !== 'intervene' && need.kind !== 'held' && need.activity === undefined && need.isClosed !== true)
   const isOpen = need => (need.answer ?? null) === null
   return (mine.find(need => need.id.startsWith(`chat:${name}:`) && isOpen(need)) ?? mine.find(isOpen) ?? mine[0] ?? null)?.id ?? null
 }

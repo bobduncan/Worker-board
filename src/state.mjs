@@ -2444,6 +2444,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   // Signals change 2 (the brief of 2026-10-31): every chat's ONE status, from one pure function (chatStatus.mjs), display only: `state`,
   // `isRunning`, `asleep`, `report` and `handover` stay as the decisions read them; nothing here is read back by one.
   const isPersonPause = pause?.state === 'pausing'
+  const plainOwner = owner => String(owner ?? '').replace(prefix, '').trim().toLowerCase()
   const statusFor = (lane, { handover = null, modRun = null } = {}) => {
     if (lane.isLeftover === true) return { status: null, why: null, since: null, reportAt: null, age: null }
     // The moved card keeps `cleared.at` after a clear (register.tsx): a new conversation that has not reported reads Restarting.
@@ -2451,7 +2452,10 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     const isUnsaved = isPersonPause && (pause.unsaved ?? []).some(one => one?.chat === lane.name && ((lane.task?.stepId ?? null) === null || one.id === lane.task.stepId))
     // The lazy clear (R3, D6): the clear stage of its envelope in flight, for the Handing pill's why.
     const clearing = handover?.state === 'handing' ? clearingOf(envelopesOf(sent, lane.name, prefix)) : null
-    return statusOf({ lane, handover, modRun, clearedAt: Number.isFinite(cleared) ? cleared : null, isPersonPause, isUnsaved, clearing, now, unknownAfterMs })
+    // Rule 15: a worker that holds a step with an ask held for the person's words waits for its own re-check: quiet, never "Stopped".
+    const heldAsk = lane.isMain === true || !workOk ? null : itemsOf(raw.work).find(one => isHeld(one) && plainOwner(one.head.get('Owner')) === lane.name.toLowerCase()
+      && ['taken', 'in progress', 'waiting on you'].includes(raw.work.items.get(one.head.get('Of'))?.head.get('State')) && plainOwner(raw.work.items.get(one.head.get('Of'))?.head.get('Owner')) === lane.name.toLowerCase())?.head.get('Id') ?? null
+    return statusOf({ lane: heldAsk === null ? lane : { ...lane, heldAsk }, handover, modRun, clearedAt: Number.isFinite(cleared) ? cleared : null, isPersonPause, isUnsaved, clearing, now, unknownAfterMs })
   }
   const oldAsks = new Set((reconciled?.flags ?? []).filter(flag => flag.kind === 'old ask').map(flag => `work:${flag.id}`))
   const flagsOf = name => (reconciled?.flags ?? []).filter(flag => flag.chat === name && LANE_FLAGS.includes(flag.kind)).map(({ kind, id, text, button }) => ({ kind, id, text, button }))

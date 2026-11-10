@@ -35,10 +35,12 @@ export const isReleaseLine = line => RELEASE_LINE.test(String(line ?? '').trim()
 export const isHoldLine = line => HELD_LINE.test(String(line ?? '').trim()) || isReleaseLine(line)
 
 /**
- * Whether the ask was held once and released: later words never hold it again (a chat that writes words every hour would keep the
+ * Whether the ask was held once and released (its History says so, which `escalate` cannot erase): later words never hold it again, nor does Autopilot route it again (a chat that writes words every hour would keep the
  * person's asks off the board for ever); a re-ask makes a new ask, which the next words may hold.
  */
-export const wasReleased = item => (item?.sections?.get('Route') ?? []).some(isReleaseLine)
+export const wasReleased = item => (item?.sections?.get('History') ?? []).some(one => RELEASED_HISTORY.test(String(one)))
+/** The History lines of a release (the Route section is no record: `escalate` replaces it; History only grows). */
+const RELEASED_HISTORY = /^-\s+\S+ \S+\s.*?: hold (?:ended|lifted): /
 
 /** The route and minute of the ask's newest hold line, or null for none. */
 export function heldFrom(item) {
