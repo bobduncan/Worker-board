@@ -71,7 +71,7 @@ import { clearingOf, decide, envelopesOf, lastClearWhyOf, laneWords, onSequence 
 import { givenBackFrom } from './work/holderTimers.mjs'
 import { rethinkTopicsOf } from './work/rethinkTopic.mjs'
 import { rethinkFocusOf } from './work/rethinkFocus.mjs'
-import { countsOf, statusOf } from './chatStatus.mjs'
+import { countsOf, sinceClock, statusOf } from './chatStatus.mjs'
 import { factsOf, offMsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
@@ -837,7 +837,7 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
       ...(reported.entry.word === undefined ? {} : { word: reported.entry.word }), ...(Number.isFinite(reported.entry.turn) ? { turn: reported.entry.turn } : {}), ...(Number.isFinite(reported.entry.busyAt) ? { busyAt: reported.entry.busyAt } : {}) },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
     offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
-      : reported.why === 'silent' ? `silent since ${hourMinute(reported.entry.at)}`
+      : reported.why === 'silent' ? `silent since ${sinceClock(reported.entry.at, now)}`
         // T13 part 3: a wake that did not take.
         : reported.why === 'woken' ? `woken at ${hourMinute(reported.wokenAt)}, it did not start` : 'the app started again after its last report',
     // T13 part 3: its process ended while its last report stands (chatReport.mjs `asleepLane`): asleep since when, or null.
