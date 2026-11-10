@@ -63,7 +63,9 @@ test('Brainstorm: "Change" on a proposal sends its words in ONE call, which the 
     assert.deepEqual(page.sent('/api/say'), [])
     assert.deepEqual(page.sent('/api/brainstorm').map(one => without(one.body)), [{ command: 'change', path: PATH, text: 'add one for the pond' }])
   } finally { await page.close() }
-  const stopped = await brainstormPage([[PATH, `${HEAD}${Q1}${A1}`]])
+  // P4b: "type it again" shows only where the records say so: the thread's word is Late.
+  const late = { w1: { state: 'late', lead: 'Not picked up after 12 min', rest: 'it waits in the queue', at: 1, chat: 'Advisor', canSendAgain: false, link: null, place: 'talk', command: 'brainstorm-answer', about: PATH, goal: null, ask: null, sentAt: 1, title: 'words' } }
+  const stopped = await brainstormPage([[PATH, `${HEAD}${Q1}${A1}`]], { state: stateOf([[PATH, `${HEAD}${Q1}${A1}`]], { waits: late }) })
   try {
     await stopped.click('.brainstorm-menu-button')
     await stopped.click('[data-brainstorm-act="again"]')

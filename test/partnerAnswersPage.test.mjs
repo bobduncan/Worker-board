@@ -177,7 +177,7 @@ test('the page: a refused change of the switch shows its problem under the switc
   } finally { await page.close() }
 })
 
-test('the page: the daily note\'s Undo of a partner\'s answer says the question came back; of another line, that the partner is asked', async () => {
+test('the page: the daily note\'s Undo of a partner\'s answer says the question came back; of another line, no note', async () => {
   const page = await openPage({ state: garden() })
   try {
     await page.click('[data-tab="advice"]')
@@ -188,7 +188,8 @@ test('the page: the daily note\'s Undo of a partner\'s answer says the question 
     await page.click('.focus-undo:not([data-focus-ask])')
     assert.equal(page.sent('/api/goals').length, 2)
     assert.equal(page.sent('/api/goals')[1].body.line, 'Kept the icons')
-    assert.equal(page.text('.focus-note'), 'Your partner is asked to undo it.')
+    // P4b: the word's own line is the status: no "Sent..." note beside it.
+    assert.equal(page.all('.focus-note').length, 0, 'no note: the Undo word has its wait line')
   } finally { await page.close() }
 })
 

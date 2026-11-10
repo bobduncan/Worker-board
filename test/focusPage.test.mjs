@@ -181,10 +181,10 @@ test('pick: no focus lists the open goals of the map to choose from; done asks f
   assert.equal(pick.stage, 'pick')
   assert.equal(pick.head, null)
   assert.deepEqual(pick.pick.rows, [
-    { id: 'G1', title: 'A garden people visit', depth: 0, isNow: true, hasDoneWhen: false, isAsked: false },
-    { id: 'G2', title: 'Benches that feel like home', depth: 1, isNow: true, hasDoneWhen: false, isAsked: false },
-    { id: 'G3', title: 'A bench by the pond', depth: 2, isNow: false, hasDoneWhen: false, isAsked: false },
-    { id: 'G4', title: 'Lanterns', depth: 0, isNow: false, hasDoneWhen: false, isAsked: false },
+    { id: 'G1', title: 'A garden people visit', depth: 0, isNow: true, hasDoneWhen: false },
+    { id: 'G2', title: 'Benches that feel like home', depth: 1, isNow: true, hasDoneWhen: false },
+    { id: 'G3', title: 'A bench by the pond', depth: 2, isNow: false, hasDoneWhen: false },
+    { id: 'G4', title: 'Lanterns', depth: 0, isNow: false, hasDoneWhen: false },
   ])
   assert.equal(pick.pick.question, 'What do you want to work on?')
   assert.equal(pick.pick.isEnabled, false)
@@ -296,7 +296,7 @@ test('Focus 2: the moves work on a board that writes, with a partner; each butto
 test('Focus 2: the talk answers the partner\'s open question here, as the Brainstorm part does; else it says who has the turn', () => {
   assert.deepEqual(page.focusAsk(threads[0], { name: 'Partner', isRunning: true }), { question: { n: 3, why: null, picture: null, options: [] }, waiting: null, restart: false })
   const answered = brainstormsState([{ path: 'talks/b.md', text: THREAD + 'Answer (09:06): Other — no\n', at: 1 }], 'talks').threads[0]
-  assert.deepEqual(page.focusAsk(answered, { name: 'Partner', isRunning: true }), { question: null, waiting: 'Your partner is thinking…', restart: false })
+  assert.deepEqual(page.focusAsk(answered, { name: 'Partner', isRunning: true }), { question: null, waiting: null, restart: false })
   assert.equal(page.focusAsk(answered, { name: 'Partner', isRunning: false }).waiting, 'Your partner\'s chat is not running: the board wakes it.')
   assert.equal(page.focusAsk(answered, { name: 'Partner', isRunning: false }, { name: 'Main', isRunning: true }).waiting, 'Your partner\'s chat is not running: the board wakes it.')
   // Nobody can start it while the main chat does not run either: the person opens one of the two (2026-10-21).

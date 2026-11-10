@@ -900,15 +900,8 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .brainstorm-status { color: var(--muted); font-size: 12px; font-weight: 400; }
 .brainstorm-status.is-person { color: #8fb4ff; }
 .brainstorm-status.is-done, .brainstorm-status.is-created { color: #5fae85; }
-.brainstorm-status.is-thinking::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--free); vertical-align: 1px; }
-/* 2026-10-31: a talk that stopped (nothing sent for 30 minutes) in a quiet grey, never amber: plain information. */
-.brainstorm-status.is-stopped { color: #7d8797; }
 /* The list's three groups (2026-10-31): Active, Older still open, Closed, each under a quiet name. */
 .brainstorm-group { margin: 10px 2px 2px; color: var(--muted); font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase; }
-@keyframes brainstorm-pulse { 0%, 100% { opacity: 0.5; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1); } }
-@media (prefers-reduced-motion: no-preference) {
-  .brainstorm-status.is-thinking::before, .brainstorm-waiting.is-thinking .brainstorm-dot { animation: brainstorm-pulse 2s ease-in-out infinite; }
-}
 .brainstorm-empty { font-size: 13px; }
 .brainstorm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .brainstorm-card { display: flex; flex-direction: column; gap: 12px; }
@@ -970,8 +963,6 @@ button.goal-dot:hover, button.goal-dot:focus-visible { box-shadow: 0 0 0 3px #2a
 .brainstorm-waiting.is-waiting .brainstorm-dot { background: #5b6f8f; }
 .brainstorm-waiting.is-off { border-color: var(--line); background: var(--panel); }
 .brainstorm-waiting.is-off .brainstorm-dot { background: none; border: 2px solid var(--unknown); }
-.brainstorm-waiting.is-stopped { border-color: var(--line); background: var(--panel); }
-.brainstorm-waiting.is-stopped .brainstorm-dot { background: #5a6372; }
 .brainstorm-again { margin-top: 10px; padding: 9px 20px; border: 1px solid var(--free); border-radius: 6px; background: var(--inset); color: #8fb4ff; font: inherit; font-size: 14px; cursor: pointer; }
 .brainstorm-again:disabled { opacity: 0.6; cursor: default; }
 .brainstorm-wait-sub { margin: 0; color: var(--muted); font-size: 13.5px; }
@@ -2929,7 +2920,6 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 
 /* B354: a goal without a Done when is not picked: its row says so and asks the partner; a part shows its standard. */
 .focus-done-when { color: var(--muted); white-space: nowrap; }
-.focus-done-when.is-asked { color: var(--muted); font-style: italic; }
 .focus-done-when-line { color: var(--muted); }
 .focus-standard { align-self: flex-start; color: var(--muted); overflow-wrap: anywhere; }
 .focus-standard-picture { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; overflow-wrap: anywhere; }
@@ -2940,9 +2930,9 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 @media (max-width: 600px) {
   .focus-goals li { flex-wrap: wrap; row-gap: 4px; }
   .focus-goals li .focus-goal-title { flex: 1 1 auto; }
-  .focus-goals li .focus-done-when:not(.is-asked) { display: none; }
-  .focus-goals li > .goals-action, .focus-goals li .focus-done-when.is-asked { margin-left: auto; white-space: nowrap; }
-  .focus-goals li .focus-done-when.is-asked + .goals-action { margin-left: 0; }
+  .focus-goals li .focus-done-when { display: none; }
+  .focus-goals li > .goals-action { margin-left: auto; white-space: nowrap; }
+  .focus-goals li > .wait-line { flex: 1 1 100%; }
 }
 
 /* B356: the result check by a helper: the ticks in a step's window, and a line under a part on the Focus page. */
