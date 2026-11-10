@@ -21,6 +21,8 @@ const KINDS = {
   idle: { sign: '!', tag: 'May wait for you' },
   // B541: chats on an older Workers mod than the one installed: the one way to bring them up to date.
   'old-mod': { sign: '!', tag: 'Restart to update' },
+  // P1 of the one wait system (2026-11-09): a worker's recorded wait on a chat past its limit: a Late, with the way to its chat and its step.
+  'wait late': { sign: '!', tag: 'Waits late' },
 }
 /** What a step in the backlog says it asks of the person. */
 const ASKS = { verify: 'Verify', decide: 'Decide', provide: 'Provide', do: 'Do' }
@@ -121,7 +123,7 @@ function isHeldRow(lane) {
  * Sent (a ring), Picked up (a loader), Done (a tick) and Late, the only one in the attention colour. The chat's own status pill
  * stands beside it as every view draws it (the board-dev chat's condition 3): never a second status. A code answer has no line.
  */
-const WAIT_SIGNS = { sent: '○', done: '✓', late: '!' }
+const WAIT_SIGNS = { sent: '○', done: '✓', late: '!', closed: '–' }
 /** How long a Done line stays on a card whose wait is over (a check's, a recap's): as long as the supervisor's head keeps "checked 15:26". */
 const WAIT_DONE_SHOWN_MS = 10 * 60_000
 
@@ -152,9 +154,10 @@ function waitViewOf(part, id) {
   const line = typeof id === 'string' && id !== '' ? part?.waits?.[id] ?? null : null
   if (line === null || typeof line !== 'object') return null
   const now = Number.isFinite(part?.readAt) ? part.readAt : Date.now()
-  const isShown = line.state !== 'done' || !Number.isFinite(line.at) || now - line.at < WAIT_DONE_SHOWN_MS
+  // P3: a closed line ("closed: <why>") shows as long as a Done line does; both go quietly.
+  const isShown = !['done', 'closed'].includes(line.state) || !Number.isFinite(line.at) || now - line.at < WAIT_DONE_SHOWN_MS
   return {
-    id, state: line.state, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null, sentAt: Number.isFinite(line.sentAt) ? line.sentAt : null,
+    id, state: line.state, asOf: Number.isFinite(part?.waitsAsOf) ? part.waitsAsOf : null, isEnded: line.isEnded === true, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null, sentAt: Number.isFinite(line.sentAt) ? line.sentAt : null,
     link: typeof line.link?.step === 'string' ? { step: line.link.step, text: String(line.link.text ?? line.link.step) } : null,
     canSendAgain: line.canSendAgain === true && part?.waitAgain === true, isShown, pill: waitPillOf(waitLaneOf(part, line.chat)),
     again: { isSending: sending.has(`wait-again:${id}`), problem: problems.get(`wait-again:${id}`) ?? null },
@@ -211,7 +214,8 @@ function placeWaitOf(part, place, about = {}) {
  * reads as none, so the card draws again when it goes.
  */
 function waitKeyOf(view) {
-  return view === null || view === undefined || view.isShown !== true ? null : [view.id, view.state, view.lead, view.rest, view.canSendAgain, view.pill?.label ?? null, view.again?.isSending ?? null, view.again?.problem ?? null]
+  // P3 (the review of 2026-11-09, 6): "as of HH:MM" and an ended wait are drawn too, so they are in the key.
+  return view === null || view === undefined || view.isShown !== true ? null : [view.id, view.state, view.lead, view.rest, view.canSendAgain, view.pill?.label ?? null, view.again?.isSending ?? null, view.again?.problem ?? null, view.asOf ?? null, view.isEnded === true]
 }
 
 /** The line as drawn: its sign (a ring, a loader, a tick, "!"), its lead in bold, the rest, a link to what came of it, Send again, and the pill. */
@@ -241,6 +245,8 @@ function drawWaitLine(view) {
     line.append(again)
   }
   if (view.pill !== null) line.append(el('span', `pill is-${view.pill.key}`, view.pill.label))
+  // P3: the lines of an earlier pass (this one failed on the board): said under their clock, never as if they were live.
+  if (view.asOf !== null && view.asOf !== undefined) words.append(el('span', 'wait-asof muted', ` · as of ${clock(view.asOf)}`))
   // A refused Send again says why, under the line's words.
   if (typeof view.again?.problem === 'string') words.append(el('span', 'wait-problem', ` · ${view.again.problem}`))
   return line
@@ -2163,7 +2169,7 @@ function whyText(why) {
   const said = (tone, words) => ({ tone, text: `Not started: ${words}` })
   switch (why.reason) {
     case 'limit': return said('limit', `the ${LIMIT_NAMES[why.limit] ?? 'session'} limit is reached${why.limit === 'fiveHour' && why.until !== null ? `, work goes on at ${clock(why.until)}` : ''}`)
-    case 'suspended': return why.by === 'parked' ? said('wait', `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
+    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${clock(why.since)}` : ''}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
     case 'after': {
       if (!Array.isArray(why.steps)) return said('wait', `after ${why.words}`)
       // B542: a step in review is waited on for its check.
@@ -2248,6 +2254,8 @@ function pauseWindowOf(pause) {
 /** What a suspended lane says: who held it (the app's stop, or its own pause) and when it goes on. */
 function heldText(held) {
   if (held.by === 'pause') return 'Paused by you · stopped at its checkpoint; goes on at Resume all'
+  // P1 (2026-11-09): a wait the holder recorded on a chat (`Waits on`): on purpose, with who and since when.
+  if (held.by === 'parked' && held.kind === 'chat') return `Waits on purpose · for ${held.on[0]}${held.what ? ` (${held.what})` : ''}${Number.isFinite(held.since) ? ` since ${clock(held.since)}` : ''}; goes on once it is unblocked`
   if (held.by === 'parked') return `Paused on purpose · goes on once ${held.on.join(' and ')} ${held.on.length === 1 ? 'is' : 'are'} done`
   const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
   if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
@@ -4335,7 +4343,8 @@ function removalView(lane, main, now) {
   if (status === 'Waiting for you') reasons.push(`It waits for you${what === null ? '' : ` on ${what}`}: your answer would no longer be taken.`)
   if (status === 'Paused') {
     const until = Number.isFinite(lane.suspended?.until) ? ` until ${clock(lane.suspended.until)}` : ''
-    reasons.push(lane.suspended?.by === 'parked' ? `It is paused on purpose${what === null ? '' : ` with ${what}`}: that task would not go on.`
+    reasons.push(lane.suspended?.by === 'parked' && lane.suspended.kind === 'chat' ? `It waits on purpose for ${lane.suspended.on[0]}${what === null ? '' : ` with ${what}`}: that task would not go on.`
+      : lane.suspended?.by === 'parked' ? `It is paused on purpose${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : `It paused for the limit${until}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
   }
   if (status === 'Stopped') reasons.push(`It is stopped in the middle of ${what ?? 'its turn'}: that work would not be resumed.`)
@@ -4790,7 +4799,10 @@ const needLook = need => (need.isClosed === true ? ' is-closed' : isAnswered(nee
  */
 const answerWaitOf = (need, part) => (isAnswered(need) ? waitViewOf(part, need.answer?.id) : null)
 /** T22: an answered card that still waits for its chat (its line not Done): it stays as a slim card with its line, also without "Show closed". */
-const isWaitingAnswer = (need, part) => need.isClosed !== true && (answerWaitOf(need, part)?.state ?? 'done') !== 'done'
+// P3: a missing line reads as done only when the board's pass for the lines went well; after an error (`waitsAsOf` set) a missing line is
+// unknown, and the card stays. A closed line ends its wait as a Done one does.
+// P3 (the review of 2026-11-09, 9): a line past a day ("no answer recorded in 24 h", an expired word's) has ended its wait too (`isEnded`).
+const isWaitingAnswer = (need, part) => need.isClosed !== true && answerWaitOf(need, part)?.isEnded !== true && !['done', 'closed'].includes(answerWaitOf(need, part)?.state ?? (Number.isFinite(part?.waitsAsOf) && isAnswered(need) && typeof need.answer?.id === 'string' ? 'unknown' : 'done'))
 // closed:end
 const showsClosed = () => $('needs-closed').checked
 
@@ -5137,7 +5149,7 @@ function answerPart(need, state, isFolded, inWindow = false) {
     const what = { approve: 'approved', reject: 'rejected', done: 'marked done' }[earlier.verdict] ?? 'answered'
     parts.push(el('p', 'muted', `Changed since you ${what} it at ${clock(earlier.at)}${earlier.text === '' ? '' : `: "${earlier.text}"`}.`))
   }
-  if (need.kind === 'unfiled' || need.kind === 'idle') return [...parts, ...wayButtons(need, inWindow)]
+  if (need.kind === 'unfiled' || need.kind === 'idle' || need.kind === 'wait late') return [...parts, ...wayButtons(need, inWindow)]
   if (need.kind === 'old-mod') return [...parts, ...oldModParts(need, state)]
   // B533: a quiet worker's card carries Check now; a question of the app's own form is answered in its chat only.
   if (!need.canAnswer) {
@@ -5223,6 +5235,12 @@ function oldModParts(need, state) {
  */
 function cardWays(need, canCheck) {
   if (need.kind === 'old-mod') return [{ way: 'pause' }]
+  // P1: the Late of a recorded wait: open the worker's chat in the app (its app id, as the pause banner's link does); without the id,
+  // the worker's answer window, said so. Its step is linked in the title; no nudge: the wait is on purpose.
+  if (need.kind === 'wait late') {
+    const session = need.chat?.session ?? null
+    return session === null ? [{ way: 'talk', to: need.id, label: `Open ${need.from}'s answer` }] : [{ way: 'chat', to: need.from, href: `claude://claude.ai/epitaxy/${session}`, label: `Open ${need.from}'s chat` }]
+  }
   if (need.kind === 'unfiled' || need.kind === 'idle') {
     const talk = { way: 'talk', to: need.talk === 'main' || need.talk === 'advisor' ? need.talk : need.id }
     talk.label = need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`
@@ -5255,6 +5273,12 @@ function wayButtons(need, inWindow = false) {
       open.type = 'button'
       open.dataset.openTalk = way.to
       parts.push(open)
+    } else if (way.way === 'chat') {
+      // P1: a link that opens the chat in the Claude app (the card's and the window's).
+      const open = el('a', 'choice', way.label)
+      open.href = way.href
+      open.title = `Opens ${way.to}'s chat in the Claude app`
+      parts.push(open)
     } else if (way.way === 'nudge') {
       const at = nudged.get(need.id) ?? null
       const key = `nudge:${need.id}`
@@ -5277,8 +5301,8 @@ function wayButtons(need, inWindow = false) {
   }
   if (parts.length === 0) return []
   const row = el('div', 'choices')
-  row.append(...parts.filter(part => part.tagName === 'BUTTON'))
-  return [row, ...parts.filter(part => part.tagName !== 'BUTTON')]
+  row.append(...parts.filter(part => part.tagName === 'BUTTON' || part.tagName === 'A'))
+  return [row, ...parts.filter(part => part.tagName !== 'BUTTON' && part.tagName !== 'A')]
 }
 
 /** B533: a hint's nudge: its line typed into the chat as the person's own; the button says when it went. */
@@ -6602,7 +6626,7 @@ function waitsPart(state, ids) {
   const chats = [...(state.chats ?? []), state.advisor, state.advisorHelper, state.supervisorChat, state.productOwner]
     .filter(lane => typeof lane?.name === 'string' && lane.isLeftover !== true && names.has(lane.name))
     .map(lane => ({ name: lane.name, status: lane.status ?? null, since: lane.since ?? null, state: lane.state ?? null, asleep: lane.asleep === true, isRunning: lane.isRunning ?? null }))
-  return { waits, chats, readAt: Object.keys(waits).length === 0 ? null : minuteOf(state.readAt), waitAgain: state.waitAgain === true }
+  return { waits, chats, readAt: Object.keys(waits).length === 0 ? null : minuteOf(state.readAt), waitAgain: state.waitAgain === true, waitsAsOf: Number.isFinite(state.waitsAsOf) ? minuteOf(state.waitsAsOf) : null }
 }
 
 /** Needs your attention as drawn (drawNeeds): its cards in the daily note's order, the log's lines, the partner's parts, Information. */
@@ -7273,7 +7297,7 @@ function waitingOf(need, now) {
   if (task !== null && Number.isFinite(task.startedAt)) lines.push(`Since ${clock(task.startedAt)} (${span(now - task.startedAt)})`)
   const waits = need.waits ?? null
   // B533: a hint of the board's (B301, B308): its window says what the board found, with its buttons, apart.
-  const isHint = need.kind === 'unfiled' || need.kind === 'idle'
+  const isHint = need.kind === 'unfiled' || need.kind === 'idle' || need.kind === 'wait late'
   const where = (need.answer ?? null) !== null ? 'answered' : isHint ? 'hint' : need.canAnswer ? 'here' : 'chat'
   return {
     task: lines,

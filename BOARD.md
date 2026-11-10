@@ -554,10 +554,10 @@ Undo."; Off, "Questions come to you as before."
   a cache too: a chat, a file or folder, a launch.json entry, a branch, archiving stays the main chat's; anything published
   or made public: a repository, a release, a post, a licence, an upload, itch.io or Steam, sharing outside the PC), a
   question about Fable, and what the partner or the main chat hands to you. Everything else is decided for you, with Undo: a
-  question with advice takes it when it is filed or at the switch-on (never an accept, a look with pictures, or what you
+  question with advice takes it when it is filed or at the switch-on (never an accept, a look with pictures or a Play link, or what you
   meant or said), the rest your partner decides (a look without advice, a "look at it" do, an Accept card or a mark done
   that no recap of the focus goal takes); the board judges anew at every pass what it had routed to you itself, but never
-  answers such an ask with its advice then. A worker's or the main chat's look with pictures of a step of the focus goal (an
+  answers such an ask with its advice then. A worker's or the main chat's look with pictures or a Play link of a step of the focus goal (an
   art or map look) is never decided: it is kept for the goal's recap, with or without advice. The Undo of your partner's
   Accept puts its step back in review and the card back with you (a project's own flow.json needs the move done → review by
   the person for it; without it the Undo says so and changes nothing).

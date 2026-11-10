@@ -7,7 +7,7 @@
 import { valueOf } from './item.mjs'
 
 /** The refusal's words, and the route's why. */
-export const LANDING_ASK_WHY = 'A landing goes on chat 1\'s go, after the person\'s yes, which chat 1 asks for. Do not ask the person or Autopilot: tell chat 1 (board dev) through a note to main (\'For chat 1: <step> ready to land, <branch> <hash>, gate <line>\'), keep a checkpoint \'waits for chat 1\'s go\', and land with tools/land.ps1 only on its go.'
+export const LANDING_ASK_WHY = 'A landing goes on chat 1\'s go, after the person\'s yes, which chat 1 asks for. Do not ask the person or Autopilot: tell chat 1 (board dev) through a note to main (\'For chat 1: <step> ready to land, <branch> <hash>, gate <line>\'), record the wait: work block id=<step> on="chat 1" why="its go to land" (never only in a checkpoint), and land with tools/land.ps1 only on its go.'
 export const LANDING_ROUTE_WHY = 'a landing goes on chat 1\'s go, after the person\'s own yes: never Autopilot\'s'
 
 /**

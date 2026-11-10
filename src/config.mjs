@@ -110,6 +110,11 @@ export const DEFAULTS = {
   resumeAfterMinutes: 5,
   giveBackAfterMinutes: 15,
   /**
+   * P1 of the one wait system (2026-11-09): a holder that recorded a wait on a chat (`Waits on`, src/work/waitsOn.mjs) gets no
+   * "go on" line and no give-back; past this many minutes of the board's running time the person sees one Late for it.
+   */
+  waitOnMinutes: 90,
+  /**
    * Redesign Part 2: `maxWorkers`, how many workers the board has the main chat run at most. B-max (the person,
    * 2026-10-28: "make the worker limit configurable in the settings default is 5."): 5 unless the file or the ⚙ panel
    * sets another (the panel takes 1 to 10; a whole number of at least 1 in the file wins, whatever it is).
@@ -467,7 +472,7 @@ export function parseConfig(text, env) {
   // T8.5: any other value keeps the default. Step 6: an old config.json's takeWithinMinutes and heldGiveMinutes are ignored.
   if (raw.handover === 'sequence' || raw.handover === 'timers') config.handover = raw.handover
   // Signals change 3: the holder's two timers; one that is not a whole number of at least 1 keeps its default.
-  for (const key of ['resumeAfterMinutes', 'giveBackAfterMinutes']) if (Number.isInteger(raw[key]) && raw[key] >= 1) config[key] = raw[key]
+  for (const key of ['resumeAfterMinutes', 'giveBackAfterMinutes', 'waitOnMinutes']) if (Number.isInteger(raw[key]) && raw[key] >= 1) config[key] = raw[key]
   // 2026-10-25: true hands out tasks beyond the fixes, the focus goal's and the pinned ones too (oldest first).
   if (typeof raw.handOutBeyondFocus === 'boolean') config.handOutBeyondFocus = raw.handOutBeyondFocus
   // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.

@@ -6031,7 +6031,7 @@ conditions.md, mock.png, audit.md).
 action's own result: the recap's next tries filed after the Send, the obsolete check's record answered, the asked sweep
 ended by its chat's turn; for an action without such a source the fallback "<Chat> answered HH:MM" once the turn that ran on
 the word ended (see "Which turn is the word's" below; an `ended` report, closed or crashed mid-turn, is no answer); an action
-with its own source whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it"), **Late** (a word failed for
+with its own source whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it", Late 5 minutes after the chat came to rest: see "The wait line: honest limits" below), **Late** (a word failed for
 good, "could not be delivered: <why>"; rule 8's own judgement of this word, `watch.mjs isUndelivered`, the one function
 `undeliveredWords` uses, so the card and the alarm never disagree; or every way to wake the chat failed,
 `wakeOf(...).final`, with `triedWords`), **Picked up** (the word arrived, delivered or taken by its own chat, and the turn that
@@ -6126,13 +6126,61 @@ stands under the supervisor's head; the recap's Send draws its line in the popup
 page's card "G6 · Your recap · feedback sent" while no verdict waits. A Done line's link opens its step; a Done line goes
 after 10 minutes.
 
-**Send again** (a Late line whose chat does not run, while no wake is pending; only where the state says `waitAgain`): the
+**Send again** (a Late line of a word its chat has not taken, whose chat does not run, while no wake is pending; only where the state says `waitAgain`): the
 page posts `wake-again` to /api/say; `wakeAgainNow` (refused while the board ends, where it does not run the loops, while the person
 pauses, and for a spell that is not the record's newest entry of the chat) makes ONE attempt through the record (wake.mjs
 `personAgain`, change 7, outside the cap of one try per path): the message way when a chat that may send claims (the record holds it `by` "the board"
 until the next hand takes it, with the job id `wakeJobId` the hands route gives a claim), else a launch at once (`launchFor`
 with `again`). A refusal stands under the line, in Needs your attention, the recap's popup and the supervisor's head. A
 word failed for good, and a chat the board has no id to reach, get none (the line says to open the chat).
+
+### The wait line: records, honest limits, no silent end (T2.11 P3, 2026-11-09)
+
+Plan: `.claude/plans/2026-11-09-one-wait-system-plan.md`, part P3 (rule 1: a wait is a record, never a guess; rule 2: every wait ends
+visibly). The states and the words stay; what they say is now only what the board knows (`src/waitLine.mjs`, `waitsNow`):
+- **Picked up is a record.** `pickedUpAt` is written on the word by `waitsNow` once, at the first busy or asking report that names the
+  word (`store.update` never overwrites it); the line reads it before the live report, so a later report of another turn does not undo it.
+- **Waits for its turn** is counted from the END of the turn that was running when the word arrived (the `ahead` logic, the report's own
+  turn), never from the delivery. While the chat is busy on something else it is quiet: "waits for its turn: <Chat> busy since HH:MM".
+  Idle and not picking the word up for rule 8's limit (`undeliveredMinutes`, `wordJudge`'s `limitMs`) in running time: Late.
+- **On it** is Late ("No answer since HH:MM") only when the chat stopped (an `ended` report, the lane not running) or its report went
+  stale: older than `REPORT_STALE_MS` (2 min, the Unknown pill's `UNKNOWN_ATTENTION_MS`) of the board's HEARD running time (`heardOf`:
+  from the later of the report and the board's start, the deaf spans `state.deaf` left out, as watch.mjs `deafMs`), so a board stall or
+  a landing restart turns no line amber. Past `unknownAfterSeconds` and before that it says quietly "· no news from <Chat> since HH:MM".
+  A fresh turn that runs long is quiet ("<Chat> is on it · since HH:MM · for 95 min", from `JUDGE_LONGEST_MS`, the one constant). No
+  limit per kind. The judge line (`needsPill` false) needs the same fresh report. While the person pauses, a stopped or quiet chat
+  reads quietly "<Chat> was on it since HH:MM · its chat stopped" (or "went quiet").
+- **A turn that ended without the result** (an action with its own Done source) is Late only while the chat is at REST now: a fresh
+  idle report with no background work, the lane neither Working nor Waiting for you, or its session ended. The 5 minutes
+  (`TURN_GRACE_MS`) count from the later of the turn's end and the moment it came to rest (the report's `restAt`, bridge.mjs `restOf`).
+  Until then quiet: "<Chat>'s turn ended at HH:MM without it · <Chat> still working" (a background task, the partner waiting on its
+  helper, a worker stopping at a safe point). Judge lines stay quiet (`turnLate` false). With no report at all (a chat on an
+  older mod) no guess either way (chat 1's ruling): quiet "… without it · no report from <Chat>: not confirmed", never Late.
+  The rest counts from the later of `restAt` and the idle's own since: a busy report the board missed (a turn on another word,
+  unheard) leaves an older `restAt` kept, and a rest never began before its idle. A chat that asks (an `asking` report) reads quiet
+  "… without it · <Chat> asks you in its chat", never "still working".
+- **A missed idle still counts.** The report entry keeps the last idle of a mod that names its word (`lastIdle` `{ word, since }`,
+  carried through later reports and data/reports.json), and `turnAnswer` reads it: an idle that no pass saw before an `ended` replaced
+  it (the pass was skipped by `loops.single`) still ends that word's turn. Chosen over a rerun with a dirty flag: the fact lives with the
+  report, so no timing of the passes can lose it, also across a restart.
+- **Merged prompts, until the mod release** (a mod that does not report every merged word): a word whose chat began a turn after it
+  arrived, on a word that stood ahead of it, reads quiet "<Chat>'s turn at HH:MM may have taken it (not confirmed)": never Late.
+- **Late counts the board's running time** (`runningOf`: the last pause's end and the board's off time `state.gaps` do not count) for
+  P3's new rules; rule 8's own "Not picked up after N min" stays in wall time after the pause (`wallOf`), as rule 8 counts it. Every
+  Late names the person's action: the turn on it ended, "ask <Chat> in its chat"; its session ended or went quiet, "open <Chat>'s
+  chat"; not delivered yet, "open <Chat>'s chat so its mod takes it". Send again only for a word its chat has not taken (as before P3),
+  never on an "on it" or turn-ended line.
+  The judge lines get the same clocks as the person's lines (`heard`, `wall`, `unknownMs`): stale after 2 min heard, rule 8 in wall time.
+- **No silent end.** A word the outbox sweep closes shows "closed: <why>" (state `closed`, quiet) for 10 minutes (`CLOSED_SHOWN_MS`,
+  from `closedAt`, else the first moment the board saw it closed, kept in `waitsFirstSeen`; the sweep's own reason, `wordJudge`'s
+  `whyClosed`). A person's word that expired before it reached its chat is Late "Not delivered: expired after N min" (N the age it
+  expired at, `closedAt`) and keeps its words (`text`); past 24 h it is not rewritten. A word past 24 h without a Done says "no answer
+  recorded in 24 h" for one more day (`ENDED_SHOWN_MS`), quietly; both are marked `isEnded`, so Needs your attention lets the card go.
+- **A failed pass keeps the lines.** `waitsNow` gives `{ waits, asOf }` (`lastGoodWaits`): on an error the last good lines come back and the
+  state says `waitsAsOf`; the page draws them with "as of HH:MM" (in the line's key, `waitKeyOf`) and Needs your attention reads a
+  missing line as done only while `waitsAsOf` is not set.
+Tests: `test/waitLineHonest.test.mjs` (one per point, from Worker 3's real report for Q707's answer; "review 1" to "review 10" the two
+core reviews of 2026-11-09, each checked with a mutant).
 
 ### Wave 2 (T22, 2026-11-04)
 
@@ -6209,6 +6257,13 @@ what was typed so it can be pasted into the app.
   tail, the plan line, the worktree list, the state table one test per row.
 - The sending endpoint: refused without the token, refused from another origin, accepted with both.
 - The mod's part with `claude plugin test`: a waiting message is submitted once; a delivered one never again.
+- No terminal windows (2026-11-09, the person: "i keep getting these terminmal popups"): every program the code starts is
+  started with `windowsHide: true` (spawn, spawnSync, exec, execSync, execFile, execFileSync, fork). Without it, a process
+  that has no console of its own (a board started by start-board.mjs is `detached`) opens a new, visible console, and with
+  Windows Terminal as the PC's default terminal that is a window popping up. The land test's made-up board
+  (fixtures/land/server.mjs) did that with git on every gate. `test/windowsHide.test.mjs` fails any such call outside
+  `test/`, naming its file and line. **A branch in flight that adds a start without it fails the gate once it merges main:
+  add `windowsHide: true` to that call.**
 
 ## The person's feedback on the first board (2026-10-12, during step 2)
 
@@ -6634,6 +6689,16 @@ from Opus extra high to Opus high. (Spec 2026-10-27, "Quality Assurance tasks".)
    whose check waits for the person (`ask:` points) waits for the person, not for a check, from the check line until the worker
    that checked has filed its ask (`reviewWaitOf`, UNCHECKED_MS = 30 minutes; after that, with still no ask of the step filed
    since the line, it waits for a check again, so nothing wedges): the repair makes no second task in between.
+   B1103 (X163: B1091 got five check tasks in 100 minutes, as the ask that carried its 7 look points was the evaluation ask Q712
+   of its goal, and its checkers rightly asked the person nothing new): an ask point may name the open ask that carries it,
+   `ask: <point> (Q712)`, of the step or of its goal (`namedAskIds`, `namedAsksOf`; the partner names one with a `work note` of
+   the step since the line that names it). While a named ask is open the step waits for the person's answer ("waits for your
+   answer to its check in Q712"); once it, or an ask of the step, was answered or withdrawn since the line, it waits for its check
+   again at once; a named ask that is not open counts for nothing. The guard: past UNCHECKED_MS with no ask filed or named, the
+   new task's `Why:` is `UNASKED_WHY` ("its checker filed no ask point: file its check again; name the open ask ..."); when the
+   check of such a task waits that way again, the step is kind `unasked` ("its checker filed no ask point"), the repair makes no
+   third task and wakes the partner once per wait (key `unasked B<id> <time>`) to file the ask or name the open one; the watch
+   judges it late as a dropped fix. Test: `test/supervisor/namedAskWait.test.mjs` (B1091's records replayed).
    B1081: never for a step with an open fix (`openFixesOf`), a report again included: `qaStep` refuses (409, "waits for its fix
    B<n>: no Quality Assurance task while it is open"), the check path asks for none and `qa-task` refuses, as `work checked`
    would refuse its check; the step closes by itself once that fix passes.
@@ -6904,6 +6969,63 @@ seven decisions on it shaped what follows.
   `test/restartCostsNothing.page.test.mjs` (the DOM harness: Restarting then Running with no reload and 'board-anew'
   cleared; each popup back after a reload, scrolled, nothing sent; the header after a key, while a field has the focus, not
   from a hidden tab, not for a popup left open), `test/keepOnReload.test.mjs`, `test/boardBanner.page.test.mjs`.
+
+## Waits on: a worker that waits on purpose is not stuck (P1 of the one wait system, 2026-11-09)
+
+The B1081 case: Worker 4 wrote at 11:18 in its checkpoint "wait for its go", went idle at 11:19, got "go on" lines at 11:24 and
+11:30 and was given back at 11:46, while it did the right thing: it waited for chat 1's go to land. The plan's rule 1: a wait is a
+record with a who, a what and a since, never a guess (idle + holds a step). Chat 1's plan `.claude/plans/2026-11-09-one-wait-system-plan.md`,
+part P1 (rev 2, three reviews folded in); built by chat 3.
+
+- **The record**: the step's head field `Waits on: <who> · <what> · <YYYY-MM-DD HH:MM>` (`src/work/waitsOn.mjs`), its own field,
+  separate from `Waits for` (B306: rethink holds, cleared by the main chat or the person only, `clearWaits`) and from `Blocked by`
+  (steps). Written and cleared in the work API's `blockOn` BEFORE the step-id check: an `on` that is no step id is a chat.
+  `work block id=B<n> on="chat 1" why="its go to land"`: only the owner of a taken or in-progress step; `who` a chat of the board
+  (the list's names, with or without the prefix) or a side chat "chat 0" to "chat 4"; an id (B/Q/X/I, any case), the person ("you",
+  "the person", "me") and the own name are refused with "a wait on the person is a blocking ask; a wait on a fix is on=B<n>". The
+  same who again keeps the first since (the record stands, `changed: false`). `work unblock id=B<n>` (no `on`, or `on=<who>`): the
+  owner, the main chat or the person clear it; another worker gets 403; without a chat wait an unblock with no `on` is B306's clear
+  of `Waits for`, as before. A report, a take and a give-back (the board's and a take-back of a given task) clear it too.
+- **The lane**: a stopped chat (its report idle while it holds the step: interrupted) whose step records a wait is parked on
+  purpose, in the parked shape every reader already treats as on purpose, with its kind: `suspended { by: 'parked', kind: 'chat',
+  on: [who], what, since, limit: null, named: null }` (state.mjs `card`, `waitSuspension`; `heldUntil` keeps `until: null`). The
+  Supervisor's health line says "(on purpose: waits for chat 1 (its go to land) since 11:24)" and is not odd, the status pill reads
+  Paused with that why, the cards and `say` the same words (`chatWaitWords`), the page's Not started line "Worker 4 waits for chat 1
+  (its go to land) since 11:24" and the lane's "Waits on purpose · for chat 1 ... since 11:24; goes on once it is unblocked".
+  **The timers read the record, not the lane** (the core review, 2026-11-09): `holderTimers` returns null while the held step
+  carries a `Waits on`, whatever the lane reads (interrupted, unknown after a 30 s report blip, off after a failed wake), so no "go
+  on" line and no give-back come from a blip; a "go on" line still waiting for a holder whose lane is parked now is closed by the
+  hand-over's decision. The record and the clear of a wait (the History's "waits on" / "no longer waits on" lines) are the holder's
+  progress: after an unblock the spell and the "go on" count start anew (B1081's two lines of 11:24 and 11:30 would else give the
+  step back on the first pass after a 12:40 unblock).
+- **The limit**: `waitOnMinutes` (90) of the board's RUNNING time, read from each held step's record (not the lane) and counted as the
+  holder timers count (`runningMs(afterPause(pause, since))` with `offMsOf(gaps)`: the board's off spells and the person's pauses are
+  no waiting; no Late at all while the person pauses). Past it: NO give-back and no go-on line (the lane stays parked), the step stays
+  with its holder, and ONE Late under Needs your attention (`lateWaitOf`, kind `wait late`, the page's KINDS "Waits late"): "Worker 4
+  waits for chat 1 (its go to land) since 11:24 (95 min) on B1081", the step linked in the title, with the person's action (ask the
+  chat, or tell the worker to go on and unblock) and one way, "Open Worker 4's chat". The worker's own answer names the setting.
+- **The forgotten record**: the answer to `work step` with a checkpoint while a wait stands says "You still wait on chat 1 since
+  HH:MM (its go to land): work unblock B<n> once it gave its answer." Chat 1's go messages say "unblock first" (roles/main.md).
+- **Resume all** leaves a step with a standing wait out of its resume list (pause.mjs `isResumed`): a resume would only wake the
+  chat to wait again; the chat is woken by the answer it waits for.
+- **The double hold guard**: the hand-over's decision gives no step back whose branch a landing is running for now (`landing`:
+  src/landing.mjs `runningLanding`, the landing lock's branch while the lock is younger than its stale limit, else the newest gate log
+  `data/landings/<stamp>-<branch>.log` younger than 90 minutes that no landings line names yet, since the script takes the lock only
+  AFTER the gate; server.mjs passes it to BOTH paths, the turn-end `decideFor` and the periodic `handoverPass`): B1081's land.ps1 was
+  Worker 4's while the board handed the step to Worker 5. The "go on" line still goes. And a landed line for the step's branch
+  (`landedLines`, `landings` in the facts) is the holder's progress, so no give-back fires right after the release. The log names
+  a branch cleaned (land.ps1: every other character is "-"), so the guard compares both sides as the log would name them
+  (`logBranchName`: "qa/b866-x" is "qa-b866-x"); the two reads are tried apart, so a torn landings file leaves the lock's fact standing.
+  The Late card's one way opens the worker's chat in the Claude app by its app id (`claude://claude.ai/epitaxy/<id>`, as the pause
+  banner's link does); without the id it opens the worker's answer window and says so ("Open Worker 4's answer").
+- **The clear's `on`**: `unblock id on=<who>` must name the standing who (without the prefix, any case), else 409 with the way;
+  `on=b1080` in any case is the step id B1080 (the Blocked by path), never a chat. A rename follows the who (names.mjs).
+- **Words**: roles/worker.md ("Record every wait on a chat"), roles/main.md, and the landing refusal's words (`LANDING_ASK_WHY`:
+  "record the wait: work block id=<step> on=\"chat 1\" why=\"its go to land\" (never only in a checkpoint)"). The work tool's text
+  for block/unblock in the Workers mod still says "step it waits on" until the mod release after Thursday 11-12: the roles carry the
+  new use. Not in it: a lane state of its own for "waits for a go" (T2.11).
+- Pinned by `test/waitsOn.test.mjs` (the B1081 case through the API, the state and the hand-over's decision; the Late past 90
+  running minutes and none at 95 wall minutes with a 30-min off spell; Resume all; the landing guard; the words).
 
 ## Going live: tools/land.ps1 (2026-11-04)
 

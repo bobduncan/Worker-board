@@ -33,6 +33,7 @@ import { minutesOf } from './src/backlog.mjs'
 import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, modSaid, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession, withModHeader } from './src/bridge.mjs'
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
+import { landedLines, runningLanding } from './src/landing.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { backgroundOf } from './src/chatReport.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
@@ -109,7 +110,7 @@ import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
-import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
+import { AGAIN_BY, WAITS_KEEP_MS, lastGoodWaits, splitSeen, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
@@ -1553,30 +1554,35 @@ async function main(args) {
   // T22 wave 2 (the review of 2026-11-04): the first moment each result without a time of its own was seen (a stop, a remove), so a line never
   // reads the clock of each draw, also on a board process that does not write the outbox.
   const waitsFirstSeen = new Map()
+  // P3 (no silent end): the last lines that were made well and when. A pass that fails gives these back with `asOf`, so the page draws the
+  // last lines under "as of HH:MM" and a card never loses its line (nor reads a missing one as done) because one pass threw.
+  const waitsGood = lastGoodWaits()
+  /** `{ waits, asOf }`: asOf null when this pass went well; else the time of the lines kept. */
   const waitsNow = async (state, stored, supervised) => {
-    if (isDemo || state === null) return {}
+    if (isDemo || state === null) return { waits: {}, asOf: null }
     try {
       const now = clock()
       const items = stored?.ok === true ? stored.items : new Map()
       const outbox = store.outbox()
       const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, assets: await assetRequests(), now })
       const obsolete = workDir === null ? null : (await readObsoleteFile(workDir)).record
-      const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null, firstSeen: waitsFirstSeen }))
+      const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null, firstSeen: waitsFirstSeen, unknownMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000, startedAt }))
       // The review of 2026-11-02 (2a): a turn seen ended, an action's own result seen, is kept on its word once and read first
       // from then on (a later turn of the chat never makes it "on it" again). Only the board process that runs the loops of
       // the board that delivers writes the outbox.
       if (!isShowOnly && await ownsLoops()) {
         for (const { id, fields } of seen) {
           const word = outbox.find(one => one.id === id)
-          const isNew = Number.isFinite(fields.doneAt) ? !Number.isFinite(word?.doneAt) : !Number.isFinite(word?.answeredAt) && !Number.isFinite(word?.doneAt)
+          // pickedUpAt is written once, when the word has none (P3); the turn's end and the result as before.
+          const isNew = Object.hasOwn(fields, 'pickedUpAt') ? !Number.isFinite(word?.pickedUpAt) : Number.isFinite(fields.doneAt) ? !Number.isFinite(word?.doneAt) : !Number.isFinite(word?.answeredAt) && !Number.isFinite(word?.doneAt)
           if (word !== undefined && isNew) await store.update(id, fields)
         }
       }
       loops.succeeded('waits')
-      return waits
+      return waitsGood.made(waits, now)
     } catch (error) {
       loops.failed('waits', error)
-      return {}
+      return waitsGood.failed(clock())
     }
   }
   /**
@@ -1665,6 +1671,8 @@ async function main(args) {
     return {
       // The supervisor's Task 5: the board's health summary for the supervisor chat's sweep (src/supervisor/health.mjs).
       ...(supervisor === null ? {} : { health: () => supervisor.health() }),
+      // P1 of the one wait system: the limit of a recorded wait on a chat, for the work API's answer (src/work/waitsOn.mjs).
+      waitOnMinutes: config.waitOnMinutes,
       // Focus 2: the partner's drafts of the focus (the work tool's definition-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
       // B358: the partner's re-check of a goal (the work tool's checked of a G<n>), written into the goal map.
@@ -2476,7 +2484,7 @@ async function main(args) {
       const state = await readState()
       const lane = (state.chats ?? []).find(one => one.name === chat && !one.isLeftover) ?? null
       if (lane === null || !onSequence({ ...lane, mod: typeof mod === 'string' ? mod : lane.mod ?? null }, config)) return null
-      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event, isPushed, wakes: wakeFacts() })
+      const done = await handOver({ lane: { ...lane, mod: typeof mod === 'string' ? mod : lane.mod }, state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), event, isPushed, wakes: wakeFacts(), landingNow: () => runningLanding({ dir: join(HERE, 'data'), now: clock() }), landingsOf: () => landedLines({ dir: join(HERE, 'data') }) })
       if (done.envelope !== null || done.decision.takeBack !== null || done.decision.give !== null || done.decision.net !== null) {
         work.reset?.()
         readState.reset()
@@ -2807,9 +2815,9 @@ async function main(args) {
       // The wait line (T22, the person, 2026-11-02: "the status if its being picked up or not. I want to know whats going on"):
       // the line of every word an action of the person typed in the last 24 h, by its id (src/waitLine.mjs), judged with
       // the supervisor's own view of this moment, so a card's "Not picked up" and rule 8's alarm read one function.
-      const waits = await waitsNow(state, stored ?? (workDir === null ? undefined : await work()), supervised)
+      const { waits, asOf: waitsAsOf } = await waitsNow(state, stored ?? (workDir === null ? undefined : await work()), supervised)
       // Light state (2026-10-31): the finished steps go light to the page (src/state.mjs lightState); `step` gives one whole.
-      return lightState({ ...state, advisor, talkPartner, waits, waitAgain: !isDemo && !isShowOnly && bridgeKey !== null, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), autopilotCleared: await autopilotClearedNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
+      return lightState({ ...state, advisor, talkPartner, waits, waitsAsOf, waitAgain: !isDemo && !isShowOnly && bridgeKey !== null, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), autopilotCleared: await autopilotClearedNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
         // Signals change 1: the board's own clock, its work loop's last run, a restart on its way, and why it was off.
         board: boardView({ now: clock(), startedAt, aliveAt: store.aliveAt?.() ?? null, leaving, waiting: updateShown?.state === 'waiting' ? updateShown : null, lastStop: lastStopOf(store.startedGap ?? null, startedAt) }), mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
@@ -4073,7 +4081,7 @@ async function main(args) {
         // a limit, a new mod, a report gone idle, the net), for every worker on it; on its own, so a failure stops no delivery.
         if (config.handover === 'sequence') {
           await loops.run('handover', async () => {
-            const passed = await handoverPass({ state: await readState(), dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), isPushed, wakes: wakeFacts() })
+            const passed = await handoverPass({ state: await readState(), dir: workDir, outbox: store, apply: body => workAction(body, 'server'), config, installed: (await modNow())?.installed ?? null, now: clock(), newId: () => randomBytes(8).toString('hex'), isPushed, wakes: wakeFacts(), landingNow: () => runningLanding({ dir: join(HERE, 'data'), now: clock() }), landingsOf: () => landedLines({ dir: join(HERE, 'data') }) })
             if (passed.wrote > 0) {
               work.reset?.()
               readState.reset()

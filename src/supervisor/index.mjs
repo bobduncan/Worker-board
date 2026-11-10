@@ -12,7 +12,7 @@ import { HEALTH_OWNERS, healthSummary, oddLines } from './health.mjs'
 import { SYNC_EVERY_MS, memoryOf, syncRunner } from './loop.mjs'
 import { buildView } from './view.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
-import { WATCH_RULES, isNearStop, isUndelivered, undeliveredJudged, wordMatters } from './rules/watch.mjs'
+import { WATCH_RULES, isNearStop, isUndelivered, undeliveredJudged, wordMatters, wordWhyClosed } from './rules/watch.mjs'
 import { incidentsOf, linesOwed, recordFindings } from './incidents.mjs'
 import { rekeyPlan } from './rekey.mjs'
 import { GONE_MINUTES, gonePlan } from './gone.mjs'
@@ -47,7 +47,8 @@ export { SWEEP_MOD, tokensOfTurn }
 export function wordJudge({ state, items, outbox, keep, settings, assets = null, now }) {
   const view = buildView({ state, items, outbox, keep, settings, assets, now })
   const judged = undeliveredJudged(view)
-  return { isUndelivered: word => isUndelivered(view, word, judged), matters: wordMatters(view) }
+  // P3: `limitMs` rule 8's limit for a word (`undeliveredMinutes`), `whyClosed` the sweep's own reason for closing one: the lines read both.
+  return { isUndelivered: word => isUndelivered(view, word, judged), matters: wordMatters(view), whyClosed: wordWhyClosed(view), limitMs: judged === null ? null : judged.limit }
 }
 
 /** How often the board looks whether a sweep is due, and whether the last one ended. */
