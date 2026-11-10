@@ -268,7 +268,7 @@ export function brainstormClickOf(body) {
  * over, the ask was answered or is gone, the refine step is done or the Advisor holds an open ask for it. Pure: it reads the
  * state the page reads.
  */
-export function movedOn(record, state) {
+export function movedOn(record, state, outbox = []) {
   // Only positive evidence ends a line: the item is found and is done, answered or moved on. A missing item is no evidence (a
   // failed read, a thread past the newest 50, an empty backlog); what is really gone is closed by the 24 hours.
   const said = record.say ?? {}
@@ -276,6 +276,12 @@ export function movedOn(record, state) {
     const thread = (state?.brainstorms?.threads ?? []).find(one => one.path === record.key)
     if (thread === undefined) return null
     if (thread.state === 'done' || thread.state === 'discarded') return 'the talk is over'
+    // P4b round 2: a newer word of the person's for this talk (its thread named by the word's `about`, or in its text: the Focus talk bar's
+    // `talk` word names the goal and the thread) stands in the outbox: the line of that word is the card's status now, and a Retry of the
+    // older input would type it after the newer one. The board's own fix and stranded words are no word of the person's.
+    const newer = (Array.isArray(outbox) ? outbox : []).find(word => Number.isFinite(word?.at) && Number.isFinite(record.at) && word.at > record.at && word.state !== 'dropped'
+      && !['brainstorm-fix', 'brainstorm-stranded'].includes(word.command) && (word.about === record.key || String(word.text ?? '').includes(`Thread: ${record.key}`)))
+    if (newer !== undefined) return 'a newer word for it was sent'
     // A thread read empty or cut off has no latest question and no proposal: no evidence either (the review of round 4).
     const latestN = thread.latest?.n ?? null
     if (said.command === 'brainstorm-answer' && ((latestN !== null && latestN !== said.n) || (thread.proposal ?? null) !== null)) return 'the talk moved on'

@@ -31,11 +31,11 @@ const PICK = [
 ].join('\n')
 
 test('a goal without a Done when is offered with the button that asks the partner for it, not with Pick', () => {
-  const view = focusView(null, parseGoals(PICK), CAN, { asked: ['G3'] })
-  assert.deepEqual(view.pick.rows.map(row => [row.id, row.hasDoneWhen, row.isAsked]), [['G1', true, false], ['G2', false, false], ['G3', false, true]])
+  const view = focusView(null, parseGoals(PICK), CAN, {})
+  assert.deepEqual(view.pick.rows.map(row => [row.id, row.hasDoneWhen, 'isAsked' in row]), [['G1', true, false], ['G2', false, false], ['G3', false, false]], 'whether it was asked is no page memory: the row draws its word line')
   assert.deepEqual(view.pick.ask, { label: 'Ask your partner to write it', act: 'done-when', isEnabled: true, title: 'A goal becomes your focus once its Done when says how you check it: your partner writes one' })
   assert.equal(view.pick.noDoneWhen, 'No Done when yet')
-  assert.equal(view.pick.asked, 'Your partner writes its Done when')
+  assert.equal('asked' in view.pick, false, 'no sentence of the page itself about a word asked')
   // On a board that only shows, the button is off with why, as Pick is.
   const shows = focusView(null, parseGoals(PICK), { canWrite: false, whyNot: 'This board only shows.' })
   assert.deepEqual([shows.pick.ask.isEnabled, shows.pick.ask.title], [false, 'This board only shows.'])
@@ -77,18 +77,18 @@ test('"Did we reach the goal?" without a Done when: Yes is off, and the button a
 })
 
 test('the page sends the button\'s word, says a new goal waits for its Done when, and the Goals part offers the button too', () => {
-  assert.match(script, /command: 'done-when', id: goal \?\? focus\?\.id/)
-  assert.match(script, /result\?\.isFocus === false/)
+  assert.match(script, /sendFocus\(\{ command: 'done-when', id \}, ''\)/)
   assert.match(script, /goalButton\('goals-tool is-ask', 'Ask your partner for a Done when', \{ goalTool: 'done-when' \}\)/)
   assert.match(script, /if \(tool === 'done-when'\) \{\n    return sendGoals\(\{ command: 'done-when', id: focus \}\)\.then\(done => \{\n      if \(done === null\) return\n      showPaste\(done\.paste \?\? null\)/)
   // The review: each goal once in the page's list of goals asked for.
-  assert.match(script, /focusUi\.asked = \[\.\.\.new Set\(\[\.\.\.focusUi\.asked, id\]\)\]/)
+  // P4b: whether it was asked is never page memory: no `focusUi.asked`, and no "Sent..." note after the click (the word's line is the status).
+  assert.doesNotMatch(script, /focusUi\.asked|isAsked: asked|Your partner is asked to write its Done when|Your partner writes its Done when/)
 })
 
 // Goal definition (2026-10-31): the words people and chats read say "goal definition" where they said "vibe".
-test('the review: a goal asked for already can be asked again, in the pick list and on the goal definition card', () => {
-  const view = focusView(null, parseGoals(PICK), CAN, { asked: ['G3'] })
+test('the review: a goal asked for already can be asked again when its line is Late (P4b), in the pick list and on the goal definition card', () => {
+  const view = focusView(null, parseGoals(PICK), CAN)
   assert.deepEqual(view.pick.askAgain, { label: 'Ask again', act: 'done-when', isEnabled: true, title: 'Ask your partner once more to write its Done when' })
-  const asked = focusView(focusState(parseGoals(RUN), ITEMS, [], ''), parseGoals(RUN), CAN, { asked: ['G6'] })
-  assert.equal(asked.vibeThere.doneWhen.label, 'Ask your partner again')
+  const run = focusView(focusState(parseGoals(RUN), ITEMS, [], ''), parseGoals(RUN), CAN)
+  assert.equal(run.vibeThere.doneWhen.label, 'Ask your partner to write its Done when', 'one button; the line says how it stands')
 })

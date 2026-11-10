@@ -337,8 +337,8 @@ focus's steps and the workers on the Overview, and on the worker's card. It is y
 question on. A question still with your partner ten minutes after it was asked wakes your partner once more.
 
 B354: a goal becomes your focus, and gets its tick, only with a **Done when** that says how you check it. In the pick
-list a goal without one says "No Done when yet" with **Ask your partner to write it** in place of Pick (then "Your
-partner writes its Done when", with **Ask again**); something new is put into the map at once and your partner is asked for its Done
+list a goal without one says "No Done when yet" with **Ask your partner to write it** in place of Pick (then the line of that word where the button was, drawn from the records: Sent, picked up, Done or Late, with **Ask
+again** only when it is Late; the page keeps no memory of "asked" and shows no "Sent…" note or toast: P4b); something new is put into the map at once and your partner is asked for its Done
 when: you pick it once the line stands. On the Goals part such a goal has **Ask your partner for a Done when** beside
 "Done when…", and its tick is refused with why. "Did we reach the goal?" shows the Done when under the goal definition; without one
 Yes is off and the button asks your partner for it. In the run each part shows what its results are checked against,
@@ -388,16 +388,15 @@ through with your partner, one question at a time: "+ New brainstorm…" or "Bra
 your opening words; the list at the left is a slim row per brainstorm in three groups, the newest first in each:
 **Active** (running, its last move within 3 days, or waiting on you), **Older, still open** (running, its last move over 3
 days ago) and **Closed** (done, created, discarded, or closed by you); each row its title and one small word with its age:
-"your turn · 2 h ago", "your partner is thinking", "waiting for your partner", "stopped · 6 days ago" (in a quiet grey: no
-word of it is queued or taken and your last move is over 30 minutes old), "done", "closed", "created" or "discarded" (the
+"your turn · 2 h ago", "with your partner · 6 days ago" (whose turn it is, never how the partner does: no "thinking", no
+"stopped"), or "no answer from your partner" where the records say the word got none (its line is Late), "done", "closed", "created" or "discarded" (the
 dates and counts are in the row's tooltip); with a Product owner listed (the list of chats' `"owner"`, 2026-10-31) the words
 say "your Product owner", and every talk goes to it, its card under the Advisor's; at the right the open one has a head
-(its title, the same word, a small "…" menu: the thread file, "Type it to your partner again", "Close it" on an old open
+(its title, the same word on your turn or at the end, a small "…" menu: the thread file, "Type it to your partner again" only where the records say so (its line is Late or ended, or, past a day or two, the thread's own "No answer from <chat> since HH:MM"), "Close it" on an old open
 one (done, with nothing created, and the board's line `Closed (HH:MM): by the person`), Discard, and on a question also
-Skip, Back and "Enough, wrap up") and one calm card (a stopped one has "Type it to your partner again" as its main button; every click here is one call, and a word the board could not queue shows "Not sent: <why>, HH:MM" with a Retry): while your partner
-has the turn a softly pulsing dot and what it does ("is reading your words", "is writing the next question", "is drafting
-the new goal", "is writing the proposal"), or, when it is busy with something else, what and since when and where your
-brainstorm stands in its queue; on your turn one question large, its context as one muted line ("Why I ask" folds out a
+Skip, Back and "Enough, wrap up") and one calm card (every click here is one call, and a word the board could not queue shows "Not sent: <why>, HH:MM" with a Retry): while your partner
+has the turn the card's one status is the line of the word you sent ("waits for <chat> to pick it up", "<chat> is on it since HH:MM",
+"answered HH:MM", Late), drawn from the records only: nothing guesses "thinking", and with no record nothing shows; on your turn one question large, its context as one muted line ("Why I ask" folds out a
 longer one), the options as big buttons that answer at once with the advised one marked, a line for your own words, and
 your earlier answers as small chips above (a click shows the question and the whole answer); what your partner understood
 comes as a card with a thin green border, "Yes, that's it" and "Not quite…"; your opening words are one collapsed line

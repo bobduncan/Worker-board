@@ -1,0 +1,233 @@
+// Reactive board, brief P4b, round 2 (the review of 2026-11-10 and chat 1's pick B for finding 1): a word of a brainstorm talk has the thread's
+// next stage as its own Done (as a change thread's word has), so a turn that ended without the next question is P3's own "turn ended without it":
+// Late after the grace with the chat at rest, the quiet "still working" while it works, "not confirmed" with no report; the Late line carries the
+// Retry and the list row stops reading "with your partner". Also: the pick row's "Ask again" for an ended line, the demo sentence, one line once,
+// and a newer word that supersedes an older not-sent record. Made-up garden names.
+import assert from 'node:assert/strict'
+import test from 'node:test'
+
+import { brainstormsState } from '../src/brainstorm.mjs'
+import { movedOn, clickLedger } from '../src/clicks.mjs'
+import { parseConfig } from '../src/config.mjs'
+import { wordJudge } from '../src/supervisor/index.mjs'
+import { buildView } from '../src/supervisor/view.mjs'
+import { talkPartnerOf } from '../src/talkPartner.mjs'
+import { stuckTalksOf, talkDone, waitsOf } from '../src/waitLine.mjs'
+import { openPage, reply } from './pageHarness.mjs'
+import { MIN, asSent, build } from './partnerState.mjs'
+
+const pad = n => String(n).padStart(2, '0')
+const hhmm = ms => `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}`
+const words = node => node.textContent.replace(/\s+/g, ' ').trim()
+const at = (hour, minute, second = 0) => new Date(2026, 9, 19, hour, minute, second).getTime()
+const keep = buildView({ state: { chats: [], chatPrefix: '' }, outbox: [], settings: {}, now: at(10, 0) }).keep
+void parseConfig
+
+const PATH = '.claude/brainstorms/2026-10-19-paths-through-the-garden.md'
+const HEAD = '# Brainstorm: Paths through the garden\nGoal: G6 The polish\nStarted: 2026-10-19 09:00 · State: running\nOpening: Where do the paths go?\n\n'
+const Q1 = '## Q1 (09:01)\nWhere first?\n- A: By the gate (advised)\n- B: By the pond\nAnswer (09:02): A\n'
+const Q2 = '\n## Q2 (09:04)\nHow bright?\n- A: Dim (advised)\n- B: Bright\nAnswer (09:05): A\n'
+const Q3 = '\n## Q3 (09:09)\nHow wide?\n- A: Wide (advised)\n- B: Narrow\n'
+const STUCK = `${HEAD}${Q1}${Q2}`
+const threadOf = text => brainstormsState([{ path: PATH, text, at: 1 }], 'b').threads[0]
+
+const lane = (name, more = {}) => ({ name, isRunning: true, status: 'Free', state: 'free', task: null, report: null, wake: null, ...more })
+const word = (more = {}) => ({ id: 'w1', to: 'Advisor', ask: null, step: null, text: `brainstorm answer\nThread: ${PATH}\nQ2: A`, command: 'brainstorm-answer', about: PATH, at: at(9, 5, 20), state: 'delivered', takenAt: at(9, 5, 21), deliveredAt: at(9, 5, 22), ...more })
+const said = (state, since, more = {}) => ({ state, since, background: false, run: 1, seq: 1, busyAt: null, ...more })
+/** The server's `waits` for a thread, a word and the chat's report, at `now`. */
+function waitsFor({ text = STUCK, outbox = [word()], report = null, now, advisor = lane('Advisor') }) {
+  const state = { chats: [], supervisorChat: null, advisor, brainstorms: { threads: [threadOf(text)] } }
+  const judge = wordJudge({ state, items: new Map(), outbox, settings: {}, now })
+  return waitsOf({ state, outbox, now, keep, judge, reports: report === null ? null : new Map([['Advisor', { at: now - 2000, ...report }]]), items: new Map() })
+}
+/** The chat's turn on the word ended at 09:08 with no question written. */
+const ended = said('idle', at(9, 8), { word: 'w1', turn: at(9, 6) })
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Finding 1 (pick B): the talk word's own Done
+
+test('the stuck brainstorm case: Q2 answered, the partner\'s turn ends without Q3: the quiet line, then Late after 5 minutes with the chat at rest, with the Retry', () => {
+  // Two minutes after the turn ended: quiet, and it names what happened: no "answered".
+  const quiet = waitsFor({ report: ended, now: at(9, 10) }).w1
+  assert.deepEqual([quiet.state, quiet.lead, quiet.isTurnEnded], ['sent', `Advisor's turn ended at ${hhmm(at(9, 8))} without it`, true])
+  // Past the grace (5 min from the turn's end, the chat at rest): Late, naming the action, flagged for the Retry.
+  const late = waitsFor({ report: ended, now: at(9, 15) }).w1
+  assert.deepEqual([late.state, late.isTurnEnded, late.place, late.command], ['late', true, 'talk', 'brainstorm-answer'])
+  assert.match(`${late.lead} ${late.rest}`, /No answer since 09:08.*ask Advisor in its chat/)
+  // The chat still works (a later turn running on something else): the quiet "still working", never Late.
+  const working = waitsFor({ report: said('busy', at(9, 12), { word: null, turn: at(9, 12), lastIdle: { word: 'w1', since: at(9, 8) } }), advisor: lane('Advisor', { status: 'Working', state: 'working' }), now: at(9, 30) }).w1
+  assert.deepEqual([working.state, working.rest], ['sent', 'Advisor still working'])
+  // No report at all (a word with its turn end recorded and no report to read): quiet "not confirmed", never Late.
+  const unknown = waitsFor({ outbox: [word({ answeredAt: at(9, 8) })], now: at(9, 40) }).w1
+  assert.deepEqual([unknown.state, unknown.isTurnEnded, unknown.rest], ['sent', true, 'no report from Advisor: not confirmed'])
+})
+
+test('the thread\'s next stage is the Done of a talk word: a new question, what it understood, a proposal, or the talk over; before that none', () => {
+  const asked = waitsFor({ text: `${STUCK}${Q3}`, report: ended, now: at(9, 30) }).w1
+  assert.deepEqual([asked.state, asked.lead, asked.rest], ['done', `Done ${hhmm(at(9, 9))}`, 'a new question'])
+  const over = waitsFor({ text: STUCK.replace('State: running', 'State: done'), report: ended, now: at(9, 30) }).w1
+  assert.deepEqual([over.state, over.rest], ['done', 'the talk is over'])
+  // The Focus talk bar's word names a goal, not a thread: no thread, so its fallback stays "answered".
+  const bar = waitsFor({ outbox: [word({ command: 'talk', about: 'G6' })], report: ended, now: at(9, 30) }).w1
+  assert.equal(bar.state, 'done')
+  assert.match(bar.lead, /answered/)
+})
+
+/** The page over the real server lines of the stuck case. */
+async function stuckPage(waits, more = {}) {
+  const made = asSent({ ...build([], undefined, ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '    Done when: you judge a fight fun', ''].join('\n'), { threadTexts: [{ path: PATH, text: STUCK, at: 1 }] }), goalsEdit: { canWrite: true }, waits, readAt: at(9, 15), ...more })
+  const page = await openPage({ state: { ...made, talkPartner: talkPartnerOf(made) }, answers: () => reply({}) })
+  await page.click('[data-tab="advice"]')
+  await page.click('[data-advisor-pane="brainstorm"]')
+  return page
+}
+
+test('the stuck case on the page: Late line, the Retry in the card and the menu, and the list row no longer says "with your partner"; while it only waits, none of that', async () => {
+  const late = waitsFor({ report: ended, now: at(9, 15) })
+  const page = await stuckPage(late)
+  try {
+    assert.match(words(page.find('#brainstorm-card .wait-line')), /No answer since 09:08/)
+    assert.equal(words(page.find('#brainstorm-card .brainstorm-again')), 'Type it to your partner again')
+    assert.match(words(page.find('.brainstorm-row .brainstorm-status')), /^no answer from your partner/)
+    assert.doesNotMatch(words(page.find('.brainstorm-row')), /with your partner/)
+    await page.click('.brainstorm-menu-button')
+    assert.ok(page.all('.brainstorm-menu-item').some(one => words(one) === 'Type it to your partner again'))
+  } finally { await page.close() }
+  const quiet = await stuckPage(waitsFor({ report: ended, now: at(9, 10) }))
+  try {
+    // The quiet "turn ended at … without it" line offers no Retry (the chat may still answer; a Retry would type the word twice), nor the row's "no answer".
+    assert.match(words(quiet.find('#brainstorm-card .wait-line')), /turn ended at 09:08 without it/)
+    assert.equal(quiet.all('#brainstorm-card .brainstorm-again').length, 0)
+    assert.match(words(quiet.find('.brainstorm-row .brainstorm-status')), /^with your partner/)
+    await quiet.click('.brainstorm-menu-button')
+    assert.equal(quiet.all('.brainstorm-menu-item').filter(one => /again/.test(words(one))).length, 0)
+  } finally { await quiet.close() }
+  const waiting = await stuckPage({ w1: { state: 'sent', lead: 'Sent 09:05', rest: 'waits for Advisor to pick it up', at: at(9, 5), chat: 'Advisor', canSendAgain: false, link: null, place: 'talk', command: 'brainstorm-answer', about: PATH, goal: 'G6', ask: null, sentAt: at(9, 5), title: 'x' } })
+  try {
+    assert.equal(waiting.all('#brainstorm-card .brainstorm-again').length, 0)
+    assert.match(words(waiting.find('.brainstorm-row .brainstorm-status')), /^with your partner/)
+  } finally { await waiting.close() }
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Findings 3, 5, 6: the Focus page
+
+const GOALS_PICK = ['Last id: G7', '', '- [ ] G1 A forest to walk', '    Done when: a player crosses the forest in five minutes', '- [ ] G7 A pond', ''].join('\n')
+const GOALS_VIBE = ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '    Done when: you judge a fight fun', '    Goal definition: every fight reads at a glance', ''].join('\n')
+const line = (state, lead, rest, more = {}) => ({ state, lead, rest, at: at(9, 5), chat: 'Advisor', canSendAgain: false, link: null, place: 'focus', command: 'done-when', about: 'G7', goal: 'G7', ask: null, sentAt: at(9, 5), title: 'words', ...more })
+
+test('the pick row: "Ask again" is back when the line has ended ("no answer recorded in 24 h"), not while it waits', async () => {
+  const base = asSent({ ...build([], undefined, GOALS_PICK), goalsEdit: { canWrite: true }, readAt: at(9, 6) })
+  for (const [name, waits, shown] of [
+    ['waiting', { w1: line('sent', 'Sent 09:05', 'waits for Advisor to pick it up') }, false],
+    ['ended', { w1: line('sent', 'Sent 09:05', 'no answer recorded in 24 h', { isEnded: true }) }, true],
+    ['late', { w1: line('late', 'Not picked up after 40 min', 'x') }, true],
+  ]) {
+    const page = await openPage({ state: { ...base, waits } })
+    try {
+      await page.click('[data-tab="advice"]')
+      const row = page.all('.focus-goals li').find(one => one.textContent.includes('G7'))
+      assert.equal(row.querySelectorAll('.focus-ask-done-when').length, shown ? 1 : 0, name)
+    } finally { await page.close() }
+  }
+})
+
+test('the Focus run\'s right column: the demo sentence checks a goal-demo line only, and one line stands once beside the re-check card', async () => {
+  const run = ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '    Done when: you judge a fight fun', '    Goal definition: every fight reads at a glance', '    Goal definition agreed: 2026-10-18 10:00', '    Part: Show damage · about 1 h · steps B1', '    How agreed: 2026-10-18 11:00', ''].join('\n')
+  void GOALS_VIBE
+  const base = asSent({ ...build([], undefined, run), goalsEdit: { canWrite: true }, readAt: at(9, 6) })
+  // The card is shown only when every part is done: the made-up garden has none, so this checks the page's own code paths by source.
+  void base
+  const { readFile } = await import('node:fs/promises')
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  assert.match(script, /focusWordLine\(state, \['goal-demo'\]\)\.length === 0\) card\.append\(el\('p', 'focus-demo-wait'/)
+  assert.doesNotMatch(script, /focusWordLine\(state, FOCUS_LINE_COMMANDS\.there\)\.length === 0\) card\.append\(el\('p', 'focus-demo-wait'/)
+  assert.match(script, /const isThereDrawn = recapReady === null && view\.vibeThere !== null/)
+  assert.match(script, /\.\.\.\(isThereDrawn \? \[\] : focusWordLine\(state, FOCUS_LINE_COMMANDS\.there\)\)/)
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Finding 7: a newer word supersedes an older not-sent record
+
+test('a newer word of the person\'s for the talk (the Focus talk bar\'s, or a click) ends the older not-sent record, and its Retry is refused', async () => {
+  const record = { click: 'click-aaaa-1111', route: '/api/brainstorm', key: PATH, at: at(9, 5), notSent: 'no chat takes it', say: { command: 'brainstorm-answer', n: 2 } }
+  const state = { brainstorms: { threads: [threadOf(STUCK)] } }
+  assert.equal(movedOn(record, state, []), null, 'no newer word: it stands')
+  const barWord = { id: 'w9', to: 'Advisor', command: 'talk', about: 'G6', at: at(9, 7), state: 'waiting', text: `talk: more words\nGoal: G6 The polish\nThread: ${PATH}` }
+  assert.equal(movedOn(record, state, [barWord]), 'a newer word for it was sent')
+  assert.equal(movedOn(record, state, [{ ...barWord, at: at(9, 4) }]), null, 'an older word does not')
+  assert.equal(movedOn(record, state, [{ ...barWord, command: 'brainstorm-fix', about: PATH }]), null, 'the board\'s own fix word is no word of the person\'s')
+  assert.equal(movedOn(record, state, [{ ...barWord, text: 'x', about: PATH, command: 'brainstorm-answer' }]), 'a newer word for it was sent')
+  // Through the ledger: the record is ended and the card's Not-sent line goes; the Retry is refused with the why.
+  const ledger = clickLedger({})
+  await ledger.put(record)
+  await ledger.settle(one => movedOn(one, state, [barWord]), at(9, 8))
+  assert.deepEqual(await ledger.unsent(), [])
+  assert.equal((await ledger.get(record.click)).superseded.why, 'a newer word for it was sent')
+})
+
+void MIN
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Round 2c: the same-minute Done, the Retry on an ended line, and the stuck talk past P3's window (chat 1's answer: from the thread record)
+
+test('a question stamped in the same minute as the word is its Done (the latest, unanswered; or what it understood); a proposal needs a later minute', () => {
+  const head = text => `${HEAD.replace('09:00', '10:00')}${text}`
+  const q1 = '## Q1 (10:01)\nWhere first?\n- A: Gate (advised)\n- B: Pond\nAnswer (10:02): A\n'
+  const t = text => threadOf(head(text))
+  const answerWord = { at: new Date(2026, 9, 19, 10, 2, 30).getTime(), about: PATH, command: 'brainstorm-answer' }
+  const now = new Date(2026, 9, 19, 11, 0).getTime()
+  // The answer at 10:02:30 and Q2 "(10:02)": Done.
+  assert.equal(talkDone(answerWord, t(`${q1}\n## Q2 (10:02)\nHow bright?\n- A: Dim (advised)\n- B: Bright\n`), now)?.words, 'a new question')
+  // A question of the same minute that is already answered is no next stage of this word.
+  assert.equal(talkDone(answerWord, t(`${q1}\n## Q2 (10:02)\nHow bright?\n- A: Dim (advised)\n- B: Bright\nAnswer (10:03): A\n`), now), null)
+  // New brainstorm Start: the word at 10:00:20 and Q1 stamped 10:00.
+  const startWord = { at: new Date(2026, 9, 19, 10, 0, 20).getTime(), about: PATH, command: 'brainstorm' }
+  assert.equal(talkDone(startWord, t('## Q1 (10:00)\nWhere first?\n- A: Gate (advised)\n- B: Pond\n'), now)?.words, 'a new question')
+  assert.equal(talkDone(startWord, t(''), now), null)
+  // A proposal in the same minute is not: a Change word is sent while a proposal already stands.
+  const proposal = '\n## Proposal (10:02)\nDecided:\n- the gate first\nGoals:\n- [ ] Paths by the gate — under G6 — Done when: found at night\nSteps:\n- [ ] Make a path sprite — Units — about 1 h\nNote: x\n'
+  assert.equal(talkDone({ ...answerWord, command: 'brainstorm-change' }, t(`${q1}${proposal}`), now), null)
+})
+
+test('the Retry also shows on an ended line ("no answer recorded in 24 h"), in the card; the row reads "no answer"', async () => {
+  const ended = { w1: { state: 'sent', lead: 'Sent 09:05', rest: 'no answer recorded in 24 h', at: at(9, 5), chat: 'Advisor', canSendAgain: false, link: null, isEnded: true, place: 'talk', command: 'brainstorm-answer', about: PATH, goal: 'G6', ask: null, sentAt: at(9, 5), title: 'x' } }
+  const page = await stuckPage(ended)
+  try {
+    assert.equal(words(page.find('#brainstorm-card .brainstorm-again')), 'Type it to your partner again')
+    assert.match(words(page.find('.brainstorm-row .brainstorm-status')), /^no answer from your partner/)
+  } finally { await page.close() }
+})
+
+test('a stuck talk past P3\'s 48 h window: the thread record gives the quiet "No answer from <chat> since HH:MM (day)" with the Retry, and the row never says "with your partner"', async () => {
+  const outbox = [word({ answeredAt: at(9, 8) })]
+  const now = at(9, 8) + 50 * 60 * MIN
+  const stuck = stuckTalksOf({ state: { brainstorms: { threads: [threadOf(STUCK)] } }, outbox, now })
+  assert.deepEqual(stuck, [{ path: PATH, since: at(9, 8), chat: 'Advisor' }])
+  // P3's window is untouched: 50 h after the word its line is gone.
+  assert.deepEqual(Object.keys(waitsFor({ outbox, report: ended, now })), [])
+  // Not stuck: the next stage stands, or the talk is over (a turn never seen to end is dated by the word: the last test).
+  assert.deepEqual(stuckTalksOf({ state: { brainstorms: { threads: [threadOf(`${STUCK}${Q3}`)] } }, outbox, now }), [])
+  assert.deepEqual(stuckTalksOf({ state: { brainstorms: { threads: [threadOf(STUCK.replace('State: running', 'State: done'))] } }, outbox, now }), [])
+  const page = await stuckPage({}, { stuckTalks: stuck, readAt: now })
+  try {
+    assert.match(words(page.find('#brainstorm-card .wait-line .wait-words')), /^No answer from Advisor since 09:08 \(\w{3} \d+ Oct\)$/)
+    assert.equal(words(page.find('#brainstorm-card .brainstorm-again')), 'Type it to your partner again')
+    assert.match(words(page.find('.brainstorm-row .brainstorm-status')), /^no answer from your partner/)
+    assert.doesNotMatch(words(page.find('.brainstorm-row')), /with your partner/)
+  } finally { await page.close() }
+})
+
+test('stuckTalksOf: a "wrapping up" thread with no proposal is the partner\'s; a last word whose turn end was never seen is dated by its close, else its own time', () => {
+  const now = at(9, 5, 20) + 50 * 60 * MIN
+  const only = (text, outbox) => stuckTalksOf({ state: { brainstorms: { threads: [threadOf(text)] } }, outbox, now })
+  const wrapping = STUCK.replace('State: running', 'State: wrapping up')
+  assert.deepEqual(only(wrapping, [word({ command: 'brainstorm-wrap', answeredAt: at(9, 8) })]), [{ path: PATH, since: at(9, 8), chat: 'Advisor' }])
+  // A thread that waits for the person (an open question) or holds a proposal is not stuck with the partner.
+  assert.deepEqual(only(`${STUCK}${Q3}`, [word({ answeredAt: at(9, 8) })]), [])
+  assert.deepEqual(only(wrapping.replace(/\n$/, '\n') + '\n## Proposal (09:20)\nDecided:\n- x\nGoals:\n- [ ] A — under G6 — Done when: y\nSteps:\n- [ ] S — Units — about 1 h\nNote: n\n', [word({ command: 'brainstorm-wrap', answeredAt: at(9, 8) })]), [])
+  // The turn end never seen: the word expired before delivery (its close), the sweep closed it, or its chat never reported (its own time).
+  assert.deepEqual(only(STUCK, [word({ state: 'expired', closedAt: at(9, 30), takenAt: undefined, deliveredAt: undefined })]), [{ path: PATH, since: at(9, 30), chat: 'Advisor' }])
+  assert.deepEqual(only(STUCK, [word()]), [{ path: PATH, since: at(9, 5, 20), chat: 'Advisor' }])
+  assert.deepEqual(only(STUCK, []), [], 'no talk word: nothing')
+})

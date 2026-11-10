@@ -334,16 +334,17 @@ test('the screen\'s status words read the talk partner and say "your Product own
   const answered = thread(`${HEAD}${Q1}Answer (11:58): A\n`, NOW - 2 * MIN)
   const owner = { name: OWNER, role: 'owner', isRunning: true, state: 'free', on: null, next: [] }
   const advisor = { name: 'Advisor', role: 'advisor', isRunning: true, state: 'free', on: null, next: [] }
-  assert.equal(page.brainstormStatusOf(answered, owner, NOW).word, 'your Product owner is thinking')
-  assert.equal(page.brainstormStatusOf(answered, advisor, NOW).word, 'your partner is thinking')
-  assert.equal(page.brainstormPartnerView(answered, owner, NOW).headline, 'Your Product owner is writing the next question')
-  assert.equal(page.brainstormStatusOf(answered, { ...owner, next: [{ kind: 'brainstorm-answer', thread: PATH, stand: { kind: 'queued', since: NOW } }, { kind: 'brainstorm', thread: 'x', stand: { kind: 'queued', since: NOW } }] }, NOW).word, 'waiting for your Product owner')
+  // P4b: the word says whose turn it is: "with your Product owner", never how it does (that is the card's line, from the records).
+  assert.equal(page.brainstormStatusOf(answered, owner, NOW).word, 'with your Product owner')
+  assert.equal(page.brainstormStatusOf(answered, advisor, NOW).word, 'with your partner')
+  assert.equal(page.brainstormPartnerView(answered, owner, NOW).who, 'Product owner')
+  assert.equal(page.brainstormPartnerView(answered, advisor, NOW).who, 'partner')
+  assert.equal(page.brainstormStatusOf(answered, { ...owner, next: [{ kind: 'brainstorm-answer', thread: PATH, stand: { kind: 'queued', since: NOW } }, { kind: 'brainstorm', thread: 'x', stand: { kind: 'queued', since: NOW } }] }, NOW).word, 'with your Product owner')
   // The page reads the state's talkPartner; an older server without it gives the Advisor.
   assert.equal(page.talkPartnerIn({ talkPartner: owner, advisor }).name, OWNER)
   assert.deepEqual([page.talkPartnerIn({ advisor }).name, page.talkPartnerIn({ advisor }).role], ['Advisor', 'advisor'])
-  // The owner busy with another talk is busy with that one; with this one it thinks.
+  // The owner busy with another talk, or with this one: no guess either way.
   const busy = page.brainstormPartnerView(answered, { ...owner, state: 'working', on: { kind: 'brainstorm', title: 'Benches', thread: 'other.md', since: NOW - 4 * MIN }, next: [{ kind: 'brainstorm-answer', thread: PATH, stand: { kind: 'queued', since: NOW } }] }, NOW)
-  assert.equal(busy.kind, 'waiting')
-  assert.match(busy.headline, /^Your Product owner is busy with the talk "Benches"/)
-  assert.equal(page.brainstormPartnerView(answered, { ...owner, state: 'working', on: { kind: 'brainstorm-answer', title: 'Lanterns', thread: PATH, since: NOW - MIN } }, NOW).kind, 'thinking')
+  assert.deepEqual([busy.kind, busy.headline], ['line', null])
+  assert.equal(page.brainstormPartnerView(answered, { ...owner, state: 'working', on: { kind: 'brainstorm-answer', title: 'Lanterns', thread: PATH, since: NOW - MIN } }, NOW).kind, 'line')
 })

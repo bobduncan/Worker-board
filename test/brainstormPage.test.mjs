@@ -43,26 +43,24 @@ test('the card shows the open question with its options, the advised one marked,
   assert.equal(page.brainstormCardView(one(`${HEAD}${Q1}`), idle).canBack, false)
 })
 
-test('while the partner has the turn the card says what it does: thinking, on something else, or not running (Review Focus 4)', () => {
-  // The Brainstorm screen (2026-10-31): the words changed. The Advisor's lines ("The Advisor is thinking…", "The Advisor is on: <its
-  // card's line>", "...not running...") are now the partner's card (`partner`: kind, headline and the muted line under it), written
-  // with "your partner" so they fit whichever chat it is; the cases are the same, and the new screen's own tests are in
-  // brainstormScreen.test.mjs.
+test('while the partner has the turn the card holds no guess of its own: no thinking, no busy-with, only a chat that does not run says so (P4b)', () => {
+  // The Brainstorm screen (2026-10-31) wrote the partner's card from the queue and the thread; P4b (2026-11-09) took every guess out of it:
+  // how the word stands is the thread's wait line (from the records). The new screen's own tests are in brainstormScreen.test.mjs.
   const answered = one(`${HEAD}${Q1}Answer (21:02): B\n`)
-  assert.deepEqual([page.brainstormCardView(answered, idle).partner.kind, page.brainstormCardView(answered, idle).partner.headline], ['thinking', 'Your partner is writing the next question'])
+  assert.deepEqual([page.brainstormCardView(answered, idle).partner.kind, page.brainstormCardView(answered, idle).partner.headline], ['line', null])
   assert.equal(page.brainstormCardView(answered, idle).canAnswer, false)
-  assert.equal(page.brainstormCardView(one(HEAD), idle).partner.headline, 'Your partner is reading your words')
-  const elsewhere = page.brainstormCardView(answered, { ...idle, state: 'working', doingNow: 'Morning round' }).partner
-  assert.deepEqual([elsewhere.kind, elsewhere.headline, elsewhere.line], ['waiting', 'Your partner is busy with Morning round.', 'Your brainstorm is next.'])
-  // Its own work on the brainstorm is the thinking.
-  assert.equal(page.brainstormCardView(answered, { ...idle, state: 'working', doingNow: 'Brainstorm: Q2' }).partner.kind, 'thinking')
+  assert.equal(page.brainstormCardView(one(HEAD), idle).partner.headline, null)
+  for (const advisor of [{ ...idle, state: 'working', doingNow: 'Morning round' }, { ...idle, state: 'working', doingNow: 'Brainstorm: Q2' }]) {
+    const found = page.brainstormCardView(answered, advisor).partner
+    assert.deepEqual([found.kind, found.headline, found.line], ['line', null, null])
+  }
   const off = page.brainstormCardView(answered, { ...idle, isRunning: false }).partner
   assert.deepEqual([off.kind, off.headline, off.line], ['off', 'Your partner\'s chat is not running', 'Start it from the Workers lane (the main chat starts it).'])
   const none = page.brainstormCardView(answered, null).partner
   assert.deepEqual([none.kind, none.headline, none.line], ['off', 'No partner is on this board', 'A brainstorm waits for one.'])
   // Wrapping up: the partner writes the proposal.
   const wrapping = page.brainstormCardView(one(`${HEAD}${Q1}`.replace('State: running', 'State: wrapping up')), idle)
-  assert.deepEqual([wrapping.canAnswer, wrapping.partner.headline], [false, 'Your partner is writing the proposal'])
+  assert.deepEqual([wrapping.canAnswer, wrapping.partner.headline], [false, null])
   // A proposal or the end: no question; the proposal waits for the person, the end for nobody: no partner's card either way.
   const proposed = page.brainstormCardView(one(`${HEAD}${Q1}Answer (21:02): B\n${PROPOSAL}`), idle)
   assert.deepEqual([proposed.canAnswer, proposed.turn, proposed.partner, proposed.question], [false, 'person', null, null])
@@ -111,7 +109,7 @@ test('the list holds the running brainstorms, then the ones done: a status word 
   // came of it moved to the row's tooltip (`tip`), and "with the Advisor" reads "with your partner".
   assert.deepEqual(list.running.map(row => [row.path, row.title, row.word, row.tip, row.waits]), [
     ['b/2026-10-15-lanterns.md', 'Lanterns', 'your turn', '2026-10-15 · 1 question · with your partner', true],
-    ['b/2026-10-15-night.md', 'Night', 'your partner is thinking', '2026-10-15 · 1 question · with your partner', false],
+    ['b/2026-10-15-night.md', 'Night', 'with your partner', '2026-10-15 · 1 question · with your partner', false],
   ])
   assert.deepEqual(list.done.map(row => [row.title, row.word, row.tip]), [['Gate', 'created', '2026-10-14 · 1 question → G10, 2 steps'], ['Old', 'discarded', '2026-10-15 · discarded']])
   // The card shows the one chosen, else the first running, else the newest.
