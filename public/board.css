@@ -1340,7 +1340,8 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .inc-state.is-idle { border-color: #34455d; color: #9fb0c6; }
 .inc-state.is-review { border-color: #4f86b8; color: #7cc4ff; }
 .inc-state.is-done { border-color: #2f5a49; color: var(--working); }
-.inc-state.is-attention { border-color: var(--attn-line); background: var(--attn-bg); color: var(--attn-text); }
+/* P5: a chain whose open end is an ask to the person: a firmer blue (the section stays cool: quiet blues and greys). */
+.inc-state.is-attention { border-color: #5b8def; background: #16233a; color: #dbe7ff; font-weight: 600; }
 .inc-state.is-quiet { border-color: #34455d; color: #9fb0c6; }
 .inc-state.is-dropped { border-color: #34455d; color: var(--muted); }
 .inc-state.is-sending { border-style: dashed; border-color: #7cc4ff; color: #7cc4ff; }
