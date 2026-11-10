@@ -84,7 +84,9 @@ test('a stopped talk\'s card offers "Type it to your partner again" as its main 
     assert.equal(page.text('.brainstorm-wait-line'), 'Stopped · nothing sent')
     assert.equal(page.text('.brainstorm-again'), 'Type it to your partner again')
     await page.click('.brainstorm-again')
-    assert.deepEqual(page.sent('/api/say').map(one => [one.body.command, one.body.to, one.body.n]), [['brainstorm-answer', 'Advisor', 1]])
+    // Reactive board, brief P4a: one call to the board, which types the word itself: none from the page to /api/say.
+    assert.deepEqual(page.sent('/api/say'), [])
+    assert.deepEqual(page.sent('/api/brainstorm').map(one => [one.body.command, one.body.word, typeof one.body.click]), [['again', { command: 'brainstorm-answer', n: 1 }, 'string']])
   } finally { await page.close() }
 })
 

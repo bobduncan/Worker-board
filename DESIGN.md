@@ -468,7 +468,7 @@ time>; ready):" with "What we build:" (points; "Not in it: ..." among them) and 
 (roles/partner.md). The window's head shows the goal, the size and "N questions for you" or a green "Ready" in place of
 "Step". While refining, the box shows the summary, the picture as a thumbnail with "Open the picture ↗", and a line
 per question: the advice (its reason on hover) and Yes / No; a pick is kept until it is sent, a second click takes it
-back. "Send answers" writes the picks and the feedback and asks the next round; "Take the advice" (in place of "Accept
+back. "Send answers" writes the picks and the feedback and asks the next round, in ONE call (`/api/backlog` `refine-send`, a click id; "Ask for pictures" the same with `via: 'refine-pictures'`: the board writes the answers or its request, then queues the `refine` word; a word not queued leaves the answers standing with "Not sent: <why>, HH:MM" and a Retry on the step); "Take the advice" (in place of "Accept
 as refined") writes the advice as the answer to every open question the person did not pick, and says which question
 has none to take. Once ready, the description stands first in the window, with no box, and the step's own lines follow
 as its "Notes"; its foot has "Refine again". A ready block names no round: a refine ask counts as written once the
@@ -757,12 +757,12 @@ while the person does other things. "Ask the Advisor…" in the frame of the goa
 "+ Sub-goal") and in a row's "…" menu opens a box under the frame: the question (2000 characters), pictures pasted
 with Ctrl+V or picked (at most four, kept as Talk to Main's are, `keepTalkFile`), Send. The words and pictures stay
 while the map is drawn anew; Esc or Cancel closes the box. Send writes `Ask (A<n>, <date time>): <question>` under
-the goal (`POST /api/goals` `ask`; the next ask id, kept from coming back by the head line "Last ask: A<n>"), then
-types `ask from the goal map`, `Goal: G<id> <title>`, `Ask (A<n>): <question>` and `Pictures: <paths>` into the
+the goal (`POST /api/goals` `ask`; the next ask id, kept from coming back by the head line "Last ask: A<n>"), then, in the same
+call (a click id; reactive board, brief P4a), the board types `ask from the goal map`, `Goal: G<id> <title>`, `Ask (A<n>): <question>` and `Pictures: <paths>` into the
 Advisor's chat (`goal-ask`, `src/say.mjs`, to the Advisor only; a chat that is not running is started through the
 main chat, as any word to it). Only an ask that stands under that goal, not answered yet, is typed, in the map's own
-words; when the words do not reach the Advisor, the box keeps the ask with its words fixed and "Send again" types it
-again, never a second ask (the review of B258). The Advisor writes `Answer (<date time>, <title>): …` and `More: <page>` under the ask
+words; when the words do not reach the Advisor, the box keeps the ask with its words fixed and "Send again" is the Retry of that
+click (`click-retry`, the same click id), never a second ask (the review of B258); the ask's block under the goal also draws "Not sent: <why>, HH:MM" with a Retry from `state.clicksUnsent`, after a reload as well. The Advisor writes `Answer (<date time>, <title>): …` and `More: <page>` under the ask
 (roles/partner.md, "Asks from the goal map"; the page in `goalAsks`, `.claude/goal-asks`, beside the threads, not in
 the game). The frame shows each ask as a violet block: the question with its id, time and "waiting for the Advisor",
 or the answer with the pictures it names and "More ↗" (the page in the board's file window, from the project's
@@ -824,8 +824,8 @@ the goal map"). A start writes `Brainstorm: <path> (running)` under its goal, so
 runs on a goal at a time ("Brainstorm this" on a goal with one running opens it). The words to the Advisor
 (`brainstorm`, `brainstorm answer`, `brainstorm wrap up`, `brainstorm change`) are each made from the thread after the
 board's own write, so one is typed only when the thread is where it says (no second `brainstorm` for a thread the
-Advisor has; an answer only once written); a chat that is not running is started through the main chat. When
-nothing comes back, "Type it to your partner again" in the head's "…" menu types the word the brainstorm waits on once
+Advisor has; an answer only once written); a chat that is not running is started through the main chat. ONE CLICK IS ONE SERVER ACTION (reactive board, brief P4a, 2026-11-09): the page makes ONE call with a click id (`clickCall`, kept while a call got no answer); the board stores the input and queues the word in the same action (`src/clicks.mjs` `oneClick`, the board's own `sayNow`), never a second call from the page to `/api/say`. A second call with the same click id answers the first result and queues no second word; the click's record (`data/clicks.jsonl`, by click id) holds the word's id or `not sent: <why>, HH:MM`, and the card draws that with a Retry (`unsentLine`, `click-retry`), which reuses the click id: the input is not written again, the word is queued once. One line per click in `data/actions.jsonl` with its own `via` (and the click id, which `interventionsOf` counts once). One click id is one input: the record keeps a hash of the input, the same id with another input is refused (409 "a different input under this click") and the page sends it once more under a new id; the page keeps an id only for a resend of the identical body. A "not sent" line ends when a later word for its key is queued, when the talk, ask or step moved on (`movedOn`), or after 24 hours: the record gets `superseded` or `closed` with its time, the line goes and a Retry on it is refused with the why. The ledger awaits its load and is read anew whenever `clicks.jsonl` changed (a second board process on the project). Goals keys its line by goal and ask id. Every click of this part (an option, Answer, Skip, Back, "Yes, that's it", "Not quite", Wrap up, Change, New brainstorm Start, "Change this goal" Start) is that one call to `/api/brainstorm` with a click id; Change keeps the person's words with the click's record. When
+nothing comes back, "Type it to your partner again" in the head's "…" menu is one call too (`again`) and types the word the brainstorm waits on once
 more; a step the main chat could not be asked for after Create is asked again with "Ask the main chat again for N
 steps". The review of B259 also made the head's lines count once (a "Goal:" in the Advisor's context is context), a
 question asked again under its number take its answer, a question like "Lanterns: where?" stay a question, a Done when
@@ -2412,8 +2412,9 @@ beside the mockup `focus-vibe.png`: `art-inbox/focus-mockups/inc2-vibe.png`, `in
 - **The page** (`focus:start`): `focusCan` (a partner and a board that writes, else why), `focusView` with working
   buttons (`act`, `isEnabled`, `title`), `focusAsk` (the open question, its options, why and picture, or who has the
   turn). Drawn by `drawFocus` with `focusUi` (a move on its way, its line, the Not yet box, the words of each box and
-  the option picked, kept while the page redraws); `focusAct` sends the moves, `focusAnswer` writes the answer into
-  the thread (`/api/brainstorm`) and types `brainstorm answer` (`/api/say`), as the Brainstorm part does.
+  the option picked, kept while the page redraws); `focusAct` sends the moves, `focusAnswer` is ONE call to `/api/brainstorm`
+  (`answer`, `via: 'talk-send'`, a click id): the board writes the answer into the thread and queues `brainstorm answer` itself, as for
+  the Brainstorm part (`src/clicks.mjs`; a word not queued leaves the answer in the thread; the talk card draws "Not sent: <why>, HH:MM" and its Retry from `state.clicksUnsent` (the board's record), so it shows after a reload too, and the Retry sends the stored click id).
 - **The partner** (`roles/partner.md`, from the Advisor's job, which keeps refining, goal linking and rounds): "The
   focus" in three moves (talk until the goal definition is clear and keep the draft, never build; on `goal definition: agreed` propose the
   how; on `how: go` make the steps with `work new` and the goal, refine them itself, write their ids into the parts,
@@ -4494,7 +4495,7 @@ own: the Supervisor does not file incidents from them.
 - **Unsure**: what the records cannot tell apart is listed in the line's `unsure` `[{ at, kind, what, why }]`, never guessed and
   never counted (a lone start with no proof of who started it; an interrupted chat going on by itself or typed into; a chat the
   history does not track; in the backfill, every number the old records could not hold). A finding a later pass proves leaves `unsure`.
-- **The records** (in `data/`): `actions.jsonl` (one line per action of the person: `{ at, by: 'person', via, action, id }`,
+- **The records** (in `data/`): `clicks.jsonl` (one JSON line per click of the page that stores an input and queues its word, `{ click, via, key, route, at, say, word | notSent, notSentAt }`, the last line of a click wins; `src/clicks.mjs`), `actions.jsonl` (one line per action of the person: `{ at, by: 'person', via, action, id }`, a click of the page adds its `click` id,
   written in the one place of the work API's dispatcher after a person's change returns ok, plus `/api/restart` and the person's
   commands of `/api/say`; never a read or a list), `ready-minutes.jsonl` (one line a minute while the board owns the loops:
   `{ at, free: [{ chat, could }] }`, an empty minute `free: []`, pruned to 31 days at the first write of a day), and

@@ -27,6 +27,12 @@ const plain = value => (value === undefined ? undefined : JSON.parse(JSON.string
 const view = Object.fromEntries(Object.entries(made).map(([name, fn]) => [name, (...args) => plain(fn(...args))]))
 
 const PATH = '.claude/brainstorms/2026-10-31-lanterns.md'
+// Reactive board, brief P4a: a click is ONE call with a click id, and the page never types the word itself.
+const noClick = ({ click, ...rest }) => {
+  assert.match(click, /^[\w-]{8,64}$/)
+  return rest
+}
+
 const OTHER = '.claude/brainstorms/2026-10-30-benches.md'
 const OPENING = 'Where should the lanterns go? I want the garden to glow at night without a lamp in every corner. Think about the gate, the pond and the benches first.'
 const HEAD = `# Brainstorm: Lanterns\nGoal: G6 The polish\nStarted: 2026-10-31 21:00 · State: running\nOpening: ${OPENING}\n\n`
@@ -226,23 +232,24 @@ test('an option answers at once, through today\'s answer path; your own words go
   const page = await open([[PATH, `${HEAD}${Q1}${A1}${Q2}`]], { answers })
   try {
     await page.click('[data-option="A"]')
-    assert.deepEqual(page.sent('/api/brainstorm').map(one => one.body), [{ path: PATH, n: 2, command: 'answer', key: 'A', words: '' }])
-    assert.deepEqual(page.sent('/api/say').map(one => [one.body.command, one.body.thread, one.body.n]), [['brainstorm-answer', PATH, 2]])
+    assert.deepEqual(page.sent('/api/brainstorm').map(one => noClick(one.body)), [{ path: PATH, n: 2, command: 'answer', key: 'A', words: '' }])
+    assert.deepEqual(page.sent('/api/say'), [], 'the board types the word itself')
     // Words typed beside an option go with it, as before.
     await page.type('#brainstorm-other', 'and a lamp by the pond')
     assert.equal(page.find('#brainstorm-send').disabled, false)
     await page.click('[data-option="B"]')
-    assert.deepEqual(page.sent('/api/brainstorm').at(-1).body, { path: PATH, n: 2, command: 'answer', key: 'B', words: 'and a lamp by the pond' })
+    assert.deepEqual(noClick(page.sent('/api/brainstorm').at(-1).body), { path: PATH, n: 2, command: 'answer', key: 'B', words: 'and a lamp by the pond' })
     // Their own words alone: "Other".
     await page.type('#brainstorm-other', 'dim by the gate, bright by the pond')
     await page.click('#brainstorm-send')
-    assert.deepEqual(page.sent('/api/brainstorm').at(-1).body, { path: PATH, n: 2, command: 'answer', key: 'Other', words: 'dim by the gate, bright by the pond' })
-    assert.deepEqual(page.sent('/api/say').map(one => one.body.command), ['brainstorm-answer', 'brainstorm-answer', 'brainstorm-answer'])
+    assert.deepEqual(noClick(page.sent('/api/brainstorm').at(-1).body), { path: PATH, n: 2, command: 'answer', key: 'Other', words: 'dim by the gate, bright by the pond' })
+    assert.deepEqual(page.sent('/api/say'), [])
+    assert.equal(new Set(page.sent('/api/brainstorm').map(one => one.body.click)).size, 3, 'each click has its own id')
     // Enter in the line sends too.
     await page.type('#brainstorm-other', 'a hum by the gate')
     page.find('#brainstorm-other').dispatchEvent(new page.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     await settle()
-    assert.deepEqual(page.sent('/api/brainstorm').at(-1).body, { path: PATH, n: 2, command: 'answer', key: 'Other', words: 'a hum by the gate' })
+    assert.deepEqual(noClick(page.sent('/api/brainstorm').at(-1).body), { path: PATH, n: 2, command: 'answer', key: 'Other', words: 'a hum by the gate' })
     // Send with no words sends nothing.
     const before = page.sent('/api/brainstorm').length
     await page.type('#brainstorm-other', '   ')
@@ -379,15 +386,16 @@ test('the "…" menu holds the thread file, "Type it to your partner again" and 
     assert.equal(page.find('.brainstorm-menu-list [data-game-file]').dataset.gameFile, PATH)
     // "Type it again" types the word the thread waits on (the answer to the last question) and closes the menu.
     await page.click('[data-brainstorm-act="again"]')
-    assert.deepEqual(page.sent('/api/say').map(one => [one.body.command, one.body.thread, one.body.n]), [['brainstorm-answer', PATH, 1]])
+    assert.deepEqual(page.sent('/api/say'), [])
+    assert.deepEqual(page.sent('/api/brainstorm').map(one => noClick(one.body)), [{ command: 'again', path: PATH, word: { command: 'brainstorm-answer', n: 1 } }])
     assert.equal(page.all('.brainstorm-menu-list').length, 0)
     // Discard asks twice, and the first click keeps the menu open to say so.
     await page.click('.brainstorm-menu-button')
     await page.click('[data-brainstorm-act="discard"]')
-    assert.deepEqual(page.sent('/api/brainstorm'), [])
+    assert.equal(page.sent('/api/brainstorm').filter(one => one.body.command === 'discard').length, 0)
     assert.equal(page.text('.brainstorm-menu-list .is-delete'), 'Click again to discard it')
     await page.click('[data-brainstorm-act="discard"]')
-    assert.deepEqual(page.sent('/api/brainstorm').map(one => one.body), [{ command: 'discard', path: PATH }])
+    assert.deepEqual(page.sent('/api/brainstorm').filter(one => one.body.command === 'discard').map(one => one.body), [{ command: 'discard', path: PATH }])
     assert.equal(page.all('.brainstorm-menu-list').length, 0)
   } finally { await page.close() }
 })
@@ -401,14 +409,14 @@ test('on a question the menu also holds Skip, Back to the question before and "E
     // The partner has no turn: nothing to type again.
     assert.equal(page.all('[data-brainstorm-act="again"]').length, 0)
     await page.click('[data-brainstorm-act="back"]')
-    assert.deepEqual(page.sent('/api/brainstorm').map(one => one.body), [{ path: PATH, n: 2, command: 'back', to: 1 }])
+    assert.deepEqual(page.sent('/api/brainstorm').map(one => noClick(one.body)), [{ path: PATH, n: 2, command: 'back', to: 1 }])
     await page.click('.brainstorm-menu-button')
     await page.click('[data-brainstorm-act="skip"]')
-    assert.deepEqual(page.sent('/api/brainstorm').at(-1).body, { path: PATH, n: 2, command: 'skip' })
+    assert.deepEqual(noClick(page.sent('/api/brainstorm').at(-1).body), { path: PATH, n: 2, command: 'skip' })
     await page.click('.brainstorm-menu-button')
     await page.click('[data-brainstorm-act="wrap"]')
-    assert.deepEqual(page.sent('/api/brainstorm').at(-1).body, { command: 'wrap', path: PATH })
-    assert.deepEqual(page.sent('/api/say').map(one => one.body.command), ['brainstorm-answer', 'brainstorm-answer', 'brainstorm-wrap'])
+    assert.deepEqual(noClick(page.sent('/api/brainstorm').at(-1).body), { command: 'wrap', path: PATH })
+    assert.deepEqual(page.sent('/api/say'), [])
     // Closing without choosing.
     await page.click('.brainstorm-menu-button')
     assert.equal(page.all('.brainstorm-menu-list').length, 1)

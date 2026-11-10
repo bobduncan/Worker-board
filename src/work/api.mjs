@@ -265,9 +265,10 @@ async function logPersonAction(body, ctx, done) {
  * Stability (2026-11-05): appends `{ at, by: 'person', via, action, id }` to the actions log. A log that cannot be written
  * is said on the console and never fails the person's action.
  */
-export async function keepPersonAction(file, { via, action, id = null }, at = Date.now()) {
+export async function keepPersonAction(file, { via, action, id = null, click = null }, at = Date.now()) {
   try {
-    await appendLines(file, `${JSON.stringify({ at, by: 'person', via, action, id })}\n`)
+    // Reactive board, brief P4a: a click of the page carries its click id, so a retry of it is one hand on the board, not two.
+    await appendLines(file, `${JSON.stringify({ at, by: 'person', via, action, id, ...(click === null ? {} : { click }) })}\n`)
   } catch (error) {
     console.error(`The actions log could not be written (${error?.code ?? error?.message ?? 'unknown'}).`)
   }
