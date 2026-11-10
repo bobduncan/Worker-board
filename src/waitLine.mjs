@@ -93,10 +93,16 @@ const OWN_DONE = ['obsolete-check', 'sweep', 'recap-feedback']
  * Wave 2: the places an action of the person has (`placeOfWord`). The six first have a Done source of their own (`OWN_PLACES`), the
  * talk the fallback, the judgment of an incident its own lines (`judgeLinesOf`).
  */
-export const WAVE2_PLACES = ['refine', 'go', 'change', 'goal-ask', 'overturn', 'worker', 'talk', 'judge']
+export const WAVE2_PLACES = ['refine', 'go', 'change', 'goal-ask', 'overturn', 'worker', 'talk', 'focus', 'judge']
 const OWN_PLACES = ['refine', 'go', 'change', 'goal-ask', 'overturn', 'worker']
 /** The Focus talk's words: the talk bar, "Not yet", "Re-check the goals now", and the words of a brainstorm that is no change of a goal. */
 const TALK_COMMANDS = ['talk', 'vibe-not-yet', 'how-not-yet', 'recheck']
+/**
+ * Reactive board, brief P4b: the other words the Focus and Goals pages send (the person's click, then the partner's turn). They have no
+ * Done record of their own yet: P3's general rule (the chat's turn on the word ended) says Done, Late or closed for them. The page draws
+ * each where its button was (`wordLineOf`); the board's own demo word (`goal-demo`, asked by the loop) is drawn the same.
+ */
+export const FOCUS_COMMANDS = ['focus', 'vibe-agreed', 'vibe-there-yes', 'vibe-there-no', 'goal-recheck', 'goal-demo', 'done-when', 'undo']
 /** The words of a brainstorm thread the person types (the board's own `brainstorm-fix` and `brainstorm-stranded` are no action of theirs). */
 const BRAINSTORM_COMMANDS = ['brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite']
 /** The states of an incident that waits for a judgment; the ones that end it are `ENDED` of supervisor/incidents.mjs, and 'fix' (given a fix step). */
@@ -403,7 +409,7 @@ export function isPersonWord(word, { sweepWord = null, now = null } = {}) {
   if (typeof word?.to !== 'string' || word.to === '' || !isTime(word.at)) return false
   if ((word.ask ?? null) !== null) return true
   if (word.command === 'sweep') return typeof sweepWord === 'string' && word.id === sweepWord
-  if (['recap-feedback', 'obsolete-check', 'how-go', 'goal-ask', ...TALK_COMMANDS, ...BRAINSTORM_COMMANDS].includes(word.command)) return true
+  if (['recap-feedback', 'obsolete-check', 'how-go', 'goal-ask', ...TALK_COMMANDS, ...FOCUS_COMMANDS, ...BRAINSTORM_COMMANDS].includes(word.command)) return true
   if (word.command === 'refine') return word.board !== true && word.isAuto !== true && (word.syncKey ?? null) === null
   if (!['stop', 'remove'].includes(word.command)) return false
   // A stop or remove the board carries out by code is instant (no line) for STOP_HANDS_MS; after it the main chat takes it after all
@@ -415,7 +421,8 @@ export function isPersonWord(word, { sweepWord = null, now = null } = {}) {
 /**
  * Where an action of the person has its line (wave 2, the eight places of plan-wave2.md): 'refine', 'go', 'change' (a word of a
  * change thread, `Kind: change`), 'goal-ask', 'overturn' (the answer to a recap of finished work that the person overturned),
- * 'worker' (Stop or Remove), 'talk' (every other word of the Focus talk and of a brainstorm), else the wave 1 places 'answer',
+ * 'worker' (Stop or Remove), 'focus' (the Focus and Goals clicks: Pick, Start, This is the goal definition, Did we reach the goal, the
+ * re-check, the demo, Done when, Undo), 'talk' (every other word of the Focus talk and of a brainstorm), else the wave 1 places 'answer',
  * 'recap', 'obsolete', 'sweep'. `threads` the state's brainstorm threads, `items` the work store's items.
  */
 export function placeOfWord(word, { threads = [], items = null } = {}) {
@@ -431,6 +438,7 @@ export function placeOfWord(word, { threads = [], items = null } = {}) {
     default: break
   }
   if (BRAINSTORM_COMMANDS.includes(word?.command)) return threadOf(word, threads)?.kind === 'change' ? 'change' : 'talk'
+  if (FOCUS_COMMANDS.includes(word?.command)) return 'focus'
   return TALK_COMMANDS.includes(word?.command) ? 'talk' : null
 }
 
@@ -448,7 +456,7 @@ const isOverturn = (word, items) => overturnedRecap(word, items) !== null
 /** The goal a word is about (G<n>), for the page to find the line of the goal's card: its `goal`, `about`, or its thread's goal. */
 function goalOfWord(word, place, threads) {
   if (typeof word.goal === 'string') return word.goal
-  if (['go', 'talk'].includes(place) && /^G\d+$/.test(String(word.about ?? ''))) return word.about
+  if (['go', 'talk', 'focus'].includes(place) && /^G\d+$/.test(String(word.about ?? ''))) return word.about
   const goal = threadOf(word, threads)?.goal?.id
   return typeof goal === 'string' ? goal : null
 }

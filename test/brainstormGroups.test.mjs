@@ -46,21 +46,18 @@ const SHUT = one('shut', `${head('Shut', '2026-10-25 09:00', 'done')}${q1('09:05
 // ---------------------------------------------------------------------------------------------------------------------
 // A stopped talk
 
-test('a talk "thinks" only while the last move is under 30 minutes old; with no word queued or taken it stops, in a quiet grey', () => {
+test('no clock decides a talk\'s status (P4b): the word says whose turn it is, a move of 10 minutes or 6 days is no "thinking" and no "stopped"', () => {
   const [fresh] = threadsOf([FRESH_NOW])
-  assert.equal(view.brainstormStatusOf(fresh, idle, NOW).word, 'your partner is thinking', '10 minutes after the answer')
+  assert.equal(view.brainstormStatusOf(fresh, idle, NOW).word, 'with your partner', '10 minutes after the answer')
   const [old] = threadsOf([FRESH])
-  assert.deepEqual(view.brainstormStatusOf(old, idle, NOW), { word: 'stopped · nothing sent', tone: 'stopped' })
+  assert.deepEqual(view.brainstormStatusOf(old, idle, NOW), { word: 'with your partner', tone: 'waiting' })
   const card = view.brainstormPartnerView(old, idle, NOW)
-  assert.deepEqual([card.kind, card.headline], ['stopped', 'Stopped · nothing sent'])
-  // A word queued or taken for it keeps it waiting or thinking, however old the move.
+  assert.deepEqual([card.kind, card.headline], ['line', null], 'no "Stopped · nothing sent" card')
+  // A word queued or taken, or no time of the state: the same: the records' line says how the word stands.
   const queued = { ...idle, next: [{ kind: 'brainstorm-answer', thread: old.path, stand: { kind: 'queued', since: NOW - 50 * MIN } }] }
-  assert.equal(view.brainstormStatusOf(old, queued, NOW).word, 'waiting for your partner')
-  const taken = { ...idle, state: 'working', next: [{ kind: 'brainstorm-answer', thread: old.path, stand: { kind: 'taken', since: NOW - 50 * MIN } }] }
-  assert.equal(view.brainstormStatusOf(old, taken, NOW).word, 'your partner is thinking')
-  // Without the state's time the rule cannot tell: as before.
-  assert.equal(view.brainstormStatusOf(old, idle).word, 'your partner is thinking')
-  assert.match(css, /\.brainstorm-status\.is-stopped \{ color: #7d8797; \}/)
+  assert.equal(view.brainstormStatusOf(old, queued, NOW).word, 'with your partner')
+  assert.equal(view.brainstormStatusOf(old, idle).word, 'with your partner')
+  assert.doesNotMatch(css, /brainstorm-status\.is-stopped/)
 })
 
 /** The page over the made-up garden's state, its clock at NOW, with the threads given. */
@@ -76,18 +73,25 @@ async function open(threads, { answers, advisor } = {}) {
   return page
 }
 
-test('a stopped talk\'s card offers "Type it to your partner again" as its main button, which types the word again', async () => {
+test('a talk older than 30 minutes with no record shows nothing and no "Type it to your partner again"; with its word\'s line Late the card offers it, and it types the word again (P4b)', async () => {
   const page = await open([FRESH], { answers: () => reply({}) })
   try {
-    const card = page.find('.brainstorm-waiting')
-    assert.equal(card.className, 'brainstorm-box brainstorm-waiting is-stopped')
-    assert.equal(page.text('.brainstorm-wait-line'), 'Stopped · nothing sent')
-    assert.equal(page.text('.brainstorm-again'), 'Type it to your partner again')
-    await page.click('.brainstorm-again')
-    // Reactive board, brief P4a: one call to the board, which types the word itself: none from the page to /api/say.
-    assert.deepEqual(page.sent('/api/say'), [])
-    assert.deepEqual(page.sent('/api/brainstorm').map(one => [one.body.command, one.body.word, typeof one.body.click]), [['again', { command: 'brainstorm-answer', n: 1 }, 'string']])
+    assert.equal(page.all('.brainstorm-waiting').length, 0, 'no "Stopped · nothing sent" card')
+    assert.doesNotMatch(page.text('.brainstorm-card'), /Stopped|nothing sent|thinking/)
+    assert.equal(page.all('.brainstorm-again').length, 0, 'no record: no retry')
   } finally { await page.close() }
+  const late = { w1: { state: 'late', lead: 'Not picked up after 12 min', rest: 'it waits in the queue', at: NOW - 12 * MIN, chat: 'Advisor', canSendAgain: false, link: null, place: 'talk', command: 'brainstorm-answer', about: FRESH.path, goal: null, ask: null, sentAt: NOW - 12 * MIN, title: 'words' } }
+  const again = await openPage({ state: { ...pageState([FRESH]), waits: late }, answers: () => reply({}) })
+  try {
+    await again.click('[data-tab="advice"]')
+    await again.click('[data-advisor-pane="brainstorm"]')
+    assert.equal(again.text('.brainstorm-card .wait-lead'), 'Not picked up after 12 min')
+    assert.equal(again.text('.brainstorm-again'), 'Type it to your partner again')
+    await again.click('.brainstorm-again')
+    // Reactive board, brief P4a: one call to the board, which types the word itself: none from the page to /api/say.
+    assert.deepEqual(again.sent('/api/say'), [])
+    assert.deepEqual(again.sent('/api/brainstorm').map(one => [one.body.command, one.body.word, typeof one.body.click]), [['again', { command: 'brainstorm-answer', n: 1 }, 'string']])
+  } finally { await again.close() }
 })
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -106,16 +110,16 @@ test('each row\'s word is followed by its age: the latest of the start, a questi
   const list = view.brainstormListView(threadsOf([OLD, MADE, ASKS, DROPPED, SHUT, FRESH]), idle, NOW)
   const words = Object.fromEntries([...list.active, ...list.older, ...list.closed].map(row => [row.title, row.word]))
   assert.deepEqual(words, {
-    Fresh: 'stopped · 1 h ago',
+    Fresh: 'with your partner · 1 h ago',
     'Asks you': 'your turn · 7 days ago',
-    Old: 'stopped · 6 days ago',
+    Old: 'with your partner · 6 days ago',
     Shut: 'closed · 15 min ago',
     Made: 'created · 1 day ago',
     Dropped: 'discarded · 11 days ago',
   })
   // The file's own time is the fallback for a thread whose head says no start.
   const [bare] = threadsOf([one('bare', '# Brainstorm: Bare\nGoal: new\nOpening: words\n\n', NOW - 3 * 60 * MIN)])
-  assert.equal(view.brainstormListView([bare], idle, NOW).active[0].word, 'stopped · 3 h ago')
+  assert.equal(view.brainstormListView([bare], idle, NOW).active[0].word, 'with your partner · 3 h ago')
 })
 
 test('a running thread whose proposal was created counts as closed', () => {
@@ -130,7 +134,7 @@ test('the page draws the three groups under their quiet names', async () => {
   try {
     assert.deepEqual(page.all('.brainstorm-group').map(one => one.textContent), ['Active', 'Older, still open', 'Closed'])
     assert.deepEqual(page.all('.brainstorm-row b').map(one => one.textContent), ['Fresh', 'Old', 'Made'])
-    assert.deepEqual(page.all('.brainstorm-row small').map(one => one.textContent), ['stopped · 1 h ago', 'stopped · 6 days ago', 'created · 1 day ago'])
+    assert.deepEqual(page.all('.brainstorm-row small').map(one => one.textContent), ['with your partner · 1 h ago', 'with your partner · 6 days ago', 'created · 1 day ago'])
   } finally { await page.close() }
 })
 
