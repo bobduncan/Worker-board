@@ -312,6 +312,8 @@ test('a line stays when its item is missing (goals null, the thread not in the l
   const cases = [
     ['/api/goals', 'G6:A2', { goal: 'G6', ask: 'A2' }, { goals: null }],
     ['/api/brainstorm', PATH, { command: 'brainstorm-answer', n: 1 }, { brainstorms: { threads: [] } }],
+    // A thread read empty or cut off (a chat rewrites the file): found, but with no latest question and no proposal.
+    ['/api/brainstorm', PATH, { command: 'brainstorm-answer', n: 1 }, { brainstorms: { threads: [{ path: PATH, state: 'asking' }] } }],
     ['/api/backlog', 'B12', { step: 'B12' }, { backlog: [] }],
   ]
   for (const [route, key, say, state] of cases) {

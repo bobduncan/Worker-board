@@ -276,7 +276,9 @@ export function movedOn(record, state) {
     const thread = (state?.brainstorms?.threads ?? []).find(one => one.path === record.key)
     if (thread === undefined) return null
     if (thread.state === 'done' || thread.state === 'discarded') return 'the talk is over'
-    if (said.command === 'brainstorm-answer' && (thread.latest?.n !== said.n || thread.proposal !== null)) return 'the talk moved on'
+    // A thread read empty or cut off has no latest question and no proposal: no evidence either (the review of round 4).
+    const latestN = thread.latest?.n ?? null
+    if (said.command === 'brainstorm-answer' && ((latestN !== null && latestN !== said.n) || (thread.proposal ?? null) !== null)) return 'the talk moved on'
     return null
   }
   if (record.route === '/api/goals') {
