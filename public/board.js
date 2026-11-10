@@ -6204,8 +6204,28 @@ function drawWakeNotice(notice) {
   const text = wakeNoticeText(notice)
   if (text === null) return null
   const node = el('p', notice.tone === 'quiet' ? 'nobody-runs-quiet' : 'nobody-runs')
-  node.append(...chatPieces(text, [...wakeNoticeChats(notice), ...boardChatNames(board)], segment => linkedWords(segment, board)))
+  node.append(...chatPieces(text, [...wakeNoticeChats(notice), ...boardChatNames(board)], stepPieces))
   return node
+}
+
+/**
+ * P5: a step id in a line as a link to its step (the ask-link button the page uses everywhere), reading nothing of the state: the
+ * Needs part's view is pinned to what its drawing reads (test/redrawKeys), and the notice needs no goal or ask to link a step.
+ */
+function stepPieces(text) {
+  const pieces = []
+  let from = 0
+  for (const found of text.matchAll(/\bB\d+\b/g)) {
+    if (found.index > from) pieces.push(text.slice(from, found.index))
+    const link = el('button', 'ask-link', found[0])
+    link.type = 'button'
+    link.dataset.askLink = found[0]
+    link.title = `Open the step ${found[0]}`
+    pieces.push(link)
+    from = found.index + found[0].length
+  }
+  if (from < text.length) pieces.push(text.slice(from))
+  return pieces
 }
 
 /** Calm panel: the instructions a chat missed, one red line each under Needs your attention; a click opens the log. */

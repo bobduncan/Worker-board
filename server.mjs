@@ -4118,6 +4118,8 @@ async function main(args) {
         // of a chat that ran since, a Supervisor's alarm whose incidents are over); what is not true comes down with a record of why. On its own,
         // so a failure stops no delivery.
         await loops.run('still-true', async () => {
+          // Never while the board closes (a test's teardown removes its folder under the pass: EBUSY on rmdir).
+          if (isClosing || workDir === null) return
           const came = await stillTruePass({
             facts: { state: await readState(), items: (await readStore(workDir)).items, outbox: store.outbox(), wakes: wakeFacts(), reports: reports ?? new Map(), now: clock() },
             memory: stillTrueMemory, apply: body => workAction(body, 'server'), log: line => console.error(line), history: lines => store.record(lines),
