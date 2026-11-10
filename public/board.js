@@ -13755,10 +13755,10 @@ function brainstormPartnerView(thread, partner) {
 }
 
 /**
- * Whether the records say the word may be typed again (P4b): its line is Late, or the chat's turn on it ended without its answer.
- * Nothing else offers "Type it to your partner again": not a clock, not the thread.
+ * Whether the records say the word may be typed again (P4b, chat 1's rule): its line is Late. The quiet "turn ended at HH:MM without it" and
+ * "still working" lines offer none: the chat may still answer, and a Retry then would type the word twice. Nothing else offers "Type it to your partner again": not a clock, not the thread.
  */
-const brainstormCanAgain = wait => wait !== null && wait !== undefined && (wait.state === 'late' || wait.isTurnEnded === true)
+const brainstormCanAgain = wait => wait !== null && wait !== undefined && wait.state === 'late'
 
 /** The one small word a thread carries in the list and in its head, and its tone: your turn, the partner's states, or how it ended. */
 function brainstormStatusOf(thread, partner, now = null, isStuck = false) {

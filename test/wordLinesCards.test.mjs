@@ -90,7 +90,7 @@ for (const [name, found] of Object.entries(CASES)) {
   })
 }
 
-test('the Brainstorm card: "Type it to your partner again" shows when the line is Late or its turn ended without the answer, never while it waits or is picked up', async () => {
+test('the Brainstorm card: "Type it to your partner again" shows on a Late line only, never while it waits, is picked up or its turn ended quietly', async () => {
   const shown = async waits => {
     const page = await open({ waits })
     try { return page.all('#brainstorm-card .brainstorm-again').map(words) } finally { await page.close() }
@@ -99,7 +99,8 @@ test('the Brainstorm card: "Type it to your partner again" shows when the line i
   assert.deepEqual(await shown(CASES.picked.waits), [])
   assert.deepEqual(await shown({}), [], 'no record: no retry, however old the thread')
   assert.deepEqual(await shown(talkLine('late', 'Not picked up after 12 min', 'it waits in Advisor\'s queue', { at: NOW - 12 * MIN, sentAt: NOW - 12 * MIN })), ['Type it to your partner again'])
-  assert.deepEqual(await shown(talkLine('sent', `Advisor's turn ended at ${hhmm(NOW - MIN)} without it`, '', { isTurnEnded: true, place: 'change' })), ['Type it to your partner again'])
+  // The quiet "turn ended without it" line shows no Retry: the chat may still answer (chat 1's rule: the Late line carries it).
+  assert.deepEqual(await shown(talkLine('sent', `Advisor's turn ended at ${hhmm(NOW - MIN)} without it`, '', { isTurnEnded: true, place: 'change' })), [])
 })
 
 test('the Brainstorm card: a not-sent click is the one status (its line and Retry) while it stands; the Retry sends the same click id', async () => {

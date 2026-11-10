@@ -95,8 +95,12 @@ test('the stuck case on the page: Late line, the Retry in the card and the menu,
   } finally { await page.close() }
   const quiet = await stuckPage(waitsFor({ report: ended, now: at(9, 10) }))
   try {
-    // The quiet "turn ended at … without it" is a record too: the Retry is offered (the turn ended without its answer), the row is honest.
-    assert.equal(words(quiet.find('#brainstorm-card .brainstorm-again')), 'Type it to your partner again')
+    // The quiet "turn ended at … without it" line offers no Retry (the chat may still answer; a Retry would type the word twice), nor the row's "no answer".
+    assert.match(words(quiet.find('#brainstorm-card .wait-line')), /turn ended at 09:08 without it/)
+    assert.equal(quiet.all('#brainstorm-card .brainstorm-again').length, 0)
+    assert.match(words(quiet.find('.brainstorm-row .brainstorm-status')), /^with your partner/)
+    await quiet.click('.brainstorm-menu-button')
+    assert.equal(quiet.all('.brainstorm-menu-item').filter(one => /again/.test(words(one))).length, 0)
   } finally { await quiet.close() }
   const waiting = await stuckPage({ w1: { state: 'sent', lead: 'Sent 09:05', rest: 'waits for Advisor to pick it up', at: at(9, 5), chat: 'Advisor', canSendAgain: false, link: null, place: 'talk', command: 'brainstorm-answer', about: PATH, goal: 'G6', ask: null, sentAt: at(9, 5), title: 'x' } })
   try {
