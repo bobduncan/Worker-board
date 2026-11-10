@@ -509,8 +509,8 @@ Undo."; Off, "Questions come to you as before."
   refined, queued, taken, in progress, waiting on you, or in review with its check still to run) is **being reworked**: the popup
   says "Being reworked: B981 · <its one status>", naming the step a worker holds first (else the newest under way) and its one status
   (P7, `src/stepStatus.mjs`: "being checked", "waiting for a worker" only when the hand-out's ready list has it, "held: <the
-  hand-out's why>", "given to Worker 4", "Worker 4 is on it", "waits on you", "waits for the Advisor" only while a word to it is open
-  in the outbox, "refine open: nothing sent to the Advisor"); it asks nothing and counts nowhere; so
+  hand-out's why>", "given to Worker 4", "Worker 4 is on it", "waits on you", "waits for your partner: Q712", "waits for the Advisor"
+  only while a word to it is in flight, "refine open: no word in flight (last sent 4 Nov 23:20)"); it asks nothing and counts nowhere; so
   does a row you sent back whose new try is not in. A kept look or do (a look the partner handed to you, a worker's look with
   pictures, or an own-senses do the main chat or the partner handed on; Autopilot keeps them for the recap) is a row of the popup, in
   its section "Looks kept for your recap": its title and words (their links are links), pictures, **Play** link (the ask's own `## Play`,
@@ -534,7 +534,8 @@ Undo."; Off, "Questions come to you as before."
   gone once nothing is left to judge. A block that waits for you in another form (an Accept card, a question in its window) reads
   **Waits for your verdict →** (the arrow opens the step's window, never nowhere); "Waiting, nobody on it now" stays for work that
   waits for another task, and a block whose refined step the hand-out holds reads "Held: B1096 · <the hand-out's why>" (P7), never
-  "On the list for a worker". While the card shows, "Did we reach the goal?" is not drawn: the recap comes first, and the question comes
+  "On the list for a worker"; a block on the hand-out's list reads "On the list for a worker: B1096", one being refined "Refining:
+  B1098 · <its one status>". While the card shows, "Did we reach the goal?" is not drawn: the recap comes first, and the question comes
   back once nothing is left to judge.
 - **Round 2 of your recap is being made** (T17.1, 2026-11-02): after a Send that sent rows back and until your partner wrote the recap
   again, the recap card and the Product owner's card read "G60 · <title>: round 2 of your recap is being made" with one quiet line ("2 of

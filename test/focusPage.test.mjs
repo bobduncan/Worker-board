@@ -167,7 +167,8 @@ test('the run shows the parts with progress and who is on each, step ids only in
     { title: 'Draw the bench', chip: 'Done', tone: 'done', percent: 100, owner: null, standards: [] },
     { title: 'Light the path', chip: 'In progress', tone: 'now', percent: 50, owner: 'Features is on it', standards: [] },
     { title: 'Place them', chip: 'Done', tone: 'done', percent: 100, owner: null, standards: [] },
-    { title: 'One look at the whole garden', chip: 'Waiting for its refine, then it goes on the list', tone: 'refining', percent: 0, owner: null, standards: [] },
+    // P7: a block being refined says its step's one status (the state's `chip`); this fixture has none: the plain word.
+    { title: 'One look at the whole garden', chip: 'Refining', tone: 'refining', percent: 0, owner: null, standards: [] },
   ])
   assert.equal(run.run.stepsOf, 'G2')
   assert.doesNotMatch(JSON.stringify(run.run.parts.map(withoutBlocks)), /\bB\d+\b/)

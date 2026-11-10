@@ -144,7 +144,7 @@ test('the Queue keeps each task\'s place when the search narrows it; the waits o
     ['B35', 'waits for your answer', '', false],
     ['B32', 'its refine stopped', 'for Worker 3 only', true],
     ['B31', 'waits for your answer', '', false],
-    ['B30', 'being refined', '', false],
+    ['B30', 'refine asked', '', false],
   ])
   assert.deepEqual(blocks[0].rows.map(row => [row.step.id, row.state, row.who]), [['B33', 'In progress', 'Worker 1'], ['B34', 'Given', 'Worker 3']])
   assert.deepEqual([blocks[1].rows, blocks[2].rows], [[], []])

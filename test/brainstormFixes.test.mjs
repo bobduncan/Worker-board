@@ -320,7 +320,8 @@ test('Fix 1: the Result card shows Done, the goal written, the new tasks and whe
     assert.equal(page.find('.brainstorm-result-focus').dataset.place, '#advice/focus')
     // The tasks, each a link to its window, with where it stands now.
     assert.deepEqual(page.all('.brainstorm-result-task').map(row => [row.querySelector('.brainstorm-result-id').textContent, row.querySelector('.brainstorm-result-name').textContent, row.querySelector('.brainstorm-task-stand').textContent]), [
-      ['B20', 'Sign the gate from every bench', 'being refined by the Advisor'],
+      // P7: the step's one status from the server (no word to the Advisor sent yet), never "being refined" by guess.
+      ['B20', 'Sign the gate from every bench', 'waits for its refine: nothing sent to the Advisor yet'],
       ['B21', 'Join the dead ends', 'Digger is on it'],
     ])
     assert.deepEqual(page.all('.brainstorm-result-task [data-ask-link]').map(link => link.dataset.askLink), ['B20', 'B21'])
@@ -349,7 +350,7 @@ test('Fix 1: a task link opens the task; the card follows the task as it moves o
     const moved = await open([[PATH, CHANGE_DONE]], { tasks, chosen: PATH })
     try { return moved.all('.brainstorm-task-stand').map(one => one.textContent) } finally { await moved.close() }
   }
-  assert.deepEqual(await stands([['B20', 'refined', null], ['B21', 'queued', 'Garden · Digger']]), ['on the list for a worker', 'given to Digger'])
+  assert.deepEqual(await stands([['B20', 'refined', null], ['B21', 'queued', 'Garden · Digger']]), ['held: its refine is not ready', 'given to Digger'], 'P7: the hand-out own hold, never on the list by guess')
   assert.deepEqual(await stands([['B20', 'in progress', 'Garden · Mason'], ['B21', 'done', null]]), ['Mason is on it', 'done'])
 })
 
@@ -369,7 +370,8 @@ test('Fix 1: a created thread with the old wording names its tasks by the ticked
   const old = thread(CHANGE_DONE.replace('tasks B20, B21', '2 steps asked of the main chat'))
   const backlog = [{ steps: [{ id: 'B30', title: 'Sign the gate from every bench', item: { state: 'new' } }, { id: 'B31', title: 'Join the dead ends', item: { state: 'taken', owner: 'Digger' } }, { id: 'B32', title: 'Sweep the gravel', item: { state: 'new' } }] }]
   const card = view.brainstormResultView(old, { backlog })
-  assert.deepEqual(card.tasks.map(one => [one.id, one.words]), [['B30', 'being refined by the Advisor'], ['B31', 'Digger is on it']])
+  // P7: rows without the server's status say their state's plain word.
+  assert.deepEqual(card.tasks.map(one => [one.id, one.words]), [['B30', 'new'], ['B31', 'taken']])
   assert.equal(card.unnamed, 0)
   // Two tasks with the same title: the thread cannot say which, so the card names none.
   const twice = view.brainstormResultView(old, { backlog: [{ steps: [...backlog[0].steps, { id: 'B33', title: 'Join the dead ends', item: { state: 'new' } }] }] })
@@ -381,18 +383,19 @@ test('Fix 1: a created thread with the old wording names its tasks by the ticked
 })
 
 test('Fix 1: where a task stands, in words, from its row; a task the backlog does not hold says so quietly', () => {
-  const stand = (state, owner = '') => view.brainstormTaskStand({ id: 'B20', item: { state, owner } }, 'Garden ·')
-  assert.deepEqual(['new', 'refined', 'queued', 'taken', 'in progress', 'review', 'done', 'dropped'].map(state => stand(state, 'Garden · Digger').words), [
-    'being refined by the Advisor', 'on the list for a worker', 'given to Digger', 'Digger is on it', 'Digger is on it', 'in review', 'done', 'dropped',
-  ])
-  assert.equal(stand('taken').words, 'a worker is on it')
-  assert.equal(stand('queued').words, 'on the list for a worker')
+  // P7 (the review: this worked out "being refined by the Advisor", "on the list for a worker" itself): the row's one status from
+  // the server, in a quiet tone by its kind; without one, its state's plain word.
+  const stand = (state, stepStatus) => view.brainstormTaskStand({ id: 'B20', item: { state, owner: 'Garden · Digger' }, ...(stepStatus === undefined ? {} : { stepStatus }) }, 'Garden ·')
+  assert.deepEqual(stand('new', { kind: 'refine', words: 'refine open: no word in flight' }), { state: 'new', words: 'refine open: no word in flight', tone: 'refining' })
+  assert.deepEqual(stand('refined', { kind: 'held', words: 'held: blocked by B9' }), { state: 'refined', words: 'held: blocked by B9', tone: 'queued' })
+  assert.deepEqual(stand('in progress', { kind: 'working', words: 'Digger is on it' }), { state: 'in progress', words: 'Digger is on it', tone: 'working' })
+  assert.deepEqual(['new', 'refined', 'queued', 'taken', 'in progress', 'review', 'done', 'dropped'].map(state => stand(state).words), ['new', 'refined', 'queued', 'taken', 'in progress', 'review', 'done', 'dropped'])
   assert.equal(view.brainstormTaskStand(undefined).words, 'not on the task list now')
-  // A board with no store reads the backlog's own status.
-  assert.equal(view.brainstormTaskStand({ id: 'B20', status: 'progress' }).words, 'a worker is on it')
+  // A board with no store and no status: on the task list, quietly.
+  assert.equal(view.brainstormTaskStand({ id: 'B20', status: 'progress' }).words, 'on the task list')
   assert.equal(view.brainstormTaskStand({ id: 'B20', status: 'done' }).words, 'done')
   // Quiet tones only.
-  assert.deepEqual([...new Set(['new', 'refined', 'taken', 'done', 'dropped', 'review'].map(state => stand(state).tone))].sort(), ['done', 'queued', 'quiet', 'refining', 'working'])
+  assert.deepEqual([...new Set([['new', { kind: 'refine', words: 'x' }], ['refined', { kind: 'ready', words: 'x' }], ['taken', { kind: 'working', words: 'x' }], ['done'], ['dropped'], ['review']].map(([state, one]) => stand(state, one).tone))].sort(), ['done', 'queued', 'quiet', 'refining', 'working'])
   const rule = selector => css.split('\n').filter(line => line.startsWith(selector)).join('\n')
   for (const selector of ['.brainstorm-box.brainstorm-result', '.brainstorm-result', '.brainstorm-task-stand', '.brainstorm-menu-note']) {
     assert.notEqual(rule(selector), '', selector)

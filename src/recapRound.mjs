@@ -9,7 +9,7 @@
 import { roundPage } from './demoFeedback.mjs'
 import { fixesOf, reviewWaitOf, reportCheckFailedOf, boardCheckPending } from './work/resultCheck.mjs'
 import { valueOf } from './work/item.mjs'
-import { reworkWordsOf, stepStatusOf } from './stepStatus.mjs'
+import { reworkWordsOf } from './stepStatus.mjs'
 
 /** The states in which a step is under way: made, given, taken, being worked on, or waiting for an answer mid-build. */
 export const UNDER_WAY_STATES = ['new', 'refined', 'queued', 'taken', 'in progress', 'waiting on you']
@@ -41,7 +41,9 @@ export function isUnderWay(item, items, { openChecks = new Set(), now = null } =
  * `{ step, state, worker, words }`, or null when none is: the steps are built and checked, or only waiting for the person. The review of
  * 2026-11-04: the step a worker holds first (its card shows it, or it is taken or in progress: `worker` is `workerOf(step)`, else its owner),
  * the newest of them; else the newest step under way. `words` is the step's one status after the id (P7: src/stepStatus.mjs
- * `stepStatusOf`, "B1096 · held: <the hand-out's why>"; `statusOf(item)` the caller's, with the ready list and the outbox).
+ * `stepStatusOf`, "B1096 · held: <the hand-out's why>"). `statusOf(item)` is REQUIRED (the review: a fallback here read B1096 as
+ * "refined" and a refine with its word in flight as nothing sent): the state's, with the ready list and the outbox. Without it the
+ * words say "unknown", never a status worked out here.
  */
 export function reworkOf(stepIds, items, { openChecks = new Set(), workerOf = () => null, now = null, statusOf = null } = {}) {
   const seen = new Set()
@@ -69,7 +71,7 @@ export function reworkOf(stepIds, items, { openChecks = new Set(), workerOf = ()
   const state = valueOf(item, 'State')
   const worker = whoOf(item)
   // `words`: what follows "Being reworked:" in the popup and on the chips: the step's one status (P7), never worked out here.
-  const one = statusOf !== null ? statusOf(item) : stepStatusOf(item, { items, openChecks, now, workerOf: id => whoOf(items.get(id) ?? item) })
+  const one = typeof statusOf === 'function' ? statusOf(item) : null
   return { step, state, worker, words: reworkWordsOf(step, one) }
 }
 
@@ -126,7 +128,7 @@ export function keptLooksOf(routed, goal) {
  * looks, the one number the cards, the popup's head and the Needs count carry. While the next round is being made nothing can be
  * judged: `toJudge` is 0 and the looks are left for the round after. `rework` maps a row's key to its `{ step, worker }`.
  */
-export function recapRoundOf({ goal, goalRecap = null, recaps = [], items = new Map(), openChecks = new Set(), workerOf = () => null, now = null, routed = [] }) {
+export function recapRoundOf({ goal, goalRecap = null, recaps = [], items = new Map(), openChecks = new Set(), workerOf = () => null, now = null, routed = [], statusOf = null }) {
   if (typeof goal !== 'string') return null
   const own = goalRecap?.goal === goal ? goalRecap : null
   const recap = (Array.isArray(recaps) ? recaps : []).find(one => one.goal === goal && (own === null || own.path == null || one.path === own.path)) ?? null
@@ -135,7 +137,7 @@ export function recapRoundOf({ goal, goalRecap = null, recaps = [], items = new 
   const changedAt = recap?.changedAt ?? own?.changedAt ?? null
   const rework = new Map()
   for (const row of rows) {
-    const found = (row.steps ?? []).length === 0 ? null : reworkOf(row.steps, items, { openChecks, workerOf, now })
+    const found = (row.steps ?? []).length === 0 ? null : reworkOf(row.steps, items, { openChecks, workerOf, now, statusOf })
     if (found !== null) rework.set(row.key, found)
   }
   const round = roundRowsOf({ rows, rounds, changedAt, rework })

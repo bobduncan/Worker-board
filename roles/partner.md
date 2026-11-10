@@ -757,10 +757,11 @@ into your chat, marked as theirs: `(answered on the worker board, HH:MM) N<id> "
 
 ## Refine a step
 
-The board's word "focus goal G<n> has work, none can be handed out: B<n> <its status>" (the repair `none-ready`, P7, 2026-11-10;
-once per cause) means a worker has been free for 10 running minutes while every step of the focus goal waits: refine the step it
-names when its refine is open with nothing sent to you, or settle what holds it (its standard, its blocker) with the main chat. Never
-pass it to the person.
+The board's word "focus goal G<n> has work, none can be handed out (<worker> free for <n> min): B<n> <its status>; ..." (the repair
+`none-ready`, P7, 2026-11-10; at most one per free spell, listing every cause nobody has yet) means a worker has been free for 10
+running minutes while every step of the focus goal waits: settle what holds them (a standard's foundation, the user's pick, a blocker)
+with the main chat. Refines are not yours to start from it: the board's refine gate types every `refine step` itself, one at a time.
+Never pass it to the person.
 
 The board types `refine step`, `Step: B<id> <title>` and `Round: <n>` into your chat when the user clicks "Refine" in
 a step's window: it is their word. It also types it by itself, one step at a time (B285, the user: every step is

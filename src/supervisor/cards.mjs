@@ -62,12 +62,20 @@ export function stepState(step, { lanes = [], steps = new Map(), items = steps, 
   const state = valueOf(step, 'State')
   const id = valueOf(step, 'Id')
   const owner = valueOf(step, 'Owner') ?? lanes.find(one => one.task?.stepId === id)?.name ?? null
+  // P7, the review (this card worked out "queued for", "waits for you", "in review" itself): a step with its one status (state.mjs
+  // `stepStatus`, src/stepStatus.mjs) says it; the lane's word only sets the tone of one at work. Without a status (a done or dropped
+  // step, a caller with no state) the card says the step's state as before.
+  if (status !== null && typeof status?.words === 'string' && !(isPaused && state === 'new')) {
+    const lane = lanes.find(one => one.name === owner && one.isLeftover !== true)
+    const parked = state === 'waiting on you' ? parkedAfter(step, items) : null
+    if (parked !== null) return { text: `${owner === null ? '' : `${owner} · `}parked until ${parked} is reported`, tone: 'idle' }
+    const tone = state === 'review' ? 'review' : state === 'taken' || state === 'in progress' ? (owner === null ? 'idle' : laneWord(state, lane).tone) : state === 'waiting on you' ? 'idle' : 'wait'
+    return { text: `${state} · ${status.words}${state === 'queued' ? afterWords(step, steps) : ''}`, tone }
+  }
   switch (state) {
     // Pause truth item 6: while the pause holds, the refine word to the Advisor is held with every line that would start a turn.
-    // P7 (one status per step): beyond the pause, a new or refined step says its one status (state.mjs `stepStatus`, src/stepStatus.mjs:
-    // a word to the Advisor open in the outbox, or held by the hand-out with its why); without it, only its state, never a guess.
-    case 'new':
-    case 'refined': return { text: isPaused && state === 'new' ? 'new · waits for Resume all' : status === null ? state : `${state} · ${status.words}`, tone: 'wait' }
+    case 'new': return { text: isPaused ? 'new · waits for Resume all' : 'new', tone: 'wait' }
+    case 'refined': return { text: 'refined', tone: 'wait' }
     case 'queued': return { text: `${owner === null ? 'queued' : `queued for ${owner}`}${afterWords(step, steps)}`, tone: 'wait' }
     case 'taken':
     case 'in progress': {

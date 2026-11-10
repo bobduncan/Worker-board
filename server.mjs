@@ -130,7 +130,7 @@ import { readAutopilotClearedFile, readObsoleteFile, readStore } from './src/wor
 import { obsoleteView, openItemsOf } from './src/work/obsolete.mjs'
 import { evidenceLanes, obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
 import { giveBackHeld, stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
-import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
+import { dismissCopied, fileStore, isLate, memoryStore, outboxKnown, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { activePages, blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
 import { findGameFile } from './src/gameFile.mjs'
@@ -2290,6 +2290,10 @@ async function main(args) {
     const state = buildState(raw, {
       lines: readLines(raw),
       outbox: outboxNow(store.outbox(), clock(), keep),
+      // P7 (the review): every word, also long ago, timed as outboxNow times them, for the one status per step (src/stepStatus.mjs),
+      // and the refine gate's kept first look, for the refines in its line (src/refineGate.mjs `refineQueue`).
+      words: outboxKnown(store.outbox(), clock(), keep),
+      refineKept,
       runs: games.list(),
       board: { startedAt, offSince },
       // B714: when the board last looked, so a read before the tick that follows a wake already counts the sleep as off time.

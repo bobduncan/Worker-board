@@ -12,12 +12,16 @@ import { parseConfig } from '../src/config.mjs'
 import { demoPage } from '../src/demo.mjs'
 import { checkSend, roundPage, withRound } from '../src/demoFeedback.mjs'
 import { readGoalRecap, recapCardOf } from '../src/recapCard.mjs'
-import { isUnderWay, keptLooksOf, lookKey, playOf, recapRoundOf, reworkOf, roundRowsOf } from '../src/recapRound.mjs'
+import { isUnderWay, keptLooksOf, lookKey, playOf, recapRoundOf, reworkOf as reworkOfBare, roundRowsOf } from '../src/recapRound.mjs'
+import { stepStatusOf } from '../src/stepStatus.mjs'
 import { recapWaitsOf } from '../src/recaps.mjs'
 import { parseItem, sinceMs } from '../src/work/item.mjs'
 import { recapPartOf } from '../src/work/resultCheck.mjs'
 import { MIN, NOW, asSent, build, sinceOf } from './partnerState.mjs'
 import { tempDir } from './tempDir.mjs'
+
+/** P7, the review: `reworkOf` takes the caller's one status (`statusOf`, REQUIRED); these tests pass the store's, as the state does. */
+const reworkOf = (ids, items, options = {}) => reworkOfBare(ids, items, { ...options, statusOf: item => stepStatusOf(item, { items, workerOf: options.workerOf ?? (() => null), openChecks: options.openChecks ?? new Set(), now: options.now ?? null }) })
 
 const PATH = 'pictures/g6/recap/demo.json'
 const ON = { ...parseConfig('{"autopilot":true}', {}), project: 'C:\\garden' }

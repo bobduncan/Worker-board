@@ -31,7 +31,7 @@ import { UNCHECKED_MS, gitCheckPassed, needsResultCheck, resultCheckAtMs, result
 import { asksOfStep } from '../../work/stepAsks.mjs'
 import { heldReason } from '../../work/parked.mjs'
 import { goOnLine, goneWords } from '../../work/holderTimers.mjs'
-import { advisorStillWaitText, advisorWaitText, noneReadyOf } from '../../stepStatus.mjs'
+import { advisorStillWaitText, advisorWaitText } from '../../stepStatus.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -742,26 +742,32 @@ function faultsGoneSkips(view) {
  */
 /**
  * P7 (one status per step, chat 1's plan 2026-11-09): the focus goal has unstarted steps, the hand-out's ready list is empty and
- * a worker has been free for 10 of the board's running minutes (src/stepStatus.mjs `noneReadyOf`, from the hand-out's own ready
- * list, its holds and its `idleWorkers`): one note to the main chat and one word to the partner per cause (a step and its status,
- * "focus goal G60 has work, none can be handed out: B1096 held (<the hand-out's why>)"), never to the person. The main chat's note
- * goes once per key (loop.mjs `noted`); the partner's word once per key too: a cause whose word is in the outbox is not found again.
+ * a worker has been free for 10 of the board's running minutes: the state's own signal (`view.noWork`, state.mjs `noWork`,
+ * src/stepStatus.mjs `noneReadyOf`, the one the Overview draws), never worked out here. One note to the main chat per cause
+ * ("focus goal G60 has work, none can be handed out: B1096 held (<the hand-out's why>)"), and at most ONE word to the partner per
+ * signal, listing the causes; never to the person. The review: the causes someone has are left out by the signal itself (a word
+ * to the Advisor in flight, a refine waiting for answers, stopped or in the gate's line, a rebuild hold, a blocker at work); a key
+ * is the step, its kind and a stable class (src/stepStatus.mjs `causeClassOf`: the blocker ids, not their state; not the refine's
+ * stage) with the stamp of the free spell (`freeSince`), so a move of the blocker is no new note, and the same hold next week is.
+ * Nothing while a limit is full (the hand-out gives nothing then: as closed-worker) or the person pauses.
  */
 function noneReady(view) {
-  const signal = noneReadyOf({
-    items: view.items, focus: view.focus, goals: view.goals, ready: Array.isArray(view.held) ? view.ready : null, held: view.held,
-    lanes: view.lanes, pause: view.pause, gaps: view.gaps, now: view.now, prefix: view.prefix, outbox: view.outbox,
+  const signal = view.noWork ?? null
+  const { isHeld, isFull } = factsOf(view)
+  if (signal === null || isHeld || isFull || !Array.isArray(signal.causes) || signal.causes.length === 0) return []
+  const episode = stamp(signal.freeSince)
+  const free = `(${signal.worker} free for ${signal.minutes} min)`
+  const notes = signal.causes.map(cause => {
+    const text = `focus goal ${signal.goal} has work, none can be handed out: ${cause.words} ${free}`
+    return finding('none-ready', `none-ready ${signal.goal} ${cause.key} ${episode} main`, cause.id, text, { do: 'send', text: `${text}: see ${cause.id} (${cause.link})` })
   })
-  if (signal === null) return []
-  return signal.causes.flatMap(cause => {
-    const key = `none-ready ${signal.goal} ${cause.key}`
-    const text = `${cause.text} (${signal.worker} free for ${signal.minutes} min)`
-    const toMain = finding('none-ready', `${key} main`, cause.id, text, { do: 'send', text: `${text}: see ${cause.id} (${cause.link})` })
-    const partner = view.partner?.name ?? null
-    const partnerKey = `${key} partner`
-    const isSent = (view.outbox ?? []).some(message => message.syncKey === partnerKey)
-    return partner === null || isSent ? [toMain] : [toMain, finding('none-ready', partnerKey, cause.id, text, { do: 'wake', chat: partner, id: cause.id, text: `${text}: look at ${cause.id} (${cause.link}) and its refine or its standard` })]
-  })
+  const partner = view.partner?.name ?? null
+  const partnerKey = `none-ready ${signal.goal} partner ${episode}`
+  if (partner === null || (view.outbox ?? []).some(message => message.syncKey === partnerKey)) return notes
+  const first = signal.causes[0]
+  const list = signal.causes.map(cause => cause.words).join('; ')
+  const words = `focus goal ${signal.goal} has work, none can be handed out ${free}: ${list}. Settle what holds them with the main chat (a standard's foundation, the user's pick); the board's refine gate sends every refine itself.`
+  return [...notes, finding('none-ready', partnerKey, first.id, `${signal.text} ${free}`, { do: 'wake', chat: partner, id: first.id, text: words })]
 }
 
 export const REPAIR_RULES = [
@@ -780,7 +786,7 @@ export const REPAIR_RULES = [
   { id: 'base-equal', kind: 'repair', says: 'a step in review whose check failed only on its base branch against the remote\'s, now equal', check: baseEqual },
   { id: 'merged-now', kind: 'repair', says: 'a step in review whose check failed only on work not merged, its branch now merged or gone', check: mergedNow },
   { id: 'faults-gone', kind: 'repair', says: 'a step in review whose check failed only on a branch or worktree left, now gone, or a branch on origin now merged', check: faultsGone, skips: faultsGoneSkips },
-  { id: 'none-ready', kind: 'repair', says: 'the focus goal has work, none can be handed out, and a worker is free for 10 running minutes: told to the main chat and the partner, once per cause', check: noneReady, countsBy: 'key' },
+  { id: 'none-ready', kind: 'repair', says: 'the focus goal has work, none can be handed out, and a worker is free for 10 running minutes: told to the main chat once per cause and to the partner once per free spell', check: noneReady, countsBy: 'key' },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
 ]
 

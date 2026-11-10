@@ -8,11 +8,14 @@ import { parseConfig } from '../src/config.mjs'
 import { demoPage } from '../src/demo.mjs'
 import { roundPage } from '../src/demoFeedback.mjs'
 import { recapCardOf } from '../src/recapCard.mjs'
-import { keptLooksOf, lookKey, recapRoundOf, reworkOf } from '../src/recapRound.mjs'
+import { keptLooksOf, lookKey, recapRoundOf, reworkOf as reworkOfBare } from '../src/recapRound.mjs'
 import { stepStatusOf } from '../src/stepStatus.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { openPage, reply, settle } from './pageHarness.mjs'
 import { MIN, NOW, asSent, build, sinceOf } from './partnerState.mjs'
+
+/** P7, the review: `reworkOf` takes the caller's one status (`statusOf`, REQUIRED); these tests pass the store's, as the state does. */
+const reworkOf = (ids, items, options = {}) => reworkOfBare(ids, items, { ...options, statusOf: item => stepStatusOf(item, { items, workerOf: options.workerOf ?? (() => null), openChecks: options.openChecks ?? new Set(), now: options.now ?? null }) })
 
 const PATH = 'pictures/g6/recap/demo.json'
 const ON = { ...parseConfig('{"autopilot":true}', {}), project: 'C:\\garden' }

@@ -14087,21 +14087,16 @@ function brainstormChosen(threads, open) {
 function brainstormTaskStand(row, prefix = '') {
   if (row === undefined || row === null) return { state: null, words: 'not on the task list now', tone: 'quiet' }
   const state = row.item?.state ?? row.flow?.state ?? (row.status === 'done' ? 'done' : null)
-  const raw = String(row.item?.owner ?? '').trim()
-  const owner = prefix !== '' && raw.startsWith(prefix) ? raw.slice(prefix.length).trim() : raw
   if (state === 'done') return { state, words: 'done', tone: 'done' }
   if (state === 'dropped') return { state, words: 'dropped', tone: 'quiet' }
-  if (state === 'new') return { state, words: 'being refined by the Advisor', tone: 'refining' }
-  if (state === 'refined') return { state, words: 'on the list for a worker', tone: 'queued' }
-  if (state === 'queued') return { state, words: owner === '' ? 'on the list for a worker' : `given to ${owner}`, tone: 'queued' }
-  if (state === 'taken' || state === 'in progress') return { state, words: owner === '' ? 'a worker is on it' : `${owner} is on it`, tone: 'working' }
-  if (state === 'waiting on you') return { state, words: owner === '' ? 'waits for an answer' : `${owner} waits for an answer`, tone: 'working' }
-  if (state === 'review') return { state, words: 'in review', tone: 'working' }
-  // A board with no store reads the backlog's own status.
-  if (row.status === 'progress') return { state: 'in progress', words: 'a worker is on it', tone: 'working' }
-  if (row.status === 'queued') return { state: 'queued', words: 'on the list for a worker', tone: 'queued' }
-  return { state: null, words: 'on the task list', tone: 'quiet' }
+  // P7, the review (it said "being refined by the Advisor" with nothing sent, "on the list for a worker" of a held step): the
+  // step's one status from the server (the backlog row's `stepStatus`, src/stepStatus.mjs); without one, its state's plain word.
+  const status = row.stepStatus ?? null
+  if (status !== null && typeof status.words === 'string') return { state, words: status.words, tone: STAND_TONES[status.kind] ?? 'quiet' }
+  return { state, words: state ?? 'on the task list', tone: 'quiet' }
 }
+/** The quiet tone of a new task's stand by its status's kind (never amber or red). */
+const STAND_TONES = { refine: 'refining', partner: 'refining', held: 'queued', ready: 'queued', refined: 'queued', given: 'queued', working: 'working', 'waits-on': 'working', you: 'working', review: 'working' }
 
 /**
  * 2026-10-31 (the person, on "The thread has a line the board cannot read": "this isnt clear to me"): how many lines of a talk
@@ -15644,7 +15639,9 @@ function focusDayWords(stamp) {
 /** Work blocks: the chips of a block on the Focus page, by its state (B680, B689, Redesign Part 2). */
 // 2026-11-01 (the person: "says waiting for verdict or something"): `verdict`, a block that waits for their verdict in the goal's
 // recap; "Waiting, nobody on it now" stays for work that waits for another task.
-const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached', waiting: 'Waiting', stuck: 'Stuck: its fix stopped', verdict: 'Waits for your verdict →' }
+// P7, the review: a block that is ready, being refined or waits says its steps' one status (state.mjs `focusState` `chip`, src/stepStatus.mjs);
+// these are only the plain words of a board with no chip.
+const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'Ready', refining: 'Refining', stopped: 'Stopped, nothing reached', waiting: 'Waiting', stuck: 'Stuck: its fix stopped', verdict: 'Waits for your verdict →' }
 
 // recapready:start
 /** The recap card shows this many tiles at most, in one row: the person's "never more then 1 row" (src/recapCard.mjs MOST_TILES). */
@@ -15801,7 +15798,7 @@ function blockChipOf(part, open, card = null, namesWorker = false) {
   // Open now names the worker of a block in progress in its chip; All work blocks keeps "In progress" (its row names the worker beside the bar).
   // P7: a block that waits says the server's words (state.mjs `focusState` `chip`: "Held: B1096 · <the hand-out's why>", or that nobody is on it).
   const chip = namesWorker && part.state === 'now' && typeof part.owner === 'string' && part.owner !== '' ? `${part.owner} is on it`
-    : part.state === 'waiting' && typeof part.chip === 'string' && part.chip !== '' ? part.chip : FOCUS_CHIPS[part.state] ?? null
+    : ['waiting', 'ready', 'refining'].includes(part.state) && typeof part.chip === 'string' && part.chip !== '' ? part.chip : FOCUS_CHIPS[part.state] ?? null
   return { chip, tone: part.state, link: null, isVerdict: false, isRework: false }
 }
 
@@ -20843,7 +20840,8 @@ const UNDER_WAY_STATES = {
 }
 const FINISHED_STATES = ['done', 'dropped', 'answered']
 /** What a task not refined yet waits for, by where its refine stands (its `refineState`). */
-const REFINE_WAITS = { asking: 'being refined', answered: 'being refined', ready: 'being refined', answers: 'waits for your answer', stopped: 'its refine stopped', none: 'waits for its refine' }
+// P7, the review: only the plain words of a board with no status for the step (state.mjs `stepStatus` says what it waits for).
+const REFINE_WAITS = { asking: 'refine asked', answered: 'refine open', ready: 'refine ready', answers: 'waits for your answer', stopped: 'its refine stopped', none: 'waits for its refine' }
 /** A goal of the goal map, which a row links to on the Goals part. */
 const GOAL_LINK_ID = /^G\d+$/
 
@@ -20934,7 +20932,7 @@ function backlogBlocks(list, readyList, { showDone = false } = {}) {
       continue
     }
     // P7: what a new step waits for is its one status (a word to the Advisor open in the outbox, or nothing sent), not its refine state alone.
-    const waits = step.status === 'you' ? 'waits for your answer' : step.refineState === 'stopped' ? REFINE_WAITS.stopped : step.stepStatus?.words ?? REFINE_WAITS[step.refineState] ?? ''
+    const waits = step.status === 'you' ? 'waits for your answer' : step.stepStatus?.words ?? REFINE_WAITS[step.refineState] ?? ''
     rows.new.push({ ...base, who: forWho, wait: waits, canRemove: queueChoice({ isAdded: base.isAdded, pinned }).canRemove })
   }
   const sorted = {
@@ -22392,7 +22390,9 @@ function drawBugs() {
   else {
     const link = el('a', '', bugsSentStep)
     link.href = `#details=${bugsSentStep}`
-    $('bugs-sent').replaceChildren('Reported as ', link, '. It waits for a worker; you see it below.')
+    // P7, the review (it said "It waits for a worker" of a new step): its one status from the server, once the state has it.
+    const status = stepStatusFor(board, bugsSentStep)
+    $('bugs-sent').replaceChildren('Reported as ', link, status === null ? '. You see it below.' : `: ${status.words}. You see it below.`)
   }
   once('bugs-list', [bugs?.reports ?? null, bugs?.places ?? null], () => {
     const reports = bugs?.reports ?? []

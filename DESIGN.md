@@ -7037,24 +7037,38 @@ standard K6 Screens had no foundation built) while the Goals/Focus part said "B1
 "Your answers on B1030 wait for the Advisor" with nothing sent. Cause: each view worked a step's status out itself.
 
 - **One reading** (`src/stepStatus.mjs` `stepStatusOf(step, ctx)`, pure): `{ id, kind, label, words, tone, who, why, since, link }`
-  (a refine also `toAdvisor`, `held`, `line`). Kinds: done, dropped, review (the review's own `reviewWaitOf`, "being checked" while its
-  check runs), you, waits-on (P1's `Waits on`), working, given, held (the hand-out's own why, word for word, from the ready list's
-  `held` (src/work/handOut.mjs `readyList`): outside the focus, a standard without its foundation, blocked by, waits for), ready ("waiting for a worker": only on the
-  hand-out's `ready`), refine ("waits for the Advisor" only while a refine, answer or partner word about it is open in the outbox:
-  held or waiting, taken or delivered under 30 minutes with no block written, or on the Advisor's own list, `refineWaitOf`; else
-  "refine open: nothing sent to the Advisor"). It adds no rule of its own.
-- **Every view reads it**: the state carries `stepStatus` (by id) and each backlog row's `stepStatus`; the Focus parts (a waiting
-  block's `chip`, the rework words of Open now and the recap popup, `recapRound.mjs` `reworkOf`), the Goals step rows' badge (its
-  words on hover), the Advisor card's line, the worker rows' task column (the held step's status beside its title when it is not that
-  worker at work, and on hover), the details window's state chip (its label, its words on hover), the backlog's Refined and Not refined
-  yet rows, and the Supervisor's incident cards (`live.statuses`). The page works out none itself.
-- **The guard** (`test/stepStatus.test.mjs`): the known status phrases ("waiting for a worker", "wait(s) for the Advisor", "nobody on
-  it") may be written only by `src/stepStatus.mjs`; the test greps `src`, `public`, `mods` and `server.mjs` (comments left out).
+  (a refine also `toAdvisor`, `held`, `where`, `line`). Kinds: done, dropped, review (the review's own `reviewWaitOf`: its words
+  whenever it is a failed report check, "being checked" while its check runs), you, partner (the step's open blocking asks all
+  routed to the partner, `stepWaitsForPartner`, or a new step's refine questions all routed to it: "waits for your partner: Q<n>"),
+  waits-on (P1's `Waits on`), working, given, held (the hand-out's own why, word for word, from the ready list's `held`
+  (src/work/handOut.mjs `readyList`): outside the focus, a standard without its foundation, blocked by, waits for), ready ("waiting
+  for a worker": only on the hand-out's `ready`), refine: "waits for the Advisor" only while a word to it is in flight (a refine, a
+  refine asked again, a partner word about one of its asks), by the refine gate's own `refineAsk` (src/work/askOpen.mjs: on its way,
+  or arrived under its half hour with no block written; stale after it) or the Advisor's own list (`refineWaitOf`); a word the pause
+  holds (`held`, or waiting with `isHeld`) "waits for Resume all"; else "its refine waits for your answers", "its refine stopped after
+  N rounds: no word in flight (last sent ...)" (`refineStop`), or "refine open: no word in flight (last sent 4 Nov 23:20)". It adds no rule of its own.
+- **One outbox shape**: every word, also long ago, a waiting one past its keep marked expired as `outboxNow` times it (store.mjs
+  `outboxKnown`, the server's `words` to the state), so a delivered word outboxNow drops after 2 h still names the last one sent.
+- **Every view reads it**: the state carries `stepStatus` (by id, open steps only: done and dropped are left out, 98% of its size; a
+  view without an entry says the step's own state) and each backlog row's `stepStatus`; the Focus parts (a block's `chip` when it waits,
+  is ready or is refining, its list's words, the rework words of Open now and the recap popup: `recapRound.mjs` `reworkOf` takes the
+  state's `statusOf`, REQUIRED, and works out none), the Goals step rows' badge (its words on hover), the Advisor card's line, the
+  worker rows' task column, the details window's state chip, the backlog's rows, the brainstorm's new tasks, the Bugs tab's "Reported
+  as", and the Supervisor's incident cards (`live.statuses`). The page works out none itself.
+- **The guard** (`test/stepStatus.test.mjs`): the status phrases ("waiting for a worker", "wait(s) for the Advisor", "nobody on it",
+  "for a worker", "being refined", "is on it") may be written only by `src/stepStatus.mjs`; the test reads every string literal of
+  `src`, `public`, `mods` and `server.mjs` (`test/stringLiterals.mjs`: joined across `+`, a template's static parts, never a comment),
+  with a short named list of strings that say no step's status (a list's heading, a chat's pick-up of a word, a block's worker).
 - **The signal, never to the person**: the focus goal has unstarted steps (new, refined), the ready list is empty and a worker is
-  free (the hand-out's `idleWorkers`) for 10 of the board's running minutes (after the person's pause and the board's off spells):
-  the repair rule `none-ready` tells the main chat once per cause (a note, `noted`) and types the partner once per cause (its word's
-  `syncKey`): "focus goal G60 has work, none can be handed out: B1096 held (<the hand-out's why>)". The Overview's simple view shows
-  the same words as one quiet line (`state.noWork`) with a link to the step; no amber.
+  free (the hand-out's `idleWorkers`, with the reconciler's `restFree` and `stuck`) for 10 of the board's running minutes (after the
+  person's pause and the board's off spells; none while the board resumes). Causes someone has are left out: a word to the Advisor in
+  flight or held, a refine waiting for answers, for the partner or stopped, a step in the refine gate's line (`refineQueue`, from its
+  kept first look), a rebuild hold, a blocker given or at work; with none left there is no signal. The state's `noWork` is the one
+  signal: the Overview's simple view shows it as one quiet line with a link to the step (no amber), and the repair rule `none-ready`
+  reads it (`view.noWork`): a note to the main chat per cause and at most ONE word to the partner per signal, listing the causes and
+  never asking for a refine (the gate sends those); nothing while a limit is full or the person pauses. Keys: the step, its kind and a
+  stable class (`causeClassOf`: `blocked B9000` with the blocker ids only, waits-for, answer, standard, routing, refine), with the
+  stamp of the free spell, so a move of the blocker is no new note and the same hold in a later spell is.
 - Not in it: the hand-out's and the review's rules (read only), lane states, wake.
 
 ## Going live: tools/land.ps1 (2026-11-04)
