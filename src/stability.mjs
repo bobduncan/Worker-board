@@ -191,7 +191,15 @@ export function interventionsOf({ actions = [], lastStop = null, kept = [], kept
 
   // resume-all: the person's own Pause all, ended by the person, is no intervention; a resume with none before it is.
   let ownPause = false
-  for (const action of [...actions].filter(one => one.by === 'person').sort((a, b) => a.at - b.at)) {
+  // Reactive board, brief P4a: a click of the page is logged with its click id; its retry is the same hand, counted once.
+  const seenClicks = new Set()
+  const ownActions = [...actions].filter(one => one.by === 'person').sort((a, b) => a.at - b.at).filter(one => {
+    if (typeof one.click !== 'string') return true
+    if (seenClicks.has(one.click)) return false
+    seenClicks.add(one.click)
+    return true
+  })
+  for (const action of ownActions) {
     if (action.action === 'pause-all') ownPause = true
     else if (action.action === 'resume-all') {
       if (!ownPause && inDay(action.at)) found.push({ at: action.at, kind: 'resume-all', what: 'Resume all, ending a pause that was not yours' })

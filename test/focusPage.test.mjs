@@ -318,8 +318,9 @@ test('Focus 2: the page sends its moves to /api/goals and the talk\'s answers as
   assert.match(script, /fetch\('\/api\/goals', \{ method: 'POST'/)
   assert.match(script, /command: 'focus', id: goal/)
   assert.match(script, /command: 'focus', text: words\('new'\)/)
-  assert.match(script, /command: 'brainstorm-answer', thread: path, n/)
-  assert.match(script, /fetch\('\/api\/brainstorm', \{ method: 'POST'[^\n]+command: 'answer', path, n/)
+  // Reactive board, brief P4a: the talk's answer is ONE call (the board writes it and queues its word): the page types no word itself.
+  assert.doesNotMatch(script.slice(script.indexOf('async function focusAnswer('), script.indexOf("$('advisor-focus').addEventListener", script.indexOf('async function focusAnswer('))), /command: 'brainstorm-answer'|\/api\/say/)
+  assert.match(script, /clickCall\('\/api\/brainstorm', \{ command: 'answer', path, n, \.\.\.answer, via: 'talk-send' \}/)
   assert.doesNotMatch(script.slice(script.indexOf('function focusView'), script.indexOf('// focus:end')), /comes in the next part'\)/)
   assert.match(css, /\.focus-option\b/)
   assert.match(css, /\.focus-note\b/)

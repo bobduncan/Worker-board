@@ -23,6 +23,12 @@ import { MIN, NOW, asSent, build, sinceOf } from './partnerState.mjs'
 const HERE = fileURLToPath(import.meta.url)
 const FOLDER = '.claude/brainstorms'
 const PATH = `${FOLDER}/2026-10-19-change-paths-through-the-garden.md`
+// Reactive board, brief P4a: a click is ONE call with a click id, and the page never types the word itself.
+const noClick = ({ click, ...rest }) => {
+  assert.match(click, /^[\w-]{8,64}$/)
+  return rest
+}
+
 
 const HEAD = '# Brainstorm: Change: Paths through the garden\nGoal: G6 Paths through the garden\nKind: change\nStarted: 2026-10-19 09:00 · State: running\nOpening: Steps are missing; I want to rethink what a good path is.\n\n'
 const Q1 = '## Q1 (09:01)\nWhat is a path for?\nContext: The goal has one part so far.\nWhy: it decides the bullets.\n- A: getting somewhere (advised)\n- B: a stroll\nAnswer (09:02): A\n\n'
@@ -369,8 +375,8 @@ test('the Focus page has "Change this goal" beside "Change focus"; its box start
     assert.equal(page.text('#change-goal-status'), 'Say what should change, in your words.')
     page.find('#change-goal-words').value = 'Steps are missing; rethink a good path.'
     await page.click('#change-goal-start')
-    assert.deepEqual(page.sent('/api/brainstorm').map(one => one.body), [{ command: 'start', kind: 'change', goal: 'G6', title: 'Change: Paths through the garden', opening: 'Steps are missing; rethink a good path.' }])
-    assert.deepEqual(page.sent('/api/say').map(one => [one.body.command, one.body.thread]), [['brainstorm', PATH]])
+    assert.deepEqual(page.sent('/api/brainstorm').map(one => noClick(one.body)), [{ command: 'start', kind: 'change', goal: 'G6', title: 'Change: Paths through the garden', opening: 'Steps are missing; rethink a good path.' }])
+    assert.deepEqual(page.sent('/api/say'), [], 'one call: the board types the first word itself')
     // The goal map is not changed by the page.
     assert.deepEqual(page.sent('/api/goals'), [])
   } finally {
@@ -411,11 +417,11 @@ test('the Understood card: "Yes, that\'s it" writes the yes and types brainstorm
     await page.click('[data-brainstorm-act="not-quite"]')
     await page.type('#brainstorm-not-quite-text', 'the gate too')
     await page.click('[data-brainstorm-act="send-not-quite"]')
-    assert.deepEqual(page.sent('/api/brainstorm').map(one => one.body), [{ command: 'understood', path: PATH, words: 'the gate too' }])
-    assert.deepEqual(page.sent('/api/say').map(one => one.body.command), ['brainstorm-not-quite'])
+    assert.deepEqual(page.sent('/api/brainstorm').map(one => noClick(one.body)), [{ command: 'understood', path: PATH, words: 'the gate too' }])
+    assert.deepEqual(page.sent('/api/say'), [])
     await page.click('[data-brainstorm-act="understood-yes"]')
-    assert.deepEqual(page.sent('/api/brainstorm').at(-1).body, { command: 'understood', path: PATH, yes: true })
-    assert.deepEqual(page.sent('/api/say').map(one => [one.body.command, one.body.thread]), [['brainstorm-not-quite', PATH], ['brainstorm-understood', PATH]])
+    assert.deepEqual(noClick(page.sent('/api/brainstorm').at(-1).body), { command: 'understood', path: PATH, yes: true })
+    assert.deepEqual(page.sent('/api/say'), [])
     // Nothing about the goal changed from the page.
     assert.deepEqual(page.sent('/api/goals'), [])
   } finally {

@@ -11,6 +11,6 @@ export function halfTheCores(cores) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const files = process.argv.length > 2 ? process.argv.slice(2) : ['test/**/*.test.mjs']
-  const run = spawnSync(process.execPath, ['--test', `--test-concurrency=${halfTheCores(availableParallelism())}`, ...files], { stdio: 'inherit' })
+  const run = spawnSync(process.execPath, ['--test', `--test-concurrency=${halfTheCores(availableParallelism())}`, ...files], { stdio: 'inherit', windowsHide: true })
   process.exit(run.status ?? 1)
 }

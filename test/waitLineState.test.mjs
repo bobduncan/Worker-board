@@ -60,7 +60,8 @@ test('finding 1: an answered ask stays while its word\'s line waits (it turns La
   try {
     const slim = page.find('#needs .need.is-slim')
     assert.equal(slim.dataset.id, 'work:Q5')
-    assert.equal(words(slim.querySelector('.wait-line .wait-words')), "Not picked up after 30 min · it waits in Digger's queue")
+    // P3 (2026-11-09): a Late line names the person's action.
+    assert.equal(words(slim.querySelector('.wait-line .wait-words')), "Not picked up after 30 min · it waits in Digger's queue · open Digger's chat so its mod takes it")
   } finally { await page.close() }
   // Its line is Done (kept 15 minutes ago): it went 5 minutes ago. Done 5 minutes ago: it stays (closed, as an answered card).
   assert.equal(serverState({ reports, outbox: [answerWord({ state: 'delivered', takenAt: at(29), deliveredAt: at(29), answeredAt: at(15) })] }).state.forYou.some(one => one.workId === 'Q5'), false)
@@ -94,12 +95,12 @@ test('finding 2b: "on it" needs the lane Working; a session that ended mid-turn 
   assert.deepEqual(ended.seen, [], 'nothing kept: it did not answer')
 })
 
-test('finding 2c: an action with its own Done source never says "answered": its turn ended without the result, quietly; its result then is Done', () => {
+test('finding 2c: an action with its own Done source never says "answered": its turn ended without the result is Late after the 5 min grace (P3); its result then is Done', () => {
   const check = { id: 'o1', to: 'Advisor', ask: null, command: 'obsolete-check', about: 'obsolete', text: 'obsolete check: 1 open item', at: at(20), state: 'delivered', takenAt: at(20), deliveredAt: at(20) }
   const record = { state: 'checking', at: at(20) - 1000, answeredAt: null, items: [{ id: 'Q5' }], verdicts: {}, last: null }
   const reports = [report('Lead', 'idle', at(60)), report('Digger', 'idle', at(60)), report('Advisor', 'idle', at(12), { busyAt: at(19) })]
   const ended = serverState({ reports, outbox: [check], obsolete: record })
-  assert.deepEqual([ended.state.waits.o1.state, ended.state.waits.o1.lead, ended.state.waits.o1.isTurnEnded], ['sent', `Advisor's turn ended at ${hhmm(at(12))} without it`, true])
+  assert.deepEqual([ended.state.waits.o1.state, ended.state.waits.o1.lead], ['late', `No answer since ${hhmm(at(12))}`])
   const answered = serverState({ reports, outbox: kept([check], ended.seen), obsolete: { ...record, state: 'done', answeredAt: at(11), verdicts: { Q5: { verdict: 'obsolete', why: '', evidence: '' } } } })
   assert.deepEqual([answered.state.waits.o1.state, answered.state.waits.o1.lead, answered.state.waits.o1.rest], ['done', `Done ${hhmm(at(11))}`, '1 closed as obsolete · 0 stay'])
   assert.deepEqual(answered.seen, [{ id: 'o1', fields: { doneAt: at(11), doneWords: '1 closed as obsolete · 0 stay' } }])

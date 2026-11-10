@@ -196,10 +196,11 @@ test('the page has the box to ask in under the frame: words, pictures, Send; and
   assert.ok(html.indexOf('id="goals-frame"') < html.indexOf('id="goals-ask"'))
   for (const id of ['goals-ask-head', 'goals-ask-text', 'goals-ask-pictures', 'goals-ask-pick', 'goals-ask-file', 'goals-ask-note', 'goals-ask-cancel', 'goals-ask-send']) assert.ok(html.includes(`id="${id}"`), id)
   assert.match(html, /id="goals-ask-text" maxlength="2000"/)
-  // The words go to the Advisor with the id the map gave the ask; Done marks it read.
-  assert.match(script, /send\(\{ to: advisor, command: 'goal-ask', goal, ask: id, text, pictures \}/)
+  // The words go to the Advisor with the id the map gave the ask, typed by the board in the same call (reactive board, brief P4a): the page types nothing itself. Done marks it read.
+  assert.match(script, /clickCall\('\/api\/goals', \{ command: 'ask', id: goal, text, pictures, page: GOALS_PAGE \}/)
+  assert.doesNotMatch(script, /send\(\{ to: advisor, command: 'goal-ask'/)
   assert.match(script, /sendGoals\(\{ command: 'read', id: goal, ask: askId \}\)/)
-  // Review B258: when the words did not reach the Advisor, "Send again" types the same ask, it writes no second one.
-  assert.match(script, /let id = goalsAskBox\.written\?\.goal === goal \? goalsAskBox\.written\.id : null\n  if \(id === null\) \{\n    const written = await sendGoals\(\{ command: 'ask', id: goal, text \}\)/)
+  // Review B258: when the words did not reach the Advisor, "Send again" is the retry of the same click (its id), it writes no second ask.
+  assert.match(script, /const earlier = goalsAskBox\.written\?\.goal === goal \? goalsAskBox\.written : null\n  let result\n  if \(earlier !== null && earlier\.click\) \{\n    const retried = await retryClickOf\(earlier\.click, '\/api\/goals'\)/)
   assert.match(script, /'Answers to your asks'/)
 })

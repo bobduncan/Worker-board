@@ -94,10 +94,10 @@ function laneStatus(lane) {
  * Unknown always says "no report for N", Asleep since when. The age is the board's, set when it read the state (never the
  * page's clock).
  */
-function statusLabel(found) {
+function statusLabel(found, now = Date.now()) {
   if (found === null) return ''
   if (found.status === 'Unknown') return found.age !== null ? `Unknown · no report for ${ageSpan(found.age)}` : found.isReported ? 'Unknown · no report yet' : 'Unknown'
-  if (found.status === 'Asleep' && found.since !== null) return `Asleep · since ${clock(found.since)}`
+  if (found.status === 'Asleep' && found.since !== null) return `Asleep · since ${sinceClock(found.since, now)}`
   if (found.age !== null && found.age > AGE_SHOWN_MS) return `${found.status} · ${ageSpan(found.age)} ago`
   return found.status
 }
@@ -123,7 +123,7 @@ function isHeldRow(lane) {
  * Sent (a ring), Picked up (a loader), Done (a tick) and Late, the only one in the attention colour. The chat's own status pill
  * stands beside it as every view draws it (the board-dev chat's condition 3): never a second status. A code answer has no line.
  */
-const WAIT_SIGNS = { sent: '○', done: '✓', late: '!' }
+const WAIT_SIGNS = { sent: '○', done: '✓', late: '!', closed: '–' }
 /** How long a Done line stays on a card whose wait is over (a check's, a recap's): as long as the supervisor's head keeps "checked 15:26". */
 const WAIT_DONE_SHOWN_MS = 10 * 60_000
 
@@ -137,10 +137,10 @@ function waitLaneOf(part, name) {
 }
 
 /** The pill beside a line: the chat's own status (`laneStatus`), its words without the age, which would draw the card anew every few seconds. */
-function waitPillOf(lane) {
+function waitPillOf(lane, now = Date.now()) {
   const found = laneStatus(lane)
   if (found === null) return null
-  return { key: found.key, label: found.status === 'Asleep' && found.since !== null ? `Asleep · since ${clock(found.since)}` : found.status }
+  return { key: found.key, label: found.status === 'Asleep' && found.since !== null ? `Asleep · since ${sinceClock(found.since, now)}` : found.status }
 }
 
 /**
@@ -154,9 +154,10 @@ function waitViewOf(part, id) {
   const line = typeof id === 'string' && id !== '' ? part?.waits?.[id] ?? null : null
   if (line === null || typeof line !== 'object') return null
   const now = Number.isFinite(part?.readAt) ? part.readAt : Date.now()
-  const isShown = line.state !== 'done' || !Number.isFinite(line.at) || now - line.at < WAIT_DONE_SHOWN_MS
+  // P3: a closed line ("closed: <why>") shows as long as a Done line does; both go quietly.
+  const isShown = !['done', 'closed'].includes(line.state) || !Number.isFinite(line.at) || now - line.at < WAIT_DONE_SHOWN_MS
   return {
-    id, state: line.state, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null, sentAt: Number.isFinite(line.sentAt) ? line.sentAt : null,
+    id, state: line.state, asOf: Number.isFinite(part?.waitsAsOf) ? part.waitsAsOf : null, isEnded: line.isEnded === true, lead: String(line.lead ?? ''), rest: String(line.rest ?? ''), chat: line.chat ?? null, title: line.title ?? null, sentAt: Number.isFinite(line.sentAt) ? line.sentAt : null,
     link: typeof line.link?.step === 'string' ? { step: line.link.step, text: String(line.link.text ?? line.link.step) } : null,
     canSendAgain: line.canSendAgain === true && part?.waitAgain === true, isShown, pill: waitPillOf(waitLaneOf(part, line.chat)),
     again: { isSending: sending.has(`wait-again:${id}`), problem: problems.get(`wait-again:${id}`) ?? null },
@@ -213,7 +214,8 @@ function placeWaitOf(part, place, about = {}) {
  * reads as none, so the card draws again when it goes.
  */
 function waitKeyOf(view) {
-  return view === null || view === undefined || view.isShown !== true ? null : [view.id, view.state, view.lead, view.rest, view.canSendAgain, view.pill?.label ?? null, view.again?.isSending ?? null, view.again?.problem ?? null]
+  // P3 (the review of 2026-11-09, 6): "as of HH:MM" and an ended wait are drawn too, so they are in the key.
+  return view === null || view === undefined || view.isShown !== true ? null : [view.id, view.state, view.lead, view.rest, view.canSendAgain, view.pill?.label ?? null, view.again?.isSending ?? null, view.again?.problem ?? null, view.asOf ?? null, view.isEnded === true]
 }
 
 /** The line as drawn: its sign (a ring, a loader, a tick, "!"), its lead in bold, the rest, a link to what came of it, Send again, and the pill. */
@@ -243,6 +245,8 @@ function drawWaitLine(view) {
     line.append(again)
   }
   if (view.pill !== null) line.append(el('span', `pill is-${view.pill.key}`, view.pill.label))
+  // P3: the lines of an earlier pass (this one failed on the board): said under their clock, never as if they were live.
+  if (view.asOf !== null && view.asOf !== undefined) words.append(el('span', 'wait-asof muted', ` · as of ${clock(view.asOf)}`))
   // A refused Send again says why, under the line's words.
   if (typeof view.again?.problem === 'string') words.append(el('span', 'wait-problem', ` · ${view.again.problem}`))
   return line
@@ -340,6 +344,18 @@ const pad = value => String(value).padStart(2, '0')
 function clock(ms) {
   const date = new Date(ms)
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/**
+ * A lane's "since" time: the clock for today, "yesterday 23:54" for yesterday, "8 Nov 23:54" for an older day (the person's
+ * local day, `now`'s). `clockOf` writes the time of day. The same words as `sinceClock` in src/chatStatus.mjs.
+ */
+function sinceClock(ms, now = Date.now(), clockOf = clock) {
+  const day = new Date(ms)
+  const back = Math.round((new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate()) - new Date(day.getFullYear(), day.getMonth(), day.getDate())) / 86_400_000)
+  if (back === 0 || back < 0) return clockOf(ms)
+  if (back === 1) return `yesterday ${clockOf(ms)}`
+  return `${day.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][day.getMonth()]} ${clockOf(ms)}`
 }
 
 /** A length of time: "40 min", "1 h 50". */
@@ -2167,7 +2183,7 @@ function whyText(why) {
   const said = (tone, words) => ({ tone, text: `Not started: ${words}` })
   switch (why.reason) {
     case 'limit': return said('limit', `the ${LIMIT_NAMES[why.limit] ?? 'session'} limit is reached${why.limit === 'fiveHour' && why.until !== null ? `, work goes on at ${clock(why.until)}` : ''}`)
-    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${clock(why.since)}` : ''}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
+    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${sinceClock(why.since)}` : ''}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
     case 'after': {
       if (!Array.isArray(why.steps)) return said('wait', `after ${why.words}`)
       // B542: a step in review is waited on for its check.
@@ -2253,7 +2269,7 @@ function pauseWindowOf(pause) {
 function heldText(held) {
   if (held.by === 'pause') return 'Paused by you · stopped at its checkpoint; goes on at Resume all'
   // P1 (2026-11-09): a wait the holder recorded on a chat (`Waits on`): on purpose, with who and since when.
-  if (held.by === 'parked' && held.kind === 'chat') return `Waits on purpose · for ${held.on[0]}${held.what ? ` (${held.what})` : ''}${Number.isFinite(held.since) ? ` since ${clock(held.since)}` : ''}; goes on once it is unblocked`
+  if (held.by === 'parked' && held.kind === 'chat') return `Waits on purpose · for ${held.on[0]}${held.what ? ` (${held.what})` : ''}${Number.isFinite(held.since) ? ` since ${sinceClock(held.since)}` : ''}; goes on once it is unblocked`
   if (held.by === 'parked') return `Paused on purpose · goes on once ${held.on.join(' and ')} ${held.on.length === 1 ? 'is' : 'are'} done`
   const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
   if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
@@ -2687,7 +2703,7 @@ function timeOf(lane, now) {
   const found = laneStatus(lane)
   // T13 part 3: a chat whose process ended while its turn ran (or it held a task) resumes by itself: the board sends it
   // its resume word. No alarm: nothing is wrong yet. Idle with its task open, or cut off: Stopped, quiet.
-  if (found.status === 'Stopped') return { ...plain(found.why ?? 'Stopped', 'muted', 'Stopped'), small: lane.asleep === true ? [asleepWords(lane)] : [] }
+  if (found.status === 'Stopped') return { ...plain(found.why ?? 'Stopped', 'muted', 'Stopped'), small: lane.asleep === true ? [asleepWords(lane, now)] : [] }
   if (found.status === 'Paused') {
     // B113: held by the limit. The figure is when it goes on; once that has passed it needs a hand.
     const held = lane.suspended ?? null
@@ -2702,7 +2718,7 @@ function timeOf(lane, now) {
   }
   if (found.status === 'Waiting for you') return plain('Blocked', 'bad', 'ETA')
   // T13 part 3: an asleep one is not "free to run": the line of the task it gets wakes it.
-  if (found.status === 'Asleep') return { ...plain('Asleep'), small: found.why === null ? [asleepWords(lane)] : [asleepWords(lane), found.why] } // C2: its why (a ban) too
+  if (found.status === 'Asleep') return { ...plain('Asleep'), small: found.why === null ? [asleepWords(lane, now)] : [asleepWords(lane, now), found.why] } // C2: its why (a ban) too
   if (found.status === 'Free') return plain('Free')
   if (found.status === 'Unknown') return plain('Unknown')
   if (found.status !== 'Working') return { ...plain(found.status), small: found.why === null ? [] : [found.why] }
@@ -2741,8 +2757,8 @@ function timeOf(lane, now) {
  * T13 part 3: the quiet note of an asleep chat (its process ended while its last report stands; the board wakes it with a
  * message): since when, and what wakes it.
  */
-function asleepWords(lane) {
-  const since = Number.isFinite(lane.asleepSince) ? `asleep since ${clock(lane.asleepSince)}` : 'asleep'
+function asleepWords(lane, now = Date.now()) {
+  const since = Number.isFinite(lane.asleepSince) ? `asleep since ${sinceClock(lane.asleepSince, now)}` : 'asleep'
   if (lane.state === 'interrupted') return `${since}; the board sends it its resume word`
   if (lane.state === 'free') return `${since}, wakes when it gets a task`
   return `${since}, wakes when a word comes for it`
@@ -2774,9 +2790,9 @@ function leftView(lane, now) {
 }
 
 /** A free worker's one line: since when it is free ("free since 13:01"); null when that is not known. */
-function freeShort(lane, clockOf = null) {
+function freeShort(lane, clockOf = null, now = Date.now()) {
   if (lane.state !== 'free' || clockOf === null || !Number.isFinite(lane.idle?.since)) return null
-  return `free since ${clockOf(lane.idle.since)}`
+  return `free since ${sinceClock(lane.idle.since, now, clockOf)}`
 }
 
 /** The column "Next in queue": the next step by its id and title, why it is not started, and how many come after it. */
@@ -3006,11 +3022,11 @@ function simpleSteps(focus, chats = [], now = Date.now()) {
 
 // simpleidle:start
 /** B343: what a chat's row says in place of its time when it does not work: a few plain words. */
-function simpleIdle(lane) {
+function simpleIdle(lane, now = Date.now()) {
   // Signals change 2: the chat's one status, with its why where it has one; the same status as the pill and the head count.
   const found = laneStatus(lane)
   if (found === null) return ''
-  const label = statusLabel(found)
+  const label = statusLabel(found, now)
   if (found.status === 'Paused' && Number.isFinite(lane.suspended?.until)) return `${label} until ${clock(lane.suspended.until)}`
   const hasWhy = found.why !== null && found.status !== 'Unknown' // C2: an Asleep lane's ban why shows
   return hasWhy ? `${label} · ${found.why}` : label
@@ -4346,7 +4362,8 @@ function removalView(lane, main, now) {
   if (status === 'Waiting for you') reasons.push(`It waits for you${what === null ? '' : ` on ${what}`}: your answer would no longer be taken.`)
   if (status === 'Paused') {
     const until = Number.isFinite(lane.suspended?.until) ? ` until ${clock(lane.suspended.until)}` : ''
-    reasons.push(lane.suspended?.by === 'parked' && lane.suspended.kind === 'chat' ? `It waits on purpose for ${lane.suspended.on[0]}${what === null ? '' : ` with ${what}`}: that task would not go on.`
+    reasons.push(lane.suspended === null && typeof lane.heldAsk === 'string' ? `It is paused for its re-check of ${lane.heldAsk}${what === null ? '' : ` with ${what}`}: that task would not go on.`
+      : lane.suspended?.by === 'parked' && lane.suspended.kind === 'chat' ? `It waits on purpose for ${lane.suspended.on[0]}${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : lane.suspended?.by === 'parked' ? `It is paused on purpose${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : `It paused for the limit${until}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
   }
@@ -4802,7 +4819,10 @@ const needLook = need => (need.isClosed === true ? ' is-closed' : isAnswered(nee
  */
 const answerWaitOf = (need, part) => (isAnswered(need) ? waitViewOf(part, need.answer?.id) : null)
 /** T22: an answered card that still waits for its chat (its line not Done): it stays as a slim card with its line, also without "Show closed". */
-const isWaitingAnswer = (need, part) => need.isClosed !== true && (answerWaitOf(need, part)?.state ?? 'done') !== 'done'
+// P3: a missing line reads as done only when the board's pass for the lines went well; after an error (`waitsAsOf` set) a missing line is
+// unknown, and the card stays. A closed line ends its wait as a Done one does.
+// P3 (the review of 2026-11-09, 9): a line past a day ("no answer recorded in 24 h", an expired word's) has ended its wait too (`isEnded`).
+const isWaitingAnswer = (need, part) => need.isClosed !== true && answerWaitOf(need, part)?.isEnded !== true && !['done', 'closed'].includes(answerWaitOf(need, part)?.state ?? (Number.isFinite(part?.waitsAsOf) && isAnswered(need) && typeof need.answer?.id === 'string' ? 'unknown' : 'done'))
 // closed:end
 const showsClosed = () => $('needs-closed').checked
 
@@ -5006,8 +5026,8 @@ function decidedToggleText(view, isOpen) {
 }
 
 /** A lane's one status, with how old it is (chatstatus): the same text in every view. */
-function laneStateText(lane) {
-  return statusLabel(laneStatus(lane))
+function laneStateText(lane, now = Date.now()) {
+  return statusLabel(laneStatus(lane), now)
 }
 // partner-answers:end
 
@@ -5043,6 +5063,31 @@ function handsLineView(list) {
   return { items, isBlocking: list.some(need => need.blocking === true) }
 }
 // handsline:end
+
+// heldlines:start
+/**
+ * Rule 15 (the person must never lose a question): the asks held for the person's words stand as one quiet line each under the cards
+ * (the state's needs of kind `held`, goal-level ones too): `[{ id, words, href, title }]`. They are no card and no count, and only the
+ * line draws them: `without` is the needs that are cards.
+ */
+function heldLinesView(needs) {
+  return (needs ?? []).filter(need => need?.kind === 'held' && typeof need.ask === 'string').map(need => ({ id: need.ask, words: String(need.title ?? need.ask), href: `#details=${need.ask}`, title: `Open ${need.ask}: held until its chat re-checks it, or for 60 minutes of the board's running time` }))
+}
+/** The needs that are cards: every one but the held lines. */
+const withoutHeldLines = needs => (needs ?? []).filter(need => need?.kind !== 'held')
+// heldlines:end
+
+/** Rule 15: the quiet lines of the asks held for the person's words (heldLinesView), each opening its ask's window. */
+function drawHeldLines(view) {
+  return view.map(one => {
+    const line = el('p', 'held-line')
+    const link = el('a', 'held-line-ask', one.words)
+    link.href = one.href
+    link.title = one.title
+    line.append(link)
+    return line
+  })
+}
 
 /** Autopilot v2: the one quiet line of what only the person's hands can do (handsLineView), under the cards; it counts as one. */
 function drawHandsLine(view) {
@@ -6543,7 +6588,9 @@ function drawNeeds(state) {
   const recapAttention = recapMaking !== null ? null : recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
   // The review of 2026-11-04: an ask the recap card counts as a kept look or do is no card of its own beside it (never counted twice).
   const inRecapCard = new Set(recapAttention === null ? [] : (state.recapCard?.looks ?? []).map(one => one.target?.ask).filter(id => typeof id === 'string'))
-  const forYou = inRecapCard.size === 0 ? state.forYou : state.forYou.filter(need => !inRecapCard.has(need.workId))
+  // Rule 15: the held asks are quiet lines under the cards, never cards and never counted.
+  const heldLines = heldLinesView(state.forYou)
+  const forYou = withoutHeldLines(inRecapCard.size === 0 ? state.forYou : state.forYou.filter(need => !inRecapCard.has(need.workId)))
   // Calm panel: the open asks the backlog held are cards as every other ask (`panelNeeds`), its ticked ones closed.
   const every = panelNeeds({ ...state, forYou })
   // Autopilot v2: what only the person's hands can do is one quiet line under the cards, not a card each (handsNeedsOf).
@@ -6594,6 +6641,8 @@ function drawNeeds(state) {
   // partner" line, and "Decided for you" folds into the one line on top with today's count (drawAutopilotLine); the older answers
   // stay in the daily notes.
   fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawHandsLine(handsLine), isPilot ? null : drawWithPartner(state), isPilot ? null : drawDecidedForYou(state), ...recaps])
+  // Rule 15: the held asks' quiet lines stand under everything else (never cards, never counted); appended apart, so the list above keeps its shape.
+  box.append(...drawHeldLines(heldLines).filter(Boolean))
   // T20: the Product owner's recap card is the first card, the dashed "Autopilot cleared" line right under it.
   const firstCards = [recapAttention === null ? null : drawRecapAttention(recapAttention), recapMaking === null ? null : drawRecapMaking(recapMaking), cleared === null ? null : drawClearedLine(cleared)].filter(one => one !== null)
   if (firstCards.length > 0) box.prepend(...firstCards)
@@ -6672,7 +6721,7 @@ function waitsPart(state, ids) {
   const chats = [...(state.chats ?? []), state.advisor, state.advisorHelper, state.supervisorChat, state.productOwner]
     .filter(lane => typeof lane?.name === 'string' && lane.isLeftover !== true && names.has(lane.name))
     .map(lane => ({ name: lane.name, status: lane.status ?? null, since: lane.since ?? null, state: lane.state ?? null, asleep: lane.asleep === true, isRunning: lane.isRunning ?? null }))
-  return { waits, chats, readAt: Object.keys(waits).length === 0 ? null : minuteOf(state.readAt), waitAgain: state.waitAgain === true }
+  return { waits, chats, readAt: Object.keys(waits).length === 0 ? null : minuteOf(state.readAt), waitAgain: state.waitAgain === true, waitsAsOf: Number.isFinite(state.waitsAsOf) ? minuteOf(state.waitsAsOf) : null }
 }
 
 /** Needs your attention as drawn (drawNeeds): its cards in the daily note's order, the log's lines, the partner's parts, Information. */
@@ -6736,6 +6785,7 @@ function focusPageView(state, ui) {
   return {
     ...cards,
     focus: state.focus ?? null,
+    clicksUnsent: state.clicksUnsent ?? null,
     goals: state.goals ?? null,
     brainstorms: state.brainstorms ?? null,
     advisor: (state.advisor ?? null) === null ? null : { ...runnerOf(state.advisor), effort: state.advisor.effort ?? null },
@@ -7317,7 +7367,7 @@ function taskCheckLines(points) {
  * it filed that is not answered yet, else the one that was answered last. Null when the lane has none.
  */
 function needOfLane(needs, name) {
-  const mine = needs.filter(need => need.from === name && need.kind !== 'intervene' && need.activity === undefined && need.isClosed !== true)
+  const mine = needs.filter(need => need.from === name && need.kind !== 'intervene' && need.kind !== 'held' && need.activity === undefined && need.isClosed !== true)
   const isOpen = need => (need.answer ?? null) === null
   return (mine.find(need => need.id.startsWith(`chat:${name}:`) && isOpen(need)) ?? mine.find(isOpen) ?? mine[0] ?? null)?.id ?? null
 }
@@ -9296,6 +9346,34 @@ function taskPart(title, nodes) {
   return part
 }
 
+// heldasks:start
+/**
+ * Rule 15 (2026-11-09): an ask held for the person's words (Route asker) stands on no list of the person's, but its step's window shows
+ * it with its hold line, so nothing disappears without a trace: `[{ id, title, text }]`, `text` the line the window draws.
+ */
+function heldAskRows(item) {
+  return (item?.heldAsks ?? []).map(one => ({ id: one.id, title: one.title, text: `${one.id}: ${one.title} · ${one.line}` }))
+}
+
+/**
+ * Rule 15: the person's words kept under a goal (its "Your words" points, `{ at, text }`, `at` "2026-11-09 16:20", `text` the words with
+ * "(in <chat>)" at its end), each as one quiet line: `Your words, 16:20 in chat 2: "<words>"`.
+ */
+function goalWordsRows(words) {
+  return (words ?? []).filter(one => typeof one?.text === 'string' && one.text.trim() !== '').map(one => {
+    const found = one.text.match(/^([\s\S]*?)\s*\(in ([^()]*)\)$/)
+    const minute = String(one.at ?? '').match(/(\d\d:\d\d)\s*$/)?.[1] ?? null
+    return `Your words${minute === null ? '' : `, ${minute}`}${found === null ? '' : ` in ${found[2]}`}: "${found === null ? one.text : found[1]}"`
+  })
+}
+// heldasks:end
+
+/** Rule 15: the step window's quiet part for the asks held for the person's words; nothing without any. */
+function heldAsksNodes(item) {
+  const rows = heldAskRows(item)
+  return rows.length === 0 ? [] : [taskPart('Held for your words', rows.map(row => el('p', 'muted task-held', row.text)))]
+}
+
 /** B701: where a step stands, in a line, for a Summary that has no check to tell it. */
 function taskStanding(item) {
   const owner = item.owner ?? 'its worker'
@@ -9885,16 +9963,21 @@ async function askQuestionPictures(question) {
   problems.delete(key)
   sending.add(key)
   redrawQuestions()
+  let isUnsent = false
   if (isRefine) {
-    const problem = advisor === null ? 'the board has no Advisor' : await sendBacklog({ action: 'refine-answer', step: question.stepId, answers: [], feedback: '', request: words })
+    // Reactive board, brief P4a: ONE call: the board writes its request under the step's Feedback, then queues the refine word.
+    const { result, problem } = advisor === null ? { result: null, problem: 'the board has no Advisor' }
+      : await clickCall('/api/backlog', { action: 'refine-send', via: 'refine-pictures', step: question.stepId, answers: [], feedback: '', request: words }, key)
     sending.delete(key)
     if (problem !== null) problems.set(key, `Not done: ${problem}`)
-    else await send({ to: advisor, command: 'refine', step: question.stepId }, key)
+    // A word not queued is drawn from the board's record (the step's "Not sent" line), never from this page's memory.
+    isUnsent = problem === null && result.notSent !== undefined
+    await read()
   } else {
     sending.delete(key)
     await send({ to: question.from, text: words }, key)
   }
-  if (!problems.has(key)) pictureAsked.set(questionKey(question), Date.now())
+  if (!problems.has(key) && !isUnsent) pictureAsked.set(questionKey(question), Date.now())
   redrawQuestions()
 }
 
@@ -10172,7 +10255,7 @@ function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, str
     nav.append(button)
   }
   const content = el('div', 'task-body')
-  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus), [storyNode(item, state), statusNode(item, state)]))
+  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus), [storyNode(item, state), statusNode(item, state)]), ...heldAsksNodes(item))
   else if (tab === 'checks') content.append(...taskChecks(item, strip))
   else if (tab === 'history') {
     const list = el('ul', 'task-history')
@@ -12140,7 +12223,7 @@ const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, u
 
 function goalsData(state) {
   const editing = goalsUi.editing === null ? null : { kind: goalsUi.editing.kind, id: goalsUi.editing.id }
-  return [state.goals ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, goalsHideDone, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null, goalAskWaitKeys(state), [...goalAskStepUi]]
+  return [state.goals ?? null, state.clicksUnsent ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, goalsHideDone, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null, goalAskWaitKeys(state), [...goalAskStepUi]]
 }
 
 const canEditGoals = state => state?.goalsEdit?.canWrite === true
@@ -12295,6 +12378,8 @@ function drawGoals(state) {
       summary.append(toggle)
     }
     const parts = [head, summary, goalsLinesOpen && lines.length > 0 ? fill(el('ul', 'goals-frame-lines'), lines.map(line => el('li', '', line))) : null]
+    // Rule 15: the person's words said in any chat, one quiet line each, with the chat and the time.
+    for (const words of goalWordsRows(focus.yourWords)) parts.push(el('p', 'muted goals-words', words))
     if (canEdit) {
       // The links it has, each with its ×.
       const links = [...focus.enables.map(target => ['Enables', target]), ...focus.alsoPartOf.map(target => ['Also part of', target])]
@@ -12730,6 +12815,9 @@ function goalAskBlockNode(node, block, canEdit) {
     if (block.state === 'answered') buttons.append(goalButton('goals-tool is-read', 'Done', { askAction: 'done', askId: block.id }))
   }
   if (buttons.children.length > 0) box.append(buttons)
+  // Reactive board, brief P4a round 2: an ask that stands under this goal with its word not queued: from the board's record, with a Retry (the stored click id).
+  const unsent = block.answer === null ? unsentLine(`${node.id}:${block.id}`) : null
+  if (unsent !== null) box.append(unsent)
   return box
 }
 
@@ -13502,22 +13590,33 @@ async function sendGoalAsk() {
     }
     pictures.push(one.path)
   }
-  // An ask written on an earlier try is typed again, never written twice.
-  let id = goalsAskBox.written?.goal === goal ? goalsAskBox.written.id : null
-  if (id === null) {
-    const written = await sendGoals({ command: 'ask', id: goal, text })
-    if (typeof written?.id !== 'string') return fail('Not sent: the ask could not be written under the goal (the line above the map says why).')
-    id = written.id
-    goalsAskBox.written = { goal, id }
+  // Reactive board, brief P4a: ONE call: the board writes the Ask line under the goal and queues its word to the Advisor.
+  // "Send again" after a word that was not queued is the Retry of that click: the same id, the ask is not written twice.
+  const earlier = goalsAskBox.written?.goal === goal ? goalsAskBox.written : null
+  let result
+  if (earlier !== null && earlier.click) {
+    const retried = await retryClickOf(earlier.click, '/api/goals')
+    // The retry's own answer decides: never "Asked" for a click the board does not know or refuses.
+    if (!retried.ok) {
+      if (retried.status === 404) goalsAskBox.written = null
+      return fail(retried.status === 404 ? `${earlier.id} stands under the goal, but the board has no record of that click: not found, send it anew.` : `Not sent: ${retried.text || 'the board did not answer'}`)
+    }
+    result = { id: earlier.id, click: earlier.click, ...(retried.result?.notSent === undefined ? {} : { notSent: retried.result.notSent, notSentAt: retried.result.notSentAt }) }
+  } else {
+    const called = await clickCall('/api/goals', { command: 'ask', id: goal, text, pictures, page: GOALS_PAGE }, `goal-ask:${goal}`)
+    if (called.problem !== null) return fail(`Not sent: ${called.problem}`)
+    result = called.result
+    await read()
   }
-  const key = `goal-ask:${id}`
-  await send({ to: advisor, command: 'goal-ask', goal, ask: id, text, pictures }, key)
-  if (problems.has(key)) {
-    const why = problems.get(key)
-    problems.delete(key)
-    return fail(`${id} stands under the goal, but the words did not reach ${advisor}: ${why.replace(/^Not sent: /, '').replace(/\.$/, '')}. "Send again" types it again.`)
+  const id = result.id ?? null
+  if (result.notSent !== undefined) {
+    // The ask stands under the goal; "Send again" is its Retry by the click id.
+    goalsAskBox.written = { goal, id, click: result.click }
+    return fail(`${id ?? 'The ask'} stands under the goal, but ${notSentWords(result.notSent, result.notSentAt)} "Send again" types it again.`)
   }
   goalsAskBox.busy = false
+  // The ask is no change the page's undo takes back (as sendGoals counted it).
+  goalsUi.undoable = 0
   closeGoalAsk()
   goalsSay(`Asked ${advisor} (${id}). The answer comes under the goal and under Needs your attention.`, 'ok')
 }
@@ -14180,6 +14279,7 @@ function brainstormData(state) {
   return [state.brainstorms ?? null, advisor?.name ?? null, advisor?.role ?? null, advisor?.isRunning ?? null, advisor?.state ?? null, advisor?.doingNow ?? null, Math.floor((state.readAt ?? 0) / 60_000),
     // What the partner's card says it is busy with, and where the thread stands in its queue (the Advisor lane's "Next for it").
     advisor?.on ?? null, advisor?.turnAt ?? null, (advisor?.next ?? []).map(row => [row?.kind ?? null, row?.id ?? null, row?.thread ?? null, row?.stand?.kind ?? null, row?.stand?.since ?? null]),
+    state.clicksUnsent ?? null,
     state.goalsEdit?.canWrite ?? null, state.restart?.main ?? null, (state.goals?.nodes ?? []).map(node => [node.id, node.title, (node.parts ?? []).map(part => part.title), (node.partsDropped ?? []).map(part => part.title)]),
     brainstormUi.open, brainstormUi.newAbout === undefined ? 'closed' : brainstormUi.newAbout,
     [...brainstormUi.unticked].map(([path, keys]) => [path, [...keys]]), [...brainstormUi.failedSteps], brainstormUi.changing, brainstormUi.confirm, brainstormUi.busy, brainstormUi.note,
@@ -14301,6 +14401,9 @@ function brainstormCard(thread, state) {
     parts.push(box)
   }
   if (brainstormUi.note !== null && brainstormUi.note.path === thread.path) parts.push(el('p', `brainstorm-note${brainstormUi.note.isProblem ? ' is-error' : ''}`, brainstormUi.note.text))
+  // Reactive board, brief P4a: an input of this talk that stands with its word not queued: why and when, with a Retry (the click id again).
+  const unsent = unsentLine(thread.path)
+  if (unsent !== null) parts.push(unsent)
   // 2026-10-31: a line the board cannot read is the partner's to write anew (the board tells it); the person is never shown one.
   // Only the "…" menu counts them, quietly.
   if (thread.state === 'discarded') parts.push(el('p', 'muted brainstorm-over', 'Discarded: nothing of it was created.'))
@@ -14777,6 +14880,18 @@ async function sendBrainstorm(body) {
   return result
 }
 
+/**
+ * Reactive board, brief P4a: one click of a brainstorm is ONE call: the board stores the input and queues its word. The
+ * result, or null with its reason under the card. A word that was not queued leaves the input standing, and the card's
+ * "Not sent" line with its Retry is drawn from the board's record (`unsentLine`); `result.notSent` tells it.
+ */
+async function clickBrainstorm(body, path, via = null) {
+  const { result, problem } = await clickCall('/api/brainstorm', via === null ? body : { ...body, via }, `brainstorm:${path ?? 'new'}:${body.command}:${body.n ?? ''}`)
+  if (problem !== null) brainstormUi.note = { path, isProblem: true, text: `Not done: ${problem}` }
+  await read()
+  return result
+}
+
 /** Words to a chat; their problem, if any, under the card. True when they went. */
 async function sayBrainstorm(message, path) {
   const key = `brainstorm:${path}:${message.command}${Number.isInteger(message.step) ? `:${message.step}` : ''}`
@@ -14824,7 +14939,8 @@ async function brainstormAct(act, path, key = null) {
     brainstormUi.busy = true
     brainstormUi.note = null
     redrawBrainstorm()
-    if (await sayBrainstorm({ to: advisor, thread: path, ...word }, path)) brainstormUi.note = { path, isProblem: false, text: who === 'partner' ? 'Typed into the Advisor\'s chat again.' : `Typed into your ${who}'s chat again.` }
+    const again = await clickBrainstorm({ command: 'again', path, word }, path)
+    if (again !== null && again.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: who === 'partner' ? 'Typed into the Advisor\'s chat again.' : `Typed into your ${who}'s chat again.` }
     brainstormUi.busy = false
     return redrawBrainstorm()
   }
@@ -14867,25 +14983,24 @@ async function brainstormAct(act, path, key = null) {
       const words = (brainstormUi.other.get(path) ?? '').trim()
       const answer = act === 'skip' ? { command: 'skip' } : act === 'back' ? { command: 'back', to: n - 1 }
         : key !== null ? { command: 'answer', key, words } : { command: 'answer', key: 'Other', words }
-      if (await sendBrainstorm({ path, n, ...answer }) !== null) {
-        brainstormUi.other.delete(path)
-        await sayBrainstorm({ to: advisor, command: 'brainstorm-answer', thread: path, n }, path)
-      }
+      if (await clickBrainstorm({ path, n, ...answer }, path) !== null) brainstormUi.other.delete(path)
     } else if (act === 'understood-yes') {
       // "Change this goal": the yes is written under what the partner understood, then typed to it: it writes the proposal.
-      if (await sendBrainstorm({ command: 'understood', path, yes: true }) !== null && await sayBrainstorm({ to: advisor, command: 'brainstorm-understood', thread: path }, path)) {
-        brainstormUi.note = { path, isProblem: false, text: 'Your partner writes the new goal and the tasks it needs.' }
-      }
+      const yes = await clickBrainstorm({ command: 'understood', path, yes: true }, path)
+      if (yes !== null && yes.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: 'Your partner writes the new goal and the tasks it needs.' }
     } else if (act === 'send-not-quite') {
       const words = brainstormUi.notQuiteWords.trim()
       if (words === '') brainstormUi.note = { path, isProblem: true, text: 'Say what is not quite it.' }
-      else if (await sendBrainstorm({ command: 'understood', path, words }) !== null) {
-        brainstormUi.notQuite = null
-        brainstormUi.notQuiteWords = ''
-        if (await sayBrainstorm({ to: advisor, command: 'brainstorm-not-quite', thread: path }, path)) brainstormUi.note = { path, isProblem: false, text: `Sent to your ${who}: it asks on.` }
+      else {
+        const quite = await clickBrainstorm({ command: 'understood', path, words }, path)
+        if (quite !== null) {
+          brainstormUi.notQuite = null
+          brainstormUi.notQuiteWords = ''
+          if (quite.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: `Sent to your ${who}: it asks on.` }
+        }
       }
     } else if (act === 'wrap') {
-      if (await sendBrainstorm({ command: 'wrap', path }) !== null) await sayBrainstorm({ to: advisor, command: 'brainstorm-wrap', thread: path }, path)
+      await clickBrainstorm({ command: 'wrap', path }, path)
     } else if (act === 'discard') {
       await sendBrainstorm({ command: 'discard', path })
     } else if (act === 'close') {
@@ -14894,10 +15009,14 @@ async function brainstormAct(act, path, key = null) {
     } else if (act === 'send-change') {
       const words = brainstormUi.changeWords.trim()
       if (words === '') brainstormUi.note = { path, isProblem: true, text: 'Say what the Advisor should change.' }
-      else if (await sayBrainstorm({ to: advisor, command: 'brainstorm-change', thread: path, text: words }, path)) {
-        brainstormUi.changing = null
-        brainstormUi.changeWords = ''
-        brainstormUi.note = { path, isProblem: false, text: 'Sent to the Advisor: it writes the proposal anew.' }
+      else {
+        // The person's words stand with the board's record of the click; the word is queued with them.
+        const changed = await clickBrainstorm({ command: 'change', path, text: words }, path)
+        if (changed !== null) {
+          brainstormUi.changing = null
+          brainstormUi.changeWords = ''
+          if (changed.notSent === undefined) brainstormUi.note = { path, isProblem: false, text: 'Sent to the Advisor: it writes the proposal anew.' }
+        }
       }
     } else if (act === 'steps-again') {
       // The steps the main chat was not reached with, asked again; the ones that go are done with.
@@ -15045,13 +15164,12 @@ $('brainstorm-new').addEventListener('submit', async event => {
   brainstormUi.busy = true
   brainstormUi.note = null
   redrawBrainstorm()
-  const started = await sendBrainstorm({ command: 'start', title, goal: brainstormUi.newAbout ?? null, opening })
+  const started = await clickBrainstorm({ command: 'start', title, goal: brainstormUi.newAbout ?? null, opening }, null)
   if (started !== null) {
     $('brainstorm-new-title').value = ''
     $('brainstorm-new-opening').value = ''
     brainstormUi.newAbout = undefined
     brainstormUi.open = started.path
-    await sayBrainstorm({ to: advisor, command: 'brainstorm', thread: started.path }, started.path)
   }
   brainstormUi.busy = false
   redrawBrainstorm()
@@ -15113,21 +15231,13 @@ $('change-goal-form').addEventListener('submit', async event => {
   $('change-goal-start').disabled = true
   $('change-goal-start').textContent = 'Starting…'
   try {
-    let started = null
-    let why = null
-    try {
-      const answer = await fetch('/api/brainstorm', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ command: 'start', kind: 'change', goal, title: `Change: ${node?.title ?? goal}`, opening: words }) })
-      if (answer.ok) started = await answer.json()
-      else why = (await answer.text()).trim() || `refused (${answer.status})`
-    } catch {
-      why = 'the board\'s server does not answer.'
-    }
+    // Reactive board, brief P4a: one call: the board starts the talk and queues its first word.
+    const { result: started, problem: why } = await clickCall('/api/brainstorm', { command: 'start', kind: 'change', goal, title: `Change: ${node?.title ?? goal}`, opening: words }, `change-goal:${goal}`)
     if (started === null) return changeGoalSay(`Not started: ${why}`, true)
     $('change-goal-words').value = ''
     $('change-goal').close()
     await read()
     showBrainstormThread(started.path)
-    await sayBrainstorm({ to: advisor, command: 'brainstorm', thread: started.path }, started.path)
     redrawBrainstorm()
   } finally {
     changeGoalUi.busy = false
@@ -16915,6 +17025,9 @@ function focusTalkCard(state, can) {
   // T22 wave 2, place 7: where the last word of the talk stands (the board says "thinking" whenever the chat runs, not whether it took the word).
   const talkLine = focusTalkLine(state)
   if (talkLine !== null) card.append(talkLine)
+  // Reactive board, brief P4a round 2: an answer of this talk that stands with its word not queued, from the board's record, with a Retry (the stored click id).
+  const unsent = unsentLine(state.focus.thread)
+  if (unsent !== null) card.append(unsent)
   card.append(effortSwitch(state, can))
   return card
 }
@@ -18909,7 +19022,9 @@ function drawFocus(state) {
   // B360: without a run on the page (or while the focus is being changed), the gathered recaps stand under it.
   if (!recapsDrawn) parts.push(...gatheredCards(state))
   if (toggle !== null && !switchDrawn) parts.push(toggle)
-  if (focusUi.note !== null) parts.splice(view.head === null ? 0 : 1, 0, el('p', `focus-note${focusUi.note.isProblem ? ' is-error' : ''}`, focusUi.note.text))
+  if (focusUi.note !== null) {
+    parts.splice(view.head === null ? 0 : 1, 0, el('p', `focus-note${focusUi.note.isProblem ? ' is-error' : ''}`, focusUi.note.text))
+  }
   // The box typed in keeps its words, and the cursor where it was.
   const active = document.activeElement
   const typing = box.contains(active) && active.id in FOCUS_BOXES ? { id: active.id, at: active.selectionStart } : null
@@ -19092,24 +19207,16 @@ async function focusAnswer(focus) {
   const answer = picked !== null ? { key: picked, words } : { key: 'Other', words }
   const path = thread.path
   const n = ask.question.n
-  try {
-    const written = await fetch('/api/brainstorm', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ command: 'answer', path, n, ...answer }) })
-    if (!written.ok) {
-      focusUi.note = { isProblem: true, text: `Not sent: ${(await written.text()).trim() || `refused (${written.status})`}` }
-      return await read()
-    }
-  } catch {
-    focusUi.note = { isProblem: true, text: 'Not sent: the board\'s server does not answer.' }
-    return
+  // Reactive board, brief P4a: ONE call: the board writes the answer under the question and queues its word to the partner.
+  const { result, problem } = await clickCall('/api/brainstorm', { command: 'answer', path, n, ...answer, via: 'talk-send' }, `focus:${path}:${n}`)
+  if (problem !== null) {
+    focusUi.note = { isProblem: true, text: `Not sent: ${problem}` }
+    return await read()
   }
   focusUi.words.talk = ''
   focusUi.picked = null
-  const key = `focus:${path}:${n}`
-  await send({ to: talkName(board), command: 'brainstorm-answer', thread: path, n }, key)
-  if (problems.has(key)) {
-    focusUi.note = { isProblem: true, text: `${problems.get(key).replace(/\.?$/, '.')} Your answer stands in the thread: answer again on the Brainstorm part to type it once more.` }
-    problems.delete(key)
-  }
+  // The answer stands in the thread; a word that was not queued says so, with a Retry that reuses the click id.
+  await read()
 }
 
 $('advisor-focus').addEventListener('click', event => {
@@ -19377,7 +19484,7 @@ $('advisor-way').addEventListener('click', event => {
   // Off at once, so a second click sends nothing; the next redraw shows how it stands.
   button.disabled = true
   button.textContent = 'Asking…'
-  send({ to: advisor, command: 'recheck' }, 'recheck')
+  send({ to: advisor, command: 'recheck' }, 'recheck', 'recheck')
 })
 $('advisor-way').addEventListener('click', event => {
   if (board === null) return
@@ -20153,7 +20260,7 @@ $('main-say').addEventListener('submit', async event => {
   sending.delete('main-talk')
   // Taken away or pasted anew while it was kept: nothing is sent, and the new one stays.
   if (slot.picture !== pending) return drawMainTalk(board)
-  if (pending === null || picture !== null) await send({ to: board.mainTalk.name, text, ...(picture === null ? {} : { picture }) }, 'main-talk')
+  if (pending === null || picture !== null) await send({ to: board.mainTalk.name, text, ...(picture === null ? {} : { picture }) }, 'main-talk', 'main-talk-send')
   if (!problems.has('main-talk')) {
     $('main-text').value = ''
     setSlotPicture(slot, null)
@@ -21317,6 +21424,8 @@ function refineButtons(step, state) {
     line.append(advice)
   }
   if (problems.has(key)) line.append(el('p', 'problem', problems.get(key)))
+  const unsent = unsentLine(step.id)
+  if (unsent !== null) line.append(unsent)
   return line
 }
 
@@ -21349,8 +21458,8 @@ async function refineClick(button) {
   answers = answers.filter(one => one.answer.trim() !== writtenAnswer(step.id, one.index))
   sending.add(key)
   redrawNeeds()
-  let problem = null
-  if (answers.length > 0 || feedback.trim() !== '') problem = await sendBacklog({ action: 'refine-answer', step: step.id, answers, feedback })
+  // Reactive board, brief P4a: ONE call: the board writes the answers under the step, then queues the refine word to the Advisor.
+  const { problem } = await clickCall('/api/backlog', { action: 'refine-send', step: step.id, answers, feedback }, `refine-send:${step.id}`)
   if (problem === null) {
     for (const name of fields) {
       drafts.delete(name)
@@ -21358,8 +21467,9 @@ async function refineClick(button) {
     }
     // What was reopened is answered anew: it is closed again.
     for (const mark of [...reopened]) if (mark.startsWith(`${step.id}|`)) reopened.delete(mark)
+    // A word that was not queued stands with its "Not sent" line and Retry on the step, drawn from the board's record.
     sending.delete(key)
-    return send({ to: advisor, command: 'refine', step: step.id }, key)
+    return read()
   }
   sending.delete(key)
   problems.set(key, `Not done: ${problem}`)
@@ -23052,8 +23162,93 @@ async function sendBacklog(body) {
   }
 }
 
+// oneclick:start
+/**
+ * Reactive board, brief P4a: ONE CLICK IS ONE SERVER ACTION. The page makes one call for a click: the board stores the
+ * person's input and queues its word in one action; the page never types the word itself with a second call. The click
+ * has an id, made here and kept for that click's retries (a call that got no answer); the board keeps it with the input,
+ * and a second call with the same id gives the first result and queues no second word.
+ */
+const clickIds = new Map()
+let clickCounter = 0
+const newClickId = () => globalThis.crypto?.randomUUID?.() ?? `c${Date.now().toString(36)}${(clickCounter += 1).toString(36)}${Math.random().toString(36).slice(2, 10)}`
+/**
+ * The id of the click that `key` names: kept only for a resend of the identical input (`sig`) after a call that got no answer;
+ * another input gets a new id, and so does any click after an answer.
+ */
+const clickFor = (key, sig = '') => {
+  if (clickIds.get(key)?.sig !== sig) clickIds.set(key, { id: newClickId(), sig })
+  return clickIds.get(key).id
+}
+/** The board's refusal of a click id that came with another input: the page then sends the input once more under a new id. */
+const isClash = text => /different input under this click/.test(text)
+
+/**
+ * One call for one click. `body` goes to `route` with the click id. `{ result, problem }`: `result` is what the board
+ * answered (it holds `notSent` and `notSentAt` when the input stands but its word was not queued), `problem` why the board
+ * did not take the click at all (nothing was stored).
+ */
+async function clickCall(route, body, key, again = false) {
+  const click = clickFor(key, JSON.stringify(body))
+  try {
+    const answer = await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ ...body, click }) })
+    // Any answer ends this click's id, but a board that failed (5xx) may have stored the input: the retry keeps the id.
+    if (answer.status < 500) clickIds.delete(key)
+    if (!answer.ok) {
+      const why = (await answer.text()).trim() || `refused (${answer.status})`
+      return answer.status === 409 && isClash(why) && !again ? clickCall(route, body, key, true) : { result: null, problem: why }
+    }
+    const result = await answer.json()
+    showPaste(result?.paste ?? null)
+    return { result, problem: null }
+  } catch {
+    return { result: null, problem: 'the board\'s server does not answer.' }
+  }
+}
+
+/** The words of an input that stands but whose word was not queued. */
+const notSentWords = (why, at) => `Not sent: ${String(why).replace(/\.$/, '')}${at ? `, ${at}` : ''}. Your input stands.`
+
+/** The line of a card for its inputs that stand with "not sent": what the board's record says, with a Retry. Null when none. */
+function unsentLine(key) {
+  const rows = (board?.clicksUnsent ?? []).filter(one => one.key === key)
+  if (rows.length === 0) return null
+  const line = el('p', 'problem click-unsent')
+  const last = rows.at(-1)
+  line.append(`${notSentWords(last.why, last.at)} `)
+  const retry = el('button', 'click-retry', 'Retry')
+  retry.type = 'button'
+  retry.dataset.clickRetry = last.click
+  retry.dataset.clickRoute = last.route ?? '/api/brainstorm'
+  line.append(retry)
+  return line
+}
+
+/** The Retry of a card: the same click again by its id; the board does not write the input twice, it queues the word once more. */
+async function retryClickOf(click, route) {
+  let done = { ok: false, status: 0, result: null, text: 'the board\'s server does not answer' }
+  try {
+    const answer = await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(route === '/api/backlog' ? { action: 'click-retry', click } : { command: 'click-retry', click }) })
+    done = answer.ok ? { ok: true, status: answer.status, result: await answer.json().catch(() => null), text: '' } : { ok: false, status: answer.status, result: null, text: (await answer.text()).trim() }
+    // B212: without a Workers mod the retried word is on the clipboard, as the first send's is.
+    if (done.ok) showPaste(done.result?.paste ?? null)
+  } catch {
+    // The record stands with its Retry: the next read draws it.
+  }
+  await read()
+  return done
+}
+document.addEventListener('click', event => {
+  const retry = event.target.closest?.('[data-click-retry]')
+  if (!retry || retry.disabled) return
+  retry.disabled = true
+  // Enabled again after any answer (the card may not be drawn anew when the record is unchanged).
+  void retryClickOf(retry.dataset.clickRetry, retry.dataset.clickRoute).finally(() => { retry.disabled = false })
+})
+// oneclick:end
+
 /** Sends an answer or a message. `id` is the request it answers, or null for the chat with the advisor. */
-async function send(message, id) {
+async function send(message, id, via = null, isRetried = false) {
   const key = id ?? 'talk'
   sending.add(key)
   problems.delete(key)
@@ -23064,9 +23259,15 @@ async function send(message, id) {
     const answer = await fetch('/api/say', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN },
-      body: JSON.stringify(message),
+      body: JSON.stringify(via === null ? message : { ...message, via, click: clickFor(key, JSON.stringify(message)) }),
     })
-    if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
+    // Reactive board, brief P4a: any answer ends the click's id (a board that failed, 5xx, keeps it for the retry).
+    if (answer.status < 500) clickIds.delete(key)
+    if (!answer.ok) {
+      problem = (await answer.text()).trim() || `refused (${answer.status})`
+      // The same click id with another input: sent once more under a new id.
+      if (answer.status === 409 && isClash(problem) && via !== null && !isRetried) return send(message, id, via, true)
+    }
     // B212: no Workers mod takes the board's words: they are on the clipboard, to be pasted into the chat.
     else showPaste((await answer.json().catch(() => null))?.paste ?? null)
   } catch {
@@ -23335,7 +23536,7 @@ $('say').addEventListener('submit', async event => {
   $('say-send').disabled = false
   // Not kept, or taken away or pasted anew meanwhile: nothing is sent, and what is in the box stays.
   if (slot.picture !== pending || (pending !== null && picture === null)) return slot.redraw()
-  await send({ to: board.advisor.name, text, ...(picture === null ? {} : { picture }) }, null)
+  await send({ to: board.advisor.name, text, ...(picture === null ? {} : { picture }) }, null, 'talk-send')
   if (!problems.has('talk') && slot.picture === pending) setSlotPicture(slot, null)
 })
 

@@ -4,7 +4,8 @@
 // the advised option and show later as "decided for you" with Undo; the person is asked only when a goal starts (its
 // definition and work blocks), when it is ready (the Product owner brings the recap: approve or send back each work block),
 // and for real issues (what no chat can do: accounts, money, permissions, an app restart; a goal stuck after its retries;
-// the weekly limit). Mid-goal looks below their target wait for the goal's recap (the person's "A").
+// the weekly limit). Mid-goal looks below their target wait for the goal's recap (the person's "A"), and so does a worker's or the main
+// chat's look with pictures or a Play link of a step of the focus goal (B1104: a Play link shows the place as a picture does).
 //
 // Autopilot v2 (the person, 2026-11-02 ~22:30: "you can auto approve and manage my needs attention. everything except the goal
 // recap/verdict. autopilot doesnt help me enough i still get way too many signels"; their choice "B"): only a goal's recap and its
@@ -42,18 +43,20 @@
 //   line), the app's form (a question or a popup in its chat: also an entry of that line, `formHandsOf`), and an ask the partner or the main chat handed on or the person took back.
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
+import { isHoldLine } from './askHold.mjs'
 import { chainWaitOf, checkedOf, fixRootsOf, fixesOf } from './resultCheck.mjs'
 import { HANDED_KEPT_WORDS, HANDED_ON_WHO, KEPT_LOOK_WORDS, handedOnKeptWords, isKeptLook } from './keptLook.mjs'
 import { LANDING_ROUTE_WHY, landingAskOfItem } from './landingAsk.mjs'
 import { standardOf } from './standard.mjs'
 
-// A look the partner handed over, or a worker's look with pictures, that Autopilot keeps for the recap (src/work/keptLook.mjs): its
+// A look the partner handed over, or a worker's look with pictures or a Play link, that Autopilot keeps for the recap (src/work/keptLook.mjs): its
 // Route lines and its test.
 export { HANDED_KEPT_WORDS, HANDED_ON_WHO, KEPT_LOOK_WORDS, handedOnKeptWords, isKeptLook }
 
 export const ROUTES = ['partner', 'advice', 'recap', 'main', 'person']
 /** The routes that take an ask away from Needs your attention while it is open. */
-export const ROUTED_AWAY = ['partner', 'advice', 'recap', 'main']
+// Rule 15 (2026-11-09): and `asker`, an ask held for the person's words until its chat re-asks it, withdraws it or says it still stands (askHold.mjs).
+export const ROUTED_AWAY = ['partner', 'advice', 'recap', 'main', 'asker']
 
 /** The settings panel's line under Autopilot, as the person agreed it (2026-10-31). */
 export const AUTOPILOT_ON_WORDS = 'The work runs until a goal is ready. You are asked when a goal starts, when it is ready, and for what no chat can do. Everything else is decided for you, with Undo.'
@@ -77,10 +80,19 @@ const GOAL = /^G\d+$/
 const STEP = /^B\d+$/
 const text = item => (item?.sections?.get('Text') ?? []).join(' ').replace(/\s+/g, ' ').trim()
 const title = item => String(valueOf(item, 'Title') ?? '').trim()
+/** Whether an ask carries a Play link (the work API's `play`, the `Play` section): it shows the place a look asks about (B1104). */
+const hasPlay = item => (item?.sections?.get('Play') ?? []).some(one => String(one).trim() !== '')
 const historyOf = item => (item?.sections?.get('History') ?? []).map(String)
 
 /** Whether the History holds the route's line already: the board routes an ask once. */
 export const isAutopilotRouted = item => historyOf(item).some(one => / autopilot: routed to \w+$/.test(one))
+
+/**
+ * The lines on an ask's card that somebody wrote: the Route section without the board's own hold and release lines (rule 15, askHold.mjs:
+ * the person's words held the ask and the hold ran out; that is no chat's or person's hand-over, so the sweep judges a released ask
+ * as the board-routed one it was).
+ */
+const handedLines = item => (item?.sections?.get('Route') ?? []).filter(one => one.trim() !== '' && !isHoldLine(one))
 
 /**
  * Whether an ask's `Route: person` is only the board's own route: its History says "autopilot: routed to person" and nothing
@@ -88,14 +100,14 @@ export const isAutopilotRouted = item => historyOf(item).some(one => / autopilot
  * (the person, 2026-11-02: "if autopilot is turned on, the outstanding, needing for attentions get reevaluated and possible
  * resolved if autopilot would answer them"); an ask somebody handed to the person is never judged again.
  */
-export const isBoardRoutedPerson = item => valueOf(item, 'Route') === 'person' && isAutopilotRouted(item) && !(item?.sections?.get('Route') ?? []).some(one => one.trim() !== '')
+export const isBoardRoutedPerson = item => valueOf(item, 'Route') === 'person' && isAutopilotRouted(item) && handedLines(item).length === 0
 
 /**
  * Whether an ask's `Route: person` is somebody's word: a line on its card (the partner or the main chat handed it on, the
  * board's timeout, the person took an answer back) or the board's own route. A bare `Route: person` is the default, which the
  * board may route again.
  */
-export const isExplicitPerson = item => valueOf(item, 'Route') === 'person' && ((item?.sections?.get('Route') ?? []).some(one => one.trim() !== '') || isAutopilotRouted(item))
+export const isExplicitPerson = item => valueOf(item, 'Route') === 'person' && (handedLines(item).length > 0 || isAutopilotRouted(item))
 
 /** How long the person's answer on a step counts as an earlier answer for a later verdict card of that step. */
 export const EARLIER_MS = 24 * 60 * 60_000
@@ -189,8 +201,8 @@ export function recapAskOf(item, { focusGoal = null, recapSteps = [], items = ne
 
 /** The why of a partner's hand-over of a new look of the focus goal that goes to the recap instead (`focusLookOf`). */
 export const FOCUS_LOOK_WHY = 'a new look of the focus goal waits for its recap'
-/** The why of a worker's or the main chat's look with pictures of the focus goal that Autopilot keeps for its recap (`kept` in the route). */
-export const KEPT_LOOK_WHY = 'a look with pictures of the focus goal waits for its recap'
+/** The why of a worker's or the main chat's look with pictures or a Play link of the focus goal that Autopilot keeps for its recap (`kept` in the route). */
+export const KEPT_LOOK_WHY = 'a look with pictures or a Play link of the focus goal waits for its recap'
 /** The askers whose looks are not a worker's detail: the Product owner's (it answers for the goal) and the board's own cards. */
 const NOT_LOOKERS = ['owner', 'board']
 const PARTNER_HANDS_LINE = /^Your partner hands this to you: (.*)$/
@@ -733,7 +745,7 @@ export function isByChecker(item, items, prefix = '') {
  * `escalate` and the pass): who handed it on. The main chat's or the partner's hand-over of an own-senses do or look of a step of the
  * focus goal (`handedOnOf`: the main chat's look, and any do) is kept for the recap too, `handedOn` in the answer (the person's "Yes,
  * clear them", 2026-11-04: the live Q616); `placedBy` says how an inferred `step` was found.
- * `step` in the answer: the step a recap ask is put under. `kept` (true): a worker's or the main chat's look with pictures of the
+ * `step` in the answer: the step a recap ask is put under. `kept` (true): a worker's or the main chat's look with pictures or a Play link of the
  * focus goal, kept for the recap as the partner's hand-over is (its card line KEPT_LOOK_WORDS, its step goes on).
  * `now` (ms): a verdict on a result routed to `partner` names the person's earlier answer on its step, when they answered an
  * ask naming it in the last 24 hours (`earlierAnswerOf`), as `earlier` (that ask's id): a hint for the partner (Autopilot v2: no
@@ -755,16 +767,18 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   const isUnderStep = STEP.test(of ?? '')
   const step = isUnderStep ? items.get(of) : undefined
   const advice = adviceOf(item)
-  const hasPictures = String(valueOf(item, 'Pictures') ?? '').trim() !== ''
-  // The coordinator's ruling on v2 (2026-11-02): a worker's or the main chat's look with pictures of a step of the focus goal (its
-  // Of, else the step its Pictures name) is no detail: an art or map look waits for the goal's recap as a kept look, with or without
-  // advice, where it would else be decided for the person. Without pictures, or of another goal, it is decided as any look.
-  const keptLook = ['worker', 'main'].includes(role) && kind === 'look' && handedWhy === null && String(valueOf(item, 'Pictures') ?? '').trim() !== ''
+  // B1104 (the live Q713: a look of the plank bridges with a Play link and no pictures took its advice "yes", against the person's
+  // "the wood looks painted on"): a Play link shows the place as a picture does, so a look with one counts as a look with pictures.
+  const hasPictures = String(valueOf(item, 'Pictures') ?? '').trim() !== '' || hasPlay(item)
+  // The coordinator's ruling on v2 (2026-11-02): a worker's or the main chat's look with pictures or a Play link of a step of the focus
+  // goal (its Of, else the step its Pictures name) is no detail: an art or map look waits for the goal's recap as a kept look, with or
+  // without advice, where it would else be decided for the person. With neither, or of another goal, it is decided as any look.
+  const keptLook = ['worker', 'main'].includes(role) && kind === 'look' && handedWhy === null && hasPictures
     ? focusLookOf(item, { focusGoal, items }, role) : null
   // Decided for the person (v2): the advice of a decide or look is taken; anything else the partner decides. The Product owner's own
   // ask stays the person's (the goal's recap is its job), but its advice under a step is taken, as before. The review's rulings
   // (2026-11-04: advice is an automatic yes now): no advice is taken for an ask that names what only the person's hands can do in
-  // the whole list (PERSONS_HANDS, under a step too: it is theirs), for a look with pictures (art: of another goal the partner
+  // the whole list (PERSONS_HANDS, under a step too: it is theirs), for a look with pictures or a Play link (art: of another goal the partner
   // judges it and hands it on), nor for an ask about what the person meant or said (the partner reads their words).
   const decided = why => {
     if (keptLook !== null) return { to: 'recap', why: KEPT_LOOK_WHY, kept: true, ...(keptLook.isInferred ? { step: keptLook.step } : {}) }

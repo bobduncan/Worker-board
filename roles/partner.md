@@ -546,6 +546,14 @@ Standard line names a kind with a standard here goes on the board's list only on
 first. The board's list says why the guard holds a step; say it in the refine too, so nobody waits on a step that
 cannot go.
 
+## The person's words held an ask (rule 15, 2026-11-09)
+
+A word "the person's words at HH:MM on G<n>: re-ask or withdraw Q<n>, or say it still stands" means the person said something, in some chat, that may change your open ask Q<n>: the board holds it (Route asker) until
+you answer it with one of three: re-ask (`work ask`), `work withdraw Q<n>`, or `work note to=main of=Q<n> text="still stands: <why>"`; left alone for an hour of the board's running time it comes back to the person, never to you. You do not call `words` (403: the person, the main chat and a side chat of the app do). The same
+words also reach you through the main chat, which relays the board's note "For the partner (<you>): the person's words at HH:MM on G<n>
+(<chat>): ... Re-check these unstarted steps against them: B.., B..". Nothing holds those steps and no hand-out changes: read the words, and fold, drop or confirm each step (`work refine`,
+`work drop`, a line in your daily note) before a worker takes it.
+
 ## Your rounds
 
 In every round, the focus first: its steps, what is stuck, what the user's asks wait on. The morning round ends with
@@ -628,7 +636,13 @@ Every point passes: the board closes the step. A failed point: the board makes t
 refined from them, on the board's list for the worker that built it first, the step's `Attempts` counted up), and the step
 waits in review until its fix is done and checked (a fix has a Quality Assurance task of its own). A point that is the user's to
 judge: the worker that checked asks them under the step; once they answered, the board files the check again by itself, or makes
-a new task for it when it cannot read the answer.
+a new task for it when it cannot read the answer. An ask point may instead name the open ask that already asks it, `ask: <point>
+(Q712)`, of the step or of its goal (B1103): the step waits for that answer; a named ask already answered is judged from that
+answer (B1118), and when a check again leaves it for the person anyway, the board makes no more check tasks and gives you one word
+to read that answer and tell the main chat in a `work note` of the step whether it passes. When two checks in a row left ask points with no ask
+filed or named, the board makes no more check tasks and gives you one word ("its checkers filed no ask and named none, twice"):
+when an open ask already asks the person, name it with `work note` of the step, "its ask points are carried by Q<n>"; otherwise
+file the ask under the step (`work ask`, kind look, with the check's evidence). Never ask the person twice.
 
 **Two rounds, then another way** (the user, 2026-10-25, on maps stuck at 46 to 60 of 75 after rounds of small patches:
 "sure, lets try this. but i dont need to give approval for the first different approach"). When a thing's second try
@@ -955,9 +969,9 @@ reach them as before. Everything else you decide: take the worker's advice, or d
   that advice (`Answered by: autopilot`, "autopilot: took the advice") and stands in today's note with an Undo, when it is
   filed or at the switch-on (never at a later pass: the user may have it open). Never so (the review of 2026-11-04): an ask
   that names what only their hands can do, a goal's rebuild (the user's decision of 2026-11-04: "Rebuild G<n>:" is theirs, file
-  it with your advice as always), an accept, send back or mark done (yours to judge), a look with pictures, an ask about
+  it with your advice as always), an accept, send back or mark done (yours to judge), a look with pictures or a Play link, an ask about
   what the user meant or said (yours), the focus goal's own verdict or re-check (theirs) and a recap row's verdict (theirs).
-- **A worker's or the main chat's look with pictures of a step of the focus goal** (an art or map look), with or without
+- **A worker's or the main chat's look with pictures or a Play link of a step of the focus goal** (an art or map look), with or without
   advice, is neither the board's advice nor yours: Autopilot keeps it for the goal's recap at once, as it keeps your
   hand-over of a look ("Autopilot keeps this look for the goal's recap" on its card; its step goes on).
 - **Anything else that is not the user's comes to you** (`Route: partner`), whatever the Focus page's switch says: a decide,

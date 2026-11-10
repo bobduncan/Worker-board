@@ -94,7 +94,7 @@ test('words the board cannot read make a Quality Assurance task for the step, wi
     // The first task ended with the first check: this is a task of its own, with the person's words and why it comes.
     assert.equal(valueOf(qa, 'State'), 'refined')
     assert.ok(qa.sections.get('Context').some(line => line.trim() === 'The person said: Warm, but make it a bit more orange'))
-    assert.ok(qa.sections.get('Context').some(line => line.trim() === 'Why: its ask point is answered: file its check again'))
+    assert.ok(qa.sections.get('Context').some(line => line.trim() === 'Why: its ask point is answered: file its check again; an ask point whose named ask is answered is judged from that answer, pass or fail, never left for the person'))
   } finally {
     await store.close()
   }

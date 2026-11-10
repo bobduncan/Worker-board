@@ -41,3 +41,9 @@ code just submitting an item in a queue and then waiting for the chat to pick it
     never a chat that no longer does it. Pictures and links show exactly what is asked about.
 14. **Colour only for what needs the person.** Amber, orange or red mark what waits for them; plain information stays
     calm.
+15. **A decision anywhere updates the board at once.** What the person decides in any chat, the board's own or a side
+    chat, is written on the board as their words. Every older open question and unstarted step on that goal is then
+    held from them and goes back to its chat to re-ask, withdraw or say it still stands. The person never meets a
+    question that their own later words have already answered. (The person, 2026-11-09: "when we redesign/discuss
+    things, the signals ont he board aint updated with the new information and thats confusing"; built as part P6 of
+    the wait-system plan.)

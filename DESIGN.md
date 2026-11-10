@@ -468,7 +468,7 @@ time>; ready):" with "What we build:" (points; "Not in it: ..." among them) and 
 (roles/partner.md). The window's head shows the goal, the size and "N questions for you" or a green "Ready" in place of
 "Step". While refining, the box shows the summary, the picture as a thumbnail with "Open the picture ↗", and a line
 per question: the advice (its reason on hover) and Yes / No; a pick is kept until it is sent, a second click takes it
-back. "Send answers" writes the picks and the feedback and asks the next round; "Take the advice" (in place of "Accept
+back. "Send answers" writes the picks and the feedback and asks the next round, in ONE call (`/api/backlog` `refine-send`, a click id; "Ask for pictures" the same with `via: 'refine-pictures'`: the board writes the answers or its request, then queues the `refine` word; a word not queued leaves the answers standing with "Not sent: <why>, HH:MM" and a Retry on the step); "Take the advice" (in place of "Accept
 as refined") writes the advice as the answer to every open question the person did not pick, and says which question
 has none to take. Once ready, the description stands first in the window, with no box, and the step's own lines follow
 as its "Notes"; its foot has "Refine again". A ready block names no round: a refine ask counts as written once the
@@ -757,12 +757,12 @@ while the person does other things. "Ask the Advisor…" in the frame of the goa
 "+ Sub-goal") and in a row's "…" menu opens a box under the frame: the question (2000 characters), pictures pasted
 with Ctrl+V or picked (at most four, kept as Talk to Main's are, `keepTalkFile`), Send. The words and pictures stay
 while the map is drawn anew; Esc or Cancel closes the box. Send writes `Ask (A<n>, <date time>): <question>` under
-the goal (`POST /api/goals` `ask`; the next ask id, kept from coming back by the head line "Last ask: A<n>"), then
-types `ask from the goal map`, `Goal: G<id> <title>`, `Ask (A<n>): <question>` and `Pictures: <paths>` into the
+the goal (`POST /api/goals` `ask`; the next ask id, kept from coming back by the head line "Last ask: A<n>"), then, in the same
+call (a click id; reactive board, brief P4a), the board types `ask from the goal map`, `Goal: G<id> <title>`, `Ask (A<n>): <question>` and `Pictures: <paths>` into the
 Advisor's chat (`goal-ask`, `src/say.mjs`, to the Advisor only; a chat that is not running is started through the
 main chat, as any word to it). Only an ask that stands under that goal, not answered yet, is typed, in the map's own
-words; when the words do not reach the Advisor, the box keeps the ask with its words fixed and "Send again" types it
-again, never a second ask (the review of B258). The Advisor writes `Answer (<date time>, <title>): …` and `More: <page>` under the ask
+words; when the words do not reach the Advisor, the box keeps the ask with its words fixed and "Send again" is the Retry of that
+click (`click-retry`, the same click id), never a second ask (the review of B258); the ask's block under the goal also draws "Not sent: <why>, HH:MM" with a Retry from `state.clicksUnsent`, after a reload as well. The Advisor writes `Answer (<date time>, <title>): …` and `More: <page>` under the ask
 (roles/partner.md, "Asks from the goal map"; the page in `goalAsks`, `.claude/goal-asks`, beside the threads, not in
 the game). The frame shows each ask as a violet block: the question with its id, time and "waiting for the Advisor",
 or the answer with the pictures it names and "More ↗" (the page in the board's file window, from the project's
@@ -824,8 +824,8 @@ the goal map"). A start writes `Brainstorm: <path> (running)` under its goal, so
 runs on a goal at a time ("Brainstorm this" on a goal with one running opens it). The words to the Advisor
 (`brainstorm`, `brainstorm answer`, `brainstorm wrap up`, `brainstorm change`) are each made from the thread after the
 board's own write, so one is typed only when the thread is where it says (no second `brainstorm` for a thread the
-Advisor has; an answer only once written); a chat that is not running is started through the main chat. When
-nothing comes back, "Type it to your partner again" in the head's "…" menu types the word the brainstorm waits on once
+Advisor has; an answer only once written); a chat that is not running is started through the main chat. ONE CLICK IS ONE SERVER ACTION (reactive board, brief P4a, 2026-11-09): the page makes ONE call with a click id (`clickCall`, kept while a call got no answer); the board stores the input and queues the word in the same action (`src/clicks.mjs` `oneClick`, the board's own `sayNow`), never a second call from the page to `/api/say`. A second call with the same click id answers the first result and queues no second word; the click's record (`data/clicks.jsonl`, by click id) holds the word's id or `not sent: <why>, HH:MM`, and the card draws that with a Retry (`unsentLine`, `click-retry`), which reuses the click id: the input is not written again, the word is queued once. One line per click in `data/actions.jsonl` with its own `via` (and the click id, which `interventionsOf` counts once). One click id is one input: the record keeps a hash of the input, the same id with another input is refused (409 "a different input under this click") and the page sends it once more under a new id; the page keeps an id only for a resend of the identical body. A "not sent" line ends when a later word for its key is queued, when the talk, ask or step moved on (`movedOn`), or after 24 hours: the record gets `superseded` or `closed` with its time, the line goes and a Retry on it is refused with the why. The ledger awaits its load and is read anew whenever `clicks.jsonl` changed (a second board process on the project). Goals keys its line by goal and ask id. Every click of this part (an option, Answer, Skip, Back, "Yes, that's it", "Not quite", Wrap up, Change, New brainstorm Start, "Change this goal" Start) is that one call to `/api/brainstorm` with a click id; Change keeps the person's words with the click's record. When
+nothing comes back, "Type it to your partner again" in the head's "…" menu is one call too (`again`) and types the word the brainstorm waits on once
 more; a step the main chat could not be asked for after Create is asked again with "Ask the main chat again for N
 steps". The review of B259 also made the head's lines count once (a "Goal:" in the Advisor's context is context), a
 question asked again under its number take its answer, a question like "Lanterns: where?" stay a question, a Done when
@@ -2412,8 +2412,9 @@ beside the mockup `focus-vibe.png`: `art-inbox/focus-mockups/inc2-vibe.png`, `in
 - **The page** (`focus:start`): `focusCan` (a partner and a board that writes, else why), `focusView` with working
   buttons (`act`, `isEnabled`, `title`), `focusAsk` (the open question, its options, why and picture, or who has the
   turn). Drawn by `drawFocus` with `focusUi` (a move on its way, its line, the Not yet box, the words of each box and
-  the option picked, kept while the page redraws); `focusAct` sends the moves, `focusAnswer` writes the answer into
-  the thread (`/api/brainstorm`) and types `brainstorm answer` (`/api/say`), as the Brainstorm part does.
+  the option picked, kept while the page redraws); `focusAct` sends the moves, `focusAnswer` is ONE call to `/api/brainstorm`
+  (`answer`, `via: 'talk-send'`, a click id): the board writes the answer into the thread and queues `brainstorm answer` itself, as for
+  the Brainstorm part (`src/clicks.mjs`; a word not queued leaves the answer in the thread; the talk card draws "Not sent: <why>, HH:MM" and its Retry from `state.clicksUnsent` (the board's record), so it shows after a reload too, and the Retry sends the stored click id).
 - **The partner** (`roles/partner.md`, from the Advisor's job, which keeps refining, goal linking and rounds): "The
   focus" in three moves (talk until the goal definition is clear and keep the draft, never build; on `goal definition: agreed` propose the
   how; on `how: go` make the steps with `work new` and the goal, refine them itself, write their ids into the parts,
@@ -2720,7 +2721,7 @@ make Information smaller or bigger. Nothing is gone: what leaves a row is in its
    line: the step it is about, who sent it, its words without "Report from ...:" (`infoLine`); a click opens the whole
    note with its Read button; "Mark all read" reads each new one in turn. All read and hidden, the box is one line.
    Since the calm panel (2026-10-19) this box is the log, folded by default behind one quiet line.
-2. One line per worker: its task, or "free since 13:01" (`freeShort`). Since signals change 7 a worker's task is the step
+2. One line per worker: its task, or "free since 13:01" (`freeShort`; a time of another day names the day: "free since yesterday 23:39", "since 8 Nov 23:54", `sinceClock`, the same words as `sinceClock` in `src/chatStatus.mjs`, for every lane since). Since signals change 7 a worker's task is the step
    the store says it holds, with the time left of its size and a thin bar; since, checkpoint and plan on hover ("A worker's
    row from the board's records"). "Now:" and "Between turns" are in the task's
    tooltip and its details; the compaction note shows only when it warns, else on hovering the name; "No active task"
@@ -4494,7 +4495,7 @@ own: the Supervisor does not file incidents from them.
 - **Unsure**: what the records cannot tell apart is listed in the line's `unsure` `[{ at, kind, what, why }]`, never guessed and
   never counted (a lone start with no proof of who started it; an interrupted chat going on by itself or typed into; a chat the
   history does not track; in the backfill, every number the old records could not hold). A finding a later pass proves leaves `unsure`.
-- **The records** (in `data/`): `actions.jsonl` (one line per action of the person: `{ at, by: 'person', via, action, id }`,
+- **The records** (in `data/`): `clicks.jsonl` (one JSON line per click of the page that stores an input and queues its word, `{ click, via, key, route, at, say, word | notSent, notSentAt }`, the last line of a click wins; `src/clicks.mjs`), `actions.jsonl` (one line per action of the person: `{ at, by: 'person', via, action, id }`, a click of the page adds its `click` id,
   written in the one place of the work API's dispatcher after a person's change returns ok, plus `/api/restart` and the person's
   commands of `/api/say`; never a read or a list), `ready-minutes.jsonl` (one line a minute while the board owns the loops:
   `{ at, free: [{ chat, could }] }`, an empty minute `free: []`, pruned to 31 days at the first write of a day), and
@@ -6030,7 +6031,7 @@ conditions.md, mock.png, audit.md).
 action's own result: the recap's next tries filed after the Send, the obsolete check's record answered, the asked sweep
 ended by its chat's turn; for an action without such a source the fallback "<Chat> answered HH:MM" once the turn that ran on
 the word ended (see "Which turn is the word's" below; an `ended` report, closed or crashed mid-turn, is no answer); an action
-with its own source whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it"), **Late** (a word failed for
+with its own source whose turn ended without the result says, quietly, "<Chat>'s turn ended at HH:MM without it", Late 5 minutes after the chat came to rest: see "The wait line: honest limits" below), **Late** (a word failed for
 good, "could not be delivered: <why>"; rule 8's own judgement of this word, `watch.mjs isUndelivered`, the one function
 `undeliveredWords` uses, so the card and the alarm never disagree; or every way to wake the chat failed,
 `wakeOf(...).final`, with `triedWords`), **Picked up** (the word arrived, delivered or taken by its own chat, and the turn that
@@ -6125,13 +6126,61 @@ stands under the supervisor's head; the recap's Send draws its line in the popup
 page's card "G6 · Your recap · feedback sent" while no verdict waits. A Done line's link opens its step; a Done line goes
 after 10 minutes.
 
-**Send again** (a Late line whose chat does not run, while no wake is pending; only where the state says `waitAgain`): the
+**Send again** (a Late line of a word its chat has not taken, whose chat does not run, while no wake is pending; only where the state says `waitAgain`): the
 page posts `wake-again` to /api/say; `wakeAgainNow` (refused while the board ends, where it does not run the loops, while the person
 pauses, and for a spell that is not the record's newest entry of the chat) makes ONE attempt through the record (wake.mjs
 `personAgain`, change 7, outside the cap of one try per path): the message way when a chat that may send claims (the record holds it `by` "the board"
 until the next hand takes it, with the job id `wakeJobId` the hands route gives a claim), else a launch at once (`launchFor`
 with `again`). A refusal stands under the line, in Needs your attention, the recap's popup and the supervisor's head. A
 word failed for good, and a chat the board has no id to reach, get none (the line says to open the chat).
+
+### The wait line: records, honest limits, no silent end (T2.11 P3, 2026-11-09)
+
+Plan: `.claude/plans/2026-11-09-one-wait-system-plan.md`, part P3 (rule 1: a wait is a record, never a guess; rule 2: every wait ends
+visibly). The states and the words stay; what they say is now only what the board knows (`src/waitLine.mjs`, `waitsNow`):
+- **Picked up is a record.** `pickedUpAt` is written on the word by `waitsNow` once, at the first busy or asking report that names the
+  word (`store.update` never overwrites it); the line reads it before the live report, so a later report of another turn does not undo it.
+- **Waits for its turn** is counted from the END of the turn that was running when the word arrived (the `ahead` logic, the report's own
+  turn), never from the delivery. While the chat is busy on something else it is quiet: "waits for its turn: <Chat> busy since HH:MM".
+  Idle and not picking the word up for rule 8's limit (`undeliveredMinutes`, `wordJudge`'s `limitMs`) in running time: Late.
+- **On it** is Late ("No answer since HH:MM") only when the chat stopped (an `ended` report, the lane not running) or its report went
+  stale: older than `REPORT_STALE_MS` (2 min, the Unknown pill's `UNKNOWN_ATTENTION_MS`) of the board's HEARD running time (`heardOf`:
+  from the later of the report and the board's start, the deaf spans `state.deaf` left out, as watch.mjs `deafMs`), so a board stall or
+  a landing restart turns no line amber. Past `unknownAfterSeconds` and before that it says quietly "· no news from <Chat> since HH:MM".
+  A fresh turn that runs long is quiet ("<Chat> is on it · since HH:MM · for 95 min", from `JUDGE_LONGEST_MS`, the one constant). No
+  limit per kind. The judge line (`needsPill` false) needs the same fresh report. While the person pauses, a stopped or quiet chat
+  reads quietly "<Chat> was on it since HH:MM · its chat stopped" (or "went quiet").
+- **A turn that ended without the result** (an action with its own Done source) is Late only while the chat is at REST now: a fresh
+  idle report with no background work, the lane neither Working nor Waiting for you, or its session ended. The 5 minutes
+  (`TURN_GRACE_MS`) count from the later of the turn's end and the moment it came to rest (the report's `restAt`, bridge.mjs `restOf`).
+  Until then quiet: "<Chat>'s turn ended at HH:MM without it · <Chat> still working" (a background task, the partner waiting on its
+  helper, a worker stopping at a safe point). Judge lines stay quiet (`turnLate` false). With no report at all (a chat on an
+  older mod) no guess either way (chat 1's ruling): quiet "… without it · no report from <Chat>: not confirmed", never Late.
+  The rest counts from the later of `restAt` and the idle's own since: a busy report the board missed (a turn on another word,
+  unheard) leaves an older `restAt` kept, and a rest never began before its idle. A chat that asks (an `asking` report) reads quiet
+  "… without it · <Chat> asks you in its chat", never "still working".
+- **A missed idle still counts.** The report entry keeps the last idle of a mod that names its word (`lastIdle` `{ word, since }`,
+  carried through later reports and data/reports.json), and `turnAnswer` reads it: an idle that no pass saw before an `ended` replaced
+  it (the pass was skipped by `loops.single`) still ends that word's turn. Chosen over a rerun with a dirty flag: the fact lives with the
+  report, so no timing of the passes can lose it, also across a restart.
+- **Merged prompts, until the mod release** (a mod that does not report every merged word): a word whose chat began a turn after it
+  arrived, on a word that stood ahead of it, reads quiet "<Chat>'s turn at HH:MM may have taken it (not confirmed)": never Late.
+- **Late counts the board's running time** (`runningOf`: the last pause's end and the board's off time `state.gaps` do not count) for
+  P3's new rules; rule 8's own "Not picked up after N min" stays in wall time after the pause (`wallOf`), as rule 8 counts it. Every
+  Late names the person's action: the turn on it ended, "ask <Chat> in its chat"; its session ended or went quiet, "open <Chat>'s
+  chat"; not delivered yet, "open <Chat>'s chat so its mod takes it". Send again only for a word its chat has not taken (as before P3),
+  never on an "on it" or turn-ended line.
+  The judge lines get the same clocks as the person's lines (`heard`, `wall`, `unknownMs`): stale after 2 min heard, rule 8 in wall time.
+- **No silent end.** A word the outbox sweep closes shows "closed: <why>" (state `closed`, quiet) for 10 minutes (`CLOSED_SHOWN_MS`,
+  from `closedAt`, else the first moment the board saw it closed, kept in `waitsFirstSeen`; the sweep's own reason, `wordJudge`'s
+  `whyClosed`). A person's word that expired before it reached its chat is Late "Not delivered: expired after N min" (N the age it
+  expired at, `closedAt`) and keeps its words (`text`); past 24 h it is not rewritten. A word past 24 h without a Done says "no answer
+  recorded in 24 h" for one more day (`ENDED_SHOWN_MS`), quietly; both are marked `isEnded`, so Needs your attention lets the card go.
+- **A failed pass keeps the lines.** `waitsNow` gives `{ waits, asOf }` (`lastGoodWaits`): on an error the last good lines come back and the
+  state says `waitsAsOf`; the page draws them with "as of HH:MM" (in the line's key, `waitKeyOf`) and Needs your attention reads a
+  missing line as done only while `waitsAsOf` is not set.
+Tests: `test/waitLineHonest.test.mjs` (one per point, from Worker 3's real report for Q707's answer; "review 1" to "review 10" the two
+core reviews of 2026-11-09, each checked with a mutant).
 
 ### Wave 2 (T22, 2026-11-04)
 
@@ -6208,6 +6257,13 @@ what was typed so it can be pasted into the app.
   tail, the plan line, the worktree list, the state table one test per row.
 - The sending endpoint: refused without the token, refused from another origin, accepted with both.
 - The mod's part with `claude plugin test`: a waiting message is submitted once; a delivered one never again.
+- No terminal windows (2026-11-09, the person: "i keep getting these terminmal popups"): every program the code starts is
+  started with `windowsHide: true` (spawn, spawnSync, exec, execSync, execFile, execFileSync, fork). Without it, a process
+  that has no console of its own (a board started by start-board.mjs is `detached`) opens a new, visible console, and with
+  Windows Terminal as the PC's default terminal that is a window popping up. The land test's made-up board
+  (fixtures/land/server.mjs) did that with git on every gate. `test/windowsHide.test.mjs` fails any such call outside
+  `test/`, naming its file and line. **A branch in flight that adds a start without it fails the gate once it merges main:
+  add `windowsHide: true` to that call.**
 
 ## The person's feedback on the first board (2026-10-12, during step 2)
 
@@ -6633,6 +6689,23 @@ from Opus extra high to Opus high. (Spec 2026-10-27, "Quality Assurance tasks".)
    whose check waits for the person (`ask:` points) waits for the person, not for a check, from the check line until the worker
    that checked has filed its ask (`reviewWaitOf`, UNCHECKED_MS = 30 minutes; after that, with still no ask of the step filed
    since the line, it waits for a check again, so nothing wedges): the repair makes no second task in between.
+   B1103 (X163: B1091 got five check tasks in 100 minutes, as the ask that carried its 7 look points was the evaluation ask Q712
+   of its goal, and its checkers rightly asked the person nothing new): an ask point may name the open ask that carries it,
+   `ask: <point> (Q712)`, of the step or of its goal (`namedAskIds`, `namedAsksOf`; the partner names one with a `work note` of
+   the step since the line that names it). While a named ask is open the step waits for the person's answer ("waits for your
+   answer to its check in Q712"); once it, or an ask of the step, was answered or withdrawn since the line, it waits for its check
+   again at once. B1118 (B1096: its check at 21:53 named Q718, which the person had approved at 21:50, and waited 30 minutes): a
+   named ask that is answered counts whenever it was answered, before the line too: the step waits for its check again at once,
+   its task's `Why:` `ANSWERED_WHY; JUDGE_ANSWERED` ("its ask point is answered: file its check again; an ask point whose named
+   ask is answered is judged from that answer, pass or fail, never left for the person"), which the QA brief (`NAME_THE_ASK`)
+   says too; a named ask withdrawn before the line counts for nothing. Its guard: when the check of a task made for an answered
+   ask point names only asks answered by its line again, the step is kind `unasked` with `answered` ("its checker left an
+   answered ask for the person"), no third task, and the partner gets one word to read that answer (test
+   `test/supervisor/answeredAskRecheck.test.mjs`, B1096's records replayed). The guard: past UNCHECKED_MS with no ask filed or named, the
+   new task's `Why:` is `UNASKED_WHY` ("its checker filed no ask point: file its check again; name the open ask ..."); when the
+   check of such a task waits that way again, the step is kind `unasked` ("its checker filed no ask point"), the repair makes no
+   third task and wakes the partner once per wait (key `unasked B<id> <time>`) to file the ask or name the open one; the watch
+   judges it late as a dropped fix. Test: `test/supervisor/namedAskWait.test.mjs` (B1091's records replayed).
    B1081: never for a step with an open fix (`openFixesOf`), a report again included: `qaStep` refuses (409, "waits for its fix
    B<n>: no Quality Assurance task while it is open"), the check path asks for none and `qa-task` refuses, as `work checked`
    would refuse its check; the step closes by itself once that fix passes.
@@ -7452,3 +7525,34 @@ after the reconcile's own work (`loops.run('still-true')`), one memory Map per b
 - **Not in it:** land.ps1, the hand-over, `chatStatus.mjs`, the start-up check's triggers, the wake paths, the Workers mod, the Supervisor's rules.
 - **Tests:** `test/stillTrue.test.mjs`. Mutants (each fails a test there): hysteresis removed; the any-Route guard dropped (the person's asks only
   again); `ranSince` ignored in the notice; the note comes down while an incident is open; the chain uncapped; the history line not written.
+
+## Rule 15: a decision anywhere updates the board's open questions at once (2026-11-09)
+
+**Why.** The person, 2026-11-09, chat 2: "when we redesign/discuss things, the signals ont he board aint updated with the new information and
+thats confusing." The stairs were settled in chat 2 (every map painted whole by Codex, no more stair rounds), yet Q711 (Worker 5, of B1091) and Q712
+(the Advisor, of G60) stayed open with options against the decision; only hand messages fixed it, because chat 2 is a side chat of the app, not a chat
+of the board's list, and the work tool refused it ("is no chat of the list").
+
+**Who may call `words`.** The person (the page), the main chat, and a side chat of the app (role `side`, which `src/work/api.mjs` gives only to a call made `as: 'side'`;
+the bridge makes it only for a session the board shows under no name AND a name no shown chat has, `sideWordsOf` in `src/bridge.mjs`, so a duplicate "Game - Main" never moves Main's lane or mod version, and a side call notes no mod): a side chat may call nothing
+else (everything else stays 403) and must say `where` (the chat and the time, else 400). Workers and the partner get 403 on `words`, and the main chat does not withdraw another chat's ask. `id` is a step (B<n>, as before) or a goal (G<n>): the words
+stand under the goal in the goal map as `Your words: <date time> · <words> (in <where>)` (`keepGoalWords`, the same writer and history folder as
+every change of the map; the Goals part draws one quiet line each), or as a point of the step's "Your words".
+
+**The record.** Every OPEN ask, owned by a chat the board shows (not the board's own Accept cards, not `Via: form` popups or `Via: refine`, not a recap or verdict look, never one released before), of the goal (`Of` the goal, or a step of the goal) or, for words on a step, of that step alone, filed BEFORE the
+words and not held already, gets `Route: asker`, a line in its `## Route` section (`held from <old route>: your words at HH:MM may change this
+(<chat>)`) and a History line. A held ask is in no list of the person's (`ROUTED_AWAY`, `storeWaits`, `reconcile`), no wait of any step
+(`openAsksOf`), not the partner's (`isRoutedToPartner`) and never re-routed or answered by Autopilot; its step's window shows it ("Held for your
+words" and, for goal-level asks too, one quiet `held` line on Needs your attention: "Q711 held: Worker 5 re-checks it after your words at 16:20"; no card, no count). A held ask counts for no step state either (`openAskIds`, `guards.mjs`, `hasBlockingAsk`). Its asking chat gets one word through the result's `wakes` (`the person's words at HH:MM on G<n>: re-ask or withdraw Q<n>, or say it
+still stands`). The unstarted steps of the goal (new, refined, queued) are named in ONE note from the board to the main chat, "For the partner (<name>): ..." (a note is read only where its To is main or the person, lists.mjs `notesToMain`; the main chat relays it, as it relays every "For <chat>" note); no step is held.
+
+**How the hold ends.** (1) The chat re-asks under the same goal (or its question joins another chat's open ask): its held asks of the goal are withdrawn `re-asked as Q<new>` (a held ask is no repeat).
+(2) `work withdraw Q<n>`. (3) `work note to=main of=Q<n> text="still stands: <why>"` from the asking chat (or the main chat or the person): the
+ask comes back to the person with a `still stands` line; the note is filed to main as any note. (4) Nobody does any of this within 60
+minutes of the board's RUNNING time (`src/work/askHold.mjs` `heldAsksDue`, off time left out as `offMsOf` counts it, never while the person pauses):
+the server's `holds-ended` action (only while something is held, and only with the board running: not while pausing or resuming), called in `reconcilePass`, sends the ask back to the PERSON (`Route: person`, `Since` and `Filed` restamped so no old route's clock fires at once; Autopilot's sweep judges it anew) with a quiet line `not re-checked by <chat> since your
+words at HH:MM`. A released ask is never held again by later words; a re-ask is a new ask.
+
+**Tests.** `test/work/wordsRecheck.test.mjs` (mutants: no Filed guard, a side chat allowed every action, no word to the chat, 1 minute instead of 60,
+no pause skip, `where` not required, the step window's rows gone: each fails it).
+

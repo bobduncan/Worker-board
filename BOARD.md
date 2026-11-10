@@ -20,7 +20,7 @@ person, and lets the person answer, talk to the main chat, and plan. Every answe
   (see the README, "What it reads"). It writes only its own `data/` and, on the person's click, a tick in the backlog.
 - **Its routes:** `GET /` (the page), `GET /api/state` (everything the page shows, read anew every `refreshSeconds`;
   a finished step comes as a light row), `GET /api/step?id=B12` (one step's full row, for the window of a finished
-  step), `GET /api/picture` (a picture of the project's picture folders), `POST /api/say` (an answer or a line for a chat),
+  step), `GET /api/picture` (a picture of the project's picture folders), `POST /api/say` (an answer or a line for a chat; a click of the page that writes an input first, such as a brainstorm answer, a goal ask or a refine answer, is ONE call to its own route with a click id: the board stores the input and queues the word itself),
   `POST /api/game` (start or stop a game), `POST /api/design` and `/api/design/reference` (the Design tab), `POST /api/bugs` and `/api/bugs/picture` (the Bugs tab, B856),
   `POST /api/talk/picture` (a pasted picture), `POST /api/restart` (a new version), `POST /api/work` (the store;
   also `pause-all` and `resume-all`, which write `pause.json`), and for the Workers mod `POST /api/bridge/take`,
@@ -394,7 +394,7 @@ dates and counts are in the row's tooltip); with a Product owner listed (the lis
 say "your Product owner", and every talk goes to it, its card under the Advisor's; at the right the open one has a head
 (its title, the same word, a small "…" menu: the thread file, "Type it to your partner again", "Close it" on an old open
 one (done, with nothing created, and the board's line `Closed (HH:MM): by the person`), Discard, and on a question also
-Skip, Back and "Enough, wrap up") and one calm card (a stopped one has "Type it to your partner again" as its main button): while your partner
+Skip, Back and "Enough, wrap up") and one calm card (a stopped one has "Type it to your partner again" as its main button; every click here is one call, and a word the board could not queue shows "Not sent: <why>, HH:MM" with a Retry): while your partner
 has the turn a softly pulsing dot and what it does ("is reading your words", "is writing the next question", "is drafting
 the new goal", "is writing the proposal"), or, when it is busy with something else, what and since when and where your
 brainstorm stands in its queue; on your turn one question large, its context as one muted line ("Why I ask" folds out a
@@ -554,10 +554,10 @@ Undo."; Off, "Questions come to you as before."
   a cache too: a chat, a file or folder, a launch.json entry, a branch, archiving stays the main chat's; anything published
   or made public: a repository, a release, a post, a licence, an upload, itch.io or Steam, sharing outside the PC), a
   question about Fable, and what the partner or the main chat hands to you. Everything else is decided for you, with Undo: a
-  question with advice takes it when it is filed or at the switch-on (never an accept, a look with pictures, or what you
+  question with advice takes it when it is filed or at the switch-on (never an accept, a look with pictures or a Play link, or what you
   meant or said), the rest your partner decides (a look without advice, a "look at it" do, an Accept card or a mark done
   that no recap of the focus goal takes); the board judges anew at every pass what it had routed to you itself, but never
-  answers such an ask with its advice then. A worker's or the main chat's look with pictures of a step of the focus goal (an
+  answers such an ask with its advice then. A worker's or the main chat's look with pictures or a Play link of a step of the focus goal (an
   art or map look) is never decided: it is kept for the goal's recap, with or without advice. The Undo of your partner's
   Accept puts its step back in review and the card back with you (a project's own flow.json needs the move done → review by
   the person for it; without it the Undo says so and changes nothing).

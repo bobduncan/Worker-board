@@ -317,9 +317,9 @@ test('the page: asleep and free reads Free, "asleep since 18:07, wakes when it g
   // A chat known not to run that is not asleep keeps "Not running" (a lane without the board's word reads its state).
   assert.equal(plain(page.timeOf({ ...lane(state, 'Weeder'), status: undefined, asleep: false }, NOW)).main, 'Not running')
   const idle = await pagePart('simpleidle', 'simpleIdle')
-  assert.deepEqual([idle.simpleIdle(lane(state, 'Weeder')), idle.simpleIdle(lane(state, 'Digger')).replace(/ · \d+ (?:s|min) ago/, '')], [`Asleep · since ${hhmm(APP)}`, 'Stopped · resumes by itself'])
+  assert.deepEqual([idle.simpleIdle(lane(state, 'Weeder'), NOW), idle.simpleIdle(lane(state, 'Digger'), NOW).replace(/ · \d+ (?:s|min) ago/, '')], [`Asleep · since ${hhmm(APP)}`, 'Stopped · resumes by itself'])
   const words = pagePart('partner-answers', 'laneStateText')
-  assert.deepEqual([words.laneStateText(lane(state, 'Weeder')), words.laneStateText({ ...lane(state, 'Weeder'), status: undefined, asleep: false })], [`Asleep · since ${hhmm(APP)}`, 'Not running'])
+  assert.deepEqual([words.laneStateText(lane(state, 'Weeder'), NOW), words.laneStateText({ ...lane(state, 'Weeder'), status: undefined, asleep: false }, NOW)], [`Asleep · since ${hhmm(APP)}`, 'Not running'])
 })
 
 // ---- Signals change 4, B908 (E): the lane's wake words and the page's one notice, from the wake record.

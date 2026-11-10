@@ -511,12 +511,14 @@ test('Choose marks the pick ("Chosen", pressed) and a second click takes it back
     await shown.click('#details .q-block:nth-of-type(2) [data-q-choose="0"]')
     assert.equal(shown.find('#details .q-block:nth-of-type(1) .q-send').disabled, false)
     await shown.click('#details .q-block:nth-of-type(1) .q-send')
+    // Reactive board, brief P4a: ONE call: the board writes the answers and queues the refine word; the page types nothing itself.
     const [written] = shown.sent('/api/backlog').map(one => one.body)
-    assert.equal(written.action, 'refine-answer')
+    assert.equal(written.action, 'refine-send')
+    assert.match(written.click, /^[\w-]{8,64}$/)
     assert.equal(written.step, 'B12')
     assert.equal(written.feedback, '')
     assert.deepEqual(written.answers, [{ index: 0, answer: `B: ${B_WORDS}` }, { index: 1, answer: 'yes' }])
-    assert.deepEqual(shown.sent('/api/say').map(one => one.body), [{ to: 'Advisor', command: 'refine', step: 'B12' }])
+    assert.deepEqual(shown.sent('/api/say'), [])
   } finally {
     await shown.close()
   }
@@ -639,16 +641,16 @@ test('"Ask for pictures" on a refine question goes to the Advisor as the board\'
   const round1 = stateWith(waiting([LANTERN, BASE]))
   const round2 = stateWith(waiting([LANTERN.replace('(sketch-glow.png)', '(picture: pics/glow/sketch.png)').replace('about 2 h.', 'about 2 h (picture: pics/glow/b.png).'), BASE], 2))
   let now = round1
-  const shown = await openPage({ state: requests => (requests.some(one => one.url === '/api/say' && one.body?.command === 'refine') ? round2 : now), hash: 'details=B12', answers: answering(() => reply({})) })
+  const shown = await openPage({ state: requests => (requests.some(one => one.url === '/api/backlog' && one.body?.action === 'refine-send') ? round2 : now), hash: 'details=B12', answers: answering(() => reply({})) })
   try {
     await shown.type('.q-block:nth-of-type(2) .q-field', 'Two fingers long, as on the old lamps in the hall')
     await shown.click('.q-ask-pictures')
     const [sent] = shown.sent('/api/backlog').map(one => one.body)
-    assert.deepEqual([sent.action, sent.step, sent.answers, sent.feedback], ['refine-answer', 'B12', [], ''], 'nothing unsent goes with it')
+    assert.deepEqual([sent.action, sent.via, sent.step, sent.answers, sent.feedback], ['refine-send', 'refine-pictures', 'B12', [], ''], 'nothing unsent goes with it')
     assert.match(sent.request, /^Question 1, "Should the lantern's glow be judged against the sketch\?": give every option its picture/)
     assert.match(sent.request, /No picture yet for B \(try a calmer, dimmer glow/)
     assert.doesNotMatch(sent.request, /\bA \(/)
-    assert.deepEqual(shown.sent('/api/say').map(one => one.body), [{ to: 'Advisor', command: 'refine', step: 'B12' }])
+    assert.deepEqual(shown.sent('/api/say'), [])
     // The new round has the pictures; the words typed under the other question are where they were.
     await shown.reread()
     assert.equal(shown.find('.q-block:nth-of-type(2) .q-field').value, 'Two fingers long, as on the old lamps in the hall')
@@ -1022,4 +1024,19 @@ test('the chats are told: every option its picture, written as the board reads i
   assert.ok(protocol.includes('- <question>? A: <words> (picture: <path>) B: <words> (picture: <path>) Advised: A — <why>'))
   assert.ok(protocol.includes('`pictures` holds one per option, in the options\' order'))
   for (const name of ['product-owner.md', 'worker.md', 'main.md']) assert.match(await read(name), /no picture: <why>/, name)
+})
+
+// Reactive board, brief P4a: "Send answers" is ONE call; a refine word the board did not queue leaves the answers standing under
+// the step, with "Not sent: <why>, HH:MM" and a Retry (from the board's record) that sends the same click id to /api/backlog.
+test('a refine answer whose word was not queued stands with its "Not sent" line and a Retry on the same click id', async () => {
+  const unsent = { click: 'click-eeee-5555', via: 'refine-send', key: 'B12', route: '/api/backlog', why: 'no chat on the board takes it', at: '09:10' }
+  const shown = await openPage({ state: () => ({ ...stateWith(waiting([LANTERN])), clicksUnsent: [unsent] }), hash: 'details=B12', answers: answering(() => reply({})) })
+  try {
+    assert.match(words(shown.find('#details .click-unsent')), /^Not sent: no chat on the board takes it, 09:10\. Your input stands\. Retry$/)
+    await shown.click('#details .click-unsent .click-retry')
+    assert.deepEqual(shown.sent('/api/backlog').map(one => one.body), [{ action: 'click-retry', click: 'click-eeee-5555' }])
+    assert.deepEqual(shown.sent('/api/say'), [])
+  } finally {
+    await shown.close()
+  }
 })

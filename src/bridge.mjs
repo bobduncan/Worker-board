@@ -91,8 +91,22 @@ export function noteReport(reports, body, checked, now, app = null) {
   const isSameSession = kept !== undefined && kept.session === session
   const isTurnStart = report.state === 'busy' && (!isSameSession || kept.state === 'idle' || kept.state === 'ended')
   const busyAt = isTurnStart ? now : isSameSession ? kept.busyAt ?? null : null
-  reports.set(checked.chat, withApp({ ...report, at: now, session, mod, busyAt }))
+  reports.set(checked.chat, withApp({ ...report, at: now, session, mod, busyAt, ...restOf(report, isSameSession ? kept : undefined, now) }))
   return true
+}
+
+/**
+ * The wait line (P3, the review of 2026-11-09, 1 and 4), kept on the report entry of one session: `lastIdle` `{ word, since }`, the last idle
+ * of a mod that names its word, carried through later reports (an idle that no pass of the lines saw before an `ended` replaced it still
+ * ends that word's turn: waitLine.mjs `turnAnswer`); `restAt` the board's receipt of the chat coming to REST (idle with no background
+ * work), kept while it rests: a turn that ended without its result counts its grace from it, never from a background task's start.
+ */
+function restOf(report, kept, now) {
+  const named = report.state === 'idle' && report.word !== undefined ? { word: report.word, since: report.since } : null
+  const idle = named ?? (kept?.lastIdle !== undefined && kept.lastIdle !== null ? kept.lastIdle : null)
+  const isRest = report.state === 'idle' && report.background !== true
+  const wasRest = kept !== undefined && kept.state === 'idle' && kept.background !== true && Number.isFinite(kept.restAt)
+  return { ...(idle === null ? {} : { lastIdle: idle }), ...(isRest ? { restAt: wasRest ? kept.restAt : now } : {}) }
 }
 
 /** B986: the app's id of the chat the board shows under `checked.chat` (its lane's `appSession`), or null. */
@@ -192,6 +206,24 @@ export function checkTake(body, state) {
   const shown = shownChats(state).find(one => one.name === chat)
   if (shown === undefined || (shown.session ?? null) !== session) return refuse(409, notShown(state, session))
   return { ok: true, chat }
+}
+
+/**
+ * Rule 15 (2026-11-09, review 2026-11-10): whether a refused call is a side chat's words. A side chat of the app (no chat of the list)
+ * may give the person's words, and only those. It counts only when the board shows its session under no name AND the name it says is
+ * the name of no shown chat (exact, or without the list's prefix in any case): a second chat titled like the main chat from another session must never
+ * pass for Main and move its lane state or mod version. `checked` is the refusal of `checkTake`, `state` the board's state.
+ */
+export function sideWordsOf(checked, asked, body, state) {
+  if (checked?.ok !== false || checked.status !== 409 || asked?.action !== 'words') return false
+  const name = typeof body?.chat === 'string' ? body.chat.trim() : ''
+  if (name === '' || name.length > 80 || !isUnknownSession(body, state)) return false
+  const prefix = String(state?.chatPrefix ?? '')
+  const plain = chat => {
+    const words = String(chat ?? '').replace(/\s+/g, ' ').trim()
+    return (prefix !== '' && words.toLowerCase().startsWith(prefix.toLowerCase()) ? words.slice(prefix.length) : words).trim().toLowerCase()
+  }
+  return !shownChats(state).some(one => one.name === name || plain(one.name) === plain(name))
 }
 
 /**

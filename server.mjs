@@ -21,7 +21,7 @@
 // (see `mayUse` and `maySend`).
 
 import { spawn } from 'node:child_process'
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs'
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, modSaid, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession, withModHeader } from './src/bridge.mjs'
+import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, modSaid, noteCall, noteReport, noteWhoami, shownChats, shownSessions, sideWordsOf, whoamiOf, whoamiSession, withModHeader } from './src/bridge.mjs'
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
 import { landedLines, runningLanding } from './src/landing.mjs'
@@ -72,7 +72,8 @@ import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
-import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, setGoalSteps } from './src/goalsWrite.mjs'
+import { CLASH, brainstormClickOf, clickIdOf, clickLedger, movedOn, oneClick, retryClick } from './src/clicks.mjs'
+import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, keepGoalWords, setGoalSteps } from './src/goalsWrite.mjs'
 import { parseGoals } from './src/goals.mjs'
 import { activityFor, askToStep, missingToSteps, stepMadeFrom } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planDecide } from './src/planMoves.mjs'
@@ -109,7 +110,7 @@ import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
-import { AGAIN_BY, WAITS_KEEP_MS, splitSeen, waitsOf } from './src/waitLine.mjs'
+import { AGAIN_BY, WAITS_KEEP_MS, lastGoodWaits, splitSeen, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
@@ -1429,7 +1430,7 @@ async function main(args) {
       // The person's words stand on the demo's step; a step that is gone does not stop the feedback (it is kept and the partner has it).
       let notedOn = null
       if (found.base.step !== null && workDir !== null) {
-        const noted = await workAction({ action: 'words', id: found.base.step, text: said.lines.join('\n'), where: 'in the goal demo' }, 'person')
+        const noted = await workAction({ action: 'words', id: found.base.step, text: said.lines.join('\n'), where: 'in the goal demo', recheck: false }, 'person')
         if (noted.ok) notedOn = found.base.step
       }
       // B878 (X116): the person's Approve closes the steps the part shows that wait in review (done, their verdict in the
@@ -1454,7 +1455,7 @@ async function main(args) {
         }
         for (const part of said.back) {
           for (const id of part.steps.filter(inReview)) {
-            await workAction({ action: 'words', id, text: `Sent back in the recap of ${found.base.goal}, round ${checked.round}: ${part.title}: "${part.comment}"`, where: 'in the goal demo' }, 'person')
+            await workAction({ action: 'words', id, recheck: false, text: `Sent back in the recap of ${found.base.goal}, round ${checked.round}: ${part.title}: "${part.comment}"`, where: 'in the goal demo' }, 'person')
             backSteps.push(id)
           }
         }
@@ -1554,30 +1555,35 @@ async function main(args) {
   // T22 wave 2 (the review of 2026-11-04): the first moment each result without a time of its own was seen (a stop, a remove), so a line never
   // reads the clock of each draw, also on a board process that does not write the outbox.
   const waitsFirstSeen = new Map()
+  // P3 (no silent end): the last lines that were made well and when. A pass that fails gives these back with `asOf`, so the page draws the
+  // last lines under "as of HH:MM" and a card never loses its line (nor reads a missing one as done) because one pass threw.
+  const waitsGood = lastGoodWaits()
+  /** `{ waits, asOf }`: asOf null when this pass went well; else the time of the lines kept. */
   const waitsNow = async (state, stored, supervised) => {
-    if (isDemo || state === null) return {}
+    if (isDemo || state === null) return { waits: {}, asOf: null }
     try {
       const now = clock()
       const items = stored?.ok === true ? stored.items : new Map()
       const outbox = store.outbox()
       const judge = wordJudge({ state, items, outbox, keep, settings: config.supervisor ?? {}, assets: await assetRequests(), now })
       const obsolete = workDir === null ? null : (await readObsoleteFile(workDir)).record
-      const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null, firstSeen: waitsFirstSeen }))
+      const { waits, seen } = splitSeen(waitsOf({ state, outbox, now, keep, judge, reports, items, obsolete, sweep: supervised?.lastSweep ?? null, firstSeen: waitsFirstSeen, unknownMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000, startedAt }))
       // The review of 2026-11-02 (2a): a turn seen ended, an action's own result seen, is kept on its word once and read first
       // from then on (a later turn of the chat never makes it "on it" again). Only the board process that runs the loops of
       // the board that delivers writes the outbox.
       if (!isShowOnly && await ownsLoops()) {
         for (const { id, fields } of seen) {
           const word = outbox.find(one => one.id === id)
-          const isNew = Number.isFinite(fields.doneAt) ? !Number.isFinite(word?.doneAt) : !Number.isFinite(word?.answeredAt) && !Number.isFinite(word?.doneAt)
+          // pickedUpAt is written once, when the word has none (P3); the turn's end and the result as before.
+          const isNew = Object.hasOwn(fields, 'pickedUpAt') ? !Number.isFinite(word?.pickedUpAt) : Number.isFinite(fields.doneAt) ? !Number.isFinite(word?.doneAt) : !Number.isFinite(word?.answeredAt) && !Number.isFinite(word?.doneAt)
           if (word !== undefined && isNew) await store.update(id, fields)
         }
       }
       loops.succeeded('waits')
-      return waits
+      return waitsGood.made(waits, now)
     } catch (error) {
       loops.failed('waits', error)
-      return {}
+      return waitsGood.failed(clock())
     }
   }
   /**
@@ -1628,6 +1634,8 @@ async function main(args) {
   // (src/supervisor), set up with the reconciler on a board that writes; null on a board that never runs it. B482,
   // B488: it runs where the board's loops run (`ownsLoops`, its port `owns`).
   let supervisor = null
+  /** Rule 15: whether the state shows an ask held for the person's words (a quiet `held` need, src/state.mjs). */
+  const heldIn = state => (state?.forYou ?? []).some(need => need.kind === 'held')
   /**
    * B299: the chats an action on the store wakes (`wake`, `wakeOwner`): the chat that asked, with the answer to its ask
    * (bridge.mjs, as the person's answer reads), and the owner of the step the answer frees. Partner answers (2026-10-19):
@@ -1635,19 +1643,24 @@ async function main(args) {
    * back). Only to a chat the board shows; copied without the Workers mod. What to paste, or null.
    */
   const sendWakes = async done => {
-    const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null].filter(one => one !== null) : []
+    // Rule 15: and `wakes`, a word to each asking chat whose ask the person's words held (work `words`), or whose hold ended.
+    const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null, ...(done.result.wakes ?? [])].filter(one => one !== null) : []
     let paste = null
-    for (const wake of isShowOnly ? [] : wakes) {
-      const state = await readState()
+    // The state is read once per call and reset once after the last word (the person's words on a goal wake several chats at once: a
+    // read and a reset per word made each of them wait for a whole new reading of the board).
+    const state = wakes.length === 0 || isShowOnly ? null : await readState()
+    let said = false
+    for (const wake of state === null ? [] : wakes) {
       const shown = shownChats(state).some(chat => chat.name === wake.to)
       if (!shown) continue
       const isCopied = state.bridge?.isMissing === true
       const words = typeof wake.line === 'string' ? { ...workWords(wake.to, wake.id, wake.line), kind: wake.kind ?? 'taken-back' } : answerWords(wake)
       const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
       await store.say(message)
-      readState.reset()
+      said = true
       if (isCopied) paste ??= { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
     }
+    if (said) readState.reset()
     return paste
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
@@ -1670,6 +1683,12 @@ async function main(args) {
       waitOnMinutes: config.waitOnMinutes,
       // Focus 2: the partner's drafts of the focus (the work tool's definition-draft and how-draft) go into the goal map.
       goalDraft: body => focusNow(body),
+      // Rule 15: the person's words from any chat, kept under the goal as a point of its Your words (the work tool's words of a G<n>).
+      goalWords: async body => {
+        const done = await keepGoalWords(body, { canWrite: writesMap, file: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() })
+        readState.reset()
+        return done
+      },
       // B358: the partner's re-check of a goal (the work tool's checked of a G<n>), written into the goal map.
       goalChecked: async body => {
         const done = await goalChecked(body, {
@@ -1770,6 +1789,35 @@ async function main(args) {
   }
   // Stability (2026-11-05): the person's actions log. Not on the demo, nor on a board that only shows: they write nothing.
   const actionsFile = isDemo || isShowOnly || workWriters === null ? null : join(HERE, 'data', 'actions.jsonl')
+  // Reactive board, brief P4a: one click is one server action. The click's record (data/clicks.jsonl) holds its word's id or
+  // `not sent: <why>, HH:MM`; its one line in the actions log carries the click id (src/clicks.mjs).
+  const clicks = clickLedger({ file: isDemo || isShowOnly || workWriters === null ? null : join(HERE, 'data', 'clicks.jsonl') })
+  const logClick = actionsFile === null ? null : entry => keepPersonAction(actionsFile, entry, clock())
+  const sayLine = value => String(value ?? '').replace(/\s+/g, ' ').trim()
+  /** What input a click id was for: the body without the id (the same id with another input is refused). */
+  const bodyHash = body => createHash('sha1').update(JSON.stringify({ ...body, click: undefined })).digest('hex')
+  const NOT_A_CLICK = { ok: false, status: 400, why: 'A click id is 8 to 64 letters, digits, - or _.' }
+  /** One action of a click; the state is read anew after it, so the cards draw its record (the "not sent" line, its Retry). */
+  const clickNow = async args => {
+    const done = await oneClick(args)
+    readState.reset()
+    return done
+  }
+  /** The click's word, typed as every word of the page: `sayNow` checks it against the state read anew after the write. */
+  const clickSay = async (body, role = 'talk') => {
+    // The chat is found when the word is queued, so a retry reaches a partner that joined the board after the click.
+    const state = await readState()
+    const to = body.to ?? (role === 'advisor' ? state.advisor?.name ?? null : talkPartnerOf(state)?.name ?? null)
+    return to === null ? { ok: false, status: 409, why: 'no chat on the board takes it' } : sayNow({ ...body, to })
+  }
+  /** The retry of a click whose word was not queued: the input stands, the word is typed once more. */
+  const retryNow = async body => {
+    const click = clickIdOf(body)
+    if (typeof click !== 'string') return NOT_A_CLICK
+    const done = await retryClick({ ledger: clicks, click, now: clock, say: clickSay, log: logClick })
+    readState.reset()
+    return done
+  }
   // Stability (2026-11-05): the per-minute record of idle-with-work, written by the look below where the board owns the loops.
   const keepMinute = isDemo || isShowOnly || workDir === null ? null : minuteKeeper({ file: join(HERE, 'data', 'ready-minutes.jsonl'), clock })
   // Stability (2026-11-05, task 3): the day line (data/stability.jsonl), made in the same loop as the minute record.
@@ -2294,7 +2342,7 @@ async function main(args) {
     // (the person deletes it once read).
     const shownAside = []
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
-    return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside, check: checker?.view() ?? null }
+    return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside, check: checker?.view() ?? null, clicksUnsent: (await clicks.settle(one => movedOn(one, state), clock()), await clicks.unsent()) }
   }), STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
@@ -2659,11 +2707,18 @@ async function main(args) {
     const fresh = await readState()
     return { checked: checkTake(body, fresh), state: fresh }
   }
+  /**
+   * Rule 15 (2026-11-09): a side chat of the app (no chat of the list: the board shows no lane for its session) may give the
+   * person's words, and only those: the one call the bridge takes from a chat it does not show (the work API gives it the role
+   * `side` when it is called `as: 'side'`, which may do nothing else). Its name is the title its mod sends; it counts as no refused
+   * call. Only a session the board does not know under a name no shown chat has (bridge.mjs `sideWordsOf`).
+   */
+  const checkedOrSide = (fresh, asked, body) => (sideWordsOf(fresh.checked, asked, body, fresh.state) ? { ok: true, chat: body.chat.trim().slice(0, 80), isSide: true } : fresh.checked)
   /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
   const bridgeWorkOnce = async (body, checked) => {
     // T8.5: the version its mod said with this very call (noteMod keeps it before the call is answered).
     const mod = modOf.get(checked.chat)?.version ?? null
-    const done = await workAction({ ...body, chat: checked.chat })
+    const done = await workAction({ ...body, chat: checked.chat }, checked.isSide === true ? 'side' : undefined)
     // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.
     // B760: by the state the board has, as the check of the call: work health's answer never waits for a whole read.
     if (supervisor !== null && ['health', 'incident', 'turn-ended'].includes(body?.action) && done.ok && laneRole(readState.last() ?? await readState(), checked.chat) === 'supervisor') {
@@ -2671,7 +2726,7 @@ async function main(args) {
     }
     // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
     // And the partner's hand-over of a look that Autopilot keeps for the recap: the worker its blocking ask held goes on (`wake`).
-    if (body?.action === 'partner-answer' || body?.action === 'escalate') await sendWakes(done)
+    if (body?.action === 'partner-answer' || body?.action === 'escalate' || body?.action === 'words') await sendWakes(done)
     // T8.5: a worker on the sequence: its turn end is the trigger. The board decides once and answers the envelope (or, while
     // its set is on its way, that it comes with a take); the mod clears only when an envelope says so. No pull line.
     if (body?.action === 'turn-ended' && done.ok && await sequenceLane(checked.chat, mod) !== null) {
@@ -2781,9 +2836,9 @@ async function main(args) {
       // The wait line (T22, the person, 2026-11-02: "the status if its being picked up or not. I want to know whats going on"):
       // the line of every word an action of the person typed in the last 24 h, by its id (src/waitLine.mjs), judged with
       // the supervisor's own view of this moment, so a card's "Not picked up" and rule 8's alarm read one function.
-      const waits = await waitsNow(state, stored ?? (workDir === null ? undefined : await work()), supervised)
+      const { waits, asOf: waitsAsOf } = await waitsNow(state, stored ?? (workDir === null ? undefined : await work()), supervised)
       // Light state (2026-10-31): the finished steps go light to the page (src/state.mjs lightState); `step` gives one whole.
-      return lightState({ ...state, advisor, talkPartner, waits, waitAgain: !isDemo && !isShowOnly && bridgeKey !== null, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), autopilotCleared: await autopilotClearedNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
+      return lightState({ ...state, advisor, talkPartner, waits, waitsAsOf, waitAgain: !isDemo && !isShowOnly && bridgeKey !== null, forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), autopilotCleared: await autopilotClearedNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
         // Signals change 1: the board's own clock, its work loop's last run, a restart on its way, and why it was off.
         board: boardView({ now: clock(), startedAt, aliveAt: store.aliveAt?.() ?? null, leaving, waiting: updateShown?.state === 'waiting' ? updateShown : null, lastStop: lastStopOf(store.startedGap ?? null, startedAt) }), mod: await modNow(),
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
@@ -3033,6 +3088,24 @@ async function main(args) {
       return path === null ? { ok: false, status: 409, why: 'Too many pictures in this minute: wait a minute.' } : { ok: true, result: { path } }
     },
     say: sayNow = async body => {
+      // Reactive board, brief P4a: a plain word of the page (the talk's Send, Talk to Main, the re-check) that carries a click id
+      // is queued once: the same id again answers the first word and queues no second. Its one line goes to the actions log.
+      const click = clickIdOf(body)
+      if (click === false) return NOT_A_CLICK
+      if (click !== null) {
+        return clicks.once(click, async () => {
+          const before = await clicks.get(click)
+          if (before !== null && typeof before.hash === 'string' && before.hash !== bodyHash(body)) return CLASH
+          if (before !== null && typeof before.word === 'string') return { ok: true, message: { id: before.word, again: true, ...(before.paste === undefined ? {} : { paste: before.paste }) } }
+          const via = ['talk-send', 'main-talk-send', 'recheck'].includes(body.via) ? body.via : 'say'
+          const done = await sayNow({ ...body, click: undefined, via: undefined })
+          if (done.ok && typeof done.message?.id === 'string') {
+            await clicks.put({ click, via, key: null, route: null, hash: bodyHash(body), at: clock(), word: done.message.id, ...(done.message.paste === undefined ? {} : { paste: done.message.paste }) })
+            if (logClick !== null) await logClick({ via, action: 'say', id: null, click })
+          }
+          return done
+        })
+      }
       // What is answered here would never arrive: this board has no bridge.
       // Focus 2: a copy with a goal map of its own keeps the words of its brainstorms in its own outbox.
       const isOwnTalk = writesMap && typeof body?.command === 'string' && body.command.startsWith('brainstorm')
@@ -3131,7 +3204,23 @@ async function main(args) {
     },
     // B221: the person closes or deletes a step on the Backlog tab, through the work API (the store, then its view).
     // B285: the state is read anew after a change, so an ask made next (Send answers · refine again) knows the block.
-    backlog: async body => {
+    backlog: async function backlogRoute(body) {
+      // Reactive board, brief P4a: "Send answers" and "Ask for pictures" of a refine are ONE action: the answers written into
+      // the step's block, then the refine word to the Advisor (`action: 'refine-send'`, with a click id).
+      const click = clickIdOf(body)
+      if (click === false) return NOT_A_CLICK
+      if (body?.action === 'click-retry') return retryNow({ click: body.click })
+      if (body?.action === 'refine-send') {
+        if (click === null) return { ok: false, status: 400, why: 'A click id is needed.' }
+        const nothing = (!Array.isArray(body.answers) || body.answers.length === 0) && String(body.feedback ?? '').trim() === '' && String(body.request ?? '').trim() === ''
+        return clickNow({
+          ledger: clicks, click, via: body.via === 'refine-pictures' ? 'refine-pictures' : 'refine-send', action: 'refine-answer', key: typeof body.step === 'string' ? body.step : null, route: '/api/backlog', hash: bodyHash(body), now: clock, log: logClick,
+          write: async () => (nothing ? { ok: true, result: { step: body.step } } : backlogRoute({ ...body, action: 'refine-answer', click: undefined, via: undefined })),
+          toRole: 'advisor',
+          sayBody: () => ({ to: null, command: 'refine', step: body.step }),
+          say: clickSay,
+        })
+      }
       const done = await editStep(body, { now: clock(), work: workWriters })
       work.reset?.()
       readState.reset()
@@ -3140,7 +3229,20 @@ async function main(args) {
     // B256: the person changes the goal map on the Goals part. Only the board that delivers writes it; then the state
     // is read anew, so the page draws the file as it now is: also after a refusal, often a change made elsewhere.
     plan: async body => planNow(body),
-    goals: async body => {
+    goals: async function goalsRoute(body) {
+      // Reactive board, brief P4a: "Ask the Advisor" is ONE action: the Ask line under the goal, then its word to the Advisor.
+      const click = clickIdOf(body)
+      if (click === false) return NOT_A_CLICK
+      if (body?.command === 'click-retry') return retryNow(body)
+      if (click !== null && body?.command === 'ask') {
+        return clickNow({
+          ledger: clicks, click, via: 'goal-ask', action: 'ask', key: result => `${body.id}:${result?.id ?? ''}`, route: '/api/goals', hash: bodyHash(body), now: clock, log: logClick,
+          write: async () => goalsRoute({ ...body, click: undefined }),
+          toRole: 'advisor',
+          sayBody: result => (typeof result?.id !== 'string' ? null : { to: null, command: 'goal-ask', goal: body.id, ask: result.id, text: String(body.text ?? ''), pictures: Array.isArray(body.pictures) ? body.pictures : [] }),
+          say: clickSay,
+        })
+      }
       // A page from before the plan's own way sends its Vision words here: they take that way all the same.
       if (PLAN_MOVES.includes(body?.command)) return planNow(body)
       if ([...FOCUS_MOVES, ...FOCUS_DRAFTS].includes(body?.command)) return focusNow(body)
@@ -3193,24 +3295,42 @@ async function main(args) {
     // B259: the person's brainstorm on the Brainstorm part: its thread, and on Create the goal map. Only the board that
     // delivers writes; then the state is read anew.
     brainstorm: async body => {
-      const done = await editThread(body, {
-        canWrite: writesMap,
-        dir: projectFile(config, 'brainstorms'),
-        folder: config.brainstorms,
-        goalsFile: projectFile(config, 'goals'),
-        historyDir: projectFile(config, 'goalsHistory'),
-        now: clock(),
-        // "Change this goal" (2026-10-31): a ticked drop of a change's proposal is the work store's drop, as the person.
-        drop: (id, why) => workAction({ action: 'drop', id, why }, 'person'),
-        // 2026-10-31: a ticked step of the proposal is written by the board while it creates, so the Created line names its id.
-        step: async ({ thread, index, goal }) => {
-          if (isShowOnly || workDir === null) return { ok: false, why: 'This board cannot write a step.' }
-          const made = await writeGoalStep(goalStepFor(thread, index, goal))
-          return made.ok ? { ok: true, result: { id: made.result.step } } : { ok: false, why: made.why }
-        },
+      // Reactive board, brief P4a: a click that carries its id is ONE action: the input stored and its word queued.
+      const click = clickIdOf(body)
+      if (click === false) return NOT_A_CLICK
+      if (body?.command === 'click-retry') return retryNow(body)
+      const write = async () => {
+        const done = await editThread(body, {
+          canWrite: writesMap,
+          dir: projectFile(config, 'brainstorms'),
+          folder: config.brainstorms,
+          goalsFile: projectFile(config, 'goals'),
+          historyDir: projectFile(config, 'goalsHistory'),
+          now: clock(),
+          // "Change this goal" (2026-10-31): a ticked drop of a change's proposal is the work store's drop, as the person.
+          drop: (id, why) => workAction({ action: 'drop', id, why }, 'person'),
+          // 2026-10-31: a ticked step of the proposal is written by the board while it creates, so the Created line names its id.
+          step: async ({ thread, index, goal }) => {
+            if (isShowOnly || workDir === null) return { ok: false, why: 'This board cannot write a step.' }
+            const made = await writeGoalStep(goalStepFor(thread, index, goal))
+            return made.ok ? { ok: true, result: { id: made.result.step } } : { ok: false, why: made.why }
+          },
+        })
+        readState.reset()
+        return done
+      }
+      const clicked = click === null ? null : brainstormClickOf(body)
+      if (clicked === null) return write()
+      if (clicked.noWrite === true) {
+        if (!writesMap) return { ok: false, status: 403, why: 'This board only shows: brainstorm on the board that delivers.' }
+        if (body.command === 'change' && sayLine(body.text) === '') return { ok: false, status: 400, why: 'Say what to change.' }
+      }
+      return clickNow({
+        ledger: clicks, click, via: clicked.via, action: body.command, key: clicked.key ?? (result => result.path ?? body.path ?? null), route: '/api/brainstorm', now: clock, log: logClick,
+        hash: bodyHash(body), write: clicked.noWrite === true ? async () => ({ ok: true, result: body.command === 'change' ? { path: body.path, text: sayLine(body.text) } : { path: body.path } }) : write,
+        sayBody: result => clicked.word({ ...result, path: result.path ?? body.path }, null),
+        say: clickSay,
       })
-      readState.reset()
-      return done
     },
     onError: error => loops.failed('request', error),
     onAnswered: () => loops.succeeded('request'),
@@ -3268,9 +3388,11 @@ async function main(args) {
       const stall = callStall(asked.action, session)
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
       try {
-        const { checked, state } = await checkFresh(body)
-        noteRefused(body, checked)
-        noteMod(body, checked)
+        const fresh = await checkFresh(body)
+        const checked = checkedOrSide(fresh, asked, body)
+        if (checked.isSide !== true) noteMod(body, checked)
+        if (checked.isSide !== true) noteRefused(body, checked)
+        const state = fresh.state
         if (!checked.ok) return checked
         stall.by(checked.chat)
         if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
@@ -4013,6 +4135,16 @@ async function main(args) {
         await loops.run('goal-demo', () => demoNow(state))
         // T17.1: a next try of the recap's round that turned done is told to the partner (once per step).
         await loops.run('recap-round', () => recapRoundNow(state))
+        // Rule 15: a hold the asking chat left alone for 60 minutes of the board's running time ends: the ask goes back to its route. On its
+        // own, so a failure stops no delivery; the word to the chat is the normal wake.
+        // Only when the state this pass read shows a held ask (its quiet `held` line): with nothing held the call would be a full work call every 10 seconds.
+        await loops.run('holds-ended', async () => {
+          if (!heldIn(state)) return
+          const ended = await workAction({ action: 'holds-ended', gaps: state.gaps ?? [] }, 'server')
+          if (!ended.ok) throw new Error(ended.why ?? 'holds-ended was refused')
+          await sendWakes(ended)
+          if (ended.result.changed === true) readState.reset()
+        })
         // B404: a step that has stood on "check pending" for more than 2 minutes (a restart right after a report ended
         // its check) is checked again; the checks that run now are skipped.
         await loops.run('stuck-checks', async () => {
