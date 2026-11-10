@@ -13,7 +13,7 @@ import { valueOf } from './item.mjs'
 /** The Route line of a partner's hand-over of a look that Autopilot keeps for the goal's recap instead (the person's "A", 2026-11-02). */
 export const HANDED_KEPT_WORDS = 'Your partner hands this to you; Autopilot keeps it for the goal\'s recap'
 /**
- * The Route line of a worker's or the main chat's look with pictures of a step of the focus goal that Autopilot keeps for the goal's
+ * The Route line of a worker's or the main chat's look with pictures or a Play link of a step of the focus goal that Autopilot keeps for the goal's
  * recap at once (the coordinator's ruling on Autopilot v2, 2026-11-02: an art or map look waits for the recap, never decided by the
  * board's advice or the partner): a kept look as the partner's hand-over is.
  */
@@ -27,7 +27,7 @@ const KEPT_LINES = [HANDED_KEPT_WORDS, KEPT_LOOK_WORDS]
 
 /**
  * Whether an ask is such a kept look (open or not; the callers ask for open ones): a look routed to the recap whose Route section is a
- * kept line (the partner's hand-over, or since Autopilot v2 a worker's look with pictures), or a look or an own-senses do whose Route
+ * kept line (the partner's hand-over, or since Autopilot v2 a worker's look with pictures or a Play link), or a look or an own-senses do whose Route
  * section is the hand-on line (`handedOnKeptWords`). It holds no worker (a step is not parked or kept waiting for it) and is no reason for the recap card alone: the card shows it
  * when it has another reason (src/recapCard.mjs).
  */
