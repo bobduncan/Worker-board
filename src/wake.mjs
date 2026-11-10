@@ -429,6 +429,17 @@ export function triedWords(attempts, timeOf) {
 }
 
 /**
+ * P5 (the review of 2026-11-11): whether nothing waits for a chat that does not run: it holds no taken or in-progress step, has none queued, no
+ * word of the outbox waits for it (of any command) and the board is not paused. `outbox` the outbox's lines.
+ */
+export function nothingWaitsFor(lane, { outbox = [], isPaused = false } = {}) {
+  if (isPaused || lane === null || lane === undefined) return false
+  if (heldStepOf(lane).held.length > 0 || (lane.held ?? null) !== null || lane.handover?.state === 'held') return false
+  if ((lane.queue ?? []).length > 0) return false
+  return !(outbox ?? []).some(message => message?.state === 'waiting' && message.to === lane.name)
+}
+
+/**
  * The ONE attention text of the board's wake-ups (decision 6), `{ tone: 'attention', text }` or null, from `targets`: every
  * chat that does not run, `{ chat, spell, paths, need }` (`need` true when `wakeNeeds` names it). Per chat whose wake
  * failed on every path it could take in its spell (`wakeOf` final; the review of 2026-11-02: for the whole spell, need or
@@ -438,15 +449,17 @@ export function triedWords(attempts, timeOf) {
  * one) failed or waits for a chat that can send. Replaces nobodyRunsText, wakeFailedText and openerNote.
  * P5 (2026-11-09, src/stillTrue.mjs): `reports` the kept reports by chat name (an object or a Map, `{ state, at, run }`): a chat that ran since
  * its failed wake (`ranSince`) leaves the notice, the line is stale. A chat nothing waits for any more (`need.need === false`) gets a QUIET line
- * ("could not wake X at 10:32; nothing waits for it now"): the tone is 'quiet' when every line is quiet, 'attention' as soon as one is not.
+ * ("could not wake X at 10:32; nothing waits for it now", only for a chat in `nothingWaits`, a Set of chat names): the tone is 'quiet' when every line is quiet, 'attention' as soon as one is not.
  */
-export function noticeOf(record, targets, now, timeOf, { senderClaims = false, senderSince = -Infinity, nobody = null, reports = null } = {}) {
+export function noticeOf(record, targets, now, timeOf, { senderClaims = false, senderSince = -Infinity, nobody = null, reports = null, nothingWaits = null } = {}) {
   const reportOf = chat => (reports instanceof Map ? reports.get(chat) : reports?.[chat]) ?? null
   const wakes = (targets ?? []).map(need => ({ need, wake: wakeOf(record, need, { senderClaims, senderSince }) }))
   const failed = wakes.filter(one => one.wake.final && !ranSince(record, one.need.chat, one.need.spell ?? null, reportOf(one.need.chat), now))
   const quiet = []
   const lines = failed.map(({ need, wake }) => {
-    if (need.need === false) {
+    // `need.need === false` says only that the wake list does not name the chat now: the line is quiet only for a chat the caller says nothing
+    // waits for (`nothingWaits`, `nothingWaitsFor`: no step held, none queued, no word waiting, no pause); else it stays the attention line.
+    if (need.need === false && nothingWaits instanceof Set && nothingWaits.has(need.chat)) {
       const text = `could not wake ${need.chat} at ${timeOf(failedAtOf(record, need.chat, need.spell ?? null) ?? now)}; nothing waits for it now`
       quiet.push(text)
       return text

@@ -1340,6 +1340,8 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .inc-state.is-idle { border-color: #34455d; color: #9fb0c6; }
 .inc-state.is-review { border-color: #4f86b8; color: #7cc4ff; }
 .inc-state.is-done { border-color: #2f5a49; color: var(--working); }
+.inc-state.is-attention { border-color: var(--attn-line); background: var(--attn-bg); color: var(--attn-text); }
+.inc-state.is-quiet { border-color: #34455d; color: #9fb0c6; }
 .inc-state.is-dropped { border-color: #34455d; color: var(--muted); }
 .inc-state.is-sending { border-style: dashed; border-color: #7cc4ff; color: #7cc4ff; }
 .inc-state.is-advisor { border-color: #6a5a99; color: var(--ask); }

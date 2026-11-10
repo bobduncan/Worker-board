@@ -1184,7 +1184,8 @@ function incidentCardOf(card, byId, now = Date.now()) {
     key: card.key, step: card.step, href: card.step === null ? null : `#details=${card.step}`,
     // The card without a fix step says how many incidents it lists: the person counts them against the head's "N open".
     title: (card.title ?? '(this step is not in the store)') + (card.key === 'nofix' ? ` (${covered.length})` : ''),
-    state: card.state.text, tone: card.state.tone, line: lines.join('\n'), lines,
+    // P5: a card that names its open fix chain is attention only when the chain ends in the person (cards.mjs `tone`), else quiet; the others keep the chip's own tone.
+    state: card.state.text, tone: typeof card.chain === 'string' ? (card.tone === 'attention' ? 'attention' : 'quiet') : card.state.tone, line: lines.join('\n'), lines,
     details: covered.map(one => ({
       id: one.id, title: one.title ?? '', state: one.state === 'fix' && one.fix ? `fix ${one.fix}` : one.state ?? 'open', seen: seenOf(one),
       evidence: one.evidence === null || one.evidence === undefined ? null : one.evidence.length > EVIDENCE_SHOWN ? `${one.evidence.slice(0, EVIDENCE_SHOWN).trimEnd()}…` : one.evidence,
@@ -2530,7 +2531,7 @@ function drawRestart(state) {
   // P5: each chat it names opens that chat's window.
   for (const text of stoppedLines(restart, state.chats ?? [])) {
     const node = line('alert', '')
-    node.append(...chatPieces(text, restart.interrupted))
+    node.append(...chatPieces(text, openableChats(state, restart.interrupted)))
     parts.push(node)
   }
   // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
@@ -6190,10 +6191,18 @@ function wakeNoticeChats(notice) {
 }
 // chatlinks:end
 
-/** The names of every chat of the board (the lanes, the partner, its helper, the Supervisor, the Product owner): what a line may name. */
-function boardChatNames(state) {
-  return [...(state?.chats ?? []), state?.advisor, state?.advisorHelper, state?.supervisorChat, state?.productOwner].filter(lane => lane != null && typeof lane.name === 'string').map(lane => lane.name)
+/**
+ * The chats among `names` whose task window the page can open (`#task=`, openFromAddress: a lane of `state.chats` with a window chip). An asleep
+ * lane and the role chats (the partner, its helper, the Supervisor, the Product owner: not in `state.chats`) open nothing, so they stay plain
+ * words: a link that does nothing is worse than none. Reads only the lanes the Needs part's key already holds.
+ */
+function openableChats(state, names) {
+  const lanes = new Map((state?.chats ?? []).map(lane => [lane.name, lane]))
+  return (names ?? []).filter(name => lanes.has(name) && laneWindowChip(lanes.get(name)) !== undefined)
 }
+
+/** Whether a wake notice asks for attention: a notice whose every line is quiet ("nothing waits for it now") is only information. */
+const isAttentionNotice = notice => wakeNoticeText(notice) !== null && notice.tone !== 'quiet'
 
 /**
  * Signals change 4: that line, in the attention colour (the class the older lines had, so the CSS holds); null for none. P5: a chat it names
@@ -6204,7 +6213,7 @@ function drawWakeNotice(notice) {
   const text = wakeNoticeText(notice)
   if (text === null) return null
   const node = el('p', notice.tone === 'quiet' ? 'nobody-runs-quiet' : 'nobody-runs')
-  node.append(...chatPieces(text, [...wakeNoticeChats(notice), ...boardChatNames(board)], stepPieces))
+  node.append(...chatPieces(text, openableChats(board, wakeNoticeChats(notice)), stepPieces))
   return node
 }
 
@@ -6654,7 +6663,7 @@ function drawNeeds(state) {
   const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart) && !isDecidedAnswer(need.answer) && need.answer?.by !== 'recap')
   const cards = [...rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state)), ...slim.map(need => drawSlimNeed(need, answerWaitOf(need, state.waitPart)))]
   const hidden = answered - slim.length
-  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || handsLine !== null || supervised?.isHanded === true || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
+  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || handsLine !== null || supervised?.isHanded === true || isAttentionNotice(state.wakeNotice) || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
   // Autopilot v2 (the person's "B", 2026-11-02): while it is on, what was routed away is never shown nor counted here: no "With your

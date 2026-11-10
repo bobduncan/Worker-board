@@ -4120,11 +4120,15 @@ async function main(args) {
         await loops.run('still-true', async () => {
           // Never while the board closes (a test's teardown removes its folder under the pass: EBUSY on rmdir).
           if (isClosing || workDir === null) return
+          // What the board already read: the kept work read (`work()`, a deep copy only when its kept read ran out) and the state last built.
+          const stored = await work()
+          if (stored?.ok !== true || stored.exists !== true) return
           const came = await stillTruePass({
-            facts: { state: await readState(), items: (await readStore(workDir)).items, outbox: store.outbox(), wakes: wakeFacts(), reports: reports ?? new Map(), now: clock() },
+            facts: { state: readState.last() ?? await readState(), items: stored.items, outbox: store.outbox(), wakes: wakeFacts(), reports: reports ?? new Map(), now: clock() },
             memory: stillTrueMemory, apply: body => workAction(body, 'server'), log: line => console.error(line), history: lines => store.record(lines),
           })
-          if (came.length > 0) {
+          // Only what was written in the store changes the page's reading: a wake line's record is a history line alone.
+          if (came.some(one => one.kind !== 'wake')) {
             work.reset?.()
             readState.reset()
           }

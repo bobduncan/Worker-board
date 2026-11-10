@@ -45,6 +45,7 @@ import { readAutopilotClearedFile, readNamesFile, readObsoleteFile, readPartnerA
 import { KEPT_WORDS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, UNDONE_WORDS, UNDO_ROUTE_LINE, addedCleared, clearedItem, parseAutopilotCleared, startedCleared, undoWords } from './autopilotCleared.mjs'
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
+import { noteCameDownWords, stillTrueLeaves, stillTrueStep } from './stillTrueRules.mjs'
 import { ASKS_NOTHING_WHY, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, asksNothingOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
 import { HELD, afterPause, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
@@ -69,7 +70,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'rethink-hold', 'rethink-free', 'accept-cards', 'popup-asks', 'autopilot', 'autopilot-undo', 'recap-answered', 'holds-ended', 'asset'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'notes-came-down', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'rethink-hold', 'rethink-free', 'accept-cards', 'popup-asks', 'autopilot', 'autopilot-undo', 'recap-answered', 'holds-ended', 'asset'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -78,13 +79,11 @@ const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents
  */
 const GOAL_MAP = new Set(['definition-draft', 'vibe-draft', 'how-draft'])
 /** B298: what never shows on the backlog view: it is not written anew for these. */
-const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'obsolete-check', 'obsolete', 'recheck-stuck', 'recheck-base'])
+const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'notes-came-down', 'instruction', 'turn-ended', 'close', 'read', 'pull', 'undo', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answers', 'obsolete-check', 'obsolete', 'recheck-stuck', 'recheck-base'])
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'autopilot-undo', 'add-to-queue', 'remove-from-queue'])
-/** P5: the why of a note the board marks read by itself (src/stillTrue.mjs): "came down: X1 fixed, X2 gone". */
-const CAME_DOWN = /^came down: \S/
-const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'popup-asks', 'autopilot', 'recap-answered', 'holds-ended'])
+const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'notes-came-down', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'popup-asks', 'autopilot', 'recap-answered', 'holds-ended'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   block: ['main', 'worker', 'person'],
@@ -309,9 +308,7 @@ async function act(body, ctx) {
       if (OWNER_AS_PARTNER.has(action)) role = 'advisor'
     }
   }
-  // P5: the one thing of the person's the board may do, mark a note read once the thing it is about came down (src/stillTrue.mjs): only with that why.
-  const mayServerRead = action === 'read' && role === 'server' && CAME_DOWN.test(line(body.why, 300))
-  if (PERSON.has(action) && role !== 'person' && !mayServerRead) return refuse(403, 'Only the person does that, on the board.')
+  if (PERSON.has(action) && role !== 'person') return refuse(403, 'Only the person does that, on the board.')
   if (role === 'supervisor' && !SUPERVISOR_MAY.has(action)) return refuse(403, 'The supervisor chat reads, files incidents and judges them (work incident, drop X<n>, new "Fix of X<n>", incident-fix), nothing else.')
   // Signals change 6: it closes incidents only; a step's drop stays the main chat's and the person's.
   if (role === 'supervisor' && action === 'drop' && !/^X\d+$/.test(line(body.id, 20))) return refuse(403, 'The supervisor chat drops only an incident (X<n>), never a step.')
@@ -4702,8 +4699,7 @@ async function read(body, w) {
   // B360, the review: a recap is not read away: it is overturned, marked seen (B390), or approves itself.
   if (isRecap(found.item)) return refuse(409, `${valueOf(found.item, 'Id')} is a recap: overturn it, mark it seen, or let it approve itself.`)
   if (stateOf(found.item) === 'read') return { ok: true, result: { id: valueOf(found.item, 'Id'), text: 'Read already.', changed: false } }
-  // P5: the board's own mark (role server, only with a "came down:" why) says why in the note's History.
-  const item = said(put(put(copy(found.item), 'State', 'read'), 'Since', stamp(w.now)), w, w.role === 'server' ? line(body.why, 300) : 'read')
+  const item = said(put(put(copy(found.item), 'State', 'read'), 'Since', stamp(w.now)), w, 'read')
   const done = await save(item, found.text, w)
   return done.ok ? changed(item) : done
 }
@@ -5285,10 +5281,10 @@ async function asksWithdrawn(body, w) {
   for (const one of Array.isArray(body.withdraw) ? body.withdraw : []) {
     const loaded = await load(line(one?.id, 20), w, { kind: ['ask'] })
     if (!loaded.ok || stateOf(loaded.item) !== 'open') continue
-    // P5 (2026-11-09, still-true): the board's re-check of every item passes `anyRoute`: an ask of any Route about an ended step is stale, but a
-    // kept look never (it waits for the goal's recap whatever its step does). Without it only the person's asks, as the start-up check sends them.
-    if (body.anyRoute === true ? isKeptLook(loaded.item) : valueOf(loaded.item, 'Route') !== 'person') continue
-    const step = askStepOf(valueOf(loaded.item, 'Of'), valueOf(loaded.item, 'Title'))
+    // P5 (2026-11-09, still-true): the board's re-check of every item passes `anyRoute`: an ask of any Route about an ended step is stale, but
+    // never what `stillTrueLeaves` names (the recap's asks, a taken-back one, popups, refine questions: the work API checks them again itself). Without it only the person's asks, as the start-up check sends them.
+    if (body.anyRoute === true ? stillTrueLeaves(loaded.item) : valueOf(loaded.item, 'Route') !== 'person') continue
+    const step = body.anyRoute === true ? stillTrueStep(loaded.item) : askStepOf(valueOf(loaded.item, 'Of'), valueOf(loaded.item, 'Title'))
     const state = step === null || !w.store.items.has(step) ? null : stateOf(w.store.items.get(step))
     if (state !== 'done' && state !== 'dropped') continue
     // The step must have ended after the ask was put: an ask that names an old done step as context is still a question.
@@ -5297,6 +5293,29 @@ async function asksWithdrawn(body, w) {
     if (done.ok) withdrawn.push(valueOf(loaded.item, 'Id'))
   }
   return { ok: true, result: { withdrawn, text: withdrawn.length === 0 ? 'No ask withdrawn.' : `Withdrawn: ${withdrawn.join(', ')}.`, changed: withdrawn.length > 0 } }
+}
+/**
+ * P5 (the review of 2026-11-11): the board's own mark of the Supervisor's alarm notes whose incidents are over (src/stillTrue.mjs), in ONE call.
+ * `notes` the ids; each is checked here, not trusted (`noteCameDownWords`: an unread note Via supervisor whose every `Incidents` entry is fixed,
+ * gone, closed or dropped), then marked read with its "came down: X1 fixed, X2 gone" in its History. Only the board (`server`); `read` itself stays
+ * the person's. Answers the ids `read` and their words `whys`.
+ */
+async function notesCameDown(body, w) {
+  const read = []
+  const whys = {}
+  for (const id of Array.isArray(body.notes) ? body.notes : []) {
+    const loaded = await load(line(id, 20), w, { kind: ['note'] })
+    if (!loaded.ok) continue
+    const why = noteCameDownWords(loaded.item, w.store.items)
+    if (why === null) continue
+    const item = said(put(put(copy(loaded.item), 'State', 'read'), 'Since', stamp(w.now)), w, why)
+    const done = await save(item, loaded.text, w)
+    if (done.ok) {
+      read.push(valueOf(item, 'Id'))
+      whys[valueOf(item, 'Id')] = why
+    }
+  }
+  return { ok: true, result: { read, whys, text: read.length === 0 ? 'No note came down.' : `Read: ${read.join(', ')}.`, changed: read.length > 0 } }
 }
 /** Signals change 6: the states an incident goes gone from (src/supervisor/gone.mjs GONE_FROM): never `fix`, whose step answers for it. */
 const GONE_FROM = ['open', 'came back', 'with the supervisor', 'with the advisor']
@@ -5355,6 +5374,7 @@ const CHANGE = {
   'incidents-rekey': incidentsRekey,
   'incident-gone': incidentGone,
   'asks-withdrawn': asksWithdrawn,
+  'notes-came-down': notesCameDown,
   take, step, ask, withdraw, note, words, 'rethink-hold': rethinkHold, 'rethink-free': rethinkFree, report, check, checked, recheck, new: make, queue, requeue, unqueue, pin, 'add-to-queue': addToQueue, 'remove-from-queue': removeFromQueue, 'retire-queue': retireQueue, close, drop, refine, refined, answer, tick, instruction, pull, advance,
   'turn-ended': turnEnded,
   'answered-in-chat': answeredInChat,

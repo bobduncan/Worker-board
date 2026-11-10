@@ -129,7 +129,8 @@ export function chainWordsOf(fixId, items) {
     const day = dayOf(item)
     return `${id}, ${END_WORDS[state] ?? state}${day === '' ? '' : ` since ${day}`}`
   }
-  const shown = links.length > CHAIN_SHOWN ? [said(links[0]), ...links.slice(1, CHAIN_SHOWN), '…'] : links.map((id, at) => (at === 0 || at === links.length - 1 ? said(id) : id))
+  // Over the cap: the first link with its words, "…", then the last ones up to the open end, with its words (the end is what the person waits for).
+  const shown = links.length > CHAIN_SHOWN ? [said(links[0]), '…', ...links.slice(-(CHAIN_SHOWN - 1)).map((id, at, last) => (at === last.length - 1 ? said(id) : id))] : links.map((id, at) => (at === 0 || at === links.length - 1 ? said(id) : id))
   return { text: `waits for its fix ${shown.join(' → ')}`, end }
 }
 

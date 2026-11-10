@@ -359,8 +359,8 @@ test('start-up check, MUST 1: a chat that does not run but reports again after i
   // Before the control: its session started at 18:10, before the failed wake (18:30): the notice stands.
   const before = stateWith(at(18, 10))
   assert.equal(lane(before, 'Digger').isRunning, false)
-  // P5 (2026-11-09): nothing waits for Digger any more, so the line stands, but quiet.
-  assert.deepEqual(before.wakeNotice, { tone: 'quiet', text: 'could not wake Digger at 18:30; nothing waits for it now' })
+  // P5 (review 2026-11-11): Digger holds a step, so the line stays the attention line (quiet only for a chat nothing waits for).
+  assert.deepEqual(before.wakeNotice, { tone: 'attention', text: 'could not wake Digger: no report after the message (sent 18:28 by Lead); open its chat' })
   // Its session started at 18:40, after the failure: nothing stale to show.
   const after = stateWith(at(18, 40))
   assert.equal(lane(after, 'Digger').isRunning, false, 'still no process: only the stale line goes')
@@ -385,7 +385,7 @@ test('start-up check, review 2: a chat whose report names an app chat that runs 
   // Active at 18:20 (after its report, before the failed wake of 18:30): the notice stands, the wake went to a chat that was quiet.
   const before = stateWith(at(18, 20))
   assert.deepEqual(lane(before, 'Digger').unjoined, { at: at(18, 20), session: 'cli-new' })
-  assert.equal(before.wakeNotice?.text, 'could not wake Digger at 18:30; nothing waits for it now')
+  assert.equal(before.wakeNotice?.text, 'could not wake Digger: no report after the message (sent 18:28 by Lead); open its chat')
   // Active at 18:40, after the failure: the chat runs on a session the board does not follow; the state says nothing of the wake (the check says to re-join).
   const after = stateWith(at(18, 40))
   assert.equal(lane(after, 'Digger').isRunning, false)
