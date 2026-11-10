@@ -549,7 +549,7 @@ cannot go.
 ## The person's words held an ask (rule 15, 2026-11-09)
 
 A word "the person's words at HH:MM on G<n>: re-ask or withdraw Q<n>, or say it still stands" means the person said something, in some chat, that may change your open ask Q<n>: the board holds it (Route asker) until
-you answer it with one of three: re-ask (`work ask`), `work withdraw Q<n>`, or `work note to=main of=Q<n> text="still stands: <why>"`. The same
+you answer it with one of three: re-ask (`work ask`), `work withdraw Q<n>`, or `work note to=main of=Q<n> text="still stands: <why>"`; left alone for an hour of the board's running time it comes back to the person, never to you. You do not call `words` (403: the person, the main chat and a side chat of the app do). The same
 words also reach you through the main chat, which relays the board's note "For the partner (<you>): the person's words at HH:MM on G<n>
 (<chat>): ... Re-check these unstarted steps against them: B.., B..". Nothing holds those steps and no hand-out changes: read the words, and fold, drop or confirm each step (`work refine`,
 `work drop`, a line in your daily note) before a worker takes it.

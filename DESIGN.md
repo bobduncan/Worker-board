@@ -7497,24 +7497,25 @@ thats confusing." The stairs were settled in chat 2 (every map painted whole by 
 (the Advisor, of G60) stayed open with options against the decision; only hand messages fixed it, because chat 2 is a side chat of the app, not a chat
 of the board's list, and the work tool refused it ("is no chat of the list").
 
-**Who may call `words`.** The person (the page), the main chat, and any other chat (role `side`, `src/work/api.mjs`): a side chat may call nothing
-else (everything else stays 403) and must say `where` (the chat and the time, else 400). `id` is a step (B<n>, as before) or a goal (G<n>): the words
+**Who may call `words`.** The person (the page), the main chat, and a side chat of the app (role `side`, which `src/work/api.mjs` gives only to a call made `as: 'side'`;
+the bridge makes it only for a session the board shows under no name AND a name no shown chat has, `sideWordsOf` in `src/bridge.mjs`, so a duplicate "Game - Main" never moves Main's lane or mod version, and a side call notes no mod): a side chat may call nothing
+else (everything else stays 403) and must say `where` (the chat and the time, else 400). Workers and the partner get 403 on `words`, and the main chat does not withdraw another chat's ask. `id` is a step (B<n>, as before) or a goal (G<n>): the words
 stand under the goal in the goal map as `Your words: <date time> · <words> (in <where>)` (`keepGoalWords`, the same writer and history folder as
 every change of the map; the Goals part draws one quiet line each), or as a point of the step's "Your words".
 
-**The record.** Every OPEN ask of the goal (`Of` the goal, or a step of the goal) or, for words on a step, of that step alone, filed BEFORE the
+**The record.** Every OPEN ask, owned by a chat the board shows (not the board's own Accept cards, not `Via: form` popups or `Via: refine`, not a recap or verdict look, never one released before), of the goal (`Of` the goal, or a step of the goal) or, for words on a step, of that step alone, filed BEFORE the
 words and not held already, gets `Route: asker`, a line in its `## Route` section (`held from <old route>: your words at HH:MM may change this
 (<chat>)`) and a History line. A held ask is in no list of the person's (`ROUTED_AWAY`, `storeWaits`, `reconcile`), no wait of any step
 (`openAsksOf`), not the partner's (`isRoutedToPartner`) and never re-routed or answered by Autopilot; its step's window shows it ("Held for your
-words"). Its asking chat gets one word through the result's `wakes` (`the person's words at HH:MM on G<n>: re-ask or withdraw Q<n>, or say it
+words" and, for goal-level asks too, one quiet `held` line on Needs your attention: "Q711 held: Worker 5 re-checks it after your words at 16:20"; no card, no count). A held ask counts for no step state either (`openAskIds`, `guards.mjs`, `hasBlockingAsk`). Its asking chat gets one word through the result's `wakes` (`the person's words at HH:MM on G<n>: re-ask or withdraw Q<n>, or say it
 still stands`). The unstarted steps of the goal (new, refined, queued) are named in ONE note from the board to the main chat, "For the partner (<name>): ..." (a note is read only where its To is main or the person, lists.mjs `notesToMain`; the main chat relays it, as it relays every "For <chat>" note); no step is held.
 
-**How the hold ends.** (1) The chat re-asks under the same step or goal: the held ask is withdrawn `re-asked as Q<new>` (a held ask is no repeat).
+**How the hold ends.** (1) The chat re-asks under the same goal (or its question joins another chat's open ask): its held asks of the goal are withdrawn `re-asked as Q<new>` (a held ask is no repeat).
 (2) `work withdraw Q<n>`. (3) `work note to=main of=Q<n> text="still stands: <why>"` from the asking chat (or the main chat or the person): the
-route comes back from the `held from` line, with a `still stands` line; the note is filed to main as any note. (4) Nobody does any of this within 60
+ask comes back to the person with a `still stands` line; the note is filed to main as any note. (4) Nobody does any of this within 60
 minutes of the board's RUNNING time (`src/work/askHold.mjs` `heldAsksDue`, off time left out as `offMsOf` counts it, never while the person pauses):
-the server's `holds-ended` action, called in `reconcilePass`, sends the ask back to its old route with a quiet line `not re-checked by <chat> since your
-words at HH:MM`.
+the server's `holds-ended` action (only while something is held, and only with the board running: not while pausing or resuming), called in `reconcilePass`, sends the ask back to the PERSON (`Route: person`, `Since` and `Filed` restamped so no old route's clock fires at once; Autopilot's sweep judges it anew) with a quiet line `not re-checked by <chat> since your
+words at HH:MM`. A released ask is never held again by later words; a re-ask is a new ask.
 
 **Tests.** `test/work/wordsRecheck.test.mjs` (mutants: no Filed guard, a side chat allowed every action, no word to the chat, 1 minute instead of 60,
 no pause skip, `where` not required, the step window's rows gone: each fails it).

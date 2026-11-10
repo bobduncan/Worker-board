@@ -9,6 +9,7 @@ import { askFiledMs, valueOf } from './item.mjs'
 import { itemsOf } from './read.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, TAKE_BACK_MS, isDecidedForYou, isRoutedToPartner, partnerAskStand } from './partnerAnswers.mjs'
 import { TOOK_ADVICE, autopilotRoute, formHandsOf, routedAt, standsForPerson } from './autopilot.mjs'
+import { heldAtMs, heldFrom, isHeld } from './askHold.mjs'
 import { isKeptLook } from './keptLook.mjs'
 import { isRecap } from './recap.mjs'
 
@@ -174,7 +175,8 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
     // answer (no `Answered by`, or `person`) stands there while its line waits (the page's `slim`).
     const answer = byPartner ? { ...stored, ...(known.answer === null ? {} : { id: known.answer.id ?? null, state: known.answer.state, takenAt: known.answer.takenAt ?? null, deliveredAt: known.answer.deliveredAt ?? since }), by: valueOf(item, 'Answered by'), why }
       : (a => (a !== null && valueOf(item, 'Answered by') === 'recap' ? { ...a, by: 'recap' } : a))(known.answer ?? (state === 'open' ? null : stored))
-    const routeNote = (item.sections.get('Route') ?? []).join(' ').trim()
+    // The card shows the newest Route line only: the lines of a hold and its release (rule 15) and of the routes before stand under it as history.
+    const routeNote = (item.sections.get('Route') ?? []).map(one => one.trim()).filter(one => one !== '').at(-1) ?? ''
     // Autopilot v2 (the person's "B", 2026-11-02): an open ask only the person's hands can do (and nobody handed on) is no card but
     // a part of the one quiet line "Needs your hands" (`hands`: what of the hands it needs, autopilot.mjs PERSONS_HANDS).
     const hands = autopilot && state === 'open' ? autopilotRoute(item, { roleOf, items, focusGoal, focusHasDemo, recapSteps, prefix, again: true }).hands ?? null : null
@@ -196,6 +198,20 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
       route: valueOf(item, 'Route'), routeNote: routeNote === '' ? null : routeNote, canTakeBack: byPartner, hands, handsWords,
     }]
   })
+}
+
+/**
+ * Rule 15 (the person must never lose a question): the asks held for the person's words, one quiet line each on Needs your attention,
+ * the goal's own asks too (`Of` G<n>; a step's window lists its held asks as well, read.mjs): `[{ id, chat, minute, of, at }]`, oldest
+ * first. They are no card and no count: the hold asks nobody, so the line only says where the question went and who re-checks it.
+ */
+export function heldAsksOf(work, { names = [], prefix = '' } = {}) {
+  const nameOf = nameFinder(names, prefix)
+  return asksOfStore(work).filter(isHeld).map(item => {
+    const owner = valueOf(item, 'Owner')
+    const at = heldAtMs(item)
+    return { id: valueOf(item, 'Id'), chat: owner === null ? null : nameOf(owner), minute: heldFrom(item)?.minute ?? null, of: valueOf(item, 'Of'), at: Number.isFinite(at) ? at : null }
+  }).sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
 }
 
 /**

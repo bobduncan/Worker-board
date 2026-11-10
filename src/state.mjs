@@ -35,9 +35,10 @@ import { planStarting, planState, withPlanWork } from './plan.mjs'
 import { standardHold } from './work/standardHold.mjs'
 import { askIdsIn, askKey, askPartsOf, sameAsk } from './work/askWords.mjs'
 import { forYouRepeat } from './work/askRepeat.mjs'
+import { isHeld } from './work/askHold.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
-import { decidedTodayOf, informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
+import { decidedTodayOf, heldAsksOf, informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
 import { recapsShowOf } from './boardSettings.mjs'
 import { recapWaitOf } from './work/autopilot.mjs'
 import { NOTE_LINE, isDecidedForYou, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
@@ -1055,7 +1056,7 @@ function answerOf(outbox, id, version = null, to = null) {
  * question form that the mod could not file, and a chat that wrote questions in its chat without filing an ask is a
  * warning (`unfiled`) with the way to its chat, never a question to answer here.
  */
-function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = null, advisorWaits = null, helper = null, waits, idle = [], late = [] }) {
+function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = null, advisorWaits = null, helper = null, waits, idle = [], late = [], held = [] }) {
   const live = lanes.filter(lane => !lane.isLeftover)
   const helpers = helper === null ? [] : [helper]
   const names = new Set([...live, ...helpers].map(lane => lane.name))
@@ -1142,6 +1143,29 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       isMain: false,
       isAdvisor: false,
       talk: 'window',
+    })
+  }
+  // Rule 15 (the person must never lose a question): an ask held for the person's words is one quiet line, no card and no count: where
+  // the question went and who re-checks it ("Q711 held: Worker 5 re-checks it after your words at 16:20"). A goal's own ask too.
+  for (const one of held) {
+    items.push({
+      id: `held:${one.id}`,
+      from: one.chat,
+      kind: 'held',
+      tone: 'quiet',
+      title: `${one.id} held: ${one.chat ?? 'its chat'} re-checks it${one.minute === null ? '' : ` after your words at ${one.minute}`}`,
+      text: '',
+      at: one.at,
+      ...blank,
+      // No `workId`: the page reads that as an ask of the store; `ask` names the held ask for the line's link.
+      ask: one.id,
+      ...(one.of === null ? {} : { of: one.of }),
+      version: null,
+      canAnswer: false,
+      task: null,
+      waits: null,
+      isMain: false,
+      isAdvisor: false,
     })
   }
   // B308: a worker that holds steps, has ended its turn with nothing running and asked nothing (the reconciler's `idle
@@ -1803,6 +1827,11 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null, blockedBy, waitsOn: waitsOnOf(item), ...savedWith(item) }
   }
   // B438, the review: every step the store holds for a chat and is not finished with, with its state, oldest first.
+  // Rule 15: whether every open ask under the step is held for the person's words (and there is one).
+  const waitsOnHeldOnly = id => {
+    const open = itemsOf(raw.work).filter(one => one.head.get('Kind') === 'ask' && one.head.get('State') === 'open' && one.head.get('Of') === id)
+    return open.length > 0 && open.every(isHeld)
+  }
   const storeStepsOf = name => itemsOf(raw.work)
     .filter(one => one.head.get('Kind') === 'step' && ['taken', 'in progress', 'waiting on you', 'review'].includes(one.head.get('State'))
       && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase())
@@ -1859,7 +1888,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     const lane = laneFromReport(entry, {
       now: laneAt, unknownAfterMs, offAfterMs,
       holdsTask: holds.length > 0,
-      hasBlockingAsk: waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you')),
+      // Rule 15: a step that waits on you only for asks held for the person's words waits for nobody (the hold asks nobody).
+      hasBlockingAsk: waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you' && !waitsOnHeldOnly(one.id))),
       waitsForPartner: forPartner.length > 0,
       // B148 kept: background work holds no chat whose step is reported (in review or done) while it holds no other.
       isTaskReported: holds.length === 0 && hasReportedStep(chat.name, entry.busyAt),
@@ -2601,7 +2631,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     },
     // Focus 4: the partner's cards marked, for the group "From your partner".
     forYou: markPartner([
-      ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, helper: helperLane, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold'), late: lateWaits }),
+      ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, helper: helperLane, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold'), late: lateWaits, held: !workOk ? [] : heldAsksOf(raw.work, { names: chatNames, prefix }) }),
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
       // Autopilot (2026-10-31): only what is routed to the person, while it is on (src/work/autopilot.mjs).

@@ -5044,6 +5044,31 @@ function handsLineView(list) {
 }
 // handsline:end
 
+// heldlines:start
+/**
+ * Rule 15 (the person must never lose a question): the asks held for the person's words stand as one quiet line each under the cards
+ * (the state's needs of kind `held`, goal-level ones too): `[{ id, words, href, title }]`. They are no card and no count, and only the
+ * line draws them: `without` is the needs that are cards.
+ */
+function heldLinesView(needs) {
+  return (needs ?? []).filter(need => need?.kind === 'held' && typeof need.ask === 'string').map(need => ({ id: need.ask, words: String(need.title ?? need.ask), href: `#details=${need.ask}`, title: `Open ${need.ask}: held until its chat re-checks it, or for 60 minutes of the board's running time` }))
+}
+/** The needs that are cards: every one but the held lines. */
+const withoutHeldLines = needs => (needs ?? []).filter(need => need?.kind !== 'held')
+// heldlines:end
+
+/** Rule 15: the quiet lines of the asks held for the person's words (heldLinesView), each opening its ask's window. */
+function drawHeldLines(view) {
+  return view.map(one => {
+    const line = el('p', 'held-line')
+    const link = el('a', 'held-line-ask', one.words)
+    link.href = one.href
+    link.title = one.title
+    line.append(link)
+    return line
+  })
+}
+
 /** Autopilot v2: the one quiet line of what only the person's hands can do (handsLineView), under the cards; it counts as one. */
 function drawHandsLine(view) {
   if (view === null) return null
@@ -6497,7 +6522,9 @@ function drawNeeds(state) {
   const recapAttention = recapMaking !== null ? null : recapAttentionView(state.recapCard ?? null, state.focusGoal ?? null)
   // The review of 2026-11-04: an ask the recap card counts as a kept look or do is no card of its own beside it (never counted twice).
   const inRecapCard = new Set(recapAttention === null ? [] : (state.recapCard?.looks ?? []).map(one => one.target?.ask).filter(id => typeof id === 'string'))
-  const forYou = inRecapCard.size === 0 ? state.forYou : state.forYou.filter(need => !inRecapCard.has(need.workId))
+  // Rule 15: the held asks are quiet lines under the cards, never cards and never counted.
+  const heldLines = heldLinesView(state.forYou)
+  const forYou = withoutHeldLines(inRecapCard.size === 0 ? state.forYou : state.forYou.filter(need => !inRecapCard.has(need.workId)))
   // Calm panel: the open asks the backlog held are cards as every other ask (`panelNeeds`), its ticked ones closed.
   const every = panelNeeds({ ...state, forYou })
   // Autopilot v2: what only the person's hands can do is one quiet line under the cards, not a card each (handsNeedsOf).
@@ -6547,7 +6574,7 @@ function drawNeeds(state) {
   // Autopilot v2 (the person's "B", 2026-11-02): while it is on, what was routed away is never shown nor counted here: no "With your
   // partner" line, and "Decided for you" folds into the one line on top with today's count (drawAutopilotLine); the older answers
   // stay in the daily notes.
-  fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawHandsLine(handsLine), isPilot ? null : drawWithPartner(state), isPilot ? null : drawDecidedForYou(state), ...recaps])
+  fill(box, [none, drawObsolete(state), drawPartnerNeeds(partnerCards, partner.filter(need => !isClosed(need) && !isAnswered(need)).length), drawMissed(missed), drawSupervisorLine(supervised), drawGoalAskNeeds(state), drawBrainstormNeeds(state), ...oldCards, drawRefineNeeds(state), ...cards, drawHandsLine(handsLine), ...drawHeldLines(heldLines), isPilot ? null : drawWithPartner(state), isPilot ? null : drawDecidedForYou(state), ...recaps])
   // T20: the Product owner's recap card is the first card, the dashed "Autopilot cleared" line right under it.
   const firstCards = [recapAttention === null ? null : drawRecapAttention(recapAttention), recapMaking === null ? null : drawRecapMaking(recapMaking), cleared === null ? null : drawClearedLine(cleared)].filter(one => one !== null)
   if (firstCards.length > 0) box.prepend(...firstCards)

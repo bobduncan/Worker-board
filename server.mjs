@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, modSaid, noteCall, noteReport, noteWhoami, shownChats, shownSessions, whoamiOf, whoamiSession, withModHeader } from './src/bridge.mjs'
+import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, modSaid, noteCall, noteReport, noteWhoami, shownChats, shownSessions, sideWordsOf, whoamiOf, whoamiSession, withModHeader } from './src/bridge.mjs'
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
 import { landedLines, runningLanding } from './src/landing.mjs'
@@ -1632,6 +1632,8 @@ async function main(args) {
   // (src/supervisor), set up with the reconciler on a board that writes; null on a board that never runs it. B482,
   // B488: it runs where the board's loops run (`ownsLoops`, its port `owns`).
   let supervisor = null
+  /** Rule 15: whether the state shows an ask held for the person's words (a quiet `held` need, src/state.mjs). */
+  const heldIn = state => (state?.forYou ?? []).some(need => need.kind === 'held')
   /**
    * B299: the chats an action on the store wakes (`wake`, `wakeOwner`): the chat that asked, with the answer to its ask
    * (bridge.mjs, as the person's answer reads), and the owner of the step the answer frees. Partner answers (2026-10-19):
@@ -1642,17 +1644,21 @@ async function main(args) {
     // Rule 15: and `wakes`, a word to each asking chat whose ask the person's words held (work `words`), or whose hold ended.
     const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null, ...(done.result.wakes ?? [])].filter(one => one !== null) : []
     let paste = null
-    for (const wake of isShowOnly ? [] : wakes) {
-      const state = await readState()
+    // The state is read once per call and reset once after the last word (the person's words on a goal wake several chats at once: a
+    // read and a reset per word made each of them wait for a whole new reading of the board).
+    const state = wakes.length === 0 || isShowOnly ? null : await readState()
+    let said = false
+    for (const wake of state === null ? [] : wakes) {
       const shown = shownChats(state).some(chat => chat.name === wake.to)
       if (!shown) continue
       const isCopied = state.bridge?.isMissing === true
       const words = typeof wake.line === 'string' ? { ...workWords(wake.to, wake.id, wake.line), kind: wake.kind ?? 'taken-back' } : answerWords(wake)
       const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
       await store.say(message)
-      readState.reset()
+      said = true
       if (isCopied) paste ??= { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
     }
+    if (said) readState.reset()
     return paste
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
@@ -2673,14 +2679,15 @@ async function main(args) {
   /**
    * Rule 15 (2026-11-09): a side chat of the app (no chat of the list: the board shows no lane for its session) may give the
    * person's words, and only those: the one call the bridge takes from a chat it does not show (the work API gives it the role
-   * `side`, which may do nothing else). Its name is the title its mod sends; it counts as no refused call.
+   * `side` when it is called `as: 'side'`, which may do nothing else). Its name is the title its mod sends; it counts as no refused
+   * call. Only a session the board does not know under a name no shown chat has (bridge.mjs `sideWordsOf`).
    */
-  const sideWords = (checked, asked, body) => !checked.ok && checked.status === 409 && asked.action === 'words' && typeof body?.chat === 'string' && body.chat.trim() !== ''
+  const checkedOrSide = (fresh, asked, body) => (sideWordsOf(fresh.checked, asked, body, fresh.state) ? { ok: true, chat: body.chat.trim().slice(0, 80), isSide: true } : fresh.checked)
   /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
   const bridgeWorkOnce = async (body, checked) => {
     // T8.5: the version its mod said with this very call (noteMod keeps it before the call is answered).
     const mod = modOf.get(checked.chat)?.version ?? null
-    const done = await workAction({ ...body, chat: checked.chat })
+    const done = await workAction({ ...body, chat: checked.chat }, checked.isSide === true ? 'side' : undefined)
     // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.
     // B760: by the state the board has, as the check of the call: work health's answer never waits for a whole read.
     if (supervisor !== null && ['health', 'incident', 'turn-ended'].includes(body?.action) && done.ok && laneRole(readState.last() ?? await readState(), checked.chat) === 'supervisor') {
@@ -3286,8 +3293,8 @@ async function main(args) {
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
       try {
         const fresh = await checkFresh(body)
-        const checked = sideWords(fresh.checked, asked, body) ? { ok: true, chat: body.chat.trim().slice(0, 80), isSide: true } : fresh.checked
-        noteMod(body, checked)
+        const checked = checkedOrSide(fresh, asked, body)
+        if (checked.isSide !== true) noteMod(body, checked)
         if (checked.isSide !== true) noteRefused(body, checked)
         const state = fresh.state
         if (!checked.ok) return checked
@@ -4019,7 +4026,9 @@ async function main(args) {
         await loops.run('recap-round', () => recapRoundNow(state))
         // Rule 15: a hold the asking chat left alone for 60 minutes of the board's running time ends: the ask goes back to its route. On its
         // own, so a failure stops no delivery; the word to the chat is the normal wake.
+        // Only when the state this pass read shows a held ask (its quiet `held` line): with nothing held the call would be a full work call every 10 seconds.
         await loops.run('holds-ended', async () => {
+          if (!heldIn(state)) return
           const ended = await workAction({ action: 'holds-ended', gaps: state.gaps ?? [] }, 'server')
           if (!ended.ok) throw new Error(ended.why ?? 'holds-ended was refused')
           await sendWakes(ended)

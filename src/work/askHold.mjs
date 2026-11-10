@@ -23,6 +23,23 @@ export const holdLine = (route, minute, chat) => `held from ${route ?? 'person'}
 /** The History words of a hold. */
 export const holdHistory = (minute, goal) => `held: the person's words at ${minute} on ${goal} may change this`
 
+/** The Route line of a hold that ran out: the board's, never a chat's or the person's hand-over. */
+export const notRecheckedLine = (chat, minute) => `not re-checked by ${chat} since your words at ${minute}`
+/** The Route line of a hold the asking chat lifted ("still stands"). */
+export const stillStandsLine = (minute, why) => `still stands (${minute}): ${why || 'no reason given'}`
+const RELEASE_LINE = /^(?:not re-checked by .+ since your words at \S+|still stands \(\d\d:\d\d\): .*)$/
+
+/** Whether a Route-section line is a release line (the hold ended; see `notRecheckedLine` and `stillStandsLine`). */
+export const isReleaseLine = line => RELEASE_LINE.test(String(line ?? '').trim())
+/** Whether a Route-section line is the board's own hold or release line: no word of anyone's hand-over (Autopilot's `isExplicitPerson` skips it). */
+export const isHoldLine = line => HELD_LINE.test(String(line ?? '').trim()) || isReleaseLine(line)
+
+/**
+ * Whether the ask was held once and released: later words never hold it again (a chat that writes words every hour would keep the
+ * person's asks off the board for ever); a re-ask makes a new ask, which the next words may hold.
+ */
+export const wasReleased = item => (item?.sections?.get('Route') ?? []).some(isReleaseLine)
+
 /** The route and minute of the ask's newest hold line, or null for none. */
 export function heldFrom(item) {
   const found = (item?.sections?.get('Route') ?? []).map(one => String(one).trim().match(HELD_LINE)).filter(Boolean).at(-1)

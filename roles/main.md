@@ -311,10 +311,10 @@ yourself gets its checkpoint first, as a worker's does (`roles/worker.md`, "A pa
 ## The person's words held an ask (rule 15, 2026-11-09)
 
 A word "the person's words at HH:MM on G<n>: re-ask or withdraw Q<n>, or say it still stands" reaches you when an ask of yours is held; it may also come from you: the person's words said in your chat go to the
-board with `work words id=G<n> or B<n> text=... where="<your chat>, HH:MM"` (any chat may call `words`, a side chat only that), which holds the
-open asks of the goal or step filed before them. Answer a held ask of yours one of three ways: re-ask with `work ask`, `work withdraw Q<n>`,
-or `work note to=main of=Q<n> text="still stands: <why>"`. You may also lift or withdraw a held ask of another chat when its words are plainly
-settled. A hold nobody answers goes back to its old route after 60 minutes of the board's running time. A board note "For the partner
+board with `work words id=G<n> or B<n> text=... where="<your chat>, HH:MM"` (`words` is called by the person, by you, and by a side chat of the app, which may call nothing else; a worker or the partner gets 403), which holds the
+open asks, owned by a chat the board shows, of the goal or step filed before them. Answer a held ask of yours one of three ways: re-ask with `work ask`, `work withdraw Q<n>`,
+or `work note to=main of=Q<n> text="still stands: <why>"`. You do not withdraw another chat's held ask (`withdraw` refuses it: only the asker or the person withdraws): ask the chat, or wait for the 60-minute
+release. A hold nobody answers comes back to the person (never to its old route) after 60 minutes of the board's running time, restamped, and is never held again. A board note "For the partner
 (<name>): the person's words at HH:MM on G<n> ... Re-check these unstarted steps against them" you relay to the partner at once, as you relay
 every "For <chat>" note.
 

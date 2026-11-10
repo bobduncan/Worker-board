@@ -164,7 +164,7 @@ step therefore says what it touches ("Touches: ...").
   holds it (Route asker: it asks nobody and blocks nothing) until you answer the word, within an hour of the board's running time.
   Read the person's words (`work next`, or the step's "Your words"), then do ONE of three: re-ask what is still open (`work ask`, the
   held ask is withdrawn "re-asked as Q<new>"), `work withdraw Q<n> why="<what the words settled>"`, or, when the words change nothing,
-  `work note to=main of=Q<n> text="still stands: <why>"`. Left alone, the ask goes back to the person or the partner by itself.
+  `work note to=main of=Q<n> text="still stands: <why>"`. Left alone, the ask comes back to the person by itself after an hour of the board's running time (never held again). You do not call `words` (the person, the main chat and a side chat of the app do).
 - Record every wait on a chat (P1 of the one wait system, 2026-11-09): while you wait for another chat's answer (chat 1's go
   to land, a review, a picture), write `work block id=B<n> on="chat 1" why="its go to land"` — never only in a checkpoint. The
   board then shows you as waiting on purpose, sends no "go on" line and gives the step to nobody for 90 minutes of its running

@@ -16,9 +16,14 @@ import vm from 'node:vm'
 import { parseGoals } from '../../src/goals.mjs'
 import { keepGoalWords } from '../../src/goalsWrite.mjs'
 import { workApi } from '../../src/work/api.mjs'
-import { HOLD_MINUTES, heldAsksDue, isHeld } from '../../src/work/askHold.mjs'
-import { standsForPerson } from '../../src/work/autopilot.mjs'
-import { storeNeeds, storeWaits } from '../../src/work/lists.mjs'
+import { HOLD_MINUTES, heldAsksDue, isHeld, isHoldLine } from '../../src/work/askHold.mjs'
+import { DEFAULT_FLOW } from '../../src/work/flow.mjs'
+import { parseItem } from '../../src/work/item.mjs'
+import { reconcile } from '../../src/work/reconcile.mjs'
+import { workLineWhy } from '../../src/work/workLines.mjs'
+import { sideWordsOf } from '../../src/bridge.mjs'
+import { isExplicitPerson, standsForPerson } from '../../src/work/autopilot.mjs'
+import { heldAsksOf, storeNeeds, storeWaits } from '../../src/work/lists.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 import { isRoutedToPartner } from '../../src/work/partnerAnswers.mjs'
 import { itemOfStep } from '../../src/work/read.mjs'
@@ -69,6 +74,8 @@ const ctx = (b, now, as, more = {}) => ({
 })
 const chat = (b, who, body, now = NOW, more = {}) => workApi({ ...body, chat: who }, ctx(b, now, undefined, more))
 const server = (b, body, now) => workApi(body, ctx(b, now, 'server'))
+// A side chat of the app: the bridge calls the API `as: 'side'` for a session it does not show under a name no shown chat has (bridge.mjs sideWordsOf).
+const side = (b, body, now = NOW) => workApi({ ...body, chat: SIDE }, ctx(b, now, 'side'))
 const items = async b => (await readStore(b.dir)).items
 const field = (all, id, key) => all.get(id)?.head.get(key) ?? null
 const section = (all, id, name) => all.get(id)?.sections.get(name) ?? []
@@ -81,7 +88,7 @@ const open = async t => {
 
 test('the person\'s words on G60 from a side chat: Q711 and Q712 are held, the others stay, each asking chat is told, the partner gets one note', async t => {
   const b = await open(t)
-  const said = await chat(b, SIDE, wordsOn('G60'))
+  const said = await side(b, wordsOn('G60'))
   assert.equal(said.ok, true, said.why)
   assert.deepEqual(said.result.held, ['Q711', 'Q712'])
   const all = await items(b)
@@ -111,23 +118,23 @@ test('the person\'s words on G60 from a side chat: Q711 and Q712 are held, the o
 test('a side chat may only say the person\'s words: every other action stays "is no chat of the list"; and it says where', async t => {
   const b = await open(t)
   for (const body of [{ action: 'ask', of: 'B1091', kind: 'decide', text: ['Which stairs?'] }, { action: 'take', id: 'B1092' }, { action: 'note', to: 'main', text: 'hi' }, { action: 'withdraw', id: 'Q711' }]) {
-    const refused = await chat(b, SIDE, body)
+    const refused = await side(b, body)
     assert.equal(refused.ok, false, body.action)
     assert.equal(refused.status, 403, body.action)
     assert.match(refused.why, /is no chat of the list/, body.action)
   }
-  const nowhere = await chat(b, SIDE, wordsOn('G60', { where: undefined }))
+  const nowhere = await side(b, wordsOn('G60', { where: undefined }))
   assert.equal(nowhere.status, 400)
   assert.match(nowhere.why, /say where the person said it: the chat and the time/i)
   assert.equal(field(await items(b), 'Q711', 'Route'), 'partner', 'nothing was held')
   // A goal that is not in the map is refused, and so are no words.
-  assert.equal((await chat(b, SIDE, wordsOn('G99'))).status, 409)
-  assert.equal((await chat(b, SIDE, wordsOn('G60', { text: [] }))).status, 400)
+  assert.equal((await side(b, wordsOn('G99'))).status, 409)
+  assert.equal((await side(b, wordsOn('G60', { text: [] }))).status, 400)
 })
 
 test('held asks stand in no list of the person: not in Needs your attention, not as a wait, not as the partner\'s, not for Autopilot', async t => {
   const b = await open(t)
-  await chat(b, SIDE, wordsOn('G60'))
+  await side(b, wordsOn('G60'))
   const work = { ok: true, ...(await readStore(b.dir)) }
   const needs = autopilot => storeNeeds(work, { now: NOW, autopilot, roleOf, names: Object.keys(ROLES) }).map(one => one.workId)
   assert.deepEqual(needs(false), ['Q713', 'Q714'])
@@ -148,7 +155,7 @@ test('held asks stand in no list of the person: not in Needs your attention, not
 
 test('the hold ends three ways: the chat re-asks (the held one is withdrawn "re-asked as Q715", no repeat refusal), or says "still stands", or withdraws', async t => {
   const b = await open(t)
-  await chat(b, SIDE, wordsOn('G60'))
+  await side(b, wordsOn('G60'))
   // Worker 5 asks again under B1091, in the held ask's own words: a held ask is no repeat.
   const again = await chat(b, 'Worker 5', { action: 'ask', of: 'B1091', kind: 'decide', title: 'Which stairs for Q711?', text: ['Which stairs for Q711?'] }, NOW + 5 * MIN)
   assert.equal(again.ok, true, again.why)
@@ -171,7 +178,7 @@ test('the hold ends three ways: the chat re-asks (the held one is withdrawn "re-
   // Another chat's "still stands" lifts nothing; plain words lift nothing.
   const other = await board()
   t.after(() => rm(other.dir, { recursive: true, force: true }))
-  await chat(other, SIDE, wordsOn('G60'))
+  await side(other, wordsOn('G60'))
   await chat(other, 'Worker 6', { action: 'note', to: 'main', of: 'Q711', text: 'still stands: no' }, NOW + MIN)
   await chat(other, 'Worker 5', { action: 'note', to: 'main', of: 'Q711', text: 'I will look at it' }, NOW + MIN)
   assert.equal(field(await items(other), 'Q711', 'Route'), 'asker')
@@ -203,7 +210,7 @@ test('words on a step from the main chat hold only that step\'s asks and note no
 
 test('a hold nobody answers ends after 60 minutes of the board\'s RUNNING time: the ask goes back, quietly, and its chat is told; never while paused', async t => {
   const b = await open(t)
-  await chat(b, SIDE, wordsOn('G60'))
+  await side(b, wordsOn('G60'))
   const run = (minutes, gaps = []) => server(b, { action: 'holds-ended', gaps }, NOW + minutes * MIN)
   // The pure part: the board's running time since the words.
   const all = await items(b)
@@ -219,13 +226,14 @@ test('a hold nobody answers ends after 60 minutes of the board\'s RUNNING time: 
   assert.deepEqual((await run(120)).result.released, [])
   assert.equal(field(await items(b), 'Q711', 'Route'), 'asker')
   await rm(join(b.dir, 'pause.json'))
-  // Running again: both come back to their old routes, with the quiet line and a History line, and a word each.
+  // Running again: both come back to the person, with the quiet line and a History line, and a word each.
   const ended = await run(61)
   assert.equal(ended.ok, true, ended.why)
   assert.deepEqual(ended.result.released, ['Q711', 'Q712'])
   assert.deepEqual(ended.result.wakes.map(one => [one.to, one.id, one.kind]), [['Worker 5', 'Q711', 'words'], ['Advisor', 'Q712', 'words']])
   const back = await items(b)
-  assert.deepEqual([field(back, 'Q711', 'Route'), field(back, 'Q712', 'Route')], ['partner', 'person'])
+  // Back to the PERSON, never to the old route (the partner's and main's clocks would fire at once on a stale advice).
+  assert.deepEqual([field(back, 'Q711', 'Route'), field(back, 'Q712', 'Route')], ['person', 'person'])
   assert.equal(section(back, 'Q711', 'Route').at(-1), 'not re-checked by Worker 5 since your words at 16:20')
   assert.match(section(back, 'Q712', 'History').at(-1), /hold ended: Advisor did not re-check it in 60 minutes/)
   // Only the server runs it.
@@ -240,10 +248,13 @@ const cut = script.slice(script.indexOf('// heldasks:start'), script.indexOf('//
 const page = {}
 vm.runInNewContext(`${cut}\nObject.assign(this, { heldAskRows, goalWordsRows })`, page)
 const plain = value => JSON.parse(JSON.stringify(value))
+const heldPage = {}
+vm.runInNewContext(`${script.slice(script.indexOf('// heldlines:start'), script.indexOf('// heldlines:end'))}
+Object.assign(this, { heldLinesView, withoutHeldLines })`, heldPage)
 
 test('the step\'s window lists its held asks with their hold line; a goal draws the person\'s words with their chat and time', async t => {
   const b = await open(t)
-  await chat(b, SIDE, wordsOn('G60'))
+  await side(b, wordsOn('G60'))
   const work = { ok: true, ...(await readStore(b.dir)) }
   const shown = itemOfStep(work, 'B1091')
   assert.deepEqual(shown.heldAsks.map(one => one.id), ['Q711'])
@@ -257,4 +268,216 @@ test('the step\'s window lists its held asks with their hold line; a goal draws 
   assert.deepEqual(plain(page.goalWordsRows([{ at: '2026-11-09 08:05', text: 'no chat named' }])), ['Your words, 08:05: "no chat named"'])
   assert.deepEqual(plain(page.goalWordsRows([])), [])
   assert.equal((await readFile(b.goalsFile, 'utf8')).includes('Your words: 2026-11-09 16:20 · '), true)
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Review round 2 (2026-11-10, two core reviews of rule 15): the person must never lose a question; the release; the side chat; the cost.
+
+const onGoal = { Of: 'G60', Route: 'person' }
+const more = {
+  // The board's own Accept card (no Owner), the app's popup, the partner's refine question, a verdict look, a chat the board does not show.
+  Q720: ask('Q720', { Of: 'B1092', Via: 'accept', Route: 'person' }, 40),
+  Q721: ask('Q721', { Owner: 'Worker 5', Of: 'B1091', Via: 'form', Route: 'person' }, 40),
+  Q722: ask('Q722', { Owner: 'Advisor', Of: 'B1092', Via: 'refine', Route: 'person' }, 40),
+  Q723: ask('Q723', { Owner: 'Worker 5', Of: 'B1091', Asks: 'look', Route: 'person' }, 40),
+  Q724: ask('Q724', { Owner: 'Ghost chat', ...onGoal }, 40),
+}
+
+test('review 1: only an ask owned by a chat the board shows is held: no Owner (the board\'s Accept card), a popup, a refine question, a verdict look and a chat that is not shown stay where they are', async t => {
+  const b = await board(more)
+  t.after(() => rm(b.dir, { recursive: true, force: true }))
+  const said = await side(b, wordsOn('G60'))
+  assert.equal(said.ok, true, said.why)
+  assert.deepEqual(said.result.held, ['Q711', 'Q712'])
+  const all = await items(b)
+  assert.deepEqual(['Q720', 'Q721', 'Q722', 'Q723', 'Q724'].map(id => field(all, id, 'Route')), ['person', 'person', 'person', 'person', 'person'])
+  // The prefix does not matter: "Garden · Worker 5" is Worker 5 too.
+  const prefixed = await board({ Q725: ask('Q725', { Owner: 'Garden · Worker 5', Of: 'B1091', Route: 'person' }, 40) })
+  t.after(() => rm(prefixed.dir, { recursive: true, force: true }))
+  const named = await workApi({ ...wordsOn('B1091'), chat: SIDE }, { ...ctx(prefixed, NOW, 'side'), prefix: 'Garden · ' })
+  assert.deepEqual(named.result.held, ['Q711', 'Q725'])
+})
+
+test('review 2: an ask released once is never held again by later words; a re-ask is a new ask that the next words may hold', async t => {
+  const b = await open(t)
+  await side(b, wordsOn('G60'))
+  const ended = await server(b, { action: 'holds-ended', gaps: [] }, NOW + 61 * MIN)
+  assert.deepEqual(ended.result.released, ['Q711', 'Q712'])
+  // A chat that writes words every hour: the second words hold nothing of what was released (Q714 was filed after the first words and never held).
+  const again = await side(b, wordsOn('G60', { text: ['One more thing about the stairs.'] }), NOW + 90 * MIN)
+  assert.deepEqual(again.result.held, ['Q714'])
+  assert.equal(field(await items(b), 'Q711', 'Route'), 'person')
+  // "still stands" is a release too: only Q711 is held by the next words.
+  const other = await open(t)
+  await side(other, wordsOn('G60'))
+  await chat(other, 'Advisor', { action: 'note', to: 'main', of: 'Q712', text: 'still stands: separate' }, NOW + MIN)
+  assert.deepEqual((await side(other, wordsOn('G60', { text: ['And again.'] }), NOW + 5 * MIN)).result.held, [])
+  assert.equal(field(await items(other), 'Q711', 'Route'), 'asker')
+})
+
+test('review 5 and 6: no release while the board resumes either; a release goes to the PERSON, restamped, so no old route\'s clock fires at once; the sweep judges it anew', async t => {
+  const b = await open(t)
+  await side(b, wordsOn('G60'))
+  await writeFile(join(b.dir, 'pause.json'), JSON.stringify({ state: 'resuming', since: NOW + 5 * MIN, by: 'person' }))
+  assert.deepEqual((await server(b, { action: 'holds-ended', gaps: [] }, NOW + 120 * MIN)).result.released, [], 'resuming counts no running time')
+  await writeFile(join(b.dir, 'pause.json'), JSON.stringify({ state: 'running', since: NOW + 100 * MIN, by: 'person' }))
+  assert.deepEqual((await server(b, { action: 'holds-ended', gaps: [] }, NOW + 120 * MIN)).result.released, [], 'the 60 minutes count from the end of the pause')
+  const at = NOW + 161 * MIN
+  const ended = await server(b, { action: 'holds-ended', gaps: [] }, at)
+  assert.deepEqual(ended.result.released, ['Q711', 'Q712'])
+  const all = await items(b)
+  for (const id of ['Q711', 'Q712']) {
+    assert.equal(field(all, id, 'Route'), 'person', id)
+    assert.equal(field(all, id, 'Since'), stamp(at), `${id} restamped`)
+    assert.equal(field(all, id, 'Filed'), String(at), `${id} restamped`)
+  }
+  // Nothing escalates at once: not the partner's 30 minutes, not the "old ask" flag of the blocking Q712 (filed 19 minutes before the words).
+  const done = reconcile({ store: { items: all, flow: DEFAULT_FLOW, problems: [], pause: null }, flow: DEFAULT_FLOW, lanes: [], now: at + MIN, times: { graceMs: 10 * MIN, askMs: 60 * MIN, idleMs: 5 * MIN }, prefix: '' })
+  assert.deepEqual(done.escalations, [])
+  assert.deepEqual(done.flags.filter(flag => flag.kind === 'old ask'), [])
+  // The hold and release lines are the board's, no hand-over of anyone's: the sweep still judges the ask.
+  assert.equal(isExplicitPerson(all.get('Q711')), false)
+  assert.equal(isExplicitPerson(all.get('Q712')), false)
+  const handed = { head: new Map([['Kind', 'ask'], ['Route', 'person']]), sections: new Map([['Route', ['The partner handed it on']]]) }
+  assert.equal(isExplicitPerson(handed), true, 'a real hand-over still counts')
+  assert.equal(isHoldLine('held from partner: your words at 16:20 may change this (chat 2)'), true)
+  assert.equal(isHoldLine('still stands (16:26): why'), true)
+  assert.equal(isHoldLine('The partner handed it on'), false)
+  // The refine loop never takes the advice for a held ask (an old store's held refine question).
+  const refine = await board({ Q730: ask('Q730', { Owner: 'Advisor', Of: 'B1092', Via: 'refine', Route: 'asker', Advice: 'Yes' }, 40) })
+  t.after(() => rm(refine.dir, { recursive: true, force: true }))
+  await server(refine, { action: 'autopilot', on: true }, NOW + MIN)
+  assert.deepEqual([field(await items(refine), 'Q730', 'Route'), field(await items(refine), 'Q730', 'State')], ['asker', 'open'])
+})
+
+test('review 7: the card shows only the newest Route line, not every line joined', async t => {
+  const b = await open(t)
+  await side(b, wordsOn('G60'))
+  await server(b, { action: 'holds-ended', gaps: [] }, NOW + 61 * MIN)
+  const work = { ok: true, ...(await readStore(b.dir)) }
+  assert.equal(section(work.items, 'Q711', 'Route').length, 2)
+  const need = storeNeeds(work, { now: NOW + 62 * MIN, roleOf, names: Object.keys(ROLES) }).find(one => one.workId === 'Q711')
+  assert.equal(need.routeNote, 'not re-checked by Worker 5 since your words at 16:20')
+})
+
+test('review 8: a re-ask of the same goal ends the chat\'s holds there too, also when the question joins another chat\'s ask', async t => {
+  const b = await board({
+    B1094: step('B1094', 'in progress', { Owner: 'Worker 5' }),
+  })
+  t.after(() => rm(b.dir, { recursive: true, force: true }))
+  await side(b, wordsOn('G60'))
+  // By goal, not by exact step: Q711 is of B1091, the new ask is of B1094 (the same goal).
+  const under = await chat(b, 'Worker 5', { action: 'ask', of: 'B1094', kind: 'decide', title: 'Which stairs now?', text: ['Which stairs now?'] }, NOW + 5 * MIN)
+  assert.equal(under.ok, true, under.why)
+  assert.equal(field(await items(b), 'Q711', 'State'), 'withdrawn')
+  assert.match(section(await items(b), 'Q711', 'History').at(-1), /withdrawn: re-asked as Q\d+$/)
+  // Joining another chat's open ask under B1095 is a re-ask too: the held Q741 of Worker 5 ends.
+  const held = await board({
+    B1095: step('B1095', 'in progress', { Owner: 'Worker 5' }),
+    // Filed after the person's words (the chat knew them): the words hold nothing of it, and it is the ask the new question joins.
+    Q740: ask('Q740', { Owner: 'Worker 6', Of: 'B1095', Route: 'person' }, -10),
+    Q741: ask('Q741', { Owner: 'Worker 5', Of: 'B1091', Route: 'person' }, 50),
+  })
+  t.after(() => rm(held.dir, { recursive: true, force: true }))
+  await side(held, wordsOn('G60'))
+  const joined = await chat(held, 'Worker 5', { action: 'ask', of: 'B1095', kind: 'decide', title: 'A different stairs question?', text: ['A different stairs question?'] }, NOW + 5 * MIN)
+  assert.equal(joined.ok, true, joined.why)
+  assert.equal(joined.result.merged, 'Q740', "the question joined the other chat's ask")
+  const all = await items(held)
+  assert.deepEqual(['Q711', 'Q741'].map(id => field(all, id, 'State')), ['withdrawn', 'withdrawn'])
+  assert.match(section(all, 'Q741', 'History').at(-1), /withdrawn: re-asked as Q740$/)
+})
+
+test('review 9: sideWordsOf passes only a session the board does not know under a name no shown chat has; the API gives role side only to as: side', async t => {
+  const state = { chatPrefix: 'Game - ', chats: [{ name: 'Main', isMain: true, session: 's-main' }, { name: 'Worker 5', session: 's-5' }], advisor: { name: 'Advisor', session: 's-adv' } }
+  const refused = { ok: false, status: 409 }
+  const words = (chatName, session = 's-side') => [refused, { action: 'words' }, { chat: chatName, session }, state]
+  assert.equal(sideWordsOf(...words('2. Worker board goal management')), true)
+  // A second "Game - Main" from another session must never pass for Main (exact, prefixed, any case).
+  for (const name of ['Main', 'Game - Main', 'game - main', ' MAIN ', 'Worker 5', 'Game - Advisor']) assert.equal(sideWordsOf(...words(name)), false, name)
+  // A session the board shows (under another name: renamed) is no side chat; other actions and other refusals are none.
+  assert.equal(sideWordsOf(refused, { action: 'words' }, { chat: 'Old name', session: 's-5' }, state), false)
+  assert.equal(sideWordsOf(refused, { action: 'note' }, { chat: 'chat 2', session: 's-side' }, state), false)
+  assert.equal(sideWordsOf({ ok: false, status: 400 }, { action: 'words' }, { chat: 'chat 2', session: 's-side' }, state), false)
+  assert.equal(sideWordsOf({ ok: true, chat: 'Main' }, { action: 'words' }, { chat: 'chat 2', session: 's-side' }, state), false)
+  // The API: a side call named like Main is no main chat; a list chat's words call without `as: side` is no side call.
+  const b = await open(t)
+  const asMain = await workApi({ action: 'note', to: 'main', text: 'hi', chat: 'Main' }, ctx(b, NOW, 'side'))
+  assert.equal(asMain.status, 403, 'a side call named Main has no list role')
+  const said = await workApi({ ...wordsOn('G60'), chat: 'Main' }, ctx(b, NOW, 'side'))
+  assert.equal(said.ok, true, said.why)
+  assert.equal((await chat(b, SIDE, wordsOn('G60'))).status, 403, 'a chat that is no list chat is a side chat only when the bridge says so')
+  assert.equal((await chat(b, 'Worker 5', wordsOn('G60'))).status, 403, 'a worker does not call words')
+  assert.equal((await chat(b, 'Advisor', wordsOn('G60'))).status, 403, 'the partner does not call words')
+  // The server: a side call notes no mod and no sign of life for any name, and reaches the API as `side`.
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'server.mjs'), 'utf8')
+  assert.match(source, /if \(checked\.isSide !== true\) noteMod\(body, checked\)/)
+  assert.match(source, /workAction\(\{ \.\.\.body, chat: checked\.chat \}, checked\.isSide === true \? 'side' : undefined\)/)
+})
+
+test('review 10: roles/main.md says who calls words and that Main does not withdraw another chat\'s ask; the other docs say the same', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+  const main = readFileSync(join(root, 'roles', 'main.md'), 'utf8')
+  assert.doesNotMatch(main, /any chat may call `words`/)
+  assert.doesNotMatch(main, /You may also lift or withdraw a held ask of another chat/)
+  assert.match(main, /`words` is called by the person, by you, and by a side chat of the app/)
+  assert.match(main, /You do not withdraw another chat's held ask/)
+  for (const file of ['roles/worker.md', 'roles/partner.md']) assert.match(readFileSync(join(root, file), 'utf8'), /You do not call `words`/, file)
+  assert.match(readFileSync(join(root, 'DESIGN.md'), 'utf8'), /Workers and the partner get 403 on `words`, and the main chat does not withdraw another chat's ask/)
+})
+
+test('review 11 and 12: the board\'s wake sender reads the state once per call and resets once; holds-ended runs only when the state shows a held ask', () => {
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'server.mjs'), 'utf8')
+  const start = source.indexOf('const sendWakes = async done =>')
+  const body = source.slice(start, source.indexOf('/** What the API goes by', start))
+  assert.equal(body.split('await readState()').length - 1, 1, 'one read per call, not per word')
+  assert.equal(body.split('readState.reset()').length - 1, 1, 'one reset per call, not per word')
+  assert.doesNotMatch(body.slice(body.indexOf('for (const wake')), /await readState\(\)/)
+  const pass = source.slice(source.indexOf("loops.run('holds-ended'"), source.indexOf("loops.run('stuck-checks'"))
+  assert.match(pass, /if \(!heldIn\(state\)\) return/)
+  assert.match(source, /const heldIn = state => \(state\?\.forYou \?\? \[\]\)\.some\(need => need\.kind === 'held'\)/)
+})
+
+test('review 13: the person\'s words on a goal add to the unread note about that goal instead of making a second one', async t => {
+  const b = await open(t)
+  const first = await side(b, wordsOn('G60'))
+  const second = await side(b, wordsOn('G60', { text: ['And the stairs are smaller too.'] }), NOW + 10 * MIN)
+  assert.equal(second.ok, true, second.why)
+  assert.equal(second.result.note, first.result.note, 'one note per goal while it is unread')
+  assert.deepEqual((await readdir(b.dir)).filter(name => /^N\d+\.md$/.test(name)), [`${first.result.note}.md`])
+  const all = await items(b)
+  const words = section(all, first.result.note, 'Text').join(' ')
+  assert.match(words, /Every map is painted whole by Codex/)
+  assert.match(words, /And the stairs are smaller too/)
+  assert.match(field(all, first.result.note, 'Text'), /^For the partner \(Advisor\): the person's words at 16:20/)
+  // Read by the main chat (no longer unread): the next words make a new note.
+  const file = join(b.dir, `${first.result.note}.md`)
+  await writeFile(file, (await readFile(file, 'utf8')).replace('State: unread', 'State: read'))
+  const third = await side(b, wordsOn('G60', { text: ['Later still.'] }), NOW + 20 * MIN)
+  assert.notEqual(third.result.note, first.result.note)
+})
+
+test('review 14: the hold word matters only while its ask is open and held; answered, withdrawn, re-asked or released it is done; the release word holds while the ask is open', () => {
+  const askItem = (state, route) => parseItem(`Id: Q711\nKind: ask\nTitle: x\nState: ${state}\nRoute: ${route}\nOwner: Worker 5\n`)
+  const holdWord = { command: 'work', kind: 'words', about: 'Q711', to: 'Worker 5', text: 'work: the person\'s words at 16:20 on G60: re-ask or withdraw Q711, or say it still stands' }
+  const releaseWord = { ...holdWord, text: 'work: Q711 was held for the person\'s words at 16:20 and nobody re-checked it: it is back with the person; withdraw it or re-ask it if it changed' }
+  const why = (word, item) => workLineWhy(word, new Map(item === null ? [] : [['Q711', item]]), {})
+  assert.equal(why(holdWord, askItem('open', 'asker')), null)
+  assert.equal(why(holdWord, askItem('answered', 'asker')), 'Q711 is answered')
+  assert.equal(why(holdWord, askItem('withdrawn', 'asker')), 'Q711 is withdrawn')
+  assert.equal(why(holdWord, askItem('open', 'person')), 'Q711 is no longer held')
+  assert.equal(why(holdWord, null), 'Q711 is gone')
+  assert.equal(why(releaseWord, askItem('open', 'person')), null)
+  assert.equal(why(releaseWord, askItem('answered', 'person')), 'Q711 is answered')
+})
+
+test('review 3: the held asks, goal-level too, are one quiet line each; the page draws no card and no count for them', async t => {
+  const b = await open(t)
+  await side(b, wordsOn('G60'))
+  const work = { ok: true, ...(await readStore(b.dir)) }
+  assert.deepEqual(heldAsksOf(work, { names: Object.keys(ROLES) }).map(one => [one.id, one.chat, one.minute, one.of]), [['Q711', 'Worker 5', '16:20', 'B1091'], ['Q712', 'Advisor', '16:20', 'G60']])
+  const needs = [{ id: 'held:Q711', kind: 'held', ask: 'Q711', title: 'Q711 held: Worker 5 re-checks it after your words at 16:20' }, { id: 'work:Q713', kind: 'input', workId: 'Q713', title: 'Which stairs for Q713?' }]
+  assert.deepEqual(plain(heldPage.heldLinesView(needs)).map(one => [one.id, one.words, one.href]), [['Q711', 'Q711 held: Worker 5 re-checks it after your words at 16:20', '#details=Q711']])
+  assert.deepEqual(plain(heldPage.withoutHeldLines(needs)).map(one => one.id), ['work:Q713'])
+  assert.deepEqual(plain(heldPage.heldLinesView([])), [])
 })
