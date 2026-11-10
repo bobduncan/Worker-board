@@ -96,7 +96,7 @@ test('an answered ask point says so; with two asks open both are kept', () => {
     ...Object.fromEntries(b510.sections),
     History: [`- ${stamp(ago(80))} server: check passed: merged`, `- ${stamp(ago(76))} Checker: result check waits for you: 1 of 2 points pass; 1 for you to judge`],
   })
-  assert.equal(checkWhy(waits, items(waits, item({ ...Object.fromEntries(q339.head), State: 'answered' }))), 'its ask point is answered: file its check again')
+  assert.equal(checkWhy(waits, items(waits, item({ ...Object.fromEntries(q339.head), State: 'answered' }))), 'its ask point is answered: file its check again; an ask point whose named ask is answered is judged from that answer, pass or fail, never left for the person')
   const q340 = item({ ...Object.fromEntries(q339.head), Id: 'Q340' })
   assert.equal(checkWhy(b510, items(b510, fix('done'), q340, q339)), 'its fix B558 is done: file its check again; keep Q339 and Q340 as ask points')
 })

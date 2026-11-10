@@ -393,7 +393,9 @@ Name the ask that carries an ask point (B1103; X163: B1091 got five check tasks,
 evaluation ask and its checkers rightly filed none). When an open ask of the step or of its goal already asks the person what your
 `ask:` point needs, never ask again: end the point with that ask's id, `ask: <point> (Q712)`. The step then waits for the person's
 answer there, and the board makes its check task again once that ask is answered. File a new ask under the step only when no open
-ask asks it. A check that waits for the person with no ask filed or named gets one more check task after 30 minutes, its `Why:`
+ask asks it. An ask point whose named ask is already answered is judged from that answer, pass or fail, never left for the person
+(B1118: B1096's check left one naming Q718, approved three minutes before); the board sends such a step to its check again at once,
+and when that check leaves it for the person again it makes no more and asks the partner to read the answer. A check that waits for the person with no ask filed or named gets one more check task after 30 minutes, its `Why:`
 saying "its checker filed no ask point"; when that one's check does the same, the board makes no more, the step reads "its
 checker filed no ask point", and the partner is asked to file or name it.
 
