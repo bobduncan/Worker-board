@@ -913,21 +913,27 @@ describe('what the person answers on the worker board reaches the chat it is for
     w.takeAnswers.push(verdict(null, undefined))
     await clock.advance(5000)
     expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
-    // The board says Units holds B13 again: nothing to clear.
+    // The board says Units holds B13 again: nothing to clear. Round 4: the worker's own plan renames the card while B13 is held: the
+    // card's task as it stands at the board's LAST naming of B13 is the one a give-back clears.
     w.takeAnswers.push(verdict({ id: 'B13', title: 'Skeleton Archer', time: null }, 1_000_000 - 600_000))
     await clock.advance(5000)
     expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    await $.tool.call({ tool: TOOL, action: 'plan', text: 'Skeleton Archer sprites', steps: 2, minutes: 30 })
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer sprites')
+    w.takeAnswers.push(verdict({ id: 'B13', title: 'Skeleton Archer', time: null }, 1_000_000 - 600_000))
+    await clock.advance(5000)
     // While the person pauses: nothing (the pause is read anew for it).
     w.pauseAnswer = { text: 'x', state: 'pausing', since: 1_000_000, forChat: { holds: [], mustStop: true }, resumeList: [] }
     w.takeAnswers.push(verdict(null, 1_000_000 - 600_000))
     await clock.advance(5000)
-    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer sprites')
     w.pauseAnswer = RUNNING
     // The pause reading is kept a while (PAUSE_MS): the resume shows once the mod reads it anew.
     await clock.advance(70_000)
     // A fresh verdict, the board well past its start: the task was given back, stopped or dropped on the board: the card is cleared, with why.
     w.takeAnswers.push(verdict(null, 1_000_000 - 600_000))
     await clock.advance(5000)
+    expect(fileOf(w)?.task).toBeNull()
     expect(fileOf(w)?.task).toBeNull()
     expect(fileOf(w)?.taskNote?.why).toBe('the board gives this chat no task now: B13 was given back, stopped or dropped')
     expect(fileOf(w)?.clearNote).toBeUndefined()

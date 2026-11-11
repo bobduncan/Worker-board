@@ -4630,11 +4630,12 @@ a chat's mod behaves as before for that chat (the call's header says the mod).
 
 1. **A merged prompt reports every word** (board.ts `wordsIn`, `hitsIn`, register.tsx the turn's start): a word counts only with its
    WHOLE text in the prompt; one over `LONG_WORD_CHARS` (200) by its first 200 and its last 80 characters both in it, the tail after
-   the head (searched from where it can start, so a word of 201 to 279 characters matches too); a hit wholly inside a longer hit whose
-   text stands nowhere else in the prompt gives way to it (a take word inside the envelope's line that carries it: the envelope's turn);
-   where the hits of two open words OVERLAP otherwise (the same opening), neither is reported, never a guess; of open words with the
-   SAME text (a repeated line) `turnBegan` names the oldest and takes as many off the queue as the prompt holds copies (else they would
-   stay queued for ever), the rest go with the next such prompt. Also a word the chat's previous process typed: the typed words are kept in the mod's store
+   the head (searched from where it can start, so a word of 201 to 279 characters matches too); a hit wholly inside a longer hit is
+   placed where its text stands outside it, or gives way to the longer hit when it stands nowhere else (a take word inside the
+   envelope's line that carries it: the envelope's turn; the take word after the envelope: both); where the hits of two open words
+   OVERLAP otherwise (the same opening), neither is reported, never a guess; of open words with the SAME text (a repeated line) as
+   many of the oldest as the prompt holds copies are reported and taken off the queue (else they would stay queued for ever; `wordsIn`
+   names what `turnBegan` takes, so a twin the previous process typed is reported too), the rest go with the next such prompt. Also a word the chat's previous process typed: the typed words are kept in the mod's store
    under the chat's session (`typedWordsKey`, as `pendingClearKey`: the store is one file for every chat) across a restart or a clear,
    and `wordsIn` reads them; an envelope's line (`isEnvelope`) is never reported typed by the turn (its outcome is its own,
    `takeWordsOf`). A report that failed at the turn's start (the board's file unreadable) is told again at the turn's end.
@@ -4644,9 +4645,11 @@ a chat's mod behaves as before for that chat (the call's header says the mod).
    (`held` null in this take's statuses, a board of 0.30.0 or newer): the main chat's and the partners' cards never hold a step by the
    board, so theirs are left alone. Never in the board's first two minutes (`BOARD_START_WINDOW_MS`), never while the person pauses
    (the pause read anew for it), never in a turn of the chat, never from an older board (no `held`, no start); a verdict that does not
-   count leaves the change for the next one; only the task the card showed while the board named that step is cleared (`heldTask`: a
-   step given back and the next taken in one turn leaves the next step's card alone); the pause's kept reading is used when it says a
-   pause, else read anew once per such change. The pane shows no
+   count leaves the change for the next one; only the task the card showed at the board's LAST verdict naming that step is cleared
+   (`heldTask`, read at every such verdict: a step given back and the next taken in one turn leaves the next step's card alone; the
+   worker's own plan renaming the card while the step is held is still cleared); the pause's kept reading is used when it says a
+   pause, else read anew once per such change. Known limit: a give-back while the chat's process was down (no verdict named the step
+   to this process) is not cleared; the next step's take names the card anew. The pane shows no
    task the board says is none, fresh or in its own fallback reading; the main chat's "waiting for N workers" is no card task and stays.
 3. **The block/unblock tool text** names a wait on a chat ("the chat whose answer you wait for, with why: the board shows you as
    waiting on purpose ... for 90 minutes of its running time, then shows the person a Late") and rule 15's hold (`note "still

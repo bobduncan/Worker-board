@@ -260,14 +260,20 @@ let enteredThisTurn: string[] = []
  * Under this chat's session (the plugin's store is one file for every chat, as `pendingClearKey`): another chat's words are never this one's.
  */
 async function keepTypedWords($: EngineInterface): Promise<void> {
-  try {
-    const key = typedWordsKey(await $.session.id())
-    if (turnWords.typed.length === 0) await $.store.delete(key)
-    else await $.store.set(key, turnWords.typed)
-  } catch {
-    // this process keeps them all the same
-  }
+  const typed = turnWords.typed
+  // Round 4: one write after the other (a late earlier write would else put a stale list back after the delete).
+  keptWrites = keptWrites.then(async () => {
+    try {
+      const key = typedWordsKey(await $.session.id())
+      if (typed.length === 0) await $.store.delete(key)
+      else await $.store.set(key, typed)
+    } catch {
+      // this process keeps them all the same
+    }
+  })
+  return keptWrites
 }
+let keptWrites: Promise<void> = Promise.resolve()
 /** 0.32.0: the typed words a previous process left in the store, as `TypedWord`s; none when there are none or they cannot be read. */
 function typedWordsKept(kept: unknown): TypedWord[] {
   if (!Array.isArray(kept)) return []
@@ -559,9 +565,10 @@ async function clearStaleCard($: EngineInterface, taken: TakenAnswer, now: numbe
   // never hold a step by the board, and their cards' tasks are their own); the step the board named is the task that went. The change is
   // used up only by a verdict that counts: one in the board's start window or under the person's pause leaves it for the next.
   if (mine.held !== null) {
-    // The verifier: the card's task as it stands while the board names this step is the one task a later "holds nothing" may clear (a
-    // step given back in a turn that then took the next: the next step's task is not it).
-    if (heldByBoard !== mine.held.id) heldTask = (await readChat($, chatsDir, await $.session.id()))?.task?.text ?? null
+    // The verifier: the card's task as it stood at the LAST verdict that named this step is the one task a later "holds nothing" may
+    // clear (a step given back in a turn that then took the next: the next step's task is not it; round 4: the card renamed by the
+    // worker's own plan while the step is held, or empty at the first naming, is read again every time).
+    heldTask = (await readChat($, chatsDir, await $.session.id()))?.task?.text ?? null
     heldByBoard = mine.held.id
     return
   }
@@ -2721,7 +2728,7 @@ const WORK_TOOL = {
       to: { type: 'string', description: "note: you (the person) or main (the main chat). rename: the chat's new name." },
       result: { type: 'string', description: 'report: what the person gets now, in a line.' },
       merged: { type: 'string', description: 'report: the commit it was merged with.' },
-      on: { type: 'string', description: 'block: the step your step waits for (B<n>), or the chat whose answer you wait for (a chat of the board, or "chat 1"; give "why", e.g. "its go to land"): the board shows you as waiting on purpose, sends no go-on line and gives your step to nobody for 90 minutes of its running time, then shows the person a Late; unblock once the answer came, or without "on" to clear what the step waits for. A held ask of yours (rule 15) is lifted by note "still stands: <why>" with "of" the ask, or withdraw.' },
+      on: { type: 'string', description: 'block: the step (B<n>) or the chat (its board name, or "chat 1"; with "why") your step waits for: the board shows you waiting on purpose, no go-on line, for 90 minutes of running time, then a Late; unblock when the answer came. A held ask (rule 15) is lifted by note "still stands: <why>" with "of" the ask, or withdraw.' },
       title: { type: 'string', description: "new: the step's title. incident: what looks wrong, in one plain line." },
       activity: { type: 'string', description: 'new: the activity it belongs under.' },
       goal: { type: 'string', description: 'new, refine: the goal it serves (G17); definition-draft, how-draft: the focus goal.' },

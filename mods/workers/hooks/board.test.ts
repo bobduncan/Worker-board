@@ -168,10 +168,12 @@ describe('Task 6 (0.31.0): words the app merged into one prompt have all entered
     // A word of ordinary length needs its whole text: its first half in the prompt is nothing.
     expect(wordsIn(words, 'work: B13 is yours; and more')).toEqual([])
     expect(wordsIn(words, `the person wrote this\n\nwork: B13 is yours; run work next`)).toEqual(['w2'])
-    // Two open words with the same opening (two "work next" lines): the one stretch matches both, so neither is reported; a third, distinct word still is.
+    // Two open words with the same text (two "work next" lines) and the stretch once: the oldest is reported (round 4: as the turn takes
+    // it; a twin the previous process typed has no submit to report it); a third, distinct word too.
     const same = wordTyping(wordTyping(wordTyping(NO_TURN_WORDS, 'a1', 'work: B13 is yours; run work next'), 'a2', 'work: B13 is yours; run work next'), 'a3', 'asset A224 ready: C:/p/.claude/assets/A224')
-    expect(wordsIn(same, 'work: B13 is yours; run work next\n\nasset A224 ready: C:/p/.claude/assets/A224')).toEqual(['a3'])
-    // Two identical texts and a prompt of one of them: the typed report names neither, the turn is the oldest's (see the twins below).
+    expect(wordsIn(same, 'work: B13 is yours; run work next\n\nasset A224 ready: C:/p/.claude/assets/A224')).toEqual(['a1', 'a3'])
+    // Two identical texts and a prompt of one of them: the oldest is reported, the turn is the oldest's (see the twins below).
+    expect(wordsIn(same, 'work: B13 is yours; run work next')).toEqual(['a1'])
     expect(turnBegan(same, 'work: B13 is yours; run work next', 9).word).toBe('a1')
     expect(LONG_WORD_CHARS).toBe(200)
     expect(LONG_WORD_TAIL).toBe(80)
@@ -192,10 +194,15 @@ describe('Task 6 (0.31.0): words the app merged into one prompt have all entered
     expect(turnBegan(carried, 'hand-over\n\nwork: B13 is yours; run work next', 1).word).toBe('env')
     // But a take word that stands in the prompt on its own too (merged before the envelope) is its own hit: both enter.
     expect(wordsIn(carried, 'work: B13 is yours; run work next\n\nhand-over\n\nwork: B13 is yours; run work next').sort()).toEqual(['env', 'take'])
-    // The review: two open words with the SAME text (a repeated line): the typed report names neither, but the turn is the oldest's and it
-    // leaves the queue (else both would stay queued for ever); the second goes with the next such prompt.
+    // Round 4: the envelope first and the take word after it: the take word's hit is placed outside the envelope's, both enter.
+    const after = 'hand-over\n\nwork: B13 is yours; run work next\n\nwork: B13 is yours; run work next'
+    expect(wordsIn(carried, after).sort()).toEqual(['env', 'take'])
+    expect([turnBegan(carried, after, 1).word, turnBegan(carried, after, 1).typed]).toEqual(['take', []])
+    // The review: two open words with the SAME text (a repeated line): the oldest is reported and the turn is its and it leaves the
+    // queue (else both would stay queued for ever); the second goes with the next such prompt.
     const twins = wordTyping(wordTyping(NO_TURN_WORDS, 'old', 'work: B13 is yours; run work next'), 'new', 'work: B13 is yours; run work next')
-    expect(wordsIn(twins, 'work: B13 is yours; run work next')).toEqual([])
+    expect(wordsIn(twins, 'work: B13 is yours; run work next')).toEqual(['old'])
+    expect(wordsIn(twins, 'work: B13 is yours; run work next\n\nwork: B13 is yours; run work next')).toEqual(['old', 'new'])
     const first = turnBegan(twins, 'work: B13 is yours; run work next', 1)
     expect([first.word, first.typed.map(one => one.id)]).toEqual(['old', ['new']])
     const second = turnBegan(first, 'work: B13 is yours; run work next', 2)
