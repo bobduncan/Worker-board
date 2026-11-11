@@ -93,7 +93,7 @@ import { readSetup, setupAction, startSetup, FINISHED as SETUP_FINISHED } from '
 import { providerCards, mayUse as mayUseProvider, verifyOne, checkKey } from './src/providers/choose.mjs'
 import { KEY_VARIABLE, keyChecked, saveKey } from './src/providers/elevenlabs-key.mjs'
 import { ASSET_KINDS, PROVIDERS, checkProvidersFull, providerFor } from './src/providers/index.mjs'
-import { assetsFolderOf, listAssets } from './src/assets.mjs'
+import { assetReader, assetsFolderOf, listAssets } from './src/assets.mjs'
 import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
 import { titleProblem } from './src/work/askWords.mjs'
 import { recapRoundDue } from './src/recapCard.mjs'
@@ -1874,7 +1874,9 @@ async function main(args) {
   // The asset wait (2026-11-11, the B1124 case): the asset requests go into the raw (src/work/assetWait.mjs reads the open ones of a
   // holder as its wait), with the provider's time limit for a job (the Design tab's seconds, once read below) for the Late past it.
   let assetSecondsNow = () => null
-  const withAssets = async sources => ({ ...sources, assets: assetsDir === null ? [] : await listAssets(assetsDir).catch(() => []), assetSeconds: assetSecondsNow() })
+  const assetsRead = assetsDir === null ? null : assetReader(assetsDir)
+  // B467: a folder of requests that cannot be read is shown as a failed loop, and the state goes on without the requests.
+  const withAssets = async sources => ({ ...sources, assets: assetsRead === null ? [] : await assetsRead().catch(error => { loops.failed('asset-requests', error); return [] }), assetSeconds: assetSecondsNow() })
   let readLines = raw => raw.historyLines ?? store.lines()
   // B155: when the board first saw each step ticked, kept in its data folder from now on; null before its first look.
   const FINISHED_FILE = join(HERE, 'data', 'finished.json')
@@ -1928,7 +1930,7 @@ async function main(args) {
       // B273: the app may move its folder while the board runs: the board follows it.
       // B467: as a loop: a failed search shows and is logged; the board reads where it read before.
       await loops.run('app-folder', () => followApp(config, process.env, process.platform))
-      return withAssets(await readSources(config, folders, undefined, branches, work))
+      return readSources(config, folders, undefined, branches, work)
     }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start })
@@ -1951,7 +1953,7 @@ async function main(args) {
       readLines = () => lines.now
       readRaw = async () => {
         lines.now = await shared()
-        return withAssets(await readSources(config, folders, undefined, branches, work))
+        return readSources(config, folders, undefined, branches, work)
       }
     }
   }
@@ -2303,7 +2305,7 @@ async function main(args) {
     await slowRead()
     blockRead()
     // 2026-11-09: the plan's time as the partner's answer: the board's own write of a decision is not one (src/planWrite.mjs `partnerPageAt`).
-    const fresh = await readRaw()
+    const fresh = await withAssets(await readRaw())
     const raw = { ...fresh, productPlanAt: await partnerPageAt(fresh.productPlanAt ?? null, PLAN_WRITES_FILE, productPlanFile(config)) }
     const keptReadings = await readingsOnDisk()
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
@@ -2560,7 +2562,7 @@ async function main(args) {
     const read = await readStore(workDir)
     const pause = read?.pause ?? null
     if (pause?.state !== 'resuming') return []
-    return pauseAnswer({ pause, items: read.items, lanes: shownChats(state), prefix: state.chatPrefix ?? '', chat: state.restart?.main ?? '', role: 'main' }).resumeList
+    return pauseAnswer({ pause, items: read.items, lanes: shownChats(state), prefix: state.chatPrefix ?? '', chat: state.restart?.main ?? '', role: 'main', assets: Array.isArray(state.assets) ? state.assets : [] }).resumeList
   }
   /**
    * Change 4: one launch, claimed in the wake record before the await; `key` the record's chat (BOARD_KEY for the board-wide
@@ -3520,7 +3522,7 @@ async function main(args) {
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
-      const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main' }).resumeList : []
+      const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main', assets: Array.isArray(state.assets) ? state.assets : [] }).resumeList : []
       const prefix = state.chatPrefix ?? ''
       // T12: the new worker's own routine first, the shared start-worker task only as the fallback.
       const spawn = can.has('spawn') && config.project !== '' ? nextSpawn((state.chats ?? []).map(lane => lane.name), prefix, basename(config.project)) : null

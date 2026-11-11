@@ -123,7 +123,8 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
   // 1. Working: a fresh report says busy (also background work after a reported step, and a wait for the partner). A fresh busy
   // report beats a pause note read from a lagging transcript; only the app's own stop line and the person's pause hold it.
   if (!asleep) {
-    if (state === 'working') return out(STATUSES.WORKING, partner ? 'waits for the partner' : lane.heldBy === 'background' ? 'background' : null, report?.since)
+    // The asset wait (the person's "A, Working"): the provider's line, "Codex draws 4 pictures for it · 2 of 4 done · since 10:43".
+    if (state === 'working') return out(STATUSES.WORKING, lane.heldBy === 'asset' && typeof lane.assetWork?.words === 'string' ? lane.assetWork.words : partner ? 'waits for the partner' : lane.heldBy === 'background' ? 'background' : null, report?.since)
     if (state === 'suspended' && lane.suspended?.by === 'note' && isFreshBusy) return out(STATUSES.WORKING, null, report.since)
   }
   // 2. Waiting for you: a fresh report says asking, or a blocking ask is open.
@@ -153,7 +154,7 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
   // 9. Stopped: idle or ended while holding a step.
   if (state === 'interrupted') {
     // The asset wait (2026-11-11): its step's last asset request failed while it waited: the failure, never a silent Stopped.
-    if (typeof lane.assetFailed === 'string' && lane.assetFailed !== '') return out(STATUSES.STOPPED, lane.assetFailed, asleep ? lane.asleepSince : report?.since)
+    if (typeof lane.assetFailed === 'string' && lane.assetFailed !== '') return out(STATUSES.STOPPED, `${lane.assetFailed}${finite(handover?.asked) ? `; asked to go on at ${hourMinute(handover.asked)}` : ''}`, asleep ? lane.asleepSince : report?.since)
     // Signals change 3: the hand-over asked it to go on (its "go on" line of this stopped spell).
     if (finite(handover?.asked)) return out(STATUSES.STOPPED, `asked to go on at ${hourMinute(handover.asked)}`, asleep ? lane.asleepSince : report?.since)
     if (asleep) return out(STATUSES.STOPPED, 'resumes by itself', lane.asleepSince)
@@ -161,6 +162,8 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
     return out(STATUSES.STOPPED, finite(lane.cutOffAt) ? `cut off at ${hourMinute(lane.cutOffAt)}` : 'cut off by a restart', lane.cutOffAt)
   }
   // 11. Asleep: the process ended while the chat is idle (a message wakes it). Before Free: an asleep chat is not "free to run".
+  // The asset wait: a chat asleep while the provider draws is Working for that (the task's state); the provider's word wakes it.
+  if (asleep && state === 'working' && lane.heldBy === 'asset' && typeof lane.assetWork?.words === 'string') return out(STATUSES.WORKING, lane.assetWork.words, lane.asleepSince)
   if (asleep && (state === 'free' || state === 'working')) return out(STATUSES.ASLEEP, state === 'working' ? 'waits for the partner' : banWhy, lane.asleepSince)
   // 10. Free: the hand-out would take it now. A worker on the hand-over: its hand-over FREE; a worker on the timers, the main chat,
   // the partner, the supervisor, the product owner: idle and nothing held (`state` free).

@@ -877,7 +877,8 @@ export function weekStopDue(state, outbox) {
   const resets = Number.isFinite(week.resetsAt) ? week.resetsAt : null
   const words = []
   for (const lane of state.chats ?? []) {
-    if (lane.isLeftover === true || lane.isMain === true || lane.state !== 'working' || lane.isRunning === false || !holdsOpenStep(state, lane)) continue
+    // The asset wait: a lane working for the provider's pictures spends nothing of the limit; its word comes once it runs a turn again.
+    if (lane.isLeftover === true || lane.isMain === true || lane.state !== 'working' || lane.isRunning === false || lane.heldBy === 'asset' || !holdsOpenStep(state, lane)) continue
     const isTold = (outbox ?? []).some(sent => sent.command === 'week-stop' && sent.to === lane.name && (sent.weekResets ?? null) === resets)
     if (!isTold) words.push(weekStopWords(lane.name, week.stopAt, resets))
   }
@@ -909,7 +910,7 @@ export function fiveHourStopDue(state, outbox) {
   const resets = Number.isFinite(five.resetsAt) ? five.resetsAt : null
   const words = []
   for (const lane of state.chats ?? []) {
-    if (lane.isLeftover === true || lane.isMain === true || lane.state !== 'working' || lane.isRunning === false || !holdsOpenStep(state, lane)) continue
+    if (lane.isLeftover === true || lane.isMain === true || lane.state !== 'working' || lane.isRunning === false || lane.heldBy === 'asset' || !holdsOpenStep(state, lane)) continue
     const isTold = (outbox ?? []).some(sent => sent.command === 'five-hour-stop' && sent.to === lane.name
       && ((sent.fiveHourResets ?? null) === resets || (resets !== null && Number.isFinite(sent.at) && sent.at > resets - FIVE_HOUR_WINDOW_MS)))
     if (!isTold) words.push(fiveHourStopWords(lane.name, five.stopAt, resets))

@@ -172,9 +172,10 @@ step therefore says what it touches ("Touches: ...").
   go on (a checkpoint while the wait stands reminds you; your report, a take and a give-back clear it). `on` is a chat of the
   board or a side chat ("chat 1"); a wait on the user is a blocking ask, a wait on a fix is `on=B<n>`.
 - A wait for a picture needs no record (2026-11-11): while a request you made with `work asset` for your step is open (waiting or
-  running), the board shows you as waiting for the provider ("Paused · waits for Codex: A224-A227"), sends no "go on" line, gives the
-  step to nobody and leaves you out of Resume all; past the provider's time limit for a job the user sees it as late. End your turn
-  and wait for the board's "asset A<n> ready" or "asset A<n> failed" word; never make the picture yourself.
+  running), the board shows your task as Working with what the provider does ("Codex draws 4 pictures for it · 1 of 4 done", a tick per
+  picture), sends no "go on" line, gives the step to nobody and leaves you out of Resume all; past the provider's time limit for a job
+  the user sees it as late. Name each picture beside its id in your checkpoint ("A224 death, A225 attack"): the board uses those names.
+  End your turn and wait for the board's "asset A<n> ready" or "asset A<n> failed" word; never make the picture yourself.
 - Lessons of a task go into the repository's documents, not into a chat.
 - A change to the Workers mod (B570): raise its version (plugin.json and `MOD_VERSION`), and after your merge bring it
   onto the PC once: `claude plugin marketplace update <marketplace>` and `claude plugin update <mod>@<marketplace>`

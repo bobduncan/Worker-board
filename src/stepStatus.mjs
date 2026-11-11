@@ -21,7 +21,7 @@ import { boardCheckPending, reportCheckFailedOf, reviewWaitOf } from './work/res
 import { refinedOfItem, refineWaitOf } from './work/refineWait.mjs'
 import { idleWorkers } from './work/handOut.mjs'
 import { keptRecapWaitOf, recapWaitWords, waitsOnOf } from './work/waitsOn.mjs'
-import { assetWaitOf } from './work/assetWait.mjs'
+import { assetSuspension, assetWaitOf, assetWaitWords, assetWorkOf } from './work/assetWait.mjs'
 import { afterPause, isHolding } from './work/pause.mjs'
 import { heldFrom, isHeld } from './work/askHold.mjs'
 
@@ -162,11 +162,16 @@ export function stepStatusOf(step, ctx = {}) {
     case 'in progress': {
       const wait = waitsOnOf(step)
       if (wait !== null) return status('waits-on', 'Waits', `waits for ${wait.who}: ${wait.what}`, 'working', { ...base, who: wait.who, why: wait.what, since: wait.since })
-      // The asset wait (2026-11-11, the B1124 case): the holder's open asset requests for the step (work/assetWait.mjs): quiet, linked to the step.
-      const assetWait = assetWaitOf(step, assets, { chat: owner, prefix })
-      if (assetWait !== null) return status('asset', `Waits for ${assetWait.who}`, `waits for ${assetWait.what}`, 'quiet', { ...base, who: owner, why: assetWait.ids.join(', '), since: assetWait.since ?? base.since, link: assetWait.link })
       if (partnerWait !== null) return forPartner()
       if (recapWait !== null) return forRecap()
+      // The asset wait (2026-11-11, the B1124 case; the person's "A, Working"): the holder's open asset requests for the step (work/assetWait.mjs).
+      // An auto provider draws: "Codex draws: death ✓ · attack ✓ · hit … · walk north …", never "Worker 5 is on it"; the person's file: a quiet wait.
+      const assetWait = assetWaitOf(step, assets, { chat: owner, prefix })
+      if (assetWait !== null) {
+        const work = assetWorkOf(step, assets, { chat: owner, prefix })
+        if (work !== null) return status('asset', `${work.who} draws`, `${work.who} draws: ${work.ticks}`, 'working', { ...base, who: work.who, why: work.words, since: work.since ?? base.since, link: work.link })
+        return status('asset', 'Waits for you', assetWaitWords(assetSuspension(assetWait)), 'quiet', { ...base, who: owner, why: assetWait.ids.join(', '), since: assetWait.since ?? base.since, link: assetWait.link })
+      }
       const who = workerOf(id) ?? owner
       return status('working', 'Working', `${who ?? 'a worker'} is on it`, 'working', { ...base, who })
     }

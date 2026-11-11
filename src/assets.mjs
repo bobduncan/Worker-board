@@ -99,6 +99,25 @@ export async function listAssets(dir) {
 }
 
 /**
+ * A reader of every request in `dir` for a board that reads them at every state read (the asset wait, 2026-11-11): a request that is
+ * ready or failed is final and is kept in memory, so each read opens only the folder and the open requests' files. Answers the list
+ * as `listAssets` does, oldest first.
+ */
+export function assetReader(dir) {
+  const final = new Map()
+  return async () => {
+    const ids = await idsIn(dir)
+    const records = await Promise.all(ids.map(async id => {
+      if (final.has(id)) return final.get(id)
+      const record = await readAsset(dir, id)
+      if (record !== null && (record.state === 'ready' || record.state === 'failed')) final.set(id, record)
+      return record
+    }))
+    return records.filter(record => record !== null)
+  }
+}
+
+/**
  * Changes the request `id`: `change(record)` answers the fields to set (or null to leave it as it is), and the record is
  * written with them. Answers the record as written, or null when there is no such request or nothing changed. A change to
  * running stamps `times.started`, one to ready or failed `times.ended`, at `now`.

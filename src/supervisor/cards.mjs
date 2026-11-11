@@ -33,7 +33,8 @@ function activityOf(item) {
 function laneWord(stepState, lane) {
   if (lane === undefined) return { text: 'has it', tone: 'idle' }
   switch (lane.state) {
-    case 'working': return { text: stepState === 'taken' ? 'starting' : 'building', tone: 'busy' }
+    // The asset wait: the provider draws for it; the chat itself runs no turn.
+    case 'working': return lane.heldBy === 'asset' && typeof lane.assetWork?.words === 'string' ? { text: lane.assetWork.words, tone: 'busy' } : { text: stepState === 'taken' ? 'starting' : 'building', tone: 'busy' }
     case 'waiting': return { text: 'waits for you', tone: 'idle' }
     case 'suspended': return { text: isChatWait(lane.suspended) ? chatWaitWords(lane.suspended) : isRecapWait(lane.suspended) ? recapSuspensionWords(lane.suspended) : isAssetWait(lane.suspended) ? assetWaitWords(lane.suspended) : lane.suspended?.by === 'parked' ? 'suspended on purpose' : 'paused for the limit', tone: 'idle' }
     case 'off': return { text: 'chat is off', tone: 'idle' }

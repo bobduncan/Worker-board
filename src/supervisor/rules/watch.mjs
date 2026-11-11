@@ -231,7 +231,8 @@ function workingNotRunning(view, ctx) {
   const holding = new Set(stepsOf(view).filter(one => HOLDS.includes(stateOf(one))).map(one => plain(valueOf(one, 'Owner'), view.prefix)))
   for (const lane of workersOf(view)) {
     const isWorkingCard = lane.state === 'working' || (lane.state === 'off' && Number.isFinite(lane.offSince))
-    if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix))) continue
+    // The asset wait: a worker whose lane works for the provider's pictures makes no call of its own while Codex draws: no fault.
+    if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix)) || lane.heldBy === 'asset') continue
     const key = `working-not-running ${lane.name}`
     const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : null), { heard: true })
     if (ms <= WORKING_NOT_RUNNING_MS) continue
@@ -890,7 +891,8 @@ export function checkpointLate(item, view) {
   // Stop and rethink: the person stopped the topic; its worker saves and hands the step back, a quiet checkpoint is no fault.
   if (stateOf(item) !== 'in progress' || isPaused(view) || isFull(view) || rethinkWords(item) !== null) return null
   const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
-  if (owner?.state !== 'working') return null
+  // The asset wait: while the provider draws, the holder runs no turn and writes no checkpoint: a quiet checkpoint is no fault then.
+  if (owner?.state !== 'working' || owner.heldBy === 'asset') return null
   const began = sinceMs(valueOf(item, 'Since'))
   if (!Number.isFinite(began)) return null
   const checkpoint = checkpointOf(item)
@@ -1125,7 +1127,7 @@ function weekStopIgnored(view, ctx) {
   if (isPaused(view) || week === null || week.level !== 'full' || !Number.isFinite(week.used) || !Number.isFinite(week.stopAt) || week.used < week.stopAt) return []
   const resets = Number.isFinite(week.resetsAt) ? week.resetsAt : null
   const found = []
-  for (const lane of workersOf(view).filter(one => one.state === 'working')) {
+  for (const lane of workersOf(view).filter(one => one.state === 'working' && one.heldBy !== 'asset')) {
     const word = (view.outbox ?? [])
       .filter(sent => sent.command === 'week-stop' && sent.to === lane.name && (sent.weekResets ?? null) === resets && sent.state === 'delivered' && Number.isFinite(sent.deliveredAt))
       .reduce((a, b) => (a === null || b.deliveredAt > a.deliveredAt ? b : a), null)

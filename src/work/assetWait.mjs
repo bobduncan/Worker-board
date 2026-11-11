@@ -1,14 +1,23 @@
-// The asset wait (the one wait system, chat 1's brief of 2026-11-11 under the person's "Yes, build now"): a worker that asked the
-// board for pictures (the work tool's `asset`, src/assets.mjs) and ends its turns while the provider draws them waits on purpose.
-// The live case of 2026-11-11 10:43: Worker 5 held B1124 and waited for Codex's A224-A227; between its turns the lane read Stopped
-// (interrupted), the holder timers would have typed "go on" after 5 min and given the step back after 20 while Codex was still
-// drawing, and the person asked "why has worker 5 stopped?". The wait is a record already: the open requests of the holder for its
-// held step (request.json: who, of, state waiting or running). Nothing is written for it: this module only reads those records.
-// Its lane is parked, P1's shape (waitsOn.mjs `waitSuspension`), kind 'asset': quiet "Paused · waits for Codex: A224-A227 since
-// 10:43", no "go on" line and no give-back (holderTimers.mjs), Resume all leaves it (pause.mjs `isResumed`). It ends by itself
-// when the last request is ready or failed; a failed one shows its failure on the lane ("A224 failed: ...") instead of a silent
-// Stopped. Past the provider's own time limit for a job (`jobMs`) the wait turns one Late on the person's list, "Codex has not
-// delivered A224 since 10:43", never a give-back. Not in it: the queue's own logic (src/assetQueue.mjs), the providers, the wake.
+// The asset wait (the one wait system, chat 1's brief of 2026-11-11 under the person's "Yes, build now"; the person's choice of
+// 2026-11-11: "A, Working"): a worker that asked the board for pictures (the work tool's `asset`, src/assets.mjs) and ends its turns
+// while the provider draws them is not stuck, and its task is not stopped: Codex works on it. The live case of 2026-11-11 10:43:
+// Worker 5 held B1124 and waited for Codex's A224-A227; between its turns the lane read Stopped (interrupted), the holder timers would
+// have typed "go on" after 5 min and given the step back after 20 while Codex was still drawing, and the person asked "why has
+// worker 5 stopped?". The wait is a record already: the holder's open requests for its held step (request.json: who, of, state
+// waiting or running). Nothing is written for it: this module only reads those records.
+//
+// - An auto provider's open requests (Codex) are the task's WORK: the lane reads Working with the line "Codex draws 4 pictures for
+//   it · 2 of 4 done · since 10:43" and one tick per picture, "death ✓ · attack ✓ · hit … · walk north …" (`assetWorkOf`), linked to
+//   the step. Never "Worker 5 is on it": the chat runs no turn, Codex does the work (state.mjs `card`, chatReport.mjs `laneFromReport`
+//   why 'asset', as a wait for the partner is).
+// - A person's or a pick provider's open request is the person's: the lane is parked, P1's shape with kind asset, "waits for your file
+//   (A230)" (`assetSuspension`).
+// - Either way the holder timers stay off (holderTimers.mjs), Resume all leaves the holder (pause.mjs `isResumed`), and the wait ends
+//   by itself when the last request is ready or failed; a failed one shows its failure on the lane ("A227 failed: ..."); the minutes
+//   the provider spent count as the holder's progress (`assetProgressAt`), so the step is not given back the moment the wait ends.
+// - Past the provider's time limit for a job (`jobMs`, the Design tab's seconds) a request turns one Late on the person's list,
+//   "Codex has not delivered hit since 10:43", never a give-back (`lateAssetsOf`). Not in it: the queue's own logic
+//   (src/assetQueue.mjs), the providers, the wake.
 
 import { PROVIDERS } from '../providers/index.mjs'
 import { sinceMs, valueOf } from './item.mjs'
@@ -24,10 +33,17 @@ export const FAILED_SHOWN_MS = 30 * 60_000
 export const LATE_GRACE_MS = 60_000
 /** The provider's time limit for one job when the board names none (src/providers/codex.mjs `PICTURE_SECONDS`). */
 export const DEFAULT_JOB_MS = 240_000
+/** A round: the requests asked within this long before the oldest open one belong to it (A224-A227 came within a minute). */
+export const ROUND_MS = 15 * 60_000
+/** The marks of a picture in the ticks line. */
+const MARKS = Object.freeze({ ready: '✓', failed: '✗', running: '…', waiting: '…' })
 
 const plain = (name, prefix = '') => String(name ?? '').replace(prefix, '').trim().toLowerCase()
 const numberOf = id => Number(String(id).slice(1))
 const finite = value => Number.isFinite(value)
+const isRecord = one => one !== null && typeof one === 'object' && typeof one.id === 'string'
+const isOpen = one => OPEN_ASSET_STATES.includes(one.state)
+const byId = (a, b) => numberOf(a.id) - numberOf(b.id)
 
 /** The provider's title as the Settings tab shows it ("Codex"), else its name. */
 export const providerTitle = name => PROVIDERS[name]?.card?.title ?? (typeof name === 'string' && name !== '' ? name : 'the provider')
@@ -41,74 +57,142 @@ export function assetIdsWords(ids) {
   return sorted.length <= 4 ? sorted.join(', ') : `${sorted.slice(0, 4).join(', ')} +${sorted.length - 4}`
 }
 
-/** The requests of `chat` for the step `id` (who and of as request.json keeps them; the who with or without the prefix). */
-export const requestsOfStep = (assets, id, chat, prefix = '') => (Array.isArray(assets) ? assets : [])
-  .filter(one => one !== null && typeof one === 'object' && one.of === id && (chat === null || chat === undefined || plain(one.who, prefix) === plain(chat, prefix)))
+/** The requests of `chat` for the step `id`, oldest id first (who as request.json keeps it, with or without the prefix); none without a chat. */
+export function requestsOfStep(assets, id, chat, prefix = '') {
+  if (typeof chat !== 'string' || chat.trim() === '' || typeof id !== 'string') return []
+  return (Array.isArray(assets) ? assets : []).filter(one => isRecord(one) && one.of === id && plain(one.who, prefix) === plain(chat, prefix)).sort(byId)
+}
 
 /**
- * The holder's standing wait for its requests: the open requests (waiting or running) of `chat` for the step it holds, or null.
- * `{ ids, provider, who ("Codex"), what ("Codex: A224-A227"), since (the oldest's asked time), link (the step's window) }`.
- * Only a step at work waits; a step that waits on a chat (`Waits on`) keeps that wait (the record the holder wrote wins).
+ * The name of a picture, for the ticks and the Late: the words the holder gave it beside its id in the step's Checkpoint or Plan
+ * ("A224 death, A225 attack, A226 hit, A227 walk north" → "death", "walk north"), else the capitalised words of the request's text
+ * ("the Knight's DEATH animation" → "death"), else its id.
+ */
+export function pieceNameOf(record, step) {
+  const id = record.id
+  const fields = ['Checkpoint', 'Plan'].map(key => valueOf(step, key)).filter(value => typeof value === 'string')
+  for (const text of fields) {
+    const hit = new RegExp(`\\b${id}\\b[\\s:·-]+([a-z][a-z -]{0,24}?)(?=[,;·.)\\n]|\\s[A-Z]|$)`).exec(text)
+    if (hit !== null && hit[1].trim() !== '') return hit[1].trim()
+  }
+  const caps = /\b([A-Z]{3,}(?: [A-Z]{3,})*)\b/.exec(String(record.text ?? '').replace(/#[0-9A-F]{6}/g, ''))
+  return caps === null ? id : caps[1].toLowerCase()
+}
+
+/**
+ * The round the holder waits for: its open requests for the step, with the ones of the same round that ended already (asked within
+ * `ROUND_MS` before the oldest open one, or after it), oldest id first. None while nothing is open.
+ */
+function roundOf(step, assets, { chat, prefix = '' }) {
+  const mine = requestsOfStep(assets, valueOf(step, 'Id'), chat, prefix)
+  const open = mine.filter(isOpen)
+  if (open.length === 0) return []
+  const from = Math.min(...open.map(one => one.times?.asked).filter(finite), Infinity)
+  return mine.filter(one => isOpen(one) || !finite(from) || !finite(one.times?.asked) || one.times.asked >= from - ROUND_MS)
+}
+
+/**
+ * The holder's open requests for the step it holds, any provider: `{ ids, open, provider, mode, who, since, link }`, or null. Only a
+ * step at work waits (the holder's own name, `chat`, is needed: a step without an owner waits for nobody). The timers and Resume all
+ * read this; the lane reads `assetWorkOf` (an auto provider's work) or `assetSuspension` (a person's or a pick).
  */
 export function assetWaitOf(step, assets, { chat = null, prefix = '' } = {}) {
   if (step === null || step === undefined || !AT_WORK.includes(valueOf(step, 'State'))) return null
-  const id = valueOf(step, 'Id')
-  const open = requestsOfStep(assets, id, chat ?? valueOf(step, 'Owner'), prefix).filter(one => OPEN_ASSET_STATES.includes(one.state))
+  const who = chat ?? valueOf(step, 'Owner')
+  const open = requestsOfStep(assets, valueOf(step, 'Id'), who, prefix).filter(isOpen)
   if (open.length === 0) return null
   const provider = open[0].provider ?? null
-  const who = providerTitle(provider)
-  const ids = open.map(one => one.id)
   const times = open.map(one => one.times?.asked).filter(finite)
   const since = times.length === 0 ? sinceMs(valueOf(step, 'Since')) : Math.min(...times)
-  return { ids, provider, who, what: `${who}: ${assetIdsWords(ids)}`, since: finite(since) ? since : null, link: `#details=${id}` }
+  return { ids: open.map(one => one.id), open, provider, mode: open[0].mode ?? 'auto', who: providerTitle(provider), since: finite(since) ? since : null, link: `#details=${valueOf(step, 'Id')}` }
 }
 
-/** The lane's suspension for an asset wait: P1's parked shape, kind asset, so every reader treats it as on purpose. */
-export const assetSuspension = wait => (wait === null || wait === undefined ? null
-  : { by: 'parked', kind: 'asset', on: [wait.who], what: wait.what, since: finite(wait.since) ? wait.since : null, limit: null, named: null, link: wait.link ?? null, ids: wait.ids })
+/**
+ * An auto provider's work on the step (the person's "A, Working"): the round's pictures with their marks and the words every reader
+ * uses, or null (nothing open, or the open requests are the person's or a pick's). `{ who, provider, ids, pieces: [{ id, name, state,
+ * mark }], total, done, failed, since, link, words: "Codex draws 4 pictures for it · 2 of 4 done · since 10:43", ticks: "death ✓ ·
+ * attack ✓ · hit … · walk north …", between: the lane's between-turns text }`.
+ */
+export function assetWorkOf(step, assets, { chat = null, prefix = '' } = {}) {
+  const wait = assetWaitOf(step, assets, { chat, prefix })
+  if (wait === null || wait.mode !== 'auto') return null
+  const round = roundOf(step, assets, { chat: chat ?? valueOf(step, 'Owner'), prefix }).filter(one => (one.mode ?? 'auto') === 'auto')
+  const pieces = round.map(one => ({ id: one.id, name: pieceNameOf(one, step), state: one.state, mark: MARKS[one.state] ?? '…' }))
+  const done = pieces.filter(one => one.state === 'ready').length
+  const failed = pieces.filter(one => one.state === 'failed').length
+  const total = pieces.length
+  const times = round.map(one => one.times?.asked).filter(finite)
+  const since = times.length === 0 ? wait.since : Math.min(...times)
+  const count = total === 1 ? '1 picture' : `${total} pictures`
+  const progress = `${done} of ${total} done${failed > 0 ? `, ${failed} failed` : ''}`
+  const words = `${wait.who} draws ${count} for it · ${progress}${finite(since) ? ` · since ${hourMinute(since)}` : ''}`
+  return {
+    who: wait.who, provider: wait.provider, ids: round.map(one => one.id), pieces, total, done, failed, since: finite(since) ? since : null, link: wait.link, words,
+    ticks: pieces.map(one => `${one.name} ${one.mark}`).join(' · '),
+    between: `Its turn has ended; ${wait.who} draws its pictures (${assetIdsWords(round.map(one => one.id))}).`,
+  }
+}
 
-/** Whether a lane's suspension is an asset wait (`assetSuspension`). */
+/** The lane's suspension for a wait on the person's own file (a person or pick provider): P1's parked shape, kind asset. */
+export const assetSuspension = wait => (wait === null || wait === undefined || wait.mode === 'auto' ? null
+  : { by: 'parked', kind: 'asset', on: ['you'], what: `your file (${assetIdsWords(wait.ids)})`, since: finite(wait.since) ? wait.since : null, limit: null, named: null, link: wait.link ?? null, ids: wait.ids })
+
+/** Whether a lane's suspension is a wait for the person's file (`assetSuspension`). */
 export const isAssetWait = held => held?.by === 'parked' && held.kind === 'asset'
 
-/** "waits for Codex: A224-A227 since 10:43": the words every reader uses for an asset wait. */
+/** "waits for your file (A230) since 10:43": the words every reader uses for a parked asset wait. */
 export function assetWaitWords(held) {
-  const what = typeof held?.what === 'string' && held.what !== '' ? held.what : `${Array.isArray(held?.on) && typeof held.on[0] === 'string' ? held.on[0] : 'the provider'}: its pictures`
+  const what = typeof held?.what === 'string' && held.what !== '' ? held.what : 'your file'
   return `waits for ${what}${finite(held?.since) ? ` since ${hourMinute(held.since)}` : ''}`
 }
 
 /**
- * The failure the lane shows instead of a silent Stopped: the newest request of `chat` for the step that failed within
- * `shownMs` while none of the step's requests is open any more: `{ id, why, at, text ("A224 failed: Codex took longer ...") }`,
- * or null. The holder's own progress after it (its checkpoint, a state change) ends it: the step's Since or Checkpoint after the failure.
+ * The provider's work as the holder's progress (holderTimers.mjs): the newest time a request of the holder for the step was asked,
+ * started or ended, or null. The minutes Codex drew are no stopped spell of the worker: without this the step would be given back
+ * the moment the last picture came, before the woken chat could report busy (the review of 2026-11-11, finding 1).
+ */
+export function assetProgressAt(step, assets, { chat = null, prefix = '' } = {}) {
+  if (step === null || step === undefined) return null
+  const mine = requestsOfStep(assets, valueOf(step, 'Id'), chat ?? valueOf(step, 'Owner'), prefix)
+  const times = mine.flatMap(one => [one.times?.asked, one.times?.started, one.times?.ended]).filter(finite)
+  return times.length === 0 ? null : Math.max(...times)
+}
+
+/**
+ * The failure the lane shows instead of a silent Stopped: the newest request of `chat` for the step that failed within `shownMs`
+ * while none of the step's requests is open any more: `{ id, name, why, at, text ("A227 failed: Codex took longer ...") }`, or null.
+ * The holder's own progress after it ends it (`progressAt`: its checkpoint, a state change, a turn begun).
  */
 export function assetFailureOf(step, assets, { chat = null, prefix = '', now = Date.now(), shownMs = FAILED_SHOWN_MS, progressAt = null } = {}) {
   if (step === null || step === undefined || !AT_WORK.includes(valueOf(step, 'State'))) return null
   const mine = requestsOfStep(assets, valueOf(step, 'Id'), chat ?? valueOf(step, 'Owner'), prefix)
-  if (mine.some(one => OPEN_ASSET_STATES.includes(one.state))) return null
+  if (mine.some(isOpen)) return null
   const failed = mine.filter(one => one.state === 'failed' && finite(one.times?.ended)).sort((a, b) => b.times.ended - a.times.ended)[0]
   if (failed === undefined || now - failed.times.ended > shownMs) return null
   if (finite(progressAt) && progressAt > failed.times.ended) return null
   const why = String(failed.why ?? '').replace(/\s+/g, ' ').trim()
-  return { id: failed.id, why, at: failed.times.ended, text: `${failed.id} failed${why === '' ? '' : `: ${why}`}` }
+  return { id: failed.id, name: pieceNameOf(failed, step), why, at: failed.times.ended, text: `${failed.id} failed${why === '' ? '' : `: ${why}`}` }
 }
 
 /**
- * The Lates of an asset wait: a running request past the provider's time limit for a job (`jobMs`, plus a minute of grace) since it
- * started, or a waiting one past it since it was asked while nothing of its provider runs (a stuck queue). One per request, the
- * oldest first, each `{ chat, id (the step), who, what, since, minutes, asset, text ("Codex has not delivered A224 since 10:43") }`,
- * in the shape of P1's Late (waitsOn.mjs `lateWaitOf`) with `kind: 'asset'`. Never a give-back: the step stays with its holder.
+ * The Lates of an auto provider's work: a running request past the provider's time limit for a job (`jobMs`, plus a minute of grace)
+ * since it started, or a waiting one past it while nothing of its provider runs (a stuck queue), counted from the newest end of that
+ * provider's jobs (the hand-off between two jobs is no wait: the review's finding 4). A person's or a pick's request is the person's,
+ * never late here. One per request, the oldest first, each `{ chat, id (the step), who, what, since, minutes, asset, name, kind:
+ * 'asset', text ("Codex has not delivered hit since 10:43") }`, in the shape of P1's Late. Never a give-back: the step stays with its holder.
  */
 export function lateAssetsOf({ chat, step, assets, now = Date.now(), jobMs = DEFAULT_JOB_MS, prefix = '' }) {
   const wait = assetWaitOf(step, assets, { chat, prefix })
   if (wait === null) return []
   const limit = (finite(jobMs) && jobMs > 0 ? jobMs : DEFAULT_JOB_MS) + LATE_GRACE_MS
-  const all = Array.isArray(assets) ? assets : []
-  const running = new Set(all.filter(one => one?.state === 'running').map(one => one.provider))
-  const open = requestsOfStep(assets, valueOf(step, 'Id'), chat, prefix).filter(one => OPEN_ASSET_STATES.includes(one.state))
-  return open.map(one => {
-    const from = one.state === 'running' ? one.times?.started : running.has(one.provider) ? null : one.times?.asked
+  const all = (Array.isArray(assets) ? assets : []).filter(isRecord)
+  const running = new Set(all.filter(one => one.state === 'running').map(one => one.provider))
+  const endedOf = provider => Math.max(-Infinity, ...all.filter(one => one.provider === provider && finite(one.times?.ended)).map(one => one.times.ended))
+  return wait.open.filter(one => (one.mode ?? 'auto') === 'auto').map(one => {
+    const from = one.state === 'running' ? one.times?.started : running.has(one.provider) ? null : Math.max(...[one.times?.asked, endedOf(one.provider)].filter(finite), -Infinity)
     if (!finite(from) || now - from < limit) return null
     const minutes = Math.floor((now - from) / 60_000)
-    return { chat, id: valueOf(step, 'Id'), who: wait.who, what: wait.what, since: from, minutes, asset: one.id, kind: 'asset', text: `${wait.who} has not delivered ${one.id} since ${hourMinute(from)}` }
+    const name = pieceNameOf(one, step)
+    return { chat, id: valueOf(step, 'Id'), who: wait.who, what: `${wait.who}: ${assetIdsWords(wait.ids)}`, since: from, minutes, asset: one.id, name, kind: 'asset', text: `${wait.who} has not delivered ${name} since ${hourMinute(from)}` }
   }).filter(one => one !== null).sort((a, b) => a.since - b.since)
 }

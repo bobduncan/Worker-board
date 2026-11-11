@@ -51,7 +51,7 @@ export { refineAsk } from './work/askOpen.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
 import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
-import { assetFailureOf, assetSuspension, assetWaitOf, lateAssetsOf } from './work/assetWait.mjs'
+import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, lateAssetsOf } from './work/assetWait.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { EFFORTS, effortPlan, runSettings } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
@@ -683,7 +683,10 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // Partner answers, the review's findings: a chat whose blocking ask waits for the partner's answer waits for the
   // partner, not for the person: held between two turns, its lane says so (`waitsForPartner`).
   const forPartner = waits.partner?.get(chat.name.toLowerCase()) ?? []
-  const held = reported !== null ? (reported.why === 'partner' ? { why: 'partner', text: `Its turn has ended; it waits for your partner's answer (${forPartner.join(', ')}).` }
+  // The asset wait (the person's "A, Working", 2026-11-11): the provider draws between its turns; the lane is working for that, never "on it".
+  const assetWork = reported?.assetWork ?? null
+  const held = reported !== null ? (reported.why === 'asset' && assetWork !== null ? { why: 'asset', text: assetWork.between }
+    : reported.why === 'partner' ? { why: 'partner', text: `Its turn has ended; it waits for your partner's answer (${forPartner.join(', ')}).` }
     : reported.why === 'background' ? { why: 'background', text: 'Its turn has ended; background work it started is still running.' } : null)
     : wasCutOff || ended !== 'free' ? null : forPartner.length > 0 ? { why: 'partner', text: `Its turn has ended; it waits for your partner's answer (${forPartner.join(', ')}).` } : heldBy({
     plan: isMainIdle ? null : plan, step,
@@ -796,7 +799,9 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     // transcript shows a turn open (also behind a "suspended" that may be stale).
     heldBy: held?.why ?? null,
     // The asset wait (2026-11-11): the failure of its step's last asset request while nothing of it is open ("A224 failed: ..."), or null.
-    assetFailed: typeof reported?.assetFailed?.text === 'string' ? reported.assetFailed.text : null,
+    assetFailed: typeof reported?.assetFailed?.text === 'string' && !(Number.isFinite(turnStartedAt) && turnStartedAt > reported.assetFailed.at) ? reported.assetFailed.text : null,
+    // The provider's work on its step (work/assetWait.mjs `assetWorkOf`: who, pieces, done, words, ticks, link), while its lane works for that.
+    assetWork: state === 'working' && held?.why === 'asset' ? assetWork : null,
     // B739: how many pieces of background work it started still run (what its clear is refused for).
     background,
     isTurnOpen: reported !== null ? state === 'working' && reported.entry?.state === 'busy' : turn === 'running' && !wasCutOff,
@@ -1106,7 +1111,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       title: `${flag.text}${flag.id === null ? '' : ` on ${flag.id}`}`,
       // The asset wait (2026-11-11): the provider is past its own time limit for the job; the step stays with its holder here too.
       text: flag.kind === 'asset'
-        ? `${lane.name} asked ${flag.who} for ${flag.asset} and waits for it (${flag.what}); ${flag.who} has had it ${flag.minutes} minutes, past its time limit for one job. The board holds the step for ${lane.name}: no "go on" line, nothing given back. Look at ${flag.who} on the Settings tab, or tell ${lane.name} in its chat to go on without it.`
+        ? `${lane.name} asked ${flag.who} for ${flag.asset} (${flag.name ?? flag.asset}) and waits for it (${flag.what}); ${flag.who} has had it ${flag.minutes} minutes, past its time limit for one job. The board holds the step for ${lane.name}: no "go on" line, nothing given back. Look at ${flag.who} on the Settings tab, or tell ${lane.name} in its chat to go on without it.`
         : `It recorded at ${hourMinute(flag.since)} that it waits for ${flag.who} (${flag.what}) and has waited ${flag.minutes} minutes of the board's running time. The board holds its step for it: no "go on" line, nothing given back. Ask ${flag.who} for its answer, or tell ${lane.name} in its chat to go on without it (work unblock ${flag.id ?? 'B<n>'}).`,
       at: flag.since,
       ...blank,
@@ -1899,10 +1904,13 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       return step === undefined ? null : keptRecapWaitOf(step, itemsOf(raw.work).filter(ask => ask.head.get('Kind') === 'ask' && ask.head.get('Of') === one.id))
     })
     const recapWait = recapWaits.length > 0 && recapWaits.every(one => one !== null) ? recapWaits[0] : null
-    // The asset wait (2026-11-11, the B1124 case): an open asset request of this chat for a step it holds (work/assetWait.mjs): it waits for
-    // the provider on purpose; a stopped such chat is parked (`card`, kind asset). A failed one, with nothing open any more, is shown on the
-    // lane instead of a silent Stopped (`assetFailed`, chatStatus.mjs) until the holder's next checkpoint or state change.
+    // The asset wait (2026-11-11, the B1124 case; the person's "A, Working"): an open asset request of this chat for a step it holds
+    // (work/assetWait.mjs). An auto provider's (Codex) is the task's work: the lane is Working with the provider's line (`assetWork`, why
+    // 'asset' in `laneFromReport`); a person's or a pick's is the person's: a stopped such chat is parked (`card`, kind asset, `assetWait`).
+    // A failed one, with nothing open any more, is shown on the lane instead of a silent Stopped (`assetFailed`, chatStatus.mjs) until the
+    // holder's next checkpoint, state change or turn.
     const assetWait = holds.map(one => assetWaitOf(raw.work.items.get(one.id), assetRecords, { chat: chat.name, prefix })).find(one => one !== null) ?? null
+    const assetWork = assetWait === null || assetWait.mode !== 'auto' ? null : holds.map(one => assetWorkOf(raw.work.items.get(one.id), assetRecords, { chat: chat.name, prefix })).find(one => one !== null) ?? null
     const assetFailed = assetWait !== null ? null : holds.map(one => {
       const step = raw.work.items.get(one.id)
       const progressAt = step === undefined ? null : Math.max(...[sinceMs(step.head.get('Since')), checkpointOf(step)?.at].filter(Number.isFinite), -Infinity)
@@ -1917,6 +1925,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       // Rule 15: a step that waits on you only for asks held for the person's words waits for nobody (the hold asks nobody).
       hasBlockingAsk: recapWait !== null ? hasOtherBlocking(key) : waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you' && !waitsOnHeldOnly(one.id))),
       waitsForPartner: forPartner.length > 0,
+      worksForAsset: assetWork !== null,
       // B148 kept: background work holds no chat whose step is reported (in review or done) while it holds no other.
       isTaskReported: holds.length === 0 && hasReportedStep(chat.name, entry.busyAt),
       appRuns: Number.isFinite(raw.appStartedAt) && raw.appStartedAt > entry.at ? false : null,
@@ -1925,7 +1934,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       // T13 part 3: a chat whose session ended is asleep while the app still has it (a message wakes it by its app id).
       hasAppSession: typeof chat.appSessionId === 'string' && chat.appSessionId !== '',
     })
-    return [chat.name, lane === null ? null : { ...lane, entry, ...(recapWait !== null ? { recapWait } : {}), ...(assetWait !== null ? { assetWait } : {}), ...(assetFailed !== null ? { assetFailed } : {}) }]
+    return [chat.name, lane === null ? null : { ...lane, entry, ...(recapWait !== null ? { recapWait } : {}), ...(assetWork !== null ? { assetWork } : {}), ...(assetWait !== null && assetWork === null ? { assetWait } : {}), ...(assetFailed !== null ? { assetFailed } : {}) }]
   }))
   context.reportOf = chat => (chat.isLeftover ? null : reportedOf.get(chat.name) ?? null)
   // B425: the brief of the step a worker is on, built for that step only.
@@ -2011,7 +2020,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     const writtenAt = raw.tails?.[lane.session]?.modifiedAt ?? null
     if (shown.state === 'off') return offLane(shown, workedAt(lane.report))
     // T13 part 3: an asleep chat that waits for the partner's answer keeps that: the answer's word wakes it.
-    const isStale = !lane.isLeftover && !lane.asleep && isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now })
+    // The asset wait: a lane that works for the provider's pictures runs no turn of its own; its quiet is no stale card.
+    const isStale = !lane.isLeftover && !lane.asleep && shown.heldBy !== 'asset' && isStaleWork({ state: shown.state, isRunning: runningOf(lane.name), writtenAt, appStartedAt, now })
     return isStale ? offLane(shown, writtenAt) : shown
   })
 
@@ -2639,7 +2649,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     planSeen: Object.fromEntries(planKept),
     recapWaits,
     // The asset wait (2026-11-11): the requests as read, trimmed to what the waits need (work/assetWait.mjs), for the hand-over's facts.
-    assets: assetRecords.map(one => ({ id: one.id, who: one.who ?? null, of: one.of ?? null, provider: one.provider ?? null, state: one.state ?? null, why: one.why ?? '', times: { asked: one.times?.asked ?? null, started: one.times?.started ?? null, ended: one.times?.ended ?? null } })),
+    assets: assetRecords.filter(one => ['waiting', 'running'].includes(one.state) || (Number.isFinite(one.times?.ended) && now - one.times.ended < HOUR))
+      .map(one => ({ id: one.id, who: one.who ?? null, of: one.of ?? null, provider: one.provider ?? null, mode: one.mode ?? 'auto', state: one.state ?? null, why: one.why ?? '', text: typeof one.text === 'string' ? one.text.slice(0, 200) : '', times: { asked: one.times?.asked ?? null, started: one.times?.started ?? null, ended: one.times?.ended ?? null } })),
     // The person's "Yes, clear them" (2026-11-04): where every row of the recaps stands, for the work API (src/recaps.mjs).
     recapRows: recapVerdictsOf(raw.recaps),
     // Clear after each step: the sessions the chats went on from, while the app still names them (read on to their ends).

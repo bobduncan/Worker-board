@@ -172,6 +172,8 @@ function chatLines(view, now) {
  * limits judge it. What the person parked without a fact in the store shows only in the step's checkpoint line.
  */
 function onPurposeOf(lane, held, view) {
+  // The asset wait (the person's "A, Working"): a lane working for the provider's pictures: "Codex draws 4 pictures for it · 2 of 4 done · since 10:43".
+  if (lane.state === 'working' && lane.heldBy === 'asset' && typeof lane.assetWork?.words === 'string') return lane.assetWork.words
   if (lane.state === 'suspended') {
     if (lane.suspended?.by !== 'parked') return null
     // P1 (2026-11-09): a recorded wait on a chat (`Waits on`): "waits for chat 1 (its go to land) since 11:24".

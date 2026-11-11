@@ -14,7 +14,7 @@
 
 import { afterPause, checkpointOf } from './pause.mjs'
 import { waitsOnOf } from './waitsOn.mjs'
-import { assetWaitOf } from './assetWait.mjs'
+import { assetProgressAt, assetWaitOf } from './assetWait.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 import { isKeptLook } from './keptLook.mjs'
 
@@ -237,7 +237,10 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   // P1: the record and the clear of a wait on a chat, and the landing of the step's branch, are the holder's progress too.
   const waitMarks = waitMarksOf(holding)
   const landedAt = landedAtOf(holding, landings)
-  const progressAt = Math.max(-Infinity, ...[changedAt, checkpointOf(holding)?.at, ...answered, ...waitMarks, landedAt].filter(finite))
+  // The asset wait: the provider's work on the step (a request asked, started or ended) is the holder's progress too: the minutes Codex drew
+  // are no stopped spell, so the step is not given back the moment the last picture came (the review of 2026-11-11, finding 1).
+  const assetAt = assetProgressAt(holding, assets, { chat: name, prefix })
+  const progressAt = Math.max(-Infinity, ...[changedAt, checkpointOf(holding)?.at, ...answered, ...waitMarks, landedAt, assetAt].filter(finite))
   const report = worker.report ?? null
   const stoppedAt = report === null ? -Infinity : ['idle', 'ended'].includes(report.state) ? (finite(report.since) ? report.since : report.at) : report.at
   const since = Math.max(progressAt, ...[stoppedAt, worker.turnAt].filter(finite))
@@ -257,7 +260,7 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
     const lastAt = Math.max(-Infinity, ...[asked?.at, noted.at(-1)].filter(finite))
     const checkpointAt = checkpointOf(holding)?.at
     const busy = busySpellAfter(worker, lastAt)
-    const from = Math.max(lastAt, ...[checkpointAt, landedAt, busy !== null && busy.ms > LONG_BUSY_MS ? busy.end : null].filter(at => finite(at) && at > lastAt))
+    const from = Math.max(lastAt, ...[checkpointAt, landedAt, assetAt, busy !== null && busy.ms > LONG_BUSY_MS ? busy.end : null].filter(at => finite(at) && at > lastAt))
     const isOver = runningMs(afterPause(pause, from)) >= giveBackMs
     return { since, asked: lastAt, resume: null, giveBack: isOver ? { step: id, chat: name, askedAt: lastAt } : null, close: isOver && asked?.state === 'waiting' ? asked.id : null }
   }

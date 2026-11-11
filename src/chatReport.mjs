@@ -71,7 +71,7 @@ export function hasMoved(before, after) {
  *   partner's answer; interrupted while it holds a task (a worker stopped mid-task: never free, so no new work goes to
  *   it); else free. A chat that reports runs.
  */
-export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infinity, holdsTask, hasBlockingAsk, waitsForPartner = false, isTaskReported = false, appRuns, appStartedAt = null, wokenAt = null, hasAppSession = true }) {
+export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infinity, holdsTask, hasBlockingAsk, waitsForPartner = false, worksForAsset = false, isTaskReported = false, appRuns, appStartedAt = null, wokenAt = null, hasAppSession = true }) {
   if (entry === null || entry === undefined) return null
   // T13 part 3 (the coordinator, seen live 2026-10-28: Worker 3, a routine chat, ended its session after its idle turn and
   // read Not running): a chat on the board whose session ended is asleep since then, as any asleep chat: a message wakes
@@ -81,11 +81,11 @@ export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infini
   if (entry.state === 'ended') {
     const since = Number.isFinite(entry.since) ? entry.since : entry.at
     if (!hasAppSession || !Number.isFinite(since)) return { state: 'off', isRunning: false, why: 'ended' }
-    return asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, isTaskReported, wokenAt })
+    return asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, worksForAsset, isTaskReported, wokenAt })
   }
   if (!Number.isFinite(entry.at) || now - entry.at > unknownAfterMs) {
     const since = asleepSince(entry, { now, offAfterMs, appRuns, appStartedAt, holdsTask })
-    if (since !== null) return asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, isTaskReported, wokenAt })
+    if (since !== null) return asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, worksForAsset, isTaskReported, wokenAt })
     if (appRuns === false) return { state: 'off', isRunning: false, why: 'app' }
     if (!Number.isFinite(entry.at) || now - entry.at > offAfterMs) return { state: 'off', isRunning: false, why: 'silent' }
     return { state: 'unknown', isRunning: null }
@@ -94,6 +94,8 @@ export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infini
   if (entry.state === 'asking') return { state: 'waiting', isRunning: true }
   if (hasBlockingAsk) return { state: 'waiting', isRunning: true }
   if (entry.background === true && !isTaskReported) return { state: 'working', isRunning: true, why: 'background' }
+  // The asset wait (the person's "A, Working", 2026-11-11, the B1124 case): the provider draws its pictures between its turns: the task's work goes on.
+  if (worksForAsset) return { state: 'working', isRunning: true, why: 'asset' }
   if (waitsForPartner) return { state: 'working', isRunning: true, why: 'partner' }
   if (holdsTask) return { state: 'interrupted', isRunning: true }
   return { state: 'free', isRunning: true }
@@ -123,13 +125,15 @@ function asleepSince(entry, { now, offAfterMs, appRuns, appStartedAt, holdsTask 
  * and the board sends it one resume word (hands.mjs). Not running only once a wake did not take: a start or resume word
  * reached it (`wokenAt`, since it fell asleep) and it stayed silent for longer than `offAfterMs` after it.
  */
-function asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, isTaskReported, wokenAt }) {
+function asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, waitsForPartner, worksForAsset = false, isTaskReported, wokenAt }) {
   // Signals change 4: with `sleptSince`, so the wake record's spell of it stays the same (src/wake.mjs `spellOf`): one try per path.
   if (Number.isFinite(wokenAt) && wokenAt >= since && now - wokenAt > offAfterMs) return { state: 'off', isRunning: false, why: 'woken', wokenAt, sleptSince: since }
   const asleep = { isRunning: false, asleep: true, asleepSince: since }
   if (entry.state === 'busy') return { state: 'interrupted', ...asleep }
   if (entry.state === 'asking' || hasBlockingAsk) return { state: 'waiting', ...asleep }
   if (entry.background === true && !isTaskReported) return { state: 'interrupted', ...asleep }
+  // The asset wait: the provider draws while the chat sleeps; the provider's word wakes it (deliver.mjs).
+  if (worksForAsset) return { state: 'working', why: 'asset', ...asleep }
   if (waitsForPartner) return { state: 'working', why: 'partner', ...asleep }
   if (holdsTask) return { state: 'interrupted', ...asleep }
   return { state: 'free', ...asleep }

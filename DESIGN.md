@@ -7040,37 +7040,53 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
 - Pinned by `test/waitsOn.test.mjs` (the B1081 case through the API, the state and the hand-over's decision; the Late past 90
   running minutes and none at 95 wall minutes with a 30-min off spell; Resume all; the landing guard; the words).
 
-### The asset wait: a worker that waits for its pictures (2026-11-11, chat 1's brief under the person's "Yes, build now")
+### The asset wait: a worker whose pictures Codex draws is Working (2026-11-11, chat 1's brief; the person's "A, Working")
 
 The live case of 2026-11-11 10:43: Worker 5 held B1124 and ended its turns to wait for the Codex pictures it asked for through `work
 asset` (A224-A227). Between its turns its lane read Stopped (interrupted); the holder timers would have typed "go on" after 5 min and
-given the step back after 20 while Codex was still drawing; the person asked "why has worker 5 stopped?".
+given the step back after 20 while Codex was still drawing; the person asked "why has worker 5 stopped?". Offered "Paused · waits for
+Codex" or Working, the person chose Working: the task's work goes on, done by Codex.
 
 - **The record is there already**: the holder's open requests (request.json `state` waiting or running, `who` the holder, `of` its
-  step; src/assets.mjs). Nothing is written for the wait: `src/work/assetWait.mjs` `assetWaitOf(step, assets, { chat })` reads them
-  (`{ ids, provider, who: "Codex", what: "Codex: A224-A227", since: the oldest's asked time, link: the step's window }`). The server
-  puts the requests into the raw at every read (`raw.assets`, with `raw.assetSeconds`, the Design tab's time limit for a job), the
-  state carries them trimmed (`state.assets`) for the hand-over's facts (handoverBoard.mjs `factsOf`), and the step status's `ctx.assets`.
-- **The lane**: a stopped holder with an open request is parked, P1's shape, kind asset (state.mjs `card`, `assetSuspension`:
-  `{ by: 'parked', kind: 'asset', on: ['Codex'], what: 'Codex: A224-A227', since, link: '#details=B1124', ids }`): quiet "Paused ·
-  waits for Codex: A224-A227 since 10:43", the why linked to the step's window (there is no asset view on the board; the step's
-  window tells the requests), the held task's note the same, the day bar in the suspended colour. The one status of the step: kind
-  asset, "Waits for Codex", "waits for Codex: A224-A227", quiet. Every parked reader (chatStatus, say, supervisor cards and health,
-  the page's heldText, day bar and resume words) has its asset words (`isAssetWait`, `assetWaitWords`).
+  step; src/assets.mjs). Nothing is written for the wait: `src/work/assetWait.mjs` reads them. The server puts the requests into the raw
+  at every state read (server.mjs `withAssets` around `readRaw`: `raw.assets`, read with `assetReader`, which keeps the final records in
+  memory, and `raw.assetSeconds`, the Design tab's time limit for a job); the state carries them trimmed (`state.assets`: the open ones
+  and those ended within the hour) for the hand-over's facts (handoverBoard.mjs `factsOf`) and the server's resume lists; the step
+  status reads `ctx.assets`.
+- **The lane is Working for the provider** (`assetWorkOf`: the round's pictures, their names and marks): chatReport.mjs `laneFromReport`
+  gives a stopped holder with an open auto request `{ state: 'working', why: 'asset' }` (as a wait for the partner), asleep or not;
+  state.mjs `card` makes it `heldBy: 'asset'` with `between` "Its turn has ended; Codex draws its pictures (A224-A227)." and `assetWork`
+  `{ who, pieces: [{ id, name, state, mark }], total, done, failed, since, link, words, ticks }`. The pill reads "Working · Codex draws 4
+  pictures for it · 1 of 4 done · since 10:43" (the why linked to the step's window), the task's line "Codex draws: death ✓ · attack …
+  · hit … · walk north …" (the one status, kind asset, tone working; never "Worker 5 is on it": the chat runs no turn). A picture's
+  name: the holder's words beside the id in its Checkpoint or Plan ("A224 death"), else the request's capitalised words, else the id.
+  A round: the open requests and those of the same batch that ended already (asked within 15 min before the oldest open one).
+- **Every reader of a working lane leaves it be**: no quiet count (`quietMs`: `held` stands), no stale card (`isStaleWork` skipped for
+  heldBy asset), the Supervisor's working-not-running, checkpoint-late and week-stop-ignored rules skip it (watch.mjs), the health line
+  says what Codex does and is not odd (health.mjs `onPurposeOf`), the stop words at a full limit go to it only once it runs a turn
+  again (say.mjs), the hand-out sees no idle worker, the wake needs nothing (the provider's word wakes it, deliver.mjs).
 - **No timers, no resume**: holderTimers.mjs returns null while `assetWaitOf` finds an open request (the records given to it, not the
-  lane: a lane that reads unknown or off keeps the wait); pause.mjs `isResumed` skips such a holder (Resume all leaves it, as a
-  Waits on step), with the records from the state (pauseFacts/pauseAnswer `assets`) or the API's folder (api.mjs `assetRecordsOf`).
-- **It ends by itself**: the last request ready or failed, the lane is Stopped as before (the provider's word wakes the holder,
-  deliver.mjs). A failed one shows its failure instead of a silent Stopped: the lane's why "A227 failed: Codex took longer than 240
-  seconds and was stopped." (`assetFailureOf`: the newest failed request of the step while none is open, within 30 minutes, and no
-  checkpoint or state change of the holder after it; `lane.assetFailed`, chatStatus.mjs row 9).
+  lane: a lane that reads unknown or off keeps the wait), and counts the provider's work as the holder's progress (`assetProgressAt`:
+  the newest asked, started or ended time), so the step is not given back the moment the last picture came (the review's finding 1);
+  pause.mjs `isResumed` skips such a holder (Resume all leaves it, as a Waits on step), with the records from the state
+  (pauseFacts/pauseAnswer `assets`, also the server's two resume lists) or the API's folder (api.mjs `assetRecordsOf`).
+- **It ends by itself**: the last request ready or failed, the lane is Stopped as before and the timers run from the delivery. A failed
+  one shows its failure instead of a silent Stopped: the lane's why "A227 failed: Codex took longer than 240 seconds and was
+  stopped." (with "; asked to go on at 11:05" once the timers typed it) (`assetFailureOf`: the newest failed request of the step while
+  none is open, within 30 minutes, and no checkpoint, state change or turn of the holder after it; `lane.assetFailed`, chatStatus.mjs row 9).
+- **The person's own file** (a `manual` or pick provider, mode person or pick): the wait is the person's, not work: a stopped holder is
+  parked, P1's shape with kind asset (`assetSuspension`: "Paused · waits for your file (A230) since 10:43"), the timers off, Resume all
+  skips it, never a Late (the provider's own ask holds the person's action).
 - **The cap**: past the provider's time limit for a job (`assetSeconds`, 240 s by default, plus a minute of grace) a running request
-  turns one Late on the person's list (kind 'wait late', id `asset:A224`): "Codex has not delivered A224 since 10:43 on B1124", with
+  turns one Late on the person's list (kind 'wait late', id `asset:A225`): "Codex has not delivered attack since 10:47 on B1124", with
   the words to look at the provider on the Settings tab or tell the worker to go on without it (`lateAssetsOf`, state.mjs `lateAssets`);
-  a waiting request is late only while nothing of its provider runs (a stuck queue). Never a give-back: the step stays with its holder.
-- Not in it: the queue's own logic (src/assetQueue.mjs ends a job at the limit itself), the providers, the wake, a lane state of its own.
-- Pinned by `test/assetWaitLane.test.mjs` (the live case; the mutant without the records: Stopped, nudged and given back; the holder's own
-  requests only; Resume all; delivered and failed; the Late at 10:49 and none at 10:47 or with a 600 s limit; the page).
+  a waiting request is late only while nothing of its provider runs, counted from the newest end of that provider's jobs (the hand-off
+  between two jobs is no wait). Never a give-back: the step stays with its holder. None while the person pauses.
+- Not in it: the queue's own logic (src/assetQueue.mjs ends a job at the limit itself), the providers, the wake, a lane state of its own;
+  a board that only shows (`--history-from`) keeps no requests and reads such a lane Stopped.
+- Pinned by `test/assetWaitLane.test.mjs` (the live case; the mutant without the records: Stopped, nudged and given back; the timers after
+  the delivery; the holder's own requests only; Resume all; every reader of a working lane with its mutant; delivered and failed; the
+  Late at 10:53 and none at 10:49, with a 600 s limit, between two jobs or while the person pauses; the person's file; the page).
 
 ## One status per step (P7 of the one wait system, 2026-11-10)
 
@@ -7083,7 +7099,7 @@ standard K6 Screens had no foundation built) while the Goals/Focus part said "B1
   B1030, round 3" or "B1030 to refine, on its way"). Kinds: done, dropped, review (the review's own `reviewWaitOf`: its words
   whenever it is a failed report check, "being checked" while its check runs), you, partner (the step's open blocking asks all
   routed to the partner, `stepWaitsForPartner`, or a new step's refine questions all routed to it: "waits for your partner: Q<n>"),
-  held-ask (a waiting step whose open asks are held for the person's words, rule 15, askHold.mjs `isHeld`: quiet, never "you": "waits for Worker 3's re-check of Q711 (your words at 14:05)", linked to the ask), recap (a step at work whose every open ask is routed to the goal's recap, `keptRecapWaitOf`, e.g. B1094 and Q715: quiet, "waits for your recap of G60 (Q715)", linked to `#advice/goals/G60`; its worker's lane is never Working (the lead's ruling of 2026-11-11: the chat does nothing while it waits) nor Stopped: a stopped such chat is parked, P1's shape, kind recap (state.mjs `card`, work/waitsOn.mjs `recapSuspension`: `{ by: 'parked', kind: 'recap', on: ['the person'], what: 'your recap of G60 (Q715)' }`), its pill quiet "Paused · waits for your recap of G60 (Q715)" with the why linked to the recap, the day bar in the suspended colour, no holder timers, and Resume all leaves it as it leaves a Waits on step (work/pause.mjs `isResumed`); an ordinary open ask of the person's still reads "waits on you", a chat really cut off with no such ask still reads Stopped), waits-on (P1's `Waits on`), asset (the holder's open asset requests for the step, work/assetWait.mjs, e.g. B1124 and A224-A227: quiet, "waits for Codex: A224-A227", linked to the step's window; its lane is parked the same way, kind asset), working, given, held (the hand-out's own why, word for word, from the ready list's `held`
+  held-ask (a waiting step whose open asks are held for the person's words, rule 15, askHold.mjs `isHeld`: quiet, never "you": "waits for Worker 3's re-check of Q711 (your words at 14:05)", linked to the ask), recap (a step at work whose every open ask is routed to the goal's recap, `keptRecapWaitOf`, e.g. B1094 and Q715: quiet, "waits for your recap of G60 (Q715)", linked to `#advice/goals/G60`; its worker's lane is never Working (the lead's ruling of 2026-11-11: the chat does nothing while it waits) nor Stopped: a stopped such chat is parked, P1's shape, kind recap (state.mjs `card`, work/waitsOn.mjs `recapSuspension`: `{ by: 'parked', kind: 'recap', on: ['the person'], what: 'your recap of G60 (Q715)' }`), its pill quiet "Paused · waits for your recap of G60 (Q715)" with the why linked to the recap, the day bar in the suspended colour, no holder timers, and Resume all leaves it as it leaves a Waits on step (work/pause.mjs `isResumed`); an ordinary open ask of the person's still reads "waits on you", a chat really cut off with no such ask still reads Stopped), waits-on (P1's `Waits on`), asset (the holder's open asset requests for the step, work/assetWait.mjs, e.g. B1124 and A224-A227: an auto provider's are the task's work, "Codex draws: death ✓ · attack … · hit … · walk north …", tone working, never "Worker 5 is on it", its lane Working for Codex; a person's file is a quiet wait, its lane parked with kind asset; linked to the step's window), working, given, held (the hand-out's own why, word for word, from the ready list's `held`
   (src/work/handOut.mjs `readyList`): outside the focus, a standard without its foundation, blocked by, waits for), ready ("waiting
   for a worker": only on the hand-out's `ready`), refine: "waits for the Advisor" only while a word to it is in flight (a refine, a
   refine asked again, a partner word about one of its asks), by the refine gate's own `refineAsk` (src/work/askOpen.mjs: on its way,
