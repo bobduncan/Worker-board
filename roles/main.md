@@ -401,6 +401,10 @@ A worker that waits for another chat records it (`work block id=B<n> on="chat 1"
 lane says "waits for chat 1 (its go to land) since HH:MM", the board sends it no "go on" line and gives nothing back; past 90 minutes of
 running time the user sees one Late. You, the holder or the user clear it with `work unblock B<n>`; when you give such a chat its go,
 say "unblock first".
+A step nobody holds yet (new, refined or queued with no owner) that waits on purpose gets a hold in words
+(`work block id=B<n> on="<what it waits for>" why="<why>"`, 2026-11-11): it writes `Waits for`, the board hands it to nobody, its status
+reads "held: waits for <words>" and the Advisor card says it quietly. No step or ask id in the words (for a step: `on=B12`). Clear it
+with `work unblock id=B<n>`. A rethink hold (the user's Stop and rethink) is not yours: your clear lifts only your own words beside it.
 A note "focus goal G<n> has work, none can be handed out: B<n> <its status>" (the repair `none-ready`, P7 of the one wait system,
 2026-11-10) says a worker has been free for 10 running minutes while every step of the focus goal waits: act on its cause (a step the
 hand-out holds: its blocker, its standard's foundation, the user's pick). A refine is the board's refine gate's to send, never yours

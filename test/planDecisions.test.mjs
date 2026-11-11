@@ -291,7 +291,7 @@ test('the page: after a decision the slide is gone from the state the server giv
       assert.deepEqual(given.working, [])
       const fresh = visionView(given, { page: 'interview', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [] })
       assert.deepEqual(ids(fresh), [])
-      assert.deepEqual(fresh.working, [])
+      assert.equal(fresh.working, undefined, 'P4c: the view keeps no guessed working list: the lines come from the server')
       assert.equal(Object.values(fresh.busy).some(Boolean), false)
     }
   } finally {
@@ -511,7 +511,7 @@ test('the board own write is not the partner answer: a pending word stays pendin
     const old = new Date(Date.now() - 3_600_000)
     await utimes(plan.file, old, old)
     const wordAt = Date.now() - 1_800_000
-    const sent = [{ command: 'plan-change', about: 'P7', at: wordAt, state: 'delivered' }, { command: 'plan-check', about: 'plan', at: wordAt, state: 'delivered' }]
+    const sent = [{ command: 'plan-change', about: 'P7', at: wordAt, state: 'delivered', pickedUpAt: wordAt + 1000 }, { command: 'plan-check', about: 'plan', at: wordAt, state: 'delivered', pickedUpAt: wordAt + 1000 }]
     const pending = async () => {
       const at = (await stat(plan.file)).mtimeMs
       const given = withPlanWork(planState(await plan.text(), [], 'p.md'), sent, await partnerPageAt(at, log, plan.file), Date.now())
