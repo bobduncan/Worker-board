@@ -307,7 +307,8 @@ test('a slot beyond this run\'s own counts: a run allowed one waits while anothe
   assert.match(result.out, /ran/)
 })
 
-test('a stale lock in a slot beyond this run\'s own (its process gone) does not hold it up and is removed', async () => {
+// A time limit, so a stale lock that holds the run up fails here instead of hanging the gate.
+test('a stale lock in a slot beyond this run\'s own (its process gone) does not hold it up and is removed', { timeout: 20000 }, async () => {
   const lock = newLock()
   const gone = spawnSync(process.execPath, ['-e', '0']).pid
   writeFileSync(slotPath(lock, 2), lockText({ pid: gone }))
