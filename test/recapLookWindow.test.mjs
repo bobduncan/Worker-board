@@ -96,3 +96,20 @@ test('before any recap is made the card says what it is: "1 picture to judge · 
     assert.match(page.text('#needs .is-recap-ready h4'), /G6 · Garden: 1 to judge$/, 'the Product owner\'s card: the count, its look listed under it')
   } finally { await page.close() }
 })
+
+test('every way to the kept look lands on its window with the picture: the Product owner card\'s "Also a look", the Focus card\'s tile and its "Open it"', async () => {
+  const state = stateOf([step, kept()])
+  for (const [hash, selector] of [['', '#needs .recap-attention-look'], ['advice/focus', '.focus-recap-tile'], ['advice/focus', '.focus-recap-open'], ['', '#needs .recap-attention-open']]) {
+    const page = await openPage({ state, hash })
+    try {
+      await settle(10)
+      const link = page.all(selector)[0]
+      assert.ok(link !== undefined, `${selector} is there`)
+      link.dispatchEvent(new page.window.MouseEvent('click', { bubbles: true, cancelable: true }))
+      await settle(10)
+      assert.equal(page.find('#details').open, true, `${selector} opens a window`)
+      assert.match(page.text('#details'), /Q740/, `${selector} opens Q740`)
+      assert.deepEqual(page.all('#details .references .picture').map(node => node.dataset.zoom), [CARDS], `${selector}: the window shows the picture`)
+    } finally { await page.close() }
+  }
+})
