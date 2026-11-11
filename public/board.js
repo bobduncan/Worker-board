@@ -15884,12 +15884,19 @@ function verdictLinkOf(at, card) {
 function recapReadyView(card) {
   if (card === null || card === undefined || !(card.count > 0)) return null
   const tiles = (card.tiles ?? []).slice(0, RECAP_TILES).map(tile => ({ title: tile.title, line: tile.line, picture: tile.picture ?? null, target: tile.target ?? card.open ?? null }))
+  // G95 (the person, 2026-11-12: "why do i get asked for a recap now. the goal just started"): "Your recap is ready" only for a built
+  // recap; a recap made while parts are still being built is "Your recap so far"; before any recap the card says what it is: one
+  // thing to judge by its title ("1 picture to judge · <title>"), or how many.
+  const isRecap = typeof card.open?.path === 'string' && card.open.path !== ''
+  const one = card.count === 1 && tiles.length === 1 && typeof tiles[0].title === 'string' && tiles[0].title.trim() !== '' ? tiles[0] : null
+  const early = isRecap ? `Your recap so far · ${card.count} to judge` : one === null ? `${card.count} to judge` : `1 ${one.picture === null ? '' : 'picture '}to judge · ${one.title.trim()}`
   return {
     // T20.1 (the person, 2026-11-04: "These numbers are all over the place and non consistent"): ONE count, "N to judge", the very number
     // the recap's popup carries in its head, the Needs count and the card in Needs your attention (src/recapRound.mjs `toJudge`).
-    title: `Your recap is ready · ${card.count} to judge`,
+    title: card.isBuilt === true ? `Your recap is ready · ${card.count} to judge` : early,
     line: card.isBuilt === true ? 'Everything is built. Judge each part: approve it, or send it back with a note.' : 'Judge what is ready: approve it, or send it back with a note.',
-    open: { label: 'Open the recap', target: card.open ?? null },
+    // An ask's window, before any recap is made: "Open it".
+    open: { label: typeof card.open?.ask === 'string' ? 'Open it' : 'Open the recap', target: card.open ?? null },
     tiles,
     // The tiles stay one row of at most three; the rest is one quiet link to the recap.
     more: Math.max(0, card.count - tiles.length),

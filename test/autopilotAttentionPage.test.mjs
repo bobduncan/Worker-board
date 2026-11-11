@@ -294,7 +294,7 @@ test('mid-goal a kept look is also a Product owner card (one count: whenever N >
   const page = await openPage({ state, hash: 'details=Q590' })
   try {
     await settle(10)
-    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 1 to judge', 'the one look is 1 to judge, also mid-goal')
+    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap so far · 1 to judge', 'the one look is 1 to judge, also mid-goal')
     assert.equal(page.text('#needs-count'), '1', 'counted once')
     assert.equal(page.find('#details').open, true)
     assert.deepEqual(page.all('#details [data-look-answer]').map(node => node.dataset.lookAnswer), ['reject', 'approve'], 'it can be answered at once')

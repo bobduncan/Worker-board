@@ -83,3 +83,16 @@ test('every routed ask with pictures shows them in its window: one with the main
     assert.equal(page.all('#details .partner-ask-options li').length, 2, 'a routed ask the person does not answer here keeps its options list')
   } finally { await page.close() }
 })
+
+test('before any recap is made the card says what it is: "1 picture to judge · <its title>" and "Open it", never "Your recap is ready"', async () => {
+  const state = stateOf([step, kept()])
+  assert.deepEqual([state.recapCard.count, state.recapCard.isBuilt, state.recapCard.open], [1, false, { ask: 'Q740' }])
+  const page = await openPage({ state, hash: 'advice/focus' })
+  try {
+    await settle(10)
+    assert.equal(page.text('.focus-recap-ready h3'), '1 picture to judge · Do the twelve character cards fit each unit?')
+    assert.equal(page.text('.focus-recap-open'), 'Open it')
+    assert.doesNotMatch(page.text('#advisor-focus'), /Your recap is ready/)
+    assert.match(page.text('#needs .is-recap-ready h4'), /G6 · Garden: 1 to judge$/, 'the Product owner\'s card: the count, its look listed under it')
+  } finally { await page.close() }
+})
