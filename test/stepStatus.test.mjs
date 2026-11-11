@@ -15,6 +15,7 @@ import { parseConfig } from '../src/config.mjs'
 import { buildState } from '../src/state.mjs'
 import { planState } from '../src/plan.mjs'
 import { recapRoundOf, reworkOf } from '../src/recapRound.mjs'
+import { refineQueue } from '../src/refineGate.mjs'
 import { FREE_SIGNAL_MINUTES, STATUS_PHRASES, WAITING_FOR_A_WORKER, blockChipWords, causeClassOf, noneReadyOf, stepStatusOf, stepStatusesOf } from '../src/stepStatus.mjs'
 import { outboxKnown, outboxNow } from '../src/store.mjs'
 import { incidentCards } from '../src/supervisor/cards.mjs'
@@ -661,6 +662,13 @@ test('14b. refine-stop-tone (the person, 11-11: "if red text remains idk if its 
   assert.equal(cardOf(B1030(), [ask([])]), null)
   // Every other stop is quiet: the stop line's tone is never red.
   assert.equal(statusWith([]).stop.tone, 'quiet')
+})
+
+test('14c. refine-stop-tone (chat 1, 2026-11-11): a new step with a hold in words gets no board refine round until the hold is cleared', () => {
+  const fresh = (extra = []) => parseItem(['Id: B1040', 'Kind: step', 'Title: A new step', 'State: new', 'Activity: Worker board for any project (B126)', 'Goal: G15', 'Since: 2026-11-10 09:00', ...extra, ''].join('\n'))
+  const queueOf = item => refineQueue(stateWith({ more: [item] }), [], { since: 1035, queuedBefore: [], waiting: [] }, NOW).map(one => one.step.id)
+  assert.equal(queueOf(fresh()).includes('B1040'), true, 'a new step with no hold is asked')
+  assert.equal(queueOf(fresh(["Waits for: chat 1's decision after the 3-day stability count (Fri 11-13)"])).includes('B1040'), false, 'held: no round')
 })
 
 test('15. the none-ready episode: worker A busy while B stays free is the same episode (no second partner word, no second note per cause); the signal gone and back is a new one', async () => {
