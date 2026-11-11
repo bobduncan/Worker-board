@@ -115,7 +115,7 @@ const DRAWN = {
   go: /placeWaitOf\(state\.waitPart, 'go'/,
   plan: all(/placeWaitIds\(state, 'plan'\)/, /placeWaitOf\(state, 'plan', \{ command: 'plan-start' \}\)/),
   recommend: /placeWaitOf\(state, 'recommend', \{ about: rec\.id \}\)/,
-  free: all(/const freeWaitOf = /, /freeLine\(state, 'talk-send'\)/, /freeLine\(state, 'main-send'\)/, /freeWaitOf\(board, 'nudge'/, /freeWaitOf\(state, 'ask-pictures'/),
+  free: all(/const freeWaitOf = /, /freeWordLine\(state, 'talk-send'\)/, /freeWordLine\(state, 'main-send'\)/, /freeWaitOf\(board, 'nudge'/, /freeWaitOf\(state, 'ask-pictures'/),
   'goal-ask': /placeWaitOf\(board, 'goal-ask'/,
   worker: /placeWaitIds\(state, 'worker'/,
   talk: /function threadWaitView[\s\S]*function focusTalkLine|placeWaitOf\(state, 'talk', \{ command: 'recheck' \}\)/,

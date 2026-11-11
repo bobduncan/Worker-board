@@ -17190,7 +17190,7 @@ function focusWaitStrip(state, view) {
  * Reactive board, brief P4c: the line of the person's newest free message (no command) of a kind (`talk-send`, `main-send`, `nudge`, `ask-pictures`),
  * as nodes, for the one it was typed in (`about`: the card or ask of a nudge or a request for pictures). From the records only: none for no record.
  */
-function freeLine(state, kind, about = null) {
+function freeWordLine(state, kind, about = null) {
   const view = freeWaitOf(state, kind, about)
   return view !== null && view.isShown ? [drawWaitLine(view)] : []
 }
@@ -19944,7 +19944,7 @@ function drawTalk(state) {
       busy.replaceChildren(el('b', '', words), el('span', '', 'What you type waits until it is done.'))
     }
   }
-  fill($('say-wait'), freeLine(state, 'talk-send'))
+  fill($('say-wait'), freeWordLine(state, 'talk-send'))
   // B282: why a send or a paste did not go, else where what is sent goes.
   const sayProblem = problems.get('talk') ?? pictureSlots.advisor.problem
   $('say-note').classList.toggle('is-error', sayProblem !== null)
@@ -20118,7 +20118,7 @@ function drawMainTalk(state) {
   note.classList.toggle('is-error', problems.has('main-talk') || pictureSlots.main.problem !== null)
   note.textContent = problems.get('main-talk') ?? pictureSlots.main.problem ?? 'What you send is typed into the main chat\'s chat as your own words, once it is idle.'
 
-  fill($('main-wait'), freeLine(state, 'main-send'))
+  fill($('main-wait'), freeWordLine(state, 'main-send'))
   const box = $('main-messages')
   const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60
   const rows = (talk?.messages ?? []).map(message => drawTalkMessage({
