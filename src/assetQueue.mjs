@@ -13,6 +13,10 @@
 // - A request that turns ready or failed is told to the chat that asked (`tell`), once.
 // - A request still running when the board stopped is failed at the next start (`recover`): it is never made twice by
 //   itself, as a second making could cost credits; the chat asks again, with `follows`.
+// - The asset-limit wait (2026-11-11, the live B1125 case: A230-A234 failed on Codex's usage limit "try again at 1:23 PM"): a
+//   failure on the provider's usage limit with a known reset time (src/work/providerLimit.mjs `limitResetOf`) is no failure: the
+//   request goes back to waiting with `limit: { until, why, at }`, nobody is told, the provider's requests are left alone until
+//   the reset has passed, and the oldest runs again by itself then. Without a reset time it fails as before.
 //
 // Principle 5: the passes never overlap; a provider runs one request at a time, as the board knows in its memory.
 
@@ -21,6 +25,7 @@ import { join } from 'node:path'
 
 import { assetFolder, changeAsset, droppedFiles, listAssets, readAsset } from './assets.mjs'
 import { PROVIDERS, runCheck } from './providers/index.mjs'
+import { limitOf, limitResetOf, waitsForLimit } from './work/providerLimit.mjs'
 import { writeAtomic } from './write.mjs'
 
 /** The file beside the requests that names the open ask of each provider whose check failed. */
@@ -90,7 +95,7 @@ export function assetQueue({ dir, tools = () => ({}), fileAsk = async () => null
     let asked
     const isAsked = new Promise(resolve => { asked = resolve })
     const ran = (async () => {
-      const started = await changeAsset(dir, record.id, current => (current.state === 'waiting' ? { state: 'running' } : null), now())
+      const started = await changeAsset(dir, record.id, current => (current.state === 'waiting' ? { state: 'running', limit: null } : null), now())
       if (started === null) return
       const request = await requestOf(started)
       let given
@@ -102,8 +107,12 @@ export function assetQueue({ dir, tools = () => ({}), fileAsk = async () => null
         given = { failed: `${provider.card?.title ?? provider.name} could not make it` }
       }
       const files = Array.isArray(given?.files) ? given.files.filter(name => typeof name === 'string' && name !== '') : []
+      const why = typeof given?.failed === 'string' && given.failed !== '' ? given.failed : `${provider.card?.title ?? provider.name} made nothing`
+      const until = files.length > 0 ? null : limitResetOf(why, now())
       if (files.length > 0) await end(record.id, { state: 'ready', why: '', files })
-      else await end(record.id, { state: 'failed', why: typeof given?.failed === 'string' && given.failed !== '' ? given.failed : `${provider.card?.title ?? provider.name} made nothing` })
+      // The asset-limit wait: the provider's limit with a known reset is no failure; the request waits for the reset, told to nobody.
+      else if (until !== null) await changeAsset(dir, record.id, current => (current.state === 'running' ? { state: 'waiting', why: '', limit: limitOf(why, until, now()) } : null), now())
+      else await end(record.id, { state: 'failed', why })
     })().finally(() => {
       asked()
       busy.delete(provider.name)
@@ -135,6 +144,8 @@ export function assetQueue({ dir, tools = () => ({}), fileAsk = async () => null
     for (const name of names) {
       if (busy.has(name)) continue
       const provider = providers[name]
+      // The asset-limit wait: a provider at its usage limit (any of its waiting requests says so) is left alone until the reset has passed.
+      if (waiting.some(one => one.provider === name && waitsForLimit(one, now()))) continue
       const oldest = waiting.find(one => one.provider === name)
       if (provider === undefined || typeof provider.provide !== 'function') {
         await end(oldest.id, { state: 'failed', why: `The board has no provider ${String(name).slice(0, 40)} that makes ${oldest.kind}` })

@@ -16,6 +16,8 @@
 // - Either way the holder timers stay off (holderTimers.mjs), Resume all leaves the holder (pause.mjs `isResumed`), and the wait ends
 //   by itself when the last request is ready or failed; a failed one shows its failure on the lane ("A227 failed: ..."); the minutes
 //   the provider spent count as the holder's progress (`assetProgressAt`), so the step is not given back the moment the wait ends.
+// - A failure on the provider's usage limit with a known reset (src/work/providerLimit.mjs) keeps the request waiting: the lane reads
+//   "Working · Codex is at its usage limit until 13:23; then it draws 5 pictures for it"; the Late counts from the reset.
 // - Past the provider's time limit for a job (`jobMs`, the Design tab's seconds) a request turns one Late on the person's list,
 //   "Codex has not delivered hit since 10:43", never a give-back (`lateAssetsOf`). Not in it: the queue's own logic
 //   (src/assetQueue.mjs), the providers, the wake.
@@ -23,6 +25,7 @@
 import { PROVIDERS } from '../providers/index.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 import { hourMinute } from './waitsOn.mjs'
+import { waitsForLimit } from './providerLimit.mjs'
 
 /** The states of a request the holder still waits for (src/assets.mjs `ASSET_STATES`): not yet ready or failed. */
 export const OPEN_ASSET_STATES = Object.freeze(['waiting', 'running'])
@@ -137,7 +140,7 @@ export function assetWaitOf(step, assets, { chat = null, prefix = '' } = {}) {
  * mark }], total, done, failed, since, link, words: "Codex draws 4 pictures for it · 2 of 4 done · since 10:43", ticks: "death ✓ ·
  * attack ✓ · hit … · walk north …", between: the lane's between-turns text }`.
  */
-export function assetWorkOf(step, assets, { chat = null, prefix = '' } = {}) {
+export function assetWorkOf(step, assets, { chat = null, prefix = '', now = Date.now() } = {}) {
   const wait = assetWaitOf(step, assets, { chat, prefix })
   if (wait === null || wait.mode !== 'auto') return null
   const round = roundOf(step, assets, { chat: chat ?? valueOf(step, 'Owner'), prefix })
@@ -149,9 +152,15 @@ export function assetWorkOf(step, assets, { chat = null, prefix = '' } = {}) {
   const since = times.length === 0 ? wait.since : Math.min(...times)
   const count = total === 1 ? '1 picture' : `${total} pictures`
   const progress = `${done} of ${total} done${failed > 0 ? `, ${failed} failed` : ''}`
-  const words = `${wait.who} draws ${count} for it · ${progress}${finite(since) ? ` · since ${hourMinute(since)}` : ''}`
+  // The asset-limit wait (2026-11-11, B1125): the provider is at its usage limit; the board runs the requests again at the reset.
+  const limited = round.filter(one => waitsForLimit(one, now)).map(one => one.limit.until)
+  const until = limited.length === 0 ? null : Math.max(...limited)
+  const left = pieces.filter(one => one.state !== 'ready').length
+  const words = until !== null
+    ? `${wait.who} is at its usage limit until ${hourMinute(until)}; then it draws ${left === 1 ? '1 picture' : `${left} pictures`} for it${done > 0 ? ` (${done} of ${total} done)` : ''}`
+    : `${wait.who} draws ${count} for it · ${progress}${finite(since) ? ` · since ${hourMinute(since)}` : ''}`
   return {
-    who: wait.who, provider: wait.provider, ids: round.map(one => one.id), pieces, total, done, failed, since: finite(since) ? since : null, link: wait.link, words,
+    who: wait.who, provider: wait.provider, ids: round.map(one => one.id), pieces, total, done, failed, since: finite(since) ? since : null, link: wait.link, words, limitUntil: until,
     ticks: pieces.map(one => `${one.name} ${one.mark}`).join(' · '),
     between: `Its turn has ended; ${wait.who} draws its pictures (${assetIdsWords(round.map(one => one.id))}).`,
   }
@@ -213,7 +222,10 @@ export function lateAssetsOf({ chat, step, assets, now = Date.now(), jobMs = DEF
   const running = new Set(all.filter(one => one.state === 'running').map(one => one.provider))
   const endedOf = provider => Math.max(-Infinity, ...all.filter(one => one.provider === provider && finite(one.times?.ended)).map(one => one.times.ended))
   return wait.open.filter(one => (one.mode ?? 'auto') === 'auto').map(one => {
-    const from = one.state === 'running' ? (finite(one.times?.started) ? one.times.started : one.times?.asked) : running.has(one.provider) ? null : Math.max(...[one.times?.asked, endedOf(one.provider)].filter(finite), -Infinity)
+    // The asset-limit wait: a request waiting for the provider's reset is late only past the reset and the job's own limit.
+    const from = one.state === 'running' ? (finite(one.times?.started) ? one.times.started : one.times?.asked)
+      : finite(one.limit?.until) && one.limit.until > now ? one.limit.until
+      : running.has(one.provider) ? null : Math.max(...[one.times?.asked, endedOf(one.provider), finite(one.limit?.until) ? one.limit.until : null].filter(finite), -Infinity)
     if (!finite(from) || now - from < limit) return null
     const minutes = Math.floor((now - from) / 60_000)
     const name = pieceNameOf(one, step)

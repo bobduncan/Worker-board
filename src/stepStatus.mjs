@@ -168,7 +168,7 @@ export function stepStatusOf(step, ctx = {}) {
       // An auto provider draws: "Codex draws: death ✓ · attack ✓ · hit … · walk north …", never "Worker 5 is on it"; the person's file: a quiet wait.
       const assetWait = assetWaitOf(step, assets, { chat: owner, prefix })
       if (assetWait !== null) {
-        const work = assetWorkOf(step, assets, { chat: owner, prefix })
+        const work = assetWorkOf(step, assets, { chat: owner, prefix, ...(Number.isFinite(now) ? { now } : {}) })
         if (work !== null) return status('asset', `${work.who} draws`, `${work.who} draws: ${work.ticks}`, 'working', { ...base, who: work.who, why: work.words, since: work.since ?? base.since, link: work.link })
         return status('asset', 'Waits for you', assetWaitWords(assetSuspension(assetWait)), 'quiet', { ...base, who: owner, why: assetWait.ids.join(', '), since: assetWait.since ?? base.since, link: assetWait.link })
       }

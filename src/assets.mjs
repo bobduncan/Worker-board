@@ -20,6 +20,8 @@
 //   files     the names of the provider's files in the folder, once ready
 //   ask       the person's ask (Q<n>) of a person provider, or null
 //   pick      the library folder a pick provider named, or null
+//   limit     `{ until, why, at }` while the request waits for its provider's usage limit to reset (the asset-limit wait,
+//             2026-11-11, src/work/providerLimit.mjs), else absent or null
 
 import { mkdir, readdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -120,7 +122,8 @@ export function assetReader(dir) {
 /**
  * Changes the request `id`: `change(record)` answers the fields to set (or null to leave it as it is), and the record is
  * written with them. Answers the record as written, or null when there is no such request or nothing changed. A change to
- * running stamps `times.started`, one to ready or failed `times.ended`, at `now`.
+ * running stamps `times.started`, one to ready or failed `times.ended`, at `now`; one back to waiting (the provider's limit,
+ * src/assetQueue.mjs) clears `times.started`: the request has not been made yet.
  */
 export function changeAsset(dir, id, change, now = Date.now()) {
   return inTurn(dir, async () => {
@@ -130,6 +133,7 @@ export function changeAsset(dir, id, change, now = Date.now()) {
     if (fields === null || fields === undefined) return null
     const times = { ...record.times }
     if (fields.state === 'running') times.started = now
+    if (fields.state === 'waiting') times.started = null
     if (fields.state === 'ready' || fields.state === 'failed') times.ended = now
     const changed = { ...record, ...fields, times }
     await write(dir, changed)

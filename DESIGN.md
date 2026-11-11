@@ -7076,6 +7076,16 @@ Codex" or Working, the person chose Working: the task's work goes on, done by Co
   one shows its failure instead of a silent Stopped: the lane's why "A227 failed: Codex took longer than 240 seconds and was
   stopped." (with "; asked to go on at 11:05" once the timers typed it) (`assetFailureOf`: the newest failed request of the step while
   none is open, within 30 minutes, and no checkpoint, state change or turn of the holder after it; `lane.assetFailed`, chatStatus.mjs row 9).
+- **The provider's usage limit** (the live B1125 case, 2026-11-11: Worker 1's A230-A234 failed at 12:31 with "You've hit your usage
+  limit ... try again at 1:23 PM", so the worker re-asked after the reset, read Stopped meanwhile and the next worker hit the same
+  limit): a failure whose words name the provider's usage limit with a reset time (src/work/providerLimit.mjs `limitResetOf`: "try
+  again at 1:23 PM" is today's 13:23, or tomorrow's; "in 2 hours" counts from now; nothing beyond a day) is no failure. The queue
+  (src/assetQueue.mjs `run`) puts the request back to waiting with `limit: { until, why, at }` (assets.mjs clears `times.started`),
+  tells nobody, leaves the provider's requests alone while one of them waits for the reset (`waitsForLimit`), and runs the oldest
+  again by itself once the reset passed (the record's `limit` is cleared when it runs; a second limit sets a new one). The lane
+  reads "Working · Codex is at its usage limit until 13:23; then it draws 5 pictures for it" (`assetWorkOf`, `limitUntil`), the
+  timers stay off (the request is open), Resume all skips it, and the Late counts from the reset plus the job's limit
+  (`lateAssetsOf`). A limit without a reset time, and every other failure, fails as before. Pinned by `test/assetLimitWait.test.mjs`.
 - **The person's own file** (a `manual` provider, mode person): the wait is the person's, not work: a stopped holder is parked, P1's
   shape with kind asset (`assetSuspension`: "Paused · waits for your file (A230) since 10:43"), the timers off, Resume all skips it,
   never a Late (the provider's own ask holds the person's action). A pick request (mode pick, the sound library) is the chat's own job:

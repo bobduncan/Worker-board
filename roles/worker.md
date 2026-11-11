@@ -175,7 +175,9 @@ step therefore says what it touches ("Touches: ...").
   running), the board shows your task as Working with what the provider does ("Codex draws 4 pictures for it · 1 of 4 done", a tick per
   picture), sends no "go on" line, gives the step to nobody and leaves you out of Resume all; past the provider's time limit for a job
   the user sees it as late. Name each picture beside its id in your checkpoint ("A224 death, A225 attack"): the board uses those names.
-  End your turn and wait for the board's "asset A<n> ready" or "asset A<n> failed" word; never make the picture yourself.
+  End your turn and wait for the board's "asset A<n> ready" or "asset A<n> failed" word; never make the picture yourself. A provider
+  at its usage limit with a known reset ("try again at 1:23 PM") fails nothing: the board waits for the reset and draws then, and the
+  lane says so; never re-ask for it.
 - Lessons of a task go into the repository's documents, not into a chat.
 - A change to the Workers mod (B570): raise its version (plugin.json and `MOD_VERSION`), and after your merge bring it
   onto the PC once: `claude plugin marketplace update <marketplace>` and `claude plugin update <mod>@<marketplace>`

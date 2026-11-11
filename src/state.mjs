@@ -1910,7 +1910,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     // A failed one, with nothing open any more, is shown on the lane instead of a silent Stopped (`assetFailed`, chatStatus.mjs) until the
     // holder's next checkpoint, state change or turn.
     const assetWait = holds.map(one => assetWaitOf(raw.work.items.get(one.id), assetRecords, { chat: chat.name, prefix })).find(one => one !== null) ?? null
-    const assetWork = assetWait === null || assetWait.mode !== 'auto' ? null : holds.map(one => assetWorkOf(raw.work.items.get(one.id), assetRecords, { chat: chat.name, prefix })).find(one => one !== null) ?? null
+    const assetWork = assetWait === null || assetWait.mode !== 'auto' ? null : holds.map(one => assetWorkOf(raw.work.items.get(one.id), assetRecords, { chat: chat.name, prefix, now })).find(one => one !== null) ?? null
     const assetFailed = assetWait !== null ? null : holds.map(one => {
       const step = raw.work.items.get(one.id)
       const progressAt = step === undefined ? null : Math.max(...[sinceMs(step.head.get('Since')), checkpointOf(step)?.at].filter(Number.isFinite), -Infinity)
@@ -2650,7 +2650,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     recapWaits,
     // The asset wait (2026-11-11): the requests as read, trimmed to what the waits need (work/assetWait.mjs), for the hand-over's facts.
     assets: assetRecords.filter(one => ['waiting', 'running'].includes(one.state) || (Number.isFinite(one.times?.ended) && now - one.times.ended < HOUR))
-      .map(one => ({ id: one.id, who: one.who ?? null, of: one.of ?? null, provider: one.provider ?? null, mode: one.mode ?? 'auto', state: one.state ?? null, why: one.why ?? '', text: typeof one.text === 'string' ? one.text.slice(0, 200) : '', times: { asked: one.times?.asked ?? null, started: one.times?.started ?? null, ended: one.times?.ended ?? null } })),
+      .map(one => ({ id: one.id, who: one.who ?? null, of: one.of ?? null, provider: one.provider ?? null, mode: one.mode ?? 'auto', state: one.state ?? null, why: one.why ?? '', limit: one.limit ?? null, text: typeof one.text === 'string' ? one.text.slice(0, 200) : '', times: { asked: one.times?.asked ?? null, started: one.times?.started ?? null, ended: one.times?.ended ?? null } })),
     // The person's "Yes, clear them" (2026-11-04): where every row of the recaps stands, for the work API (src/recaps.mjs).
     recapRows: recapVerdictsOf(raw.recaps),
     // Clear after each step: the sessions the chats went on from, while the app still names them (read on to their ends).
