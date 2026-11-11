@@ -49,7 +49,7 @@ test('the 3 days are closed and backfilled; idle is null (not known); rollback a
     // Idle is not known for a backfilled day: null for every day (not an estimate, not 0).
     assert.deepEqual(lines.map(line => line.idleWithWorkMinutes), [null, null, null])
     assert.deepEqual(lines[1].interventions.map(one => one.kind), ['rollback'])
-    assert.deepEqual(lines[1].alarms, { real: 1, false: 0, ids: ['X1'], cameBack: [] })
+    assert.deepEqual(lines[1].alarms, { real: 1, false: 0, ids: ['X1'], realIds: ['X1'], cameBack: [] })
     // No actions log: every day carries an unsure resume-all with the why, never a guess.
     for (const line of lines) assert.ok(line.unsure.some(one => one.kind === 'resume-all' && /actions log/.test(one.why)))
     assert.match(output, /^# resume-all: not known before/m)
