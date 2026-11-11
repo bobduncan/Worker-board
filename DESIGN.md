@@ -7169,6 +7169,43 @@ standard K6 Screens had no foundation built) while the Goals/Focus part said "B1
   worker's first free since), and it ends only when the signal is gone; a restart starts it anew.
 - Not in it: the hand-out's and the review's rules (read only), lane states, wake.
 
+## The board answers a work call at once (board-fast-answer, B1030 way A, 2026-11-11)
+
+X93's chain (B934 → B978 → B1011 → B1030): a chat's work call's answer queued behind a whole state rebuild and the loop's jobs. The
+stall log of 2026-11-11 (12:45 to 14:12): 39 loop stalls of 2 to 4.5 s and 11 call stalls of 2 to 3.9 s, every one naming "state
+rebuild"; a call of 18 s on 11-04. Cause: `workCtx` awaited `readState()` for the call's context (a rebuild whenever the 5 s cache was
+stale, which every write makes it), the main chat's pull rebuilt a second time, and the goal guard, the wakes and the supervisor's
+heard were awaited inside the answer. The person (2026-11-11): the held items one at a time, the faster board first; no 3-day count.
+
+- **The answer reads the store and the kept state** (server.mjs `keptStateFor`, `workCtx`): the store the API's own `oneRead` of
+  the call (the truth of the call: the items as it leaves them), and the kept state's SLOW facts only: the chats' names and roles,
+  the prefix, the sessions and models, the step a chat's card names. Never from a rebuild of its own. It never answers from a
+  stale list: a caller the kept state does not know (B736's case: a chat just added, or cleared into a new session) reads once; a
+  kept state older than `KEPT_STATE_MS` (60 s: no page open, no loop ran) reads once; the first seconds after a start have no kept
+  state and read. `health` keeps B736's own path (the kept state, whatever its age).
+- **turn-ended keeps its decision in the answer** (chat 1's review of the design note, 2026-11-11): the Workers mod reads the
+  answer's `handover` (register.tsx: `setOnSequence(parseHandover(ended) !== null)`; the turn's context for the clear), so the hand-over
+  turn with its own rebuild stays inside the call (`decideFor`). Moving it waits for the mod's release.
+- **The main chat's pull line goes to the outbox after the answer** (`pull-after-answer`, `pullFor` with the state read anew then);
+  the answer carries `pull: { text: '' }` as for a worker, and the main chat takes the line at its next take, within about 5 s (the
+  mod reads `pull.text` only to take at once).
+- **The side effects run after the answer, in order** (`afterAnswer`: one queue, started on the next turn of the loop, each through
+  `loops.run` so a failure is recorded): the goal guard after `checked` and `answer` (eventual: the store's truth is the call's write,
+  a call that comes in before its guard ran reads that truth), `supervisor.heard`, the wake of the chat a partner-answer, escalate or
+  words frees (the wake path itself is unchanged), as the asset look and the result check already did (`void`).
+- **The rebuild moves, it is not removed**: the call still resets the state and the store reader; the next reader (the page's
+  GET /api/state, the loops, the hand-over turn) rebuilds. The take path's own `await readState()` calls are the next piece
+  ("take-fast"), not this one.
+- **The proof** (src/workCalls.mjs `workCallRecord`): every answered work call is noted (server.mjs `callStall`'s end) with its time
+  and the whole rebuilds that started during it (`rebuilds`, counted where the state is rebuilt), by day and action, the newest seven
+  days in data/work-calls.json; `today()` gives the figures and the Supervisor's health line says them in one line under "Limits and
+  pause": "work calls today: 412 (median 0.3 s, slowest 1.8 s, 0 over 5 s)", odd (owner board-slow) once a call took over 5 s. Target
+  (the person's): no work call over 5 s for a day of normal use, against today's stall log. The page shows nothing new (rule 16).
+- Not in it: the wake paths, the outbox send path, the take path's rebuilds, the Workers mod, making the rebuild itself cheaper.
+- Pinned by `test/fastAnswer.test.mjs` (the server's shape: the kept state, the two guards, no rebuild in the answer, the pull after
+  the answer, turn-ended unchanged, the queue; the figures through the state to the health line), `test/workCalls.test.mjs` (the
+  record), and `test/boardSlowRead.test.mjs` (a copy of the board with 5 s reads answers a worker's note within 2 s).
+
 ## Going live: tools/land.ps1 (2026-11-04)
 
 Until now every landing of the worker board was done by hand or with a scratch script: merge, push, bring the trial copy

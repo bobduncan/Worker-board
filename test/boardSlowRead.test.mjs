@@ -135,6 +135,11 @@ test('a whole read of 5 s: a chat\'s report is kept and work health answers with
   const health = await timed(() => work('Watcher', { action: 'health' }))
   assert.match(health.answered.body?.text ?? JSON.stringify(health.answered.body), /^The board's health/)
   assert.ok(health.ms < QUICK_MS, `work health waited ${health.ms} ms for a whole read`)
+  // board-fast-answer (B1030 way A): a worker's WRITE answers from the store and the kept state while a whole read of 5 s runs.
+  assert.equal((await report('Lead', 'idle')).status, 200)
+  const noted = await timed(() => work('Digger', { action: 'note', to: 'main', text: 'a note while the board reads' }))
+  assert.equal(noted.answered.status, 200, JSON.stringify(noted.answered.body))
+  assert.ok(noted.ms < QUICK_MS, `a work note waited ${noted.ms} ms for a whole read`)
 
   // Two work calls answered after their mods gave up (sent 15 s and 20 s before): the board counts both, and board-slow
   // finds them as one.

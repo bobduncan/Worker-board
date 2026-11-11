@@ -1731,7 +1731,7 @@ export function buildState(raw, options) {
   return withLinks(raw?.work?.items, () => builtState(raw, options))
 }
 
-function builtState(raw, { lines = [], outbox = [], words = null, refineKept = null, runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], finishedSeen = {}, taskTimes = [], stability = null, mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, noWorkSeen = null, now, config }) {
+function builtState(raw, { lines = [], outbox = [], words = null, refineKept = null, runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], workCalls = null, finishedSeen = {}, taskTimes = [], stability = null, mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, noWorkSeen = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -2815,6 +2815,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     lateCalls: Array.isArray(hearing?.lateCalls) ? hearing.lateCalls : [],
     // B934 (X93): the board's newest stalls (stalls.mjs), which the rule board-slow cites.
     stalls: Array.isArray(stalls) ? stalls : [],
+    // board-fast-answer (B1030 way A): the day's work-call figures (src/workCalls.mjs `today`), for the Supervisor's health line.
+    workCalls: workCalls !== null && typeof workCalls === 'object' ? workCalls : null,
     restart,
     // Review 4: a step in review is named with what it waits on only where the board knows it (reviewWaitOf's kind).
     pause: pause === null ? null : withReviewWaits(pause, raw.work.items, reconciled?.ready?.held ?? null, now, recapWaits),

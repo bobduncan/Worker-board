@@ -59,6 +59,7 @@ import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog } from './src/hearing.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
+import { workCallRecord } from './src/workCalls.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
@@ -811,24 +812,44 @@ async function main(args) {
   // after 2 s, with the requests and the board's own jobs that ran then, in data/stalls.json; the rule board-slow cites it.
   const stalls = stallLog({ now: clock, file: isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'stalls.json') })
   const trackJob = (words, fn) => stalls.track('job', words, fn)
+  // board-fast-answer (B1030 way A, 2026-11-11): every work call's time by day and action (src/workCalls.mjs), with the whole state
+  // rebuilds that started during it (`rebuilds`, counted below where the state is rebuilt): the proof that a call no longer waits for one.
+  const workCalls = workCallRecord({ now: clock, file: isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'work-calls.json') })
+  let rebuilds = 0
   /** B934: a chat's work call as the stall log names it (by its chat once checked); one answered after 2 s is a stall. */
   const callStall = (action, session) => {
     const begun = clock()
+    const rebuildsBefore = rebuilds
     const what = by => `work ${String(action ?? 'call').slice(0, 30)} by ${by}`
     let words = what(`session ${String(session).slice(0, 8)}`)
+    let chat = null
     const end = stalls.begin('request', words)
     return {
-      by: chat => end.as(words = what(chat)),
+      by: name => end.as(words = what(chat = name)),
       done: () => {
         end()
         stalls.slowCall(words, begun, clock())
+        workCalls.note({ action, chat, ms: clock() - begun, rebuilds: rebuilds - rebuildsBefore, at: begun })
       },
     }
   }
   if (!isDemo && historyFrom === undefined) {
     await stalls.load()
+    await workCalls.load()
     watchLoop(stalls)
   }
+  /**
+   * board-fast-answer: what a work call used to await after its store write (the goal guard, a wake, the supervisor's heard, the main
+   * chat's pull line) runs after the answer, one after the other in the order the calls queued them, each through `loops.run` so a
+   * failure is recorded; started on the next turn of the loop, so the answer is on its way first.
+   */
+  let afterQueue = Promise.resolve()
+  const afterAnswer = run => {
+    afterQueue = afterQueue.then(() => new Promise(next => setImmediate(next))).then(run, run).catch(error => loops.failed('after-answer', error))
+    return afterQueue
+  }
+  /** board-fast-answer: a kept state older than this is read anew before a work call is answered from it. */
+  const KEPT_STATE_MS = 60_000
   const loops = loopRecord({ now: clock, holders: isDemo ? null : files => fileHolders(files), write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')), track: trackJob })
   /** B404: the checks after a report that run now, by step id; a restart waits for them, the stuck-check pass skips them. */
   const runningChecks = new Map()
@@ -1665,8 +1686,21 @@ async function main(args) {
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
   // B736 (X89): `kept`, the state the board has however old, for a read that must answer at once (work health).
-  const workCtx = async ({ kept = false } = {}) => {
-    const state = (kept ? readState.last() : undefined) ?? await readState()
+  /**
+   * board-fast-answer (B1030 way A, 2026-11-11; the stall log of X93: every work call waited for a whole state rebuild of 2 to 4.5 s
+   * inside its answer, 18 s on 11-04): the work API answers from the store write it makes and the KEPT state's slow facts (the chats'
+   * names and roles, the prefix, the sessions, the step a chat's card names), never from a rebuild of its own. It never answers from a
+   * stale list: a caller the kept state does not know (a chat just added or cleared into a new session: B736's case) or a kept state
+   * older than KEPT_STATE_MS (no page, no loop ran) reads once, as before; and there is no kept state in the first seconds after a start.
+   */
+  const keptStateFor = async chat => {
+    const last = readState.last() ?? null
+    if (last === null || !Number.isFinite(last.readAt) || clock() - last.readAt > KEPT_STATE_MS) return readState()
+    if (chat !== null && chat !== undefined && laneRole(last, chat) === null) return readState()
+    return last
+  }
+  const workCtx = async ({ kept = false, chat = null } = {}) => {
+    const state = kept ? readState.last() ?? await readState() : await keptStateFor(chat)
     const lanes = (state.chats ?? []).filter(lane => !lane.isLeftover)
     const roles = new Map(lanes.map(lane => [lane.name, lane.isMain ? 'main' : 'worker']))
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
@@ -1830,12 +1864,13 @@ async function main(args) {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
-    const done = await workApi(body, { ...(await workCtx({ kept: body?.action === 'health' })), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
+    const done = await workApi(body, { ...(await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null })), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
     // T9.1.1: a result check is a Quality Assurance task the work API makes itself (api.mjs `qaStep`): no word to the Advisor.
     // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.
-    if (done.ok && body?.action === 'checked' && (done.result.fix !== undefined || done.result.ticked === false)) await loops.run('guard', async () => guardNow(await goalOfChecked(body.id)))
+    // board-fast-answer: the guard runs after the answer (`afterAnswer`, in order): it is eventual, the store's truth is the call's write.
+    if (done.ok && body?.action === 'checked' && (done.result.fix !== undefined || done.result.ticked === false)) afterAnswer(() => loops.run('guard', async () => guardNow(await goalOfChecked(body.id))))
     // B450: and your no to a look of one of its steps counts an attempt too.
-    if (done.ok && body?.action === 'answer') await loops.run('guard', async () => guardNow(await goalOfChecked(body.id)))
+    if (done.ok && body?.action === 'answer') afterAnswer(() => loops.run('guard', async () => guardNow(await goalOfChecked(body.id))))
     if (done.ok && done.result.changed !== false) {
       work.reset?.()
       readState.reset()
@@ -2304,6 +2339,7 @@ async function main(args) {
   // longest-free worker's since again.
   let noWorkSeen = null
   const readState = cached(() => trackJob('state rebuild', async () => {
+    rebuilds += 1
     if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
     blockRead()
@@ -2331,6 +2367,8 @@ async function main(args) {
       hearing: hearing?.view(clock()) ?? null,
       // B934: the newest stalls of the board's own loop and calls (src/stalls.mjs), for the rule board-slow.
       stalls: stalls.recent(),
+      // board-fast-answer: the day's work-call figures for the Supervisor's health line (src/workCalls.mjs).
+      workCalls: workCalls.today(clock()),
       finishedSeen: finishedSeen ?? {},
       taskTimes: taskTimes.tasks,
       // Stability numbers (2026-11-05, task 4): what the loop above last recorded; the demo shows made-up days.
@@ -2741,11 +2779,12 @@ async function main(args) {
     // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.
     // B760: by the state the board has, as the check of the call: work health's answer never waits for a whole read.
     if (supervisor !== null && ['health', 'incident', 'turn-ended'].includes(body?.action) && done.ok && laneRole(readState.last() ?? await readState(), checked.chat) === 'supervisor') {
-      await supervisor.heard({ action: body.action, ok: true, session: typeof body.session === 'string' ? body.session : null, since: body.since ?? null })
+      afterAnswer(() => loops.run('supervisor-heard', () => supervisor.heard({ action: body.action, ok: true, session: typeof body.session === 'string' ? body.session : null, since: body.since ?? null })))
     }
     // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
     // And the partner's hand-over of a look that Autopilot keeps for the recap: the worker its blocking ask held goes on (`wake`).
-    if (body?.action === 'partner-answer' || body?.action === 'escalate' || body?.action === 'words') await sendWakes(done)
+    // board-fast-answer: the wake of the chat the answer frees goes after the answer (the wake path itself is unchanged).
+    if (body?.action === 'partner-answer' || body?.action === 'escalate' || body?.action === 'words') afterAnswer(() => loops.run('wake-after-answer', () => sendWakes(done)))
     // T8.5: a worker on the sequence: its turn end is the trigger. The board decides once and answers the envelope (or, while
     // its set is on its way, that it comes with a take); the mod clears only when an envelope says so. No pull line.
     if (body?.action === 'turn-ended' && done.ok && await sequenceLane(checked.chat, mod) !== null) {
@@ -2768,17 +2807,19 @@ async function main(args) {
     if (body?.action === 'turn-ended' && done.ok && wakeTurnEnded(wakes, checked.chat, clock())) wakesChanged()
     const pulled = !done.ok ? null : body?.action === 'pull' ? done.result : done.result.pull ?? null
     if (pulled === null || (pulled.wake ?? null) === null) return done
-    if (workerNames(readState.last() ?? await readState()).has(checked.chat)) {
-      const none = { ...pulled, text: '', wake: null }
-      return { ok: true, result: body?.action === 'pull' ? none : { ...done.result, pull: none } }
-    }
-    readState.reset()
-    const answered = await pullFor({
-      dir: workDir, result: pulled, state: await readState(), outbox: store, now: clock(), maxChars: config.maxMessageChars,
-      newId: () => randomBytes(8).toString('hex'), keep,
-    })
-    if (answered.text !== '') readState.reset()
-    return { ok: true, result: body?.action === 'pull' ? answered : { ...done.result, pull: answered } }
+    const none = { ...pulled, text: '', wake: null }
+    if (workerNames(readState.last() ?? await readState()).has(checked.chat)) return { ok: true, result: body?.action === 'pull' ? none : { ...done.result, pull: none } }
+    // board-fast-answer (chat 1's review): the main chat's line goes into the outbox after the answer (`pullFor`, with the state read
+    // anew then), and the main chat takes it at its next take, within about 5 s; the answer carries no text and waits for no rebuild.
+    afterAnswer(() => loops.run('pull-after-answer', async () => {
+      readState.reset()
+      const answered = await pullFor({
+        dir: workDir, result: pulled, state: await readState(), outbox: store, now: clock(), maxChars: config.maxMessageChars,
+        newId: () => randomBytes(8).toString('hex'), keep,
+      })
+      if (answered.text !== '') readState.reset()
+    }))
+    return { ok: true, result: body?.action === 'pull' ? none : { ...done.result, pull: none } }
   }
   // B142: started anew on the person's click, once the version its folder holds loads. B454: also by the board itself,
   // at a safe moment (src/selfUpdate.mjs).

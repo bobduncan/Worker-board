@@ -18,6 +18,7 @@ import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from '..
 import { assetWaitWords, isAssetWait } from '../work/assetWait.mjs'
 import { envelopesOf, lastClearWhyOf } from '../work/handover.mjs'
 import { boardOffMs, checkpointLate, familyOf, reviewLateOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
+import { workCallsWords } from '../workCalls.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -507,6 +508,13 @@ function checkAskedWords(view, id, since, now) {
 }
 
 /** Each chat's queue as the board shows it, in its order, with why the first step waits. */
+/** board-fast-answer (B1030 way A): one figure of the day's work calls (src/workCalls.mjs); odd once a call took over 5 s. */
+function workCallLines(view) {
+  const figures = view.workCalls ?? null
+  if (figures === null) return []
+  return [lineOf(workCallsWords(figures), { tier: 1, odd: figures.over > 0, owner: figures.over > 0 ? 'board-slow' : 'info' })]
+}
+
 function queueLines(view) {
   return view.lanes.filter(lane => !lane.isLeftover && Array.isArray(lane.queue) && lane.queue.length > 0).map(lane => {
     const ids = lane.queue.map(step => step?.id ?? `"${oneLine(step?.title, 30)}"`)
@@ -569,7 +577,7 @@ function healthSections(view, now) {
     { title: 'Queues', lines: queueLines(view) },
     { title: 'Incidents and repairs of the last day', lines: dayLines(view, now) },
     { title: 'Words not delivered', lines: wordLines(view, now) },
-    { title: 'Limits and pause', lines: limitLines(view, now) },
+    { title: 'Limits and pause', lines: [...limitLines(view, now), ...workCallLines(view)] },
   ]
 }
 
