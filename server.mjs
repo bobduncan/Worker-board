@@ -1874,7 +1874,8 @@ async function main(args) {
   // The asset wait (2026-11-11, the B1124 case): the asset requests go into the raw (src/work/assetWait.mjs reads the open ones of a
   // holder as its wait), with the provider's time limit for a job (the Design tab's seconds, once read below) for the Late past it.
   let assetSecondsNow = () => null
-  const assetsRead = assetsDir === null ? null : assetReader(assetsDir)
+  // The trial copy and a branch board show the wait too: the requests are read wherever the work folder is; only the queue is the delivering board's.
+  const assetsRead = workDir === null ? null : assetReader(resolve(HERE, assetsFolderOf(workDir)))
   // B467: a folder of requests that cannot be read is shown as a failed loop, and the state goes on without the requests.
   const withAssets = async sources => ({ ...sources, assets: assetsRead === null ? [] : await assetsRead().catch(error => { loops.failed('asset-requests', error); return [] }), assetSeconds: assetSecondsNow() })
   let readLines = raw => raw.historyLines ?? store.lines()

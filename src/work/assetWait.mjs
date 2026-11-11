@@ -10,8 +10,9 @@
 //   it · 2 of 4 done · since 10:43" and one tick per picture, "death ✓ · attack ✓ · hit … · walk north …" (`assetWorkOf`), linked to
 //   the step. Never "Worker 5 is on it": the chat runs no turn, Codex does the work (state.mjs `card`, chatReport.mjs `laneFromReport`
 //   why 'asset', as a wait for the partner is).
-// - A person's or a pick provider's open request is the person's: the lane is parked, P1's shape with kind asset, "waits for your file
-//   (A230)" (`assetSuspension`).
+// - A person provider's open request (mode person: the person drops the file) is the person's: the lane is parked, P1's shape with kind
+//   asset, "waits for your file (A230)" (`assetSuspension`). A pick request (mode pick) is the chat's own job (it names the sound with
+//   `work asset ... picked`), so it is no wait at all: the timers run as for any stopped holder.
 // - Either way the holder timers stay off (holderTimers.mjs), Resume all leaves the holder (pause.mjs `isResumed`), and the wait ends
 //   by itself when the last request is ready or failed; a failed one shows its failure on the lane ("A227 failed: ..."); the minutes
 //   the provider spent count as the holder's progress (`assetProgressAt`), so the step is not given back the moment the wait ends.
@@ -33,8 +34,13 @@ export const FAILED_SHOWN_MS = 30 * 60_000
 export const LATE_GRACE_MS = 60_000
 /** The provider's time limit for one job when the board names none (src/providers/codex.mjs `PICTURE_SECONDS`). */
 export const DEFAULT_JOB_MS = 240_000
-/** A round: the requests asked within this long before the oldest open one belong to it (A224-A227 came within a minute). */
-export const ROUND_MS = 15 * 60_000
+/** A round: requests asked within this long of one another belong to it (A224-A227 came within a minute; a redo an hour later is its own). */
+export const ROUND_GAP_MS = 5 * 60_000
+/** The modes whose open request the holder waits for: an auto provider draws, a person drops the file; a pick is the chat's own job. */
+const WAITED_MODES = ['auto', 'person']
+/** Words beside an id in a checkpoint that are no picture's name: states, connectives, verbs of waiting. */
+const NOT_A_NAME = new Set(['and', 'to', 'the', 'a', 'an', 'for', 'from', 'with', 'of', 'on', 'in', 'is', 'are', 'was', 'were', 'it', 'its', 'them', 'then', 'that', 'this',
+  'ready', 'running', 'waiting', 'failed', 'done', 'asked', 'open', 'wait', 'waits', 'came', 'back', 'comes', 'come', 'made', 'make', 'makes', 'redo', 'again', 'now', 'next', 'picture', 'pictures', 'sheet', 'sheets', 'version'])
 /** The marks of a picture in the ticks line. */
 const MARKS = Object.freeze({ ready: '✓', failed: '✗', running: '…', waiting: '…' })
 
@@ -43,6 +49,8 @@ const numberOf = id => Number(String(id).slice(1))
 const finite = value => Number.isFinite(value)
 const isRecord = one => one !== null && typeof one === 'object' && typeof one.id === 'string'
 const isOpen = one => OPEN_ASSET_STATES.includes(one.state)
+/** Whether the holder waits for this request: open, and of a mode that is not the chat's own job. */
+const isWaited = one => isOpen(one) && WAITED_MODES.includes(one.mode ?? 'auto')
 const byId = (a, b) => numberOf(a.id) - numberOf(b.id)
 
 /** The provider's title as the Settings tab shows it ("Codex"), else its name. */
@@ -72,39 +80,55 @@ export function pieceNameOf(record, step) {
   const id = record.id
   const fields = ['Checkpoint', 'Plan'].map(key => valueOf(step, key)).filter(value => typeof value === 'string')
   for (const text of fields) {
-    const hit = new RegExp(`\\b${id}\\b[\\s:·-]+([a-z][a-z -]{0,24}?)(?=[,;·.)\\n]|\\s[A-Z]|$)`).exec(text)
-    if (hit !== null && hit[1].trim() !== '') return hit[1].trim()
+    // The list form "A224 death, A225 attack": the id (not a range's start, not another id's start), then one to three lower-case words up
+    // to a comma, a stop, a separator or the end; words that are no name ("ready", "and wait for them") are cut, and nothing is left of them.
+    const hit = new RegExp(`(?:^|[\\s,;:(])${id}(?![\\d-])[\\s:·]*([a-z]+(?: [a-z]+){0,2})(?=[\\s,;·.)]|$)`).exec(text)
+    if (hit === null) continue
+    const words = hit[1].split(' ')
+    while (words.length > 0 && NOT_A_NAME.has(words[0])) words.shift()
+    const stop = words.findIndex(word => NOT_A_NAME.has(word))
+    const kept = stop === -1 ? words : words.slice(0, stop)
+    if (kept.length > 0) return kept.join(' ')
   }
   const caps = /\b([A-Z]{3,}(?: [A-Z]{3,})*)\b/.exec(String(record.text ?? '').replace(/#[0-9A-F]{6}/g, ''))
   return caps === null ? id : caps[1].toLowerCase()
 }
 
 /**
- * The round the holder waits for: its open requests for the step, with the ones of the same round that ended already (asked within
- * `ROUND_MS` before the oldest open one, or after it), oldest id first. None while nothing is open.
+ * The round the holder waits for: its open auto requests for the step with the ones of the same batch that ended already: walking back
+ * from the oldest open one, a request belongs to the round while it was asked within `ROUND_GAP_MS` of the next (A224-A227 came within
+ * a minute; round 1, delivered at 10:58, is not the round of a redo asked at 10:55 when the gap before it is over five minutes). Oldest id
+ * first. None while nothing is open.
  */
 function roundOf(step, assets, { chat, prefix = '' }) {
-  const mine = requestsOfStep(assets, valueOf(step, 'Id'), chat, prefix)
+  const mine = requestsOfStep(assets, valueOf(step, 'Id'), chat, prefix).filter(one => (one.mode ?? 'auto') === 'auto')
   const open = mine.filter(isOpen)
   if (open.length === 0) return []
-  const from = Math.min(...open.map(one => one.times?.asked).filter(finite), Infinity)
-  return mine.filter(one => isOpen(one) || !finite(from) || !finite(one.times?.asked) || one.times.asked >= from - ROUND_MS)
+  const oldest = Math.min(...open.map(one => one.times?.asked).filter(finite), Infinity)
+  if (!finite(oldest)) return mine.filter(isOpen)
+  const byAsked = mine.filter(one => finite(one.times?.asked)).sort((a, b) => a.times.asked - b.times.asked)
+  let from = oldest
+  for (let i = byAsked.findIndex(one => one.times.asked >= oldest) - 1; i >= 0 && from - byAsked[i].times.asked <= ROUND_GAP_MS; i--) from = byAsked[i].times.asked
+  return mine.filter(one => isOpen(one) || !finite(one.times?.asked) || one.times.asked >= from)
 }
 
 /**
- * The holder's open requests for the step it holds, any provider: `{ ids, open, provider, mode, who, since, link }`, or null. Only a
- * step at work waits (the holder's own name, `chat`, is needed: a step without an owner waits for nobody). The timers and Resume all
- * read this; the lane reads `assetWorkOf` (an auto provider's work) or `assetSuspension` (a person's or a pick).
+ * The holder's open requests for the step it holds that it waits for (an auto provider's or a person's; a pick is its own job): `{ ids,
+ * open, provider, mode, who, since, link }`, or null. `mode` is auto while any auto request is open (the provider draws: the lane works),
+ * else person (the lane is parked for the person's file). Only a step at work waits (the holder's own name, `chat`, is needed: a step
+ * without an owner waits for nobody). The timers and Resume all read this; the lane reads `assetWorkOf` or `assetSuspension`.
  */
 export function assetWaitOf(step, assets, { chat = null, prefix = '' } = {}) {
   if (step === null || step === undefined || !AT_WORK.includes(valueOf(step, 'State'))) return null
   const who = chat ?? valueOf(step, 'Owner')
-  const open = requestsOfStep(assets, valueOf(step, 'Id'), who, prefix).filter(isOpen)
-  if (open.length === 0) return null
+  const all = requestsOfStep(assets, valueOf(step, 'Id'), who, prefix).filter(isWaited)
+  if (all.length === 0) return null
+  const auto = all.filter(one => (one.mode ?? 'auto') === 'auto')
+  const open = auto.length > 0 ? auto : all
   const provider = open[0].provider ?? null
   const times = open.map(one => one.times?.asked).filter(finite)
   const since = times.length === 0 ? sinceMs(valueOf(step, 'Since')) : Math.min(...times)
-  return { ids: open.map(one => one.id), open, provider, mode: open[0].mode ?? 'auto', who: providerTitle(provider), since: finite(since) ? since : null, link: `#details=${valueOf(step, 'Id')}` }
+  return { ids: open.map(one => one.id), open, provider, mode: auto.length > 0 ? 'auto' : 'person', who: providerTitle(provider), since: finite(since) ? since : null, link: `#details=${valueOf(step, 'Id')}` }
 }
 
 /**
@@ -116,7 +140,7 @@ export function assetWaitOf(step, assets, { chat = null, prefix = '' } = {}) {
 export function assetWorkOf(step, assets, { chat = null, prefix = '' } = {}) {
   const wait = assetWaitOf(step, assets, { chat, prefix })
   if (wait === null || wait.mode !== 'auto') return null
-  const round = roundOf(step, assets, { chat: chat ?? valueOf(step, 'Owner'), prefix }).filter(one => (one.mode ?? 'auto') === 'auto')
+  const round = roundOf(step, assets, { chat: chat ?? valueOf(step, 'Owner'), prefix })
   const pieces = round.map(one => ({ id: one.id, name: pieceNameOf(one, step), state: one.state, mark: MARKS[one.state] ?? '…' }))
   const done = pieces.filter(one => one.state === 'ready').length
   const failed = pieces.filter(one => one.state === 'failed').length
@@ -133,7 +157,7 @@ export function assetWorkOf(step, assets, { chat = null, prefix = '' } = {}) {
   }
 }
 
-/** The lane's suspension for a wait on the person's own file (a person or pick provider): P1's parked shape, kind asset. */
+/** The lane's suspension for a wait on the person's own file (a person provider, mode person): P1's parked shape, kind asset. */
 export const assetSuspension = wait => (wait === null || wait === undefined || wait.mode === 'auto' ? null
   : { by: 'parked', kind: 'asset', on: ['you'], what: `your file (${assetIdsWords(wait.ids)})`, since: finite(wait.since) ? wait.since : null, limit: null, named: null, link: wait.link ?? null, ids: wait.ids })
 
@@ -153,7 +177,7 @@ export function assetWaitWords(held) {
  */
 export function assetProgressAt(step, assets, { chat = null, prefix = '' } = {}) {
   if (step === null || step === undefined) return null
-  const mine = requestsOfStep(assets, valueOf(step, 'Id'), chat ?? valueOf(step, 'Owner'), prefix)
+  const mine = requestsOfStep(assets, valueOf(step, 'Id'), chat ?? valueOf(step, 'Owner'), prefix).filter(one => WAITED_MODES.includes(one.mode ?? 'auto'))
   const times = mine.flatMap(one => [one.times?.asked, one.times?.started, one.times?.ended]).filter(finite)
   return times.length === 0 ? null : Math.max(...times)
 }
@@ -165,7 +189,7 @@ export function assetProgressAt(step, assets, { chat = null, prefix = '' } = {})
  */
 export function assetFailureOf(step, assets, { chat = null, prefix = '', now = Date.now(), shownMs = FAILED_SHOWN_MS, progressAt = null } = {}) {
   if (step === null || step === undefined || !AT_WORK.includes(valueOf(step, 'State'))) return null
-  const mine = requestsOfStep(assets, valueOf(step, 'Id'), chat ?? valueOf(step, 'Owner'), prefix)
+  const mine = requestsOfStep(assets, valueOf(step, 'Id'), chat ?? valueOf(step, 'Owner'), prefix).filter(one => WAITED_MODES.includes(one.mode ?? 'auto'))
   if (mine.some(isOpen)) return null
   const failed = mine.filter(one => one.state === 'failed' && finite(one.times?.ended)).sort((a, b) => b.times.ended - a.times.ended)[0]
   if (failed === undefined || now - failed.times.ended > shownMs) return null
@@ -189,7 +213,7 @@ export function lateAssetsOf({ chat, step, assets, now = Date.now(), jobMs = DEF
   const running = new Set(all.filter(one => one.state === 'running').map(one => one.provider))
   const endedOf = provider => Math.max(-Infinity, ...all.filter(one => one.provider === provider && finite(one.times?.ended)).map(one => one.times.ended))
   return wait.open.filter(one => (one.mode ?? 'auto') === 'auto').map(one => {
-    const from = one.state === 'running' ? one.times?.started : running.has(one.provider) ? null : Math.max(...[one.times?.asked, endedOf(one.provider)].filter(finite), -Infinity)
+    const from = one.state === 'running' ? (finite(one.times?.started) ? one.times.started : one.times?.asked) : running.has(one.provider) ? null : Math.max(...[one.times?.asked, endedOf(one.provider)].filter(finite), -Infinity)
     if (!finite(from) || now - from < limit) return null
     const minutes = Math.floor((now - from) / 60_000)
     const name = pieceNameOf(one, step)

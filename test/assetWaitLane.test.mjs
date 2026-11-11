@@ -15,7 +15,7 @@ import test from 'node:test'
 import { parseConfig } from '../src/config.mjs'
 import { toneOf } from '../src/chatStatus.mjs'
 import { changes, today } from '../src/history.mjs'
-import { weekStopDue } from '../src/say.mjs'
+import { fiveHourStopDue, weekStopDue } from '../src/say.mjs'
 import { stepStatusOf } from '../src/stepStatus.mjs'
 import { healthSummary } from '../src/supervisor/health.mjs'
 import { WATCH_RULES, checkpointLate } from '../src/supervisor/rules/watch.mjs'
@@ -153,11 +153,26 @@ test('only the holder\'s own open requests for the step it holds count; the word
   assert.equal(pieceNameOf(request('A227', 'waiting'), step), 'walk north')
   assert.equal(pieceNameOf(request('A240', 'waiting', { text: "Correction of A221: the Knight's DEATH animation, 8 frames on flat magenta #FF00FF" }), step), 'death')
   assert.equal(pieceNameOf(request('A240', 'waiting', { text: 'the knight again' }), step), 'A240')
+  // No name from a range, a state word or connectives: the list form only (the review's finding 4).
+  const named = words => B1124({ Checkpoint: `7bc2781b · ${words} · ${stamp(at(10, 43))}` })
+  assert.equal(pieceNameOf(request('A227', 'waiting', { text: 'x' }), named('asked A224-A227 and wait for them')), 'A227')
+  assert.equal(pieceNameOf(request('A224', 'waiting', { text: 'x' }), named('A224 ready, A225 running')), 'A224')
+  assert.equal(pieceNameOf(request('A227', 'waiting', { text: 'x' }), named('waiting on A227 to come back from Codex')), 'A227')
+  assert.equal(pieceNameOf(request('A224', 'waiting', { text: 'x' }), named('A224: the death sheet')), 'death')
+  assert.equal(pieceNameOf(request('A224', 'waiting', { text: 'x' }), named('A2240 death, A224 hit')), 'hit')
   // A round of one, and a round with a failure, in words.
   assert.equal(assetWorkOf(step, [request('A224', 'running', { started: ASKED })], { chat: 'Worker 5' }).words, 'Codex draws 1 picture for it · 0 of 1 done · since 10:43')
   assert.equal(assetWorkOf(step, [request('A224', 'failed', { ended: at(10, 47), why: WHY }), request('A225', 'running', { started: at(10, 47) })], { chat: 'Worker 5' }).words, 'Codex draws 2 pictures for it · 0 of 2 done, 1 failed · since 10:43')
   // An older round of the step (delivered long before) is not this one's.
   assert.equal(assetWorkOf(step, [request('A200', 'ready', { asked: at(9, 0), ended: at(9, 5) }), ...ROUND()], { chat: 'Worker 5' }).total, 4)
+  // A redo asked twelve minutes after round 1 (all delivered by then) is its own round: "1 picture", not "5 pictures · 4 of 5 done".
+  const redo = [...DELIVERED(at(10, 50)), request('A228', 'running', { asked: at(10, 55), started: at(10, 55) })]
+  assert.deepEqual([assetWorkOf(step, redo, { chat: 'Worker 5' }).total, assetWorkOf(step, redo, { chat: 'Worker 5' }).ids], [1, ['A228']])
+  // Asked within five minutes of one another they are one round.
+  const soon = [...DELIVERED(at(10, 50)).map(one => ({ ...one, times: { ...one.times, asked: at(10, 47) } })), request('A228', 'running', { asked: at(10, 51), started: at(10, 51) })]
+  assert.equal(assetWorkOf(step, soon, { chat: 'Worker 5' }).total, 5)
+  // A running request without a start time counts from its ask for the Late (finding 8).
+  assert.deepEqual(lateAssetsOf({ chat: 'Worker 5', step, assets: [request('A224', 'running')], now: at(10, 49), jobMs: 240_000 }).map(one => one.asset), ['A224'])
 })
 
 test('Resume all skips it, in the state\'s facts and in the main chat\'s list; without the records (the mutant) it is resumed', () => {
@@ -195,6 +210,20 @@ test('every reader of a working lane leaves it be: not running, idle, the checkp
   const full = { ...state, limits: { ...state.limits, week: { level: 'full', used: 98, stopAt: 98, resetsAt: null } }, pause: null }
   assert.deepEqual(weekStopDue({ ...full, chats: [{ ...lane, storeSteps: [{ id: 'B1124', state: 'in progress' }] }] }, []), [])
   assert.equal(weekStopDue({ ...full, chats: [{ ...lane, heldBy: null, storeSteps: [{ id: 'B1124', state: 'in progress' }] }] }, []).length, 1)
+  // The 5-hour stop words neither; week-stop-ignored (a stop word delivered 25 min ago) is no incident for it.
+  const fiveFull = { ...state, limits: { ...state.limits, fiveHour: { level: 'full', used: 99, stopAt: 95, resetsAt: NOW + 60 * MIN } }, pause: null }
+  assert.deepEqual(fiveHourStopDue({ ...fiveFull, chats: [{ ...lane, storeSteps: [{ id: 'B1124', state: 'in progress' }] }] }, []), [])
+  assert.equal(fiveHourStopDue({ ...fiveFull, chats: [{ ...lane, heldBy: null, storeSteps: [{ id: 'B1124', state: 'in progress' }] }] }, []).length, 1)
+  const ignored = WATCH_RULES.find(one => one.id === 'week-stop-ignored')
+  const word = { id: 'w1', to: 'Worker 5', command: 'week-stop', weekResets: null, state: 'delivered', deliveredAt: NOW - 25 * MIN, at: NOW - 25 * MIN }
+  const weekView = lanes => buildView({ state: { ...full, chats: [laneOf(state, 'Lead'), ...lanes] }, items: new Map(), outbox: [word], now: NOW })
+  assert.deepEqual(ignored.check(weekView([lane]), { seen: new Map(), observed: [] }), [])
+  assert.equal(ignored.check(weekView([{ ...lane, heldBy: null }]), { seen: new Map([['week-stop-ignored Worker 5 w1', NOW - 25 * MIN]]), observed: [] }).length, 1)
+  // The hand-over's decision for a lane that reads unknown (a report blip) while Codex draws: nothing given back, no "go on" line.
+  const blipFacts = assets => factsOf({ lane: { ...lane, state: 'unknown' }, state: { chatPrefix: PREFIX, readyList: null, limits: state.limits, gaps: [], assets }, items: storeOf([B1124()]), pause: null, sent: [], config, now: NOW + 60 * MIN, event: { kind: 'pass' } })
+  const blip = decide({ ...blipFacts(state.assets), ready: [], owed: null })
+  assert.deepEqual([blip.giveBack ?? null, blip.goOn ?? null], [null, null])
+  assert.notEqual(decide({ ...blipFacts([]), ready: [], owed: null }).goOn ?? null, null)
   // The hand-out: Worker 5 is no idle worker (it holds its step, and its lane works); the wake needs: nothing to wake it for.
   assert.deepEqual(idleWorkers(state.chats, { items: storeOf([B1124()]), prefix: PREFIX }).map(one => one.name), ['Worker 2'])
   assert.ok(!wakeNeeds({ ...state, restart: { main: 'Lead' } }, []).some(one => one.chat === 'Worker 5'), 'no wake need for Worker 5')
@@ -267,6 +296,14 @@ test('the person\'s pause holds the Late; a person\'s or a pick\'s request is th
   assert.deepEqual(lates(state), [])
   assert.equal(timers(state, manual, at(12, 0), { ...lane, state: 'interrupted' }), null)
   assert.deepEqual(pauseFacts({ pause: { state: 'resuming', since: at(11, 59), pausedSince: at(11, 30) }, items: storeOf([B1124()]), lanes: state.chats, prefix: PREFIX, assets: manual }).waiting, [])
+  // A pick request (the sound library) is the chat's own job: no wait at all, the lane Stopped as before, the timers run (the review's finding 1).
+  const pick = [request('A231', 'waiting', { provider: 'sound-library', mode: 'pick' })]
+  const picking = build([B1124()], { assets: pick })
+  assert.deepEqual([laneOf(picking).status, laneOf(picking).suspended, assetWaitOf(B1124(), pick, { chat: 'Worker 5' })], ['Stopped', null, null])
+  assert.ok(timers(picking, pick, ASKED + 6 * MIN)?.resume !== null, 'the "go on" line goes to a chat that has to pick')
+  // An auto request open beside a person's: the provider's work shows (mode auto wins).
+  const mixed = [...manual, request('A232', 'running', { started: ASKED })]
+  assert.deepEqual([assetWaitOf(B1124(), mixed, { chat: 'Worker 5' }).mode, laneOf(build([B1124()], { assets: mixed })).status], ['auto', 'Working'])
 })
 
 test('the page: the Working pill, its why linked to the step, the ticks under the task, no warn colour', async () => {

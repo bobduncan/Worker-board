@@ -7060,7 +7060,9 @@ Codex" or Working, the person chose Working: the task's work goes on, done by Co
   pictures for it · 1 of 4 done · since 10:43" (the why linked to the step's window), the task's line "Codex draws: death ✓ · attack …
   · hit … · walk north …" (the one status, kind asset, tone working; never "Worker 5 is on it": the chat runs no turn). A picture's
   name: the holder's words beside the id in its Checkpoint or Plan ("A224 death"), else the request's capitalised words, else the id.
-  A round: the open requests and those of the same batch that ended already (asked within 15 min before the oldest open one).
+  A round: the open requests and those of the same batch that ended already (walking back from the oldest open one while the asks are
+  within five minutes of one another: a redo asked long after round 1 is its own round). A name is read only from the list form
+  ("A224 death, A225 attack"); state words and connectives ("A224 ready", "A224-A227 and wait for them") give no name.
 - **Every reader of a working lane leaves it be**: no quiet count (`quietMs`: `held` stands), no stale card (`isStaleWork` skipped for
   heldBy asset), the Supervisor's working-not-running, checkpoint-late and week-stop-ignored rules skip it (watch.mjs), the health line
   says what Codex does and is not odd (health.mjs `onPurposeOf`), the stop words at a full limit go to it only once it runs a turn
@@ -7074,16 +7076,19 @@ Codex" or Working, the person chose Working: the task's work goes on, done by Co
   one shows its failure instead of a silent Stopped: the lane's why "A227 failed: Codex took longer than 240 seconds and was
   stopped." (with "; asked to go on at 11:05" once the timers typed it) (`assetFailureOf`: the newest failed request of the step while
   none is open, within 30 minutes, and no checkpoint, state change or turn of the holder after it; `lane.assetFailed`, chatStatus.mjs row 9).
-- **The person's own file** (a `manual` or pick provider, mode person or pick): the wait is the person's, not work: a stopped holder is
-  parked, P1's shape with kind asset (`assetSuspension`: "Paused · waits for your file (A230) since 10:43"), the timers off, Resume all
-  skips it, never a Late (the provider's own ask holds the person's action).
+- **The person's own file** (a `manual` provider, mode person): the wait is the person's, not work: a stopped holder is parked, P1's
+  shape with kind asset (`assetSuspension`: "Paused · waits for your file (A230) since 10:43"), the timers off, Resume all skips it,
+  never a Late (the provider's own ask holds the person's action). A pick request (mode pick, the sound library) is the chat's own job:
+  it names the sound with `work asset ... picked`, so it is no wait, and the timers run as for any stopped holder. With an auto request
+  open beside a person's, the provider's work shows (mode auto wins).
 - **The cap**: past the provider's time limit for a job (`assetSeconds`, 240 s by default, plus a minute of grace) a running request
   turns one Late on the person's list (kind 'wait late', id `asset:A225`): "Codex has not delivered attack since 10:47 on B1124", with
   the words to look at the provider on the Settings tab or tell the worker to go on without it (`lateAssetsOf`, state.mjs `lateAssets`);
   a waiting request is late only while nothing of its provider runs, counted from the newest end of that provider's jobs (the hand-off
   between two jobs is no wait). Never a give-back: the step stays with its holder. None while the person pauses.
-- Not in it: the queue's own logic (src/assetQueue.mjs ends a job at the limit itself), the providers, the wake, a lane state of its own;
-  a board that only shows (`--history-from`) keeps no requests and reads such a lane Stopped.
+- Not in it: the queue's own logic (src/assetQueue.mjs ends a job at the limit itself), the providers, the wake, a lane state of its own.
+  The trial copy and a branch board read the requests too (read-only; only the delivering board runs the queue), so the wait shows there.
+  The page shows no estimate alert ("over its first estimate", "estimate N old") under a task the provider works on.
 - Pinned by `test/assetWaitLane.test.mjs` (the live case; the mutant without the records: Stopped, nudged and given back; the timers after
   the delivery; the holder's own requests only; Resume all; every reader of a working lane with its mutant; delivered and failed; the
   Late at 10:53 and none at 10:49, with a 600 s limit, between two jobs or while the person pauses; the person's file; the page).

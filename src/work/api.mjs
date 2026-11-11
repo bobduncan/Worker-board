@@ -817,7 +817,7 @@ const assetRecordsOf = async w => (typeof w.assets?.dir === 'string' ? listAsset
 
 /** Pause and resume (spec 2026-10-18): the pause state for the asking chat (pause.mjs `pauseAnswer`), with a line of words. */
 async function pauseStateOf(w) {
-  const answer = pauseAnswer({ pause: w.store.pause ?? null, items: w.store.items, lanes: w.lanes ?? [], prefix: w.prefix ?? '', chat: w.who, role: w.role, assets: await assetRecordsOf(w) })
+  const answer = pauseAnswer({ pause: w.store.pause ?? null, items: w.store.items, lanes: w.lanes ?? [], prefix: w.prefix ?? '', chat: w.who, role: w.role, assets: w.store.pause?.state === 'resuming' ? await assetRecordsOf(w) : [] })
   const when = Number.isFinite(answer.since) ? ` since ${stamp(answer.since).slice(11)}` : ''
   return { text: `The board's pause state: ${answer.state}${when}.`, ...answer }
 }

@@ -3236,10 +3236,12 @@ function alertsOf(lane, state) {
   // B508: one signal per problem. "No time" (B95: no worker works without a time) and "over" already stand in the column
   // Left (timeOf, leftView), so no line under the task repeats them.
   const leftSaysOver = lane.eta != null && (lane.eta.isOverdue === true || lane.eta.isOver === true)
-  if (task !== null && task.firstEstimateMs !== null && task.workedMs > task.firstEstimateMs + MIN && !leftSaysOver) alerts.push(`${span(task.workedMs - task.firstEstimateMs)} over its first estimate`)
+  // The asset wait: while the provider draws, the chat runs no turn and cannot renew its estimate: no estimate alert then.
+  const providerWorks = lane.heldBy === 'asset'
+  if (task !== null && task.firstEstimateMs !== null && task.workedMs > task.firstEstimateMs + MIN && !leftSaysOver && !providerWorks) alerts.push(`${span(task.workedMs - task.firstEstimateMs)} over its first estimate`)
   // B793: how old the estimate is counts working time too (a pause or a restart does not age it).
   const estimateAge = task === null || task.estimateAt === null ? null : state.readAt - (task.countAt ?? task.estimateAt)
-  if (lane.state === 'working' && estimateAge !== null && estimateAge > state.estimateOldMs) {
+  if (lane.state === 'working' && !providerWorks && estimateAge !== null && estimateAge > state.estimateOldMs) {
     alerts.push(`estimate ${span(estimateAge)} old`)
   }
   return alerts

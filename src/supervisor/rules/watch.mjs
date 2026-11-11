@@ -1019,7 +1019,8 @@ export const isNearStop = (limit, key, settings = {}) => Number.isFinite(limit?.
  */
 function oldLimitReading(view) {
   const found = []
-  const works = workersOf(view).some(lane => lane.state === 'working')
+  // The asset wait: a lane working for the provider's pictures spends nothing of the limits.
+  const works = workersOf(view).some(lane => lane.state === 'working' && lane.heldBy !== 'asset')
   // B645: quiet while the person pauses: nothing spends then, a reset is known by its time, and no sweep word is delivered until the resume.
   if (isPaused(view) || !works) return found
   for (const [key, name] of [['fiveHour', '5-hour limit'], ['week', 'weekly limit']]) {
