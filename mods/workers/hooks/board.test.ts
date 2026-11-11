@@ -198,6 +198,11 @@ describe('Task 6 (0.31.0): words the app merged into one prompt have all entered
     const after = 'hand-over\n\nwork: B13 is yours; run work next\n\nwork: B13 is yours; run work next'
     expect(wordsIn(carried, after).sort()).toEqual(['env', 'take'])
     expect([turnBegan(carried, after, 1).word, turnBegan(carried, after, 1).typed]).toEqual(['take', []])
+    // Chat 1's verifier: two take twins and the envelope that carries one copy, the prompt the envelope's line and ONE copy on its own:
+    // the copy inside the envelope is the envelope's, so one twin enters, the other stays queued (the mutant counted both copies).
+    const twinsCarried = wordTyping(wordTyping(wordTyping(NO_TURN_WORDS, 'take1', 'work: B13 is yours; run work next'), 'take2', 'work: B13 is yours; run work next'), 'env', 'hand-over\n\nwork: B13 is yours; run work next', true)
+    expect(wordsIn(twinsCarried, 'hand-over\n\nwork: B13 is yours; run work next\n\nwork: B13 is yours; run work next').sort()).toEqual(['env', 'take1'])
+    expect(turnBegan(twinsCarried, 'hand-over\n\nwork: B13 is yours; run work next\n\nwork: B13 is yours; run work next', 1).typed.map(one => one.id)).toEqual(['take2'])
     // The review: two open words with the SAME text (a repeated line): the oldest is reported and the turn is its and it leaves the
     // queue (else both would stay queued for ever); the second goes with the next such prompt.
     const twins = wordTyping(wordTyping(NO_TURN_WORDS, 'old', 'work: B13 is yours; run work next'), 'new', 'work: B13 is yours; run work next')
@@ -359,7 +364,9 @@ describe('the worker board, as the mod reads it', () => {
     expect(parseTaken('{"messages":[],"stop":{"id":"../x","kind":"stop"}}').stop).toBeNull()
     // 2c (0.28.0): the board's statuses, kept with their caps; an older board's answer (none) is told apart from no answer.
     const entry = { name: 'Worker 1', status: 'Working', why: 'waits for the partner', tone: 'quiet', since: 5, reportAt: 9 }
-    expect(parseTaken(JSON.stringify({ messages: [], statuses: [entry] })).statuses).toEqual([{ ...entry, held: null }])
+    // 0.32.0 (chat 1's verifier, G2): an entry without `held` stays without one (no verdict); `held: null` is the verdict "holds nothing".
+    expect(parseTaken(JSON.stringify({ messages: [], statuses: [entry] })).statuses).toEqual([entry])
+    expect(parseTaken(JSON.stringify({ messages: [], statuses: [{ ...entry, held: null }] })).statuses).toEqual([{ ...entry, held: null }])
     expect(parseTaken(JSON.stringify({ messages: [] })).statuses).toBeNull()
     expect(parseTaken('{"messages":[],"statuses":"x"}').statuses).toBeNull()
     expect(parseTaken('{"messages":[]}').isAnswer).toBe(true)
@@ -375,8 +382,8 @@ describe('the worker board, as the mod reads it', () => {
       { name: 'D', status: 'Not running', tone: 'attention', since: 1, reportAt: 2 },
     ]
     expect(parseTaken(JSON.stringify({ messages: [], statuses: odd })).statuses).toEqual([
-      { name: 'C', status: 'Held', why: 'w'.repeat(120), tone: 'quiet', since: null, reportAt: null, held: null },
-      { name: 'D', status: 'Not running', why: null, tone: 'attention', since: 1, reportAt: 2, held: null },
+      { name: 'C', status: 'Held', why: 'w'.repeat(120), tone: 'quiet', since: null, reportAt: null },
+      { name: 'D', status: 'Not running', why: null, tone: 'attention', since: 1, reportAt: 2 },
     ])
   })
 

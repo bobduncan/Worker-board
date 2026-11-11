@@ -110,7 +110,8 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
       || ((message.state === 'taken' || message.state === 'delivered') && message.command === 'recommend')
       // A word to a chat stays known for a while: the board says how it fared.
       || (typeof message.command === 'string' && now - message.at < COMMAND_KNOWN_MS)
-      || (message.command === 'mod-restart' && now - message.at < MOD_WORD_KEPT_MS)
+      // The Workers mod release 0.32.0 (chat 1's verifier): the unarchive words count the tries per restart, so they are kept as long.
+      || ((message.command === 'mod-restart' || message.command === 'mod-unarchive') && now - message.at < MOD_WORD_KEPT_MS)
       // B212: words copied for the person to paste, without a Workers mod: shown for a while, and an answer stays closed.
       || (message.state === 'copied' && (isAnswer(message) || now - message.at < shownMs))
       // A line that was taken shows as on its way until the chat has it.

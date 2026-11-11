@@ -4649,13 +4649,17 @@ a chat's mod behaves as before for that chat (the call's header says the mod).
    (`heldTask`, read at every such verdict: a step given back and the next taken in one turn leaves the next step's card alone; the
    worker's own plan renaming the card while the step is held is still cleared); the pause's kept reading is used when it says a
    pause, else read anew once per such change. Known limit: a give-back while the chat's process was down (no verdict named the step
-   to this process) is not cleared; the next step's take names the card anew. The pane shows no
-   task the board says is none, fresh or in its own fallback reading; the main chat's "waiting for N workers" is no card task and stays.
+   to this process) is not cleared; the next step's take names the card anew. Chat 1's verifier (G2): the board sends `held` only for
+   a WORKER lane and only from a store it read (chatStatus.mjs `statusesOf`, `store.ok`; a failed read sends no verdict, so one bad
+   refresh clears no card), and the mod keeps an entry without `held` as none (board.ts `parseStatuses`); a clear is bound to its
+   verdict (`verdicts` counter): a newer verdict during its reads wins. The pane keeps the card's own words whatever the board holds
+   (a role chat's plan, a worker's typed request): a stale step task is the chat's own mod's to clear, never the pane's.
 3. **The block/unblock tool text** names a wait on a chat ("the chat whose answer you wait for, with why: the board shows you as
    waiting on purpose ... for 90 minutes of its running time, then shows the person a Late") and rule 15's hold (`note "still
    stands: <why>"` with `of` the ask, `withdraw`), in the `on` field's description: the tool's description is cut by the app at about
    4096 characters and was over it before this release (its tail, `words`, `asset` and the Supervisor's actions, is not shown to the
-   model), so the action text itself got shorter, not longer; the whole description wants a tidy of its own.
+   model), so the action text itself got shorter, not longer; the whole description wants a tidy of its own. The `on` text keeps
+   "unblock without on clears what the step waits for" and names the wait as the board's (90 minutes unless set).
 4. **The envelope at the next take keeps the turn's context** (board.ts `contextForTake`, register.tsx `lastTurn`): a turn's end
    leaves its answer, asked, the board's answer, its step and the prompt and turn counts; an envelope that comes with a take uses them
    only while no new prompt or turn came since and its clear names the same step (or none); else the take's empty context as before.
@@ -4669,12 +4673,20 @@ a chat's mod behaves as before for that chat (the call's header says the mod).
   unarchive did not: a restart of the board or of the restarter in between) gets its restarter the word `unarchive chat` (command
   `mod-unarchive`, a partner word; modRollout.mjs `archivedAfterRestart`, `unarchiveWords`; roles/main.md, roles/partner.md:
   `unarchive_session` it, archive nothing), again every half hour while it stays archived, three times at most per restart (a chat the
-  person archived is not asked for all day); only a restart word that reached its restarter counts (typed or delivered, not one still
-  waiting or taken); only the project's real archived chats (appChats.mjs `archivedChatsOf`: in the project, with the prefix, no launch
-  stub, no open twin of the same title: a real open chat of the project, never a launch stub or a chat elsewhere); and a chat archived
-  WITH the main chat (its archive takes the chats it started) is covered when the board showed it as a lane within the hour (`recent`,
-  from the history) and the main chat's own restart word went within the hour. The outbox (restart words kept a day,
-  the unarchive words two hours) is the memory across the board's own restarts, so no file is needed.
+  person archived is not asked for all day; the unarchive words are kept a day as the restart words are, store.mjs, so the count
+  holds). Chat 1's verifier of 0.32.0 (two blockers, nine should-fixes): the chat a restart word names is the archived file with the
+  word's SESSION (on the record, `restartWords`; the text's line for older records): same-title archived twins (the replaced
+  routine-run chats) never get an old one reopened; a word with no session goes by name to the newest archived file of that name,
+  and not at all while a real open chat of the project carries the name (appChats.mjs `archivedChatsOf`: every archived chat of the
+  project with the prefix, no launch stub, `{ name, session, lastActivityAt, hasOpenTwin }`). The restarters are named from the LIST
+  of chats (`list.main`, `config.advisor`), so the main chat archived itself (its partner cut off between archive and unarchive) gets
+  the partner's word, and the chats archived WITH it (its archive takes the chats it started) theirs: the main chat's restart word
+  carries the chats on the board when it went (`chats`, by session; rolloutPlan), no history lines. Only a restart word that reached
+  its restarter (typed or delivered, not one still waiting or taken) within RESTART_CAUSE_MS (2 h) is the cause of an archive (an
+  older one: the person archived the chat since), the grace and the tries count from when it reached (`deliveredAt`), a chat whose
+  mod said the word's version since came back (archived on purpose later: nothing), and a chat whose card says it left the list
+  (removed) gets nothing. The outbox is the memory across the board's own restarts, so no file is needed; test/modUnarchive.state.test.mjs
+  is the real case through the state.
 - **The release**: version 0.32.0 (plugin.json, `MOD_VERSION`); land.ps1 runs the app's `claude.exe plugin test .` beside `npm test`
   when mods/workers changed; after the landing the merging chat runs `plugin marketplace update worker-board` and `plugin update
   workers@worker-board` once (roles/worker.md B570). A chat takes the mod only when its process starts anew: the rollout restarts

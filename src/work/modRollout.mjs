@@ -22,10 +22,11 @@ export const UNARCHIVE_COMMAND = 'mod-unarchive'
 export const UNARCHIVE_AFTER_MS = 5 * MIN
 /** The word goes again after this long while the chat is still archived. */
 export const UNARCHIVE_AGAIN_MS = 30 * MIN
-/** A restart word older than this is no longer the cause of an archive. */
-const RESTART_WORD_KEPT_MS = 24 * 60 * MIN
-/** A chat the board showed as a lane within this long, archived now right after a restart word to another chat, went with that archive. */
-export const RECENT_LANE_MS = 60 * MIN
+/**
+ * Chat 1's verifier of 0.32.0: a restart word is the cause of an archive only while it reached its restarter within this long (the
+ * archive follows the word within a minute); an older word is none (the person archived the chat since, or the board removed it).
+ */
+export const RESTART_CAUSE_MS = 2 * 60 * MIN
 
 const HOLDS = ['taken', 'in progress', 'waiting on you']
 const LOST = ['expired', 'failed', 'dropped']
@@ -44,37 +45,65 @@ const valueOf = (item, key) => {
  * after its restart for the mod (the account-switch lesson: an archived real chat must always come back). One message of the outbox.
  */
 export function unarchiveWords({ to, chat, session, why }) {
-  const id = typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? [`Session: ${session}`] : []
-  return { to, ask: null, step: null, title: null, version: null, verdict: null, command: UNARCHIVE_COMMAND, about: chat, text: ['unarchive chat', `Chat: ${chat}`, ...id, `Why: ${why}`].join('\n') }
+  const id = sessionId(session)
+  return { to, ask: null, step: null, title: null, version: null, verdict: null, command: UNARCHIVE_COMMAND, about: chat, session: id, text: ['unarchive chat', `Chat: ${chat}`, ...(id === null ? [] : [`Session: ${id}`]), `Why: ${why}`].join('\n') }
 }
+
+/** An app session id as a word carries it, or null. */
+const sessionId = session => (typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? session : null)
+/** The session a restart word names: its record's (0.32.0), else its text's "Session:" line (an older record), else null. */
+const sessionNamed = message => sessionId(message.session) ?? sessionId(message.text?.match(/^Session: (\S+)$/m)?.[1])
+/** When a word reached its restarter: delivered, else settled, else made. */
+const reachedAt = message => (Number.isFinite(message.deliveredAt) ? message.deliveredAt : Number.isFinite(message.settledAt) ? message.settledAt : message.at)
 
 /**
  * The chats still archived in the app a while after the board's restart word for them (`archived`: the app's archived chats of the
- * project, `{ name, session }` each, the name without the prefix): a word to the restarter for each, `[{ to, chat, session, why }]`,
- * once per UNARCHIVE_AGAIN_MS while it stays archived; none for a chat with no restart word of the last day (the person archived it),
- * none for the first UNARCHIVE_AFTER_MS after the restart word (the restarter is at it). The outbox is the memory across the board's
- * restarts (its words are kept a day): nothing else needs a file.
+ * project, `{ name, session, lastActivityAt, hasOpenTwin }` each, the name without the prefix): a word to the restarter for each,
+ * `[{ to, chat, session, why }]`, once per UNARCHIVE_AGAIN_MS while it stays archived, RESTART_TRIES times at most per restart.
+ * Chat 1's verifier of 0.32.0:
+ * - the chat a restart word names is the archived file with the word's SESSION (its record's, or its text's line); only a word with no
+ *   session goes by name, and then to the newest archived file of that name when no open chat carries it (same-title twins, the
+ *   replaced routine-run chats, never reopen an old one);
+ * - the main chat's restart word carries the chats on the board when it went (`chats`): archiving the main chat archives the chats it
+ *   started, so each of them still archived went with it (the main chat itself is named from the list, archived or not);
+ * - only a word that reached its restarter within RESTART_CAUSE_MS is the cause (one still waiting or taken made no archive; an
+ *   older one is none: the person archived the chat since), and the grace of UNARCHIVE_AFTER_MS counts from when it reached;
+ * - a chat whose mod said the word's version since (`mods`, by name) came back and was archived on purpose: nothing; so is one
+ *   whose card says it left the list (`left`, names).
+ * The outbox is the memory across the board's restarts (restart and unarchive words are kept a day): nothing else needs a file.
  */
-export function archivedAfterRestart({ archived = [], sent = [], now, main = null, partner = null, prefix = '', recent = [] }) {
+export function archivedAfterRestart({ archived = [], sent = [], now, main = null, partner = null, prefix = '', mods = null, left = [] }) {
   const words = []
-  // A restart word that reached its restarter (typed, delivered, done): one still waiting or taken did not make the archive.
-  const restarts = sent.filter(message => message.command === RESTART_COMMAND && now - message.at < RESTART_WORD_KEPT_MS && !LOST.includes(message.state) && message.state !== 'waiting' && message.state !== 'taken')
+  const sameName = (a, b) => plain(a, prefix) === plain(b, prefix)
+  const restarts = sent.filter(message => message.command === RESTART_COMMAND && !LOST.includes(message.state) && message.state !== 'waiting' && message.state !== 'taken' && now - reachedAt(message) < RESTART_CAUSE_MS)
+  const isBack = (name, restart) => {
+    const said = versionOf(mods?.[name])
+    const to = versionOf(restart.version)
+    return said !== null && to !== null && !isOlder(said, to)
+  }
+  const isNewestOfName = chat => !archived.some(other => other !== chat && sameName(other.name, chat.name) && (other.lastActivityAt ?? 0) > (chat.lastActivityAt ?? 0))
+  const byName = chat => chat.hasOpenTwin !== true && isNewestOfName(chat)
+  const names = (message, chat) => {
+    const session = sessionNamed(message)
+    return session !== null ? session === chat.session : sameName(message.about, chat.name) && byName(chat)
+  }
+  const inSnapshot = (message, chat) => Array.isArray(message.chats) && message.chats.some(one => (sessionId(one?.session) !== null ? one.session === chat.session : sameName(one?.name, chat.name) && byName(chat)))
   for (const chat of archived) {
     if (typeof chat?.name !== 'string' || chat.name.trim() === '') continue
-    // Its own restart word; else (the review: archiving the main chat archives the chats it started) any restart word of the last hour,
-    // when the board showed this chat as a lane within the hour (`recent`): it went with its restarter's archive.
-    const own = restarts.filter(message => plain(message.about, prefix) === plain(chat.name, prefix)).at(-1)
-    const withMain = own === undefined && main !== null && recent.some(name => plain(name, prefix) === plain(chat.name, prefix)) ? restarts.filter(message => now - message.at < RECENT_LANE_MS && plain(message.about, prefix) === plain(main, prefix)).at(-1) : undefined
+    if (left.some(name => sameName(name, chat.name))) continue
+    const own = restarts.filter(message => names(message, chat)).at(-1)
+    const withMain = own === undefined && main !== null ? restarts.filter(message => sameName(message.about, main) && inSnapshot(message, chat)).at(-1) : undefined
     const restart = own ?? withMain
-    if (restart === undefined || now - restart.at < UNARCHIVE_AFTER_MS) continue
-    const asked = sent.filter(message => message.command === UNARCHIVE_COMMAND && plain(message.about, prefix) === plain(chat.name, prefix) && message.at >= restart.at)
+    if (restart === undefined || isBack(chat.name, restart)) continue
+    const reached = reachedAt(restart)
+    if (now - reached < UNARCHIVE_AFTER_MS) continue
+    const asked = sent.filter(message => message.command === UNARCHIVE_COMMAND && (sessionId(message.session) !== null && chat.session !== null ? message.session === chat.session : sameName(message.about, chat.name)) && message.at >= reached)
     const last = asked.at(-1)
-    // The review: at most RESTART_TRIES words per restart (a chat the person archived on purpose is not asked for all day).
     if ((last !== undefined && now - last.at < UNARCHIVE_AGAIN_MS) || asked.length >= RESTART_TRIES) continue
-    const to = main !== null && plain(chat.name, prefix) === plain(main, prefix) ? partner : main
-    if (to === null || to === undefined || plain(to, prefix) === plain(chat.name, prefix)) continue
-    const minutes = Math.floor((now - restart.at) / MIN)
-    words.push({ to, chat: chat.name, session: chat.session ?? null, why: `${chat.name} is still archived ${minutes} min after its restart for the mod (asked at ${clockOf(restart.at)}): unarchive it, archive nothing` })
+    const to = main !== null && sameName(chat.name, main) ? partner : main
+    if (to === null || to === undefined || sameName(to, chat.name)) continue
+    const minutes = Math.floor((now - reached) / MIN)
+    words.push({ to, chat: chat.name, session: chat.session ?? null, why: `${chat.name} is still archived ${minutes} min after its restart for the mod (asked at ${clockOf(reached)}): unarchive it, archive nothing` })
   }
   return words
 }
@@ -83,11 +112,14 @@ export function archivedAfterRestart({ archived = [], sent = [], now, main = nul
  * The word that asks `to` (the main chat, or the partner for the main chat) to restart `chat` (its app session
  * `session` when the board knows it) so it takes the Workers mod `installed` instead of `runs`. One message of the outbox.
  */
-export function restartWords({ to, chat, session, runs, installed, why }) {
-  const id = typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? [`Session: ${session}`] : []
+export function restartWords({ to, chat, session, runs, installed, why, chats = null }) {
+  const id = sessionId(session)
+  // Chat 1's verifier of 0.32.0: the session on the record (the archived file it names), and on the main chat's word the chats on the
+  // board when it went (`chats`, `{ name, session }` each: the ones its archive takes along).
   return {
-    to, ask: null, step: null, title: null, version: installed, verdict: null, command: RESTART_COMMAND, about: chat, runs,
-    text: ['restart for mod', `Chat: ${chat}`, ...id, `From: ${runs}`, `To: ${installed}`, `Why: ${why}`].join('\n'),
+    to, ask: null, step: null, title: null, version: installed, verdict: null, command: RESTART_COMMAND, about: chat, runs, session: id,
+    ...(Array.isArray(chats) ? { chats: chats.filter(one => typeof one?.name === 'string').map(one => ({ name: one.name, session: sessionId(one.session) })) } : {}),
+    text: ['restart for mod', `Chat: ${chat}`, ...(id === null ? [] : [`Session: ${id}`]), `From: ${runs}`, `To: ${installed}`, `Why: ${why}`].join('\n'),
   }
 }
 
@@ -147,7 +179,9 @@ export function rolloutPlan({ mods, chats = [], items = new Map(), sent = [], no
     const last = mine.at(-1)
     const isDue = last === undefined || (now - last.at >= RESTART_AGAIN_MS && mine.length < RESTART_TRIES)
     const why = `${chat.name} is idle and runs Workers mod ${was}; ${mods.installed} is installed`
-    if (isDue) words.push({ to: by, chat: chat.name, session: chat.session ?? null, runs: was, installed: mods.installed, why })
+    // The main chat's word carries the chats on the board now (archivedAfterRestart: its archive takes the chats it started along).
+    const taken = chat.role === 'main' ? chats.filter(other => typeof other?.name === 'string' && other.name !== chat.name).map(other => ({ name: other.name, session: other.session ?? null })) : null
+    if (isDue) words.push({ to: by, chat: chat.name, session: chat.session ?? null, runs: was, installed: mods.installed, why, ...(taken === null ? {} : { chats: taken }) })
     const status = isDue ? 'due' : mine.length >= RESTART_TRIES && now - last.at >= RESTART_AGAIN_MS ? 'tried' : 'asked'
     runs.set(chat.name, {
       ...info, status,

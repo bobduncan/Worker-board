@@ -496,15 +496,14 @@ export function lineOf(chat: ChatFile, all: readonly ChatFile[], now: number, of
   const known = board.statuses?.find(one => one.name.toLowerCase() === chat.name.toLowerCase())
   const entry = reading === 'board' ? known : undefined
   if (entry === undefined) {
-    // 0.32.0, point 2: the pane's own reading never shows a task the board last said was none (the Advisor's "waiting" card of 09:54).
-    const own = status(known?.held === null && chat.role !== 'main' ? { ...chat, task: null } : chat, all, now, off)
+    const own = status(chat, all, now, off)
     return { ...own, isBold: own.isYours, notReached: reading === 'unreached' }
   }
   const { mark, isYours } = statusMark(entry.status, chat.role)
-  // 7c (0.30.0): the step the board knows the chat holds, with the row's time, in place of the card's task text; an older board's
-  // entry (no `held`) keeps the card's words. 0.32.0, point 2: a chat that holds none by the board's records shows NO task: the
-  // card's is stale (given back, stopped or dropped), and its own mod clears it.
-  const task = entry.held === undefined || chat.role === 'main' ? taskPart(chat, all, now) : entry.held === null ? null : heldText(entry.held)
+  // 7c (0.30.0): the step the board knows the chat holds, with the row's time, in place of the card's task text; an entry without a
+  // held step (an older board, none held) keeps the card's words (0.32.0, chat 1's verifier: a role chat's own plan, a worker's typed
+  // request; a stale step task is the chat's own mod's to clear, `clearStaleCard`).
+  const task = entry.held === undefined || entry.held === null ? taskPart(chat, all, now) : heldText(entry.held)
   return { mark, text: task === null ? statusLabel(entry, now) : `${statusLabel(entry, now)}  ${task}`, isYours, isBold: entry.tone === 'attention', notReached: false }
 }
 

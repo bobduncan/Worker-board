@@ -551,6 +551,8 @@ const BOARD_START_WINDOW_MS = 120_000
 let heldByBoard: string | null | undefined
 /** 0.32.0, point 2: the card's task text as it stood when the board last named that held step: the one task a later "holds nothing" may clear. */
 let heldTask: string | null = null
+/** Chat 1's verifier (G2 race): counts the verdicts; a clear decided on one verdict never acts after a newer one came in. */
+let verdicts = 0
 /**
  * 0.32.0, point 2 (chat 1's review): the board's FRESH verdict that this chat holds nothing (`held` null in this take's statuses, from a
  * board of 0.30.0 or newer) while the card still names a task: the task was given back, stopped or dropped on the board, so the card is
@@ -564,28 +566,34 @@ async function clearStaleCard($: EngineInterface, taken: TakenAnswer, now: numbe
   // The review: only a WORKER's card, and only on the change from a step the board said it held to none (the main chat and the partners
   // never hold a step by the board, and their cards' tasks are their own); the step the board named is the task that went. The change is
   // used up only by a verdict that counts: one in the board's start window or under the person's pause leaves it for the next.
+  const verdict = ++verdicts
   if (mine.held !== null) {
     // The verifier: the card's task as it stood at the LAST verdict that named this step is the one task a later "holds nothing" may
     // clear (a step given back in a turn that then took the next: the next step's task is not it; round 4: the card renamed by the
     // worker's own plan while the step is held, or empty at the first naming, is read again every time).
-    heldTask = (await readChat($, chatsDir, await $.session.id()))?.task?.text ?? null
     heldByBoard = mine.held.id
+    const text = (await readChat($, chatsDir, await $.session.id()))?.task?.text ?? null
+    if (verdict === verdicts) heldTask = text
     return
   }
   if (myself.role !== 'worker' || typeof heldByBoard !== 'string' || isInTurn) return
   if (taken.boardStartedAt === null || now - taken.boardStartedAt < BOARD_START_WINDOW_MS) return
-  // The pause: the kept reading when it says a pause already, else read anew (the verifier: not one call per take under a pause).
-  if (isPaused(await pauseNow($)) || isPaused(await pauseNow($, true))) return
+  // Bound to THIS verdict (G2 race): a newer verdict during the reads below (a take right after a clear) wins, and this one does nothing.
   const was = heldByBoard
   const gone = heldTask
+  // The pause: the kept reading when it says a pause already, else read anew (the verifier: not one call per take under a pause).
+  if (isPaused(await pauseNow($)) || isPaused(await pauseNow($, true))) return
+  if (verdict !== verdicts) return
   const chat = await readChat($, chatsDir, await $.session.id())
+  if (verdict !== verdicts) return
   if (chat === null || chat.task === null || chat.task.isReported || gone === null || chat.task.text !== gone || isInTurn) {
     heldByBoard = null
     heldTask = null
     return
   }
   // The review: a take that lands in between (a new turn, a new task) is left alone: only the task seen is cleared, and never in a turn.
-  await changeMine($, (me, at) => (me.task === null || me.task.text !== gone || isInTurn ? null : { ...me, task: null, taskNote: { at, why: `the board gives this chat no task now: ${was} was given back, stopped or dropped` } }))
+  await changeMine($, (me, at) => (me.task === null || me.task.text !== gone || isInTurn || verdict !== verdicts ? null : { ...me, task: null, taskNote: { at, why: `the board gives this chat no task now: ${was} was given back, stopped or dropped` } }))
+  if (verdict !== verdicts) return
   heldByBoard = null
   heldTask = null
   void refreshChats($)
@@ -2728,7 +2736,7 @@ const WORK_TOOL = {
       to: { type: 'string', description: "note: you (the person) or main (the main chat). rename: the chat's new name." },
       result: { type: 'string', description: 'report: what the person gets now, in a line.' },
       merged: { type: 'string', description: 'report: the commit it was merged with.' },
-      on: { type: 'string', description: 'block: the step (B<n>) or the chat (its board name, or "chat 1"; with "why") your step waits for: the board shows you waiting on purpose, no go-on line, for 90 minutes of running time, then a Late; unblock when the answer came. A held ask (rule 15) is lifted by note "still stands: <why>" with "of" the ask, or withdraw.' },
+      on: { type: 'string', description: 'block: the step (B<n>) or the chat (its board name, or "chat 1"; with "why") your step waits for: the board shows you waiting on purpose, no go-on line, for the board\'s wait time (90 minutes unless set), then a Late; unblock when the answer came, or without "on" to clear what the step waits for. A held ask (rule 15) is lifted by note "still stands: <why>" with "of" the ask, or withdraw.' },
       title: { type: 'string', description: "new: the step's title. incident: what looks wrong, in one plain line." },
       activity: { type: 'string', description: 'new: the activity it belongs under.' },
       goal: { type: 'string', description: 'new, refine: the goal it serves (G17); definition-draft, how-draft: the focus goal.' },

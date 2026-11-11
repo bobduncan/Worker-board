@@ -346,7 +346,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   // The Workers mod release 0.32.0 (chat 1's review): a chat still archived after its restart for the mod is unarchived by its restarter
   // (modRollout.mjs `archivedAfterRestart`); not again within the half hour.
   for (const one of plan.unarchives ?? []) {
-    const twin = outbox.outbox().findLast(message => message.command === UNARCHIVE_COMMAND && message.about === one.chat)
+    const twin = outbox.outbox().findLast(message => message.command === UNARCHIVE_COMMAND && (typeof one.session === 'string' && typeof message.session === 'string' ? message.session === one.session : message.about === one.chat))
     if (twin !== undefined && now - twin.at < UNARCHIVE_AGAIN_MS) continue
     const message = { id: newId(), at: now, ...unarchiveWords(one), state: 'waiting' }
     try {

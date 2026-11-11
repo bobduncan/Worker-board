@@ -96,7 +96,8 @@ export function wordsIn(words: TurnWords, text: string): string[] {
   for (const hit of hits.filter(one => one.clashes)) groups.set(hit.text, [...(groups.get(hit.text) ?? []), hit])
   for (const [own, same] of groups) {
     if (same.length < 2 || hits.some(other => other.clashes && other.text !== own && same.some(hit => overlaps(hit, other)))) continue
-    for (const hit of same.slice(0, occurrences(normal(text), own))) entered.add(hit.id)
+    // Chat 1's verifier: a copy that stands inside a longer hit of another text (the envelope's line) is that hit's, not a twin's.
+    for (const hit of same.slice(0, occurrencesOutside(normal(text), own, hits.filter(other => other.text !== own && other.len > own.length && !other.clashes)))) entered.add(hit.id)
   }
   return words.typed.filter(one => entered.has(one.id)).map(one => one.id)
 }
@@ -149,10 +150,10 @@ function outsideAt(prompt: string, text: string, outer: WordHit): number {
   for (let at = prompt.indexOf(text); at >= 0; at = prompt.indexOf(text, at + 1)) if (at + text.length <= outer.at || at >= outer.at + outer.len) return at
   return -1
 }
-/** How many times `text` stands in `prompt`, without overlap. */
-function occurrences(prompt: string, text: string): number {
+/** How many times `text` stands in `prompt`, without overlap and outside every stretch of `outers`. */
+function occurrencesOutside(prompt: string, text: string, outers: readonly WordHit[]): number {
   let count = 0
-  for (let at = prompt.indexOf(text); at >= 0; at = prompt.indexOf(text, at + text.length)) count += 1
+  for (let at = prompt.indexOf(text); at >= 0; at = prompt.indexOf(text, at + text.length)) if (!outers.some(outer => at >= outer.at && at + text.length <= outer.at + outer.len)) count += 1
   return count
 }
 
@@ -404,7 +405,9 @@ export function parseStatuses(raw: unknown): BoardStatus[] | null {
       tone: one.tone === 'attention' ? 'attention' : 'quiet',
       since: finiteOrNull(one.since),
       reportAt: finiteOrNull(one.reportAt),
-      held: parseHeld(one.held),
+      // Chat 1's verifier of 0.32.0 (G2): an entry without `held` stays without (an older board, a board whose store read failed, a chat the
+      // board holds no step for): no verdict; null is the verdict "holds nothing".
+      ...(one.held === undefined ? {} : { held: parseHeld(one.held) }),
     })
     if (out.length >= STATUSES_MOST) break
   }

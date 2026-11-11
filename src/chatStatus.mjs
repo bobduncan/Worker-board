@@ -211,6 +211,11 @@ const NAME_CHARS = 80
 export function statusesOf(state, now = null) {
   const chats = (state?.chats ?? []).filter(chat => chat?.isLeftover !== true)
   const sides = [state?.advisor, state?.advisorHelper, state?.supervisorChat, state?.productOwner].filter(chat => chat !== null && chat !== undefined)
+  // Chat 1's verifier of 0.32.0 (G2): `held` only for a worker lane (the main chat and the role chats never hold a step by the board:
+  // their cards' words are their own), and only from a store the board read (`store.ok` false: no verdict at all, so a chat's mod
+  // clears no card on a failed read).
+  const storeOk = state?.store?.ok !== false
+  const holds = chat => storeOk && chats.includes(chat) && chat.isMain !== true
   const seen = new Set()
   const out = []
   for (const chat of [...chats, ...sides]) {
@@ -223,7 +228,7 @@ export function statusesOf(state, now = null) {
       tone: toneOf(chat.status, chat.age ?? null),
       since: finite(chat.since) ? chat.since : null,
       reportAt: finite(chat.reportAt) ? chat.reportAt : null,
-      held: heldEntry(chat.held, now),
+      ...(holds(chat) ? { held: heldEntry(chat.held, now) } : {}),
     })
     if (out.length >= STATUSES_MOST) break
   }
