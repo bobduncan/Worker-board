@@ -47,3 +47,15 @@ code just submitting an item in a queue and then waiting for the chat to pick it
     question that their own later words have already answered. (The person, 2026-11-09: "when we redesign/discuss
     things, the signals ont he board aint updated with the new information and thats confusing"; built as part P6 of
     the wait-system plan.)
+
+## A clean page (2026-11-11)
+
+The person, on the Stability row: "this UI sucks. i didnt specifically ask for this weird line ... Lets make a new
+principle rule for future changes that UI changes still need to provide a clean UI"; then "3. yes" to this text.
+
+16. **A clean page.**
+    (1) A change adds only what was asked for: no extra lines, charts or marks.
+    (2) Everything on the page says what it is: no unlabelled lines, dots or mini-charts.
+    (3) Short words, one line where possible; details go behind a "details" link.
+    (4) Before a UI change goes live, its builder shows a picture of the result beside the page as it was, and the
+    review checks that picture against this rule.
