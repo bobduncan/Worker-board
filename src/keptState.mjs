@@ -11,9 +11,9 @@
  * The actions whose answer reads nothing of the state that a write changes: the frequent ones. `step` (a checkpoint), `take`,
  * `report`, `block`/`unblock` (the store), `turn-ended` (its hand-over decision reads the state anew itself), `pull` (its line
  * is written after the answer), `health` (B736's own path), `asset`, `incident`, `incident-fix`, `save-log`, `whoami`, `next` and
- * `list` (reads whose words lag as the page's do). Everything else (ask, new, note, refine, refined, answer, withdraw, words,
- * pause-state, pause, resumed, drop, close, checked, ...) reads the goal map, the recaps, the ready list or the lanes and waits
- * for a fresh state when a write came since the last read.
+ * `list` (reads whose words lag as the page's do), and `note` unless it is of a goal (`readsStoreFacts`). Everything else (ask, new,
+ * refine, refined, answer, withdraw, words, pause-state, pause, resumed, drop, close, checked, ...) reads the goal map, the recaps,
+ * the ready list or the lanes and waits for a fresh state when a write came since the last read.
  */
 export const KEPT_SAFE_ACTIONS = Object.freeze(new Set(['step', 'take', 'report', 'block', 'unblock', 'turn-ended', 'pull', 'health', 'asset', 'incident', 'incident-fix', 'save-log', 'whoami', 'next', 'list']))
 
@@ -24,12 +24,16 @@ export const KEPT_STATE_MS = 60_000
  * Why the kept state serves, or does not: 'kept' (answer from it), else the reason to read anew: 'none' (no kept state yet, the
  * first seconds after a start), 'old' (older than `maxMs`), 'unknown' (the calling chat has no role in it: just added, or cleared
  * into a new session), 'dirty' (a write since the last read, and the action reads store-derived facts). `last` the kept state (its
- * `readAt`), `roleOf(last, chat)` the chat's role in it or null, `chat` null for the person's and the server's own calls.
+ * `readAt`), `roleOf(last, chat)` the chat's role in it or null, `chat` null for the person's and the server's own calls; `of` the
+ * call's `of` field: a note of a goal (G<n>) reads the goal map, a note to the main chat does not.
  */
-export function keptStateWhy({ last, now, chat = null, action = null, dirty = false, roleOf = () => null, maxMs = KEPT_STATE_MS }) {
+export function keptStateWhy({ last, now, chat = null, action = null, of = null, dirty = false, roleOf = () => null, maxMs = KEPT_STATE_MS }) {
   if (last === null || last === undefined || typeof last !== 'object') return 'none'
   if (!Number.isFinite(last.readAt) || !Number.isFinite(now) || now - last.readAt > maxMs) return 'old'
   if (chat !== null && chat !== undefined && roleOf(last, chat) === null) return 'unknown'
-  if (dirty === true && !KEPT_SAFE_ACTIONS.has(String(action ?? ''))) return 'dirty'
+  if (dirty === true && readsStoreFacts(action, of)) return 'dirty'
   return 'kept'
 }
+
+/** Whether the action's answer reads a store-derived fact of the state: not a safe action; a note only when it is of a goal (G<n>). */
+export const readsStoreFacts = (action, of = null) => (action === 'note' ? /^G\d+$/i.test(String(of ?? '').trim()) : !KEPT_SAFE_ACTIONS.has(String(action ?? '')))

@@ -1699,14 +1699,14 @@ async function main(args) {
    * stale list: a caller the kept state does not know (a chat just added or cleared into a new session: B736's case) or a kept state
    * older than KEPT_STATE_MS (no page, no loop ran) reads once, as before; and there is no kept state in the first seconds after a start.
    */
-  const keptStateFor = async (chat, action) => {
+  const keptStateFor = async (chat, action, of = null) => {
     const last = readState.last() ?? null
     // `dirty`: a write reset the state since it was read (folders.mjs `cached`: readAt -Infinity until the next whole read).
-    const why = keptStateWhy({ last, now: clock(), chat, action, dirty: readState.readAt() === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS })
+    const why = keptStateWhy({ last, now: clock(), chat, action, of, dirty: readState.readAt() === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS })
     return why === 'kept' ? last : readState()
   }
-  const workCtx = async ({ kept = false, chat = null, action = null } = {}) => {
-    const state = kept ? readState.last() ?? await readState() : await keptStateFor(chat, action)
+  const workCtx = async ({ kept = false, chat = null, action = null, of = null } = {}) => {
+    const state = kept ? readState.last() ?? await readState() : await keptStateFor(chat, action, of)
     const lanes = (state.chats ?? []).filter(lane => !lane.isLeftover)
     const roles = new Map(lanes.map(lane => [lane.name, lane.isMain ? 'main' : 'worker']))
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
@@ -1870,7 +1870,7 @@ async function main(args) {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
-    const done = await workApi(body, { ...(await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null, action: body?.action ?? null })), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
+    const done = await workApi(body, { ...(await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null, action: body?.action ?? null, of: typeof body?.of === 'string' ? body.of : null })), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
     // T9.1.1: a result check is a Quality Assurance task the work API makes itself (api.mjs `qaStep`): no word to the Advisor.
     // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.
     // board-fast-answer: the guard runs after the answer (`afterAnswer`, in order): it is eventual, the store's truth is the call's write.

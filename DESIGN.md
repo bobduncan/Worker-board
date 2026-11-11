@@ -7187,8 +7187,8 @@ heard were awaited inside the answer. The person (2026-11-11): the held items on
   lanes for the resume list), which a kept state shows stale right after a write: so a call whose action reads them waits for a fresh
   state when a write came since the last read (`dirty`: folders.mjs `cached` `readAt` -Infinity), while the frequent actions that read
   none of them answer from the kept state whatever was written (src/keptState.mjs `KEPT_SAFE_ACTIONS`: step, take, report, block,
-  unblock, turn-ended, pull, health, asset, incident, incident-fix, save-log, whoami, next, list). The decision is pure (`keptStateWhy`:
-  kept, none, old, unknown, dirty) and tested on its own.
+  unblock, turn-ended, pull, health, asset, incident, incident-fix, save-log, whoami, next, list, and a note unless it is of a goal).
+  The decision is pure (`keptStateWhy`: kept, none, old, unknown, dirty) and tested on its own.
 - **turn-ended keeps its decision in the answer** (chat 1's review of the design note, 2026-11-11): the Workers mod reads the
   answer's `handover` (register.tsx: `setOnSequence(parseHandover(ended) !== null)`; the turn's context for the clear), so the hand-over
   turn with its own rebuild stays inside the call (`decideFor`). Moving it waits for the mod's release.
