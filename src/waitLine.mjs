@@ -614,7 +614,7 @@ export function changeDone(word, thread, now = Date.now()) {
  * no thread (the Focus talk bar's) has none. With it the talk word is an own-result word: its chat's turn ended without it is P3's own
  * "turn ended at HH:MM without it" (Late after the grace, with the chat at rest), never a Done "answered" for a turn that wrote nothing.
  */
-export function talkDone(word, thread, now = Date.now()) {
+export function talkDone(word, thread, now = Date.now(), goal = null) {
   if (thread === undefined || thread === null) return null
   const from = minuteOf(word.at)
   // Thread times are whole minutes: a question stamped in the SAME minute as the word is its next stage when it is the latest and unanswered, or
@@ -623,7 +623,23 @@ export function talkDone(word, thread, now = Date.now()) {
   const isOpen = one => (one.kind === 'question' && one.question === thread.latest && (thread.latest.answer ?? null) === null) || (one.kind === 'understood' && (thread.understood?.answer ?? null) === null)
   const next = (threadTimes(thread, now) ?? []).filter(one => isTime(one.ms) && (one.ms > from || (one.ms === from && isOpen(one)))).sort((a, b) => a.ms - b.ms)[0]
   if (next !== undefined) return { at: next.ms, words: { question: 'a new question', understood: 'what it understood', proposal: 'a proposal' }[next.kind], link: null }
-  return ['done', 'discarded'].includes(thread.state) ? { at: null, words: thread.state === 'done' ? 'the talk is over' : 'the talk is discarded', link: null } : null
+  if (['done', 'discarded'].includes(thread.state)) return { at: null, words: thread.state === 'done' ? 'the talk is over' : 'the talk is discarded', link: null }
+  return goalPassed(thread, goal, now, null) ? { at: null, words: 'the goal moved on', link: null } : null
+}
+
+/**
+ * Whether the goal's own stage has passed the stage of the thread's last question (the live G64 case of 2026-11-11: the person's answer "the how
+ * fits" came after Go, the partner gave the go, the goal went to its run, and the thread never got a next question): the goal is done, or a stage
+ * stamp of its lines (`Goal definition agreed`, `How agreed`) is at or after the time the last question was asked, so the question belongs to a
+ * stage that has passed. With `focusId` (the stuck rule) a goal that is no longer the focus is past too. A goal not in the map is no evidence.
+ */
+function goalPassed(thread, goal, now, focusId) {
+  if (goal === undefined || goal === null) return false
+  if (goal.state === 'done') return true
+  if (typeof focusId === 'string' && focusId !== goal.id) return true
+  const asked = thread.latest === undefined || thread.latest === null ? undefined : (threadTimes(thread, now) ?? []).find(one => one.kind === 'question' && one.question === thread.latest)
+  if (asked === undefined || !isTime(asked.ms)) return false
+  return [goal.vibeAgreed, goal.howAgreed].some(stamp => { const at = sinceMs(stamp); return isTime(at) && at >= asked.ms })
 }
 
 /**
@@ -648,6 +664,9 @@ export function stuckTalksOf({ state, outbox = [], now }) {
   const found = []
   for (const thread of state?.brainstorms?.threads ?? []) {
     if (thread?.kind === 'change' || !partnerHasTurn(thread)) continue
+    // The goal done, no longer the focus, or past the stage of the last question: the talk is never stuck.
+    const goal = (state?.goals?.nodes ?? []).find(node => node.id === thread.goal?.id) ?? null
+    if (goalPassed(thread, goal, now, state?.focus?.id ?? '')) continue
     const mine = outbox.filter(word => isTime(word?.at) && typeof word.to === 'string' && BRAINSTORM_COMMANDS.includes(word.command) && (word.about === thread.path || String(word.text ?? '').includes(`Thread: ${thread.path}`)))
       .sort((a, b) => b.at - a.at)
     const last = mine[0]
@@ -655,7 +674,7 @@ export function stuckTalksOf({ state, outbox = [], now }) {
     // The end of the word's turn when it was seen; else (it expired before delivery, its chat never reported, the sweep closed it) the word's own
     // close, else its own time: the thread still gives the partner the turn, and that is what the person needs to know.
     const end = [last.answeredAt, last.endedAt, last.closedAt, last.at].find(isTime)
-    if (talkDone(last, thread, now) !== null) continue
+    if (talkDone(last, thread, now, goal) !== null) continue
     found.push({ path: thread.path, since: end, chat: last.to })
   }
   return found
@@ -803,7 +822,7 @@ function doneOfPlace(word, place, { state, items, steps, goals, threads, now }) 
       case 'refine': return refineDone(word, steps.get(word.about))
       case 'go': return goDone(word, goals.get(word.about), items, state?.focus ?? null)
       case 'change': return changeDone(word, threadOf(word, threads), now)
-      case 'talk': return talkDone(word, threadOf(word, threads), now)
+      case 'talk': return talkDone(word, threadOf(word, threads), now, goals.get(threadOf(word, threads)?.goal?.id) ?? null)
       case 'goal-ask': return goalAskDone(word, goals.get(word.goal))
       case 'overturn': return overturnDone(word, items)
       case 'worker': return workerDone(word, (state?.chats ?? []).find(one => one?.name === word.about && one.isLeftover !== true))
