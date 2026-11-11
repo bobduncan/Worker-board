@@ -52,6 +52,8 @@ import { refinedAt } from './backlog.mjs'
 import { UNKNOWN_ATTENTION_MS } from './chatStatus.mjs'
 import { blocksOf } from './goals.mjs'
 import { STOP_HANDS_MS, isHandTaken } from './hands.mjs'
+import { answeredCard, planAnswered } from './plan.mjs'
+import { PLAN_DECISIONS, PLAN_MOVES } from './planMoves.mjs'
 import { isLate } from './store.mjs'
 import { WAKE_PENDING, triedWords } from './wake.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
@@ -93,8 +95,8 @@ const OWN_DONE = ['obsolete-check', 'sweep', 'recap-feedback']
  * Wave 2: the places an action of the person has (`placeOfWord`). The six first have a Done source of their own (`OWN_PLACES`), the
  * talk the fallback, the judgment of an incident its own lines (`judgeLinesOf`).
  */
-export const WAVE2_PLACES = ['refine', 'go', 'change', 'goal-ask', 'overturn', 'worker', 'talk', 'focus', 'judge']
-const OWN_PLACES = ['refine', 'go', 'change', 'goal-ask', 'overturn', 'worker']
+export const WAVE2_PLACES = ['refine', 'go', 'change', 'goal-ask', 'overturn', 'worker', 'talk', 'focus', 'judge', 'plan', 'recommend', 'free']
+const OWN_PLACES = ['refine', 'go', 'change', 'goal-ask', 'overturn', 'worker', 'plan', 'recommend']
 /** The Focus talk's words: the talk bar, "Not yet", "Re-check the goals now", and the words of a brainstorm that is no change of a goal. */
 const TALK_COMMANDS = ['talk', 'vibe-not-yet', 'how-not-yet', 'recheck']
 /**
@@ -103,6 +105,18 @@ const TALK_COMMANDS = ['talk', 'vibe-not-yet', 'how-not-yet', 'recheck']
  * each where its button was (`wordLineOf`); the board's own demo word (`goal-demo`, asked by the loop) is drawn the same.
  */
 export const FOCUS_COMMANDS = ['focus', 'vibe-agreed', 'vibe-there-yes', 'vibe-there-no', 'goal-recheck', 'goal-demo', 'done-when', 'undo']
+/**
+ * Reactive board, brief P4c: the Vision tab's words to the partner (src/planMoves.mjs `PLAN_MOVES`, a test keeps the two lists equal): place 'plan',
+ * Done by the partner's own write of the plan page after the word (`planDone`). The seven decisions the board writes itself (`PLAN_DECISIONS`)
+ * are no wait; the follow-up word that says so is one: its Done is the partner's write too, with no result of its own owed (the fallback "answered" when its turn ends).
+ */
+export const PLAN_COMMANDS = PLAN_MOVES
+/**
+ * Reactive board, brief P4c: the free messages the person types (no command): the Advisor talk's Send, Talk to Main, a hint's nudge, the words
+ * "Ask for pictures" types to an ask's chat. The board keeps their kind on the word (`free`, with `freeAbout` for the nudge's card and the
+ * ask), so the line is drawn where the button was. Done is the turn report (P3's general rule): the chat's answer is the chat itself.
+ */
+export const FREE_KINDS = ['talk-send', 'main-send', 'nudge', 'ask-pictures']
 /** The words of a brainstorm thread the person types (the board's own `brainstorm-fix` and `brainstorm-stranded` are no action of theirs). */
 const BRAINSTORM_COMMANDS = ['brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite']
 /** The states of an incident that waits for a judgment; the ones that end it are `ENDED` of supervisor/incidents.mjs, and 'fix' (given a fix step). */
@@ -409,7 +423,10 @@ export function isPersonWord(word, { sweepWord = null, now = null } = {}) {
   if (typeof word?.to !== 'string' || word.to === '' || !isTime(word.at)) return false
   if ((word.ask ?? null) !== null) return true
   if (word.command === 'sweep') return typeof sweepWord === 'string' && word.id === sweepWord
-  if (['recap-feedback', 'obsolete-check', 'how-go', 'goal-ask', ...TALK_COMMANDS, ...FOCUS_COMMANDS, ...BRAINSTORM_COMMANDS].includes(word.command)) return true
+  if (['recap-feedback', 'obsolete-check', 'how-go', 'goal-ask', ...TALK_COMMANDS, ...FOCUS_COMMANDS, ...BRAINSTORM_COMMANDS, ...PLAN_COMMANDS].includes(word.command)) return true
+  // A yes the board carries out itself has no chat (`to` null, no word to wait for); a yes on a board with no work store goes to the main chat: its line too.
+  if (word.command === 'recommend') return word.answer === 'no' || word.answer === 'yes'
+  if (FREE_KINDS.includes(word.free) && (word.command ?? null) === null) return true
   if (word.command === 'refine') return word.board !== true && word.isAuto !== true && (word.syncKey ?? null) === null
   if (!['stop', 'remove'].includes(word.command)) return false
   // A stop or remove the board carries out by code is instant (no line) for STOP_HANDS_MS; after it the main chat takes it after all
@@ -439,6 +456,9 @@ export function placeOfWord(word, { threads = [], items = null } = {}) {
   }
   if (BRAINSTORM_COMMANDS.includes(word?.command)) return threadOf(word, threads)?.kind === 'change' ? 'change' : 'talk'
   if (FOCUS_COMMANDS.includes(word?.command)) return 'focus'
+  if (PLAN_COMMANDS.includes(word?.command)) return 'plan'
+  if (word?.command === 'recommend') return 'recommend'
+  if (FREE_KINDS.includes(word?.free) && (word?.command ?? null) === null) return 'free'
   return TALK_COMMANDS.includes(word?.command) ? 'talk' : null
 }
 
@@ -693,6 +713,31 @@ export function changeProgress(word, thread, now = Date.now()) {
   return open === undefined ? null : { at: open.ms, words: open.kind === 'question' ? 'a question for you' : 'what it understood, for your yes' }
 }
 
+/**
+ * Reactive board, brief P4c: a word to the partner about the plan is Done once the PARTNER wrote the plan page after it (or, for Go deeper, Get
+ * options and an answer, its question about that card): `plan.pageAt` is the page's time as `partnerPageAt` (src/planWrite.mjs) reads it, so the
+ * board's own write of a decision never counts as the partner's answer. `plan` the state's plan (null: no page yet, no result). The same rule
+ * `withPlanWork` uses, one copy (src/plan.mjs `planAnswered`). `{ at, words, link }` or null.
+ */
+export function planDone(word, plan) {
+  if (plan === null || plan === undefined || !isTime(word?.at)) return null
+  const about = word.about ?? 'plan'
+  if (!planAnswered(plan, word.command, about, word.at, plan.pageAt ?? null, word.pickedUpAt)) return null
+  const asked = word.command === 'plan-deeper' ? 'deeper questions' : word.command === 'plan-ask' ? 'the options' : 'your plan is written'
+  return { at: isTime(plan.pageAt) && isTime(word.pickedUpAt) && plan.pageAt > word.pickedUpAt ? plan.pageAt : null, words: asked, link: null }
+}
+
+/**
+ * "No, because…" on the way card (the word to the Advisor): the record the way card reads is the milestone's recommendation: Done once the
+ * Advisor's recommendation is another one than the word's (`about` its id). `milestone` the state's. `{ at, words, link }` or null; no time of
+ * its own (the first moment the board saw it).
+ */
+export function recommendDone(word, milestone) {
+  const rec = milestone?.recommendation ?? null
+  if (rec === null || typeof word?.about !== 'string' || rec.id === word.about) return null
+  return { at: null, words: 'another task proposed', link: null }
+}
+
 /** Place 4, a goal ask: the partner's answer under that goal. `goal` the goal map's node, the word's `about` the ask's id. */
 export function goalAskDone(word, goal) {
   const answer = (goal?.asks ?? []).find(one => one.id === word.about)?.answer ?? null
@@ -825,6 +870,8 @@ function doneOfPlace(word, place, { state, items, steps, goals, threads, now }) 
       case 'talk': return talkDone(word, threadOf(word, threads), now, goals.get(threadOf(word, threads)?.goal?.id) ?? null)
       case 'goal-ask': return goalAskDone(word, goals.get(word.goal))
       case 'overturn': return overturnDone(word, items)
+      case 'plan': return planDone(word, state?.plan ?? null)
+      case 'recommend': return recommendDone(word, state?.milestone ?? null)
       case 'worker': return workerDone(word, (state?.chats ?? []).find(one => one?.name === word.about && one.isLeftover !== true))
       default: return null
     }
@@ -937,8 +984,12 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     const lane = lanes.get(word.to) ?? null
     const report = (reports instanceof Map ? reports.get(word.to) : null) ?? lane?.report ?? null
     const queue = outbox.filter(one => one.to === word.to && one.state === 'waiting' && one.isHeld !== true && one.id !== word.id && isTime(one.at) && one.at < word.at).length
+    // Chat 1's ruling (2026-11-11): a plan word counts the partner's page write only after the word was PICKED UP: the record on the word, or the turn
+    // report that names this word (its turn start). With no such record and the page written after the word, the line stays quiet (never Late).
+    const planPick = place !== 'plan' ? null : isTime(word.pickedUpAt) ? word.pickedUpAt : report?.word === word.id && (isTime(report.turn) || isTime(report.since)) ? turnOf(report) : null
+    const isUnconfirmed = place === 'plan' && !PLAN_DECISIONS.includes(word.command) && !isTime(planPick) && isTime(state?.plan?.pageAt) && state.plan.pageAt > word.at
     const found = word.command === 'recap-feedback' ? recapDone(word, items) : word.command === 'obsolete-check' ? obsoleteDone(word, obsolete) : word.command === 'sweep' ? sweepDone(word, sweep)
-      : doneOfPlace(word, place, { state, items, steps, goals, threads, now })
+      : doneOfPlace(place === 'plan' && isTime(planPick) ? { ...word, pickedUpAt: planPick } : word, place, { state, items, steps, goals, threads, now })
     // A result with no time of its own (a stop, a remove, a refine block with no stamp) is dated by the first moment the board saw it,
     // kept (`firstSeen`, the server's own map, and on the word once the server writes it), never by the clock of each draw.
     const done = found === null || isTime(found.at) || !(firstSeen instanceof Map) ? found : { ...found, at: firstSeen.get(word.id) ?? now }
@@ -949,11 +1000,11 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     const ahead = ranOn !== undefined && ranOn.to === word.to && ranOn.id !== word.id && ['taken', 'delivered'].includes(ranOn.state) && placeOf.get(ranOn.id) < placeOf.get(word.id)
     // Wave 2: a place with a Done source of its own says "turn ended without it" when its turn ended without the result; the talk has none.
     // P4b round 2: a word of a brainstorm talk (its thread known) has the thread's next stage as its own Done, as a change thread's word has.
-    const isOwnPlace = OWN_PLACES.includes(place) || (place === 'talk' && threadOf(word, threads) !== null)
+    const isOwnPlace = (OWN_PLACES.includes(place) && !(place === 'plan' && PLAN_DECISIONS.includes(word.command))) || (place === 'talk' && threadOf(word, threads) !== null)
     // The first moment the board saw a word closed that has no `closedAt` of its own (one the sweep would close): its "closed" line is dated by it.
     const closedKey = `${CLOSED_KEY}${word.id}`
     const closedSeenAt = firstSeen instanceof Map ? firstSeen.get(closedKey) ?? null : null
-    const first = waitLineOf({ word, lane, report, ahead, wake: lane?.wake ?? null, done, now, keep, queue, judge, paused, outlives: isOwnPlace, progress, running, heard, wall, unknownMs, staleMs, closedSeenAt, ...(WAVE2_PLACES.includes(place) ? { own: isOwnPlace } : {}) })
+    const first = waitLineOf({ word, lane, report, ahead, wake: lane?.wake ?? null, done, now, keep, queue, judge, paused, outlives: isOwnPlace, progress, running, heard, wall, unknownMs, staleMs, closedSeenAt, turnLate: !isUnconfirmed, ...(WAVE2_PLACES.includes(place) ? { own: isOwnPlace } : {}) })
     if (firstSeen instanceof Map && !isTime(word.closedAt) && closedSeenAt === null && (first?.state === 'closed' || (first === null && word.state !== 'dropped' && !judge.matters(word)))) firstSeen.set(closedKey, first?.at ?? now)
     if (first === null) continue
     // P3, no silent end: a word past a day without a Done says so for one more day ("no answer recorded in 24 h"), quietly, and its wait has
@@ -965,8 +1016,13 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     const line = !isOld || first.state === 'done' ? first
       : first.isExpired === true ? { ...first, isEnded: true, seen: null }
         : { ...first, state: 'sent', lead: `Sent ${clockOf(asked.at)}`, rest: 'no answer recorded in 24 h', canSendAgain: false, link: null, seen: null, at: asked.at, isEnded: true }
+    // Chat 1's ruling (2026-11-11): the partner wrote the plan page after this word, but the board has no record that its turn on THIS word began
+    // (no pickedUpAt: an older mod, a merged prompt): no Done, and a quiet note, as elsewhere in P3.
+    const planNote = isUnconfirmed && line.state !== 'done'
+      ? `plan written ${clockOf(state.plan.pageAt)}; not confirmed for this word` : null
+    const noted = planNote === null ? line : { ...line, rest: [line.rest, planNote].filter(Boolean).join(' · '), ...(line.isTurnEnded === true ? { isUnconfirmed: true } : {}) }
     const title = String(asked.text ?? '').split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 160)
-    waits[asked.id] = { ...line, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command, place, about: asked.about ?? null, goal: goalOfWord(asked, place, threads), ask: asked.ask ?? null, sentAt: asked.at, title }
+    waits[asked.id] = { ...noted, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command ?? asked.free, place, about: asked.about ?? asked.freeAbout ?? null, ...(place === 'plan' && typeof asked.said === 'string' ? { said: asked.said } : {}), ...(answeredCard(asked) === null ? {} : { planCard: answeredCard(asked) }), goal: goalOfWord(asked, place, threads), ask: asked.ask ?? null, sentAt: asked.at, title }
   }
   // Place 8: an incident that waits for the Supervisor's judgment, a line of its own each.
   Object.assign(waits, judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, paused, running, heard, wall, unknownMs, staleMs }))

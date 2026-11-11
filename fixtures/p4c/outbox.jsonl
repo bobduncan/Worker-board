@@ -1,0 +1,21 @@
+{"id":"b602cc74dbe32841","at":1792420799883,"to":"Advisor","ask":null,"step":null,"title":null,"version":null,"verdict":null,"command":"plan-change","about":"P1","text":"plan: P1 change\nWords: i originally though it could be puzzle like, but im not sold yet. the current shape can also be a roguelite with powerups and hazards, upgrades and strategy\nYour job: roles/partner.md, \"The plan interview\"","state":"waiting"}
+{"id":"b602cc74dbe32841","state":"taken","takenAt":1792420804478}
+{"id":"b602cc74dbe32841","state":"delivered","deliveredAt":1792420805174}
+{"id":"d73175ec8383bc32","at":1792441629729,"to":"Advisor","ask":null,"step":null,"title":null,"version":null,"verdict":null,"command":"plan-ask","about":"P5","text":"plan: P5 ask\nYour job: roles/partner.md, \"The plan interview\"","state":"waiting"}
+{"id":"d73175ec8383bc32","state":"taken","takenAt":1792441634846}
+{"id":"d73175ec8383bc32","state":"delivered","deliveredAt":1792441635881}
+{"id":"3f564b15d976f737","at":1792445292045,"to":"Advisor","ask":null,"step":null,"title":null,"version":null,"verdict":null,"command":"plan-deeper","about":"P3","text":"plan: P3 deeper\nYour job: roles/partner.md, \"The plan interview\"","state":"waiting"}
+{"id":"3f564b15d976f737","state":"taken","takenAt":1792445316118}
+{"id":"3f564b15d976f737","state":"delivered","deliveredAt":1792445324790}
+{"id":"5acb752740172e21","at":1792447029647,"to":"Advisor","ask":null,"step":null,"title":null,"version":null,"verdict":null,"command":"plan-goals-agree","about":"plan","text":"plan: goals agreed\nYour job: roles/partner.md, \"The plan interview\"","state":"waiting"}
+{"id":"5acb752740172e21","state":"taken","takenAt":1792447031425}
+{"id":"5acb752740172e21","state":"delivered","deliveredAt":1792447032219}
+{"id":"46ba71690cc9511c","at":1792567018100,"to":"Advisor","ask":null,"step":null,"title":null,"version":null,"verdict":null,"command":"plan-check","about":"plan","text":"plan: check\nYour job: roles/partner.md, \"The plan interview\"","state":"waiting"}
+{"id":"46ba71690cc9511c","state":"taken","takenAt":1792567018886}
+{"id":"46ba71690cc9511c","state":"delivered","deliveredAt":1792567059177}
+{"id":"dfd82b1d67db330c","at":1792568003215,"to":"Main","ask":null,"step":null,"title":null,"verdict":null,"text":"i want the same title, content improvement we just did for popups also for the brainstorm, this bold title is way too long. [I59]","picture":"art-inbox/talk/2026-10-21-0933.png","state":"waiting","instruction":"I59"}
+{"id":"dfd82b1d67db330c","state":"taken","takenAt":1792568004515}
+{"id":"dfd82b1d67db330c","state":"delivered","deliveredAt":1792568005865}
+{"id":"7bea850b904f9247","at":1792858836588,"to":"Main","ask":null,"step":null,"title":null,"verdict":null,"text":"the focus tab could use a little visual /indicator besides the progress bar to see how many steps/backlogitems are currently done and how many are left. [I90]","state":"waiting","instruction":"I90"}
+{"id":"7bea850b904f9247","state":"taken","takenAt":1792858838644}
+{"id":"7bea850b904f9247","state":"delivered","deliveredAt":1793814580203,"why":"delivered-unconfirmed: its chat ran a turn after it and never said"}

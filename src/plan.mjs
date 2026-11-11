@@ -482,18 +482,40 @@ const WORK_WORDS = {
   'plan-strategy': 'the plan in your strategy',
 }
 
+/**
+ * The words the Vision tab names a line by ("on the plan check"), for every word to the partner about the plan: the words it works on (`WORK_WORDS`)
+ * and the ones the board wrote itself (their follow-up word still has its line). Sent in the state (`plan.labels`): the page keeps no copy.
+ */
+export const WORD_LABELS = {
+  ...WORK_WORDS, 'plan-start': 'the start', 'plan-confirm': 'your confirmed answer', 'plan-settled': 'your settled card', 'plan-marks': 'your marks',
+  'plan-goals-confirm': 'your confirmed goals', 'plan-standards-confirm': 'your confirmed standards', 'plan-tradeoff': 'your tradeoff', 'plan-not-now': 'a goal set aside',
+}
+
 /** The card a word answers ("P1" for an answer of "P1.2: ..."), when it is the person's answer of a plan question. */
-const answeredCard = message => (typeof message?.ask === 'string' && (message.command ?? null) === null && QUESTION.test(String(message.title ?? ''))
+export const answeredCard = message => (typeof message?.ask === 'string' && (message.command ?? null) === null && QUESTION.test(String(message.title ?? ''))
   ? String(message.title).match(QUESTION)[1].split('.')[0] : null)
-/** A word the partner has not answered after this long is late: the tab offers to send it again. */
-export const PLAN_LATE_MS = 30 * 60_000
+/**
+ * Whether the partner has answered a word to it about the plan (`message`, sent at `at`): for Go deeper a deeper question about the card filed
+ * after the word, for Get options its question, for an answer of a plan question the card's next question, and for every word the plan's page
+ * written after it (`pageAt`: the PARTNER's write of the page, src/planWrite.mjs `partnerPageAt`: the board's own write of a decision is never
+ * one). The one rule: `withPlanWork` (who is still open) and the wait line's Done (src/waitLine.mjs `planDone`) both read it.
+ */
+export function planAnswered(plan, command, about, at, pageAt, pickedUpAt = null) {
+  const questions = plan?.questions ?? []
+  const asked = command === 'plan-deeper'
+    ? questions.some(question => question.about === about && question.isDeeper && question.filedAt >= at)
+    : command === 'plan-ask' ? questions.some(question => question.id === about && question.filedAt >= at)
+      : command === 'plan-answer' ? questions.some(question => question.about === about && question.filedAt >= at) : false
+  // Chat 1's ruling (2026-11-11): a write of the page counts only after the word was PICKED UP (`pickedUpAt`: the turn on it began): a word delivered
+  // to a busy partner sits in its queue while the partner still writes the page for the earlier word. No pickedUpAt, no page-write answer.
+  return asked || (Number.isFinite(pageAt) && Number.isFinite(pickedUpAt) && pageAt > pickedUpAt)
+}
 
 /**
- * Vision (2026-10-19): the plan's state with `working`: what the partner is preparing from the person's words on the
- * Vision tab (the board's own outbox, `sent`), newest first, one per word and part. A word is done once its answer is
- * there: for Go deeper a deeper question about the card filed after the word, for Get options its question, for every
- * word the plan's page written after it (`pageAt`). Not done: `waiting` (not with the partner yet), `working` (typed
- * into its chat), `late` (no answer after PLAN_LATE_MS), or `failed` (the word never arrived).
+ * Vision (2026-10-19): the plan's state with `working`: the words to the partner about the plan that stand unanswered (the board's own outbox,
+ * `sent`), newest first, one per word and part, and `pageAt` (the partner's last write of the page). Reactive board, P4c: it says WHICH words
+ * stand (`id`: the word, whose line the state's `waits` draws), never how it fares: no guess, no 30-minute "late" (the wait line's P3 rules
+ * judge that). `waiting`: not typed into its chat yet; `working`: typed; `failed`: the word never arrived.
  */
 export function withPlanWork(plan, sent, pageAt, now) {
   if (plan === null) return null
@@ -508,20 +530,15 @@ export function withPlanWork(plan, sent, pageAt, now) {
     if (seen.has(key)) continue
     seen.add(key)
     const at = Number(message.at)
-    const asked = command === 'plan-deeper'
-      ? plan.questions.some(question => question.about === about && question.isDeeper && question.filedAt >= at)
-      : command === 'plan-ask' ? plan.questions.some(question => question.id === about && question.filedAt >= at)
-        : command === 'plan-answer' ? plan.questions.some(question => question.about === about && question.filedAt >= at) : false
-    if (asked || (Number.isFinite(pageAt) && pageAt > at)) continue
-    working.push({ command, about, at, state: wordState(message, at, now), what: WORK_WORDS[command] })
+    // A word whose Done the wait line saw and kept on it (`doneAt`, src/waitLine.mjs: once seen, it stays) is answered, also where the pick-up was a turn report's.
+    if (Number.isFinite(message.doneAt) || planAnswered(plan, command, about, at, pageAt, message.pickedUpAt)) continue
+    working.push({ id: message.id ?? null, command, about, at, state: wordState(message), what: WORK_WORDS[command] })
   }
-  return { ...plan, working }
+  return { ...plan, working, pageAt: Number.isFinite(pageAt) ? pageAt : null, labels: WORD_LABELS }
 }
 
-/** Where a word to the partner is: `waiting`, `working`, `late` (after PLAN_LATE_MS) or `failed`. */
-const wordState = (message, at, now) => (message.state === 'expired' || message.state === 'failed' ? 'failed'
-  : message.state === 'waiting' || message.state === 'held' ? 'waiting'
-    : now - at > PLAN_LATE_MS ? 'late' : 'working')
+/** Where a word to the partner is: `waiting`, `working` or `failed` (no `late`: the wait line judges it). */
+const wordState = message => (message.state === 'expired' || message.state === 'failed' ? 'failed' : message.state === 'waiting' || message.state === 'held' ? 'waiting' : 'working')
 
 /** A start the partner has not answered after this long no longer shows: the empty tab offers the start again. */
 const START_SHOWN_MS = 24 * 60 * 60_000
@@ -536,5 +553,6 @@ export function planStarting(sent, now) {
   if (start === undefined) return null
   const at = Number(start.at)
   if (!Number.isFinite(at) || now - at > START_SHOWN_MS) return null
-  return { at, state: wordState(start, at, now) }
+  // The kind and the person's OWN words of the start (apart from the kind), kept on the word, for Start again.
+  return { at, state: wordState(start), ...(typeof start.startKind === 'string' && start.startKind !== '' ? { kind: start.startKind } : {}), ...(typeof start.ownWords === 'string' && start.ownWords !== '' ? { words: start.ownWords } : {}) }
 }

@@ -5360,9 +5360,6 @@ function nudgeWords(need) {
 }
 // cardways:end
 
-/** B533: what a nudge sent from this page is about: the card's id and when, so the button says it once it went. */
-const nudged = new Map()
-
 /** B533: the buttons of a card's ways (cardWays) that are no answer form: in its card, and (`inWindow`) in its window. */
 function wayButtons(need, inWindow = false) {
   const parts = []
@@ -5379,14 +5376,18 @@ function wayButtons(need, inWindow = false) {
       open.title = `Opens ${way.to}'s chat in the Claude app`
       parts.push(open)
     } else if (way.way === 'nudge') {
-      const at = nudged.get(need.id) ?? null
       const key = `nudge:${need.id}`
-      const button = el('button', 'choice', sending.has(key) ? 'Sending…' : at === null ? way.label : `Asked at ${clock(at)}`)
+      // P4c: the button is off while the server's line of this nudge stands (Sent or Picked up); the line is drawn beside it, from the records only.
+      const line = freeWaitOf(board, 'nudge', need.id)
+      // A line past a day (`isEnded`, "no answer recorded in 24 h") has ended its wait: not busy, the button is free again (P4b's rule).
+      const isActive = line !== null && ['sent', 'picked-up'].includes(line.state) && line.isEnded !== true
+      const button = el('button', 'choice', sending.has(key) ? 'Sending…' : way.label)
       button.type = 'button'
       button.dataset.nudge = need.id
       button.title = `Types into ${way.to}'s chat as your words: "${way.text}"`
-      button.disabled = sending.has(key) || at !== null
+      button.disabled = sending.has(key) || isActive
       parts.push(button)
+      if (line !== null && line.isShown) parts.push(drawWaitLine(line))
       if (problems.has(key)) parts.push(el('p', 'problem', problems.get(key)))
     } else if (way.way === 'check') {
       const key = `sync:${way.chat}`
@@ -5409,8 +5410,7 @@ async function sendNudge(id) {
   const need = board === null ? undefined : findNeed(id)
   const way = need === undefined ? undefined : cardWays(need, false).find(one => one.way === 'nudge')
   if (way === undefined) return
-  await send({ to: way.to, text: way.text }, `nudge:${id}`)
-  if (!problems.has(`nudge:${id}`)) nudged.set(id, Date.now())
+  await send({ to: way.to, text: way.text, freeAbout: id }, `nudge:${id}`, 'nudge')
   redrawNeeds()
   if ($('details').open) {
     detailsShown = null
@@ -6811,7 +6811,7 @@ function needsView(state, ui) {
   return {
     ...cardsView(state),
     // The wait line (T22): the lines of the answered cards (by their answer's word id) and of the obsolete check.
-    waitPart: waitsPart(state, [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])].map(need => need?.answer?.id).concat(newestWaitId(state, 'obsolete-check'), recapWaitIds(state))),
+    waitPart: waitsPart(state, [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])].map(need => need?.answer?.id).concat(newestWaitId(state, 'obsolete-check'), recapWaitIds(state), placeWaitIds(state, 'free'))),
     focus: { needs: (state.focus?.needs ?? []).map(need => ({ id: need.id })) },
     instructions: state.instructions ?? [],
     information: state.information ?? [],
@@ -7323,7 +7323,7 @@ function stepStory(item, items = [], goalTitle = null) {
   const point = storyBare(brackets === null ? found : found.slice(0, brackets.index))
   const context = given.context
     ?? (isFix ? `A fix of ${fixed}${title === '' ? '' : ` (${storyCut(title, 70)})`}: its result check found one point short.` : null)
-    ?? (storySentence((item.context ?? []).filter(one => !/^(?:Touches:|Requirements:|Reported|Asked Q|Q\d+ answered|-\s)/.test(one)).join(' ')) || null)
+    ?? (storySentence((item.context ?? []).filter(one => !/^(?:Touches:|Requirements:|Reported\b|Asked Q|Q\d+ answered|-\s)/.test(one)).join(' ')) || null)
     ?? (goalTitle ?? null)
     ?? ''
   const problem = given.problem
@@ -9253,7 +9253,7 @@ function drawDetails(state) {
   const calmIds = isCalm(need) ? calmGroup(need, everyNeed(state)).map(one => one.id) : null
   // B397: and the ask it points to, shown inline.
   const pointed = need !== null && !isStep(need) ? pointedAsk(need, everyNeed(state)) : null
-  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], waitKeyOf(placeWaitOf(state, 'refine', { about: subject.step?.id ?? step?.id ?? 'none' })), [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null, state.advisor?.name ?? null, calmIds, pointed, need === null ? null : nudged.get(need.id) ?? null, isTask ? [taskItem, taskAsks.map(one => [one.id, one.question ?? one.title, one.options, one.advice])] : null, subject.step !== undefined && !isTask && taskItem !== null && taskItem !== undefined ? [taskAsksOf(taskItem.id, everyNeed(state), null).map(one => [one.id, one.question ?? one.title, one.text, one.options, one.advice, one.pictures]), [...pictureAsked]] : null])
+  const showing = JSON.stringify([detailsOf, need ?? subject.step ?? [lane.name, lane.queue], waitKeyOf(placeWaitOf(state, 'refine', { about: subject.step?.id ?? step?.id ?? 'none' })), [...chosen], [...problems], [...sending], [...starting], runningData(state), state.changeAsks ?? null, state.advisor?.name ?? null, calmIds, pointed, need === null ? null : freeLineKey(state, 'nudge', need.id), isTask ? [taskItem, taskAsks.map(one => [one.id, one.question ?? one.title, one.options, one.advice]), freeKeysOf(state)] : null, subject.step !== undefined && !isTask && taskItem !== null && taskItem !== undefined ? [taskAsksOf(taskItem.id, everyNeed(state), null).map(one => [one.id, one.question ?? one.title, one.text, one.options, one.advice, one.pictures]), freeKeysOf(state)] : null])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
   const focused = focusedNeed(box)
@@ -9677,8 +9677,6 @@ function unheaded(node) {
  */
 /** The questions of the window on show, by id, for the clicks that choose, send and ask for pictures. */
 const windowQuestions = new Map()
-/** When the chat that asked was asked for pictures, by the question's words (`questionKey`): the button says it once it went. */
-const pictureAsked = new Map()
 /** The pictures the board could not show, by path: an option whose pictures are all among them counts as having none. */
 const pictureMissing = new Set()
 /**
@@ -9690,8 +9688,6 @@ const draftMeta = new Map()
 /** The answered refine questions the person reopened (Change) to answer anew, by step and the question's sentence. */
 const reopened = new Set()
 
-/** A question by its words (not by its place, which another round may give to another question). */
-const questionKey = question => `${question.kind === 'refine' ? question.stepId : question.id}|${question.question}`
 const reopenKey = (stepId, sentence) => `${stepId}|${sentence}`
 
 /** Draws the window again at once (a picture the board could not show changes what its card says). */
@@ -9918,15 +9914,18 @@ function questionBlock(question, { place, total, state, view, fallback }) {
   }
   if (lacking.length > 0) {
     const key = `pics:${question.id}`
-    const asked = pictureAsked.get(questionKey(question)) ?? null
+    // P4c: no page memory of "Asked": the line of the request for pictures (an ask's chat; a refine's is the step's own line) is the server's.
+    const asking = isRefine ? null : freeWaitOf(state, 'ask-pictures', question.needId)
+    const isAsking = asking !== null && ['sent', 'picked-up'].includes(asking.state) && asking.isEnded !== true
     const target = isRefine ? state.advisor?.name ?? null : question.from
     const row = el('div', 'q-pictures-row')
-    const ask = el('button', 'q-ask-pictures', sending.has(key) ? 'Asking…' : asked === null ? 'Ask for pictures' : `Asked at ${clock(asked)}`)
+    const ask = el('button', 'q-ask-pictures', sending.has(key) ? 'Asking…' : 'Ask for pictures')
     ask.type = 'button'
     ask.dataset.qPictures = ''
-    ask.disabled = sending.has(key) || asked !== null || target === null || (isRefine && view?.canAsk !== true)
+    ask.disabled = sending.has(key) || isAsking || target === null || (isRefine && view?.canAsk !== true)
     ask.title = target === null ? 'No chat to ask.' : `Asks ${target} for a picture for ${lacking.length === 1 ? 'the option' : 'each option'} without one: ${lacking.map(option => option.letter).join(', ')}.`
     row.append(ask)
+    if (asking !== null && asking.isShown) row.append(drawWaitLine(asking))
     if (problems.has(key)) row.append(el('p', 'problem', problems.get(key)))
     block.append(row)
   }
@@ -10080,9 +10079,8 @@ async function askQuestionPictures(question) {
     await read()
   } else {
     sending.delete(key)
-    await send({ to: question.from, text: words }, key)
+    await send({ to: question.from, text: words, freeAbout: question.needId }, key, 'ask-pictures')
   }
-  if (!problems.has(key) && !isUnsent) pictureAsked.set(questionKey(question), Date.now())
   redrawQuestions()
 }
 
@@ -16411,15 +16409,15 @@ function visionStartWords(kind, words) {
  * shows while the partner starts the plan, from the board's `planStart` (or the Start just sent, before the board read
  * it again). Null shows the start card: nothing sent, a start that never arrived, or Start again.
  */
-function visionStartWait(planStart, ui, partner) {
+function visionStartWait(planStart, ui, partner, line = null) {
   if (ui.startAgain === true) return null
   const state = planStart?.state ?? (ui.startSent === true ? 'waiting' : null)
   if (state === null || state === 'failed') return null
-  const head = state === 'waiting' ? `Your start waits for ${partner} to pick it up`
-    : state === 'working' ? `${partner} is starting your plan` : `No answer from ${partner} yet`
-  const line = state === 'late' ? `Look in ${partner}'s chat, or start again.`
-    : 'It reads what you build, fills in what it already knows and writes its first questions. They come here, one per slide.'
-  return { state, isBusy: state !== 'late', head, line, at: planStart?.at ?? null, canAgain: state === 'late' }
+  // P4c: no guess of the page's own: the line is the server's (P3), drawn from the outbox and the partner's own write of the plan page.
+  // Start again shows where the record says the start will not go on by itself: its line is Late or ended (a day), or it has no line to show (a copied
+  // start of a board without the Workers mod, a closed line past its ten minutes). Not for a start the page just sent, before the record is read.
+  const noLine = line === null || line === undefined || line.isShown !== true
+  return { state, line, head: `Your start for ${partner}`, at: planStart?.at ?? null, canAgain: planStart !== null && planStart !== undefined && (noLine || line.state === 'late' || line.isEnded === true) }
 }
 
 /** Why the start card shows again: a start that never reached the partner; else null. */
@@ -16511,28 +16509,30 @@ function questionSlide(question, ui, title) {
  * has not asked yet, the partner's questions (the answers' own and deeper ones, then features', then goals'), and the
  * part you press Change on; dots step through them, as the help tour has. `ui` is the tab's own state.
  */
-function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [] }, focus = null) {
+function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null, marks: {}, confirms: [] }, focus = null, part = null) {
   if (plan === null || plan === undefined) return null
   const questions = plan.questions ?? []
   const features = plan.features ?? []
   const milestones = plan.milestones ?? []
-  // What the partner is preparing from your words (src/plan.mjs `withPlanWork`): busy while waiting or working; late
-  // or failed may be sent again.
+  // The words that stand unanswered (src/plan.mjs `withPlanWork`). Reactive board, P4c: a word is busy while its LINE (the server's, P3's rules:
+  // the state's `waits`) is Sent or Picked up; Late, closed or no line frees its button. No guess of the page's own, no 30-minute rule.
   const working = plan.working ?? []
   const workOn = (command, about = 'plan') => working.find(one => one.command === command && one.about === about) ?? null
-  const isBusy = one => one !== null && (one.state === 'waiting' || one.state === 'working')
+  const lineOf = one => (typeof one?.id === 'string' ? part?.waits?.[one.id] ?? null : null)
+  const workStateOf = one => (one === null ? null : isBusy(one) ? 'working' : 'late')
+  const isBusy = one => one !== null && (lineOf(one) === null ? one.state === 'waiting' || one.state === 'working' : ['sent', 'picked-up'].includes(lineOf(one).state) && lineOf(one).isEnded !== true && lineOf(one).isUnconfirmed !== true)
   const slides = []
   // The Interview as the guided path (the user, 2026-10-21): after the partner's questions of each step, every decision
-  // that waits on you there, one per slide, in the steps' order. A decision sent from here stays as sent until the page
-  // is written anew (`ui.sent`).
-  const sent = ui.sent ?? []
-  const decide = slide => slides.push({ kind: 'decide', text: '', ...slide, isSent: sent.includes(slide.id) })
+  // that waits on you there, one per slide, in the steps' order. A decision you sent in your own words leaves at once, and stays away while its word
+  // stands in the plan's `working` (the records: the word's `about` is the card; a next focus's word is about the plan) and its line is Sent or Picked up: a Late, ended or failed word brings the slide back (its line has Send again), never because of page memory.
+  const wordsAreWithPartner = (id, step = null) => (step === 'focus' ? isBusy(workOn('plan-focus')) : isBusy(workOn('plan-change', id)))
+  const decide = slide => slides.push({ kind: 'decide', text: '', ...slide, isSent: wordsAreWithPartner(slide.id, slide.step) })
   for (const answer of plan.answers) {
     // An open answer the partner has not asked yet: get its options from the partner, or answer it in your words.
     // 2026-10-24: right after your answer on this card, its next question is on its way (the user: "I would like this prepared in advance").
     if (answer.state === 'open' && answer.ask === null) {
       const isFromAnswer = isBusy(workOn('plan-answer', answer.id))
-      slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isFromAnswer, isAsked: isFromAnswer || isBusy(workOn('plan-ask', answer.id)) || (ui.asked ?? []).includes(answer.id) })
+      slides.push({ kind: 'open', id: answer.id, title: answer.title, question: answer.title, text: answer.known, isFromAnswer, isAsked: isFromAnswer || isBusy(workOn('plan-ask', answer.id)) })
     }
     for (const question of questions.filter(one => one.about === answer.id)) slides.push(questionSlide(question, ui, answer.title))
     // An answer your partner assumed: yours, or changed.
@@ -16612,9 +16612,9 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
       source: visionSource(one), revisit: one.revisit, overturned: one.overturned,
       slide: slideOf(one.id), deeper: one.deeper ?? 0, canDeeper: one.state !== 'open',
       // Go deeper sent and not answered yet: the card says so, its button waits.
-      deeperWork: workOn('plan-deeper', one.id)?.state ?? null,
+      deeperWork: workStateOf(workOn('plan-deeper', one.id)),
       // Settled: a deeper round answered, or the person's "Good enough"; the partner's one line of advice.
-      settled: one.settled ?? null, advice: one.advice ?? '', settleWork: workOn('plan-settled', one.id)?.state ?? null,
+      settled: one.settled ?? null, advice: one.advice ?? '', settleWork: workStateOf(workOn('plan-settled', one.id)),
     }
   })
   const titleOfPart = about => plan.answers.find(one => one.id === about)?.title ?? (about === 'plan' ? null : titleOf(about))
@@ -16629,7 +16629,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   }))
   const pendingMarks = featureCards.filter(card => card.isPending).map(card => `${card.id} ${card.mark}`)
   const tradeoffCards = featureCards.filter(card => card.isComplex && (card.mark === 'later' || card.mark === 'unsure'))
-    .map(card => ({ id: card.id, name: card.name, picture: card.pictures[0] ?? null, mark: card.mark, prepare: card.prepare, choice: card.tradeoff, at: card.tradeoffAt, isSent: sent.includes(card.id) }))
+    .map(card => ({ id: card.id, name: card.name, picture: card.pictures[0] ?? null, mark: card.mark, prepare: card.prepare, choice: card.tradeoff, at: card.tradeoffAt, isSent: wordsAreWithPartner(card.id) }))
   const tradeoffsOpen = tradeoffCards.filter(card => card.choice === null)
   const count = mark => featureCards.filter(card => card.mark === mark).length
   // The architecture check, from the marks as they stand with yours: a complex feature later or unsure means a check of
@@ -16673,7 +16673,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     // Per bar point, where its picture stands in the gallery, or -1: the bullet shows it big on a click.
     barPictureAt: one.bar.map((point, index) => galleryOf(one).findIndex(shown => shown.bar === index)),
     state: one.state === 'confirmed' ? 'confirmed' : standardConfirms.includes(one.id) ? 'confirming' : 'proposed',
-    source: visionSource(one), slide: slideOf(one.id), measureWork: workOn('plan-measure', one.id)?.state ?? null,
+    source: visionSource(one), slide: slideOf(one.id), measureWork: workStateOf(workOn('plan-measure', one.id)),
   }))
   // The Change slide of a standard carries its card, so the slide shows the bar and the rest as the card does.
   const changing = slides.find(slide => slide.kind === 'change')
@@ -16704,7 +16704,7 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
     answered,
     // What waits on you (2026-10-21): how many, and the first slide that does, for the bar's Start.
     waiting: asks, firstWaiting,
-    working: working.map(one => ({ ...one, title: titleOfPart(one.about) })),
+    titleOf: titleOfPart,
     busy: {
       marks: isBusy(workOn('plan-marks')), featureAdd: isBusy(workOn('plan-feature-add')),
       confirms: isBusy(workOn('plan-goals-confirm')), goalsChange: isBusy(workOn('plan-goals-change')), agree: isBusy(workOn('plan-goals-agree')),
@@ -17330,6 +17330,24 @@ function focusWaitStrip(state, view) {
   return strip
 }
 
+/**
+ * Reactive board, brief P4c: the line of the person's newest free message (no command) of a kind (`talk-send`, `main-send`, `nudge`, `ask-pictures`),
+ * as nodes, for the one it was typed in (`about`: the card or ask of a nudge or a request for pictures). From the records only: none for no record.
+ */
+function freeWordLine(state, kind, about = null) {
+  const view = freeWaitOf(state, kind, about)
+  return view !== null && view.isShown ? [drawWaitLine(view)] : []
+}
+
+/** The newest line of a kind of free message (for what it is about), as a part draws it; null for none. */
+const freeWaitOf = (part, kind, about = null) => placeWaitOf(part, 'free', { command: kind, about })
+
+/** Every free line of the state as a key reads it (the window of a question draws those of its asks). */
+const freeKeysOf = state => placeWaitIds(state, 'free').map(id => waitKeyOf(waitViewOf(state, id)))
+
+/** The same line as a key reads it (null for none). */
+const freeLineKey = (state, kind, about = null) => waitKeyOf(freeWaitOf(state, kind, about))
+
 /** P4b: the line of the newest of a Focus word's commands for the focus goal, as nodes (none when no record). */
 function focusWordLine(state, commands) {
   const goal = state.focus?.id ?? null
@@ -17579,12 +17597,12 @@ function focusNoteCard(view, state = null) {
 // (2026-11-09, src/planMoves.mjs `planDecide`), so a slide leaves because the page says so. The board types your other moves
 // and answers to the partner (`planMove`, the store's `answer`). Your feature marks and goal confirms wait on the page
 // until you send them, in one word.
-const visionUi = { page: null, at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, sent: [], startKind: null, startSent: false, startAgain: false, startWords: '', strategy: null, changingStrategy: false, onlyChanges: false }
+const visionUi = { page: null, at: 0, picked: {}, change: null, marks: {}, confirms: [], standardConfirms: [], open: [], gallery: {}, words: '', extra: '', busy: false, note: null, startKind: null, startSent: false, startAgain: false, strategy: null, changingStrategy: false, onlyChanges: false }
 
 function visionData(state) {
-  return [state.plan ?? null, visionCan(state), state.goalsEdit?.canWrite === true, state.goalsEdit?.whyNot ?? null, state.focus?.id ?? null, state.focus?.stage ?? null, (visionUi.sent ?? []).join(','), visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.asked.join(','), visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note, visionUi.startKind, visionUi.startSent, visionUi.startAgain, state.planStart ?? null, visionUi.strategy, visionUi.changingStrategy, visionUi.onlyChanges,
-    // While the partner prepares something, the minute, for "sent 2 min ago"; and the partner's name.
-    (state.plan?.working ?? []).length > 0 || (state.planStart ?? null) !== null ? Math.floor(state.readAt / MIN) : null, state.advisor?.name ?? null]
+  return [state.plan ?? null, visionCan(state), state.goalsEdit?.canWrite === true, state.goalsEdit?.whyNot ?? null, state.focus?.id ?? null, state.focus?.stage ?? null, visionUi.page, visionUi.at, visionUi.picked, visionUi.change, visionUi.marks, visionUi.confirms.join(','), visionUi.standardConfirms.join(','), visionUi.open.join(','), visionUi.gallery, visionUi.busy, visionUi.note, visionUi.startKind, visionUi.startSent, visionUi.startAgain, state.planStart ?? null, visionUi.strategy, visionUi.changingStrategy, visionUi.onlyChanges,
+    // P4c: the lines of the Vision words (the server's, by word), with the minute while one shows, and the partner's name.
+    visionWaitKeys(state), state.advisor?.name ?? null]
 }
 function redrawVision() {
   if (board !== null && board !== undefined) once('vision', visionData(board), () => drawVision(board))
@@ -17643,7 +17661,7 @@ function drawVision(state) {
   // The tab is drawn anew as a whole, so the place scrolled to is kept across the redraw (the user, 2026-10-20: a
   // thumbnail clicked sent the page to the top).
   const scrolled = $('view-vision').querySelector('.vision')?.scrollTop ?? 0
-  const view = visionView(state.plan ?? null, visionUi, state.focus ?? null)
+  const view = visionView(state.plan ?? null, visionUi, state.focus ?? null, state)
   // The first page shown with a plan stays, as if picked: the moves that follow (an answer, the arrow keys) read it.
   if (view !== null && visionUi.page === null) Object.assign(visionUi, { page: view.page, at: view.at })
   const can = visionCan(state)
@@ -17675,7 +17693,10 @@ function drawVision(state) {
   main.append(top)
   if (!can) main.append(el('p', 'vision-note', `${visionDecides ? 'The buttons that ask your partner are off here.' : 'The buttons are off here.'} ${off}`))
   if (visionUi.note !== null) main.append(el('p', `vision-note${visionUi.note.isProblem ? ' is-problem' : ''}`, visionUi.note.text))
-  if (view !== null && view.working.length > 0) main.append(visionWorking(view.working, state, can, off))
+  if (view !== null && visionLineIds(state).length > 0) {
+    const working = visionWorking(view, state, can, off)
+    if (working !== null) main.append(working)
+  }
   // Decisions waiting (the user, 2026-10-21: "when in the flow is this supposed to happen"): a bar on every step.
   if (view !== null && view.page !== 'interview' && view.waiting > 0) {
     const bar = el('div', 'vision-waiting')
@@ -17686,7 +17707,7 @@ function drawVision(state) {
   }
   if (view === null) {
     const partner = `${state.chatPrefix ?? ''}${state.advisor?.name ?? 'your partner'}`
-    const wait = visionStartWait(state.planStart ?? null, visionUi, partner)
+    const wait = visionStartWait(state.planStart ?? null, visionUi, partner, placeWaitOf(state, 'plan', { command: 'plan-start' }))
     main.append(wait === null ? visionStartCard(visionStart(visionUi), can, off, visionUi.startAgain ? null : visionStartProblem(state.planStart ?? null, partner)) : visionStartWaitCard(wait, state, can, off))
   }
   else if (view.page === 'vision') main.append(...visionPage(view, can, off))
@@ -17715,47 +17736,83 @@ function visionAllDecided(view) {
   return box
 }
 
-/** A small turning circle: something is being prepared. */
-function visionSpinner() {
-  const spin = el('span', 'vision-spinner')
-  spin.setAttribute('aria-hidden', 'true')
-  return spin
+/**
+ * Reactive board, brief P4c: the Vision tab's words to the partner (place 'plan' of the server's lines), the newest of each command and part,
+ * newest first: the ids whose line is shown (a Done or closed line goes after ten minutes). Nothing the page guesses: the line is the server's
+ * (P3's Sent, Picked up, Done, Late), drawn from the outbox and the partner's own write of the plan page; no record, no line.
+ */
+function visionLineIds(state) {
+  const seen = new Set()
+  const ids = []
+  for (const id of placeWaitIds(state, 'plan')) {
+    const line = state.waits[id]
+    const key = `${line.command}|${line.about}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    if (waitViewOf(state, id)?.isShown === true) ids.push(id)
+  }
+  return ids
 }
 
-/** "at 23:30, 2 min ago": when a word was sent, against the board's last read (`now`). */
-function visionAgo(at, now) {
-  const minutes = Math.max(0, Math.floor((now - at) / MIN))
-  const ago = minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ${minutes % 60} min ago`
-  return `at ${clock(at)}, ${ago}`
+/** The Vision lines as a key reads them: plain data, null for none; the minute is in it only while a line shows (a Done line goes after ten minutes). */
+function visionWaitKeys(state) {
+  const ids = visionLineIds(state)
+  return ids.length === 0 ? null : [Math.floor((state.readAt ?? 0) / MIN), ...ids.map(id => waitKeyOf(waitViewOf(state, id)))]
 }
+
+/** The newest shown line among a card's own words (`commands`, about `part`), as nodes (none when no record). */
+function visionCardLine(state, part, commands) {
+  const id = placeWaitIds(state, 'plan', { about: part }).find(one => commands.includes(state.waits[one].command))
+  const view = typeof id === 'string' ? waitViewOf(state, id) : null
+  if (view === null || !view.isShown) return []
+  const one = state.waits[id]
+  const again = (view.state === 'late' || view.isEnded === true) && VISION_RESENDABLE.includes(one.command) ? [visionButton('Send again', 'resend', { id: `${one.command}|${one.about}|${id}`, isEnabled: visionCan(state), title: state.goalsEdit?.whyNot ?? '' })] : []
+  return [drawWaitLine(view), ...again]
+}
+
+/** The line on an open slide (no options yet): the word that asked for its options, else the answer that asked for its next question; none for no record. */
+function visionOpenLine(state, slide) {
+  const own = visionCardLine(state, slide.id, ['plan-ask'])
+  if (own.length > 0) return own
+  // The answer's own record names the card (`planCard`, src/plan.mjs `answeredCard`: "P1" for an answer of "P1.2: ..."): no pattern of the page's on display text.
+  const card = placeWaitIds(state, 'answer').find(id => state.waits[id].planCard === slide.id)
+  const view = typeof card === 'string' ? waitViewOf(state, card) : null
+  return view !== null && view.isShown ? [drawWaitLine(view)] : []
+}
+
+/** The words that may be sent again as they were: every Vision word but the seven decisions the board wrote itself (its words are in `said`). */
+const VISION_RESENDABLE = ['plan-deeper', 'plan-ask', 'plan-goals-agree', 'plan-settled', 'plan-measure', 'plan-standards', 'plan-standards-agree', 'plan-check', 'plan-focus', 'plan-change', 'plan-feature-add', 'plan-goals-change', 'plan-standards-change', 'plan-strategy', 'plan-tradeoffs']
 
 /**
- * Vision (2026-10-19): what the partner is preparing from your words, a line each, with the partner's name: busy with a
- * turning circle, late or failed with Send again where the word can be sent again as it was (no words in it).
+ * Vision (P4c): the lines of the person's words to the partner, one row each: what it was about, then P3's line (a Send again where the line is
+ * Late: the same word, with the person's own words from the record, so a box emptied meanwhile does not matter).
  */
-function visionWorking(working, state, can, off) {
-  const partner = `${state.chatPrefix ?? ''}${state.advisor?.name ?? 'your partner'}`
+function visionWorking(view, state, can, off) {
   const box = el('section', 'vision-working')
   box.setAttribute('aria-live', 'polite')
-  for (const one of working) {
-    const line = el('div', `vision-working-line is-${one.state}`)
-    const on = one.title === null ? '' : ` on ${one.title}`
-    const words = one.state === 'waiting' ? `Your word waits for ${partner} to pick it up: ${one.what}${on}.`
-      : one.state === 'working' ? `${partner} is preparing ${one.what}${on}.`
-        : one.state === 'late' ? `No answer from ${partner} yet on ${one.what}${on}.`
-          : `Your word for ${one.what}${on} did not reach ${partner}.`
-    if (one.state === 'waiting' || one.state === 'working') line.append(visionSpinner())
-    else line.append(el('span', 'vision-working-mark', '!'))
-    line.append(el('span', '', words), el('span', 'muted', `sent ${visionAgo(one.at, state.readAt ?? Date.now())}`), el('span', 'grow'))
-    if ((one.state === 'late' || one.state === 'failed') && ['plan-deeper', 'plan-ask', 'plan-goals-agree', 'plan-settled', 'plan-measure', 'plan-standards', 'plan-standards-agree'].includes(one.command)) {
-      line.append(visionButton('Send again', 'resend', { id: `${one.command}|${one.about}`, isEnabled: can, title: off }))
-    } else if (one.state === 'late' || one.state === 'failed') line.append(el('span', 'muted', `Send it again from its box, or look in ${partner}'s chat.`))
-    box.append(line)
+  // A word about a card the page shows has its line on that card (one status each, never two); the list holds the rest: the words about the whole plan.
+  const onCards = new Set(view.page === 'vision' ? view.cards.map(card => card.id) : view.page === 'standards' ? view.standards.cards.map(card => card.id) : [])
+  // On the Interview the open slide shows its own plan-ask line (`visionOpenLine`): not in the list too, one status each.
+  const openSlide = view.page === 'interview' ? view.slides[view.at] ?? null : null
+  const onOpenSlide = one => openSlide?.kind === 'open' && one.command === 'plan-ask' && one.about === openSlide.id
+  const listed = visionLineIds(state).filter(id => !onCards.has(state.waits[id].about) && !onOpenSlide(state.waits[id]))
+  for (const id of listed) {
+    const one = state.waits[id]
+    const shown = waitViewOf(state, id)
+    const row = el('div', 'vision-working-line')
+    // A word about a card names the card; a word about the whole plan names itself, by the plan module's own label (`plan.labels`): two such words read apart.
+    const about = one.about === 'plan' ? (typeof state.plan?.labels?.[one.command] === 'string' ? `On ${state.plan.labels[one.command]}` : null) : view.titleOf(one.about)
+    if (about !== null) row.append(el('small', 'muted vision-working-about', about))
+    row.append(drawWaitLine(shown))
+    if ((shown.state === 'late' || shown.isEnded === true) && VISION_RESENDABLE.includes(one.command)) {
+      row.append(visionButton('Send again', 'resend', { id: `${one.command}|${one.about}|${id}`, isEnabled: can, title: off }))
+    }
+    box.append(row)
   }
   // A word waits for a partner whose chat does not run (2026-10-21: three waited an hour unseen): say who can start it,
   // or that the person opens it, with the button that asks the main chat (startParts).
-  if (working.some(one => one.state === 'waiting') && (state.advisor ?? null) !== null) box.append(...startParts(state.advisor.name))
-  return box
+  if (visionLineIds(state).some(id => state.waits[id].state === 'sent') && (state.advisor ?? null) !== null) box.append(...startParts(state.advisor.name))
+  return box.childElementCount === 0 ? null : box
 }
 
 /**
@@ -17889,16 +17946,14 @@ function visionPage(view, can, off) {
       if (card.deeper > 0) buttons.append(visionButton(`${card.deeper} deeper question${card.deeper === 1 ? '' : 's'} →`, 'goto', { id: String(card.slide), className: 'is-primary' }))
       else if (card.deeperWork === 'waiting' || card.deeperWork === 'working') {
         // Sent: the button waits, turning, until the partner's questions are there.
-        const busy = visionButton('Preparing questions…', 'deeper', { id: card.id, className: 'is-busy', isEnabled: false })
-        busy.title = 'Your partner is preparing up to five questions on this card; they come in the interview.'
-        busy.prepend(visionSpinner())
+        const busy = visionButton('Go deeper', 'deeper', { id: card.id, className: 'is-busy', isEnabled: false })
+        busy.title = 'Asked: the line below says where it is.'
         buttons.append(busy)
       } else buttons.append(visionButton(card.settled !== null || card.deeperWork !== null ? 'Deepen again' : 'Go deeper', 'deeper', { id: card.id, isEnabled: can, title: off }))
       // Settled: nothing more to ask on this card, your word. Until then, "Good enough" says so.
       if (card.settled === null && card.state === 'decided') {
         if (card.settleWork === 'waiting' || card.settleWork === 'working') {
-          const busy = visionButton('Settling…', 'settle', { id: card.id, className: 'is-busy', isEnabled: false })
-          busy.prepend(visionSpinner())
+          const busy = visionButton('Good enough', 'settle', { id: card.id, className: 'is-busy', isEnabled: false })
           buttons.append(busy)
         } else buttons.append(visionButton('Good enough', 'settle', { id: card.id, isEnabled: visionDecides, title: off }))
       }
@@ -17906,6 +17961,8 @@ function visionPage(view, can, off) {
       buttons.append(visionButton('Change', 'change', { id: card.id, isEnabled: can, title: off }))
     }
     foot.append(buttons)
+    // P4c: the line of this card's words to the partner (Go deeper, Good enough, a change), where its buttons are.
+    foot.append(...visionCardLine(board, card.id, ['plan-deeper', 'plan-settled', 'plan-ask', 'plan-change']))
     box.append(foot)
     grid.append(box)
   }
@@ -17926,7 +17983,7 @@ function featuresPage(view, can, off) {
   if (pending.length > 0) {
     const bar = el('div', 'vision-pending')
     bar.append(el('span', '', `${pending.length} mark${pending.length === 1 ? '' : 's'} not sent yet: ${pending.join(', ')}`), el('span', 'grow'),
-      visionButton('Undo', 'undo-marks'), visionButton('Send to your partner', 'send-marks', { className: 'is-primary', isEnabled: visionDecides && !view.busy.marks, title: view.busy.marks ? 'Your partner is still writing your last marks.' : off }))
+      visionButton('Undo', 'undo-marks'), visionButton('Send to your partner', 'send-marks', { className: 'is-primary', isEnabled: visionDecides && !view.busy.marks, title: view.busy.marks ? 'Asked: its line says where it stands.' : off }))
     parts.push(bar)
   }
   const grid = el('div', 'vision-grid is-features')
@@ -17968,7 +18025,7 @@ function featuresPage(view, can, off) {
   parts.push(grid)
   const add = el('section', 'vision-extra')
   add.append(el('h3', '', 'A feature you miss'), visionBox('vision-extra-words', 'In your own words: what should the game have that is not here?', 2, can),
-    visionButton('Send to your partner', 'feature-add', { className: 'is-primary', isEnabled: can && !view.busy.featureAdd, title: view.busy.featureAdd ? 'Your partner is still adding your last feature.' : off }))
+    visionButton('Send to your partner', 'feature-add', { className: 'is-primary', isEnabled: can && !view.busy.featureAdd, title: view.busy.featureAdd ? 'Asked: its line says where it stands.' : off }))
   parts.push(add)
   return parts
 }
@@ -18016,8 +18073,7 @@ function planPage(view, can, off) {
   only.append(box, document.createTextNode(' Only what changes'))
   counts.append(el('span', 'muted', [`${totals.milestones} milestone${totals.milestones === 1 ? '' : 's'}`, `${totals.goals} goal${totals.goals === 1 ? '' : 's'}`, changes > 0 ? `${changes} change${changes === 1 ? '' : 's'} for you to decide` : null].filter(Boolean).join(' · ')), el('span', 'grow'), only)
   if (view.busy.check || view.busy.strategy) {
-    const busy = visionButton('Your partner is laying the plan…', 'check-plan', { className: 'is-busy', isEnabled: false })
-    busy.prepend(visionSpinner())
+    const busy = visionButton('Check the plan', 'check-plan', { className: 'is-busy', isEnabled: false })
     counts.append(busy)
   } else counts.append(visionButton('Recommend again', 'check-plan', { isEnabled: can && waiting.length === 0, title: waiting.length > 0 ? 'Decide the tradeoffs on step 2 first.' : off }))
   head.append(counts)
@@ -18043,14 +18099,14 @@ function planPage(view, can, off) {
     head.append(last)
   }
   parts.push(head)
-  if (milestones.length === 0) return [...parts, el('p', 'vision-empty', view.busy.strategy || view.busy.check ? 'Your partner is laying the plan: its milestones and goals come here.' : view.goals.onlyChanges ? 'Nothing changes in this plan.' : 'No goals yet: Recommend again, and your partner lays them per milestone.')]
+  if (milestones.length === 0) return [...parts, el('p', 'vision-empty', view.goals.onlyChanges ? 'Nothing changes in this plan.' : 'No goals yet: Recommend again, and your partner lays them per milestone.')]
   // Your words on the whole plan, first (the user, 2026-10-25: "how do i provide feedback based on the current plan?").
   if (!visionUi.changingStrategy) {
     const words = el('section', 'vision-extra plan-feedback')
     words.append(el('h3', '', 'What would you change in this plan?'),
       visionBox('vision-extra-words', 'In your own words: a goal missing, two to merge, fewer goals in M1, another order... Your partner proposes the plan anew.', 3, can))
     const send = el('div', 'vision-foot-buttons')
-    send.append(el('span', 'grow'), visionButton('Send to your partner', 'goals-change', { className: 'is-primary', isEnabled: can && !view.busy.goalsChange, title: view.busy.goalsChange ? 'Your partner is still proposing the changed plan.' : off }))
+    send.append(el('span', 'grow'), visionButton('Send to your partner', 'goals-change', { className: 'is-primary', isEnabled: can && !view.busy.goalsChange, title: view.busy.goalsChange ? 'Asked: its line says where it stands.' : off }))
     words.append(send)
     parts.push(words)
   }
@@ -18058,7 +18114,7 @@ function planPage(view, can, off) {
   if (pending.length > 0) {
     const bar = el('div', 'vision-pending')
     bar.append(el('span', '', `${pending.length} goal${pending.length === 1 ? '' : 's'} to confirm: ${pending.join(', ')}`), el('span', 'grow'),
-      visionButton('Undo', 'undo-confirms'), visionButton('Send to your partner', 'send-confirms', { className: 'is-primary', isEnabled: visionDecides && !view.busy.confirms, title: view.busy.confirms ? 'Your partner is still writing your last confirms.' : off }))
+      visionButton('Undo', 'undo-confirms'), visionButton('Send to your partner', 'send-confirms', { className: 'is-primary', isEnabled: visionDecides && !view.busy.confirms, title: view.busy.confirms ? 'Asked: its line says where it stands.' : off }))
     parts.push(bar)
   }
   for (const milestone of milestones) {
@@ -18072,7 +18128,7 @@ function planPage(view, can, off) {
   }
   const extra = el('section', 'vision-extra')
   const buttons = el('div', 'vision-foot-buttons')
-  buttons.append(el('span', 'grow'), visionButton('Put the confirmed goals in my goal map', 'goals-agree', { className: 'is-primary', isEnabled: can && !view.busy.agree, title: view.busy.agree ? 'Your partner is putting them in your goal map now.' : off }))
+  buttons.append(el('span', 'grow'), visionButton('Put the confirmed goals in my goal map', 'goals-agree', { className: 'is-primary', isEnabled: can && !view.busy.agree, title: view.busy.agree ? 'Asked: its line says where it stands.' : off }))
   extra.append(buttons)
   parts.push(extra)
   return parts
@@ -18103,8 +18159,7 @@ function planStrategyChoice(view, can, off) {
   buttons.append(el('span', 'grow'))
   if (visionUi.changingStrategy) buttons.append(visionButton('Keep the strategy', 'keep-strategy'))
   if (view.busy.strategy) {
-    const busy = visionButton('Your partner is laying the plan…', 'lay-plan', { className: 'is-busy', isEnabled: false })
-    busy.prepend(visionSpinner())
+    const busy = visionButton('Lay the plan', 'lay-plan', { className: 'is-busy', isEnabled: false })
     buttons.append(busy)
   } else buttons.append(visionButton('Lay the plan', 'lay-plan', { className: 'is-primary', isEnabled: can, title: off }))
   box.append(buttons)
@@ -18236,8 +18291,8 @@ function tradeoffSection(view, can, off) {
     body.append(el('h3', '', `${card.name} · ${card.mark === 'unsure' ? 'not sure' : 'later'}`), tradeoffBox(card.prepare))
     const buttons = el('div', 'vision-goal-buttons')
     if (card.choice !== null) buttons.append(el('p', 'vision-meta', `Your choice: ${card.choice === 'prepare' ? 'prepare now' : 'wait'}${card.at === null ? '' : ` (${card.at})`}`))
-    if (card.isSent && card.choice === null) buttons.append(el('p', 'vision-meta muted', 'Sent: your partner writes it.'))
-    else if (card.prepare === null || card.prepare.advice === null) buttons.append(visionButton(view.busy.tradeoffs ? 'Your partner is weighing…' : 'Get the tradeoff', 'get-tradeoffs', { id: card.id, isEnabled: can && !view.busy.tradeoffs, title: off }))
+    if (card.isSent && card.choice === null) buttons.append(...visionCardLine(board, card.id, ['plan-change']))
+    else if (card.prepare === null || card.prepare.advice === null) buttons.append(visionButton('Get the tradeoff', 'get-tradeoffs', { id: card.id, isEnabled: can && !view.busy.tradeoffs, title: off }))
     else {
       for (const [choice, label] of [['prepare', 'Prepare now'], ['wait', 'Wait']]) {
         const button = visionButton(label, 'tradeoff-now', { id: `${card.id}:${choice}`, className: card.choice === choice ? 'is-chosen' : (card.choice === null && (choice === 'prepare') === (card.prepare.advice === 'now')) ? 'is-primary' : '', isEnabled: visionDecides, title: off })
@@ -18286,8 +18341,7 @@ function focusStepPage(view, can, off) {
   }
   next.append(visionBox('vision-extra-words', 'In your words, when you want another: what matters most to you next...', 2, can))
   if (view.busy.focus) {
-    const busy = visionButton('Your partner is choosing…', 'propose-focus', { className: 'is-busy', isEnabled: false })
-    busy.prepend(visionSpinner())
+    const busy = visionButton('Propose the next focus', 'propose-focus', { className: 'is-busy', isEnabled: false })
     next.append(busy)
   } else next.append(visionButton(proposal === null ? 'Propose the next focus' : 'Propose again', 'propose-focus', { isEnabled: can, title: off }))
   parts.push(next)
@@ -18361,8 +18415,7 @@ function standardsPage(view, can, off) {
     const empty = el('section', 'vision-extra')
     empty.append(el('h3', '', 'No standards yet'), el('p', 'muted', 'Your partner proposes one per kind of thing your goals need (units, maps, effects, feel...): how many, the bar each must meet, what to build first so each one is cheap, and how today\'s game scores. Gaps become goals.'))
     if (view.busy.standards) {
-      const busy = visionButton('Your partner is proposing them…', 'propose-standards', { className: 'is-busy', isEnabled: false })
-      busy.prepend(visionSpinner())
+      const busy = visionButton('Propose standards', 'propose-standards', { className: 'is-busy', isEnabled: false })
       empty.append(busy)
     } else empty.append(visionButton('Propose standards', 'propose-standards', { className: 'is-primary', isEnabled: can, title: off }))
     return [empty]
@@ -18370,7 +18423,7 @@ function standardsPage(view, can, off) {
   if (pending.length > 0) {
     const bar = el('div', 'vision-pending')
     bar.append(el('span', '', `${pending.length} standard${pending.length === 1 ? '' : 's'} to confirm: ${pending.join(', ')}`), el('span', 'grow'),
-      visionButton('Undo', 'undo-standard-confirms'), visionButton('Send to your partner', 'send-standard-confirms', { className: 'is-primary', isEnabled: visionDecides && !view.busy.standardConfirms, title: view.busy.standardConfirms ? 'Your partner is still writing your last confirms.' : off }))
+      visionButton('Undo', 'undo-standard-confirms'), visionButton('Send to your partner', 'send-standard-confirms', { className: 'is-primary', isEnabled: visionDecides && !view.busy.standardConfirms, title: view.busy.standardConfirms ? 'Asked: its line says where it stands.' : off }))
     parts.push(bar)
   }
   parts.push(el('p', 'vision-check', "The guard: the board keeps a task of a kind off its list until that kind's standard is confirmed and its foundation is built; the foundation's own tasks go first. Every task of the kind is checked against the bar."))
@@ -18389,11 +18442,11 @@ function standardsPage(view, can, off) {
     if (card.state !== 'confirmed') buttons.append(visionButton(card.state === 'confirming' ? 'Unconfirm' : 'Confirm', 'confirm-standard', { id: card.id, isEnabled: visionDecides, title: off }))
     buttons.append(visionButton('Change', 'change', { id: card.id, isEnabled: can, title: off }))
     if (card.measureWork === 'waiting' || card.measureWork === 'working') {
-      const busy = visionButton('Measuring…', 'measure', { id: card.id, className: 'is-busy', isEnabled: false })
-      busy.prepend(visionSpinner())
+      const busy = visionButton('Measure today', 'measure', { id: card.id, className: 'is-busy', isEnabled: false })
       buttons.append(busy)
     } else buttons.append(visionButton(card.score === '' ? 'Measure today' : 'Measure again', 'measure', { id: card.id, isEnabled: can, title: off }))
     if (card.slide >= 0) buttons.append(visionButton('Your partner asks →', 'goto', { id: String(card.slide), className: 'is-primary' }))
+    body.append(...visionCardLine(board, card.id, ['plan-measure', 'plan-change']))
     row.append(pictures, body, buttons)
     parts.push(row)
   }
@@ -18403,7 +18456,7 @@ function standardsPage(view, can, off) {
   const buttons = el('div', 'vision-foot-buttons')
   // The new order (2026-10-21): a standard's gap becomes a goal in step 4, Plan, when your partner checks the plan.
   extra.append(el('p', 'vision-meta muted', 'The gaps become goals on step 4, Plan: Check the plan.'))
-  buttons.append(    visionButton('Send to your partner', 'standards-change', { className: 'is-primary', isEnabled: can && !view.busy.standardsChange, title: view.busy.standardsChange ? 'Your partner is still rewriting the standards.' : off }))
+  buttons.append(    visionButton('Send to your partner', 'standards-change', { className: 'is-primary', isEnabled: can && !view.busy.standardsChange, title: view.busy.standardsChange ? 'Asked: its line says where it stands.' : off }))
   extra.append(buttons)
   parts.push(extra)
   return parts
@@ -18456,7 +18509,7 @@ function visionSlide(view, can, off) {
     if (slide.points.length > 0) stage.append(visionPoints(slide.points))
     // Your own words on this one (the user, 2026-10-21: "sometimes I don't have the option to answer its question"):
     // they go to this item, never through the box for a feature you miss.
-    if (!slide.isSent) {
+    {
       const form = el('form', 'vision-change')
       form.append(visionBox('vision-change-words', 'Or in your own words: what you think, a condition, a doubt... It goes to your partner about this one.', 2, can))
       stage.append(form)
@@ -18464,9 +18517,9 @@ function visionSlide(view, can, off) {
   } else if (slide.kind === 'open') {
     // No options yet: the partner prepares them (with pictures where it is about looks), or you answer in your words.
     const ask = el('div', 'vision-open')
-    const head = el('b', '', slide.isFromAnswer ? 'Your partner is preparing the next question.' : slide.isAsked ? 'Your partner is preparing the options.' : 'Your partner has not prepared options for this yet.')
-    if (slide.isAsked) head.prepend(visionSpinner())
-    ask.append(head,
+    // P4c: no sentence of the page's own about what the partner does: the line is the server's (Sent, Picked up, Done, Late), where the button was.
+    const line = visionOpenLine(board, slide)
+    ask.append(el('b', '', slide.isAsked || slide.isFromAnswer ? 'No options yet.' : 'No options for this yet.'), ...line,
       el('p', 'muted', slide.isAsked ? 'They come here as cards, with pictures where it is about how it looks. You can answer in your own words meanwhile.' : 'Get two or three options to pick from, or answer it in your own words.'))
     if (!slide.isAsked) ask.append(visionButton('Get options from your partner', 'ask-options', { id: slide.id, className: 'is-primary', isEnabled: can, title: off }))
     const form = el('form', 'vision-change')
@@ -18510,8 +18563,7 @@ function visionSlide(view, can, off) {
     buttons.append(visionButton("Don't know", 'dunno', { id: slide.askId, isEnabled: can, title: off }))
     buttons.append(visionButton(slide.picked === null ? 'Pick an option' : `Answer: ${slide.picked.key || slide.picked.head}`, 'answer', { id: slide.askId, className: 'is-primary', isEnabled: can && slide.picked !== null, title: slide.picked === null ? 'Pick an option first.' : off }))
   } else if (slide.kind === 'decide') {
-    if (slide.isSent) buttons.append(el('span', 'muted', 'Sent: your partner writes it.'))
-    else {
+    {
       for (const action of slide.actions) buttons.append(visionButton(action.label, action.act, { id: action.id, className: action.isPrimary ? 'is-primary' : '', isEnabled: ['page', 'confirm', 'confirm-standard-now', 'confirm-goal-now', 'tradeoff-now', 'mark-now'].includes(action.act) ? (action.act === 'page' || visionDecides) : can, title: off }))
       buttons.append(visionButton('Send my words', 'decide-words', { id: slide.id, isEnabled: can, title: off }))
     }
@@ -18566,19 +18618,13 @@ function visionStartCard(start, can, off, problem) {
   return card
 }
 
-/** The loader after Start (2026-10-24): a turning circle while the partner starts the plan; late, with Start again. */
+/** After Start (P4c): the person's start and its one status, the server's line (Sent, Picked up, Done, Late), where the button was; Start again on Late. */
 function visionStartWaitCard(wait, state, can, off) {
   const card = el('section', `vision-card vision-start vision-start-wait is-${wait.state}`)
   card.setAttribute('aria-live', 'polite')
-  const head = el('div', 'vision-start-wait-head')
-  if (wait.isBusy) {
-    const spin = visionSpinner()
-    spin.classList.add('is-big')
-    head.append(spin)
-  } else head.append(el('span', 'vision-working-mark', '!'))
-  head.append(el('h2', '', wait.head))
-  card.append(head, el('p', 'muted', wait.line))
-  if (wait.at !== null) card.append(el('p', 'muted vision-start-wait-at', `Sent ${visionAgo(wait.at, state.readAt ?? Date.now())}`))
+  card.append(el('h2', '', wait.head))
+  if (wait.line !== null && wait.line.isShown) card.append(drawWaitLine(wait.line))
+  card.append(el('p', 'muted', 'It reads what you build, fills in what it already knows and writes its first questions. They come here, one per slide.'))
   if (wait.canAgain) {
     const buttons = el('div', 'vision-buttons')
     buttons.append(el('span', 'grow'), visionButton('Start again', 'start-again', { isEnabled: can, title: off }))
@@ -18598,7 +18644,8 @@ async function visionSend(url, body, done) {
     ok = answer.ok
     if (answer.ok) {
       const given = await answer.json().catch(() => null)
-      visionUi.note = { isProblem: false, text: typeof given?.note === 'string' ? given.note : done }
+      const note = typeof given?.note === 'string' ? given.note : done
+      visionUi.note = note === '' ? null : { isProblem: false, text: note }
       showPaste(given?.paste ?? null)
     } else visionUi.note = { isProblem: true, text: `Not done: ${(await answer.text()).trim() || `refused (${answer.status})`}` }
   } catch {
@@ -18625,9 +18672,8 @@ async function visionAct(act, id) {
     const start = visionStart(visionUi)
     if (!start.canStart) return redrawVision()
     const words = visionStartWords(start.kind, visionUi.extra)
-    if (await toPartner({ command: 'plan-start', text: words }, 'Sent to your partner: it starts the plan interview.')) {
+    if (await toPartner({ command: 'plan-start', text: words, kind: start.kind, ownWords: visionUi.extra.trim() }, '')) {
       // The words stay at hand for Start again, but not in the other boxes that share them.
-      visionUi.startWords = visionUi.extra
       visionUi.extra = ''
       visionUi.startSent = true
       visionUi.startAgain = false
@@ -18637,11 +18683,13 @@ async function visionAct(act, id) {
   }
   if (act === 'start-again') {
     visionUi.startAgain = true
-    visionUi.extra = visionUi.startWords
+    // The words refill from the record (the start word's kept own words (`planStart.words`, apart from the kind) and its kind, in the state), never from page memory: a reload does not lose them.
+    visionUi.extra = typeof board?.planStart?.words === 'string' ? board.planStart.words : ''
+    if (typeof board?.planStart?.kind === 'string') visionUi.startKind = board.planStart.kind
     visionUi.note = null
     return redrawVision()
   }
-  const view = visionView(board?.plan ?? null, visionUi, board?.focus ?? null)
+  const view = visionView(board?.plan ?? null, visionUi, board?.focus ?? null, board)
   if (view === null) return
   const slide = view.slides[view.at] ?? null
   if (act === 'page') {
@@ -18659,7 +18707,7 @@ async function visionAct(act, id) {
     visionUi.change = id
     visionUi.words = ''
     visionUi.page = 'interview'
-    visionUi.at = visionView(board?.plan ?? null, visionUi, board?.focus ?? null).slides.length - 1
+    visionUi.at = visionView(board?.plan ?? null, visionUi, board?.focus ?? null, board).slides.length - 1
   } else if (act === 'keep') {
     visionUi.change = null
     visionUi.page = pageOfPart(slide?.id ?? '')
@@ -18678,14 +18726,14 @@ async function visionAct(act, id) {
   } else if (act === 'send-standard-confirms') {
     if (await toPartner({ command: 'plan-standards-confirm', text: view.standards.pending.join(', ') }, 'Your standards are confirmed in your plan; your partner writes each into its definition of done.')) visionUi.standardConfirms = []
   } else if (act === 'propose-standards') {
-    return toPartner({ command: 'plan-standards' }, 'Your partner proposes a standard per kind your goals need: they come here as cards.')
+    return toPartner({ command: 'plan-standards' }, '')
   } else if (act === 'measure') {
-    return toPartner({ command: 'plan-measure', id }, `Your partner's helper scores today's ${titleOfStandard(view, id)} against the bar: the score and a picture come on the card.`)
+    return toPartner({ command: 'plan-measure', id }, '')
   } else if (act === 'standards-change') {
     if (visionUi.extra.trim() === '') visionUi.note = { isProblem: true, text: 'Write it in the box first.' }
-    else if (await toPartner({ command: 'plan-standards-change', text: visionUi.extra.trim() }, 'Sent to your partner: it rewrites the standards.')) visionUi.extra = ''
+    else if (await toPartner({ command: 'plan-standards-change', text: visionUi.extra.trim() }, '')) visionUi.extra = ''
   } else if (act === 'standards-agree') {
-    return toPartner({ command: 'plan-standards-agree' }, 'Your partner turns every gap into a goal of the preset and your goal map, the foundation first.')
+    return toPartner({ command: 'plan-standards-agree' }, '')
   } else if (act === 'mark') {
     const [feature, mark] = String(id).split(':')
     visionUi.marks = { ...visionUi.marks, [feature]: mark }
@@ -18699,19 +18747,21 @@ async function visionAct(act, id) {
     // 2026-11-09: the board writes the decision into the plan at once; the slide leaves because the plan now says so, not from page memory.
     return toPartner({ command: 'plan-confirm', id }, `${id} is your decision now: it is written in your plan.`)
   } else if (act === 'deeper') {
-    return toPartner({ command: 'plan-deeper', id }, `Your partner prepares up to five deeper questions on ${id}: they come in the interview.`)
+    return toPartner({ command: 'plan-deeper', id }, '')
   } else if (act === 'send-marks') {
     if (await toPartner({ command: 'plan-marks', text: view.features.pending.join('; ') }, 'Your marks are written in your plan.')) visionUi.marks = {}
   } else if (act === 'feature-add' || act === 'goals-change') {
     if (visionUi.extra.trim() === '') visionUi.note = { isProblem: true, text: 'Write it in the box first.' }
-    else if (await toPartner({ command: act === 'feature-add' ? 'plan-feature-add' : 'plan-goals-change', text: visionUi.extra.trim() }, act === 'feature-add' ? 'Sent to your partner: it adds the feature, with a picture.' : 'Sent to your partner: it proposes a changed preset.')) visionUi.extra = ''
+    else if (await toPartner({ command: act === 'feature-add' ? 'plan-feature-add' : 'plan-goals-change', text: visionUi.extra.trim() }, '')) visionUi.extra = ''
   } else if (act === 'send-confirms') {
     if (await toPartner({ command: 'plan-goals-confirm', text: view.goals.pending.join(', ') }, 'Your goals are confirmed in your plan.')) visionUi.confirms = []
   } else if (act === 'resend') {
-    // A late or lost word without words of the person's in it, sent again as it was.
-    const [command, about] = String(id).split('|')
-    if (!['plan-deeper', 'plan-ask', 'plan-goals-agree', 'plan-settled', 'plan-measure', 'plan-standards', 'plan-standards-agree', 'plan-check', 'plan-focus'].includes(command)) return
-    return toPartner(['plan-goals-agree', 'plan-standards', 'plan-standards-agree', 'plan-check', 'plan-focus'].includes(command) ? { command } : { command, id: about }, 'Sent again to your partner.')
+    // A late word (Send again beside its line), sent again as it was: its words are the ones the board kept on the word, not the box's now.
+    const [command, about, wordId] = String(id).split('|')
+    if (!VISION_RESENDABLE.includes(command)) return
+    const kept = board?.waits?.[wordId]?.said
+    const body = { command, ...(['plan-goals-agree', 'plan-standards', 'plan-standards-agree', 'plan-check', 'plan-tradeoffs'].includes(command) || about === 'plan' ? {} : { id: about }), ...(typeof kept === 'string' && kept !== '' ? { text: kept } : {}) }
+    return toPartner(body, '')
   } else if (act === 'show-unsure') {
     // The first feature still not sure, brought into view and marked for a moment.
     const card = document.querySelector(`.vision-feature[data-feature="${CSS.escape(String(id))}"]`)
@@ -18731,18 +18781,15 @@ async function visionAct(act, id) {
     if (words === '') visionUi.note = { isProblem: true, text: 'Write your words in the box first.' }
     else {
       const body = slide.step === 'focus' ? { command: 'plan-focus', text: words } : { command: 'plan-change', id: slide.id, text: words }
-      if (await toPartner(body, `${slide.title}: your words went to your partner.`)) {
-        visionUi.words = ''
-        visionUi.sent = [...visionUi.sent, slide.id]
-      }
+      if (await toPartner(body, '')) visionUi.words = ''
     }
   } else if (act === 'get-tradeoffs') {
-    return toPartner({ command: 'plan-tradeoffs' }, 'Your partner weighs every complex feature later or not sure: prepare now, or wait, with the cost now and later.')
+    return toPartner({ command: 'plan-tradeoffs' }, '')
   } else if (act === 'tradeoff-now') {
     const [part, choice] = String(id).split(':')
     await toPartner({ command: 'plan-tradeoff', id: part, text: choice }, `${part}: ${choice === 'prepare' ? 'prepare now' : 'wait'}, written in your plan.`)
   } else if (act === 'check-plan') {
-    return toPartner({ command: 'plan-check' }, 'Your partner looks at the whole plan again: what changes comes on step 4, each with its cause.')
+    return toPartner({ command: 'plan-check' }, '')
   } else if (act === 'pick-strategy') {
     visionUi.strategy = visionUi.strategy === id ? null : id
   } else if (act === 'change-strategy' || act === 'keep-strategy') {
@@ -18753,7 +18800,7 @@ async function visionAct(act, id) {
     const words = visionUi.extra.trim()
     const text = [visionUi.strategy, words].filter(one => one !== null && one !== '').join(': ')
     if (text === '') visionUi.note = { isProblem: true, text: 'Pick a strategy or write your own first.' }
-    else if (await toPartner({ command: 'plan-strategy', text }, 'Your partner lays the plan in your strategy: it comes here.')) {
+    else if (await toPartner({ command: 'plan-strategy', text }, '')) {
       visionUi.extra = ''
       visionUi.strategy = null
       visionUi.changingStrategy = false
@@ -18771,31 +18818,31 @@ async function visionAct(act, id) {
     }
     return
   } else if (act === 'propose-focus') {
-    if (await toPartner({ command: 'plan-focus', text: visionUi.extra.trim() }, 'Your partner proposes the next focus: it comes on step 5 with its why.')) visionUi.extra = ''
+    if (await toPartner({ command: 'plan-focus', text: visionUi.extra.trim() }, '')) visionUi.extra = ''
   } else if (act === 'focus-accept') {
     // Only your click makes a goal your focus; the partner then starts the talk about it on the Focus tab. 2026-11-09 (the audit:
     // /api/plan refused it, "Not a move of the Vision tab"): it goes the Focus page's way, a focus move of /api/goals.
-    if (await visionSend('/api/goals', { command: 'focus', id }, `${id} is your focus now: on the Focus tab your partner drafts its goal definition and its how.`)) visionUi.sent = [...visionUi.sent, `focus:${id}`]
+    await visionSend('/api/goals', { command: 'focus', id }, `${id} is your focus now: on the Focus tab your partner drafts its goal definition and its how.`)
   } else if (['mark-now', 'confirm-standard-now', 'confirm-goal-now'].includes(act)) {
     // A decision of the Interview, written into the plan at once (2026-11-09); the slide leaves because the plan says so.
     const [part, mark] = String(id).split(':')
     const body = act === 'mark-now' ? { command: 'plan-marks', text: `${part} ${mark}` } : act === 'confirm-standard-now' ? { command: 'plan-standards-confirm', text: part } : { command: 'plan-goals-confirm', text: part }
     await toPartner(body, `${part}: written in your plan.`)
   } else if (act === 'goals-agree') {
-    return toPartner({ command: 'plan-goals-agree' }, 'Your partner puts the confirmed goals into your goal map: they show on the Focus tab\'s Goals part.')
+    return toPartner({ command: 'plan-goals-agree' }, '')
   } else if (act === 'send-change' && slide?.kind === 'change') {
     if (visionUi.words.trim() === '') visionUi.note = { isProblem: true, text: 'Say what it should be, in your words.' }
-    else if (await toPartner({ command: 'plan-change', id: slide.id, text: visionUi.words.trim() }, 'Sent to your partner: it rewrites it.')) {
+    else if (await toPartner({ command: 'plan-change', id: slide.id, text: visionUi.words.trim() }, '')) {
       visionUi.page = pageOfPart(slide.id)
       visionUi.change = null
       visionUi.words = ''
     }
   } else if (act === 'ask-options' && slide?.kind === 'open') {
-    if (await toPartner({ command: 'plan-ask', id: slide.id }, `Your partner prepares the options for ${slide.title}: they come here as a slide.`)) visionUi.asked = [...new Set([...visionUi.asked, slide.id])]
+    await toPartner({ command: 'plan-ask', id: slide.id }, '')
   } else if (act === 'send-open' && slide?.kind === 'open') {
     // Your own words for an open answer: the partner writes them as your decision, as a change does.
     if (visionUi.words.trim() === '') visionUi.note = { isProblem: true, text: 'Write your answer first.' }
-    else if (await toPartner({ command: 'plan-change', id: slide.id, text: visionUi.words.trim() }, `Sent to your partner: it writes ${slide.title} as your decision.`)) visionUi.words = ''
+    else if (await toPartner({ command: 'plan-change', id: slide.id, text: visionUi.words.trim() }, '')) visionUi.words = ''
   } else if ((act === 'answer' || act === 'dunno') && slide?.kind === 'ask') {
     const isOwn = act === 'answer' && slide.picked?.isOwn === true
     if (isOwn && visionUi.words.trim() === '') {
@@ -19531,7 +19578,13 @@ function recommendationPart(rec, state) {
       ? `You said yes at ${clock(answer.at)}: it is on the backlog as ${answer.step}; the board hands it out as any task.`
       : answer.answer === 'yes'
       ? `You said yes at ${clock(answer.at)}${sent}: ${main} puts it on the backlog when it is not there and hands it out.`
-      : `You said no at ${clock(answer.at)}${sent}: the Advisor proposes another task at its next round.`))
+      : `You said no at ${clock(answer.at)}: you gave your reason, the Advisor proposes another task.`))
+    // P4c: the one status of that no (or of a yes that went to the main chat) is the server's line (Sent, Picked up, Done when another task stands, Late), where its button was.
+    // It shows until the Advisor's new recommendation card replaces this block: that card is the result.
+    if (answer.answer === 'no' || answer.byBoard !== true) {
+      const line = placeWaitOf(state, 'recommend', { about: rec.id })
+      if (line !== null && line.isShown) box.append(drawWaitLine(line))
+    }
     return [box]
   }
   const canYes = state.goalsEdit?.canWrite === true || (state.workers?.main ?? null) !== null
@@ -19615,7 +19668,7 @@ $('advisor-way').addEventListener('click', event => {
       return drawWay(board)
     }
     button.disabled = true
-    send({ to: board.advisor.name, command: 'recommend', about: rec.id, answer: 'no', reason: wayReason.trim() }, 'recommend').then(() => {
+    send({ to: board.advisor.name, command: 'recommend', about: rec.id, answer: 'no', reason: wayReason.trim() }, 'recommend', 'recommend').then(() => {
       if (problems.has('recommend')) return
       wayNoOpen = false
       wayReason = ''
@@ -20046,6 +20099,7 @@ function drawTalk(state) {
       busy.replaceChildren(el('b', '', words), el('span', '', 'What you type waits until it is done.'))
     }
   }
+  fill($('say-wait'), freeWordLine(state, 'talk-send'))
   // B282: why a send or a paste did not go, else where what is sent goes.
   const sayProblem = problems.get('talk') ?? pictureSlots.advisor.problem
   $('say-note').classList.toggle('is-error', sayProblem !== null)
@@ -20219,6 +20273,7 @@ function drawMainTalk(state) {
   note.classList.toggle('is-error', problems.has('main-talk') || pictureSlots.main.problem !== null)
   note.textContent = problems.get('main-talk') ?? pictureSlots.main.problem ?? 'What you send is typed into the main chat\'s chat as your own words, once it is idle.'
 
+  fill($('main-wait'), freeWordLine(state, 'main-send'))
   const box = $('main-messages')
   const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 60
   const rows = (talk?.messages ?? []).map(message => drawTalkMessage({
@@ -23068,7 +23123,7 @@ function draw(state) {
   })
   once('advice', [state.advice, state.gamePlan ?? null], () => drawAdvice(state))
   // B195: the way to the next milestone, also when an answer to its recommendation is on its way or refused.
-  once('way', [state.milestone ?? null, state.goalsFile ?? null, state.workers?.main ?? null, state.goalsEdit?.canWrite ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null, state.advisor?.roundRuns ?? null, sending.has('recheck'), problems.get('recheck') ?? null, waitKeyOf(placeWaitOf(state, 'talk', { command: 'recheck' }))], () => drawWay(state))
+  once('way', [state.milestone ?? null, state.goalsFile ?? null, state.workers?.main ?? null, state.goalsEdit?.canWrite ?? null, state.advisor?.name ?? null, sending.has('recommend'), problems.get('recommend') ?? null, state.advisor?.roundRuns ?? null, sending.has('recheck'), problems.get('recheck') ?? null, waitKeyOf(placeWaitOf(state, 'talk', { command: 'recheck' })), waitKeyOf(placeWaitOf(state, 'recommend'))], () => drawWay(state))
   once('advice-suggestions', [state.suggestions ?? [], state.rounds?.group ?? null], () => drawSuggestions(state))
   // B286: the steps by where their refine stands, drawn anew only when the list changes.
   const refining = refineGroups(state.backlog)
@@ -23092,8 +23147,8 @@ function draw(state) {
     $('advice-age').className = `advice-age${age !== null && age.isOld ? ' is-old' : ''}`
     $('advice-age').textContent = age === null ? '' : age.text
   })
-  once('talk', [state.advisor, advisorRefine(state.backlog), runningData(state), [...problems], [...sending]], () => drawTalk(state))
-  once('main-talk', [state.mainTalk ?? null, state.maxMessageChars, problems.get('main-talk') ?? null, sending.has('main-talk')], () => drawMainTalk(state))
+  once('talk', [state.advisor, advisorRefine(state.backlog), runningData(state), [...problems], [...sending], freeLineKey(state, 'talk-send')], () => drawTalk(state))
+  once('main-talk', [state.mainTalk ?? null, state.maxMessageChars, problems.get('main-talk') ?? null, sending.has('main-talk'), freeLineKey(state, 'main-send')], () => drawMainTalk(state))
   drawBugs()
   drawDesign()
   finishRestore()
