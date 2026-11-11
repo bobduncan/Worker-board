@@ -124,6 +124,8 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
   // report beats a pause note read from a lagging transcript; only the app's own stop line and the person's pause hold it.
   if (!asleep) {
     // The asset wait (the person's "A, Working"): the provider's line, "Codex draws 4 pictures for it · 2 of 4 done · since 10:43".
+    // The asset-stop rerun (2026-11-11, A245): a background-only lane whose asset requests are all final for over 30 running minutes says so, attention after 60.
+    if (state === 'working' && lane.heldBy === 'background' && typeof lane.backgroundNoNews?.words === 'string') return { ...out(STATUSES.WORKING, lane.backgroundNoNews.words, lane.backgroundNoNews.since), attention: lane.backgroundNoNews.attention === true }
     if (state === 'working') return out(STATUSES.WORKING, lane.heldBy === 'asset' && typeof lane.assetWork?.words === 'string' ? lane.assetWork.words : partner ? 'waits for the partner' : lane.heldBy === 'background' ? 'background' : null, report?.since)
     if (state === 'suspended' && lane.suspended?.by === 'note' && isFreshBusy) return out(STATUSES.WORKING, null, report.since)
   }

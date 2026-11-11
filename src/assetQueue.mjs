@@ -11,8 +11,13 @@
 //   An ask the person closed without a file fails the request, with why (the board never waits for ever).
 // - A `pick` request is the work API's alone (the chat names its pick); the queue leaves it.
 // - A request that turns ready or failed is told to the chat that asked (`tell`), once.
-// - A request still running when the board stopped is failed at the next start (`recover`): it is never made twice by
-//   itself, as a second making could cost credits; the chat asks again, with `follows`.
+// - A request still running when the board stopped (`recover`, at the next start) is no fault of the request (the live A245 of
+//   2026-11-11 13:50, cut by a landing's restart, failed with "ask again, with follows" and its chat never heard of it): it goes
+//   back to waiting and runs again by itself, counting toward the same cap as the usage-limit waits (`LIMIT_TRIES`); past the
+//   cap it fails with why and the chat is told.
+// - A word nobody could be told (`tell` answered false: the board's state did not show the chat yet, right after a start) is
+//   told again at every pass until it went (`untold`); the delivery sweep's resends (workLines.mjs `assetResends`) cover a
+//   restart in between.
 // - The asset-limit wait (2026-11-11, the live B1125 case: A230-A234 failed on Codex's usage limit "try again at 1:23 PM"): a
 //   failure on the provider's usage limit with a known reset time (src/work/providerLimit.mjs `limitResetOf`) is no failure: the
 //   request goes back to waiting with `limit: { until, why, at }`, nobody is told, the provider's requests are left alone until
@@ -27,12 +32,13 @@ import { join } from 'node:path'
 import { assetFolder, changeAsset, droppedFiles, listAssets, readAsset } from './assets.mjs'
 import { PROVIDERS, runCheck } from './providers/index.mjs'
 import { LIMIT_TRIES, limitOf, limitResetOf, triedWhy, waitsForLimit } from './work/providerLimit.mjs'
+import { ASSET_WORD_AFTER_MS } from './work/workLines.mjs'
 import { writeAtomic } from './write.mjs'
 
 /** The file beside the requests that names the open ask of each provider whose check failed. */
 export const PROVIDER_ASKS_FILE = 'provider-asks.json'
-/** Why a request still running at the board's start failed. */
-export const STOPPED_WHY = 'The board stopped while it was being made: ask again, with follows'
+/** Why a request still running at the board's start is made again (and, past the cap, why it failed). */
+export const STOPPED_WHY = 'The board stopped while it was being made'
 
 /** The words of the person's ask for a provider whose check failed. */
 export const providerAskTitle = (title, kind, why) => `${title} does not work for ${kind}: ${String(why ?? '').replace(/\s+/g, ' ').trim().slice(0, 120)}`
@@ -45,13 +51,16 @@ export const providerAskTitle = (title, kind, why) => `${title} does not work fo
  *                title; its words: `providerAskTitle`); answers its id (Q<n>) or null
  *   closeAsk(id, why)                         takes an ask back
  *   askOpen(id)  whether the ask stands open: true, false, or null when the board cannot tell (it then waits)
- *   tell(record) the word to the chat that asked, for a request that turned ready or failed
+ *   tell(record) the word to the chat that asked, for a request that turned ready or failed; false when nobody could be told now
+ *                (the chat not shown yet): the queue tells again at its next pass
  *   now()        the clock
  *   providers    the providers by name (PROVIDERS; the tests' own)
  */
 export function assetQueue({ dir, tools = () => ({}), fileAsk = async () => null, closeAsk = async () => {}, askOpen = async () => null, tell = async () => {}, now = Date.now, providers = PROVIDERS }) {
   /** The providers that run a request now, by name, with the promise of its end. */
   const busy = new Map()
+  /** The requests that ended whose word nobody could be told yet (`tell` false), with when: told again at the next pass, for a minute. */
+  const untold = new Map()
   let passing = null
 
   const asksFile = join(dir, PROVIDER_ASKS_FILE)
@@ -68,8 +77,21 @@ export function assetQueue({ dir, tools = () => ({}), fileAsk = async () => null
   /** A request that ended: written, then its chat told (a word not sent is the server's loop failure, not a lost end). */
   async function end(id, fields) {
     const record = await changeAsset(dir, id, current => (current.state === 'ready' || current.state === 'failed' ? null : fields), now())
-    if (record !== null) await tell(record)
+    if (record !== null && (await tell(record)) === false) untold.set(id, now())
     return record
+  }
+  /**
+   * The words nobody could be told yet, once more; a request that is not final after all is let go. After ASSET_WORD_AFTER_MS the
+   * delivery sweep owns the word (workLines.mjs `assetResends` sends it once no word to the chat names the request), so the queue
+   * lets go of it then: never two words for one request.
+   */
+  async function tellAgain() {
+    for (const [id, since] of [...untold]) {
+      if (now() - since >= ASSET_WORD_AFTER_MS) { untold.delete(id); continue }
+      const record = await readAsset(dir, id)
+      if (record === null || !(record.state === 'ready' || record.state === 'failed')) untold.delete(id)
+      else if ((await tell(record)) !== false) untold.delete(id)
+    }
   }
 
   /** The request as its provider gets it: whole paths; a follow-up of a picture starts from the last picture it follows. */
@@ -138,6 +160,7 @@ export function assetQueue({ dir, tools = () => ({}), fileAsk = async () => null
 
   /** One look at every request; a pass while another runs gets that one. */
   async function lookOnce() {
+    await tellAgain()
     const all = await listAssets(dir)
     for (const record of all.filter(one => one.state === 'waiting' && one.mode === 'person')) await lookAtPerson(record)
     const waiting = all.filter(one => one.state === 'waiting' && one.mode === 'auto')
@@ -182,9 +205,18 @@ export function assetQueue({ dir, tools = () => ({}), fileAsk = async () => null
       passing ??= lookOnce().finally(() => { passing = null })
       return passing
     },
-    /** At the board's start: a request still running was cut off; it fails with why and its chat is told. */
+    /**
+     * At the board's start: a request still running was cut off by the stop. It goes back to waiting and runs again by itself
+     * (its `limit` names the stop, with no time to wait, and counts the try toward LIMIT_TRIES); past the cap it fails with why
+     * and its chat is told.
+     */
     async recover() {
-      for (const record of await listAssets(dir)) if (record.state === 'running') await end(record.id, { state: 'failed', why: STOPPED_WHY })
+      for (const record of await listAssets(dir)) {
+        if (record.state !== 'running') continue
+        const tries = (Number.isInteger(record.limitTries) ? record.limitTries : 0) + 1
+        if (tries <= LIMIT_TRIES) await changeAsset(dir, record.id, current => (current.state === 'running' ? { state: 'waiting', why: '', limit: limitOf(STOPPED_WHY, now(), now(), tries) } : null), now())
+        else await end(record.id, { state: 'failed', why: triedWhy(STOPPED_WHY, tries - 1), limitTries: null })
+      }
     },
     /** Waits for the look and every request that runs now (the tests'). */
     async idle() {

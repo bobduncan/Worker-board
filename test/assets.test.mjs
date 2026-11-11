@@ -198,11 +198,14 @@ test('the queue: a failed provide and a provide that throws fail the request, wi
   await failing.release()
   await queue.idle()
   assert.deepEqual([...told].sort(), ['Digger: asset A2 failed: Thrower could not make it', 'Digger: asset A1 failed: Codex made no picture.', 'Digger: asset A3 failed: The board has no provider gone that makes visual'].sort())
+  // The asset-stop rerun (2026-11-11, A245): a request cut by the board's stop goes back to waiting and runs again by itself; its chat
+  // hears of it only when it is ready, or failed past the cap (test/assetStopRerun.test.mjs).
   await ask({ text: 'four' })
   await changeAsset(dir, 'A4', { state: 'running' })
   await queue.recover()
-  assert.equal((await readAsset(dir, 'A4')).why, STOPPED_WHY)
-  assert.equal(told.at(-1), `Digger: asset A4 failed: ${STOPPED_WHY}`)
+  const back = await readAsset(dir, 'A4')
+  assert.deepEqual([back.state, back.why, back.limit.why, back.limit.tries], ['waiting', '', STOPPED_WHY, 1])
+  assert.ok(!told.some(one => one.includes('A4')), 'nobody is told of a job that runs again')
 })
 
 test('the queue: a person request is ready once a file lands; its ask is taken back; an ask closed without a file fails it', async t => {
