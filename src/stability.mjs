@@ -98,10 +98,6 @@ export const MOMENT_MS = 2 * MINUTE
 export const LANDING_EXPLAINS_MS = 5 * MINUTE
 /** Two woke-outside findings for one chat this close are one. */
 export const SAME_WAKE_MS = 10 * MINUTE
-/** The finish line: `STABLE_DAYS` days in a row with no intervention and under `STABLE_IDLE_MINUTES` of idle-with-work. */
-export const STABLE_DAYS = 3
-export const STABLE_IDLE_MINUTES = 10
-
 const SLACK_MS = 10_000
 
 /** The start of the local day `day` (`2026-11-05`), and of the next one (DST safe). */
@@ -347,6 +343,8 @@ export function alarmsOf(incidents, day) {
   const order = (a, b) => Number(a.slice(1)) - Number(b.slice(1))
   return {
     real: mine.length - falses.length, false: falses.length, ids: mine.map(item => valueOf(item, 'Id')).sort(order),
+    // stability-row-clean (2026-11-11): the real ones by id, for the details' rows.
+    realIds: mine.filter(item => !falses.includes(item)).map(item => valueOf(item, 'Id')).sort(order),
     cameBack: mine.map(item => valueOf(item, 'Id')).filter(id => back.has(id)).sort(order),
   }
 }
@@ -419,37 +417,6 @@ export function dayLineOf({ day, minutes = [], interventions = [], unsure = [], 
     day, idleWithWorkMinutes: idleMinutesOf(minutes, day), idleEstimated: estimated, interventions, unsure, alarms: alarms ?? { real: 0, false: 0, ids: [], cameBack: [] }, writtenAt: now, closed,
     ...(measure === null ? {} : { measured: measure.measured, pausedMinutes: measure.pausedMinutes, offMinutes: measure.offMinutes, ...(measure.measured ? {} : { notMeasuredWhy: measure.why }) }),
   }
-}
-
-const dayBefore = day => {
-  const start = new Date(sinceMs(day))
-  return dayOf(new Date(start.getFullYear(), start.getMonth(), start.getDate() - 1).getTime())
-}
-
-/**
- * The finish line over the day lines: `stableDays`, the days in a row (ending yesterday, or today if its line is closed) with no
- * intervention, no real alarm and under 10 minutes of idle-with-work; `isStable` from 3. `brokenByAlarm` is the day of the line
- * that ended the row when it had a real alarm (a false alarm never breaks it). A day with no line, with idle not known (null) or NOT MEASURED
- * (`measured: false`: paused or off for most of it) breaks the row. PURE.
- */
-export function finishOf(lines) {
-  const sorted = [...lines].sort((a, b) => (a.day < b.day ? 1 : -1))
-  if (sorted.length > 0 && sorted[0].closed !== true) sorted.shift()
-  let stableDays = 0
-  let expect = null
-  let brokenByAlarm = null
-  for (const line of sorted) {
-    if (expect !== null && line.day !== expect) break
-    // A real alarm breaks the row (2026-11-09): a problem that came back counts on its day, a false alarm does not.
-    if ((line.alarms?.real ?? 0) > 0) { brokenByAlarm = line.day; break }
-    // A day not measured (paused or off for most of it) is no stable day: it breaks the row.
-    if (line.measured === false) break
-    // A null idle day (backfilled: not known) is not stable, it breaks the row; so does a day with a number at 10 or more.
-    if ((line.interventions ?? []).length > 0 || !Number.isFinite(line.idleWithWorkMinutes) || !(line.idleWithWorkMinutes < STABLE_IDLE_MINUTES)) break
-    stableDays += 1
-    expect = dayBefore(line.day)
-  }
-  return { stableDays, isStable: stableDays >= STABLE_DAYS, ...(brokenByAlarm === null ? {} : { brokenByAlarm }) }
 }
 
 // -- reading: today's part of each record, from the end, asynchronously ----------------------------------------------------
@@ -534,26 +501,23 @@ export const SHOWN_DAYS = 14
 /** The version of the alarm count a closed line carries: 2 = a problem that came back counts on the day it came back. */
 export const ALARMS_VERSION = 2
 
-/** The finish line in words, as the state field and the page say it. */
-export const FINISH_WORDS = 'stable = 3 days in a row with 0 interventions, 0 real alarms and under 10 min idle-with-work'
-
 /** The names of the files the writer reads and writes, in the board's data folder. */
 export const filesOf = dir => ({
   actions: `${dir}/actions.jsonl`, minutes: `${dir}/ready-minutes.jsonl`, landings: `${dir}/landings.jsonl`, wakes: `${dir}/wakes.json`,
   reports: `${dir}/reports.json`, history: `${dir}/history.jsonl`, outbox: `${dir}/outbox.jsonl`, stability: `${dir}/stability.jsonl`,
 })
 
-/** What the state field shows: today's line, the last 14 closed lines and the finish line. */
+/** What the state field shows: today's line and the last 14 closed lines (stability-row-clean, 2026-11-11: no finish line). */
 export function viewOf(lines, now) {
   const day = dayOf(now)
   const today = lines.find(line => line.day === day) ?? null
-  return { today, days: lines.filter(line => line.closed === true && line.day !== day).slice(-SHOWN_DAYS), ...finishOf(lines.filter(line => line.day <= day)) }
+  return { today, days: lines.filter(line => line.closed === true && line.day !== day).slice(-SHOWN_DAYS) }
 }
 
 /**
  * The writer: reads today's part of the records, makes today's line and writes data/stability.jsonl whole and atomically. At the
  * first pass of a new day the previous day's line gets `closed: true`, once; a closed line is never rewritten. `items` is the
- * work store's items (the X and Q files). Returns `{ today, days, stableDays, isStable }` for the state field, or null when it
+ * work store's items (the X and Q files). Returns `{ today, days }` for the state field, or null when it
  * failed (said on the console; the loop goes on).
  */
 export async function recordStability(state, { dir, items = new Map(), clock = Date.now, files = filesOf(dir) } = {}) {

@@ -189,6 +189,9 @@ step therefore says what it touches ("Touches: ...").
 
 - Follow the board's design principles, `PRINCIPLES.md` in its folder (the person's, 2026-10-24); a change that breaks
   one says which and why in its report, and the report names the incidents that would show it failing (principle 6).
+- A change to what the page shows (principle 16, a clean page, 2026-11-11): add only what was asked for, give every
+  line, dot or chart its label, keep the words short and put details behind a "details" link. Your report names one
+  picture of the result beside the page as it was (before, after), made from your copy of the board.
 - The board the user looks at runs from its own folder and starts by itself: never stop or start it. Try your work
   on a copy started from your task folder, which takes a port of its own. The board loads a merged change by itself
   (B454: the page when it is idle, the server at a safe moment, 10 minutes at most before the yellow note asks for a
@@ -331,7 +334,9 @@ on Opus (the task's Model and Effort lines); it switches your model and effort f
 1. Read the step's record (`work list`, its file in the work store): its agreed points, its `Standard:` line (the kind, its
    reference picture, the target; the kind's definition of done stands in the project's briefing) and its report. A step on the
    worker board itself is also checked against the board's design principles (`PRINCIPLES.md` in the board's folder): one point
-   per principle it touches, a break a fail unless the step says why. The board's own check does not send a report back for its
+   per principle it touches, a break a fail unless the step says why. A change to what the page shows is checked against
+   principle 16 (a clean page) on its before/after picture: no picture, or anything on it nobody asked for or without a label,
+   is a `fail:` point. The board's own check does not send a report back for its
    wording (2026-10-25, "check the work, not the wording"): what it passed with warnings stands in the task as `Board warnings:`.
    **A change that touches tests with a report that names no mutant** (the task then also carries `Demand:`) is yours to demand:
    make the mutant yourself, in a scratch copy and never on the branch (undo the fix, run the new tests, see which assertion

@@ -788,7 +788,8 @@ refined before it goes to a worker): once for every new step, for a step queued 
 the redesign's Part 2), and once more when the user's answers wait to be folded in.
 Do the same for those. Read the step (`work list`, its record in the work store) and what it touches; a step on the
 worker board itself is refined to the board's design principles (`PRINCIPLES.md` in the board's folder), and its
-"What we build" names the incidents that would show it failing. The refine reply shows the person's earlier words on the row: name each in what we build, or say why it no longer holds; a step made with `of` is a try in a chain, so its what names `Tried before:` (the Supervisor's chain-long rule reads it). Then write its refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
+"What we build" names the incidents that would show it failing; a step that changes what the page shows also names its
+before/after picture and only what was asked for on the page (principle 16, a clean page). The refine reply shows the person's earlier words on the row: name each in what we build, or say why it no longer holds; a step made with `of` is a try in a chain, so its what names `Tried before:` (the Supervisor's chain-long rule reads it). Then write its refine block with the work tool, the only change you make: `work refine B<id>` with `summary`, `picture`, `goal`,
 `size`, `model`, `effort` and `questions` while refining, and `work refined B<id>` with `what` once every question is answered. The board
 writes the block in the form below; `refined` folds the questions away and moves a new step to refined, as the flow
 file says. What a refined step

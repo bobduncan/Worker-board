@@ -4482,7 +4482,7 @@ build brief bind; the parts below replace what the older parts of this file say 
 ## Stability numbers (2026-11-05)
 
 The person, 2026-11-05: "i want to measure so we can proof if stuff is going wrong"; "Yes, both" (the start-up check and three
-daily numbers; stable = 3 days in a row with 0 interventions, 0 real alarms and under 10 min idle-with-work). The plan
+daily numbers; the 3-day finish line of then is gone since 2026-11-11, see "The page row"). The plan
 (`.claude/plans/2026-11-05-stability-numbers-plan.md`) binds. The board READS its state and records and adds append-only logs;
 it changes nothing in start, wake, hand-over or status. The Overview row (`#stability`) shows the numbers; they are the board's
 own: the Supervisor does not file incidents from them.
@@ -4496,7 +4496,7 @@ own: the Supervisor does not file incidents from them.
      within 5 min), `app-restart` (every chat began a run within 2 min with nothing of the board explaining it), `open-its-chat`
      (an ask that says "open its chat" and that the person answered), `rollback` (a landing that rolled back). Only what a record
      PROVES counts. A start of one chat (a new run, or off to working/free) that no board wake, outbox message or `resume` command
-     reached in the 5 min before is NOT an intervention (a false one breaks the finish line): it goes to `unsure` as `woke-outside`
+     reached in the 5 min before is NOT an intervention (a false one would count a fix that never was): it goes to `unsure` as `woke-outside`
      with why "no record shows who started it (the person, a chat's message or the app)".
   3. `alarms`: the incidents (`X*.md`) raised in the day (`First seen`, else `Since`): `real` and `false`, with their ids. FALSE is
      State `closed` with a History line "closed: No fault" or "closed: obsolete", and nothing else. Everything else is real,
@@ -4513,24 +4513,24 @@ own: the Supervisor does not file incidents from them.
   their end, asynchronously, and rewrites today's line atomically; at the first pass of a new day the earlier line gets
   `closed: true` and is never rewritten. A finding made earlier in the day stays (the board shows a stop for 15 minutes and the
   reports hold only a chat's newest run).
-- **The finish line**: `stableDays` is the number of most recent days in a row (ending yesterday, or today if its line is
-  closed) with 0 interventions, 0 real alarms and under 10 min idle-with-work; `isStable` from 3. A day with no line, or whose idle is not known
-  (`null`, see the backfill), breaks the row. The state
-  field `stability` holds `{ today, days (the last 14 closed), stableDays, isStable, finish }`.
+- **The state field** `stability` holds `{ today, days (the last 14 closed) }` (`viewOf`). No finish line: the person,
+  2026-11-11, "why hardcode the 3 days, thats just something you figured out. i dont want it" (stability-row-clean removed
+  `finishOf`, `stableDays`, `isStable`, `brokenByAlarm` and the finish words; the day lines stay as they were).
 - **Comebacks count (2026-11-09, the person's yes)**: an incident belongs to a day when its `First seen` (else `Since`) is that
   day OR a History line of that day says `came back` (the server writes "came back (seen N times)"); each counts once a day, and
   `alarms.cameBack` lists the ids that came back. A comeback is real unless a "closed: No fault" or "closed: obsolete" line comes
-  AFTER the day's last comeback (a close before it was undone). A real alarm (`alarms.real > 0`) breaks the 3-day row;
-  false alarms never do. `finishOf` also gives `brokenByAlarm` (the day of the line that ended the row when it had a real
-  alarm); the page says "broken by a real alarm on 8 Nov", the alarms number "(1 came back · 1 false)" and the hover marks the
-  ids "(came back)"; no amber. The alarms of the 14 shown closed lines follow the records on every pass (`alarmsVersion: 2`;
+  AFTER the day's last comeback (a close before it was undone). `alarms.realIds` lists the real ones by id (stability-row-clean), for the page's details. The alarms of the 14 shown closed lines follow the records on every pass (`alarmsVersion: 2`;
   only `alarms` changes, so a day that closed with an incident open turns false once a later "closed: No fault" follows its
   comeback; skipped when the store gave no items). X2 came back 8 Nov 22:41,
   X162 on 9 Nov 10:40 (it was closed No fault at 08:38, so the comeback is real).
-- **The page row**: muted, three sparklines of 14 days (a day with idle `null` is a gap in the idle sparkline: no point, not 0, and
-  "not known" in the hover), the finish line in words ("N of 3 days", or "stable since <date>" in
-  green); amber only on today's two numbers while today already misses the finish line; hidden when the state has no `stability`.
-  The picture: `art-inbox/board-stability/row.png`.
+- **The page row** (stability-row-clean, 2026-11-11; the person: "this UI sucks. i didnt specifically ask for this weird line"):
+  one muted line, "Stability today · fixes by hand N · real alarms N · idle with work N min", plain labels with numbers (the
+  hover of each lists today's items), and a "details" link at the right. No dot, no sparkline, no target, no "not measured"
+  word, no amber. "details" opens the last days (today and the 14 closed), newest first, one row each: day (today "so far"),
+  fixes by hand, real alarms with their ids, idle with work ("~" when estimated, "not known" when null) and a short note for an
+  odd day: "board off most of the day" or "paused most of the day" (not measured), else "board off 7 h 24 min" or "paused 2 h"
+  from an hour on, and "rebuilt from older records" for a backfilled day. Hidden when the state has no `stability`. Rule 16:
+  the before/after picture is `art-inbox/board-stability/row-clean-before-after.png`, the opened details `row-clean-after-details.png`.
 - **The backfill** (`tools/stability-backfill.mjs <data> <store> [--days 14] [--out <file>]`, run by hand once, output reviewed):
   writes the closed lines (`closed: true, backfilled: true`) of the 14 days before the records existed into `stability.jsonl`
   (or `--out`), never rewriting a line that is there; it reads the records read only. Idle-with-work is
@@ -4539,19 +4539,16 @@ own: the Supervisor does not file incidents from them.
   reach back, the day carries an `unsure` and the tool prints, per number, from which day it is complete: `resume-all` not before the first line of the actions log; `rollback` from the first landing;
   `restart-by-hand` not before the live loop (`lastStop` is state, not a record); `app-restart` from the first
   whole day after the first wake attempt in `wakes.json`; `open-its-chat` from the oldest ask; alarms from the oldest incident.
-- **Not measured (2026-11-08, the lead)**: a day on which the board was paused or off for most of it is `measured: false` and
-  never counts toward the finish line. The test (`measuredOf`): pause minutes + off minutes (the union, so a minute that was both
+- **Not measured (2026-11-08, the lead)**: a day on which the board was paused or off for most of it is `measured: false`. The test (`measuredOf`): pause minutes + off minutes (the union, so a minute that was both
   counts once) over half of the part of the day that has passed: for today the part so far (the line is rewritten every minute, so
   it can turn measured again), for a closed day the whole day. Pause time is the person's `pause-all` ... `resume-all` in
   `actions.jsonl` (an open pause runs to now); off time is the history's gap lines (`gapsOf`: from the gap line to the next
   line). The line gains `measured`, `pausedMinutes`, `offMinutes` and, when not measured, `notMeasuredWhy` (`paused` or `off`,
   the larger share, paused on a tie). A line closed at the first pass of a new day gets these recomputed for the whole day (its
-  last pass may be hours old: the board was off). `finishOf` breaks the row on a not-measured day. The page draws it as a gap in
-  all three sparklines ("not measured" in the hover), today's numbers read "not measured (paused)" or "(off)", never amber. The
+  last pass may be hours old: the board was off). The page's details give such a day its note. The
   backfill marks past days the same way (off time from the history; pause time only from the first line of the actions log). A line
   with no `measured` field is measured. On 2026-11-08 (paused all day, board off until 22:13): 1337 min paused, 1334 off, not measured.
-- Tests: `test/stability.test.mjs` (the minute, each kind of intervention with its mutant, the own-pause rule, alarms, the finish
-  line, the midnight close), `test/work/actionsLog.test.mjs`, `test/stabilityPage.test.mjs`, `test/stabilityBackfill.test.mjs`
+- Tests: `test/stability.test.mjs` (the minute, each kind of intervention with its mutant, the own-pause rule, alarms, the midnight close), `test/work/actionsLog.test.mjs`, `test/stabilityPage.test.mjs`, `test/stabilityBackfill.test.mjs`
   (the lines marked backfilled with idle null, a closed line never rewritten, `--out` leaves the data folder alone).
 
 ## The supervisor's incident cards (2026-10-24)
