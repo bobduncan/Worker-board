@@ -39,8 +39,8 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   question, a decision), file it with `work ask` under your step (below) and put the "For you" block it answers into
   your answer; say in your report in one line what you asked ("Asked the user: Q12, the picture of the new screen");
   the main chat then does not ask it again. With nothing to ask, report only: the main chat puts the check to the user
-  itself. An ask that sends the person to a page or screen of the game carries `play` (`<branch>&page=soundboard`,
-  `<branch>&screen=shop`), never a bare address: the game runs only while the board has started it (B675).
+  itself. An ask that sends the person to a page or screen of the game carries `play` (`<branch>&page=soundboard`, `<branch>&page=animlab`,
+  `<branch>&screen=shop`; a `page=` the board does not know is refused with the list), never a bare address: the game runs only while the board has started it (B675).
   An item of your "For you" block you filed no ask for is filed for you when your turn ends (B317: `Via: chat`, named beside your next prompt); when the user answers it in your chat instead, close it in that turn with `work answered-in-chat Q<id>` and their words.
 - Read the step's "Your words" first (the user, 2026-10-30: "retain the feedback i gave it so when i tries to suggest new
   ways to accomplish what i want it can verify what i originally asked so it can determine if it was actually done or

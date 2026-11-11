@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { GAME_PAGES } from './places.mjs'
+import { isGamePage } from './places.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
 
@@ -33,7 +33,7 @@ export function checkGame(body, state) {
       : [...(state.chats ?? []).flatMap(chat => chat.folders ?? []), ...(state.otherFolders ?? [])].find(one => one.branch === branch) ?? null
     if (folder === null || typeof folder.path !== 'string') return refuse(409, `No working folder is on the branch ${branch} now, so there is nothing to start.`)
     // B675: a page of the game, from the list of game pages (the file is looked for in the folder when the game starts).
-    if (body.page !== undefined && !Object.hasOwn(GAME_PAGES, body.page)) return refuse(400, 'That is no page of the game.')
+    if (body.page !== undefined && !isGamePage(body.page))return refuse(400, 'That is no page of the game.')
     return { ok: true, action: body.action, branch, path: folder.path, ...(body.page === undefined ? {} : { page: body.page }) }
   }
   const game = body.item === 'main'

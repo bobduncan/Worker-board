@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { checkGame } from '../../src/games.mjs'
-import { gamePageIn, localAddressIn } from '../../src/places.mjs'
+import { gamePageIn, localAddressIn, playProblem } from '../../src/places.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
@@ -78,6 +78,31 @@ test('a do ask with a local address the board cannot link gets a note, and is no
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('B1133: a play with page=animlab is filed; one with an unknown page is refused with the list; the game\'s own keys pass', async () => {
+  const { dir, board } = await fresh()
+  try {
+    await board({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-sound' })
+    const lab = await board({ action: 'ask', of: 'B1', kind: 'look', title: 'Does the walk look right?', text: 'Watch it.', play: 'main&page=animlab&mode=walk' })
+    assert.equal(lab.ok, true, lab.why)
+    assert.match(lab.result.text, /#play=main&page=animlab&mode=walk\)/)
+    const dead = await board({ action: 'ask', of: 'B1', kind: 'look', title: 'Does the run look right?', text: 'Watch it.', play: 'main&page=nolab&mode=walk' })
+    assert.equal(dead.ok, false)
+    assert.match(dead.why, /"nolab" is no page of the game; the board knows: soundboard, animlab/)
+    assert.equal((await board({ action: 'ask', of: 'B1', kind: 'look', title: 'Does the shop look right?', text: 'Look.', play: 'b1-sound&screen=shop&whatever=1' })).ok, true)
+    assert.equal((await board({ action: 'ask', of: 'B1', kind: 'look', title: 'Which branch is this?', text: 'Look.', play: '../x&page=animlab' })).ok, false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('B1133: playProblem and checkGame use one list of pages; the animation lab is found by its words', () => {
+  assert.equal(playProblem('main&page=animlab&mode=walk'), null)
+  assert.match(playProblem('main&page=toString'), /no page of the game/)
+  assert.equal(gamePageIn('Open the animation lab and watch'), 'animlab')
+  const state = { baseBranch: 'main', mainGame: { path: 'C:\\game' }, chats: [] }
+  assert.equal(checkGame({ item: 'branch', branch: 'main', action: 'start', page: 'animlab' }, state).page, 'animlab')
 })
 
 test('checkGame: a branch\'s game may name a page of the game\'s list, nothing else', () => {
