@@ -2,7 +2,8 @@
 // action, so the faster board is proved by its own numbers and not by the stall log's guess (data/stalls.json counts a call only
 // past 2 s, and keeps 50). The server notes every call once answered (`callStall`'s begin and end exist already) with the number
 // of whole state rebuilds that started during it; the record keeps the newest `DAYS_KEPT` days in `data/work-calls.json`, and
-// `today()` gives one figure for the Supervisor's health line: "work calls today: 412 (median 0.3 s, slowest 1.8 s, 0 over 5 s)".
+// `today()` gives one figure for the Supervisor's health line: "work calls today: 412 (median 0.3 s, slowest 1.8 s, 0 over 5 s)". The
+// rebuilds are those that STARTED while a call ran (the page's or a loop's too), not only those the call waited for.
 // PURE but for the clock and the file, which are handed in.
 
 import { readFile } from 'node:fs/promises'
@@ -52,7 +53,7 @@ export const figuresOf = one => (one === null || one === undefined ? { count: 0,
 /** "work calls today: 412 (median 0.3 s, slowest 1.8 s, 0 over 5 s)", or "work calls today: none yet". */
 export function workCallsWords(figures) {
   if (figures === null || figures === undefined || figures.count === 0) return 'work calls today: none yet'
-  return `work calls today: ${figures.count} (median ${seconds(figures.median)}, slowest ${seconds(figures.max)}, ${figures.over} over ${OVER_MS / 1000} s${figures.rebuilds > 0 ? `, ${figures.rebuilds} rebuild${figures.rebuilds === 1 ? '' : 's'} inside calls` : ''})`
+  return `work calls today: ${figures.count} (median ${seconds(figures.median)}, slowest ${seconds(figures.max)}, ${figures.over} over ${OVER_MS / 1000} s${figures.rebuilds > 0 ? `, ${figures.rebuilds} rebuild${figures.rebuilds === 1 ? '' : 's'} started during calls` : ''})`
 }
 
 /**

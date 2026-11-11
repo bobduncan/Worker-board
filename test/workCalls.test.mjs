@@ -24,10 +24,10 @@ test('the figures: count, median, p95, slowest, over 5 s and rebuilds, by day an
   assert.deepEqual(figuresOf(null), { count: 0, median: null, p95: null, max: null, over: 0, rebuilds: 0 })
   assert.deepEqual(today.byAction.step, { count: 2, median: 250, p95: 300, max: 300, over: 0, rebuilds: 0 })
   assert.deepEqual(today.byAction.ask, { count: 1, median: 6200, p95: 6200, max: 6200, over: 1, rebuilds: 2 })
-  assert.equal(workCallsWords(today), 'work calls today: 6 (median 0.3 s, slowest 6.2 s, 1 over 5 s, 3 rebuilds inside calls)')
+  assert.equal(workCallsWords(today), 'work calls today: 6 (median 0.3 s, slowest 6.2 s, 1 over 5 s, 3 rebuilds started during calls)')
   // Without a slow call or a rebuild the line is the bare figure.
   assert.equal(workCallsWords({ count: 412, median: 310, max: 1800, over: 0, rebuilds: 0 }), 'work calls today: 412 (median 0.3 s, slowest 1.8 s, 0 over 5 s)')
-  assert.equal(workCallsWords({ count: 1, median: 12_400, max: 12_400, over: 1, rebuilds: 1 }), 'work calls today: 1 (median 12 s, slowest 12 s, 1 over 5 s, 1 rebuild inside calls)')
+  assert.equal(workCallsWords({ count: 1, median: 12_400, max: 12_400, over: 1, rebuilds: 1 }), 'work calls today: 1 (median 12 s, slowest 12 s, 1 over 5 s, 1 rebuild started during calls)')
   // The percentile: the value under which the share lies; exactly OVER_MS counts as over.
   assert.deepEqual([percentile([5, 1, 3], 0.5), percentile([5, 1, 3], 0.95), percentile([], 0.5), percentile([7], 0.95)], [3, 5, null, 7])
   record.note({ action: 'take', ms: OVER_MS })

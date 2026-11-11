@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { KEPT_STATE_MS, keptStateWhy } from '../src/keptState.mjs'
 import { buildState } from '../src/state.mjs'
 import { healthSummary } from '../src/supervisor/health.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
@@ -29,16 +30,29 @@ const bodyOf = head => {
 }
 
 test('workCtx answers from the kept state: no rebuild of its own, but for an unknown caller or a kept state gone old', () => {
-  const ctx = bodyOf('  const workCtx = async ({ kept = false, chat = null } = {}) => {')
-  assert.match(ctx, /const state = kept \? readState\.last\(\) \?\? await readState\(\) : await keptStateFor\(chat\)/)
-  assert.doesNotMatch(ctx.replace(/await keptStateFor\(chat\)/, '').replace(/readState\.last\(\) \?\? await readState\(\)/, ''), /await readState\(\)/, 'no other rebuild inside the context')
-  const kept = bodyOf('  const keptStateFor = async chat => {')
-  assert.match(kept, /clock\(\) - last\.readAt > KEPT_STATE_MS\) return readState\(\)/)
-  assert.match(kept, /laneRole\(last, chat\) === null\) return readState\(\)/)
-  assert.match(kept, /return last\n/)
-  assert.match(server, /const KEPT_STATE_MS = 60_000/)
-  // The work action gives the context the calling chat (a chat's call; the person's and the server's name none).
-  assert.match(server, /workCtx\(\{ kept: body\?\.action === 'health', chat: as === undefined && typeof body\?\.chat === 'string' \? body\.chat : null \}\)/)
+  const ctx = bodyOf('  const workCtx = async ({ kept = false, chat = null, action = null } = {}) => {')
+  assert.match(ctx, /const state = kept \? readState\.last\(\) \?\? await readState\(\) : await keptStateFor\(chat, action\)/)
+  assert.doesNotMatch(ctx.replace(/await keptStateFor\(chat, action\)/, '').replace(/readState\.last\(\) \?\? await readState\(\)/, ''), /await readState\(\)/, 'no other rebuild inside the context')
+  // The decision is src/keptState.mjs's (pure, tested below); the server hands it the kept state, the clock, the dirty flag and laneRole.
+  const kept = bodyOf('  const keptStateFor = async (chat, action) => {')
+  assert.match(kept, /keptStateWhy\(\{ last, now: clock\(\), chat, action, dirty: readState\.readAt\(\) === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS \}\)/)
+  assert.match(kept, /return why === 'kept' \? last : readState\(\)/)
+  // The work action gives the context the calling chat (a chat's call; the person's and the server's name none) and the action.
+  assert.match(server, /workCtx\(\{ kept: body\?\.action === 'health', chat: as === undefined && typeof body\?\.chat === 'string' \? body\.chat : null, action: body\?\.action \?\? null \}\)/)
+  // The kept state's four refusals and the one yes, each on its own.
+  const last = { readAt: 1000 }
+  const roleOf = (state, chat) => (chat === 'Worker 5' ? 'worker' : null)
+  assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action: 'ask', dirty: false, roleOf }), 'kept')
+  assert.equal(keptStateWhy({ last: null, now: 2000, chat: 'Worker 5', action: 'step', roleOf }), 'none')
+  assert.equal(keptStateWhy({ last, now: 1000 + KEPT_STATE_MS + 1, chat: 'Worker 5', action: 'step', roleOf }), 'old')
+  assert.equal(keptStateWhy({ last, now: 1000 + KEPT_STATE_MS, chat: 'Worker 5', action: 'step', roleOf }), 'kept')
+  assert.equal(keptStateWhy({ last: { readAt: Number.NaN }, now: 2000, chat: 'Worker 5', action: 'step', roleOf }), 'old')
+  assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 9', action: 'step', roleOf }), 'unknown')
+  assert.equal(keptStateWhy({ last, now: 2000, chat: null, action: 'answer', dirty: false, roleOf }), 'kept', 'the person or the server, no chat to know')
+  // A write since the last read: a checkpoint, a take, a report, a turn end, a pull, a read still answer from the kept state; an ask, a
+  // new step, a note of a goal, a refine, the pause state wait for a fresh one (they read the goal map, the recaps, the ready list, the lanes).
+  for (const action of ['step', 'take', 'report', 'turn-ended', 'pull', 'health', 'asset', 'next', 'list', 'block', 'unblock']) assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action, dirty: true, roleOf }), 'kept', action)
+  for (const action of ['ask', 'new', 'note', 'refine', 'refined', 'answer', 'pause-state', 'resumed', 'withdraw', 'words', 'checked', 'drop', 'close', null]) assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action, dirty: true, roleOf }), 'dirty', String(action))
 })
 
 test('the side effects run after the answer, in order: the guard, the supervisor\'s heard, the wake, the main chat\'s pull line', () => {
@@ -61,7 +75,12 @@ test('the side effects run after the answer, in order: the guard, the supervisor
   // afterAnswer: one queue, started on the next turn of the loop, each through loops.run, a failure never ends the queue.
   const after = bodyOf('  const afterAnswer = run => {')
   assert.match(after, /setImmediate\(next\)/)
-  assert.match(after, /\.then\(run, run\)\.catch\(error => loops\.failed\('after-answer', error\)\)/)
+  assert.match(after, /\.then\(timed, timed\)\.catch\(error => loops\.failed\('after-answer', error\)\)/)
+  // A run that hangs lets the queue go after AFTER_ANSWER_MS (the core review: one hung guard would hold every later wake).
+  assert.match(after, /setTimeout\(\(\) => settle\(loops\.failed\('after-answer', new Error\(/)
+  assert.match(server, /const AFTER_ANSWER_MS = 2 \* 60_000/)
+  // The day record is flushed when the board stops for a new version.
+  assert.match(server, /await reportsSave\?\.flush\(\)\n\s+\/\/[^\n]*\n\s+await workCalls\.flush\(\)/)
 })
 
 test('every work call is counted with the rebuilds that started during it, and the day\'s figures travel to the health line', () => {
@@ -83,7 +102,7 @@ test('every work call is counted with the rebuilds that started during it, and t
   assert.match(health, /\n- work calls today: 412 \(median 0\.3 s, slowest 1\.8 s, 0 over 5 s\)(\n|$)/)
   assert.doesNotMatch(health, /- ! work calls today/)
   const slow = buildState(raw, { lines: [], outbox: [], runs: [], now: NOW, config, seen: { shown: {}, other: {} }, board: { startedAt: NOW - 60_000, offSince: null }, workCalls: { ...figures, max: 6200, over: 1, rebuilds: 2 } })
-  assert.match(healthSummary(buildView({ state: slow, items: new Map(), now: NOW }), NOW), /- ! work calls today: 412 \(median 0\.3 s, slowest 6\.2 s, 1 over 5 s, 2 rebuilds inside calls\)/)
+  assert.match(healthSummary(buildView({ state: slow, items: new Map(), now: NOW }), NOW), /- ! work calls today: 412 \(median 0\.3 s, slowest 6\.2 s, 1 over 5 s, 2 rebuilds started during calls\)/)
   // Without the figures (the demo, an older state) the line is not there.
   const none = buildState(raw, { lines: [], outbox: [], runs: [], now: NOW, config, seen: { shown: {}, other: {} }, board: { startedAt: NOW - 60_000, offSince: null } })
   assert.equal(none.workCalls, null)

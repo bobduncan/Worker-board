@@ -7182,22 +7182,31 @@ heard were awaited inside the answer. The person (2026-11-11): the held items on
   the prefix, the sessions and models, the step a chat's card names. Never from a rebuild of its own. It never answers from a
   stale list: a caller the kept state does not know (B736's case: a chat just added, or cleared into a new session) reads once; a
   kept state older than `KEPT_STATE_MS` (60 s: no page open, no loop ran) reads once; the first seconds after a start have no kept
-  state and read. `health` keeps B736's own path (the kept state, whatever its age).
+  state and read. `health` keeps B736's own path (the kept state, whatever its age). And (the core review, finding 2) the context
+  carries store-derived facts too (the goal map's nodes, the focus, the recap rows, the ready list's held steps, the free chats, the
+  lanes for the resume list), which a kept state shows stale right after a write: so a call whose action reads them waits for a fresh
+  state when a write came since the last read (`dirty`: folders.mjs `cached` `readAt` -Infinity), while the frequent actions that read
+  none of them answer from the kept state whatever was written (src/keptState.mjs `KEPT_SAFE_ACTIONS`: step, take, report, block,
+  unblock, turn-ended, pull, health, asset, incident, incident-fix, save-log, whoami, next, list). The decision is pure (`keptStateWhy`:
+  kept, none, old, unknown, dirty) and tested on its own.
 - **turn-ended keeps its decision in the answer** (chat 1's review of the design note, 2026-11-11): the Workers mod reads the
   answer's `handover` (register.tsx: `setOnSequence(parseHandover(ended) !== null)`; the turn's context for the clear), so the hand-over
   turn with its own rebuild stays inside the call (`decideFor`). Moving it waits for the mod's release.
 - **The main chat's pull line goes to the outbox after the answer** (`pull-after-answer`, `pullFor` with the state read anew then);
-  the answer carries `pull: { text: '' }` as for a worker, and the main chat takes the line at its next take, within about 5 s (the
-  mod reads `pull.text` only to take at once).
+  the answer carries `pull: { text: '' }` as for a worker, and the main chat takes the line at its next take: after the queue and
+  `pullFor`'s own rebuild (2 to 4.5 s) and the mod's 5 s tick, so 5 to 10 s later, where the mod used to take at once on a non-empty
+  `pull.text` (register.tsx `tookEnded`). Chat 1's review accepted the delay.
 - **The side effects run after the answer, in order** (`afterAnswer`: one queue, started on the next turn of the loop, each through
-  `loops.run` so a failure is recorded): the goal guard after `checked` and `answer` (eventual: the store's truth is the call's write,
+  `loops.run` so a failure is recorded; a run that has not settled after `AFTER_ANSWER_MS`, 2 min, is recorded as such and the
+  queue goes on, so one hung guard holds no later wake): the goal guard after `checked` and `answer` (eventual: the store's truth is the call's write,
   a call that comes in before its guard ran reads that truth), `supervisor.heard`, the wake of the chat a partner-answer, escalate or
   words frees (the wake path itself is unchanged), as the asset look and the result check already did (`void`).
 - **The rebuild moves, it is not removed**: the call still resets the state and the store reader; the next reader (the page's
   GET /api/state, the loops, the hand-over turn) rebuilds. The take path's own `await readState()` calls are the next piece
   ("take-fast"), not this one.
 - **The proof** (src/workCalls.mjs `workCallRecord`): every answered work call is noted (server.mjs `callStall`'s end) with its time
-  and the whole rebuilds that started during it (`rebuilds`, counted where the state is rebuilt), by day and action, the newest seven
+  and the whole rebuilds that STARTED during it (`rebuilds`, counted where the state is rebuilt: the page's or a loop's too, not only
+  one the call waited for; the words say "started during calls"), by day and action, the newest seven
   days in data/work-calls.json; `today()` gives the figures and the Supervisor's health line says them in one line under "Limits and
   pause": "work calls today: 412 (median 0.3 s, slowest 1.8 s, 0 over 5 s)", odd (owner board-slow) once a call took over 5 s. Target
   (the person's): no work call over 5 s for a day of normal use, against today's stall log. The page shows nothing new (rule 16).

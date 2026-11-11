@@ -60,6 +60,7 @@ import { parseHistory } from './src/history.mjs'
 import { hearingLog } from './src/hearing.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
 import { workCallRecord } from './src/workCalls.mjs'
+import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
 import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
@@ -844,12 +845,17 @@ async function main(args) {
    * failure is recorded; started on the next turn of the loop, so the answer is on its way first.
    */
   let afterQueue = Promise.resolve()
+  /** A run that has not settled after this long no longer holds the queue (the core review: one hung guard would hold every later wake). */
+  const AFTER_ANSWER_MS = 2 * 60_000
   const afterAnswer = run => {
-    afterQueue = afterQueue.then(() => new Promise(next => setImmediate(next))).then(run, run).catch(error => loops.failed('after-answer', error))
+    const timed = () => new Promise(settle => {
+      const late = setTimeout(() => settle(loops.failed('after-answer', new Error(`a run after an answer did not settle within ${AFTER_ANSWER_MS / 60_000} min; the queue went on`))), AFTER_ANSWER_MS)
+      late.unref?.()
+      Promise.resolve().then(run).then(() => { clearTimeout(late); settle() }, error => { clearTimeout(late); settle(loops.failed('after-answer', error)) })
+    })
+    afterQueue = afterQueue.then(() => new Promise(next => setImmediate(next))).then(timed, timed).catch(error => loops.failed('after-answer', error))
     return afterQueue
   }
-  /** board-fast-answer: a kept state older than this is read anew before a work call is answered from it. */
-  const KEPT_STATE_MS = 60_000
   const loops = loopRecord({ now: clock, holders: isDemo ? null : files => fileHolders(files), write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')), track: trackJob })
   /** B404: the checks after a report that run now, by step id; a restart waits for them, the stuck-check pass skips them. */
   const runningChecks = new Map()
@@ -1693,14 +1699,14 @@ async function main(args) {
    * stale list: a caller the kept state does not know (a chat just added or cleared into a new session: B736's case) or a kept state
    * older than KEPT_STATE_MS (no page, no loop ran) reads once, as before; and there is no kept state in the first seconds after a start.
    */
-  const keptStateFor = async chat => {
+  const keptStateFor = async (chat, action) => {
     const last = readState.last() ?? null
-    if (last === null || !Number.isFinite(last.readAt) || clock() - last.readAt > KEPT_STATE_MS) return readState()
-    if (chat !== null && chat !== undefined && laneRole(last, chat) === null) return readState()
-    return last
+    // `dirty`: a write reset the state since it was read (folders.mjs `cached`: readAt -Infinity until the next whole read).
+    const why = keptStateWhy({ last, now: clock(), chat, action, dirty: readState.readAt() === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS })
+    return why === 'kept' ? last : readState()
   }
-  const workCtx = async ({ kept = false, chat = null } = {}) => {
-    const state = kept ? readState.last() ?? await readState() : await keptStateFor(chat)
+  const workCtx = async ({ kept = false, chat = null, action = null } = {}) => {
+    const state = kept ? readState.last() ?? await readState() : await keptStateFor(chat, action)
     const lanes = (state.chats ?? []).filter(lane => !lane.isLeftover)
     const roles = new Map(lanes.map(lane => [lane.name, lane.isMain ? 'main' : 'worker']))
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
@@ -1864,7 +1870,7 @@ async function main(args) {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
-    const done = await workApi(body, { ...(await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null })), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
+    const done = await workApi(body, { ...(await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null, action: body?.action ?? null })), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
     // T9.1.1: a result check is a Quality Assurance task the work API makes itself (api.mjs `qaStep`): no word to the Advisor.
     // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.
     // board-fast-answer: the guard runs after the answer (`afterAnswer`, in order): it is eventual, the store's truth is the call's write.
@@ -2839,6 +2845,8 @@ async function main(args) {
       if (!inTime) console.log('Restart: the board did not wait longer than 10 s for its running work; the next start checks again.')
       // T13: the last reports are on disk before the new board reads them.
       await reportsSave?.flush()
+      // board-fast-answer: the day's work-call figures are on disk before the new board reads them.
+      await workCalls.flush()
       await wakesSave?.flush()
       // Gap 2 of the live proof: the page asks every refreshSeconds, so the board keeps answering `leaving` for one refresh
       // and a second before it ends (in parallel with the wait above, not after it).

@@ -136,6 +136,8 @@ test('a whole read of 5 s: a chat\'s report is kept and work health answers with
   assert.match(health.answered.body?.text ?? JSON.stringify(health.answered.body), /^The board's health/)
   assert.ok(health.ms < QUICK_MS, `work health waited ${health.ms} ms for a whole read`)
   // board-fast-answer (B1030 way A): a worker's WRITE answers from the store and the kept state while a whole read of 5 s runs.
+  // (busy, then idle: the idle after a busy resets the state and starts a whole read of 5 s; the note comes while it runs.)
+  assert.equal((await report('Lead', 'busy')).status, 200)
   assert.equal((await report('Lead', 'idle')).status, 200)
   const noted = await timed(() => work('Digger', { action: 'note', to: 'main', text: 'a note while the board reads' }))
   assert.equal(noted.answered.status, 200, JSON.stringify(noted.answered.body))
