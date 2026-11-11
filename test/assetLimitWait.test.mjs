@@ -16,7 +16,7 @@ import { newAsset, readAsset } from '../src/assets.mjs'
 import { parseConfig } from '../src/config.mjs'
 import { stepStatusOf } from '../src/stepStatus.mjs'
 import { assetWorkOf, lateAssetsOf } from '../src/work/assetWait.mjs'
-import { isLimitWhy, limitResetOf, waitsForLimit } from '../src/work/providerLimit.mjs'
+import { LIMIT_TRIES, SOONEST_MS, isLimitWhy, limitResetOf, waitsForLimit } from '../src/work/providerLimit.mjs'
 import { holderTimers } from '../src/work/holderTimers.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
@@ -26,7 +26,8 @@ import { tempDir } from './tempDir.mjs'
 import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
-const at = (hour, minute) => new Date(2026, 10, 11, hour, minute).getTime()
+/** The case's day moved to a fixed past day (4 Nov): a reader that falls back to the real clock then reads the limit as long gone. */
+const at = (hour, minute) => new Date(2026, 10, 4, hour, minute).getTime()
 const FAILED_AT = at(12, 31)
 const RESET = at(13, 23)
 const NOW = at(12, 40)
@@ -99,6 +100,23 @@ test('the words: "try again at 1:23 PM" is today\'s 13:23; "in 2 hours"; no time
   assert.equal(limitResetOf(OTHER_WHY, NOW), null)
   assert.equal(limitResetOf('Codex took longer than 240 seconds and was stopped.', NOW), null)
   assert.equal(limitResetOf('usage limit: try again in 3 days', NOW), null)
+  assert.equal(limitResetOf('usage limit: try again in 25 hours', NOW), null)
+  // 12:30 PM at 12:40 passed ten minutes ago: the reset's own hour, a retry in two minutes; 12:30 PM at 12:00 is today's 12:30.
+  assert.equal(limitResetOf('You have hit your usage limit; try again at 12:30 PM', NOW), NOW + SOONEST_MS)
+  assert.equal(limitResetOf('You have hit your usage limit; try again at 12:30 PM', at(12, 0)), at(12, 30))
+  // The reset's own minute (the queue ran again at 13:23:10 and Codex still says 1:23 PM), or a clock a little ahead: a retry in two
+  // minutes, never tomorrow; a time that passed over an hour ago is tomorrow's.
+  assert.equal(limitResetOf(LIMIT_WHY, RESET), RESET + SOONEST_MS)
+  assert.equal(limitResetOf(LIMIT_WHY, RESET + 10_000), RESET + 10_000 + SOONEST_MS)
+  assert.equal(limitResetOf(LIMIT_WHY, RESET + 61 * MIN), RESET + 24 * 60 * MIN)
+  // No clock time from a bare number or a span: "retry after 5 seconds" is a span (two minutes at the least), "retry at 3" is nothing.
+  assert.equal(limitResetOf('rate limit: retry after 5 seconds', NOW), NOW + SOONEST_MS)
+  assert.equal(limitResetOf('usage limit: try again after 2 hours', NOW), NOW + 120 * MIN)
+  assert.equal(limitResetOf('quota exceeded, retry at 3', NOW), null)
+  assert.equal(limitResetOf('quota exceeded, try again at 1:2', NOW), null)
+  // The limit words: usage limit, rate limit, quota, credits; none of them, nothing.
+  for (const words of ['rate limit', 'quota', 'credits']) assert.equal(limitResetOf(`${words} reached, try again at 1:23 PM`, NOW), RESET, words)
+  assert.equal(limitResetOf('the server is busy, try again at 1:23 PM', NOW), null)
   assert.ok(isLimitWhy(LIMIT_WHY) && !isLimitWhy(OTHER_WHY))
   assert.ok(waitsForLimit(LIMITED()[0], NOW) && !waitsForLimit(LIMITED()[0], RESET + 1) && !waitsForLimit(FAILED()[0], NOW))
 })
@@ -128,7 +146,38 @@ test('point 1: the queue keeps a limit failure waiting, tells nobody, leaves Cod
   await queue.pass()
   await queue.idle()
   const ready = await readAsset(dir, 'A1')
-  assert.deepEqual([ready.state, ready.limit, ready.files, made, told], ['ready', null, ['1.png'], ['A1', 'A1', 'A2'], ['A1 ready', 'A2 ready']])
+  assert.deepEqual([ready.state, ready.limit, ready.limitTries, ready.files, made, told], ['ready', null, null, ['1.png'], ['A1', 'A1', 'A2'], ['A1 ready', 'A2 ready']])
+})
+
+test('a second limit at the reset waits again; another provider is not blocked; after three waits the failure stands and the chat is told', async t => {
+  let clock = FAILED_AT
+  const { provider, made } = standIn([LIMIT_WHY, 'usage limit: try again at 2:00 PM', 'usage limit: try again at 2:30 PM', 'usage limit: try again at 3:00 PM'])
+  const other = { ...standIn([null]).provider, name: 'elevenlabs-images', card: { title: 'Other' } }
+  const dir = join(await tempDir(t), 'assets')
+  const told = []
+  const queue = assetQueue({ dir, providers: { codex: provider, 'elevenlabs-images': other }, now: () => clock, tell: async record => told.push(`${record.id} ${record.state}${record.why === '' ? '' : `: ${record.why}`}`) })
+  await newAsset(dir, { who: 'Worker 1', of: 'B1125', kind: 'visual', provider: 'codex', mode: 'auto', text: 'a' }, at(12, 29))
+  await newAsset(dir, { who: 'Worker 2', of: 'B1095', kind: 'visual', provider: 'elevenlabs-images', mode: 'auto', text: 'b' }, at(12, 29) + 1)
+  const pass = async () => { await queue.pass(); await queue.idle() }
+  await pass()
+  // Codex waits for 13:23; the other provider drew its picture meanwhile.
+  assert.deepEqual([(await readAsset(dir, 'A1')).limit.tries, (await readAsset(dir, 'A2')).state, told], [1, 'ready', ['A2 ready']])
+  // At the reset Codex says 2:00 PM: it waits again (the second wait), then 2:30 PM (the third).
+  clock = RESET + MIN
+  await pass()
+  assert.deepEqual([(await readAsset(dir, 'A1')).state, (await readAsset(dir, 'A1')).limit.until, (await readAsset(dir, 'A1')).limit.tries], ['waiting', at(14, 0), 2])
+  clock = at(14, 1)
+  await pass()
+  assert.equal((await readAsset(dir, 'A1')).limit.tries, 3)
+  // The fourth limit: the failure stands, with how often the board waited, and the chat is told.
+  clock = at(14, 31)
+  await pass()
+  const failed = await readAsset(dir, 'A1')
+  assert.deepEqual([failed.state, failed.limit, made.length], ['failed', null, 4])
+  assert.match(failed.why, / \(the board waited for its reset 3 times\)$/)
+  assert.equal(told.length, 2)
+  assert.match(told[1], /^A1 failed: usage limit: try again at 3:00 PM \(the board waited for its reset 3 times\)$/)
+  assert.equal(LIMIT_TRIES, 3)
 })
 
 test('point 3, the mutant of point 1: a limit without a known reset, and any other failure, fails as before and the chat is told', async t => {
@@ -146,12 +195,16 @@ test('point 2: the live case reads "Working · Codex is at its usage limit until
   const lane = laneOf(state)
   assert.deepEqual([lane.status, lane.why, lane.state, lane.heldBy, lane.suspended], ['Working', LINE, 'working', 'asset', null])
   assert.equal(lane.assetWork.limitUntil, RESET)
+  assert.deepEqual(state.assets.map(one => one.limit?.until ?? null), [RESET, RESET, RESET, RESET, RESET])
   assert.equal(lane.assetWork.ticks, 'shield bash … · guard … · rally … · charge … · shield throw …')
   assert.deepEqual([state.stepStatus.B1125.kind, state.stepStatus.B1125.why], ['asset', LINE])
   assert.equal(stepStatusOf(B1125(), { assets: LIMITED(), now: NOW }).why, LINE)
   // With two of five drawn before the limit hit the words count them.
   const partly = [...LIMITED().slice(0, 3), request('A233', 'ready', { started: at(12, 27), ended: at(12, 28) }), request('A234', 'ready', { started: at(12, 28), ended: at(12, 29) })]
   assert.equal(assetWorkOf(B1125(), partly, { chat: 'Worker 1', now: NOW }).words, 'Codex is at its usage limit until 13:23; then it draws 3 pictures for it (2 of 5 done)')
+  // One of them failed for another reason: it is not drawn again, and the words say so.
+  const oneFailed = [...LIMITED().slice(0, 2), request('A232', 'failed', { started: at(12, 27), ended: at(12, 28), why: OTHER_WHY }), ...LIMITED().slice(3)]
+  assert.equal(assetWorkOf(B1125(), oneFailed, { chat: 'Worker 1', now: NOW }).words, 'Codex is at its usage limit until 13:23; then it draws 4 pictures for it (0 of 5 done, 1 failed)')
   // The holder timers stay off until the reset and beyond, while the requests are open; Resume all leaves Worker 1.
   for (const now of [NOW, RESET + 3 * MIN, RESET + 30 * MIN]) assert.equal(holderTimers({ worker: { ...lane, state: 'interrupted' }, holding: B1125(), items: storeOf([B1125()]), prefix: PREFIX, assets: LIMITED(), runningMs: from => now - from }), null, String(now))
   const pause = { state: 'resuming', since: NOW - MIN, pausedSince: at(12, 35) }

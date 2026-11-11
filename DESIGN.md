@@ -7082,7 +7082,9 @@ Codex" or Working, the person chose Working: the task's work goes on, done by Co
   again at 1:23 PM" is today's 13:23, or tomorrow's; "in 2 hours" counts from now; nothing beyond a day) is no failure. The queue
   (src/assetQueue.mjs `run`) puts the request back to waiting with `limit: { until, why, at }` (assets.mjs clears `times.started`),
   tells nobody, leaves the provider's requests alone while one of them waits for the reset (`waitsForLimit`), and runs the oldest
-  again by itself once the reset passed (the record's `limit` is cleared when it runs; a second limit sets a new one). The lane
+  again by itself once the reset passed (the record's `limit` is cleared when it runs; a second limit sets a new one; after three
+  waits for one request the failure stands and the chat is told, `LIMIT_TRIES`: a limit that never lifts would run, and pay, for
+  ever). A clock time that passed within the hour is the reset's own minute: a retry in two minutes, never tomorrow. The lane
   reads "Working · Codex is at its usage limit until 13:23; then it draws 5 pictures for it" (`assetWorkOf`, `limitUntil`), the
   timers stay off (the request is open), Resume all skips it, and the Late counts from the reset plus the job's limit
   (`lateAssetsOf`). A limit without a reset time, and every other failure, fails as before. Pinned by `test/assetLimitWait.test.mjs`.

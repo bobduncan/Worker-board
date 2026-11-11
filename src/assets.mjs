@@ -21,7 +21,7 @@
 //   ask       the person's ask (Q<n>) of a person provider, or null
 //   pick      the library folder a pick provider named, or null
 //   limit     `{ until, why, at }` while the request waits for its provider's usage limit to reset (the asset-limit wait,
-//             2026-11-11, src/work/providerLimit.mjs), else absent or null
+//             2026-11-11, src/work/providerLimit.mjs), else absent or null; `limitTries` how often it waited so far while it runs
 
 import { mkdir, readdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'

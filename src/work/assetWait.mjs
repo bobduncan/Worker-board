@@ -155,9 +155,9 @@ export function assetWorkOf(step, assets, { chat = null, prefix = '', now = Date
   // The asset-limit wait (2026-11-11, B1125): the provider is at its usage limit; the board runs the requests again at the reset.
   const limited = round.filter(one => waitsForLimit(one, now)).map(one => one.limit.until)
   const until = limited.length === 0 ? null : Math.max(...limited)
-  const left = pieces.filter(one => one.state !== 'ready').length
+  const left = pieces.filter(one => one.state === 'waiting' || one.state === 'running').length
   const words = until !== null
-    ? `${wait.who} is at its usage limit until ${hourMinute(until)}; then it draws ${left === 1 ? '1 picture' : `${left} pictures`} for it${done > 0 ? ` (${done} of ${total} done)` : ''}`
+    ? `${wait.who} is at its usage limit until ${hourMinute(until)}; then it draws ${left === 1 ? '1 picture' : `${left} pictures`} for it${done > 0 || failed > 0 ? ` (${progress})` : ''}`
     : `${wait.who} draws ${count} for it · ${progress}${finite(since) ? ` · since ${hourMinute(since)}` : ''}`
   return {
     who: wait.who, provider: wait.provider, ids: round.map(one => one.id), pieces, total, done, failed, since: finite(since) ? since : null, link: wait.link, words, limitUntil: until,
