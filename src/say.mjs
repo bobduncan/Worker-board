@@ -269,7 +269,8 @@ export function planWords(command, { to, id, words = null, job, written = false 
     'plan-strategy': ['plan: strategy', `Strategy: ${said}`],
     'plan-not-now': [`plan: ${id} not now`],
   }[command]
-  return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id === '' ? 'plan' : id, text: [...head, ...wrote, `Your job: ${job}, "The plan interview"`].join('\n') }
+  // P4c: the person's own words stay on the word (`said`), so a Send again of a late word types them again, whatever the box holds now.
+  return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id === '' ? 'plan' : id, ...(said === '' ? {} : { said }), text: [...head, ...wrote, `Your job: ${job}, "The plan interview"`].join('\n') }
 }
 
 /**

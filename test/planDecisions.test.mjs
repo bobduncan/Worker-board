@@ -291,7 +291,7 @@ test('the page: after a decision the slide is gone from the state the server giv
       assert.deepEqual(given.working, [])
       const fresh = visionView(given, { page: 'interview', at: 0, picked: {}, change: null, asked: [], marks: {}, confirms: [] })
       assert.deepEqual(ids(fresh), [])
-      assert.deepEqual(fresh.working, [])
+      assert.equal(fresh.working, undefined, 'P4c: the view keeps no guessed working list: the lines come from the server')
       assert.equal(Object.values(fresh.busy).some(Boolean), false)
     }
   } finally {

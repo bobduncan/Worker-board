@@ -238,7 +238,9 @@ test('the interview: the questions in the page\'s order, deeper ones under their
   // Your own words picked: the last card, its letter next after the partner's.
   assert.deepEqual(visionView(plan, { ...UI, picked: { P5: made.OWN_WORDS } }).slides[2].picked, { label: made.OWN_WORDS, key: 'C', head: 'In your own words', points: [], isAdvised: false, picture: null, isOwn: true })
   assert.deepEqual(view.slides[3], { kind: 'open', id: 'P6', title: 'Where', question: 'Where', text: '', isFromAnswer: false, isAsked: false })
-  assert.equal(visionView(plan, { ...UI, asked: ['P6'] }).slides[3].isAsked, true)
+  // P4c: no page memory of "asked": the UI's `asked` is ignored; the word the board holds (its record, the outbox) is what asks.
+  assert.equal(visionView(plan, { ...UI, asked: ['P6'] }).slides[3].isAsked, false)
+  assert.equal(visionView({ ...plan, working: [{ id: 'w1', command: 'plan-ask', about: 'P6', at: 1, state: 'waiting', what: 'the options' }] }, UI).slides[3].isAsked, true)
   // The slide at stays inside the slides.
   assert.equal(visionView(plan, { ...UI, at: 12 }).at, 8)
   assert.equal(visionView(plan, { ...UI, at: -3 }).at, 0)
@@ -290,20 +292,28 @@ test('the goals: the preset per milestone, Confirm not sent yet, and the state o
   assert.equal(confirming.steps[3].isDone, false)
 })
 
-test('while the partner prepares: Go deeper waits on its card, Get options shows as asked, the sends wait, the lines name the part', () => {
+test('while a word stands: Go deeper waits on its card, Get options shows as asked, the sends wait: by the line of the word (P3), never a guess; a Late line frees the button', () => {
   const busy = { ...plan, working: [
-    { command: 'plan-deeper', about: 'P2', at: 1, state: 'working', what: 'deeper questions' },
-    { command: 'plan-ask', about: 'P6', at: 1, state: 'waiting', what: 'the options' },
-    { command: 'plan-marks', about: 'plan', at: 1, state: 'working', what: 'your marks' },
-    { command: 'plan-goals-agree', about: 'plan', at: 1, state: 'late', what: 'the goals into your goal map' },
+    { id: 'w1', command: 'plan-deeper', about: 'P2', at: 1, state: 'working', what: 'deeper questions' },
+    { id: 'w2', command: 'plan-ask', about: 'P6', at: 1, state: 'waiting', what: 'the options' },
+    { id: 'w3', command: 'plan-marks', about: 'plan', at: 1, state: 'working', what: 'your marks' },
+    { id: 'w4', command: 'plan-goals-agree', about: 'plan', at: 1, state: 'working', what: 'the goals into your goal map' },
   ] }
-  const view = visionView(busy, UI)
+  const lines = { w1: { state: 'picked-up' }, w2: { state: 'sent' }, w3: { state: 'sent' }, w4: { state: 'late' } }
+  const view = visionView(busy, UI, null, { waits: lines })
   assert.deepEqual(view.cards.map(card => [card.id, card.deeperWork]), [['P1', null], ['P2', 'working'], ['P5', null], ['P6', null], ['P7', null]])
   assert.equal(view.slides.find(slide => slide.id === 'P6').isAsked, true)
+  // w4's line is Late (the server's P3 rule, not a 30-minute guess of the page's): its button is free again.
   assert.deepEqual(view.busy, { marks: true, featureAdd: false, confirms: false, goalsChange: false, agree: false, standards: false, standardConfirms: false, standardsChange: false, standardsAgree: false, check: false, focus: false, tradeoffs: false, strategy: false })
-  assert.deepEqual(view.working.map(one => [one.command, one.title, one.state]), [['plan-deeper', 'Look', 'working'], ['plan-ask', 'Where', 'waiting'], ['plan-marks', null, 'working'], ['plan-goals-agree', null, 'late']])
-  assert.match(script, /'Preparing questions…'/)
-  assert.match(css, /\.vision-spinner \{/)
+  const raw = made.visionView(busy, UI, null, { waits: lines })
+  assert.equal(raw.titleOf('P2'), 'Look')
+  assert.equal(raw.titleOf('plan'), null)
+  // A Late line frees Go deeper too, and says "Deepen again".
+  assert.equal(visionView(busy, UI, null, { waits: { ...lines, w1: { state: 'late' } } }).cards[1].deeperWork, 'late')
+  // No line yet (the state not read again): the record's own state stands.
+  assert.equal(visionView(busy, UI).cards[1].deeperWork, 'working')
+  // No text of the page's own about what the partner is doing: the line is the server's.
+  assert.doesNotMatch(script, /Preparing questions|is preparing|Your partner prepares|Your partner is (laying|choosing|proposing|weighing)|No answer from \$\{partner\} yet/)
 })
 
 test('no plan: no view; no question: no slides; no features or goals: empty steps', () => {
@@ -417,24 +427,24 @@ test("the trial's gap 1 (2026-10-24): an empty Vision tab starts with what you b
   assert.equal(made.visionStartWords('Website', ''), 'Website')
 })
 
-test("the wait after Start (2026-10-24, the user: \"i want a loader while im waiting for the partner\"): a loader until the partner's page is there", () => {
-  const wait = (planStart, ui) => JSON.parse(JSON.stringify(made.visionStartWait(planStart, { ...UI, startSent: false, startAgain: false, ...ui }, 'Trial - Advisor')))
+test("the wait after Start (2026-10-24; P4c): the person's start and the server's line as its one status; Start again on Late; the start card for a start that never arrived", () => {
+  const wait = (planStart, ui, line = null) => JSON.parse(JSON.stringify(made.visionStartWait(planStart, { ...UI, startSent: false, startAgain: false, ...ui }, 'Trial - Advisor', line)))
   // Nothing sent: the start card.
   assert.equal(wait(null, {}), null)
-  // Just sent, before the board read it again: waiting.
-  assert.deepEqual([wait(null, { startSent: true }).state, wait(null, { startSent: true }).isBusy], ['waiting', true])
-  const working = wait({ at: 1, state: 'working' }, {})
-  assert.equal(working.isBusy, true)
-  assert.match(working.head, /Trial - Advisor is starting your plan/)
-  const late = wait({ at: 1, state: 'late' }, {})
-  assert.deepEqual([late.isBusy, late.canAgain], [false, true])
-  assert.match(late.line, /Trial - Advisor's chat/)
+  // Just sent, before the board read it again: the card, no line (no record yet), no guess.
+  const just = wait(null, { startSent: true })
+  assert.deepEqual([just.state, just.line, just.canAgain], ['waiting', null, false])
+  assert.match(just.head, /Trial - Advisor/)
+  // The server's line stands for what is going on: Late offers Start again; anything else does not.
+  assert.equal(wait({ at: 1, state: 'working' }, {}, { state: 'picked-up', isShown: true }).canAgain, false)
+  assert.equal(wait({ at: 1, state: 'working' }, {}, { state: 'late', isShown: true }).canAgain, true)
   // A start that never arrived, or Start again: the start card, with why.
   assert.equal(wait({ at: 1, state: 'failed' }, { startSent: true }), null)
   assert.equal(wait({ at: 1, state: 'working' }, { startAgain: true }), null)
   assert.match(made.visionStartProblem({ at: 1, state: 'failed' }, 'Trial - Advisor'), /did not reach Trial - Advisor/)
   assert.equal(made.visionStartProblem({ at: 1, state: 'working' }, 'Trial - Advisor'), null)
   assert.match(script, /function visionStartWaitCard\(/)
+  assert.doesNotMatch(script, /is starting your plan|No answer from \$\{partner\} yet/)
 })
 
 test("a fresh plan opens on the Interview, at its first question, until you pick a step (2026-10-24, the user: \"i prefer to start directly with the interview\")", () => {
@@ -448,13 +458,14 @@ test("a fresh plan opens on the Interview, at its first question, until you pick
   assert.match(script, /page: null, at: 0, picked/)
 })
 
-test("a card whose next question the partner prepares from your answer shows a loader, not Get options (2026-10-24)", () => {
+test("a card whose next question the partner writes from your answer shows the answer's line, not Get options (2026-10-24; P4c: no sentence of the page's own)", () => {
   const open = planState('# P\n\n## P1 · What it is\n- State: open\n', [], 'p.md')
   const slideOf = working => visionView({ ...open, working }, { ...UI, page: 'interview' }).slides.find(slide => slide.id === 'P1')
   assert.deepEqual([slideOf([]).isAsked, slideOf([]).isFromAnswer], [false, false])
   const busy = slideOf([{ command: 'plan-answer', about: 'P1', at: 1, state: 'working', what: 'the next question from your answer' }])
   assert.deepEqual([busy.isAsked, busy.isFromAnswer], [true, true])
-  assert.match(script, /Your partner is preparing the next question\./)
+  assert.doesNotMatch(script, /Your partner is preparing the next question\./)
+  assert.match(script, /function visionOpenLine\(/)
 })
 
 test('the plan step: the strategy choice, change badges, Not now, only what changes (2026-10-24)', () => {

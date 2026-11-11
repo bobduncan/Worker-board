@@ -661,14 +661,15 @@ test('"Ask for pictures" on a refine question goes to the Advisor as the board\'
   }
 })
 
-test('"asked at" belongs to the question\'s words: another question at the same place asks again', async () => {
+test('P4c: no page memory of "Asked at": the button reads the same after the click (the record\'s line says where the request is), and for another question too', async () => {
   const round1 = stateWith(waiting([LANTERN]))
   const round2 = stateWith(waiting(['Which door? A: red. B: blue Advised: A'], 2))
   let now = round1
   const shown = await openPage({ state: () => now, hash: 'details=B12', answers: answering(() => reply({})) })
   try {
     await shown.click('.q-ask-pictures')
-    assert.match(words(shown.find('.q-ask-pictures')), /^Asked at/)
+    assert.equal(words(shown.find('.q-ask-pictures')), 'Ask for pictures')
+    assert.doesNotMatch(words(shown.find('#details')), /Asked at/)
     now = round2
     await shown.reread()
     assert.equal(words(shown.find('.q-ask-pictures')), 'Ask for pictures')

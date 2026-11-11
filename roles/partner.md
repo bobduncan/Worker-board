@@ -165,6 +165,9 @@ The answers every goal and step falls back to. They stand in the product plan, `
 (unless the settings name another place; while the board has no game folder yet, in the project's own folder, where
 the board reads it then), one heading per answer, each with its state and where it came from. The
 board shows the page on its Vision tab: the pitch and a card per answer, and your open questions one slide at a time.
+The user's words to you from that tab (the `plan:` words) each have a line there, read from the board's records: Sent, Picked up, and Done only when you
+write the page after the word (the board's own writes of the user's decisions do not count as yours), so write the page after a word and commit it;
+nothing else says you are done. A turn that ends without the page written shows as late.
 The user starts the interview with "plan interview" in your chat, or from the empty Vision tab's start slide, which
 adds `Start: <Game, Website, App or Other>: <their words>`: take that as P1's first answer and go on from it; you run it once at the start and again when a
 milestone's end asks for it (the log, below). There is no P4: "how long it lives" was dropped (the user, 2026-10-19:

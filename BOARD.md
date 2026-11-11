@@ -209,6 +209,8 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
 - **The side, "Talk to Main"** (`02-talk-to-main.png`): the person's talk with the main chat: what they typed (also
   in the chat itself) and its answers with times, the main chat's "For you" block and closing block drawn as such;
   lines on their way marked so. A box with **Send to Main**; Ctrl+V adds a picture, shown small until it is sent.
+  Under the box, the one line of the newest message sent from it (Sent, Picked up, Done by the chat's turn, Late), from the
+  records only; the same under the Advisor's Send, beside a hint's nudge button and under "Ask for pictures" on an ask.
 
 ## The windows
 
@@ -409,6 +411,8 @@ of this page), **Suggestions** (the Advisor's open suggestions with their Why, C
 come), **Refine** (the steps by where their refine stands) and **Chat** (a chat with the Advisor, as "Talk to Main").
 
 ## Vision (2026-10-19)
+
+**Where a word to the partner stands (P4c, 2026-11-11).** Every Vision button that sends a word (Start, Go deeper, Get options, Change, Propose standards, Measure, Check the plan, Propose the next focus, Lay the plan, a feature, the preset, the goals into the goal map, the tradeoffs, the strategy, and the follow-up word of a decision) has the one line of the other places where its button was: the tab's list, the card, the open slide, the start card. Sent, Picked up, Done when the partner wrote the plan page after it (the board's own write of a decision never counts), Late, all from the records; nothing the page guesses (no "is preparing", no 30-minute "no answer"), and no record, no line. A button waits while its line is Sent or Picked up. A Late line offers Send again with the words the person typed (kept on the word, so an emptied box does not matter). The way card's "No, because..." has its line under "You said no" (Done when the Advisor proposes another task).
 
 The product plan (`productPlan`, the game's `docs/product-plan.md`, written by the partner, except the person's own decisions: the board writes those into it at once): the answers every goal and
 step falls back to. Five steps, broad to narrow, **1 · Vision → 2 · Features → 3 · Standards → 4 · Plan → 5 · Focus**

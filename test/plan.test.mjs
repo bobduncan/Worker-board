@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { planMove } from '../src/planMoves.mjs'
-import { PLAN_LATE_MS, changeOf, optionCard, parsePlan, planStarting, planState, withPlanWork } from '../src/plan.mjs'
+import { changeOf, optionCard, parsePlan, planStarting, planState, withPlanWork } from '../src/plan.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { itemsOf, storeFromText } from '../src/work/read.mjs'
 
@@ -298,10 +298,12 @@ test('withPlanWork: what the partner is preparing from the board\'s words, until
   assert.deepEqual(work([deeper], null).map(([command]) => command), ['plan-goals-agree', 'plan-feature-add', 'plan-ask'])
   // The page written after the words ends them all.
   assert.deepEqual(work([], at + 1), [])
-  // Half an hour without an answer: late.
-  assert.equal(work([], null, at + 31 * 60_000).find(([command]) => command === 'plan-feature-add')[2], 'late')
+  // P4c: no guess of how long it takes: half an hour on, the word is still `working` (the wait line's P3 rules judge Late), and nothing here says `late`.
+  assert.equal(work([], null, at + 31 * 60_000).find(([command]) => command === 'plan-feature-add')[2], 'working')
   assert.equal(withPlanWork(null, sent, null, at), null)
-  assert.equal(PLAN_LATE_MS, 30 * 60_000)
+  // The word's id (its line is the state's `waits`) and the partner's page time ride along.
+  assert.equal(withPlanWork(planState(page, [], 'p.md'), [{ id: 'w1', command: 'plan-check', about: 'plan', at, state: 'delivered' }], null, at).working[0].id, 'w1')
+  assert.equal(withPlanWork(planState(page, [], 'p.md'), sent, at - 5, at).pageAt, at - 5)
 })
 
 test('parsePlan: the standards per kind, and a card\'s advice and settled lines', () => {
@@ -426,7 +428,7 @@ test("planStarting (2026-10-24, the user: \"i want a loader while im waiting for
   assert.deepEqual(planStarting(start('waiting'), at + 1000), { at, state: 'waiting' })
   assert.deepEqual(planStarting(start('held'), at + 1000), { at, state: 'waiting' })
   assert.deepEqual(planStarting(start('delivered'), at + 1000), { at, state: 'working' })
-  assert.deepEqual(planStarting(start('delivered'), at + PLAN_LATE_MS + 1), { at, state: 'late' })
+  assert.deepEqual(planStarting(start('delivered'), at + 31 * 60_000), { at, state: 'working' }, 'P4c: no 30-minute late here')
   assert.deepEqual(planStarting(start('expired'), at + 1000), { at, state: 'failed' })
   // A day later the start shows again.
   assert.equal(planStarting(start('delivered'), at + 25 * 60 * 60_000), null)
