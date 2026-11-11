@@ -64,9 +64,10 @@ test('every Vision word is a person\'s word of the place "plan": Sent, then Pick
     const onIt = waitsFor({ state: busy, outbox: [takenPlan(command)], reports: new Map([['Advisor', said('busy', at(8), { word: 'w1', turn: at(8) })]]) }).w1
     assert.deepEqual([onIt.state, onIt.lead], ['picked-up', 'Advisor is on it'], command)
     // The partner's page written BEFORE the word does not end it; one written after does: Done at that write's time.
-    const before = waitsFor({ state: baseState({ plan: planOf([word], at(20)) }), outbox: [word] }).w1
-    assert.equal(before.state, 'sent', `${command}: a write older than the word is no answer`)
-    const done = waitsFor({ state: baseState({ plan: planOf([word], at(5)) }), outbox: [word] }).w1
+    const picked = { ...word, pickedUpAt: at(9) }
+    const before = waitsFor({ state: baseState({ plan: planOf([picked], at(20)) }), outbox: [picked] }).w1
+    assert.notEqual(before.state, 'done', `${command}: a write older than the word is no answer`)
+    const done = waitsFor({ state: baseState({ plan: planOf([picked], at(5)) }), outbox: [picked] }).w1
     assert.deepEqual([done.state, done.lead, done.rest], ['done', `Done ${hhmm(at(5))}`, command === 'plan-deeper' ? 'deeper questions' : command === 'plan-ask' ? 'the options' : 'your plan is written'], command)
     // Late: its chat does not pick it up for long.
     const late = waitsFor({ state: baseState({ plan: planOf([planWord(command, { at: at(40) })]) }), outbox: [planWord(command, { at: at(40) })] }).w1
@@ -112,24 +113,49 @@ test('a board decision write is no answer; the partner\'s write is: a plan-deepe
     // The page as the partner left it, 20 minutes ago; the word to the partner is typed 10 minutes ago.
     const real = Date.now()
     await utimes(file, new Date(real - 20 * MIN), new Date(real - 20 * MIN))
-    const word = planWord('plan-deeper', { at: real - 10 * MIN })
+    const word = planWord('plan-deeper', { at: real - 10 * MIN, pickedUpAt: real - 9 * MIN })
     const line = async () => {
       const pageAt = await partnerPageAt((await stat(file)).mtimeMs, writes, file)
       return waitsFor({ state: baseState({ plan: withPlanWork(planState(await readFile(file, 'utf8'), [], 'p.md'), [word], pageAt, real) }), outbox: [word], now: real }).w1
     }
-    assert.equal((await line()).state, 'sent', 'the word waits: the page is older than it')
+    assert.equal((await line()).state, 'picked-up', 'the word waits: the page is older than it')
     // The person's own decision, written by the board now (a Confirm): the page file is newer than the word, yet this is no answer.
     const done = await planDecide({ command: 'plan-confirm', id: 'P7' }, { canWrite: true, partner: { name: 'Advisor' }, job: 'J', file, writesFile: writes, now: real })
     assert.equal(done.ok, true)
     assert.match(await readFile(file, 'utf8'), /- State: decided \(you, /)
     assert.ok((await stat(file)).mtimeMs > word.at, 'the board wrote the page after the word')
     const waiting = await line()
-    assert.deepEqual([waiting.state, waiting.lead], ['sent', `Sent ${hhmm(word.at)}`], 'a board decision write: still waiting, not Done')
+    assert.deepEqual([waiting.state, waiting.lead], ['picked-up', 'Advisor is on it'], 'a board decision write: still waiting, not Done')
     // The partner writes the page: Done, at that write's time.
     await writeFile(file, `${await readFile(file, 'utf8')}\n- Point: **Then** a pond\n`, 'utf8')
     const answered = await line()
     assert.deepEqual([answered.state, answered.rest], ['done', 'deeper questions'])
   } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('chat 1 ruling: a partner write counts only after the word was PICKED UP; a write while the word sat in a busy partner queue is no Done (10:00 / 10:02 / 10:05); with no pickedUpAt a later write gives a quiet note, never Done', () => {
+  const t = (h, m) => new Date(2026, 10, 11, h, m).getTime()
+  const now = t(10, 30)
+  const lineOf2 = (word, pageAt) => waitsFor({ state: baseState({ plan: withPlanWork(planState(PLAN_TEXT, [], 'p.md'), [word], pageAt, now) }), outbox: [word], now }).w1
+  // Measure on K1 typed at 10:00 into a partner still on Go deeper P1; the partner writes the page at 10:02; it picks the word up at 10:05.
+  const measure = planWord('plan-measure', { at: t(10, 0), state: 'delivered', deliveredAt: t(10, 0) + 1000 })
+  const queued = lineOf2({ ...measure, pickedUpAt: t(10, 5) }, t(10, 2))
+  assert.notEqual(queued.state, 'done', 'the 10:02 write was for the earlier word')
+  assert.doesNotMatch(`${queued.lead} ${queued.rest}`, /Done|not confirmed/)
+  // A write after its pick-up is its Done, at that write's time.
+  const answered = lineOf2({ ...measure, pickedUpAt: t(10, 5) }, t(10, 9))
+  assert.deepEqual([answered.state, answered.lead], ['done', 'Done 10:09'])
+  // No pickedUpAt (an older mod, a merged prompt): a later write is no Done; the line says so quietly.
+  const unknown = lineOf2(measure, t(10, 2))
+  assert.notEqual(unknown.state, 'done')
+  assert.match(unknown.rest, /plan written 10:02; not confirmed for this word/)
+  // A write older than the word gives no note.
+  assert.doesNotMatch(lineOf2(measure, t(9, 50)).rest, /not confirmed/)
+  // The same rule keeps the word open in the plan state (the Measure button stays busy).
+  const open = pickedUpAt => withPlanWork(planState(PLAN_TEXT, [], 'p.md'), [{ ...measure, pickedUpAt }], t(10, 2), now).working.length
+  assert.equal(open(t(10, 5)), 1)
+  assert.equal(open(undefined), 1)
+  assert.equal(open(t(10, 1)), 0)
 })
 
 test('the word keeps the person\'s own words (`said`): a Send again of a late word types them again, whatever the box holds now', async () => {
@@ -149,7 +175,9 @@ const recWord = (answer, more = {}) => ({ id: 'w1', to: 'Advisor', ask: null, st
 test('"No, because..." (the word to the Advisor) has the line where its button was; Done once the way card reads another recommendation; a yes the board carries out is no wait', () => {
   const no = recWord('no')
   assert.equal(isPersonWord(no), true)
-  assert.equal(isPersonWord(recWord('yes')), false, 'a yes is carried out by the board itself: instant, no chat')
+  assert.equal(isPersonWord(recWord('yes', { to: null })), false, 'a yes the board carries out itself has no chat: instant, no line')
+  assert.equal(isPersonWord(recWord('yes', { to: 'Main' })), true, 'a yes on a board with no work store goes to the main chat: it has its line')
+  assert.equal(waitsFor({ state: baseState({ milestone: { recommendation: { id: 'R1', title: 'x' } } }), outbox: [recWord('yes', { to: 'Main' })] }).w1.place, 'recommend')
   assert.equal(placeOfWord(no), 'recommend')
   const way = id => ({ milestone: { recommendation: id === null ? null : { id, title: 'x' } } })
   const sent = waitsFor({ state: baseState(way('R1')), outbox: [no] }).w1
@@ -202,7 +230,7 @@ test('the real case: real Vision words and real Talk to Main words from the boar
     const store = await fileStore(dir, 1_795_000_000_000)
     const real = id => store.outbox().find(word => word.id === id)
     const lineAt = (id, minutesAfter, { pageAt = null, kind = null } = {}) => {
-      const word = kind === null ? real(id) : { ...real(id), free: kind }
+      const word = kind === null ? { ...real(id), ...(pageAt === null ? {} : { pickedUpAt: real(id).at + MIN }) } : { ...real(id), free: kind }
       const now = word.at + minutesAfter * MIN
       const to = word.to
       const state = baseState({ advisor: lane('Advisor'), chats: [lane('Main')], plan: planOf([word], pageAt, now) })

@@ -285,9 +285,9 @@ test('withPlanWork: what the partner is preparing from the board\'s words, until
   const old = parseItem(`Id: Q7\nKind: ask\nTitle: P1.1: how big?\nState: open\nOwner: P - Partner\nAsks: decide\nFiled: ${at - 60_000}\n`)
   const sent = [
     { command: 'plan-deeper', about: 'P1', at: at - 600_000, state: 'delivered' },
-    { command: 'plan-deeper', about: 'P1', at, state: 'delivered' },
+    { command: 'plan-deeper', about: 'P1', at, state: 'delivered', pickedUpAt: at },
     { command: 'plan-ask', about: 'P5', at, state: 'waiting' },
-    { command: 'plan-feature-add', about: 'plan', at, state: 'delivered' },
+    { command: 'plan-feature-add', about: 'plan', at, state: 'delivered', pickedUpAt: at },
     { command: 'plan-goals-agree', about: 'plan', at, state: 'failed' },
     { command: 'focus', about: 'G1', at, state: 'delivered' },
   ]
@@ -297,7 +297,7 @@ test('withPlanWork: what the partner is preparing from the board\'s words, until
   // A deeper question filed after the word ends Go deeper's work.
   assert.deepEqual(work([deeper], null).map(([command]) => command), ['plan-goals-agree', 'plan-feature-add', 'plan-ask'])
   // The page written after the words ends them all.
-  assert.deepEqual(work([], at + 1), [])
+  assert.deepEqual(work([], at + 1), [['plan-goals-agree', 'plan', 'failed'], ['plan-ask', 'P5', 'waiting']], 'a word never picked up is not answered by a page write; the failed one stays')
   // P4c: no guess of how long it takes: half an hour on, the word is still `working` (the wait line's P3 rules judge Late), and nothing here says `late`.
   assert.equal(work([], null, at + 31 * 60_000).find(([command]) => command === 'plan-feature-add')[2], 'working')
   assert.equal(withPlanWork(null, sent, null, at), null)
@@ -437,7 +437,7 @@ test("planStarting (2026-10-24, the user: \"i want a loader while im waiting for
 test("withPlanWork: your answer to a plan question is with the partner until its page or the card's next question is there (2026-10-24)", () => {
   const page = '# P\n\n## P1 · What\n\n- State: open\n'
   const at = 3_000_000
-  const answer = { ask: 'work:Q8', step: 'Q8', title: 'P1: What kind of game is it?', text: 'A Tactics', at, state: 'delivered' }
+  const answer = { ask: 'work:Q8', step: 'Q8', title: 'P1: What kind of game is it?', text: 'A Tactics', at, state: 'delivered', pickedUpAt: at }
   const work = (sent, asks, pageAt, now = at + 60_000) => withPlanWork(planState(page, asks, 'p.md'), sent, pageAt, now).working.map(one => [one.command, one.about, one.state, one.what])
   assert.deepEqual(work([answer], [], null), [['plan-answer', 'P1', 'working', 'the next question from your answer']])
   // A deeper question's answer is about its card; an answer to a step's ask is no plan work.

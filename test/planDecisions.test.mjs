@@ -511,7 +511,7 @@ test('the board own write is not the partner answer: a pending word stays pendin
     const old = new Date(Date.now() - 3_600_000)
     await utimes(plan.file, old, old)
     const wordAt = Date.now() - 1_800_000
-    const sent = [{ command: 'plan-change', about: 'P7', at: wordAt, state: 'delivered' }, { command: 'plan-check', about: 'plan', at: wordAt, state: 'delivered' }]
+    const sent = [{ command: 'plan-change', about: 'P7', at: wordAt, state: 'delivered', pickedUpAt: wordAt + 1000 }, { command: 'plan-check', about: 'plan', at: wordAt, state: 'delivered', pickedUpAt: wordAt + 1000 }]
     const pending = async () => {
       const at = (await stat(plan.file)).mtimeMs
       const given = withPlanWork(planState(await plan.text(), [], 'p.md'), sent, await partnerPageAt(at, log, plan.file), Date.now())

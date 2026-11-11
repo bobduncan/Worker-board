@@ -482,8 +482,17 @@ const WORK_WORDS = {
   'plan-strategy': 'the plan in your strategy',
 }
 
+/**
+ * The words the Vision tab names a line by ("on the plan check"), for every word to the partner about the plan: the words it works on (`WORK_WORDS`)
+ * and the ones the board wrote itself (their follow-up word still has its line). Sent in the state (`plan.labels`): the page keeps no copy.
+ */
+export const WORD_LABELS = {
+  ...WORK_WORDS, 'plan-start': 'the start', 'plan-confirm': 'your confirmed answer', 'plan-settled': 'your settled card', 'plan-marks': 'your marks',
+  'plan-goals-confirm': 'your confirmed goals', 'plan-standards-confirm': 'your confirmed standards', 'plan-tradeoff': 'your tradeoff', 'plan-not-now': 'a goal set aside',
+}
+
 /** The card a word answers ("P1" for an answer of "P1.2: ..."), when it is the person's answer of a plan question. */
-const answeredCard = message => (typeof message?.ask === 'string' && (message.command ?? null) === null && QUESTION.test(String(message.title ?? ''))
+export const answeredCard = message => (typeof message?.ask === 'string' && (message.command ?? null) === null && QUESTION.test(String(message.title ?? ''))
   ? String(message.title).match(QUESTION)[1].split('.')[0] : null)
 /**
  * Whether the partner has answered a word to it about the plan (`message`, sent at `at`): for Go deeper a deeper question about the card filed
@@ -491,13 +500,15 @@ const answeredCard = message => (typeof message?.ask === 'string' && (message.co
  * written after it (`pageAt`: the PARTNER's write of the page, src/planWrite.mjs `partnerPageAt`: the board's own write of a decision is never
  * one). The one rule: `withPlanWork` (who is still open) and the wait line's Done (src/waitLine.mjs `planDone`) both read it.
  */
-export function planAnswered(plan, command, about, at, pageAt) {
+export function planAnswered(plan, command, about, at, pageAt, pickedUpAt = null) {
   const questions = plan?.questions ?? []
   const asked = command === 'plan-deeper'
     ? questions.some(question => question.about === about && question.isDeeper && question.filedAt >= at)
     : command === 'plan-ask' ? questions.some(question => question.id === about && question.filedAt >= at)
       : command === 'plan-answer' ? questions.some(question => question.about === about && question.filedAt >= at) : false
-  return asked || (Number.isFinite(pageAt) && pageAt > at)
+  // Chat 1's ruling (2026-11-11): a write of the page counts only after the word was PICKED UP (`pickedUpAt`: the turn on it began): a word delivered
+  // to a busy partner sits in its queue while the partner still writes the page for the earlier word. No pickedUpAt, no page-write answer.
+  return asked || (Number.isFinite(pageAt) && Number.isFinite(pickedUpAt) && pageAt > pickedUpAt)
 }
 
 /**
@@ -519,10 +530,10 @@ export function withPlanWork(plan, sent, pageAt, now) {
     if (seen.has(key)) continue
     seen.add(key)
     const at = Number(message.at)
-    if (planAnswered(plan, command, about, at, pageAt)) continue
+    if (planAnswered(plan, command, about, at, pageAt, message.pickedUpAt)) continue
     working.push({ id: message.id ?? null, command, about, at, state: wordState(message), what: WORK_WORDS[command] })
   }
-  return { ...plan, working, pageAt: Number.isFinite(pageAt) ? pageAt : null }
+  return { ...plan, working, pageAt: Number.isFinite(pageAt) ? pageAt : null, labels: WORD_LABELS }
 }
 
 /** Where a word to the partner is: `waiting`, `working` or `failed` (no `late`: the wait line judges it). */
@@ -541,5 +552,6 @@ export function planStarting(sent, now) {
   if (start === undefined) return null
   const at = Number(start.at)
   if (!Number.isFinite(at) || now - at > START_SHOWN_MS) return null
-  return { at, state: wordState(start) }
+  // `said`: the person's own words of the start, kept on the word, for Start again.
+  return { at, state: wordState(start), ...(typeof start.said === 'string' && start.said !== '' ? { said: start.said } : {}) }
 }

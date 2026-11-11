@@ -52,7 +52,7 @@ import { refinedAt } from './backlog.mjs'
 import { UNKNOWN_ATTENTION_MS } from './chatStatus.mjs'
 import { blocksOf } from './goals.mjs'
 import { STOP_HANDS_MS, isHandTaken } from './hands.mjs'
-import { planAnswered } from './plan.mjs'
+import { answeredCard, planAnswered } from './plan.mjs'
 import { PLAN_DECISIONS, PLAN_MOVES } from './planMoves.mjs'
 import { isLate } from './store.mjs'
 import { WAKE_PENDING, triedWords } from './wake.mjs'
@@ -424,7 +424,8 @@ export function isPersonWord(word, { sweepWord = null, now = null } = {}) {
   if ((word.ask ?? null) !== null) return true
   if (word.command === 'sweep') return typeof sweepWord === 'string' && word.id === sweepWord
   if (['recap-feedback', 'obsolete-check', 'how-go', 'goal-ask', ...TALK_COMMANDS, ...FOCUS_COMMANDS, ...BRAINSTORM_COMMANDS, ...PLAN_COMMANDS].includes(word.command)) return true
-  if (word.command === 'recommend') return word.answer === 'no'
+  // A yes the board carries out itself has no chat (`to` null, no word to wait for); a yes on a board with no work store goes to the main chat: its line too.
+  if (word.command === 'recommend') return word.answer === 'no' || word.answer === 'yes'
   if (FREE_KINDS.includes(word.free) && (word.command ?? null) === null) return true
   if (word.command === 'refine') return word.board !== true && word.isAuto !== true && (word.syncKey ?? null) === null
   if (!['stop', 'remove'].includes(word.command)) return false
@@ -721,9 +722,9 @@ export function changeProgress(word, thread, now = Date.now()) {
 export function planDone(word, plan) {
   if (plan === null || plan === undefined || !isTime(word?.at)) return null
   const about = word.about ?? 'plan'
-  if (!planAnswered(plan, word.command, about, word.at, plan.pageAt ?? null)) return null
+  if (!planAnswered(plan, word.command, about, word.at, plan.pageAt ?? null, word.pickedUpAt)) return null
   const asked = word.command === 'plan-deeper' ? 'deeper questions' : word.command === 'plan-ask' ? 'the options' : 'your plan is written'
-  return { at: isTime(plan.pageAt) && plan.pageAt > word.at ? plan.pageAt : null, words: asked, link: null }
+  return { at: isTime(plan.pageAt) && isTime(word.pickedUpAt) && plan.pageAt > word.pickedUpAt ? plan.pageAt : null, words: asked, link: null }
 }
 
 /**
@@ -1011,8 +1012,13 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     const line = !isOld || first.state === 'done' ? first
       : first.isExpired === true ? { ...first, isEnded: true, seen: null }
         : { ...first, state: 'sent', lead: `Sent ${clockOf(asked.at)}`, rest: 'no answer recorded in 24 h', canSendAgain: false, link: null, seen: null, at: asked.at, isEnded: true }
+    // Chat 1's ruling (2026-11-11): the partner wrote the plan page after this word, but the board has no record that its turn on THIS word began
+    // (no pickedUpAt: an older mod, a merged prompt): no Done, and a quiet note, as elsewhere in P3.
+    const planNote = place === 'plan' && !PLAN_DECISIONS.includes(word.command) && line.state !== 'done' && !isTime(word.pickedUpAt) && isTime(state?.plan?.pageAt) && state.plan.pageAt > word.at
+      ? `plan written ${clockOf(state.plan.pageAt)}; not confirmed for this word` : null
+    const noted = planNote === null ? line : { ...line, rest: [line.rest, planNote].filter(Boolean).join(' · ') }
     const title = String(asked.text ?? '').split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 160)
-    waits[asked.id] = { ...line, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command ?? asked.free, place, about: asked.about ?? asked.freeAbout ?? null, ...(place === 'plan' && typeof asked.said === 'string' ? { said: asked.said } : {}), goal: goalOfWord(asked, place, threads), ask: asked.ask ?? null, sentAt: asked.at, title }
+    waits[asked.id] = { ...noted, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command ?? asked.free, place, about: asked.about ?? asked.freeAbout ?? null, ...(place === 'plan' && typeof asked.said === 'string' ? { said: asked.said } : {}), ...(answeredCard(asked) === null ? {} : { planCard: answeredCard(asked) }), goal: goalOfWord(asked, place, threads), ask: asked.ask ?? null, sentAt: asked.at, title }
   }
   // Place 8: an incident that waits for the Supervisor's judgment, a line of its own each.
   Object.assign(waits, judgeLinesOf({ outbox, items, now, keep, judge, lanes, reports, paused, running, heard, wall, unknownMs, staleMs }))

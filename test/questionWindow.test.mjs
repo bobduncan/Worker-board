@@ -1041,3 +1041,28 @@ test('a refine answer whose word was not queued stands with its "Not sent" line 
     await shown.close()
   }
 })
+
+test('P4c: "Ask for pictures" on an ask: its line stands beside the button (the record\'s), the button cannot be pressed twice while the line is Sent or Picked up, and is free again with no line or a line past 24 h', async () => {
+  const line = (state, more = {}) => ({ state, lead: state === 'sent' ? 'Sent 11:57' : 'Digger is on it', rest: state === 'sent' ? 'waits for Digger to pick it up' : 'since 11:57', at: NOW - 3 * MIN, chat: 'Digger', canSendAgain: false, link: null, place: 'free', command: 'ask-pictures', about: null, goal: null, ask: null, sentAt: NOW - 3 * MIN, title: 'Your ask Q70', ...more })
+  const probe = await open([waiting([]), ask('Q70', null, NOW - 10 * MIN)])
+  let needId = null
+  try {
+    await probe.click('.q-ask-pictures')
+    needId = probe.sent('/api/say')[0].body.freeAbout
+  } finally { await probe.close() }
+  assert.equal(typeof needId, 'string', 'the click names the ask it is about (freeAbout), so its line is found again')
+  const withLine = async (waits, check) => {
+    const shown = await openPage({ state: { ...stateWith(waiting([]), ask('Q70', null, NOW - 10 * MIN)), waits, readAt: NOW }, hash: 'details=B12', answers: answering(() => reply({})) })
+    try { await check(shown) } finally { await shown.close() }
+  }
+  await withLine({ w1: line('sent', { about: needId }) }, async shown => {
+    assert.equal(shown.find('.q-ask-pictures').disabled, true, 'Sent: not pressed twice')
+    assert.match(words(shown.find('.q-pictures-row .wait-words')), /^Sent \d\d:\d\d · waits for Digger to pick it up$/)
+  })
+  await withLine({ w1: line('picked-up', { about: needId }) }, async shown => assert.equal(shown.find('.q-ask-pictures').disabled, true, 'Picked up: not pressed twice'))
+  await withLine({ w1: line('sent', { about: needId, isEnded: true, rest: 'no answer recorded in 24 h' }) }, async shown => assert.equal(shown.find('.q-ask-pictures').disabled, false, 'ended after 24 h: free again'))
+  await withLine({}, async shown => {
+    assert.equal(shown.find('.q-ask-pictures').disabled, false)
+    assert.equal(shown.all('.q-pictures-row .wait-line').length, 0, 'no record: no line')
+  })
+})

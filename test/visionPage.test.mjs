@@ -10,7 +10,10 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import { planState } from '../src/plan.mjs'
+import { planState, withPlanWork } from '../src/plan.mjs'
+
+/** The plan with the person's own-words words to the partner about these cards standing in its records (`working`): the cards' decisions are away. */
+const withWords = (page, ids) => withPlanWork(page, ids.map((id, n) => ({ id: `w${n}`, to: 'Advisor', command: 'plan-change', about: id, at: 1000 + n, state: 'delivered', pickedUpAt: 2000 })), null, 5000)
 import { parseItem } from '../src/work/item.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
@@ -362,7 +365,7 @@ test('the guided path: a decision per slide with its step, its buttons, sent onc
   ])
   // A decision sent leaves the Interview at once (2026-10-25) and no longer counts as one to decide; the count of the
   // answered ones stands under the dots.
-  const sent = visionView(plan, { ...UI, sent: ['K2'] })
+  const sent = visionView(withWords(plan, ['K2']), UI)
   assert.deepEqual([sent.slides.some(one => one.id === 'K2'), sent.interviewLabel, sent.answered], [false, 'Interview · 8 to decide', 1])
   assert.equal(sent.slides.length, view.slides.length - 1)
   // A decision is no card's "your partner asks".
@@ -403,9 +406,9 @@ test('the Interview as the way through (2026-10-21): how many wait and where the
   const view = visionView(plan, UI)
   assert.deepEqual([view.waiting, view.firstWaiting], [9, 0])
   // Every slide before the last decision sent: the first waiting one is the last.
-  const sent = visionView(plan, { ...UI, sent: ['P7', 'F2', 'K2'] })
+  const sent = visionView(withWords(plan, ['P7', 'F2', 'K2']), UI)
   assert.equal(sent.waiting, 6)
-  const decidedOnly = visionView(planState(PAGE, [], 'p.md'), { ...UI, sent: ['P7', 'F2', 'K2', 'S1'] })
+  const decidedOnly = visionView(withWords(planState(PAGE, [], 'p.md'), ['P7', 'F2', 'K2', 'S1']), UI)
   assert.deepEqual([decidedOnly.waiting, decidedOnly.slides.filter(one => one.kind === 'open').length], [decidedOnly.slides.filter(one => one.kind === 'open').length, decidedOnly.waiting])
   assert.match(script, /'Send my words', 'decide-words'/)
   assert.match(script, /\{ command: 'plan-change', id: slide\.id, text: words \}/)
