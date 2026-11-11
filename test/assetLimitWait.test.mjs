@@ -174,9 +174,9 @@ test('a second limit at the reset waits again; another provider is not blocked; 
   await pass()
   const failed = await readAsset(dir, 'A1')
   assert.deepEqual([failed.state, failed.limit, made.length], ['failed', null, 4])
-  assert.match(failed.why, / \(the board waited for its reset 3 times\)$/)
+  assert.match(failed.why, / \(the board tried it 3 times\)$/)
   assert.equal(told.length, 2)
-  assert.match(told[1], /^A1 failed: usage limit: try again at 3:00 PM \(the board waited for its reset 3 times\)$/)
+  assert.match(told[1], /^A1 failed: usage limit: try again at 3:00 PM \(the board tried it 3 times\)$/)
   assert.equal(LIMIT_TRIES, 3)
 })
 

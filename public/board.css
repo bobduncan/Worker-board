@@ -1201,7 +1201,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .span.is-interrupted, .span.is-held, .span.is-noanswer { background: var(--warn); }
 /* T13 part 3: an asleep chat whose turn was cut resumes by itself: a quiet cool tone, never the alarm's. */
 .pill.is-asleep, .pill.is-stopped, .pill.is-restarting, .pill.is-checking, .pill.is-handing, .pill.is-offered { background: #5b7fae; color: var(--ink); }
-.pill.is-unknown.is-late, .workers-panel .pill.is-unknown.is-late { background: rgba(141, 154, 174, 0.14); color: var(--warn); box-shadow: inset 0 0 0 1px rgba(255, 122, 89, 0.5); }
+.pill.is-unknown.is-late, .workers-panel .pill.is-unknown.is-late, .pill.is-working.is-late, .workers-panel .pill.is-working.is-late { background: rgba(141, 154, 174, 0.14); color: var(--warn); box-shadow: inset 0 0 0 1px rgba(255, 122, 89, 0.5); }
 .status-why { margin-left: 8px; color: var(--muted); font-size: 0.78rem; }
 .count-pill.is-checking, .count-pill.is-handing, .count-pill.is-offered, .count-pill.is-restarting, .count-pill.is-stopped, .count-pill.is-asleep { border-color: #34465f; }
 .count-pill.is-held, .count-pill.is-noanswer { border-color: #6a3a2a; }

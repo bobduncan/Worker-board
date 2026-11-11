@@ -85,7 +85,8 @@ function laneStatus(lane) {
       : lane.isRunning === false && lane.asleep !== true && (lane.state === 'free' || lane.state === 'unknown') ? 'Not running'
         : (lane.waitsForPartner ?? []).length > 0 ? 'Working' : STATES[lane.state] ?? 'Unknown'
   const age = isBoards && Number.isFinite(lane.age) ? lane.age : null
-  const tone = STATUS_VIEW[status].tone === 'late' ? (age !== null && age > UNKNOWN_LATE_MS ? 'attention' : 'quiet') : STATUS_VIEW[status].tone
+  // The asset-stop rerun: a status the server marked `attention` (a background task with no news for an hour) draws the warn colour.
+  const tone = isBoards && lane.attention === true ? 'attention' : STATUS_VIEW[status].tone === 'late' ? (age !== null && age > UNKNOWN_LATE_MS ? 'attention' : 'quiet') : STATUS_VIEW[status].tone
   return { status, key: STATUS_VIEW[status].key, tone, why: isBoards && typeof lane.why === 'string' ? lane.why : null, since: isBoards && Number.isFinite(lane.since) ? lane.since : null, age, isReported: isBoards }
 }
 
@@ -3517,7 +3518,7 @@ function drawLane(lane, state) {
 
   const who = el('div', 'who')
   const names = el('div', 'who-names')
-  const pill = el('span', `pill is-${found?.key ?? lane.state}${found?.status === 'Unknown' && found.tone === 'attention' ? ' is-late' : ''}`, lane.isLeftover ? 'Leftover' : laneStateText(lane))
+  const pill = el('span', `pill is-${found?.key ?? lane.state}${(found?.status === 'Unknown' || found?.status === 'Working') && found.tone === 'attention' ? ' is-late' : ''}`, lane.isLeftover ? 'Leftover' : laneStateText(lane))
   if (found !== null) pill.dataset.status = found.status
   // Where the status needs words of its own: an asleep chat's process ended and a message wakes it; one that does not run waits
   // until its chat is opened (B315). They are the pill's tooltip, not a second status.

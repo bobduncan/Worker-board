@@ -156,8 +156,14 @@ profile.
   I17", and your open ones under "Open instructions"): close each with `work close I<n>` and what came of it (a step
   made, a question answered) once it is done. A turn that ends with one open shows it red on the board. One whose turn
   made a step (`work new`) the board closes itself at the turn's end, "became step B<n>" (2026-10-28).
-- The board gives the ids; an id is never used twice. A new step goes under the activity it belongs to. Never drop
-  or reword a step, and never change the focus, unless the user asks.
+- The board gives the ids; an id is never used twice. A new step goes under the activity it belongs to. Never reword
+  a step, and never change the focus, unless the user asks.
+- Which drop is whose (2026-11-11): a step that is superseded (replaced by a rethink or by a newer step the person
+  picked) or was built elsewhere is store bookkeeping: the main chat drops it itself with a why that names what replaced
+  or built it, and asks nobody (the person: no attention for store bookkeeping). Dropping planned work for any other
+  reason (cutting scope, giving up on it, nothing replaced it) is the person's call: ask them; the board routes every ask
+  to drop or remove a step or goal to the person and never lets Autopilot answer it (src/work/dropAsk.mjs; the live Q733
+  "Drop B1011, B978 and B934 now?" was taken by Autopilot within a second).
 - Dropping a fix sends its step to the user (B883): a step in review whose fix you drop, with no new fix, check or block
   after it, gets the user's card ten minutes later, "Accept B<n> at <score>, or send it back?". Their Accept closes it,
   their Send back makes its next try. Never tick such a step yourself, and never drop it to make it go away.

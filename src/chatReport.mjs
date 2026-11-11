@@ -93,9 +93,10 @@ export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infini
   if (entry.state === 'busy') return { state: 'working', isRunning: true }
   if (entry.state === 'asking') return { state: 'waiting', isRunning: true }
   if (hasBlockingAsk) return { state: 'waiting', isRunning: true }
-  if (entry.background === true && !isTaskReported) return { state: 'working', isRunning: true, why: 'background' }
-  // The asset wait (the person's "A, Working", 2026-11-11, the B1124 case): the provider draws its pictures between its turns: the task's work goes on.
+  // The asset wait (the person's "A, Working", 2026-11-11, the B1124 case): the provider draws its pictures between its turns: the task's work
+  // goes on; before the background hold, so a chat waiting in the background for its pictures says what Codex does (the A245 case).
   if (worksForAsset) return { state: 'working', isRunning: true, why: 'asset' }
+  if (entry.background === true && !isTaskReported) return { state: 'working', isRunning: true, why: 'background' }
   if (waitsForPartner) return { state: 'working', isRunning: true, why: 'partner' }
   if (holdsTask) return { state: 'interrupted', isRunning: true }
   return { state: 'free', isRunning: true }
@@ -131,9 +132,9 @@ function asleepLane(entry, { since, now, offAfterMs, holdsTask, hasBlockingAsk, 
   const asleep = { isRunning: false, asleep: true, asleepSince: since }
   if (entry.state === 'busy') return { state: 'interrupted', ...asleep }
   if (entry.state === 'asking' || hasBlockingAsk) return { state: 'waiting', ...asleep }
-  if (entry.background === true && !isTaskReported) return { state: 'interrupted', ...asleep }
   // The asset wait: the provider draws while the chat sleeps; the provider's word wakes it (deliver.mjs).
   if (worksForAsset) return { state: 'working', why: 'asset', ...asleep }
+  if (entry.background === true && !isTaskReported) return { state: 'interrupted', ...asleep }
   if (waitsForPartner) return { state: 'working', why: 'partner', ...asleep }
   if (holdsTask) return { state: 'interrupted', ...asleep }
   return { state: 'free', ...asleep }

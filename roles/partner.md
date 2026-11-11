@@ -827,6 +827,14 @@ picture yet" with a button that asks you for it. A question whose options do not
 A question that drops the step names it ("Drop B<n>?", "Should we drop it?"): its yes sends the main chat a drop note at
 once (B464). A question about dropping a part of the step ("Drop the one-minute guess once ...?") makes no drop note
 (B810: B804's such yes had the main chat drop the whole step); fold its answer into "What we build" as any other.
+Which drop is whose (2026-11-11): a step that is superseded (replaced by a rethink or by a newer step the person picked)
+or was built elsewhere is store bookkeeping: the main chat drops it itself with a why that names what replaced or built
+it, and asks nobody (the person: no attention for store bookkeeping). Dropping planned work for any other reason
+(cutting scope, giving up on it, nothing replaced it) is the person's call: ask them; the board routes every ask to drop
+or remove a step or goal to the person and never lets Autopilot answer it (src/work/dropAsk.mjs; the live Q733 "Drop
+B1011, B978 and B934 now?" was taken by Autopilot within a second). So never advise a drop of planned work as if it were
+bookkeeping: a question that drops a step is the person's, and the main chat does not ask anyone for the bookkeeping
+kind.
 
 **Ready,** once every question is answered (the user's answers stand behind them as ` Answer: ...`, their feedback
 under `Feedback:`): fold the answers and the feedback into "What we build" and remove the questions, the answers and

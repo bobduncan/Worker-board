@@ -303,9 +303,11 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     lines.push({ key: startKey(start, notOff, now), words: { ...startWord, reported: workers.filter(lane => lane.report != null).length } })
   }
   // B949: the ready words the sweep dropped as "gone" (its fault) go once more, while their step is still that chat's.
-  const resends = assetResends(outbox.outbox(), (await readStore(dir, fs)).items, await assetsOf(dir), { prefix: state.chatPrefix ?? '' })
+  // The asset-stop rerun (2026-11-11): and a failed request's word, when none ever reached its chat (A245).
+  const resends = assetResends(outbox.outbox(), (await readStore(dir, fs)).items, await assetsOf(dir), { prefix: state.chatPrefix ?? '', now })
   for (const one of resends) {
-    lines.push({ key: one.key, words: { ...workWords(one.chat, one.id, `asset ${one.id} ready: ${join(assetsFolderOf(dir), one.id)}`), kind: 'asset' } })
+    const line = one.state === 'failed' ? `asset ${one.id} failed: ${one.why}` : `asset ${one.id} ready: ${join(assetsFolderOf(dir), one.id)}`
+    lines.push({ key: one.key, words: { ...workWords(one.chat, one.id, line), kind: 'asset' } })
   }
   for (const one of lines) {
     const sent = await sendOnce({ dir, key: one.key, words: one.words, outbox, state, now, maxChars, newId, fs, keep })

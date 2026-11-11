@@ -7096,6 +7096,24 @@ Codex" or Working, the person chose Working: the task's work goes on, done by Co
   reads "Working · Codex is at its usage limit until 13:23; then it draws 5 pictures for it" (`assetWorkOf`, `limitUntil`), the
   timers stay off (the request is open), Resume all skips it, and the Late counts from the reset plus the job's limit
   (`lateAssetsOf`). A limit without a reset time, and every other failure, fails as before. Pinned by `test/assetLimitWait.test.mjs`.
+- **A job cut by a board stop runs again** (the live A245, 2026-11-11 13:50: the last-lines landing restarted the board while Codex
+  drew A245; it failed with "ask again, with follows", no failure word reached Worker 1, which waited in the background until 17:12
+  with its lane reading "Working · background"). The queue's `recover` at the next start puts a running request back to waiting
+  (`limit: { why: STOPPED_WHY, until: now, tries }`: no time to wait, the try counted toward `LIMIT_TRIES` as the usage-limit waits)
+  and the next pass draws it; past the cap it fails with why "(the board tried it 3 times)" and the chat is told.
+- **Every final failure's word reaches its chat**: `tell` answers false when the board's state showed no such chat (right after a
+  start), and the queue tells again at every pass for a minute (`untold`); past the minute the delivery sweep owns the word (never two
+  words for one request): its resends (workLines.mjs `assetResends`, with `now`) send a final request's word, ready or failed, once
+  when it ended over a minute ago and NO word to that chat names it (the queue's word lost, or a restart in between), while its step is
+  still that chat's (taken, in progress or waiting on the person).
+- **A background wait with no news shows** (chatStatus.mjs, assetWait.mjs `backgroundNoNewsOf`): a lane whose turn ended with
+  background work (`heldBy` background) and that has run no turn for over 30 running minutes while its steps' asset requests are
+  all final reads "Working · background task since 13:50, no news" (quiet), with the warn colour after 60 minutes (the status's
+  `attention`, the page's `is-late` on a Working pill); nothing for an ordinary background task without requests, nothing when the
+  last request ended before the turn ended (the chat has its pictures: a later test gate or watch is its own), and while a request is
+  open the lane says what Codex does (the asset work now comes before the background hold in `laneFromReport`; the pause's safe point
+  still counts real background work as a running turn by the report, pause.mjs `runsTurn`).
+  Pinned by `test/assetStopRerun.test.mjs` (the three points on the live case, each with its mutant).
 - **The person's own file** (a `manual` provider, mode person): the wait is the person's, not work: a stopped holder is parked, P1's
   shape with kind asset (`assetSuspension`: "Paused · waits for your file (A230) since 10:43"), the timers off, Resume all skips it,
   never a Late (the provider's own ask holds the person's action). A pick request (mode pick, the sound library) is the chat's own job:
@@ -7298,6 +7316,16 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   statement of the rule in an ask's context ("the step lands on chat 1's go once you pick"). Pinned by `test/work/landingAsk.test.mjs`
   with the words of the real asks (refused: Q701, Q686, Q687, Q689, Q655, Q639, Q644, Q637; not refused: Q698, Q664, Q685, Q661, Q653,
   Q646). Not in it: a lane state for a step that waits for a go (T2.11).
+- **Drop asks go to the person** (2026-11-11, chat 1's brief): the live Q733 "Drop B1011, B978 and B934 now?" (a decide with no
+  options or pictures) went to its advice, Autopilot took "yes" within a second, the person never saw it and the main chat dropped
+  three steps on it; a drop cannot be undone. Two kinds: a step that is superseded or was built elsewhere is store bookkeeping, the
+  main chat drops it itself with a why and asks nobody (its drop's answer starts with `BOOKKEEPING_DROP_WORDS`); a drop of planned
+  work is the person's call: `autopilotRoute` routes every ask whose title, text or options ask to drop or remove a step or goal to
+  the person (`DROP_ROUTE_WHY`), on its first pass and every pass after. One matcher (`src/work/dropAsk.mjs`, `dropAskOf`), sentence
+  by sentence: "drop"/"remove" (or "dropping"/"removing") as a verb on a step or goal id, on "this step", "the goals", or on
+  "it"/"them" ending the sentence; never a past "dropped" (a fact) or the game's words ("drops of lava", "the drop zone", "a drop
+  shadow"). Roles: main.md and partner.md "Which drop is whose". Pinned by `test/work/dropAsk.test.mjs` (Q733; Q685 of the landing
+  test now goes to the person too).
 - **Landing**: fast-forward of main to the gated head (the sha, not the branch's name), `git push <remote> main` (never a
   force: force-pushes are denied in the project's settings, README "The allow rules"), the trial copy fast-forwarded from its
   `local` remote. A push that fails or times out is checked with `git ls-remote` first: when the remote has the head the landing
