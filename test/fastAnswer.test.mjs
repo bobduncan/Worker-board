@@ -30,15 +30,15 @@ const bodyOf = head => {
 }
 
 test('workCtx answers from the kept state: no rebuild of its own, but for an unknown caller or a kept state gone old', () => {
-  const ctx = bodyOf('  const workCtx = async ({ kept = false, chat = null, action = null, of = null } = {}) => {')
-  assert.match(ctx, /const state = kept \? readState\.last\(\) \?\? await readState\(\) : await keptStateFor\(chat, action, of\)/)
-  assert.doesNotMatch(ctx.replace(/await keptStateFor\(chat, action, of\)/, '').replace(/readState\.last\(\) \?\? await readState\(\)/, ''), /await readState\(\)/, 'no other rebuild inside the context')
+  const ctx = bodyOf('  const workCtx = async ({ kept = false, chat = null, action = null, of = null, forYou = false } = {}) => {')
+  assert.match(ctx, /const state = kept \? readState\.last\(\) \?\? await readState\(\) : await keptStateFor\(chat, action, of, forYou\)/)
+  assert.doesNotMatch(ctx.replace(/await keptStateFor\(chat, action, of, forYou\)/, '').replace(/readState\.last\(\) \?\? await readState\(\)/, ''), /await readState\(\)/, 'no other rebuild inside the context')
   // The decision is src/keptState.mjs's (pure, tested below); the server hands it the kept state, the clock, the dirty flag and laneRole.
-  const kept = bodyOf('  const keptStateFor = async (chat, action, of = null) => {')
-  assert.match(kept, /keptStateWhy\(\{ last, now: clock\(\), chat, action, of, dirty: readState\.readAt\(\) === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS \}\)/)
+  const kept = bodyOf('  const keptStateFor = async (chat, action, of = null, forYou = false) => {')
+  assert.match(kept, /keptStateWhy\(\{ last, now: clock\(\), chat, action, of, forYou, dirty: readState\.readAt\(\) === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS \}\)/)
   assert.match(kept, /return why === 'kept' \? last : readState\(\)/)
   // The work action gives the context the calling chat (a chat's call; the person's and the server's name none) and the action.
-  assert.match(server, /workCtx\(\{ kept: body\?\.action === 'health', chat: as === undefined && typeof body\?\.chat === 'string' \? body\.chat : null, action: body\?\.action \?\? null, of: typeof body\?\.of === 'string' \? body\.of : null \}\)/)
+  assert.match(server, /workCtx\(\{ kept: body\?\.action === 'health', chat: as === undefined && typeof body\?\.chat === 'string' \? body\.chat : null, action: body\?\.action \?\? null, of: typeof body\?\.of === 'string' \? body\.of : null, forYou: Array\.isArray\(body\?\.forYou\) && body\.forYou\.length > 0 \}\)/)
   // The kept state's four refusals and the one yes, each on its own.
   const last = { readAt: 1000 }
   const roleOf = (state, chat) => (chat === 'Worker 5' ? 'worker' : null)
@@ -51,8 +51,12 @@ test('workCtx answers from the kept state: no rebuild of its own, but for an unk
   assert.equal(keptStateWhy({ last, now: 2000, chat: null, action: 'answer', dirty: false, roleOf }), 'kept', 'the person or the server, no chat to know')
   // A write since the last read: a checkpoint, a take, a report, a turn end, a pull, a read still answer from the kept state; an ask, a
   // new step, a note of a goal, a refine, the pause state wait for a fresh one (they read the goal map, the recaps, the ready list, the lanes).
-  for (const action of ['step', 'take', 'report', 'turn-ended', 'pull', 'health', 'asset', 'next', 'list', 'block', 'unblock']) assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action, dirty: true, roleOf }), 'kept', action)
-  for (const action of ['ask', 'new', 'refine', 'refined', 'answer', 'pause-state', 'resumed', 'withdraw', 'words', 'checked', 'drop', 'close', null]) assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action, dirty: true, roleOf }), 'dirty', String(action))
+  for (const action of ['step', 'report', 'turn-ended', 'pull', 'health', 'asset', 'list', 'block', 'unblock']) assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action, dirty: true, roleOf }), 'kept', action)
+  // take and next carry the recap rows' words of the step (the verifier of 2026-11-11): a verdict just written must reach them.
+  for (const action of ['take', 'next', 'ask', 'new', 'refine', 'refined', 'answer', 'pause-state', 'resumed', 'withdraw', 'words', 'checked', 'drop', 'close', null]) assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action, dirty: true, roleOf }), 'dirty', String(action))
+  // A turn-ended with a For you block files asks (the goal map, the recaps, the card's step): it waits for a fresh state too.
+  assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action: 'turn-ended', forYou: true, dirty: true, roleOf }), 'dirty')
+  assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action: 'turn-ended', forYou: true, dirty: false, roleOf }), 'kept')
   // A note to the main chat reads no fact of the state; a note of a goal reads the goal map.
   assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action: 'note', of: 'B1124', dirty: true, roleOf }), 'kept')
   assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action: 'note', of: null, dirty: true, roleOf }), 'kept')

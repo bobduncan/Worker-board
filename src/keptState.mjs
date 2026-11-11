@@ -8,14 +8,17 @@
 // false) or the action reads none of those facts (`KEPT_SAFE_ACTIONS`). PURE.
 
 /**
- * The actions whose answer reads nothing of the state that a write changes: the frequent ones. `step` (a checkpoint), `take`,
- * `report`, `block`/`unblock` (the store), `turn-ended` (its hand-over decision reads the state anew itself), `pull` (its line
- * is written after the answer), `health` (B736's own path), `asset`, `incident`, `incident-fix`, `save-log`, `whoami`, `next` and
- * `list` (reads whose words lag as the page's do), and `note` unless it is of a goal (`readsStoreFacts`). Everything else (ask, new,
- * refine, refined, answer, withdraw, words, pause-state, pause, resumed, drop, close, checked, ...) reads the goal map, the recaps,
- * the ready list or the lanes and waits for a fresh state when a write came since the last read.
+ * The actions whose answer reads nothing of the state that a write changes: the frequent ones. `step` (a checkpoint), `report`,
+ * `block`/`unblock` (the store), `turn-ended` without a For you block (its hand-over decision reads the state anew itself; with a
+ * block it files asks, which read the goal map, the recaps and the card's step: `readsStoreFacts`), `pull` (its line is written after
+ * the answer), `health` (B736's own path), `asset`, `incident`, `incident-fix`, `save-log`, `whoami`, `list` (a read whose wait
+ * words lag as the page's do), and `note` unless it is of a goal. Not `take` nor `next` (the verifier of 2026-11-11): their answer
+ * carries the recap rows' words of the step (`rowWordsBlock`), which a verdict just written must reach; the take path reads the
+ * state anew itself anyway. Everything else (ask, new, refine, refined, answer, withdraw, words, pause-state, pause, resumed, drop,
+ * close, checked, ...) reads the goal map, the recaps, the ready list or the lanes and waits for a fresh state when a write came
+ * since the last read.
  */
-export const KEPT_SAFE_ACTIONS = Object.freeze(new Set(['step', 'take', 'report', 'block', 'unblock', 'turn-ended', 'pull', 'health', 'asset', 'incident', 'incident-fix', 'save-log', 'whoami', 'next', 'list']))
+export const KEPT_SAFE_ACTIONS = Object.freeze(new Set(['step', 'report', 'block', 'unblock', 'turn-ended', 'pull', 'health', 'asset', 'incident', 'incident-fix', 'save-log', 'whoami', 'list']))
 
 /** A kept state older than this is read anew before a work call is answered from it (no page open, no loop ran). */
 export const KEPT_STATE_MS = 60_000
@@ -25,15 +28,23 @@ export const KEPT_STATE_MS = 60_000
  * first seconds after a start), 'old' (older than `maxMs`), 'unknown' (the calling chat has no role in it: just added, or cleared
  * into a new session), 'dirty' (a write since the last read, and the action reads store-derived facts). `last` the kept state (its
  * `readAt`), `roleOf(last, chat)` the chat's role in it or null, `chat` null for the person's and the server's own calls; `of` the
- * call's `of` field: a note of a goal (G<n>) reads the goal map, a note to the main chat does not.
+ * call's `of` field: a note of a goal (G<n>) reads the goal map, a note to the main chat does not; `forYou` whether a turn-ended
+ * carries a For you block (its items are filed as asks, which read the goal map, the recaps and the card's step).
  */
-export function keptStateWhy({ last, now, chat = null, action = null, of = null, dirty = false, roleOf = () => null, maxMs = KEPT_STATE_MS }) {
+export function keptStateWhy({ last, now, chat = null, action = null, of = null, forYou = false, dirty = false, roleOf = () => null, maxMs = KEPT_STATE_MS }) {
   if (last === null || last === undefined || typeof last !== 'object') return 'none'
   if (!Number.isFinite(last.readAt) || !Number.isFinite(now) || now - last.readAt > maxMs) return 'old'
   if (chat !== null && chat !== undefined && roleOf(last, chat) === null) return 'unknown'
-  if (dirty === true && readsStoreFacts(action, of)) return 'dirty'
+  if (dirty === true && readsStoreFacts(action, of, forYou)) return 'dirty'
   return 'kept'
 }
 
-/** Whether the action's answer reads a store-derived fact of the state: not a safe action; a note only when it is of a goal (G<n>). */
-export const readsStoreFacts = (action, of = null) => (action === 'note' ? /^G\d+$/i.test(String(of ?? '').trim()) : !KEPT_SAFE_ACTIONS.has(String(action ?? '')))
+/**
+ * Whether the action's answer reads a store-derived fact of the state: not a safe action; a note only when it is of a goal (G<n>);
+ * a turn-ended only with a For you block (`forYou`).
+ */
+export function readsStoreFacts(action, of = null, forYou = false) {
+  if (action === 'note') return /^G\d+$/i.test(String(of ?? '').trim())
+  if (action === 'turn-ended') return forYou === true
+  return !KEPT_SAFE_ACTIONS.has(String(action ?? ''))
+}

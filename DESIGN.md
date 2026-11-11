@@ -7186,9 +7186,13 @@ heard were awaited inside the answer. The person (2026-11-11): the held items on
   carries store-derived facts too (the goal map's nodes, the focus, the recap rows, the ready list's held steps, the free chats, the
   lanes for the resume list), which a kept state shows stale right after a write: so a call whose action reads them waits for a fresh
   state when a write came since the last read (`dirty`: folders.mjs `cached` `readAt` -Infinity), while the frequent actions that read
-  none of them answer from the kept state whatever was written (src/keptState.mjs `KEPT_SAFE_ACTIONS`: step, take, report, block,
-  unblock, turn-ended, pull, health, asset, incident, incident-fix, save-log, whoami, next, list, and a note unless it is of a goal).
-  The decision is pure (`keptStateWhy`: kept, none, old, unknown, dirty) and tested on its own.
+  none of them answer from the kept state whatever was written (src/keptState.mjs `KEPT_SAFE_ACTIONS`: step, report, block, unblock,
+  pull, health, asset, incident, incident-fix, save-log, whoami, list; a note unless it is of a goal; a turn-ended unless it carries a
+  For you block, whose items are filed as asks). Not take nor next (the verifier's finding): their answer carries the recap rows' words
+  of the step, which a verdict just written must reach. The decision is pure (`keptStateWhy`: kept, none, old, unknown, dirty) and
+  tested on its own. Known and accepted: the lanes the main chat's resume list reads (pause-state) are chat facts, not store writes, so
+  they may be up to 60 s old instead of 5 s; a write still queued ahead of the call in the store's own queue is not yet a reset (the
+  old 5 s cache had the same gap).
 - **turn-ended keeps its decision in the answer** (chat 1's review of the design note, 2026-11-11): the Workers mod reads the
   answer's `handover` (register.tsx: `setOnSequence(parseHandover(ended) !== null)`; the turn's context for the clear), so the hand-over
   turn with its own rebuild stays inside the call (`decideFor`). Moving it waits for the mod's release.
