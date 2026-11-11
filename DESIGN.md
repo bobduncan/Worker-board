@@ -7239,7 +7239,9 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   of the list whose remote `local` is the main checkout); a list that cannot be read, or that names no trial copy, is a refusal
   (`-NoTrial` lands the main board alone).
 - **The gate** runs BEFORE the lock (it takes about ten minutes): `git worktree add --detach` of the head in a temporary
-  folder, a junction `node_modules` to the main checkout's, `npm test` there and, only when the branch touches `mods/workers/`,
+  folder, a junction `node_modules` to the main checkout's, `npm test` there (2026-11-11: below-normal priority on half the
+  PC's cores, and it waits its turn in the PC's one queue of heavy runs, `tools/one-at-a-time.mjs`, so a landing never runs
+  beside a chat's tests) and, only when the branch touches `mods/workers/`,
   `claude.exe plugin test .` in its `mods/workers` (the app's own command-line program under its data folder, never the desktop
   app: none found is a refusal), with `NO_COLOR=1` and no `FORCE_COLOR`. It passes only on the run's own summary line (`src/landing.mjs`,
   `gatePassed`, colour codes stripped first): `ℹ fail 0` (the mod: ` 0 fail`) at the start of a line, every summary 0, the command's exit code 0; a missing

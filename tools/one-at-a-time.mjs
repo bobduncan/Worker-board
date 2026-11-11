@@ -24,7 +24,12 @@
 //   next). HEAVY_RUN_SLOTS (default 2) runs may go at once: slot 1 is the lock file, slot n its `.n.lock` beside it.
 //   A waiting run leaves a ticket in the queue folder beside the lock (`<lock>.queue`, named by when it came); it takes
 //   a free slot only when fewer runs came before it than there are free slots, so the one that waited longest goes
-//   first. A ticket whose process is gone is removed. Set HEAVY_RUN_SLOTS=1 to go back to one at a time.
+//   first. A ticket whose process is gone is removed.
+// - One at a time again (the person, 2026-11-11: "too often claude slows down my pc very often ... the test suite", then
+//   "lets do A": one run at a time across all chats, at low priority, see tools/test.mjs). HEAVY_RUN_SLOTS now defaults to
+//   1, and every slot file a run holds counts, also one beyond this run's own slots: a copy of this helper that still
+//   allows two (the game's) never makes this one start beside it. A landing's gate is `npm test` too, so it waits in the
+//   same queue.
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, openSync, closeSync, readFileSync, readdirSync, unlinkSync, writeSync } from 'node:fs'
 import os from 'node:os'
@@ -48,8 +53,8 @@ export function lockPath(env = process.env) {
   return env.HEAVY_RUN_LOCK || path.join(os.tmpdir(), LOCK_NAME)
 }
 
-/** How many heavy runs may go at once (HEAVY_RUN_SLOTS, default 2). */
-export const DEFAULT_SLOTS = 2
+/** How many heavy runs may go at once (HEAVY_RUN_SLOTS, default 1). */
+export const DEFAULT_SLOTS = 1
 export function slotsOf(env = process.env) {
   const number = Math.floor(Number(env.HEAVY_RUN_SLOTS))
   return Number.isFinite(number) && number >= 1 ? number : DEFAULT_SLOTS
@@ -161,6 +166,24 @@ async function holderOf(file, nap) {
   return seen
 }
 
+/** How many slot files lie beside the lock (slot n is `<name>.n.lock`), at least `slots`: a run with more slots counts too. */
+export function slotCountOf(file, slots) {
+  const base = path.basename(file)
+  const stem = /\.lock$/i.test(base) ? base.replace(/\.lock$/i, '') : null
+  let highest = slots
+  try {
+    for (const name of readdirSync(path.dirname(file))) {
+      const n = stem === null
+        ? (name.startsWith(`${base}.`) ? Number(name.slice(base.length + 1)) : NaN)
+        : (name.toLowerCase().startsWith(`${stem.toLowerCase()}.`) && /\.lock$/i.test(name) ? Number(name.slice(stem.length + 1, -5)) : NaN)
+      if (Number.isInteger(n) && n > highest) highest = n
+    }
+  } catch {
+    // no folder yet: only our own slots
+  }
+  return highest
+}
+
 /** The live tickets of the queue folder, oldest first; a ticket whose process is gone is removed. */
 function queueOf(folder) {
   let names = []
@@ -205,16 +228,18 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1 }) {
     while (!stop.signal.aborted) {
       const holders = []
       const free = []
-      for (let n = 1; n <= slots; n++) {
+      for (let n = 1, count = slotCountOf(file, slots); n <= count; n++) {
         const slot = slotPath(file, n)
         const seen = await holderOf(slot, nap)
         if (seen) holders.push(seen.info)
-        else free.push(slot)
+        else if (n <= slots) free.push(slot)
       }
       const order = queueOf(queue)
       const ahead = order.indexOf(ticketName)
-      // Our turn when fewer runs came before us than there are free slots (a ticket we cannot read: go by the slots).
-      if (free.length > 0 && (ahead === -1 ? 0 : ahead) < free.length) {
+      // Our turn when fewer runs came before us than there is room (a ticket we cannot read: go by the room). Room is our
+      // slots less every run that holds one, ours or beyond (2026-11-11).
+      const room = Math.min(free.length, slots - holders.length)
+      if (room > 0 && (ahead === -1 ? 0 : ahead) < room) {
         for (const slot of free) {
           const text = JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date().toISOString() })
           if (createLock(slot, text)) return () => giveBack(slot, text)
