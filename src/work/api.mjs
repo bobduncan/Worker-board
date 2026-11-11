@@ -772,7 +772,7 @@ async function step(body, w) {
     const done = await save(item, found.text, w)
     if (!done.ok) return done
     // P1: the forgotten record: a checkpoint while a wait on a chat stands reminds the holder of it.
-    return changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.${waitReminder(waitsOnOf(item), id)}${await giveBackStopped(item, w)}`)
+    return changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.${minutesAsk(id)}${waitReminder(waitsOnOf(item), id)}${await giveBackStopped(item, w)}`)
   }
   const names = Array.isArray(body.names) ? body.names.map(one => line(one, 60)).filter(Boolean) : []
   const count = Number.isInteger(Number(body.steps)) && Number(body.steps) > 0 ? Number(body.steps) : null
@@ -788,8 +788,14 @@ async function step(body, w) {
   const item = ordered(checkpoint === null ? planned : said(put(copy(planned), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
   const done = await save(item, found.text, w)
   if (!done.ok) return done
-  return changed(item, `${id}: ${words}.${checkpoint === null ? '' : ` Checkpoint ${checkpoint.commit} · ${checkpoint.next}.${await giveBackStopped(item, w)}`}`)
+  return changed(item, `${id}: ${words}.${checkpoint === null ? '' : ` Checkpoint ${checkpoint.commit} · ${checkpoint.next}.${planMinutes(body.minutes) === null ? minutesAsk(id) : ''}${await giveBackStopped(item, w)}`}`)
 }
+
+/**
+ * eta-remaining (the person, 2026-11-11: "i want the board to reflect the remainting ETA"): every checkpoint carries the minutes
+ * still expected for the whole step, so the worker's row counts down from it; a checkpoint without them is kept, and its answer asks.
+ */
+const minutesAsk = id => ` Give your minutes left with every checkpoint: work step id=${id} minutes=<the minutes still expected for the whole step> with commit and next.`
 
 /**
  * Stop and rethink: a worker's checkpoint on a step held for a rethink is its stop checkpoint (the person's Stop reached it): the step

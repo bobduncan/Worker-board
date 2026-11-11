@@ -7427,6 +7427,31 @@ text") is `art-inbox/B914/row-chosen.png`.
   age and staleness, Last task, the history source), test/heldRow.page.test.mjs (the row draws exactly pill, task and time,
   the bar's width and tone, the hover, the window, "No time" only without a size, the main chat's row unchanged).
 
+### The remaining ETA (eta-remaining, 2026-11-11)
+
+The person, 2026-11-11: "i want the board to reflect the remainting ETA", then "good." to chat 1's design. The case: Worker 1's row
+read "2 h 30 min over" in amber on B1125 from its size, its last minutes-left 60 min at 13:44, while it worked on (last turn 19:46);
+G64's line read "about 10 h left" from the sizes of the how made at the start. This replaces the size-from-the-take time above:
+
+- **The row** (`state.mjs heldEstimateOf`, `held.eta`): the latest estimate minus the working time since it was said. The worker's own
+  minutes-left (the step's Plan `until`, given at its new `estimated <time>` part, stepPlan.mjs; a line from before it uses its `at`),
+  counted on by what it did not work since (B793 `notWorked`), `from: 'own'`; without one since the take, the size from the take
+  (`from: 'size'`). The page (`heldTime`, mirrored by chatStatus.mjs `heldTimeText`): "about 1 h 06 left · re-estimated 19:46"
+  ("estimated" for the size); the bar is the time worked of worked plus left. A step with no size but an estimate has a time.
+- **Every checkpoint carries minutes**: `work step` with `commit`/`next` and no `minutes` is kept, and its answer asks in one line
+  "Give your minutes left with every checkpoint: work step id=B<n> minutes=<...> with commit and next." (roles/worker.md).
+- **Past its estimate, no new one**: quiet, never amber, never overdue: "past its estimate since 14:44", and "· new estimate asked"
+  once the board asked. The board asks once per estimate (say.mjs `etaAsksDue`, outbox command `eta-ask` with `about` the step and
+  `saidAt` the estimate's time): one word to the working worker, "B<n> is past its estimate: give a fresh minutes-left with your next
+  checkpoint (...)", waiting for its turn as every word does; not while the person pauses all chats, not to a worker waiting for the
+  provider's pictures. A fresh estimate is a new one.
+- **The goal line** (`partLeftMinutes`, `focus.progress.minutesLeft` and `readyAt`): an open part's open steps added up in their
+  order: a held step its time left (0 once past), one in review 0, one not started its refine Size; a part with no steps yet, or an
+  open step that names no time, its own size. Shown as "Focus G64 · ... · about 4 h left · ready around 23:56" on the Overview and
+  "... · about 4 h left · ready around 23:56" on the Focus page.
+- Rule 16: before/after picture `art-inbox/board-eta/eta-before-after.png`. Tests: `test/etaRemaining.test.mjs` (B1125's live Plan,
+  G64), with heldRow, heldRow.page, chatStatus.state, stepPlanCard and work/stepPlan updated to the new words.
+
 ## Keeping what the person did across a reload (B524)
 
 The page loads itself anew in three ways: the 403 after a board started cold (B519), a newer page when the page is idle

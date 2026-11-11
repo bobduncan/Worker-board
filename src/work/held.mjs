@@ -107,7 +107,8 @@ export function heldOf(items, chatName, prefix = '', { handoverStep = null } = {
     size: sizeOf(item),
     checkpoint: point === null || isOld ? null
       : { commit: point.commit, next: next.length > NEXT_CHARS ? `${next.slice(0, NEXT_CHARS - 1).trimEnd()}…` : next, at: Number.isFinite(point.at) ? point.at : null },
-    plan: saved === null ? null : { step: saved.on, steps: saved.steps, names: saved.names, at: saved.writtenAt },
+    // eta-remaining (2026-11-11): the task's latest minutes-left as the plan keeps it (`until`, given at `estimatedAt`).
+    plan: saved === null ? null : { step: saved.on, steps: saved.steps, names: saved.names, at: saved.writtenAt, until: saved.until, estimatedAt: saved.estimatedAt ?? (saved.until === null ? null : saved.writtenAt) },
   }
 }
 

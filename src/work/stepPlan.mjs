@@ -6,7 +6,9 @@
 // no plan of its own for the step. The times are absolute (a time of day to the second, as a checkpoint's), so the time
 // left is worked out whenever it is read, never negative here: past its time it reads as an overrun.
 //   Plan: step 2/3 | parts Sheet; Clips; Merge | until 2026-10-28 21:30:00 | step until 2026-10-28 20:45:00 | at 2026-10-28 20:10:00
-// `until` is when the task's time runs out, `step until` the step's, `at` when the line was written.
+// `until` is when the task's time runs out, `step until` the step's, `at` when the line was written. eta-remaining (2026-11-11):
+// `estimated` is when the task's minutes were last given (`until` was set then), so the row says when it was re-estimated and
+// counts the working time since; a line from before it has none (`estimatedAt` null).
 
 import { sinceMs, valueOf } from './item.mjs'
 import { stampSecond } from './pause.mjs'
@@ -18,7 +20,7 @@ const SEP = ' | '
 const STAMP = '\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d'
 
 /** A plan with nothing in it. */
-const EMPTY = { names: [], on: null, steps: null, until: null, stepUntil: null, writtenAt: null }
+const EMPTY = { names: [], on: null, steps: null, until: null, stepUntil: null, writtenAt: null, estimatedAt: null }
 
 /** A time as minutes, when it is one the mod would take, else null. */
 export const planMinutes = value => {
@@ -29,7 +31,7 @@ export const planMinutes = value => {
 /** A part's name as the line keeps it: its separators taken out. */
 export const partName = name => String(name).replace(/[;|]/g, ',')
 
-/** A step's saved plan: `{ names, on, steps, until, stepUntil, writtenAt }` (times in ms, null for none), or null for none. */
+/** A step's saved plan: `{ names, on, steps, until, stepUntil, writtenAt, estimatedAt }` (times in ms, null for none), or null for none. */
 export function planOf(item) {
   const value = valueOf(item, 'Plan')
   if (value === null) return null
@@ -44,6 +46,7 @@ export function planOf(item) {
     else if (part.startsWith('step until ')) plan.stepUntil = timeOf(part, 'step until')
     else if (part.startsWith('until ')) plan.until = timeOf(part, 'until')
     else if (part.startsWith('at ')) plan.writtenAt = timeOf(part, 'at')
+    else if (part.startsWith('estimated ')) plan.estimatedAt = timeOf(part, 'estimated')
     else {
       const on = part.match(/^step (\d+)(?:\/(\d+))?$/)
       if (on !== null) {
@@ -63,6 +66,7 @@ export function planText(plan) {
     plan.until === null ? null : `until ${stampSecond(plan.until)}`,
     plan.stepUntil === null ? null : `step until ${stampSecond(plan.stepUntil)}`,
     `at ${stampSecond(plan.writtenAt)}`,
+    plan.estimatedAt === null || plan.estimatedAt === undefined ? null : `estimated ${stampSecond(plan.estimatedAt)}`,
   ].filter(Boolean).join(SEP)
 }
 
@@ -82,6 +86,7 @@ export function nextPlan(before, { names = [], steps = null, step = null, minute
   if (on !== null && total !== null) on = Math.min(Math.max(on, 1), total)
   const until = minutes === null ? base.until : now + minutes * MINUTE_MS
   const stepUntil = stepMinutes !== null ? now + stepMinutes * MINUTE_MS : on === base.on ? base.stepUntil : null
-  const plan = { names: kept, on, steps: total, until, stepUntil, writtenAt: now }
+  const estimatedAt = minutes === null ? base.estimatedAt ?? null : now
+  const plan = { names: kept, on, steps: total, until, stepUntil, writtenAt: now, estimatedAt }
   return on === null && kept.length === 0 && until === null && stepUntil === null ? null : plan
 }

@@ -20,7 +20,9 @@ async function opened(state, now = NOW) {
   return openPage({ state: sent(state), now })
 }
 
-test('B855 at 11:16: the row is the pill, B855 and its title, "1 h 56 of its 2 h", a thin bar: nothing else, nothing of the card', async () => {
+// eta-remaining (2026-11-11, the person: "i want the board to reflect the remainting ETA"): the time is the latest estimate minus the
+// working time since it was said: B855's own 40 min at 11:14 (its Plan) rather than its size, "about 40 min left · re-estimated 11:14".
+test('B855 at 11:16: the row is the pill, B855 and its title, "about 40 min left · re-estimated 11:14", a thin bar: nothing else, nothing of the card', async () => {
   const page = await opened(stateAt(NOW, { items: [b855d()], card: B855_CARD, lines: B855_LINES }))
   try {
     const lane = laneOf(page, 'Digger')
@@ -31,11 +33,11 @@ test('B855 at 11:16: the row is the pill, B855 and its title, "1 h 56 of its 2 h
     assert.equal(lane.querySelector('.step-line'), null)
     assert.equal(lane.querySelector('.progress-count'), null)
     assert.equal(words(lane.querySelector('.progress-cell')), '')
-    for (const not of ['QA of B813', 'Since', '11:10', 'checkpoint', 'Its plan', '40 min']) assert.ok(!words(lane.querySelector('.lane-row')).includes(not), `the row does not say "${not}"`)
-    // The time: left of its size, from the store and the board's clock, never the card's 40 min.
-    assert.equal(words(lane.querySelector('.eta')), '1 h 56 of its 2 h')
-    // The bar: 4 of 120 minutes used, the same fact as the time.
-    assert.equal(lane.querySelector('.progress-cell .fill').style.width, '3.3%')
+    for (const not of ['QA of B813', 'Since', '11:10', 'checkpoint', 'Its plan']) assert.ok(!words(lane.querySelector('.lane-row')).includes(not), `the row does not say "${not}"`)
+    // The time: its own latest estimate from the store's Plan, counted on in working time (interrupted 11:14-11:16).
+    assert.equal(words(lane.querySelector('.eta')), 'about 40 min left · re-estimated 11:14')
+    // The bar: 4 minutes worked of 4 worked plus 40 left, the same fact as the time.
+    assert.equal(lane.querySelector('.progress-cell .fill').style.width, '9.1%')
     assert.ok(!lane.querySelector('.progress-cell .fill').classList.contains('is-overdue'))
     // The hover: since, the last checkpoint and its plan words with their age.
     const hover = lane.querySelector('.held-task').title
@@ -45,13 +47,13 @@ test('B855 at 11:16: the row is the pill, B855 and its title, "1 h 56 of its 2 h
   } finally { await page.close() }
 })
 
-test('the simple view says the same: B855, "1 h 56" "of its 2 h", the bar at 3%, the three on hover', async () => {
+test('the simple view says the same: B855, "about 40 min left" "· re-estimated 11:14", the bar at 9%, the three on hover', async () => {
   const page = await opened(stateAt(NOW, { items: [b855d()], card: B855_CARD, lines: B855_LINES }))
   try {
     const row = simpleRowOf(page, 'Digger')
     assert.match(words(row.querySelector('.simple-what')), /^B855 A walkable tile/)
-    assert.equal(words(row.querySelector('.simple-left')), '1 h 56 of its 2 h')
-    assert.equal(row.querySelector('.simple-track > span').style.width, '3%')
+    assert.equal(words(row.querySelector('.simple-left')), 'about 40 min left · re-estimated 11:14')
+    assert.equal(row.querySelector('.simple-track > span').style.width, '9%')
     assert.ok(!words(row).includes('QA of B813'))
     assert.match(row.querySelector('.simple-what').title, /Since 11:10 · last checkpoint 11:14/)
   } finally { await page.close() }
@@ -64,7 +66,7 @@ test('its window holds since, the checkpoint and its plan as its own words; none
     const shown = words(page.document.body)
     assert.ok(shown.includes('Since 11:10 · last checkpoint 11:14 (2 min ago):'), 'since and the checkpoint')
     assert.ok(shown.includes('Its own words: 4 of 4 · Report · 2 min ago'), 'its plan, as its own words')
-    assert.ok(shown.includes('1 h 56 of its 2 h'))
+    assert.ok(shown.includes('about 40 min left · re-estimated 11:14'))
     assert.ok(!shown.includes('QA of B813'))
   } finally { await page.close() }
 })
@@ -93,24 +95,21 @@ test('"No time" only for a held step without a size', async () => {
   } finally { await page.close() }
 })
 
-test('over its size: "12 min over its 30 min" in the plain tone; overdue (2x and 10 min) turns time and bar together', async () => {
+// eta-remaining: past its estimate is quiet, never amber, however far past (the live B1125 read "2 h 30 min over" in amber).
+test('past its estimate: "past its estimate since 11:40" quiet, the bar full and never overdue, however far past', async () => {
   const small = stepItem('B21', { owner: 'Digger', size: 'about 30 min', history: [[at(11, 10), 'Digger', 'taken → in progress']] })
   const lines = [{ at: at(11, 10), chat: 'Digger', state: 'working', task: null, source: 'step' }]
-  const over = await opened(stateAt(at(11, 52), { items: [small], lines }), at(11, 52))
-  try {
-    const lane = laneOf(over, 'Digger')
-    assert.equal(words(lane.querySelector('.eta')), '12 min over its 30 min')
-    assert.equal(lane.querySelector('.eta .is-blocked'), null)
-    assert.equal(lane.querySelector('.progress-cell .fill').style.width, '100%')
-    assert.ok(!lane.querySelector('.progress-cell .fill').classList.contains('is-overdue'))
-  } finally { await over.close() }
-  const overdue = await opened(stateAt(at(12, 21), { items: [small], lines }), at(12, 21))
-  try {
-    const lane = laneOf(overdue, 'Digger')
-    assert.equal(words(lane.querySelector('.eta')), '41 min over its 30 min')
-    assert.notEqual(lane.querySelector('.eta .is-blocked'), null)
-    assert.ok(lane.querySelector('.progress-cell .fill').classList.contains('is-overdue'))
-  } finally { await overdue.close() }
+  for (const now of [at(11, 52), at(12, 21), at(14, 10)]) {
+    const page = await opened(stateAt(now, { items: [small], lines }), now)
+    try {
+      const lane = laneOf(page, 'Digger')
+      assert.equal(words(lane.querySelector('.eta')), 'past its estimate since 11:40')
+      assert.equal(lane.querySelector('.eta .is-blocked'), null)
+      assert.equal(page.all('#lanes .is-attn, #simple-workers .is-attn, #simple-workers .is-overdue').length, 0, 'no amber')
+      assert.equal(lane.querySelector('.progress-cell .fill').style.width, '100%')
+      assert.ok(!lane.querySelector('.progress-cell .fill').classList.contains('is-overdue'))
+    } finally { await page.close() }
+  }
 })
 
 test('the main chat\'s row is as it was: its card\'s task', async () => {

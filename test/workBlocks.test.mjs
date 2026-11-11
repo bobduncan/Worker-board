@@ -356,7 +356,7 @@ test('the Focus page: the switch with its counts; All work blocks with each bloc
   try {
     await page.click('[data-tab="advice"]')
     assert.deepEqual(page.all('.focus-strip .focus-stage').map(one => one.children[1].textContent), ['The goal', 'Work blocks', 'The run'])
-    assert.equal(page.text('.focus-progress small'), '9 of 10 work blocks done · about 1 h left')
+    assert.equal(page.text('.focus-progress small'), '9 of 10 work blocks done · about 1 h left · ready around 13:00')
     assert.deepEqual(page.all('[data-focus-blocks]').map(one => [one.dataset.focusBlocks, one.textContent, one.getAttribute('aria-pressed')]), [['all', 'All work blocks9/10', 'true'], ['open', 'Open now2/3', 'false']])
     // All work blocks: today's run card, renamed, each block with its done-when line and its tasks counted.
     assert.equal(page.text('.focus-run h3'), 'All work blocks')

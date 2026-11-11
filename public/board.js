@@ -2700,22 +2700,22 @@ const about = minutes => (minutes === null ? null : `~ ${span(minutes * MIN)}`)
 // lanetime:start
 // heldrow:start
 /**
- * Signals change 7: the time of a held step, one fact for the text and the bar: left of its size ("1 h 56" "of its 2 h"),
- * over it ("12 min over" "its 2 h", in the overdue tone only when B185's rule holds: over twice its size and by 10 minutes,
- * `eta.isOverdue`), or "No time" when the store has no size for it. `share` is the part of the size used (worked over size,
- * full once over; null without a size): the bar's width. Null for a lane that holds no step.
+ * eta-remaining (the person, 2026-11-11: "i want the board to reflect the remainting ETA"): the time of a held step, one fact for the
+ * text and the bar: its latest estimate minus the working time since it was said (state.mjs `heldEstimateOf`), "about 70 min left"
+ * "· re-estimated 19:46" (the worker's own minutes-left; "estimated" for its size from the take). Past it, quiet, never amber:
+ * "past its estimate since 19:02" "· new estimate asked" once the board asked for one. "No time" when the store has neither an
+ * estimate nor a size. `share` is the part of the time worked of worked plus left (null without a take): the bar's width.
+ * Null for a lane that holds no step. Mirrored in words by src/chatStatus.mjs `heldTimeText`.
  */
 function heldTime(held, now) {
   if (held === null || held === undefined) return null
-  if (!Number.isFinite(held.size)) return { main: 'No time', of: '', tone: 'fault', share: null, isOverdue: false, title: `The store has no size for ${held.id}: no refine size and no minutes at its take.` }
-  const size = held.size * MIN
-  const its = `its ${span(size)}`
   const eta = held.eta ?? null
-  if (eta === null) return { main: '–', of: `of ${its}`, tone: 'muted', share: null, isOverdue: false, title: `The store records no take of ${held.id}: the time it worked is not known.` }
+  if (eta === null && !Number.isFinite(held.size)) return { main: 'No time', of: '', tone: 'fault', share: null, isOverdue: false, title: `The store has no estimate and no size for ${held.id}: no minutes-left, no refine size and no minutes at its take.` }
+  if (eta === null) return { main: '–', of: `· its size ${span(held.size * MIN)}`, tone: 'muted', share: null, isOverdue: false, title: `The store records no take of ${held.id}: the time it worked is not known.` }
+  const said = Number.isFinite(eta.saidAt) ? `${eta.from === 'own' ? 're-estimated' : 'estimated'} ${clock(eta.saidAt)}` : 'estimated'
   const left = eta.at - now
-  if (left > 0) return { main: span(left), of: `of ${its}`, tone: 'time', share: Math.max(0, Math.min(1, (size - left) / size)), isOverdue: false, title: `${span(left)} left of ${its}, until ${clock(eta.at)} (working time)` }
-  const isOverdue = eta.isOverdue === true
-  return { main: `${span(-left)} over`, of: its, tone: isOverdue ? 'bad' : 'time', share: 1, isOverdue, title: `${span(-left)} over ${its} of working time${isOverdue ? ': overdue, over twice its size' : ''}` }
+  if (left > 0) return { main: left < MIN / 2 ? 'under a minute left' : `about ${span(left)} left`, of: Number.isFinite(eta.saidAt) ? `· ${said}` : '', tone: 'time', share: eta.share ?? null, isOverdue: false, title: `About ${span(left)} left, until ${clock(eta.at)} (working time); ${eta.from === 'own' ? 'its own minutes-left' : 'its size, from its take'}, ${said}` }
+  return { main: `past its estimate since ${clock(eta.at)}`, of: eta.asked === true ? '· new estimate asked' : '', tone: 'muted', share: 1, isOverdue: false, title: `Past its estimate (${said}) since ${clock(eta.at)}, working time${eta.asked === true ? '; the board asked the worker for a fresh minutes-left' : ''}` }
 }
 
 /**
@@ -2994,7 +2994,7 @@ function simpleView({ focus = null, counts = {}, limits = null, milestone = null
     const left = focus.stage === 'done' ? null : focusTimeLeft(progress.minutesLeft)
     bar = {
       // B343: with the goal's title, as the agreed drawing has it
-      text: `Focus ${focus.id} · ${focus.title} · ${done} of ${total} steps done${left === null ? '' : ` · about ${left} left`}`,
+      text: `Focus ${focus.id} · ${focus.title} · ${done} of ${total} steps done${left === null ? '' : ` · about ${left} left${readyWords(progress.readyAt)}`}`,
       percent: total === 0 ? 0 : Math.round((done / total) * 100),
       title: `${focus.id} · ${focus.title}`,
     }
@@ -15711,6 +15711,9 @@ function advisorFirstPart(setting) {
 const FOCUS_STAGES = [['vibe', 'The goal'], ['how', 'Work blocks'], ['run', 'The run']]
 
 /** "3 h", "45 min": the time the parts not done still name. */
+/** eta-remaining (2026-11-11): when the goal's open work is ready, its time left from now (state.mjs `partLeftMinutes`): " · ready around 22:50". */
+const readyWords = at => (Number.isFinite(at) ? ` · ready around ${clock(at)}` : '')
+
 function focusTimeLeft(minutes) {
   if (minutes === null || minutes === undefined) return null
   if (minutes < 60) return `${minutes} min`
@@ -16149,7 +16152,7 @@ function focusView(focus, goals, can = null, ui = {}) {
     // 2026-11-01: every block still open waits for the person's verdict in the recap: nothing is left to build, so no time left, the rest is theirs.
     const open = focus.parts.filter(part => !['done', 'dropped', 'stopped'].includes(part.state))
     const isVerdictOnly = stage === 'run' && open.length > 0 && open.every(part => part.state === 'verdict')
-    view.progress = { text: `${done} of ${total} work block${total === 1 ? '' : 's'} done${stopped > 0 ? ` · ${stopped} stopped` : ''}${isVerdictOnly ? ' · the rest waits for your verdict' : left === null ? '' : ` · about ${left} left`}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
+    view.progress = { text: `${done} of ${total} work block${total === 1 ? '' : 's'} done${stopped > 0 ? ` · ${stopped} stopped` : ''}${isVerdictOnly ? ' · the rest waits for your verdict' : left === null ? '' : ` · about ${left} left${readyWords(focus.progress.readyAt)}`}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
   }
   if (stage === 'run') {
     // Redesign Part 2: a part whose tasks are refined and none given yet is on the board's list for a worker.
