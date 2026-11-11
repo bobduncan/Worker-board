@@ -17,7 +17,31 @@ const PLACE_ID = /(?<![\w/.:#=-])([GQB]\d+)(?![\w/-]|\.\w)/g
  * B675: the pages of the game an ask may send the person to, by the words an ask uses for them: `page=<name>` in a play link
  * opens `/<name>.html` of that branch's game. One list, here, beside the board's own places.
  */
-export const GAME_PAGES = { soundboard: { words: /(?<![\w-])sound ?board(?![\w-])/i, label: 'the sound board' } }
+export const GAME_PAGES = {
+  soundboard: { words: /(?<![\w-])sound ?board(?![\w-])/i, label: 'the sound board' },
+  animlab: { words: /(?<![\w-])animation ?lab(?![\w-])/i, label: 'the animation lab' },
+}
+
+/** B1133: a branch as a play link or a game request writes it: plain characters, no "..". */
+export const isBranchName = branch => typeof branch === 'string' && /^[\w][\w./-]{0,120}$/.test(branch) && !branch.includes('..')
+/** B1133: a game page by its name: one on the list (own keys only, so "toString" is none). */
+export const isGamePage = page => typeof page === 'string' && Object.hasOwn(GAME_PAGES, page)
+
+/**
+ * B1133: what is wrong with a play link (`<branch>&page=<page>&<the game's own settings>`), or null. Only what the board decides is
+ * checked: the branch's form and `page=`; the game's own keys (screen, sandbox, mode, ...) stay the game's, so the board serves any project.
+ */
+export function playProblem(play) {
+  const [branch, ...settings] = String(play ?? '').split('&')
+  const form = 'The form is <branch>&page=<page>, or <branch>&<the game\'s own settings>.'
+  if (!isBranchName(branch)) return `"${String(play).slice(0, 60)}" starts with no branch. ${form}`
+  for (const one of settings) {
+    if (!one.startsWith('page=')) continue
+    const page = one.slice(5)
+    if (!isGamePage(page)) return `"${page.slice(0, 40)}" is no page of the game; the board knows: ${Object.keys(GAME_PAGES).join(', ')}. ${form}`
+  }
+  return null
+}
 /** A local address in an ask's words: `http://localhost:5173/soundboard.html`, `127.0.0.1:5300/x`. */
 const LOCAL_ADDRESS = /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d{2,5})?(?:\/[^\s)>\]]*)?/gi
 

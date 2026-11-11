@@ -30,7 +30,7 @@ import { lineFields } from './line.mjs'
 import { REFINED_MARK, migrateBacklog, stamp } from './migrate.mjs'
 import { storeFault, touchesLines } from './read.mjs'
 import { acceptRefine, answerRefine } from './refineText.mjs'
-import { gamePageIn, gamePageLabel, localAddressIn, placesIn } from '../places.mjs'
+import { gamePageIn, gamePageLabel, localAddressIn, placesIn, playProblem } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
 import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, NAME_THE_ASK, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, openFixesOf, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
@@ -1022,6 +1022,9 @@ async function ask(body, w, { alone = false } = {}) {
     }
   }
   let play = line(body.play, 300)
+  // B1133: a play link the game's page opener would refuse never reaches the person (Q722: "page=animlab" opened as "no page of the game").
+  const playWrong = play === '' ? null : playProblem(play)
+  if (playWrong !== null) return refuse(400, `play: ${playWrong}`)
   const advice = line(body.advice, 120)
   // B675: an ask that sends the person to a page of the game ("the sound board", its address) carries the link itself:
   // the game of the step's branch (else main), the page named. A play the worker gave stays.

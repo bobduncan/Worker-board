@@ -210,8 +210,10 @@ preferably as a popup in the board to verify. same with the game not a feature b
   so it opens where the change shows; it ends by itself as "Open the game" does. The same links in a chat open the
   board: `#picture=` shows the popup, `#play=` turns that tab into the game. Only a branch a working folder holds is
   started, and the start goes through the board's own page with its token, like every other. B675: the setting
-  `page=<name>` opens `/<name>.html` of that game (`GAME_PAGES` in `src/places.mjs`: the sound board; only a page file
-  the folder holds). `work ask` adds that play link itself when an ask names a game page ("the sound board", its address) and
+  `page=<name>` opens `/<name>.html` of that game (`GAME_PAGES` in `src/places.mjs`: the sound board, the animation lab; only a page file
+  the folder holds). B1133: filing an ask (`work ask`, also one that joins an open ask) refuses a `play` whose branch is no plain
+  branch name or whose `page=` is not on that list, naming the pages (`playProblem`, shared with the game request's check); the game's
+  own keys (`screen`, `mode`, ...) are never checked, the board stays usable for any project. `work ask` adds that play link itself when an ask names a game page ("the sound board", its address) and
   gives none: the step's branch, else main. A do or look ask with a local address it cannot link gets one line of warning.
 
 **The task windows, compact on top (B157).** The person, 2026-10-14: "this is too much details. I want clear headers
