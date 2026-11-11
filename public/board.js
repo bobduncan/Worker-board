@@ -3577,7 +3577,12 @@ function drawLane(lane, state) {
     title.append(el('span', 'task-code', lane.held.id), ' ', lane.held.title)
     // P7: the held step's one status from the server (state.mjs `stepStatus`); said in the row only when it is not this worker at work on it.
     const status = stepStatusFor(state, lane.held.id)
-    if (status !== null && status.kind !== 'working') title.append(' ', el('span', 'task-status muted', `· ${status.words}`))
+    if (status !== null && status.kind !== 'working') {
+      // The person's "1 yes" of 2026-11-11: a step that waits for the goal's recap says so, linked to that goal's recap, quiet (no warn tone).
+      const note = status.kind === 'recap' && /^#advice\/goals\/G\d+$/.test(status.link ?? '') ? el('a', 'task-status muted recap-wait', `· ${status.words}`) : el('span', 'task-status muted', `· ${status.words}`)
+      if (note.tagName === 'A') note.href = status.link
+      title.append(' ', note)
+    }
     title.title = [`${lane.held.id} ${lane.held.title}`, ...(status === null ? [] : [`Status: ${status.words}`]), ...heldHover(lane.held, state.readAt)].join('\n')
     what.append(title)
   } else if (isHeld) {

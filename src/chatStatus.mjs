@@ -118,7 +118,7 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
   // 1. Working: a fresh report says busy (also background work after a reported step, and a wait for the partner). A fresh busy
   // report beats a pause note read from a lagging transcript; only the app's own stop line and the person's pause hold it.
   if (!asleep) {
-    if (state === 'working') return out(STATUSES.WORKING, partner ? 'waits for the partner' : lane.heldBy === 'background' ? 'background' : null, report?.since)
+    if (state === 'working') return out(STATUSES.WORKING, partner ? 'waits for the partner' : typeof lane.recapWait?.words === 'string' ? lane.recapWait.words : lane.heldBy === 'background' ? 'background' : null, report?.since)
     if (state === 'suspended' && lane.suspended?.by === 'note' && isFreshBusy) return out(STATUSES.WORKING, null, report.since)
   }
   // 2. Waiting for you: a fresh report says asking, or a blocking ask is open.
