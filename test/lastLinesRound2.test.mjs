@@ -93,7 +93,7 @@ test('a line that ended after 24 h is not busy: its Vision button is free and Se
 test('Start again refills the box from the start word\'s kept words (the state), also on a fresh page; it shows with no line (a copied start) and with a closed line past its ten minutes, not on a just-sent start', async () => {
   const empty = (planStart, waits = {}) => ({ ...stateOf(PLAN_OPEN, [], waits), plan: null, planStart })
   for (const round of [1, 2]) {
-    const page = await openPage({ state: empty({ at: at(30), state: 'working', said: 'a tactics game for short breaks' }), now: NOW })
+    const page = await openPage({ state: empty({ at: at(30), state: 'working', words: 'a tactics game for short breaks' }), now: NOW })
     try {
       await page.click('[data-tab="vision"]')
       assert.equal(page.all('[data-vision-act="start-again"]').length, 1, `round ${round}: no line, its wait card stands: Start again`)

@@ -7199,7 +7199,7 @@ function stepStory(item, items = [], goalTitle = null) {
   const point = storyBare(brackets === null ? found : found.slice(0, brackets.index))
   const context = given.context
     ?? (isFix ? `A fix of ${fixed}${title === '' ? '' : ` (${storyCut(title, 70)})`}: its result check found one point short.` : null)
-    ?? (storySentence((item.context ?? []).filter(one => !/^(?:Touches:|Requirements:|Reported|Asked Q|Q\d+ answered|-\s)/.test(one)).join(' ')) || null)
+    ?? (storySentence((item.context ?? []).filter(one => !/^(?:Touches:|Requirements:|Reported\b|Asked Q|Q\d+ answered|-\s)/.test(one)).join(' ')) || null)
     ?? (goalTitle ?? null)
     ?? ''
   const problem = given.problem
@@ -16380,12 +16380,12 @@ function visionView(plan, ui = { page: 'vision', at: 0, picked: {}, change: null
   const workOn = (command, about = 'plan') => working.find(one => one.command === command && one.about === about) ?? null
   const lineOf = one => (typeof one?.id === 'string' ? part?.waits?.[one.id] ?? null : null)
   const workStateOf = one => (one === null ? null : isBusy(one) ? 'working' : 'late')
-  const isBusy = one => one !== null && (lineOf(one) === null ? one.state === 'waiting' || one.state === 'working' : ['sent', 'picked-up'].includes(lineOf(one).state) && lineOf(one).isEnded !== true)
+  const isBusy = one => one !== null && (lineOf(one) === null ? one.state === 'waiting' || one.state === 'working' : ['sent', 'picked-up'].includes(lineOf(one).state) && lineOf(one).isEnded !== true && lineOf(one).isUnconfirmed !== true)
   const slides = []
   // The Interview as the guided path (the user, 2026-10-21): after the partner's questions of each step, every decision
   // that waits on you there, one per slide, in the steps' order. A decision you sent in your own words leaves at once, and stays away while its word
-  // stands in the plan's `working` (the records: the word's `about` is the card; a next focus's word is about the plan), never because of page memory.
-  const wordsAreWithPartner = (id, step = null) => (step === 'focus' ? workOn('plan-focus') !== null : workOn('plan-change', id) !== null)
+  // stands in the plan's `working` (the records: the word's `about` is the card; a next focus's word is about the plan) and its line is Sent or Picked up: a Late, ended or failed word brings the slide back (its line has Send again), never because of page memory.
+  const wordsAreWithPartner = (id, step = null) => (step === 'focus' ? isBusy(workOn('plan-focus')) : isBusy(workOn('plan-change', id)))
   const decide = slide => slides.push({ kind: 'decide', text: '', ...slide, isSent: wordsAreWithPartner(slide.id, slide.step) })
   for (const answer of plan.answers) {
     // An open answer the partner has not asked yet: get its options from the partner, or answer it in your words.
@@ -18532,7 +18532,7 @@ async function visionAct(act, id) {
     const start = visionStart(visionUi)
     if (!start.canStart) return redrawVision()
     const words = visionStartWords(start.kind, visionUi.extra)
-    if (await toPartner({ command: 'plan-start', text: words }, '')) {
+    if (await toPartner({ command: 'plan-start', text: words, kind: start.kind, ownWords: visionUi.extra.trim() }, '')) {
       // The words stay at hand for Start again, but not in the other boxes that share them.
       visionUi.extra = ''
       visionUi.startSent = true
@@ -18543,8 +18543,9 @@ async function visionAct(act, id) {
   }
   if (act === 'start-again') {
     visionUi.startAgain = true
-    // The words refill from the record (the word's kept `said`, in the state), never from page memory: a reload does not lose them.
-    visionUi.extra = typeof board?.planStart?.said === 'string' ? board.planStart.said : ''
+    // The words refill from the record (the start word's kept own words (`planStart.words`, apart from the kind) and its kind, in the state), never from page memory: a reload does not lose them.
+    visionUi.extra = typeof board?.planStart?.words === 'string' ? board.planStart.words : ''
+    if (typeof board?.planStart?.kind === 'string') visionUi.startKind = board.planStart.kind
     visionUi.note = null
     return redrawVision()
   }

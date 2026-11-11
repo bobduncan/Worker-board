@@ -131,11 +131,18 @@ async function startBoard(t, { withAdvisor }) {
   const outbox = async () => (await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean).map(text => JSON.parse(text))
   const plan = () => readFile(planFile, 'utf8')
 
-  return { board, planFile, asPerson, state, outbox, plan }
+  // What the partner's mod reports of its turn (`POST /api/bridge/report`, with the board's key): a busy turn naming a word is that word's pick-up.
+  const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
+  const report = async (name, session, more) => fetch(`${base}/api/bridge/report`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.27.0' },
+    body: JSON.stringify({ chat: name, session, report: { state: 'busy', seq: 1, run: 1, ...more } }),
+  })
+
+  return { board, planFile, asPerson, state, outbox, plan, report }
 }
 
 test('the real route: a Confirm is written into the plan first, then the word goes to the partner; a pending word of the partner stays pending', { timeout: 300_000 }, async t => {
-  const { board, planFile, asPerson, state, outbox, plan } = await startBoard(t, { withAdvisor: true })
+  const { board, planFile, asPerson, state, outbox, plan, report } = await startBoard(t, { withAdvisor: true })
   // A judgment word first: Go deeper on P7 waits for the partner.
   const deeper = await asPerson('/api/plan', { command: 'plan-deeper', id: 'P7' })
   assert.equal(deeper.status, 200, deeper.body)
@@ -163,6 +170,18 @@ test('the real route: a Confirm is written into the plan first, then the word go
   const later = new Date(Date.now() + 60_000)
   await writeFile(planFile, `${await plan()}\n`)
   await utimes(planFile, later, later)
+  // Chat 1's ruling (2026-11-11): a partner write ends a word only after the word was PICKED UP. None is on record yet: the word stays, and its
+  // line says quietly that the page was written but not confirmed for this word.
+  const deeperWord = (await outbox()).find(message => message.command === 'plan-deeper')
+  const quiet = await until(async () => {
+    const line = (await state()).waits?.[deeperWord.id]
+    return /plan written \d\d:\d\d; not confirmed for this word/.test(line?.rest ?? '') ? line : null
+  }, 'the quiet "not confirmed" line')
+  assert.notEqual(quiet.state, 'done')
+  assert.equal((await state()).plan.working.some(one => one.command === 'plan-deeper'), true, 'a write before any pick-up ends nothing')
+  // The partner's turn on the word begins (the mod's report names it): then the page written after that start is its answer.
+  const turnStart = Date.now()
+  assert.equal((await report('Advisor', 'advisor-id', { since: turnStart, turn: turnStart, word: deeperWord.id })).status, 200)
   await until(async () => !(await state()).plan.working.some(one => one.command === 'plan-deeper'), 'the partner write ends the Go deeper line')
 })
 

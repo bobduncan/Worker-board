@@ -530,7 +530,8 @@ export function withPlanWork(plan, sent, pageAt, now) {
     if (seen.has(key)) continue
     seen.add(key)
     const at = Number(message.at)
-    if (planAnswered(plan, command, about, at, pageAt, message.pickedUpAt)) continue
+    // A word whose Done the wait line saw and kept on it (`doneAt`, src/waitLine.mjs: once seen, it stays) is answered, also where the pick-up was a turn report's.
+    if (Number.isFinite(message.doneAt) || planAnswered(plan, command, about, at, pageAt, message.pickedUpAt)) continue
     working.push({ id: message.id ?? null, command, about, at, state: wordState(message), what: WORK_WORDS[command] })
   }
   return { ...plan, working, pageAt: Number.isFinite(pageAt) ? pageAt : null, labels: WORD_LABELS }
@@ -552,6 +553,6 @@ export function planStarting(sent, now) {
   if (start === undefined) return null
   const at = Number(start.at)
   if (!Number.isFinite(at) || now - at > START_SHOWN_MS) return null
-  // `said`: the person's own words of the start, kept on the word, for Start again.
-  return { at, state: wordState(start), ...(typeof start.said === 'string' && start.said !== '' ? { said: start.said } : {}) }
+  // The kind and the person's OWN words of the start (apart from the kind), kept on the word, for Start again.
+  return { at, state: wordState(start), ...(typeof start.startKind === 'string' && start.startKind !== '' ? { kind: start.startKind } : {}), ...(typeof start.ownWords === 'string' && start.ownWords !== '' ? { words: start.ownWords } : {}) }
 }

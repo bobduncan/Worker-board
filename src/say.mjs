@@ -220,7 +220,7 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
  * The partner writes the page (roles/partner.md, "The plan interview"), except the person's own decisions: the board writes
  * those first (src/planMoves.mjs `planDecide`), and `written` makes the word say so.
  */
-export function planWords(command, { to, id, words = null, job, written = false }) {
+export function planWords(command, { to, id, words = null, job, written = false, start = null }) {
   const said = String(words ?? '').replace(/\s+/g, ' ').trim()
   // 2026-11-09 (reactive board, brief A): the person's own decisions are written into the plan by the board before this word
   // goes out; the word says so, and the partner goes on from it without writing it again.
@@ -270,7 +270,7 @@ export function planWords(command, { to, id, words = null, job, written = false 
     'plan-not-now': [`plan: ${id} not now`],
   }[command]
   // P4c: the person's own words stay on the word (`said`), so a Send again of a late word types them again, whatever the box holds now.
-  return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id === '' ? 'plan' : id, ...(said === '' ? {} : { said }), text: [...head, ...wrote, `Your job: ${job}, "The plan interview"`].join('\n') }
+  return { to, ask: null, step: null, title: null, version: null, verdict: null, command, about: id === '' ? 'plan' : id, ...(said === '' ? {} : { said }), ...(command === 'plan-start' && start !== null ? { startKind: start.kind, ownWords: start.words } : {}), text: [...head, ...wrote, `Your job: ${job}, "The plan interview"`].join('\n') }
 }
 
 /**

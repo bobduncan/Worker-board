@@ -984,8 +984,12 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     const lane = lanes.get(word.to) ?? null
     const report = (reports instanceof Map ? reports.get(word.to) : null) ?? lane?.report ?? null
     const queue = outbox.filter(one => one.to === word.to && one.state === 'waiting' && one.isHeld !== true && one.id !== word.id && isTime(one.at) && one.at < word.at).length
+    // Chat 1's ruling (2026-11-11): a plan word counts the partner's page write only after the word was PICKED UP: the record on the word, or the turn
+    // report that names this word (its turn start). With no such record and the page written after the word, the line stays quiet (never Late).
+    const planPick = place !== 'plan' ? null : isTime(word.pickedUpAt) ? word.pickedUpAt : report?.word === word.id && (isTime(report.turn) || isTime(report.since)) ? turnOf(report) : null
+    const isUnconfirmed = place === 'plan' && !PLAN_DECISIONS.includes(word.command) && !isTime(planPick) && isTime(state?.plan?.pageAt) && state.plan.pageAt > word.at
     const found = word.command === 'recap-feedback' ? recapDone(word, items) : word.command === 'obsolete-check' ? obsoleteDone(word, obsolete) : word.command === 'sweep' ? sweepDone(word, sweep)
-      : doneOfPlace(word, place, { state, items, steps, goals, threads, now })
+      : doneOfPlace(place === 'plan' && isTime(planPick) ? { ...word, pickedUpAt: planPick } : word, place, { state, items, steps, goals, threads, now })
     // A result with no time of its own (a stop, a remove, a refine block with no stamp) is dated by the first moment the board saw it,
     // kept (`firstSeen`, the server's own map, and on the word once the server writes it), never by the clock of each draw.
     const done = found === null || isTime(found.at) || !(firstSeen instanceof Map) ? found : { ...found, at: firstSeen.get(word.id) ?? now }
@@ -1000,7 +1004,7 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     // The first moment the board saw a word closed that has no `closedAt` of its own (one the sweep would close): its "closed" line is dated by it.
     const closedKey = `${CLOSED_KEY}${word.id}`
     const closedSeenAt = firstSeen instanceof Map ? firstSeen.get(closedKey) ?? null : null
-    const first = waitLineOf({ word, lane, report, ahead, wake: lane?.wake ?? null, done, now, keep, queue, judge, paused, outlives: isOwnPlace, progress, running, heard, wall, unknownMs, staleMs, closedSeenAt, ...(WAVE2_PLACES.includes(place) ? { own: isOwnPlace } : {}) })
+    const first = waitLineOf({ word, lane, report, ahead, wake: lane?.wake ?? null, done, now, keep, queue, judge, paused, outlives: isOwnPlace, progress, running, heard, wall, unknownMs, staleMs, closedSeenAt, turnLate: !isUnconfirmed, ...(WAVE2_PLACES.includes(place) ? { own: isOwnPlace } : {}) })
     if (firstSeen instanceof Map && !isTime(word.closedAt) && closedSeenAt === null && (first?.state === 'closed' || (first === null && word.state !== 'dropped' && !judge.matters(word)))) firstSeen.set(closedKey, first?.at ?? now)
     if (first === null) continue
     // P3, no silent end: a word past a day without a Done says so for one more day ("no answer recorded in 24 h"), quietly, and its wait has
@@ -1014,9 +1018,9 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
         : { ...first, state: 'sent', lead: `Sent ${clockOf(asked.at)}`, rest: 'no answer recorded in 24 h', canSendAgain: false, link: null, seen: null, at: asked.at, isEnded: true }
     // Chat 1's ruling (2026-11-11): the partner wrote the plan page after this word, but the board has no record that its turn on THIS word began
     // (no pickedUpAt: an older mod, a merged prompt): no Done, and a quiet note, as elsewhere in P3.
-    const planNote = place === 'plan' && !PLAN_DECISIONS.includes(word.command) && line.state !== 'done' && !isTime(word.pickedUpAt) && isTime(state?.plan?.pageAt) && state.plan.pageAt > word.at
+    const planNote = isUnconfirmed && line.state !== 'done'
       ? `plan written ${clockOf(state.plan.pageAt)}; not confirmed for this word` : null
-    const noted = planNote === null ? line : { ...line, rest: [line.rest, planNote].filter(Boolean).join(' · ') }
+    const noted = planNote === null ? line : { ...line, rest: [line.rest, planNote].filter(Boolean).join(' · '), ...(line.isTurnEnded === true ? { isUnconfirmed: true } : {}) }
     const title = String(asked.text ?? '').split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 160)
     waits[asked.id] = { ...noted, word: word.id, command: (asked.ask ?? null) !== null ? 'answer' : asked.command ?? asked.free, place, about: asked.about ?? asked.freeAbout ?? null, ...(place === 'plan' && typeof asked.said === 'string' ? { said: asked.said } : {}), ...(answeredCard(asked) === null ? {} : { planCard: answeredCard(asked) }), goal: goalOfWord(asked, place, threads), ask: asked.ask ?? null, sentAt: asked.at, title }
   }
