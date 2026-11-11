@@ -27,6 +27,11 @@ import { sinceMs, valueOf } from './item.mjs'
 import { hourMinute } from './waitsOn.mjs'
 import { waitsForLimit } from './providerLimit.mjs'
 
+/** A background-only lane (no turn since) whose asset requests are all final reads "no news" past this much of the board's running time. */
+export const NO_NEWS_MS = 30 * 60_000
+/** And needs a look past this much. */
+export const NO_NEWS_ATTENTION_MS = 60 * 60_000
+
 /** The states of a request the holder still waits for (src/assets.mjs `ASSET_STATES`): not yet ready or failed. */
 export const OPEN_ASSET_STATES = Object.freeze(['waiting', 'running'])
 /** The states a step is at work in: only such a step's holder waits for its requests. */
@@ -205,6 +210,22 @@ export function assetFailureOf(step, assets, { chat = null, prefix = '', now = D
   if (finite(progressAt) && progressAt > failed.times.ended) return null
   const why = String(failed.why ?? '').replace(/\s+/g, ' ').trim()
   return { id: failed.id, name: pieceNameOf(failed, step), why, at: failed.times.ended, text: `${failed.id} failed${why === '' ? '' : `: ${why}`}` }
+}
+
+/**
+ * The asset-stop rerun (2026-11-11, the live A245): a lane whose turn ended with background work running (`heldBy` background, the
+ * mod's report) and that has run no turn since `since`, while its steps' asset requests are all final (a word about the last one
+ * never came, or the chat missed it): `{ since, minutes, attention }` once `runningMs(since)` is past `NO_NEWS_MS`, attention past
+ * `NO_NEWS_ATTENTION_MS`; else null. The lane then reads "background task since 13:50, no news" instead of a bare "Working ·
+ * background" for hours. Nothing without a request (an ordinary background task), nothing while a request is open (the asset work).
+ */
+export function backgroundNoNewsOf({ lane, steps = [], assets = [], runningMs, prefix = '' }) {
+  if (lane?.state !== 'working' || lane.heldBy !== 'background' || !finite(lane.report?.since) || typeof runningMs !== 'function') return null
+  const mine = steps.flatMap(step => requestsOfStep(assets, valueOf(step, 'Id'), lane.name, prefix))
+  if (mine.length === 0 || mine.some(isOpen)) return null
+  const ran = runningMs(lane.report.since)
+  if (!(ran >= NO_NEWS_MS)) return null
+  return { since: lane.report.since, minutes: Math.floor(ran / 60_000), attention: ran >= NO_NEWS_ATTENTION_MS, words: `background task since ${hourMinute(lane.report.since)}, no news` }
 }
 
 /**

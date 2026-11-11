@@ -46,9 +46,13 @@ function assetLineWhy(message, items, assets, prefix) {
  * chat's and in progress, and no later word to that chat names the asset (one by hand, or an earlier send again). The key
  * (`asset-again <A-id> <chat>`) is sent once, ever (deliver.mjs `sendOnce`).
  */
-export function assetResends(all, items, assets, { prefix = '' } = {}) {
+export function assetResends(all, items, assets, { prefix = '', now = null } = {}) {
   if (!(assets instanceof Map)) return []
   const found = []
+  const add = (chat, request) => {
+    if (found.some(one => one.id === request.id && one.chat === chat)) return
+    found.push({ chat, id: request.id, key: `asset-again ${request.id} ${chat}`, state: request.state, why: String(request.why ?? '') })
+  }
   for (const message of all) {
     if (message.command !== 'work' || message.kind !== 'asset' || message.state !== 'dropped' || message.why !== `${message.about} is gone`) continue
     if (!/^asset \S+ ready:/.test(String(message.text ?? ''))) continue
@@ -57,11 +61,28 @@ export function assetResends(all, items, assets, { prefix = '' } = {}) {
     if (request?.state !== 'ready' || item === undefined || value(item, 'State') !== 'in progress') continue
     if (plain(value(item, 'Owner'), prefix) !== plain(message.to, prefix)) continue
     if (all.some(one => one.id !== message.id && one.to === message.to && (one.at ?? 0) >= (message.at ?? 0) && one.about === message.about && !(one.state === 'dropped' && one.kind === 'asset'))) continue
-    if (found.some(one => one.id === message.about && one.chat === message.to)) continue
-    found.push({ chat: message.to, id: message.about, key: `asset-again ${message.about} ${message.to}` })
+    add(message.to, request)
+  }
+  // The asset-stop rerun (2026-11-11, the live A245: failed at 13:50 by a landing's restart, and no word ever reached Worker 1, which
+  // waited in the background until 17:12): a request that ended (ready or failed) over `ASSET_WORD_AFTER_MS` ago while its step is
+  // still that chat's and in progress, with NO word to that chat about it (the queue's own word was lost: the chat was not shown yet,
+  // or the board stopped in between), gets its word once from the sweep. `now` null: this part is left out (the older callers).
+  if (Number.isFinite(now)) {
+    for (const request of assets.values()) {
+      if (!(request?.state === 'ready' || request?.state === 'failed') || typeof request.who !== 'string' || typeof request.of !== 'string') continue
+      const ended = request.times?.ended
+      if (!Number.isFinite(ended) || now - ended < ASSET_WORD_AFTER_MS) continue
+      const item = items.get(request.of)
+      if (item === undefined || value(item, 'State') !== 'in progress' || plain(value(item, 'Owner'), prefix) !== plain(request.who, prefix)) continue
+      if (all.some(one => plain(one.to, prefix) === plain(request.who, prefix) && one.about === request.id && !(one.state === 'dropped' && one.kind === 'asset'))) continue
+      add(request.who, request)
+    }
   }
   return found
 }
+
+/** A request that ended this long ago with no word to its chat is told by the sweep (the queue's own word had its chance). */
+export const ASSET_WORD_AFTER_MS = 60_000
 
 /**
  * Why a work line no longer matters ("B567 is done", "B522 left review"), or null while it does. `items`: the work store's

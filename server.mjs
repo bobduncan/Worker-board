@@ -1642,7 +1642,7 @@ async function main(args) {
    * also from the work tool (the partner's answer), and a line of its own (`line`: the person took a partner's answer
    * back). Only to a chat the board shows; copied without the Workers mod. What to paste, or null.
    */
-  const sendWakes = async done => {
+  const sendWakes = async (done, { report = false } = {}) => {
     // Rule 15: and `wakes`, a word to each asking chat whose ask the person's words held (work `words`), or whose hold ended.
     const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null, ...(done.result.wakes ?? [])].filter(one => one !== null) : []
     let paste = null
@@ -1661,7 +1661,7 @@ async function main(args) {
       if (isCopied) paste ??= { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
     }
     if (said) readState.reset()
-    return paste
+    return report ? { paste, said } : paste
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
   // B736 (X89): `kept`, the state the board has however old, for a read that must answer at once (work health).
@@ -2182,7 +2182,8 @@ async function main(args) {
         return null
       }
     },
-    tell: record => sendWakes({ ok: true, result: { wake: { to: record.who, id: record.id, kind: 'asset', line: record.state === 'ready' ? `asset ${record.id} ready: ${join(assetsDir, record.id)}` : `asset ${record.id} failed: ${record.why}` } } }),
+    // The asset-stop rerun: false when the word went to nobody (the chat not shown yet, right after a start): the queue tells again.
+    tell: async record => (await sendWakes({ ok: true, result: { wake: { to: record.who, id: record.id, kind: 'asset', line: record.state === 'ready' ? `asset ${record.id} ready: ${join(assetsDir, record.id)}` : `asset ${record.id} failed: ${record.why}` } } }, { report: true })).said,
   })
   let assetsRecovered = false
   /** One look of the queue, where the board's loops run; the first one fails what a stop cut off. */

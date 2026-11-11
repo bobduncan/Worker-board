@@ -122,8 +122,11 @@ test('B949 a ready word dropped as gone is written again once, while its step is
   }
   const first = await refresh(dir, outbox)
   assert.deepEqual(first.sent.map(one => [one.to, one.about, one.kind, one.text]), [['Digger', 'A17', 'asset', `asset A17 ready: ${join(dir, '..', 'assets', 'A17')}`]])
+  // The asset-stop rerun (2026-11-11, A245): a failed request whose chat got no word (its ready word was dropped as gone, nothing else) is
+  // told once by the sweep a minute after it ended; the ready one in review (A18) is not; a third refresh sends nothing again.
   const second = await refresh(dir, outbox, NOW + 60_000)
-  assert.deepEqual(second.sent, [])
+  assert.deepEqual(second.sent.map(one => [one.to, one.about, one.kind, one.text]), [['Digger', 'A19', 'asset', 'asset A19 failed: x']])
+  assert.deepEqual((await refresh(dir, outbox, NOW + 120_000)).sent, [])
   assert.equal(outbox.outbox().filter(one => one.about === 'A17' && one.state !== 'dropped').length, 1)
 })
 

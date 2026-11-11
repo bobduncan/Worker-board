@@ -62,8 +62,8 @@ export function limitResetOf(why, now = Date.now()) {
 
 /** The record's `limit` for a failure at the provider's limit resetting at `until`: what is kept while the request waits; `tries` how often. */
 export const limitOf = (why, until, at, tries = 1) => ({ until, why: String(why ?? '').replace(/\s+/g, ' ').trim().slice(0, 300), at, tries })
-/** The failure's words once the board waited `LIMIT_TRIES` times for a reset that lifted nothing. */
-export const triedWhy = (why, tries) => `${String(why ?? '').replace(/\s+/g, ' ').trim().slice(0, 300)} (the board waited for its reset ${tries} times)`
+/** The failure's words once the board tried `LIMIT_TRIES` times (a reset that lifted nothing, a board stop that cut the job each time). */
+export const triedWhy = (why, tries) => `${String(why ?? '').replace(/\s+/g, ' ').trim().slice(0, 300)} (the board tried it ${tries} times)`
 
 /** Whether a request waits for its provider's limit to reset (`limit.until` still ahead at `now`). */
 export const waitsForLimit = (record, now = Date.now()) => record?.state === 'waiting' && Number.isFinite(record?.limit?.until) && record.limit.until > now

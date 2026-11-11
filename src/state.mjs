@@ -51,7 +51,7 @@ export { refineAsk } from './work/askOpen.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
 import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
-import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, lateAssetsOf } from './work/assetWait.mjs'
+import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, backgroundNoNewsOf, lateAssetsOf } from './work/assetWait.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { EFFORTS, effortPlan, runSettings } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
@@ -2614,7 +2614,14 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     const back = lane.isLeftover === true || !workOk ? [] : givenBackFrom(raw.work.items, lane.name, prefix)
       .map(one => ({ kind: now - one.at < HOUR ? 'given back' : 'given back old', id: one.id, text: `did not resume ${one.id}, given back ${hourMinute(one.at)}`, button: null }))
     const modRun = lane.onSequence === true ? null : rollout?.runs.get(lane.name) ?? null
-    return { ...lane, flags: [...flagsOf(lane.name), ...waits, ...told, ...back], effortRun: run, modRun, handover, heldAsk: heldAskOfLane(lane), ...statusFor(lane, { handover, modRun }) }
+    // The asset-stop rerun (2026-11-11, A245): a background-only lane whose asset requests are all final, for over 30 running minutes.
+    const backgroundNoNews = backgroundNoNewsOf({
+      lane, assets: assetRecords, prefix,
+      steps: (lane.storeSteps ?? []).filter(one => ['taken', 'in progress'].includes(one.state)).map(one => raw.work?.items?.get(one.id)).filter(one => one !== undefined),
+      runningMs: from => { const since = afterPause(pauseRecord, from); return now - since - offMsOf(gaps, now)(since) },
+    })
+    const told2 = backgroundNoNews === null ? lane : { ...lane, backgroundNoNews }
+    return { ...told2, flags: [...flagsOf(lane.name), ...waits, ...told, ...back], effortRun: run, modRun, handover, heldAsk: heldAskOfLane(lane), ...statusFor(told2, { handover, modRun }) }
   })
   // Autopilot (2026-10-31): the open asks routed to the main chat or to a goal's recap (the recap card counts the second).
   const routedAway = !workOk ? [] : routedAwayOf(raw.work, { names: chatNames, prefix })
