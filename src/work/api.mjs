@@ -49,6 +49,7 @@ import { noteCameDownWords, stillTrueLeaves, stillTrueStep } from './stillTrueRu
 import { ASKS_NOTHING_WHY, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, asksNothingOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
 import { HELD, afterPause, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
 import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
+import { BOOKKEEPING_DROP_WORDS } from './dropAsk.mjs'
 import { WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, waitWhatOf, waitWhoOf, waitWhoProblem, waitsOnLine, waitsOnOf } from './waitsOn.mjs'
 import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { takenForLine } from './held.mjs'
@@ -4309,7 +4310,10 @@ async function drop(body, w) {
   if (!moved.ok) return moved
   const item = underStep(moved.item, [`Dropped by ${w.who} on ${at(w.now)}: ${why}`])
   const done = await save(item, found.text, w)
-  return done.ok ? changed(item) : done
+  if (!done.ok) return done
+  // Drop asks go to the person (2026-11-11): the main chat's own drop, with its why, is store bookkeeping and needs no ask; its
+  // answer says where that ends (a drop of planned work is the person's: src/work/dropAsk.mjs).
+  return w.role === 'main' ? changed(item, `${BOOKKEEPING_DROP_WORDS}\n\n${serializeItem(item)}`) : changed(item)
 }
 
 /** The round number of a refine block's head, 0 when there is none. */

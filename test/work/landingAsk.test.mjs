@@ -130,6 +130,7 @@ test('Autopilot never answers a landing ask that was filed anyway: the route is 
   }
   // The other asks go their old ways: the advice is taken (a decide with advice under a step of another goal), or the partner decides.
   const ways = Object.fromEntries(Object.entries(KEPT).map(([id, one]) => [id, route(filed(id, one)).to]))
-  assert.deepEqual(ways, { Q698: 'advice', Q664: 'advice', Q685: 'advice', Q661: 'advice', Q653: 'advice', Q646: 'advice', made1: 'advice', made2: 'advice', made3: 'advice', made4: 'partner', made5: 'person', made6: 'person' })
+  // Q685 asks to drop a step: since drop-asks-to-person (2026-11-11) the person's, never Autopilot's.
+  assert.deepEqual(ways, { Q698: 'advice', Q664: 'advice', Q685: 'person', Q661: 'advice', Q653: 'advice', Q646: 'advice', made1: 'advice', made2: 'advice', made3: 'advice', made4: 'partner', made5: 'person', made6: 'person' })
   for (const id of Object.keys(KEPT)) assert.notEqual(route(filed(id, KEPT[id])).why, LANDING_ROUTE_WHY, id)
 })

@@ -7296,6 +7296,16 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   statement of the rule in an ask's context ("the step lands on chat 1's go once you pick"). Pinned by `test/work/landingAsk.test.mjs`
   with the words of the real asks (refused: Q701, Q686, Q687, Q689, Q655, Q639, Q644, Q637; not refused: Q698, Q664, Q685, Q661, Q653,
   Q646). Not in it: a lane state for a step that waits for a go (T2.11).
+- **Drop asks go to the person** (2026-11-11, chat 1's brief): the live Q733 "Drop B1011, B978 and B934 now?" (a decide with no
+  options or pictures) went to its advice, Autopilot took "yes" within a second, the person never saw it and the main chat dropped
+  three steps on it; a drop cannot be undone. Two kinds: a step that is superseded or was built elsewhere is store bookkeeping, the
+  main chat drops it itself with a why and asks nobody (its drop's answer starts with `BOOKKEEPING_DROP_WORDS`); a drop of planned
+  work is the person's call: `autopilotRoute` routes every ask whose title, text or options ask to drop or remove a step or goal to
+  the person (`DROP_ROUTE_WHY`), on its first pass and every pass after. One matcher (`src/work/dropAsk.mjs`, `dropAskOf`), sentence
+  by sentence: "drop"/"remove" (or "dropping"/"removing") as a verb on a step or goal id, on "this step", "the goals", or on
+  "it"/"them" ending the sentence; never a past "dropped" (a fact) or the game's words ("drops of lava", "the drop zone", "a drop
+  shadow"). Roles: main.md and partner.md "Which drop is whose". Pinned by `test/work/dropAsk.test.mjs` (Q733; Q685 of the landing
+  test now goes to the person too).
 - **Landing**: fast-forward of main to the gated head (the sha, not the branch's name), `git push <remote> main` (never a
   force: force-pushes are denied in the project's settings, README "The allow rules"), the trial copy fast-forwarded from its
   `local` remote. A push that fails or times out is checked with `git ls-remote` first: when the remote has the head the landing
