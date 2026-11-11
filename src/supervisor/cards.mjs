@@ -8,6 +8,7 @@
 import { incidentsNamedBy } from '../work/incidentFix.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
 import { parkedAfter } from '../work/parked.mjs'
+import { openFixChain } from '../work/resultCheck.mjs'
 import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from '../work/waitsOn.mjs'
 
 const numeric = (a, b) => String(a).localeCompare(String(b), 'en', { numeric: true })
@@ -113,6 +114,39 @@ export function noFixState(incident, word, hasSupervisor = true) {
 }
 
 const pad = n => String(n).padStart(2, '0')
+
+/** The most links of a fix chain a card names; the rest is "…" (P5). */
+export const CHAIN_SHOWN = 10
+/** How the last link of a chain stands in words: what it is still missing, not just its state ("not refined"). */
+const END_WORDS = { new: 'not refined', refined: 'not taken', queued: 'not taken', taken: 'taken', 'in progress': 'in progress', review: 'in review', 'waiting on you': 'waits for you' }
+/** "11-04" of a step's Since ("2026-11-04 21:10"), or '' when it has none. */
+const dayOf = item => (/^\d{4}-(\d{2}-\d{2})/.exec(valueOf(item, 'Since') ?? '') ?? [])[1] ?? ''
+
+/**
+ * P5 (2026-11-09, the person's "which one is it waiting for?"): where an open fix of an incident stands, `{ text, end }` or null when the fix is
+ * over. `text` names the chain to its open end and the last seen: "waits for its fix B978, in review since 11-04 → B1011 → B1030, not refined
+ * since 11-04" (the chain code is resultCheck.mjs `openFixChain`, the one the review wait reads; at most CHAIN_SHOWN links, then "…"). `end` the
+ * last link's id. `items` the store's items.
+ */
+export function chainWordsOf(fixId, items) {
+  const first = items.get(fixId)
+  if (first === undefined || ['done', 'dropped'].includes(valueOf(first, 'State'))) return null
+  const links = [fixId, ...openFixChain(fixId, items)]
+  const end = links.at(-1)
+  const said = id => {
+    const item = items.get(id)
+    const state = valueOf(item, 'State')
+    const day = dayOf(item)
+    return `${id}, ${END_WORDS[state] ?? state}${day === '' ? '' : ` since ${day}`}`
+  }
+  // Over the cap: the first link with its words, "…", then the last ones up to the open end, with its words (the end is what the person waits for).
+  const shown = links.length > CHAIN_SHOWN ? [said(links[0]), '…', ...links.slice(-(CHAIN_SHOWN - 1)).map((id, at, last) => (at === last.length - 1 ? said(id) : id))] : links.map((id, at) => (at === 0 || at === links.length - 1 ? said(id) : id))
+  return { text: `waits for its fix ${shown.join(' → ')}`, end }
+}
+
+/** Whether an open ask to the person is about the step `id` (Route person, Of the step): the chain ends in the person. */
+const endsInPerson = (id, items) => [...items.values()].some(item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'State') === 'open' && valueOf(item, 'Route') === 'person' && valueOf(item, 'Of') === id)
+
 /** "HH:MM" of a time, or "a time not known". */
 const clockWords = ms => (Number.isFinite(ms) ? `${pad(new Date(ms).getHours())}:${pad(new Date(ms).getMinutes())}` : 'a time not known')
 
@@ -169,7 +203,12 @@ export function incidentCards({ incidents = [], items = null, lanes = [], words 
     const state = step !== undefined ? stepState(step, { lanes, steps: stepsOnly, items: steps, isPaused, status: statuses?.[id] ?? null })
       : { text: items instanceof Map ? 'task not in the store' : 'task not read yet', tone: 'idle' }
     const at = Math.max(step === undefined ? -Infinity : activityOf(step) || -Infinity, latest(list))
-    return { key: id, step: id, title: step === undefined ? null : valueOf(step, 'Title'), state, phase: step === undefined ? null : valueOf(step, 'State'), incidents: list.map(one => ({ id: one.id, word: null })), at: Number.isFinite(at) ? at : 0 }
+    // P5: an open fix names its chain to the open end; the card is attention only when that end is an ask to the person, else quiet.
+    const chain = step === undefined || list.every(one => one.state === 'fixed') ? null : chainWordsOf(id, steps)
+    return {
+      key: id, step: id, title: step === undefined ? null : valueOf(step, 'Title'), state, phase: step === undefined ? null : valueOf(step, 'State'), incidents: list.map(one => ({ id: one.id, word: null })), at: Number.isFinite(at) ? at : 0,
+      chain: chain === null ? null : chain.text, tone: chain !== null && endsInPerson(chain.end, steps) ? 'attention' : 'quiet',
+    }
   }).sort((a, b) => b.at - a.at || numeric(a.step, b.step))
   if (loose.length > 0) {
     const each = loose.map(one => ({ id: one.id, ...noFixState(one, words.get(one.id), hasSupervisor) }))

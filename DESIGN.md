@@ -7556,6 +7556,49 @@ live data is read, no chat can be typed to. Before = main's `public/` (`git arch
 - **Server wiring (review 5):** `test/pauseTruthBoard.test.mjs` runs a board on a made-up project; mutants: popup-asks call out, `pause: state.pause`
   out, `stepState` out, `stepEndedAt` out each fail it; the `say.mjs` guard has its own test.
 
+## Every item re-checks itself: src/stillTrue.mjs (P5, 2026-11-09)
+
+The person's "Yes, build now" on chat 1's plan. The rule: every item on the person's lists re-checks itself, on every reconcile pass, with a
+test the board already has where one exists, and comes down with a record of why when it is not true any more. "as of HH:MM" is for a test
+that errored, never for an answer. `stillTrue(facts, memory)` is pure (what the pass already read: the state, the store's items, the outbox, the
+wake facts, the kept reports, `now`; the Map `memory` is the only thing it changes) and answers `{ down, notice }`; `stillTruePass` runs it in its
+own try (a throw stops no delivery: one log line), makes ONE batched work call for the asks, and writes the history. `server.mjs` calls it
+after the reconcile's own work (`loops.run('still-true')`), one memory Map per board process.
+
+| Item | The test it re-uses | What comes down, and how |
+| --- | --- | --- |
+| An open ask, of ANY Route | the start-up check's: `startupCheck.mjs` `asksOf(items, { anyRoute: true })`, its step done or dropped AFTER the ask was filed; never a kept look (`keptLook.mjs` `isKeptLook`) | the work API's `asks-withdrawn` with `anyRoute: true` (the board's role; it checks each ask again), the why `its step B<n> is <state> (still-true)` |
+| A wake line ("could not wake X") | `wake.mjs` `noticeOf` with `reports` (the lanes' kept reports): a chat for which `ranSince` is true is left out; a chat nothing waits for (`nothingWaits`) is a quiet line `could not wake X at 10:32; nothing waits for it now` (tone `quiet` when every line is quiet) | a line shown on the last pass and gone now gets its history line (`X ran since its failed wake`); the notice is the state's own, so no hysteresis |
+| "N alarms need you" (a Supervisor note, Via supervisor, unread) | the note carries `Incidents: X1, X2` (made in `api.mjs` `makeNote` from the X<n> in its words and its About); every named incident is fixed, gone, closed or dropped, or no longer in the store | the work API's `notes-came-down` (the board's, ids only; it checks each note again); the note's History says `came down: X1 fixed, X2 gone` |
+| An incident card with an open fix | `resultCheck.mjs` `openFixChain` (the chain the review wait reads) | `cards.mjs` `chainWordsOf`: `waits for its fix B978, in review since 11-04 → B1011 → B1030, not refined since 11-04`, at most 10 links then `…`; the card's `tone` is `attention` only when an open ask with Route person is about the chain's open end, else `quiet` |
+
+- **Hysteresis:** a finding counts only when it was found on two passes in a row AND was first found at least `MIN_AGE_MS` (20 s) ago: a pass runs every
+  few seconds, so "or a minute" could never fire. A finding that is not found on a pass is forgotten (it must stand again). A write the work API refuses
+  (or a call that throws) is left alone for `BACKOFF_MS` (10 min) with ONE log line per item, and writes no history line.
+- **History:** every item that comes down gets `{ at, kind: 'came down', id, why }` in `data/history.jsonl` (the store's `record`, as the gap lines
+  are written). `history.mjs` keeps it when it reads the file (`parseHistory`) and `isCameDown` makes `today`, `gapsOf`, `startGap` and the tick's
+  gap check leave it out; `taskFacts` and `notWorkedCounter` read only a chat's lines and a gap's, so a line with neither never counts.
+- **Links:** `public/board.js` `chatPieces` makes each chat name of the restart banner's "Cut off in the middle of a task" and of the wake notice a
+  link (`#task=<name>`, the address that opens a lane's window); a step id in the notice is a link through `linkedWords`. A quiet notice has its
+  own muted class (`nobody-runs-quiet`), never the attention colour.
+- **What the re-check never takes down (the review of 2026-11-11, the blocker):** `work/stillTrueRules.mjs` `stillTrueLeaves`: every `Route: recap` ask
+  (recapAnswered owns it: the person's Send must still find it), a recap's verdict look or do (`isRecapVerdictAsk`, as rule 15's `mayBeHeld`), an ask
+  the person took back (`isTakenBack`), the app's popups (`Via: form`) and refine questions (`Via: refine`); and `stillTrueStep`: the title's first
+  B<n> names the step ONLY for an ask routed to the person. `asksOf` (anyRoute) and the work API's `asks-withdrawn` both use them, so the server does not trust the list.
+- **Notes:** the work API's `notes-came-down` (SERVER and CHANGES only, never in a mod's or the page's list of actions) takes the note ids, checks each
+  one again (`noteCameDownWords`: unread, Via supervisor, every `Incidents` entry fixed, gone, closed or dropped) and marks them read in one call;
+  `read` stays the person's alone.
+- **The quiet wake line:** only for a chat nothing waits for (`wake.mjs` `nothingWaitsFor`, passed to `noticeOf` as `nothingWaits`): no taken or in-progress
+  step, none queued, no outbox word of any command waiting for it, the board not paused; else the attention line stays. A quiet notice alone leaves
+  "Nothing waits for you." on the page (decided by the notice's tone).
+- **Card:** over the cap the chain shows the first link with its words, "…", the last ones and the open end with its words; the page draws the card's
+  `tone` (attention or quiet) in place of the chip's when it names a chain.
+- **Links:** only where a window opens (`openableChats`: a lane of `state.chats` with a window chip); an asleep lane and the role chats stay plain words.
+- **Cost:** the pass reads the kept work (`work()`) and `readState.last()`, never `readStore`, and resets only when an ask or a note was written.
+- **Not in it:** land.ps1, the hand-over, `chatStatus.mjs`, the start-up check's triggers, the wake paths, the Workers mod, the Supervisor's rules.
+- **Tests:** `test/stillTrue.test.mjs`. Mutants (each fails a test there): hysteresis removed; the any-Route guard dropped (the person's asks only
+  again); `ranSince` ignored in the notice; the note comes down while an incident is open; the chain uncapped; the history line not written.
+
 ## Rule 15: a decision anywhere updates the board's open questions at once (2026-11-09)
 
 **Why.** The person, 2026-11-09, chat 2: "when we redesign/discuss things, the signals ont he board aint updated with the new information and

@@ -1331,6 +1331,9 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .inc-state.is-idle { border-color: #34455d; color: #9fb0c6; }
 .inc-state.is-review { border-color: #4f86b8; color: #7cc4ff; }
 .inc-state.is-done { border-color: #2f5a49; color: var(--working); }
+/* P5: a chain whose open end is an ask to the person: a firmer blue (the section stays cool: quiet blues and greys). */
+.inc-state.is-attention { border-color: #5b8def; background: #16233a; color: #dbe7ff; font-weight: 600; }
+.inc-state.is-quiet { border-color: #34455d; color: #9fb0c6; }
 .inc-state.is-dropped { border-color: #34455d; color: var(--muted); }
 .inc-state.is-sending { border-style: dashed; border-color: #7cc4ff; color: #7cc4ff; }
 .inc-state.is-advisor { border-color: #6a5a99; color: var(--ask); }
@@ -2749,6 +2752,7 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .check-row .check-again { font-size: 12px; padding: 2px 8px; }
 @keyframes check-turn { to { transform: rotate(360deg); } }
 .nobody-runs { margin: 0; padding: 6px 10px; border-left: 3px solid var(--warn); border-radius: 6px; background: #2a1712; color: var(--warn); font-size: 13.5px; }
+.nobody-runs-quiet { margin: 0; padding: 6px 10px; border-left: 3px solid var(--line); border-radius: 6px; background: var(--inset); color: var(--muted); font-size: 13.5px; }
 @media (prefers-reduced-motion: reduce) { .log-line::before { transition: none; } }
 @media (max-width: 1250px) {
   .info-box { height: auto; overflow: visible; }

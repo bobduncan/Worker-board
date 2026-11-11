@@ -11,6 +11,7 @@ import { OTHER_ACCOUNT_TAIL, RESTART_WHY, unjoinedOf, wakeIdsOf } from './ownCha
 import { noteRun, noticeOf, pathsOf, ranSince, reopenSpells, wakeOf } from './wake.mjs'
 import { sameModel } from './work/effort.mjs'
 import { askStepOf } from './work/askStep.mjs'
+import { stillTrueLeaves, stillTrueStep } from './work/stillTrueRules.mjs'
 import { bansOf } from './work/handover.mjs'
 
 /**
@@ -40,13 +41,16 @@ const isTime = value => Number.isFinite(value)
 /**
  * MUST 2: the store's open asks routed to the person, each with the step it is about and that step's state: `[{ id, owner, step,
  * stepState }]` (a step the store does not hold has no state: null; an ask about no step is not listed). `items` the store's items (`readStore`). The step is the ask's
- * `Of`, else the first B<n> in its title (src/work/askStep.mjs).
+ * `Of`, else the first B<n> in its title (src/work/askStep.mjs). P5 (2026-11-09, src/stillTrue.mjs): `anyRoute` lists the open asks of EVERY
+ * Route (a partner's ask about an ended step is as stale as the person's), but never what `stillTrueLeaves` names (the asks that wait for the
+ * goal's recap, a taken-back ask, popups and refine questions), and the title's first B<n> names the step only for an ask routed to the person.
  */
-export function asksOf(items) {
+export function asksOf(items, { anyRoute = false } = {}) {
   const asks = []
   for (const item of items?.values?.() ?? []) {
-    if (item.head.get('Kind') !== 'ask' || item.head.get('State') !== 'open' || item.head.get('Route') !== 'person') continue
-    const step = askStepOf(item.head.get('Of') ?? null, item.head.get('Title') ?? '')
+    if (item.head.get('Kind') !== 'ask' || item.head.get('State') !== 'open' || (!anyRoute && item.head.get('Route') !== 'person')) continue
+    if (anyRoute && stillTrueLeaves(item)) continue
+    const step = anyRoute ? stillTrueStep(item) : askStepOf(item.head.get('Of') ?? null, item.head.get('Title') ?? '')
     if (step === null) continue
     asks.push({
       id: item.head.get('Id'), owner: item.head.get('Owner') ?? null, step, stepState: step === null ? null : items.get(step)?.head.get('State') ?? null,

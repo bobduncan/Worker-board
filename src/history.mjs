@@ -3,6 +3,11 @@
 // and a gap line, { at, gap: true }, marks the moment from which the board was not running, so the time it was
 // off is drawn as unknown and not as the state it last saw. Pause truth item 5 (2026-11-05): a ran line, { at, ran: true },
 // marks the first look after a gap that wrote no chat line (a board with no chats): the gap ends there, not "now".
+// P5 (2026-11-09, src/stillTrue.mjs): a came-down line, { at, kind: 'came down', id, why }, records that an item the board showed (an ask, a note,
+// a wake line) came down by itself and why. It is about no chat and no gap: every reader below leaves it out (`isCameDown`).
+
+/** P5: whether a line is a came-down line (an item that came down by itself), which no reader of the chats' states or the gaps counts. */
+export const isCameDown = line => line?.kind === 'came down'
 
 /** The lines of history.jsonl. Lines that do not parse are skipped. */
 export function parseHistory(text) {
@@ -16,7 +21,7 @@ export function parseHistory(text) {
       continue
     }
     if (line === null || typeof line !== 'object' || !Number.isFinite(line.at)) continue
-    if (line.gap === true || line.ran === true || typeof line.chat === 'string') lines.push(line)
+    if (line.gap === true || line.ran === true || isCameDown(line) || typeof line.chat === 'string') lines.push(line)
   }
   return lines
 }
@@ -81,7 +86,7 @@ export const GAP_MS = 3 * 60_000
  * (`keptStart` in src/boardSelf.mjs); `why` stays why it was off. Left out when not given (the tick's gap line).
  */
 export function startGap(lines, aliveAt, now, stop = null, start = null) {
-  const last = lines.at(-1)
+  const last = lines.findLast(line => !isCameDown(line))
   if (last === undefined) return null
   if (last.gap === true && !(Number.isFinite(aliveAt) && aliveAt > last.at)) return null
   const at = Math.max(last.at, Number.isFinite(aliveAt) ? aliveAt : last.at)
@@ -94,7 +99,9 @@ export function startGap(lines, aliveAt, now, stop = null, start = null) {
  * B710 (X80): the stretches the board did not run, from the history's gap lines over all of it: a gap line marks the moment
  * from which the board was off, and the next line is when it ran again (`to` is `now` for a gap still open). `[{ from, to }]`.
  */
-export function gapsOf(lines, now, aliveAt = null) {
+export function gapsOf(allLines, now, aliveAt = null) {
+  // P5: a came-down line is written by the running board but ends no gap (the next chat line or gap does).
+  const lines = allLines.filter(line => !isCameDown(line))
   const gaps = []
   // B714 (X80 again): a read right after a wake runs before the tick writes the gap line, so the gap still open is read
   // from alive.json's age by `startGap`'s own rule: the board was off from then until now.
@@ -124,6 +131,7 @@ export function today(lines, { from, to, names }) {
   }
   for (const line of lines) {
     if (line.at >= to) break
+    if (isCameDown(line)) continue
     if (line.gap === true) {
       for (const lane of lanes.values()) close(lane, line.at)
       continue

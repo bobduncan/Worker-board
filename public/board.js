@@ -1197,11 +1197,14 @@ function incidentCardOf(card, byId, now = Date.now()) {
     const seen = Math.max(0, ...covered.map(one => one.count || 0))
     lines = [`${covered.map(one => one.id).join(' ')} · ${gistOf(covered[0]?.title)}${seen > 1 ? ` (seen ${seen}×)` : ''}`]
   }
+  // P5: an open fix names its chain to the open end ("waits for its fix B978, in review since 11-04 → B1011 → B1030, not refined since 11-04").
+  if (typeof card.chain === 'string') lines.push(card.chain)
   return {
     key: card.key, step: card.step, href: card.step === null ? null : `#details=${card.step}`,
     // The card without a fix step says how many incidents it lists: the person counts them against the head's "N open".
     title: (card.title ?? '(this step is not in the store)') + (card.key === 'nofix' ? ` (${covered.length})` : ''),
-    state: card.state.text, tone: card.state.tone, line: lines.join('\n'), lines,
+    // P5: a card that names its open fix chain is attention only when the chain ends in the person (cards.mjs `tone`), else quiet; the others keep the chip's own tone.
+    state: card.state.text, tone: typeof card.chain === 'string' ? (card.tone === 'attention' ? 'attention' : 'quiet') : card.state.tone, line: lines.join('\n'), lines,
     details: covered.map(one => ({
       id: one.id, title: one.title ?? '', state: one.state === 'fix' && one.fix ? `fix ${one.fix}` : one.state ?? 'open', seen: seenOf(one),
       evidence: one.evidence === null || one.evidence === undefined ? null : one.evidence.length > EVIDENCE_SHOWN ? `${one.evidence.slice(0, EVIDENCE_SHOWN).trimEnd()}…` : one.evidence,
@@ -2563,7 +2566,12 @@ function drawRestart(state) {
     return node
   }
   const parts = []
-  for (const text of stoppedLines(restart, state.chats ?? [])) parts.push(line('alert', text))
+  // P5: each chat it names opens that chat's window.
+  for (const text of stoppedLines(restart, state.chats ?? [])) {
+    const node = line('alert', '')
+    node.append(...chatPieces(text, openableChats(state, restart.interrupted)))
+    parts.push(node)
+  }
   // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
   const down = restart.notRunning ?? []
   const isAtHand = restart.off !== null || restart.interrupted.length > 0 || (pause !== null && pause.state !== 'running')
@@ -6202,10 +6210,84 @@ function wakeNoticeText(notice) {
 }
 // nobodyruns:end
 
-/** Signals change 4: that line, in the attention colour (the class the older lines had, so the CSS holds); null for none. */
+// chatlinks:start
+/**
+ * P5 (2026-11-09, the person's "I want to click the chat it names"): the pieces of `text` with each chat name of `names` as a link that opens that
+ * chat's task window (`#task=<name>`, the address the page already opens a lane's window with; the click is the page's `[data-place]` one). The
+ * longest name first (a name inside another is not cut); `rest(segment)` gives the nodes of the words between (a step id there is a link too:
+ * `linkedWords`); the words themselves stay as they were.
+ */
+function chatPieces(text, names, rest = segment => [segment]) {
+  const known = [...new Set((names ?? []).filter(name => typeof name === 'string' && name !== ''))].sort((a, b) => b.length - a.length)
+  const pieces = []
+  let from = 0
+  // Scanned from left to right: at each place the longest name that starts there is a link (no regular expression: a name may hold any sign).
+  for (let at = 0; at < text.length;) {
+    const name = known.find(one => text.startsWith(one, at))
+    if (name === undefined) { at += 1; continue }
+    if (at > from) pieces.push(...rest(text.slice(from, at)))
+    const link = el('button', 'ask-link', name)
+    link.type = 'button'
+    link.dataset.place = `#task=${encodeURIComponent(name)}`
+    link.title = `Opens ${name}'s task window`
+    pieces.push(link)
+    at += name.length
+    from = at
+  }
+  if (from < text.length) pieces.push(...rest(text.slice(from)))
+  return pieces
+}
+
+/** The chats a wake notice's own text names ("could not wake Worker 2: ..." and its quiet "could not wake Worker 2 at 10:32; ..."), so its links need no lane. */
+function wakeNoticeChats(notice) {
+  return [...String(notice?.text ?? '').matchAll(/could not wake (.+?)(?::| at \d\d:\d\d;)/g)].map(found => found[1])
+}
+// chatlinks:end
+
+/**
+ * The chats among `names` whose task window the page can open (`#task=`, openFromAddress: a lane of `state.chats` with a window chip). An asleep
+ * lane and the role chats (the partner, its helper, the Supervisor, the Product owner: not in `state.chats`) open nothing, so they stay plain
+ * words: a link that does nothing is worse than none. Reads only the lanes the Needs part's key already holds.
+ */
+function openableChats(state, names) {
+  const lanes = new Map((state?.chats ?? []).map(lane => [lane.name, lane]))
+  return (names ?? []).filter(name => lanes.has(name) && laneWindowChip(lanes.get(name)) !== undefined)
+}
+
+/** Whether a wake notice asks for attention: a notice whose every line is quiet ("nothing waits for it now") is only information. */
+const isAttentionNotice = notice => wakeNoticeText(notice) !== null && notice.tone !== 'quiet'
+
+/**
+ * Signals change 4: that line, in the attention colour (the class the older lines had, so the CSS holds); null for none. P5: a chat it names
+ * is a link to that chat's window and a step id a link to its step; a notice whose every line is quiet ("nothing waits for it now") is not in
+ * the attention colour.
+ */
 function drawWakeNotice(notice) {
   const text = wakeNoticeText(notice)
-  return text === null ? null : el('p', 'nobody-runs', text)
+  if (text === null) return null
+  const node = el('p', notice.tone === 'quiet' ? 'nobody-runs-quiet' : 'nobody-runs')
+  node.append(...chatPieces(text, openableChats(board, wakeNoticeChats(notice)), stepPieces))
+  return node
+}
+
+/**
+ * P5: a step id in a line as a link to its step (the ask-link button the page uses everywhere), reading nothing of the state: the
+ * Needs part's view is pinned to what its drawing reads (test/redrawKeys), and the notice needs no goal or ask to link a step.
+ */
+function stepPieces(text) {
+  const pieces = []
+  let from = 0
+  for (const found of text.matchAll(/\bB\d+\b/g)) {
+    if (found.index > from) pieces.push(text.slice(from, found.index))
+    const link = el('button', 'ask-link', found[0])
+    link.type = 'button'
+    link.dataset.askLink = found[0]
+    link.title = `Open the step ${found[0]}`
+    pieces.push(link)
+    from = found.index + found[0].length
+  }
+  if (from < text.length) pieces.push(text.slice(from))
+  return pieces
 }
 
 /** Calm panel: the instructions a chat missed, one red line each under Needs your attention; a click opens the log. */
@@ -6634,7 +6716,7 @@ function drawNeeds(state) {
   const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart) && !isDecidedAnswer(need.answer) && need.answer?.by !== 'recap')
   const cards = [...rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state)), ...slim.map(need => drawSlimNeed(need, answerWaitOf(need, state.waitPart)))]
   const hidden = answered - slim.length
-  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || handsLine !== null || supervised?.isHanded === true || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
+  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || handsLine !== null || supervised?.isHanded === true || isAttentionNotice(state.wakeNotice) || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
   // Autopilot v2 (the person's "B", 2026-11-02): while it is on, what was routed away is never shown nor counted here: no "With your

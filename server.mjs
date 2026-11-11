@@ -117,6 +117,7 @@ import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { readAccountFolders } from './src/appChats.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
+import { stillTruePass } from './src/stillTrue.mjs'
 import { HANDOVER_COMMAND, envelopesOf, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
 import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -4035,6 +4036,8 @@ async function main(args) {
   if (!isDemo && historyFrom === undefined && workWriters !== null) {
     /** The review of Pause 2: the main chats the board typed "resume" into by itself, per resume (its since). */
     const retyped = new Set()
+    /** P5 (src/stillTrue.mjs): what the re-check of the person's lists found on the passes before (its hysteresis), for this board process. */
+    const stillTrueMemory = new Map()
     // Redesign Part 2 (2026-10-25): one pass at a time; a call while one runs (the refresh, a chat's idle report) makes
     // one more after it (work/again.mjs), so no idle report is lost and two passes never run side by side (principle 5).
     const reconcilePass = async () => {
@@ -4122,6 +4125,25 @@ async function main(args) {
           })
         }
         loops.succeeded('reconcile')
+        // P5 (2026-11-09): every item on the person's lists re-checks itself with a test the board already has (an ask whose step ended, a wake line
+        // of a chat that ran since, a Supervisor's alarm whose incidents are over); what is not true comes down with a record of why. On its own,
+        // so a failure stops no delivery.
+        await loops.run('still-true', async () => {
+          // Never while the board closes (a test's teardown removes its folder under the pass: EBUSY on rmdir).
+          if (isClosing || workDir === null) return
+          // What the board already read: the kept work read (`work()`, a deep copy only when its kept read ran out) and the state last built.
+          const stored = await work()
+          if (stored?.ok !== true || stored.exists !== true) return
+          const came = await stillTruePass({
+            facts: { state: readState.last() ?? await readState(), items: stored.items, outbox: store.outbox(), wakes: wakeFacts(), reports: reports ?? new Map(), now: clock() },
+            memory: stillTrueMemory, apply: body => workAction(body, 'server'), log: line => console.error(line), history: lines => store.record(lines),
+          })
+          // Only what was written in the store changes the page's reading: a wake line's record is a history line alone.
+          if (came.some(one => one.kind !== 'wake')) {
+            work.reset?.()
+            readState.reset()
+          }
+        })
         // B528: an evaluation that has not ended is asked of the partner again; on its own, so a failure stops no delivery.
         await loops.run('evaluate-again', () => evaluateAgainNow(state))
         // Stop and rethink: the holds of a rethink whose evaluation ended are freed.
