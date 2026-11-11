@@ -10,7 +10,7 @@
 //
 // What each number is, and from which day it is complete (the notes are printed with the lines):
 // - idleWithWorkMinutes is NOT KNOWN for a backfilled day: `null` (the minute record did not exist, and an estimate from the
-//   history and the store is too far off to count). The page draws a null day as a gap, finishOf treats it as not stable.
+//   history and the store is too far off to count). The page's details say "not known" for a null day.
 // - interventions come from the same function the live loop uses (`interventionsOf`), fed the day's records. Per kind:
 //   resume-all: the actions log only exists from the landing; before its first line the day gets an `unsure` resume-all (never
 //   guessed). rollback: from the first line of landings.jsonl. app-restart: from the first wake attempt in wakes.json (before it

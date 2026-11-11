@@ -2355,86 +2355,81 @@ function drawLimits(state) {
   ].filter(part => part !== null))
 }
 
-// Stability numbers (2026-11-05, task 4): the row under the limits. The server's `state.stability` is today's line, the last
-// 14 closed days and the finish line; a board that keeps none leaves it out and the row stays hidden.
+// Stability numbers (2026-11-05, task 4; stability-row-clean, 2026-11-11): one line under the limits. The person, 2026-11-11: "this
+// UI sucks. i didnt specifically ask for this weird line ..." and "why hardcode the 3 days ... i dont want it": plain labels with
+// numbers, no sparklines, no target, no amber; "details" opens the last days, one row each. The server's `state.stability` is
+// today's line and the last 14 closed days; a board that keeps none leaves it out and the row stays hidden.
 
 const STABILITY_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const STABLE_NEEDED = 3
+/** Whether the details are open: the person's click, kept across redraws. */
+let stabilityDetailsOpen = false
 
 /** "2026-11-05" as "5 Nov". */
 const stabilityDate = day => `${Number(day.slice(8, 10))} ${STABILITY_MONTHS[Number(day.slice(5, 7)) - 1]}`
 
+/** 444 as "7 h 24 min", 45 as "45 min". */
+const stabilitySpan = minutes => (minutes >= 60 ? `${Math.floor(minutes / 60)} h${minutes % 60 === 0 ? '' : ` ${minutes % 60} min`}` : `${minutes} min`)
+
+/** A day's real alarm ids: `realIds` when the line has them, else all ids of a day without false ones. */
+const stabilityRealIds = alarms => (Array.isArray(alarms?.realIds) ? alarms.realIds : (alarms?.false ?? 0) === 0 ? (alarms?.ids ?? []) : [])
+
+/** A day's idle-with-work in words: "1 min", "~4 min" (estimated), "not known" (null). */
+const stabilityIdle = line => (Number.isFinite(line?.idleWithWorkMinutes) ? `${line.idleEstimated === true ? '~' : ''}${line.idleWithWorkMinutes} min` : 'not known')
+
+/** The short note of an odd day: off or paused for most of it, or for an hour or more; rebuilt from older records. */
+function stabilityNote(line) {
+  const notes = []
+  if (line.measured === false) notes.push(line.notMeasuredWhy === 'paused' ? 'paused most of the day' : 'board off most of the day')
+  else {
+    if ((line.offMinutes ?? 0) >= 60) notes.push(`board off ${stabilitySpan(line.offMinutes)}`)
+    if ((line.pausedMinutes ?? 0) >= 60) notes.push(`paused ${stabilitySpan(line.pausedMinutes)}`)
+  }
+  if (line.backfilled === true) notes.push('rebuilt from older records')
+  return notes.join(' · ')
+}
+
 /**
- * What the row shows, from `state.stability`: today's three numbers (each with the hover list of the day's items), a series
- * for each of the three sparklines (the closed days, then today) and the finish line. Amber is for the two today numbers only,
- * and only when today already misses the finish line.
+ * What the row shows, from `state.stability`: the line's three labelled numbers (each with the hover list of today's items)
+ * and the details' rows, newest first, today's reading "so far".
  */
 function stabilityView(stability) {
   const today = stability.today ?? null
-  const days = stability.days ?? []
-  const idle = Number.isFinite(today?.idleWithWorkMinutes) ? today.idleWithWorkMinutes : null
   const interventions = today?.interventions ?? []
   const unsure = today?.unsure ?? []
-  const alarms = today?.alarms ?? { real: 0, false: 0, ids: [] }
-  const cameBack = alarms.cameBack ?? []
-  // 2026-11-08: a day paused or off for most of it is not measured: no numbers, never amber, a gap in every sparkline.
-  const isUnmeasured = one => one?.measured === false
-  const notMeasured = isUnmeasured(today)
-  const missed = !notMeasured && (interventions.length > 0 || (idle !== null && idle >= 10))
-  const lines = today === null ? days : [...days, today]
-  const series = pick => lines.map(one => (isUnmeasured(one) ? null : pick(one)))
-  const gaps = lines.map(isUnmeasured)
-  const whyWords = `not measured (${today?.notMeasuredWhy === 'off' ? 'off' : 'paused'})`
-  const whyTitle = `Not measured today: the board was ${today?.notMeasuredWhy === 'off' ? 'off' : 'paused'} for most of it (${today?.pausedMinutes ?? 0} min paused, ${today?.offMinutes ?? 0} min off). It does not count toward the finish line.`
-  const since = stability.isStable === true ? [...days, ...(today?.closed === true ? [today] : [])].slice(-stability.stableDays)[0]?.day ?? null : null
+  const real = stabilityRealIds(today?.alarms)
+  const rowOf = (line, isToday) => {
+    const ids = stabilityRealIds(line.alarms)
+    return {
+      day: isToday ? `${stabilityDate(line.day)}, so far` : stabilityDate(line.day),
+      fixes: String((line.interventions ?? []).length),
+      alarms: `${line.alarms?.real ?? 0}${ids.length === 0 ? '' : ` (${ids.join(', ')})`}`,
+      idle: stabilityIdle(line),
+      note: stabilityNote(line),
+    }
+  }
   return {
-    numbers: notMeasured ? [{ key: 'not-measured', text: whyWords, title: whyTitle, isAmber: false }] : [
-      { key: 'idle', text: idle === null ? 'idle with work not known' : `${idle} min idle with work`, title: idle === null ? 'Not known today' : `${idle} min today with a worker free beside a step it could take${today?.idleEstimated === true ? ' (estimated)' : ''}`, isAmber: missed },
-      { key: 'interventions', text: `${interventions.length} ${interventions.length === 1 ? 'intervention' : 'interventions'}`,
-        title: [...interventions.map(one => one.what), ...unsure.map(one => `unsure: ${one.what}`)].join('\n') || 'No hands on the board today', isAmber: missed },
-      { key: 'alarms', text: `${alarms.real + alarms.false} ${alarms.real + alarms.false === 1 ? 'alarm' : 'alarms'} (${cameBack.length > 0 ? `${cameBack.length} came back · ` : ''}${alarms.false} false)`,
-        title: alarms.ids.length === 0 ? 'No alarms today' : alarms.ids.map(id => (cameBack.includes(id) ? `${id} (came back)` : id)).join(', '), isAmber: false },
+    numbers: [
+      { key: 'fixes', label: 'fixes by hand', value: String(interventions.length),
+        title: [...interventions.map(one => one.what), ...unsure.map(one => `unsure: ${one.what}`)].join('\n') || 'No hands on the board today' },
+      { key: 'alarms', label: 'real alarms', value: String(today?.alarms?.real ?? 0), title: real.length === 0 ? 'No real alarms today' : real.join(', ') },
+      { key: 'idle', label: 'idle with work', value: stabilityIdle(today), title: 'Minutes today with a worker free beside a step it could take' },
     ],
-    sparks: [
-      { key: 'idle', name: 'Idle with work', values: series(one => (Number.isFinite(one.idleWithWorkMinutes) ? one.idleWithWorkMinutes : null)), gaps },
-      { key: 'interventions', name: 'Interventions', values: series(one => (one.interventions ?? []).length), gaps },
-      { key: 'alarms', name: 'Alarms', values: series(one => (one.alarms?.real ?? 0) + (one.alarms?.false ?? 0)), gaps },
-    ],
-    finish: { words: stability.finish ?? '', end: since === null ? `${Math.min(stability.stableDays ?? 0, STABLE_NEEDED)} of ${STABLE_NEEDED} days${typeof stability.brokenByAlarm === 'string' ? ` · broken by a real alarm on ${stabilityDate(stability.brokenByAlarm)}` : ''}` : `stable since ${stabilityDate(since)}`, isStable: since !== null },
+    rows: [...(today === null ? [] : [rowOf(today, true)]), ...[...(stability.days ?? [])].reverse().map(line => rowOf(line, false))],
   }
 }
 
-/** What a sparkline value says in a hover: the number, or "not known" for a day with none (null). */
-const sparkWord = value => (value === null ? 'not known' : String(value))
-
-/**
- * One sparkline: the series as a line in a 60 x 16 box, the last point (today) a dot. A null day (not known, e.g. a backfilled
- * idle) is a GAP: no point and no 0, the line breaks there; a day alone between two gaps is a small dot.
- */
-function drawSparkline(spark) {
-  const [width, height] = [60, 16]
-  const known = spark.values.filter(value => value !== null)
-  const top = Math.max(1, ...known)
-  const count = spark.values.length
-  const points = spark.values.map((value, index) => (value === null ? null : [count === 1 ? width / 2 : 1 + (index * (width - 2)) / (count - 1), height - 1 - (value / top) * (height - 2)]))
-  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': `${spark.name}: last ${count - 1} days and today` }, 'stability-spark')
-  svg.dataset.spark = spark.key
-  const runs = []
-  for (const point of points) {
-    if (point === null) runs.push(null)
-    else if (runs.length > 0 && runs.at(-1) !== null) runs.at(-1).push(point)
-    else runs.push([point])
+/** The details: one row a day, with a head row naming the columns. */
+function drawStabilityDetails(rows) {
+  const table = el('table', 'stability-days')
+  const head = el('tr')
+  for (const name of ['Day', 'Fixes by hand', 'Real alarms', 'Idle with work', 'Note']) head.append(el('th', '', name))
+  table.append(head)
+  for (const row of rows) {
+    const line = el('tr')
+    for (const key of ['day', 'fixes', 'alarms', 'idle', 'note']) line.append(el('td', '', row[key]))
+    table.append(line)
   }
-  const spot = ([x, y], radius) => svgEl('circle', { cx: x.toFixed(1), cy: y.toFixed(1), r: radius })
-  for (const run of runs.filter(one => one !== null)) {
-    if (run.length > 1) svg.append(svgEl('polyline', { points: run.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' '), fill: 'none' }))
-    else if (run[0] !== points.at(-1)) svg.append(spot(run[0], 1))
-  }
-  if (points.length > 0 && points.at(-1) !== null) svg.append(spot(points.at(-1), 1.8))
-  const title = svgEl('title')
-  title.textContent = `${spark.name}, per day: ${spark.values.map((value, index) => (spark.gaps?.[index] === true ? 'not measured' : sparkWord(value))).join(' ')}`
-  svg.append(title)
-  return svg
+  return table
 }
 
 /** The stability row in the head, in one place. Hidden on a board whose server gives none (the demo of old, an old board). */
@@ -2443,16 +2438,23 @@ function drawStability(state) {
   box.hidden = state.stability === undefined || state.stability === null
   if (box.hidden) return
   const shown = stabilityView(state.stability)
-  const numbers = shown.numbers.map(one => {
-    const node = el('b', `stability-number${one.isAmber ? ' is-attn' : ''}`, one.text)
+  const line = [el('span', 'stability-name', 'Stability today')]
+  for (const one of shown.numbers) {
+    const node = el('span', 'stability-number', `${one.label} `)
     node.dataset.number = one.key
     node.title = one.title
-    return node
+    node.append(el('b', '', one.value))
+    line.push(el('span', '', '·'), node)
+  }
+  const toggle = el('button', 'stability-details', stabilityDetailsOpen ? 'hide details' : 'details')
+  toggle.type = 'button'
+  toggle.setAttribute('aria-expanded', String(stabilityDetailsOpen))
+  toggle.addEventListener('click', () => {
+    stabilityDetailsOpen = !stabilityDetailsOpen
+    drawStability(state)
   })
-  const row = [el('span', 'stability-name', 'Stability · today:')]
-  numbers.forEach((node, index) => row.push(...(index === 0 ? [] : [el('span', '', '·')]), node))
-  const finish = el('small', `stability-finish${shown.finish.isStable ? ' is-stable' : ''}`, `${shown.finish.words} · ${shown.finish.end}`)
-  fill(box, [...row, ...shown.sparks.map(drawSparkline), finish])
+  fill(box, [el('div', 'stability-line', ''), ...(stabilityDetailsOpen ? [drawStabilityDetails(shown.rows)] : [])])
+  fill(box.firstChild, [...line, toggle])
 }
 
 // A restart of the app

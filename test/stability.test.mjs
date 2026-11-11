@@ -11,7 +11,7 @@ import { monitorEventLoopDelay } from 'node:perf_hooks'
 import test from 'node:test'
 
 import { gapsOf, parseHistory } from '../src/history.mjs'
-import { MINUTES_KEEP_MS, NO_PROOF_WHY, alarmsOf, dayLineOf, finishOf, idleMinutesOf, interventionsOf, mergedOutbox, minuteKeeper, measuredOf, minuteOf, pausesOf, recordStability, tailLines, viewOf } from '../src/stability.mjs'
+import { MINUTES_KEEP_MS, NO_PROOF_WHY, alarmsOf, dayLineOf, idleMinutesOf, interventionsOf, mergedOutbox, minuteKeeper, measuredOf, minuteOf, pausesOf, recordStability, tailLines, viewOf } from '../src/stability.mjs'
 import { parseItem } from '../src/work/item.mjs'
 
 const DAY = 24 * 60 * 60_000
@@ -355,28 +355,6 @@ test('idle-with-work counts distinct whole minutes of the day: gaps, double line
   assert.deepEqual(line, { day: TODAY, idleWithWorkMinutes: 96, idleEstimated: false, interventions: [], unsure: [], alarms: { real: 0, false: 0, ids: [] }, writtenAt: t(23, 0), closed: false })
 })
 
-test('finishOf: days in a row ending yesterday (or a closed today) with no intervention and under 10 minutes idle', () => {
-  const line = (index, more = {}) => ({ day: `2026-10-${String(index).padStart(2, '0')}`, idleWithWorkMinutes: 0, interventions: [], closed: true, ...more })
-  const fourteen = Array.from({ length: 14 }, (_, index) => line(10 + index))
-  assert.deepEqual(finishOf(fourteen), { stableDays: 14, isStable: true })
-  const broken = fourteen.map(one => (one.day === '2026-10-21' ? { ...one, interventions: [{ at: 1, kind: 'rollback', what: 'x' }] } : one))
-  assert.deepEqual(finishOf(broken), { stableDays: 2, isStable: false }, 'the 22nd and 23rd count; the 21st breaks the row')
-  assert.deepEqual(finishOf(fourteen.map(one => (one.day === '2026-10-23' ? { ...one, idleWithWorkMinutes: 10 } : one))), { stableDays: 0, isStable: false }, '10 minutes is not under 10')
-  assert.deepEqual(finishOf(fourteen.map(one => (one.day === '2026-10-23' ? { ...one, idleWithWorkMinutes: 9 } : one))).stableDays, 14)
-  assert.deepEqual(finishOf(fourteen.map(one => (one.day === '2026-10-22' ? { ...one, idleWithWorkMinutes: 25 } : one))), { stableDays: 1, isStable: false })
-  // Today's line counts only once it is closed.
-  const open = [...fourteen.slice(0, 13), line(23, { closed: false, interventions: [{ at: 1, kind: 'rollback', what: 'x' }] })]
-  assert.deepEqual(finishOf(open), { stableDays: 13, isStable: true })
-  // A day with no line breaks the row.
-  assert.deepEqual(finishOf([line(10), line(11), line(13), line(14)]), { stableDays: 2, isStable: false })
-  assert.deepEqual(finishOf([]), { stableDays: 0, isStable: false })
-  // Unsure findings are not interventions.
-  assert.deepEqual(finishOf([line(1, { unsure: [{ at: 1 }] }), line(2), line(3)]).stableDays, 3)
-  // A day whose idle is not known (null, backfilled) is not stable: it breaks the row, it is no 0.
-  assert.deepEqual(finishOf([line(1), line(2, { idleWithWorkMinutes: null }), line(3), line(4)]), { stableDays: 2, isStable: false }, 'the 4th and 3rd count; the null 2nd breaks the row')
-  assert.deepEqual(finishOf(fourteen.map(one => ({ ...one, idleWithWorkMinutes: null }))), { stableDays: 0, isStable: false })
-})
-
 // -- comebacks (2026-11-09): X2 and X162, trimmed copies of the real files ----------------------------------------------------
 const X2 = parseItem(text('X2.md'))
 const X162 = parseItem(text('X162.md'))
@@ -400,15 +378,9 @@ test('X162 (raised 9 Nov 08:35, closed No fault 08:38, back 10:40) counts once o
   const stillClosed = parseItem(text('X162.md').replace('State: fix', 'State: closed'))
   assert.deepEqual(brief(alarmsOf([stillClosed], '2026-11-09')), { real: 1, false: 0, ids: ['X162'], cameBack: ['X162'] })
   assert.deepEqual(brief(alarmsOf([X2, X162], '2026-11-09')), { real: 1, false: 0, ids: ['X162'], cameBack: ['X162'] })
-})
-
-test('finishOf: a closed day with a real alarm breaks the row and names the day; a day with only false alarms does not', () => {
-  const line = (index, more = {}) => ({ day: `2026-10-${String(index).padStart(2, '0')}`, idleWithWorkMinutes: 0, interventions: [], closed: true, ...more })
-  const real = { real: 1, false: 0, ids: ['X2'], cameBack: ['X2'] }
-  const falseOnly = { real: 0, false: 2, ids: ['X7', 'X8'], cameBack: [] }
-  assert.deepEqual(finishOf([line(1), line(2, { alarms: real }), line(3), line(4)]), { stableDays: 2, isStable: false, brokenByAlarm: '2026-10-02' })
-  assert.deepEqual(finishOf([line(1), line(2), line(3, { alarms: falseOnly }), line(4)]), { stableDays: 4, isStable: true })
-  assert.deepEqual(finishOf([line(1, { alarms: real }), line(2), line(3), line(4)]).stableDays, 3, 'the oldest day breaks the row, the three after it count')
+  // stability-row-clean (2026-11-11): the real ones by id, for the details' rows; a false one is left out.
+  assert.deepEqual(alarmsOf([X162], '2026-11-09').realIds, ['X162'])
+  assert.deepEqual(alarmsOf([X162_CLOSED], '2026-11-09').realIds, [])
 })
 
 test('the shown closed lines follow the records on every pass: only their alarms change, never with an empty store', async () => {
@@ -424,8 +396,8 @@ test('the shown closed lines follow the records on every pass: only their alarms
     assert.deepEqual((await linesOf(file)).slice(0, 2), [seventh, old])
     await recordStability({}, { dir, items: new Map([['X2', X2]]), clock: () => now })
     const [seven, eight] = await linesOf(file)
-    assert.deepEqual(seven, { ...seventh, alarms: { real: 0, false: 0, ids: [], cameBack: [] } }, 'a shown line follows the records, at version 2 too')
-    assert.deepEqual(eight, { ...old, alarms: { real: 1, false: 0, ids: ['X2'], cameBack: ['X2'] }, alarmsVersion: 2 }, 'only the alarms and the version change')
+    assert.deepEqual(seven, { ...seventh, alarms: { real: 0, false: 0, ids: [], realIds: [], cameBack: [] } }, 'a shown line follows the records, at version 2 too')
+    assert.deepEqual(eight, { ...old, alarms: { real: 1, false: 0, ids: ['X2'], realIds: ['X2'], cameBack: ['X2'] }, alarmsVersion: 2 }, 'only the alarms and the version change')
     // The 9th closes with X162 open (real); a later "closed: No fault" after its comeback turns it false on the next pass.
     await recordStability({}, { dir, items: new Map([['X2', X2], ['X162', X162]]), clock: () => now + 60_000 })
     assert.deepEqual(brief((await linesOf(file))[2].alarms), { real: 1, false: 0, ids: ['X162'], cameBack: ['X162'] })
@@ -634,16 +606,6 @@ test('a day with a short pause is measured; so is 7 Nov (paused 13:32, board off
   assert.equal(nm('2026-11-08', t(12, 0, 0, 8), false, { actions: early, gaps: [] }).measured, true)
 })
 
-test('finishOf: a day not measured breaks the row and is never a stable day, closed or not', () => {
-  const line = (index, more = {}) => ({ day: `2026-10-${String(index).padStart(2, '0')}`, idleWithWorkMinutes: 0, interventions: [], closed: true, ...more })
-  const five = [1, 2, 3, 4, 5].map(index => line(index))
-  assert.deepEqual(finishOf(five), { stableDays: 5, isStable: true })
-  assert.deepEqual(finishOf(five.map(one => (one.day === '2026-10-03' ? { ...one, measured: false, notMeasuredWhy: 'paused' } : one))), { stableDays: 2, isStable: false }, 'the 4th and 5th count; the paused 3rd breaks the row')
-  assert.deepEqual(finishOf(five.map(one => ({ ...one, measured: true }))), { stableDays: 5, isStable: true })
-  assert.deepEqual(finishOf([...five.slice(0, 4), line(5, { measured: false })]), { stableDays: 0, isStable: false })
-  assert.deepEqual(viewOf([...five.slice(0, 4), line(5, { measured: false })], t(12, 0, 0, 8)).stableDays, 0, 'the view says the same')
-})
-
 test('recordStability: 8 Nov 22:30 is written not measured (paused); the 7th, closed in that pass, is measured by the whole day', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'stability-nm-'))
   try {
@@ -658,7 +620,7 @@ test('recordStability: 8 Nov 22:30 is written not measured (paused); the 7th, cl
     assert.deepEqual([seventh.closed, seventh.measured, seventh.pausedMinutes, seventh.notMeasuredWhy], [true, true, 628, undefined])
     assert.deepEqual([eighth.day, eighth.measured, eighth.notMeasuredWhy, eighth.pausedMinutes, eighth.offMinutes], ['2026-11-08', false, 'paused', 1337, 1334])
     assert.equal(view.today.measured, false)
-    assert.deepEqual([view.stableDays, view.isStable], [1, false], 'the measured 7th counts, the 8th is open')
+    assert.deepEqual(Object.keys(view), ['today', 'days'], 'stability-row-clean: no finish line in the view')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
