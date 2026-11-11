@@ -649,7 +649,9 @@ test('14b. refine-stop-tone (the person, 11-11: "if red text remains idk if its 
   const cardOf = (b1030, more = []) => plain(page.advisorRefine(plain(stateWith({ outbox: outboxNow(board, NOW, keep), words: outboxKnown(board, NOW, keep), b1030, more }).backlog)))
   // The live case: Main records B1030's hold as its Waits for.
   const HOLD = "chat 1's decision after the 3-day stability count (Fri 11-13)"
-  assert.deepEqual(cardOf(B1030([`Waits for: ${HOLD}`])), { step: 'B1030', text: `B1030: refine held · ${HOLD}`, tone: 'quiet', canSend: false })
+  assert.deepEqual(cardOf(B1030([`Waits for: ${HOLD}`])), { step: 'B1030', text: `B1030: refine held · waits for ${HOLD}`, tone: 'quiet', canSend: false })
+  const heldStatus = stateWith({ outbox: outboxNow(board, NOW, keep), words: outboxKnown(board, NOW, keep), b1030: B1030([`Waits for: ${HOLD}`]) }).stepStatus.B1030
+  assert.deepEqual([heldStatus.kind, heldStatus.words], ['held', `held: waits for ${HOLD}`])
   // A question to the person still open is their move: the status says "waits for your answers" (Your answers waiting), never a
   // stop, so no stop line is red; the same question routed to the partner waits for the partner.
   const ask = route => parseItem(['Id: Q990', 'Kind: ask', 'Title: Which way for B1030?', 'State: open', 'Of: B1030', 'Blocking: no', ...route, 'Since: 2026-11-04 22:30', ''].join('\n'))

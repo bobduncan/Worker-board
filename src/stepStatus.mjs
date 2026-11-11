@@ -23,6 +23,7 @@ import { idleWorkers } from './work/handOut.mjs'
 import { keptRecapWaitOf, recapWaitWords, waitsOnOf } from './work/waitsOn.mjs'
 import { afterPause, isHolding } from './work/pause.mjs'
 import { heldFrom, isHeld } from './work/askHold.mjs'
+import { waitWords } from './work/guards.mjs'
 
 const MIN = 60_000
 
@@ -128,10 +129,16 @@ export { keptRecapWaitOf, recapWaitWords }
  * to them still open makes the status "waits for your answers" above, never a stop, so it is never red. A step with a hold (its
  * Waits for, or held by the hand-out) says the hold, with no Send again; any other stop names who picks it up, Send again quiet.
  */
+/** A step's hold, as its status says it: "waits for <words>" of its `Waits for` that hold it (guards.mjs `waitWords`), else the hand-out's why, else null. */
+function holdWordsOf(step, held) {
+  const words = waitWords(step)
+  if (typeof words === 'string' && words.trim() !== '' && words !== '-') return `waits for ${words.trim()}`
+  const handOut = Array.isArray(held) ? held.find(one => one.id === valueOf(step, 'Id'))?.why : undefined
+  return typeof handOut === 'string' && handOut !== '' ? handOut : null
+}
+
 function refineStopLineOf(id, rounds, { step, held }) {
-  const waits = valueOf(step, 'Waits for')
-  const handOut = Array.isArray(held) ? held.find(one => one.id === id)?.why : undefined
-  const hold = typeof waits === 'string' && waits.trim() !== '' && waits !== '-' ? waits.trim() : typeof handOut === 'string' && handOut !== '' ? handOut : null
+  const hold = holdWordsOf(step, held)
   if (hold !== null) return { text: `${id}: refine held · ${hold}`, tone: 'quiet', canSend: false }
   return { text: `${id}: refine stopped after ${rounds}; the Advisor or Main picks it up`, tone: 'quiet', canSend: true }
 }
@@ -201,6 +208,10 @@ export function stepStatusOf(step, ctx = {}) {
         const refining = isHeld ? null : inHand ? `Refining ${id}${round > 1 ? `, round ${round}` : ''}` : `${id} to refine, on its way`
         return refine(isHeld ? 'its word to the Advisor waits for Resume all' : WAITS_FOR_THE_ADVISOR, 'asked', { toAdvisor: !isHeld, held: isHeld, since: word.at ?? base.since, inHand, refining })
       }
+      // refine-stop-tone: a hold in words (Main's, the partner's or the person's `Waits for`) holds a new step: "held: waits for
+      // <words>", and the Advisor card's refine line says the hold, quiet, with no Send again.
+      const hold = holdWordsOf(step, null)
+      if (hold !== null) return withLine(status('held', 'Held', `held: ${hold}`, 'held', { ...base, why: hold, toAdvisor: false, held: false, where: 'held', stop: { text: `${id}: refine held · ${hold}`, tone: 'quiet', canSend: false } }))
       const asks = asksOfStep(id, items, asksOf).filter(ask => valueOf(ask, 'State') === 'open')
       // A refine question routed to the partner (Route: partner) waits for the partner's answer, not for the person's.
       if (asks.length > 0 && asks.every(isRoutedToPartner)) {

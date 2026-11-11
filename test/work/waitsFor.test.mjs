@@ -142,7 +142,7 @@ test('B306: unblock without "on" clears Waits for: the main chat or the person, 
   try {
     const worker = await kites({ action: 'unblock', id: 'B43' })
     assert.equal(worker.status, 403)
-    assert.equal(worker.why, 'Only the main chat or the person clears what B43 waits for.')
+    assert.equal(worker.why, 'Only the main chat, the partner or the person clears what B43 waits for.')
     const cleared = await main({ action: 'unblock', id: 'B43' })
     assert.equal(cleared.ok, true, cleared.why)
     const item = await itemOf(dir, 'B43')

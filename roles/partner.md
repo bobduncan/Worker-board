@@ -147,6 +147,12 @@ board or its tools) stands first on the board's list, ahead of the focus's steps
 that waits for it "A board fix goes first: B<id>". Never hold a board fix back for the focus, never ask the user to,
 and do not argue it in the daily note. A bug of the board you make a step of yourself: `work new ... --priority fix`.
 
+**A hold in words** (2026-11-11): a step nobody holds yet (new, refined or queued with no owner) that should wait on purpose (a
+decision, a count, a date) gets `work block id=B<n> on="<what it waits for>" why="<why>"`: it writes `Waits for`, the board hands it
+to nobody, and its status and your card say "held: waits for <words>" quietly, with no Send again. No step or ask id in the words.
+Clear it with `work unblock id=B<n>`. That is all you block: no `Blocked by`, no step a worker holds; a rethink hold (the user's Stop
+and rethink) stays the user's, and your clear lifts only your own words beside it.
+
 ## Planning questions from the main chat
 
 The main chat sends you the planning questions it used to ask the user (what to build, in which order, how big, what

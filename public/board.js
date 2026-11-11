@@ -20012,6 +20012,8 @@ function advisorRefine(backlog) {
   // for the Advisor only while a word to it is open in the outbox, else it says nothing was sent.
   if (answered === undefined) return null
   const status = answered.stepStatus ?? null
+  // refine-stop-tone: a held step's line is its hold, quiet, with no Send again (`stepStatus.stop`).
+  if (status?.stop !== null && typeof status?.stop === 'object' && typeof status.stop.text === 'string') return { step: answered.id, text: status.stop.text, tone: status.stop.tone, canSend: status.stop.canSend === true }
   return { step: answered.id, text: status?.line ?? `${answered.id}: answers in`, tone: 'answered' }
 }
 // advisorrefine:end

@@ -1918,8 +1918,12 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   before B305) keeps the board's move for `take`, the taking chat counted free; a refused take names what is open.
   B306: a step's `Waits for` holds it as `Blocked by` does, under the same guard names (no flow.json changes): the
   ids it names (`B<n>`, `Q<n>`) until each is resolved as above; words with no id ("today's board work", kept from
-  the old backlog's queue notes) until the main chat or the person clears them with `unblock B<id>` without `on`
-  (History "no longer waits for: <words>"; a worker may not). The board does not deliver it; `take` refuses it naming
+  the old backlog's queue notes) until the main chat, the partner or the person clears them with `unblock B<id>` without `on`
+  (History "no longer waits for: <words>"; a worker may not). A hold in words (refine-stop-tone, 2026-11-11): `block B<id>
+  on="<words>"` on a step nobody holds yet (new, refined or queued with no owner) writes them, by the main chat, the partner or
+  the person (never a worker; no id in the words; the History "held: waits for <words>"); the step's status reads "held: waits for
+  <words>". A rethink hold keeps its own words beside them ("; "): the main chat's or the partner's clear lifts only the other words,
+  and is refused (409) when the rethink is all there is; the person's clear lifts all. The board does not deliver it; `take` refuses it naming
   the words ("B243 waits for: today's board work; the main chat clears it with work unblock B243") or the open ids;
   `next` shows it "waiting: ...". The reconciler flags (`waits`, on the Owner's lane) a queued step whose only wait is
   words once its Owner has been free, holding and given nothing, past the grace time: "B243 waits for 'today's board
