@@ -136,9 +136,9 @@ test('the part\'s badge: In progress only while a step of it is at work; waiting
   // A step of the part queued for a worker beside the waiting one: Next, as a queued part reads.
   const queued = realCase(byId => byId.get('B39').head.set('State', 'queued'))
   assert.equal(partOf(queued).view.chip, 'Next')
-  // A refined step beside it: on the list for a worker.
+  // A refined step beside it: on the list for a worker (P7: the state's chip names the step; without statuses the plain word).
   const refined = realCase(byId => byId.get('B39').head.set('State', 'refined'))
-  assert.equal(partOf(refined).view.chip, 'On the list for a worker')
+  assert.equal(partOf(refined).view.chip, 'Ready')
 })
 
 test('once the recap is done nothing blocks the last fix and its own fix stays dropped: the chain stopped, as a dropped fix', () => {

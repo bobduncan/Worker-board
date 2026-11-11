@@ -2812,6 +2812,9 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .simple-chip.is-warn { border-color: #b8862b; }
 .simple-chip.is-full { border-color: #c0483f; color: #ffb3a8; }
 .simple-none { margin: 0; color: var(--muted, #8b98ad); }
+/* P7: the focus goal has work, none can be handed out: a quiet line for the person to know, never amber (Main and the partner act on it). */
+.simple-nowork { margin: 6px 0 0; font-size: 13px; color: var(--muted, #8b98ad); }
+.simple-nowork-link { color: inherit; text-decoration: underline; }
 #view-overview[data-mode="details"] #simple-bar { display: none; }
 /* B343 (the person's Q70: "the simple view needs to be wider"): the page's full width, the bar on top, then three columns:
    the focus goal's steps, the workers, Needs your attention. The overview's own box steps aside (display: contents), so

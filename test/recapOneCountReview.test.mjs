@@ -8,10 +8,14 @@ import { parseConfig } from '../src/config.mjs'
 import { demoPage } from '../src/demo.mjs'
 import { roundPage } from '../src/demoFeedback.mjs'
 import { recapCardOf } from '../src/recapCard.mjs'
-import { keptLooksOf, lookKey, recapRoundOf, reworkOf, reworkPhraseOf } from '../src/recapRound.mjs'
+import { keptLooksOf, lookKey, recapRoundOf, reworkOf as reworkOfBare } from '../src/recapRound.mjs'
+import { stepStatusOf } from '../src/stepStatus.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { openPage, reply, settle } from './pageHarness.mjs'
 import { MIN, NOW, asSent, build, sinceOf } from './partnerState.mjs'
+
+/** P7, the review: `reworkOf` takes the caller's one status (`statusOf`, REQUIRED); these tests pass the store's, as the state does. */
+const reworkOf = (ids, items, options = {}) => reworkOfBare(ids, items, { ...options, statusOf: item => stepStatusOf(item, { items, workerOf: options.workerOf ?? (() => null), openChecks: options.openChecks ?? new Set(), now: options.now ?? null }) })
 
 const PATH = 'pictures/g6/recap/demo.json'
 const ON = { ...parseConfig('{"autopilot":true}', {}), project: 'C:\\garden' }
@@ -212,11 +216,14 @@ test('rework: the step a worker holds first, else the newest under way; its word
   assert.equal(reworkOf(['B1'], chain, { workerOf: id => (id === 'B3' ? 'Worker 2' : null) }).step, 'B3')
   // No worker anywhere: the newest under way, by its state.
   const queue = itemsOf([step('B5', 'new'), step('B6', 'refined', ['Fix of: B5']), step('B7', 'queued', ['Fix of: B6'])])
-  assert.deepEqual(reworkOf(['B5'], queue), { step: 'B7', state: 'queued', worker: null, words: 'B7 · waiting for a worker' })
-  for (const [state, expected] of [['new', 'waiting for a worker'], ['refined', 'waiting for a worker'], ['queued', 'waiting for a worker'], ['taken', 'Worker 1 is on it'], ['in progress', 'Worker 1 is on it'], ['waiting on you', 'waits on you'], ['review', 'being checked']]) {
-    assert.equal(reworkPhraseOf(state, 'Worker 1'), expected, state)
+  // P7: the words are the step's one status (src/stepStatus.mjs): a queued step is given to its Owner, never "waiting for a worker".
+  assert.deepEqual(reworkOf(['B5'], queue), { step: 'B7', state: 'queued', worker: null, words: 'B7 · given to Digger' })
+  const ready = [{ id: 'B1' }]
+  for (const [state, expected] of [['new', 'waits for its refine: nothing sent to the Advisor yet'], ['refined', 'waiting for a worker'], ['queued', 'given to Digger'], ['taken', 'Digger is on it'], ['in progress', 'Digger is on it'], ['waiting on you', 'waits on you']]) {
+    const one = step('B1', state)
+    assert.equal(stepStatusOf(one, { items: itemsOf([one]), ready, held: [] }).words, expected, state)
   }
-  assert.equal(reworkPhraseOf('taken'), 'a worker is on it')
+  assert.equal(stepStatusOf(step('B1', 'taken'), { items: itemsOf([step('B1', 'taken')]), workerOf: () => 'Worker 1' }).words, 'Worker 1 is on it')
   // In review with its check still to run: "being checked".
   assert.equal(reworkOf(['B8'], itemsOf([built('B8', { result: null })])).words, 'B8 · being checked')
   assert.equal(reworkOf(['B9'], itemsOf([step('B9', 'waiting on you')])).words, 'B9 · waits on you')

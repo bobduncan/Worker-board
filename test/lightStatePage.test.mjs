@@ -181,7 +181,8 @@ test('a goal part lists its finished steps from light rows: Done with its line; 
   const pears = view(light, 'G4')
   assert.deepEqual(pears.rows.map(one => [one.id, one.badge, one.line]), [
     ['B11', 'Done', 'Plant four pear trees along the south wall.'],
-    ['B12', 'Ready', 'Cut them back.'],
+    // P7: no goal is the focus, so the hand-out holds B12 for the person's pick: its one status reads Held.
+    ['B12', 'Held', 'Cut them back.'],
   ])
   assert.deepEqual(view(light, 'G5').rows.map(one => one.id), ['B14'], 'B13 was dropped')
   // The same as from the full rows.

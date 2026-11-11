@@ -81,8 +81,15 @@ export const isLate = (message, now, keep) => now - message.at - heldMs(message,
  * delivered; it stays listed for `shownMs` so the person sees what did not arrive. A delivered answer stays
  * known, because it closes its request; a delivered line shows in its chat and is listed no longer.
  */
+/**
+ * P7 (the review): every word of the outbox, also long ago, with one that waited too long for its chat marked `expired`, as
+ * `outboxNow` times it (and the refine gate reads the outbox, server.mjs `sentNow`): the one shape the one status per step reads
+ * (src/stepStatus.mjs), for the state and the Supervisor's rule alike.
+ */
+export const outboxKnown = (messages, now, keep) => messages.map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
+
 export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
-  const known = messages.map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
+  const known = outboxKnown(messages, now, keep)
   // B352, review: the newest word that set the partner's mode stays known: the partner runs on it until the next one,
   // however long it is idle (src/partnerEffort.mjs).
   const effortWord = known.findLast(message => message.command === 'partner-effort' && message.state !== 'expired' && message.state !== 'failed')

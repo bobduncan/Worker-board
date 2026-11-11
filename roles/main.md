@@ -401,3 +401,8 @@ A worker that waits for another chat records it (`work block id=B<n> on="chat 1"
 lane says "waits for chat 1 (its go to land) since HH:MM", the board sends it no "go on" line and gives nothing back; past 90 minutes of
 running time the user sees one Late. You, the holder or the user clear it with `work unblock B<n>`; when you give such a chat its go,
 say "unblock first".
+A note "focus goal G<n> has work, none can be handed out: B<n> <its status>" (the repair `none-ready`, P7 of the one wait system,
+2026-11-10) says a worker has been free for 10 running minutes while every step of the focus goal waits: act on its cause (a step the
+hand-out holds: its blocker, its standard's foundation, the user's pick). A refine is the board's refine gate's to send, never yours
+to ask for; causes someone has already (a word to the Advisor in flight, a refine waiting for answers or stopped or in the gate's line,
+a rebuild hold, a blocker at work) are left out. It is never the user's: no ask, no Do item. One note per cause and free spell.

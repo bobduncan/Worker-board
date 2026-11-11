@@ -131,7 +131,7 @@ import { readAutopilotClearedFile, readObsoleteFile, readStore } from './src/wor
 import { obsoleteView, openItemsOf } from './src/work/obsolete.mjs'
 import { evidenceLanes, obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
 import { giveBackHeld, stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
-import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
+import { dismissCopied, fileStore, isLate, memoryStore, outboxKnown, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { activePages, blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
 import { findGameFile } from './src/gameFile.mjs'
@@ -2290,6 +2290,9 @@ async function main(args) {
   // Signals change 7 (B914, 2026-11-02): the board's own memory of when each worker's plan words changed (state.mjs
   // `planLineOf`), in memory as the asleep map was kept: a restart forgets it, which only makes the words look new.
   let planSeen = {}
+  // P7, the review: the none-ready episode (state.mjs `noWorkSeen`), in memory as planSeen: a restart starts it from the
+  // longest-free worker's since again.
+  let noWorkSeen = null
   const readState = cached(() => trackJob('state rebuild', async () => {
     if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
@@ -2304,6 +2307,10 @@ async function main(args) {
     const state = buildState(raw, {
       lines: readLines(raw),
       outbox: outboxNow(store.outbox(), clock(), keep),
+      // P7 (the review): every word, also long ago, timed as outboxNow times them, for the one status per step (src/stepStatus.mjs),
+      // and the refine gate's kept first look, for the refines in its line (src/refineGate.mjs `refineQueue`).
+      words: outboxKnown(store.outbox(), clock(), keep),
+      refineKept,
       runs: games.list(),
       board: { startedAt, offSince },
       // B714: when the board last looked, so a read before the tick that follows a wake already counts the sleep as off time.
@@ -2326,10 +2333,12 @@ async function main(args) {
       providers,
       // Signals change 7 (B914): when each worker's own plan words last changed, as the last read saw them (memory only).
       planSeen,
+      noWorkSeen,
       now: clock(),
       config: { ...config, project },
     })
     planSeen = state.planSeen ?? {}
+    noWorkSeen = state.noWorkSeen ?? null
     // Only the board that runs the loops writes; a copy beside it reads what that one kept.
     if (READINGS_FILE !== null && !isShowOnly && JSON.stringify(state.limitReadings) !== JSON.stringify(keptReadings)) {
       await writeAtomic(READINGS_FILE, JSON.stringify(state.limitReadings)).catch(error => loops.failed('limit-readings', error))
@@ -2827,6 +2836,8 @@ async function main(args) {
         flow: stored?.ok === true ? stored.flow : null,
         // Pause truth item 6: while the pause holds, a new step waits for Resume all, not for the Advisor.
         pause: state.pause ?? null,
+        // P7: every step's one status (state.mjs `stepStatus`), which a card of a new or refined fix step says.
+        statuses: state.stepStatus ?? null,
       })
       // 2026-10-28: the Advisor's "Next for it" ends with the steps the board will ask it to refine next (only the board holds the refine gate).
       const refineGateNow = Array.isArray(state.advisor?.next) ? firstLook(refineKept, state) : null

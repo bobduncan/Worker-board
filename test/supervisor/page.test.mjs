@@ -593,8 +593,8 @@ test('the demo shows the section: every rule of the supervisor, three tripped to
   ])
   // Five fix cards (the step being built first, as it moved last) and the new one still on its way to the Supervisor (signals change 6).
   assert.deepEqual(view.cards.map(card => [card.key, card.state.text, card.incidents.map(one => one.id).join(' ')]), [
-    ['B532', 'Worker 5 \u00b7 building', 'X1 X2 X3'], ['B541', 'refined \u00b7 on the list', 'X4 X5 X6'], ['B542', 'refined \u00b7 on the list', 'X7'],
-    ['B543', 'refined \u00b7 on the list', 'X8'], ['B544', 'refined \u00b7 on the list', 'X9'], ['nofix', 'sending to the Supervisor\u2026', 'X10'],
+    ['B532', 'Worker 5 \u00b7 building', 'X1 X2 X3'], ['B541', 'refined', 'X4 X5 X6'], ['B542', 'refined', 'X7'],
+    ['B543', 'refined', 'X8'], ['B544', 'refined', 'X9'], ['nofix', 'sending to the Supervisor\u2026', 'X10'],
   ])
   assert.equal(view.checkedAt, NOW - 2 * MIN)
   assert.equal(page.isSupervisorShown(view), true)
