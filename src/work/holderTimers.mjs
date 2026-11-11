@@ -14,6 +14,7 @@
 
 import { afterPause, checkpointOf } from './pause.mjs'
 import { waitsOnOf } from './waitsOn.mjs'
+import { assetWaitOf } from './assetWait.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 import { isKeptLook } from './keptLook.mjs'
 
@@ -204,7 +205,7 @@ function busySpellAfter(worker, at) {
  * `{ line, marker }` the line due now, `giveBack` `{ step, chat, askedAt }` due now, `close` the waiting line to close
  * with the give-back.
  */
-export function holderTimers({ worker, holding, items = new Map(), prefix = '', envelopes = [], stops = [], pause = null, runningMs, resumeMs = RESUME_MINUTES * MIN, giveBackMs = GIVE_BACK_MINUTES * MIN, landings = [] }) {
+export function holderTimers({ worker, holding, items = new Map(), prefix = '', envelopes = [], stops = [], pause = null, runningMs, resumeMs = RESUME_MINUTES * MIN, giveBackMs = GIVE_BACK_MINUTES * MIN, landings = [], assets = [] }) {
   const id = valueOf(holding, 'Id')
   const name = worker.name
   if (!TIMED_STATES.includes(valueOf(holding, 'State')) || !STOPPED_LANES.includes(worker.state)) return null
@@ -213,6 +214,9 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   // and gives nothing back, whatever its lane reads (interrupted, unknown after a report blip, off after a failed wake): the wait
   // is a record; its limit is the person's Late (state.mjs `lateWaits`).
   if (waitsOnOf(holding) !== null) return null
+  // The asset wait (2026-11-11, the B1124 case): a holder with an open request for its step's pictures (work/assetWait.mjs) waits for
+  // the provider, not for a nudge: no "go on" line and no give-back while Codex draws; its limit is the person's Late (state.mjs `lateWaits`).
+  if (assetWaitOf(holding, assets, { chat: name, prefix }) !== null) return null
   if (PAUSE_STATES.includes(pause?.state)) return null
   const asks = [...items.values()].filter(item => valueOf(item, 'Kind') === 'ask')
   // The lead's live check (2026-11-02, change 3 BROKEN): the timers paused for ANY open ask of the worker (its own, under

@@ -333,7 +333,7 @@ async function act(body, ctx) {
   if (routed !== null) return routed
   if (action === 'next') return next(body, w)
   if (action === 'list') return list(w, body)
-  if (action === 'pause-state') return { ok: true, result: pauseStateOf(w) }
+  if (action === 'pause-state') return { ok: true, result: await pauseStateOf(w) }
   const done = await CHANGE[action](body, w)
   // B317: a turn's end that filed the asks of the chat's "For you" block shows them on the view, as an ask does.
   const isOffView = OFF_VIEW.has(action) && !(done.ok && done.result.asked?.length > 0)
@@ -812,9 +812,12 @@ function checkpointOfBody(body) {
   return { ok: true, commit: commit === '' ? 'none' : commit.toLowerCase() === 'none' ? 'none' : commit, next }
 }
 
+/** The asset requests the board keeps (src/assets.mjs), for the waits they stand for (work/assetWait.mjs); none without a folder or when it cannot be read. */
+const assetRecordsOf = async w => (typeof w.assets?.dir === 'string' ? listAssets(w.assets.dir).catch(() => []) : [])
+
 /** Pause and resume (spec 2026-10-18): the pause state for the asking chat (pause.mjs `pauseAnswer`), with a line of words. */
-function pauseStateOf(w) {
-  const answer = pauseAnswer({ pause: w.store.pause ?? null, items: w.store.items, lanes: w.lanes ?? [], prefix: w.prefix ?? '', chat: w.who, role: w.role })
+async function pauseStateOf(w) {
+  const answer = pauseAnswer({ pause: w.store.pause ?? null, items: w.store.items, lanes: w.lanes ?? [], prefix: w.prefix ?? '', chat: w.who, role: w.role, assets: await assetRecordsOf(w) })
   const when = Number.isFinite(answer.since) ? ` since ${stamp(answer.since).slice(11)}` : ''
   return { text: `The board's pause state: ${answer.state}${when}.`, ...answer }
 }
@@ -837,7 +840,7 @@ async function pauseWrite(body, w) {
   // 2026-10-19: running keeps when the resume began, where the hold of the outbox's lines ended (only pausing holds);
   // the board's own running keeps who had not started then (a resume that ended by the time), for the banner's hour.
   const resumedSince = to === 'running' ? now.record?.since : null
-  const notStarted = w.action !== 'resumed' ? [] : pauseFacts({ pause: now.record, items: w.store.items, lanes: w.lanes ?? [], prefix: w.prefix ?? '' }).waiting
+  const notStarted = w.action !== 'resumed' ? [] : pauseFacts({ pause: now.record, items: w.store.items, lanes: w.lanes ?? [], prefix: w.prefix ?? '', assets: await assetRecordsOf(w) }).waiting
   const record = {
     state: to, since: w.now, by: w.role,
     ...(Number.isFinite(pausedSince) ? { pausedSince } : {}),
@@ -3931,7 +3934,7 @@ async function turnEnded(body, w) {
   // The review of B300: with `pull`, the same call answers the chat's pull (one call at a turn's end).
   const pulled = body.pull === true ? (({ changed: _, ...rest }) => rest)(pull(body, { ...w, who: chat }).result) : undefined
   // Pause and resume (spec 2026-10-18): the same call answers the pause state, so the mod needs no call of its own.
-  const { text: _words, ...pause } = pauseStateOf({ ...w, who: chat })
+  const { text: _words, ...pause } = await pauseStateOf({ ...w, who: chat })
   // Clear after each step: the chat's role as the board knows it (the Workers mod clears a worker only, and compacts the
   // main chat and the partners at rest), and how many items of its "For you" block the board could not file.
   const role = w.roleOf?.(chat) ?? null

@@ -21,6 +21,7 @@ import { boardCheckPending, reportCheckFailedOf, reviewWaitOf } from './work/res
 import { refinedOfItem, refineWaitOf } from './work/refineWait.mjs'
 import { idleWorkers } from './work/handOut.mjs'
 import { keptRecapWaitOf, recapWaitWords, waitsOnOf } from './work/waitsOn.mjs'
+import { assetWaitOf } from './work/assetWait.mjs'
 import { afterPause, isHolding } from './work/pause.mjs'
 import { heldFrom, isHeld } from './work/askHold.mjs'
 
@@ -124,7 +125,7 @@ export { keptRecapWaitOf, recapWaitWords }
  */
 export function stepStatusOf(step, ctx = {}) {
   if (step === null || step === undefined || (valueOf(step, 'Kind') ?? 'step') !== 'step') return null
-  const { items = new Map(), held = null, ready = null, outbox = [], now = null, workerOf = () => null, openChecks = new Set(), recaps = null, prefix = '', byAbout = null, asksOf = null } = ctx
+  const { items = new Map(), held = null, ready = null, outbox = [], now = null, workerOf = () => null, openChecks = new Set(), recaps = null, prefix = '', byAbout = null, asksOf = null, assets = [] } = ctx
   const id = valueOf(step, 'Id')
   const state = valueOf(step, 'State')
   const link = typeof id === 'string' ? `#details=${id}` : null
@@ -161,6 +162,9 @@ export function stepStatusOf(step, ctx = {}) {
     case 'in progress': {
       const wait = waitsOnOf(step)
       if (wait !== null) return status('waits-on', 'Waits', `waits for ${wait.who}: ${wait.what}`, 'working', { ...base, who: wait.who, why: wait.what, since: wait.since })
+      // The asset wait (2026-11-11, the B1124 case): the holder's open asset requests for the step (work/assetWait.mjs): quiet, linked to the step.
+      const assetWait = assetWaitOf(step, assets, { chat: owner, prefix })
+      if (assetWait !== null) return status('asset', `Waits for ${assetWait.who}`, `waits for ${assetWait.what}`, 'quiet', { ...base, who: owner, why: assetWait.ids.join(', '), since: assetWait.since ?? base.since, link: assetWait.link })
       if (partnerWait !== null) return forPartner()
       if (recapWait !== null) return forRecap()
       const who = workerOf(id) ?? owner

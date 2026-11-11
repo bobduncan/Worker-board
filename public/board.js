@@ -2220,7 +2220,7 @@ function whyText(why) {
   const said = (tone, words) => ({ tone, text: `Not started: ${words}` })
   switch (why.reason) {
     case 'limit': return said('limit', `the ${LIMIT_NAMES[why.limit] ?? 'session'} limit is reached${why.limit === 'fiveHour' && why.until !== null ? `, work goes on at ${clock(why.until)}` : ''}`)
-    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${sinceClock(why.since)}` : ''}` : why.kind === 'recap' ? `${why.worker} waits for ${why.what ?? 'your recap'}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
+    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${sinceClock(why.since)}` : ''}` : why.kind === 'recap' ? `${why.worker} waits for ${why.what ?? 'your recap'}` : why.kind === 'asset' ? `${why.worker} waits for ${why.what ?? 'its pictures'}${Number.isFinite(why.since) ? ` since ${sinceClock(why.since)}` : ''}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
     case 'after': {
       if (!Array.isArray(why.steps)) return said('wait', `after ${why.words}`)
       // B542: a step in review is waited on for its check.
@@ -2309,6 +2309,8 @@ function heldText(held) {
   if (held.by === 'parked' && held.kind === 'chat') return `Waits on purpose · for ${held.on[0]}${held.what ? ` (${held.what})` : ''}${Number.isFinite(held.since) ? ` since ${sinceClock(held.since)}` : ''}; goes on once it is unblocked`
   // The lead's ruling of 2026-11-11 (B1094 and Q715): a wait for the person's recap, never the steps' words.
   if (held.by === 'parked' && held.kind === 'recap') return `Paused on purpose · waits for ${held.what ?? 'your recap'}; goes on once you answered it in the recap`
+  // The asset wait (2026-11-11, the B1124 case): the holder's open asset requests; the provider's word ends it.
+  if (held.by === 'parked' && held.kind === 'asset') return `Paused on purpose · waits for ${held.what ?? 'its pictures'}${Number.isFinite(held.since) ? ` since ${sinceClock(held.since)}` : ''}; goes on once ${held.on?.[0] ?? 'the provider'} delivered or failed`
   if (held.by === 'parked') return `Paused on purpose · goes on once ${held.on.join(' and ')} ${held.on.length === 1 ? 'is' : 'are'} done`
   const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
   if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
@@ -3521,8 +3523,10 @@ function drawLane(lane, state) {
   // The status's why beside it, in a few plain words (a step, a reason, a time); Unknown carries its in the label; an Asleep lane shows its why only when it has one (C2, the ban).
   // The lead's ruling of 2026-11-11 (B1094 and Q715): a lane parked for the person's recap links its why to that goal's recap.
   if (found !== null && found.why !== null && found.status !== 'Unknown') {
-    const recapLink = found.status === 'Paused' && lane.suspended?.by === 'parked' && lane.suspended.kind === 'recap' && /^#advice\/goals\/G\d+$/.test(lane.suspended.link ?? '') ? lane.suspended.link : null
-    const why = el(recapLink === null ? 'small' : 'a', recapLink === null ? 'status-why' : 'status-why recap-wait', found.why)
+    // The asset wait (2026-11-11): a lane parked for its pictures (kind asset) links its why to the step's window, where the requests are told.
+    const recapLink = found.status === 'Paused' && lane.suspended?.by === 'parked' && lane.suspended.kind === 'recap' && /^#advice\/goals\/G\d+$/.test(lane.suspended.link ?? '') ? lane.suspended.link
+      : found.status === 'Paused' && lane.suspended?.by === 'parked' && lane.suspended.kind === 'asset' && /^#details=B\d+$/.test(lane.suspended.link ?? '') ? lane.suspended.link : null
+    const why = el(recapLink === null ? 'small' : 'a', recapLink === null ? 'status-why' : `status-why ${lane.suspended.kind === 'asset' ? 'asset-wait' : 'recap-wait'}`, found.why)
     if (recapLink !== null) why.href = recapLink
     names.append(why)
   }
@@ -3595,7 +3599,9 @@ function drawLane(lane, state) {
     const status = stepStatusFor(state, lane.held.id)
     if (status !== null && status.kind !== 'working') {
       // The person's "1 yes" of 2026-11-11: a step that waits for the goal's recap says so, linked to that goal's recap, quiet (no warn tone).
-      const note = status.kind === 'recap' && /^#advice\/goals\/G\d+$/.test(status.link ?? '') ? el('a', 'task-status muted recap-wait', `· ${status.words}`) : el('span', 'task-status muted', `· ${status.words}`)
+      // The asset wait (2026-11-11): a step that waits for its pictures says so, linked to its window, quiet.
+      const note = status.kind === 'recap' && /^#advice\/goals\/G\d+$/.test(status.link ?? '') ? el('a', 'task-status muted recap-wait', `· ${status.words}`)
+        : status.kind === 'asset' && /^#details=B\d+$/.test(status.link ?? '') ? el('a', 'task-status muted asset-wait', `· ${status.words}`) : el('span', 'task-status muted', `· ${status.words}`)
       if (note.tagName === 'A') note.href = status.link
       title.append(' ', note)
     }
@@ -4418,6 +4424,7 @@ function removalView(lane, main, now) {
     reasons.push(lane.suspended === null && typeof lane.heldAsk === 'string' ? `It is paused for its re-check of ${lane.heldAsk}${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : lane.suspended?.by === 'parked' && lane.suspended.kind === 'chat' ? `It waits on purpose for ${lane.suspended.on[0]}${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : lane.suspended?.by === 'parked' && lane.suspended.kind === 'recap' ? `It waits on purpose for ${lane.suspended.what ?? 'your recap'}${what === null ? '' : ` with ${what}`}: that task would not go on.`
+      : lane.suspended?.by === 'parked' && lane.suspended.kind === 'asset' ? `It waits on purpose for ${lane.suspended.what ?? 'its pictures'}${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : lane.suspended?.by === 'parked' ? `It is paused on purpose${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : `It paused for the limit${until}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
   }

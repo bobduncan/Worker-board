@@ -1871,6 +1871,10 @@ async function main(args) {
 
   let store
   let readRaw
+  // The asset wait (2026-11-11, the B1124 case): the asset requests go into the raw (src/work/assetWait.mjs reads the open ones of a
+  // holder as its wait), with the provider's time limit for a job (the Design tab's seconds, once read below) for the Late past it.
+  let assetSecondsNow = () => null
+  const withAssets = async sources => ({ ...sources, assets: assetsDir === null ? [] : await listAssets(assetsDir).catch(() => []), assetSeconds: assetSecondsNow() })
   let readLines = raw => raw.historyLines ?? store.lines()
   // B155: when the board first saw each step ticked, kept in its data folder from now on; null before its first look.
   const FINISHED_FILE = join(HERE, 'data', 'finished.json')
@@ -1924,7 +1928,7 @@ async function main(args) {
       // B273: the app may move its folder while the board runs: the board follows it.
       // B467: as a loop: a failed search shows and is logged; the board reads where it read before.
       await loops.run('app-folder', () => followApp(config, process.env, process.platform))
-      return readSources(config, folders, undefined, branches, work)
+      return withAssets(await readSources(config, folders, undefined, branches, work))
     }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start })
@@ -1947,7 +1951,7 @@ async function main(args) {
       readLines = () => lines.now
       readRaw = async () => {
         lines.now = await shared()
-        return readSources(config, folders, undefined, branches, work)
+        return withAssets(await readSources(config, folders, undefined, branches, work))
       }
     }
   }
@@ -2114,6 +2118,7 @@ async function main(args) {
   const kindsFile = isDemo ? join(HERE, 'fixtures', 'demo-design.json') : config.project === '' ? null : join(config.project, ...config.designKinds.split('/'))
   // B467: no file gives the usual kinds; one it cannot read gives them too, and says so.
   const settings = parseDesignSettings(kindsFile === null ? '' : await readFile(kindsFile, 'utf8').catch(absentAs('')).catch(error => { loops.failed('design-kinds', error); return '' }))
+  assetSecondsNow = () => settings.seconds
   // B198: new ideas go into the project's picture folder.
   const ideas = isDemo ? ideasOver((await import('./fixtures/demo.mjs')).demoIdeas(clock()), undefined, { pictures: config.pictureRoots[0] })
     // B406: a torn ideas file is set aside like the other data files, never written over with no ideas in it; a board

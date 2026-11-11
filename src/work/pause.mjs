@@ -8,6 +8,7 @@
 
 import { sinceMs, valueOf } from './item.mjs'
 import { keptRecapWaitOf, waitsOnOf } from './waitsOn.mjs'
+import { assetWaitOf } from './assetWait.mjs'
 
 export const PAUSE_FILE = 'pause.json'
 export const PAUSE_STATES = ['pausing', 'resuming', 'running']
@@ -27,11 +28,13 @@ export const RESUMED = HELD.filter(state => state !== 'review')
  * Whether a resume waits for and wakes the chat holding this step (`RESUMED`). P1 (2026-11-09): not a step whose holder recorded a
  * wait on a chat (`Waits on`, waitsOn.mjs): it waits on purpose, and a resume would only wake it to wait again.
  * The lead's ruling of 2026-11-11: nor a step whose open asks all wait for the goal's recap (waitsOn.mjs `keptRecapWaitOf`, the B1094
- * and Q715 case): its lane is parked the same way, and a resume would only wake it to wait again.
+ * and Q715 case): its lane is parked the same way, and a resume would only wake it to wait again. The asset wait (2026-11-11, the B1124
+ * case): nor a step whose holder has an open asset request for it (`assets`, work/assetWait.mjs): it waits for the provider.
  */
-const isResumed = (items, holder) => {
+const isResumed = (items, holder, assets = [], prefix = '') => {
   const step = items?.get?.(holder.id)
   if (!RESUMED.includes(valueOf(step, 'State') ?? '') || waitsOnOf(step) !== null) return false
+  if (assetWaitOf(step, assets, { chat: holder.chat, prefix }) !== null) return false
   const asks = [...(items?.values?.() ?? [])].filter(item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'Of') === holder.id)
   return keptRecapWaitOf(step, asks) === null
 }
@@ -167,7 +170,7 @@ const hasStarted = (lane, since) => lane !== undefined && (runsTurn(lane) || (Nu
  * a chat that has started a turn since the resume is no longer named. `held` (B442): the lines the pause holds back, waiting
  * in the outbox until the resume, `{ to, step }`.
  */
-export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = [], held = [], now = null }) {
+export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = [], held = [], now = null, assets = [] }) {
   if (pause === null || pause === undefined) return null
   const laneOf = chat => lanes.find(lane => plain(lane.name, prefix) === plain(chat, prefix))
   const holders = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) !== undefined)
@@ -201,7 +204,7 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
   if (pause.state === 'resuming') {
     // T8.5: a task given to a worker went back at the pause (its one task in flight): it waits for no start.
     const resumed = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) !== undefined)
-    const waiting = byChat(resumed.filter(holder => isResumed(items, holder) && !hasStarted(laneOf(holder.chat), pause.since)), prefix)
+    const waiting = byChat(resumed.filter(holder => isResumed(items, holder, assets, prefix) && !hasStarted(laneOf(holder.chat), pause.since)), prefix)
     return { state: 'resuming', since: pause.since, ...(Number.isFinite(pause.pausedSince) ? { pausedSince: pause.pausedSince } : {}), waiting, isResumed: waiting.length === 0, until: Number.isFinite(pause.since) ? pause.since + RESUME_WAIT_MS : null }
   }
   const isShown = Number.isFinite(now) && Number.isFinite(pause.since) && now - pause.since < NOT_STARTED_SHOWN_MS
@@ -240,7 +243,7 @@ export function resumeEnds(pause, now) {
  * main chat while resuming: every other chat holding a step, `{ chat, session (the app's id for it), cliSession, step,
  * checkpoint, branch, hasStarted }`.
  */
-export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role }) {
+export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role, assets = [] }) {
   const state = pause?.state ?? 'running'
   const since = pause?.since ?? null
   // While resuming a checkpoint counts from when the pause began; a resume with no pause before it has none.
@@ -252,7 +255,7 @@ export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role 
   const laneOf = name => lanes.find(lane => plain(lane.name, prefix) === plain(name, prefix))
   // T8.5: a task given to a worker is no step to resume: the resume decides its hand-over anew.
   const resumeList = state !== 'resuming' || role !== 'main' ? [] : holdersOf(items, prefix)
-    .filter(holder => plain(holder.chat, prefix) !== plain(chat, prefix) && laneOf(holder.chat) !== undefined && isResumed(items, holder))
+    .filter(holder => plain(holder.chat, prefix) !== plain(chat, prefix) && laneOf(holder.chat) !== undefined && isResumed(items, holder, assets, prefix))
     .map(holder => {
       const lane = laneOf(holder.chat)
       return { chat: lane.name, session: lane.appSession ?? null, cliSession: lane.session ?? null, step: holder.id, checkpoint: withMark(holder.checkpoint), branch: holder.branch, hasStarted: hasStarted(lane, since) }

@@ -359,7 +359,7 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * give in the same call, the envelope to write, the envelope the net fired for (marked once), one that waits in the outbox
  * and is to be closed (its task went back).
  */
-export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null, landing = null, landings = [] }) {
+export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null, landing = null, landings = [], assets = [] }) {
   const name = worker.name
   const isTurnEnd = event?.kind === 'turn-ended'
   const turnSince = isTurnEnd && Number.isFinite(event.since) ? event.since : -Infinity
@@ -396,7 +396,7 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
     const id = valueOf(holding, 'Id')
     // Signals change 3: a holder that stopped gets one "go on" line, and its step goes back when it does not go on.
     const timed = holderTimers({
-      worker, holding, items, prefix, envelopes: resumes, stops, pause, runningMs, landings,
+      worker, holding, items, prefix, envelopes: resumes, stops, pause, runningMs, landings, assets,
       resumeMs: timers.resumeMs ?? RESUME_MINUTES * MIN, giveBackMs: timers.giveBackMs ?? GIVE_BACK_MINUTES * MIN,
     })
     if (timed === null) return result(STATES.WORKING, null, { step: id })

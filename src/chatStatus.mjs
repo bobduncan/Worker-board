@@ -11,6 +11,7 @@
 
 import { BAN_WHY_MARK, UNANSWERED_WHY } from './work/handover.mjs'
 import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from './work/waitsOn.mjs'
+import { assetWaitWords, isAssetWait } from './work/assetWait.mjs'
 
 const MIN = 60_000
 
@@ -84,6 +85,8 @@ function pausedWhy(held) {
   if (isChatWait(held)) return chatWaitWords(held)
   // The lead's ruling of 2026-11-11 (B1094 and Q715): a wait for the person's recap: "waits for your recap of G60 (Q715)".
   if (isRecapWait(held)) return recapSuspensionWords(held)
+  // The asset wait (2026-11-11, the B1124 case): "waits for Codex: A224-A227 since 10:43".
+  if (isAssetWait(held)) return assetWaitWords(held)
   if (held?.by === 'parked') return `until ${(held.on ?? []).join(' and ')}`
   const limit = LIMIT_NAMES[held?.limit] ?? 'session limit'
   const who = held?.by === 'app' ? 'stopped by the app at the' : 'paused for the'
@@ -149,6 +152,8 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
   if (state === 'interrupted' && typeof lane.heldAsk === 'string' && !asleep) return out(STATUSES.PAUSED, `waits for its re-check of ${lane.heldAsk}`, report?.since)
   // 9. Stopped: idle or ended while holding a step.
   if (state === 'interrupted') {
+    // The asset wait (2026-11-11): its step's last asset request failed while it waited: the failure, never a silent Stopped.
+    if (typeof lane.assetFailed === 'string' && lane.assetFailed !== '') return out(STATUSES.STOPPED, lane.assetFailed, asleep ? lane.asleepSince : report?.since)
     // Signals change 3: the hand-over asked it to go on (its "go on" line of this stopped spell).
     if (finite(handover?.asked)) return out(STATUSES.STOPPED, `asked to go on at ${hourMinute(handover.asked)}`, asleep ? lane.asleepSince : report?.since)
     if (asleep) return out(STATUSES.STOPPED, 'resumes by itself', lane.asleepSince)

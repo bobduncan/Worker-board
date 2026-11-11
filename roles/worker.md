@@ -166,11 +166,15 @@ step therefore says what it touches ("Touches: ...").
   held ask is withdrawn "re-asked as Q<new>"), `work withdraw Q<n> why="<what the words settled>"`, or, when the words change nothing,
   `work note to=main of=Q<n> text="still stands: <why>"`. Left alone, the ask comes back to the person by itself after an hour of the board's running time (never held again). You do not call `words` (the person, the main chat and a side chat of the app do).
 - Record every wait on a chat (P1 of the one wait system, 2026-11-09): while you wait for another chat's answer (chat 1's go
-  to land, a review, a picture), write `work block id=B<n> on="chat 1" why="its go to land"` — never only in a checkpoint. The
+  to land, a review), write `work block id=B<n> on="chat 1" why="its go to land"` — never only in a checkpoint. The
   board then shows you as waiting on purpose, sends no "go on" line and gives the step to nobody for 90 minutes of its running
   time; past that the user sees it as late, and the step still stays yours. Once the answer came: `work unblock B<n>`, then
   go on (a checkpoint while the wait stands reminds you; your report, a take and a give-back clear it). `on` is a chat of the
   board or a side chat ("chat 1"); a wait on the user is a blocking ask, a wait on a fix is `on=B<n>`.
+- A wait for a picture needs no record (2026-11-11): while a request you made with `work asset` for your step is open (waiting or
+  running), the board shows you as waiting for the provider ("Paused · waits for Codex: A224-A227"), sends no "go on" line, gives the
+  step to nobody and leaves you out of Resume all; past the provider's time limit for a job the user sees it as late. End your turn
+  and wait for the board's "asset A<n> ready" or "asset A<n> failed" word; never make the picture yourself.
 - Lessons of a task go into the repository's documents, not into a chat.
 - A change to the Workers mod (B570): raise its version (plugin.json and `MOD_VERSION`), and after your merge bring it
   onto the PC once: `claude plugin marketplace update <marketplace>` and `claude plugin update <mod>@<marketplace>`

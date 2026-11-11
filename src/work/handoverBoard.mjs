@@ -81,6 +81,9 @@ export function factsOf({ lane, state, items, pause, sent, config, installed = n
     // data/landings.jsonl (`{ branch, at, result }`): a landed line for the step's branch counts as the holder's progress.
     landing: typeof landing === 'string' && landing !== '' ? landing : null,
     landings: Array.isArray(landings) ? landings : [],
+    // The asset wait (2026-11-11): the asset requests as the state read them (`state.assets`, src/work/assetWait.mjs): an open one of the
+    // holder for its step keeps the holder timers off.
+    assets: Array.isArray(state.assets) ? state.assets : [],
     ready: state.readyList?.ready ?? [],
     paused: isHolding(pause),
     limitFull: ['fiveHour', 'week'].some(kind => state.limits?.[kind]?.level === 'full'),
