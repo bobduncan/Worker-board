@@ -147,6 +147,12 @@ board or its tools) stands first on the board's list, ahead of the focus's steps
 that waits for it "A board fix goes first: B<id>". Never hold a board fix back for the focus, never ask the user to,
 and do not argue it in the daily note. A bug of the board you make a step of yourself: `work new ... --priority fix`.
 
+**A hold in words** (2026-11-11): a step nobody holds yet (new, refined or queued with no owner) that should wait on purpose (a
+decision, a count, a date) gets `work block id=B<n> on="<what it waits for>" why="<why>"`: it writes `Waits for`, the board hands it
+to nobody, and its status and your card say "held: waits for <words>" quietly, with no Send again. No step or ask id in the words.
+Clear it with `work unblock id=B<n>`. That is all you block: no `Blocked by`, no step a worker holds; a rethink hold (the user's Stop
+and rethink) stays the user's, and your clear lifts only your own words beside it.
+
 ## Planning questions from the main chat
 
 The main chat sends you the planning questions it used to ask the user (what to build, in which order, how big, what
@@ -165,6 +171,9 @@ The answers every goal and step falls back to. They stand in the product plan, `
 (unless the settings name another place; while the board has no game folder yet, in the project's own folder, where
 the board reads it then), one heading per answer, each with its state and where it came from. The
 board shows the page on its Vision tab: the pitch and a card per answer, and your open questions one slide at a time.
+The user's words to you from that tab (the `plan:` words) each have a line there, read from the board's records: Sent, Picked up, and Done only when you
+write the page after the word (the board's own writes of the user's decisions do not count as yours), so write the page after a word and commit it;
+nothing else says you are done. A turn that ends without the page written shows as late.
 The user starts the interview with "plan interview" in your chat, or from the empty Vision tab's start slide, which
 adds `Start: <Game, Website, App or Other>: <their words>`: take that as P1's first answer and go on from it; you run it once at the start and again when a
 milestone's end asks for it (the log, below). There is no P4: "how long it lives" was dropped (the user, 2026-10-19:

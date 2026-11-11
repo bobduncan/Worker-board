@@ -2,6 +2,7 @@
 // Round 2 (the review of 2026-11-10): the gate reads the page's one-click routes too (`clickCall('/api/…', { command|action: … })`), the
 // words without a command (`send({ to, text })`), and derives the word each page command queues from the SERVER's own source (src/clicks.mjs
 // `brainstormClickOf` called for real, src/focus.mjs read function by function, src/say.mjs's FOCUS_COMMANDS), never by a hand-written map.
+// Reactive board, brief P4c: the NOT YET list is empty: the Vision plan-* words, "No, because…" (recommend), the free messages and the nudge all have a line.
 // Every command either has a line (the server tracks the word, `isPersonWord`, a place by `placeOfWord`, and a card draws that place) or sits
 // in an explicit allow-list with its why. A new command or word added to the page without either fails here, naming it.
 import assert from 'node:assert/strict'
@@ -12,8 +13,9 @@ import { fileURLToPath } from 'node:url'
 
 import { brainstormClickOf } from '../src/clicks.mjs'
 import { FOCUS_MOVES } from '../src/focus.mjs'
+import { PLAN_MOVES } from '../src/planMoves.mjs'
 import { FOCUS_COMMANDS } from '../src/say.mjs'
-import { isPersonWord, placeOfWord } from '../src/waitLine.mjs'
+import { FREE_KINDS, isPersonWord, placeOfWord } from '../src/waitLine.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const [script, focusSrc, serverSrc, saySrc] = await Promise.all(['public/board.js', 'src/focus.mjs', 'server.mjs', 'src/say.mjs'].map(file => readFile(join(ROOT, file), 'utf8')))
@@ -65,6 +67,8 @@ const SERVER_WORDS = {
 }
 // Words whose command is the word itself: the page's name must be in the server's own source (a rename there fails here).
 const named = (pattern, word) => (pattern.test(`${serverSrc}\n${saySrc}`) ? [word] : [])
+for (const command of PLAN_MOVES) SERVER_WORDS[command] = [command]
+SERVER_WORDS.recommend = named(/command: 'recommend'/, 'recommend')
 SERVER_WORDS.refine = named(/command: 'refine'/, 'refine')
 SERVER_WORDS['refine-send'] = SERVER_WORDS.refine
 SERVER_WORDS.stop = named(/'stop'/, 'stop')
@@ -74,8 +78,7 @@ SERVER_WORDS.ask = named(/command: 'goal-ask'/, 'goal-ask')
 // The brainstorm words a page body names (`word: { command: 'brainstorm-wrap' }`, the "type it again" bodies) are the ones `brainstormClickOf` types again.
 for (const word of ['brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-understood', 'brainstorm-not-quite']) SERVER_WORDS[word] = SERVER_WORDS.again.includes(word) ? [word] : []
 
-/** Commands with no word to a chat, or none tracked: no line on purpose, or NOT YET (said so), each with its why. */
-const NOT_YET = 'NOT YET (follow-up step)'
+/** Commands with no word to a chat, or none tracked: no line on purpose, each with its why (P4c: no "NOT YET" entry is left). */
 const ALLOW = {
   // Instant, by the board's code: nothing waits for a chat.
   add: 'goal map edit: the board writes goals.md at once', rename: 'goal map edit: written at once', line: 'goal map edit: written at once', note: 'goal map edit: written at once',
@@ -93,25 +96,26 @@ const ALLOW = {
   'send:start': 'a chat started by the main chat: the lane\'s own status (the start/wake code is chat 1\'s)', 'send:restart': 'the restart banner\'s own status (chat 1\'s code)',
   'send:spawn': 'a new worker made by the main chat: the Workers lane\'s own status', 'dismiss copied': 'the board drops a copied-word note at once',
   'partner-effort': 'the effort switch: its own line (chat 1\'s code)', rethink: 'the Stop-and-rethink card has its own status card',
-  // Words that wait for a chat and are NOT tracked by the wait line yet: named here so the gap stays visible (not on purpose).
-  recommend: `${NOT_YET}: the way card's "No, because…" word has no wait line`,
-  ...Object.fromEntries(['plan-start', 'plan-settled', 'plan-standards-confirm', 'plan-standards', 'plan-measure', 'plan-standards-change', 'plan-standards-agree', 'plan-confirm', 'plan-deeper', 'plan-marks',
-    'plan-goals-confirm', 'plan-focus', 'plan-change', 'plan-tradeoffs', 'plan-tradeoff', 'plan-check', 'plan-strategy', 'plan-not-now', 'plan-goals-agree', 'plan-ask', 'plan-feature-add', 'plan-goals-change']
-    .map(command => [command, `${NOT_YET}: a Vision plan word: its own "preparing" panel and "Sent to your partner" note`])),
 }
-/** The words typed with no command at all (`send({ to, text })`), by the label of their click: a line, or an honest why. */
-const NO_COMMAND = {
-  'talk-send': `${NOT_YET}: the free message to the Advisor in the Advice chat panel: its reply is the chat itself, no wait line`,
-  'main-talk': `${NOT_YET}: "Talk to Main", a free message to the main chat: no wait line`,
-  nudge: `${NOT_YET}: the hint nudge to a chat; the page keeps its own nudged time`,
-  'question-reply': `${NOT_YET}: the words typed in an ask's window to the chat that asked`,
-}
-const NO_COMMAND_LABELS = { null: 'talk-send', "'main-talk'": 'main-talk', '`nudge:${id}`': 'nudge', key: 'question-reply' }
+/**
+ * The words typed with no command at all (`send({ to, text }, <label>, <via>)`), by the label of their click: each keeps its kind on the word (the
+ * server's FREE_OF_VIA maps the click's `via` to a kind of src/waitLine.mjs FREE_KINDS), so it has a place ('free') and a line where its button was.
+ */
+const NO_COMMAND_LABELS = { null: 'talk-send', "'main-talk'": 'main-talk-send', '`nudge:${id}`': 'nudge', key: 'ask-pictures' }
+const NO_COMMAND = Object.fromEntries(Object.values(NO_COMMAND_LABELS).map(via => [via, 'has its line (P4c)']))
+
+/** The kind of free word each page click keeps on its word, from the server's own table (server.mjs `FREE_OF_VIA`). */
+const FREE_OF_VIA = Object.fromEntries([...(/const FREE_OF_VIA = \{([^}]*)\}/.exec(serverSrc)?.[1] ?? '').matchAll(/'?([a-z-]+)'?: '([a-z-]+)'/g)].map(one => [one[1], one[2]]))
 
 /** Where the page draws the line of a place (a test of the page's own source: the card that draws it names it). */
+/** A place drawn where every one of its patterns is found (in any order). */
+const all = (...patterns) => ({ test: text => patterns.every(one => one.test(text)) })
 const DRAWN = {
   refine: /placeWaitOf\(state, 'refine'/,
   go: /placeWaitOf\(state\.waitPart, 'go'/,
+  plan: all(/placeWaitIds\(state, 'plan'\)/, /placeWaitOf\(state, 'plan', \{ command: 'plan-start' \}\)/),
+  recommend: /placeWaitOf\(state, 'recommend', \{ about: rec\.id \}\)/,
+  free: all(/const freeWaitOf = /, /freeWordLine\(state, 'talk-send'\)/, /freeWordLine\(state, 'main-send'\)/, /freeWaitOf\(board, 'nudge'/, /freeWaitOf\(state, 'ask-pictures'/),
   'goal-ask': /placeWaitOf\(board, 'goal-ask'/,
   worker: /placeWaitIds\(state, 'worker'/,
   talk: /function threadWaitView[\s\S]*function focusTalkLine|placeWaitOf\(state, 'talk', \{ command: 'recheck' \}\)/,
@@ -128,6 +132,7 @@ function commandsOf(text) {
     }
     for (const match of line.matchAll(/clickCall\('[^']+', \{ (?:command|action): '([a-z][a-z -]*)'/g)) found.add(match[1])
     if (/'vibe-not-yet' : 'how-not-yet'/.test(line)) found.add('vibe-not-yet').add('how-not-yet')
+    if (/'plan-feature-add' : 'plan-goals-change'/.test(line)) found.add('plan-feature-add').add('plan-goals-change')
     if (/'brainstorm-understood' : 'brainstorm-not-quite'/.test(line)) found.add('brainstorm-understood').add('brainstorm-not-quite')
   }
   // The restart banner's own command is a variable (`command: button.dataset.restart`): named by its click.
@@ -135,7 +140,7 @@ function commandsOf(text) {
   return found
 }
 /** The labels of the words typed with no command and no ask: `send({ to: …, text … }, <label>)`. */
-function noCommandLabelsOf(text) {
+function noCommandLabelsOf(text, vias = new Map()) {
   const labels = []
   for (const start of text.matchAll(/\bsend\(\{ to: /g)) {
     // The object is read by its braces, so a spread such as `...(picture === null ? {} : { picture })` does not end it early.
@@ -148,8 +153,11 @@ function noCommandLabelsOf(text) {
       at += 1
     }
     const body = text.slice(bodyFrom, at - 1)
-    const label = /^, ([^,)]+)/.exec(text.slice(at))
-    if (label !== null && !/\bcommand:|\bask:/.test(body) && /\btext\b/.test(body)) labels.push(label[1].trim())
+    const label = /^, ([^,)]+)(?:, ([^,)]+))?/.exec(text.slice(at))
+    if (label !== null && !/\bcommand:|\bask:/.test(body) && /\btext\b/.test(body)) {
+      labels.push(label[1].trim())
+      vias.set(label[1].trim(), (label[2] ?? '').trim().replace(/^'|'$/g, ''))
+    }
   }
   return labels
 }
@@ -163,16 +171,23 @@ function problemsOf(text) {
     const words = SERVER_WORDS[command] ?? []
     if (words.length === 0) { problems.push(`${command}: no line (not tracked, not drawn) and not in the allow-list`); continue }
     for (const word of words) {
-      const sample = { id: 'w', to: 'Advisor', command: word, about: 'G6', at: 1, state: 'waiting' }
+      const sample = { id: 'w', to: 'Advisor', command: word, about: 'G6', answer: 'no', at: 1, state: 'waiting' }
       if (!isPersonWord(sample)) { problems.push(`${command}: its word "${word}" is not tracked by the wait line (src/waitLine.mjs isPersonWord)`); continue }
       const place = placeOfWord(sample)
       if (place === null) { problems.push(`${command}: its word "${word}" has no place`); continue }
       if (place === 'focus' ? !lineCommands.includes(`'${word}'`) : !(DRAWN[place] ?? /^$/).test(text) && !['answer', 'recap', 'obsolete', 'sweep', 'overturn'].includes(place)) problems.push(`${command}: no card draws the line of its word "${word}" (place ${place})`)
     }
   }
-  for (const label of noCommandLabelsOf(text)) {
+  const vias = new Map()
+  for (const label of noCommandLabelsOf(text, vias)) {
     const known = NO_COMMAND_LABELS[label]
-    if (known === undefined || !Object.hasOwn(NO_COMMAND, known)) problems.push(`send(… ${label}): a word with no command has no line and is not in the no-command list`)
+    if (known === undefined || !Object.hasOwn(NO_COMMAND, known)) { problems.push(`send(… ${label}): a word with no command has no line and is not in the no-command list`); continue }
+    // The click's `via` is the kind the server keeps on the word; its place is 'free', drawn where the button was.
+    const kind = FREE_OF_VIA[vias.get(label)]
+    if (vias.get(label) !== known || kind === undefined) { problems.push(`send(… ${label}): its click has no kind of free word (the server's FREE_OF_VIA)`); continue }
+    const sample = { id: 'w', to: 'Advisor', free: kind, at: 1, state: 'waiting' }
+    if (!isPersonWord(sample) || placeOfWord(sample) !== 'free') problems.push(`send(… ${label}): its free word "${kind}" is not tracked by the wait line`)
+    else if (!DRAWN.free.test(text)) problems.push(`send(… ${label}): no card draws the line of its free word "${kind}"`)
   }
   return problems
 }
@@ -182,6 +197,10 @@ test('every command and word the page can send has a line, or sits in the allow-
   for (const [command, why] of Object.entries({ ...ALLOW, ...NO_COMMAND })) assert.match(why, /\S+ \S+ \S+/, `${command}: the allow-list names why`)
   // A command in the allow-list is not also a tracked word (one place for each); `start` (the thread's, tracked) is not masked by the lane's.
   assert.deepEqual(Object.keys(ALLOW).filter(command => (SERVER_WORDS[command] ?? []).length > 0), [])
+  // P4c: the NOT YET list is empty, and every Vision word the server takes is sent by the page.
+  assert.deepEqual(Object.entries({ ...ALLOW, ...NO_COMMAND }).filter(([, why]) => /NOT YET/.test(why)), [])
+  for (const command of PLAN_MOVES) assert.ok(commandsOf(script).has(command), `${command}: a Vision word of src/planMoves.mjs the page never sends`)
+  assert.deepEqual(Object.values(FREE_OF_VIA).sort(), [...FREE_KINDS].sort(), 'every kind of free word has its click')
   assert.ok(commandsOf(script).has('start') && commandsOf(script).has('send:start'), 'the thread start and the lane start are two keys')
   assert.ok(commandsOf(script).has('refine-send'), 'the one-click action routes are read')
   assert.deepEqual(SERVER_WORDS.start, ['brainstorm', 'brainstorm'], 'the thread start and the change-goal start type the brainstorm word')
@@ -205,6 +224,14 @@ test('the gate bites: a new command or a new word with no command, added to the 
   assert.deepEqual(problemsOf(`${script}\nawait send({ to: main, text, ...(picture === null ? {} : { picture }) }, 'spread-label', 'x')`), ["send(… 'spread-label'): a word with no command has no line and is not in the no-command list"])
   assert.deepEqual(noCommandLabelsOf(script).sort(), ["'main-talk'", '`nudge:${id}`', 'key', 'null'].sort(), 'the four real ones, the two with spreads among them')
   assert.deepEqual(problemsOf(`${script}\nawait send({ to: main, text: 'hello' }, 'brand-new-label')`), ["send(… 'brand-new-label'): a word with no command has no line and is not in the no-command list"])
+  // P4c: a NOT YET entry put back fails; a Vision word nothing draws, or a free word with no kind, fails and names itself.
+  assert.deepEqual(problemsOf(`${script}\nawait toPartner({ command: 'plan-brand-new' }, '')`), ['plan-brand-new: no line (not tracked, not drawn) and not in the allow-list'])
+  const noKind = script.replace("'main-talk', 'main-talk-send')", "'main-talk', 'unknown-via')")
+  assert.notEqual(noKind, script)
+  assert.deepEqual(problemsOf(noKind), ["send(… 'main-talk'): its click has no kind of free word (the server's FREE_OF_VIA)"])
+  const noPlanLine = script.replace("placeWaitOf(state, 'plan', { command: 'plan-start' })", 'x')
+  assert.notEqual(noPlanLine, script)
+  assert.ok(problemsOf(noPlanLine).some(one => /no card draws the line of its word "plan-/.test(one)), problemsOf(noPlanLine).join(' | '))
   const undrawn = script.replace(/const FOCUS_LINE_COMMANDS = \{[^}]*\}/, one => one.replaceAll("'done-when'", "'gone'"))
   assert.notEqual(undrawn, script)
   assert.ok(problemsOf(undrawn).some(one => /^done-when: no card draws the line/.test(one)), problemsOf(undrawn).join(' | '))

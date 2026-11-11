@@ -60,7 +60,7 @@ import { rowWordsOf, rowWordsText } from './rowWords.mjs'
 import { groupOfStep } from '../goalGuard.mjs'
 import { HOLD_MINUTES, HOLD_ROUTE, heldAsksDue, heldFrom, holdHistory, holdLine, isHeld, notRecheckedLine, saysStillStands, stillStandsLine, wasReleased } from './askHold.mjs'
 import { offMsOf } from './handoverBoard.mjs'
-import { HOLDABLE, WITH_WORKER, heldBy, rethinkLine, rethinkWords, withHold, withoutHoldOf } from './rethink.mjs'
+import { HOLDABLE, WITH_WORKER, heldBy, rethinkHolds, rethinkLine, rethinkWords, withHold, withoutHoldOf } from './rethink.mjs'
 import { topicOf } from './rethinkTopic.mjs'
 import { YOUR_WORDS, answeredBefore, askPoint, isPersonsWords, isPopupAsk, withYourWords, yourWordsLine, yourWordsOf } from './yourWords.mjs'
 
@@ -86,9 +86,10 @@ const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 're
 const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'notes-came-down', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'popup-asks', 'autopilot', 'recap-answered', 'holds-ended'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
-  block: ['main', 'worker', 'person'],
+  // refine-stop-tone: the partner, a hold in words on a step nobody holds yet (and its clear), nothing else (blockOn).
+  block: ['main', 'worker', 'advisor', 'person'],
   // B465: the board's sync check unblocks a step whose blocker is in review.
-  unblock: ['main', 'worker', 'person', 'server'],
+  unblock: ['main', 'worker', 'advisor', 'person', 'server'],
   // Signals change 6 (B915, Addendum 7): the Supervisor files the fix step of an incident it judged a fault (no `what`: the
   // Advisor refines it as any new step).
   new: ['main', 'worker', 'advisor', 'person', 'supervisor'],
@@ -3515,6 +3516,9 @@ async function blockOn(body, w, isBlock) {
   // holder waits on (`Waits on`, waitsOn.mjs); an unblock with no `on` clears a standing chat wait first (the holder's, the main
   // chat's or the person's), before B306's Waits for.
   if (/^b\d+$/i.test(on)) on = on.toUpperCase()
+  // refine-stop-tone (chat 1, 2026-11-11): a worded hold on a step nobody holds yet, by Main, the partner or the person.
+  if (isBlock && on !== '' && !STEP_ID.test(on) && isUnheld(found.item)) return holdInWords(found, on, w, body)
+  if (w.role === 'advisor' && (isBlock || on !== '')) return refuse(403, `${valueOf(found.item, 'Id')}: the partner records only a hold in words on a step nobody holds yet (new, refined or queued with no owner), and clears it with work unblock ${valueOf(found.item, 'Id')}.`)
   if (!isBlock && on === '' && waitsOnOf(found.item) !== null) return waitOn(found, '', w, false, body)
   if (!isBlock && on === '') return clearWaits(found, w)
   if (on !== '' && !STEP_ID.test(on)) return waitOn(found, on, w, isBlock, body)
@@ -3604,13 +3608,56 @@ function clearedAtTake(item, w) {
   return cleared
 }
 
-/** B306: the main chat or the person clears a step's `Waits for`: it no longer holds the step; the History says what it was. */
+/** The states of a step nobody holds yet, where a hold in words may stand (with no owner). */
+const UNHELD_STATES = ['new', 'refined', 'queued']
+const isUnheld = item => UNHELD_STATES.includes(stateOf(item)) && [null, '-', ''].includes(valueOf(item, 'Owner'))
+
+/**
+ * refine-stop-tone (chat 1, 2026-11-11: no chat could write B1030's deliberate hold, so its card stayed red "stopped · Send again"):
+ * `work block id=<step> on="<words>"` on a step nobody holds yet (new, refined or queued with no owner) writes `Waits for: <words>`,
+ * by the main chat, the partner or the person; never a worker (P1's `Waits on` for a holder's own step stays its own). The hand-out
+ * holds the step on it (guards.mjs `waitWords`), its status reads "held: waits for <words>". The words name no id (an id is a
+ * Blocked by: on=B12) and are never a rethink hold's: the person's Stop and rethink keeps its own words beside them ("; ").
+ */
+async function holdInWords(found, on, w, body) {
+  const id = valueOf(found.item, 'Id')
+  if (!['main', 'advisor', 'person'].includes(w.role)) return refuse(403, `${id}: only the main chat, the partner or the person records a hold in words on a step nobody holds yet.`)
+  const words = line(on, 200)
+  if (/\b[BQ]\d+\b/.test(words)) return refuse(400, `${id}: a hold in words names no step or ask id; for a step it waits on, work block ${id} on=B12.`)
+  if (rethinkHolds(words).length > 0) return refuse(400, `${id}: those are the words of a rethink hold; only the person's Stop and rethink writes one.`)
+  const before = valueOf(found.item, 'Waits for')
+  const kept = rethinkHolds(before)
+  if (wordHoldOf(before) === words) return { ok: true, result: { id, text: `${id} waits for ${words} already: the hold stands; work unblock ${id} clears it.`, changed: false } }
+  const why = line(body.why, 200)
+  const value = [words, ...kept].join('; ')
+  const item = ordered(said(put(copy(found.item), 'Waits for', value), w, `held: waits for ${words}${why === '' ? '' : ` (${why})`}`))
+  const done = await save(item, found.text, w)
+  return done.ok ? changed(item, `${id} is held: waits for ${words}. The board hands it to nobody until work unblock ${id} clears it.`) : done
+}
+
+/** The words of a `Waits for` that are not a rethink hold (the hold in words, or B306's older words), or null. */
+const wordHoldOf = value => {
+  const rest = String(value ?? '').replace(new RegExp(rethinkHolds(value).map(one => one.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') || '(?!)', 'g'), '')
+    .replace(/\s*;\s*(?:;\s*)*/g, '; ').replace(/^[;\s]+|[;\s]+$/g, '').trim()
+  return rest === '' ? null : rest
+}
+
+/**
+ * B306: the main chat, the partner or the person clears a step's `Waits for`: it no longer holds the step; the History says what it
+ * was. refine-stop-tone: a rethink hold is the person's: the main chat's and the partner's clear lifts only the words beside it, and
+ * is refused when the rethink is all there is.
+ */
 async function clearWaits(found, w) {
   const id = valueOf(found.item, 'Id')
-  if (!['main', 'person'].includes(w.role)) return refuse(403, `Only the main chat or the person clears what ${id} waits for.`)
+  if (!['main', 'advisor', 'person'].includes(w.role)) return refuse(403, `Only the main chat, the partner or the person clears what ${id} waits for.`)
   const words = valueOf(found.item, 'Waits for')
   if (words === null) return { ok: true, result: { id, text: `${id} waits for nothing: nothing to clear.`, changed: false } }
-  const item = said(put(copy(found.item), 'Waits for', null), w, `no longer waits for: ${words}`)
+  const rethink = rethinkHolds(words)
+  const isPerson = w.role === 'person'
+  if (!isPerson && rethink.length > 0 && wordHoldOf(words) === null) return refuse(409, `${id} waits for ${rethink.join('; ')}: the person's Stop and rethink holds it, and only its end or the person lifts it.`)
+  const gone = isPerson ? words : wordHoldOf(words)
+  const left = isPerson || rethink.length === 0 ? null : rethink.join('; ')
+  const item = said(put(copy(found.item), 'Waits for', left), w, `no longer waits for: ${gone}`)
   const done = await save(ordered(item), found.text, w)
   return done.ok ? changed(ordered(item)) : done
 }

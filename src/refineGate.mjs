@@ -132,7 +132,9 @@ function needsRefine(step, outbox, now, again = Infinity) {
 export function refineQueue(state, outbox, kept, now) {
   // B985 (X139): a fix whose goal has the person's pick on a rebuild open waits for it, as the evaluate word does (B791):
   // no refine word, the gate stays free for the next step (state.rebuildHolds, goalGuard.mjs `rebuildHoldsOf`).
-  const steps = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => typeof step.id === 'string' && (state.rebuildHolds?.[step.id]?.ask ?? null) === null)
+  // refine-stop-tone (chat 1, 2026-11-11): a new step with a hold in words (its `Waits for`: its status `where` held) gets no board
+  // round until the hold is cleared, or the hold is only half true.
+  const steps = (state.backlog ?? []).flatMap(activity => activity.steps ?? []).filter(step => typeof step.id === 'string' && (state.rebuildHolds?.[step.id]?.ask ?? null) === null && step.stepStatus?.where !== 'held')
   if ((state.advisor?.name ?? null) === null) return []
   const isOpen = step => step.status === 'open' || step.status === 'queued'
   const order = [

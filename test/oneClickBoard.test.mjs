@@ -182,6 +182,14 @@ test('one call stores the answer and queues one word; the same click id queues n
   assert.equal(saidAgain.id, said.id)
   assert.equal((await lines('outbox.jsonl')).filter(one => String(one.text ?? '').includes('hello partner')).length, 1, 'one word for one click id')
   assert.equal((await lines('actions.jsonl')).filter(one => one.click === 'click-real-0006').length, 1)
+  // P4c: the word keeps the kind of free message it is (`free`), so its line is drawn where its button was; a nudge also keeps what it is about.
+  assert.equal((await lines('outbox.jsonl')).find(one => String(one.text ?? '').includes('hello partner')).free, 'talk-send')
+  const nudge = await (await post('/api/say', { to: 'Advisor', text: 'are you stuck?', via: 'nudge', freeAbout: 'Q7', click: 'click-real-0007' })).json()
+  const nudged = (await lines('outbox.jsonl')).find(one => one.id === nudge.id)
+  assert.deepEqual([nudged.free, nudged.freeAbout], ['nudge', 'Q7'])
+  // A word with no click via has no kind: no line is invented for it.
+  const plain = await (await post('/api/say', { to: 'Advisor', text: 'a plain word without a click' })).json()
+  assert.equal((await lines('outbox.jsonl')).find(one => one.id === plain.id).free, undefined)
   const other = await post('/api/say', { ...say, text: 'something else' })
   assert.equal(other.status, 409)
   assert.match(await other.text(), /different input under this click/)

@@ -71,10 +71,11 @@ test('a quiet worker gets Check now; a quiet main chat and a question of the app
 test('the cards draw their ways: the hint\'s buttons, Check now, and the nudge goes to the chat as the person\'s line', () => {
   assert.match(script, /if \(need\.kind === 'unfiled' \|\| need\.kind === 'idle' \|\| need\.kind === 'wait late'\) return \[\.\.\.parts, \.\.\.wayButtons\(need, inWindow\)\]/)
   assert.match(script, /const check = String\(need\.id\)\.startsWith\('quiet:'\) \? wayButtons\(need\) : \[\]/)
-  assert.match(script, /await send\(\{ to: way\.to, text: way\.text \}, `nudge:\$\{id\}`\)/)
+  assert.match(script, /await send\(\{ to: way\.to, text: way\.text, freeAbout: id \}, `nudge:\$\{id\}`, 'nudge'\)/)
   assert.match(script, /send\(\{ to: board\.workers\.main, command: 'sync', chat: check\.dataset\.cardSync \}, `sync:\$\{check\.dataset\.cardSync\}`\)/)
-  // Once it went, the button says when, and is not pressed twice.
-  assert.match(script, /at === null \? way\.label : `Asked at \$\{clock\(at\)\}`/)
+  // P4c: once it went, the button is off while the server's line of that nudge stands; no page memory of "Asked at".
+  assert.match(script, /button\.disabled = sending\.has\(key\) \|\| isActive/)
+  assert.doesNotMatch(script, /nudged\.(get|set)|Asked at \$\{clock\(at\)\}/)
 })
 
 test('a hint\'s window shows the card\'s own words and buttons, not the main chat\'s empty "It waits for you"', () => {

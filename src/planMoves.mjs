@@ -70,7 +70,7 @@ export function planMove(body, ctx) {
   if (command === 'plan-tradeoff' && !['prepare', 'wait'].includes(words)) return refuse(400, 'Choose prepare or wait.')
   return {
     ok: true, result: { id: id === '' ? null : id }, decision: PLAN_DECISIONS.includes(command) ? decisionOf(command, id, words) : null,
-    words: planWords(command, { to: ctx.partner.name, id, words, job: ctx.job, written: ctx.written === true && PLAN_DECISIONS.includes(command) }),
+    words: planWords(command, { to: ctx.partner.name, id, words, job: ctx.job, written: ctx.written === true && PLAN_DECISIONS.includes(command), start: command === 'plan-start' && typeof body.kind === 'string' ? { kind: oneLine(body.kind, 40), words: oneLine(body.ownWords, 1000) } : null }),
   }
 }
 

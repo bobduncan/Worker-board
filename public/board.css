@@ -507,11 +507,6 @@ a.focus-chip.is-verdict:hover { background: #2a2414; }
 .vision-working { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border: 1px solid var(--advisor); border-radius: 10px; background: #0f2a2a; font-size: 14px; }
 .vision-working-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .vision-working-line .grow { flex: 1; }
-.vision-working-line.is-late, .vision-working-line.is-failed { color: var(--waiting); }
-.vision-working-mark { display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center; border-radius: 50%; background: var(--waiting); color: #1a1205; font-size: 11px; font-weight: 700; }
-.vision-spinner { display: inline-block; flex: none; width: 13px; height: 13px; margin-right: 6px; border: 2px solid var(--advisor); border-right-color: transparent; border-radius: 50%; vertical-align: -2px; }
-@media (prefers-reduced-motion: no-preference) { .vision-spinner { animation: vision-turn 0.9s linear infinite; } }
-@keyframes vision-turn { to { transform: rotate(360deg); } }
 .vision-button.is-busy:disabled { opacity: 1; border-color: var(--advisor); color: var(--advisor); cursor: progress; }
 /* Vision, the steps (2026-10-19): Vision → Features → Goals, and the interview over all of them. */
 .vision-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -528,11 +523,7 @@ a.focus-chip.is-verdict:hover { background: #2a2414; }
 .vision-start .vision-buttons .is-primary { display: inline-flex; align-items: center; justify-content: center; gap: 14px; min-height: 52px; padding: 12px 24px; border-radius: 12px; font-size: 18px; background: #2c62c6; }
 .vision-start-arrow { font-size: 25px; line-height: 1; }
 .vision-start-wait { align-items: flex-start; }
-.vision-start-wait-head { display: flex; align-items: center; gap: 14px; }
 .vision-start-wait h2 { font-size: 22px; }
-.vision-start-wait .vision-spinner.is-big { width: 26px; height: 26px; margin: 0; border-width: 3px; }
-.vision-start-wait .vision-working-mark { width: 26px; height: 26px; font-size: 15px; }
-.vision-start-wait-at { margin: 0; font-size: 13px; }
 @media (max-width: 900px) { .vision-start-kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 480px) { .vision-start { padding: 16px; } .vision-start-kinds { gap: 10px; } .vision-start-kinds .vision-mode { min-height: 185px; padding: 16px 8px; } .vision-kind-picture { font-size: 64px; height: 80px; } .vision-kind-example { font-size: 13px; } }
 .vision-arrow { color: var(--muted); }
@@ -1786,6 +1777,10 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .advisor-refine-again { margin-left: 8px; font: inherit; font-size: 13px; padding: 2px 10px; border-radius: 6px; border: 1px solid #8a3a3a; background: var(--inset); color: #f2a6a6; cursor: pointer; }
 .advisor-refine-again:hover:not(:disabled) { background: #3a2020; }
 .advisor-refine-again:disabled { opacity: 0.6; cursor: default; }
+/* refine-stop-tone: a stop whose next move is not the person's (a hold, or the Advisor or Main picks it up): plain information. */
+.advisor-refine-state.is-quiet { border-color: var(--line); color: var(--muted); }
+.advisor-refine-again.is-quiet { border-color: var(--line); color: var(--muted); }
+.advisor-refine-again.is-quiet:hover:not(:disabled) { background: var(--inset); color: #c9d3e0; }
 .advisor-refine-problem { margin-left: 8px; font-size: 12px; color: #f2a6a6; }
 /* B298: the person's words filed as instructions, per chat: missed ones red, closed ones grey. */
 .instructions { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }

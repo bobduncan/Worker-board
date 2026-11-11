@@ -110,7 +110,7 @@ import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
-import { AGAIN_BY, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
+import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
@@ -1796,6 +1796,8 @@ async function main(args) {
   const sayLine = value => String(value ?? '').replace(/\s+/g, ' ').trim()
   /** What input a click id was for: the body without the id (the same id with another input is refused). */
   const bodyHash = body => createHash('sha1').update(JSON.stringify({ ...body, click: undefined })).digest('hex')
+  /** The kind of free message each page click makes (src/waitLine.mjs `FREE_KINDS`). */
+  const FREE_OF_VIA = { 'talk-send': 'talk-send', 'main-talk-send': 'main-send', nudge: 'nudge', 'ask-pictures': 'ask-pictures' }
   const NOT_A_CLICK = { ok: false, status: 400, why: 'A click id is 8 to 64 letters, digits, - or _.' }
   /** One action of a click; the state is read anew after it, so the cards draw its record (the "not sent" line, its Retry). */
   const clickNow = async args => {
@@ -3116,8 +3118,9 @@ async function main(args) {
           const before = await clicks.get(click)
           if (before !== null && typeof before.hash === 'string' && before.hash !== bodyHash(body)) return CLASH
           if (before !== null && typeof before.word === 'string') return { ok: true, message: { id: before.word, again: true, ...(before.paste === undefined ? {} : { paste: before.paste }) } }
-          const via = ['talk-send', 'main-talk-send', 'recheck'].includes(body.via) ? body.via : 'say'
-          const done = await sayNow({ ...body, click: undefined, via: undefined })
+          const via = ['talk-send', 'main-talk-send', 'recheck', 'nudge', 'ask-pictures', 'recommend'].includes(body.via) ? body.via : 'say'
+          // Reactive board, brief P4c: a free message of the person (no command) keeps its kind on its word, so its line is drawn where its button was.
+          const done = await sayNow({ ...body, click: undefined, via: undefined, free: FREE_OF_VIA[body.via], freeAbout: typeof body.freeAbout === 'string' ? body.freeAbout.slice(0, 120) : undefined })
           if (done.ok && typeof done.message?.id === 'string') {
             await clicks.put({ click, via, key: null, route: null, hash: bodyHash(body), at: clock(), word: done.message.id, ...(done.message.paste === undefined ? {} : { paste: done.message.paste }) })
             if (logClick !== null) await logClick({ via, action: 'say', id: null, click })
@@ -3170,7 +3173,8 @@ async function main(args) {
       const isRound = message => message.to === checked.message.to && (message.command === 'round' || message.command === 'recheck') && (message.state === 'waiting' || message.state === 'taken')
       if (checked.message.command === 'recheck' && store.outbox().some(isRound)) return { ok: false, status: 409, why: 'A round runs: wait until the Advisor has finished it.' }
       const words = checked.message.command === 'recheck' ? { text: recheckText({ board: HERE, config }) } : {}
-      let message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, ...words, state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
+      const isFree = (checked.message.command ?? null) === null && (checked.message.ask ?? null) === null && FREE_KINDS.includes(body.free)
+      let message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, ...words, ...(isFree ? { free: body.free, ...(typeof body.freeAbout === 'string' && body.freeAbout !== '' ? { freeAbout: body.freeAbout } : {}) } : {}), state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
       // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
       const ticked = await settle(message, state)
       if (ticked !== null) {

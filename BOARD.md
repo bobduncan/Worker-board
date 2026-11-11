@@ -209,6 +209,8 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
 - **The side, "Talk to Main"** (`02-talk-to-main.png`): the person's talk with the main chat: what they typed (also
   in the chat itself) and its answers with times, the main chat's "For you" block and closing block drawn as such;
   lines on their way marked so. A box with **Send to Main**; Ctrl+V adds a picture, shown small until it is sent.
+  Under the box, the one line of the newest message sent from it (Sent, Picked up, Done by the chat's turn, Late), from the
+  records only; the same under the Advisor's Send, beside a hint's nudge button and under "Ask for pictures" on an ask.
 
 ## The windows
 
@@ -409,6 +411,8 @@ of this page), **Suggestions** (the Advisor's open suggestions with their Why, C
 come), **Refine** (the steps by where their refine stands) and **Chat** (a chat with the Advisor, as "Talk to Main").
 
 ## Vision (2026-10-19)
+
+**Where a word to the partner stands (P4c, 2026-11-11).** Every Vision button that sends a word (Start, Go deeper, Get options, Change, Propose standards, Measure, Check the plan, Propose the next focus, Lay the plan, a feature, the preset, the goals into the goal map, the tradeoffs, the strategy, and the follow-up word of a decision) has the one line of the other places where its button was: the tab's list, the card, the open slide, the start card. Sent, Picked up, Done when the partner wrote the plan page after it was PICKED UP (the turn on that word began: a word waiting in a busy partner's queue is not answered by the page the partner writes for the word before; the board's own write of a decision never counts; with no record of the pick-up (the word's `pickedUpAt`, or a turn report that names the word) the line says quietly "plan written HH:MM; not confirmed for this word", also when its turn ended: never the amber Late, and its button is free), Late (also a line that ended after a day, which frees the button as in Focus), all from the records; nothing the page guesses (no "is preparing", no 30-minute "no answer"), and no record, no line. A button waits while its line is Sent or Picked up. A Late or ended line offers Send again with the words the person typed (kept on the word, so an emptied box does not matter, also after a reload; Start again refills from the start word's kept own words, apart from the kind, and picks the kind again). A word about the whole plan names itself in the list ("On the plan check", from the plan module's own label table); the open slide's plan-ask line is not repeated in the list. The way card's "No, because..." has its line under "You said no" until the Advisor's new recommendation card replaces that block: that card is the result the person sees.
 
 The product plan (`productPlan`, the game's `docs/product-plan.md`, written by the partner, except the person's own decisions: the board writes those into it at once): the answers every goal and
 step falls back to. Five steps, broad to narrow, **1 · Vision → 2 · Features → 3 · Standards → 4 · Plan → 5 · Focus**
