@@ -34,7 +34,8 @@ export const HEAD_KEYS = {
   // Focus 3: `Of` names the goal of the partner's daily note (dailyNote.mjs). Focus 4: `Via: report` marks the board's
   // note of a report; `Main read` when the main chat read it with work next (the person's read is its State). B360:
   // `Recap` marks a recap of finished work (recap.mjs: open, approved, seen, overturned or feedback), `Evidence` its picture.
-  note: ['Id', 'Kind', 'From', 'To', 'Of', 'Via', 'State', 'Since', 'Main read', 'Recap', 'Evidence', 'Text'],
+  // P5 (2026-11-09): `Incidents` the X<n> a Supervisor's note is about (X1, X2): the board marks it read once they are all over (stillTrue.mjs).
+  note: ['Id', 'Kind', 'From', 'To', 'Of', 'Via', 'Incidents', 'State', 'Since', 'Main read', 'Recap', 'Evidence', 'Text'],
   // The supervisor (spec 2026-10-24): an incident, `X<n>`, what the board's watch rules or its sweep found. `Source` the
   // rule's id or "sweep", `Subject` the chat or step it is about, `Key` the finding's key (the same key counts the same
   // incident), `First seen`, `Last seen` and `Count` how long and how often it was seen, `Fix` the step that fixes it,

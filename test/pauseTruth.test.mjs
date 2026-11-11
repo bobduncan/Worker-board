@@ -18,6 +18,7 @@ import { workApi } from '../src/work/api.mjs'
 import { gapsOf, lastByChat, parseHistory, today } from '../src/history.mjs'
 import { fileStore, tick } from '../src/store.mjs'
 import { incidentCards } from '../src/supervisor/cards.mjs'
+import { stepStatusesOf } from '../src/stepStatus.mjs'
 import { createSupervisor } from '../src/supervisor/index.mjs'
 import { chatsWithoutProcess, pauseFacts } from '../src/work/pause.mjs'
 import { replacedChats } from '../src/replacedChats.mjs'
@@ -304,9 +305,11 @@ const chipsOf = cards => Object.fromEntries(cards.map(card => [card.step, card.s
 test('item 6: while the pause holds, B1042 and B1051 wait for Resume all, not for the Advisor', () => {
   const state = { incidents: [incidentOf('X152'), incidentOf('X153')], items: realItems() }
   assert.deepEqual(chipsOf(incidentCards({ ...state, isPaused: true })), { B1042: 'new · waits for Resume all', B1051: 'new · waits for Resume all' })
-  // Not paused: the Advisor, as before.
-  assert.deepEqual(chipsOf(incidentCards({ ...state, isPaused: false })), { B1042: 'new · waits for the Advisor', B1051: 'new · waits for the Advisor' })
-  assert.deepEqual(chipsOf(incidentCards(state)), { B1042: 'new · waits for the Advisor', B1051: 'new · waits for the Advisor' })
+  // Not paused: the step's one status (P7, src/stepStatus.mjs): the Advisor only while a word to it is open in the outbox.
+  assert.deepEqual(chipsOf(incidentCards({ ...state, isPaused: false })), { B1042: 'new', B1051: 'new' })
+  const word = { id: 'w1', to: 'Advisor', command: 'refine', about: 'B1042', state: 'waiting', at: NOW - MIN }
+  const statuses = stepStatusesOf(state.items, { outbox: [word], now: NOW })
+  assert.deepEqual(chipsOf(incidentCards({ ...state, statuses })), { B1042: 'new · waits for the Advisor', B1051: 'new · waits for its refine: nothing sent to the Advisor yet' })
 })
 
 test('item 6: the supervisor view passes the pause on, from the real X152 / X153 / B1042 / B1051 records', () => {
@@ -337,8 +340,8 @@ Evidence: the chain
   }
   const view = pause => createSupervisor(ports).view(NOW, { items, lanes: [], pause })
   assert.deepEqual(chipsOf(view({ state: 'pausing', since: PAUSED_AT }).cards), { B1042: 'new · waits for Resume all', B1051: 'new · waits for Resume all' })
-  assert.deepEqual(chipsOf(view({ state: 'resuming', since: PAUSED_AT }).cards), { B1042: 'new · waits for the Advisor', B1051: 'new · waits for the Advisor' })
-  assert.deepEqual(chipsOf(view(null).cards), { B1042: 'new · waits for the Advisor', B1051: 'new · waits for the Advisor' })
+  assert.deepEqual(chipsOf(view({ state: 'resuming', since: PAUSED_AT }).cards), { B1042: 'new', B1051: 'new' })
+  assert.deepEqual(chipsOf(view(null).cards), { B1042: 'new', B1051: 'new' })
 })
 
 // ---- Item 7: the pause's notes about steps in review (18 of the real 20 notes said "resumes from its branch and History").

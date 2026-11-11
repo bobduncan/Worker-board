@@ -323,7 +323,11 @@ test('review (3, 4b): the notice holds for the whole spell, need or not; "nobody
   pass(record, at(10, 35))
   // The take-back ended its need: the chat is a target without a need, its spell's tries stand.
   const target = { chat: 'Worker 2', spell: W2_SPELL, paths: ['launch'], need: false }
+  // P5 (review 2026-11-11): `need: false` says only that the wake list does not name the chat: the line stays the attention line, and is quiet
+  // only for a chat the caller says nothing waits for (`nothingWaits`, wake.mjs `nothingWaitsFor`).
+  assert.deepEqual(noticeOf(record, [target], at(10, 41), timeOf, { senderClaims: false, nothingWaits: new Set(['Worker 2']) }), { tone: 'quiet', text: 'could not wake Worker 2 at 10:35; nothing waits for it now' })
   assert.match(noticeOf(record, [target], at(10, 41), timeOf, { senderClaims: false }).text, /^could not wake Worker 2: the app did not start it \(launched 10:32\); open its chat$/)
+  assert.match(noticeOf(record, [{ ...target, need: true }], at(10, 41), timeOf, { senderClaims: true }).text, /^could not wake Worker 2: the app did not start it \(launched 10:32\); open its chat$/)
   // Every need waits for a chat that can send (no sender, no launch): the board-wide line.
   const waiting = noticeOf(emptyWakes(), [{ chat: 'Worker 3', spell: 1, paths: ['message'], need: true }], at(10, 41), timeOf, { senderClaims: false })
   assert.equal(waiting.text, 'nobody answers the board\'s wake-ups: open any chat')

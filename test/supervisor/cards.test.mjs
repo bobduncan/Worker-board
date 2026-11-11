@@ -82,8 +82,11 @@ test('an incident that came back, or is open again, is not under the Fix that di
 
 test('each state word comes from the step\'s record and its worker\'s lane', () => {
   const of = (state, more, lanes = [], list = []) => plain(stepState(step('B9', state, more), { lanes, steps: items(...list) }))
-  assert.deepEqual(of('new'), { text: 'new · waits for the Advisor', tone: 'wait' })
-  assert.deepEqual(of('refined'), { text: 'refined · on the list', tone: 'wait' })
+  // P7: a new or refined step says only its state, unless the state's one status of it is given (src/stepStatus.mjs): never a guess.
+  assert.deepEqual(of('new'), { text: 'new', tone: 'wait' })
+  assert.deepEqual(of('refined'), { text: 'refined', tone: 'wait' })
+  assert.deepEqual(plain(stepState(step('B9', 'new'), { status: { words: 'waits for the Advisor' } })), { text: 'new · waits for the Advisor', tone: 'wait' })
+  assert.deepEqual(plain(stepState(step('B9', 'refined'), { status: { words: 'held: blocked by B1 (in progress)' } })), { text: 'refined · held: blocked by B1 (in progress)', tone: 'wait' })
   assert.deepEqual(of('queued', { Owner: 'Worker 2' }), { text: 'queued for Worker 2', tone: 'wait' })
   assert.deepEqual(of('queued'), { text: 'queued', tone: 'wait' })
   // Only what is still open is waited for.
@@ -184,10 +187,10 @@ test('the day the layout was drawn on: nine incidents become five fix cards and 
   // Only X4 is named by its title: until the Advisor links the others, X5 and X6 have no fix step.
   assert.deepEqual(shown(cards).map(card => [card.key, card.state.text, card.incidents.map(one => one.id)]), [
     ['B532', 'Worker 5 · building', ['X1', 'X2', 'X3']],
-    ['B541', 'refined · on the list', ['X4']],
-    ['B542', 'refined · on the list', ['X7']],
-    ['B543', 'refined · on the list', ['X8']],
-    ['B544', 'refined · on the list', ['X9']],
+    ['B541', 'refined', ['X4']],
+    ['B542', 'refined', ['X7']],
+    ['B543', 'refined', ['X8']],
+    ['B544', 'refined', ['X9']],
     ['nofix', 'sending to the Supervisor…', ['X5', 'X6', 'X10']],
   ])
   // The Advisor links them: X4-X6 together, and the card without a fix step has only the new one.

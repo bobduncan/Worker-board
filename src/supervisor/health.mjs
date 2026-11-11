@@ -14,7 +14,7 @@ import { openQaTaskOf, qaStandOf } from '../work/qaTask.mjs'
 import { reviewWaitOf } from '../work/resultCheck.mjs'
 import { ACTIVE, heldReason, openAskIds, workingOnOther } from '../work/parked.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
-import { chatWaitWords, isChatWait } from '../work/waitsOn.mjs'
+import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from '../work/waitsOn.mjs'
 import { envelopesOf, lastClearWhyOf } from '../work/handover.mjs'
 import { boardOffMs, checkpointLate, familyOf, reviewLateOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
 
@@ -175,6 +175,8 @@ function onPurposeOf(lane, held, view) {
     if (lane.suspended?.by !== 'parked') return null
     // P1 (2026-11-09): a recorded wait on a chat (`Waits on`): "waits for chat 1 (its go to land) since 11:24".
     if (isChatWait(lane.suspended)) return chatWaitWords(lane.suspended)
+    // The lead's ruling of 2026-11-11: a wait for the person's recap (B1094 and Q715): "waits for your recap of G60 (Q715)".
+    if (isRecapWait(lane.suspended)) return recapSuspensionWords(lane.suspended)
     const on = Array.isArray(lane.suspended.on) ? lane.suspended.on.filter(id => typeof id === 'string') : []
     return on.length === 0 ? 'parked' : `waits for ${on.join(' and ')}`
   }

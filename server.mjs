@@ -117,6 +117,7 @@ import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { readAccountFolders } from './src/appChats.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
+import { stillTruePass } from './src/stillTrue.mjs'
 import { HANDOVER_COMMAND, envelopesOf, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
 import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
@@ -130,7 +131,7 @@ import { readAutopilotClearedFile, readObsoleteFile, readStore } from './src/wor
 import { obsoleteView, openItemsOf } from './src/work/obsolete.mjs'
 import { evidenceLanes, obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
 import { giveBackHeld, stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
-import { dismissCopied, fileStore, isLate, memoryStore, outboxNow, tick } from './src/store.mjs'
+import { dismissCopied, fileStore, isLate, memoryStore, outboxKnown, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { activePages, blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
 import { findGameFile } from './src/gameFile.mjs'
@@ -2291,6 +2292,9 @@ async function main(args) {
   // Signals change 7 (B914, 2026-11-02): the board's own memory of when each worker's plan words changed (state.mjs
   // `planLineOf`), in memory as the asleep map was kept: a restart forgets it, which only makes the words look new.
   let planSeen = {}
+  // P7, the review: the none-ready episode (state.mjs `noWorkSeen`), in memory as planSeen: a restart starts it from the
+  // longest-free worker's since again.
+  let noWorkSeen = null
   const readState = cached(() => trackJob('state rebuild', async () => {
     if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
@@ -2305,6 +2309,10 @@ async function main(args) {
     const state = buildState(raw, {
       lines: readLines(raw),
       outbox: outboxNow(store.outbox(), clock(), keep),
+      // P7 (the review): every word, also long ago, timed as outboxNow times them, for the one status per step (src/stepStatus.mjs),
+      // and the refine gate's kept first look, for the refines in its line (src/refineGate.mjs `refineQueue`).
+      words: outboxKnown(store.outbox(), clock(), keep),
+      refineKept,
       runs: games.list(),
       board: { startedAt, offSince },
       // B714: when the board last looked, so a read before the tick that follows a wake already counts the sleep as off time.
@@ -2327,10 +2335,12 @@ async function main(args) {
       providers,
       // Signals change 7 (B914): when each worker's own plan words last changed, as the last read saw them (memory only).
       planSeen,
+      noWorkSeen,
       now: clock(),
       config: { ...config, project },
     })
     planSeen = state.planSeen ?? {}
+    noWorkSeen = state.noWorkSeen ?? null
     // Only the board that runs the loops writes; a copy beside it reads what that one kept.
     if (READINGS_FILE !== null && !isShowOnly && JSON.stringify(state.limitReadings) !== JSON.stringify(keptReadings)) {
       await writeAtomic(READINGS_FILE, JSON.stringify(state.limitReadings)).catch(error => loops.failed('limit-readings', error))
@@ -2828,6 +2838,8 @@ async function main(args) {
         flow: stored?.ok === true ? stored.flow : null,
         // Pause truth item 6: while the pause holds, a new step waits for Resume all, not for the Advisor.
         pause: state.pause ?? null,
+        // P7: every step's one status (state.mjs `stepStatus`), which a card of a new or refined fix step says.
+        statuses: state.stepStatus ?? null,
       })
       // 2026-10-28: the Advisor's "Next for it" ends with the steps the board will ask it to refine next (only the board holds the refine gate).
       const refineGateNow = Array.isArray(state.advisor?.next) ? firstLook(refineKept, state) : null
@@ -4028,6 +4040,8 @@ async function main(args) {
   if (!isDemo && historyFrom === undefined && workWriters !== null) {
     /** The review of Pause 2: the main chats the board typed "resume" into by itself, per resume (its since). */
     const retyped = new Set()
+    /** P5 (src/stillTrue.mjs): what the re-check of the person's lists found on the passes before (its hysteresis), for this board process. */
+    const stillTrueMemory = new Map()
     // Redesign Part 2 (2026-10-25): one pass at a time; a call while one runs (the refresh, a chat's idle report) makes
     // one more after it (work/again.mjs), so no idle report is lost and two passes never run side by side (principle 5).
     const reconcilePass = async () => {
@@ -4115,6 +4129,25 @@ async function main(args) {
           })
         }
         loops.succeeded('reconcile')
+        // P5 (2026-11-09): every item on the person's lists re-checks itself with a test the board already has (an ask whose step ended, a wake line
+        // of a chat that ran since, a Supervisor's alarm whose incidents are over); what is not true comes down with a record of why. On its own,
+        // so a failure stops no delivery.
+        await loops.run('still-true', async () => {
+          // Never while the board closes (a test's teardown removes its folder under the pass: EBUSY on rmdir).
+          if (isClosing || workDir === null) return
+          // What the board already read: the kept work read (`work()`, a deep copy only when its kept read ran out) and the state last built.
+          const stored = await work()
+          if (stored?.ok !== true || stored.exists !== true) return
+          const came = await stillTruePass({
+            facts: { state: readState.last() ?? await readState(), items: stored.items, outbox: store.outbox(), wakes: wakeFacts(), reports: reports ?? new Map(), now: clock() },
+            memory: stillTrueMemory, apply: body => workAction(body, 'server'), log: line => console.error(line), history: lines => store.record(lines),
+          })
+          // Only what was written in the store changes the page's reading: a wake line's record is a history line alone.
+          if (came.some(one => one.kind !== 'wake')) {
+            work.reset?.()
+            readState.reset()
+          }
+        })
         // B528: an evaluation that has not ended is asked of the partner again; on its own, so a failure stops no delivery.
         await loops.run('evaluate-again', () => evaluateAgainNow(state))
         // Stop and rethink: the holds of a rethink whose evaluation ended are freed.

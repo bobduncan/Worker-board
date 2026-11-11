@@ -593,8 +593,8 @@ test('the demo shows the section: every rule of the supervisor, three tripped to
   ])
   // Five fix cards (the step being built first, as it moved last) and the new one still on its way to the Supervisor (signals change 6).
   assert.deepEqual(view.cards.map(card => [card.key, card.state.text, card.incidents.map(one => one.id).join(' ')]), [
-    ['B532', 'Worker 5 \u00b7 building', 'X1 X2 X3'], ['B541', 'refined \u00b7 on the list', 'X4 X5 X6'], ['B542', 'refined \u00b7 on the list', 'X7'],
-    ['B543', 'refined \u00b7 on the list', 'X8'], ['B544', 'refined \u00b7 on the list', 'X9'], ['nofix', 'sending to the Supervisor\u2026', 'X10'],
+    ['B532', 'Worker 5 \u00b7 building', 'X1 X2 X3'], ['B541', 'refined', 'X4 X5 X6'], ['B542', 'refined', 'X7'],
+    ['B543', 'refined', 'X8'], ['B544', 'refined', 'X9'], ['nofix', 'sending to the Supervisor\u2026', 'X10'],
   ])
   assert.equal(view.checkedAt, NOW - 2 * MIN)
   assert.equal(page.isSupervisorShown(view), true)
@@ -610,15 +610,18 @@ test('the demo shows the section: every rule of the supervisor, three tripped to
       'X3 \u00b7 1 word to Worker 5 not delivered, the oldest for 4640 min \u00b7 seen 18\u00d7, last 10:39',
       'X2 \u00b7 11 words to Main not delivered, the oldest for 7568 min \u00b7 seen 18\u00d7, last 10:39',
       'X1 \u00b7 21 words to Advisor not delivered, the oldest for 12980 min \u00b7 seen 18\u00d7, last 10:39',
+      // P5: where the open fix stands, as its chain to the open end.
+      'waits for its fix B532, in progress since 10-24',
     ]],
     ['#details=B541', [
       'X6 \u00b7 Worker 5 runs the Workers mod older than 0.16.0; 0.16.0 is installed \u00b7 seen 5\u00d7, last 10:39',
       'X5 \u00b7 Worker 2 runs the Workers mod older than 0.16.0; 0.16.0 is installed \u00b7 seen 2\u00d7, last 09:31',
       'X4 \u00b7 Worker 1 runs the Workers mod older than 0.16.0; 0.16.0 is installed \u00b7 seen 1\u00d7, last 09:28',
+      'waits for its fix B541, not taken since 10-24',
     ]],
-    ['#details=B542', ['X7 \u00b7 Queued steps wait 2 h 48 min on steps that sit in review\u2026']],
-    ['#details=B543', ['X8 \u00b7 Steps pile up in review for hours']],
-    ['#details=B544', ['X9 \u00b7 Effort shows "[object Object]" on a step in review']],
+    ['#details=B542', ['X7 \u00b7 Queued steps wait 2 h 48 min on steps that sit in review\u2026', 'waits for its fix B542, not taken since 10-24']],
+    ['#details=B543', ['X8 \u00b7 Steps pile up in review for hours', 'waits for its fix B543, not taken since 10-24']],
+    ['#details=B544', ['X9 \u00b7 Effort shows "[object Object]" on a step in review', 'waits for its fix B544, not taken since 10-24']],
     [null, ['X10 \u00b7 Steps in progress still show "waits for" another step']],
   ])
   assert.equal(drawn.cards.at(-1).title, 'Open, no fix task yet (1)')

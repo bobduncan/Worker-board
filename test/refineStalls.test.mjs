@@ -145,7 +145,7 @@ test('the Advisor\'s card says the refine stopped and offers Send again, which t
   const stopped = step('B35', { refineState: 'stopped', refineStop: { rounds: 3, at: NOW } })
   assert.deepEqual(plain(page.advisorRefine(backlog([stopped]))), { step: 'B35', text: 'Refine of B35 stopped after 3 rounds without new answers', tone: 'stopped', canSend: true })
   // A round in hand comes first; a stop before answers that wait (those the board folds in by itself).
-  assert.equal(page.advisorRefine(backlog([stopped, step('B31', { refineAsk: { isOpen: true, round: 2, state: 'delivered' } })])).step, 'B31')
+  assert.equal(page.advisorRefine(backlog([stopped, step('B31', { stepStatus: { kind: 'refine', toAdvisor: true, inHand: true, refining: 'Refining B31, round 2' } })])).step, 'B31')
   assert.equal(page.advisorRefine(backlog([step('B30', { refineState: 'answered' }), stopped])).step, 'B35')
   // Its button, on the card, and what a click sends: the Refine button's message.
   const start = script.indexOf('function drawAdvisorLane(')

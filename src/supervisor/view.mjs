@@ -52,6 +52,9 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     handedBack: Object.freeze([...(state.reconciled?.handedBack ?? [])]),
     // B564: the focus goal's id (state.mjs focusState), or null.
     focus: typeof state.focus?.id === 'string' ? state.focus.id : null,
+    // P7, the review: the state's signal "the focus goal has work, none can be handed out" (state.mjs `noWork`, src/stepStatus.mjs
+    // `noneReadyOf`), the one the Overview draws: the rule none-ready tells Main and the partner the same words, never its own.
+    noWork: state.noWork !== null && typeof state.noWork === 'object' ? state.noWork : null,
     // Redesign Part 2: the board's ready list (the rule ready-while-free).
     ready: Object.freeze([...(state.readyList?.ready ?? [])].map(one => Object.freeze({ ...one }))),
     // Gap 3: what the list holds back, `{ id, why }` (outside the focus goal, a blocker, an ask, a standard), or null

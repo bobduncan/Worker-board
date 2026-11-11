@@ -101,7 +101,8 @@ test('the blocks in order, In progress above the Queue; each task in the block o
   assert.deepEqual(ids, { progress: ['B1', 'B2', 'B3'], queue: ['B10', 'B11', 'B12', 'B13'], refined: ['B16', 'B15', 'B14'], new: ['B20'] })
   const [progress, queue, refined, fresh] = blocks
   // In progress: with its worker and its state; green only while worked on, the person's colour only when it waits on them.
-  assert.deepEqual(progress.rows.map(row => [row.who, row.state, row.tone]), [['Worker 1', 'In progress', 'progress'], ['Worker 3', 'Waiting on you', 'you'], ['built by Worker 1', 'In review', 'review']])
+  // P7, the review: its state is the step's one status (src/stepStatus.mjs), words and tone.
+  assert.deepEqual(progress.rows.map(row => [row.who, row.state, row.tone]), [['Worker 1', 'Worker 1 is on it', 'progress'], ['Worker 3', 'Waits on you', 'you'], ['built by Worker 1', 'In review', 'review']])
   // Queue: numbered as a free worker takes them: the fix, the focus goal's, the person's addition, then the pin.
   assert.deepEqual(queue.rows.map(row => [row.n, row.isFix, row.isFocus, row.isAdded, row.who, row.canRemove]), [
     [1, true, false, false, 'any free worker', false],
@@ -116,7 +117,8 @@ test('the blocks in order, In progress above the Queue; each task in the block o
     ['B15', false, 'blocked by B1 (in progress)', false, false],
     ['B14', true, '', false, false],
   ])
-  assert.deepEqual(fresh.rows.map(row => [row.step.id, row.wait]), [['B20', 'waits for its refine']])
+  // P7: the server's one status of the step (no word to the Advisor in the outbox): never "being refined" by guess.
+  assert.deepEqual(fresh.rows.map(row => [row.step.id, row.wait]), [['B20', 'waits for its refine: nothing sent to the Advisor yet']])
   // Every row carries its goal.
   assert.deepEqual(blocks.flatMap(block => block.rows.map(row => row.goal)), ['G33', 'G9', null, 'G9', 'G33', 'G9', 'G9', 'G9', 'G9', 'G9', 'G9'])
   // Finished only with "Show finished", in its own block at the end.
@@ -143,7 +145,7 @@ test('the Queue keeps each task\'s place when the search narrows it; the waits o
     ['B35', 'waits for your answer', '', false],
     ['B32', 'its refine stopped', 'for Worker 3 only', true],
     ['B31', 'waits for your answer', '', false],
-    ['B30', 'being refined', '', false],
+    ['B30', 'refine asked', '', false],
   ])
   assert.deepEqual(blocks[0].rows.map(row => [row.step.id, row.state, row.who]), [['B33', 'In progress', 'Worker 1'], ['B34', 'Given', 'Worker 3']])
   assert.deepEqual([blocks[1].rows, blocks[2].rows], [[], []])

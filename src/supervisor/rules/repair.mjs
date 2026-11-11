@@ -31,6 +31,7 @@ import { UNCHECKED_MS, gitCheckPassed, needsResultCheck, resultCheckAtMs, result
 import { asksOfStep } from '../../work/stepAsks.mjs'
 import { heldReason } from '../../work/parked.mjs'
 import { goOnLine, goneWords } from '../../work/holderTimers.mjs'
+import { advisorStillWaitText, advisorWaitText } from '../../stepStatus.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -487,7 +488,7 @@ function askedAgain(view, { rule, id, since, wake, person }) {
   if (made < ASKS_AGAIN) {
     const key = `${base} ${n} ${stamp(from)}`
     if (words.some(message => message.syncKey === key || message.state === 'waiting')) return []
-    const text = `${id} waits for the Advisor for ${minutes(now - from)} min: asked again (${made + 1} of ${ASKS_AGAIN})`
+    const text = advisorWaitText(id, `for ${minutes(now - from)} min: asked again (${made + 1} of ${ASKS_AGAIN})`)
     return [finding(rule, key, id, text, { do: 'wake', chat: partner.name, id, text: wake(made + 1) })]
   }
   // The third ask has its period too, whenever it went.
@@ -496,7 +497,7 @@ function askedAgain(view, { rule, id, since, wake, person }) {
   const isTold = [...items.values()].some(item => valueOf(item, 'Kind') === 'note' && valueOf(item, 'Via') === 'supervisor'
     && (item.sections?.get('About') ?? [])[0]?.trim() === id && String(valueOf(item, 'Text') ?? '').startsWith(person.starts) && sinceMs(valueOf(item, 'Since')) >= first)
   if (isTold) return []
-  const text = `${id} still waits for the Advisor after ${ASKS_AGAIN} asks: told to you`
+  const text = advisorStillWaitText(id, `after ${ASKS_AGAIN} asks: told to you`)
   return [finding(rule, `${base} person ${stamp(since)}`, id, text, { do: 'person', id, text: person.lines })]
 }
 
@@ -745,6 +746,37 @@ function faultsGoneSkips(view) {
  * whose key names a pair (the step and what it waited on), so repair-repeats counts it by that key; without it a repair
  * counts by its rule and subject.
  */
+/**
+ * P7 (one status per step, chat 1's plan 2026-11-09): the focus goal has unstarted steps, the hand-out's ready list is empty and
+ * a worker has been free for 10 of the board's running minutes: the state's own signal (`view.noWork`, state.mjs `noWork`,
+ * src/stepStatus.mjs `noneReadyOf`, the one the Overview draws), never worked out here. One note to the main chat per cause
+ * ("focus goal G60 has work, none can be handed out: B1096 held (<the hand-out's why>)"), and at most ONE word to the partner per
+ * signal, listing the causes; never to the person. The review: the causes someone has are left out by the signal itself (a word
+ * to the Advisor in flight, a refine waiting for answers, stopped or in the gate's line, a rebuild hold, a blocker at work); a key
+ * is the step, its kind and a stable class (src/stepStatus.mjs `causeClassOf`: the blocker ids, not their state; not the refine's
+ * stage) with the stamp of the free spell (`freeSince`), so a move of the blocker is no new note, and the same hold next week is.
+ * Nothing while a limit is full (the hand-out gives nothing then: as closed-worker) or the person pauses.
+ */
+function noneReady(view) {
+  const signal = view.noWork ?? null
+  const { isHeld, isFull } = factsOf(view)
+  if (signal === null || isHeld || isFull || !Array.isArray(signal.causes) || signal.causes.length === 0) return []
+  // The review: the episode's stamp (the signal's `episodeSince`, kept by the state while the signal stands), not free[0]'s since.
+  const episode = stamp(Number.isFinite(signal.episodeSince) ? signal.episodeSince : signal.freeSince)
+  const free = `(${signal.worker} free for ${signal.minutes} min)`
+  const notes = signal.causes.map(cause => {
+    const text = `focus goal ${signal.goal} has work, none can be handed out: ${cause.words} ${free}`
+    return finding('none-ready', `none-ready ${signal.goal} ${cause.key} ${episode} main`, cause.id, text, { do: 'send', text: `${text}: see ${cause.id} (${cause.link})` })
+  })
+  const partner = view.partner?.name ?? null
+  const partnerKey = `none-ready ${signal.goal} partner ${episode}`
+  if (partner === null || (view.outbox ?? []).some(message => message.syncKey === partnerKey)) return notes
+  const first = signal.causes[0]
+  const list = signal.causes.map(cause => cause.words).join('; ')
+  const words = `focus goal ${signal.goal} has work, none can be handed out ${free}: ${list}. Settle what holds them with the main chat (a standard's foundation, the user's pick); the board's refine gate sends every refine itself.`
+  return [...notes, finding('none-ready', partnerKey, first.id, `${signal.text} ${free}`, { do: 'wake', chat: partner, id: first.id, text: words })]
+}
+
 export const REPAIR_RULES = [
   { id: 'blocked', kind: 'repair', says: 'a step blocked by one done, dropped or in review, or by one the store does not hold', check: blocked, countsBy: 'key' },
   { id: 'owner-gone', kind: 'repair', says: 'a step held by, or pinned to, a chat no longer in the list', check: ownerGone },
@@ -761,6 +793,7 @@ export const REPAIR_RULES = [
   { id: 'base-equal', kind: 'repair', says: 'a step in review whose check failed only on its base branch against the remote\'s, now equal', check: baseEqual },
   { id: 'merged-now', kind: 'repair', says: 'a step in review whose check failed only on work not merged, its branch now merged or gone', check: mergedNow },
   { id: 'faults-gone', kind: 'repair', says: 'a step in review whose check failed only on a branch or worktree left, now gone, or a branch on origin now merged', check: faultsGone, skips: faultsGoneSkips },
+  { id: 'none-ready', kind: 'repair', says: 'the focus goal has work, none can be handed out, and a worker is free for 10 running minutes: told to the main chat once per cause and to the partner once per free spell', check: noneReady, countsBy: 'key' },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
 ]
 

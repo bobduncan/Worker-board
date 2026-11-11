@@ -44,10 +44,13 @@ import { recapWaitOf } from './work/autopilot.mjs'
 import { NOTE_LINE, isDecidedForYou, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
 import { advisorNextOf, advisorWorkOf, leaveOut } from './work/advisorWork.mjs'
 import { openQaTaskOf, qaStandOf } from './work/qaTask.mjs'
-import { holdsRefine, isBlockWritten } from './work/refineWait.mjs'
+import { holdsRefine } from './work/refineWait.mjs'
+// P7 (the review): the refine gate's own ask, read by the one status per step too (src/stepStatus.mjs).
+import { refineAsk, removalAsk } from './work/askOpen.mjs'
+export { refineAsk } from './work/askOpen.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { afterPause, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
-import { lateWaitOf, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
+import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { EFFORTS, effortPlan, runSettings } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
@@ -55,15 +58,16 @@ import { isJudging } from './work/judgeWord.mjs'
 import { OWNER_LABEL, OWNER_SETTING, talkPartnerOf } from './talkPartner.mjs'
 import { enforcementReadiness } from './work/routing/capabilities.mjs'
 import { routingHolds } from './work/routing/assignments.mjs'
-import { refineStop } from './refineGate.mjs'
+import { firstLook, refineQueue, refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { withLinks } from './work/links.mjs'
 import { clearOwed, clearedStageOf, modAtLeast } from './clearOwed.mjs'
-import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, pathsOf, spellOf, failedAtOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
+import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, nothingWaitsFor, owedChatsOf, pathsOf, spellOf, failedAtOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, recapWaitingOf, standingAsksOf } from './recapCard.mjs'
 import { recapRoundOf, reworkOf } from './recapRound.mjs'
+import { blockChipWords, keptRecapWaitOf, noneReadyOf, refineGroupOf, stepStatusOf, stepStatusesOf } from './stepStatus.mjs'
 import { guardOf, rebuildHoldsOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
@@ -110,11 +114,7 @@ const APP_SESSION_ID = /^local_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 const FIVE_HOURS = 5 * HOUR
 /** B124: an ask for workers that arrived stays open this long while the workers have not all come. */
 const SPAWN_OPEN_MS = 15 * MIN
-/** B143: an ask to remove a worker that arrived stays open this long while the worker is still in the list. */
-const REMOVE_OPEN_MS = 15 * MIN
 /** B181: an ask to queue a step that arrived stays open this long while the step still names no worker. */
-/** B233: an ask to refine a step that arrived stays open this long while the step lacks that round. */
-const REFINE_OPEN_MS = 30 * MIN
 /** B152: a removed worker's lane stays this long after its card said it left, saying so. */
 const REMOVED_SHOW_MS = 2 * MIN
 
@@ -715,8 +715,10 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   const isStopped = reported !== null ? reported.state === 'interrupted' : wasCutOff
   // P1 of the one wait system (2026-11-09, the B1081 case): a stopped chat whose step records a wait on a chat (`Waits on`,
   // work/waitsOn.mjs) is parked on purpose too (the same shape, kind 'chat'): no "go on" line, no give-back, no stall.
+  // The lead's ruling of 2026-11-11 (B1094 and Q715): a stopped chat whose held steps all wait for the goal's recap (builtState's
+  // `recapWait`) is parked the same way, kind 'recap': never Working, never Stopped.
   const parked = paused === null && isStopped && step?.blockedBy?.length > 0 ? { by: 'parked', on: step.blockedBy, limit: null, since: null, named: null }
-    : paused === null && isStopped ? waitSuspension(step?.waitsOn ?? null) : null
+    : paused === null && isStopped ? waitSuspension(step?.waitsOn ?? null) ?? recapSuspension(reported?.recapWait ?? null) : null
   // Suspended is the board's own fact, whatever the chat reports.
   const state = paused !== null || parked !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // Redesign Part 1: what the chat says of its question to the person, or what its transcript shows.
@@ -965,35 +967,6 @@ function spawnAsk(message, workerChats, now) {
   const isOnItsWay = message.state === 'waiting' || message.state === 'taken'
   const isOpen = isOnItsWay || (message.state === 'delivered' && arrived < count && now - (message.deliveredAt ?? message.at) < SPAWN_OPEN_MS)
   return { at: message.at, count, why: message.why === 'button' ? 'button' : 'alone', state: message.state, arrived, isOpen }
-}
-
-/**
- * B143: the newest ask to remove a worker and how it fares. It is open while it is on its way, and after it arrived
- * for 15 minutes at most while the worker is still in the list: a worker that is gone has no lane to show it.
- */
-function removalAsk(message, now, openMs = REMOVE_OPEN_MS) {
-  if (message === undefined) return null
-  const isOnItsWay = message.state === 'waiting' || message.state === 'taken'
-  const isOpen = isOnItsWay || (message.state === 'delivered' && now - (message.deliveredAt ?? message.at) < openMs)
-  return { at: message.at, state: message.state, isOpen }
-}
-
-/**
- * B233: the newest ask to the Advisor to refine a step, open while it is on its way and after it arrived until the
- * step's refine block shows the round it asked for, for half an hour at most (`openMs`). T9.4: the Advisor's waiting list
- * passes Infinity for it: a refine it took and has not written stays in its list (refineWait.mjs `isBlockWritten`).
- */
-export function refineAsk(step, sent, now, openMs = REFINE_OPEN_MS) {
-  if (step.id === null) return null
-  const message = sent.findLast(one => one.command === 'refine' && one.about === step.id)
-  const ask = removalAsk(message, now, openMs)
-  if (ask === null) return null
-  const round = Number.isInteger(message.round) ? message.round : 1
-  // B868 (X115): the gate that sends the next refine is held by an ask only while its step is still open for a refine (not
-  // done or dropped, not in progress), and by a word that did not arrive (waiting, taken) for `openMs` at most, as one that did.
-  const isStale = (message.state === 'waiting' || message.state === 'taken') && now - (message.state === 'taken' ? message.takenAt ?? message.at : message.at) >= openMs
-  const isStepOpen = step.status !== 'done' && step.status !== 'progress'
-  return { ...ask, round, isOpen: ask.isOpen && isStepOpen && !isStale && !isBlockWritten(step.refined, message) }
 }
 
 /**
@@ -1352,9 +1325,14 @@ function chainNote(wait, all) {
  * work (`chainWaitOf`: no link with a worker, being checked or queued for its check) reads "Fix waiting" and counts as
  * waiting, its fix line saying what the chain waits for. `all` is the store's items by id, `now` the clock.
  */
-function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, recaps = null, verdictAsks = { asked: new Map(), openChecks: new Set() }) {
+function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, recaps = null, verdictAsks = { asked: new Map(), openChecks: new Set() }, statusOf = null) {
   const id = item.head.get('Id')
   const state = item.head.get('State')
+  // P7, the review (this list read "Waiting", "Being checked", "Being built" of a step the hand-out held): a step no form of the
+  // review speaks for says its one status (src/stepStatus.mjs: "Held: <the hand-out's why>", "Waits for the Advisor", "Working");
+  // without one (a caller with no state) its state's plain word.
+  const told = typeof statusOf === 'function' ? statusOf(item) ?? null : null
+  const said = plain => (told === null ? plain : told.kind === 'working' ? told.label : `${told.words.charAt(0).toUpperCase()}${told.words.slice(1)}`)
   const checked = checkedOf(item)
   const outcome = checked !== null && checked.total > 0 && checked.passed < checked.total ? fixOutcomeOf(id, steps) : null
   // 2026-10-31 (B689): an open fix is followed to the last link of its chain, and what that one waits for is said.
@@ -1408,7 +1386,10 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
     tone,
     // B690: a step in review whose check failed and whose fix is open is being fixed, not checked; 2026-10-31 (B689): only
     // while its chain is at work, else its fix waits.
-    state: tone === 'done' ? 'Finished' : forAccept ? 'Waits for your Accept' : inMaking ? 'Waits for the next round' : forVerdict ? 'Waits for your verdict' : fixStopped ? 'Fix stopped' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? (fixWaits ? 'Fix waiting' : 'Being fixed') : 'Being checked') : tone === 'now' ? 'Being built' : 'Waiting',
+    state: tone === 'done' ? 'Finished' : forAccept ? 'Waits for your Accept' : inMaking ? 'Waits for the next round' : forVerdict ? 'Waits for your verdict' : fixStopped ? 'Fix stopped' : tone === 'stop' ? 'Stopped' : state === 'review' ? (fix?.isOpen === true ? (fixWaits ? 'Fix waiting' : 'Being fixed') : said('Being checked')) : tone === 'now' ? said('Being built') : said('Waiting'),
+    // What the part's line counts it as (B690): being checked, being built, or neither.
+    count: tone === 'done' || forAccept || inMaking || forVerdict || fixStopped || tone === 'stop' ? null : state === 'review' ? (fix?.isOpen === true ? (fixWaits ? null : 'fixing') : 'checking') : tone === 'now' ? 'building' : null,
+    status: told === null ? null : told.words,
     isFailed: checked !== null && checked.total > 0 && checked.passed < checked.total && fix?.isFixed !== true,
     owner: String(item.head.get('Owner') ?? '').replace(prefix, '').trim() || null,
     onIt: FINISHED.includes(state) ? null : workerOn(id, all, lanes, prefix),
@@ -1428,9 +1409,9 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
  */
 function partStepCounts(list) {
   const tone = name => list.filter(one => one.tone === name).length
-  const state = name => list.filter(one => one.state === name).length
+  const counted = name => list.filter(one => one.count === name).length
   return {
-    counts: { done: tone('done'), checking: state('Being checked'), fixing: state('Being fixed'), building: state('Being built'), stopped: tone('stop'), waiting: tone('wait'), total: list.length },
+    counts: { done: tone('done'), checking: counted('checking'), fixing: counted('fixing'), building: counted('building'), stopped: tone('stop'), waiting: tone('wait'), total: list.length },
     opensItself: list.some(one => one.tone === 'stop' || one.isFailed),
   }
 }
@@ -1537,12 +1518,15 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
   // Work blocks (2026-10-31): the round of the goal's work, and for each block whether it is open in it (Open now).
   const round = roundOf(node, goalRecaps)
   const openNow = []
+  // P7 (one status per step): each step's one status (`options.statusOf`, the state's `stepStatus`, src/stepStatus.mjs), for its
+  // part's chip, its words in the part's list and its rework words; null without one (a caller with no state).
+  const statusOf = typeof options.statusOf === 'function' ? options.statusOf : null
   const parts = node.parts.map((part, index) => {
     const known = part.steps.map(id => steps.get(id)).filter(one => one !== undefined)
     const done = known.filter(one => FINISHED.includes(one.head.get('State'))).length
     const busy = known.find(one => UNDER_WAY.includes(one.head.get('State')))
     // B684: the part's steps in its order, each with its colour, its words, its check and what it waits for.
-    const list = known.map(one => partStepOf(one, steps, prefix, all, lanes, now, recaps, verdictAsks))
+    const list = known.map(one => partStepOf(one, steps, prefix, all, lanes, now, recaps, verdictAsks, statusOf))
     // 2026-10-31 (B689, the badge: its part read In progress while nobody worked on it): a part is in progress only while
     // a step under way is at work (built, checked or its fix at work) or a worker's card shows it; one whose steps under
     // way only wait for another task is waiting, one whose fix stopped is stuck.
@@ -1553,8 +1537,14 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     // refined yet waits for its refine (`refining`).
     const held = known.filter(one => NOT_HANDED.includes(one.head.get('State')))
     const isWaiting = !atWork && !isQueued
-    const isReady = isWaiting && held.some(one => one.head.get('State') === 'refined')
-    const isRefining = isWaiting && !isReady && held.length > 0
+    // P7 (one status per step): a refined step is on the list only when the hand-out's own ready list has it (`options.statusOf`,
+    // src/stepStatus.mjs); one it holds (a standard without its foundation, a blocker) is held, with the hand-out's why.
+    const isReady = isWaiting && held.some(one => one.head.get('State') === 'refined' && (statusOf === null || statusOf(one)?.kind !== 'held'))
+    const isRefining = isWaiting && !isReady && held.some(one => one.head.get('State') === 'new' || statusOf === null)
+    const heldStatuses = statusOf === null ? [] : held.map(one => statusOf(one)).filter(one => one?.kind === 'held')
+    // P7, the review: a block that waits, is ready or is being refined says its steps' one status ("Held: B1096 · <why>", "On the
+    // list for a worker: B1096", "Refining: B1030 · <its status>"), never words of its own; without statuses only a wait's chip.
+    const chipOf = name => (name === 'waiting' ? blockChipWords(name, heldStatuses) : statusOf === null ? null : blockChipWords(name, held.map(one => statusOf(one))))
     // 2026-11-01: a block whose open step waits for the person's verdict in the goal's recap (and nothing else of it is at work, queued or
     // waiting to be given) is `verdict`, which the page words "Waits for your verdict"; "waiting" stays for work that waits for another task.
     const verdictStep = open.find(one => one.waitsForVerdict)
@@ -1564,7 +1554,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const isStopped = known.length > 0 && done === known.length && !reached
     const gone = (node.partsDropped ?? []).findLast(one => one.title === part.title)
     const state = gone !== undefined ? 'dropped' : isStopped ? 'stopped' : known.length > 0 && done === known.length ? 'done' : atWork ? 'now'
-      : isReady ? 'ready' : isRefining ? 'refining' : isQueued ? 'next' : verdictStep !== undefined ? 'verdict' : open.some(one => one.tone === 'wait') ? 'waiting' : open.length > 0 ? 'stuck' : 'next'
+      : isReady ? 'ready' : isRefining ? 'refining' : isQueued ? 'next' : verdictStep !== undefined ? 'verdict' : heldStatuses.length > 0 || open.some(one => one.tone === 'wait') ? 'waiting' : open.length > 0 ? 'stuck' : 'next'
     const fix = state === 'next' ? fixAhead(known, steps, prefix) : null
     // B354: what the part's results are checked against: its steps' standards, each once; a "none (why)" is left out.
     const standards = [...new Set(known.map(standardOf).filter(one => one !== null && !/^none\b/i.test(one)))]
@@ -1575,11 +1565,11 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const kind = round === null || state === 'dropped' ? null : openKindOf(known, round.ms, round.n === 1)
     // T20.1 (the person, 2026-11-04: "of the 5 open now, only 1 is done ... Waiting, nobody on it now"): a block that had work before the round
     // and has a step under way (its steps, or a fix in their chains) is being reworked: the newest such step and its worker.
-    const rework = kind !== 'rework' || ['done', 'dropped', 'stopped'].includes(state) ? null : reworkOf(part.steps, all, { openChecks: verdictAsks.openChecks, workerOf: id => workerOn(id, all, lanes, prefix), now })
+    const rework = kind !== 'rework' || ['done', 'dropped', 'stopped'].includes(state) ? null : reworkOf(part.steps, all, { openChecks: verdictAsks.openChecks, workerOf: id => workerOn(id, all, lanes, prefix), now, ...(statusOf === null ? {} : { statusOf }) })
     if (kind !== null) openNow.push({ index, title: part.title, kind, ...(rework === null ? {} : { rework }) })
     // Work blocks: the block's done-when line, only where it has one.
     const line = typeof part.doneWhen === 'string' && part.doneWhen.trim() !== '' ? { doneWhen: part.doneWhen.trim() } : {}
-    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...line, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }), ...(state === 'verdict' ? { verdictAt: verdictStep.verdictAt } : {}) }
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...line, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }), ...(state === 'verdict' ? { verdictAt: verdictStep.verdictAt } : {}), ...(chipOf(state) === null ? {} : { chip: chipOf(state) }) }
   })
   // B680: a Stopped part counts neither done nor open, a dropped one is out of the whole.
   const whole = parts.filter(part => part.state !== 'dropped')
@@ -1730,12 +1720,18 @@ export function buildState(raw, options) {
   return withLinks(raw?.work?.items, () => builtState(raw, options))
 }
 
-function builtState(raw, { lines = [], outbox = [], runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], finishedSeen = {}, taskTimes = [], stability = null, mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, now, config }) {
+function builtState(raw, { lines = [], outbox = [], words = null, refineKept = null, runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], finishedSeen = {}, taskTimes = [], stability = null, mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, noWorkSeen = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
   const sent = (Array.isArray(outbox) ? outbox : [])
     .map(message => (isPaused && message.state === 'waiting' && message.command !== 'resume' ? { ...message, isHeld: true } : message))
+  // P7, the review (the state read outboxNow's words, which drop a delivered refine after 2 h, the rule the raw outbox, where a word
+  // waiting too long stays waiting): the one status per step reads every word, also long ago, timed as outboxNow times them
+  // (store.mjs `outboxKnown`, the server's `words`), with the pause's `isHeld` as above; without them, the outbox it was given.
+  const stepWords = Array.isArray(words)
+    ? words.map(message => (isPaused && message.state === 'waiting' && message.command !== 'resume' ? { ...message, isHeld: true } : message))
+    : sent
   const started = Array.isArray(runs) ? runs : []
   const list = parseList(textOr(raw.listText, ''))
   // The start of the project's chat titles, for reading their words; '' while the list of chats is not right.
@@ -1885,11 +1881,22 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     const key = chat.name.toLowerCase()
     // The review of chat-reports: a blocking ask routed to the partner waits for the partner, never for the person (B392).
     const forPartner = waits.partner?.get(key) ?? []
+    // The person's "1 yes" of 2026-11-11 (the live B1094 and Q715): every step it holds has open asks that all wait for the goal's recap
+    // (Route recap): it waits for the recap on purpose, unless an ask of the person's or the partner's stands. Read only. The lead's
+    // ruling of 2026-11-11: never Working (the chat does nothing while it waits); a stopped such chat is parked (`card`, kind recap).
+    const recapWaits = forPartner.length > 0 || holds.length === 0 ? [] : holds.map(one => {
+      const step = raw.work.items.get(one.id)
+      return step === undefined ? null : keptRecapWaitOf(step, itemsOf(raw.work).filter(ask => ask.head.get('Kind') === 'ask' && ask.head.get('Of') === one.id))
+    })
+    const recapWait = recapWaits.length > 0 && recapWaits.every(one => one !== null) ? recapWaits[0] : null
+    // An ask routed to the recap holds its chat for nobody, blocking or not (the older shape filed it blocking): only another open blocking ask of the chat's own counts.
+    const hasOtherBlocking = chatKey => itemsOf(raw.work).some(ask => ask.head.get('Kind') === 'ask' && ask.head.get('State') === 'open' && ask.head.get('Blocking') === 'yes'
+      && String(ask.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === chatKey && !['recap', 'partner', 'asker'].includes(ask.head.get('Route')) && ask.head.get('Via') !== 'refine')
     const lane = laneFromReport(entry, {
       now: laneAt, unknownAfterMs, offAfterMs,
       holdsTask: holds.length > 0,
       // Rule 15: a step that waits on you only for asks held for the person's words waits for nobody (the hold asks nobody).
-      hasBlockingAsk: waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you' && !waitsOnHeldOnly(one.id))),
+      hasBlockingAsk: recapWait !== null ? hasOtherBlocking(key) : waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you' && !waitsOnHeldOnly(one.id))),
       waitsForPartner: forPartner.length > 0,
       // B148 kept: background work holds no chat whose step is reported (in review or done) while it holds no other.
       isTaskReported: holds.length === 0 && hasReportedStep(chat.name, entry.busyAt),
@@ -1899,7 +1906,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
       // T13 part 3: a chat whose session ended is asleep while the app still has it (a message wakes it by its app id).
       hasAppSession: typeof chat.appSessionId === 'string' && chat.appSessionId !== '',
     })
-    return [chat.name, lane === null ? null : { ...lane, entry }]
+    return [chat.name, lane === null ? null : { ...lane, entry, ...(recapWait !== null ? { recapWait } : {}) }]
   }))
   context.reportOf = chat => (chat.isLeftover ? null : reportedOf.get(chat.name) ?? null)
   // B425: the brief of the step a worker is on, built for that step only.
@@ -2064,7 +2071,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const knownIds = new Set(withId.map(one => one.id))
   function whyNot(step, lane) {
     for (const limit of ['fiveHour', 'week']) if (limits[limit]?.level === 'full') return { reason: 'limit', limit, until: limits[limit].resetsAt }
-    if (lane?.state === 'suspended') return { reason: 'suspended', worker: lane.name, until: lane.suspended.until, isBack: lane.suspended.isBack, by: lane.suspended.by, ...(lane.suspended.kind === 'chat' ? { kind: 'chat', on: lane.suspended.on, what: lane.suspended.what ?? null, since: lane.suspended.since } : {}) }
+    if (lane?.state === 'suspended') return { reason: 'suspended', worker: lane.name, until: lane.suspended.until, isBack: lane.suspended.isBack, by: lane.suspended.by, ...(['chat', 'recap'].includes(lane.suspended.kind) ? { kind: lane.suspended.kind, on: lane.suspended.on, what: lane.suspended.what ?? null, since: lane.suspended.since } : {}) }
     if (step.after !== null) {
       const ids = [...new Set(step.after.match(/\bB\d+\b/g) ?? [])]
       const open = ids.filter(id => openIds.has(id))
@@ -2475,8 +2482,13 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const workerOfStep = id => workerOn(id, itemsById, chats, prefix)
   // B878 (X116): where each step a goal's recap shows stands with the person (src/recaps.mjs), for what a step in review waits for.
   // T20.1: a part a step of which (or a fix in its chains) is under way is being reworked: it waits for no verdict (`rework`).
-  const recapWaits = recapWaitsOf(raw.recaps, (recap, part) => reworkOf(part.steps, itemsById, { openChecks: checksOpen, workerOf: workerOfStep, now }))
-  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits, raw.recaps ?? null, { autopilot: config.autopilot === true, partnerLane: advisorCard ?? null })
+  // P7 (one status per step): every step's one status, from the hand-out's ready list (its `ready` and its `held` with their whys),
+  // the review's and the Advisor's own functions and the outbox (src/stepStatus.mjs). Every view reads it; the page works out none.
+  const statusCtx = { items: itemsById, held: reconciled?.ready?.held ?? null, ready: reconciled?.ready?.ready ?? null, outbox: stepWords, now, workerOf: workerOfStep, openChecks: checksOpen, prefix }
+  const recapWaits = recapWaitsOf(raw.recaps, (recap, part) => reworkOf(part.steps, itemsById, { openChecks: checksOpen, workerOf: workerOfStep, now, statusOf: item => stepStatusOf(item, statusCtx) }))
+  const stepStatus = workOk ? stepStatusesOf(itemsById, { ...statusCtx, recaps: recapWaits }) : {}
+  const statusOfItem = item => stepStatus[item.head.get('Id')] ?? stepStatusOf(item, { ...statusCtx, recaps: recapWaits })
+  const focus = focusState(goalMap, itemsOf(raw.work), brainstorms.threads, prefix, advisorChat?.name ?? null, now, chats, recapWaits, raw.recaps ?? null, { autopilot: config.autopilot === true, partnerLane: advisorCard ?? null, statusOf: statusOfItem })
   // The chats on the board by name, for a store's owner (with or without the list's prefix).
   const chatNames = [...names, ...[advisorChat, helperChat, ownerChat].filter(one => one !== undefined).map(one => one.name)]
   // Autopilot (2026-10-31): each asking chat's role, as the work API names them, for where an ask goes (src/work/autopilot.mjs).
@@ -2573,7 +2585,7 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
   const recapMaking = focus === null ? null : recapMakingOf({ goal: focus.id, recap: raw.goalRecap ?? null, items: itemsById })
   // T20.1: the focus goal's recap round as ONE reading (src/recapRound.mjs): the rows the person can judge, the rows being reworked, the
   // kept looks (Autopilot on only): the popup, the cards, the Needs count and the work blocks' chips all take their numbers from it.
-  const recapRound = focus === null ? null : recapRoundOf({ goal: focus.id, goalRecap: raw.goalRecap ?? null, recaps: raw.recaps ?? [], items: itemsById, openChecks: checksOpen, workerOf: workerOfStep, now, routed: config.autopilot === true ? routedAway : [] })
+  const recapRound = focus === null ? null : recapRoundOf({ goal: focus.id, goalRecap: raw.goalRecap ?? null, recaps: raw.recaps ?? [], items: itemsById, openChecks: checksOpen, workerOf: workerOfStep, now, routed: config.autopilot === true ? routedAway : [], statusOf: statusOfItem })
   // The review of 2026-11-04: a block with a row ready to judge, or a kept look or do, of its steps waits for the person's verdict in the recap,
   // whatever its own state: `toJudge` how many, `recapAt` where its chip opens (the recap at the first ready row, else at the first look's row).
   for (const part of recapRound === null ? [] : focus.parts) {
@@ -2583,6 +2595,14 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     if (rows.length + looks.length === 0) continue
     part.toJudge = rows.length + looks.length
     part.recapAt = rows.length > 0 ? { path: recapRound.path, key: rows[0].key } : recapRound.path !== null ? { path: recapRound.path, key: looks[0].key } : { ask: looks[0].ask }
+  }
+  /** P7, the review: a backlog row's Refine part group (`refineGroup`) and its stop (`refineStopped`), from `stepWords` and its status. */
+  const viewRefine = (step, item) => {
+    if (step.id === null) return { refineGroup: refineStateOf({ refined: step.refined }), refineStopped: null }
+    const plain = refineStateOf({ refined: step.refined })
+    const where = refineStateOf({ refined: step.refined, refineAsk: refineAsk(step, stepWords, now) })
+    const stop = where === 'none' || where === 'answered' ? refineStop({ ...step, item }, stepWords) : null
+    return { refineGroup: refineGroupOf(stepStatus[step.id] ?? null, stop === null ? where : 'stopped', plain), refineStopped: stop }
   }
   const built = {
     readAt: now,
@@ -2705,6 +2725,10 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
           // B285, B286: where its refine stands; B312: `stopped` when the board stopped on it (`refineStop`).
           refineState: stop === null ? where : 'stopped',
           refineStop: stop,
+          // P7, the review: the Refine part's group and the Advisor card's stop read the same words as the one status (every word,
+          // timed as outboxNow times them: `stepWords`), and the status itself (src/stepStatus.mjs `refineGroupOf`): the live B1030
+          // said "refine stopped after 3 rounds" while `refineState` (outboxNow, the refine gate's own reading) said answered.
+          ...viewRefine(step, item),
           // B301: when the store moved it to done, or null.
           doneAt: step.id === null ? null : doneAtOf.get(step.id)?.at ?? null,
           // B296: where it stands in the flow (flow.json), for the strip in its window.
@@ -2716,6 +2740,8 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
           reviewStand: step.id === null ? null : checkStands.get(step.id) ?? null,
           // B299: the step as the store holds it, for its window.
           item,
+          // P7: its one status (src/stepStatus.mjs), which the backlog, the Goals rows, the Advisor card and its window show.
+          stepStatus: step.id === null ? null : stepStatus[step.id] ?? null,
         }
       }),
     })),
@@ -2914,11 +2940,32 @@ function builtState(raw, { lines = [], outbox = [], runs = [], board = null, see
     // Focus 1 (spec 2026-10-18): the focus goal for the Focus part, and the parts the tab's bar shows.
     // The review of Focus 3: the partner by the chat the board shows for it, the one the work API gives the role advisor.
     focus,
+    // P7: every step's one status by id (src/stepStatus.mjs `stepStatusOf`): the page draws these words and works out none.
+    stepStatus,
     advisorParts: config.advisorParts,
     // T9.3 part 1: whether each kind of asset's provider can work now, as the board last checked (src/providers); the
     // Design tab's part "Asset providers" draws it.
     providers: (Array.isArray(providers) ? providers : []).map(({ kind, provider, mode, ok, why }) => ({ kind, provider, mode, ok, why })),
   }
+  // P7: the focus goal has work and none can be handed out while a worker is free for 10 running minutes: the Overview's quiet line
+  // (the same words the Supervisor's rule none-ready sends Main and the partner; never the person's).
+  // The review: causes someone has are left out (`skip`): a fix a rebuild ask holds (the refine gate skips it, goalGuard.mjs) and a
+  // step in the refine gate's line (src/refineGate.mjs `refineQueue`, from its kept first look: it asks the Advisor in turn).
+  const skip = new Map()
+  if (workOk) {
+    for (const [id, hold] of Object.entries(built.rebuildHolds ?? {})) if ((hold?.ask ?? null) !== null) skip.set(id, `the person's pick on ${hold.ask} holds it (rebuild)`)
+    const look = firstLook(refineKept, built)
+    for (const one of look === null ? [] : refineQueue(built, stepWords, look, now)) if (!skip.has(one.step.id)) skip.set(one.step.id, `in the refine gate's line (${one.why})`)
+  }
+  built.noWork = !workOk ? null : noneReadyOf({
+    items: itemsById, focus: goalMap?.focus ?? null, goals: goalMap?.nodes ?? [], ready: reconciled?.ready?.ready ?? null, held: reconciled?.ready?.held ?? null,
+    lanes: built.chats ?? [], pause: pauseRecord, gaps, now, prefix, restFree: reconciled?.restFree ?? [], stuck: new Set(reconciled?.handedBack ?? []),
+    statuses: stepStatus, skip, seen: noWorkSeen,
+  })
+  // P7, the review: the none-ready episode, for the server to hand back at the next read (as planSeen): it begins when the signal
+  // does and holds while it stands, whichever worker is free longest; it ends only when the signal is gone (a read without the
+  // store keeps it as it was).
+  built.noWorkSeen = !workOk ? noWorkSeen : built.noWork === null ? null : { since: built.noWork.episodeSince, free: built.noWork.freeFrom }
   // The Product owner (2026-10-31): who the person talks with now, the owner or else the partner (src/talkPartner.mjs).
   return { ...withWakes(built, { wakes, sent, pauseRecord, items: workOk ? raw.work.items : null, prefix, now }), talkPartner: talkPartnerOf(built) }
 }
@@ -2977,7 +3024,8 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now }) {
   const nobody = nobodyRunsSpell(built, sent)
   return {
     ...built, chats, ...roles,
-    wakeNotice: noticeOf(record, targets, now, hourMinute, { senderClaims, nobody }),
+    // P5: the kept reports the lanes read (the same `lane.report` the hasRunSince above reads), so the notice itself leaves out a chat that ran since its failed wake.
+    wakeNotice: noticeOf(record, targets, now, hourMinute, { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }),
     wakes: newestSpells(record),
     // The review of 2026-11-02 (7): the board-wide spell now (nobody runs since), for the rule nobody-answers-wakes.
     wakeBoardSince: nobody?.since ?? null,

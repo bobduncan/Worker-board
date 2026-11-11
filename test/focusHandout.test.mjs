@@ -47,10 +47,12 @@ test('a part with a refined step and none given is on the list for a worker; not
 
 test('the run shows "On the list for a worker" in place of Next; the chip has its own look', () => {
   const view = focusView(run([step('B1', 'refined'), step('B2', 'done')]), { nodes: [] }, { canWrite: true })
-  assert.deepEqual([view.run.parts[0].chip, view.run.parts[0].tone], ['On the list for a worker', 'ready'])
+  // P7, the review: with the state's statuses the chip names the step ("On the list for a worker: B1", src/stepStatus.mjs); this
+  // focus has none, so the plain word of the state.
+  assert.deepEqual([view.run.parts[0].chip, view.run.parts[0].tone], ['Ready', 'ready'])
   assert.deepEqual([view.run.parts[1].chip, view.run.parts[1].tone], ['Next', 'next'])
   const refining = focusView(run([step('B3', 'new')]), { nodes: [] }, { canWrite: true })
-  assert.deepEqual([refining.run.parts[1].chip, refining.run.parts[1].tone], ['Waiting for its refine, then it goes on the list', 'refining'])
+  assert.deepEqual([refining.run.parts[1].chip, refining.run.parts[1].tone], ['Refining', 'refining'])
   assert.match(style, /\.focus-chip\.is-ready \{/)
   assert.ok(!style.includes('.focus-chip.is-handout'))
 })

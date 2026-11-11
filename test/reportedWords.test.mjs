@@ -53,5 +53,6 @@ test('the restart banner names reporting chats idle with their task open apart f
   assert.deepEqual(plain(page.stoppedLines({ main: 'Main', interrupted: ['Support'] }, [cutOff])), ['Cut off in the middle of a task: Support.'])
   assert.deepEqual(plain(page.stoppedLines({ main: 'Main', interrupted: [] }, [])), [])
   // The banner uses it.
-  assert.match(script, /for \(const text of stoppedLines\(restart, state\.chats \?\? \[\]\)\) parts\.push\(line\('alert', text\)\)/)
+  // (P5: each chat it names is a link, so the line is a node built from the same words: test/stillTrue.test.mjs draws it.)
+  assert.match(script, /for \(const text of stoppedLines\(restart, state\.chats \?\? \[\]\)\) \{/)
 })

@@ -109,6 +109,12 @@ function statusLabel(found, now = Date.now()) {
  * the state gave `held` (null when it holds none); the main chat, the Advisor, its helper and the Product owner keep their
  * card's task as before.
  */
+/** P7 (one status per step): a step's one status as the server worked it out (state.mjs `stepStatus`, src/stepStatus.mjs), or null. */
+function stepStatusFor(state, id) {
+  const one = typeof id === 'string' ? state?.stepStatus?.[id] : undefined
+  return one !== null && typeof one === 'object' && typeof one.words === 'string' ? one : null
+}
+
 function isHeldRow(lane) {
   return lane !== null && typeof lane === 'object' && Object.hasOwn(lane, 'held') && lane.isMain !== true && lane.isLeftover !== true
 }
@@ -1191,11 +1197,14 @@ function incidentCardOf(card, byId, now = Date.now()) {
     const seen = Math.max(0, ...covered.map(one => one.count || 0))
     lines = [`${covered.map(one => one.id).join(' ')} · ${gistOf(covered[0]?.title)}${seen > 1 ? ` (seen ${seen}×)` : ''}`]
   }
+  // P5: an open fix names its chain to the open end ("waits for its fix B978, in review since 11-04 → B1011 → B1030, not refined since 11-04").
+  if (typeof card.chain === 'string') lines.push(card.chain)
   return {
     key: card.key, step: card.step, href: card.step === null ? null : `#details=${card.step}`,
     // The card without a fix step says how many incidents it lists: the person counts them against the head's "N open".
     title: (card.title ?? '(this step is not in the store)') + (card.key === 'nofix' ? ` (${covered.length})` : ''),
-    state: card.state.text, tone: card.state.tone, line: lines.join('\n'), lines,
+    // P5: a card that names its open fix chain is attention only when the chain ends in the person (cards.mjs `tone`), else quiet; the others keep the chip's own tone.
+    state: card.state.text, tone: typeof card.chain === 'string' ? (card.tone === 'attention' ? 'attention' : 'quiet') : card.state.tone, line: lines.join('\n'), lines,
     details: covered.map(one => ({
       id: one.id, title: one.title ?? '', state: one.state === 'fix' && one.fix ? `fix ${one.fix}` : one.state ?? 'open', seen: seenOf(one),
       evidence: one.evidence === null || one.evidence === undefined ? null : one.evidence.length > EVIDENCE_SHOWN ? `${one.evidence.slice(0, EVIDENCE_SHOWN).trimEnd()}…` : one.evidence,
@@ -1988,12 +1997,29 @@ function drawSimpleOverview(state) {
   chips.append(busy)
   if (view.limit !== null) chips.append(el('span', `simple-chip is-${view.limit.tone}`, view.limit.text))
   parts.push(chips)
+  // P7: the focus goal has work and none can be handed out while a worker is free (state.mjs `noWork`): one quiet line with a link
+  // to the step (the same words Main and the partner get; no amber: the person has nothing to do).
+  const noWork = noWorkLine(state.noWork ?? null)
+  if (noWork !== null) parts.push(noWork)
   // B322, B335: a new project's Initialise button stands here too: the simple view hides the workers.
   const setup = setupChat(state)
   if (setup !== null) parts.push(setupBox(setup, hasOtherChats(state)))
   fill($('simple-bar'), parts)
   drawSimpleColumns(state)
   showOverviewMode()
+}
+
+/** P7: the Overview's quiet line of the signal "the focus goal has work, none can be handed out" (state.mjs `noWork`), or null. */
+function noWorkLine(signal) {
+  if (signal === null || typeof signal?.text !== 'string' || signal.text === '') return null
+  const line = el('p', 'simple-nowork muted')
+  line.append(`${signal.text} (${signal.worker} free for ${signal.minutes} min) `)
+  if (typeof signal.link === 'string' && signal.link !== '') {
+    const link = el('a', 'simple-nowork-link', 'See the task')
+    link.href = signal.link
+    line.append(link)
+  }
+  return line
 }
 
 /** A thin bar filled to `percent`, as the simple view draws its bars. */
@@ -2194,7 +2220,7 @@ function whyText(why) {
   const said = (tone, words) => ({ tone, text: `Not started: ${words}` })
   switch (why.reason) {
     case 'limit': return said('limit', `the ${LIMIT_NAMES[why.limit] ?? 'session'} limit is reached${why.limit === 'fiveHour' && why.until !== null ? `, work goes on at ${clock(why.until)}` : ''}`)
-    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${sinceClock(why.since)}` : ''}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
+    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${sinceClock(why.since)}` : ''}` : why.kind === 'recap' ? `${why.worker} waits for ${why.what ?? 'your recap'}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
     case 'after': {
       if (!Array.isArray(why.steps)) return said('wait', `after ${why.words}`)
       // B542: a step in review is waited on for its check.
@@ -2281,6 +2307,8 @@ function heldText(held) {
   if (held.by === 'pause') return 'Paused by you · stopped at its checkpoint; goes on at Resume all'
   // P1 (2026-11-09): a wait the holder recorded on a chat (`Waits on`): on purpose, with who and since when.
   if (held.by === 'parked' && held.kind === 'chat') return `Waits on purpose · for ${held.on[0]}${held.what ? ` (${held.what})` : ''}${Number.isFinite(held.since) ? ` since ${sinceClock(held.since)}` : ''}; goes on once it is unblocked`
+  // The lead's ruling of 2026-11-11 (B1094 and Q715): a wait for the person's recap, never the steps' words.
+  if (held.by === 'parked' && held.kind === 'recap') return `Paused on purpose · waits for ${held.what ?? 'your recap'}; goes on once you answered it in the recap`
   if (held.by === 'parked') return `Paused on purpose · goes on once ${held.on.join(' and ')} ${held.on.length === 1 ? 'is' : 'are'} done`
   const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
   if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
@@ -2538,7 +2566,12 @@ function drawRestart(state) {
     return node
   }
   const parts = []
-  for (const text of stoppedLines(restart, state.chats ?? [])) parts.push(line('alert', text))
+  // P5: each chat it names opens that chat's window.
+  for (const text of stoppedLines(restart, state.chats ?? [])) {
+    const node = line('alert', '')
+    node.append(...chatPieces(text, openableChats(state, restart.interrupted)))
+    parts.push(node)
+  }
   // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
   const down = restart.notRunning ?? []
   const isAtHand = restart.off !== null || restart.interrupted.length > 0 || (pause !== null && pause.state !== 'running')
@@ -3486,7 +3519,13 @@ function drawLane(lane, state) {
   else if (found?.status === 'Not running' && lane.state !== 'off') pill.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
   names.append(el('h3', '', lane.name), pill)
   // The status's why beside it, in a few plain words (a step, a reason, a time); Unknown carries its in the label; an Asleep lane shows its why only when it has one (C2, the ban).
-  if (found !== null && found.why !== null && found.status !== 'Unknown') names.append(el('small', 'status-why', found.why))
+  // The lead's ruling of 2026-11-11 (B1094 and Q715): a lane parked for the person's recap links its why to that goal's recap.
+  if (found !== null && found.why !== null && found.status !== 'Unknown') {
+    const recapLink = found.status === 'Paused' && lane.suspended?.by === 'parked' && lane.suspended.kind === 'recap' && /^#advice\/goals\/G\d+$/.test(lane.suspended.link ?? '') ? lane.suspended.link : null
+    const why = el(recapLink === null ? 'small' : 'a', recapLink === null ? 'status-why' : 'status-why recap-wait', found.why)
+    if (recapLink !== null) why.href = recapLink
+    names.append(why)
+  }
   // The model chip (runchip) beside the pill: what the chat runs at now, and a switch it waits for. None for a leftover.
   const runChip = lane.isLeftover ? null : drawRunChip(runChipOf(lane))
   if (runChip !== null) names.append(runChip)
@@ -3552,7 +3591,15 @@ function drawLane(lane, state) {
     // The task: its id and title from the store; since, its checkpoint and its plan words only on hover (and in its window).
     const title = el('p', 'task clip held-task')
     title.append(el('span', 'task-code', lane.held.id), ' ', lane.held.title)
-    title.title = [`${lane.held.id} ${lane.held.title}`, ...heldHover(lane.held, state.readAt)].join('\n')
+    // P7: the held step's one status from the server (state.mjs `stepStatus`); said in the row only when it is not this worker at work on it.
+    const status = stepStatusFor(state, lane.held.id)
+    if (status !== null && status.kind !== 'working') {
+      // The person's "1 yes" of 2026-11-11: a step that waits for the goal's recap says so, linked to that goal's recap, quiet (no warn tone).
+      const note = status.kind === 'recap' && /^#advice\/goals\/G\d+$/.test(status.link ?? '') ? el('a', 'task-status muted recap-wait', `· ${status.words}`) : el('span', 'task-status muted', `· ${status.words}`)
+      if (note.tagName === 'A') note.href = status.link
+      title.append(' ', note)
+    }
+    title.title = [`${lane.held.id} ${lane.held.title}`, ...(status === null ? [] : [`Status: ${status.words}`]), ...heldHover(lane.held, state.readAt)].join('\n')
     what.append(title)
   } else if (isHeld) {
     const free = freeShort(lane, clock)
@@ -4370,6 +4417,7 @@ function removalView(lane, main, now) {
     const until = Number.isFinite(lane.suspended?.until) ? ` until ${clock(lane.suspended.until)}` : ''
     reasons.push(lane.suspended === null && typeof lane.heldAsk === 'string' ? `It is paused for its re-check of ${lane.heldAsk}${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : lane.suspended?.by === 'parked' && lane.suspended.kind === 'chat' ? `It waits on purpose for ${lane.suspended.on[0]}${what === null ? '' : ` with ${what}`}: that task would not go on.`
+      : lane.suspended?.by === 'parked' && lane.suspended.kind === 'recap' ? `It waits on purpose for ${lane.suspended.what ?? 'your recap'}${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : lane.suspended?.by === 'parked' ? `It is paused on purpose${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : `It paused for the limit${until}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
   }
@@ -6162,10 +6210,84 @@ function wakeNoticeText(notice) {
 }
 // nobodyruns:end
 
-/** Signals change 4: that line, in the attention colour (the class the older lines had, so the CSS holds); null for none. */
+// chatlinks:start
+/**
+ * P5 (2026-11-09, the person's "I want to click the chat it names"): the pieces of `text` with each chat name of `names` as a link that opens that
+ * chat's task window (`#task=<name>`, the address the page already opens a lane's window with; the click is the page's `[data-place]` one). The
+ * longest name first (a name inside another is not cut); `rest(segment)` gives the nodes of the words between (a step id there is a link too:
+ * `linkedWords`); the words themselves stay as they were.
+ */
+function chatPieces(text, names, rest = segment => [segment]) {
+  const known = [...new Set((names ?? []).filter(name => typeof name === 'string' && name !== ''))].sort((a, b) => b.length - a.length)
+  const pieces = []
+  let from = 0
+  // Scanned from left to right: at each place the longest name that starts there is a link (no regular expression: a name may hold any sign).
+  for (let at = 0; at < text.length;) {
+    const name = known.find(one => text.startsWith(one, at))
+    if (name === undefined) { at += 1; continue }
+    if (at > from) pieces.push(...rest(text.slice(from, at)))
+    const link = el('button', 'ask-link', name)
+    link.type = 'button'
+    link.dataset.place = `#task=${encodeURIComponent(name)}`
+    link.title = `Opens ${name}'s task window`
+    pieces.push(link)
+    at += name.length
+    from = at
+  }
+  if (from < text.length) pieces.push(...rest(text.slice(from)))
+  return pieces
+}
+
+/** The chats a wake notice's own text names ("could not wake Worker 2: ..." and its quiet "could not wake Worker 2 at 10:32; ..."), so its links need no lane. */
+function wakeNoticeChats(notice) {
+  return [...String(notice?.text ?? '').matchAll(/could not wake (.+?)(?::| at \d\d:\d\d;)/g)].map(found => found[1])
+}
+// chatlinks:end
+
+/**
+ * The chats among `names` whose task window the page can open (`#task=`, openFromAddress: a lane of `state.chats` with a window chip). An asleep
+ * lane and the role chats (the partner, its helper, the Supervisor, the Product owner: not in `state.chats`) open nothing, so they stay plain
+ * words: a link that does nothing is worse than none. Reads only the lanes the Needs part's key already holds.
+ */
+function openableChats(state, names) {
+  const lanes = new Map((state?.chats ?? []).map(lane => [lane.name, lane]))
+  return (names ?? []).filter(name => lanes.has(name) && laneWindowChip(lanes.get(name)) !== undefined)
+}
+
+/** Whether a wake notice asks for attention: a notice whose every line is quiet ("nothing waits for it now") is only information. */
+const isAttentionNotice = notice => wakeNoticeText(notice) !== null && notice.tone !== 'quiet'
+
+/**
+ * Signals change 4: that line, in the attention colour (the class the older lines had, so the CSS holds); null for none. P5: a chat it names
+ * is a link to that chat's window and a step id a link to its step; a notice whose every line is quiet ("nothing waits for it now") is not in
+ * the attention colour.
+ */
 function drawWakeNotice(notice) {
   const text = wakeNoticeText(notice)
-  return text === null ? null : el('p', 'nobody-runs', text)
+  if (text === null) return null
+  const node = el('p', notice.tone === 'quiet' ? 'nobody-runs-quiet' : 'nobody-runs')
+  node.append(...chatPieces(text, openableChats(board, wakeNoticeChats(notice)), stepPieces))
+  return node
+}
+
+/**
+ * P5: a step id in a line as a link to its step (the ask-link button the page uses everywhere), reading nothing of the state: the
+ * Needs part's view is pinned to what its drawing reads (test/redrawKeys), and the notice needs no goal or ask to link a step.
+ */
+function stepPieces(text) {
+  const pieces = []
+  let from = 0
+  for (const found of text.matchAll(/\bB\d+\b/g)) {
+    if (found.index > from) pieces.push(text.slice(from, found.index))
+    const link = el('button', 'ask-link', found[0])
+    link.type = 'button'
+    link.dataset.askLink = found[0]
+    link.title = `Open the step ${found[0]}`
+    pieces.push(link)
+    from = found.index + found[0].length
+  }
+  if (from < text.length) pieces.push(text.slice(from))
+  return pieces
 }
 
 /** Calm panel: the instructions a chat missed, one red line each under Needs your attention; a click opens the log. */
@@ -6594,7 +6716,7 @@ function drawNeeds(state) {
   const slim = showsClosed() ? [] : needs.filter(need => isAnswered(need) && !isRefineQuestion(need) && isWaitingAnswer(need, state.waitPart) && !isDecidedAnswer(need.answer) && need.answer?.by !== 'recap')
   const cards = [...rest.filter(need => need.isOld !== true).map(need => drawNeed(need, state)), ...slim.map(need => drawSlimNeed(need, answerWaitOf(need, state.waitPart)))]
   const hidden = answered - slim.length
-  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || handsLine !== null || supervised?.isHanded === true || wakeNoticeText(state.wakeNotice) !== null || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
+  const none = cardsOpen.length > 0 || lines.length > 0 || missed.length > 0 || recapAttention !== null || handsLine !== null || supervised?.isHanded === true || isAttentionNotice(state.wakeNotice) || (state.goalAskNeeds ?? []).length > 0 || (state.brainstormNeeds ?? []).length > 0 ? null : el('p', 'empty', hidden > 0 && !showsClosed() ? `Nothing waits for you. ${hidden} answered, hidden.` : 'Nothing waits for you.')
   // B360: the recaps of finished work, as information after what asks for an answer.
   const recaps = shownRecaps(state, showsClosed()).map(recap => drawRecap(recap, state))
   // Autopilot v2 (the person's "B", 2026-11-02): while it is on, what was routed away is never shown nor counted here: no "With your
@@ -6973,7 +7095,9 @@ function windowOf({ need = null, step = null, lane = null, isStep = false, isClo
         // B293: a step refined in the newer form says its goal, its size, and its questions or Ready, in place of "Step".
         ...(refined ?? [{ text: 'Step', tone: 'kind' }]),
         // Where the step itself stands, when the backlog says so: worked on, or ticked.
-        ...(step.status === 'progress' ? [{ text: 'In progress', tone: 'plain' }] : step.status === 'done' ? [{ text: 'Finished', tone: 'plain' }] : []),
+        // P7: else its one status from the server (state.mjs `stepStatus`), its words beside the label.
+        ...(step.status === 'progress' ? [{ text: 'In progress', tone: 'plain' }] : step.status === 'done' ? [{ text: 'Finished', tone: 'plain' }]
+          : (step.stepStatus ?? null) !== null ? [{ text: `${step.stepStatus.label}: ${step.stepStatus.words}`, tone: 'plain' }] : []),
         ...(lane === null ? [] : [{ text: `For: ${lane}`, tone: 'to' }]),
       ],
       at: null,
@@ -8669,7 +8793,11 @@ function detailsHead(view, sign, now) {
   // B425: a title cut short shows the whole one on hover.
   if (typeof view.fullTitle === 'string' && view.fullTitle !== view.title) heading.title = view.fullTitle
   const chips = el('p', 'details-chips')
-  for (const chip of view.chips) chips.append(el('span', `chip is-${chip.tone}`, chip.text))
+  for (const chip of view.chips) {
+    const one = el('span', `chip is-${chip.tone}`, chip.text)
+    if (typeof chip.title === 'string' && chip.title !== '') one.title = chip.title
+    chips.append(one)
+  }
   if ((view.at ?? null) !== null) chips.append(el('span', 'chip is-time', `Asked ${ago(view.at, now)}`))
   names.append(heading, chips)
   const close = el('button', 'icon-button', '✕')
@@ -9345,14 +9473,20 @@ function heldAsksNodes(item) {
   return rows.length === 0 ? [] : [taskPart('Held for your words', rows.map(row => el('p', 'muted task-held', row.text)))]
 }
 
-/** B701: where a step stands, in a line, for a Summary that has no check to tell it. */
-function taskStanding(item) {
-  const owner = item.owner ?? 'its worker'
+/**
+ * B701: where a step stands, in a line, for a Summary that has no check to tell it. P7, the review (a partner wait said "Worker 2
+ * waits for your answer." under the chip "Waits for your partner"): the step's one status (`status`, state.mjs `stepStatus`), its
+ * words as a line ("It waits for your partner: Q901."); only a step the state carries no status for (done, dropped) says its state.
+ */
+function taskStanding(item, status = null) {
+  if (status !== null && typeof status?.words === 'string' && status.words !== '') {
+    const words = status.words
+    const line = /^waits\b/.test(words) ? `It ${words}` : /^being\b/.test(words) ? `It is ${words}` : capitalized(words)
+    return /[.!?]$/.test(line) ? line : `${line}.`
+  }
   if (item.state === 'done') return 'It is done.'
   if (item.state === 'dropped') return 'It was dropped.'
-  if (item.state === 'review') return 'It is built and waits for its check.'
-  if (item.state === 'waiting on you') return `${owner} waits for your answer.`
-  return `${owner} is working on it.`
+  return `State: ${item.state ?? 'unknown'}.`
 }
 
 /** B701: the options of an open question: cards to click, the advised one marked, a box for an idea of your own, and Send. */
@@ -10104,7 +10238,7 @@ function drawStepWindow(box, { state, subject, lane, step, item, head, notes, sc
 }
 
 /** B701: the Summary tab: only the parts that have something to say. */
-function taskSummary(item, asks, guardAsk, lead = []) {
+function taskSummary(item, asks, guardAsk, lead = [], status = null) {
   const view = summaryOf(item)
   const parts = []
   // Your words (2026-10-30): the person's words on the step stand first; without any, only "Add a note", last.
@@ -10119,7 +10253,7 @@ function taskSummary(item, asks, guardAsk, lead = []) {
   if (view.now !== null) pictures.append(taskFigure(view.now, 'Now', 'the latest try'))
   if (pictures.children.length > 0) parts.push(pictures)
   if (view.why.length > 0) parts.push(taskPart('Why we\'re not there yet', view.why.map(one => el('p', '', one))))
-  if (view.tried.length === 0) parts.push(taskPart('Where it stands', [el('p', '', taskStanding(item))]))
+  if (view.tried.length === 0) parts.push(taskPart('Where it stands', [el('p', '', taskStanding(item, status))]))
   else {
     const list = el('ul', 'task-tried')
     for (const one of view.tried) {
@@ -10205,8 +10339,10 @@ function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, str
   const now = state.readAt
   const tab = TASK_TABS.some(([key]) => key === detailsOf.tab) ? detailsOf.tab : 'summary'
   const failed = summaryOf(item).failed
+  // P7: its state chip is the step's one status (its label, its words on hover), not its raw state.
+  const status = stepStatusFor(state, item.id)
   const chips = [
-    { text: capitalized(item.state), tone: item.state === 'done' ? 'good' : 'kind' },
+    { text: status === null ? capitalized(item.state) : status.label, tone: item.state === 'done' ? 'good' : 'kind', ...(status === null ? {} : { title: status.words }) },
     ...(failed > 0 ? [{ text: `${failed} check${failed === 1 ? '' : 's'} failed`, tone: 'bad' }] : []),
     ...(item.owner === null || item.owner === undefined ? [] : [{ text: item.owner, tone: 'plain' }]),
     ...(item.goal === null || item.goal === undefined ? [] : [{ text: `Goal: ${goalNameOf(item.goal, state.goals?.nodes)}`, tone: 'goal' }]),
@@ -10224,7 +10360,7 @@ function drawTaskWindow(box, { state, need, lane, subject, step, item, asks, str
     nav.append(button)
   }
   const content = el('div', 'task-body')
-  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus), [storyNode(item, state), statusNode(item, state)]), ...heldAsksNodes(item))
+  if (tab === 'summary') content.append(...taskSummary(item, asks, taskGuardAsk(item, state.focus), [storyNode(item, state), statusNode(item, state)], status), ...heldAsksNodes(item))
   else if (tab === 'checks') content.append(...taskChecks(item, strip))
   else if (tab === 'history') {
     const list = el('ul', 'task-history')
@@ -11581,7 +11717,7 @@ const REFINE_HELD = ['taken', 'in progress', 'waiting on you', 'review']
 function refineGroups(activities) {
   const steps = (activities ?? []).flatMap(activity => (activity.steps ?? [])
     .filter(step => typeof step.id === 'string' && (step.status === 'open' || step.status === 'queued') && !REFINE_HELD.includes(step.flow?.state))
-    .map(step => ({ state: step.refineState ?? 'none', row: { key: step.key, id: step.id, title: step.title, activity: activity.name } })))
+    .map(step => ({ state: step.refineGroup ?? step.refineState ?? 'none', row: { key: step.key, id: step.id, title: step.title, activity: activity.name } })))
   return REFINE_GROUPS.map(([state, title]) => ({ state, title, steps: steps.filter(one => one.state === state).map(one => one.row) }))
 }
 
@@ -12114,6 +12250,8 @@ function goalStepBadge(step) {
   if (state === 'done' || step.status === 'done') return ['Done', 'done']
   // B392: a step whose open blocking asks all wait for the partner is not the person's yet.
   if ((step.flow?.waitsForPartner ?? []).length > 0) return ['Waits for your partner', 'partner']
+  // P7: the step's one status from the server (state.mjs `stepStatus`, src/stepStatus.mjs): a step the hand-out holds reads Held.
+  if (step.stepStatus !== null && step.stepStatus !== undefined) return [step.stepStatus.label, step.stepStatus.tone]
   if (state === 'waiting on you' || step.status === 'you') return ['Needs you', 'you']
   if (state === 'in progress' || state === 'taken' || (state === null && step.status === 'progress')) return ['Working', 'working']
   if (state === 'review') return ['In review', 'review']
@@ -12142,7 +12280,7 @@ function goalStepsView(goals, goalId, backlog, ui = {}) {
   const all = [...named, ...others].map(id => byId.get(id)).filter(step => step !== undefined && rowStateOf(step) !== 'dropped').map((step, index) => {
     const [badge, tone] = goalStepBadge(step)
     const line = String(step.item?.summary?.[0] ?? step.item?.what?.[0] ?? step.line ?? '').replace(/\s+/g, ' ').trim()
-    return { n: index + 1, id: step.id, key: step.key ?? step.id, title: step.title, line: line.length > 140 ? `${line.slice(0, 139)}…` : line, badge, tone, chat: step.worker ?? '' }
+    return { n: index + 1, id: step.id, key: step.key ?? step.id, title: step.title, line: line.length > 140 ? `${line.slice(0, 139)}…` : line, badge, tone, chat: step.worker ?? '', status: tone === 'done' ? null : step.stepStatus?.words ?? null }
   })
   const done = all.filter(row => row.tone === 'done')
   const open = all.filter(row => row.tone !== 'done')
@@ -12531,7 +12669,10 @@ function drawGoalSteps(state) {
       words.append(el('b', '', row.title), ...(row.line === '' ? [] : [el('small', '', row.line)]))
       open.append(words)
       const side = el('span', 'goal-step-side')
-      side.append(el('span', `goal-step-badge tone-${row.tone}`, row.badge), ...(row.chat === '' ? [] : [el('small', '', row.chat)]))
+      const badge = el('span', `goal-step-badge tone-${row.tone}`, row.badge)
+      // P7: the badge's whole status on hover ("held: <the hand-out's why>").
+      if (typeof row.status === 'string' && row.status !== '') badge.title = `${row.id} · ${row.status}`
+      side.append(badge, ...(row.chat === '' ? [] : [el('small', '', row.chat)]))
       const more = el('button', 'goal-step-more', '⋮')
       more.type = 'button'
       more.dataset.goalStepMenu = row.key
@@ -14074,21 +14215,16 @@ function brainstormChosen(threads, open) {
 function brainstormTaskStand(row, prefix = '') {
   if (row === undefined || row === null) return { state: null, words: 'not on the task list now', tone: 'quiet' }
   const state = row.item?.state ?? row.flow?.state ?? (row.status === 'done' ? 'done' : null)
-  const raw = String(row.item?.owner ?? '').trim()
-  const owner = prefix !== '' && raw.startsWith(prefix) ? raw.slice(prefix.length).trim() : raw
   if (state === 'done') return { state, words: 'done', tone: 'done' }
   if (state === 'dropped') return { state, words: 'dropped', tone: 'quiet' }
-  if (state === 'new') return { state, words: 'being refined by the Advisor', tone: 'refining' }
-  if (state === 'refined') return { state, words: 'on the list for a worker', tone: 'queued' }
-  if (state === 'queued') return { state, words: owner === '' ? 'on the list for a worker' : `given to ${owner}`, tone: 'queued' }
-  if (state === 'taken' || state === 'in progress') return { state, words: owner === '' ? 'a worker is on it' : `${owner} is on it`, tone: 'working' }
-  if (state === 'waiting on you') return { state, words: owner === '' ? 'waits for an answer' : `${owner} waits for an answer`, tone: 'working' }
-  if (state === 'review') return { state, words: 'in review', tone: 'working' }
-  // A board with no store reads the backlog's own status.
-  if (row.status === 'progress') return { state: 'in progress', words: 'a worker is on it', tone: 'working' }
-  if (row.status === 'queued') return { state: 'queued', words: 'on the list for a worker', tone: 'queued' }
-  return { state: null, words: 'on the task list', tone: 'quiet' }
+  // P7, the review (it said "being refined by the Advisor" with nothing sent, "on the list for a worker" of a held step): the
+  // step's one status from the server (the backlog row's `stepStatus`, src/stepStatus.mjs); without one, its state's plain word.
+  const status = row.stepStatus ?? null
+  if (status !== null && typeof status.words === 'string') return { state, words: status.words, tone: STAND_TONES[status.kind] ?? 'quiet' }
+  return { state, words: state ?? 'on the task list', tone: 'quiet' }
 }
+/** The quiet tone of a new task's stand by its status's kind (never amber or red). */
+const STAND_TONES = { refine: 'refining', partner: 'refining', held: 'queued', ready: 'queued', refined: 'queued', given: 'queued', working: 'working', 'waits-on': 'working', you: 'working', review: 'working' }
 
 /**
  * 2026-10-31 (the person, on "The thread has a line the board cannot read": "this isnt clear to me"): how many lines of a talk
@@ -15648,7 +15784,9 @@ function focusDayWords(stamp) {
 /** Work blocks: the chips of a block on the Focus page, by its state (B680, B689, Redesign Part 2). */
 // 2026-11-01 (the person: "says waiting for verdict or something"): `verdict`, a block that waits for their verdict in the goal's
 // recap; "Waiting, nobody on it now" stays for work that waits for another task.
-const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'On the list for a worker', refining: 'Waiting for its refine, then it goes on the list', stopped: 'Stopped, nothing reached', waiting: 'Waiting, nobody on it now', stuck: 'Stuck: its fix stopped', verdict: 'Waits for your verdict →' }
+// P7, the review: a block that is ready, being refined or waits says its steps' one status (state.mjs `focusState` `chip`, src/stepStatus.mjs);
+// these are only the plain words of a board with no chip.
+const FOCUS_CHIPS = { done: 'Done', now: 'In progress', next: 'Next', ready: 'Ready', refining: 'Refining', stopped: 'Stopped, nothing reached', waiting: 'Waiting', stuck: 'Stuck: its fix stopped', verdict: 'Waits for your verdict →' }
 
 // recapready:start
 /** The recap card shows this many tiles at most, in one row: the person's "never more then 1 row" (src/recapCard.mjs MOST_TILES). */
@@ -15803,7 +15941,9 @@ function blockChipOf(part, open, card = null, namesWorker = false) {
     return { chip: typeof link?.path === 'string' ? 'Waits for your verdict in the recap →' : FOCUS_CHIPS.verdict, tone: 'verdict', link, isVerdict: true, isRework: false }
   }
   // Open now names the worker of a block in progress in its chip; All work blocks keeps "In progress" (its row names the worker beside the bar).
-  const chip = namesWorker && part.state === 'now' && typeof part.owner === 'string' && part.owner !== '' ? `${part.owner} is on it` : FOCUS_CHIPS[part.state] ?? null
+  // P7: a block that waits says the server's words (state.mjs `focusState` `chip`: "Held: B1096 · <the hand-out's why>", or that nobody is on it).
+  const chip = namesWorker && part.state === 'now' && typeof part.owner === 'string' && part.owner !== '' ? `${part.owner} is on it`
+    : ['waiting', 'ready', 'refining'].includes(part.state) && typeof part.chip === 'string' && part.chip !== '' ? part.chip : FOCUS_CHIPS[part.state] ?? null
   return { chip, tone: part.state, link: null, isVerdict: false, isRework: false }
 }
 
@@ -19902,24 +20042,26 @@ function drawMessage({ key, kind, time, who, text, picture: shown = null, note =
  */
 function advisorRefine(backlog) {
   const steps = (backlog ?? []).flatMap(activity => activity.steps ?? [])
-  // The one it has in hand first, else one on its way.
-  const asks = steps.filter(step => step.refineAsk?.isOpen === true)
-  const asked = asks.find(step => step.refineAsk.state === 'delivered') ?? asks[0]
-  if (asked !== undefined) {
-    const round = asked.refineAsk.round ?? 1
-    const text = asked.refineAsk.state === 'delivered' ? `Refining ${asked.id}${round > 1 ? `, round ${round}` : ''}` : `${asked.id} to refine, on its way`
-    return { step: asked.id, text, tone: 'working' }
-  }
+  // The one it has in hand first, else one on its way. P7, the review: from the step's one status (its word in flight, read from
+  // the same words as every status, `stepStatus.refining`), never a second reading of the outbox.
+  const asks = steps.filter(step => step.stepStatus?.toAdvisor === true && typeof step.stepStatus.refining === 'string')
+  const asked = asks.find(step => step.stepStatus.inHand === true) ?? asks[0]
+  if (asked !== undefined) return { step: asked.id, text: asked.stepStatus.refining, tone: 'working' }
   // Answers folded in only for a step not taken up yet (open or queued), as the board's own refining does (B285).
   const isUp = step => step.status === 'open' || step.status === 'queued'
-  const stopped = steps.find(step => step.refineState === 'stopped' && isUp(step))
+  const groupOf = step => step.refineGroup ?? step.refineState
+  const stopped = steps.find(step => groupOf(step) === 'stopped' && isUp(step))
   if (stopped !== undefined) {
-    const rounds = stopped.refineStop?.rounds ?? 3
+    const rounds = stopped.refineStopped?.rounds ?? stopped.refineStop?.rounds ?? 3
     return { step: stopped.id, text: `Refine of ${stopped.id} stopped after ${rounds} round${rounds === 1 ? '' : 's'} without new answers`, tone: 'stopped', canSend: true }
   }
-  const answered = steps.find(step => step.refineState === 'answered' && isUp(step))
-  // B464: they wait for the Advisor, not for you: in its own colour, not the one that asks you.
-  return answered === undefined ? null : { step: answered.id, text: `Your answers on ${answered.id} wait for the Advisor`, tone: 'answered' }
+  const answered = steps.find(step => groupOf(step) === 'answered' && isUp(step))
+  // B464: they wait for the Advisor, not for you: in its own colour, not the one that asks you. P7 (B1030 read "Your answers on
+  // B1030 wait for the Advisor" with nothing sent): the line is the step's one status from the server (`stepStatus.line`): it waits
+  // for the Advisor only while a word to it is open in the outbox, else it says nothing was sent.
+  if (answered === undefined) return null
+  const status = answered.stepStatus ?? null
+  return { step: answered.id, text: status?.line ?? `${answered.id}: answers in`, tone: 'answered' }
 }
 // advisorrefine:end
 
@@ -20924,7 +21066,8 @@ const UNDER_WAY_STATES = {
 }
 const FINISHED_STATES = ['done', 'dropped', 'answered']
 /** What a task not refined yet waits for, by where its refine stands (its `refineState`). */
-const REFINE_WAITS = { asking: 'being refined', answered: 'being refined', ready: 'being refined', answers: 'waits for your answer', stopped: 'its refine stopped', none: 'waits for its refine' }
+// P7, the review: only the plain words of a board with no status for the step (state.mjs `stepStatus` says what it waits for).
+const REFINE_WAITS = { asking: 'refine asked', answered: 'refine open', ready: 'refine ready', answers: 'waits for your answer', stopped: 'its refine stopped', none: 'waits for its refine' }
 /** A goal of the goal map, which a row links to on the Goals part. */
 const GOAL_LINK_ID = /^G\d+$/
 
@@ -20985,11 +21128,16 @@ function backlogBlocks(list, readyList, { showDone = false } = {}) {
       : step.status === 'progress' ? UNDER_WAY_STATES['in progress'] : step.status === 'queued' ? UNDER_WAY_STATES.queued : null
     if (under !== null) {
       const owner = item?.owner ?? step.worker ?? ''
+      // P7, the review (a partner wait read "Waiting on you" in the person's colour, a step waiting on a chat "In progress"): the
+      // words and tone are the step's one status (state.mjs `stepStatus`); only a row without one says its state's plain word.
+      const status = typeof step.stepStatus?.words === 'string' && step.stepStatus.words !== '' ? step.stepStatus : null
+      const said = status === null ? under[0] : status.words.charAt(0).toUpperCase() + status.words.slice(1)
+      const tone = status === null ? under[1] : status.tone === 'working' ? 'progress' : status.tone
       // 2026-10-26 (the person: "it says worker 4 is doing something"): a step in review is not its builder at work. Its worker
       // column says who built it, and its state whom it waits for: the Advisor's check (where that stands), or what it says in its title.
       const isReview = state === 'review'
       rows.progress.push({
-        ...base, who: isReview && owner !== '' ? `built by ${owner}` : owner, state: isReview ? checkStandWords(step.reviewStand) ?? under[0] : under[0], tone: under[1],
+        ...base, who: isReview && owner !== '' ? `built by ${owner}` : owner, state: isReview ? checkStandWords(step.reviewStand) ?? said : said, tone,
         order: Object.values(UNDER_WAY_STATES).indexOf(under),
       })
       continue
@@ -21010,10 +21158,13 @@ function backlogBlocks(list, readyList, { showDone = false } = {}) {
     if (state === 'refined') {
       const hold = typeof step.id === 'string' ? held.get(step.id) ?? null : null
       const { canAdd, canRemove } = queueChoice({ state, isAdded: base.isAdded, pinned, choice: hold?.choice })
-      rows.refined.push({ ...base, who: forWho, canAdd, why: canAdd ? '' : hold?.why ?? '', canRemove })
+      // P7: what holds it is the step's one status (the hand-out's own why, src/stepStatus.mjs), as every view says it.
+      rows.refined.push({ ...base, who: forWho, canAdd, why: canAdd ? '' : step.stepStatus?.why ?? hold?.why ?? '', canRemove })
       continue
     }
-    rows.new.push({ ...base, who: forWho, wait: step.status === 'you' ? 'waits for your answer' : REFINE_WAITS[step.refineState] ?? '', canRemove: queueChoice({ isAdded: base.isAdded, pinned }).canRemove })
+    // P7: what a new step waits for is its one status (a word to the Advisor open in the outbox, or nothing sent), not its refine state alone.
+    const waits = step.status === 'you' ? 'waits for your answer' : step.stepStatus?.words ?? REFINE_WAITS[step.refineState] ?? ''
+    rows.new.push({ ...base, who: forWho, wait: waits, canRemove: queueChoice({ isAdded: base.isAdded, pinned }).canRemove })
   }
   const sorted = {
     progress: rows.progress.sort((a, b) => Number(b.isFix) - Number(a.isFix) || a.order - b.order || blockNumber(b.step) - blockNumber(a.step)),
@@ -22470,7 +22621,9 @@ function drawBugs() {
   else {
     const link = el('a', '', bugsSentStep)
     link.href = `#details=${bugsSentStep}`
-    $('bugs-sent').replaceChildren('Reported as ', link, '. It waits for a worker; you see it below.')
+    // P7, the review (it said "It waits for a worker" of a new step): its one status from the server, once the state has it.
+    const status = stepStatusFor(board, bugsSentStep)
+    $('bugs-sent').replaceChildren('Reported as ', link, status === null ? '. You see it below.' : `: ${status.words}. You see it below.`)
   }
   once('bugs-list', [bugs?.reports ?? null, bugs?.places ?? null], () => {
     const reports = bugs?.reports ?? []

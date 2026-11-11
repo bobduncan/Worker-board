@@ -210,8 +210,10 @@ preferably as a popup in the board to verify. same with the game not a feature b
   so it opens where the change shows; it ends by itself as "Open the game" does. The same links in a chat open the
   board: `#picture=` shows the popup, `#play=` turns that tab into the game. Only a branch a working folder holds is
   started, and the start goes through the board's own page with its token, like every other. B675: the setting
-  `page=<name>` opens `/<name>.html` of that game (`GAME_PAGES` in `src/places.mjs`: the sound board; only a page file
-  the folder holds). `work ask` adds that play link itself when an ask names a game page ("the sound board", its address) and
+  `page=<name>` opens `/<name>.html` of that game (`GAME_PAGES` in `src/places.mjs`: the sound board, the animation lab; only a page file
+  the folder holds). B1133: filing an ask (`work ask`, also one that joins an open ask) refuses a `play` whose branch is no plain
+  branch name or whose `page=` is not on that list, naming the pages (`playProblem`, shared with the game request's check); the game's
+  own keys (`screen`, `mode`, ...) are never checked, the board stays usable for any project. `work ask` adds that play link itself when an ask names a game page ("the sound board", its address) and
   gives none: the step's branch, else main. A do or look ask with a local address it cannot link gets one line of warning.
 
 **The task windows, compact on top (B157).** The person, 2026-10-14: "this is too much details. I want clear headers
@@ -315,7 +317,9 @@ what to do next; takes no tasks"), a teal accent and a light for its sign:
   that it took (taken or typed) whose item is still open (incident to X<n>, refine to B<n>, partner-ask to
   Q<n>; `advisorWorkOf`, the state's `advisor.on`). Its card's own text and its step count move to the tooltip.
   No such word: today's line.
-- *What it refines* (B287), as on the Advisor tab: "Refining B31, round 2", or "Your answers on B31 wait for it".
+- *What it refines* (B287), as on the Advisor tab: "Refining B31, round 2", or "Your answers on B31 wait for the Advisor" only
+  while a word to it about B31 is open in the outbox; else the step's one status ("B1030: refine open: nothing sent to the
+  Advisor", P7).
 - *What waits for it*: what was sent to it and is not in its chat yet, counted by kind ("2 waiting for it: 1 refine, 1
   message"; rounds of the clock too), else "Nothing waits for it". 2026-10-26 (the person: "is the advisor currently
   working on them or not. is it in its queue?"): under its line, "Waiting for it:" lists ALL its waiting work, each a link
@@ -455,7 +459,8 @@ the part "Refine questions" lists a line per step with how many wait ("B31 Fence
 waiting longest first, `refineLines`), counted once per step in the badge, and "Answer them →" opens the step's window,
 where they are answered with Yes / No (B293). This replaces B275's "a refine keeps its own place". The Advisor's tab
 shows beside its state what it refines ("Refining B31, round 2", "B31 to refine, on its way") or the answers that wait
-for it to fold them in ("Your answers on B31 wait for it", `advisorRefine`); the Advisor's card on the Overview shows
+for it to fold them in ("Your answers on B31 wait for the Advisor" while a word to it is open, else the step's one status, P7,
+`advisorRefine`); the Advisor's card on the Overview shows
 the same once it is there (B280).
 
 **A refined step is one compact description (B293).** The person approved what "refined" means on 2026-10-17 (the
@@ -7040,6 +7045,59 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
 - Pinned by `test/waitsOn.test.mjs` (the B1081 case through the API, the state and the hand-over's decision; the Late past 90
   running minutes and none at 95 wall minutes with a 30-min off spell; Resume all; the landing guard; the words).
 
+## One status per step (P7 of the one wait system, 2026-11-10)
+
+The person, 2026-11-10 ~21:30, on three wrong signals ("something is not right"; then "1 yes"): the hand-out knew B1096 was held (its
+standard K6 Screens had no foundation built) while the Goals/Focus part said "B1096 · waiting for a worker", and the Advisor card said
+"Your answers on B1030 wait for the Advisor" with nothing sent. Cause: each view worked a step's status out itself.
+
+- **One reading** (`src/stepStatus.mjs` `stepStatusOf(step, ctx)`, pure): `{ id, kind, label, words, tone, who, why, since, link }`
+  (a refine also `toAdvisor`, `held`, `where`, `line`, and with a word in flight `inHand` and `refining`: the Advisor card's "Refining
+  B1030, round 3" or "B1030 to refine, on its way"). Kinds: done, dropped, review (the review's own `reviewWaitOf`: its words
+  whenever it is a failed report check, "being checked" while its check runs), you, partner (the step's open blocking asks all
+  routed to the partner, `stepWaitsForPartner`, or a new step's refine questions all routed to it: "waits for your partner: Q<n>"),
+  held-ask (a waiting step whose open asks are held for the person's words, rule 15, askHold.mjs `isHeld`: quiet, never "you": "waits for Worker 3's re-check of Q711 (your words at 14:05)", linked to the ask), recap (a step at work whose every open ask is routed to the goal's recap, `keptRecapWaitOf`, e.g. B1094 and Q715: quiet, "waits for your recap of G60 (Q715)", linked to `#advice/goals/G60`; its worker's lane is never Working (the lead's ruling of 2026-11-11: the chat does nothing while it waits) nor Stopped: a stopped such chat is parked, P1's shape, kind recap (state.mjs `card`, work/waitsOn.mjs `recapSuspension`: `{ by: 'parked', kind: 'recap', on: ['the person'], what: 'your recap of G60 (Q715)' }`), its pill quiet "Paused · waits for your recap of G60 (Q715)" with the why linked to the recap, the day bar in the suspended colour, no holder timers, and Resume all leaves it as it leaves a Waits on step (work/pause.mjs `isResumed`); an ordinary open ask of the person's still reads "waits on you", a chat really cut off with no such ask still reads Stopped), waits-on (P1's `Waits on`), working, given, held (the hand-out's own why, word for word, from the ready list's `held`
+  (src/work/handOut.mjs `readyList`): outside the focus, a standard without its foundation, blocked by, waits for), ready ("waiting
+  for a worker": only on the hand-out's `ready`), refine: "waits for the Advisor" only while a word to it is in flight (a refine, a
+  refine asked again, a partner word about one of its asks), by the refine gate's own `refineAsk` (src/work/askOpen.mjs: on its way,
+  or arrived under its half hour with no block written; stale after it) or the Advisor's own list (`refineWaitOf`); a word the pause
+  holds (`held`, or waiting with `isHeld`) "waits for Resume all"; else "its refine waits for your answers", "its refine stopped after
+  N rounds: no word in flight (last sent ...)" (`refineStop`), or "refine open: no word in flight (last sent 4 Nov 23:20)". It adds no rule of its own.
+- **One outbox shape**: every word, also long ago, a waiting one past its keep marked expired as `outboxNow` times it (store.mjs
+  `outboxKnown`, the server's `words` to the state), so a delivered word outboxNow drops after 2 h still names the last one sent.
+- **Every view reads it**: the state carries `stepStatus` (by id, open steps only: done and dropped are left out, 98% of its size; a
+  view without an entry says the step's own state) and each backlog row's `stepStatus`; the Focus parts (a block's `chip` when it waits,
+  is ready or is refining, its list's words, the rework words of Open now and the recap popup: `recapRound.mjs` `reworkOf` takes the
+  state's `statusOf`, REQUIRED, and works out none), the Goals step rows' badge (its words on hover), the Advisor card's line, the
+  worker rows' task column, the details window's state chip, the backlog's rows, the brainstorm's new tasks, the Bugs tab's "Reported
+  as", and the Supervisor's incident cards (`live.statuses`). The page works out none itself. The last review: the task window's "Where
+  it stands" is the status's words as a line ("It waits for your partner: Q901."; only done and dropped say their state); the
+  backlog's In progress rows take its words and tone (a partner wait no longer "Waiting on you" in the person's colour); the Refine
+  part's groups go by each row's `refineGroup` (state.mjs, from the same `words` and the status, `refineGroupOf`: the live B1030,
+  stopped after 3 board rounds, stood under "Answered" with no Send again while its status said stopped), and the Advisor card's
+  "Refining" line and its stop read the status and `refineStopped`. The row's `refineAsk` and `refineState` stay the refine gate's own
+  reading (outboxNow), for the gate and the Refine button.
+- **The guard** (`test/stepStatus.test.mjs`): the status phrases ("waiting for a worker", "wait(s) for the Advisor", "nobody on it",
+  "for a worker", "being refined", "is on it", "on it", and "Refining" as written) may be written only by `src/stepStatus.mjs`; the test reads every string literal of
+  `src`, `public`, `mods` and `server.mjs` (`test/stringLiterals.mjs`: joined across `+`, a template's static parts, never a comment),
+  with a named list of strings that say no step's status (a list's heading, a chat's pick-up of a word, a block's worker, a group
+  title, a hint; a long one named by its first 30 characters or more).
+- **The signal, never to the person**: the focus goal has unstarted steps (new, refined), the ready list is empty and a worker is
+  free (the hand-out's `idleWorkers`, with the reconciler's `restFree` and `stuck`) for 10 of the board's running minutes (after the
+  person's pause and the board's off spells; none while the board resumes). Causes someone has are left out: a word to the Advisor in
+  flight or held, a refine waiting for answers, for the partner or stopped, a step in the refine gate's line (`refineQueue`, from its
+  kept first look), a rebuild hold, a blocker given or at work, or a blocker whose own chain of "Blocked by" (depth 10, loops ended) reaches a step at work (B1123 to B1126, 11 Nov); with none left there is no signal. The state's `noWork` is the one
+  signal: the Overview's simple view shows it as one quiet line with a link to the step (no amber), and the repair rule `none-ready`
+  reads it (`view.noWork`): a note to the main chat per cause and at most ONE word to the partner per signal, listing the causes and
+  never asking for a refine (the gate sends those); nothing while a limit is full or the person pauses. Keys: the step, its kind and a
+  stable class (`causeClassOf`: `blocked B9000` with the blocker ids only, waits-for, answer, standard, routing, refine), with the
+  stamp of the episode, so a move of the blocker is no new note and the same hold in a later episode is. The episode (the last
+  review: keyed on the longest-free worker's since, a second free worker or a report gone idle → ended made a new key and woke the
+  partner again) begins when the signal does and holds while it stands, whoever is free longest: the state keeps it from read to read
+  (`noWorkSeen`, `{ since, free }`, in the server's memory as `planSeen`; `since` the first free worker's since then, `free` each free
+  worker's first free since), and it ends only when the signal is gone; a restart starts it anew.
+- Not in it: the hand-out's and the review's rules (read only), lane states, wake.
+
 ## Going live: tools/land.ps1 (2026-11-04)
 
 Until now every landing of the worker board was done by hand or with a scratch script: merge, push, bring the trial copy
@@ -7467,7 +7525,8 @@ things that were not so. Tests: `test/pauseTruth.test.mjs`, with the real state 
 6. **A new step waits for Resume all while the pause holds** (`src/supervisor/cards.mjs` `stepState`/`incidentCards` `isPaused`;
    `supervisor/index.mjs` `view` from `live.pause`; server.mjs passes `state.pause`). The refine word to the Advisor is one of the lines the
    pause holds (`pause.held`), so the card of a `new` fix step (B1042, B1051 in the real case) says "new · waits for Resume all" while the
-   pause is `pausing`, and "waits for the Advisor" otherwise. Mutants: the pause not passed on, the words not switched (each kills one
+   pause is `pausing`, and its one status otherwise (P7: "waits for the Advisor" only while a word to it is open, `state.stepStatus`
+   passed as `live.statuses`; without it only "new"). Mutants: the pause not passed on, the words not switched (each kills one
    `item 6` test).
 7. **A step in review is not "resumed from its branch"** (`src/work/pause.mjs` `holdersOf` gives `state`, `pauseFacts` marks `unsaved` entries
    `inReview: true`; `public/board.js` `pauseRing` notes). A resume neither waits for nor wakes a chat for a step in review (`RESUMED`
@@ -7503,6 +7562,49 @@ live data is read, no chat can be typed to. Before = main's `public/` (`git arch
 - **Leftover (item 8, review 9):** the named steps must also have ended after the leftover's last activity (`stepEndedAt`, the step's Since).
 - **Server wiring (review 5):** `test/pauseTruthBoard.test.mjs` runs a board on a made-up project; mutants: popup-asks call out, `pause: state.pause`
   out, `stepState` out, `stepEndedAt` out each fail it; the `say.mjs` guard has its own test.
+
+## Every item re-checks itself: src/stillTrue.mjs (P5, 2026-11-09)
+
+The person's "Yes, build now" on chat 1's plan. The rule: every item on the person's lists re-checks itself, on every reconcile pass, with a
+test the board already has where one exists, and comes down with a record of why when it is not true any more. "as of HH:MM" is for a test
+that errored, never for an answer. `stillTrue(facts, memory)` is pure (what the pass already read: the state, the store's items, the outbox, the
+wake facts, the kept reports, `now`; the Map `memory` is the only thing it changes) and answers `{ down, notice }`; `stillTruePass` runs it in its
+own try (a throw stops no delivery: one log line), makes ONE batched work call for the asks, and writes the history. `server.mjs` calls it
+after the reconcile's own work (`loops.run('still-true')`), one memory Map per board process.
+
+| Item | The test it re-uses | What comes down, and how |
+| --- | --- | --- |
+| An open ask, of ANY Route | the start-up check's: `startupCheck.mjs` `asksOf(items, { anyRoute: true })`, its step done or dropped AFTER the ask was filed; never a kept look (`keptLook.mjs` `isKeptLook`) | the work API's `asks-withdrawn` with `anyRoute: true` (the board's role; it checks each ask again), the why `its step B<n> is <state> (still-true)` |
+| A wake line ("could not wake X") | `wake.mjs` `noticeOf` with `reports` (the lanes' kept reports): a chat for which `ranSince` is true is left out; a chat nothing waits for (`nothingWaits`) is a quiet line `could not wake X at 10:32; nothing waits for it now` (tone `quiet` when every line is quiet) | a line shown on the last pass and gone now gets its history line (`X ran since its failed wake`); the notice is the state's own, so no hysteresis |
+| "N alarms need you" (a Supervisor note, Via supervisor, unread) | the note carries `Incidents: X1, X2` (made in `api.mjs` `makeNote` from the X<n> in its words and its About); every named incident is fixed, gone, closed or dropped, or no longer in the store | the work API's `notes-came-down` (the board's, ids only; it checks each note again); the note's History says `came down: X1 fixed, X2 gone` |
+| An incident card with an open fix | `resultCheck.mjs` `openFixChain` (the chain the review wait reads) | `cards.mjs` `chainWordsOf`: `waits for its fix B978, in review since 11-04 → B1011 → B1030, not refined since 11-04`, at most 10 links then `…`; the card's `tone` is `attention` only when an open ask with Route person is about the chain's open end, else `quiet` |
+
+- **Hysteresis:** a finding counts only when it was found on two passes in a row AND was first found at least `MIN_AGE_MS` (20 s) ago: a pass runs every
+  few seconds, so "or a minute" could never fire. A finding that is not found on a pass is forgotten (it must stand again). A write the work API refuses
+  (or a call that throws) is left alone for `BACKOFF_MS` (10 min) with ONE log line per item, and writes no history line.
+- **History:** every item that comes down gets `{ at, kind: 'came down', id, why }` in `data/history.jsonl` (the store's `record`, as the gap lines
+  are written). `history.mjs` keeps it when it reads the file (`parseHistory`) and `isCameDown` makes `today`, `gapsOf`, `startGap` and the tick's
+  gap check leave it out; `taskFacts` and `notWorkedCounter` read only a chat's lines and a gap's, so a line with neither never counts.
+- **Links:** `public/board.js` `chatPieces` makes each chat name of the restart banner's "Cut off in the middle of a task" and of the wake notice a
+  link (`#task=<name>`, the address that opens a lane's window); a step id in the notice is a link through `linkedWords`. A quiet notice has its
+  own muted class (`nobody-runs-quiet`), never the attention colour.
+- **What the re-check never takes down (the review of 2026-11-11, the blocker):** `work/stillTrueRules.mjs` `stillTrueLeaves`: every `Route: recap` ask
+  (recapAnswered owns it: the person's Send must still find it), a recap's verdict look or do (`isRecapVerdictAsk`, as rule 15's `mayBeHeld`), an ask
+  the person took back (`isTakenBack`), the app's popups (`Via: form`) and refine questions (`Via: refine`); and `stillTrueStep`: the title's first
+  B<n> names the step ONLY for an ask routed to the person. `asksOf` (anyRoute) and the work API's `asks-withdrawn` both use them, so the server does not trust the list.
+- **Notes:** the work API's `notes-came-down` (SERVER and CHANGES only, never in a mod's or the page's list of actions) takes the note ids, checks each
+  one again (`noteCameDownWords`: unread, Via supervisor, every `Incidents` entry fixed, gone, closed or dropped) and marks them read in one call;
+  `read` stays the person's alone.
+- **The quiet wake line:** only for a chat nothing waits for (`wake.mjs` `nothingWaitsFor`, passed to `noticeOf` as `nothingWaits`): no taken or in-progress
+  step, none queued, no outbox word of any command waiting for it, the board not paused; else the attention line stays. A quiet notice alone leaves
+  "Nothing waits for you." on the page (decided by the notice's tone).
+- **Card:** over the cap the chain shows the first link with its words, "…", the last ones and the open end with its words; the page draws the card's
+  `tone` (attention or quiet) in place of the chip's when it names a chain.
+- **Links:** only where a window opens (`openableChats`: a lane of `state.chats` with a window chip); an asleep lane and the role chats stay plain words.
+- **Cost:** the pass reads the kept work (`work()`) and `readState.last()`, never `readStore`, and resets only when an ask or a note was written.
+- **Not in it:** land.ps1, the hand-over, `chatStatus.mjs`, the start-up check's triggers, the wake paths, the Workers mod, the Supervisor's rules.
+- **Tests:** `test/stillTrue.test.mjs`. Mutants (each fails a test there): hysteresis removed; the any-Route guard dropped (the person's asks only
+  again); `ranSince` ignored in the notice; the note comes down while an incident is open; the chain uncapped; the history line not written.
 
 ## Rule 15: a decision anywhere updates the board's open questions at once (2026-11-09)
 

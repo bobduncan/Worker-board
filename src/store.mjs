@@ -7,7 +7,7 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { takeStop } from './boardSelf.mjs'
-import { changes, GAP_MS, lastByChat, parseHistory, startGap } from './history.mjs'
+import { changes, GAP_MS, isCameDown, lastByChat, parseHistory, startGap } from './history.mjs'
 import { STOP_HANDS_MS, isTaskStopWord } from './hands.mjs'
 import { isLimitStopWord, waitsLong } from './say.mjs'
 import { isStoppedWhy } from './stopped.mjs'
@@ -81,8 +81,15 @@ export const isLate = (message, now, keep) => now - message.at - heldMs(message,
  * delivered; it stays listed for `shownMs` so the person sees what did not arrive. A delivered answer stays
  * known, because it closes its request; a delivered line shows in its chat and is listed no longer.
  */
+/**
+ * P7 (the review): every word of the outbox, also long ago, with one that waited too long for its chat marked `expired`, as
+ * `outboxNow` times it (and the refine gate reads the outbox, server.mjs `sentNow`): the one shape the one status per step reads
+ * (src/stepStatus.mjs), for the state and the Supervisor's rule alike.
+ */
+export const outboxKnown = (messages, now, keep) => messages.map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
+
 export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
-  const known = messages.map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
+  const known = outboxKnown(messages, now, keep)
   // B352, review: the newest word that set the partner's mode stays known: the partner runs on it until the next one,
   // however long it is idle (src/partnerEffort.mjs).
   const effortWord = known.findLast(message => message.command === 'partner-effort' && message.state !== 'expired' && message.state !== 'failed')
@@ -448,7 +455,8 @@ export async function fileStore(dir, now, { start = null } = {}) {
 /** One look at the board: records what changed since the last one. `state` is the `/api/state` object. */
 export async function tick(store, state, now) {
   const aliveAt = store.aliveAt()
-  const last = store.lines().at(-1)
+  // P5: a came-down line (src/stillTrue.mjs) is no look of a chat: the last line that is, tells whether the board was off.
+  const last = store.lines().findLast(line => !isCameDown(line))
   // After a start the gap is written already (`startGap`); a sleep in the middle of a run is written here.
   if (aliveAt !== null && now - aliveAt > GAP_MS && last !== undefined && (last.gap !== true || aliveAt > last.at)) {
     await store.record([{ at: Math.max(aliveAt, last.at), gap: true }])
@@ -456,7 +464,7 @@ export async function tick(store, state, now) {
   const chats = state.chats.filter(chat => !chat.isLeftover)
   await store.record(changes(lastByChat(store.lines()), chats, now))
   // Pause truth item 5: a gap that no chat line followed (the trial board has no chats) ends at this look: the board answers, so it is not off.
-  if (store.lines().at(-1)?.gap === true) await store.record([{ at: now, ran: true }])
+  if (store.lines().findLast(line => !isCameDown(line))?.gap === true) await store.record([{ at: now, ran: true }])
   await store.alive(now)
 }
 

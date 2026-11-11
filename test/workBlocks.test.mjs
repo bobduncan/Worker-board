@@ -14,6 +14,7 @@ import { focusState, roundOf } from '../src/state.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { openPage, reply } from './pageHarness.mjs'
 import { asSent, build } from './partnerState.mjs'
+import { stepStatusOf } from '../src/stepStatus.mjs'
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The done-when line of a block
@@ -138,7 +139,9 @@ const gardenTasks = [
 ]
 
 test('Open now, the person\'s example: 10 blocks, 3 reworked after an evaluation are 3 lines; 2 of them done keep their tick', () => {
-  const focus = focusState(parseGoals(garden()), gardenTasks, [], '')
+  // P7, the review: the rework words are the step's one status, which the caller passes (the state's); here the store's.
+  const byId = new Map(gardenTasks.map(one => [one.head.get('Id'), one]))
+  const focus = focusState(parseGoals(garden()), gardenTasks, [], '', null, null, null, null, null, { statusOf: item => stepStatusOf(item, { items: byId }) })
   assert.deepEqual(focus.round, { n: 2, since: '2026-10-17 10:00', why: 'the evaluation of 2026-10-17' })
   // T20.1: Block 8 had work before the round and its task B28 is under way: it is being reworked (nobody's card shows B28).
   assert.deepEqual(focus.openNow, [{ index: 2, title: 'Block 3', kind: 'rework' }, { index: 4, title: 'Block 5', kind: 'rework' }, { index: 7, title: 'Block 8', kind: 'rework', rework: { step: 'B28', state: 'in progress', worker: null, words: 'B28 · a worker is on it' } }])
@@ -395,7 +398,8 @@ test('the Focus page: a block made in the round is "New" with a "new" tag in All
     await page.click('[data-focus-blocks="open"]')
     const last = page.all('.focus-open-block').at(-1)
     assert.equal(last.querySelector('.focus-open-line').textContent, 'New: every bench has a lantern')
-    assert.equal(last.querySelector('.focus-chip').textContent, 'On the list for a worker')
+    // P7: B40's refine is not ready, so the hand-out holds it: the chip says so in the hand-out's words.
+    assert.equal(last.querySelector('.focus-chip').textContent, 'Held: B40 · its refine is not ready')
   } finally {
     await page.close()
   }

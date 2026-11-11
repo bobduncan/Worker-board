@@ -429,6 +429,34 @@ export function triedWords(attempts, timeOf) {
 }
 
 /**
+ * The chats owed an answer: the partner for each open ask routed to it (`Route: partner`), the main chat for each routed to it (`Route: main`).
+ * `items` the store's items (null: none), `chats` `{ main, partner }` the two names.
+ */
+export function owedChatsOf(items, { main = null, partner = null } = {}) {
+  const owed = new Set()
+  for (const item of items?.values?.() ?? []) {
+    if (item.head.get('Kind') !== 'ask' || item.head.get('State') !== 'open') continue
+    const route = item.head.get('Route')
+    if (route === 'partner' && partner !== null) owed.add(partner)
+    if (route === 'main' && main !== null) owed.add(main)
+  }
+  return owed
+}
+
+/**
+ * P5 (the review of 2026-11-11): whether nothing waits for a chat that does not run: it holds no taken or in-progress step, has none queued, no
+ * word of the outbox waits for it (of any command) and the board is not paused. `outbox` the outbox's lines.
+ */
+export function nothingWaitsFor(lane, { outbox = [], isPaused = false, owed = null } = {}) {
+  if (isPaused || lane === null || lane === undefined) return false
+  // An open ask routed to this chat (the partner's or the main chat's): it is owed an answer, whatever its wake list says.
+  if (owed instanceof Set && owed.has(lane.name)) return false
+  if (heldStepOf(lane).held.length > 0 || (lane.held ?? null) !== null || lane.handover?.state === 'held') return false
+  if ((lane.queue ?? []).length > 0) return false
+  return !(outbox ?? []).some(message => message?.state === 'waiting' && message.to === lane.name)
+}
+
+/**
  * The ONE attention text of the board's wake-ups (decision 6), `{ tone: 'attention', text }` or null, from `targets`: every
  * chat that does not run, `{ chat, spell, paths, need }` (`need` true when `wakeNeeds` names it). Per chat whose wake
  * failed on every path it could take in its spell (`wakeOf` final; the review of 2026-11-02: for the whole spell, need or
@@ -436,11 +464,23 @@ export function triedWords(attempts, timeOf) {
  * (launched 10:32); no report after the message (sent 10:35 by Advisor); open its chat". "nobody answers the board's
  * wake-ups: open any chat" first when the board-wide spell's launch failed, or no sender claims and every need (at least
  * one) failed or waits for a chat that can send. Replaces nobodyRunsText, wakeFailedText and openerNote.
+ * P5 (2026-11-09, src/stillTrue.mjs): `reports` the kept reports by chat name (an object or a Map, `{ state, at, run }`): a chat that ran since
+ * its failed wake (`ranSince`) leaves the notice, the line is stale. A chat nothing waits for any more (`need.need === false`) gets a QUIET line
+ * ("could not wake X at 10:32; nothing waits for it now", only for a chat in `nothingWaits`, a Set of chat names): the tone is 'quiet' when every line is quiet, 'attention' as soon as one is not.
  */
-export function noticeOf(record, targets, now, timeOf, { senderClaims = false, senderSince = -Infinity, nobody = null } = {}) {
+export function noticeOf(record, targets, now, timeOf, { senderClaims = false, senderSince = -Infinity, nobody = null, reports = null, nothingWaits = null } = {}) {
+  const reportOf = chat => (reports instanceof Map ? reports.get(chat) : reports?.[chat]) ?? null
   const wakes = (targets ?? []).map(need => ({ need, wake: wakeOf(record, need, { senderClaims, senderSince }) }))
-  const failed = wakes.filter(one => one.wake.final)
+  const failed = wakes.filter(one => one.wake.final && !ranSince(record, one.need.chat, one.need.spell ?? null, reportOf(one.need.chat), now))
+  const quiet = []
   const lines = failed.map(({ need, wake }) => {
+    // `need.need === false` says only that the wake list does not name the chat now: the line is quiet only for a chat the caller says nothing
+    // waits for (`nothingWaits`, `nothingWaitsFor`: no step held, none queued, no word waiting, no pause); else it stays the attention line.
+    if (need.need === false && nothingWaits instanceof Set && nothingWaits.has(need.chat)) {
+      const text = `could not wake ${need.chat} at ${timeOf(failedAtOf(record, need.chat, need.spell ?? null) ?? now)}; nothing waits for it now`
+      quiet.push(text)
+      return text
+    }
     const tried = [NOT_LISTED_WHY, NOT_SHOWN_WHY, OTHER_ACCOUNT_WHY].includes(wake.why) ? [wake.why, ...triedWords(wake.attempts, timeOf)]
       : wake.why === 'no id' && wake.attempts.length === 0 ? ['the board has no id to reach it'] : triedWords(wake.attempts, timeOf)
     return `could not wake ${need.chat}: ${tried.join('; ') || wake.why}; open its chat`
@@ -450,7 +490,7 @@ export function noticeOf(record, targets, now, timeOf, { senderClaims = false, s
   const needs = wakes.filter(one => one.need.need !== false)
   const isEveryone = senderClaims !== true && needs.length > 0 && needs.every(one => one.wake.final || one.wake.state === 'waiting-sender')
   if (isBoardFailed || isEveryone) lines.unshift('nobody answers the board\'s wake-ups: open any chat')
-  return lines.length === 0 ? null : { tone: 'attention', text: lines.join(' · ') }
+  return lines.length === 0 ? null : { tone: lines.every(line => quiet.includes(line)) ? 'quiet' : 'attention', text: lines.join(' · ') }
 }
 
 /**
