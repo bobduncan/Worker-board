@@ -758,6 +758,9 @@ chat itself. Then send it one line with SendMessage to its session id, "Restarte
 which starts it on the new mod (the board's `start "<main chat>"` only has a chat that runs wake it; this line is what puts it on the new mod), and it starts the others. When the archive is refused (a turn, a queued
 message, a background agent, the app's safety check), do nothing more: the board asks again in half an hour; when Remote Control is on for it,
 leave it and tell the user in one line. Say nothing else about it in your chat.
+The board's word `unarchive chat` with "Chat:" (the main chat), "Session:" and "Why:" (the Workers mod release 0.32.0): the main
+chat is still archived after its restart (the archive went, the unarchive did not): `unarchive_session` it, nothing else, archive
+nothing; the board asks again in half an hour while it stays archived.
 
 ## Recaps
 

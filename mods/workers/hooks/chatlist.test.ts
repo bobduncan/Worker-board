@@ -888,6 +888,47 @@ describe('what the person answers on the worker board reaches the chat it is for
     expect(listed).toContain('● Units  Working')
   })
 
+  test('0.32.0, point 2: a fresh board verdict that this chat holds nothing clears the card\'s stale task, once, with why; not in the board\'s start window, not while the person pauses, not from an older board', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const w = world('units', { ...listed({
+      units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 3, 5, 40), at: 0 },
+      cleanup: { name: 'Cleanup', role: 'worker', state: 'waiting', task: null, at: 0 },
+    }), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    const verdict = (held: unknown, startedAt: unknown): { status: number; text: string } => ({ status: 200, text: JSON.stringify({ messages: [], startedAt, statuses: [status('Units', 'Free', { held }), status('Cleanup', 'Free', { held: null })] }) })
+    // The board in its start window (started 60 s ago): the verdict does not count; the card keeps its task.
+    w.takeAnswers.push(verdict(null, 1_000_000 - 60_000))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    // An older board (no startedAt): neither.
+    w.takeAnswers.push(verdict(null, undefined))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    // The board says Units holds B13 (the step the card is on): nothing to clear.
+    w.takeAnswers.push(verdict({ id: 'B13', title: 'Skeleton Archer', time: null }, 1_000_000 - 600_000))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    // While the person pauses: nothing.
+    w.pauseAnswer = { text: 'x', state: 'pausing', since: 1_000_000, forChat: { holds: [], mustStop: true }, resumeList: [] }
+    w.takeAnswers.push(verdict(null, 1_000_000 - 600_000))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    w.pauseAnswer = RUNNING
+    // The pause reading is kept a while (PAUSE_MS): the resume shows once the mod reads it anew.
+    await clock.advance(70_000)
+    // A fresh verdict, the board well past its start: the task was given back, stopped or dropped on the board: the card is cleared, with why.
+    w.takeAnswers.push(verdict(null, 1_000_000 - 600_000))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task).toBeNull()
+    expect(fileOf(w)?.clearNote?.why).toBe('the board gives this chat no task now: "Skeleton Archer" was given back, stopped or dropped')
+    // The pane says Free with no task for Units (the board's verdict), as the list does.
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
+    for (let i = 0; i < 10; i++) await settle()
+    expect((await ui.find(lineOf('Units')))?.text).toStartWith('○ Units  Free')
+    expect((await ui.find(lineOf('Units')))?.text).not.toContain('Skeleton Archer')
+  })
+
   test('2c: after 120 s with no statuses the pane reads its own files again and marks the line; a fresh process is not marked', async ($, on) => {
     const { w, clock, ui, text } = await paneWorld($, on)
     // The board answers nothing for a while (down): a fresh process (under 120 s) shows today's line, no mark.

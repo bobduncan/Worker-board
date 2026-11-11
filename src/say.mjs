@@ -697,7 +697,7 @@ export function spawnWhenAlone(state, outbox, lines) {
 
 /** The commands the board puts to a chat other than the main one: a word the chat's work stands on (`isWakeWord`). */
 // B570: and the board's word that asks the partner to restart the main chat on a new Workers mod.
-const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'obsolete-check', 'recap-feedback', 'recap-round', ...FOCUS_COMMANDS]
+const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'mod-unarchive', 'obsolete-check', 'recap-feedback', 'recap-round', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
 
 /** 2026-10-26: the command of the board's word that has a worker holding a step go on from its checkpoint (`resumesDue`). */

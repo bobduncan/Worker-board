@@ -490,15 +490,18 @@ export type PaneLine = { mark: string; text: string; isYours: boolean; isBold: b
  */
 export function lineOf(chat: ChatFile, all: readonly ChatFile[], now: number, off: readonly string[] = [], board: BoardFacts = {}): PaneLine {
   const reading = board.reading ?? 'plain'
-  const entry = reading === 'board' ? board.statuses?.find(one => one.name.toLowerCase() === chat.name.toLowerCase()) : undefined
+  const known = board.statuses?.find(one => one.name.toLowerCase() === chat.name.toLowerCase())
+  const entry = reading === 'board' ? known : undefined
   if (entry === undefined) {
-    const own = status(chat, all, now, off)
+    // 0.32.0, point 2: the pane's own reading never shows a task the board last said was none (the Advisor's "waiting" card of 09:54).
+    const own = status(known?.held === null && chat.role !== 'main' ? { ...chat, task: null } : chat, all, now, off)
     return { ...own, isBold: own.isYours, notReached: reading === 'unreached' }
   }
   const { mark, isYours } = statusMark(entry.status, chat.role)
-  // 7c (0.30.0): the step the board knows the chat holds, with the row's time, in place of the card's task text; a chat that
-  // holds none by the board's records (or an older board's entry) keeps the card's words.
-  const task = entry.held === undefined || entry.held === null ? taskPart(chat, all, now) : heldText(entry.held)
+  // 7c (0.30.0): the step the board knows the chat holds, with the row's time, in place of the card's task text; an older board's
+  // entry (no `held`) keeps the card's words. 0.32.0, point 2: a chat that holds none by the board's records shows NO task: the
+  // card's is stale (given back, stopped or dropped), and its own mod clears it.
+  const task = entry.held === undefined || chat.role === 'main' ? taskPart(chat, all, now) : entry.held === null ? null : heldText(entry.held)
   return { mark, text: task === null ? statusLabel(entry, now) : `${statusLabel(entry, now)}  ${task}`, isYours, isBold: entry.tone === 'attention', notReached: false }
 }
 

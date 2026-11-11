@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
+import { LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -156,6 +156,51 @@ describe('Task 6 (0.31.0): words the app merged into one prompt have all entered
     expect(wordsIn(approved, 'B13: approved, but wait')).toEqual([])
   })
 
+  test('0.32.0 (chat 1\'s review): a word counts only with its WHOLE text in the prompt; a long one by its head and its tail; one stretch that matches two words reports neither', () => {
+    // The first 200 characters of a word in the prompt, the rest not: no match (the mutant "the head is enough" would report w1).
+    const long = 'L'.repeat(LONG_WORD_CHARS) + ' middle words of the long word ' + 'T'.repeat(LONG_WORD_TAIL)
+    const words = wordTyping(wordTyping(NO_TURN_WORDS, 'w1', long), 'w2', 'work: B13 is yours; run work next')
+    expect(wordsIn(words, `${long.slice(0, LONG_WORD_CHARS)} and then something else`)).toEqual([])
+    // Head and tail both in the prompt, the tail after the head: a match, also when the app re-wrapped the middle.
+    expect(wordsIn(words, `${long.slice(0, LONG_WORD_CHARS)}  re-wrapped  middle  ${long.slice(-LONG_WORD_TAIL)}`)).toEqual(['w1'])
+    // The tail alone, or the tail before the head: no match.
+    expect(wordsIn(words, `${long.slice(-LONG_WORD_TAIL)} ${long.slice(0, LONG_WORD_CHARS)}`)).toEqual([])
+    // A word of ordinary length needs its whole text: its first half in the prompt is nothing.
+    expect(wordsIn(words, 'work: B13 is yours; and more')).toEqual([])
+    expect(wordsIn(words, `the person wrote this\n\nwork: B13 is yours; run work next`)).toEqual(['w2'])
+    // Two open words with the same opening (two "work next" lines): the one stretch matches both, so neither is reported; a third, distinct word still is.
+    const same = wordTyping(wordTyping(wordTyping(NO_TURN_WORDS, 'a1', 'work: B13 is yours; run work next'), 'a2', 'work: B13 is yours; run work next'), 'a3', 'asset A224 ready: C:/p/.claude/assets/A224')
+    expect(wordsIn(same, 'work: B13 is yours; run work next\n\nasset A224 ready: C:/p/.claude/assets/A224')).toEqual(['a3'])
+    expect(turnBegan(same, 'work: B13 is yours; run work next', 9).word).toBeNull()
+    expect(LONG_WORD_CHARS).toBe(200)
+    expect(LONG_WORD_TAIL).toBe(80)
+  })
+
+  test('0.32.0: an envelope\'s line is no take word: the turn\'s start reports only the take words the prompt holds', () => {
+    const words = wordTyping(wordTyping(NO_TURN_WORDS, 'env1', 'hand-over\n\nwork: B13 is yours; run work next', true), 'm9', 'B13: approved by the person on the board')
+    expect(takeWordsOf(words, ['env1', 'm9'])).toEqual(['m9'])
+    expect(words.typed.map(one => one.isEnvelope === true)).toEqual([true, false])
+  })
+
+  test('0.32.0, point 4: an envelope that comes with a take keeps the last turn\'s context only while no prompt or turn came since and for the same step', () => {
+    const last = { answer: 'Done: yes', asked: false, ended: { ok: true }, step: 'B13', since: { prompts: 4, turn: 2 } }
+    const clear = { id: 'e1', kind: 'clear' as const, step: 'B13', clear: { step: 'B13', reportedAt: 1 }, restart: false, set: null, line: 'work next', version: null }
+    expect(contextForTake(last, clear, { prompts: 4, turn: 2 })).toBe(last)
+    expect(contextForTake(last, clear, { prompts: 5, turn: 2 })).toBeNull()
+    expect(contextForTake(last, clear, { prompts: 4, turn: 3 })).toBeNull()
+    expect(contextForTake(last, { ...clear, clear: { step: 'B14', reportedAt: 1 } }, { prompts: 4, turn: 2 })).toBeNull()
+    // A plain line, or a restart, names no clear step: the context holds while the counts do.
+    expect(contextForTake(last, { ...clear, clear: null, kind: 'task' as const }, { prompts: 4, turn: 2 })).toBe(last)
+    expect(contextForTake(null, clear, { prompts: 4, turn: 2 })).toBeNull()
+    expect(contextForTake(last, null, { prompts: 4, turn: 2 })).toBeNull()
+  })
+
+  test('0.32.0, point 2: the take answer says when the board started; an older board says none', () => {
+    expect(parseTaken('{"messages":[],"startedAt":1700000000000}').boardStartedAt).toBe(1700000000000)
+    expect(parseTaken('{"messages":[],"startedAt":"x"}').boardStartedAt).toBeNull()
+    expect(parseTaken('{"messages":[]}').boardStartedAt).toBeNull()
+  })
+
   test('a word with no text enters nothing (an empty text is "in" every prompt)', () => {
     const words = wordTyping(NO_TURN_WORDS, 'empty', '')
     expect(wordsIn(words, 'anything')).toEqual([])
@@ -259,9 +304,9 @@ describe('the worker board, as the mod reads it', () => {
     // What cannot be typed is named, so the board can say it did not arrive.
     // B532: with why, so the board does not try it again and names the reason.
     expect(parseTaken(answer)).toEqual({ messages: [{ id: 'm1', text: 'Sheet B' }], refused: ['m2', 'm3', 'm4'],
-      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: true })
-    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: true })
-    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: false })
+      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: true, boardStartedAt: null })
+    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: true, boardStartedAt: null })
+    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: false, boardStartedAt: null })
     // B738: the chats the board shows as not running; anything that is no name is left out.
     expect(parseTaken('{"messages":[],"off":["Worker 5",3,""]}').off).toEqual(['Worker 5'])
     expect(parseTaken('{"messages":[],"off":"x"}').off).toEqual([])
@@ -500,7 +545,7 @@ describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
     // 0.27.3: the work tool says "goal definition" and takes definition-draft (this branch carried 0.27.1, the main branch is at 0.27.2).
-    expect(MOD_VERSION).toBe('0.31.0')
+    expect(MOD_VERSION).toBe('0.32.0')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {

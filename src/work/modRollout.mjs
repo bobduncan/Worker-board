@@ -16,6 +16,14 @@ export const RESTART_AGAIN_MS = 30 * MIN
 export const RESTART_TRIES = 3
 /** The outbox command of the word. */
 export const RESTART_COMMAND = 'mod-restart'
+/** The Workers mod release 0.32.0 (chat 1's review): the word that has a chat still archived after its restart for the mod unarchived. */
+export const UNARCHIVE_COMMAND = 'mod-unarchive'
+/** A chat archived this long after the restart word went (the archive done, the unarchive not: a restart of the board or of the restarter in between) gets the word. */
+export const UNARCHIVE_AFTER_MS = 5 * MIN
+/** The word goes again after this long while the chat is still archived. */
+export const UNARCHIVE_AGAIN_MS = 30 * MIN
+/** A restart word older than this is no longer the cause of an archive. */
+const RESTART_WORD_KEPT_MS = 24 * 60 * MIN
 
 const HOLDS = ['taken', 'in progress', 'waiting on you']
 const LOST = ['expired', 'failed', 'dropped']
@@ -27,6 +35,39 @@ const clockOf = ms => { const at = new Date(ms); return `${String(at.getHours())
 const valueOf = (item, key) => {
   const found = item?.head?.get(key)
   return found === undefined || found === '' || found === '-' ? null : found
+}
+
+/**
+ * The word that asks `to` (the restarter: the main chat, the partner for the main chat) to unarchive `chat`, which stayed archived
+ * after its restart for the mod (the account-switch lesson: an archived real chat must always come back). One message of the outbox.
+ */
+export function unarchiveWords({ to, chat, session, why }) {
+  const id = typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? [`Session: ${session}`] : []
+  return { to, ask: null, step: null, title: null, version: null, verdict: null, command: UNARCHIVE_COMMAND, about: chat, text: ['unarchive chat', `Chat: ${chat}`, ...id, `Why: ${why}`].join('\n') }
+}
+
+/**
+ * The chats still archived in the app a while after the board's restart word for them (`archived`: the app's archived chats of the
+ * project, `{ name, session }` each, the name without the prefix): a word to the restarter for each, `[{ to, chat, session, why }]`,
+ * once per UNARCHIVE_AGAIN_MS while it stays archived; none for a chat with no restart word of the last day (the person archived it),
+ * none for the first UNARCHIVE_AFTER_MS after the restart word (the restarter is at it). The outbox is the memory across the board's
+ * restarts (its words are kept a day): nothing else needs a file.
+ */
+export function archivedAfterRestart({ archived = [], sent = [], now, main = null, partner = null, prefix = '' }) {
+  const words = []
+  for (const chat of archived) {
+    if (typeof chat?.name !== 'string' || chat.name.trim() === '') continue
+    const restart = sent.filter(message => message.command === RESTART_COMMAND && plain(message.about, prefix) === plain(chat.name, prefix) && now - message.at < RESTART_WORD_KEPT_MS && !LOST.includes(message.state)).at(-1)
+    if (restart === undefined || now - restart.at < UNARCHIVE_AFTER_MS) continue
+    const asked = sent.filter(message => message.command === UNARCHIVE_COMMAND && plain(message.about, prefix) === plain(chat.name, prefix) && message.at >= restart.at)
+    const last = asked.at(-1)
+    if (last !== undefined && now - last.at < UNARCHIVE_AGAIN_MS) continue
+    const to = main !== null && plain(chat.name, prefix) === plain(main, prefix) ? partner : main
+    if (to === null || to === undefined || plain(to, prefix) === plain(chat.name, prefix)) continue
+    const minutes = Math.floor((now - restart.at) / MIN)
+    words.push({ to, chat: chat.name, session: chat.session ?? null, why: `${chat.name} is still archived ${minutes} min after its restart for the mod (asked at ${clockOf(restart.at)}): unarchive it, archive nothing` })
+  }
+  return words
 }
 
 /**

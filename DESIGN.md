@@ -4622,6 +4622,49 @@ do this so it doesnt try to double assign work to a singler worker if it expect 
   worker), and `advance` never queues a step without a chat.
 - Tests: `test/work/autoQueueFixes.test.mjs`.
 
+## The Workers mod release 0.32.0: everything that waited for a mod release (2026-11-11)
+
+The person (2026-11-11): the three held items one at a time; the mod release the second. Chat 1's brief and review
+(.claude/plans/2026-11-11-workers-mod-release-design.md). The board's side of each point lands in the same branch, and a board ahead of
+a chat's mod behaves as before for that chat (the call's header says the mod).
+
+1. **A merged prompt reports every word** (board.ts `wordsIn`, register.tsx the turn's start): a word counts only with its WHOLE text
+   in the prompt; one over `LONG_WORD_CHARS` (200) by its first 200 and its last 80 characters both in it, the tail after the head;
+   where one stretch of the prompt matches two open words (the same opening), neither is reported, never a guess. Also a word the
+   chat's previous process typed: the typed words are kept in the mod's store (`TYPED_KEY`) across a restart or a clear, and
+   `wordsIn` reads them; an envelope's line (`isEnvelope`) is never reported typed by the turn (its outcome is its own,
+   `takeWordsOf`). A report that failed at the turn's start (the board's file unreadable) is told again at the turn's end.
+2. **A stale Workers-pane card is cleared** (register.tsx `clearStaleCard`, chats.ts `lineOf`): the take answer carries the board's
+   `startedAt` (server.mjs); a FRESH verdict (this take's statuses) that this chat holds nothing (`held` null, a board of 0.30.0 or
+   newer) while the card names a task clears the card once, with why ("the board gives this chat no task now: ... was given back,
+   stopped or dropped"), never in the board's first two minutes (`BOARD_START_WINDOW_MS`), never while the person pauses, never in a
+   turn of the chat, never from an older board (no `held`, no start). The pane shows no task the board says is none, fresh or in
+   its own fallback reading; the main chat's "waiting for N workers" is no card task and stays.
+3. **The block/unblock tool text** names a wait on a chat ("the chat whose answer you wait for, with why: the board shows you as
+   waiting on purpose") and rule 15's hold (`note still stands:`, `withdraw`).
+4. **The envelope at the next take keeps the turn's context** (board.ts `contextForTake`, register.tsx `lastTurn`): a turn's end
+   leaves its answer, asked, the board's answer, its step and the prompt and turn counts; an envelope that comes with a take uses them
+   only while no new prompt or turn came since and its clear names the same step (or none); else the take's empty context as before.
+   The board may later answer turn-ended at once and hand the envelope at the take (board-fast-answer's next step), only for a mod of
+   0.32.0 or newer by the call's header; `setOnSequence` keeps reading `parseHandover(ended) !== null`. Not in this release.
+5. **judgeTurnEnded on the named word** (judgeWord.mjs `judgeWordNamed`, supervisor/index.mjs): the mod's turn-ended carries `word`,
+   the outbox id its turn ran on (8c); the board ends that judge word when it is one to the Supervisor's chat, else the newest in
+   flight as before (an older mod, a turn no word started).
+- **The rollout's guard** (chat 1's review, the account-switch lesson): an archived real chat must always come back. The board reads
+  the app's archived chats of the project; one still archived five minutes after its `restart for mod` word (the archive went, the
+  unarchive did not: a restart of the board or of the restarter in between) gets its restarter the word `unarchive chat` (command
+  `mod-unarchive`, a partner word; modRollout.mjs `archivedAfterRestart`, `unarchiveWords`; roles/main.md, roles/partner.md:
+  `unarchive_session` it, archive nothing), again every half hour while it stays archived; the outbox (its words kept a day) is the
+  memory across the board's own restarts, so no file is needed.
+- **The release**: version 0.32.0 (plugin.json, `MOD_VERSION`); land.ps1 runs the app's `claude.exe plugin test .` beside `npm test`
+  when mods/workers changed; after the landing the merging chat runs `plugin marketplace update worker-board` and `plugin update
+  workers@worker-board` once (roles/worker.md B570). A chat takes the mod only when its process starts anew: the rollout restarts
+  idle non-worker chats through Main or the partner (archive + unarchive), workers through their hand-over envelope between steps; a
+  chat still on the old mod after 30 minutes shows in Needs your attention (B541). The person picks the moment.
+- Pinned by the mod's tests (board.test.ts: the whole-text rule, the long word, the clash, the envelope word, `contextForTake`,
+  `startedAt`; chats.test.ts: the pane with `held` null and its fallback; chatlist.test.ts: the card cleared through a take with its
+  three guards), `test/modRollout.test.mjs` (the unarchive words) and `test/judgeWordNamed.test.mjs`.
+
 ## Clear after each step (2026-10-23)
 
 Measured on 2026-10-23: 73% of all the project chats' usage was the model reading long histories again (300k to 700k

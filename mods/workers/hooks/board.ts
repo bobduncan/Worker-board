@@ -33,7 +33,7 @@ export type TurnReport = { state: 'busy' | 'idle' | 'asking' | 'ended'; since: n
  */
 export type TurnWords = { typed: TypedWord[]; word: string | null; turn: number | null }
 /** 8c: a word of ours typed into the chat: the outbox id, the text exactly as submitted, and whether the submit said it entered. */
-export type TypedWord = { id: string; text: string; isEntered: boolean }
+export type TypedWord = { id: string; text: string; isEntered: boolean; isEnvelope?: boolean }
 export const NO_TURN_WORDS: Readonly<TurnWords> = Object.freeze({ typed: [], word: null, turn: null })
 /** 8c: the most words kept on their way; the oldest goes first (a word whose turn never came, its prompt held by the app). */
 export const TYPED_MOST = 20
@@ -41,10 +41,13 @@ export const TYPED_MOST = 20
 const sameWords = (a: unknown, b: unknown): boolean => String(a ?? '').replace(/\s+/g, ' ').trim() === String(b ?? '').replace(/\s+/g, ' ').trim()
 
 /** 8c: a word of ours about to be submitted (a take's message or an envelope's line), after those before it: outbox order. */
-export function wordTyping(words: TurnWords, id: string, text: string): TurnWords {
+export function wordTyping(words: TurnWords, id: string, text: string, isEnvelope = false): TurnWords {
   if (words.typed.some(one => one.id === id)) return words
-  return { ...words, typed: [...words.typed, { id, text, isEntered: false }].slice(-TYPED_MOST) }
+  return { ...words, typed: [...words.typed, { id, text, isEntered: false, ...(isEnvelope ? { isEnvelope: true } : {}) }].slice(-TYPED_MOST) }
 }
+
+/** 0.32.0: the take words (not an envelope's line, whose outcome is its own) among `ids`, as `wordsIn` names them. */
+export const takeWordsOf = (words: TurnWords, ids: string[]): string[] => ids.filter(id => words.typed.find(one => one.id === id)?.isEnvelope !== true)
 
 /** 8c: the submit of a word resolved: entered (no drop) it stays until its turn starts; dropped or refused it never runs. */
 export function wordSettled(words: TurnWords, id: string, isEntered: boolean): TurnWords {
@@ -84,14 +87,47 @@ const normal = (value: unknown): string => String(value ?? '').replace(/\s+/g, '
 export function wordsIn(words: TurnWords, text: string): string[] {
   const prompt = normal(text)
   if (prompt === '') return []
-  return words.typed.filter(one => {
+  // 0.32.0 (chat 1's review): a word counts only with its WHOLE text in the prompt; a long one (over LONG_WORD_CHARS) by its first
+  // LONG_WORD_CHARS and its last LONG_WORD_TAIL characters both in it, the tail after the head. Where one stretch of the prompt matches
+  // two open words (the same opening: two "work next" lines, two asset words), neither is reported: never a guess.
+  const hits = words.typed.map(one => {
     const own = normal(one.text)
-    return own !== '' && (sameWords(one.text, text) || (own.length >= MERGED_MIN_CHARS && prompt.includes(own)))
-  }).map(one => one.id)
+    if (own === '') return null
+    if (sameWords(one.text, text)) return { id: one.id, at: 0 }
+    if (own.length < MERGED_MIN_CHARS) return null
+    if (own.length <= LONG_WORD_CHARS) {
+      const at = prompt.indexOf(own)
+      return at < 0 ? null : { id: one.id, at }
+    }
+    const at = prompt.indexOf(own.slice(0, LONG_WORD_CHARS))
+    return at < 0 || prompt.indexOf(own.slice(-LONG_WORD_TAIL), at + LONG_WORD_CHARS) < 0 ? null : { id: one.id, at }
+  }).filter((one): one is { id: string; at: number } => one !== null)
+  const clashes = new Set(hits.filter(one => hits.some(other => other !== one && other.at === one.at)).map(one => one.at))
+  return hits.filter(one => !clashes.has(one.at)).map(one => one.id)
 }
+
+/** 0.32.0: a word longer than this is matched by its head and its tail (the app may re-wrap the middle of a merged prompt). */
+export const LONG_WORD_CHARS = 200
+/** 0.32.0: how much of a long word's end must be in the prompt too. */
+export const LONG_WORD_TAIL = 80
 
 /** Task 6, the whole-branch review: the shortest normalised word text that counts as one part of a longer merged prompt. */
 export const MERGED_MIN_CHARS = 24
+
+/**
+ * 0.32.0, point 4 of the release: what a turn's end left for an envelope that comes with a LATER take (the board may answer the
+ * turn's end at once and hand the envelope out at the next take): the turn's answer, whether it asked, the board's answer to its
+ * end, the step it reported, and the prompt and turn counts of that moment. `contextForTake` gives it to the envelope only while
+ * no new prompt or turn came since (`now` the counts at the take) and the envelope's clear names the same step (or no step at all);
+ * else null, and the take's empty context stands as before.
+ */
+export type TurnContext = { answer: string; asked: boolean; ended: Record<string, unknown> | null; step: string | null; since: { prompts: number; turn: number } }
+export function contextForTake(last: TurnContext | null, envelope: { clear: { step: string | null } | null; restart: boolean } | null, now: { prompts: number; turn: number }): TurnContext | null {
+  if (last === null || envelope === null) return null
+  if (last.since.prompts !== now.prompts || last.since.turn !== now.turn) return null
+  if (envelope.clear !== null && envelope.clear.step !== last.step) return null
+  return last
+}
 
 /** 8c: a /clear: the new conversation runs no word of the old one's queue, and no turn has run on a word in it yet. */
 export function wordsCleared(words: TurnWords): TurnWords {
@@ -116,7 +152,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.31.0'
+export const MOD_VERSION = '0.32.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -241,9 +277,11 @@ export function parseWhoami(text: string): Whoami | null {
  */
 export function parseTaken(text: string): TakenAnswer {
   const raw = parsed(text)
-  const taken: TakenAnswer = { messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: false }
+  const taken: TakenAnswer = { messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: false, boardStartedAt: null }
   if (!isRecord(raw)) return taken
   taken.isAnswer = true
+  // 0.32.0, point 2: when the board started (its first two minutes are its start window: the state is still being built).
+  taken.boardStartedAt = typeof raw.startedAt === 'number' && Number.isFinite(raw.startedAt) ? raw.startedAt : null
   // 2c (0.28.0): the board's status of every chat of its list (what its page draws), for the Workers pane. Null when the answer
   // has none (an older board); fields not named here are ignored.
   taken.statuses = parseStatuses(raw.statuses)
@@ -280,6 +318,8 @@ export type TakenAnswer = {
   messages: Taken[]
   refused: string[]
   why: Record<string, string>
+  /** 0.32.0: when the board started, or null (an older board). */
+  boardStartedAt: number | null
   clear: OwedClear | null
   off: string[]
   stop: StopAsk | null

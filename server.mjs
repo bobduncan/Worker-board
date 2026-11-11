@@ -2788,7 +2788,8 @@ async function main(args) {
     // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.
     // B760: by the state the board has, as the check of the call: work health's answer never waits for a whole read.
     if (supervisor !== null && ['health', 'incident', 'turn-ended'].includes(body?.action) && done.ok && laneRole(readState.last() ?? await readState(), checked.chat) === 'supervisor') {
-      afterAnswer(() => loops.run('supervisor-heard', () => supervisor.heard({ action: body.action, ok: true, session: typeof body.session === 'string' ? body.session : null, since: body.since ?? null })))
+      // Workers mod 0.32.0, point 5: `word`, the outbox id of the word the turn ran on, so the judge word that ended is the named one.
+      afterAnswer(() => loops.run('supervisor-heard', () => supervisor.heard({ action: body.action, ok: true, session: typeof body.session === 'string' ? body.session : null, since: body.since ?? null, word: typeof body.word === 'string' ? body.word : null })))
     }
     // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
     // And the partner's hand-over of a look that Autopilot keeps for the recap: the worker its blocking ask held goes on (`wake`).
@@ -3526,7 +3527,8 @@ async function main(args) {
         // Signals 7c: the held step's time in the row's words, at this moment.
         now: clock(),
       })
-      return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }), ...(statuses.length === 0 ? {} : { statuses }) } }
+      // Workers mod 0.32.0, point 2: when this board started, so the mod clears no card on a verdict of the board's first two minutes.
+      return { ok: true, result: { messages: fit.messages, startedAt, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }), ...(statuses.length === 0 ? {} : { statuses }) } }
     }),
     // B753: the board's hands in code. A running chat's Workers mod claims the start and wake words (whoever they are
     // addressed to) and, while resuming, a resume line for each chat that has not started; it sends each with the app's
