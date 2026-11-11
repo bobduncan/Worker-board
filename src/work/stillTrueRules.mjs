@@ -1,7 +1,7 @@
 // P5 (src/stillTrue.mjs): the two rules the board's re-check shares with the work API, so the server never trusts the list the check made: which
 // asks the re-check may withdraw, and when a Supervisor's alarm note is over. Pure.
 
-import { isRecapVerdictAsk, isTakenBack } from './autopilot.mjs'
+import { isGoalLevel, isRecapVerdictAsk, isTakenBack } from './autopilot.mjs'
 import { askStepOf } from './askStep.mjs'
 import { isKeptLook } from './keptLook.mjs'
 import { valueOf } from './item.mjs'
@@ -13,8 +13,14 @@ import { valueOf } from './item.mjs'
  * (`Via: form`) and the partner's refine questions (`Via: refine`).
  */
 export function stillTrueLeaves(item) {
+  // A goal's question is the person's verdict, not a step's: anything goal level (`isGoalLevel`, the conservative form: every goal counts as
+  // "not the focus") and anything whose title names a goal (G<n>), whatever the step it hangs under does.
+  if (isGoalLevel(item) || namesGoal(item)) return true
   return valueOf(item, 'Route') === 'recap' || isKeptLook(item) || isRecapVerdictAsk(item) || isTakenBack(item) || ['form', 'refine'].includes(valueOf(item, 'Via'))
 }
+
+/** Whether an ask's title names a goal (G<n>). */
+const namesGoal = item => /(?<![-\w])G\d+\b/.test(valueOf(item, 'Title') ?? '')
 
 /**
  * The step an ask is about for the re-check, or null. Its `Of` when that names a step; the first B<n> of its title ONLY for an ask routed to the
@@ -22,6 +28,8 @@ export function stillTrueLeaves(item) {
  */
 export function stillTrueStep(item) {
   const of = valueOf(item, 'Of')
+  // No title fallback for a title that names a goal: "When B1030 lands, start G61 with A or B?" is about G61.
+  if ((of === null || of === '') && namesGoal(item)) return null
   if (valueOf(item, 'Route') !== 'person' && (of === null || of === '')) return null
   return askStepOf(of, valueOf(item, 'Title') ?? '')
 }

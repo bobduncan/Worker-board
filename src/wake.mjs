@@ -429,11 +429,28 @@ export function triedWords(attempts, timeOf) {
 }
 
 /**
+ * The chats owed an answer: the partner for each open ask routed to it (`Route: partner`), the main chat for each routed to it (`Route: main`).
+ * `items` the store's items (null: none), `chats` `{ main, partner }` the two names.
+ */
+export function owedChatsOf(items, { main = null, partner = null } = {}) {
+  const owed = new Set()
+  for (const item of items?.values?.() ?? []) {
+    if (item.head.get('Kind') !== 'ask' || item.head.get('State') !== 'open') continue
+    const route = item.head.get('Route')
+    if (route === 'partner' && partner !== null) owed.add(partner)
+    if (route === 'main' && main !== null) owed.add(main)
+  }
+  return owed
+}
+
+/**
  * P5 (the review of 2026-11-11): whether nothing waits for a chat that does not run: it holds no taken or in-progress step, has none queued, no
  * word of the outbox waits for it (of any command) and the board is not paused. `outbox` the outbox's lines.
  */
-export function nothingWaitsFor(lane, { outbox = [], isPaused = false } = {}) {
+export function nothingWaitsFor(lane, { outbox = [], isPaused = false, owed = null } = {}) {
   if (isPaused || lane === null || lane === undefined) return false
+  // An open ask routed to this chat (the partner's or the main chat's): it is owed an answer, whatever its wake list says.
+  if (owed instanceof Set && owed.has(lane.name)) return false
   if (heldStepOf(lane).held.length > 0 || (lane.held ?? null) !== null || lane.handover?.state === 'held') return false
   if ((lane.queue ?? []).length > 0) return false
   return !(outbox ?? []).some(message => message?.state === 'waiting' && message.to === lane.name)

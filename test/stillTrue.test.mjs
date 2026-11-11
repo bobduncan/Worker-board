@@ -3,6 +3,7 @@
 // incidents are over: each comes down on its second pass (or a minute), with a record of why in the history. Made-up names throughout.
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,9 +14,10 @@ import { gapsOf, isCameDown, notWorkedCounter, parseHistory, startGap, taskFacts
 import { asksOf } from '../src/startupCheck.mjs'
 import { CHAIN_SHOWN, chainWordsOf, incidentCards } from '../src/supervisor/cards.mjs'
 import { BACKOFF_MS, MIN_AGE_MS, stillTrue, stillTruePass, wakeChatsOf } from '../src/stillTrue.mjs'
-import { claim, emptyWakes, noticeOf, nothingWaitsFor, pass, sent } from '../src/wake.mjs'
+import { claim, emptyWakes, noticeOf, nothingWaitsFor, owedChatsOf, pass, sent } from '../src/wake.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { parseItem } from '../src/work/item.mjs'
+import { stillTrueStep } from '../src/work/stillTrueRules.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { readStore, share, writeStore } from '../src/work/store.mjs'
 import { openPage } from './pageHarness.mjs'
@@ -46,7 +48,7 @@ function asksStore() {
     ask('Q5', 'B1', at(10, 0), { Route: 'person' }),
     step('B3', 'in progress', at(9, 0)), ask('Q6', 'B3', at(10, 0), { Route: 'partner' }),
     // No Of: the title's B<n> names the step only for an ask routed to the person.
-    make({ Id: 'Q13', Kind: 'ask', Title: 'After B1 lands, start G61 with A or B?', State: 'open', Owner: 'Digger', Since: stamp(at(10, 0)), Asks: 'decide', Blocking: 'no', Route: 'person' }),
+    make({ Id: 'Q13', Kind: 'ask', Title: 'After B1 lands, which colour, A or B?', State: 'open', Owner: 'Digger', Since: stamp(at(10, 0)), Asks: 'decide', Blocking: 'no', Route: 'person' }),
   ])
 }
 const factsOf = (items, now, more = {}) => ({ state: { wakeNotice: null }, items, outbox: [], wakes: null, reports: new Map(), now, ...more })
@@ -74,7 +76,7 @@ test('an ask of Route partner whose step ended after it comes down on the second
 /** The asks the board must leave alone whatever their step does (the review of 2026-11-11, the blocker), each about the done step B1. */
 function leftAloneStore() {
   const head = (id, more) => `Id: ${id}\nKind: ask\nTitle: Question ${id}\nState: open\nOwner: Digger\nSince: ${stamp(at(10, 0))}\nAsks: decide\nBlocking: no\nOf: B1\n${more}`
-  const titled = route => make({ Id: `Q2${route === 'partner' ? 6 : 7}`, Kind: 'ask', Title: 'After B1 lands, start G61 with A or B?', State: 'open', Owner: 'Digger', Since: stamp(at(10, 0)), Asks: 'decide', Blocking: 'no', Route: route })
+  const titled = route => make({ Id: `Q2${route === 'partner' ? 6 : 7}`, Kind: 'ask', Title: 'After B1 lands, which colour, A or B?', State: 'open', Owner: 'Digger', Since: stamp(at(10, 0)), Asks: 'decide', Blocking: 'no', Route: route })
   return itemsOf([
     step('B1', 'done', at(11, 0)),
     // A worker's decide routed to the recap WITHOUT a kept line: non-blocking, its step goes on; recapAnswered owns it.
@@ -189,7 +191,7 @@ test('the work API: asks-withdrawn with anyRoute takes a partner\'s ask (why nam
     // The review's blocker: a recap-routed decide with no kept line, a popup, a taken-back ask, and a partner ask only the title ties to the step.
     Q63: askFile('Q63', { Of: 'B50', Route: 'recap' }),
     Q64: askFile('Q64', { Of: 'B50', Route: 'partner', Via: 'form' }),
-    Q65: fileOf('Q65', { Id: 'Q65', Kind: 'ask', Title: 'After B50 lands, start G61 with A or B?', State: 'open', Owner: 'Digger', Since: '2026-11-09 10:00', Asks: 'decide', Blocking: 'no', Route: 'partner' }),
+    Q65: fileOf('Q65', { Id: 'Q65', Kind: 'ask', Title: 'After B50 lands, which colour, A or B?', State: 'open', Owner: 'Digger', Since: '2026-11-09 10:00', Asks: 'decide', Blocking: 'no', Route: 'partner' }),
     Q66: askFile('Q66', { Of: 'B50', Route: 'person' }, '\n## Route\nThe person took it back from the partner\n'),
   })
   const plain = await api(dir, 'server')({ action: 'asks-withdrawn', withdraw: [{ id: 'Q60' }, { id: 'Q61' }, { id: 'Q62' }] })
@@ -204,7 +206,7 @@ test('the work API: asks-withdrawn with anyRoute takes a partner\'s ask (why nam
   assert.equal((await api(dir, 'worker')({ action: 'asks-withdrawn', anyRoute: true, withdraw: [{ id: 'Q62' }] })).ok, false, 'still the board\'s alone')
 })
 
-test('the Supervisor\'s note gets Incidents from its text; it comes down once both incidents are over, not while one is open; the server takes it down with notes-came-down, which checks it again', async t => {
+test('the Supervisor\'s note gets Incidents from its `of` alone, never its words; it comes down once both incidents are over, not while one is open; the server takes it down with notes-came-down, which checks it again', async t => {
   const incident = (id, state) => fileOf(id, { Id: id, Kind: 'incident', Title: `Trouble ${id}`, State: state, Source: 'review-held', Subject: 'B12', Key: `k ${id}`, Since: '2026-11-09 09:00' })
   const dir = await storeDir(t, { X1: incident('X1', 'fix'), X2: incident('X2', 'open') })
   const made = await api(dir, 'server')({ action: 'note', to: 'you', text: ['Supervisor: X1 came back: stuck, and X2 with it'], of: 'X1', via: 'supervisor' })
@@ -212,7 +214,9 @@ test('the Supervisor\'s note gets Incidents from its text; it comes down once bo
   const read = async () => [...(await readStore(dir)).items.values()]
   const note = (await read()).find(one => one.head.get('Kind') === 'note')
   const id = note.head.get('Id')
-  assert.equal(note.head.get('Incidents'), 'X1, X2')
+  assert.equal(note.head.get('Incidents'), 'X1', 'from `of`: X2 is only quoted in its words')
+  // A note about two incidents carries the field the Supervisor itself writes.
+  await writeFile(join(dir, `${id}.md`), (await readFile(join(dir, `${id}.md`), 'utf8')).replace('Incidents: X1', 'Incidents: X1, X2'))
   const none = await api(dir, 'server')({ action: 'note', to: 'you', text: ['Information only'] })
   assert.equal((await read()).find(one => one.head.get('Id') === none.result.id).head.has('Incidents'), false)
   const run = async (now, apply = api(dir, 'server')) => stillTruePass({ facts: factsOf((await readStore(dir)).items, now), memory, apply, history: async lines => written.push(...lines) })
@@ -232,12 +236,67 @@ test('the Supervisor\'s note gets Incidents from its text; it comes down once bo
   assert.equal(done.head.get('State'), 'read')
   assert.match(await readFile(join(dir, `${id}.md`), 'utf8'), /came down: X1 fixed, X2 gone/)
   // An incident the store no longer holds is gone: the note comes down too.
-  const missing = await api(dir, 'server')({ action: 'note', to: 'you', text: ['Supervisor: X9 came back: lost'], via: 'supervisor' })
-  assert.equal(missing.ok, true)
+  await writeFile(join(dir, 'N90.md'), fileOf('N90', { Id: 'N90', Kind: 'note', From: 'server', To: 'you', Via: 'supervisor', Incidents: 'X9', State: 'unread', Since: '2026-11-09 10:00', Text: 'Supervisor: X9 came back: lost' }))
   const memory2 = new Map()
   await stillTruePass({ facts: factsOf((await readStore(dir)).items, NOW), memory: memory2, apply: api(dir, 'server') })
   const gone = await stillTruePass({ facts: factsOf((await readStore(dir)).items, NOW + LATER), memory: memory2, apply: api(dir, 'server') })
   assert.deepEqual(gone.map(one => one.why), ['came down: X9 gone'])
+})
+
+test('a Supervisor note that only quotes an incident ("Fix X12") has no Incidents: it stands when X12 is dropped', async t => {
+  const dir = await storeDir(t, {
+    B995: fileOf('B995', { Id: 'B995', Kind: 'step', Title: 'Step', State: 'review', Owner: 'Digger', Since: '2026-11-09 09:00' }),
+    X12: fileOf('X12', { Id: 'X12', Kind: 'incident', Title: 'Trouble', State: 'dropped', Source: 'review-held', Subject: 'B995', Key: 'k', Since: '2026-11-09 09:00' }),
+  })
+  const made = await api(dir, 'server')({ action: 'note', to: 'you', text: ['The Advisor refined B995 again after "Fix X12": refine or drop B995'], of: 'B995', via: 'supervisor' })
+  assert.equal(made.ok, true)
+  const note = [...(await readStore(dir)).items.values()].find(one => one.head.get('Kind') === 'note')
+  assert.equal(note.head.has('Incidents'), false)
+  const memory = new Map()
+  await stillTruePass({ facts: factsOf((await readStore(dir)).items, NOW), memory, apply: api(dir, 'server') })
+  const came = await stillTruePass({ facts: factsOf((await readStore(dir)).items, NOW + LATER), memory, apply: api(dir, 'server') })
+  assert.deepEqual(came, [])
+  assert.equal((await readStore(dir)).items.get(note.head.get('Id')).head.get('State'), 'unread')
+})
+
+test('goal-level questions never come down: a goal verdict under a step that went done, and a title that names a goal with no Of', async t => {
+  const dir = await storeDir(t, {
+    B1100: fileOf('B1100', { Id: 'B1100', Kind: 'step', Title: 'Step', State: 'done', Owner: 'Digger', Since: '2026-11-09 11:00' }),
+    B1030: fileOf('B1030', { Id: 'B1030', Kind: 'step', Title: 'Step', State: 'done', Owner: 'Digger', Since: '2026-11-09 11:00' }),
+    Q70: fileOf('Q70', { Id: 'Q70', Kind: 'ask', Title: 'Did we reach the goal G60? A/B', State: 'open', Owner: 'Advisor', Since: '2026-11-09 10:00', Asks: 'decide', Blocking: 'no', Of: 'B1100', Route: 'person' }),
+    Q71: fileOf('Q71', { Id: 'Q71', Kind: 'ask', Title: 'When B1030 lands, start G61 with A or B?', State: 'open', Owner: 'Advisor', Since: '2026-11-09 10:00', Asks: 'decide', Blocking: 'no', Route: 'person' }),
+    Q72: fileOf('Q72', { Id: 'Q72', Kind: 'ask', Title: 'Which colour for B1030?', State: 'open', Owner: 'Digger', Since: '2026-11-09 10:00', Asks: 'decide', Blocking: 'no', Of: 'B1030', Route: 'person' }),
+  })
+  const items = (await readStore(dir)).items
+  assert.deepEqual(asksOf(items, { anyRoute: true }).map(one => one.id), ['Q72'], 'only the plain question about its step is listed')
+  const memory = new Map()
+  await stillTruePass({ facts: factsOf(items, NOW), memory, apply: api(dir, 'server') })
+  const came = await stillTruePass({ facts: factsOf(items, NOW + LATER), memory, apply: api(dir, 'server') })
+  assert.deepEqual(came.map(one => one.id), ['Q72'])
+  // No title fallback for a title that names a goal, whatever the leave-alone rules say (each rule stands on its own).
+  assert.equal(stillTrueStep(items.get('Q71')), null)
+  assert.equal(stillTrueStep(make({ Id: 'Q73', Kind: 'ask', Title: 'After B1030 lands, which colour?', Route: 'person' })), 'B1030', 'a plain title keeps the person-route fallback')
+  // The work API checks them again itself.
+  const direct = await api(dir, 'server')({ action: 'asks-withdrawn', anyRoute: true, withdraw: [{ id: 'Q70' }, { id: 'Q71' }] })
+  assert.deepEqual(direct.result.withdrawn, [])
+  const after = (await readStore(dir)).items
+  assert.deepEqual([after.get('Q70').head.get('State'), after.get('Q71').head.get('State')], ['open', 'open'])
+})
+
+test('an off partner or main chat with an open ask routed to it keeps the attention line: it is owed an answer', () => {
+  const items = itemsOf([
+    ask('Q1', 'B1', at(10, 0), { Route: 'partner' }), ask('Q2', 'B1', at(10, 0), { Route: 'main' }),
+    make({ Id: 'Q3', Kind: 'ask', Title: 'Answered', State: 'answered', Owner: 'Digger', Since: stamp(at(10, 0)), Route: 'person' }),
+  ])
+  const names = { main: 'Lead', partner: 'Advisor' }
+  assert.deepEqual([...owedChatsOf(items, names)].sort(), ['Advisor', 'Lead'])
+  assert.deepEqual([...owedChatsOf(itemsOf([ask('Q4', 'B1', at(10, 0), { Route: 'person' })]), names)], [])
+  assert.deepEqual([...owedChatsOf(null, names)], [])
+  const lane = { name: 'Advisor', storeSteps: [], queue: [], held: null }
+  assert.equal(nothingWaitsFor(lane, {}), true)
+  assert.equal(nothingWaitsFor(lane, { owed: owedChatsOf(items, names) }), false)
+  assert.equal(nothingWaitsFor({ ...lane, name: 'Digger' }, { owed: owedChatsOf(items, names) }), true, 'another chat is not owed')
+  assert.ok(readFileSync(join(import.meta.dirname, '..', 'src', 'state.mjs'), 'utf8').includes("owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null })"), 'the state passes it')
 })
 
 test('the read action stays the person alone; notes-came-down is the board alone, takes ids only and checks each note itself', async t => {

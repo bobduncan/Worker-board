@@ -59,7 +59,7 @@ import { refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { withLinks } from './work/links.mjs'
 import { clearOwed, clearedStageOf, modAtLeast } from './clearOwed.mjs'
-import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, nothingWaitsFor, pathsOf, spellOf, failedAtOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
+import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, nothingWaitsFor, owedChatsOf, pathsOf, spellOf, failedAtOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
 import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, recapWaitingOf, standingAsksOf } from './recapCard.mjs'
@@ -2978,7 +2978,7 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now }) {
   return {
     ...built, chats, ...roles,
     // P5: the kept reports the lanes read (the same `lane.report` the hasRunSince above reads), so the notice itself leaves out a chat that ran since its failed wake.
-    wakeNotice: noticeOf(record, targets, now, hourMinute, { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }),
+    wakeNotice: noticeOf(record, targets, now, hourMinute, { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }),
     wakes: newestSpells(record),
     // The review of 2026-11-02 (7): the board-wide spell now (nobody runs since), for the rule nobody-answers-wakes.
     wakeBoardSince: nobody?.since ?? null,

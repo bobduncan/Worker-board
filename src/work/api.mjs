@@ -2520,9 +2520,10 @@ async function partnerSetting(body, w) {
 
 async function makeNote(w, to, text, of, via = null, from = w.who) {
   const id = await nextId(w.dir, 'N', w.fs)
-  // P5: the Supervisor's note names the incidents it is about (X<n> in its words or its About), so the board can take it down once they are
-  // fixed or gone (src/stillTrue.mjs); a note of no incident has no such field.
-  const incidents = via === 'supervisor' ? [...new Set([...(text.join(' ').match(/\bX\d+\b/g) ?? []), ...(typeof of === 'string' && /^X\d+$/.test(of) ? [of] : [])])] : []
+  // P5: the Supervisor's note about an incident names it (`Incidents`), so the board can take it down once it is fixed or gone (src/stillTrue.mjs).
+  // Only from `of` (the incident the note is about), never from the words: a note about B995 that quotes "Fix X12" is about B995 and must
+  // stand when X12 is dropped.
+  const incidents = via === 'supervisor' && typeof of === 'string' && /^X\d+$/.test(of) ? [of] : []
   const item = said({
     head: new Map([['Id', id], ['Kind', 'note'], ['From', from], ['To', to], ...(via === null ? [] : [['Via', via]]), ...(incidents.length === 0 ? [] : [['Incidents', incidents.join(', ')]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', line(text.join(' '), LINE_CHARS)]]),
     sections: new Map([['Text', text], ...(of === null ? [] : [['About', [of]]])]),
