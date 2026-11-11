@@ -518,7 +518,9 @@ Undo."; Off, "Questions come to you as before."
   pictures, or an own-senses do the main chat or the partner handed on; Autopilot keeps them for the recap) is a row of the popup, in
   its section "Looks kept for your recap": its title and words (their links are links), pictures, **Play** link (the ask's own `## Play`,
   else that of the ask its words link: Q616 "reopen the Q600 play link" carries Q600's map) and Approve ("Done" for a do) / Send back
-  with a note, part of the same Send; the Send answers it as its window's form would and wakes the chat that asked. The recap is done
+  with a note, part of the same Send; the Send answers it as its window's form would and wakes the chat that asked. Its own window
+  (where the card leads while no recap is made yet; G95's Q740, 2026-11-12) shows the same: its pictures large, Play, and its options
+  as choices: Looks right needs a pick, which goes with the verdict, and Send back takes the pick and the note. The recap is done
   ("Every part is approved") only when no kept look or do still waits; else the page and the partner's word say how many wait. An ask
   the recap closes (a row's verdict named in its words, or waiting under a step) is written `Answered by: recap` and is never your slim
   "Answered" card. In Open now and All work blocks a block with a row ready or a kept look of its steps reads "Waits for your verdict in
