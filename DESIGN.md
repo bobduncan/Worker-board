@@ -7105,14 +7105,17 @@ Codex" or Working, the person chose Working: the task's work goes on, done by Co
   (`limit: { why: STOPPED_WHY, until: now, tries }`: no time to wait, the try counted toward `LIMIT_TRIES` as the usage-limit waits)
   and the next pass draws it; past the cap it fails with why "(the board tried it 3 times)" and the chat is told.
 - **Every final failure's word reaches its chat**: `tell` answers false when the board's state showed no such chat (right after a
-  start), and the queue tells again at every pass until it went (`untold`); the delivery sweep's resends (workLines.mjs
-  `assetResends`, with `now`) send a final request's word, ready or failed, once more when it ended over a minute ago and NO word to
-  that chat names it (the queue's word lost in a restart in between), while its step is still that chat's and in progress.
+  start), and the queue tells again at every pass for a minute (`untold`); past the minute the delivery sweep owns the word (never two
+  words for one request): its resends (workLines.mjs `assetResends`, with `now`) send a final request's word, ready or failed, once
+  when it ended over a minute ago and NO word to that chat names it (the queue's word lost, or a restart in between), while its step is
+  still that chat's (taken, in progress or waiting on the person).
 - **A background wait with no news shows** (chatStatus.mjs, assetWait.mjs `backgroundNoNewsOf`): a lane whose turn ended with
   background work (`heldBy` background) and that has run no turn for over 30 running minutes while its steps' asset requests are
   all final reads "Working · background task since 13:50, no news" (quiet), with the warn colour after 60 minutes (the status's
-  `attention`, the page's `is-late` on a Working pill); nothing for an ordinary background task without requests, and while a
-  request is open the lane says what Codex does (the asset work now comes before the background hold in `laneFromReport`).
+  `attention`, the page's `is-late` on a Working pill); nothing for an ordinary background task without requests, nothing when the
+  last request ended before the turn ended (the chat has its pictures: a later test gate or watch is its own), and while a request is
+  open the lane says what Codex does (the asset work now comes before the background hold in `laneFromReport`; the pause's safe point
+  still counts real background work as a running turn by the report, pause.mjs `runsTurn`).
   Pinned by `test/assetStopRerun.test.mjs` (the three points on the live case, each with its mutant).
 - **The person's own file** (a `manual` provider, mode person): the wait is the person's, not work: a stopped holder is parked, P1's
   shape with kind asset (`assetSuspension`: "Paused · waits for your file (A230) since 10:43"), the timers off, Resume all skips it,

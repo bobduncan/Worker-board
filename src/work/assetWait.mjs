@@ -217,12 +217,17 @@ export function assetFailureOf(step, assets, { chat = null, prefix = '', now = D
  * mod's report) and that has run no turn since `since`, while its steps' asset requests are all final (a word about the last one
  * never came, or the chat missed it): `{ since, minutes, attention }` once `runningMs(since)` is past `NO_NEWS_MS`, attention past
  * `NO_NEWS_ATTENTION_MS`; else null. The lane then reads "background task since 13:50, no news" instead of a bare "Working ·
- * background" for hours. Nothing without a request (an ordinary background task), nothing while a request is open (the asset work).
+ * background" for hours. Nothing without a request (an ordinary background task), nothing while a request is open (the asset work),
+ * nothing when the last request ended before the turn ended (the chat has its pictures; its background work is its own).
  */
 export function backgroundNoNewsOf({ lane, steps = [], assets = [], runningMs, prefix = '' }) {
   if (lane?.state !== 'working' || lane.heldBy !== 'background' || !finite(lane.report?.since) || typeof runningMs !== 'function') return null
   const mine = steps.flatMap(step => requestsOfStep(assets, valueOf(step, 'Id'), lane.name, prefix))
   if (mine.length === 0 || mine.some(isOpen)) return null
+  // The wait began while a request was still open (its end came after the turn ended): a later turn's own background work (a test
+  // gate, a watch) is no wait for news, however long it runs.
+  const lastEnd = Math.max(...mine.map(one => one.times?.ended).filter(finite), -Infinity)
+  if (!finite(lastEnd) || lastEnd < lane.report.since) return null
   const ran = runningMs(lane.report.since)
   if (!(ran >= NO_NEWS_MS)) return null
   return { since: lane.report.since, minutes: Math.floor(ran / 60_000), attention: ran >= NO_NEWS_ATTENTION_MS, words: `background task since ${hourMinute(lane.report.since)}, no news` }

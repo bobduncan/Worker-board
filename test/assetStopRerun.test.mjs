@@ -21,6 +21,11 @@ import { stamp } from '../src/work/migrate.mjs'
 import { LIMIT_TRIES } from '../src/work/providerLimit.mjs'
 import { storeFromText } from '../src/work/read.mjs'
 import { ASSET_WORD_AFTER_MS, assetResends } from '../src/work/workLines.mjs'
+import { laneFromReport } from '../src/chatReport.mjs'
+import { pauseFacts } from '../src/work/pause.mjs'
+import { readFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { NO_NEWS_ATTENTION_MS, NO_NEWS_MS, backgroundNoNewsOf } from '../src/work/assetWait.mjs'
 import { tempDir } from './tempDir.mjs'
 import { buildState } from './withStore.mjs'
@@ -104,6 +109,21 @@ test('point 2: a word nobody could be told (the chat not shown yet after a start
   await queue.pass(); await queue.idle()
   await queue.pass(); await queue.idle()
   assert.deepEqual(told, ['A1 ready'])
+  // A word still untold a minute after its end is the sweep's (one word, never two): the queue lets go of it (the review's finding 2).
+  let clock = CUT_AT
+  const lateTold = []
+  let lateShown = false
+  const dir2 = join(await tempDir(t), 'assets')
+  const queue2 = assetQueue({ dir: dir2, providers: { codex: standIn().provider }, now: () => clock, tell: async record => { if (!lateShown) return false; lateTold.push(record.id); return true } })
+  await newAsset(dir2, { who: 'Worker 1', of: 'B1125', kind: 'visual', provider: 'codex', mode: 'auto', text: 'a' }, CUT_AT)
+  await queue2.pass(); await queue2.idle()
+  clock = CUT_AT + ASSET_WORD_AFTER_MS
+  lateShown = true
+  await queue2.pass(); await queue2.idle()
+  assert.deepEqual(lateTold, [], 'the queue let go of the word after a minute')
+  // The server's tell answers whether the word went (the review: `paste` alone would never be false, and nothing would be told again).
+  const server = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'server.mjs'), 'utf8')
+  assert.match(server, /tell: async record => \(await sendWakesWith\(\{ ok: true, result: \{ wake: \{ to: record\.who, id: record\.id, kind: 'asset'.*\}\)\)\.said,/)
   // The sweep's resends: a final request older than a minute whose chat got no word at all (ready or failed), while its step is still
   // that chat's and in progress; not one with a word (also a failed word), not one younger than a minute, not another chat's step.
   const items = new Map([['B1125', B1125()]])
@@ -118,6 +138,9 @@ test('point 2: a word nobody could be told (the chat not shown yet after a start
   assert.deepEqual(assetResends(words, items, assets, { prefix: PREFIX, now: at(13, 50) + ASSET_WORD_AFTER_MS - 1 }), [])
   assert.deepEqual(assetResends(words, new Map([['B1125', B1125({ Owner: 'Worker 2' })]]), assets, { prefix: PREFIX, now }), [])
   assert.deepEqual(assetResends(words, new Map([['B1125', B1125({ State: 'review' })]]), assets, { prefix: PREFIX, now }), [])
+  // A step taken or waiting on the person is still the chat's (the review's finding 4).
+  assert.equal(assetResends(words, new Map([['B1125', B1125({ State: 'taken' })]]), assets, { prefix: PREFIX, now }).length, 1)
+  assert.equal(assetResends(words, new Map([['B1125', B1125({ State: 'waiting on you' })]]), assets, { prefix: PREFIX, now }).length, 1)
   // Without `now` (the mutant: the older call) only the dropped-as-gone ready words are sent again, as before.
   assert.deepEqual(assetResends(words, items, assets, { prefix: PREFIX }), [])
 })
@@ -158,6 +181,21 @@ test('point 3: the live lane reads "Working · background task since 13:50, no n
   assert.equal(facts(NO_NEWS_MS - 1), null)
   assert.deepEqual([facts(NO_NEWS_MS).attention, facts(NO_NEWS_ATTENTION_MS - 1).attention, facts(NO_NEWS_ATTENTION_MS).attention], [false, false, true])
   assert.equal(backgroundNoNewsOf({ lane: { ...lane, heldBy: 'partner' }, steps: [B1125()], assets: LIVE(), runningMs: () => NO_NEWS_MS }), null)
+  // A turn that ended AFTER the last request ended has its pictures: its own background work (a test gate) is no wait for news (the review's finding 3).
+  assert.equal(backgroundNoNewsOf({ lane: { ...lane, report: { since: at(13, 51) } }, steps: [B1125()], assets: LIVE(), runningMs: () => NO_NEWS_ATTENTION_MS }), null)
+  assert.notEqual(backgroundNoNewsOf({ lane: { ...lane, report: { since: at(13, 50) } }, steps: [B1125()], assets: LIVE(), runningMs: () => NO_NEWS_ATTENTION_MS }), null)
+  // The pause's safe point: a chat whose lane works for its pictures while real background work still runs (its report says so) runs a turn.
+  const pausing = { state: 'pausing', since: at(14, 0) }
+  const lanes = bg => [{ name: 'Worker 1', state: 'working', heldBy: 'asset', between: 'Its turn has ended; Codex draws its pictures (A245).', report: { state: 'idle', since: CUT_AT, background: bg }, isAsking: false }]
+  assert.deepEqual(pauseFacts({ pause: pausing, items: new Map(), lanes: lanes(true), prefix: PREFIX }).chats.map(one => one.state), ['working'])
+  assert.deepEqual(pauseFacts({ pause: pausing, items: new Map(), lanes: lanes(false), prefix: PREFIX }).chats.map(one => one.state), ['still'])
+  // The asset work comes before the background hold, awake and asleep: a sleeper waiting for its pictures reads Working for Codex.
+  const entry = { state: 'ended', since: CUT_AT, at: CUT_AT, background: true }
+  const asleep = laneFromReport(entry, { now: at(14, 0), unknownAfterMs: 30_000, offAfterMs: 600_000, holdsTask: true, hasBlockingAsk: false, worksForAsset: true, hasAppSession: true })
+  assert.deepEqual([asleep.state, asleep.why, asleep.asleep], ['working', 'asset', true])
+  assert.deepEqual([laneFromReport(entry, { now: at(14, 0), unknownAfterMs: 30_000, offAfterMs: 600_000, holdsTask: true, hasBlockingAsk: false, worksForAsset: false, hasAppSession: true }).state], ['interrupted'])
+  const awake = laneFromReport({ state: 'idle', since: CUT_AT, at: at(14, 0) - 1000, background: true }, { now: at(14, 0), unknownAfterMs: 30_000, holdsTask: true, hasBlockingAsk: false, worksForAsset: true })
+  assert.deepEqual([awake.state, awake.why], ['working', 'asset'])
   // The page: the pill reads Working with the words, quiet at 35 min, the warn colour at 65.
   for (const [now, late] of [[at(14, 25), false], [at(14, 55), true]]) {
     const state = JSON.parse(JSON.stringify(build([B1125()], { assets: LIVE(), now })))

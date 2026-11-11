@@ -32,6 +32,7 @@ import { join } from 'node:path'
 import { assetFolder, changeAsset, droppedFiles, listAssets, readAsset } from './assets.mjs'
 import { PROVIDERS, runCheck } from './providers/index.mjs'
 import { LIMIT_TRIES, limitOf, limitResetOf, triedWhy, waitsForLimit } from './work/providerLimit.mjs'
+import { ASSET_WORD_AFTER_MS } from './work/workLines.mjs'
 import { writeAtomic } from './write.mjs'
 
 /** The file beside the requests that names the open ask of each provider whose check failed. */
@@ -58,8 +59,8 @@ export const providerAskTitle = (title, kind, why) => `${title} does not work fo
 export function assetQueue({ dir, tools = () => ({}), fileAsk = async () => null, closeAsk = async () => {}, askOpen = async () => null, tell = async () => {}, now = Date.now, providers = PROVIDERS }) {
   /** The providers that run a request now, by name, with the promise of its end. */
   const busy = new Map()
-  /** The requests that ended whose word nobody could be told yet (`tell` false): told again at the next pass. */
-  const untold = new Set()
+  /** The requests that ended whose word nobody could be told yet (`tell` false), with when: told again at the next pass, for a minute. */
+  const untold = new Map()
   let passing = null
 
   const asksFile = join(dir, PROVIDER_ASKS_FILE)
@@ -76,12 +77,17 @@ export function assetQueue({ dir, tools = () => ({}), fileAsk = async () => null
   /** A request that ended: written, then its chat told (a word not sent is the server's loop failure, not a lost end). */
   async function end(id, fields) {
     const record = await changeAsset(dir, id, current => (current.state === 'ready' || current.state === 'failed' ? null : fields), now())
-    if (record !== null && (await tell(record)) === false) untold.add(id)
+    if (record !== null && (await tell(record)) === false) untold.set(id, now())
     return record
   }
-  /** The words nobody could be told yet, once more; a request that is not final after all is let go. */
+  /**
+   * The words nobody could be told yet, once more; a request that is not final after all is let go. After ASSET_WORD_AFTER_MS the
+   * delivery sweep owns the word (workLines.mjs `assetResends` sends it once no word to the chat names the request), so the queue
+   * lets go of it then: never two words for one request.
+   */
   async function tellAgain() {
-    for (const id of [...untold]) {
+    for (const [id, since] of [...untold]) {
+      if (now() - since >= ASSET_WORD_AFTER_MS) { untold.delete(id); continue }
       const record = await readAsset(dir, id)
       if (record === null || !(record.state === 'ready' || record.state === 'failed')) untold.delete(id)
       else if ((await tell(record)) !== false) untold.delete(id)

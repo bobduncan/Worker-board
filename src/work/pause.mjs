@@ -147,7 +147,9 @@ export function holdersOf(items, prefix = '') {
 const runsTurn = lane => {
   if (lane === undefined || lane.state === 'off' || lane.state === 'interrupted') return false
   // The review of chat-reports: a chat whose reports stopped is not known to run a turn; one the board cannot read is.
-  return (lane.state === 'working' && (lane.between ?? null) === null) || lane.heldBy === 'background' || (lane.state === 'unknown' && (lane.report ?? null) === null) || lane.isTurnOpen === true
+  // The asset-stop rerun (2026-11-11): a chat whose lane works for its pictures (`heldBy` asset) with real background work still running
+  // (its report says so) runs a turn as before: the lane's hold is no longer the one sign of it.
+  return (lane.state === 'working' && (lane.between ?? null) === null) || lane.heldBy === 'background' || lane.report?.background === true || (lane.state === 'unknown' && (lane.report ?? null) === null) || lane.isTurnOpen === true
 }
 
 /** A holder's lane has started a turn since `since`: it runs one now, or its last turn began after then. */

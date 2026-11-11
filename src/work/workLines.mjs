@@ -73,7 +73,7 @@ export function assetResends(all, items, assets, { prefix = '', now = null } = {
       const ended = request.times?.ended
       if (!Number.isFinite(ended) || now - ended < ASSET_WORD_AFTER_MS) continue
       const item = items.get(request.of)
-      if (item === undefined || value(item, 'State') !== 'in progress' || plain(value(item, 'Owner'), prefix) !== plain(request.who, prefix)) continue
+      if (item === undefined || !['taken', 'in progress', 'waiting on you'].includes(value(item, 'State')) || plain(value(item, 'Owner'), prefix) !== plain(request.who, prefix)) continue
       if (all.some(one => plain(one.to, prefix) === plain(request.who, prefix) && one.about === request.id && !(one.state === 'dropped' && one.kind === 'asset'))) continue
       add(request.who, request)
     }
