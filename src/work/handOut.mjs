@@ -5,7 +5,7 @@
 // (handover.mjs `decide`, which calls `match` for that one worker); the take-back and stuck clocks are gone. The code
 // says "step"; the person reads "task".
 
-import { familyOf, modelOf } from './effort.mjs'
+import { chatEffort, effortOf, familyOf, modelOf } from './effort.mjs'
 import { UNDER_WAY, overlapIn, readyHold } from './guards.mjs'
 import { isFix, sinceMs, valueOf } from './item.mjs'
 import { barredFrom, isQaTask, notDueWhy } from './qaTask.mjs'
@@ -318,8 +318,13 @@ export function match({ ready = [], idle = [], items, prefix = '' }) {
     const family = modelOf(items.get(one.id)).family
     const open = free.filter(worker => may(one, worker))
     const preferred = (one.prefers ?? null) === null ? undefined : open.find(worker => plain(worker.name, prefix) === plain(one.prefers, prefix))
-    const onIt = open.find(worker => familyOf(worker.model) === family)
-    const lane = preferred ?? onIt ?? open[0]
+    // B1160 (chat 1's decision 3, 2026-11-11: the app refuses the board's set calls since 22:43): the worker closest to the step's
+    // run first, so most hand-overs need no set: already on its model and effort, then on its model, then on its effort.
+    const effort = effortOf(items.get(one.id)).level
+    const distance = worker => (familyOf(worker.model) === family ? 0 : 2) + (chatEffort(worker) === effort ? 0 : 1)
+    const closest = [...open].sort((a, b) => distance(a) - distance(b))[0]
+    const onIt = closest !== undefined && familyOf(closest.model) === family ? closest : undefined
+    const lane = preferred ?? closest
     if (lane === undefined) continue
     give(one, lane, preferred !== undefined ? `${one.id} follows up what ${lane.name} finished` : `${one.id} is the first ready task${onIt === undefined ? '' : ` for a worker on ${family}`}; ${lane.name} is free`)
   }

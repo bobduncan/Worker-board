@@ -5580,6 +5580,26 @@ for another, and since step 6 the old rules are gone for every worker:
 
 Tests: `test/supervisor/handoverRules.test.mjs`.
 
+### A set the app refuses (B1160, 2026-11-11)
+
+Since the app's update of 22:43 (5.1231.2) Claude Desktop refuses in auto mode every set_session_model / set_session_effort call the
+Workers mod's own code makes ("Not run: in auto mode Claude Desktop doesn't run this tool when a plugin's own code calls it. Have
+Claude make the call."): 70 refusals by 23:37; B1160 and B1163 bounced between refined and queued every minute, owed clears never ran
+and free workers sat idle. Never a way around the refusal (no permission or mode change). Chat 1's decisions 2 and 3:
+
+- A refused set (effort.mjs `SET_REFUSED`, `isSetRefused`) is no failure of the hand-over and bans no model: a waiting envelope whose
+  set word was refused is released without its set (`set` null, `asked` the set, `waitsFor` null) and carried as any; a task in flight
+  whose outcome says so goes again at once without it; nothing is taken back, nothing held.
+- While the newest set word that ended was refused, less than 2 h ago (`setsRefusedOf`, SET_REFUSED_MS), the board writes no set word:
+  envelopes go without their set and keep it as `asked`, the effort plan asks none and waits for no Opus (`run.refused`). After 2 h one
+  set word is tried again. The worker's chip says "Sonnet · low (Opus · high asked)"; a free worker's row "free · on Sonnet · medium (the
+  app no longer lets the board switch it)", plain words (rule 16); the app's own words stay in the outbox.
+- The right worker first (handOut.mjs `match`, with the free workers beside it as `peers`): among free workers the one already on the
+  step's model and effort, then on its model, then on its effort, so most hand-overs need no set. A step never waits for a better one.
+- Tests: `test/work/setRefused.test.mjs` (the refusal's real words; B1160 sent again without a take-back; no set word while refused; an
+  old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off
+  sonnet steps; the plain row words). The owed set through a model turn of Main (decision 4) is the second landing.
+
 ### The envelope's contract for the Workers mod
 
 For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers

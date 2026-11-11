@@ -252,6 +252,33 @@ const sessionOf = word => (typeof word.session === 'string' && word.session !== 
 const clockOf = ms => { const at = new Date(ms); return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` }
 
 /**
+ * B1160 (chat 1's decisions 2 and 3, 2026-11-11): since the app's update of 22:43 (5.1231.2) Claude Desktop refuses in auto mode
+ * every set_session_model / set_session_effort call the Workers mod's own code makes: "Not run: in auto mode Claude Desktop
+ * doesn't run this tool when a plugin's own code calls it. Have Claude make the call." A hand-over whose set word failed so failed
+ * before its clear and its line, its step went back, came again a minute later (B1160, B1163 bounced) and the model was banned for
+ * the worker. Such a refusal is no failure of the hand-over: nothing happened in the chat, so the board sends the envelope again
+ * without its set (the worker runs on its current model; `asked` keeps what was asked, for the step's line), bans nothing, holds
+ * nothing, and (handoverBoard.mjs) writes no more set words while the refusal stands. Never a way around the refusal itself.
+ */
+export const SET_REFUSED = /doesn't run this tool when a plugin's own code calls it|Have Claude make the call/i
+/** Whether an envelope (or a set word) failed on that refusal: its outcome's set failed, or its own why, names it. */
+export const isSetRefused = one => (one?.outcome?.set === false || one?.state === 'failed') && SET_REFUSED.test(`${one?.outcome?.why ?? ''} ${one?.why ?? ''}`)
+
+/**
+ * B1160 (chat 1's decision 2): whether the app refuses the board's set words now: the newest set word that ended was refused
+ * (`isSetRefused`) less than SET_REFUSED_MS (2 h) ago. While it stands the board writes no set word: an envelope goes without
+ * its set and keeps it as `asked`. After SET_REFUSED_MS one set word is tried again.
+ */
+export function setsRefusedOf(sent, now) {
+  const ended = (sent ?? []).filter(one => one?.command === 'worker-effort' && ['delivered', 'failed', 'dropped', 'expired'].includes(one.state) && Number.isFinite(one.at))
+  const newest = ended.sort((a, b) => a.at - b.at).at(-1) ?? null
+  return newest !== null && isSetRefused(newest) && now - (newest.failedAt ?? newest.at) < SET_REFUSED_MS
+}
+
+/** B1160: a refusal of the board's set words stands this long; then one set word is tried again. */
+export const SET_REFUSED_MS = 2 * 60 * 60_000
+
+/**
  * What each worker should run at, and the words to the main chat that set it. `items` the store's items, `lanes` the
  * board's chats (`name`, `isMain`, `isLeftover`, `appSession`, `effort` and `model`: what the app's file of the chat
  * says, or null, and `lastAnswer`: the model of its last answer and when, `{ model, at }`, or null), `sent` the outbox, `main` the main chat's name (null: none on the board, so no
@@ -289,6 +316,8 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
   const usualEffort = settings.usual.effort
   const usualFamily = settings.usual.model
   const usualId = idOf(usualFamily)
+  // B1160: while the app refuses the board's set words, none is asked (each would only be refused again); the run says so.
+  const isRefused = setsRefusedOf(sent, now)
   const steps = [...(items?.values() ?? [])].filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step')
   const owned = (item, name) => plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix)
   const others = new Set(skip.filter(Boolean).map(name => plain(name, prefix)))
@@ -349,10 +378,10 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     // An opus step's word waits while a word for another model is on its way, so the reading after both is right (the
     // main chat sets them in their order).
     const isAgainstModel = against !== null && (against.model ?? null) !== null && !sameModel(against.model, id)
-    const canAsk = main !== null && !isSet && asked === null && (isStrict ? !isAgainstModel : current !== null)
+    const canAsk = !isRefused && main !== null && !isSet && asked === null && (isStrict ? !isAgainstModel : current !== null)
     // Only a step it does not hold yet waits for Opus: one it holds already is set as soon as can be.
     let waitsFor = null
-    if (isStrict && !isModelSet && holding === undefined) {
+    if (isStrict && !isModelSet && holding === undefined && !isRefused) {
       const since = mine.find(word => word.forStep === step && sameTarget(word, level, id))?.at ?? null
       const reason = main === null ? 'there is no main chat (or no Workers mod) to set it'
         : isAgainstModel ? `the word to set it to ${MODEL_WORDS[MODELS.find(one => sameModel(idOf(one), against.model))] ?? against.model} first is not applied yet`
@@ -362,7 +391,7 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     }
     runs.set(lane.name, {
       level, model: hasModels ? family : null, usual: usualEffort, usualModel: hasModels ? usualFamily : null, step, why: effort?.why ?? null, modelWhy: model?.why ?? null, isSet,
-      asked: asked === null ? null : { at: asked.at, state: asked.state }, waitsFor,
+      asked: asked === null ? null : { at: asked.at, state: asked.state }, waitsFor, ...(isRefused && !isSet ? { refused: true } : {}),
     })
     if (canAsk) words.push({ to: main, chat: lane.name, session: lane.appSession ?? null, level, model: id, usual: usualEffort, usualModel: usualId, step, why })
   }

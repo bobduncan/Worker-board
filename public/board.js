@@ -2950,11 +2950,14 @@ function runChipOf(chat) {
     // The same setting again is no switch to show.
     if (text !== '' && text !== now) {
       next = { text, tone: family === null ? model?.tone ?? 'other' : CHIP_TONES.includes(family) ? family : 'other' }
-      pending = `Switching to ${text}${typeof run.step === 'string' ? ` for ${run.step}` : ', its usual setting'}: ${askedLine(run.asked)}.`
+      pending = run.refused === true
+        // B1160 (chat 1's decision 2): the app refuses the board's set calls: it runs on as it is, the gap said quietly.
+        ? `${text} asked${typeof run.step === 'string' ? ` for ${run.step}` : ''}; the app refuses the board's set calls, so it runs on ${now}.`
+        : `Switching to ${text}${typeof run.step === 'string' ? ` for ${run.step}` : ', its usual setting'}: ${askedLine(run.asked)}.`
     }
   }
   return {
-    text: next === null ? now : `${now} → ${next.text}`,
+    text: next === null ? now : run?.refused === true ? `${now} (${next.text} asked)` : `${now} → ${next.text}`,
     now,
     tone: model?.tone ?? 'other',
     next,
