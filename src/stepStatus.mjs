@@ -122,6 +122,20 @@ export { keptRecapWaitOf, recapWaitWords }
  * `workerOf(id)` (the worker whose card shows it, or null), `openChecks` (the steps a Quality Assurance task is open on), `recaps`
  * (recaps.mjs `recapWaitsOf`) and `prefix` (the chats' titles' start).
  */
+/**
+ * refine-stop-tone (the person, 11-11, on a red "Refine of B1030 stopped ... · Send again": "if red text remains idk if its
+ * correct"): the Advisor card's line for a stopped refine, `{ text, tone, canSend }`. It is never the person's move: a question
+ * to them still open makes the status "waits for your answers" above, never a stop, so it is never red. A step with a hold (its
+ * Waits for, or held by the hand-out) says the hold, with no Send again; any other stop names who picks it up, Send again quiet.
+ */
+function refineStopLineOf(id, rounds, { step, held }) {
+  const waits = valueOf(step, 'Waits for')
+  const handOut = Array.isArray(held) ? held.find(one => one.id === id)?.why : undefined
+  const hold = typeof waits === 'string' && waits.trim() !== '' && waits !== '-' ? waits.trim() : typeof handOut === 'string' && handOut !== '' ? handOut : null
+  if (hold !== null) return { text: `${id}: refine held · ${hold}`, tone: 'quiet', canSend: false }
+  return { text: `${id}: refine stopped after ${rounds}; the Advisor or Main picks it up`, tone: 'quiet', canSend: true }
+}
+
 export function stepStatusOf(step, ctx = {}) {
   if (step === null || step === undefined || (valueOf(step, 'Kind') ?? 'step') !== 'step') return null
   const { items = new Map(), held = null, ready = null, outbox = [], now = null, workerOf = () => null, openChecks = new Set(), recaps = null, prefix = '', byAbout = null, asksOf = null } = ctx
@@ -200,7 +214,10 @@ export function stepStatusOf(step, ctx = {}) {
       const last = about.at(-1)
       const lastSent = last === undefined || !Number.isFinite(last.at) || !Number.isFinite(now) ? '' : ` (last sent ${sinceClock(last.at, now)})`
       const stop = refineStop({ id, item: { history: step.sections?.get('History') ?? [] } }, about.filter(one => one.command === 'refine'))
-      if (stop !== null) return refine(`its refine stopped after ${stop.rounds} round${stop.rounds === 1 ? '' : 's'}: no word in flight${lastSent}`, 'stopped', { lastSent: last?.at ?? null })
+      if (stop !== null) {
+        const rounds = `${stop.rounds} round${stop.rounds === 1 ? '' : 's'}`
+        return refine(`its refine stopped after ${rounds}: no word in flight${lastSent}`, 'stopped', { lastSent: last?.at ?? null, stop: refineStopLineOf(id, rounds, { step, held }) })
+      }
       if (last === undefined && where === 'none') return refine(NOT_ASKED, 'none')
       return refine(`${NO_WORD}${lastSent}`, 'open', { lastSent: last?.at ?? null })
     }

@@ -50,8 +50,8 @@ const B1096 = () => parseItem(['Id: B1096', 'Kind: step', 'Title: Old maps alway
   '## History', '- 2026-11-09 15:48 Main: made', '- 2026-11-09 16:16 Advisor: refined, round 1', '- 2026-11-09 16:16 Advisor: new → refined', ''].join('\n'))
 
 /** B1030 as the store holds it: new, a fix of B1011, its refine block of round 2 written 4 Nov 22:17, no question open. */
-const B1030 = () => parseItem(['Id: B1030', 'Kind: step', 'Title: Fix: The new Done when, harm as the measure', 'Priority: fix', 'State: new',
-  'Activity: Worker board for any project (B126)', 'Goal: G15', 'Since: 2026-11-04 22:10', 'Fix of: B1011', 'Refined: open', '',
+const B1030 = (extra = []) => parseItem(['Id: B1030', 'Kind: step', 'Title: Fix: The new Done when, harm as the measure', 'Priority: fix', 'State: new',
+  'Activity: Worker board for any project (B126)', 'Goal: G15', 'Since: 2026-11-04 22:10', 'Fix of: B1011', 'Refined: open', ...extra, '',
   '## Refined', '  Refined (round 2, by Advisor, 2026-11-04 22:17):', '  Summary: Answer the chat at once, then rebuild and run the jobs.', '  Part of: G15', '',
   '## History', '- 2026-11-04 22:10 Worker 1: made by the result check of B1011', '- 2026-11-04 22:17 Advisor: refined, round 2', ''].join('\n'))
 
@@ -71,9 +71,9 @@ const GOALS = ['Last id: G60', 'Focus: G60', '', '- [~] G60 Every map painted wh
 const app = name => JSON.stringify({ title: `Studio · ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: 'C:\\anywhere', isArchived: false, createdAt: 1, lastActivityAt: NOW - MIN, lastAssistantUuid: 'u' })
 
 /** The board's state at `now` with the two real steps (and `more`), the plan with K6, the goal map with focus G60 and `outbox`. */
-function stateWith({ now = NOW, outbox = [], words = null, more = [], lines = [], reports = null, goalRecap = null, pause = null, chats = ['Lead', 'Worker 1', 'Advisor'], noWorkSeen = null } = {}) {
+function stateWith({ now = NOW, outbox = [], words = null, more = [], lines = [], reports = null, goalRecap = null, pause = null, chats = ['Lead', 'Worker 1', 'Advisor'], noWorkSeen = null, b1030 = B1030() } = {}) {
   const work = storeFromText('## Look\n', { now: now - 60 * MIN })
-  for (const one of [B1096(), B1030(), ...more]) {
+  for (const one of [B1096(), b1030, ...more]) {
     work.items.set(valueOf(one, 'Id'), one)
     work.activities[0].steps.push(valueOf(one, 'Id'))
   }
@@ -630,7 +630,8 @@ test('14. the Refine part and the Advisor card read the same words as the status
   vm.runInNewContext(`${slice('// advisorrefine:start', '// advisorrefine:end')}\n${slice('// refinelist:start', '// refinelist:end')}\nObject.assign(this, { advisorRefine, refineGroups })`, page)
   const groups = plain(page.refineGroups(plain(state.backlog)))
   assert.deepEqual(groups.filter(group => group.steps.some(one => one.id === 'B1030')).map(group => group.title), ['Stopped: no new answers since its last rounds'])
-  assert.deepEqual(plain(page.advisorRefine(plain(state.backlog))), { step: 'B1030', text: 'Refine of B1030 stopped after 3 rounds without new answers', tone: 'stopped', canSend: true })
+  // refine-stop-tone: nothing open for the person: quiet, and it names who picks it up; Send again stays (quiet).
+  assert.deepEqual(plain(page.advisorRefine(plain(state.backlog))), { step: 'B1030', text: 'B1030: refine stopped after 3 rounds; the Advisor or Main picks it up', tone: 'quiet', canSend: true })
   // A word in its hand (delivered a minute ago) and one on its way: the card's line is the status's.
   const inHand = { id: 'w4', to: 'Advisor', command: 'refine', about: 'B1030', round: 3, at: NOW - 2 * MIN, state: 'delivered', deliveredAt: NOW - MIN }
   const asking = stateWith({ outbox: [...B1030_WORDS, inHand], words: [...B1030_WORDS, inHand] })
@@ -638,6 +639,26 @@ test('14. the Refine part and the Advisor card read the same words as the status
   assert.deepEqual(page.refineGroups(plain(asking.backlog)).find(group => group.state === 'asking').steps.map(one => one.id), ['B1030'])
   const onItsWay = { ...inHand, state: 'waiting', deliveredAt: undefined }
   assert.equal(page.advisorRefine(plain(stateWith({ outbox: [...B1030_WORDS, onItsWay], words: [...B1030_WORDS, onItsWay] }).backlog)).text, 'B1030 to refine, on its way')
+})
+
+test('14b. refine-stop-tone (the person, 11-11: "if red text remains idk if its correct"): a stopped refine is red only while its next move is the person\'s; B1030 with Main\'s hold is quiet "refine held", no Send again', () => {
+  const keep = { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN }
+  const board = B1030_WORDS.map(one => ({ ...one, board: true }))
+  const page = {}
+  vm.runInNewContext(`${slice('// advisorrefine:start', '// advisorrefine:end')}\nObject.assign(this, { advisorRefine })`, page)
+  const cardOf = (b1030, more = []) => plain(page.advisorRefine(plain(stateWith({ outbox: outboxNow(board, NOW, keep), words: outboxKnown(board, NOW, keep), b1030, more }).backlog)))
+  // The live case: Main records B1030's hold as its Waits for.
+  const HOLD = "chat 1's decision after the 3-day stability count (Fri 11-13)"
+  assert.deepEqual(cardOf(B1030([`Waits for: ${HOLD}`])), { step: 'B1030', text: `B1030: refine held · ${HOLD}`, tone: 'quiet', canSend: false })
+  // A question to the person still open is their move: the status says "waits for your answers" (Your answers waiting), never a
+  // stop, so no stop line is red; the same question routed to the partner waits for the partner.
+  const ask = route => parseItem(['Id: Q990', 'Kind: ask', 'Title: Which way for B1030?', 'State: open', 'Of: B1030', 'Blocking: no', ...route, 'Since: 2026-11-04 22:30', ''].join('\n'))
+  const statusWith = more => stateWith({ outbox: outboxNow(board, NOW, keep), words: outboxKnown(board, NOW, keep), more }).stepStatus.B1030
+  assert.deepEqual([statusWith([ask([])]).where, statusWith([ask([])]).words], ['answers', 'its refine waits for your answers'])
+  assert.equal(statusWith([ask(['Route: partner'])]).kind, 'partner')
+  assert.equal(cardOf(B1030(), [ask([])]), null)
+  // Every other stop is quiet: the stop line's tone is never red.
+  assert.equal(statusWith([]).stop.tone, 'quiet')
 })
 
 test('15. the none-ready episode: worker A busy while B stays free is the same episode (no second partner word, no second note per cause); the signal gone and back is a new one', async () => {

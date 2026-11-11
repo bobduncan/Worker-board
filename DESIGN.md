@@ -538,8 +538,10 @@ own asks stop at three per step that arrived and three that did not, with 15 min
 only the rounds sent since the person last answered on the step count (`refineStop`), so a new answer gets its fold
 round. Seen live 2026-10-18: the person answered Q31 under B35 at 13:01, the Advisor's card said "Your answers on B35
 wait for it", and nothing was sent, as B35 was an old step not about to be queued. A step the board stopped on has
-the refine state `stopped`: the Advisor's card says "Refine of B35 stopped after 3 rounds without new answers" with a
-button "Send again" (one round, in the Refine button's words; the person's rounds never count towards the cap), and
+the refine state `stopped`: the Advisor's card says, in a quiet colour (a stop is never the person's move: an open question to
+them reads "waits for your answers" instead), "B35: refine held · <the hold>" with no button when the step has a Waits for or
+the hand-out holds it, else "B35: refine stopped after 3 rounds; the Advisor or Main picks it up" with a quiet button
+"Send again" (one round, in the Refine button's words; the person's rounds never count towards the cap), and
 the Advisor tab's Refine list has a group for it. "Add to queue" on a step that is not refined is held on the
 board ("Refine, then queue") and goes to the main chat by itself once the step is refined; it is dropped when the step
 is finished, queued or gone. Without an Advisor nothing is held. A step the main chat queued before it was refined is said to it once it is

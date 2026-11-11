@@ -4181,7 +4181,7 @@ function drawAdvisorLane(state) {
     // B312: the board stopped refining it: one round more, in the Refine button's words.
     if (refine.canSend === true) {
       const key = `refine-again:${refine.step}`
-      const again = el('button', 'advisor-refine-again', sending.has(key) ? 'Sending…' : 'Send again')
+      const again = el('button', `advisor-refine-again${refine.tone === 'stopped' ? '' : ' is-quiet'}`, sending.has(key) ? 'Sending…' : 'Send again')
       again.type = 'button'
       again.dataset.refineAgain = refine.step
       again.disabled = sending.has(key)
@@ -19999,6 +19999,10 @@ function advisorRefine(backlog) {
   const groupOf = step => step.refineGroup ?? step.refineState
   const stopped = steps.find(step => groupOf(step) === 'stopped' && isUp(step))
   if (stopped !== undefined) {
+    // refine-stop-tone: red only while the person's answer is the next move; a hold or a stop someone else picks up is quiet
+    // (the step's one status, `stepStatus.stop`).
+    const line = stopped.stepStatus?.stop
+    if (line !== null && typeof line === 'object' && typeof line.text === 'string') return { step: stopped.id, text: line.text, tone: line.tone, canSend: line.canSend === true }
     const rounds = stopped.refineStopped?.rounds ?? stopped.refineStop?.rounds ?? 3
     return { step: stopped.id, text: `Refine of ${stopped.id} stopped after ${rounds} round${rounds === 1 ? '' : 's'} without new answers`, tone: 'stopped', canSend: true }
   }

@@ -1786,6 +1786,10 @@ button.run:disabled { opacity: 0.6; cursor: default; }
 .advisor-refine-again { margin-left: 8px; font: inherit; font-size: 13px; padding: 2px 10px; border-radius: 6px; border: 1px solid #8a3a3a; background: var(--inset); color: #f2a6a6; cursor: pointer; }
 .advisor-refine-again:hover:not(:disabled) { background: #3a2020; }
 .advisor-refine-again:disabled { opacity: 0.6; cursor: default; }
+/* refine-stop-tone: a stop whose next move is not the person's (a hold, or the Advisor or Main picks it up): plain information. */
+.advisor-refine-state.is-quiet { border-color: var(--line); color: var(--muted); }
+.advisor-refine-again.is-quiet { border-color: var(--line); color: var(--muted); }
+.advisor-refine-again.is-quiet:hover:not(:disabled) { background: var(--inset); color: #c9d3e0; }
 .advisor-refine-problem { margin-left: 8px; font-size: 12px; color: #f2a6a6; }
 /* B298: the person's words filed as instructions, per chat: missed ones red, closed ones grey. */
 .instructions { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
