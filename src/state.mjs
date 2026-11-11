@@ -10,7 +10,7 @@ import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
 import { allWords, closedForYou, minutesOf, sizeMinutes, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
-import { gapsOf, hourEnd, hourStart, notWorkedCounter, taskFacts, today } from './history.mjs'
+import { gapsOf, hourEnd, hourStart, notWorkedBetween, notWorkedCounter, taskFacts, today } from './history.mjs'
 import { DEAF_KEEP_MS, deafSpans } from './hearing.mjs'
 import { finishedList } from './finished.mjs'
 import { askFacts, brainstormNeeds, brainstormsState } from './brainstorm.mjs'
@@ -599,13 +599,13 @@ function planLineOf(name, task, held, { memory, kept, now }) {
  * ask's step; the row reads `held` only. Also: `isWithoutTime` only for a working worker whose held step has no size (B832
  * should prevent it), never one that holds none; `lastTask` (B148) the step it reported last (`lastReported`), not its card.
  */
-function withHeld(lane, { found, notWorked, lastReported, briefOf, planMemory, planKept, now, askedOf = () => false }) {
+function withHeld(lane, { found, notWorked, notWorkedTo = (from, to) => (to === now ? notWorked(from) : 0), lastReported, briefOf, planMemory, planKept, now }) {
   if (lane.isMain === true || lane.isLeftover === true) return lane
   if (found === null) {
     const last = lane.state === 'free' && lastReported !== null ? { text: `${lastReported.id} ${lastReported.title}`, id: lastReported.id, title: lastReported.title, at: lastReported.at } : null
     return { ...lane, held: null, isWithoutTime: false, lastTask: last }
   }
-  const eta = heldEstimateOf(found, { notWorked, now, askedOf })
+  const eta = heldEstimateOf(found, { notWorkedTo, now })
   const brief = lane.givenTask?.step?.id === found.id ? null : briefOf(found.id)
   const held = {
     ...found,
@@ -619,23 +619,42 @@ function withHeld(lane, { found, notWorked, lastReported, briefOf, planMemory, p
 /**
  * eta-remaining (the person, 2026-11-11: "i want the board to reflect the remainting ETA"; the case: Worker 1 on B1125 read "2 h 30 min
  * over" in amber from its size while it worked on, its last minutes-left at 13:44). A held step's time: its latest estimate minus
- * the working time since it was said. The worker's own minutes-left (`plan.until`, given at `plan.estimatedAt`, a work step with
- * minutes), counted on by what it did not work since (B793 `notWorked`; `from: 'own'`); without one since the take, its size from
- * the take (`from: 'size'`, `saidAt` the take). `{ at, leftMs, saidAt, from, isOver, isOverdue: false, share, asked }`: never
- * overdue (past its estimate is quiet, never amber); `asked` once the board asked a fresh estimate for this one (say.mjs
- * `etaAsksDue`, once per estimate: `askedOf(step, saidAt)`). Null with neither.
+ * the working time since it was said (B793: a pause, a stop, a wait or the board off is no time worked; `notWorkedTo(from, to)`).
+ * The estimate is the worker's own minutes-left (`plan.until`, given at `plan.estimatedAt`): `from: 'take'` when given with the take
+ * (within its minute), `from: 'own'` for a later `work step` with minutes; without one since the take, its size from the take
+ * (`from: 'size'`, `saidAt` the take). `{ at, leftMs, saidAt, from, isOver, isOverdue: false, share, asked }`. Past it, `at` is the
+ * moment the worked time first reached the estimate (review blocker 2: it never drifts with a later pause); never overdue (quiet,
+ * never amber); `asked` once the board asked a fresh estimate for this one (its History line, held.mjs `askedFor`, written by the
+ * work API's `step` answer). Null with neither.
  */
-export function heldEstimateOf(found, { notWorked = () => 0, now, askedOf = () => false }) {
+export function heldEstimateOf(found, { notWorkedTo = () => 0, now }) {
   const plan = found?.plan ?? null
   const since = Number.isFinite(found?.since) ? found.since : null
   const isOwn = plan !== null && Number.isFinite(plan.until) && Number.isFinite(plan.estimatedAt) && (since === null || plan.estimatedAt >= since)
   if (!isOwn && (!Number.isFinite(found?.size) || since === null)) return null
   const saidAt = isOwn ? plan.estimatedAt : since
-  const at = isOwn ? plan.until + notWorked(plan.estimatedAt) : since + notWorked(since) + found.size * MIN
-  const worked = since === null ? null : Math.max(0, now - since - notWorked(since))
-  const leftMs = Math.max(0, at - now)
-  const share = worked === null ? null : worked + leftMs === 0 ? 1 : Math.min(1, worked / (worked + leftMs))
-  return { at, leftMs, saidAt, from: isOwn ? 'own' : 'size', isOver: at < now, isOverdue: false, share, asked: at < now && askedOf(found.id, saidAt) === true }
+  const needMs = isOwn ? Math.max(0, plan.until - plan.estimatedAt) : found.size * MIN
+  const workedBy = to => Math.max(0, to - saidAt - notWorkedTo(saidAt, to))
+  const worked = workedBy(now)
+  const isOver = worked >= needMs && now > saidAt + needMs
+  let at = now + (needMs - worked)
+  if (isOver) {
+    // The first moment the worked time reached the estimate: worked time only grows, so a search to the second finds it.
+    let low = saidAt + needMs
+    let high = now
+    while (high - low > 1000) {
+      const middle = Math.floor((low + high) / 2)
+      if (workedBy(middle) >= needMs) high = middle
+      else low = middle
+    }
+    // Inside that second the chat worked, so the worked time grew with the clock: step back by what it ran over.
+    at = Math.max(low, high - (workedBy(high) - needMs))
+  }
+  const total = since === null ? null : Math.max(0, now - since - notWorkedTo(since, now))
+  const leftMs = isOver ? 0 : Math.max(0, needMs - worked)
+  const share = total === null ? null : total + leftMs === 0 ? 1 : Math.min(1, total / (total + leftMs))
+  const from = !isOwn ? 'size' : since !== null && plan.estimatedAt - since < MIN ? 'take' : 'own'
+  return { at, leftMs, saidAt, from, isOver, isOverdue: false, share, asked: isOver && found.askedFor === saidAt }
 }
 
 /**
@@ -1540,24 +1559,28 @@ function goalsUnder(goalMap, id) {
  */
 /**
  * eta-remaining (the person, 2026-11-11: "i want the board to reflect the remainting ETA"; G64 read "about 10 h left" from the sizes of
- * its how, made at the start): the minutes an open part still needs, its open steps' latest estimates added up in their order: a step
- * a worker holds counts its held time left (state.mjs `heldEstimateOf`, 0 once past it), one in review 0 (built), one not started its
- * refine Size (held.mjs `sizeOf`). A part with no steps yet, or an open step that names no time, counts its own size. Null when none of it
- * names a time.
+ * its how, made at the start): the minutes an open part still needs, its open steps' latest estimates added up: a step a worker holds
+ * (also one in review that the check handed back to it, held.mjs R2) counts its held time left (`heldEstimateOf`); past its estimate it
+ * is not known, so it counts its refine Size (held.mjs `sizeOf`), else its share of the part (review D: never 0 while it is worked on).
+ * A step in review that no worker holds counts 0 (built, its check left); one not started its refine Size, else its share of the part
+ * (the part's size over its steps), so one unsized step never puts the whole part back on its first size (review 18, 26). A part with
+ * no steps yet counts its own size. Null when nothing of it names a time.
  */
 function partLeftMinutes(part, steps, lanes, now) {
   const known = (part?.steps ?? []).map(id => steps.get(id)).filter(one => one !== undefined)
-  if (known.length === 0) return sizeMinutes(part?.size ?? null)
+  const partSize = sizeMinutes(part?.size ?? null)
+  if (known.length === 0) return partSize
+  const share = partSize === null ? null : Math.ceil(partSize / known.length)
   const open = known.filter(one => !FINISHED.includes(one.head.get('State')))
-  const times = open.map(one => {
-    if (one.head.get('State') === 'review') return 0
-    const lane = (lanes ?? []).find(each => each?.held?.id === one.head.get('Id') && (each.held.eta ?? null) !== null)
-    if (lane !== undefined) return Math.ceil(Math.max(0, lane.held.eta.at - (now ?? Date.now())) / MIN)
-    return sizeOf(one)
-  }).filter(one => one !== null)
   if (open.length === 0) return 0
-  // A step that names no time leaves the part's own size as its best guess (a how made before its steps were refined).
-  return times.length === open.length ? times.reduce((sum, one) => sum + one, 0) : sizeMinutes(part?.size ?? null) ?? (times.length === 0 ? null : times.reduce((sum, one) => sum + one, 0))
+  const times = open.map(one => {
+    const lane = (lanes ?? []).find(each => each?.held?.id === one.head.get('Id') && (each.held.eta ?? null) !== null)
+    if (lane !== undefined && lane.held.eta.isOver !== true) return Math.max(1, Math.ceil(lane.held.eta.leftMs / MIN))
+    if (lane === undefined && one.head.get('State') === 'review') return 0
+    return sizeOf(one) ?? share
+  })
+  const named = times.filter(one => one !== null)
+  return named.length === 0 ? null : named.reduce((sum, one) => sum + one, 0)
 }
 
 export function focusState(goalMap, items, threads, prefix, partner = null, now = null, lanes = null, recaps = null, goalRecaps = null, options = {}) {
@@ -1695,7 +1718,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     partnerDecides: node.partnerDecides,
     youDecide: node.youDecide,
     howAgreed: node.howAgreed,
-    progress: { done: whole.filter(part => part.state === 'done').length, total: whole.length, ...(stopped > 0 ? { stopped } : {}), minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0), ...(left.length === 0 || !Number.isFinite(now) ? {} : { readyAt: now + left.reduce((sum, one) => sum + one, 0) * MIN }), ...(recapRows.length > 0 ? { forDemo } : {}) },
+    progress: { done: whole.filter(part => part.state === 'done').length, total: whole.length, ...(stopped > 0 ? { stopped } : {}), minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0), ...(recapRows.length > 0 ? { forDemo } : {}) },
     // Autopilot: the steps that wait for the goal's recap, each with its asks, for the goal demo's words.
     ...(recapRows.length > 0 ? { recapRows } : {}),
     // Work blocks (2026-10-31): the round of its work (null before Go), and the blocks open in it, by their place in `parts`.
@@ -2453,10 +2476,10 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const chats = sequenced.map(lane => withHeld(lane, {
     found: lane.isLeftover === true || lane.isMain === true || !workOk ? null : heldOf(raw.work.items, lane.name, prefix, { handoverStep: handovers.get(lane.name)?.step ?? null }),
     notWorked: notWorkedCounter(lines, lane.name, now, aliveAt),
+    // eta-remaining: the time not worked between two moments, for when the worked time reached the estimate.
+    notWorkedTo: notWorkedBetween(lines, lane.name, now, aliveAt),
     lastReported: lane.isLeftover === true || lane.isMain === true || !workOk ? null : lastReportedOf(raw.work.items, lane.name, prefix),
     briefOf, planMemory, planKept, now,
-    // eta-remaining: whether the board asked this worker a fresh estimate for this one already (say.mjs `etaAsksDue`).
-    askedOf: (step, saidAt) => sent.some(message => message.command === 'eta-ask' && message.to === lane.name && message.about === step && message.saidAt === saidAt),
   }))
   // Pause and resume (spec 2026-10-18): what the pause banner says, from pause.json and the lanes' facts alone; with the
   // main chat (its title from the list, the app's id for it, whether it runs) for the link that opens it, and when the

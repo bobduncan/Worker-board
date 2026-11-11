@@ -919,33 +919,6 @@ export function fiveHourStopDue(state, outbox) {
   return words
 }
 
-/**
- * eta-remaining (the person, 2026-11-11): the board's one quiet word to a worker whose held step is past its estimate with no new one
- * (state.mjs `heldEstimateOf`): a fresh minutes-left with its next checkpoint. It waits for the chat's turn as every word does.
- */
-export const etaAskWords = (to, step, saidAt) => ({
-  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'eta-ask', about: step, saidAt,
-  text: `${step} is past its estimate: give a fresh minutes-left with your next checkpoint (work step id=${step} minutes=<n> with commit and next)`,
-})
-
-/**
- * eta-remaining: the words still to type, one for each working worker whose held step is past its estimate, once per estimate (the
- * outbox holds none for the same chat, step and `saidAt`, whatever became of it; a fresh estimate is a new one). Not to a worker that
- * waits for the provider's pictures (it runs no turn to renew it), nor while the person pauses all chats. `outbox` is everything sent.
- */
-export function etaAsksDue(state, outbox) {
-  if (isHolding(state.pause)) return []
-  const words = []
-  for (const lane of state.chats ?? []) {
-    const held = lane.held ?? null
-    const eta = held?.eta ?? null
-    if (lane.isLeftover === true || lane.isMain === true || lane.state !== 'working' || lane.isRunning === false || lane.heldBy === 'asset' || eta === null || eta.isOver !== true) continue
-    const isTold = (outbox ?? []).some(sent => sent.command === 'eta-ask' && sent.to === lane.name && sent.about === held.id && sent.saidAt === eta.saidAt)
-    if (!isTold) words.push(etaAskWords(lane.name, held.id, eta.saidAt))
-  }
-  return words
-}
-
 /** B812 (X109): the board's stop words, the week's (B742) and the 5-hour limit's (B758). */
 export const isLimitStopWord = command => command === 'week-stop' || command === 'five-hour-stop'
 

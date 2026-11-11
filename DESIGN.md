@@ -7431,26 +7431,35 @@ text") is `art-inbox/B914/row-chosen.png`.
 
 The person, 2026-11-11: "i want the board to reflect the remainting ETA", then "good." to chat 1's design. The case: Worker 1's row
 read "2 h 30 min over" in amber on B1125 from its size, its last minutes-left 60 min at 13:44, while it worked on (last turn 19:46);
-G64's line read "about 10 h left" from the sizes of the how made at the start. This replaces the size-from-the-take time above:
+G64's line read "about 10 h left" from the sizes of the how made at the start. Chat 1's core review (three lenses, 30 findings,
+decisions A-H in `.claude/plans/2026-11-11-eta-remaining-review.md`) shaped what follows. This replaces the size-from-the-take time above:
 
-- **The row** (`state.mjs heldEstimateOf`, `held.eta`): the latest estimate minus the working time since it was said. The worker's own
-  minutes-left (the step's Plan `until`, given at its new `estimated <time>` part, stepPlan.mjs; a line from before it uses its `at`),
-  counted on by what it did not work since (B793 `notWorked`), `from: 'own'`; without one since the take, the size from the take
-  (`from: 'size'`). The page (`heldTime`, mirrored by chatStatus.mjs `heldTimeText`): "about 1 h 06 left · re-estimated 19:46"
-  ("estimated" for the size); the bar is the time worked of worked plus left. A step with no size but an estimate has a time.
-- **Every checkpoint carries minutes**: `work step` with `commit`/`next` and no `minutes` is kept, and its answer asks in one line
-  "Give your minutes left with every checkpoint: work step id=B<n> minutes=<...> with commit and next." (roles/worker.md).
-- **Past its estimate, no new one**: quiet, never amber, never overdue: "past its estimate since 14:44", and "· new estimate asked"
-  once the board asked. The board asks once per estimate (say.mjs `etaAsksDue`, outbox command `eta-ask` with `about` the step and
-  `saidAt` the estimate's time): one word to the working worker, "B<n> is past its estimate: give a fresh minutes-left with your next
-  checkpoint (...)", waiting for its turn as every word does; not while the person pauses all chats, not to a worker waiting for the
-  provider's pictures. A fresh estimate is a new one.
-- **The goal line** (`partLeftMinutes`, `focus.progress.minutesLeft` and `readyAt`): an open part's open steps added up in their
-  order: a held step its time left (0 once past), one in review 0, one not started its refine Size; a part with no steps yet, or an
-  open step that names no time, its own size. Shown as "Focus G64 · ... · about 4 h left · ready around 23:56" on the Overview and
-  "... · about 4 h left · ready around 23:56" on the Focus page.
-- Rule 16: before/after picture `art-inbox/board-eta/eta-before-after.png`. Tests: `test/etaRemaining.test.mjs` (B1125's live Plan,
-  G64), with heldRow, heldRow.page, chatStatus.state, stepPlanCard and work/stepPlan updated to the new words.
+- **The row** (`state.mjs heldEstimateOf`, `held.eta`): the latest estimate minus the working time since it was said (B793: a pause,
+  a stop, a wait or the board off is no time worked; `history.mjs notWorkedBetween`). The worker's own minutes-left (the step's Plan
+  `until`, given at its `estimated <time>` part, stepPlan.mjs), `from: 'take'` when given with the take (within its minute), `from:
+  'own'` for a later `work step` with minutes; without one, the size from the take (`from: 'size'`). The page (`heldTime`, mirrored by
+  chatStatus.mjs `heldTimeText`): "about 1 h 06 left · re-estimated 19:46" ("estimated" for the take's own minutes and the size, E);
+  a time of another day reads "yesterday 19:46" (`sinceClock`, G). The bar is the time worked of worked plus left.
+- **An old Plan line** (no `estimated` part) takes its estimate time from its `at`, and the next `work step` without minutes writes that
+  time as its `estimated` part (`nextPlan`, C), so it never fakes a re-estimate.
+- **Past its estimate**: quiet, never amber, never overdue: "past its estimate since 14:44", the moment the worked time first reached
+  the estimate (B: a later pause or wait never moves it), and "· new estimate asked" once asked.
+- **The asks ride on the worker's own `work step` answer** (A: no typed word, which runs after the turn, crosses a fresh estimate or the
+  report and can wake a chat at rest): a checkpoint without minutes is kept and its answer asks "Give your minutes left with every
+  checkpoint: ..."; while its row says it is past its estimate (the state's lane), the answer asks "B<n> is past its estimate (given
+  13:44): give a fresh minutes-left now: ..." once per estimate, and the step's History gets "server: asked a fresh estimate (estimated
+  <time>)", which the row reads (held.mjs `askedForOf`). Neither ask on a step that takes no minutes (in review handed back, taken),
+  while the person pauses all chats, or on a stop checkpoint (F). A checkpoint with minutes on a step that takes none keeps the
+  checkpoint and leaves the minutes out (F).
+- **The goal line** (`partLeftMinutes`, `focus.progress.minutesLeft`): an open part's open steps added up: a step a worker holds (also
+  one in review its check handed back) its time left; past its estimate its refine Size, else its share of the part (never 0 while it
+  is worked on); one in review that no worker holds 0; one not started its refine Size, else its share (the part's size over its
+  steps, so one unsized step never brings back the whole first size); a part with no steps yet its own size. "Focus G64 · ... · about
+  4 h left"; never "0 min": with only checks left, " · the rest waits for its check" (Overview and Focus page), and the verdict wait
+  as the Focus page says it. No clock time (D: with workers side by side, the limit and nights it cannot be honest).
+- Rule 16: before/after picture `art-inbox/board-eta/eta-before-after.png`. Tests: `test/etaRemaining.test.mjs` (B1125's live Plan
+  and take, G64; a mutant per decision A-H), with heldRow, heldRow.page, chatStatus.state, stepPlanCard, work/stepPlan, workBlocks,
+  focusPage, work/pause, work/taskTime and runChip updated to the new words.
 
 ## Keeping what the person did across a reload (B524)
 

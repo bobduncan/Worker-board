@@ -214,6 +214,30 @@ export function notWorkedCounter(lines, chat, now, aliveAt = null) {
   }
 }
 
+/**
+ * eta-remaining (2026-11-11): the time `chat` did not work between two moments, as `notWorkedCounter` counts it up to `to` (its
+ * lines filtered once, for the many calls that find when the worked time reached an estimate). `now` and `aliveAt` as there.
+ */
+export function notWorkedBetween(lines, chat, now, aliveAt = null) {
+  const open = Number.isFinite(aliveAt) ? startGap(lines, aliveAt, now) : null
+  const mine = lines.filter(line => line.gap === true || line.chat === chat)
+  if (open !== null) mine.push(open)
+  const firstAt = mine.find(line => line.gap !== true)?.at
+  if (firstAt === undefined) return () => 0
+  return (from, to) => {
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return 0
+    const start = Math.max(from, firstAt)
+    if (start >= to) return 0
+    let worked = 0
+    for (let i = 0; i < mine.length; i += 1) {
+      if (mine[i].gap === true || mine[i].state !== 'working' || mine[i].at >= to) continue
+      const end = Math.min(mine[i + 1]?.at ?? to, to)
+      worked += Math.max(0, end - Math.max(mine[i].at, start))
+    }
+    return Math.max(0, to - start - worked)
+  }
+}
+
 /** B793: `notWorkedCounter` for one start. */
 export const notWorkedSince = (lines, chat, from, now, aliveAt = null) => notWorkedCounter(lines, chat, now, aliveAt)(from)
 

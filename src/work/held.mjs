@@ -21,6 +21,8 @@ const TAKE_WORDS = /(?:→ taken\b|^taken → in progress\b|^claimed\b)/
 const TAKEN_FOR = /→ taken \(for ([^)]+)\)/
 /** A report: the move to review. */
 const REPORT_WORDS = /→ review\b/
+/** eta-remaining (review A): the work API's History line that it asked the holder a fresh estimate, for the estimate given then. */
+export const ASKED_ESTIMATE = /\basked a fresh estimate \(estimated (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\)/
 /** Addendum 7: a checkpoint's next action is clipped to this many characters (B855's ran to ~300). */
 export const NEXT_CHARS = 120
 
@@ -108,8 +110,17 @@ export function heldOf(items, chatName, prefix = '', { handoverStep = null } = {
     checkpoint: point === null || isOld ? null
       : { commit: point.commit, next: next.length > NEXT_CHARS ? `${next.slice(0, NEXT_CHARS - 1).trimEnd()}…` : next, at: Number.isFinite(point.at) ? point.at : null },
     // eta-remaining (2026-11-11): the task's latest minutes-left as the plan keeps it (`until`, given at `estimatedAt`).
+    // eta-remaining: the estimate the board last asked a fresh one for (its History line), as ms, or null.
+    askedFor: askedForOf(item),
     plan: saved === null ? null : { step: saved.on, steps: saved.steps, names: saved.names, at: saved.writtenAt, until: saved.until, estimatedAt: saved.estimatedAt ?? (saved.until === null ? null : saved.writtenAt) },
   }
+}
+
+/** eta-remaining: the estimate time (ms) of the newest "asked a fresh estimate" History line, or null. */
+export function askedForOf(item) {
+  const found = (item?.sections?.get('History') ?? []).map(String).findLast(one => ASKED_ESTIMATE.test(one))
+  const at = found === undefined ? Number.NaN : sinceMs(ASKED_ESTIMATE.exec(found)[1])
+  return Number.isFinite(at) ? at : null
 }
 
 /**

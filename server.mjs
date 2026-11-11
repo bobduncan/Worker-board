@@ -68,7 +68,7 @@ import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
 import { adoptPicture, findDemo, findPicture, readDemo, writeFeedback, PICTURE_BYTES as SHOWN_PICTURE_BYTES, pictureProblem, pictureTooBig, shownFolders, shownRoots } from './src/pictures.mjs'
-import { recapFeedbackWords, recapRoundWords, answerWords, boardLanes, checkSay, etaAsksDue, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakesStopped, withInstruction, workWords } from './src/say.mjs'
+import { recapFeedbackWords, recapRoundWords, answerWords, boardLanes, checkSay, focusWords, goalStepFor, goalStepOf, recommendYesAnswer, obsoleteWords, recommendYesOf, reportedBackgroundDue, resumesDue, sayStopWords, spawnWhenAlone, wakesStopped, withInstruction, workWords } from './src/say.mjs'
 import { keepTalkPicture } from './src/talkPicture.mjs'
 import { firstLook, refineQueue, refineWhenDue } from './src/refineGate.mjs'
 import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
@@ -4048,10 +4048,6 @@ async function main(args) {
         const running = reportedBackgroundDue(state, sentNow())
         for (const words of running) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' })
         if (running.length > 0) readState.reset()
-        // eta-remaining (2026-11-11): a working worker past its estimate with no new one is asked once per estimate for a fresh one.
-        const estimates = etaAsksDue(state, sentNow())
-        for (const words of estimates) await store.say({ id: randomBytes(8).toString('hex'), at: now, ...words, state: 'waiting' })
-        if (estimates.length > 0) readState.reset()
         // B742 (X95, X96): the week reached the person's stop line: each working worker is told once to bring its work to a safe point.
         // B758 (X99): so does the 5-hour limit's stop line, while its reset is far off: the same word once per window, with the time it goes on.
         // B812 (X109): checked and put in the outbox in one go, so a look that runs beside this one says none again.

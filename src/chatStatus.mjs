@@ -264,9 +264,9 @@ export function heldTimeText(held, now) {
   const eta = held.eta ?? null
   // eta-remaining (2026-11-11): its latest estimate minus the working time since (state.mjs `heldEstimateOf`), as the page words it.
   if (eta === null || !finite(eta.at)) return finite(held.size) ? `– · its size ${spanText(held.size * MIN)}` : 'No time'
-  const said = finite(eta.saidAt) ? ` · ${eta.from === 'own' ? 're-estimated' : 'estimated'} ${hourMinute(eta.saidAt)}` : ''
+  const said = finite(eta.saidAt) ? ` · ${eta.from === 'own' ? 're-estimated' : 'estimated'} ${sinceClock(eta.saidAt, now)}` : ''
   const left = eta.at - now
-  return left > 0 ? `${left < MIN / 2 ? 'under a minute left' : `about ${spanText(left)} left`}${said}` : `past its estimate since ${hourMinute(eta.at)}${eta.asked === true ? ' · new estimate asked' : ''}`
+  return left > 0 ? `${left < MIN / 2 ? 'under a minute left' : `about ${spanText(left)} left`}${said}` : `past its estimate since ${sinceClock(eta.at, now)}${eta.asked === true ? ' · new estimate asked' : ''}`
 }
 
 /**

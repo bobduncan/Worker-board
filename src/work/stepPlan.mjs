@@ -86,7 +86,9 @@ export function nextPlan(before, { names = [], steps = null, step = null, minute
   if (on !== null && total !== null) on = Math.min(Math.max(on, 1), total)
   const until = minutes === null ? base.until : now + minutes * MINUTE_MS
   const stepUntil = stepMinutes !== null ? now + stepMinutes * MINUTE_MS : on === base.on ? base.stepUntil : null
-  const estimatedAt = minutes === null ? base.estimatedAt ?? null : now
+  // eta-remaining (review C): a line from before the estimate time was kept took it from its `at`: carried over once, so a later
+  // call without minutes neither fakes a re-estimate nor moves it.
+  const estimatedAt = minutes === null ? base.estimatedAt ?? (base.until === null ? null : base.writtenAt) : now
   const plan = { names: kept, on, steps: total, until, stepUntil, writtenAt: now, estimatedAt }
   return on === null && kept.length === 0 && until === null && stepUntil === null ? null : plan
 }
