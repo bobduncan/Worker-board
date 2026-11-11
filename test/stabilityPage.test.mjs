@@ -1,168 +1,89 @@
-// Stability numbers (2026-11-05, task 4): the row under the limits (public/board.js, drawStability) and the state field that
-// feeds it. The page is run in test/pageHarness.mjs; the numbers are made up.
+// Stability numbers (2026-11-05, task 4; stability-row-clean, 2026-11-11): the row under the limits (public/board.js,
+// drawStability) and the state field that feeds it. The person, 2026-11-11: one line of plain labels with numbers, no
+// sparklines, no target, no amber; "details" opens the last days, one row each. The page is run in test/pageHarness.mjs;
+// the days are the live board's own lines of 8-11 Nov (fixtures/stability-live-2026-11-11.jsonl).
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import { parseConfig } from '../src/config.mjs'
-import { FINISH_WORDS } from '../src/stability.mjs'
+import { viewOf } from '../src/stability.mjs'
 import { openPage } from './pageHarness.mjs'
 import { asSent, build, NOW } from './partnerState.mjs'
 import { buildState } from './withStore.mjs'
 
-const dayOf = back => {
-  const date = new Date(2026, 9, 19 - back)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-const line = (back, { idle = 0, interventions = [], unsure = [], alarms = { real: 0, false: 0, ids: [] }, closed = back > 0 } = {}) =>
-  ({ day: dayOf(back), idleWithWorkMinutes: idle, idleEstimated: false, interventions, unsure, alarms, writtenAt: NOW, closed })
-// 14 closed days, oldest first (back 14 .. 1): the busy ones early, the last two clean.
-const days = Array.from({ length: 14 }, (_, index) => line(14 - index, index < 10 ? { idle: 20 + index, interventions: [{ at: NOW, kind: 'woke-outside', what: 'x' }], alarms: { real: 1, false: 0, ids: ['X1'] } } : {}))
-const stability = (today, more = {}) => ({ today, days, stableDays: 2, isStable: false, finish: FINISH_WORDS, ...more })
-const clean = line(0, { idle: 4, alarms: { real: 1, false: 1, ids: ['X158', 'X159'] } })
-const missed = line(0, {
-  idle: 12, interventions: [{ at: NOW, kind: 'app-restart', what: 'Every chat started again' }],
-  unsure: [{ at: NOW, kind: 'woke-outside', what: 'Worker 2 went on by itself' }], alarms: { real: 2, false: 0, ids: ['X160', 'X161'] },
-})
+const live = readFileSync(new URL('../fixtures/stability-live-2026-11-11.jsonl', import.meta.url), 'utf8').trim().split('\n').map(one => JSON.parse(one))
+// 11 Nov 2026, 13:00 local: today is the open line of the 11th, the three before it are closed.
+const LIVE = viewOf(live, new Date(2026, 10, 11, 13, 0).getTime())
 
 const open = async given => openPage({ state: { ...asSent(build([])), ...(given === undefined ? {} : { stability: given }) } })
-const numbers = page => Object.fromEntries(page.all('.stability-number').map(node => [node.dataset.number, node]))
+const lineText = page => Array.from(page.find('#stability .stability-line').children).map(node => node.textContent.trim()).join(' ')
+const rows = page => page.all('#stability .stability-days tr').map(row => Array.from(row.children).map(cell => cell.textContent))
 
-test('the row draws today\'s three numbers, three sparklines of 14 days and today, and the finish words', async () => {
-  const page = await open(stability(clean))
+test('the state field is today\'s line and the last closed days, with no finish line', () => {
+  assert.deepEqual(Object.keys(LIVE), ['today', 'days'])
+  assert.equal(LIVE.today.day, '2026-11-11')
+  assert.deepEqual(LIVE.days.map(one => one.day), ['2026-11-08', '2026-11-09', '2026-11-10'])
+})
+
+test('the line from the live data: plain labels with numbers and a details link, nothing else', async () => {
+  const page = await open(LIVE)
   try {
     assert.equal(page.find('#stability').hidden, false)
-    const shown = numbers(page)
-    assert.deepEqual(Object.values(shown).map(node => node.textContent), ['4 min idle with work', '0 interventions', '2 alarms (1 false)'])
-    const sparks = page.all('.stability-spark')
-    assert.deepEqual(sparks.map(node => node.dataset.spark), ['idle', 'interventions', 'alarms'])
-    for (const spark of sparks) assert.equal(spark.querySelector('polyline').getAttribute('points').split(' ').length, 15)
-    assert.match(page.text('.stability-finish'), new RegExp(`^${FINISH_WORDS} · 2 of 3 days$`))
-    assert.ok(!page.find('.stability-finish').classList.contains('is-stable'))
+    assert.equal(lineText(page), 'Stability today · fixes by hand 1 · real alarms 0 · idle with work 1 min details')
+    // No dot, no sparkline, no target, no amber, no "not measured" word, no details before the click.
+    assert.equal(page.all('#stability svg, #stability .is-attn, #stability .stability-days').length, 0)
+    assert.doesNotMatch(page.find('#stability').textContent, /stable|of 3 days|not measured|interventions?\b/)
+    // Every number stands beside its label.
+    for (const node of page.all('#stability .stability-number')) assert.match(node.textContent, /^[a-z ]+ \S/)
+    assert.equal(page.all('#stability .stability-line > b').length, 0, 'no number without its label')
+    assert.equal(page.find('[data-number="fixes"]').title, 'Resume all, ending a pause that was not yours\nunsure: Worker 5 went from interrupted to working with no wake or message in the 5 minutes before')
   } finally { await page.close() }
 })
 
-test('a stable board says since when, in the stable tone', async () => {
-  const page = await open(stability(line(0), { stableDays: 4, isStable: true, days: [...days.slice(0, 10), ...[4, 3, 2, 1].map(back => line(back))] }))
+test('details opens the last days from the live data, one row each, today "so far", with the alarm ids and a note for an odd day', async () => {
+  const page = await open(LIVE)
   try {
-    assert.match(page.text('.stability-finish'), / · stable since 15 Oct$/)
-    assert.ok(page.find('.stability-finish').classList.contains('is-stable'))
+    await page.click('#stability .stability-details')
+    assert.deepEqual(rows(page), [
+      ['Day', 'Fixes by hand', 'Real alarms', 'Idle with work', 'Note'],
+      ['11 Nov, so far', '1', '0', '1 min', 'board off 7 h 24 min'],
+      ['10 Nov', '0', '0', '1 min', 'paused most of the day'],
+      ['9 Nov', '1', '2 (X162, X163)', '4 min', 'board off most of the day'],
+      ['8 Nov', '0', '1 (X2)', '0 min', 'board off most of the day'],
+    ])
+    assert.equal(page.text('#stability .stability-details'), 'hide details')
+    await page.click('#stability .stability-details')
+    assert.equal(page.all('#stability .stability-days').length, 0)
   } finally { await page.close() }
 })
 
-test('amber only on today\'s two numbers, and only when today already misses the finish line', async () => {
-  const quiet = await open(stability(clean))
-  const loud = await open(stability(missed))
-  const idleOnly = await open(stability(line(0, { idle: 10 })))
+test('real alarm ids leave the false ones out; idle not known and estimated say so; a rebuilt day says so', async () => {
+  const day = (date, more) => ({ day: date, idleWithWorkMinutes: 2, idleEstimated: false, interventions: [], unsure: [], alarms: { real: 0, false: 0, ids: [], cameBack: [] }, closed: true, measured: true, pausedMinutes: 0, offMinutes: 0, ...more })
+  const page = await open({
+    today: day('2026-11-11', { closed: false, idleWithWorkMinutes: null, alarms: { real: 1, false: 1, ids: ['X5', 'X6'], realIds: ['X6'], cameBack: [] } }),
+    days: [day('2026-11-09', { idleEstimated: true, backfilled: true }), day('2026-11-10', { pausedMinutes: 125 })],
+  })
   try {
-    assert.deepEqual(quiet.all('.is-attn').length, 0)
-    assert.deepEqual(Object.entries(numbers(loud)).map(([key, node]) => [key, node.classList.contains('is-attn')]), [['idle', true], ['interventions', true], ['alarms', false]])
-    assert.deepEqual(idleOnly.all('.is-attn').map(node => node.dataset.number), ['idle', 'interventions'])
-    assert.equal(numbers(loud).interventions.textContent, '1 intervention')
-  } finally { await Promise.all([quiet.close(), loud.close(), idleOnly.close()]) }
-})
-
-test('a day with idle not known (null) is a gap in the idle sparkline, never a 0, and says "not known" in the hover', async () => {
-  const backfilled = days.map(one => ({ ...one, idleWithWorkMinutes: null, idleEstimated: true }))
-  const page = await open(stability(clean, { days: backfilled }))
-  try {
-    const [idle, interventions] = page.all('.stability-spark')
-    assert.equal(idle.querySelectorAll('polyline').length, 0, '14 gaps and today: no line at all, today a lone dot')
-    assert.equal(idle.querySelectorAll('circle').length, 1)
-    assert.match(idle.querySelector('title').textContent, /^Idle with work, per day: (not known ){14}4$/)
-    assert.equal(interventions.querySelectorAll('polyline').length, 1, 'the other sparklines are whole')
-  } finally { await page.close() }
-  // Gaps in the middle break the line in two; a null is not drawn at the bottom as 0.
-  const mixed = days.map((one, index) => ({ ...one, idleWithWorkMinutes: index === 6 ? null : 20 }))
-  const split = await open(stability(clean, { days: mixed }))
-  try {
-    const idle = split.find('[data-spark="idle"]')
-    assert.deepEqual(Array.from(idle.querySelectorAll('polyline')).map(node => node.getAttribute('points').split(' ').length), [6, 8])
-    assert.ok(!/ 0 /.test(idle.querySelector('title').textContent) && /20 not known 20/.test(idle.querySelector('title').textContent))
-  } finally { await split.close() }
-})
-
-test('a today line with idle not known says so and is not amber for it', async () => {
-  const page = await open(stability({ ...line(0), idleWithWorkMinutes: null }))
-  try {
-    assert.equal(numbers(page).idle.textContent, 'idle with work not known')
-    assert.equal(page.all('.is-attn').length, 0)
+    assert.equal(lineText(page), 'Stability today · fixes by hand 0 · real alarms 1 · idle with work not known details')
+    assert.equal(page.find('[data-number="alarms"]').title, 'X6')
+    await page.click('#stability .stability-details')
+    assert.deepEqual(rows(page).slice(1), [
+      ['11 Nov, so far', '0', '1 (X6)', 'not known', ''],
+      ['10 Nov', '0', '0', '2 min', 'paused 2 h 5 min'],
+      ['9 Nov', '0', '0', '~2 min', 'rebuilt from older records'],
+    ])
   } finally { await page.close() }
 })
 
 test('the row stays hidden without the field', async () => {
-  const page = await open()
-  try {
-    assert.equal(page.find('#stability').hidden, true)
-    assert.equal(page.all('.stability-number').length, 0)
-  } finally { await page.close() }
+  const page = await open(undefined)
+  try { assert.equal(page.find('#stability').hidden, true) } finally { await page.close() }
 })
 
-test('a hover on each number lists the day\'s items: what was done, the unsure ones, the alarm ids', async () => {
-  const page = await open(stability(missed))
-  try {
-    const shown = numbers(page)
-    assert.equal(shown.interventions.title, 'Every chat started again\nunsure: Worker 2 went on by itself')
-    assert.equal(shown.alarms.title, 'X160, X161')
-    assert.match(shown.idle.title, /^12 min today/)
-  } finally { await page.close() }
-})
-
-test('the state carries the field with the finish words; a board that keeps none leaves it out', () => {
+test('the state carries the field as the writer gave it; a board that keeps none leaves it out', () => {
   const raw = { listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [], tails: {}, planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, backlogText: '' }
   const options = { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config: { ...parseConfig('{}', {}), project: 'C:\garden' } }
-  const given = { today: clean, days, stableDays: 2, isStable: false }
-  const withField = buildState(raw, { ...options, stability: given })
-  assert.deepEqual(asSent(withField.stability), asSent({ ...given, finish: FINISH_WORDS }))
+  assert.deepEqual(asSent(buildState(raw, { ...options, stability: LIVE }).stability), asSent(LIVE))
   assert.equal('stability' in buildState(raw, options), false)
-})
-
-test('a day not measured (paused or off for most of it) is a gap in all three sparklines, "not measured" in the hover, and never amber', async () => {
-  const paused = days.map((one, index) => (index === 6 ? { ...one, measured: false, notMeasuredWhy: 'paused', pausedMinutes: 1337, offMinutes: 1334 } : one))
-  const page = await open(stability(clean, { days: paused }))
-  try {
-    for (const spark of page.all('.stability-spark')) {
-      assert.deepEqual(Array.from(spark.querySelectorAll('polyline')).map(node => node.getAttribute('points').split(' ').length), [6, 8], `${spark.dataset.spark}: the line breaks at the 7th day`)
-      assert.match(spark.querySelector('title').textContent, /^[A-Za-z ]+, per day: (\S+ ){6}not measured (\S+ ){7}\S+$/)
-    }
-  } finally { await page.close() }
-})
-
-test('today not measured says "not measured (paused)" or "(off)", with the minutes in the hover, a gap at the end of the sparklines, and no amber', async () => {
-  const today = line(0, { idle: 40, interventions: [{ at: NOW, kind: 'app-restart', what: 'x' }], closed: false })
-  for (const [why, words] of [['paused', 'not measured (paused)'], ['off', 'not measured (off)']]) {
-    const page = await open(stability({ ...today, measured: false, notMeasuredWhy: why, pausedMinutes: 1337, offMinutes: 1334 }))
-    try {
-      assert.deepEqual(page.all('.stability-number').map(node => node.textContent), [words])
-      assert.match(page.find('.stability-number').title, /1337 min paused, 1334 min off/)
-      assert.equal(page.all('.is-attn').length, 0, 'even with 40 idle minutes and an intervention it is not amber')
-      for (const spark of page.all('.stability-spark')) {
-        assert.equal(spark.querySelectorAll('circle').length, 0, 'no dot for today')
-        assert.match(spark.querySelector('title').textContent, / not measured$/)
-      }
-    } finally { await page.close() }
-  }
-})
-
-test('comebacks (2026-11-09): "(1 came back · 1 false)", the hover marks the id that came back, no amber', async () => {
-  const back = line(0, { idle: 4, alarms: { real: 1, false: 1, ids: ['X2', 'X158'], cameBack: ['X2'] } })
-  const page = await open(stability(back))
-  try {
-    const shown = numbers(page)
-    assert.equal(shown.alarms.textContent, '2 alarms (1 came back · 1 false)')
-    assert.equal(shown.alarms.title, 'X2 (came back), X158')
-    assert.equal(page.all('.is-attn').length, 0)
-    assert.equal(page.all('.stability-number.is-attn').length, 0)
-  } finally { await page.close() }
-  const none = await open(stability(clean))
-  try { assert.equal(numbers(none).alarms.textContent, '2 alarms (1 false)', 'no comeback: the words as before') } finally { await none.close() }
-})
-
-test('a row broken by a real alarm says so at the finish end; one that is not does not', async () => {
-  const broken = await open(stability(line(0), { stableDays: 1, brokenByAlarm: '2026-11-08' }))
-  const plain = await open(stability(line(0), { stableDays: 1 }))
-  try {
-    assert.match(broken.text('.stability-finish'), / · 1 of 3 days · broken by a real alarm on 8 Nov$/)
-    assert.doesNotMatch(plain.text('.stability-finish'), /broken/)
-    assert.equal(broken.all('.is-attn').length, 0)
-  } finally { await Promise.all([broken.close(), plain.close()]) }
 })

@@ -90,6 +90,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     deafNow: Number.isFinite(state.deafNow?.from) ? Object.freeze({ from: state.deafNow.from, to: now }) : null,
     // B934 (X93): the board's newest stalls (stalls.mjs `stallOf`): `[{ at, ms, kind, call?, requests, jobs }]`.
     stalls: Object.freeze((Array.isArray(state.stalls) ? state.stalls : []).map(stallOf).filter(one => one !== null).map(one => Object.freeze(one))),
+    // board-fast-answer: the day's work-call figures (state.mjs `workCalls`), or null.
+    workCalls: state.workCalls !== null && typeof state.workCalls === 'object' ? Object.freeze({ ...state.workCalls }) : null,
     lateCalls: Object.freeze((Array.isArray(state.lateCalls) ? state.lateCalls : []).filter(one => Number.isFinite(one?.at) && Number.isFinite(one?.ms)).map(one => Object.freeze({ at: one.at, ms: one.ms }))),
     since: statesSince(timeline, lanes),
     repairs: Object.freeze([...repairs]),

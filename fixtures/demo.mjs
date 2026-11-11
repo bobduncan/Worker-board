@@ -762,7 +762,7 @@ export function demoStability(now) {
     unsure: [], alarms: { real: count, false: 0, ids: Array.from({ length: count }, (_, index) => `X${100 + back * 3 + index}`) }, writtenAt: now, closed: true,
   })
   const days = idle.map((minutes, index) => line(14 - index, minutes, talks[index]))
-  return { today: { ...line(0, 4, 0), closed: false }, days, stableDays: 2, isStable: false }
+  return { today: { ...line(0, 4, 0), closed: false }, days }
 }
 
 /**

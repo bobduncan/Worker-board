@@ -26,7 +26,6 @@ import { approvalRoute } from './tick.mjs'
 import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
-import { FINISH_WORDS } from './stability.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { planOf } from './work/stepPlan.mjs'
@@ -1731,7 +1730,7 @@ export function buildState(raw, options) {
   return withLinks(raw?.work?.items, () => builtState(raw, options))
 }
 
-function builtState(raw, { lines = [], outbox = [], words = null, refineKept = null, runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], finishedSeen = {}, taskTimes = [], stability = null, mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, noWorkSeen = null, now, config }) {
+function builtState(raw, { lines = [], outbox = [], words = null, refineKept = null, runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], workCalls = null, finishedSeen = {}, taskTimes = [], stability = null, mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, noWorkSeen = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -2675,7 +2674,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     // B185: how long finished tasks really took, per area and lately, and per step its estimate and working time.
     taskTimes: taskTimesOf(taskTimes),
     // Stability numbers (2026-11-05, task 4): the three daily numbers and the finish line; absent on a board that keeps none.
-    ...(stability === null ? {} : { stability: { ...stability, finish: FINISH_WORDS } }),
+    ...(stability === null ? {} : { stability }),
     // B113: the 5-hour limit and the week, each with how old its figure is; a window nothing is known of is null.
     limits,
     // B640: the newest reading of each window any chat gave, kept by the server for the next read.
@@ -2822,6 +2821,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     lateCalls: Array.isArray(hearing?.lateCalls) ? hearing.lateCalls : [],
     // B934 (X93): the board's newest stalls (stalls.mjs), which the rule board-slow cites.
     stalls: Array.isArray(stalls) ? stalls : [],
+    // board-fast-answer (B1030 way A): the day's work-call figures (src/workCalls.mjs `today`), for the Supervisor's health line.
+    workCalls: workCalls !== null && typeof workCalls === 'object' ? workCalls : null,
     restart,
     // Review 4: a step in review is named with what it waits on only where the board knows it (reviewWaitOf's kind).
     pause: pause === null ? null : withReviewWaits(pause, raw.work.items, reconciled?.ready?.held ?? null, now, recapWaits),
