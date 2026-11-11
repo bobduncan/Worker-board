@@ -65,8 +65,16 @@ export function wordSettled(words: TurnWords, id: string, isEntered: boolean): T
  */
 export function turnBegan(words: TurnWords, text: string, now: number): TurnWords {
   // 0.31.0, Task 6: the app may merge several queued prompts of ours into one turn's prompt: every word whose text the
-  // prompt holds entered with it; the turn is named by the first of them in outbox order.
-  const inPrompt = new Set(wordsIn(words, text))
+  // prompt holds entered with it; the turn is named by the first of them in outbox order. 0.32.0: of two open words with the SAME
+  // text (a repeated "work next" line) the oldest entered (the stretch is one of theirs: no guess which, so the oldest, in outbox
+  // order, as the app queues them); a clash of different texts (one inside another) names none, and both stay on their way.
+  const hits = hitsIn(words, text)
+  const inPrompt = new Set(hits.filter(one => !one.clashes).map(one => one.id))
+  for (const hit of hits.filter(one => one.clashes)) {
+    const same = hits.filter(other => other.clashes && other.text === hit.text)
+    const others = hits.filter(other => other.clashes && other.text !== hit.text && other.at < hit.at + hit.len && hit.at < other.at + other.len)
+    if (same.length > 1 && others.length === 0 && same[0] === hit) inPrompt.add(hit.id)
+  }
   const at = words.typed.findIndex(one => inPrompt.has(one.id))
   if (at < 0) return { typed: words.typed, word: null, turn: now }
   return { typed: words.typed.filter((one, i) => !inPrompt.has(one.id) && (i > at || !one.isEntered)), word: words.typed[at].id, turn: now }
@@ -85,25 +93,38 @@ const normal = (value: unknown): string => String(value ?? '').replace(/\s+/g, '
  * stand inside the person's own line is never counted entered.
  */
 export function wordsIn(words: TurnWords, text: string): string[] {
+  return hitsIn(words, text).filter(one => !one.clashes).map(one => one.id)
+}
+
+/** 0.32.0: a word found in the prompt: where (`at`, its normalised length `len`), and whether another open word's hit overlaps it. */
+type WordHit = { id: string; at: number; len: number; text: string; clashes: boolean }
+
+/**
+ * 0.32.0 (chat 1's review): a word counts only with its WHOLE text in the prompt; a long one (over LONG_WORD_CHARS) by its first
+ * LONG_WORD_CHARS and its last LONG_WORD_TAIL characters both in it, the tail after the head (searched from where it can start, so a
+ * word of 201 to 279 characters matches too). Where one stretch of the prompt matches two open words (the same opening: two "work
+ * next" lines; a word inside another's text), the hits overlap and both are marked `clashes`: neither is reported, never a guess;
+ * `turnBegan` names the oldest of identical texts all the same (two identical words would else stay queued for ever).
+ */
+function hitsIn(words: TurnWords, text: string): WordHit[] {
   const prompt = normal(text)
   if (prompt === '') return []
-  // 0.32.0 (chat 1's review): a word counts only with its WHOLE text in the prompt; a long one (over LONG_WORD_CHARS) by its first
-  // LONG_WORD_CHARS and its last LONG_WORD_TAIL characters both in it, the tail after the head. Where one stretch of the prompt matches
-  // two open words (the same opening: two "work next" lines, two asset words), neither is reported: never a guess.
   const hits = words.typed.map(one => {
     const own = normal(one.text)
     if (own === '') return null
-    if (sameWords(one.text, text)) return { id: one.id, at: 0 }
+    if (sameWords(one.text, text)) return { id: one.id, at: 0, len: own.length, text: own, clashes: false }
     if (own.length < MERGED_MIN_CHARS) return null
     if (own.length <= LONG_WORD_CHARS) {
       const at = prompt.indexOf(own)
-      return at < 0 ? null : { id: one.id, at }
+      return at < 0 ? null : { id: one.id, at, len: own.length, text: own, clashes: false }
     }
     const at = prompt.indexOf(own.slice(0, LONG_WORD_CHARS))
-    return at < 0 || prompt.indexOf(own.slice(-LONG_WORD_TAIL), at + LONG_WORD_CHARS) < 0 ? null : { id: one.id, at }
-  }).filter((one): one is { id: string; at: number } => one !== null)
-  const clashes = new Set(hits.filter(one => hits.some(other => other !== one && other.at === one.at)).map(one => one.at))
-  return hits.filter(one => !clashes.has(one.at)).map(one => one.id)
+    if (at < 0) return null
+    const tailAt = prompt.indexOf(own.slice(-LONG_WORD_TAIL), at + Math.max(0, Math.min(LONG_WORD_CHARS, own.length - LONG_WORD_TAIL)))
+    return tailAt < 0 ? null : { id: one.id, at, len: tailAt + LONG_WORD_TAIL - at, text: own, clashes: false }
+  }).filter((one): one is WordHit => one !== null)
+  const overlaps = (a: WordHit, b: WordHit): boolean => a.at < b.at + b.len && b.at < a.at + a.len
+  return hits.map(one => ({ ...one, clashes: hits.some(other => other !== one && overlaps(one, other)) }))
 }
 
 /** 0.32.0: a word longer than this is matched by its head and its tail (the app may re-wrap the middle of a merged prompt). */
@@ -606,6 +627,8 @@ export type PendingClear = { ticket: string; from: string; step: string | null; 
  * record itself is kept under its session (`pendingClearKey`): `$.store` is one file for every chat of the plugin.
  */
 export const pendingClearKey = (session: string): string => `clear-pending:${session}`
+/** 0.32.0, point 1: the store key of the typed words of ours on their way, per chat (its session). */
+export const typedWordsKey = (session: string): string => `typed-words:${session}`
 export const clearTicket = (run: number, count: number): string => `clear-${Math.round(run)}-${count}`
 const TICKET = /^clear-\d{1,16}-\d{1,9}$/
 

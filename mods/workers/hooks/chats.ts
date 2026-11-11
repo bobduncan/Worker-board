@@ -44,8 +44,8 @@ export function sessionOf(name: string): string | null {
 
 /** A chat's file as text. */
 export function chatText(chat: ChatFile): string {
-  const { name, role, state, task, at, mod, compacted, compactNote, cleared, clearNote, clearing } = chat
-  const kept = { mod, compacted, compactNote, cleared, clearNote, clearing }
+  const { name, role, state, task, at, mod, compacted, compactNote, cleared, clearNote, clearing, taskNote } = chat
+  const kept = { mod, compacted, compactNote, cleared, clearNote, clearing, taskNote }
   const notes = Object.fromEntries(Object.entries(kept).filter(([, value]) => value !== undefined))
   return `${JSON.stringify({ name, role, state, task, at, ...notes }, null, 2)}\n`
 }
@@ -147,6 +147,7 @@ export function parseChat(text: string): ChatFile | null {
     ...(cleared === null ? {} : { cleared }),
     ...(isNote(c.clearNote) ? { clearNote: { at: c.clearNote.at, why: c.clearNote.why.slice(0, 200) } } : {}),
     ...(clearing === null ? {} : { clearing }),
+    ...(isNote(c.taskNote) ? { taskNote: { at: c.taskNote.at, why: c.taskNote.why.slice(0, 200) } } : {}),
   }
 }
 

@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
-import { boardChats, parseAppChat, parseList } from './appChats.mjs'
+import { archivedChatsOf, boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
 import { allWords, closedForYou, minutesOf, sizeMinutes, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
@@ -70,7 +70,7 @@ import { recapRoundOf, reworkOf } from './recapRound.mjs'
 import { blockChipWords, keptRecapWaitOf, noneReadyOf, refineGroupOf, stepStatusOf, stepStatusesOf } from './stepStatus.mjs'
 import { guardOf, rebuildHoldsOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
-import { archivedAfterRestart, rolloutPlan } from './work/modRollout.mjs'
+import { RECENT_LANE_MS, archivedAfterRestart, rolloutPlan } from './work/modRollout.mjs'
 import { chatsByRole } from './oldMods.mjs'
 import { clearingOf, decide, envelopesOf, holdingOf, lastClearWhyOf, laneWords, onSequence } from './work/handover.mjs'
 import { givenBackFrom } from './work/holderTimers.mjs'
@@ -2686,7 +2686,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken' || flag.kind === 'handover off').map(flag => flag.text),
       // Model per step: settings that name the model ids otherwise than both, each "claude-...": the effort alone.
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], unarchives: rollout === null ? [] : archivedAfterRestart({ archived: apps.filter(chat => chat?.isArchived === true && typeof chat.title === 'string' && chat.title.startsWith(prefix)).map(chat => ({ name: chat.title.slice(prefix.length).trim(), session: chat.sessionId ?? null })), sent, now, main: main?.name ?? null, partner: advisorChat?.name ?? null, prefix }), restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], unarchives: rollout === null ? [] : archivedAfterRestart({ archived: archivedChatsOf(apps, { project: config.project, prefix }), sent, now, main: main?.name ?? null, partner: advisorChat?.name ?? null, prefix, recent: lines.filter(line => line.gap !== true && typeof line.chat === 'string' && Number.isFinite(line.at) && now - line.at < RECENT_LANE_MS).map(line => line.chat) }), restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null

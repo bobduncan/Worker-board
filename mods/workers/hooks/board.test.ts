@@ -171,9 +171,28 @@ describe('Task 6 (0.31.0): words the app merged into one prompt have all entered
     // Two open words with the same opening (two "work next" lines): the one stretch matches both, so neither is reported; a third, distinct word still is.
     const same = wordTyping(wordTyping(wordTyping(NO_TURN_WORDS, 'a1', 'work: B13 is yours; run work next'), 'a2', 'work: B13 is yours; run work next'), 'a3', 'asset A224 ready: C:/p/.claude/assets/A224')
     expect(wordsIn(same, 'work: B13 is yours; run work next\n\nasset A224 ready: C:/p/.claude/assets/A224')).toEqual(['a3'])
-    expect(turnBegan(same, 'work: B13 is yours; run work next', 9).word).toBeNull()
+    // Two identical texts and a prompt of one of them: the typed report names neither, the turn is the oldest's (see the twins below).
+    expect(turnBegan(same, 'work: B13 is yours; run work next', 9).word).toBe('a1')
     expect(LONG_WORD_CHARS).toBe(200)
     expect(LONG_WORD_TAIL).toBe(80)
+    // The review: a word of 201 to 279 characters (its tail starts before character 200) matches too, whole in the prompt.
+    for (const length of [201, 250, 279, 280, 400]) {
+      const text = Array.from({ length }, (_, i) => String.fromCharCode(97 + (i % 26))).join('')
+      const one = wordTyping(NO_TURN_WORDS, 'w', text)
+      expect([length, wordsIn(one, `before\n\n${text}\n\nafter`)]).toEqual([length, ['w']])
+    }
+    // The review: a word whose text sits INSIDE another open word's text (not at its start) overlaps it: neither is reported, the turn is no word's.
+    const inside = wordTyping(wordTyping(NO_TURN_WORDS, 'c', 'run work next, then report back to main'), 'd', 'B13: run work next, then report back to main')
+    expect(wordsIn(inside, 'B13: run work next, then report back to main')).toEqual([])
+    expect(turnBegan(inside, 'B13: run work next, then report back to main', 1).word).toBeNull()
+    // The review: two open words with the SAME text (a repeated line): the typed report names neither, but the turn is the oldest's and it
+    // leaves the queue (else both would stay queued for ever); the second goes with the next such prompt.
+    const twins = wordTyping(wordTyping(NO_TURN_WORDS, 'old', 'work: B13 is yours; run work next'), 'new', 'work: B13 is yours; run work next')
+    expect(wordsIn(twins, 'work: B13 is yours; run work next')).toEqual([])
+    const first = turnBegan(twins, 'work: B13 is yours; run work next', 1)
+    expect([first.word, first.typed.map(one => one.id)]).toEqual(['old', ['new']])
+    const second = turnBegan(first, 'work: B13 is yours; run work next', 2)
+    expect([second.word, second.typed]).toEqual(['new', []])
   })
 
   test('0.32.0: an envelope\'s line is no take word: the turn\'s start reports only the take words the prompt holds', () => {

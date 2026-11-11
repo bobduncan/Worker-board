@@ -24,6 +24,8 @@ export const UNARCHIVE_AFTER_MS = 5 * MIN
 export const UNARCHIVE_AGAIN_MS = 30 * MIN
 /** A restart word older than this is no longer the cause of an archive. */
 const RESTART_WORD_KEPT_MS = 24 * 60 * MIN
+/** A chat the board showed as a lane within this long, archived now right after a restart word to another chat, went with that archive. */
+export const RECENT_LANE_MS = 60 * MIN
 
 const HOLDS = ['taken', 'in progress', 'waiting on you']
 const LOST = ['expired', 'failed', 'dropped']
@@ -53,15 +55,22 @@ export function unarchiveWords({ to, chat, session, why }) {
  * none for the first UNARCHIVE_AFTER_MS after the restart word (the restarter is at it). The outbox is the memory across the board's
  * restarts (its words are kept a day): nothing else needs a file.
  */
-export function archivedAfterRestart({ archived = [], sent = [], now, main = null, partner = null, prefix = '' }) {
+export function archivedAfterRestart({ archived = [], sent = [], now, main = null, partner = null, prefix = '', recent = [] }) {
   const words = []
+  // A restart word that reached its restarter (typed, delivered, done): one still waiting or taken did not make the archive.
+  const restarts = sent.filter(message => message.command === RESTART_COMMAND && now - message.at < RESTART_WORD_KEPT_MS && !LOST.includes(message.state) && message.state !== 'waiting' && message.state !== 'taken')
   for (const chat of archived) {
     if (typeof chat?.name !== 'string' || chat.name.trim() === '') continue
-    const restart = sent.filter(message => message.command === RESTART_COMMAND && plain(message.about, prefix) === plain(chat.name, prefix) && now - message.at < RESTART_WORD_KEPT_MS && !LOST.includes(message.state)).at(-1)
+    // Its own restart word; else (the review: archiving the main chat archives the chats it started) any restart word of the last hour,
+    // when the board showed this chat as a lane within the hour (`recent`): it went with its restarter's archive.
+    const own = restarts.filter(message => plain(message.about, prefix) === plain(chat.name, prefix)).at(-1)
+    const withMain = own === undefined && recent.some(name => plain(name, prefix) === plain(chat.name, prefix)) ? restarts.filter(message => now - message.at < RECENT_LANE_MS).at(-1) : undefined
+    const restart = own ?? withMain
     if (restart === undefined || now - restart.at < UNARCHIVE_AFTER_MS) continue
     const asked = sent.filter(message => message.command === UNARCHIVE_COMMAND && plain(message.about, prefix) === plain(chat.name, prefix) && message.at >= restart.at)
     const last = asked.at(-1)
-    if (last !== undefined && now - last.at < UNARCHIVE_AGAIN_MS) continue
+    // The review: at most RESTART_TRIES words per restart (a chat the person archived on purpose is not asked for all day).
+    if ((last !== undefined && now - last.at < UNARCHIVE_AGAIN_MS) || asked.length >= RESTART_TRIES) continue
     const to = main !== null && plain(chat.name, prefix) === plain(main, prefix) ? partner : main
     if (to === null || to === undefined || plain(to, prefix) === plain(chat.name, prefix)) continue
     const minutes = Math.floor((now - restart.at) / MIN)

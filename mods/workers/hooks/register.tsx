@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, TYPED_MOST, contextForTake, takeWordsOf, MOST_CHARS, MOST_STAGES, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, TYPED_MOST, contextForTake, takeWordsOf, typedWordsKey, MOST_CHARS, MOST_STAGES, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn } from './board'
 import type { Board, BoardStart, ClearStage, Envelope, Handover, Outcome, PauseState, PauseWhere, PendingClear, StopAsk, TurnContext, TurnReport, TurnWords, TypedWord, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -255,11 +255,13 @@ const TAKE_MS = 15_000
 const typedIds = new Set<string>()
 /** 0.32.0, point 1: the words the running turn's prompt held (reported at its start; told again at its end when that failed). */
 let enteredThisTurn: string[] = []
-/** 0.32.0, point 1: the words of ours on their way, kept in the mod's store so the next process still knows them (a restart, a clear). */
-const TYPED_KEY = 'typed-words'
+/**
+ * 0.32.0, point 1: the words of ours on their way, kept in the mod's store so the next process still knows them (a restart, a clear).
+ * Under this chat's session (the plugin's store is one file for every chat, as `pendingClearKey`): another chat's words are never this one's.
+ */
 async function keepTypedWords($: EngineInterface): Promise<void> {
   try {
-    await $.store.set(TYPED_KEY, turnWords.typed)
+    await $.store.set(typedWordsKey(await $.session.id()), turnWords.typed)
   } catch {
     // this process keeps them all the same
   }
@@ -537,6 +539,8 @@ function changeMine(
 
 /** 0.32.0, point 2: the board's first two minutes after a start, while its state is still being built: no verdict of "holds nothing" counts. */
 const BOARD_START_WINDOW_MS = 120_000
+/** 0.32.0, point 2: the step the board last said this chat holds (`held.id`), null for none, undefined before the first verdict. */
+let heldByBoard: string | null | undefined
 /**
  * 0.32.0, point 2 (chat 1's review): the board's FRESH verdict that this chat holds nothing (`held` null in this take's statuses, from a
  * board of 0.30.0 or newer) while the card still names a task: the task was given back, stopped or dropped on the board, so the card is
@@ -544,15 +548,29 @@ const BOARD_START_WINDOW_MS = 120_000
  * about to report), nothing for an older board (no `held`, no start time).
  */
 async function clearStaleCard($: EngineInterface, taken: TakenAnswer, now: number): Promise<void> {
-  if (myself === null || chatsDir === null || isInTurn) return
+  if (myself === null || chatsDir === null) return
   const mine = taken.statuses?.find(one => one.name.toLowerCase() === myself?.name.toLowerCase())
-  if (mine === undefined || mine.held !== null) return
+  if (mine === undefined || mine.held === undefined) return
+  // The review: only a WORKER's card, and only on the change from a step the board said it held to none (the main chat and the partners
+  // never hold a step by the board, and their cards' tasks are their own); the step the board named is the task that went. The change is
+  // used up only by a verdict that counts: one in the board's start window or under the person's pause leaves it for the next.
+  if (mine.held !== null) {
+    heldByBoard = mine.held.id
+    return
+  }
+  if (myself.role !== 'worker' || typeof heldByBoard !== 'string' || isInTurn) return
   if (taken.boardStartedAt === null || now - taken.boardStartedAt < BOARD_START_WINDOW_MS) return
-  if (isPaused(await pauseNow($))) return
+  if (isPaused(await pauseNow($, true))) return
+  const was = heldByBoard
   const chat = await readChat($, chatsDir, await $.session.id())
-  if (chat === null || chat.task === null) return
+  if (chat === null || chat.task === null || chat.task.isReported || isInTurn) {
+    heldByBoard = null
+    return
+  }
   const gone = chat.task.text
-  await changeMine($, (me, at) => (me.task === null ? null : { ...me, task: null, clearNote: { at, why: `the board gives this chat no task now: "${gone.slice(0, 80)}" was given back, stopped or dropped` } }))
+  // The review: a take that lands in between (a new turn, a new task) is left alone: only the task seen is cleared, and never in a turn.
+  await changeMine($, (me, at) => (me.task === null || me.task.text !== gone || isInTurn ? null : { ...me, task: null, taskNote: { at, why: `the board gives this chat no task now: ${was} was given back, stopped or dropped` } }))
+  heldByBoard = null
   void refreshChats($)
 }
 
@@ -2648,7 +2666,7 @@ const WORK_TOOL = {
     + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
     + 'the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question; the partner\'s daily note on the focus goal is a note to you with "of" G<n>, "decided" and "needs". "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
-    + 'chat. "block" ("id", "on", "why"): your step waits: "on" a step (B<n>) it waits for, or the chat whose answer you wait for (a chat of the board, or "chat 1") with "why" ("its go to land"): the board then shows you as waiting on purpose, sends no go-on line and gives your step to nobody; "unblock" ("id") once the answer came; "unblock" without "on" (the main chat): clears what the step "Waits for". An ask of yours held for the person\'s words (rule 15) is lifted by `note still stands:` or `withdraw`. "new" ("title", "activity", "goal", "text", "priority", "standard", "model", "effort"): a new step ("priority" '
+    + 'chat. "block" ("id", "on", "why") and "unblock" ("id", "on"): your step waits for a step or a chat (see "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text", "priority", "standard", "model", "effort"): a new step ("priority" '
     + 'fix: a fix for the worker board, first on the board\'s list); the board hands it out to a free worker once it is refined '
     + '(nobody queues; the person may pin it to a worker on the board). "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "standard", "model", "effort", "questions") and "refined" ("id", "what", "standard", "model", "effort"): '
@@ -2693,7 +2711,7 @@ const WORK_TOOL = {
       to: { type: 'string', description: "note: you (the person) or main (the main chat). rename: the chat's new name." },
       result: { type: 'string', description: 'report: what the person gets now, in a line.' },
       merged: { type: 'string', description: 'report: the commit it was merged with.' },
-      on: { type: 'string', description: 'block: the step your step waits for (B<n>), or the chat whose answer you wait for (a chat of the board, or "chat 1"; give "why"); unblock: the same, or none to clear what the step waits for.' },
+      on: { type: 'string', description: 'block: the step your step waits for (B<n>), or the chat whose answer you wait for (a chat of the board, or "chat 1"; give "why", e.g. "its go to land"): the board shows you as waiting on purpose, sends no go-on line and gives your step to nobody for 90 minutes of its running time, then shows the person a Late; unblock once the answer came, or without "on" to clear what the step waits for. A held ask of yours (rule 15) is lifted by note "still stands: <why>" with "of" the ask, or withdraw.' },
       title: { type: 'string', description: "new: the step's title. incident: what looks wrong, in one plain line." },
       activity: { type: 'string', description: 'new: the activity it belongs under.' },
       goal: { type: 'string', description: 'new, refine: the goal it serves (G17); definition-draft, how-draft: the focus goal.' },
@@ -2859,8 +2877,11 @@ export const register: Register = on => {
     reportSeq = 0
     // 8c: a new process has typed no word and run no turn yet. 0.32.0, point 1: but it knows the words the previous process typed
     // whose turn may still come (the mod's store), so a merged prompt that holds one is reported for it too.
-    turnWords = { ...NO_TURN_WORDS, typed: typedWordsKept(await $.store.get(TYPED_KEY).catch(() => null)) }
-    turnWords = NO_TURN_WORDS
+    try {
+      turnWords = { ...NO_TURN_WORDS, typed: typedWordsKept(await $.store.get(typedWordsKey(await $.session.id()))) }
+    } catch {
+      turnWords = NO_TURN_WORDS
+    }
     // The Task 2 review (D5): whether its session was on the sequence before this process (a restart keeps the session).
     isOnSequence = await onSequenceKept($)
     const view = await load($)
