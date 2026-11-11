@@ -407,6 +407,26 @@ test('6. the views that worked a status out themselves take it: the Focus part\'
 
 const lane = (name, { free = true, since = NOW - 30 * MIN } = {}) => ({ name, isMain: false, isLeftover: false, state: free ? 'free' : 'working', isRunning: true, report: { state: free ? 'idle' : 'busy', since } })
 
+test('7b. a blocked step whose blocker CHAIN leads to a step at work is the work of someone, too (the live B1123 to B1126, 11 Nov); a root not at work still lists them; a loop ends', () => {
+  const step = (id, state, by = null, goal = 'G64') => item(`Id: ${id}`, 'Kind: step', `Title: ${id}`, `State: ${state}`, `Goal: ${goal}`, 'Refined: ready', ...(by === null ? [] : [`Blocked by: ${by}`]), 'Since: 2026-11-10 20:00')
+  const signalOf = items => {
+    const list = handOut(items)
+    return noneReadyOf({ items, focus: 'G64', goals: [{ id: 'G64', children: [] }], ...list, lanes: [lane('Worker 2')], now: NOW })
+  }
+  // A step unrelated to the chain keeps the signal alive, so what is left in `causes` and `left` can be told apart.
+  const other = step('B1200', 'refined')
+  const chain = root => itemsOf(step('B1123', root), step('B1124', 'refined', 'B1123'), step('B1125', 'refined', 'B1124'), step('B1126', 'refined', 'B1125'), other)
+  const at = signalOf(chain('in progress'))
+  assert.deepEqual(at.causes.map(one => one.id), ['B1200'])
+  assert.deepEqual(at.left.map(one => one.id), ['B1124', 'B1125', 'B1126'])
+  assert.equal(at.left.find(one => one.id === 'B1126').why, 'its blocker chain reaches B1123, which is at work')
+  // The root is not at work: it and all three are listed.
+  assert.deepEqual(signalOf(chain('new')).causes.map(one => one.id), ['B1123', 'B1124', 'B1125', 'B1126', 'B1200'])
+  // A loop A to B to A ends without hanging, and lists both.
+  const loop = signalOf(itemsOf(step('B1300', 'refined', 'B1301'), step('B1301', 'refined', 'B1300'), other))
+  assert.deepEqual(loop.causes.map(one => one.id), ['B1200', 'B1300', 'B1301'].sort())
+})
+
 test('7. the signal leaves out what someone has; the rule: one note per cause, ONE partner word per signal listing them, none while a limit is full', async () => {
   const B9000 = state => item('Id: B9000', 'Kind: step', 'Title: Blocker', `State: ${state}`, 'Goal: G15', 'Since: 2026-11-10 20:00')
   const blocked = item('Id: B1097', 'Kind: step', 'Title: Blocked', 'State: refined', 'Goal: G60', 'Refined: ready', 'Blocked by: B9000', 'Since: 2026-11-10 20:00')

@@ -7079,7 +7079,7 @@ standard K6 Screens had no foundation built) while the Goals/Focus part said "B1
   free (the hand-out's `idleWorkers`, with the reconciler's `restFree` and `stuck`) for 10 of the board's running minutes (after the
   person's pause and the board's off spells; none while the board resumes). Causes someone has are left out: a word to the Advisor in
   flight or held, a refine waiting for answers, for the partner or stopped, a step in the refine gate's line (`refineQueue`, from its
-  kept first look), a rebuild hold, a blocker given or at work; with none left there is no signal. The state's `noWork` is the one
+  kept first look), a rebuild hold, a blocker given or at work, or a blocker whose own chain of "Blocked by" (depth 10, loops ended) reaches a step at work (B1123 to B1126, 11 Nov); with none left there is no signal. The state's `noWork` is the one
   signal: the Overview's simple view shows it as one quiet line with a link to the step (no amber), and the repair rule `none-ready`
   reads it (`view.noWork`): a note to the main chat per cause and at most ONE word to the partner per signal, listing the causes and
   never asking for a refine (the gate sends those); nothing while a limit is full or the person pauses. Keys: the step, its kind and a

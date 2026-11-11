@@ -363,6 +363,30 @@ function leftOutWhy(one, { items, skip }) {
   if (one.kind === 'held' && /^blocked by\b/.test(one.why ?? '')) {
     const atWork = blockersOf(one.why).filter(id => BLOCKER_AT_WORK.includes(valueOf(items.get(id), 'State')))
     if (atWork.length > 0) return `its blocker ${atWork.join(', ')} is at work`
+    // The coordinator's point of 2026-11-11 (the live B1123 to B1126): a blocker that itself waits for a step at work is someone's too.
+    const deep = chainAtWork(blockersOf(one.why), items)
+    if (deep !== null) return `its blocker chain reaches ${deep}, which is at work`
+  }
+  return null
+}
+
+/** How far a chain of "Blocked by" is followed. */
+const CHAIN_DEPTH = 10
+/** The first step at work (`BLOCKER_AT_WORK`) in the chain of "Blocked by" ids from `ids` through the store, or null; a depth cap and a seen set end a loop. */
+function chainAtWork(ids, items) {
+  const seen = new Set()
+  let level = ids
+  for (let depth = 0; depth < CHAIN_DEPTH && level.length > 0; depth += 1) {
+    const next = []
+    for (const id of level) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      const step = items.get(id)
+      if (step === undefined) continue
+      if (BLOCKER_AT_WORK.includes(valueOf(step, 'State'))) return id
+      next.push(...blockersOf(valueOf(step, 'Blocked by')))
+    }
+    level = next
   }
   return null
 }
