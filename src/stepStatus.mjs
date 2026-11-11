@@ -20,7 +20,7 @@ import { isPartnerAskWord, isRoutedToPartner, stepWaitsForPartner } from './work
 import { boardCheckPending, reportCheckFailedOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { refinedOfItem, refineWaitOf } from './work/refineWait.mjs'
 import { idleWorkers } from './work/handOut.mjs'
-import { waitsOnOf } from './work/waitsOn.mjs'
+import { keptRecapWaitOf, recapWaitWords, waitsOnOf } from './work/waitsOn.mjs'
 import { afterPause, isHolding } from './work/pause.mjs'
 import { heldFrom, isHeld } from './work/askHold.mjs'
 
@@ -107,22 +107,9 @@ function heldAskStatus(asks, stepOwner, prefix, base) {
 /** The states in which a step is at work, the only ones whose blocking asks can wait for the partner (partnerAnswers.mjs). */
 const AT_WORK = ['taken', 'in progress', 'waiting on you']
 
-/** The words of a step that waits for the goal's recap (the person's "1 yes", 2026-11-11, the live B1094 and Q715): quiet, never a stopped worker. */
-export const recapWaitWords = (goal, ids) => `waits for your recap of ${goal ?? 'the goal'} (${ids.join(', ')})`
-/**
- * A step at work whose every open ask (none held for the person's words) is routed to the goal's recap (Route recap, a kept look
- * or an ask Autopilot waits on the recap for): `{ goal, ids, words, link }`, or null. Its holder waits for the recap, not for the
- * person; an ordinary open ask to the person makes the step wait for the person as before. `link` the goal's place (the recap's
- * goal on the Goals part), else the step's window. `asks` the step's asks (open or not).
- */
-export function keptRecapWaitOf(step, asks) {
-  if (!AT_WORK.includes(valueOf(step, 'State'))) return null
-  const open = (asks ?? []).filter(ask => valueOf(ask, 'Kind') === 'ask' && valueOf(ask, 'State') === 'open' && !isHeld(ask))
-  if (open.length === 0 || !open.every(ask => valueOf(ask, 'Route') === 'recap')) return null
-  const goal = [valueOf(step, 'Goal'), ...open.map(ask => valueOf(ask, 'Goal'))].find(one => /^G\d+$/.test(one ?? '')) ?? null
-  const ids = open.map(ask => valueOf(ask, 'Id'))
-  return { goal, ids, words: recapWaitWords(goal, ids), link: goal === null ? `#details=${valueOf(step, 'Id')}` : `#advice/goals/${goal}` }
-}
+// The recap wait (the person's "1 yes", 2026-11-11, the live B1094 and Q715) lives with P1's waits (work/waitsOn.mjs), so the
+// resume's selection (work/pause.mjs) reads the same rule; said here as before.
+export { keptRecapWaitOf, recapWaitWords }
 
 /**
  * The one status of a step: `{ kind, label, words, tone, who, why, since, link }`, or null for an item that is no step.

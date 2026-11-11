@@ -7,7 +7,8 @@
 // no "go on" line and no give-back for `waitOnMinutes` (90) of the board's running time; past it one Late on the person's list,
 // and still no give-back. Separate from `Waits for` (B306: rethink holds, main/person-only) and from `Blocked by` (steps).
 
-import { valueOf } from './item.mjs'
+import { isHeld } from './askHold.mjs'
+import { sinceMs, valueOf } from './item.mjs'
 import { stamp } from './migrate.mjs'
 
 /** The limit of a chat wait, in minutes of the board's running time; past it the person sees a Late (config `waitOnMinutes`). */
@@ -87,6 +88,41 @@ export const waitSuspension = wait => (wait === null ? null : { by: 'parked', ki
 
 /** Whether a lane's suspension is a chat wait (state.mjs `card`, `waitSuspension`). */
 export const isChatWait = held => held?.by === 'parked' && held.kind === 'chat'
+
+/** The states in which a step is at work (stepStatus.mjs `AT_WORK`): only such a step can wait for the goal's recap. */
+const RECAP_AT_WORK = ['taken', 'in progress', 'waiting on you']
+/** "your recap of G60 (Q715)": what a step waits for while its open asks all wait for the goal's recap. */
+const recapWhat = (goal, ids) => `your recap of ${goal ?? 'the goal'} (${ids.join(', ')})`
+/** The words of a step that waits for the goal's recap (the person's "1 yes", 2026-11-11, the live B1094 and Q715): quiet, never a stopped worker. */
+export const recapWaitWords = (goal, ids) => `waits for ${recapWhat(goal, ids)}`
+/**
+ * A step at work whose every open ask (none held for the person's words) is routed to the goal's recap (Route recap, a kept look
+ * or an ask Autopilot waits on the recap for): `{ goal, ids, what, words, link, since }`, or null. Its holder waits for the recap, not
+ * for the person; an ordinary open ask to the person makes the step wait for the person as before. `link` the goal's place (the
+ * recap's goal on the Goals part), else the step's window; `since` the newest of those asks. `asks` the step's asks (open or not).
+ */
+export function keptRecapWaitOf(step, asks) {
+  if (!RECAP_AT_WORK.includes(valueOf(step, 'State'))) return null
+  const open = (asks ?? []).filter(ask => valueOf(ask, 'Kind') === 'ask' && valueOf(ask, 'State') === 'open' && !isHeld(ask))
+  if (open.length === 0 || !open.every(ask => valueOf(ask, 'Route') === 'recap')) return null
+  const goal = [valueOf(step, 'Goal'), ...open.map(ask => valueOf(ask, 'Goal'))].find(one => /^G\d+$/.test(one ?? '')) ?? null
+  const ids = open.map(ask => valueOf(ask, 'Id'))
+  const times = open.map(ask => sinceMs(valueOf(ask, 'Since'))).filter(Number.isFinite)
+  return { goal, ids, what: recapWhat(goal, ids), words: recapWaitWords(goal, ids), link: goal === null ? `#details=${valueOf(step, 'Id')}` : `#advice/goals/${goal}`, since: times.length === 0 ? null : Math.max(...times) }
+}
+
+/**
+ * The lead's ruling of 2026-11-11: a lane whose step waits for the person's recap is parked (P1's shape, kind recap), never
+ * working: the chat does nothing while it waits. Every reader of parked treats it as on purpose (no holder timers, no limit words).
+ */
+export const recapSuspension = wait => (wait === null || wait === undefined ? null
+  : { by: 'parked', kind: 'recap', on: ['the person'], what: wait.what, since: Number.isFinite(wait.since) ? wait.since : null, limit: null, named: null, link: wait.link ?? null })
+
+/** Whether a lane's suspension waits for the person's recap (`recapSuspension`). */
+export const isRecapWait = held => held?.by === 'parked' && held.kind === 'recap'
+
+/** "waits for your recap of G60 (Q715)": the words every reader uses for a recap wait (no "since": the pill's own time says it). */
+export const recapSuspensionWords = held => `waits for ${typeof held?.what === 'string' && held.what !== '' ? held.what : 'your recap'}`
 
 /** "waits for chat 1 (its go to land) since 11:24": the words every reader uses for a chat wait. */
 export function chatWaitWords(held) {

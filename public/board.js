@@ -2217,7 +2217,7 @@ function whyText(why) {
   const said = (tone, words) => ({ tone, text: `Not started: ${words}` })
   switch (why.reason) {
     case 'limit': return said('limit', `the ${LIMIT_NAMES[why.limit] ?? 'session'} limit is reached${why.limit === 'fiveHour' && why.until !== null ? `, work goes on at ${clock(why.until)}` : ''}`)
-    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${sinceClock(why.since)}` : ''}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
+    case 'suspended': return why.by === 'parked' ? said('wait', why.kind === 'chat' ? `${why.worker} waits for ${why.on[0]}${why.what ? ` (${why.what})` : ''}${Number.isFinite(why.since) ? ` since ${sinceClock(why.since)}` : ''}` : why.kind === 'recap' ? `${why.worker} waits for ${why.what ?? 'your recap'}` : `${why.worker} is paused on purpose`) : said('limit', why.isBack ? `${why.worker} has not gone on since the limit came back` : `${why.worker} is paused${why.until === null ? '' : ` until ${clock(why.until)}`}`)
     case 'after': {
       if (!Array.isArray(why.steps)) return said('wait', `after ${why.words}`)
       // B542: a step in review is waited on for its check.
@@ -2304,6 +2304,8 @@ function heldText(held) {
   if (held.by === 'pause') return 'Paused by you · stopped at its checkpoint; goes on at Resume all'
   // P1 (2026-11-09): a wait the holder recorded on a chat (`Waits on`): on purpose, with who and since when.
   if (held.by === 'parked' && held.kind === 'chat') return `Waits on purpose · for ${held.on[0]}${held.what ? ` (${held.what})` : ''}${Number.isFinite(held.since) ? ` since ${sinceClock(held.since)}` : ''}; goes on once it is unblocked`
+  // The lead's ruling of 2026-11-11 (B1094 and Q715): a wait for the person's recap, never the steps' words.
+  if (held.by === 'parked' && held.kind === 'recap') return `Paused on purpose · waits for ${held.what ?? 'your recap'}; goes on once you answered it in the recap`
   if (held.by === 'parked') return `Paused on purpose · goes on once ${held.on.join(' and ')} ${held.on.length === 1 ? 'is' : 'are'} done`
   const who = `${held.by === 'app' ? 'Stopped by the app at' : 'Paused for'} the ${LIMIT_NAMES[held.limit] ?? 'session'} limit`
   if (held.isBack) return `${who} · the limit is back${held.until === null ? '' : ` since ${clock(held.until)}`}, and it has not gone on yet`
@@ -3509,7 +3511,13 @@ function drawLane(lane, state) {
   else if (found?.status === 'Not running' && lane.state !== 'off') pill.title = `This chat's process is not running: nothing reaches it until its chat is opened, or ${board?.workers?.mainTitle ?? 'the main chat'} starts it.`
   names.append(el('h3', '', lane.name), pill)
   // The status's why beside it, in a few plain words (a step, a reason, a time); Unknown carries its in the label; an Asleep lane shows its why only when it has one (C2, the ban).
-  if (found !== null && found.why !== null && found.status !== 'Unknown') names.append(el('small', 'status-why', found.why))
+  // The lead's ruling of 2026-11-11 (B1094 and Q715): a lane parked for the person's recap links its why to that goal's recap.
+  if (found !== null && found.why !== null && found.status !== 'Unknown') {
+    const recapLink = found.status === 'Paused' && lane.suspended?.by === 'parked' && lane.suspended.kind === 'recap' && /^#advice\/goals\/G\d+$/.test(lane.suspended.link ?? '') ? lane.suspended.link : null
+    const why = el(recapLink === null ? 'small' : 'a', recapLink === null ? 'status-why' : 'status-why recap-wait', found.why)
+    if (recapLink !== null) why.href = recapLink
+    names.append(why)
+  }
   // The model chip (runchip) beside the pill: what the chat runs at now, and a switch it waits for. None for a leftover.
   const runChip = lane.isLeftover ? null : drawRunChip(runChipOf(lane))
   if (runChip !== null) names.append(runChip)
@@ -4401,6 +4409,7 @@ function removalView(lane, main, now) {
     const until = Number.isFinite(lane.suspended?.until) ? ` until ${clock(lane.suspended.until)}` : ''
     reasons.push(lane.suspended === null && typeof lane.heldAsk === 'string' ? `It is paused for its re-check of ${lane.heldAsk}${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : lane.suspended?.by === 'parked' && lane.suspended.kind === 'chat' ? `It waits on purpose for ${lane.suspended.on[0]}${what === null ? '' : ` with ${what}`}: that task would not go on.`
+      : lane.suspended?.by === 'parked' && lane.suspended.kind === 'recap' ? `It waits on purpose for ${lane.suspended.what ?? 'your recap'}${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : lane.suspended?.by === 'parked' ? `It is paused on purpose${what === null ? '' : ` with ${what}`}: that task would not go on.`
       : `It paused for the limit${until}${what === null ? '' : ` with ${what}`}: that task would not go on.`)
   }

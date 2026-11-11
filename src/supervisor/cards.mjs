@@ -8,7 +8,7 @@
 import { incidentsNamedBy } from '../work/incidentFix.mjs'
 import { sinceMs, valueOf } from '../work/item.mjs'
 import { parkedAfter } from '../work/parked.mjs'
-import { chatWaitWords, isChatWait } from '../work/waitsOn.mjs'
+import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from '../work/waitsOn.mjs'
 
 const numeric = (a, b) => String(a).localeCompare(String(b), 'en', { numeric: true })
 /** A History line's stamp: "- 2026-10-24 18:38 Worker 5: ...". */
@@ -33,7 +33,7 @@ function laneWord(stepState, lane) {
   switch (lane.state) {
     case 'working': return { text: stepState === 'taken' ? 'starting' : 'building', tone: 'busy' }
     case 'waiting': return { text: 'waits for you', tone: 'idle' }
-    case 'suspended': return { text: isChatWait(lane.suspended) ? chatWaitWords(lane.suspended) : lane.suspended?.by === 'parked' ? 'suspended on purpose' : 'paused for the limit', tone: 'idle' }
+    case 'suspended': return { text: isChatWait(lane.suspended) ? chatWaitWords(lane.suspended) : isRecapWait(lane.suspended) ? recapSuspensionWords(lane.suspended) : lane.suspended?.by === 'parked' ? 'suspended on purpose' : 'paused for the limit', tone: 'idle' }
     case 'off': return { text: 'chat is off', tone: 'idle' }
     case 'free': return { text: 'idle', tone: 'idle' }
     case 'interrupted': return { text: 'interrupted', tone: 'idle' }

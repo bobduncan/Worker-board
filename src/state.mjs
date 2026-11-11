@@ -50,7 +50,7 @@ import { refineAsk, removalAsk } from './work/askOpen.mjs'
 export { refineAsk } from './work/askOpen.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { afterPause, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
-import { lateWaitOf, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
+import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { EFFORTS, effortPlan, runSettings } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
@@ -209,7 +209,6 @@ const offLane = (lane, since) => ({
   ...lane, state: 'off', offSince: since, eta: null, isWithoutTime: false, doingNow: null, between: null, quietMs: null, isQuiet: false, unanswered: null, resting: null,
   // Partner answers, the review's findings: a chat that does not run waits for nobody; its lane says "Not running".
   waitsForPartner: null,
-  recapWait: null,
 })
 
 /**
@@ -633,7 +632,7 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
-  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null, recapWait: null }
+  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
   // B847: what the board needs to tell a replaced chat of a routine (an older chat of the same name) from the live one.
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt, createdAt: chat.createdAt ?? null, cwd: chat.cwd ?? null, needsAction: chat.summary?.needsAction ?? null }
 
@@ -684,7 +683,6 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // partner, not for the person: held between two turns, its lane says so (`waitsForPartner`).
   const forPartner = waits.partner?.get(chat.name.toLowerCase()) ?? []
   const held = reported !== null ? (reported.why === 'partner' ? { why: 'partner', text: `Its turn has ended; it waits for your partner's answer (${forPartner.join(', ')}).` }
-    : reported.why === 'recap' && reported.recapWait ? { why: 'recap', text: `Its turn has ended; it ${reported.recapWait.words}.` }
     : reported.why === 'background' ? { why: 'background', text: 'Its turn has ended; background work it started is still running.' } : null)
     : wasCutOff || ended !== 'free' ? null : forPartner.length > 0 ? { why: 'partner', text: `Its turn has ended; it waits for your partner's answer (${forPartner.join(', ')}).` } : heldBy({
     plan: isMainIdle ? null : plan, step,
@@ -717,8 +715,10 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   const isStopped = reported !== null ? reported.state === 'interrupted' : wasCutOff
   // P1 of the one wait system (2026-11-09, the B1081 case): a stopped chat whose step records a wait on a chat (`Waits on`,
   // work/waitsOn.mjs) is parked on purpose too (the same shape, kind 'chat'): no "go on" line, no give-back, no stall.
+  // The lead's ruling of 2026-11-11 (B1094 and Q715): a stopped chat whose held steps all wait for the goal's recap (builtState's
+  // `recapWait`) is parked the same way, kind 'recap': never Working, never Stopped.
   const parked = paused === null && isStopped && step?.blockedBy?.length > 0 ? { by: 'parked', on: step.blockedBy, limit: null, since: null, named: null }
-    : paused === null && isStopped ? waitSuspension(step?.waitsOn ?? null) : null
+    : paused === null && isStopped ? waitSuspension(step?.waitsOn ?? null) ?? recapSuspension(reported?.recapWait ?? null) : null
   // Suspended is the board's own fact, whatever the chat reports.
   const state = paused !== null || parked !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // Redesign Part 1: what the chat says of its question to the person, or what its transcript shows.
@@ -778,8 +778,6 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     between: state === 'working' && held !== null ? held.text : null,
     // Partner answers, the review's findings: the asks of its own it waits on the partner for.
     waitsForPartner: state === 'working' && held?.why === 'partner' ? forPartner : null,
-    // The person's "1 yes" of 2026-11-11: its step waits for the goal's recap (`{ goal, ids, words, link }`), quiet.
-    recapWait: state === 'working' && held?.why === 'recap' ? reported.recapWait : null,
     needsYou,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
@@ -1884,7 +1882,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     // The review of chat-reports: a blocking ask routed to the partner waits for the partner, never for the person (B392).
     const forPartner = waits.partner?.get(key) ?? []
     // The person's "1 yes" of 2026-11-11 (the live B1094 and Q715): every step it holds has open asks that all wait for the goal's recap
-    // (Route recap): it waits for the recap on purpose (quiet), unless an ask of the person's or the partner's stands. Read only.
+    // (Route recap): it waits for the recap on purpose, unless an ask of the person's or the partner's stands. Read only. The lead's
+    // ruling of 2026-11-11: never Working (the chat does nothing while it waits); a stopped such chat is parked (`card`, kind recap).
     const recapWaits = forPartner.length > 0 || holds.length === 0 ? [] : holds.map(one => {
       const step = raw.work.items.get(one.id)
       return step === undefined ? null : keptRecapWaitOf(step, itemsOf(raw.work).filter(ask => ask.head.get('Kind') === 'ask' && ask.head.get('Of') === one.id))
@@ -1899,7 +1898,6 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       // Rule 15: a step that waits on you only for asks held for the person's words waits for nobody (the hold asks nobody).
       hasBlockingAsk: recapWait !== null ? hasOtherBlocking(key) : waits.blocking.has(key) || (forPartner.length === 0 && holds.some(one => one.state === 'waiting on you' && !waitsOnHeldOnly(one.id))),
       waitsForPartner: forPartner.length > 0,
-      waitsForRecap: recapWait !== null,
       // B148 kept: background work holds no chat whose step is reported (in review or done) while it holds no other.
       isTaskReported: holds.length === 0 && hasReportedStep(chat.name, entry.busyAt),
       appRuns: Number.isFinite(raw.appStartedAt) && raw.appStartedAt > entry.at ? false : null,
@@ -1908,7 +1906,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       // T13 part 3: a chat whose session ended is asleep while the app still has it (a message wakes it by its app id).
       hasAppSession: typeof chat.appSessionId === 'string' && chat.appSessionId !== '',
     })
-    return [chat.name, lane === null ? null : { ...lane, entry, ...(lane.why === 'recap' && recapWait !== null ? { recapWait: { goal: recapWait.goal, ids: recapWait.ids, words: recapWait.words, link: recapWait.link } } : {}) }]
+    return [chat.name, lane === null ? null : { ...lane, entry, ...(recapWait !== null ? { recapWait } : {}) }]
   }))
   context.reportOf = chat => (chat.isLeftover ? null : reportedOf.get(chat.name) ?? null)
   // B425: the brief of the step a worker is on, built for that step only.
@@ -2073,7 +2071,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const knownIds = new Set(withId.map(one => one.id))
   function whyNot(step, lane) {
     for (const limit of ['fiveHour', 'week']) if (limits[limit]?.level === 'full') return { reason: 'limit', limit, until: limits[limit].resetsAt }
-    if (lane?.state === 'suspended') return { reason: 'suspended', worker: lane.name, until: lane.suspended.until, isBack: lane.suspended.isBack, by: lane.suspended.by, ...(lane.suspended.kind === 'chat' ? { kind: 'chat', on: lane.suspended.on, what: lane.suspended.what ?? null, since: lane.suspended.since } : {}) }
+    if (lane?.state === 'suspended') return { reason: 'suspended', worker: lane.name, until: lane.suspended.until, isBack: lane.suspended.isBack, by: lane.suspended.by, ...(['chat', 'recap'].includes(lane.suspended.kind) ? { kind: lane.suspended.kind, on: lane.suspended.on, what: lane.suspended.what ?? null, since: lane.suspended.since } : {}) }
     if (step.after !== null) {
       const ids = [...new Set(step.after.match(/\bB\d+\b/g) ?? [])]
       const open = ids.filter(id => openIds.has(id))
