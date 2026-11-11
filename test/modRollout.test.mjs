@@ -10,6 +10,7 @@ import { RESTART_AGAIN_MS, RESTART_TRIES, UNARCHIVE_AFTER_MS, UNARCHIVE_AGAIN_MS
 import { archivedChatsOf } from '../src/appChats.mjs'
 import { isPartnerWord } from '../src/say.mjs'
 import { outboxNow } from '../src/store.mjs'
+import { readFileSync } from 'node:fs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 24, 22, 0).getTime()
@@ -115,6 +116,8 @@ test('the Workers mod release 0.32.0 (chat 1\'s review): a chat still archived a
   const withMain = archivedAfterRestart({ archived: [{ name: 'Mason', session: 'local_mason' }], sent: [restart('Lead', 8, { to: 'Guide' })], now: NOW, main: 'Lead', partner: 'Guide', recent: ['Mason'] })
   assert.deepEqual(withMain.map(one => [one.to, one.chat]), [['Lead', 'Mason']])
   assert.deepEqual(archivedAfterRestart({ archived: [{ name: 'Mason', session: 'local_mason' }], sent: [restart('Lead', 8, { to: 'Guide' })], now: NOW, main: 'Lead', partner: 'Guide', recent: [] }), [])
+  // The verifier: only the MAIN chat's restart takes its children; a restart word to another chat within the hour is no cause.
+  assert.deepEqual(archivedAfterRestart({ archived: [{ name: 'Mason', session: 'local_mason' }], sent: [restart('Painter', 8)], now: NOW, main: 'Lead', partner: 'Guide', recent: ['Mason'] }), [])
   assert.deepEqual(archivedAfterRestart({ archived, sent: [restart('Painter', 6)], now: NOW, main: null, partner: null }), [])
   // The word itself: a partner word (a partner that does not run is started for it).
   const word = unarchiveWords({ to: 'Lead', chat: 'Painter', session: 'local_painter', why: 'still archived' })
@@ -125,6 +128,12 @@ test('the Workers mod release 0.32.0 (chat 1\'s review): a chat still archived a
   const app = (title, more = {}) => ({ title, sessionId: `local_${title.toLowerCase().replace(/\W+/g, '')}`, cwd: 'C:\\garden', isArchived: true, isStub: false, ...more })
   const apps = [app('Garden - Painter'), app('Garden - Mason'), app('Garden - Mason', { isArchived: false, sessionId: 'local_mason2' }), app('Garden - Stub', { isStub: true }), app('Garden - Far', { cwd: 'C:\\elsewhere' }), app('Other - Painter'), app('Garden - Open', { isArchived: false })]
   assert.deepEqual(archivedChatsOf(apps, { project: 'C:\\garden', prefix: 'Garden - ' }), [{ name: 'Painter', session: 'local_gardenpainter' }])
+  // The verifier (the H2 case): an OPEN launch stub, or an open chat elsewhere, under the same title hides the real archived chat not.
+  const hidden = [app('Garden - Painter'), app('Garden - Painter', { isArchived: false, isStub: true, sessionId: 'local_stub' }), app('Garden - Painter', { isArchived: false, cwd: 'C:\\elsewhere', sessionId: 'local_far' })]
+  assert.deepEqual(archivedChatsOf(hidden, { project: 'C:\\garden', prefix: 'Garden - ' }).map(one => one.name), ['Painter'])
+  // The board's state wires the unarchive words with the project's archived chats and the lanes of the last hour (the verifier: a pin).
+  const state = readFileSync(new URL('../src/state.mjs', import.meta.url), 'utf8')
+  assert.match(state, /unarchives: rollout === null \? \[\] : archivedAfterRestart\(\{ archived: archivedChatsOf\(apps, \{ project: config\.project, prefix \}\), sent, now, main: main\?\.name \?\? null, partner: advisorChat\?\.name \?\? null, prefix, recent: lines\.filter\(line => line\.gap !== true && typeof line\.chat === 'string' && Number\.isFinite\(line\.at\) && now - line\.at < RECENT_LANE_MS\)\.map\(line => line\.chat\) \}\)/)
 })
 
 test('the review: a restart word stays known a day, so the three tries are counted beyond the outbox\'s two hours', () => {

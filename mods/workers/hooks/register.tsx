@@ -261,7 +261,9 @@ let enteredThisTurn: string[] = []
  */
 async function keepTypedWords($: EngineInterface): Promise<void> {
   try {
-    await $.store.set(typedWordsKey(await $.session.id()), turnWords.typed)
+    const key = typedWordsKey(await $.session.id())
+    if (turnWords.typed.length === 0) await $.store.delete(key)
+    else await $.store.set(key, turnWords.typed)
   } catch {
     // this process keeps them all the same
   }
@@ -541,6 +543,8 @@ function changeMine(
 const BOARD_START_WINDOW_MS = 120_000
 /** 0.32.0, point 2: the step the board last said this chat holds (`held.id`), null for none, undefined before the first verdict. */
 let heldByBoard: string | null | undefined
+/** 0.32.0, point 2: the card's task text as it stood when the board last named that held step: the one task a later "holds nothing" may clear. */
+let heldTask: string | null = null
 /**
  * 0.32.0, point 2 (chat 1's review): the board's FRESH verdict that this chat holds nothing (`held` null in this take's statuses, from a
  * board of 0.30.0 or newer) while the card still names a task: the task was given back, stopped or dropped on the board, so the card is
@@ -555,22 +559,28 @@ async function clearStaleCard($: EngineInterface, taken: TakenAnswer, now: numbe
   // never hold a step by the board, and their cards' tasks are their own); the step the board named is the task that went. The change is
   // used up only by a verdict that counts: one in the board's start window or under the person's pause leaves it for the next.
   if (mine.held !== null) {
+    // The verifier: the card's task as it stands while the board names this step is the one task a later "holds nothing" may clear (a
+    // step given back in a turn that then took the next: the next step's task is not it).
+    if (heldByBoard !== mine.held.id) heldTask = (await readChat($, chatsDir, await $.session.id()))?.task?.text ?? null
     heldByBoard = mine.held.id
     return
   }
   if (myself.role !== 'worker' || typeof heldByBoard !== 'string' || isInTurn) return
   if (taken.boardStartedAt === null || now - taken.boardStartedAt < BOARD_START_WINDOW_MS) return
-  if (isPaused(await pauseNow($, true))) return
+  // The pause: the kept reading when it says a pause already, else read anew (the verifier: not one call per take under a pause).
+  if (isPaused(await pauseNow($)) || isPaused(await pauseNow($, true))) return
   const was = heldByBoard
+  const gone = heldTask
   const chat = await readChat($, chatsDir, await $.session.id())
-  if (chat === null || chat.task === null || chat.task.isReported || isInTurn) {
+  if (chat === null || chat.task === null || chat.task.isReported || gone === null || chat.task.text !== gone || isInTurn) {
     heldByBoard = null
+    heldTask = null
     return
   }
-  const gone = chat.task.text
   // The review: a take that lands in between (a new turn, a new task) is left alone: only the task seen is cleared, and never in a turn.
   await changeMine($, (me, at) => (me.task === null || me.task.text !== gone || isInTurn ? null : { ...me, task: null, taskNote: { at, why: `the board gives this chat no task now: ${was} was given back, stopped or dropped` } }))
   heldByBoard = null
+  heldTask = null
   void refreshChats($)
 }
 
@@ -2666,7 +2676,7 @@ const WORK_TOOL = {
     + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
     + 'the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question; the partner\'s daily note on the focus goal is a note to you with "of" G<n>, "decided" and "needs". "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
-    + 'chat. "block" ("id", "on", "why") and "unblock" ("id", "on"): your step waits for a step or a chat (see "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text", "priority", "standard", "model", "effort"): a new step ("priority" '
+    + 'chat. "block" ("id", "on", "why") and "unblock" ("id", "on"): the step waits for a step or a chat (see "on"). "new" ("title", "activity", "goal", "text", "priority", "standard", "model", "effort"): a new step ("priority" '
     + 'fix: a fix for the worker board, first on the board\'s list); the board hands it out to a free worker once it is refined '
     + '(nobody queues; the person may pin it to a worker on the board). "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "standard", "model", "effort", "questions") and "refined" ("id", "what", "standard", "model", "effort"): '

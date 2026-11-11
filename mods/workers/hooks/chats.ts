@@ -280,7 +280,9 @@ export function withPlan(chat: ChatFile, input: PlanInput): TaskChange {
     text: isNew ? text : before.text, step, steps, left, isReported: isNew ? false : before.isReported,
     ...(kept === undefined ? {} : { names: kept }), ...(stepLeft === undefined ? {} : { stepLeft }),
   }
-  return { chat: { ...chat, task } }
+  // 0.32.0: the note of a task the board took away goes with the next task.
+  const { taskNote: _gone, ...rest } = chat
+  return { chat: { ...rest, task } }
 }
 
 /** Moves the task to its next step, or to the one named; with minutes, the time it now expects. */

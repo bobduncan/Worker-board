@@ -897,6 +897,11 @@ describe('what the person answers on the worker board reaches the chat it is for
     stand(on, w)
     await startedAs($, w, 'Units')
     const verdict = (held: unknown, startedAt: unknown): { status: number; text: string } => ({ status: 200, text: JSON.stringify({ messages: [], startedAt, statuses: [status('Units', 'Free', { held }), status('Cleanup', 'Free', { held: null })] }) })
+    // A verdict of "holds nothing" from the start (the board never named a held step): the card is left alone (the main chat's and the
+    // partners' never hold one; a worker's own plan before its take neither).
+    w.takeAnswers.push(verdict(null, 1_000_000 - 600_000))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
     // The board says Units holds B13 (the step the card is on), then, in its start window (started 60 s ago), that it holds nothing: the
     // verdict does not count; the card keeps its task.
     w.takeAnswers.push(verdict({ id: 'B13', title: 'Skeleton Archer', time: null }, 1_000_000 - 600_000))
@@ -926,9 +931,6 @@ describe('what the person answers on the worker board reaches the chat it is for
     expect(fileOf(w)?.task).toBeNull()
     expect(fileOf(w)?.taskNote?.why).toBe('the board gives this chat no task now: B13 was given back, stopped or dropped')
     expect(fileOf(w)?.clearNote).toBeUndefined()
-    // A verdict of "holds nothing" from the start (never a step the board named): the card is left alone (the main chat's and the partners' never hold one).
-    const again = world('props', { ...listed({ props: { name: 'Props', role: 'worker', state: 'waiting', task: task('Props', 1, 2, 10), at: 0 } }), [BOARD]: board })
-    void again
     // The pane says Free with no task for Units (the board's verdict), as the list does.
     const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
     for (let i = 0; i < 10; i++) await settle()

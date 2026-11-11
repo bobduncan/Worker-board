@@ -64,7 +64,7 @@ export function archivedAfterRestart({ archived = [], sent = [], now, main = nul
     // Its own restart word; else (the review: archiving the main chat archives the chats it started) any restart word of the last hour,
     // when the board showed this chat as a lane within the hour (`recent`): it went with its restarter's archive.
     const own = restarts.filter(message => plain(message.about, prefix) === plain(chat.name, prefix)).at(-1)
-    const withMain = own === undefined && recent.some(name => plain(name, prefix) === plain(chat.name, prefix)) ? restarts.filter(message => now - message.at < RECENT_LANE_MS).at(-1) : undefined
+    const withMain = own === undefined && main !== null && recent.some(name => plain(name, prefix) === plain(chat.name, prefix)) ? restarts.filter(message => now - message.at < RECENT_LANE_MS && plain(message.about, prefix) === plain(main, prefix)).at(-1) : undefined
     const restart = own ?? withMain
     if (restart === undefined || now - restart.at < UNARCHIVE_AFTER_MS) continue
     const asked = sent.filter(message => message.command === UNARCHIVE_COMMAND && plain(message.about, prefix) === plain(chat.name, prefix) && message.at >= restart.at)

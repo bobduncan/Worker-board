@@ -182,9 +182,16 @@ describe('Task 6 (0.31.0): words the app merged into one prompt have all entered
       expect([length, wordsIn(one, `before\n\n${text}\n\nafter`)]).toEqual([length, ['w']])
     }
     // The review: a word whose text sits INSIDE another open word's text (not at its start) overlaps it: neither is reported, the turn is no word's.
+    // The verifier: a hit INSIDE a longer hit whose text is nowhere else in the prompt gives way to it: a take word inside the envelope's
+    // line that carries it names the envelope's turn (the mutant "neither" left the entered envelope queued).
     const inside = wordTyping(wordTyping(NO_TURN_WORDS, 'c', 'run work next, then report back to main'), 'd', 'B13: run work next, then report back to main')
-    expect(wordsIn(inside, 'B13: run work next, then report back to main')).toEqual([])
-    expect(turnBegan(inside, 'B13: run work next, then report back to main', 1).word).toBeNull()
+    expect(wordsIn(inside, 'B13: run work next, then report back to main')).toEqual(['d'])
+    expect(turnBegan(inside, 'B13: run work next, then report back to main', 1).word).toBe('d')
+    const carried = wordTyping(wordTyping(NO_TURN_WORDS, 'take', 'work: B13 is yours; run work next'), 'env', 'hand-over\n\nwork: B13 is yours; run work next', true)
+    expect(wordsIn(carried, 'hand-over\n\nwork: B13 is yours; run work next')).toEqual(['env'])
+    expect(turnBegan(carried, 'hand-over\n\nwork: B13 is yours; run work next', 1).word).toBe('env')
+    // But a take word that stands in the prompt on its own too (merged before the envelope) is its own hit: both enter.
+    expect(wordsIn(carried, 'work: B13 is yours; run work next\n\nhand-over\n\nwork: B13 is yours; run work next').sort()).toEqual(['env', 'take'])
     // The review: two open words with the SAME text (a repeated line): the typed report names neither, but the turn is the oldest's and it
     // leaves the queue (else both would stay queued for ever); the second goes with the next such prompt.
     const twins = wordTyping(wordTyping(NO_TURN_WORDS, 'old', 'work: B13 is yours; run work next'), 'new', 'work: B13 is yours; run work next')
@@ -193,6 +200,9 @@ describe('Task 6 (0.31.0): words the app merged into one prompt have all entered
     expect([first.word, first.typed.map(one => one.id)]).toEqual(['old', ['new']])
     const second = turnBegan(first, 'work: B13 is yours; run work next', 2)
     expect([second.word, second.typed]).toEqual(['new', []])
+    // The verifier: the two merged into one prompt (the text twice): both enter, the turn is the oldest's, the queue is empty.
+    const both = turnBegan(twins, 'work: B13 is yours; run work next\n\nwork: B13 is yours; run work next', 3)
+    expect([both.word, both.typed]).toEqual(['old', []])
   })
 
   test('0.32.0: an envelope\'s line is no take word: the turn\'s start reports only the take words the prompt holds', () => {

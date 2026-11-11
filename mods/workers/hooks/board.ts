@@ -70,10 +70,13 @@ export function turnBegan(words: TurnWords, text: string, now: number): TurnWord
   // order, as the app queues them); a clash of different texts (one inside another) names none, and both stay on their way.
   const hits = hitsIn(words, text)
   const inPrompt = new Set(hits.filter(one => !one.clashes).map(one => one.id))
-  for (const hit of hits.filter(one => one.clashes)) {
-    const same = hits.filter(other => other.clashes && other.text === hit.text)
-    const others = hits.filter(other => other.clashes && other.text !== hit.text && other.at < hit.at + hit.len && hit.at < other.at + other.len)
-    if (same.length > 1 && others.length === 0 && same[0] === hit) inPrompt.add(hit.id)
+  // Twins (the same text): as many of the oldest as the prompt holds copies of the text (the verifier: a prompt that merged two identical
+  // lines enters both), when no hit of another text overlaps them.
+  const groups = new Map<string, WordHit[]>()
+  for (const hit of hits.filter(one => one.clashes)) groups.set(hit.text, [...(groups.get(hit.text) ?? []), hit])
+  for (const [own, same] of groups) {
+    if (same.length < 2 || hits.some(other => other.clashes && other.text !== own && same.some(hit => overlaps(hit, other)))) continue
+    for (const hit of same.slice(0, occurrences(normal(text), own))) inPrompt.add(hit.id)
   }
   const at = words.typed.findIndex(one => inPrompt.has(one.id))
   if (at < 0) return { typed: words.typed, word: null, turn: now }
@@ -123,8 +126,25 @@ function hitsIn(words: TurnWords, text: string): WordHit[] {
     const tailAt = prompt.indexOf(own.slice(-LONG_WORD_TAIL), at + Math.max(0, Math.min(LONG_WORD_CHARS, own.length - LONG_WORD_TAIL)))
     return tailAt < 0 ? null : { id: one.id, at, len: tailAt + LONG_WORD_TAIL - at, text: own, clashes: false }
   }).filter((one): one is WordHit => one !== null)
-  const overlaps = (a: WordHit, b: WordHit): boolean => a.at < b.at + b.len && b.at < a.at + a.len
-  return hits.map(one => ({ ...one, clashes: hits.some(other => other !== one && overlaps(one, other)) }))
+  // The verifier of 0.32.0: a hit wholly inside a LONGER hit whose text occurs nowhere else in the prompt gives way to it (a take word
+  // "work: B13 is yours; run work next" inside the envelope's line that carries it: the envelope's turn is the envelope's); a hit that
+  // is the whole prompt always wins.
+  const inside = (hit: WordHit, outer: WordHit): boolean => outer !== hit && outer.len > hit.len && outer.at <= hit.at && hit.at + hit.len <= outer.at + outer.len
+  const kept = hits.filter(hit => !hits.some(outer => inside(hit, outer) && !occursOutside(prompt, hit.text, outer)))
+  return kept.map(one => ({ ...one, clashes: kept.some(other => other !== one && overlaps(one, other)) }))
+}
+
+const overlaps = (a: WordHit, b: WordHit): boolean => a.at < b.at + b.len && b.at < a.at + a.len
+/** Whether `text` stands in `prompt` somewhere outside the stretch of `outer`. */
+function occursOutside(prompt: string, text: string, outer: WordHit): boolean {
+  for (let at = prompt.indexOf(text); at >= 0; at = prompt.indexOf(text, at + 1)) if (at + text.length <= outer.at || at >= outer.at + outer.len) return true
+  return false
+}
+/** How many times `text` stands in `prompt`, without overlap. */
+function occurrences(prompt: string, text: string): number {
+  let count = 0
+  for (let at = prompt.indexOf(text); at >= 0; at = prompt.indexOf(text, at + text.length)) count += 1
+  return count
 }
 
 /** 0.32.0: a word longer than this is matched by its head and its tail (the app may re-wrap the middle of a merged prompt). */

@@ -112,7 +112,8 @@ const oldestMade = (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)
  */
 export function archivedChatsOf(appChats, { project, prefix }) {
   if (typeof prefix !== 'string' || prefix === '') return []
-  const open = new Set(appChats.filter(chat => chat?.isArchived !== true && typeof chat?.title === 'string').map(chat => chat.title))
+  // An open twin: a real chat of the project under the same title (a launch stub, or a chat elsewhere, hides nothing: the verifier's H2 case).
+  const open = new Set(appChats.filter(chat => chat?.isArchived !== true && chat?.isStub !== true && typeof chat?.title === 'string' && isInside(chat.cwd, project)).map(chat => chat.title))
   return appChats
     .filter(chat => chat?.isArchived === true && chat.isStub !== true && typeof chat.title === 'string' && chat.title.startsWith(prefix) && isInside(chat.cwd, project) && !open.has(chat.title))
     .map(chat => ({ name: chat.title.slice(prefix.length).trim(), session: chat.sessionId ?? null }))
