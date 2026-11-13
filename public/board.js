@@ -143,6 +143,15 @@ function waitLaneOf(part, name) {
     .find(lane => typeof lane?.name === 'string' && lane.name === name) ?? null
 }
 
+/** The app's own id of a chat (`local_` and a uuid): the one `claude://claude.ai/epitaxy/<id>` opens (state.mjs APP_SESSION_ID). */
+const APP_SESSION_PATTERN = /^local_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/** The link that opens a chat in the app by its app id, or null when there is no app id (every link into a chat is built here). */
+function openChatHref(session) {
+  return typeof session === 'string' && APP_SESSION_PATTERN.test(session) ? `claude://claude.ai/epitaxy/${session}` : null
+}
+/** The link into a chat by its name, from a state or a part of it (`waitLaneOf`): null for a chat the page does not know or without an app id. */
+const chatHrefOf = (part, name) => (typeof name === 'string' ? openChatHref(waitLaneOf(part, name)?.appSession) : null)
+
 /** The pill beside a line: the chat's own status (`laneStatus`), its words without the age, which would draw the card anew every few seconds. */
 function waitPillOf(lane, now = Date.now()) {
   const found = laneStatus(lane)
@@ -2520,8 +2529,8 @@ function pauseLines(pause) {
   }
   // The review of part 1: "not known yet" while no mod has asked the board; the link only for an app id (local_ and a uuid).
   const open = { tone: 'alert', text: main.isRunning === false ? `${main.title} is not running: open it; its Workers mod tells it whom to wake.` : `Whether ${main.title} runs is not known yet: open it; its Workers mod tells it whom to wake.` }
-  const isAppId = typeof main.session === 'string' && /^local_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(main.session)
-  lines.push(isAppId ? { ...open, link: { label: `Open ${main.title}`, href: `claude://claude.ai/epitaxy/${main.session}` } } : open)
+  const href = openChatHref(main.session)
+  lines.push(href !== null ? { ...open, link: { label: `Open ${main.title}`, href } } : open)
   return lines
 }
 // pause:end
@@ -3536,6 +3545,14 @@ function drawLane(lane, state) {
     const why = el(recapLink === null ? 'small' : 'a', recapLink === null ? 'status-why' : `status-why ${isAsset ? 'asset-wait' : 'recap-wait'}`, found.why)
     if (recapLink !== null) why.href = recapLink
     names.append(why)
+  }
+  // A chat that waits because it asks in its chat (the app's question form, a popup): the link that opens that chat in the app.
+  const askHref = found?.status === 'Waiting for you' && lane.isAsking === true ? openChatHref(lane.appSession) : null
+  if (askHref !== null) {
+    const open = el('a', 'status-why chat-link', 'Open its chat')
+    open.href = askHref
+    open.title = `Opens ${lane.name}'s chat in the app: its question or popup waits there`
+    names.append(open)
   }
   // The model chip (runchip) beside the pill: what the chat runs at now, and a switch it waits for. None for a leftover.
   const runChip = lane.isLeftover ? null : drawRunChip(runChipOf(lane))
@@ -5119,7 +5136,7 @@ function handsNeedsOf(needs, isAutopilotOn) {
  * (`handsWords`: "Worker 5's chat waits on a popup: change directory"), and a chat's identical words stand once, even when the
  * mod filed them twice before the board folded them (the live Q629 and Q632).
  */
-function handsLineView(list) {
+function handsLineView(list, hrefOf = () => null) {
   if (!Array.isArray(list) || list.length === 0) return null
   const seen = new Set()
   const items = list.flatMap(need => {
@@ -5127,7 +5144,9 @@ function handsLineView(list) {
     const own = typeof need.handsWords === 'string' && need.handsWords !== '' ? need.handsWords : null
     if (own !== null && seen.has(own)) return []
     if (own !== null) seen.add(own)
-    return [{ id, words: own ?? cutWords(String(need.title ?? id), 40), title: `Open ${id}: ${need.title ?? ''} (only you can: ${need.hands})`, href: `#details=${id}` }]
+    // A form ask (a popup, a question in its chat) waits in its chat: the entry opens that chat in the app when the board knows its app id.
+    const chat = need.isForm === true ? hrefOf(need.from) : null
+    return [{ id, words: own ?? cutWords(String(need.title ?? id), 40), title: chat !== null ? `Opens ${need.from}'s chat in the app: its question or popup waits there` : `Open ${id}: ${need.title ?? ''} (only you can: ${need.hands})`, href: chat ?? `#details=${id}` }]
   })
   return { items, isBlocking: list.some(need => need.blocking === true) }
 }
@@ -5271,7 +5290,15 @@ function answerPart(need, state, isFolded, inWindow = false) {
     const where = isStep(need) ? 'No main chat is open to take the answer.'
       : String(need.id).startsWith('quiet:') ? `${check.length > 0 ? 'Or look' : 'Look'} at its chat in the Claude app.`
         : 'Answer it in its chat in the Claude app: that form takes its answer only there.'
-    return [...parts, ...check, el('p', 'muted', where)]
+    const chat = need.isForm === true ? chatHrefOf(state, need.from) : null
+    const line = el('p', 'muted', where)
+    if (chat !== null) {
+      const open = el('a', 'chat-link', 'Open its chat')
+      open.href = chat
+      open.title = `Opens ${need.from}'s chat in the app: its question or popup waits there`
+      line.append(' ', open)
+    }
+    return [...parts, ...check, line]
   }
   if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)
@@ -6692,7 +6719,7 @@ function drawNeeds(state) {
   const every = panelNeeds({ ...state, forYou })
   // Autopilot v2: what only the person's hands can do is one quiet line under the cards, not a card each (handsNeedsOf).
   const hands = handsNeedsOf(every, isPilot)
-  const handsLine = handsLineView(hands)
+  const handsLine = handsLineView(hands, chat => chatHrefOf(state, chat))
   const needs = hands.length === 0 ? every : every.filter(need => !hands.includes(need))
   const open = needs.filter(need => !isClosed(need))
   // B287: a refine question has no card: its step's line says it, and only while it is open.

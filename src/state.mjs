@@ -37,7 +37,7 @@ import { forYouRepeat } from './work/askRepeat.mjs'
 import { isHeld } from './work/askHold.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
-import { decidedTodayOf, heldAsksOf, informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
+import { decidedTodayOf, boardCallPopups, heldAsksOf, informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
 import { recapsShowOf } from './boardSettings.mjs'
 import { recapWaitOf } from './work/autopilot.mjs'
 import { NOTE_LINE, isDecidedForYou, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
@@ -632,7 +632,7 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
-  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
+  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, boardCall: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
   // B847: what the board needs to tell a replaced chat of a routine (an older chat of the same name) from the live one.
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt, createdAt: chat.createdAt ?? null, cwd: chat.cwd ?? null, needsAction: chat.summary?.needsAction ?? null }
 
@@ -723,9 +723,13 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   const parked = paused === null && isStopped && step?.blockedBy?.length > 0 ? { by: 'parked', on: step.blockedBy, limit: null, since: null, named: null }
     : paused === null && isStopped ? waitSuspension(step?.waitsOn ?? null) ?? recapSuspension(reported?.recapWait ?? null) ?? assetSuspension(reported?.assetWait ?? null) : null
   // Suspended is the board's own fact, whatever the chat reports.
-  const state = paused !== null || parked !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
+  const readState = paused !== null || parked !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // Redesign Part 1: what the chat says of its question to the person, or what its transcript shows.
   const isAsked = reported !== null ? reported.entry?.state === 'asking' : turn === 'asking'
+  // 2026-11-13 (Q742, Q744): a chat that asks while its only open form asks are popups about the board's own tools is in its slow call
+  // to the board: working, never waiting for the person (`waits.boardCall`, work/lists.mjs storeWaits).
+  const boardCall = isAsked && readState === 'waiting' ? waits.boardCall?.get(chat.name.toLowerCase()) ?? null : null
+  const state = boardCall !== null ? 'working' : readState
   // No sign of life is about a turn that runs: between two turns a chat writes nothing.
   const quietMs = state === 'working' && held === null && lastWriteAt !== null ? Math.max(0, now - lastWriteAt) : null
 
@@ -782,6 +786,8 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     // Partner answers, the review's findings: the asks of its own it waits on the partner for.
     waitsForPartner: state === 'working' && held?.why === 'partner' ? forPartner : null,
     needsYou,
+    // The chat is in its call to the board, which is slow (a popup ask about the board's own tool): `{ since, ask }`, or null.
+    boardCall,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
     waitingSince: state !== 'waiting' ? null : reported !== null ? reported.entry?.since ?? null : entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null,
@@ -2151,6 +2157,9 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       name: advisorChat.name,
       session,
       appSession,
+      // It asks in its chat (the app's question form), and whether that is a slow call to the board (`card`, `boardCall`).
+      isAsking: advisorCard.isAsking === true,
+      boardCall: advisorCard.boardCall ?? null,
       // The model chip: the model and the effort the app's file of its chat says it runs at (`effort` below is B352's mode).
       model: advisorCard.model ?? null,
       appEffort: advisorCard.effort ?? null,
@@ -2818,7 +2827,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     // work calls it answered after the chat's Workers mod gave up (the rules board-deaf and board-slow).
     deaf,
     deafNow,
-    lateCalls: Array.isArray(hearing?.lateCalls) ? hearing.lateCalls : [],
+    // 2026-11-13: and the popup asks about the board's own tools (open or withdrawn), each one late call (work/lists.mjs `boardCallPopups`).
+    lateCalls: [...(Array.isArray(hearing?.lateCalls) ? hearing.lateCalls : []), ...(raw.work === null || raw.work === undefined ? [] : boardCallPopups(raw.work))],
     // B934 (X93): the board's newest stalls (stalls.mjs), which the rule board-slow cites.
     stalls: Array.isArray(stalls) ? stalls : [],
     // board-fast-answer (B1030 way A): the day's work-call figures (src/workCalls.mjs `today`), for the Supervisor's health line.
@@ -2851,6 +2861,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       name: helperLane.name,
       session: helperLane.session,
       appSession: helperLane.appSession,
+      isAsking: helperLane.isAsking === true,
+      boardCall: helperLane.boardCall ?? null,
       // The model chip: what the app's file of its chat says it runs at.
       model: helperLane.model ?? null,
       effort: helperLane.effort ?? null,
@@ -2877,6 +2889,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       name: supervisorLane.name,
       session: supervisorLane.session,
       appSession: supervisorLane.appSession,
+      isAsking: supervisorLane.isAsking === true,
+      boardCall: supervisorLane.boardCall ?? null,
       model: supervisorLane.model ?? null,
       effort: supervisorLane.effort ?? null,
       // T7.5: the setting the board holds it at (`supervisorModel`, `supervisorEffort`) and whether its file shows it.
@@ -2901,6 +2915,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       name: ownerLane.name,
       session: ownerLane.session,
       appSession: ownerLane.appSession,
+      isAsking: ownerLane.isAsking === true,
+      boardCall: ownerLane.boardCall ?? null,
       model: ownerLane.model ?? null,
       effort: ownerLane.effort ?? null,
       setting: supervisorRun({ lane: ownerLane, setting: OWNER_SETTING, models: runSettings(config).models }),

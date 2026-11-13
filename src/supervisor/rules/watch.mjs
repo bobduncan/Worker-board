@@ -1103,7 +1103,7 @@ function boardSlow(view) {
     rule: 'board-slow', key: 'board-slow board', subject: 'board',
     text: `the board did not answer for ${Math.round(worst / 1000)} s: ${recent.length} work calls in ${minutes(SLOW_LOOK_MS)} min answered after the chat gave up`,
     evidence: [
-      recent.slice(-6).map(one => `answered ${clockOf(one.at)} after ${Math.round(one.ms / 1000)} s`).join('; '),
+      recent.slice(-6).map(one => (typeof one.popup === 'string' ? `a popup ask for a slow board call (${one.popup}) at ${clockOf(one.at)}` : `answered ${clockOf(one.at)} after ${Math.round(one.ms / 1000)} s`)).join('; '),
       stalls.length === 0 ? `the stall log names no stall in ${minutes(SLOW_LOOK_MS)} min` : `stalls: ${stalls.map(stallLine).join('; ')}`,
       slept.length === 0 ? null : `slept: ${slept.map(one => stallWords(one, secondsOf)).join('; ')}`,
     ].filter(Boolean).join('. '),
