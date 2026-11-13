@@ -104,7 +104,7 @@ import { minuteKeeper, stabilityKeeper } from './src/stability.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, keepPersonAction, workApi } from './src/work/api.mjs'
-import { effortOf } from './src/work/effort.mjs'
+import { effortOf, setsRefusedOf } from './src/work/effort.mjs'
 import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
@@ -3575,7 +3575,9 @@ async function main(args) {
         const spell = spellOf(lanes.find(lane => lane.name === message.about))
         if (spell !== null && isWakeOnItsWay(wakes, message.about, spell) && await store.close(message.id, 'dropped', 'the wake procedure wakes it', clock())) readState.reset()
       }
-      const isHand = message => !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set'), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
+      // B1160 part 2 (B1164): while the app refuses the board's set calls no hand claims a set job, but the daily probe (effort.mjs `probeOf`).
+      const setsRefusedNow = setsRefusedOf(store.outbox(), clock())
+      const isHand = message => !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null

@@ -5620,6 +5620,17 @@ and free workers sat idle. Never a way around the refusal (no permission or mode
   old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off
   sonnet steps; the plain row words). The owed set through a model turn of Main (decision 4) is the second landing.
 
+- Part 2 (F5, chat 1's decisions 4 and 5, B1164): while the refusal stands the owed set goes to a model turn of Main. The hand-over
+  writes one set word to Main marked `forModel` (no hand ever claims it: hands.mjs `isHandWord`; Main's own take carries it at once),
+  asked once per hand-over while the worker is free; the envelope (set null, `asked`) waits for it (`isWaitDone`: typed into Main is
+  not done) until the worker runs at that setting (released, `setByMain`) or MAIN_SET_WAIT_MS (5 min, Main busy: released, `asked`
+  kept for the step's line). While refused no hand claims any set job but the probe (server `isHand`, `setsRefusedOf`). Rule 8 leaves
+  a `forModel` word out while it is with Main (MAIN_MODEL_SET_MS, 10 min), then names it while the worker still does not run at it.
+  handover-held stays as it is: a refused set holds nobody. Tests: `test/work/setMain.test.mjs`.
+- A ready step whose Touches overlap a step given or under way (the live G95 case: nine unit steps behind B1149) is not ready: it
+  stands in the ready list's `held` as "waits: same files as B1149, under way" (`overlap`). The rule overlap-idle names free workers
+  idling over 30 min while every waiting step is so held, once for the board (key `overlap-idle board`).
+
 ### The envelope's contract for the Workers mod
 
 For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers
