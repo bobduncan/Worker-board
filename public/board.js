@@ -4952,6 +4952,9 @@ function partnerAskWindowOf(ask) {
     answer,
     text: String(ask.text ?? ''), options: ask.options ?? [], advice: ask.advice ?? null,
     step: ask.of == null ? null : [ask.of, ask.ofTitle].filter(Boolean).join(' '),
+    // G95 (the person, 2026-11-12: "i dont even see pictures in the recap?"): the ask's pictures, shown large, and its Play link.
+    pictures: (ask.pictures ?? []).filter(path => typeof path === 'string' && path !== ''),
+    play: typeof ask.play === 'string' && ask.play !== '' ? ask.play : null,
   }
 }
 
@@ -4962,7 +4965,10 @@ function partnerAskWindowOf(ask) {
  * same way and answered "Done" (`isDo`). `{ id, isDo }`, or null for every other ask (it is judged in the recap, or it is not the person's yet).
  */
 function lookAnswerOf(ask) {
-  return ask?.route === 'recap' && ['look', 'do'].includes(ask.asks) && ask.isKept === true ? { id: ask.id, isDo: ask.asks === 'do' } : null
+  if (!(ask?.route === 'recap' && ['look', 'do'].includes(ask.asks) && ask.isKept === true)) return null
+  // G95's Q740 (A, B or C): a kept look with options is answered with a pick, which goes with the verdict.
+  const options = ask.asks === 'look' ? (ask.options ?? []).filter(one => typeof one?.label === 'string' && one.label.trim() !== '') : []
+  return { id: ask.id, isDo: ask.asks === 'do', options: options.map(one => ({ label: one.label, isAdvised: one.isRecommended === true })) }
 }
 
 /** Autopilot (2026-10-31): the chip of an ask's route in its window, and the line under where it stands. */
@@ -4977,7 +4983,7 @@ const ROUTE_STANDS = {
 function drawPartnerAskWindow(box, ask, state) {
   const view = partnerAskWindowOf(ask)
   // The answer form's own state (its note is kept while the window is drawn again; a refusal stands under the buttons).
-  const answerUi = view.answer === null ? null : { isSending: sending.has(`look:${view.answer.id}`), problem: problems.get(`look:${view.answer.id}`) ?? null }
+  const answerUi = view.answer === null ? null : { isSending: sending.has(`look:${view.answer.id}`), problem: problems.get(`look:${view.answer.id}`) ?? null, pick: lookPicks.get(view.answer.id) ?? null }
   const showing = JSON.stringify([detailsOf, view, answerUi])
   if (box.open && detailsShown === showing) return
   detailsShown = showing
@@ -4990,13 +4996,21 @@ function drawPartnerAskWindow(box, ask, state) {
     ]))
   }
   if (view.text.trim() !== '') parts.push(section('The question', view.text.split('\n').filter(line => line.trim() !== '').map(line => el('p', '', line))))
-  if (view.options.length > 0 || view.advice !== null) {
+  // G95: the pictures large (B65's window pictures), so a look is judged on what it shows; its Play link under them.
+  if (view.pictures.length > 0 || view.play !== null) {
+    const play = view.play === null || board?.hasGame === false ? [] : [Object.assign(el('a', 'handover-link', '▶  Play it'), { href: view.play, target: '_blank', rel: 'noreferrer noopener', title: 'Starts the game with this work in a new tab.' })]
+    const shown = view.pictures.map(path => ({ path, caption: pictureWords(path) }))
+    if (shown.length > 0 || play.length > 0) parts.push(section(shown.length === 1 ? 'The picture' : shown.length > 1 ? 'The pictures' : 'Play it', [...(shown.length > 0 ? drawReferences(shown) : []), ...play]))
+  }
+  // A kept look with options takes its pick in its answer: the options stand there, once.
+  const optionsInAnswer = view.answer !== null && view.answer.options.length > 0
+  if (!optionsInAnswer && (view.options.length > 0 || view.advice !== null)) {
     const list = el('ul', 'partner-ask-options')
     for (const option of view.options) list.append(el('li', '', `${option.label}${option.isRecommended ? ' (recommended)' : ''}`))
     parts.push(section('Options', [...(view.options.length > 0 ? [list] : []), ...(view.advice === null ? [] : [el('p', 'muted', `Advice: ${view.advice}`)])]))
   }
   if (view.step !== null) parts.push(section('Its step', [el('p', '', view.step)]))
-  if (view.answer !== null) parts.push(drawLookAnswer(view.answer, answerUi))
+  if (view.answer !== null) parts.push(drawLookAnswer(view.answer, answerUi, view.advice))
   const main = el('div', 'details-main')
   main.append(...parts)
   const body = el('div', 'details-body is-single')
@@ -5013,7 +5027,29 @@ function drawPartnerAskWindow(box, ask, state) {
  * "Looks right" (the work action `answer` with the verdict approve) and "Send back" (reject, which needs the note), sent as any look's
  * answer is; the chat that asked is woken with it. `ui`: whether it is sending, and the refusal that stands under the buttons.
  */
-function drawLookAnswer(answer, ui) {
+function drawLookAnswer(answer, ui, advice = null) {
+  // G95's Q740: a look with options shows them as choices; the pick goes with Looks right (needed) or Send back (with the note).
+  const picks = []
+  if ((answer.options ?? []).length > 0) {
+    const list = el('div', 'look-answer-picks')
+    list.setAttribute('role', 'radiogroup')
+    list.setAttribute('aria-label', `Your pick for ${answer.id}`)
+    const advisedKey = String(advice ?? '').trim().match(/^([A-H])\b/)?.[1] ?? null
+    for (const option of answer.options) {
+      const label = el('label', 'look-answer-pick')
+      const radio = el('input')
+      radio.type = 'radio'
+      radio.name = `look-pick-${answer.id}`
+      radio.value = option.label
+      radio.checked = ui.pick === option.label
+      radio.disabled = ui.isSending
+      radio.dataset.lookPick = answer.id
+      const isAdvised = option.isAdvised === true || (advisedKey !== null && option.label.startsWith(`${advisedKey} `))
+      label.append(radio, el('span', '', `${option.label}${isAdvised ? ' (advised)' : ''}`))
+      list.append(label)
+    }
+    picks.push(list)
+  }
   const note = el('textarea', 'look-answer-note')
   note.rows = 2
   note.maxLength = board?.maxMessageChars ?? 4000
@@ -5035,11 +5071,31 @@ function drawLookAnswer(answer, ui) {
     button('↺  Send back', 'is-reject', 'reject', 'Sends it back to the chat that asked, with your note'),
     answer.isDo === true ? button('✓  Done', 'is-seen', 'done', 'Marks it done; the chat that asked is told') : button('✓  Looks right', 'is-seen', 'approve', 'Approves it; the chat that asked is told'),
   )
-  return section('Your answer', [note, buttons, ...(ui.problem === null ? [] : [el('p', 'problem', ui.problem)])])
+  return section('Your answer', [...picks, note, buttons, ...(ui.problem === null ? [] : [el('p', 'problem', ui.problem)])])
+}
+
+/** G95: the option picked in a kept look's window, per ask, until it is sent; it stays in this page only. */
+const lookPicks = new Map()
+
+/**
+ * G95: what Looks right or Send back sends for a kept look: `{ verdict, text }` with the pick first and the note under it, or
+ * `{ problem }`: Send back needs a note; a look with options needs a pick for Looks right.
+ */
+function lookAnswerBody(answer, verdict, pick, note) {
+  const words = String(note ?? '').trim()
+  if (verdict === 'reject' && words === '') return { problem: 'Say what is wrong: the worker needs to know what to change.' }
+  if (verdict === 'approve' && (answer?.options ?? []).length > 0 && pick === null) return { problem: 'Pick one of the options first.' }
+  return { verdict, text: [pick, words].filter(one => one !== null && one !== '').join('\n') }
 }
 
 $('details').addEventListener('input', event => {
   if (event.target.matches('.look-answer-note')) drafts.set(`look:${event.target.dataset.lookOf}`, event.target.value)
+})
+$('details').addEventListener('change', event => {
+  if (!event.target.matches('[data-look-pick]')) return
+  lookPicks.set(event.target.dataset.lookPick, event.target.value)
+  problems.delete(`look:${event.target.dataset.lookPick}`)
+  redrawNeeds()
 })
 $('details').addEventListener('click', event => {
   const button = event.target.closest('[data-look-answer]')
@@ -5048,12 +5104,14 @@ $('details').addEventListener('click', event => {
   const key = `look:${id}`
   if (sending.has(key)) return
   const verdict = button.dataset.lookAnswer
-  const text = ($('details').querySelector('.look-answer-note')?.value ?? '').trim()
-  if (verdict === 'reject' && text === '') {
-    problems.set(key, 'Say what is wrong: the worker needs to know what to change.')
+  const note = $('details').querySelector('.look-answer-note')?.value ?? ''
+  const ask = [...(board.withPartner ?? []), ...(board.routedAway ?? [])].find(one => one.id === id)
+  const body = lookAnswerBody(lookAnswerOf(ask), verdict, lookPicks.get(id) ?? null, note)
+  if (body.problem !== undefined) {
+    problems.set(key, body.problem)
     return redrawNeeds()
   }
-  return sendWork({ action: 'answer', id, verdict, text }, key)
+  return sendWork({ action: 'answer', id, verdict: body.verdict, text: body.text }, key)
 })
 
 // partner-answers:start
@@ -15840,12 +15898,19 @@ function verdictLinkOf(at, card) {
 function recapReadyView(card) {
   if (card === null || card === undefined || !(card.count > 0)) return null
   const tiles = (card.tiles ?? []).slice(0, RECAP_TILES).map(tile => ({ title: tile.title, line: tile.line, picture: tile.picture ?? null, target: tile.target ?? card.open ?? null }))
+  // G95 (the person, 2026-11-12: "why do i get asked for a recap now. the goal just started"): "Your recap is ready" only for a built
+  // recap; a recap made while parts are still being built is "Your recap so far"; before any recap the card says what it is: one
+  // thing to judge by its title ("1 picture to judge · <title>"), or how many.
+  const isRecap = typeof card.open?.path === 'string' && card.open.path !== ''
+  const one = card.count === 1 && tiles.length === 1 && typeof tiles[0].title === 'string' && tiles[0].title.trim() !== '' ? tiles[0] : null
+  const early = isRecap ? `Your recap so far · ${card.count} to judge` : one === null ? `${card.count} to judge` : `1 ${one.picture === null ? '' : 'picture '}to judge · ${one.title.trim()}`
   return {
     // T20.1 (the person, 2026-11-04: "These numbers are all over the place and non consistent"): ONE count, "N to judge", the very number
     // the recap's popup carries in its head, the Needs count and the card in Needs your attention (src/recapRound.mjs `toJudge`).
-    title: `Your recap is ready · ${card.count} to judge`,
+    title: card.isBuilt === true ? `Your recap is ready · ${card.count} to judge` : early,
     line: card.isBuilt === true ? 'Everything is built. Judge each part: approve it, or send it back with a note.' : 'Judge what is ready: approve it, or send it back with a note.',
-    open: { label: 'Open the recap', target: card.open ?? null },
+    // An ask's window, before any recap is made: "Open it".
+    open: { label: typeof card.open?.ask === 'string' ? 'Open it' : 'Open the recap', target: card.open ?? null },
     tiles,
     // The tiles stay one row of at most three; the rest is one quiet link to the recap.
     more: Math.max(0, card.count - tiles.length),
