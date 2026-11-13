@@ -3812,7 +3812,7 @@ stuck that day was found by the person. They are now one list in the board, each
 | `refine-again` | (T9.4) a step still new whose refine word the Advisor took (arrived) 30 min ago or more, with no block written since, none waiting for the person's answers, the board not stopped on it (`refineStop`), not a fix | the Advisor woken with the same word, every 30 min, three times (Woke); then one note to the person (Sent) |
 | `incident-again` | (T9.4; signals change 6, B915) an incident "with the supervisor" for 2 h or more (the pause not counted), with no fix named and not closed | one note to the person (Sent), once; no asks again since change 6 |
 | `worktrees` | a worktree of a repository the board knows, or an empty folder one left in the project folder (2026-10-24) | removed by the board when safe (Cleaned); else listed with why (Left), no chat told: "Worktree clean-up" below |
-| `browsers` | a headless or remote-driven Edge main process with its profile in the temp folder, more than one thread and its starter gone, over 30 min old or over 2 cores for 5 min in a row (2026-11-13) | its tree closed once and its temp folder removed (Cleaned, the row naming the profile's prefix and the CPU); one that could not be, or was closed before, Left with why; never during a landing; no chat told: "Leaked headless browsers" below |
+| `browsers` | a headless or remote-driven Edge main process with its profile in the temp folder, more than one thread and its starter gone, over 30 min old or its tree over 2 cores for 5 min in a row (2026-11-13) | its tree closed once (each process while its creation time holds; not while a landing runs or a live process is connected to its DevTools port) and the tool's own folder removed (Cleaned, the row naming the profile's prefix and the tree's CPU); one that could not be, or was tried before, Left with why; the PC's first board alone; no chat told: "Leaked headless browsers" below |
 
 - **At its take** (B542, X10): a step's `Blocked by` loses the steps done, dropped or in review, and a `Waits for` whose
   every step is goes, each with a History line naming the blocker, so no step in progress still shows a wait. The
@@ -3973,34 +3973,49 @@ stayed and every later run connected to it); the helper was fixed, and the board
   tokens, no chat told): each loop (every 3 minutes), from one listing of the PC's processes (cpu.mjs `LIST_SCRIPT`, which
   now carries each process's `threads` and `cpuMs`), every `msedge.exe` MAIN process with `--headless` or
   `--remote-debugging-port` and no `--type=` (the person's own Edge has neither flag and is never touched) whose profile
-  (`--user-data-dir`) stands in the temp folder (chat 1's guard 1: a profile anywhere else is somebody's own, never
-  closed), that has more than one thread (a killed main process lingers as a 1-thread zombie for a while; the game's
-  `browserTree.mjs` counts the same), whose starter is gone (its parent not listed, or listed but created after it: a
-  process number given out again), and that has run over `LEAKED_AFTER_MS` (30 minutes) OR used over `BUSY_CORES` (2)
-  cores for `BUSY_MS` (5 minutes) in a row (guard 2: a worker may detach a CDP helper on purpose and keep using it; the
-  runner keeps the CPU samples per browser between runs, `watchBrowsers`, `isBusy`: the leak of 13 cores closes at the
-  second sample, a quiet helper only after half an hour).
-- **The fix** (`closeLeaked`, the loop's `close`): `taskkill /F /T` on the process and the tree below it (children that
-  started after their parent), then the tool's folder in the temp folder removed (`tempRootOf`: the first folder below
-  `%TEMP%` on the way to the profile; the evidence tool keeps its profile IN its `board-evidence-<tail>` folder); one
-  Cleaned row, "<prefix>: a headless Edge (process N, started HH:MM, 13 h 20, 12.8 cores) with its starter gone, ran over
-  30 min: closed, its profile removed", the prefix the tool's own (`prefixOf`: the profile's name up to its first number
-  or random tail: `edge-cdp-b1126`, `board-evidence`, `lava-shot`), so a tool that keeps leaking is visible on the board
-  (guard 3). One close per browser (guard 4): the runner remembers the closed ones (`browserMemory`), and one still listed
-  after its close is Left ("closed at HH:MM, still listed"), never killed again. Never during a landing (`skips`, the
-  lock fresh). A kill that fails is Left with why; a listing that fails is one Left row ("leaked browsers: not looked
-  at"), not the end of the run.
+  (`--user-data-dir`, the last one, as Chromium reads it) stands in the temp folder (guard 1: a profile anywhere else is
+  somebody's own, never closed), that has more than one thread (a killed main process lingers as a 1-thread zombie for a
+  while; the game's `browserTree.mjs` counts the same), whose starter is gone (its parent not listed, or listed but created
+  after it: a process number given out again), and that has run over `LEAKED_AFTER_MS` (30 minutes) OR whose TREE (the
+  gpu and renderer children, where the rendering sits) used over `BUSY_CORES` (2) cores for `BUSY_MS` (5 minutes) in a
+  row (guard 2: a worker may detach a CDP helper on purpose and keep using it; the runner keeps the CPU samples per
+  browser between runs, stamped with the listing's moment, `watchBrowsers`, `isBusy`: the leak of 13 cores closes at the
+  third sample, two steps of 3 minutes, a quiet helper only after half an hour). Chat 1's review: Edge relaunched through
+  its compat layer has a dead stub for a parent, so the board's own tools pass `--edge-skip-compat-layer-relaunch`
+  (tools/evidence.mjs) and, right before any close, the board checks that no live process holds an established connection
+  to the browser's DevTools port (`inUseNow`: the command line's port, else the profile's DevToolsActivePort file; a tool
+  still driving it is left alone, nothing counted).
+- **The fix** (`closeLeaked`, the loop's `close`): the landing lock read right before the kill (a landing runs: skipped,
+  nothing counted); then the main process and the tree below it (children that started after their parent) killed in one
+  PowerShell call, each only while its Win32_Process creation time is still the listing's (`killVerified`, no `taskkill /T`:
+  a number Windows gave out again since the listing is another process); then the TOOL's own folder removed and nothing
+  else (`toolFolderOf`, guard 1 as chat 1's review sharpened it: the profile itself when it is `edge-cdp-<name>-<tail>` or
+  `lava-shot-<pid>-<tail>` right below %TEMP%, the evidence tool's `board-evidence-<tail>` folder when the profile is its
+  `profile`; a worker's scratchpad profile, %TEMP%\claude\..., is left: "left: not the tool's own folder"). One Cleaned row,
+  "<prefix>: a headless Edge (process N, started HH:MM, 13 h 20, 12.8 cores) with its starter gone, ran over 30 min: closed,
+  its profile removed", the prefix the tool's own (`prefixOf`), so a tool that keeps leaking is visible on the board
+  (guard 3). One close per browser, tried once whatever its outcome (guard 4): the runner remembers the attempt
+  (`browserMemory`, "closed at HH:MM, still listed" or "close failed at HH:MM, not tried again"), and the day's repairs
+  (the supervisor's memory, which survives a board restart) say the same by the finding's key `browser <pid:created>`.
+  A listing that fails is one Left row ("leaked browsers: not looked at"), not the end of the run.
+- **One board** (chat 1's review: three boards on this PC, 4310, the Test board and the trial copy, would each close the
+  same browser, split a tool's leak count and read their own landing lock): the rule's ports go to the PC's first board on
+  ~/.worker-board/boards.json alone (the main project's, registered first; `closesBrowsers` in server.mjs), unless
+  config.json's `browsersRule` (true or false) says otherwise; never to a copy that only shows.
 - **The incident** (guard 3; the watch rule `browser-leaks`, watch.mjs): one tool's browsers closed `LEAKS_PER_DAY` (3)
   times or more in a day files an incident naming the tool ("The tool "edge-cdp-b1126" leaked 3 headless browsers in a
   day ...: its browser handling wants a fix"), so the fix becomes a step of its own; the closes are no repair-repeats
-  (`BOUNDED_RULES`).
-- **Ports** (server.mjs, Windows only): `processes()` (cpu.mjs `windowsProcesses.list`) and `closeBrowser(one)`; without
-  them (another platform, a test runner) the rule finds nothing.
+  (`BOUNDED_RULES`). Tested end to end through the runner (three closes of one prefix, two of another: one incident).
+- **Ports** (server.mjs, Windows only, the first board): `processes()` (cpu.mjs `windowsProcesses.list`) and `closeBrowser(one)`
+  (with the landing lock); without them (another platform, another board, a test runner) the rule finds nothing.
 - Tests: `test/supervisor/browsers.test.mjs` (every exclusion on a listing shaped like the real one: the person's Edge, a
   profile outside the temp folder, a starter alive, under 30 minutes and quiet, the zombie, a reused parent number; the
-  busy case; the tree, the prefixes, the temp folder, the close with fakes), `test/supervisor/selfCheck.test.mjs` (the
-  loop's Cleaned and Left rows, the busy close at the second sample, one close per browser, the landing, the failed
-  listing), `test/supervisor/watch.test.mjs` (browser-leaks), `test/cpu.test.mjs` (`threads` and `cpuMs` in the listing).
+  tree's CPU and the busy case at the third sample; the tool folders and the scratchpad profile left; the close with fakes:
+  the landing, in use, the verified kill, the folder), `test/supervisor/selfCheck.test.mjs` (the loop's Cleaned and Left
+  rows, the busy close, one close per browser also after a failed one and across the day's repairs, the landing, the
+  failed listing; guard 3 end to end: three closes of one tool make the incident, two of another do not),
+  `test/supervisor/watch.test.mjs` (browser-leaks), `test/cpu.test.mjs` (`threads` and `cpuMs` in the listing),
+  `test/config.test.mjs` (`browsersRule`).
 
 ## The supervisor, part 1 (2026-10-24): the board checks itself
 

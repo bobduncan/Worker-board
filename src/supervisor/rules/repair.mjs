@@ -598,9 +598,17 @@ function browsers(view) {
   if (typeof look.error === 'string') {
     return [finding('browsers', 'browsers not read', 'browsers', `leaked browsers: not looked at (${look.error})`, { do: 'list' })]
   }
-  return (look.found ?? []).map(one => (one.closedAt === null || one.closedAt === undefined
-    ? finding('browsers', `browser ${one.key ?? one.pid}`, one.prefix, leakedWords(one, view.now), { do: 'close', browser: one })
-    : finding('browsers', `browser ${one.key ?? one.pid} closed`, one.prefix, `${leakedWords(one, view.now)}: closed at ${clockOf(one.closedAt)}, still listed (not closed again)`, { do: 'list' })))
+  // Guard 4: one close per browser: the runner's memory of this process, and the day's repairs (the supervisor's memory survives a board
+  // restart: a Cleaned row stands as `{ rule: 'browsers', key: 'browser <pid:created>' }`); a failed close is not tried again either.
+  return (look.found ?? []).map(one => {
+    const key = `browser ${one.key ?? one.pid}`
+    const repaired = (view.repairs ?? []).find(repair => repair.rule === 'browsers' && repair.key === key)
+    if (one.closedAt === null || one.closedAt === undefined) {
+      if (repaired === undefined) return finding('browsers', key, one.prefix, leakedWords(one, view.now), { do: 'close', browser: one })
+      return finding('browsers', `${key} closed`, one.prefix, `${leakedWords(one, view.now)}: closed at ${clockOf(repaired.at)}, still listed (not closed again)`, { do: 'list' })
+    }
+    return finding('browsers', `${key} closed`, one.prefix, `${leakedWords(one, view.now)}: ${one.closeOk === false ? 'close failed' : 'closed'} at ${clockOf(one.closedAt)}, ${one.closeOk === false ? 'not tried again' : 'still listed (not closed again)'}`, { do: 'list' })
+  })
 }
 const browsersSkips = view => (view.live?.landing === true ? 'a landing runs' : null)
 

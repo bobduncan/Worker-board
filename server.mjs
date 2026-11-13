@@ -47,7 +47,7 @@ import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { boardView, exitAt, keptStart, lastStopOf, stopWhy, writeStop } from './src/boardSelf.mjs'
 import { START_ANEW, keep, startEnv } from './src/keeper.mjs'
-import { boardAddress, gamePortFor, workerPort, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
+import { boardAddress, gamePortFor, workerPort, boardsFile, readBoards, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
 import { findClaude, marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
 import { dayRecaps } from './src/dayRecap.mjs'
 import { dayOf, doneSteps, isDay, lastDays, recapText, stepsOfDay } from './src/work/doneDays.mjs'
@@ -773,6 +773,10 @@ async function main(args) {
   if (chosen.gamePort !== undefined) config.gamePort = chosen.gamePort
   /** The main folder's board, on the port it was not given by hand: the one that keeps its project's place in the list. */
   const isHome = boards !== null && chosen.isMain && chosen.why !== 'given'
+  // Leaked headless browsers (2026-11-13): the PC-wide rule runs on ONE board, the first on the PC's list of boards (the main project's,
+  // registered first), unless config.json's `browsersRule` says otherwise (true or false); never on a copy that only shows.
+  const firstBoard = boards === null ? null : (await readBoards(boards).catch(error => { console.error(`The list of boards could not be read: ${error.message}`); return [] }))[0]?.folder ?? null
+  const closesBrowsers = process.platform === 'win32' && !isShowOnly && historyFrom === undefined && (config.browsersRule ?? (firstBoard !== null && resolve(firstBoard).toLowerCase() === resolve(HERE).toLowerCase()))
   const register = () => registerHome(boards, { project: home, folder: HERE, port: config.port, gamePort: config.gamePort, asked })
   if (args.includes('--launch-entry')) {
     // This folder's entry for the preview: named after the folder, with the port it listens on.
@@ -4290,9 +4294,11 @@ async function main(args) {
           runs: runsNow,
         }),
         clean: one => cleanLeftover(one),
-        // Leaked headless browsers (2026-11-13): the PC's processes with their threads (cpu.mjs's listing) for the rule browsers, and
-        // the close of one (its tree, its temp profile); Windows only (elsewhere no such check).
-        ...(process.platform === 'win32' ? { processes: () => windowsProcesses.list(), closeBrowser: one => closeLeaked(one) } : {}),
+        // Leaked headless browsers (2026-11-13): the PC's processes with their threads and CPU (cpu.mjs's listing) for the rule browsers,
+        // and the close of one (its tree, each process while its creation time holds; the tool's own folder); Windows only, and only on
+        // the PC's first board (chat 1's review: three boards on this PC would each close the same browser and split the leak count), the
+        // landing read right before the kill.
+        ...(closesBrowsers ? { processes: () => windowsProcesses.list(), closeBrowser: one => closeLeaked(one, { landing: () => { const held = lockHolder(join(HERE, 'data', 'landing.lock'), clock()); return held !== null && held.ageMs < STALE_LOCK_MS } }) } : {}),
         // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule
         // base-equal); workAction runs the check that the action answers
         bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),

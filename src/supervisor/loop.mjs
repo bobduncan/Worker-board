@@ -156,11 +156,12 @@ export async function applySync(findings, ports, noted = new Set()) {
       // Leaked headless browsers (2026-11-13): closed by the board, its temp profile removed; one that could not be is listed, no chat told.
       const done = await Promise.resolve().then(() => ports.closeBrowser(fix.browser))
         .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
-      // Chat 1's guard 4: one close per browser; the runner remembers it (`closedBrowser`), the rule lists it from then on.
-      if (done?.ok === true) {
-        if (typeof ports.closedBrowser === 'function') ports.closedBrowser(fix.browser)
-        row(one, 'Cleaned', `${one.text}: closed, its profile ${done.profile ?? 'not looked at'}`)
-      } else row(one, 'Left', `${one.text}: not closed (${done?.why ?? 'no answer'})`)
+      // Chat 1's guard 4: one close per browser, tried once whatever its outcome (a failed kill is not tried every run); the runner
+      // remembers it (`closedBrowser`), the rule lists it from then on. A close skipped before anything was tried (a landing runs, the
+      // browser is in use) counts as none.
+      if (done?.skipped !== true && typeof ports.closedBrowser === 'function') ports.closedBrowser(fix.browser, done?.ok === true)
+      if (done?.ok === true) row(one, 'Cleaned', `${one.text}: closed, its profile ${done.profile ?? 'not looked at'}`)
+      else row(one, 'Left', `${one.text}: not closed (${done?.why ?? 'no answer'})`)
     } else if (fix.do === 'list') {
       row(one, 'Left', one.text)
     } else if (fix.do === 'hand') {
@@ -322,7 +323,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
       wake: ports.wake,
       clean: ports.clean,
       closeBrowser: ports.closeBrowser,
-      closedBrowser: one => browsers.closed.set(one.key, now),
+      closedBrowser: (one, ok) => browsers.closed.set(one.key, { at: now, ok }),
     }, noted)
     // The keys the main chat was told of in this run's note (for the repairs of the day, below).
     const told = new Set()
@@ -420,7 +421,9 @@ async function lookLeftovers(ports, items, now) {
 async function lookBrowsers(ports, memory, now) {
   if (typeof ports.processes !== 'function') return undefined
   try {
-    return { found: watchBrowsers(await ports.processes(), memory, { now }) }
+    const list = await ports.processes()
+    // The samples are stamped with the listing's moment, not the run's start (chat 1's review, 13).
+    return { found: watchBrowsers(list, memory, { now: typeof ports.now === 'function' ? ports.now() : now }) }
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) }
   }
