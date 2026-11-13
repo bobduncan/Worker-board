@@ -9,7 +9,7 @@
 // The statuses and their precedence (the first that holds wins) are the brief's table, with the age: `age = now - report.at`
 // (the mod refreshes `at` with every 5 s ping, so a live chat's age is seconds). Times are the board's own clock (`now`).
 
-import { BAN_WHY_MARK, UNANSWERED_WHY } from './work/handover.mjs'
+import { BAN_WHY_MARK, REFUSED_MARK, UNANSWERED_WHY } from './work/handover.mjs'
 import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from './work/waitsOn.mjs'
 import { assetWaitWords, isAssetWait } from './work/assetWait.mjs'
 
@@ -117,7 +117,7 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
   const isFreshBusy = report?.state === 'busy' && reportAt !== null && now - reportAt <= unknownAfterMs
   const hand = handover?.state ?? null
   // B1051 (X153): a free worker the board gives no step of a model (its set failed) says so; the page reads this why.
-  const banWhy = typeof handover?.why === 'string' && handover.why.includes(BAN_WHY_MARK) ? handover.why : null
+  const banWhy = typeof handover?.why === 'string' && (handover.why.includes(BAN_WHY_MARK) || handover.why.includes(REFUSED_MARK)) ? handover.why : null
   const partner = (lane.waitsForPartner ?? []).length > 0 || lane.heldBy === 'partner'
 
   // 1. Working: a fresh report says busy (also background work after a reported step, and a wait for the partner). A fresh busy

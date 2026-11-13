@@ -14,6 +14,13 @@ import { isStoppedWhy } from './stopped.mjs'
 import { AGAIN_AFTER_MS, TRIES, passesBySelf } from './work/passing.mjs'
 import { heldMs } from './work/pause.mjs'
 import { appendLines, writeAtomic, writeUnflushed } from './write.mjs'
+import { isSetRefused } from './work/effort.mjs'
+
+/**
+ * B1160 (verifier 4, 5, 7): a worker's set word the app refused (it does not run a plugin's own set call in auto mode) is never tried
+ * again: retried it is refused again. Only a worker's: a partner-effort word keeps its retry, whose copy Main's own take may carry.
+ */
+const isRefusedSet = message => message?.command === 'worker-effort' && isSetRefused(message)
 
 /** outbox.jsonl is a log: a line with an id seen before changes that message (delivered, later on). */
 export function foldOutbox(text) {
@@ -298,7 +305,7 @@ function storeOver(lines, messages, alive, write) {
      */
     async retryFailed(now, keep, { afterMs = AGAIN_AFTER_MS, tries = TRIES, newId = () => randomBytes(8).toString('hex') } = {}) {
       const again = messages.filter(message => message.state === 'failed' && Number.isFinite(message.failedAt) && message.final !== true
-        && passesBySelf(message.why) && message.command !== 'work' && message.command !== 'handover' && message.retriedAs === undefined && (message.tries ?? 1) < tries
+        && passesBySelf(message.why) && message.command !== 'work' && message.command !== 'handover' && !isRefusedSet(message) && message.retriedAs === undefined && (message.tries ?? 1) < tries
         && now - message.failedAt >= afterMs && !isLate(message, now, keep))
       const sent = []
       for (const message of again) {
@@ -364,7 +371,7 @@ function storeOver(lines, messages, alive, write) {
      */
     async revive(sessions, now, keep, { dayMs = 24 * 60 * 60_000, newId = () => randomBytes(8).toString('hex') } = {}) {
       // T8.5: an envelope never goes again by itself: a failed one is its worker's held state (src/work/handover.mjs).
-      const again = messages.filter(message => message.state === 'failed' && message.final !== true && message.retriedAs === undefined && message.command !== 'handover'
+      const again = messages.filter(message => message.state === 'failed' && message.final !== true && message.retriedAs === undefined && message.command !== 'handover' && !isRefusedSet(message)
         && typeof message.failedSession === 'string' && typeof sessions.get(message.to) === 'string' && sessions.get(message.to) !== message.failedSession
         && Number.isFinite(message.failedAt) && now - message.failedAt < dayMs && !isLate(message, now, keep))
       const sent = []
