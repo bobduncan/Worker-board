@@ -3994,6 +3994,9 @@ on it:
    names, the main chat, the supervisor, the Product owner, stays whatever its card's age), and a card whose size and
    time (`FsEntry.mtimeMs`) are the last reading's is answered from that reading (`cardsRead`).
 
+The rules every later hook keeps to (the budget, `next.signal` unread, functions that take `$` at the top of the file, the test
+kit's clock) stand in MODS.md, "Writing a hook of the Workers mod: the engine's rules".
+
 Tests: `mods/workers/hooks/chatlist.test.ts` "0.31.1 (F4)": a turn's start and end, the prompt, the chat tool and the work tool
 answer within their time while the board hangs and the card chain is stuck (the test world's `writeHold`; on 0.31.0 each waited
 for ever), a subagent's turns write nothing, the scan's cache and the week; the B412 tests as 0.31.1 has them. The board's
