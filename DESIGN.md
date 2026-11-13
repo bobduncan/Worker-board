@@ -3781,7 +3781,9 @@ reads, so all of them were looked at:
    board is" for over an hour while both files were fine, because nothing cleared either: now `moveInPlace` tries the rename
    eight times (`RENAME_TRIES`, 60 ms times the try: about 1.7 s), `loopGate` reports every heartbeat that answered
    (`onSucceeded` → `loops.succeeded('loop-lock')`), the bridge note is claimed until it is written (src/bridgeClaim.mjs
-   `claimUntilWritten`, a backoff up to a minute, the board closing ends it; its success ends `bridge-note`'s failure, so the
+   `claimUntilWritten`, a backoff up to a minute, the board closing ends it; the start and the loops' gain wait for its FIRST
+   try alone, so the note is there for the chats before the loops run and a lasting refusal holds nothing longer than one write;
+   its success ends `bridge-note`'s failure, so the
    line says "answers will not reach the chats" only while the note really is missing or stale), and the files a cut-off
    write left beside the lock and the note (`<file>.<pid>.<hex>.tmp`, 13 that evening) are swept at the start when older
    than a minute (`sweepBeside`). Tests: test/write.test.mjs (seven EPERMs then ok, the eighth refusal the error, the sweep),

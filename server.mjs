@@ -3881,9 +3881,10 @@ async function main(args) {
    * success ends the failure: the line says "answers will not reach the chats" only while the note really is missing or stale.
    */
   let claiming = null
+  /** Resolves after the claim's FIRST try (the note written, or one refusal): the start and the loops' gain wait for that alone. */
   function claimBridge() {
     if (bridgeKey === null || config.project === '') return Promise.resolve()
-    claiming ??= claimUntilWritten({
+    if (claiming === null) claiming = claimUntilWritten({
       isTaken: async () => {
         if (!(await isTaken())) return false
         console.error('Another worker board already delivers to the chats (.claude/board.json): answers given on this one will not arrive.')
@@ -3900,8 +3901,10 @@ async function main(args) {
       },
       onSucceeded: () => loops.succeeded('bridge-note'),
       isClosing: () => isClosing,
-    }).finally(() => { claiming = null })
-    return claiming
+    })
+    const claim = claiming
+    void claim.done.then(() => { if (claiming === claim) claiming = null }, error => loops.failed('bridge-note', error))
+    return claim.first
   }
   void sweepBeside(noteFile)
   // B488: this process gains the loops when the one that ran them ended: it reads again what that one wrote (the
@@ -3920,8 +3923,9 @@ async function main(args) {
       await chatLogs.reload()
       void chatLogs.resume().catch(error => loops.failed('chat-logs', error))
     }
-    // 2026-11-13 (chat 1): not awaited: the claim tries until the note is written, and a lasting refusal must not hold the loops' gain.
-    void claimBridge()
+    // 2026-11-13 (chat 1): the FIRST try alone is waited for (the note is there for the chats before the loops run, as before); the
+    // tries after a refusal run on their own, so a lasting refusal holds the loops' gain no more than one write.
+    await claimBridge()
   }
   // Signals change 5: the port was held since the start (`holdPort`); from here the board's own server answers, and the
   // keeper hears that this board is up: only a board that was up is started again after a crash.
@@ -3933,8 +3937,9 @@ async function main(args) {
     const owns = await ownsLoops()
     if (owns) void chatLogs?.resume().catch(error => loops.failed('chat-logs', error))
     if (bridgeKey !== null && config.project !== '') {
-      // Not awaited (chat 1): a lasting refusal of board.json must not hold the start (the check, the PC's list of boards, the ready line).
-      if (owns) void claimBridge()
+      // The first try alone (chat 1): the note is written before the start goes on (the tests read it right after the start), and a
+      // lasting refusal holds the start no more than one write; the tries after it run on their own.
+      if (owns) await claimBridge()
       else console.error('Another board process of this project runs the loops (.claude/sync-loop.json): this one shows the page and reads.')
     }
     // The start-up check (2026-11-05): once, when the first state can be read; it does not wait for the board's other looks.
