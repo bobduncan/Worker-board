@@ -1695,6 +1695,9 @@ a.recap-checked:hover { text-decoration: underline; }
 .recap-attention-look:hover, .recap-attention-look:focus-visible { color: #c3d6ff; }
 /* The answer form of a look in its window (the Product owner's card and the recap card name it): a note and two buttons. */
 .look-answer-note { width: 100%; box-sizing: border-box; }
+/* G95: a look's options as choices over the note, one per line. */
+.look-answer-picks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.look-answer-pick { display: flex; align-items: baseline; gap: 8px; cursor: pointer; overflow-wrap: anywhere; }
 /* T20: "Autopilot cleared n: ..." under the recap card: information, so quiet cool tones, dashed, never amber; its Undo is a link. */
 .autopilot-cleared { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 10px 14px; border: 1px dashed var(--line); border-radius: 9px; color: var(--muted); font-size: 13.5px; }
 .autopilot-cleared-words { flex: 1 1 18em; min-width: 0; overflow-wrap: anywhere; }
@@ -2562,6 +2565,8 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .run-chip.is-opus, .run-next.is-opus { --dot: var(--chip-opus); }
 .run-chip.is-fable, .run-next.is-fable { --dot: var(--chip-fable); }
 .run-chip.is-pending { border-style: dashed; }
+/* B1160: the setting a step asked that the app's refusal left unset, quiet beside what it runs on. */
+.run-asked { color: var(--muted); }
 .run-now, .run-to { white-space: nowrap; }
 .run-to { display: inline-flex; gap: 5px; }
 .run-arrow { color: var(--muted); }

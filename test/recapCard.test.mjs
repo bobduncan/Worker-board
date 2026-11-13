@@ -240,7 +240,7 @@ test('the page: parts still being built say so; a block still at work is not "wa
   const items = [task(1), askFor(1), parseItem(`Id: B2\nKind: step\nTitle: Task B2\nState: in progress\nOwner: Digger\nGoal: G6\nSince: ${sinceOf(NOW - 90 * MIN)}\n`)]
   const page = await focusOf(asSent(build(items, undefined, goals(2), { recaps: [recap(1)], goalRecap: { goal: 'G6', path: PATH, pictures: {} }, config: ON })))
   try {
-    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 1 to judge')
+    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap so far · 1 to judge')
     assert.equal(page.text('.focus-recap-ready p'), 'Judge what is ready: approve it, or send it back with a note.')
     assert.doesNotMatch(page.text('.focus-progress small'), /waits for your verdict/, 'Block 2 is still being built')
   } finally { await page.close() }

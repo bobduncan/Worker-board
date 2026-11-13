@@ -52,7 +52,7 @@ import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './
 import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
 import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, backgroundNoNewsOf, lateAssetsOf } from './work/assetWait.mjs'
 import { reconcile } from './work/reconcile.mjs'
-import { EFFORTS, effortPlan, runSettings } from './work/effort.mjs'
+import { EFFORTS, effortPlan, probeOf, runSettings, setsRefusedOf } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
 import { isJudging } from './work/judgeWord.mjs'
 import { OWNER_LABEL, OWNER_SETTING, talkPartnerOf } from './talkPartner.mjs'
@@ -2463,7 +2463,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // mod). Model per step: its model too, by the settings' model ids, and the usual setting between steps from the settings.
   // T8.5 step 6: no line waits for a clear or a setting here: the hand-over's envelope carries both before its line.
   // The partner and its helper are skipped: their own setting (B352, set once) is never the board's to overwrite.
-  const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name, ownerChat?.name], ...runSettings(config) })
+  const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name, ownerChat?.name], ...runSettings(config), refused: setsRefusedOf(stepWords, now), known: stepWords })
   // T8.5: a worker on the sequence is set by its envelope's `set`, at its hand-over: no word of the old plan for it.
   if (efforts) efforts.words = efforts.words.filter(word => chats.find(lane => lane.name === word.chat)?.onSequence !== true)
   // T7.5 (the person, 2026-10-28: "do B"): the Supervisor's chat is held at its own setting (`supervisorModel`, `supervisorEffort`:
@@ -2473,10 +2473,15 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const judging = workOk && supervisorLane !== null && supervisorLane !== undefined && isJudging({ items: raw.work.items, outbox: sent, to: supervisorLane.name, now })
   const supervisorWants = judging ? { ...supervisorSetting(config), effort: EFFORTS.includes(config.supervisorJudgeEffort) ? config.supervisorJudgeEffort : 'medium' } : supervisorSetting(config)
   const supervisorWord = efforts === null ? null : supervisorEffortWord({ lane: supervisorLane, setting: supervisorWants, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix })
-  if (supervisorWord !== null) efforts.words.push(supervisorWord)
+  // B1160 review 5, 7, 11: no set word to the hands while the app refuses them (effort.mjs `setsRefusedOf`), the Supervisor's and the owner's neither.
+  const setsRefused = setsRefusedOf(stepWords, now)
+  if (supervisorWord !== null && !setsRefused) efforts.words.push(supervisorWord)
   // The Product owner (2026-10-31): held at Opus, medium by code, by the same word and dedupe as the Supervisor's (src/talkPartner.mjs).
   const ownerWord = efforts === null ? null : supervisorEffortWord({ lane: ownerLane, setting: OWNER_SETTING, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, who: OWNER_LABEL })
-  if (ownerWord !== null) efforts.words.push(ownerWord)
+  if (ownerWord !== null && !setsRefused) efforts.words.push(ownerWord)
+  // B1160 (verifier 3, chat 1's probe): while the refusal stands, once a day one set word that changes nothing; its hand's answer settles it.
+  const probe = efforts === null ? { dueAt: null, word: null } : probeOf({ sent: stepWords, lanes: chats, now, main: isBridgeMissing === true ? null : main?.name ?? null, ...runSettings(config) })
+  if (probe.word !== null) efforts.words.push(probe.word)
   // B570: a chat on an older Workers mod is restarted between its steps (work/modRollout.mjs): the words that ask its
   // restarter (the main chat; the partner for the main chat). T8.5 step 6: no worker: it restarts by its envelope.
   const side = (lane, name) => (lane === null || lane === undefined ? null : { ...lane, name, isRunning: lane.state === 'off' ? false : runningOf(name) })
@@ -2686,6 +2691,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken' || flag.kind === 'handover off').map(flag => flag.text),
       // Model per step: settings that name the model ids otherwise than both, each "claude-...": the effort alone.
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
+    // B1160: whether the app refuses the board's set calls, and when the board next checks (the row and the health line say it).
+    setsRefused: efforts === null || !setsRefused ? null : { nextCheckAt: probe.dueAt },
     reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),
