@@ -32,7 +32,8 @@ const rowWords = async (state, now) => {
   const page = await openPage({ state: JSON.parse(JSON.stringify(state)), now })
   try {
     const row = page.all('#lanes [data-lane]').find(one => one.dataset.lane === 'Digger')
-    return { eta: row.querySelector('.eta').textContent.replace(/\s+/g, ' ').trim(), bar: page.document.querySelector('#simple-bar b')?.textContent ?? '', amber: page.all('#lanes .is-attn, #lanes .is-blocked, #lanes .is-overdue, #simple-workers .is-attn, #simple-workers .is-overdue').length }
+    const etaBox = row.querySelector('.eta')
+    return { eta: etaBox.textContent.replace(/\s+/g, ' ').trim(), title: [etaBox.title, ...[...etaBox.querySelectorAll('[title]')].map(one => one.title)].join(' '), bar:page.document.querySelector('#simple-bar b')?.textContent ?? '', amber: page.all('#lanes .is-attn, #lanes .is-blocked, #lanes .is-overdue, #simple-workers .is-attn, #simple-workers .is-overdue').length }
   } finally { await page.close() }
 }
 
@@ -53,7 +54,7 @@ test('B: past since 14:44 whatever waits came after it: a wait 16:00-17:00 leave
   const shown = await rowWords(state, t(17, 30))
   assert.equal(shown.eta, 'past its estimate since 14:44')
   assert.equal(shown.amber, 0, 'never amber')
-  // A wait before the estimate ran out does move it: 30 min suspended 13:00-13:30 count no work.
+  // A wait before the estimate ran out does move it: 30 min suspended 14:00-14:30 (after the 13:44:38 estimate, before it ran out) count no work.
   const early = [...WORKING, { at: t(14, 0), chat: 'Digger', state: 'suspended', task: null, source: 'step' }, { at: t(14, 30), chat: 'Digger', state: 'working', task: null, source: 'step' }]
   assert.equal(digger(stateAt(t(17, 30), { items: [b1125()], lines: early })).held.eta.at, t(15, 14, 38))
 })
@@ -112,7 +113,7 @@ test('A: past its estimate, the worker\'s next checkpoint answer asks a fresh es
   const state = stateAt(t(19, 47), { items: [item], lines: WORKING })
   assert.equal(digger(state).held.eta.asked, true)
   assert.equal((await rowWords(state, t(19, 47))).eta, 'past its estimate since 14:44 · new estimate asked')
-  // A call with fresh minutes asks nothing; another worker's lane asks nothing for this step.
+  // A call with fresh minutes asks nothing.
   assert.doesNotMatch((await workApi({ action: 'step', chat: 'Worker 1', id: 'B1125', commit: 'abc1234', next: 'x', minutes: 40 }, ctxOf(dir, t(20, 0), [pastLane(true, t(20, 30))]))).result.text, /past its estimate|Give your minutes/)
 })
 
@@ -197,4 +198,93 @@ test('D: a step in review counts 0 unless its worker holds it again (handed back
   const fixing = stateAt(t(19, 50), { items: [back], lines: WORKING, goals: G64(['    Part: Ability moves · about 6 h · steps B1125']) })
   assert.equal(digger(fixing).held?.id, 'B1125')
   assert.equal(fixing.focus.progress.minutesLeft, 66)
+})
+
+// Chat 1's verifier of 327f1c22 (.claude/plans/2026-11-12-eta-remaining-verifier.md)
+
+test('verifier 1: right after a take the hover names the take\'s minutes, never "its size"', async () => {
+  const taken = b1125('Plan: until 2026-11-11 12:51:00 | at 2026-11-11 12:21:00 | estimated 2026-11-11 12:21:00')
+  taken.sections.set('History', ['- 2026-11-11 12:21 Digger: taken → in progress'])
+  const shown = await rowWords(stateAt(t(12, 25), { items: [taken], lines: WORKING }), t(12, 25))
+  assert.match(shown.title, /the minutes given with its take/)
+  assert.doesNotMatch(shown.title, /its size/)
+})
+
+test('verifier 2: a step in review whose fix is under way counts the fix\'s time, and the line never says only checks are left', async () => {
+  const review = b1125(NEW_PLAN, { state: 'review' })
+  review.head.set('Owner', 'Nobody')
+  const fix = stepItem('B1141', { title: 'Fix of B1125', owner: 'Digger', size: 'about 1 h', since: t(19, 40), head: ['Fix of: B1125', 'Plan: until 2026-11-11 20:15:00 | at 2026-11-11 19:45:00 | estimated 2026-11-11 19:45:00'], history: [[t(19, 40), 'Digger', 'taken → in progress']] })
+  const state = stateAt(t(19, 50), { items: [b1124(), review, fix], lines: WORKING, goals: G64(['    Part: Ability moves · about 6 h · steps B1125']) })
+  assert.equal(state.focus.progress.minutesLeft, 25)
+  assert.doesNotMatch((await rowWords(state, t(19, 50))).bar, / · the rest waits for its check$/)
+})
+
+test('verifier 3, 7, 16: no ask on a step that takes no minutes, on another held step, or on a stop checkpoint', async t2 => {
+  for (const state of ['review', 'taken']) {
+    const dir = await storeWith(state)
+    t2.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+    const made = await workApi({ action: 'step', chat: 'Worker 1', id: 'B1125', commit: 'none', next: 'x' }, ctxOf(dir, t(19, 46)))
+    assert.equal(made.ok, true, made.why)
+    assert.doesNotMatch(made.result.text, /Give your minutes|past its estimate/, state)
+    assert.ok(!(await historyOf(dir)).some(one => /asked a fresh estimate/.test(one)), state)
+  }
+  // The lane holds B1125 past its estimate; a checkpoint on B1126 (waiting on you) asks nothing about B1125's estimate.
+  const dir = await storeWith()
+  t2.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  await writeFile(join(dir, 'B1126.md'), STEP_TEXT('waiting on you', 'Branch: b1126').replaceAll('B1125', 'B1126'))
+  await writeFile(join(dir, 'activities.json'), `${JSON.stringify({ preamble: [], activities: [{ name: 'Garden', steps: ['B1125', 'B1126'] }] }, null, 1)}\n`)
+  // The lane's estimate time is B1126's own take (12:21) too, so only the held-step guard keeps the ask off it.
+  const other = await workApi({ action: 'step', chat: 'Worker 1', id: 'B1126', commit: 'none', next: 'x' }, ctxOf(dir, t(19, 46), [pastLane(true, t(12, 21))]))
+  assert.equal(other.ok, true, other.why)
+  assert.doesNotMatch(other.result.text, /past its estimate/)
+  // A stop checkpoint (the step is held for a rethink): no ask either.
+  const held = await storeWith('in progress', OLD_PLAN, [])
+  t2.after(() => rm(held, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const text = (await readFile(join(held, 'B1125.md'), 'utf8')).replace('Taken for: 150 min', 'Taken for: 150 min\nWaits for: the rethink of G64 "the moves" (2026-11-11 19:40)')
+  await writeFile(join(held, 'B1125.md'), text)
+  const stop = await workApi({ action: 'step', chat: 'Worker 1', id: 'B1125', commit: 'none', next: 'stopped for the rethink' }, ctxOf(held, t(19, 46)))
+  assert.doesNotMatch(stop.result?.text ?? stop.why ?? '', /Give your minutes|past its estimate/)
+})
+
+test('verifier 4, 5: a kept lane older than the worker\'s fresh minutes asks nothing', async t2 => {
+  const dir = await storeWith('in progress', 'Plan: step 4/5 | until 2026-11-11 20:56:10 | at 2026-11-11 19:46:10 | estimated 2026-11-11 19:46:10')
+  t2.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const made = await workApi({ action: 'step', chat: 'Worker 1', id: 'B1125', step: 5 }, ctxOf(dir, t(19, 46, 30), [pastLane(true, t(13, 44, 38))]))
+  assert.equal(made.ok, true, made.why)
+  assert.doesNotMatch(made.result.text, /past its estimate/)
+  assert.ok(!(await historyOf(dir)).some(one => /asked a fresh estimate/.test(one)))
+})
+
+test('verifier 6: a part whose time is not known makes the line "at least", never "only checks"', async () => {
+  const review = b1125(NEW_PLAN, { state: 'review' })
+  review.head.set('Owner', 'Nobody')
+  const rules = stepItem('B1160', { owner: null, state: 'new', since: t(12, 0) })
+  const state = stateAt(t(19, 50), { items: [b1124(), review, rules], lines: WORKING, goals: G64(['    Part: Ability moves · about 6 h · steps B1125', '    Part: Rules · steps B1160']) })
+  assert.equal(state.focus.progress.timeUnknown, true)
+  assert.doesNotMatch((await rowWords(state, t(19, 50))).bar, / · the rest waits for its check$/)
+})
+
+test('verifier 11: an old Plan line whose at is no minutes call gives no re-estimate time', () => {
+  const plan = { names: [], on: 5, steps: 5, until: t(19, 47, 4), stepUntil: t(19, 4, 49), writtenAt: t(18, 44, 49), estimatedAt: null }
+  assert.equal(nextPlan(plan, { step: 5 }, t(19, 5)).estimatedAt, null)
+  assert.equal(nextPlan({ ...plan, until: t(19, 44, 49) }, { step: 5 }, t(19, 5)).estimatedAt, t(18, 44, 49), 'a whole number of minutes: its minutes call')
+})
+
+test('verifier 12: after a rename the take\'s own estimate does not read "re-estimated"', async () => {
+  const item = stepItem('B1', { owner: 'Digger', since: t(12, 21), head: ['Plan: until 2026-11-11 13:21:00 | at 2026-11-11 12:21:00 | estimated 2026-11-11 12:21:00'], history: [[t(12, 21), 'Worker 1', 'taken → in progress'], [t(12, 30), 'server', 'Worker 1 renamed to Digger (same chat)']] })
+  const state = stateAt(t(12, 40), { items: [item], lines: WORKING })
+  assert.notEqual(digger(state).held.eta.from, 'own')
+  assert.doesNotMatch((await rowWords(state, t(12, 40))).eta, /re-estimated/)
+})
+
+test('verifier 14, 15: a goal marked done says nothing more; checks beside a verdict say both', async () => {
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  const start = script.indexOf('const restWords = ')
+  const end = script.indexOf('\n}\n', start) + 3
+  const page = {}
+  const vm = await import('node:vm')
+  vm.runInNewContext(`${script.slice(start, end)}\nObject.assign(this, { restWords })`, page)
+  assert.equal(page.restWords({ stage: 'done', progress: { minutesLeft: 0 }, parts: [] }, null, false), '')
+  assert.equal(page.restWords({ stage: 'run', progress: { minutesLeft: 0 }, parts: [{ state: 'verdict' }, { state: 'now' }] }, null, false), ' · the rest waits for checks and your verdict')
+  assert.equal(page.restWords({ stage: 'run', progress: { minutesLeft: 0 }, parts: [{ state: 'now' }] }, null, false), ' · the rest waits for its check')
 })

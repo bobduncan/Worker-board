@@ -51,8 +51,8 @@ import { HELD, afterPause, checkpointLine, isHolding, pauseAnswer, pauseFacts, s
 import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
 import { BOOKKEEPING_DROP_WORDS } from './dropAsk.mjs'
 import { WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, waitWhatOf, waitWhoOf, waitWhoProblem, waitsOnLine, waitsOnOf } from './waitsOn.mjs'
-import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
-import { askedForOf, takenForLine } from './held.mjs'
+import { estimateAtOf, nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
+import { askedForOf, takenAtOf, takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
 import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
@@ -821,6 +821,13 @@ function estimateAskOf(item, w) {
   const id = valueOf(item, 'Id')
   const eta = lane?.held?.id === id ? lane.held.eta ?? null : null
   if (eta === null || eta.isOver !== true || !Number.isFinite(eta.saidAt) || askedForOf(item) === eta.saidAt) return null
+  // eta verifier 4, 5: the lane may come from a kept state older than the worker's own fresh minutes: ask only when the fresh item's own
+  // estimate is still the one the lane is past (its estimate time, else its take for the size).
+  const plan = planOf(item)
+  const since = takenAtOf(item, w.prefix ?? '')
+  const own = Number.isFinite(plan?.until) ? estimateAtOf(plan) : null
+  const current = own !== null && (since === null || own >= since) ? own : since
+  if (current !== eta.saidAt) return null
   return {
     words: ` ${id} is past its estimate (${eta.from === 'size' ? 'its size from the take' : `given ${stampSecond(eta.saidAt).slice(11, 16)}`}): give a fresh minutes-left now: work step id=${id} minutes=<the minutes still expected for the whole step>.`,
     line: `asked a fresh estimate (estimated ${stampSecond(eta.saidAt)})`,

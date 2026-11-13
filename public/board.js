@@ -2715,7 +2715,7 @@ function heldTime(held, now) {
   if (eta === null) return { main: '–', of: `· its size ${span(held.size * MIN)}`, tone: 'muted', share: null, isOverdue: false, title: `The store records no take of ${held.id}: the time it worked is not known.` }
   const said = Number.isFinite(eta.saidAt) ? `${eta.from === 'own' ? 're-estimated' : 'estimated'} ${sinceClock(eta.saidAt, now)}` : 'estimated'
   const left = eta.at - now
-  if (left > 0) return { main: left < MIN / 2 ? 'under a minute left' : `about ${span(left)} left`, of: Number.isFinite(eta.saidAt) ? `· ${said}` : '', tone: 'time', share: eta.share ?? null, isOverdue: false, title: `About ${span(left)} left, until ${clock(eta.at)} (working time); ${eta.from === 'own' ? 'its own minutes-left' : 'its size, from its take'}, ${said}` }
+  if (left > 0) return { main: left < MIN / 2 ? 'under a minute left' : `about ${span(left)} left`, of: Number.isFinite(eta.saidAt) ? `· ${said}` : '', tone: 'time', share: eta.share ?? null, isOverdue: false, title: `About ${span(left)} left, until ${clock(eta.at)} (working time); ${eta.from === 'own' ? 'its own minutes-left' : eta.from === 'take' ? 'the minutes given with its take' : 'its size, from its take'}, ${said}` }
   return { main: `past its estimate since ${sinceClock(eta.at, now)}`, of: eta.asked === true ? '· new estimate asked' : '', tone: 'muted', share: 1, isOverdue: false, title: `Past its estimate (${said}) since ${sinceClock(eta.at, now)}, working time${eta.asked === true ? '; the board asked the worker for a fresh minutes-left' : ''}` }
 }
 
@@ -2995,7 +2995,7 @@ function simpleView({ focus = null, counts = {}, limits = null, milestone = null
     const left = focus.stage === 'done' ? null : focusTimeLeft(progress.minutesLeft)
     bar = {
       // B343: with the goal's title, as the agreed drawing has it
-      text: `Focus ${focus.id} · ${focus.title} · ${done} of ${total} steps done${verdictOnly(focus) ? ' · the rest waits for your verdict' : restWords(progress.minutesLeft, left, done >= total)}`,
+      text: `Focus ${focus.id} · ${focus.title} · ${done} of ${total} steps done${verdictOnly(focus) ? ' · the rest waits for your verdict' : restWords(focus, left, done >= total)}`,
       percent: total === 0 ? 0 : Math.round((done / total) * 100),
       title: `${focus.id} · ${focus.title}`,
     }
@@ -15716,7 +15716,18 @@ const FOCUS_STAGES = [['vibe', 'The goal'], ['how', 'Work blocks'], ['run', 'The
  * "0 min": with only checks left, " · the rest waits for its check". No clock time: with workers side by side, the limit and
  * nights it cannot be honest (chat 1, 2026-11-11).
  */
-const restWords = (minutes, left, isAllDone = false) => (minutes === 0 ? (isAllDone ? '' : ' · the rest waits for its check') : left === null ? '' : ` · about ${left} left`)
+const restWords = (focus, left, isAllDone = false) => {
+  const progress = focus?.progress ?? {}
+  // eta verifier 14: a goal marked done says nothing more.
+  if (focus?.stage === 'done') return ''
+  // eta verifier 6: a part whose time is not known: the known sum is a lower bound, never "only checks".
+  if (progress.timeUnknown === true) return left === null ? '' : ` · at least ${left} left`
+  if (progress.minutesLeft !== 0) return left === null ? '' : ` · about ${left} left`
+  if (isAllDone) return ''
+  // eta verifier 15: some blocks wait for the person's verdict, the rest for checks: both are said.
+  const isVerdict = (focus?.parts ?? []).some(part => part.state === 'verdict')
+  return isVerdict ? ' · the rest waits for checks and your verdict' : ' · the rest waits for its check'
+}
 
 /** 2026-11-01, as the Focus page says it: every work block still open waits for the person's verdict in the recap. */
 const verdictOnly = focus => {
@@ -16164,7 +16175,7 @@ function focusView(focus, goals, can = null, ui = {}) {
     // 2026-11-01: every block still open waits for the person's verdict in the recap: nothing is left to build, so no time left, the rest is theirs.
     const open = focus.parts.filter(part => !['done', 'dropped', 'stopped'].includes(part.state))
     const isVerdictOnly = stage === 'run' && open.length > 0 && open.every(part => part.state === 'verdict')
-    view.progress = { text: `${done} of ${total} work block${total === 1 ? '' : 's'} done${stopped > 0 ? ` · ${stopped} stopped` : ''}${isVerdictOnly ? ' · the rest waits for your verdict' : restWords(focus.progress.minutesLeft, left, done >= total)}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
+    view.progress = { text: `${done} of ${total} work block${total === 1 ? '' : 's'} done${stopped > 0 ? ` · ${stopped} stopped` : ''}${isVerdictOnly ? ' · the rest waits for your verdict' : restWords(focus, left, done >= total)}`, percent: total === 0 ? 0 : Math.round((done / total) * 100) }
   }
   if (stage === 'run') {
     // Redesign Part 2: a part whose tasks are refined and none given yet is on the board's list for a worker.

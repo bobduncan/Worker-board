@@ -31,6 +31,18 @@ export const planMinutes = value => {
 /** A part's name as the line keeps it: its separators taken out. */
 export const partName = name => String(name).replace(/[;|]/g, ',')
 
+/**
+ * eta-remaining: when a plan's minutes-left was given: its `estimated` part; for a line from before it, its `at`, but only when `until` is a
+ * whole number of minutes after it (a minutes call writes until = now + m minutes, so they share their seconds: eta verifier 11; a
+ * plan move without minutes rewrote `at` too). Null when not known.
+ */
+export function estimateAtOf(plan) {
+  if (plan === null || plan === undefined) return null
+  if (Number.isFinite(plan.estimatedAt)) return plan.estimatedAt
+  const gap = Number.isFinite(plan.until) && Number.isFinite(plan.writtenAt) ? plan.until - plan.writtenAt : Number.NaN
+  return gap > 0 && gap % 60_000 === 0 ? plan.writtenAt : null
+}
+
 /** A step's saved plan: `{ names, on, steps, until, stepUntil, writtenAt, estimatedAt }` (times in ms, null for none), or null for none. */
 export function planOf(item) {
   const value = valueOf(item, 'Plan')
@@ -88,7 +100,7 @@ export function nextPlan(before, { names = [], steps = null, step = null, minute
   const stepUntil = stepMinutes !== null ? now + stepMinutes * MINUTE_MS : on === base.on ? base.stepUntil : null
   // eta-remaining (review C): a line from before the estimate time was kept took it from its `at`: carried over once, so a later
   // call without minutes neither fakes a re-estimate nor moves it.
-  const estimatedAt = minutes === null ? base.estimatedAt ?? (base.until === null ? null : base.writtenAt) : now
+  const estimatedAt = minutes === null ? estimateAtOf(base) : now
   const plan = { names: kept, on, steps: total, until, stepUntil, writtenAt: now, estimatedAt }
   return on === null && kept.length === 0 && until === null && stepUntil === null ? null : plan
 }

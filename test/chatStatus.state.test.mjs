@@ -198,6 +198,9 @@ test('7c: a held step\'s time in the row\'s words: left of its latest estimate, 
     [{ ...B855, eta: null }, '– · its size 2 h'],
     [{ ...B855, size: null, eta: null }, 'No time'],
     [{ ...B855, size: 45, eta: { at: NOW + 20 * SEC } }, 'under a minute left'],
+    // eta verifier 17: an estimate given yesterday, and a past time of yesterday, say the day.
+    [{ ...B855, eta: { at: NOW + 70 * MIN, from: 'own', saidAt: NOW - 24 * 60 * MIN } }, `about 1 h 10 left · re-estimated yesterday ${hhmm(NOW - 24 * 60 * MIN)}`],
+    [{ ...B855, eta: { at: NOW - 24 * 60 * MIN, from: 'own', saidAt: NOW - 25 * 60 * MIN, asked: false } }, `past its estimate since yesterday ${hhmm(NOW - 24 * 60 * MIN)}`],
   ]
   for (const [held, words] of cases) {
     assert.equal(heldTimeText(held, NOW), words)

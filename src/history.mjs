@@ -194,24 +194,9 @@ export function taskFacts(lines, chat, taskText, now) {
  * Returns the count as a function of `from`, so the chat's lines are read once for several starts.
  */
 export function notWorkedCounter(lines, chat, now, aliveAt = null) {
-  const open = Number.isFinite(aliveAt) ? startGap(lines, aliveAt, now) : null
-  const mine = lines.filter(line => line.gap === true || line.chat === chat)
-  if (open !== null) mine.push(open)
-  const firstAt = mine.find(line => line.gap !== true)?.at
-  if (firstAt === undefined) return () => 0
-  return from => {
-    if (!Number.isFinite(from)) return 0
-    const start = Math.max(from, firstAt)
-    if (start >= now) return 0
-    let worked = 0
-    for (let i = 0; i < mine.length; i += 1) {
-      if (mine[i].gap === true || mine[i].state !== 'working') continue
-      // A span ends at the next line, which may be the gap where the board stopped watching.
-      const end = Math.min(mine[i + 1]?.at ?? now, now)
-      worked += Math.max(0, end - Math.max(mine[i].at, start))
-    }
-    return Math.max(0, now - start - worked)
-  }
+  // eta verifier 9: one implementation: `notWorkedBetween` counted up to now.
+  const between = notWorkedBetween(lines, chat, now, aliveAt)
+  return from => between(from, now)
 }
 
 /**
