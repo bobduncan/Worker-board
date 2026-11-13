@@ -36,8 +36,8 @@ function envFor(lock, extra = {}) {
 }
 
 /** Starts the helper as the package scripts do; `done` resolves to its exit code and what it wrote. */
-function start(lock, label, command, extra = {}) {
-  const child = spawn(process.execPath, [HELPER, label, '--', ...command], { env: envFor(lock, extra), stdio: ['ignore', 'pipe', 'pipe'] })
+function start(lock, label, command, extra = {}, cwd = undefined) {
+  const child = spawn(process.execPath, [HELPER, label, '--', ...command], { env: envFor(lock, extra), cwd, stdio: ['ignore', 'pipe', 'pipe'] })
   running.add(child)
   const run = { child, out: '', err: '' }
   child.stdout.on('data', (data) => (run.out += data))
@@ -222,15 +222,14 @@ test('whyStale: a lock is stale when it cannot be read, its process is gone, or 
 test('npm test runs through the helper, and the README says that the tests wait their turn', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(pkg.scripts.test, 'node tools/one-at-a-time.mjs test -- node tools/test.mjs')
-  assert.match(readFileSync(new URL('../README.md', import.meta.url), 'utf8'), /two heavy runs at a time/)
+  assert.match(readFileSync(new URL('../README.md', import.meta.url), 'utf8'), /one heavy run at a time/i)
 })
 
-// The person, 2026-10-31: "yes do 2 at a time", and a run that waited longest goes first.
-test('two runs go at once by default; a third waits for one of them', async () => {
-  assert.equal(DEFAULT_SLOTS, 2)
-  assert.equal(slotsOf({}), 2)
+// The person, 2026-10-31: "yes do 2 at a time", and a run that waited longest goes first. Two slots stay possible with
+// HEAVY_RUN_SLOTS=2; the default is one again since 2026-11-11 (below).
+test('with two slots two runs go at once; a third waits for one of them', async () => {
   assert.equal(slotsOf({ HEAVY_RUN_SLOTS: '1' }), 1)
-  assert.equal(slotsOf({ HEAVY_RUN_SLOTS: 'x' }), 2)
+  assert.equal(slotsOf({ HEAVY_RUN_SLOTS: '2' }), 2)
   assert.equal(slotPath('C:/t/heavy.lock', 1), 'C:/t/heavy.lock')
   assert.equal(slotPath('C:/t/heavy.lock', 2), 'C:/t/heavy.2.lock')
   const lock = newLock()
@@ -273,4 +272,58 @@ test('a ticket whose process is gone does not hold up the queue', async () => {
   const result = await start(lock, 'after a crash', quick).done
   assert.equal(result.code, 0)
   assert.match(result.out, /ran/)
+})
+
+// The person, 2026-11-11: "too often claude slows down my pc very often ... the test suite", then "lets do A": one run at
+// a time across all chats. The lock lies in the PC's temporary folder, so every worktree and chat shares it.
+test('one at a time by default, across two folders: a run from another worktree waits for the first', async () => {
+  assert.equal(DEFAULT_SLOTS, 1)
+  assert.equal(slotsOf({}), 1)
+  assert.equal(slotsOf({ HEAVY_RUN_SLOTS: 'x' }), 1)
+  const lock = newLock()
+  const here = join(scratch, `worktree-a-${counter}`)
+  const there = join(scratch, `worktree-b-${counter}`)
+  mkdirSync(here)
+  mkdirSync(there)
+  const plain = { HEAVY_RUN_SLOTS: '' }
+  const first = start(lock, 'first', node('setTimeout(() => console.log(Date.now()), 700)'), plain, here)
+  await until(() => existsSync(lock), 'the first run to take the lock')
+  const second = start(lock, 'second', node('console.log(Date.now())'), plain, there)
+  const [one, two] = await Promise.all([first.done, second.done])
+  assert.equal(one.code, 0)
+  assert.equal(two.code, 0)
+  assert.ok(Number(two.out) >= Number(one.out), 'the second ran only after the first was done')
+  assert.match(two.err, /waiting for first in .*worktree-a/)
+})
+
+test('a slot beyond this run\'s own counts: a run allowed one waits while another copy holds its second slot', async () => {
+  const lock = newLock()
+  writeFileSync(slotPath(lock, 2), lockText({ label: 'the game check' }))
+  const waiting = start(lock, 'board tests', quick)
+  await until(() => /waiting for the game check/.test(waiting.err), 'the run waiting for slot 2')
+  rmSync(slotPath(lock, 2))
+  const result = await waiting.done
+  assert.equal(result.code, 0)
+  assert.match(result.out, /ran/)
+})
+
+// A time limit, so a stale lock that holds the run up fails here instead of hanging the gate.
+test('a stale lock in a slot beyond this run\'s own (its process gone) does not hold it up and is removed', { timeout: 20000 }, async () => {
+  const lock = newLock()
+  const gone = spawnSync(process.execPath, ['-e', '0']).pid
+  writeFileSync(slotPath(lock, 2), lockText({ pid: gone }))
+  const result = await start(lock, 'after a crash', quick).done
+  assert.equal(result.code, 0)
+  assert.match(result.out, /ran/)
+  assert.doesNotMatch(result.err, /waiting for/)
+  assert.equal(existsSync(slotPath(lock, 2)), false)
+})
+
+test('a landing\'s gate waits in the same queue: land.ps1 gates with npm test, which runs through the helper', () => {
+  const land = readFileSync(new URL('../tools/land.ps1', import.meta.url), 'utf8')
+  assert.match(land, /\$gateBoardCommand = 'npm test'/)
+  assert.match(land, /Get-Setting 'gateBoard' 'npm test'/)
+  assert.doesNotMatch(land, /HEAVY_RUN_(HELD|LOCK|SLOTS)/, 'the landing never skips or moves the queue')
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.match(pkg.scripts.test, /^node tools\/one-at-a-time\.mjs /)
 })

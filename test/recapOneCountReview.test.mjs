@@ -82,7 +82,7 @@ test('the line says the card\'s N when it differs from the number of blocks: two
     await page.click('[data-tab="advice"]')
     await page.click('[data-focus-blocks="open"]')
     assert.match(words(page.find('.focus-round')), /· 1 of 3 done · 3 wait for your verdict · /)
-    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 3 to judge')
+    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap so far · 3 to judge')
   } finally { await page.close() }
 })
 

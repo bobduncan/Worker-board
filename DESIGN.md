@@ -5580,6 +5580,46 @@ for another, and since step 6 the old rules are gone for every worker:
 
 Tests: `test/supervisor/handoverRules.test.mjs`.
 
+### A set the app refuses (B1160, 2026-11-11)
+
+Since the app's update of 22:43 (5.1231.2) Claude Desktop refuses in auto mode every set_session_model / set_session_effort call the
+Workers mod's own code makes ("Not run: in auto mode Claude Desktop doesn't run this tool when a plugin's own code calls it. Have
+Claude make the call."): 70 refusals by 23:37; B1160 and B1163 bounced between refined and queued every minute, owed clears never ran
+and free workers sat idle. Never a way around the refusal (no permission or mode change). Chat 1's decisions 2 and 3:
+
+- A refused set (effort.mjs `SET_REFUSED`, `isSetRefused`) is no failure of the hand-over and bans no model: a waiting envelope whose
+  set word was refused is released without its set (`set` null, `asked` the set, `waitsFor` null) and carried as any; a task in flight
+  whose outcome says so goes again at once without it; nothing is taken back, nothing held.
+- While the app's newest answer to a set word was a refusal (`setsRefusedOf`: of the words a hand answered, delivered by it or refused or
+  closed as refused, by answer time; words that never reached a hand say nothing), the board writes no set word: envelopes go
+  without their set and keep it as `asked`; the effort plan, the Supervisor's and the Product owner's words ask none; the effort plan
+  waits for no Opus (`run.refused`). It stands until a hand is seen to set again (the probe below), never on a timer (chat 1's review 15, 16). A refused
+  worker's word is never tried again (store.mjs `isRefusedSet`), and the outbox sweep closes it as dropped in plain words, marked
+  `refused` ("the app refuses the board's set calls; it runs on its current model"), never an undelivered word for rule 8. A step that
+  went without its set keeps its quiet gap whatever the refusal says later (the effort plan reads its envelope's `asked`).
+  The chip draws "Sonnet · low (Opus · high asked)" quietly, no arrow and no pending border; a free worker's status "on Sonnet · medium
+  (the app no longer lets the board switch it)", plain words (rule 16); the app's own words stay in the outbox. Rule effort-mismatch
+  and the health summary read such a run as known and quiet (`switchOf` state `refused`).
+- The right worker first (handOut.mjs `match`, with the free workers beside it as `peers`): among free workers the one already on the
+  step's model and effort, then on its model, then on its effort (the family weighs more), so most hand-overs need no set. A peer wins
+  a step only when its own decide could be given it (not barred by a take-back or give-back since its last take, no ban of its own on
+  the step's model: review 1-3); else the deciding worker takes it. A step never waits for a better one.
+- Chat 1's verifier of 2170b4a6: only a hand's answer counts for the refusal (a word a hand took, `isHandTaken`: delivered by it, or
+  the refusal); a word Main's own take typed, or another failure, ends nothing. The refusal ends by a probe (`probeOf`, PROBE_MS):
+  while it stands, at most once a day (from the newest refusal or the last probe) one set word that changes nothing, an idle worker's
+  own model and effort (`probe: true`, never closed as met by the sweep); a hand's delivery ends the refusal, a refusal keeps it. The
+  board does not know the app's version, so a new version does not bring it sooner. The free status and the health line say the
+  next check ("next check 14 Nov 10:00"; state `setsRefused.nextCheckAt`). The no-retry is a worker's set word's alone (store.mjs
+  `isRefusedSet`; NEVER_PASSES as before): a partner's word keeps its retry, whose copy Main's own take may carry; one refused with no
+  try left is closed quietly, marked refused, and the Focus switch says "The app no longer lets the board set it; your partner runs on
+  Sonnet · medium." The step window says "Digger runs on Sonnet · low: the app no longer lets the board switch it (Opus · high
+  asked)." and its chips "(asked)", never "is set to" or "not set yet". A held or queued step is judged by its own newest envelope to
+  its worker (handed with its set: no gap of the refusal's). A peer never owns a step queued, taken or in progress (the work API would
+  refuse it), and its bars are read lazily from the envelopes its own decide reads (no 'go on' lines).
+- Tests: `test/work/setRefused.test.mjs` and `setRefusedReview.test.mjs` (the refusal's real words; B1160 sent again without a take-back; no set word while refused; an
+  old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off
+  sonnet steps; the plain row words). The owed set through a model turn of Main (decision 4) is the second landing.
+
 ### The envelope's contract for the Workers mod
 
 For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers
@@ -7257,7 +7297,9 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   of the list whose remote `local` is the main checkout); a list that cannot be read, or that names no trial copy, is a refusal
   (`-NoTrial` lands the main board alone).
 - **The gate** runs BEFORE the lock (it takes about ten minutes): `git worktree add --detach` of the head in a temporary
-  folder, a junction `node_modules` to the main checkout's, `npm test` there and, only when the branch touches `mods/workers/`,
+  folder, a junction `node_modules` to the main checkout's, `npm test` there (2026-11-11: below-normal priority on half the
+  PC's cores, and it waits its turn in the PC's one queue of heavy runs, `tools/one-at-a-time.mjs`, so a landing never runs
+  beside a chat's tests) and, only when the branch touches `mods/workers/`,
   `claude.exe plugin test .` in its `mods/workers` (the app's own command-line program under its data folder, never the desktop
   app: none found is a refusal), with `NO_COLOR=1` and no `FORCE_COLOR`. It passes only on the run's own summary line (`src/landing.mjs`,
   `gatePassed`, colour codes stripped first): `ℹ fail 0` (the mod: ` 0 fail`) at the start of a line, every summary 0, the command's exit code 0; a missing

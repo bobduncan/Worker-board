@@ -252,6 +252,8 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
   A visible change: shoot what the user sees before your change and after it, `<picture folder>/B<id>/before.png` and
   `after.png`, at the same size and place; the check sets them side by side for the card. The flow
   file says who moves a step and when; the board refuses a move it does not allow and says why.
+- `npm test` (2026-11-11) runs at low priority on half the PC's cores and waits its turn: one heavy run at a time on the
+  PC, across every chat and landing. A "waiting for ..." line is that queue: let it wait, never start a second run.
 - Tests bite (B527): when your change touches a test file, make the mutant before you report: in a scratch copy
   (never on your branch), undo the fix, run the new tests, see which assertion fails, then delete the copy. Your
   report's result then holds one line `Tests bite: <what was undone in a copy> → <the assertion that
