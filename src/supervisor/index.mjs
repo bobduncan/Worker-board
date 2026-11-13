@@ -33,6 +33,8 @@ export { incidentCards }
  * to the supervisor as `owns`, so the list runs only where every other loop of the board runs.
  */
 export { loopGate, loopOwner } from './loop.mjs'
+// Leaked headless browsers (2026-11-13): the server's port that closes one (the boundary: server.mjs imports the supervisor here alone).
+export { closeLeaked } from './browsers.mjs'
 
 /** Part 2: the Workers mod the supervisor's chat needs for a sweep; what a sweep's turn cost, from its transcript. */
 export { SWEEP_MOD, tokensOfTurn }
