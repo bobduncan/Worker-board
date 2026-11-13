@@ -12,6 +12,7 @@
  * permission"; src/goalGuard.mjs `fableAskOf`).
  */
 import { familyOf, isSetRefused } from './work/effort.mjs'
+import { TRIES } from './work/passing.mjs'
 
 export const PARTNER_MODES = {
   usual: { model: 'claude-opus-5-5', effort: 'xhigh', label: 'Opus 5.5, extra high' },
@@ -27,7 +28,7 @@ export const SWITCH_MODES = ['usual', 'high']
  * knows it) to `mode`, and `why`. One message of the outbox, to the main chat. Mode fable only with `yes`, the board's
  * ask the person answered yes (Q<n>): the word names it, and without it nothing is made (it throws).
  */
-export function partnerEffortWords({ to, partner, session, mode, why, yes = null }) {
+export function partnerEffortWords({ to, partner, session, mode, why, yes = null, forModel = false }) {
   if (!Object.hasOwn(PARTNER_MODES, mode ?? '')) throw new Error(`No partner mode "${String(mode).slice(0, 20)}".`)
   if (mode === 'fable' && !/^Q\d+$/.test(String(yes ?? ''))) throw new Error('Fable only with the person\'s yes: name the ask they answered yes.')
   const { model, effort } = PARTNER_MODES[mode]
@@ -35,6 +36,8 @@ export function partnerEffortWords({ to, partner, session, mode, why, yes = null
   const said = mode === 'fable' ? [`Yes: ${yes}, the person's yes: Fable for this evaluation only`] : []
   return {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'partner-effort', about: partner, mode,
+    // B1160 part 2 (round 3, item 2): while the app refuses the board's set calls, a word for Main's model: no hand takes it.
+    ...(forModel === true ? { forModel: true } : {}),
     text: ['partner effort', `Chat: ${partner}`, `Mode: ${mode}`, `Model: ${model}`, `Effort: ${effort}`, ...id, ...said, `Why: ${why}`].join('\n'),
   }
 }
@@ -48,7 +51,8 @@ export function partnerEffortWords({ to, partner, session, mode, why, yes = null
  */
 export function partnerEffort({ sent, partner, entries }) {
   const words = (sent ?? []).filter(message => message.command === 'partner-effort' && message.about === partner && Object.hasOwn(PARTNER_MODES, message.mode ?? ''))
-  const isMissed = message => message.state === 'expired' || message.state === 'failed'
+  // B1160 round 3, items 1 and 3: a word the app refused (closed by the sweep as refused) changed nothing either: the mode is not taken from it.
+  const isMissed = message => message.state === 'expired' || message.state === 'failed' || message.refused === true
   const last = words.findLast(message => !isMissed(message))
   const latest = words.at(-1)
   // The app's own lines (an error, a limit) carry no model of Claude's; a helper's lines are not the partner's.
@@ -65,7 +69,8 @@ export function partnerEffort({ sent, partner, entries }) {
     missed: latest !== undefined && isMissed(latest) && !runs(latest.mode) ? { at: latest.at, state: latest.state } : null,
     // B1160 (verifier 4, 5, 7): the app refused the board's set call for it (it does not run a plugin's own set call in auto mode):
     // what it runs on, for the switch's plain line; null otherwise.
-    refused: latest !== undefined && isSetRefused(latest) && !runs(latest.mode) ? { runs: runsOn === null ? null : [familyOf(runsOn.model), runsOn.effort].filter(Boolean).map((one, index) => (index === 0 ? one[0].toUpperCase() + one.slice(1) : one)).join(' · ') } : null,
+    // Round 3, item 4: only once no try is left (the sweep's close, or the last try refused): a retry may still carry it.
+    refused: latest !== undefined && (latest.refused === true || (isSetRefused(latest) && ((latest.tries ?? 1) >= TRIES || latest.final === true))) && !runs(latest.mode) ? { runs: runsOn === null ? null : [familyOf(runsOn.model), runsOn.effort].filter(Boolean).map((one, index) => (index === 0 ? one[0].toUpperCase() + one.slice(1) : one)).join(' · ') } : null,
     runsOn,
     isSet,
     labels: { usual: PARTNER_MODES.usual.label, high: PARTNER_MODES.high.label, fable: PARTNER_MODES.fable.label },

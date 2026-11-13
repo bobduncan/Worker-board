@@ -14,6 +14,7 @@ import { isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { familyOf, isSetRefused, sameModel } from './effort.mjs'
 import { TRIES } from './passing.mjs'
+import { HANDS_FIRST_MS } from '../hands.mjs'
 import { stamp } from './migrate.mjs'
 import { OLD_CHECK_WHY } from './qaTask.mjs'
 import { gitCheckAtMs, gitCheckPassed } from './resultCheck.mjs'
@@ -96,6 +97,12 @@ export function whyClosed(message, ctx) {
   // words, marked refused: never an undelivered word with the app's raw text for rule 8. While a copy is on its way it stays as it is.
   if (message.command === 'partner-effort' && message.state === 'failed' && isSetRefused(message) && (message.retriedAs !== undefined || (message.tries ?? 1) >= TRIES)) {
     return { state: 'dropped', refused: true, why: "the app refuses the board's set calls; your partner runs on its current setting" }
+  }
+  // B1160 round 3, item 6: the probe is a hand's alone: one that no hand carried within HANDS_FIRST_MS, or that failed for another reason
+  // than the refusal, is closed in plain words (the next probe comes a day later); a refused one is closed below as refused.
+  if (message.command === 'worker-effort' && message.probe === true && !isSetRefused(message)
+    && ((message.state === 'waiting' && now - message.at >= HANDS_FIRST_MS) || message.state === 'failed')) {
+    return { state: 'dropped', why: 'the check whether the app lets the board set again could not run; the next comes later' }
   }
   if (message.command === 'worker-effort') {
     // B1160 review 6: a set word the app refused (in auto mode it does not run a plugin's own set call) is closed at once, in plain words,

@@ -1062,7 +1062,7 @@ async function main(args) {
     const back = isSameFocus || !isKnown || running.length > 0 ? null : effortBack(body.command, state.advisor?.effort)
     const main = state.restart?.main ?? null
     if (back !== null && main !== null) {
-      const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: 'usual', why: back })
+      const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: 'usual', why: back, forModel: setsRefusedOf(store.outbox(), clock()) })
       const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' }
       // Review: copied, it keeps its words as pasted, with the board's mark, as every copied word (the restart banner).
       await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
@@ -1077,7 +1077,7 @@ async function main(args) {
   const partnerMode = async (state, mode, why, yes = null) => {
     const main = state.restart?.main ?? null
     if (main === null || (state.advisor ?? null) === null || (state.advisor.effort?.mode ?? 'usual') === mode) return
-    const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode, why, yes })
+    const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode, why, yes, forModel: setsRefusedOf(store.outbox(), clock()) })
     const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' }
     await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
   }
@@ -3498,7 +3498,8 @@ async function main(args) {
       const workers = workerNames(await readState())
       const base = isHolding((await readState()).pause) ? message => message.command === 'resume' : message => !isForHandsYet(message, now, workers)
       // T8.5: an envelope is no word to type: it goes as `handover` (below), once its set is done; never while the person pauses.
-      const only = message => message.command !== HANDOVER_COMMAND && base(message)
+      // B1160 round 3, item 6: the probe is a hand's alone (its point is a hand's answer): never typed into Main.
+      const only = message => message.command !== HANDOVER_COMMAND && message.probe !== true && base(message)
       // B532: what no longer matters is closed first, so a chat is never handed a word whose purpose is gone.
       const taken = await takeFor({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep, chat: checked.chat, only })
       // What was taken shows as on its way at once.

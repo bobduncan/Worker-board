@@ -91,7 +91,7 @@ export function factsOf({ lane, state, items, pause, sent, config, installed = n
     worker: lane, items, prefix,
     peers: peersOf(state, lane, config, { items, sent }),
     // B1160: whether the app refuses the board's set calls now (the lane says so in plain words).
-    setsRefused: setsRefusedOf(sent, now),
+    setsRefused: (state.setsRefused ?? null) !== null || setsRefusedOf(sent, now),
     nextCheckAt: state.setsRefused?.nextCheckAt ?? null,
     // P1 (2026-11-09): the branch a landing (tools/land.ps1) is running for now (its lock, else its gate log without a landings
     // line yet: src/landing.mjs `runningLanding`), or null: no give-back of its step. `landings`: the landed lines of

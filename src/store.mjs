@@ -19,8 +19,9 @@ import { isSetRefused } from './work/effort.mjs'
 /**
  * B1160 (verifier 4, 5, 7): a worker's set word the app refused (it does not run a plugin's own set call in auto mode) is never tried
  * again: retried it is refused again. Only a worker's: a partner-effort word keeps its retry, whose copy Main's own take may carry.
+ * Round 3, item 6: nor the probe (a hand's alone; the sweep closes it, the next comes a day later).
  */
-const isRefusedSet = message => message?.command === 'worker-effort' && isSetRefused(message)
+const isRefusedSet = message => (message?.command === 'worker-effort' && isSetRefused(message)) || message?.probe === true
 
 /** outbox.jsonl is a log: a line with an id seen before changes that message (delivered, later on). */
 export function foldOutbox(text) {

@@ -300,7 +300,8 @@ export function probeOf({ sent = [], lanes = [], now, main = null, models = {}, 
   const dueAt = Math.max(lastRefusal, lastProbe?.at ?? -Infinity) + PROBE_MS
   if (!Number.isFinite(dueAt) || now < dueAt || main === null) return { dueAt: Number.isFinite(dueAt) ? dueAt : null, word: null }
   if (lastProbe !== null && ['waiting', 'taken'].includes(lastProbe.state)) return { dueAt, word: null }
-  const lane = lanes.find(one => !one?.isMain && !one?.isLeftover && one?.state === 'free' && one.isRunning === true && typeof one.model === 'string' && one.model !== '' && chatEffort(one) !== null)
+  // Round 3, item 6: only a setting a hand may set (a model id, never Fable, an effort it knows), so the probe is a hand word.
+  const lane = lanes.find(one => !one?.isMain && !one?.isLeftover && one?.state === 'free' && one.isRunning === true && typeof one.model === 'string' && MODEL_ID.test(one.model) && !/fable/i.test(one.model) && chatEffort(one) !== null)
   if (lane === undefined) return { dueAt, word: null }
   const settings = runSettings({ models, usualModel: usual.model, usualEffort: usual.effort })
   return {

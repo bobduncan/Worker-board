@@ -5631,6 +5631,13 @@ and free workers sat idle. Never a way around the refusal (no permission or mode
   stands in the ready list's `held` as "waits: same files as B1149, under way" (`overlap`). The rule overlap-idle names free workers
   idling over 30 min while every waiting step is so held, once for the board (key `overlap-idle board`).
 
+- Round 3 (chat 1's final check of F2): while refused, a partner-effort word is Main's model's too (`forModel`, from the Focus switch,
+  Go and the evaluation's switch); a partner word closed as refused counts as missed, so the switch follows what the partner runs on
+  and Go sends no "usual" word; the plain line shows only once no try is left. The state's own hand-over decisions get the refusal
+  and its next check from the whole outbox, so a free worker's status says "next check …". The probe is a hand's alone: never in
+  Main's take, no wake word, never retried, only for a lane a hand may set (no Fable); one no hand carried within its minute, or that
+  failed for another reason, is closed in plain words (the next comes a day later). Tests: `test/work/setRound3.test.mjs`.
+
 ### The envelope's contract for the Workers mod
 
 For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers
