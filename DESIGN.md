@@ -3776,7 +3776,16 @@ reads, so all of them were looked at:
    until the board starts again: the kinds of idea (`design-kinds`, the usual kinds meanwhile), another board's task
    times on a board that shows its history (`history`), and `.claude/board.json`, where the chats find the board
    (`bridge-note`, also on the console as before). Restart says "config.json cannot be read" for a held file, no
-   longer "it is not there".
+   longer "it is not there". 2026-11-13 (chat 1): a rename refused once with EPERM right after the PC woke (an indexer or
+   a virus scanner holding the file) had the head line say "Loop-lock failing since 20:59 ... also telling the chats where the
+   board is" for over an hour while both files were fine, because nothing cleared either: now `moveInPlace` tries the rename
+   eight times (`RENAME_TRIES`, 60 ms times the try: about 1.7 s), `loopGate` reports every heartbeat that answered
+   (`onSucceeded` → `loops.succeeded('loop-lock')`), the bridge note is claimed until it is written (src/bridgeClaim.mjs
+   `claimUntilWritten`, a backoff up to a minute, the board closing ends it; its success ends `bridge-note`'s failure, so the
+   line says "answers will not reach the chats" only while the note really is missing or stale), and the files a cut-off
+   write left beside the lock and the note (`<file>.<pid>.<hex>.tmp`, 13 that evening) are swept at the start when older
+   than a minute (`sweepBeside`). Tests: test/write.test.mjs (seven EPERMs then ok, the eighth refusal the error, the sweep),
+   test/bridgeClaim.test.mjs (EPERM twice then ok, the backoff, another board, the board closing), test/supervisor/selfCheck.test.mjs (the gate's successes).
 6. Two handlers in `server.mjs` still drop their error, each with its reason: the settings queue (its caller gets the
    turn and its error) and an Overturn whose goal could not be opened again (the page is told).
    `test/silentCatches.test.mjs` holds server.mjs to that: no other `.catch(...)`, and no second handler of a

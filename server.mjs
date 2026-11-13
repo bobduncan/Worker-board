@@ -137,7 +137,8 @@ import { dismissCopied, fileStore, isLate, memoryStore, outboxKnown, outboxNow, 
 import { loads, readVersion } from './src/version.mjs'
 import { activePages, blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
 import { findGameFile } from './src/gameFile.mjs'
-import { absentAs, readKept, writeAtomic, writeUnflushed } from './src/write.mjs'
+import { absentAs, readKept, sweepBeside, writeAtomic, writeUnflushed } from './src/write.mjs'
+import { claimUntilWritten } from './src/bridgeClaim.mjs'
 import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
 import { fileHolders } from './src/work/holders.mjs'
 
@@ -911,7 +912,11 @@ async function main(args) {
     now: clock,
     onGained: () => gainedLoops(),
     onFailed: error => loops.failed('loop-lock', error),
+    // 2026-11-13: a good heartbeat ends the failure (a rename refused once at 20:59 showed as failing for over an hour).
+    onSucceeded: () => loops.succeeded('loop-lock'),
   })
+  // 2026-11-13: the files a cut-off write of the lock left beside it (13 that evening) go at the start.
+  if (LOOP_LOCK !== null) void sweepBeside(LOOP_LOCK)
   /** B529: the port of the board process that holds the lock, or null. */
   const loopHolderPort = async () => {
     try {
@@ -3870,21 +3875,35 @@ async function main(args) {
       return false
     }
   }
-  /** Writes where the mod finds this board, unless another board still delivers. */
-  async function claimBridge() {
-    if (bridgeKey === null || config.project === '') return
-    if (await isTaken()) {
-      console.error('Another worker board already delivers to the chats (.claude/board.json): answers given on this one will not arrive.')
-      return
-    }
-    await mkdir(join(config.project, '.claude'), { recursive: true })
-      .then(() => writeAtomic(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() })))
-      .catch(error => {
-        // B467: shown on the page too, until the board starts again: the chats cannot find it.
+  /**
+   * Writes where the mod finds this board, unless another board still delivers. 2026-11-13: tried until it is written (src/bridgeClaim.mjs,
+   * a backoff up to a minute; a rename refused once at 20:59 had left the note unwritten and its line failing for over an hour), and its
+   * success ends the failure: the line says "answers will not reach the chats" only while the note really is missing or stale.
+   */
+  let claiming = null
+  function claimBridge() {
+    if (bridgeKey === null || config.project === '') return Promise.resolve()
+    claiming ??= claimUntilWritten({
+      isTaken: async () => {
+        if (!(await isTaken())) return false
+        console.error('Another worker board already delivers to the chats (.claude/board.json): answers given on this one will not arrive.')
+        return true
+      },
+      write: async () => {
+        await mkdir(join(config.project, '.claude'), { recursive: true })
+        await writeAtomic(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() }))
+      },
+      onFailed: (error, tries) => {
+        // B467: shown on the page too, until it is written: the chats cannot find the board.
         loops.failed('bridge-note', error)
-        console.error('The board could not write .claude/board.json: answers will not reach the chats.')
-      })
+        if (tries === 1) console.error('The board could not write .claude/board.json: answers will not reach the chats until it is written (tried again).')
+      },
+      onSucceeded: () => loops.succeeded('bridge-note'),
+      isClosing: () => isClosing,
+    }).finally(() => { claiming = null })
+    return claiming
   }
+  void sweepBeside(noteFile)
   // B488: this process gains the loops when the one that ran them ended: it reads again what that one wrote (the
   // outbox and the notes of what was sent and seen), so it sends nothing twice and writes no old state over a new
   // one, and the mod finds it at once.

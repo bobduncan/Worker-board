@@ -591,9 +591,10 @@ test('B488: the loop gate answers from the lock at most once a second, says no w
   let asked = 0
   const gained = []
   const failed = []
+  const succeeded = []
   const gate = loopGate({
     owner: async () => { asked += 1; const next = answers.shift(); if (next === undefined) throw new Error('lock unreadable'); return next },
-    now: () => clock, onGained: async () => { gained.push(clock) }, onFailed: error => failed.push(error.message),
+    now: () => clock, onGained: async () => { gained.push(clock) }, onFailed: error => failed.push(error.message), onSucceeded: () => succeeded.push(clock),
   })
   assert.equal(await gate(), false)
   assert.equal(await gate(), false, 'the answer of this second stands')
@@ -608,6 +609,8 @@ test('B488: the loop gate answers from the lock at most once a second, says no w
   clock += 1500
   assert.equal(await gate(), false, 'a lock that cannot be read is a no')
   assert.deepEqual(failed, ['lock unreadable'])
+  // 2026-11-13: every check that answered (yes or no) is a success of the loop-lock (its failure ends); the one that threw is not.
+  assert.equal(succeeded.length, 3)
   answers = [true]
   clock += 1500
   assert.equal(await gate(), true)
