@@ -202,6 +202,11 @@ const hourMinuteOf = ms => `${two(new Date(ms).getHours())}:${two(new Date(ms).g
 /** When an envelope was settled (its outcome), or failed. */
 const settledAt = envelope => [envelope?.settledAt, envelope?.deliveredAt, envelope?.failedAt].find(Number.isFinite) ?? envelope?.at ?? -Infinity
 
+/** Verifier 1: the states in which the work API refuses a worker a second task (api.mjs HOLDS_FOR_GIVE). */
+const HOLDS_FOR_GIVE = ['queued', 'taken', 'in progress']
+/** Whether `name` owns a step the work API would refuse it a second task for. */
+export const holdsForGive = (items, name, prefix = '') => [...items.values()].some(item => kindOf(item) === 'step' && HOLDS_FOR_GIVE.includes(stateOf(item)) && isMine(item, name, prefix))
+
 /** The step the worker holds now (taken, in progress or waiting on you), or undefined. */
 export const holdingOf = (items, name, prefix) => [...items.values()].find(item => kindOf(item) === 'step' && HOLDS.includes(stateOf(item)) && isMine(item, name, prefix))
 
@@ -278,13 +283,20 @@ function backWords(id, failed) {
  * B1160 (chat 1, the person's screenshot of 2026-11-12: the row showed the raw refusal over its "free since"): a free worker's quiet
  * words while the app refuses the board's set calls: what it runs on, in plain words (rule 16); the app's own words stay in the outbox.
  */
-export const REFUSED_MARK = '(the app no longer lets the board switch it)'
+export const REFUSED_MARK = 'the app no longer lets the board switch it'
 const runName = worker => {
   const family = familyOf(worker?.model)
   const effort = chatEffort(worker)
   return [family === null ? null : `${family[0].toUpperCase()}${family.slice(1)}`, effort].filter(Boolean).join(' · ')
 }
-export const refusedWords = worker => `on ${runName(worker) || 'its own model'} ${REFUSED_MARK}`
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const dayClock = (at, now) => {
+  const day = new Date(at)
+  const clockOf = `${String(day.getHours()).padStart(2, '0')}:${String(day.getMinutes()).padStart(2, '0')}`
+  return Number.isFinite(now) && new Date(now).toDateString() === day.toDateString() ? clockOf : `${day.getDate()} ${MONTHS[day.getMonth()]} ${clockOf}`
+}
+/** The words, with when the board next checks whether the app lets it set again (verifier 3, the probe: effort.mjs `probeOf`). */
+export const refusedWords = (worker, nextCheckAt = null, now = null) => `on ${runName(worker) || 'its own model'} (${REFUSED_MARK}${Number.isFinite(nextCheckAt) ? `; next check ${dayClock(nextCheckAt, now)}` : ''})`
 
 /** The words a lane's why carries while a ban stands (laneWords reads them; a test pins them). */
 export const BAN_WHY_MARK = ' steps: its set failed at '
@@ -373,7 +385,7 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * give in the same call, the envelope to write, the envelope the net fired for (marked once), one that waits in the outbox
  * and is to be closed (its task went back).
  */
-export function decide({ worker, peers = [], setsRefused = false, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null, landing = null, landings = [], assets = [] }) {
+export function decide({ worker, peers = [], setsRefused = false, nextCheckAt = null, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null, landing = null, landings = [], assets = [] }) {
   const name = worker.name
   const isTurnEnd = event?.kind === 'turn-ended'
   const turnSince = isTurnEnd && Number.isFinite(event.since) ? event.since : -Infinity
@@ -547,18 +559,27 @@ export function decide({ worker, peers = [], setsRefused = false, items = new Ma
   // B1160 review 1-3 (blocker): a peer wins a step only when its own decide could be given it: not barred for it (notOfferedAgain: taken
   // back or given back from it since its last take) and no ban of its own on the step's model; else the deciding worker takes it, so
   // a step never waits for a peer that will never get it.
-  const others = peers.filter(one => plain(one?.name, prefix) !== plain(name, prefix))
-  const peerBars = new Map(others.map(one => [one.name, { ids: notOfferedAgain(items, one.name, prefix), models: failedModels(one.envelopes ?? [], now), setFor: typeof one.setFor === 'function' ? one.setFor : () => null }]))
+  // Verifier 1: never a peer that owns a step queued, taken or in progress (the work API refuses it a second task, HOLDS_FOR_GIVE),
+  // also one given a step earlier in this pass. Verifier 8: its bans from the envelopes its own decide reads (no 'go on' lines).
+  // Verifier 13: its bars are worked out only when a step could go to it, once per peer.
+  const others = open.length === 0 ? [] : peers.filter(one => plain(one?.name, prefix) !== plain(name, prefix) && !holdsForGive(items, one.name, prefix))
+  const peerBars = new Map()
+  const barsOf = lane => {
+    if (!peerBars.has(lane.name)) peerBars.set(lane.name, { ids: notOfferedAgain(items, lane.name, prefix), models: failedModels((lane.envelopes ?? []).filter(one => one?.kind !== RESUME_KIND), now), setFor: typeof lane.setFor === 'function' ? lane.setFor : () => null })
+    return peerBars.get(lane.name)
+  }
+  const isPeer = lane => others.includes(lane)
   const mayTake = (task, lane) => {
-    const bars = peerBars.get(lane.name)
-    return bars === undefined || (!bars.ids.has(task.id) && !bars.models.has(bars.setFor(task.id)?.model ?? null))
+    if (!isPeer(lane)) return true
+    const bars = barsOf(lane)
+    return !bars.ids.has(task.id) && !bars.models.has(bars.setFor(task.id)?.model ?? null)
   }
   const given = match({ ready: open, idle: [worker, ...others], items: scratch, prefix, mayTake }).find(one => plain(one.chat, prefix) === plain(name, prefix)) ?? null
   const clear = owed === null || owed === undefined ? null : { step: owed.step, reportedAt: owed.reportedAt }
   const said = takenBack === null ? null : `${NOT_TAKEN_WHY.replace('it', takenBack.id)}`
   // The lazy clear (R1, 2026-11-03): no clear is ever sent alone. A free worker that owes one stays FREE and uncleared (an
   // idle chat costs no tokens); the clear rides its next task's envelope. Its lane says nothing of it (D6).
-  if (given === null) return result(STATES.FREE, [said, banWhy(envelopes, now), setsRefused ? refusedWords(worker) : null].filter(one => one !== null).join('; ') || null, { takeBack: takenBack })
+  if (given === null) return result(STATES.FREE, [said, banWhy(envelopes, now), setsRefused ? refusedWords(worker, nextCheckAt, now) : null].filter(one => one !== null).join('; ') || null, { takeBack: takenBack })
   const set = setFor(given.id) ?? null
   // Signals change 3: a step the board gave back goes to its next worker as a continuation from its checkpoint.
   const item = items.get(given.id)

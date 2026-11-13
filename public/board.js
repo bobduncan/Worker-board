@@ -7204,7 +7204,13 @@ function effortRunLine(item, lanes = []) {
   const isHeld = EFFORT_HOLDS.includes(item?.state)
   if (owner === null || (!isHeld && item.state !== 'queued')) return null
   const setting = runWords(item.model?.family, item.effort.level)
-  const run = lanes.find(lane => String(lane.name).toLowerCase() === String(owner).toLowerCase())?.effortRun ?? null
+  const lane = lanes.find(one => String(one.name).toLowerCase() === String(owner).toLowerCase()) ?? null
+  const run = lane?.effortRun ?? null
+  // B1160 (verifier 6): the app's refusal left it unset: said plainly, as the run chip says it; no switch promised.
+  if (run !== null && run.step === item.id && run.refused === true) {
+    const now = [modelFacts(lane.model)?.short ?? null, effortWord(lane.effort)].filter(Boolean).join(' · ') || 'its own setting'
+    return `${owner} runs on ${now}: the app no longer lets the board switch it (${setting} asked).`
+  }
   if (run !== null && run.step === item.id && run.isSet) {
     return isHeld ? `${owner} runs at ${setting} until the step ends, then at its usual setting (${runWords(run.usualModel, run.usual)}).` : `${owner} is set to ${setting} for it already.`
   }
@@ -8638,7 +8644,7 @@ function laneWindowOf(lane, now, mainTitle) {
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }, ...((brief?.goal ?? null) === null ? [] : [{ text: brief.goal, tone: 'goal' }]),
       // B468: the effort it runs at for the step, and "not set yet" while the main chat was asked and the app has not.
       // Model per step: with its model, "Sonnet · low".
-      ...((brief?.effort ?? null) === null ? [] : [{ text: `${(brief.model ?? null) === null ? 'Effort: ' : `${LANE_MODELS[brief.model.family] ?? brief.model.family} · `}${brief.effort.level}${lane.effortRun?.step === step.id && lane.effortRun.isSet === false && lane.effortRun.asked != null ? ', not set yet' : ''}`, tone: 'plain' }])],
+      ...((brief?.effort ?? null) === null ? [] : [{ text: `${(brief.model ?? null) === null ? 'Effort: ' : `${LANE_MODELS[brief.model.family] ?? brief.model.family} · `}${brief.effort.level}${lane.effortRun?.step === step.id && lane.effortRun.isSet === false && lane.effortRun.refused === true ? ' (asked)' : lane.effortRun?.step === step.id && lane.effortRun.isSet === false && lane.effortRun.asked != null ? ', not set yet' : ''}`, tone: 'plain' }])],
     // B301: only the person's words give a task; the main chat's messages give none.
     given: given === null || given.by !== 'you' ? null : { from: `Typed by you, ${clock(given.at)}`, text: given.text },
     step,
@@ -8689,7 +8695,7 @@ function heldWindowOf(lane, now, chip) {
     title: held === null ? 'No step held in the work store' : shortTitle(held.title),
     fullTitle: held?.title ?? null,
     chips: [{ text: chip, tone: 'kind' }, { text: `Worker: ${lane.name}`, tone: 'to' }, ...((brief?.goal ?? null) === null ? [] : [{ text: brief.goal, tone: 'goal' }]),
-      ...((brief?.effort ?? null) === null ? [] : [{ text: `${(brief.model ?? null) === null ? 'Effort: ' : `${LANE_MODELS[brief.model.family] ?? brief.model.family} · `}${brief.effort.level}${lane.effortRun?.step === step?.id && lane.effortRun.isSet === false && lane.effortRun.asked != null ? ', not set yet' : ''}`, tone: 'plain' }])],
+      ...((brief?.effort ?? null) === null ? [] : [{ text: `${(brief.model ?? null) === null ? 'Effort: ' : `${LANE_MODELS[brief.model.family] ?? brief.model.family} · `}${brief.effort.level}${lane.effortRun?.step === step?.id && lane.effortRun.isSet === false && lane.effortRun.refused === true ? ' (asked)' : lane.effortRun?.step === step?.id && lane.effortRun.isSet === false && lane.effortRun.asked != null ? ', not set yet' : ''}`, tone: 'plain' }])],
     given: given === null || given.by !== 'you' ? null : { from: `Typed by you, ${clock(given.at)}`, text: given.text },
     step,
     refined,
@@ -17026,9 +17032,12 @@ function effortView(effort) {
   const isFable = effort.mode === 'fable'
   const isOn = effort.mode === 'high' || isFable
   const label = isFable ? effort.labels.fable ?? 'Fable' : effort.labels.high
-  const isSettling = effort.isSet === false
+  // B1160 (verifier 4, 5, 7): the app refused the board's set call: no switch to wait for, said plainly.
+  const refused = effort.refused ?? null
+  const isSettling = effort.isSet === false && refused === null
   // Review: a word that did not arrive changed nothing; the switch shows what the partner runs on.
-  const note = effort.missed ? 'The main chat did not take the word: flip the switch again.'
+  const note = refused !== null ? `The app no longer lets the board set it; your partner runs on ${refused.runs ?? 'its current setting'}.`
+    : effort.missed ? 'The main chat did not take the word: flip the switch again.'
     : isSettling ? 'Switching… the main chat sets it; the line turns solid once your partner runs on it.'
       : isFable ? `Your partner runs on ${label} for the goal guard's evaluation, with your yes. Its end switches it back.`
         : isOn ? `Your partner runs on ${label}. Go on the how switches it back.`

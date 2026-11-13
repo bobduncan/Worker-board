@@ -13,7 +13,8 @@ import vm from 'node:vm'
 import { statusOf } from '../../src/chatStatus.mjs'
 import { memoryStore } from '../../src/store.mjs'
 import { switchOf } from '../../src/supervisor/rules/watch.mjs'
-import { effortPlan, setsRefusedOf } from '../../src/work/effort.mjs'
+import { effortPlan, effortWords, probeOf, setsRefusedOf } from '../../src/work/effort.mjs'
+import { partnerEffort } from '../../src/partnerEffort.mjs'
 import { match } from '../../src/work/handOut.mjs'
 import { decide, refusedWords } from '../../src/work/handover.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
@@ -71,17 +72,95 @@ test('review 15, 16: the refusal stands until a set word is delivered; words tha
   assert.equal(setsRefusedOf([refusedWord, { id: 'c', command: 'worker-effort', at: NOW + 70_000, state: 'expired', retryOf: 'a' }], NOW + 20 * MIN), true)
   assert.equal(setsRefusedOf([refusedWord, { id: 'd', command: 'worker-effort', at: NOW, state: 'dropped', why: 'superseded' }], NOW + 20 * MIN), true)
   assert.equal(setsRefusedOf([refusedWord], NOW + 24 * 60 * MIN), true, 'no timer')
-  assert.equal(setsRefusedOf([refusedWord, { id: 'e', command: 'worker-effort', at: NOW + 30 * MIN, state: 'delivered', deliveredAt: NOW + 31 * MIN }], NOW + 40 * MIN), false, 'a set seen to work ends it')
+  const byHand = at => ({ takenBy: 'Worker 3', takenAt: at, handTakenAt: at })
+  assert.equal(setsRefusedOf([refusedWord, { id: 'e', command: 'worker-effort', at: NOW + 30 * MIN, state: 'delivered', deliveredAt: NOW + 31 * MIN, ...byHand(NOW + 30 * MIN) }], NOW + 40 * MIN), false, 'a hand\'s delivered set ends it')
   assert.equal(setsRefusedOf([{ id: 'f', command: 'worker-effort', at: NOW, state: 'dropped', refused: true, why: PLAIN, failedAt: NOW }], NOW + MIN), true, 'the sweep\'s close keeps it')
+  // Verifier 2: a word Main's own take typed (no hand) says nothing of the app's plugin calls.
+  assert.equal(setsRefusedOf([{ ...refusedWord, ...byHand(NOW + 1000) }, { id: 'm', command: 'worker-effort', at: NOW - 5 * MIN, state: 'delivered', takenAt: NOW + 60_000, deliveredAt: NOW + 70_000 }], NOW + 5 * MIN), true)
+  // Verifier 15: another failure ends nothing.
+  assert.equal(setsRefusedOf([refusedWord, { id: 'x', command: 'worker-effort', at: NOW, state: 'failed', failedAt: NOW + MIN, why: 'The app has not reported its model list yet' }], NOW + 5 * MIN), true)
 })
 
-test('review 5, 7, 10: a refused set word is never retried', async () => {
-  assert.equal(passesBySelf(REFUSAL), false)
+test('review 5, 7, 10, verifier 4, 5, 7: a worker\'s refused set word is never retried; a partner\'s keeps its retry', async () => {
+  assert.equal(passesBySelf(REFUSAL), true, 'NEVER_PASSES as it was')
   const outbox = memoryStore()
   await outbox.say({ id: 'w1', at: NOW, to: 'Lead', command: 'worker-effort', about: 'Digger', effort: 'high', state: 'waiting' })
   await outbox.update('w1', { state: 'failed', failedAt: NOW + 1000, why: REFUSAL })
+  await outbox.say({ id: 'p1', at: NOW, to: 'Lead', command: 'partner-effort', about: 'Partner', mode: 'high', state: 'waiting' })
+  await outbox.update('p1', { state: 'failed', failedAt: NOW + 1000, why: REFUSAL })
   await outbox.retryFailed(NOW + 2 * MIN, KEEP)
   assert.equal(outbox.outbox().filter(one => one.command === 'worker-effort').length, 1)
+  assert.equal(outbox.outbox().filter(one => one.command === 'partner-effort').length, 2, 'its copy may reach Main\'s own take')
+})
+
+test('verifier 4, 5, 7: a partner word refused with no try left is closed quietly; the Focus switch says it plainly', () => {
+  const word = { id: 'p1', at: NOW - 20 * MIN, to: 'Lead', command: 'partner-effort', about: 'Partner', mode: 'high', state: 'failed', failedAt: NOW - 19 * MIN, why: REFUSAL, retriedAs: 'p2' }
+  const closed = whyClosed(word, { all: [word], items: new Map(), now: NOW, keep: KEEP, lanes: [] })
+  assert.deepEqual([closed.state, closed.refused], ['dropped', true])
+  assert.doesNotMatch(closed.why, /PreToolUse|hook error/)
+  const effort = partnerEffort({ sent: [{ ...word, retriedAs: undefined, tries: 3 }], partner: 'Partner', entries: [{ type: 'assistant', isSidechain: false, model: SONNET, effort: 'medium', at: NOW - 30 * MIN }] })
+  assert.deepEqual(effort.refused, { runs: 'Sonnet · medium' })
+})
+
+test('verifier 1: a peer that owns a queued step is no peer: the deciding worker takes the step', () => {
+  const digger = { name: 'Digger', model: SONNET, effort: 'low', isRunning: true, report: idle }
+  const mower = { name: 'Mower', model: OPUS, effort: 'high', isRunning: true, report: idle, envelopes: [] }
+  const items = new Map([['B1163', opusStep('B1163')], ['B1170', step('B1170', 'queued', { Owner: 'Mower' })]])
+  assert.equal(decide({ worker: digger, peers: [mower], items, ready: READY, now: NOW, event: { kind: 'turn-ended', since: NOW - MIN } }).give, 'B1163')
+})
+
+test('verifier 8: a peer\'s ban is read from the envelopes its own decide reads: a delivered go-on line lifts nothing', () => {
+  const digger = { name: 'Digger', model: SONNET, effort: 'low', isRunning: true, report: idle }
+  const w2 = { name: 'W2', model: SONNET, effort: 'high', isRunning: true, report: idle, setFor: () => ({ model: OPUS, effort: 'high' }),
+    envelopes: [{ kind: 'task', step: 'B1', set: { model: OPUS, effort: 'high' }, state: 'failed', at: NOW - 30 * MIN, failedAt: NOW - 30 * MIN, outcome: { set: false, why: 'no main chat whose hands could set it' } },
+      { kind: 'resume', step: null, set: null, state: 'delivered', at: NOW - 10 * MIN }] }
+  const items = new Map([['B1163', opusStep('B1163')]])
+  assert.equal(decide({ worker: digger, peers: [w2], items, ready: READY, now: NOW, event: { kind: 'turn-ended', since: NOW - MIN } }).give, 'B1163')
+})
+
+test('verifier 3: the probe: once a day while refused, one set word of an idle worker\'s own setting; a hand\'s delivery ends the refusal', () => {
+  const refusedWord = { id: 'a', command: 'worker-effort', about: 'Digger', at: NOW, state: 'failed', failedAt: NOW, why: REFUSAL }
+  const lanes = [{ name: 'Mower', state: 'free', isRunning: true, model: OPUS, effort: 'high', appSession: 'local_mower' }]
+  assert.deepEqual(probeOf({ sent: [refusedWord], lanes, now: NOW + 60 * MIN, main: 'Lead', models: MODELS }).word, null, 'not before a day')
+  const due = probeOf({ sent: [refusedWord], lanes, now: NOW + 24 * 60 * MIN, main: 'Lead', models: MODELS })
+  assert.equal(due.dueAt, NOW + 24 * 60 * MIN)
+  assert.deepEqual([due.word.chat, due.word.model, due.word.level, due.word.probe], ['Mower', OPUS, 'high', true])
+  const word = { id: 'pr', ...effortWords(due.word), at: NOW + 24 * 60 * MIN, state: 'waiting' }
+  assert.equal(word.probe, true)
+  assert.equal(probeOf({ sent: [refusedWord, word], lanes, now: NOW + 25 * 60 * MIN, main: 'Lead', models: MODELS }).word, null, 'one on its way')
+  // The sweep never closes the probe as met (it asks the chat's own setting on purpose).
+  assert.equal(whyClosed(word, { all: [refusedWord, word], items: new Map(), now: NOW + 24 * 60 * MIN + 1000, keep: KEEP, lanes }), null)
+  // A hand delivers it: the refusal ends, no probe due.
+  const delivered = { ...word, state: 'delivered', takenBy: 'Mower', takenAt: NOW + 24 * 60 * MIN + 5000, handTakenAt: NOW + 24 * 60 * MIN + 5000, deliveredAt: NOW + 24 * 60 * MIN + 9000 }
+  assert.equal(setsRefusedOf([refusedWord, delivered], NOW + 25 * 60 * MIN), false)
+  assert.deepEqual(probeOf({ sent: [refusedWord, delivered], lanes, now: NOW + 25 * 60 * MIN, main: 'Lead', models: MODELS }), { dueAt: null, word: null })
+  // The free row says when the next check is.
+  assert.match(refusedWords({ model: SONNET, effort: 'medium' }, NOW + 24 * 60 * MIN, NOW), /next check 14 Nov 10:00\)$/)
+})
+
+test('verifier 10, 14: a step is judged by its own newest envelope: one handed with its set is no gap of the refusal', () => {
+  const items = new Map([['B1150', step('B1150', 'in progress', { Owner: 'Mower' }, { Model: ['opus: core'], Effort: ['high: core'] })]])
+  const lanes = [{ name: 'Mower', model: SONNET, effort: 'low', appSession: 'local_mower' }]
+  const refused = { id: 'r', command: 'worker-effort', about: 'Digger', at: NOW - 7 * MIN, state: 'failed', failedAt: NOW - 7 * MIN, why: REFUSAL }
+  const unset = { id: 'e1', command: 'handover', to: 'Mower', step: 'B1150', set: null, asked: { model: OPUS, effort: 'high' }, state: 'delivered', at: NOW - 60 * MIN }
+  const withSet = { id: 'e2', command: 'handover', to: 'Mower', step: 'B1150', set: { model: OPUS, effort: 'high' }, state: 'delivered', at: NOW - 21 * MIN }
+  assert.equal(effortPlan({ items, lanes, sent: [unset, withSet, refused], now: NOW, main: 'Lead', models: MODELS }).runs.get('Mower').refused, undefined)
+  assert.equal(effortPlan({ items, lanes, sent: [withSet, unset, refused], now: NOW, main: 'Lead', models: MODELS }).runs.get('Mower').refused, undefined, 'newest by time, not by order')
+  assert.equal(effortPlan({ items, lanes, sent: [{ ...unset, at: NOW - 5 * MIN }], now: NOW, main: 'Lead', models: MODELS }).runs.get('Mower').refused, true)
+})
+
+test('verifier 6: the step window says the refused gap plainly: no "is set to", "is to run at" or "not set yet"', async () => {
+  const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'board.js'), 'utf8')
+  const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
+  const start = script.indexOf('function effortRunLine(')
+  const end = script.indexOf('\n}\n', start) + 3
+  const page = {}
+  vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('chatstatus')}\n${cut('runchip')}\nconst EFFORT_HOLDS = ['taken', 'in progress', 'waiting on you']\nconst runWords = (family, level) => [family, level].filter(Boolean).join(' · ')\nconst effortClock = at => String(at)\n${script.slice(start, end)}\nObject.assign(this, { effortRunLine })`, page)
+  for (const state of ['queued', 'in progress']) {
+    const line = page.effortRunLine({ id: 'B1163', owner: 'Digger', state, model: { family: 'opus' }, effort: { level: 'high' } }, [{ name: 'Digger', model: SONNET, effort: 'low', effortRun: { step: 'B1163', isSet: false, asked: { at: NOW }, refused: true } }])
+    assert.doesNotMatch(line, /is set to|is to run at|not set yet/)
+    assert.match(line, /^Digger runs on Sonnet · .*: the app no longer lets the board switch it \(opus · high asked\)\.$/i)
+  }
 })
 
 test('review 6: the sweep closes a refused set word as dropped in plain words, marked refused', () => {

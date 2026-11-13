@@ -13,6 +13,7 @@ import { RESUME_STEP, isLimitStopWord, waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { familyOf, isSetRefused, sameModel } from './effort.mjs'
+import { TRIES } from './passing.mjs'
 import { stamp } from './migrate.mjs'
 import { OLD_CHECK_WHY } from './qaTask.mjs'
 import { gitCheckAtMs, gitCheckPassed } from './resultCheck.mjs'
@@ -91,6 +92,11 @@ export function whyClosed(message, ctx) {
   }
   // B813 (X2): the word that sets a worker's model and effort no longer matters once a newer one for that worker stands,
   // or the worker runs at its setting already; waiting or failed.
+  // B1160 (verifier 4, 5, 7): a partner's set word the app refused, with no try left (or tried again already), is closed quietly in plain
+  // words, marked refused: never an undelivered word with the app's raw text for rule 8. While a copy is on its way it stays as it is.
+  if (message.command === 'partner-effort' && message.state === 'failed' && isSetRefused(message) && (message.retriedAs !== undefined || (message.tries ?? 1) >= TRIES)) {
+    return { state: 'dropped', refused: true, why: "the app refuses the board's set calls; your partner runs on its current setting" }
+  }
   if (message.command === 'worker-effort') {
     // B1160 review 6: a set word the app refused (in auto mode it does not run a plugin's own set call) is closed at once, in plain words,
     // kept marked `refused` so the board knows the refusal stands (effort.mjs `setsRefusedOf`): never an undelivered word for rule 8.
@@ -98,7 +104,8 @@ export function whyClosed(message, ctx) {
     const newer = all.find(one => one.id !== message.id && one.at > message.at && isStanding(one) && kindOf(one) === kindOf(message))
     if (newer !== undefined) return { state: 'dropped', why: `superseded by a newer word for ${message.about}'s setting (${stamp(newer.at)})` }
     const lane = (ctx.lanes ?? []).find(one => one.name === message.about && !one.isLeftover)
-    if (lane !== undefined && lane.effort === message.effort && ((message.model ?? null) === null || sameModel(lane.model, message.model))) {
+    // B1160: the probe asks the chat's own setting on purpose (its hand's answer is the point): never met before a hand took it.
+    if (message.probe !== true && lane !== undefined && lane.effort === message.effort && ((message.model ?? null) === null || sameModel(lane.model, message.model))) {
       // B1051 (X153): the setting was met: a success, not a failure. `met` tells the hand-over pass so (it waits for this word).
       return { state: 'dropped', met: true, why: `${message.about} runs at ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort} already` }
     }

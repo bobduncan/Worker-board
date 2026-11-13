@@ -233,7 +233,7 @@ export function runSettings(config = {}) {
  * `why`. Without a model id (the settings name none for the family) it is B468's word, the effort alone. One message
  * of the outbox.
  */
-export function effortWords({ to, chat, session, level, model = null, usual, usualModel = null, step, why }) {
+export function effortWords({ to, chat, session, level, model = null, usual, usualModel = null, step, why, probe = false }) {
   const id = typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? [`Session: ${session}`] : []
   const forStep = step === null ? [] : [`Step: ${step}`]
   const text = model === null
@@ -242,6 +242,7 @@ export function effortWords({ to, chat, session, level, model = null, usual, usu
   return {
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'worker-effort', about: chat, effort: level, model, usual, usualModel, forStep: step,
     session: id.length === 0 ? null : session,
+    ...(probe === true ? { probe: true } : {}),
     text: text.join('\n'),
   }
 }
@@ -265,17 +266,47 @@ export const SET_REFUSED = /doesn't run this tool when a plugin's own code calls
 export const isSetRefused = one => one?.refused === true || ((one?.outcome?.set === false || one?.state === 'failed') && SET_REFUSED.test(`${one?.outcome?.why ?? ''} ${one?.why ?? ''}`))
 
 /**
- * B1160 (chat 1's decision 2; review 15, 16): whether the app refuses the board's set words now: of the set words the app answered
- * (delivered, or failed with a why, or closed by the sweep as refused), the newest answer by its time was a refusal (`isSetRefused`).
- * It stands until the app is seen to set again (a delivered set word), never on a timer. Words that never reached the app (expired,
+ * B1160 (chat 1's decision 2; review 15, 16; verifier 2, 3, 15): whether the app refuses the board's set words now: of the set words a
+ * hand answered (delivered by a hand, or refused, also one the sweep closed as refused), the newest answer by its time was a refusal
+ * (`isSetRefused`). It stands until a hand is seen to set again (the probe, `probeWordOf`, or any hand's delivered set word), never on
+ * a timer. Words that never reached the app (expired,
  * dropped otherwise, waiting) say nothing. While it stands the board writes no set word: an envelope goes without its set and keeps it
  * as `asked`, the effort plan and the Supervisor's and owner's words ask none.
  */
 export function setsRefusedOf(sent, now = Date.now()) {
   const answerAt = one => [one.deliveredAt, one.failedAt, one.settledAt, one.at].find(Number.isFinite) ?? -Infinity
-  const answered = (sent ?? []).filter(one => one?.command === 'worker-effort' && (one.state === 'delivered' || isSetRefused(one) || (one.state === 'failed' && typeof one.why === 'string' && one.why !== '')))
+  // Verifier 2, 15: only a hand's answer counts (a word a hand took, src/hands.mjs `isHandTaken`): delivered by it, or the refusal. A word
+  // Main's own take typed into its chat says nothing of the app's plugin calls; another failure ends nothing.
+  const byHand = one => typeof one?.takenBy === 'string' && Number.isFinite(one.takenAt) && one.handTakenAt === one.takenAt
+  const answered = (sent ?? []).filter(one => one?.command === 'worker-effort' && ((one.state === 'delivered' && byHand(one)) || isSetRefused(one)))
   const newest = answered.filter(one => answerAt(one) <= now + 60_000).sort((x, y) => answerAt(x) - answerAt(y)).at(-1) ?? null
   return newest !== null && isSetRefused(newest)
+}
+
+/**
+ * B1160, chat 1's decision on how the refusal ends (verifier 3): a probe. While the refusal stands, at most once in PROBE_MS (counted from
+ * the newest refusal, or the last probe) the board sends ONE set word that changes nothing: an idle worker's own model and effort. Its
+ * hand's answer settles it (`setsRefusedOf`): delivered by the hand ends the refusal, refused keeps it. The board does not know the
+ * app's version, so a new version does not bring it sooner. `{ dueAt, word }`: when the next probe is due (null without a refusal), and
+ * the word to send now (null when none is due, one is still on its way, there is no main chat or no idle worker with a known setting).
+ */
+export const PROBE_MS = 24 * 60 * 60_000
+export function probeOf({ sent = [], lanes = [], now, main = null, models = {}, usual = {} }) {
+  if (!setsRefusedOf(sent, now)) return { dueAt: null, word: null }
+  const words = sent.filter(one => one?.command === 'worker-effort')
+  const answerAt = one => [one.deliveredAt, one.failedAt, one.settledAt, one.at].find(Number.isFinite) ?? -Infinity
+  const lastRefusal = words.filter(isSetRefused).map(answerAt).reduce((a, b) => Math.max(a, b), -Infinity)
+  const lastProbe = words.filter(one => one.probe === true).sort((a, b) => a.at - b.at).at(-1) ?? null
+  const dueAt = Math.max(lastRefusal, lastProbe?.at ?? -Infinity) + PROBE_MS
+  if (!Number.isFinite(dueAt) || now < dueAt || main === null) return { dueAt: Number.isFinite(dueAt) ? dueAt : null, word: null }
+  if (lastProbe !== null && ['waiting', 'taken'].includes(lastProbe.state)) return { dueAt, word: null }
+  const lane = lanes.find(one => !one?.isMain && !one?.isLeftover && one?.state === 'free' && one.isRunning === true && typeof one.model === 'string' && one.model !== '' && chatEffort(one) !== null)
+  if (lane === undefined) return { dueAt, word: null }
+  const settings = runSettings({ models, usualModel: usual.model, usualEffort: usual.effort })
+  return {
+    dueAt,
+    word: { to: main, chat: lane.name, session: lane.appSession ?? null, level: chatEffort(lane), model: lane.model, usual: settings.usual.effort, usualModel: settings.models[settings.usual.model] ?? null, step: null, why: `a check whether the app lets the board set again: ${lane.name}'s own setting, nothing changes`, probe: true },
+  }
 }
 
 /**
@@ -350,9 +381,11 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
       return sameModel(lane.lastAnswer?.model, want) && Number.isFinite(lane.lastAnswer?.at) && lane.lastAnswer.at > since
     }
     const step = next === undefined ? null : valueOf(next, 'Id')
-    // B1160 review 4: the step went in an envelope without its set (`asked`): its gap is known and quiet whatever the refusal says now.
-    const wentUnset = step !== null && (known ?? sent).some(one => one?.command === 'handover' && plain(one.to, prefix) === plain(lane.name, prefix) && one.step === step && (one.set ?? null) === null && (one.asked ?? null) !== null)
-    const isQuietGap = isRefused || wentUnset
+    // B1160 review 4, verifier 10, 14: a step that went to this worker is judged by its own newest envelope: without its set (`asked`) its
+    // gap is known and quiet whatever the refusal says now; with its set it is no gap of the refusal's. A step not handed yet follows
+    // the refusal as it stands.
+    const ownEnvelope = step === null ? undefined : (known ?? sent).filter(one => one?.command === 'handover' && plain(one.to, prefix) === plain(lane.name, prefix) && one.step === step && Number.isFinite(one.at)).sort((a, b) => a.at - b.at).at(-1)
+    const isQuietGap = ownEnvelope === undefined ? isRefused : (ownEnvelope.set ?? null) === null && (ownEnvelope.asked ?? null) !== null
     const effort = next === undefined ? null : effortOf(next)
     const model = next === undefined ? null : modelOf(next)
     const level = effort?.level ?? usualEffort
@@ -381,7 +414,7 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     // An opus step's word waits while a word for another model is on its way, so the reading after both is right (the
     // main chat sets them in their order).
     const isAgainstModel = against !== null && (against.model ?? null) !== null && !sameModel(against.model, id)
-    const canAsk = !isQuietGap && main !== null && !isSet && asked === null && (isStrict ? !isAgainstModel : current !== null)
+    const canAsk = !isRefused && !isQuietGap && main !== null && !isSet && asked === null && (isStrict ? !isAgainstModel : current !== null)
     // Only a step it does not hold yet waits for Opus: one it holds already is set as soon as can be.
     let waitsFor = null
     if (isStrict && !isModelSet && holding === undefined && !isQuietGap) {

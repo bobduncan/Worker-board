@@ -11,6 +11,8 @@
  * Fable, only for a goal guard's evaluation the person said yes to (the person, 2026-10-24: "you cant run fable without my
  * permission"; src/goalGuard.mjs `fableAskOf`).
  */
+import { familyOf, isSetRefused } from './work/effort.mjs'
+
 export const PARTNER_MODES = {
   usual: { model: 'claude-opus-5-5', effort: 'xhigh', label: 'Opus 5.5, extra high' },
   high: { model: 'claude-opus-5-5', effort: 'max', label: 'Opus 5.5, max' },
@@ -61,6 +63,9 @@ export function partnerEffort({ sent, partner, entries }) {
     asked: last === undefined ? null : { at: last.at, state: last.state, label: PARTNER_MODES[mode].label },
     // Review: a lost word whose mode the partner runs on anyway asks for nothing more.
     missed: latest !== undefined && isMissed(latest) && !runs(latest.mode) ? { at: latest.at, state: latest.state } : null,
+    // B1160 (verifier 4, 5, 7): the app refused the board's set call for it (it does not run a plugin's own set call in auto mode):
+    // what it runs on, for the switch's plain line; null otherwise.
+    refused: latest !== undefined && isSetRefused(latest) && !runs(latest.mode) ? { runs: runsOn === null ? null : [familyOf(runsOn.model), runsOn.effort].filter(Boolean).map((one, index) => (index === 0 ? one[0].toUpperCase() + one.slice(1) : one)).join(' · ') } : null,
     runsOn,
     isSet,
     labels: { usual: PARTNER_MODES.usual.label, high: PARTNER_MODES.high.label, fable: PARTNER_MODES.fable.label },

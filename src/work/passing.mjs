@@ -6,11 +6,8 @@
 // chat's word, 3, is the outbox's own case: stopped.mjs.) A word that failed for a reason that passes is tried again
 // (store.mjs retryFailed, and for a worker's effort its plan, effort.mjs), one that never does is named at once.
 
-/**
- * The reasons that never pass by themselves: trying again gives the same answer. B1160 review 5, 7, 10: so does the app's refusal of a
- * plugin's own set call in auto mode ("... doesn't run this tool when a plugin's own code calls it. Have Claude make the call.").
- */
-const NEVER_PASSES = /\bnot found\b|needs a person's approval|\bnot allowed\b|\bpermission denied\b|doesn't run this tool when a plugin's own code calls it|Have Claude make the call/i
+/** The reasons that never pass by themselves: trying again gives the same answer. */
+const NEVER_PASSES = /\bnot found\b|needs a person's approval|\bnot allowed\b|\bpermission denied\b/i
 
 /** Whether a failure's why passes by itself; a failure without a why (an older mod) is given the benefit of the doubt. */
 export const passesBySelf = why => !NEVER_PASSES.test(String(why ?? ''))
