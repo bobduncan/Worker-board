@@ -500,7 +500,7 @@ describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
     // 0.27.3: the work tool says "goal definition" and takes definition-draft (this branch carried 0.27.1, the main branch is at 0.27.2).
-    expect(MOD_VERSION).toBe('0.31.0')
+    expect(MOD_VERSION).toBe('0.31.1')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {

@@ -3961,6 +3961,43 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
   ones, an empty leftover folder, a junction made with `mklink /J`, skipped with its reason where none can be made),
   `test/work/check.test.mjs`, `test/work/resultCheck.test.mjs`, `test/supervisor/selfCheck.test.mjs`, `test/outOfSync.test.mjs`.
 
+## The Workers mod hotfix 0.31.1 (2026-11-13): chats losing the mod (F4)
+
+Chat 1's write-up (`.claude/plans/2026-11-13-workers-mod-unload-cause.md`): the CLI's hooks worker unloads the plugin it blames
+for overrunning hooks, and the chat has no `work` and `chat` tools until its process starts anew (most of the red on the board
+that evening). A hook has a budget of 10 s of its OWN time (a `next` or `$` call in flight does not count; a clock wait and a
+wait on the mod's own promises do), plus 5 s of linger; two overruns are a runaway. The Workers mod's hooks waited on the shared
+card chain (`mine`), slept inside the work tool (3 × 2 s), said "working" for every subagent's turn too (three judges at once piled
+up on the chain), and read and parsed 842 card files at every tick, say and setTask. The hotfix, from main, before 0.32.0 rebases
+on it:
+
+1. **A deadline on every hook** (register.tsx `withinHook`, HOOK_MS 5 s, `$.clock.after`): session.start (after its
+   registrations), prompt.submit (the words beside the prompt; past the deadline the prompt goes on bare), turn.start and
+   turn.complete (the chat's own work after `next`), the catch-all's pause read, AskUserQuestion's filing. Past it the hook
+   answers (`next(e)`, an empty context, no filing) and the work finishes detached with its errors swallowed. The dispatch's
+   abort signal is not read: beneath the test kit's world it aborts as soon as a hook beneath settles, and the timer alone keeps
+   the hook well inside its budget. The hooks' own work moved to top-level functions (`sessionStarts`, `promptContext`,
+   `ownTurnStarts`, `afterOwnTurn`): the engine's loader wants every function that takes `$` declared at the top of the file.
+2. **The card chain is waited for briefly, never for good**: `say` and the work tool's report path wait SAY_MS (1.5 s) for their
+   write, `setTask` SET_TASK_MS (2 s) and then answers "Recorded (the card is written in the background)", the turn's own
+   `atTurnStart` write is queued; `setTask` builds its line from the pane's view with the card as written, not a fresh read of
+   every card.
+3. **A subagent's turn** (`e.agentId` set) passes `turn.start` and `turn.complete` at once: no say, no card write, no report, no
+   refresh or git (`noteAgents` runs detached); so an async judge after the chat's turn sets `isInTurn` no more.
+4. **The work tool sleeps no more**: a cut answer is said at once ("not known whether it was recorded ... asked again in the
+   background with the same request id") and `repeatWork` asks again three times, 2 s apart, outside any hook; the board
+   records a request id once.
+5. **The catch-all tool.call** keeps `await next(e)` (free of the budget while in flight) and does nothing else that waits: the
+   popup's stop is detached; the pause read runs under the deadline.
+6. **The card scan** (`readFiles`): a card not written for CARD_STALE_MS (7 days) is skipped (766 of the 855 files; a live chat
+   writes its card at every change and heartbeat; this chat's own file is read whatever its time), and a card whose size and
+   time (`FsEntry.mtimeMs`) are the last reading's is answered from that reading (`cardsRead`).
+
+Tests: `mods/workers/hooks/chatlist.test.ts` "0.31.1 (F4)": a turn's start and end, the prompt, the chat tool and the work tool
+answer within their time while the board hangs and the card chain is stuck (the test world's `writeHold`; on 0.31.0 each waited
+for ever), a subagent's turns write nothing, the scan's cache and the week; the B412 tests as 0.31.1 has them. The board's
+`test/modVersionEverywhere.test.mjs` pins the version and the note.
+
 ## The supervisor, part 1 (2026-10-24): the board checks itself
 
 The person, 2026-10-24 (the chat "Worker board task reliability", goal map T7): "a supervisor chat/worker. its goal is
