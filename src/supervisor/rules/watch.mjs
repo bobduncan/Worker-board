@@ -239,8 +239,9 @@ function overlapIdle(view, ctx) {
   const pairs = waiting.slice(0, 8).map(one => `${one.id} (same files as ${one.overlap})`)
   return [{
     rule: 'overlap-idle', key, subject: 'board',
-    text: `${free.map(lane => lane.name).join(', ')} free for ${minutes(ms)} min while every waiting step shares its files with a step under way: ${pairs.join(', ')}${waiting.length > 8 ? ', ...' : ''}`,
-    evidence: `held back by an overlap: ${waiting.map(one => `${one.id}: ${one.why}`).join('; ')}; free: ${free.map(lane => lane.name).join(', ')}; ready for a worker: none. Narrow their Touches, or let the step under way finish.`,
+    // F5 review 11, 12: the span is the board's (workers free behind overlaps), not each worker's; the step it waits on may wait for the person.
+    text: `workers free behind Touches overlaps for ${minutes(ms)} min (${free.map(lane => lane.name).join(', ')}): every waiting step shares its files with a step given or at work: ${pairs.join(', ')}${waiting.length > 8 ? ', ...' : ''}`,
+    evidence: `held back by an overlap: ${waiting.map(one => `${one.id}: ${one.why}`).join('; ')}; free: ${free.map(lane => lane.name).join(', ')}; ready for a worker: none. Narrow their Touches, or move the step they wait on along.`,
   }]
 }
 
@@ -520,7 +521,14 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)
   // B1164 (B1160 part 2): a set word for Main's model (the app refuses the hands' set calls) is with Main once taken or typed: left out
   // while Main's model may still do it, counted once MAIN_MODEL_SET_MS passed and the worker still does not run at it (`stillWaits`).
-  if (message.forModel === true && ['taken', 'delivered'].includes(message.state)) return view.now - since > MAIN_MODEL_SET_MS && stillWaits(message)
+  if (message.forModel === true && ['taken', 'delivered'].includes(message.state)) {
+    // F5 review 1, 2: a partner word Main carried is done: the Focus switch shows what the partner runs on.
+    if (message.command !== 'worker-effort') return false
+    // F5 review 3, 8: only while its step is still the worker's (given, taken or at work), and within UNDELIVERED_LOOK_MS.
+    const step = typeof message.forStep === 'string' ? view.items?.get?.(message.forStep) : undefined
+    const isOnIt = step !== undefined && ['queued', 'taken', 'in progress', 'waiting on you'].includes(valueOf(step, 'State')) && plain(valueOf(step, 'Owner'), view.prefix) === plain(message.about, view.prefix)
+    return isOnIt && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > MAIN_MODEL_SET_MS && stillWaits(message)
+  }
   return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
 }
 
@@ -720,7 +728,10 @@ function stepMoves(view, id, visited) {
 }
 
 /** B1021: whether a held why is a block by steps that all move or wait for the person (`stepMoves`, B916's `personHold`). */
-function holdMoves(view, held, visited = new Set()) {
+export function holdMoves(view, held, visited = new Set()) {
+  // F5 review 7: a step held back by a Touches overlap waits for that step: a wait while it moves.
+  const overlap = /^waits: same files as (B[0-9]+)\b/.exec(held ?? '')?.[1] ?? null
+  if (overlap !== null) return stepMoves(view, overlap, visited)
   if (!BLOCKED_HOLD.test(held)) return false
   const ids = [...new Set(held.match(/B[0-9]+/g) ?? [])]
   return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps) || stepMoves(view, id, visited))

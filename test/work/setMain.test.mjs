@@ -92,24 +92,29 @@ test('decision 4: once the worker runs at it the line goes in, set by Main; afte
     await one.pass(await one.lane('Digger', { model: OPUS, effort: 'high' }), NOW + 2 * MIN)
     const set = one.outbox.outbox().find(message => message.id === first.envelope.id)
     assert.deepEqual([set.waitsFor, set.setByMain, set.asked], [null, true, null])
+    // F5 review 14: its words follow.
+    assert.doesNotMatch(set.text, /Asked, not set/)
     assert.equal((await handOut(one.outbox, 'Digger', NOW + 2 * MIN, KEEP)).step, 'B1163')
   } finally { await cleanUp(one.dir) }
   const two = await garden(opusStep('B1163'))
   try {
     const first = await two.decide(await two.lane(), NOW)
+    const wordId = first.envelope.waitsFor
     await two.pass(await two.lane(), NOW + MAIN_SET_WAIT_MS - 1000)
     assert.equal(await handOut(two.outbox, 'Digger', NOW + MAIN_SET_WAIT_MS - 1000, KEEP), null, 'not before 5 min')
     await two.pass(await two.lane(), NOW + MAIN_SET_WAIT_MS)
     const went = two.outbox.outbox().find(message => message.id === first.envelope.id)
     assert.deepEqual([went.waitsFor, went.asked], [null, { model: OPUS, effort: 'high' }])
+    // F5 review 4: the word Main has not taken is closed with the release: never typed later.
+    assert.equal(two.outbox.outbox().find(message => message.id === wordId).state, 'dropped')
     assert.equal((await handOut(two.outbox, 'Digger', NOW + MAIN_SET_WAIT_MS, KEEP)).step, 'B1163')
   } finally { await cleanUp(two.dir) }
 })
 
 test('B1164: rule 8 leaves a set word with Main\'s model out for 10 min, then names it while the worker still does not run at it', () => {
   const lanes = [{ name: 'Lead', isMain: true, isLeftover: false, state: 'working', isRunning: true }, { name: 'Digger', isMain: false, isLeftover: false, state: 'free', isRunning: true, model: SONNET, effort: 'low' }]
-  const word = { id: 'w1', at: NOW, to: 'Lead', command: 'worker-effort', about: 'Digger', model: OPUS, effort: 'high', forModel: true, state: 'delivered', takenAt: NOW + 5000, deliveredAt: NOW + 6000, text: 'set model and effort' }
-  const viewAt = (at, chats = lanes) => buildView({ state: { chats, today: [], limits: {}, pause: null, chatPrefix: '', restart: { main: 'Lead' } }, items: new Map(), outbox: [word], settings: {}, now: at })
+  const word = { id: 'w1', at: NOW, to: 'Lead', command: 'worker-effort', about: 'Digger', model: OPUS, effort: 'high', forModel: true, forStep: 'B1163', state: 'delivered', takenAt: NOW + 5000, deliveredAt: NOW + 6000, text: 'set model and effort' }
+  const viewAt = (at, chats = lanes) => buildView({ state: { chats, today: [], limits: {}, pause: null, chatPrefix: '', restart: { main: 'Lead' } }, items: new Map([['B1163', step('B1163', 'in progress', { Owner: 'Digger' })]]), outbox: [word], settings: {}, now: at })
   assert.equal(isUndelivered(viewAt(NOW + 5 * MIN), word), false)
   assert.equal(isUndelivered(viewAt(NOW + MAIN_MODEL_SET_MS + MIN), word), true)
   const set = lanes.map(lane => (lane.name === 'Digger' ? { ...lane, model: OPUS, effort: 'high' } : lane))
@@ -138,7 +143,7 @@ test('the Supervisor names free workers idling 30 min while every waiting step s
   const found = rule.check(view, { seen: new Map([['overlap-idle board', NOW - 31 * MIN]]), observed: [] })
   assert.equal(found.length, 1)
   assert.equal(found[0].key, 'overlap-idle board')
-  assert.match(found[0].text, /Worker 1, Worker 2 free for 31 min while every waiting step shares its files with a step under way: B1150 \(same files as B1149\), B1152/)
+  assert.match(found[0].text, /^workers free behind Touches overlaps for 31 min \(Worker 1, Worker 2\): every waiting step shares its files with a step given or at work: B1150 \(same files as B1149\), B1152/)
   // A step ready for a worker: no finding (ready-while-free is that rule's).
   const withReady = buildView({ state: { chats: lanes, today: [], limits: {}, pause: null, chatPrefix: '', readyList: { ready: [{ id: 'B1151' }], held } }, items: new Map(), outbox: [], settings: {}, now: NOW })
   assert.deepEqual(rule.check(withReady, { seen: new Map([['overlap-idle board', NOW - 31 * MIN]]), observed: [] }), [])

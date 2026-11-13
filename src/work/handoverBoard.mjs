@@ -329,8 +329,16 @@ export async function handoverPass({ state, dir, outbox, apply, config, installe
         // busy): never twice, never a failure.
         if (word !== undefined && word.forModel === true) {
           const asked = message.asked ?? null
-          const runsIt = asked !== null && chatEffort(lane) === asked.effort && ((asked.model ?? null) === null || sameModel(lane.model, asked.model))
-          if (runsIt || now - word.at >= MAIN_SET_WAIT_MS) await outbox.update(message.id, { waitsFor: null, ...(runsIt ? { set: null, asked: null, setByMain: true } : {}) })
+          // F5 review 3: an effort the app's file does not say is not judged: the model alone counts then.
+          const runsIt = asked !== null && (chatEffort(lane) === null || chatEffort(lane) === asked.effort) && ((asked.model ?? null) === null || sameModel(lane.model, asked.model))
+            && !(chatEffort(lane) === null && (asked.model ?? null) === null)
+          if (runsIt || now - word.at >= MAIN_SET_WAIT_MS) {
+            // F5 review 14: the envelope's words follow (no stale "Asked, not set").
+            const after = runsIt ? { set: null, asked: null } : {}
+            await outbox.update(message.id, { waitsFor: null, ...after, ...(runsIt ? { setByMain: true } : {}), text: textOf({ ...message, ...after, asked: runsIt ? null : message.asked ?? null }) })
+            // F5 review 4, 13: the hand-over went on: a set word Main has not taken yet is closed, never typed later (mid-step, or twice).
+            if (word.state === 'waiting') await outbox.close(word.id, 'dropped', runsIt ? 'the worker runs at it already' : 'its hand-over went on without it', now)
+          }
           continue
         }
         // B1160: a set word the app refused does not fail the envelope: it goes on without its set, the set kept as asked.

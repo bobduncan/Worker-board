@@ -5638,6 +5638,15 @@ and free workers sat idle. Never a way around the refusal (no permission or mode
   Main's take, no wake word, never retried, only for a lane a hand may set (no Fable); one no hand carried within its minute, or that
   failed for another reason, is closed in plain words (the next comes a day later). Tests: `test/work/setRound3.test.mjs`.
 
+- F5 review (chat 1, 2026-11-14): rule 8 never names a partner word Main carried out, and names a worker's Main word only while its step
+  is still that worker's and within UNDELIVERED_LOOK_MS. A Main word not taken yet is closed when its hand-over goes on (the pass's
+  release, or the sweep once its envelope no longer waits for it), so Main never sets a worker mid-step or twice; a release by the
+  worker's own setting rewrites the envelope's words. A next check already past reads "next check when a worker is free". A step held by
+  an overlap with a step at work is no none-ready cause and no review-held lateness. A partner word with a retry still to come shows
+  settling; a probe a hand gave back in doubt stays open DOUBT_MS; the probe never picks a worker whose hand-over waits or that got a set
+  word lately. Overlap words say where the step stands ("which waits for you"); overlap-idle names the board's span, not each worker's.
+  Tests: `test/work/setF5Review.test.mjs`.
+
 ### The envelope's contract for the Workers mod
 
 For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers

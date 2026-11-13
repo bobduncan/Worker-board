@@ -12,7 +12,7 @@
  * permission"; src/goalGuard.mjs `fableAskOf`).
  */
 import { familyOf, isSetRefused } from './work/effort.mjs'
-import { TRIES } from './work/passing.mjs'
+import { TRIES, passesBySelf } from './work/passing.mjs'
 
 export const PARTNER_MODES = {
   usual: { model: 'claude-opus-5-5', effort: 'xhigh', label: 'Opus 5.5, extra high' },
@@ -52,7 +52,10 @@ export function partnerEffortWords({ to, partner, session, mode, why, yes = null
 export function partnerEffort({ sent, partner, entries }) {
   const words = (sent ?? []).filter(message => message.command === 'partner-effort' && message.about === partner && Object.hasOwn(PARTNER_MODES, message.mode ?? ''))
   // B1160 round 3, items 1 and 3: a word the app refused (closed by the sweep as refused) changed nothing either: the mode is not taken from it.
-  const isMissed = message => message.state === 'expired' || message.state === 'failed' || message.refused === true
+  // F5 review 9: a failed word whose retry is still to come is not missed: the switch shows it settling.
+  const isRetryComing = message => message.state === 'failed' && message.final !== true && passesBySelf(message.why) && (message.tries ?? 1) < TRIES
+    && (message.retriedAs === undefined || words.some(one => one.id === message.retriedAs && one.state === 'waiting'))
+  const isMissed = message => message.state === 'expired' || (message.state === 'failed' && !isRetryComing(message)) || message.refused === true
   const last = words.findLast(message => !isMissed(message))
   const latest = words.at(-1)
   // The app's own lines (an error, a limit) carry no model of Claude's; a helper's lines are not the partner's.

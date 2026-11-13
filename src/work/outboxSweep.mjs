@@ -10,7 +10,7 @@
 import { shownChats } from '../bridge.mjs'
 import { heldTooLong, isHandTaken, isMootSpawn, isTaskStopWord, mootWhy, stopSettleWhy } from '../hands.mjs'
 import { RESUME_STEP, isLimitStopWord, waitsLong } from '../say.mjs'
-import { isLate, keepMs } from '../store.mjs'
+import { DOUBT_MS, isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { familyOf, isSetRefused, sameModel } from './effort.mjs'
 import { TRIES } from './passing.mjs'
@@ -100,9 +100,17 @@ export function whyClosed(message, ctx) {
   }
   // B1160 round 3, item 6: the probe is a hand's alone: one that no hand carried within HANDS_FIRST_MS, or that failed for another reason
   // than the refusal, is closed in plain words (the next probe comes a day later); a refused one is closed below as refused.
-  if (message.command === 'worker-effort' && message.probe === true && !isSetRefused(message)
+  // F5 review 10: a probe a hand gave back in doubt stays open until DOUBT_MS passed, so the hand's late answer still settles it.
+  const isProbeInDoubt = message.probe === true && message.state === 'waiting' && Number.isFinite(message.doubtAt) && now - message.doubtAt < DOUBT_MS
+  if (message.command === 'worker-effort' && message.probe === true && !isSetRefused(message) && !isProbeInDoubt
     && ((message.state === 'waiting' && now - message.at >= HANDS_FIRST_MS) || message.state === 'failed')) {
     return { state: 'dropped', why: 'the check whether the app lets the board set again could not run; the next comes later' }
+  }
+  // F5 review 4, 13: a set word for Main's model that Main has not taken yet is moot once its hand-over went on without it (its envelope
+  // no longer waits for it): never typed later, mid-step or twice.
+  if (message.command === 'worker-effort' && message.forModel === true && message.state === 'waiting' && typeof message.envelope === 'string') {
+    const envelope = all.find(one => one.id === message.envelope)
+    if (envelope === undefined || envelope.state !== 'waiting' || envelope.waitsFor !== message.id) return { state: 'dropped', why: 'its hand-over went on without it' }
   }
   if (message.command === 'worker-effort') {
     // B1160 review 6: a set word the app refused (in auto mode it does not run a plugin's own set call) is closed at once, in plain words,
