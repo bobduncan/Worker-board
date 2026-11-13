@@ -293,7 +293,7 @@ const isBarred = (one, worker, prefix = '', items = null) => {
  * idle it waits for another, and the next task of the list goes on to them. (T8.5 step 6: the hand-over's `decide` calls
  * it for one worker at a time; what it may not offer that worker it leaves out of `ready` itself.)
  */
-export function match({ ready = [], idle = [], items, prefix = '' }) {
+export function match({ ready = [], idle = [], items, prefix = '', mayTake = () => true }) {
   const scratch = new Map(items)
   // Signals change 4, D.5 (decision 13): running lanes before asleep ones, each in their given order (a stable sort).
   const free = [...idle].sort((a, b) => (a?.isRunning === true ? 0 : 1) - (b?.isRunning === true ? 0 : 1))
@@ -306,7 +306,8 @@ export function match({ ready = [], idle = [], items, prefix = '' }) {
   }
   const overlaps = one => overlapIn(scratch, items.get(one.id), COUNTS_FOR_TOUCHES) !== null
   // T9.1.1: a QA task is never given to a chat that built the step it checks, pinned or not.
-  const may = (one, worker) => !isBarred(one, worker, prefix, items)
+  // B1160 review 1-3: `mayTake(task, worker)`, the caller's own word on whether that worker could be given the task (a peer's bars).
+  const may = (one, worker) => !isBarred(one, worker, prefix, items) && mayTake(one, worker) !== false
   for (const one of ready.filter(task => task.keptFor !== null && items.has(task.id))) {
     const lane = free.find(worker => plain(worker.name, prefix) === plain(one.keptFor, prefix) && may(one, worker))
     if (lane === undefined || overlaps(one)) continue

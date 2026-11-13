@@ -5590,13 +5590,21 @@ and free workers sat idle. Never a way around the refusal (no permission or mode
 - A refused set (effort.mjs `SET_REFUSED`, `isSetRefused`) is no failure of the hand-over and bans no model: a waiting envelope whose
   set word was refused is released without its set (`set` null, `asked` the set, `waitsFor` null) and carried as any; a task in flight
   whose outcome says so goes again at once without it; nothing is taken back, nothing held.
-- While the newest set word that ended was refused, less than 2 h ago (`setsRefusedOf`, SET_REFUSED_MS), the board writes no set word:
-  envelopes go without their set and keep it as `asked`, the effort plan asks none and waits for no Opus (`run.refused`). After 2 h one
-  set word is tried again. The worker's chip says "Sonnet · low (Opus · high asked)"; a free worker's row "free · on Sonnet · medium (the
-  app no longer lets the board switch it)", plain words (rule 16); the app's own words stay in the outbox.
+- While the app's newest answer to a set word was a refusal (`setsRefusedOf`: of the words the app answered, delivered or failed with a
+  why or closed as refused, by answer time; words that never reached it say nothing), the board writes no set word: envelopes go
+  without their set and keep it as `asked`; the effort plan, the Supervisor's and the Product owner's words ask none; the effort plan
+  waits for no Opus (`run.refused`). It stands until a set word is seen delivered, never on a timer (chat 1's review 15, 16). A refused
+  word never passes by itself (passing.mjs `NEVER_PASSES`: no retry), and the outbox sweep closes it as dropped in plain words, marked
+  `refused` ("the app refuses the board's set calls; it runs on its current model"), never an undelivered word for rule 8. A step that
+  went without its set keeps its quiet gap whatever the refusal says later (the effort plan reads its envelope's `asked`).
+  The chip draws "Sonnet · low (Opus · high asked)" quietly, no arrow and no pending border; a free worker's status "on Sonnet · medium
+  (the app no longer lets the board switch it)", plain words (rule 16); the app's own words stay in the outbox. Rule effort-mismatch
+  and the health summary read such a run as known and quiet (`switchOf` state `refused`).
 - The right worker first (handOut.mjs `match`, with the free workers beside it as `peers`): among free workers the one already on the
-  step's model and effort, then on its model, then on its effort, so most hand-overs need no set. A step never waits for a better one.
-- Tests: `test/work/setRefused.test.mjs` (the refusal's real words; B1160 sent again without a take-back; no set word while refused; an
+  step's model and effort, then on its model, then on its effort (the family weighs more), so most hand-overs need no set. A peer wins
+  a step only when its own decide could be given it (not barred by a take-back or give-back since its last take, no ban of its own on
+  the step's model: review 1-3); else the deciding worker takes it. A step never waits for a better one.
+- Tests: `test/work/setRefused.test.mjs` and `setRefusedReview.test.mjs` (the refusal's real words; B1160 sent again without a take-back; no set word while refused; an
   old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off
   sonnet steps; the plain row words). The owed set through a model turn of Main (decision 4) is the second landing.
 

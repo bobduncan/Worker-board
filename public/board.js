@@ -2942,6 +2942,7 @@ function runChipOf(chat) {
   const now = chipWords(model?.short ?? null, effort)
   let next = null
   let pending = null
+  let asked = null
   const run = chat.effortRun ?? null
   if (run !== null && run.isSet === false) {
     const family = typeof run.model === 'string' && run.model !== '' ? run.model : null
@@ -2949,7 +2950,9 @@ function runChipOf(chat) {
     const text = chipWords(name, effortWord(run.level))
     // The same setting again is no switch to show.
     if (text !== '' && text !== now) {
-      next = { text, tone: family === null ? model?.tone ?? 'other' : CHIP_TONES.includes(family) ? family : 'other' }
+      // B1160 review 9: a gap the app's refusal left is no switch to come: no arrow, no pending border, the asked setting quietly.
+      if (run.refused === true) asked = text
+      else next = { text, tone: family === null ? model?.tone ?? 'other' : CHIP_TONES.includes(family) ? family : 'other' }
       pending = run.refused === true
         // B1160 (chat 1's decision 2): the app refuses the board's set calls: it runs on as it is, the gap said quietly.
         ? `${text} asked${typeof run.step === 'string' ? ` for ${run.step}` : ''}; the app refuses the board's set calls, so it runs on ${now}.`
@@ -2957,8 +2960,9 @@ function runChipOf(chat) {
     }
   }
   return {
-    text: next === null ? now : run?.refused === true ? `${now} (${next.text} asked)` : `${now} → ${next.text}`,
+    text: asked !== null ? `${now} (${asked} asked)` : next === null ? now : `${now} → ${next.text}`,
     now,
+    ...(asked === null ? {} : { asked }),
     tone: model?.tone ?? 'other',
     next,
     title: [runsLine(model, effort), pending].filter(Boolean).join('\n'),
@@ -3500,6 +3504,7 @@ function drawRunChip(view) {
   const chip = el('span', `run-chip is-${view.tone}${view.next === null ? '' : ' is-pending'}`)
   chip.title = view.title
   chip.append(el('span', 'run-now', view.now))
+  if ((view.asked ?? null) !== null) chip.append(el('span', 'run-asked', `(${view.asked} asked)`))
   if (view.next !== null) {
     // The arrow and the setting after it stay together: a narrow chip wraps before them.
     const arrow = el('span', 'run-arrow', '→')

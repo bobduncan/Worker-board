@@ -284,7 +284,7 @@ const runName = worker => {
   const effort = chatEffort(worker)
   return [family === null ? null : `${family[0].toUpperCase()}${family.slice(1)}`, effort].filter(Boolean).join(' · ')
 }
-export const refusedWords = worker => `free · on ${runName(worker) || 'its own model'} ${REFUSED_MARK}`
+export const refusedWords = worker => `on ${runName(worker) || 'its own model'} ${REFUSED_MARK}`
 
 /** The words a lane's why carries while a ban stands (laneWords reads them; a test pins them). */
 export const BAN_WHY_MARK = ' steps: its set failed at '
@@ -544,7 +544,16 @@ export function decide({ worker, peers = [], setsRefused = false, items = new Ma
   const noModel = failedModels(envelopes, now)
   const open = ready.filter(one => !barred.has(one.id) && !noModel.has(setFor(one.id)?.model ?? null))
   // B1160 (decision 3): the free workers beside it (`peers`) take part, so a step goes to the one closest to its run (handOut.mjs `match`).
-  const given = match({ ready: open, idle: [worker, ...peers.filter(one => plain(one?.name, prefix) !== plain(name, prefix))], items: scratch, prefix }).find(one => plain(one.chat, prefix) === plain(name, prefix)) ?? null
+  // B1160 review 1-3 (blocker): a peer wins a step only when its own decide could be given it: not barred for it (notOfferedAgain: taken
+  // back or given back from it since its last take) and no ban of its own on the step's model; else the deciding worker takes it, so
+  // a step never waits for a peer that will never get it.
+  const others = peers.filter(one => plain(one?.name, prefix) !== plain(name, prefix))
+  const peerBars = new Map(others.map(one => [one.name, { ids: notOfferedAgain(items, one.name, prefix), models: failedModels(one.envelopes ?? [], now), setFor: typeof one.setFor === 'function' ? one.setFor : () => null }]))
+  const mayTake = (task, lane) => {
+    const bars = peerBars.get(lane.name)
+    return bars === undefined || (!bars.ids.has(task.id) && !bars.models.has(bars.setFor(task.id)?.model ?? null))
+  }
+  const given = match({ ready: open, idle: [worker, ...others], items: scratch, prefix, mayTake }).find(one => plain(one.chat, prefix) === plain(name, prefix)) ?? null
   const clear = owed === null || owed === undefined ? null : { step: owed.step, reportedAt: owed.reportedAt }
   const said = takenBack === null ? null : `${NOT_TAKEN_WHY.replace('it', takenBack.id)}`
   // The lazy clear (R1, 2026-11-03): no clear is ever sent alone. A free worker that owes one stays FREE and uncleared (an

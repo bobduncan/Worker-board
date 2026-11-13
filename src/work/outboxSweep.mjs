@@ -12,7 +12,7 @@ import { heldTooLong, isHandTaken, isMootSpawn, isTaskStopWord, mootWhy, stopSet
 import { RESUME_STEP, isLimitStopWord, waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
-import { familyOf, sameModel } from './effort.mjs'
+import { familyOf, isSetRefused, sameModel } from './effort.mjs'
 import { stamp } from './migrate.mjs'
 import { OLD_CHECK_WHY } from './qaTask.mjs'
 import { gitCheckAtMs, gitCheckPassed } from './resultCheck.mjs'
@@ -92,6 +92,9 @@ export function whyClosed(message, ctx) {
   // B813 (X2): the word that sets a worker's model and effort no longer matters once a newer one for that worker stands,
   // or the worker runs at its setting already; waiting or failed.
   if (message.command === 'worker-effort') {
+    // B1160 review 6: a set word the app refused (in auto mode it does not run a plugin's own set call) is closed at once, in plain words,
+    // kept marked `refused` so the board knows the refusal stands (effort.mjs `setsRefusedOf`): never an undelivered word for rule 8.
+    if (message.state === 'failed' && isSetRefused(message)) return { state: 'dropped', refused: true, why: "the app refuses the board's set calls; it runs on its current model" }
     const newer = all.find(one => one.id !== message.id && one.at > message.at && isStanding(one) && kindOf(one) === kindOf(message))
     if (newer !== undefined) return { state: 'dropped', why: `superseded by a newer word for ${message.about}'s setting (${stamp(newer.at)})` }
     const lane = (ctx.lanes ?? []).find(one => one.name === message.about && !one.isLeftover)
@@ -358,7 +361,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
     if (closed !== null && (message.state === 'waiting' || closed.state === 'dropped')) closing.set(message.id, { id: message.id, ...closed })
   }
   // B1071: a stop settled as done is closed delivered, at this sweep.
-  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : one.state === 'delivered' ? { deliveredAt: now } : {})
+  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : one.refused === true ? { refused: true } : one.state === 'delivered' ? { deliveredAt: now } : {})
   return [...settled, ...closing.values()]
 }
 

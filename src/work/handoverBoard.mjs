@@ -70,8 +70,10 @@ export function setterFor(lane, items, config) {
  * B1160 (chat 1's decision 3): the other free workers on the sequence beside `lane` (running, idle by their report, holding no
  * step), for the hand-out's choice of the worker closest to a step's run (handOut.mjs `match`).
  */
-export const peersOf = (state, lane, config) => (state.chats ?? []).filter(other => other !== lane && other?.name !== lane.name && onSequence(other, config)
+export const peersOf = (state, lane, config, { items = new Map(), sent = [] } = {}) => (state.chats ?? []).filter(other => other !== lane && other?.name !== lane.name && onSequence(other, config)
   && other.isRunning === true && other.report?.state === 'idle' && (other.held ?? null) === null && (other.handover?.state ?? 'free') === 'free')
+  // B1160 review 1-3: with what its own decide reads to bar a step (its envelopes for its bans, its set for a step).
+  .map(other => ({ ...other, envelopes: envelopesOf(sent, other.name, state.chatPrefix ?? ''), setFor: setterFor(other, items, config) }))
 
 /** Signals change 3: the person's stop and remove words about a worker (B769, carried out by code), from the outbox. */
 const stopsOf = (sent, name) => (sent ?? []).filter(one => (one?.command === 'stop' || one?.command === 'remove') && one.byCode === true && one.about === name)
@@ -84,7 +86,7 @@ export function factsOf({ lane, state, items, pause, sent, config, installed = n
   const prefix = state.chatPrefix ?? ''
   return {
     worker: lane, items, prefix,
-    peers: peersOf(state, lane, config),
+    peers: peersOf(state, lane, config, { items, sent }),
     // B1160: whether the app refuses the board's set calls now (the lane says so in plain words).
     setsRefused: setsRefusedOf(sent, now),
     // P1 (2026-11-09): the branch a landing (tools/land.ps1) is running for now (its lock, else its gate log without a landings

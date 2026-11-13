@@ -262,21 +262,21 @@ const clockOf = ms => { const at = new Date(ms); return `${String(at.getHours())
  */
 export const SET_REFUSED = /doesn't run this tool when a plugin's own code calls it|Have Claude make the call/i
 /** Whether an envelope (or a set word) failed on that refusal: its outcome's set failed, or its own why, names it. */
-export const isSetRefused = one => (one?.outcome?.set === false || one?.state === 'failed') && SET_REFUSED.test(`${one?.outcome?.why ?? ''} ${one?.why ?? ''}`)
+export const isSetRefused = one => one?.refused === true || ((one?.outcome?.set === false || one?.state === 'failed') && SET_REFUSED.test(`${one?.outcome?.why ?? ''} ${one?.why ?? ''}`))
 
 /**
- * B1160 (chat 1's decision 2): whether the app refuses the board's set words now: the newest set word that ended was refused
- * (`isSetRefused`) less than SET_REFUSED_MS (2 h) ago. While it stands the board writes no set word: an envelope goes without
- * its set and keeps it as `asked`. After SET_REFUSED_MS one set word is tried again.
+ * B1160 (chat 1's decision 2; review 15, 16): whether the app refuses the board's set words now: of the set words the app answered
+ * (delivered, or failed with a why, or closed by the sweep as refused), the newest answer by its time was a refusal (`isSetRefused`).
+ * It stands until the app is seen to set again (a delivered set word), never on a timer. Words that never reached the app (expired,
+ * dropped otherwise, waiting) say nothing. While it stands the board writes no set word: an envelope goes without its set and keeps it
+ * as `asked`, the effort plan and the Supervisor's and owner's words ask none.
  */
-export function setsRefusedOf(sent, now) {
-  const ended = (sent ?? []).filter(one => one?.command === 'worker-effort' && ['delivered', 'failed', 'dropped', 'expired'].includes(one.state) && Number.isFinite(one.at))
-  const newest = ended.sort((a, b) => a.at - b.at).at(-1) ?? null
-  return newest !== null && isSetRefused(newest) && now - (newest.failedAt ?? newest.at) < SET_REFUSED_MS
+export function setsRefusedOf(sent, now = Date.now()) {
+  const answerAt = one => [one.deliveredAt, one.failedAt, one.settledAt, one.at].find(Number.isFinite) ?? -Infinity
+  const answered = (sent ?? []).filter(one => one?.command === 'worker-effort' && (one.state === 'delivered' || isSetRefused(one) || (one.state === 'failed' && typeof one.why === 'string' && one.why !== '')))
+  const newest = answered.filter(one => answerAt(one) <= now + 60_000).sort((x, y) => answerAt(x) - answerAt(y)).at(-1) ?? null
+  return newest !== null && isSetRefused(newest)
 }
-
-/** B1160: a refusal of the board's set words stands this long; then one set word is tried again. */
-export const SET_REFUSED_MS = 2 * 60 * 60_000
 
 /**
  * What each worker should run at, and the words to the main chat that set it. `items` the store's items, `lanes` the
@@ -307,7 +307,7 @@ export const SET_REFUSED_MS = 2 * 60 * 60_000
  * isSet, asked: { at, state } | null, waitsFor: { model, since, text } | null }` (`model` and `usualModel` families,
  * null when the settings name no model ids).
  */
-export function effortPlan({ items, lanes = [], sent = [], now, main = null, prefix = '', skip = [], models = {}, usual = {} }) {
+export function effortPlan({ items, lanes = [], sent = [], now, main = null, prefix = '', skip = [], models = {}, usual = {}, refused = null, known = null }) {
   const words = []
   const runs = new Map()
   const settings = runSettings({ models, usualModel: usual.model, usualEffort: usual.effort })
@@ -317,7 +317,7 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
   const usualFamily = settings.usual.model
   const usualId = idOf(usualFamily)
   // B1160: while the app refuses the board's set words, none is asked (each would only be refused again); the run says so.
-  const isRefused = setsRefusedOf(sent, now)
+  const isRefused = refused ?? setsRefusedOf(sent, now)
   const steps = [...(items?.values() ?? [])].filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step')
   const owned = (item, name) => plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix)
   const others = new Set(skip.filter(Boolean).map(name => plain(name, prefix)))
@@ -350,6 +350,9 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
       return sameModel(lane.lastAnswer?.model, want) && Number.isFinite(lane.lastAnswer?.at) && lane.lastAnswer.at > since
     }
     const step = next === undefined ? null : valueOf(next, 'Id')
+    // B1160 review 4: the step went in an envelope without its set (`asked`): its gap is known and quiet whatever the refusal says now.
+    const wentUnset = step !== null && (known ?? sent).some(one => one?.command === 'handover' && plain(one.to, prefix) === plain(lane.name, prefix) && one.step === step && (one.set ?? null) === null && (one.asked ?? null) !== null)
+    const isQuietGap = isRefused || wentUnset
     const effort = next === undefined ? null : effortOf(next)
     const model = next === undefined ? null : modelOf(next)
     const level = effort?.level ?? usualEffort
@@ -378,10 +381,10 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     // An opus step's word waits while a word for another model is on its way, so the reading after both is right (the
     // main chat sets them in their order).
     const isAgainstModel = against !== null && (against.model ?? null) !== null && !sameModel(against.model, id)
-    const canAsk = !isRefused && main !== null && !isSet && asked === null && (isStrict ? !isAgainstModel : current !== null)
+    const canAsk = !isQuietGap && main !== null && !isSet && asked === null && (isStrict ? !isAgainstModel : current !== null)
     // Only a step it does not hold yet waits for Opus: one it holds already is set as soon as can be.
     let waitsFor = null
-    if (isStrict && !isModelSet && holding === undefined && !isRefused) {
+    if (isStrict && !isModelSet && holding === undefined && !isQuietGap) {
       const since = mine.find(word => word.forStep === step && sameTarget(word, level, id))?.at ?? null
       const reason = main === null ? 'there is no main chat (or no Workers mod) to set it'
         : isAgainstModel ? `the word to set it to ${MODEL_WORDS[MODELS.find(one => sameModel(idOf(one), against.model))] ?? against.model} first is not applied yet`
@@ -391,7 +394,7 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     }
     runs.set(lane.name, {
       level, model: hasModels ? family : null, usual: usualEffort, usualModel: hasModels ? usualFamily : null, step, why: effort?.why ?? null, modelWhy: model?.why ?? null, isSet,
-      asked: asked === null ? null : { at: asked.at, state: asked.state }, waitsFor, ...(isRefused && !isSet ? { refused: true } : {}),
+      asked: asked === null ? null : { at: asked.at, state: asked.state }, waitsFor, ...(isQuietGap && !isSet ? { refused: true } : {}),
     })
     if (canAsk) words.push({ to: main, chat: lane.name, session: lane.appSession ?? null, level, model: id, usual: usualEffort, usualModel: usualId, step, why })
   }

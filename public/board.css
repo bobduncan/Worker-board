@@ -2562,6 +2562,8 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .run-chip.is-opus, .run-next.is-opus { --dot: var(--chip-opus); }
 .run-chip.is-fable, .run-next.is-fable { --dot: var(--chip-fable); }
 .run-chip.is-pending { border-style: dashed; }
+/* B1160: the setting a step asked that the app's refusal left unset, quiet beside what it runs on. */
+.run-asked { color: var(--muted); }
 .run-now, .run-to { white-space: nowrap; }
 .run-to { display: inline-flex; gap: 5px; }
 .run-arrow { color: var(--muted); }

@@ -17,7 +17,7 @@ import { workApi } from '../../src/work/api.mjs'
 import { effortPlan, isSetRefused, setsRefusedOf } from '../../src/work/effort.mjs'
 import { match, readyList } from '../../src/work/handOut.mjs'
 import { STATES, bansOf, decide, failedOf, laneWords } from '../../src/work/handover.mjs'
-import { handOut, handOver, handoverPass } from '../../src/work/handoverBoard.mjs'
+import { handOut, handOver, handoverPass, setterFor } from '../../src/work/handoverBoard.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
@@ -35,6 +35,8 @@ const REFUSAL = 'PreToolUse:mcp__ccd_session_mgmt__set_session_effort hook error
 const item = (head, sections = {}) => ({ head: new Map(Object.entries(head)), sections: new Map(Object.entries(sections)), problem: null })
 const step = (id, state, more = {}, sections = {}) => item({ Id: id, Kind: 'step', Title: `Task ${id}`, State: state, Activity: 'Garden', Since: stamp(NOW - 60 * MIN), ...(state === 'refined' ? { Refined: 'ready' } : {}), ...more }, { History: [`- ${stamp(NOW - 60 * MIN)} Partner: made`], ...sections })
 /** B1163 as refined: opus, high (the board's hand-over core). */
+/** Digger's reported step: its clear is owed, so the envelope carries 'Clear after B1148' as the live 94566c8b45c54ba9 did (review 14). */
+const reported = () => step('B1148', 'done', { Owner: 'Digger' }, { History: [`- ${stamp(NOW - 90 * MIN)} Digger: queued → taken`, `- ${stamp(NOW - 30 * MIN)} Digger: in progress → review`, `- ${stamp(NOW - 30 * MIN)} server: check passed`] })
 const opusStep = id => step(id, 'refined', {}, { Model: ['opus: the board\'s hand-over core'], Effort: ['high: the set, clear and line order'] })
 
 async function garden(...all) {
@@ -75,11 +77,12 @@ test('the refusal is recognised by its real words; a set word that failed for an
 })
 
 test('decision 2: an envelope whose set word the app refused goes again at once without its set: no take-back, no bounce', async () => {
-  const one = await garden(opusStep('B1160'))
+  const one = await garden(reported(), opusStep('B1160'))
   try {
     const lane = await one.lane()
     const first = await one.decide(lane, NOW, { kind: 'turn-ended', since: NOW - 10 * MIN })
     assert.deepEqual(first.envelope.set, { model: OPUS, effort: 'high' })
+    assert.equal(first.envelope.clear.step, 'B1148')
     // The hands refuse the set word as the app did at 23:37: the next pass keeps the envelope, without its set, and carries it.
     await one.outbox.update(first.envelope.waitsFor, { state: 'failed', failedAt: NOW + 10_000, why: REFUSAL })
     const passed = await handoverPass({ state: await one.state([lane]), dir: one.dir, outbox: one.outbox, apply: one.apply(NOW + 20_000), config: CONFIG, now: NOW + 20_000, newId: one.newId })
@@ -88,7 +91,7 @@ test('decision 2: an envelope whose set word the app refused goes again at once 
     assert.deepEqual([kept.state, kept.set, kept.asked, kept.waitsFor], ['waiting', null, { model: OPUS, effort: 'high' }, null])
     assert.deepEqual([valueOf(await one.read('B1160'), 'State'), valueOf(await one.read('B1160'), 'Owner')], ['queued', 'Digger'])
     const handed = await handOut(one.outbox, 'Digger', NOW + 20_000, KEEP)
-    assert.deepEqual([handed.step, handed.set, handed.line, handed.clear], ['B1160', null, 'work: B1160 is yours; run work next', null])
+    assert.deepEqual([handed.step, handed.set, handed.line, handed.clear?.step], ['B1160', null, 'work: B1160 is yours; run work next', 'B1148'], 'the clear goes in')
     assert.ok(!(await one.read('B1160')).sections.get('History').some(line => /taken back/.test(line)), 'never taken back')
   } finally {
     await cleanUp(one.dir)
@@ -96,17 +99,18 @@ test('decision 2: an envelope whose set word the app refused goes again at once 
 })
 
 test('decision 2: while the refusal stands no set word is written: the envelope goes without its set and keeps it as asked', async () => {
-  const one = await garden(opusStep('B1163'))
+  const one = await garden(reported(), opusStep('B1163'))
   try {
     await one.outbox.say({ id: 'w0', at: NOW - 2 * MIN, to: 'Lead', command: 'worker-effort', about: 'Mower', effort: 'high', state: 'failed', failedAt: NOW - 2 * MIN, why: REFUSAL })
     assert.equal(setsRefusedOf(one.outbox.outbox(), NOW), true)
-    assert.equal(setsRefusedOf(one.outbox.outbox(), NOW + 3 * 60 * MIN), false, 'one try again after 2 h')
+    assert.equal(setsRefusedOf(one.outbox.outbox(), NOW + 3 * 60 * MIN), true, 'no timer: it stands until a set is seen to work (review 15)')
     const lane = await one.lane()
     const first = await one.decide(lane, NOW, { kind: 'turn-ended', since: NOW - 10 * MIN })
     assert.deepEqual([first.envelope.set, first.envelope.asked, first.envelope.waitsFor], [null, { model: OPUS, effort: 'high' }, undefined])
     assert.equal(one.outbox.outbox().filter(message => message.command === 'worker-effort').length, 1, 'no new set word')
     assert.match(first.envelope.text, /Asked, not set \(the app refuses the board's set\): claude-opus-5-5 · high/)
-    assert.equal((await handOut(one.outbox, 'Digger', NOW, KEEP)).step, 'B1163')
+    const handed = await handOut(one.outbox, 'Digger', NOW, KEEP)
+    assert.deepEqual([handed.step, handed.clear?.step], ['B1163', 'B1148'], 'the clear goes in')
   } finally {
     await cleanUp(one.dir)
   }
@@ -120,7 +124,7 @@ test('decision 2: an envelope that already failed on the refusal before this fix
     await one.outbox.say({ id: 'e0', at: NOW - MIN, to: 'Digger', command: 'handover', kind: 'task', step: 'B1160', clear: null, restart: false, set: { model: OPUS, effort: 'high' }, line: 'work: B1160 is yours; run work next', state: 'failed', failedAt: NOW - MIN, settledAt: NOW - MIN, outcome: { cleared: null, set: false, typed: false, restarted: null, background: false, why: REFUSAL } })
     const next = await one.decide(lane, NOW)
     assert.equal(next.decision.state, STATES.HANDING)
-    assert.ok(['B1160', 'B1161'].includes(next.decision.give))
+    assert.equal(next.decision.give, 'B1160', 'no ban diverts it to B1161')
   } finally {
     await cleanUp(one.dir)
   }
@@ -169,13 +173,16 @@ test('decision 3: with no closer worker free, the step still goes to the one the
 
 test('the screenshot of 2026-11-12: Workers on Sonnet · medium are never kept off sonnet steps after a refused set, and the row says it plainly', () => {
   const refusedSonnet = { kind: 'task', step: 'B1161', set: { model: SONNET, effort: 'medium' }, state: 'failed', at: NOW - 3 * MIN, failedAt: NOW - 3 * MIN, outcome: { cleared: null, set: false, typed: false, why: REFUSAL.replace('set_session_effort', 'set_session_model') } }
-  const worker = { name: 'Worker 3', model: SONNET, effort: 'medium', isRunning: true, report: { state: 'idle', since: NOW - MIN, at: NOW } }
-  const sonnetStep = step('B1161', 'refined')
-  const given = decide({ worker, envelopes: [refusedSonnet], items: new Map([['B1161', sonnetStep]]), ready: [{ id: 'B1161', keptFor: null, pinned: null, prefers: null }], now: NOW, event: { kind: 'turn-ended', since: NOW - MIN } })
+  // Worker 3 on Opus, its refused set was for Sonnet: the step needs a Sonnet set (setFor), and no ban may bar it (review 19).
+  const worker = { name: 'Worker 3', model: OPUS, effort: 'medium', isRunning: true, report: { state: 'idle', since: NOW - MIN, at: NOW } }
+  const sonnetStep = step('B1161', 'refined', {}, { Model: ['sonnet: plain'], Effort: ['medium: plain'] })
+  const sonnetItems = new Map([['B1161', sonnetStep]])
+  assert.equal(setterFor(worker, sonnetItems, CONFIG)('B1161').model, SONNET)
+  const given = decide({ worker, setFor: setterFor(worker, sonnetItems, CONFIG), envelopes: [refusedSonnet], items: sonnetItems, ready: [{ id: 'B1161', keptFor: null, pinned: null, prefers: null }], now: NOW, event: { kind: 'turn-ended', since: NOW - MIN } })
   assert.equal(given.give, 'B1161', 'no 2-hour exclusion')
   const free = decide({ worker, setsRefused: true, envelopes: [refusedSonnet], items: new Map(), ready: [], now: NOW, event: { kind: 'turn-ended', since: NOW - MIN } })
   assert.equal(free.state, STATES.FREE)
-  assert.equal(laneWords(free), 'free · on Sonnet · medium (the app no longer lets the board switch it)')
+  assert.equal(laneWords(free), 'on Opus · medium (the app no longer lets the board switch it)')
   assert.doesNotMatch(laneWords(free), /PreToolUse|hook error|gets no/)
 })
 
