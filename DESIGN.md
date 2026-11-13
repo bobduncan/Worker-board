@@ -3979,9 +3979,10 @@ on it:
    the hook well inside its budget. The hooks' own work moved to top-level functions (`sessionStarts`, `promptContext`,
    `ownTurnStarts`, `afterOwnTurn`): the engine's loader wants every function that takes `$` declared at the top of the file.
 2. **The card chain is waited for briefly, never for good**: `say` and the work tool's report path wait SAY_MS (1.5 s) for their
-   write, `setTask` SET_TASK_MS (2 s) and then answers "Recorded (the card is written in the background)", the turn's own
-   `atTurnStart` write is queued; `setTask` builds its line from the pane's view with the card as written, not a fresh read of
-   every card.
+   write, `setTask` SET_TASK_MS (2 s) and then answers "Pending: the card is written in the background and not yet confirmed."
+   (never "Recorded" for a write not seen through), the turn's own `atTurnStart` write is queued; `setTask` judges the change
+   against the card as it stands first (an error, such as a step with no plan, is answered at once under a stuck chain) and
+   builds its line from the pane's view with the card as written, not a fresh read of every card.
 3. **A subagent's turn** (`e.agentId` set) passes `turn.start` and `turn.complete` at once: no say, no card write, no report, no
    refresh or git (`noteAgents` runs detached); so an async judge after the chat's turn sets `isInTurn` no more.
 4. **The work tool sleeps no more**: a cut answer is said at once ("not known whether it was recorded ... asked again in the
@@ -3996,6 +3997,36 @@ on it:
 
 The rules every later hook keeps to (the budget, `next.signal` unread, functions that take `$` at the top of the file, the test
 kit's clock) stand in MODS.md, "Writing a hook of the Workers mod: the engine's rules".
+
+Chat 1's review of the hotfix (2026-11-14, `.claude/plans/2026-11-14-mod-hotfix-0311-review.md`), as built:
+
+7. **A turn's end owns its start** (the blocker): `afterOwnTurn` takes the turn's `since`, its "told" flags, its asks and its
+   report before its first await and resets them there, so a turn that starts while the last end still tells the board gets its
+   own start, and both ends reach the board with their own `since` and "For you" block (before: one call, the second turn's asks
+   never filed).
+8. **The deadline reads the dispatch's signal only when the budget is spent**: `withinHook` also ends on `next.signal`, but only
+   while `next.budget.remainingMs` is 0 or below (the kit aborts the signal as soon as a hook beneath settles; the budget tells
+   that apart from a real expiry).
+9. **A cut work call's background repeat runs the call's follow-up** (`afterWorkAnswer`, bound to the turn the call was made in):
+   a report answered to the repeat marks the card and sets the report for that turn's end; a later turn's flags are not set.
+   Meanwhile the same call again reuses the request id and its promise (`repeating`), and its text tells the model not to call
+   again; the board records the id once.
+10. **Every wait on the card chain is bounded** (`awaitWrite` = `withinTime`, always): an idle chain is no exception, since one
+    held write is enough to hang a hook. The chain's entries go through `queued` (counted in `chainPending`).
+11. **The tick's beat is guarded** (`isBeating`): a slow chain queues no beat on beat; the tick's other work runs as before.
+12. **`join` and `leave` are bounded and `join` answers whether the card is written**; a rename's follow (`followShown`) waits
+    SET_TASK_MS for the join and goes on under the new name when it was quick (B463 as before), else answers the 409.
+13. **The open instructions line comes after the prompt's filing**, so a prompt filed names itself among them; late, it comes
+    with the next prompt.
+14. **The card scan's cold pass is the tick's** (`warmStaleCards`, WARM_PER_TICK 40): a hook never reads 766 stale cards at once;
+    `chat list` reads every card (`all: true`), so a chat closed for good is still named and `leave` finds it; the pane and the
+    hooks skip the week-old cards of chats the list does not name. One reading of the chat files at a time (`loadChats` guard).
+15. **Kept** (chat 1's acceptance): the catch-all keeps `await next(e)`; the pane hides a worker card's step task while the
+    board's `held` is null.
+
+Tests for the round, in the same describe: the blocker (two turn-ended calls with their own `since` and block while the first is
+held past 5 s), the repeat's follow-up and the reused request id, the no-plan error and the pending word under a stuck chain, the
+budget guard of the signal, the warm pass and `chat list` in the scan test.
 
 Tests: `mods/workers/hooks/chatlist.test.ts` "0.31.1 (F4)": a turn's start and end, the prompt, the chat tool and the work tool
 answer within their time while the board hangs and the card chain is stuck (the test world's `writeHold`; on 0.31.0 each waited

@@ -4738,7 +4738,7 @@ describe('0.31.1 (F4): no hook of the mod outlives the engine\'s budget', () => 
     const plan = $.tool.call({ tool: TOOL, action: 'plan', text: 'Skeleton Archer' }).then(out => { planned = String(out.result) })
     await clock.advance(2000)
     await plan
-    expect(planned).toBe('Recorded (the card is written in the background).')
+    expect(planned).toBe('Pending: the card is written in the background and not yet confirmed.')
     // The work tool: a board that hangs is a time-out after its own limit (10 s, a board call that does not count), said at once, no sleeps.
     w.hangs = true
     let worked: string | null = null
@@ -4780,11 +4780,19 @@ describe('0.31.1 (F4): no hook of the mod outlives the engine\'s budget', () => 
     w.mtimes[`${CHATS}/units.json`] = clock.now() - 8 * 24 * 60 * MIN
     stand(on, w)
     await startedAs($, w, 'Units')
+    // The pane (the tick's reading) skips the week-old card of a chat the list does not name; the Product owner stays: its stale card is
+    // read by the tick (chat 1's review, 13: no cold pass of 766 reads in a hook), so it shows after one.
+    await clock.advance(5000)
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
+    expect(await ui.find(lineOf('Product owner'))).toBeDefined()
+    expect(await ui.find(lineOf('Old chat'))).toBeUndefined()
+    expect(await ui.find(lineOf('Props'))).toBeDefined()
+    // `chat list` (chat 1's review, 12) reads every card, the week-old ones too: a chat closed for good is still named, and `leave` finds it.
     const listed1 = String((await $.tool.call({ tool: TOOL, action: 'list' })).result)
     expect(listed1).toContain('Props')
     expect(listed1).toContain('Units')
     expect(listed1).toContain('Product owner')
-    expect(listed1).not.toContain('Old chat')
+    expect(listed1).toContain('Old chat')
     // A second reading reads no card again: the sizes and times stand.
     w.reads = []
     await $.tool.call({ tool: TOOL, action: 'list' })
@@ -4795,5 +4803,93 @@ describe('0.31.1 (F4): no hook of the mod outlives the engine\'s budget', () => 
     w.reads = []
     await $.tool.call({ tool: TOOL, action: 'list' })
     expect(w.reads.filter(path => path.startsWith(`${CHATS}/`) && !path.endsWith('/list.json'))).toEqual([`${CHATS}/props.json`])
+  })
+  test('chat 1\'s review (1, the blocker): a turn\'s end still telling the board when the next turn starts leaves that turn its own start: both ends reach the board, each with its own since and For you block', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('main', { ...listed(), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, 'Main')
+    const block = (n: number): string => `Closed B27${n}.\n\n> **For you**\n> 1. **Answer:** Keep the golem ${n} as it is? I advise yes.`
+    const answer = JSON.stringify({ missed: [], open: [], role: 'main', pause: RUNNING, asked: [], left: [] })
+    let release = (): void => {}
+    w.byAction['turn-ended'] = { status: 200, text: answer }
+    w.holdAction = { action: 'turn-ended', until: new Promise<void>(done => { release = done }) }
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    const firstStart = clock.now()
+    const firstEnd = $.turn.complete({ ...ENDED, answer: block(1), turnId: 't1' })
+    // The board holds the answer past the hook's deadline: the hook returns at 5 s, the call goes on in the background.
+    await clock.advance(5000)
+    await firstEnd
+    // The next turn starts at 5.1 s and ends at 5.2 s with its own block; the first call is still held.
+    await clock.advance(100)
+    await $.turn.start({ text: 'go on', turnId: 't2' })
+    const secondStart = clock.now()
+    expect(secondStart).toBeGreaterThan(firstStart)
+    await clock.advance(100)
+    const secondEnd = $.turn.complete({ ...ENDED, answer: block(2), turnId: 't2' })
+    await clock.advance(300)
+    release()
+    await settle()
+    await clock.advance(10_000)
+    await secondEnd
+    await settle()
+    // Two turn-ended calls, each with its own since and its own For you item (the mutant: one call, the second turn's asks never filed).
+    const ended = w.worked.map(body => JSON.parse(body) as Record<string, unknown>).filter(one => one.action === 'turn-ended')
+    expect(ended.map(one => one.since)).toEqual([firstStart, secondStart])
+    expect(ended.map(one => JSON.stringify(one.forYou ?? null).includes('golem 1'))).toEqual([true, false])
+    expect(ended.map(one => JSON.stringify(one.forYou ?? null).includes('golem 2'))).toEqual([false, true])
+  })
+
+  test('chat 1\'s review (9 and 10): a cut work call\'s background repeat runs the call\'s follow-up (a report marks the card), and the same call again meanwhile reuses the request id', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 1, 3, 30), at: 0 } }), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    await $.turn.start({ text: 'go on', turnId: 't1' })
+    w.worked = []
+    w.requests = []
+    w.cuts = ['socket hang up']
+    w.workAnswer = { status: 200, text: JSON.stringify({ text: 'B12 is reported.' }) }
+    const first = String((await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'done', merged: 'abc1234' })).result)
+    expect(first).toContain('not known whether it was recorded')
+    expect(fileOf(w)?.task?.isReported).toBe(false)
+    // The model asks again before the repeat went: the same request id goes out (the board records it once).
+    const again = String((await $.tool.call({ tool: WORK, action: 'report', id: 'B12', result: 'done', merged: 'abc1234' })).result)
+    expect(again).toBe('B12 is reported.')
+    expect(new Set(w.requests).size).toBe(1)
+    expect(fileOf(w)?.task?.isReported).toBe(true)
+    // A repeat that gets the answer first does the same: the card marked, the step reported for the turn's end.
+    w.worked = []
+    w.requests = []
+    w.files[`${CHATS}/units.json`] = chatText({ name: 'Units', role: 'worker', state: 'working', task: task('Skeleton Archer', 2, 3, 30), at: clock.now() })
+    w.cuts = ['socket hang up']
+    await $.tool.call({ tool: WORK, action: 'report', id: 'B13', result: 'done', merged: 'abc1235' })
+    expect(fileOf(w)?.task?.isReported).toBe(false)
+    await clock.advance(2000)
+    await settle()
+    expect(fileOf(w)?.task?.isReported).toBe(true)
+    expect(new Set(w.requests).size).toBe(1)
+    await clock.advance(8000)
+    expect(w.worked.length).toBe(2, 'the first call and one repeat; no more once answered')
+  })
+
+  test('chat 1\'s review (11): under a stuck card chain the chat tool says a change that cannot be made at once (no plan to step), and a pending write as pending, never "Recorded"', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 0 } }), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    const release = stuck(w)
+    const stepped = String((await $.tool.call({ tool: TOOL, action: 'step', step: 2 })).result)
+    expect(stepped).toContain('No plan is recorded')
+    let planned: string | null = null
+    const plan = $.tool.call({ tool: TOOL, action: 'plan', text: 'Skeleton Archer' }).then(out => { planned = String(out.result) })
+    await clock.advance(2000)
+    await plan
+    expect(planned).toBe('Pending: the card is written in the background and not yet confirmed.')
+    expect(planned).not.toContain('Recorded')
+    release()
+    await settle()
+    await clock.advance(0)
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
   })
 })
