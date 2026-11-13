@@ -43,7 +43,8 @@ test('a backlog of 40 MB is read in one scan, every answer in it counted',async(
 // Mutant (the backlog read in one buffer and parsed at once): one gap of hundreds of ms.
 test('while a 64 MB backlog is read, the board is never held for more than 150 ms',async()=>place(async({root,transcripts})=>{
   await backlog(join(transcripts,'advisor.jsonl'),64,30)
-  const collector=createSpendingCollector({dir:root,transcripts,clock:Date.now});await collector.load()
+  // The clock is the fixture's day (2026-11-05): with the real clock the 7-day summary had left its answers behind by 2026-11-13.
+  const collector=createSpendingCollector({dir:root,transcripts,clock:()=>at+1});await collector.load()
   let last=performance.now(),longest=0,ticks=0
   const timer=setInterval(()=>{const now=performance.now();longest=Math.max(longest,now-last);last=now;ticks++},5)
   await collector.scan([{session:'advisor',name:'Advisor',role:'advisor'}])
