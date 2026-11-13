@@ -33,7 +33,7 @@ export type TurnReport = { state: 'busy' | 'idle' | 'asking' | 'ended'; since: n
  */
 export type TurnWords = { typed: TypedWord[]; word: string | null; turn: number | null }
 /** 8c: a word of ours typed into the chat: the outbox id, the text exactly as submitted, and whether the submit said it entered. */
-export type TypedWord = { id: string; text: string; isEntered: boolean; isEnvelope?: boolean }
+export type TypedWord = { id: string; text: string; isEntered: boolean; isEnvelope?: boolean; run?: string; at?: number }
 export const NO_TURN_WORDS: Readonly<TurnWords> = Object.freeze({ typed: [], word: null, turn: null })
 /** 8c: the most words kept on their way; the oldest goes first (a word whose turn never came, its prompt held by the app). */
 export const TYPED_MOST = 20
@@ -41,9 +41,23 @@ export const TYPED_MOST = 20
 const sameWords = (a: unknown, b: unknown): boolean => String(a ?? '').replace(/\s+/g, ' ').trim() === String(b ?? '').replace(/\s+/g, ' ').trim()
 
 /** 8c: a word of ours about to be submitted (a take's message or an envelope's line), after those before it: outbox order. */
-export function wordTyping(words: TurnWords, id: string, text: string, isEnvelope = false): TurnWords {
+export function wordTyping(words: TurnWords, id: string, text: string, isEnvelope = false, stamp: { run?: string; at?: number } = {}): TurnWords {
   if (words.typed.some(one => one.id === id)) return words
-  return { ...words, typed: [...words.typed, { id, text, isEntered: false, ...(isEnvelope ? { isEnvelope: true } : {}) }].slice(-TYPED_MOST) }
+  // Chat 1's verifier 2 (finding 8): the process run that typed it and when, so a word restored from the store is known as another process's.
+  return { ...words, typed: [...words.typed, { id, text, isEntered: false, ...(isEnvelope ? { isEnvelope: true } : {}), ...(typeof stamp.run === 'string' ? { run: stamp.run } : {}), ...(Number.isFinite(stamp.at) ? { at: stamp.at } : {}) }].slice(-TYPED_MOST) }
+}
+
+/**
+ * Chat 1's verifier 2 (finding 8): at a new process's FIRST own turn, the words restored from the store that another process typed
+ * (`run` not this one's), not entered, and not in this prompt go: the app's queue is first in, first out, so a queue that survived
+ * runs before anything typed afresh; what the first prompt does not hold never ran (the app's queue was lost with the process) and
+ * would else stay queued for ever and take the next same-text word's credit.
+ */
+export function restoredDropped(words: TurnWords, text: string, run: string): TurnWords {
+  const inPrompt = new Set(wordsIn(words, text))
+  // A restored word with a fresh twin (the same text typed by this process) gave way to it: the fresh one is the one that ran.
+  const fresh = new Set(words.typed.filter(one => one.run === run).map(one => normal(one.text)))
+  return { ...words, typed: words.typed.filter(one => one.run === run || one.isEntered || (inPrompt.has(one.id) && !fresh.has(normal(one.text)))) }
 }
 
 /** 0.32.0: the take words (not an envelope's line, whose outcome is its own) among `ids`, as `wordsIn` names them. */
@@ -129,14 +143,18 @@ function hitsIn(words: TurnWords, text: string): WordHit[] {
     const tailAt = prompt.indexOf(own.slice(-LONG_WORD_TAIL), at + Math.max(0, Math.min(LONG_WORD_CHARS, own.length - LONG_WORD_TAIL)))
     return tailAt < 0 ? null : { id: one.id, at, len: tailAt + LONG_WORD_TAIL - at, text: own, clashes: false }
   }).filter((one): one is WordHit => one !== null)
+  // Chat 1's verifier 2 (finding 8): a hit that IS the whole prompt wins over a head-and-tail hit of another word on the same stretch (a
+  // stale long word whose head and tail match this prompt's: its own text is not in it). Twins of the whole prompt stay twins.
+  const whole = hits.filter(hit => hit.at === 0 && hit.len === prompt.length && hit.text === prompt)
+  const trimmed = whole.length === 0 ? hits : hits.filter(hit => hit.text === prompt || !whole.some(other => overlaps(hit, other)))
   // The verifier of 0.32.0: a hit wholly inside a LONGER hit whose text occurs nowhere else in the prompt gives way to it (a take word
   // "work: B13 is yours; run work next" inside the envelope's line that carries it: the envelope's turn is the envelope's); a hit that
   // is the whole prompt always wins.
   // Round 4: an inner hit whose text stands outside the longer hit too is placed THERE (the envelope first, the take word after it:
   // both enter), so it overlaps the longer hit no more.
   const inside = (hit: WordHit, outer: WordHit): boolean => outer !== hit && outer.len > hit.len && outer.at <= hit.at && hit.at + hit.len <= outer.at + outer.len
-  const kept = hits.map(hit => {
-    const outer = hits.find(other => inside(hit, other))
+  const kept = trimmed.map(hit => {
+    const outer = trimmed.find(other => inside(hit, other))
     if (outer === undefined) return hit
     const at = outsideAt(prompt, hit.text, outer)
     return at < 0 ? null : { ...hit, at, len: hit.text.length }
@@ -150,10 +168,26 @@ function outsideAt(prompt: string, text: string, outer: WordHit): number {
   for (let at = prompt.indexOf(text); at >= 0; at = prompt.indexOf(text, at + 1)) if (at + text.length <= outer.at || at >= outer.at + outer.len) return at
   return -1
 }
-/** How many times `text` stands in `prompt`, without overlap and outside every stretch of `outers`. */
+/**
+ * How many times `text` stands in `prompt`, without overlap and outside every stretch of `outers`; a long text (over LONG_WORD_CHARS)
+ * the way `hitsIn` finds it, by its head with its tail after it (chat 1's verifier 2, finding 14: merged long twins whose middle the
+ * app re-wrapped would else count zero).
+ */
 function occurrencesOutside(prompt: string, text: string, outers: readonly WordHit[]): number {
   let count = 0
-  for (let at = prompt.indexOf(text); at >= 0; at = prompt.indexOf(text, at + text.length)) if (!outers.some(outer => at >= outer.at && at + text.length <= outer.at + outer.len)) count += 1
+  const isOutside = (at: number, len: number) => !outers.some(outer => at >= outer.at && at + len <= outer.at + outer.len)
+  if (text.length <= LONG_WORD_CHARS) {
+    for (let at = prompt.indexOf(text); at >= 0; at = prompt.indexOf(text, at + text.length)) if (isOutside(at, text.length)) count += 1
+    return count
+  }
+  const head = text.slice(0, LONG_WORD_CHARS)
+  const tail = text.slice(-LONG_WORD_TAIL)
+  for (let at = prompt.indexOf(head); at >= 0; at = prompt.indexOf(head, at + 1)) {
+    const tailAt = prompt.indexOf(tail, at + Math.max(0, Math.min(LONG_WORD_CHARS, text.length - LONG_WORD_TAIL)))
+    if (tailAt < 0) break
+    if (isOutside(at, tailAt + LONG_WORD_TAIL - at)) count += 1
+    at = tailAt + LONG_WORD_TAIL - 1
+  }
   return count
 }
 

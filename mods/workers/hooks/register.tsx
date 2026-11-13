@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, TYPED_MOST, contextForTake, takeWordsOf, typedWordsKey, MOST_CHARS, MOST_STAGES, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, TYPED_MOST, contextForTake, restoredDropped, takeWordsOf, typedWordsKey, MOST_CHARS, MOST_STAGES, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn } from './board'
 import type { Board, BoardStart, ClearStage, Envelope, Handover, Outcome, PauseState, PauseWhere, PendingClear, StopAsk, TurnContext, TurnReport, TurnWords, TypedWord, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -255,6 +255,9 @@ const TAKE_MS = 15_000
 const typedIds = new Set<string>()
 /** 0.32.0, point 1: the words the running turn's prompt held (reported at its start; told again at its end when that failed). */
 let enteredThisTurn: string[] = []
+/** Chat 1's verifier 2 (finding 8): this process's run, stamped on the words it types; a restored word of another run is judged at the first own turn. */
+const PROCESS_RUN = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+let isRestoredJudged = false
 /**
  * 0.32.0, point 1: the words of ours on their way, kept in the mod's store so the next process still knows them (a restart, a clear).
  * Under this chat's session (the plugin's store is one file for every chat, as `pendingClearKey`): another chat's words are never this one's.
@@ -586,14 +589,21 @@ async function clearStaleCard($: EngineInterface, taken: TakenAnswer, now: numbe
   if (verdict !== verdicts) return
   const chat = await readChat($, chatsDir, await $.session.id())
   if (verdict !== verdicts) return
-  if (chat === null || chat.task === null || chat.task.isReported || gone === null || chat.task.text !== gone || isInTurn) {
+  // Chat 1's verifier 2 (finding 13): a turn that started during the reads leaves the change for the next verdict (no reset).
+  if (isInTurn) return
+  if (chat === null || chat.task === null || chat.task.isReported || gone === null || chat.task.text !== gone) {
     heldByBoard = null
     heldTask = null
     return
   }
   // The review: a take that lands in between (a new turn, a new task) is left alone: only the task seen is cleared, and never in a turn.
-  await changeMine($, (me, at) => (me.task === null || me.task.text !== gone || isInTurn || verdict !== verdicts ? null : { ...me, task: null, taskNote: { at, why: `the board gives this chat no task now: ${was} was given back, stopped or dropped` } }))
-  if (verdict !== verdicts) return
+  let wrote = false
+  await changeMine($, (me, at) => {
+    if (me.task === null || me.task.text !== gone || isInTurn || verdict !== verdicts) return null
+    wrote = true
+    return { ...me, task: null, taskNote: { at, why: `the board gives this chat no task now: ${was} was given back, stopped or dropped` } }
+  })
+  if (verdict !== verdicts || !wrote) return
   heldByBoard = null
   heldTask = null
   void refreshChats($)
@@ -1152,7 +1162,7 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
       if (typedIds.has(message.id)) continue
       typedIds.add(message.id)
       // 8c: noted before the submit, in the order the board handed them out (its outbox order), so the turn it starts names it.
-      turnWords = wordTyping(turnWords, message.id, message.text)
+      turnWords = wordTyping(turnWords, message.id, message.text, false, { run: PROCESS_RUN, at: Date.now() })
       void keepTypedWords($)
       void $.prompt.submit({ text: message.text, asUser: true }).then(
         // A prompt a hook dropped did not enter the chat, though the call itself went well.
@@ -1819,7 +1829,7 @@ async function typeLine($: EngineInterface, envelope: Envelope, outcome: Outcome
       // `typedAt` just before the submit and `enteredAt` when it resolved (the line entered the chat), so the board's take-back
       // rule compares a turn with the line's own entry, not the envelope's hand-out (the 11:07 case: handed out 11:01:57, entered
       // 11:07:22 after the wake's first turn of 11:06:56-11:07:21 had ended).
-      turnWords = wordTyping(turnWords, envelope.id, text, true)
+      turnWords = wordTyping(turnWords, envelope.id, text, true, { run: PROCESS_RUN, at: Date.now() })
       void keepTypedWords($)
       // The review of 0.30.0: each clock read is one that cannot throw, so neither the settle is skipped nor `typed` flipped.
       const typedAt = await Promise.resolve($.clock.now()).catch(() => null)
@@ -2988,6 +2998,12 @@ export const register: Register = on => {
     // busy keeps both). A start whose state report does not change (a question still open) is told at once all the same.
     const isOwnStart = e.agentId === undefined && !isInTurn
     if (isOwnStart) {
+      // Chat 1's verifier 2 (finding 8): the first own turn of this process judges the words restored from the store: those another
+      // process typed, not entered and not in this prompt never ran (the app's queue went with the process) and go.
+      if (!isRestoredJudged) {
+        isRestoredJudged = true
+        turnWords = restoredDropped(turnWords, e.text, PROCESS_RUN)
+      }
       // 0.31.0, Task 6: the words of ours this prompt holds have entered, merged or not: each taken word not yet reported is
       // reported typed now (its own submit may never resolve), once; the turn is named by the first of them.
       // 0.32.0, point 1: also a word the chat's previous process typed (the queue is kept in the mod's store across a restart or a

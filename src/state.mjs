@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
-import { archivedChatsOf, boardChats, parseAppChat, parseList } from './appChats.mjs'
+import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
 import { allWords, closedForYou, minutesOf, sizeMinutes, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
@@ -70,7 +70,8 @@ import { recapRoundOf, reworkOf } from './recapRound.mjs'
 import { blockChipWords, keptRecapWaitOf, noneReadyOf, refineGroupOf, stepStatusOf, stepStatusesOf } from './stepStatus.mjs'
 import { guardOf, rebuildHoldsOf } from './goalGuard.mjs'
 import { standardOf } from './work/standard.mjs'
-import { archivedAfterRestart, rolloutPlan } from './work/modRollout.mjs'
+import { rolloutPlan } from './work/modRollout.mjs'
+import { emptyJournal, journalNext, openSessionsOf } from './work/rolloutJournal.mjs'
 import { chatsByRole } from './oldMods.mjs'
 import { clearingOf, decide, envelopesOf, holdingOf, lastClearWhyOf, laneWords, onSequence } from './work/handover.mjs'
 import { givenBackFrom } from './work/holderTimers.mjs'
@@ -1730,7 +1731,7 @@ export function buildState(raw, options) {
   return withLinks(raw?.work?.items, () => builtState(raw, options))
 }
 
-function builtState(raw, { lines = [], outbox = [], words = null, refineKept = null, runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], workCalls = null, finishedSeen = {}, taskTimes = [], stability = null, mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, noWorkSeen = null, now, config }) {
+function builtState(raw, { lines = [], outbox = [], words = null, refineKept = null, runs = [], board = null, seen = null, aliveAt = null, reports = null, wakes = null, hearing = null, stalls = [], workCalls = null, finishedSeen = {}, taskTimes = [], stability = null, mods = {}, modsLately = null, keptReadings = [], providers = [], planSeen = null, noWorkSeen = null, rolloutJournal = null, now, config }) {
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only, no longer until running) what waits in
   // the outbox is held until the resume, but the board's own "resume" to the main chat; the page says so (`isHeld`).
   const isPaused = isHolding(raw.work?.pause)
@@ -2486,6 +2487,13 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     chats: chatsByRole({ chats: chats.filter(lane => lane.onSequence !== true), advisor: side(advisorCard, advisorChat?.name), advisorHelper: side(helperLane, helperLane?.name), supervisorChat: side(supervisorLane, supervisorLane?.name), productOwner: side(ownerLane, ownerLane?.name) }),
     main: isBridgeMissing === true ? null : main?.name ?? null, partner: isBridgeMissing === true ? null : advisorChat?.name ?? null,
   })
+  // The Workers mod release 0.32.0, the rollout's guard as a journal (work/rolloutJournal.mjs, data/rollout.json through the server):
+  // the chats open when each restart word went, and the unarchive words for those still archived after the word reached; the
+  // restarters from the LIST of chats (the main chat archived or not). Nothing without the loops (the bridge missing: no words).
+  const journal = journalNext(rolloutJournal ?? emptyJournal(), {
+    sent, apps, project: config.project, prefix, now, main: isBridgeMissing === true ? null : list.main ?? null, partner: isBridgeMissing === true ? null : config.advisor ?? null,
+    left: apps.filter(chat => removedAt.has(chat.cliSessionId)).map(chat => chat.title),
+  })
   // Signals change 2 (the brief of 2026-10-31): every chat's ONE status, from one pure function (chatStatus.mjs), display only: `state`,
   // `isRunning`, `asleep`, `report` and `handover` stay as the decisions read them; nothing here is read back by one.
   const isPersonPause = pause?.state === 'pausing'
@@ -2686,7 +2694,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken' || flag.kind === 'handover off').map(flag => flag.text),
       // Model per step: settings that name the model ids otherwise than both, each "claude-...": the effort alone.
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], unarchives: rollout === null ? [] : archivedAfterRestart({ archived: archivedChatsOf(apps, { project: config.project, prefix }), sent, now, main: isBridgeMissing === true ? null : list.main ?? null, partner: isBridgeMissing === true ? null : config.advisor ?? null, prefix, mods: modsLately?.chats ?? null, left: apps.filter(chat => removedAt.has(chat.cliSessionId)).map(chat => chat.title) }), restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], unarchives: rollout === null ? [] : journal.words, restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
@@ -2751,6 +2759,10 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     recapWaiting: focus === null ? null : recapWaitingOf({ goal: focus.id, recap: raw.goalRecap ?? null, items: itemsById, openChecks: checksOpen, now }),
     // B296, B301: the work store: its folder, how many items, its problems, and why it cannot be read (`why`).
     store: shown.store,
+    // The rollout's journal, brought up to date (the server writes it back when it changed), and the app's open sessions (the
+    // outbox's sweep: an unarchive word whose chat is open again is moot).
+    rolloutJournal: journal.journal,
+    openSessions: openSessionsOf(apps),
     // B298: the person's words per chat, filed as instructions (work/lists.mjs).
     instructions: instructionsOf(raw.work, now),
     // The whole backlog by activity, for the Coordinate tab. A step for the person opens its card (`needId`).

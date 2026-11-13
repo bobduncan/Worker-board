@@ -6,8 +6,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { RESTART_AGAIN_MS, RESTART_CAUSE_MS, RESTART_TRIES, UNARCHIVE_AFTER_MS, UNARCHIVE_AGAIN_MS, archivedAfterRestart, restartWords, rolloutPlan, unarchiveWords } from '../src/work/modRollout.mjs'
-import { archivedChatsOf } from '../src/appChats.mjs'
+import { RESTART_AGAIN_MS, RESTART_TRIES, restartWords, rolloutPlan, unarchiveWords } from '../src/work/modRollout.mjs'
 import { isPartnerWord } from '../src/say.mjs'
 import { outboxNow } from '../src/store.mjs'
 import { readFileSync } from 'node:fs'
@@ -90,89 +89,20 @@ test('the word names the chat, its session and both versions; the partner\'s cop
   assert.equal(isPartnerWord('mod-restart'), true)
 })
 
-test('the Workers mod release 0.32.0 (chat 1\'s review and verifier): a chat still archived after its restart for the mod gets its restarter an unarchive word, once per half hour, three times at most', () => {
-  // A restart word as the outbox holds it: made `minutesAgo`, delivered a minute later (reached its restarter), naming the chat's session.
-  const restart = (chat, minutesAgo, more = {}) => ({ id: `r-${chat}-${minutesAgo}`, to: 'Lead', command: 'mod-restart', about: chat, session: `local_${chat.toLowerCase().replace(/\W+/g, '')}`, version: '0.32.0', at: NOW - minutesAgo * MIN, deliveredAt: NOW - minutesAgo * MIN + MIN, state: 'delivered', ...more })
-  const file = (name, more = {}) => ({ name, session: `local_${name.toLowerCase().replace(/\W+/g, '')}`, lastActivityAt: NOW - 10 * MIN, hasOpenTwin: false, ...more })
-  const archived = [file('Painter'), file('Lead'), file('Old chat')]
-  // Painter: restart word reached 6 min ago, still archived: the main chat is asked to unarchive it. Lead (the main chat): the partner. Old chat: no restart word (the person archived it): nothing.
-  const words = archivedAfterRestart({ archived, sent: [restart('Painter', 7), restart('Lead', 7, { to: 'Guide' })], now: NOW, main: 'Lead', partner: 'Guide' })
-  assert.deepEqual(words.map(one => [one.to, one.chat, one.session]), [['Lead', 'Painter', 'local_painter'], ['Guide', 'Lead', 'local_lead']])
-  assert.match(words[0].why, /^Painter is still archived 6 min after its restart for the mod \(asked at \d\d:\d\d\): unarchive it, archive nothing$/)
-  // The verifier: the grace counts from when the word REACHED its restarter (made 12 min ago, delivered 20 s ago: the main chat is at it), not from its making.
-  assert.deepEqual(archivedAfterRestart({ archived, sent: [restart('Painter', 12, { deliveredAt: NOW - 20_000 })], now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  assert.deepEqual(archivedAfterRestart({ archived, sent: [restart('Painter', 5)], now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  assert.equal(UNARCHIVE_AFTER_MS, 5 * MIN)
-  // Asked 10 min ago and still archived: not again before the half hour; after it, once more.
-  const asked = (minutesAgo, more = {}) => ({ id: `u-${minutesAgo}`, to: 'Lead', command: 'mod-unarchive', about: 'Painter', session: 'local_painter', at: NOW - minutesAgo * MIN, state: 'delivered', ...more })
-  assert.deepEqual(archivedAfterRestart({ archived, sent: [restart('Painter', 40), asked(10)], now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  assert.equal(archivedAfterRestart({ archived, sent: [restart('Painter', 40), asked(31)], now: NOW, main: 'Lead', partner: 'Guide' }).length, 1)
-  assert.equal(UNARCHIVE_AGAIN_MS, 30 * MIN)
-  // A restart word that failed or expired caused nothing; one still waiting or taken made no archive yet; no restarter on the board: nothing.
-  assert.deepEqual(archivedAfterRestart({ archived, sent: [restart('Painter', 7, { state: 'failed' })], now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  assert.deepEqual(archivedAfterRestart({ archived, sent: [restart('Painter', 7, { state: 'taken', deliveredAt: undefined })], now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  assert.deepEqual(archivedAfterRestart({ archived, sent: [restart('Painter', 7)], now: NOW, main: null, partner: null }), [])
-  // The review: at most three words per restart; the verifier: counted through the outbox's own view, which keeps unarchive words a day (else the
-  // first drops out after two hours and a fourth word goes).
-  const three = [95, 65, 35].map(minutesAgo => asked(minutesAgo))
-  assert.deepEqual(archivedAfterRestart({ archived, sent: outboxNow([restart('Painter', 100), ...three], NOW, () => false), now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  assert.equal(archivedAfterRestart({ archived, sent: outboxNow([restart('Painter', 100), ...three.slice(1)], NOW, () => false), now: NOW, main: 'Lead', partner: 'Guide' }).length, 1)
-  assert.equal(outboxNow([asked(3 * 60)], NOW, () => false).length, 1)
-  // The verifier: a restart word is the cause of an archive only while it reached its restarter within RESTART_CAUSE_MS (the archive follows
-  // within a minute); an older word is none: the person archived the chat since, or the board removed it.
-  assert.equal(RESTART_CAUSE_MS, 2 * 60 * MIN)
-  assert.deepEqual(archivedAfterRestart({ archived, sent: [restart('Painter', 6 * 60)], now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  // The verifier: a chat whose mod said the word's version since came back and was archived on purpose; a chat whose card says it left the list too.
-  assert.deepEqual(archivedAfterRestart({ archived, sent: [restart('Painter', 40)], mods: { Painter: '0.32.0' }, now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  assert.equal(archivedAfterRestart({ archived, sent: [restart('Painter', 40)], mods: { Painter: '0.31.0' }, now: NOW, main: 'Lead', partner: 'Guide' }).length, 1)
-  assert.deepEqual(archivedAfterRestart({ archived, sent: [restart('Painter', 40)], left: ['Garden - Painter'], prefix: 'Garden - ', now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  // The verifier (blocker): same-title archived twins (the replaced routine-run chats): the word names the file with the restart word's SESSION,
-  // never the first in file order; a word with no session goes by name to the newest archived file of that name, and not at all while an
-  // open chat carries the name.
-  const twins = [file('Painter', { session: 'local_old', lastActivityAt: 1000 }), file('Painter', { session: 'local_real', lastActivityAt: 9000 })]
-  assert.deepEqual(archivedAfterRestart({ archived: twins, sent: [restart('Painter', 7, { session: 'local_real' })], now: NOW, main: 'Lead', partner: 'Guide' }).map(one => one.session), ['local_real'])
-  assert.deepEqual(archivedAfterRestart({ archived: twins, sent: [restart('Painter', 7, { session: null, text: 'restart for mod\nChat: Painter\nSession: local_real\nWhy: x' })], now: NOW, main: 'Lead', partner: 'Guide' }).map(one => one.session), ['local_real'])
-  assert.deepEqual(archivedAfterRestart({ archived: twins, sent: [restart('Painter', 7, { session: null, text: 'restart for mod\nChat: Painter\nWhy: x' })], now: NOW, main: 'Lead', partner: 'Guide' }).map(one => one.session), ['local_real'])
-  assert.deepEqual(archivedAfterRestart({ archived: twins.map(one => ({ ...one, hasOpenTwin: true })), sent: [restart('Painter', 7, { session: null, text: 'x' })], now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  // A word whose session no archived file carries (the chat is open again, or gone): nothing, whatever the names.
-  assert.deepEqual(archivedAfterRestart({ archived: twins, sent: [restart('Painter', 7, { session: 'local_other' })], now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  // The review and the verifier: a chat archived WITH the main chat (its archive takes the chats it started): the main chat's restart word
-  // carries the chats on the board when it went (`chats`), by session; one not on it does not; a restart word to another chat is no cause.
-  const mason = [file('Mason')]
-  const mainWord = restart('Lead', 9, { to: 'Guide', chats: [{ name: 'Mason', session: 'local_mason' }, { name: 'Painter', session: 'local_painter' }] })
-  assert.deepEqual(archivedAfterRestart({ archived: mason, sent: [mainWord], now: NOW, main: 'Lead', partner: 'Guide' }).map(one => [one.to, one.chat, one.session]), [['Lead', 'Mason', 'local_mason']])
-  assert.deepEqual(archivedAfterRestart({ archived: mason, sent: [restart('Lead', 9, { to: 'Guide', chats: [{ name: 'Painter', session: 'local_painter' }] })], now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  assert.deepEqual(archivedAfterRestart({ archived: mason, sent: [restart('Painter', 9, { chats: [{ name: 'Mason', session: 'local_mason' }] })], now: NOW, main: 'Lead', partner: 'Guide' }), [])
-  // The verifier (blocker): the main chat itself archived (cut off between its archive and unarchive): named from the LIST, it still gets the
-  // partner's word, and its workers theirs, to it.
-  const both = archivedAfterRestart({ archived: [...mason, file('Lead')], sent: [mainWord], now: NOW, main: 'Lead', partner: 'Guide' })
-  assert.deepEqual(both.map(one => [one.to, one.chat]), [['Lead', 'Mason'], ['Guide', 'Lead']])
-  // The word itself: a partner word (a partner that does not run is started for it); it carries the session on the record too.
-  const word = unarchiveWords({ to: 'Lead', chat: 'Painter', session: 'local_painter', why: 'still archived' })
+test('the Workers mod release 0.32.0: the unarchive word names the chat, its session and its restart record; the restart word carries its session (the journal, test/work/rolloutJournal.test.mjs, does the rest)', () => {
+  const word = unarchiveWords({ to: 'Lead', chat: 'Painter', session: 'local_painter', why: 'still archived', record: 'r-1' })
   assert.equal(word.text, 'unarchive chat\nChat: Painter\nSession: local_painter\nWhy: still archived')
-  assert.deepEqual([word.command, word.about, word.to, word.session], ['mod-unarchive', 'Painter', 'Lead', 'local_painter'])
+  assert.deepEqual([word.command, word.about, word.to, word.session, word.record], ['mod-unarchive', 'Painter', 'Lead', 'local_painter', 'r-1'])
+  assert.equal(Object.hasOwn(unarchiveWords({ to: 'Lead', chat: 'Painter', session: null, why: 'x' }), 'record'), false)
   assert.equal(isPartnerWord('mod-unarchive'), true)
-  // The restart word carries its session and, for the main chat, the chats on the board (restartWords, rolloutPlan).
-  const named = restartWords({ to: 'Guide', chat: 'Lead', session: 'local_lead', runs: '0.31.0', installed: '0.32.0', why: 'x', chats: [{ name: 'Mason', session: 'local_mason' }, { name: 'Bad', session: 'no id!' }] })
-  assert.deepEqual([named.session, named.chats], ['local_lead', [{ name: 'Mason', session: 'local_mason' }, { name: 'Bad', session: null }]])
-  assert.equal(Object.hasOwn(restartWords({ to: 'Lead', chat: 'Painter', session: 'local_painter', runs: '0.31.0', installed: '0.32.0', why: 'x' }), 'chats'), false)
-  const planned = rolloutPlan({ mods: { installed: '0.32.0', chats: { Lead: '0.31.0', Mason: '0.32.0' } }, chats: [{ name: 'Lead', role: 'main', state: 'free', isRunning: true, session: 'local_lead' }, { name: 'Mason', role: 'worker', state: 'free', isRunning: true, session: 'local_mason' }], now: NOW, main: 'Lead', partner: 'Guide' })
-  assert.deepEqual(planned.words.map(one => [one.chat, one.chats]), [['Lead', [{ name: 'Mason', session: 'local_mason' }]]])
-  // The project's archived chats (appChats.mjs): in the project, titled with the prefix, no launch stub, newest first, each with its session,
-  // its last activity and whether a real open chat of the project carries its title (a launch stub, or a chat elsewhere, is none).
-  const app = (title, more = {}) => ({ title, sessionId: `local_${title.toLowerCase().replace(/\W+/g, '')}`, cwd: 'C:\\garden', isArchived: true, isStub: false, lastActivityAt: 5000, ...more })
-  const apps = [app('Garden - Painter'), app('Garden - Mason'), app('Garden - Mason', { isArchived: false, sessionId: 'local_mason2' }), app('Garden - Stub', { isStub: true }), app('Garden - Far', { cwd: 'C:\\elsewhere' }), app('Other - Painter'), app('Garden - Open', { isArchived: false }), app('Garden - Newer', { lastActivityAt: 9000 })]
-  assert.deepEqual(archivedChatsOf(apps, { project: 'C:\\garden', prefix: 'Garden - ' }), [
-    { name: 'Newer', session: 'local_gardennewer', lastActivityAt: 9000, hasOpenTwin: false },
-    { name: 'Painter', session: 'local_gardenpainter', lastActivityAt: 5000, hasOpenTwin: false },
-    { name: 'Mason', session: 'local_gardenmason', lastActivityAt: 5000, hasOpenTwin: true },
-  ])
-  const hidden = [app('Garden - Painter'), app('Garden - Painter', { isArchived: false, isStub: true, sessionId: 'local_stub' }), app('Garden - Painter', { isArchived: false, cwd: 'C:\\elsewhere', sessionId: 'local_far' })]
-  assert.deepEqual(archivedChatsOf(hidden, { project: 'C:\\garden', prefix: 'Garden - ' }).map(one => [one.name, one.hasOpenTwin]), [['Painter', false]])
-  // The board's state wires the guard with the project's archived chats, the restarters from the LIST (the main chat archived or not), what
-  // each chat's mod said and the cards that left (the verifier: a pin; the real case is test/modUnarchive.state.test.mjs).
+  const named = restartWords({ to: 'Guide', chat: 'Lead', session: 'local_lead', runs: '0.31.0', installed: '0.32.0', why: 'x' })
+  assert.deepEqual([named.session, Object.hasOwn(named, 'chats')], ['local_lead', false])
+  assert.equal(restartWords({ to: 'Lead', chat: 'P', session: 'bad id!', runs: '1', installed: '2', why: 'x' }).session, null)
+  // The board's state wires the journal with the outbox, the app's chats and the restarters from the LIST (the main chat archived or
+  // not): the real case is test/modUnarchive.state.test.mjs.
   const state = readFileSync(new URL('../src/state.mjs', import.meta.url), 'utf8')
-  assert.match(state, /unarchives: rollout === null \? \[\] : archivedAfterRestart\(\{ archived: archivedChatsOf\(apps, \{ project: config\.project, prefix \}\), sent, now, main: isBridgeMissing === true \? null : list\.main \?\? null, partner: isBridgeMissing === true \? null : config\.advisor \?\? null, prefix, mods: modsLately\?\.chats \?\? null, left: apps\.filter\(chat => removedAt\.has\(chat\.cliSessionId\)\)\.map\(chat => chat\.title\) \}\)/)
+  assert.match(state, /const journal = journalNext\(rolloutJournal \?\? emptyJournal\(\), \{\n\s+sent, apps, project: config\.project, prefix, now, main: isBridgeMissing === true \? null : list\.main \?\? null, partner: isBridgeMissing === true \? null : config\.advisor \?\? null,/)
+  assert.match(state, /unarchives: rollout === null \? \[\] : journal\.words,/)
 })
 
 test('the review: a restart word stays known a day, so the three tries are counted beyond the outbox\'s two hours', () => {

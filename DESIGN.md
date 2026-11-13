@@ -4637,7 +4637,10 @@ a chat's mod behaves as before for that chat (the call's header says the mod).
    many of the oldest as the prompt holds copies are reported and taken off the queue (else they would stay queued for ever; `wordsIn`
    names what `turnBegan` takes, so a twin the previous process typed is reported too), the rest go with the next such prompt. Also a word the chat's previous process typed: the typed words are kept in the mod's store
    under the chat's session (`typedWordsKey`, as `pendingClearKey`: the store is one file for every chat) across a restart or a clear,
-   and `wordsIn` reads them; an envelope's line (`isEnvelope`) is never reported typed by the turn (its outcome is its own,
+   each stamped with the process run that typed it (`run`, `at`); at a new process's first own turn the restored words of another
+   run, not entered and not in that prompt, go (`restoredDropped`: the app's queue went with the process, verifier 2 finding 8), a
+   whole-prompt hit wins over a head-and-tail hit on the same stretch, and long twins are counted by head and tail as they are found
+   (finding 14); and `wordsIn` reads them; an envelope's line (`isEnvelope`) is never reported typed by the turn (its outcome is its own,
    `takeWordsOf`). A report that failed at the turn's start (the board's file unreadable) is told again at the turn's end.
 2. **A stale Workers-pane card is cleared** (register.tsx `clearStaleCard`, chats.ts `lineOf`): the take answer carries the board's
    `startedAt` (server.mjs); a WORKER's card is cleared once, with why in the card's own `taskNote` ("the board gives this chat no
@@ -4651,9 +4654,12 @@ a chat's mod behaves as before for that chat (the call's header says the mod).
    pause, else read anew once per such change. Known limit: a give-back while the chat's process was down (no verdict named the step
    to this process) is not cleared; the next step's take names the card anew. Chat 1's verifier (G2): the board sends `held` only for
    a WORKER lane and only from a store it read (chatStatus.mjs `statusesOf`, `store.ok`; a failed read sends no verdict, so one bad
-   refresh clears no card), and the mod keeps an entry without `held` as none (board.ts `parseStatuses`); a clear is bound to its
-   verdict (`verdicts` counter): a newer verdict during its reads wins. The pane keeps the card's own words whatever the board holds
-   (a role chat's plan, a worker's typed request): a stale step task is the chat's own mod's to clear, never the pane's.
+   refresh clears no card), and the mod keeps an entry without `held` WITHOUT one (board.ts `parseStatuses`: no verdict; null is the
+   verdict "holds nothing"); a clear is bound to its verdict (`verdicts` counter): a newer verdict during its reads wins, and a turn
+   that starts during them leaves the change for the next verdict (verifier 2, finding 13). The pane shows the board's held step when
+   it names one, the status alone for a worker the board says holds nothing (a stale step task, also one given back while the
+   worker's process was down: chat 1's verifier 2, findings 7, 9 and 12), and the card's own words for an entry without `held` (the
+   main chat, a role chat).
 3. **The block/unblock tool text** names a wait on a chat ("the chat whose answer you wait for, with why: the board shows you as
    waiting on purpose ... for 90 minutes of its running time, then shows the person a Late") and rule 15's hold (`note "still
    stands: <why>"` with `of` the ask, `withdraw`), in the `on` field's description: the tool's description is cut by the app at about
@@ -4668,25 +4674,25 @@ a chat's mod behaves as before for that chat (the call's header says the mod).
 5. **judgeTurnEnded on the named word** (judgeWord.mjs `judgeWordNamed`, supervisor/index.mjs): the mod's turn-ended carries `word`,
    the outbox id its turn ran on (8c); the board ends that judge word when it is one to the Supervisor's chat, else the newest in
    flight as before (an older mod, a turn no word started).
-- **The rollout's guard** (chat 1's review, the account-switch lesson): an archived real chat must always come back. The board reads
-  the app's archived chats of the project; one still archived five minutes after its `restart for mod` word (the archive went, the
-  unarchive did not: a restart of the board or of the restarter in between) gets its restarter the word `unarchive chat` (command
-  `mod-unarchive`, a partner word; modRollout.mjs `archivedAfterRestart`, `unarchiveWords`; roles/main.md, roles/partner.md:
-  `unarchive_session` it, archive nothing), again every half hour while it stays archived, three times at most per restart (a chat the
-  person archived is not asked for all day; the unarchive words are kept a day as the restart words are, store.mjs, so the count
-  holds). Chat 1's verifier of 0.32.0 (two blockers, nine should-fixes): the chat a restart word names is the archived file with the
-  word's SESSION (on the record, `restartWords`; the text's line for older records): same-title archived twins (the replaced
-  routine-run chats) never get an old one reopened; a word with no session goes by name to the newest archived file of that name,
-  and not at all while a real open chat of the project carries the name (appChats.mjs `archivedChatsOf`: every archived chat of the
-  project with the prefix, no launch stub, `{ name, session, lastActivityAt, hasOpenTwin }`). The restarters are named from the LIST
-  of chats (`list.main`, `config.advisor`), so the main chat archived itself (its partner cut off between archive and unarchive) gets
-  the partner's word, and the chats archived WITH it (its archive takes the chats it started) theirs: the main chat's restart word
-  carries the chats on the board when it went (`chats`, by session; rolloutPlan), no history lines. Only a restart word that reached
-  its restarter (typed or delivered, not one still waiting or taken) within RESTART_CAUSE_MS (2 h) is the cause of an archive (an
-  older one: the person archived the chat since), the grace and the tries count from when it reached (`deliveredAt`), a chat whose
-  mod said the word's version since came back (archived on purpose later: nothing), and a chat whose card says it left the list
-  (removed) gets nothing. The outbox is the memory across the board's own restarts, so no file is needed; test/modUnarchive.state.test.mjs
-  is the real case through the state.
+- **The rollout's guard, a journal** (chat 1's review and its two verifiers, the account-switch lesson: an archived real chat must
+  always come back). Inference from snapshots, live mod calls and wall-clock windows kept producing holes (an archived main chat
+  named from the open lanes, workers on the sequence left out of a snapshot, a 2-minute mod window, a 2-hour cause window while
+  the board was off 37 h), so the guard is a JOURNAL (src/work/rolloutJournal.mjs, data/rollout.json, read by the server once and
+  written back when a state build changed it): when a `restart for mod` word first shows in the outbox, a record takes the word's
+  id and every project chat open at that moment, by session (the main chat, every worker, the side chats: whatever that archive can
+  take along). Each refresh, for a record whose word reached its restarter (delivered; one lost made no archive and goes), a
+  session still archived and never seen open since gets its restarter the word `unarchive chat` (command `mod-unarchive`, a partner
+  word, with the chat's session and the record's id; modRollout.mjs `unarchiveWords`; roles/main.md, roles/partner.md:
+  `unarchive_session` it, archive nothing): the restarters named from the LIST of chats (the partner for the main chat, the main
+  chat for the rest, archived or not), after UNARCHIVE_AFTER_MS of grace from when the word reached, again every UNARCHIVE_AGAIN_MS,
+  UNARCHIVE_TRIES (3) times at most, the tries counted ON the record by the words' ids (the outbox may forget them; the record does
+  not: no clock). A session leaves the record once seen open again (the restart finished, or the person unarchived it), when its app
+  file is gone, when the board or the person removed it (a `remove` word about it after the word reached, or its card says left), or
+  when its tries are spent and the last one waited its turn (given up: the person archived it on purpose). A record goes when
+  every session left. The outbox's sweep drops a waiting unarchive word whose chat is open again (outboxSweep.mjs `whyClosed`, the
+  state's `openSessions`). Tests: test/work/rolloutJournal.test.mjs (the record, the main chat and its workers, the tries on the
+  record across a forgotten outbox and a 37-hour gap, the leavings, the sweep), test/modUnarchive.state.test.mjs (the real case
+  through `buildState`, the journal back out of the state).
 - **The release**: version 0.32.0 (plugin.json, `MOD_VERSION`); land.ps1 runs the app's `claude.exe plugin test .` beside `npm test`
   when mods/workers changed; after the landing the merging chat runs `plugin marketplace update worker-board` and `plugin update
   workers@worker-board` once (roles/worker.md B570). A chat takes the mod only when its process starts anew: the rollout restarts

@@ -105,21 +105,6 @@ const oldestMade = (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)
  * The chats that belong on the board: open, in the project, titled with the prefix. The main chat comes first, the
  * workers in the order they were made, and leftovers (a fork, an older chat of the same name) greyed at the end.
  */
-/**
- * The Workers mod release 0.32.0 (the rollout's guard): the project's chats archived in the app, `{ name, session, lastActivityAt,
- * hasOpenTwin }` each (the name without the prefix), newest first: in the project, titled with the prefix, no launch stub. `hasOpenTwin`:
- * a real open chat of the project carries the same title (a launch stub, or a chat elsewhere, is none); the guard goes by session and
- * uses the name only without one (modRollout.mjs archivedAfterRestart).
- */
-export function archivedChatsOf(appChats, { project, prefix }) {
-  if (typeof prefix !== 'string' || prefix === '') return []
-  const open = new Set(appChats.filter(chat => chat?.isArchived !== true && chat?.isStub !== true && typeof chat?.title === 'string' && isInside(chat.cwd, project)).map(chat => chat.title))
-  return appChats
-    .filter(chat => chat?.isArchived === true && chat.isStub !== true && typeof chat.title === 'string' && chat.title.startsWith(prefix) && isInside(chat.cwd, project))
-    .sort(newestFirst)
-    .map(chat => ({ name: chat.title.slice(prefix.length).trim(), session: chat.sessionId ?? null, lastActivityAt: chat.lastActivityAt ?? null, hasOpenTwin: open.has(chat.title) }))
-}
-
 export function boardChats(appChats, { project, prefix, main }) {
   // B131: without a prefix from the list of chats no chat is the project's.
   if (prefix === null || prefix === undefined) return []

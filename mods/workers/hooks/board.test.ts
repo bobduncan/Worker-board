@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
+import { LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, restoredDropped, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -198,6 +198,27 @@ describe('Task 6 (0.31.0): words the app merged into one prompt have all entered
     const after = 'hand-over\n\nwork: B13 is yours; run work next\n\nwork: B13 is yours; run work next'
     expect(wordsIn(carried, after).sort()).toEqual(['env', 'take'])
     expect([turnBegan(carried, after, 1).word, turnBegan(carried, after, 1).typed]).toEqual(['take', []])
+    // Chat 1's verifier 2 (finding 8): a word restored from the store that another process typed, never entered, and the same text typed
+    // afresh: the prompt is the new word's; the restored one goes at the first own turn (its queue went with its process).
+    const stale = wordTyping(NO_TURN_WORDS, 'S', 'stop task\nName: Game - Worker 3\nTask: B12\nWhy: stopped with the button', false, { run: 'run-1', at: 1 })
+    const afresh = wordTyping(stale, 'N', 'stop task\nName: Game - Worker 3\nTask: B12\nWhy: stopped with the button', false, { run: 'run-2', at: 2 })
+    expect(afresh.typed.map(one => [one.id, one.run, one.at])).toEqual([['S', 'run-1', 1], ['N', 'run-2', 2]])
+    const judged = restoredDropped(afresh, 'stop task\nName: Game - Worker 3\nTask: B12\nWhy: stopped with the button', 'run-2')
+    expect(judged.typed.map(one => one.id)).toEqual(['N'])
+    expect([wordsIn(judged, 'stop task\nName: Game - Worker 3\nTask: B12\nWhy: stopped with the button'), turnBegan(judged, 'stop task\nName: Game - Worker 3\nTask: B12\nWhy: stopped with the button', 1).word]).toEqual([['N'], 'N'])
+    // A restored word that entered, or one this first prompt holds, stays; the person's own line drops only what is not in it.
+    const kept = { ...afresh, typed: [{ ...afresh.typed[0], isEntered: true }, afresh.typed[1]] }
+    expect(restoredDropped(kept, 'the person wrote this', 'run-2').typed.map(one => one.id)).toEqual(['S', 'N'])
+    expect(restoredDropped(afresh, 'the person wrote this', 'run-2').typed.map(one => one.id)).toEqual(['N'])
+    // Finding 8, the second case: a stale long sweep and a new one with the same head and tail; the prompt is the new one's exact text: the
+    // whole-prompt hit wins, the head-and-tail hit of the stale one is not in this prompt.
+    const body = (middle: string) => `sweep: ${'a'.repeat(190)} ${middle} ${'z'.repeat(70)} end`
+    const sweeps = wordTyping(wordTyping(NO_TURN_WORDS, 'S1', body('old lines'), false, { run: 'run-1' }), 'S2', body('other odd lines'), false, { run: 'run-2' })
+    expect(wordsIn(sweeps, body('other odd lines'))).toEqual(['S2'])
+    // Finding 14: two long twins (the same 300 characters) and the prompt their text once with its middle re-wrapped: the oldest enters.
+    const longTwins = wordTyping(wordTyping(NO_TURN_WORDS, 'old', body('the same')), 'new', body('the same'))
+    expect(wordsIn(longTwins, body('the  same'))).toEqual(['old'])
+    expect(wordsIn(longTwins, `${body('the  same')}\n\n${body('the same')}`)).toEqual(['old', 'new'])
     // Chat 1's verifier: two take twins and the envelope that carries one copy, the prompt the envelope's line and ONE copy on its own:
     // the copy inside the envelope is the envelope's, so one twin enters, the other stays queued (the mutant counted both copies).
     const twinsCarried = wordTyping(wordTyping(wordTyping(NO_TURN_WORDS, 'take1', 'work: B13 is yours; run work next'), 'take2', 'work: B13 is yours; run work next'), 'env', 'hand-over\n\nwork: B13 is yours; run work next', true)

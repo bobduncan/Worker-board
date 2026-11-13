@@ -58,6 +58,12 @@ export function whyClosed(message, ctx) {
   if (isLimitStopWord(message.command)) return stopWordWhy(message, ctx)
   // B1071 (X2): the person's stop or remove by code is settled as done once its worker stopped.
   if (isTaskStopWord(message)) return taskStopWhy(message, ctx)
+  // The Workers mod release 0.32.0 (chat 1's verifier 2, finding 6): an unarchive word whose chat is open again (its restarter got to it,
+  // or the person did) reaches nobody: it would spend a turn on a chat already open.
+  if (message.command === 'mod-unarchive') {
+    const isOpen = typeof message.session === 'string' ? ctx.openSessions instanceof Set && ctx.openSessions.has(message.session) : ctx.onBoard instanceof Set && ctx.onBoard.has(message.about)
+    if (isOpen) return { state: 'dropped', why: 'its chat is open again' }
+  }
   // T8.5: an envelope with a task matters while that task is still given to its worker (the decision takes it back and
   // closes the envelope itself; this catches a task the person moved meanwhile). One without a task waits until late.
   if (message.command === 'handover') {
@@ -350,7 +356,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const off = new Set(shownChats(state ?? {}).filter(chat => chat.isRunning === false).map(chat => chat.name))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)) }
+  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, openSessions: new Set(Array.isArray(state?.openSessions) ? state.openSessions : []), stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)) }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
