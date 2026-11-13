@@ -174,10 +174,11 @@ test('what to set: Full is Normal on all cores, Low is Idle on the last two in e
 })
 
 test('a process listing in PowerShell\'s JSON, also a single one', () => {
-  assert.deepEqual(parseListing('{"pid":4,"parent":0,"name":"System","priority":8,"created":null,"commandLine":null}'), [{ pid: 4, parent: 0, name: 'System', commandLine: null, priority: 8, threads: null, created: null }])
+  assert.deepEqual(parseListing('{"pid":4,"parent":0,"name":"System","priority":8,"created":null,"commandLine":null}'), [{ pid: 4, parent: 0, name: 'System', commandLine: null, priority: 8, threads: null, cpuMs: null, created: null }])
   // Leaked headless browsers (2026-11-13): the listing carries each process's threads.
-  assert.equal(parseListing('{"pid":4,"parent":0,"name":"System","threads":31}')[0].threads, 31)
+  assert.deepEqual(parseListing('{"pid":4,"parent":0,"name":"System","threads":31,"cpuMs":1200}').map(one => [one.threads, one.cpuMs]), [[31, 1200]])
   assert.ok(LIST_SCRIPT.includes('threads = [int]$_.ThreadCount'))
+  assert.ok(LIST_SCRIPT.includes('cpuMs = [long](([long]$_.KernelModeTime + [long]$_.UserModeTime) / 10000)'))
   assert.equal(parseListing('[{"pid":1},{"name":"no pid"}]').length, 1)
   assert.deepEqual(parseListing(''), [])
 })

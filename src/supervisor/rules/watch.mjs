@@ -324,6 +324,31 @@ function fixedAtOf(view, key) {
   return at
 }
 
+/** Leaked headless browsers (2026-11-13, chat 1's guard 3): this many closes of one tool's browsers in a day is the tool's own fault. */
+export const LEAKS_PER_DAY = 3
+/**
+ * 7b. One tool's headless browsers (the rule `browsers`, by the profile's prefix: edge-cdp-b1126, board-evidence, lava-shot)
+ * closed by the board LEAKS_PER_DAY times or more in a day: the tool leaks, and its fix is a step of its own (the incident
+ * names the tool). Repairs from before the incident's fix was done do not count again (`fixedAtOf`, as repair-repeats).
+ */
+function browserLeaks(view) {
+  const byTool = new Map()
+  for (const one of view.repairs.filter(repair => repair.rule === 'browsers' && view.now - repair.at < DAY && typeof repair.subject === 'string')) {
+    byTool.set(one.subject, [...(byTool.get(one.subject) ?? []), one])
+  }
+  const found = []
+  for (const [tool, all0] of [...byTool].sort(([a], [b]) => byId(a, b))) {
+    const all = all0.filter(one => one.at > fixedAtOf(view, `browser-leaks ${tool}`))
+    if (all.length < LEAKS_PER_DAY) continue
+    found.push({
+      rule: 'browser-leaks', key: `browser-leaks ${tool}`, subject: tool,
+      text: `The tool "${tool}" leaked ${all.length} headless browsers in a day (their starter gone, the board closed them): its browser handling wants a fix`,
+      evidence: `closed at ${all.map(one => clockOf(one.at)).join(', ')}: ${all.at(-1).key}`,
+    })
+  }
+  return found
+}
+
 /**
  * 7. The same repair (a repair rule, on the same chat or step) `repairsPerDay` times or more in a day. B546: a repair
  * the app's restart caused (`cause: 'restart'`, a chat stopped because the app started anew) does not count. B551: nor
@@ -1461,6 +1486,7 @@ export const WATCH_RULES = [
   { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'skip-repeats', kind: 'watch', says: 'a compaction skipped for the same reason twice in a row', check: skipRepeats },
   { id: 'repair-repeats', kind: 'watch', says: 'the same repair three times or more in a day', check: repairRepeats },
+  { id: 'browser-leaks', kind: 'watch', says: 'one tool\'s headless browsers leaked and closed three times or more in a day', check: browserLeaks },
   { id: 'undelivered', kind: 'watch', says: 'a word to a chat not delivered', check: undelivered, skips: SKIPS_ON_PAUSE },
   { id: 'report-check-twice', kind: 'watch', says: 'a step whose board check failed twice', check: reportCheckTwice },
   { id: 'old-mod', kind: 'watch', says: 'a chat idle on an older Workers mod than the one installed for over 30 min', check: oldMod },

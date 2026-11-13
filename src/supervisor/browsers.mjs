@@ -2,16 +2,18 @@
 // helper on a fixed port, the board's evidence pictures, the game's shots) outlives a killed run and keeps rendering on
 // the CPU: one from 07:42 the day before took 13 of 24 cores, three more had leaked that evening. The rule `browsers`
 // (rules/repair.mjs) finds, from one listing of the PC's processes, every headless or remote-driven msedge.exe MAIN
-// process (no `--type=`; the person's own Edge has neither flag and is never touched) whose starter process is gone and
-// that has run for over LEAKED_AFTER_MS, closes its tree and removes its temporary profile, and shows one Cleaned row
-// naming the profile's prefix (edge-cdp-b1126, board-evidence, lava-shot), so a tool that keeps leaking is visible. No
-// AI, no tokens, no chat told. PURE but for `closeLeaked`'s kill and remove, given by the server (tests give their own).
+// process (no `--type=`; the person's own Edge has neither flag and is never touched) whose profile stands in the temp
+// folder, whose starter process is gone, and that has run over LEAKED_AFTER_MS or used over BUSY_CORES cores for BUSY_MS
+// in a row (chat 1's guard 2: a worker may detach a CDP helper on purpose and keep using it; the leak closes fast, a
+// quiet helper only after half an hour). The board closes its tree once, removes the tool's folder in the temp folder,
+// and shows one Cleaned row naming the profile's prefix (edge-cdp-b1126, board-evidence, lava-shot) and the CPU it used,
+// so a tool that keeps leaking is visible (the watch rule browser-leaks files an incident at three a day). No AI, no
+// tokens, no chat told. PURE but for `closeLeaked`'s kill and remove, given by the server (tests give their own).
 //
-// Why the delay: a board-evidence Edge (--disable-gpu, port 0) was seen with its starter already gone seconds after it
-// started; ten minutes leaves every honest tool its time. Why the threads: a killed Edge main process lingers as a
-// 1-thread zombie for a while (the game's browserTree.mjs `closeBrowser` counts the same), so only a process with more
-// than one thread is alive. Why the starter: a process number Windows gave out again is no starter (a parent created
-// after its child), as cpu.mjs `chosenProcesses` reads a tree.
+// Why the threads: a killed Edge main process lingers as a 1-thread zombie for a while (the game's browserTree.mjs
+// `closeBrowser` counts the same), so only a process with more than one thread is alive. Why the starter: a process
+// number Windows gave out again is no starter (a parent created after its child), as cpu.mjs `chosenProcesses` reads a
+// tree. Why the temp folder only (guard 1): a profile anywhere else is somebody's own.
 
 import { spawn } from 'node:child_process'
 import { rm } from 'node:fs/promises'
@@ -20,7 +22,13 @@ import { resolve, sep } from 'node:path'
 
 const MIN = 60_000
 /** A headless browser whose starter is gone counts as leaked once it has run this long. */
-export const LEAKED_AFTER_MS = 10 * MIN
+export const LEAKED_AFTER_MS = 30 * MIN
+/** Sooner: one that used over this many cores ... */
+export const BUSY_CORES = 2
+/** ... for this long in a row (the loop samples every SYNC_EVERY_MS; the samples that span it must all be over). */
+export const BUSY_MS = 5 * MIN
+/** The samples kept per browser. */
+const SAMPLES_KEPT = 12
 /** The Windows FILETIME epoch (1601-01-01) before the Unix one, in ms. */
 const FILETIME_EPOCH_MS = 11_644_473_600_000
 /** A `created` as the listing carries it (FILETIME, 100 ns since 1601) as Unix ms, or null. */
@@ -99,28 +107,26 @@ function treeBelow(list, pid) {
   return out
 }
 
+/** A browser's key across listings: its number and its start (a number given out again is another process). */
+export const browserKey = one => `${one.pid}:${one.created ?? ''}`
+
+/** The memory the loop keeps between runs: the CPU samples per browser, and when each was closed. */
+export const browserMemory = () => ({ samples: new Map(), closed: new Map() })
+
 /**
- * The leaked headless browsers in one listing of the PC's processes (`{ pid, parent, name, commandLine, created, threads }`
- * each, cpu.mjs `parseListing`): every headless Edge main process with more than one thread, started over `afterMs` ago,
- * whose starter is gone (its parent not listed, or listed but created after it). Each `{ pid, profile, folder, prefix,
- * startedAt, children }`: its tree below it and the tool's folder in the temp folder that holds its profile (`tempRootOf`;
- * null outside it: the only folder removed).
+ * Whether the samples (`{ at, cpuMs }`, oldest first) show over `cores` cores for `spanMs` in a row: a run of the newest
+ * samples spanning `spanMs` or more whose every step is over.
  */
-export function leakedBrowsers(list, { now, afterMs = LEAKED_AFTER_MS, temp = tmpdir(), platform = process.platform }) {
-  const byPid = new Map(list.map(one => [one.pid, one]))
-  const found = []
-  for (const one of list) {
-    if (!isHeadlessMain(one) || !(one.threads > 1)) continue
-    const startedAt = fileTimeMs(one.created)
-    if (startedAt === null || now - startedAt < afterMs) continue
-    const parent = byPid.get(one.parent)
-    if (parent !== undefined && parent.pid !== one.pid && (fileTimeMs(parent.created) ?? -Infinity) <= startedAt) continue
-    const profile = profileOf(one.commandLine)
-    // The folder to remove, and the prefix: the tool's folder in the temp folder (the evidence tool keeps its profile IN its folder).
-    const folder = tempRootOf(profile, temp, platform)
-    found.push({ pid: one.pid, profile, folder, prefix: prefixOf(folder ?? profile), startedAt, children: treeBelow(list, one.pid) })
+export function isBusy(samples, { cores, spanMs }) {
+  let span = 0
+  for (let i = samples.length - 1; i > 0; i--) {
+    const [before, after] = [samples[i - 1], samples[i]]
+    const wall = after.at - before.at
+    if (wall <= 0 || (after.cpuMs - before.cpuMs) / wall < cores) return false
+    span += wall
+    if (span >= spanMs) return true
   }
-  return found
+  return false
 }
 
 const pad = n => String(n).padStart(2, '0')
@@ -129,9 +135,50 @@ const spanOf = ms => {
   const minutes = Math.max(1, Math.round(ms / MIN))
   return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${pad(minutes % 60)}`
 }
+const coresOf = value => (Number.isFinite(value) ? `${(Math.round(value * 10) / 10).toFixed(1)} cores` : 'CPU unknown')
 
-/** The row's words for a leaked browser: its prefix first, so a tool that keeps leaking is visible. */
-export const leakedWords = (one, now) => `${one.prefix}: a headless Edge (process ${one.pid}, started ${clockOf(one.startedAt)}, ${spanOf(now - one.startedAt)}) with its starter gone`
+/**
+ * The leaked headless browsers in one listing of the PC's processes (`{ pid, parent, name, commandLine, created, threads,
+ * cpuMs }` each, cpu.mjs `parseListing`), with `memory` (`browserMemory()`, kept by the loop between runs and brought up
+ * to date here: the samples of every headless main whose starter is gone, the processes gone dropped). One is leaked when
+ * it is a headless Edge main process with more than one thread, its profile in the temp folder, its starter gone (its
+ * parent not listed, or listed but created after it), and it has run over `afterMs` or used over `busyCores` cores for
+ * `busyMs` in a row. Each `{ pid, key, profile, folder, prefix, startedAt, children, cores, why, closedAt }`: its tree
+ * below it, the tool's folder in the temp folder (the one removed), the CPU it used since it started (cores), why it
+ * counts, and when the board closed it before (never a second close: the loop lists it then).
+ */
+export function watchBrowsers(list, memory, { now, afterMs = LEAKED_AFTER_MS, busyCores = BUSY_CORES, busyMs = BUSY_MS, temp = tmpdir(), platform = process.platform }) {
+  const byPid = new Map(list.map(one => [one.pid, one]))
+  const found = []
+  const live = new Set()
+  for (const one of list) {
+    if (!isHeadlessMain(one) || !(one.threads > 1)) continue
+    const startedAt = fileTimeMs(one.created)
+    if (startedAt === null) continue
+    const parent = byPid.get(one.parent)
+    if (parent !== undefined && parent.pid !== one.pid && (fileTimeMs(parent.created) ?? -Infinity) <= startedAt) continue
+    const profile = profileOf(one.commandLine)
+    const folder = tempRootOf(profile, temp, platform)
+    if (folder === null) continue
+    const key = browserKey(one)
+    live.add(key)
+    const samples = [...(memory.samples.get(key) ?? []), ...(Number.isFinite(one.cpuMs) ? [{ at: now, cpuMs: one.cpuMs }] : [])].slice(-SAMPLES_KEPT)
+    memory.samples.set(key, samples)
+    const busy = isBusy(samples, { cores: busyCores, spanMs: busyMs })
+    if (now - startedAt < afterMs && !busy) continue
+    const cores = Number.isFinite(one.cpuMs) && now > startedAt ? one.cpuMs / (now - startedAt) : null
+    found.push({
+      pid: one.pid, key, profile, folder, prefix: prefixOf(folder), startedAt, children: treeBelow(list, one.pid), cores,
+      why: busy ? `over ${busyCores} cores for ${spanOf(busyMs)}` : `ran over ${spanOf(afterMs)}`, closedAt: memory.closed.get(key) ?? null,
+    })
+  }
+  for (const key of [...memory.samples.keys()]) if (!live.has(key)) memory.samples.delete(key)
+  for (const key of [...memory.closed.keys()]) if (!live.has(key)) memory.closed.delete(key)
+  return found
+}
+
+/** The row's words for a leaked browser: its prefix first, so a tool that keeps leaking is visible; the CPU it used; why it counts. */
+export const leakedWords = (one, now) => `${one.prefix}: a headless Edge (process ${one.pid}, started ${clockOf(one.startedAt)}, ${spanOf(now - one.startedAt)}, ${coresOf(one.cores)}) with its starter gone, ${one.why}`
 
 /** `taskkill /F /T` on the processes: `{ ok, why }`; one already gone (128) is fine. */
 export function taskkill(pids, { platform = process.platform } = {}) {
@@ -147,10 +194,10 @@ export function taskkill(pids, { platform = process.platform } = {}) {
   })
 }
 
-/** The profile folder removed, with a few tries (Edge lets go of its files a moment after it ends): `{ ok, why }`. */
-export async function removeProfile(profile) {
+/** The folder removed, with a few tries (Edge lets go of its files a moment after it ends): `{ ok, why }`. */
+export async function removeProfile(folder) {
   try {
-    await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    await rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
     return { ok: true, why: null }
   } catch (error) {
     return { ok: false, why: error instanceof Error ? error.message : String(error) }
@@ -158,15 +205,14 @@ export async function removeProfile(profile) {
 }
 
 /**
- * Closes a leaked browser (`leakedBrowsers`' entry): its tree killed, then its folder in the temp folder removed (`folder`;
- * a profile anywhere else is kept: not the board's to remove). `{ ok, why, profile }`: `profile` says what became of it
- * ("removed", "kept (not in the temp folder)", "none", "left (<why>)"); not ok when the kill failed.
+ * Closes a leaked browser (`watchBrowsers`' entry): its tree killed, then its folder in the temp folder removed (`folder`;
+ * one outside it is never closed at all, `watchBrowsers` leaves it out). `{ ok, why, profile }`: `profile` says what
+ * became of the folder ("removed", "left (<why>)"); not ok when the kill failed.
  */
 export async function closeLeaked(one, { kill = taskkill, remove = removeProfile } = {}) {
+  if (typeof one?.folder !== 'string' || one.folder === '') return { ok: false, why: 'its profile is not in the temp folder: not the board\'s to close', profile: null }
   const killed = await kill([one.pid, ...(one.children ?? [])])
   if (killed.ok !== true) return { ok: false, why: killed.why ?? 'the kill failed', profile: null }
-  if (one.profile === null || one.profile === undefined) return { ok: true, why: null, profile: 'none' }
-  if (typeof one.folder !== 'string' || one.folder === '') return { ok: true, why: null, profile: 'kept (not in the temp folder)' }
   const removed = await remove(one.folder)
   return { ok: true, why: null, profile: removed.ok ? 'removed' : `left (${removed.why})` }
 }

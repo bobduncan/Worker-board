@@ -10,7 +10,7 @@
 // it to the supervisor as its port `owns`. The runner reads the view, runs the rules over it, and acts only through the
 // ports it is given.
 
-import { leakedBrowsers } from './browsers.mjs'
+import { browserMemory, watchBrowsers } from './browsers.mjs'
 import { CHECKS, REPAIR_RULES } from './rules/repair.mjs'
 import { buildView } from './view.mjs'
 
@@ -156,8 +156,11 @@ export async function applySync(findings, ports, noted = new Set()) {
       // Leaked headless browsers (2026-11-13): closed by the board, its temp profile removed; one that could not be is listed, no chat told.
       const done = await Promise.resolve().then(() => ports.closeBrowser(fix.browser))
         .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
-      if (done?.ok === true) row(one, 'Cleaned', `${one.text}: closed, its profile ${done.profile ?? 'not looked at'}`)
-      else row(one, 'Left', `${one.text}: not closed (${done?.why ?? 'no answer'})`)
+      // Chat 1's guard 4: one close per browser; the runner remembers it (`closedBrowser`), the rule lists it from then on.
+      if (done?.ok === true) {
+        if (typeof ports.closedBrowser === 'function') ports.closedBrowser(fix.browser)
+        row(one, 'Cleaned', `${one.text}: closed, its profile ${done.profile ?? 'not looked at'}`)
+      } else row(one, 'Left', `${one.text}: not closed (${done?.why ?? 'no answer'})`)
     } else if (fix.do === 'list') {
       row(one, 'Left', one.text)
     } else if (fix.do === 'hand') {
@@ -280,6 +283,8 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
   // The keys of the repair findings of the last run, and when one came that the run before did not have.
   let repairKeys = new Set()
   let newAt = null
+  // Leaked headless browsers: the CPU samples per browser and the ones closed, between runs (browsers.mjs `watchBrowsers`).
+  const browsers = browserMemory()
   let status = { at: null, rules: [...rules, ...watch].map(rule => ({ id: rule.id, kind: rule.kind, says: rule.says, state: null, why: null, trips: 0 })) }
   async function once(asked, subject) {
     const now = ports.now()
@@ -298,7 +303,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     const items = await ports.items()
     const assets = typeof ports.assets === 'function' ? await ports.assets() : null
     const view = buildView({
-      state, items, assets, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), browsers: await lookBrowsers(ports, now), bases: await lookBases(ports), branches: await lookBranches(ports), live: lookLive(ports),
+      state, items, assets, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), browsers: await lookBrowsers(ports, browsers, now), bases: await lookBases(ports), branches: await lookBranches(ports), live: lookLive(ports),
       repairs: memory.repairs, mods: typeof ports.mods === 'function' ? await ports.mods() : null, settings: ports.settings ?? {}, now,
     })
     const repairs = runRules(rules, view, { seen, observed })
@@ -317,6 +322,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
       wake: ports.wake,
       clean: ports.clean,
       closeBrowser: ports.closeBrowser,
+      closedBrowser: one => browsers.closed.set(one.key, now),
     }, noted)
     // The keys the main chat was told of in this run's note (for the repairs of the day, below).
     const told = new Set()
@@ -407,13 +413,14 @@ async function lookLeftovers(ports, items, now) {
 
 /**
  * Leaked headless browsers (2026-11-13): the PC's processes through the runner's port `processes` (cpu.mjs's listing, with
- * each one's threads), read for the rule `browsers` (browsers.mjs `leakedBrowsers`): `{ found }`, or `{ error }` when the
+ * each one's threads and CPU time), read for the rule `browsers` (browsers.mjs `watchBrowsers`, with the runner's memory of
+ * samples and closes): `{ found }`, or `{ error }` when the
  * listing failed (one row, Left, not the end of the run); undefined without the port (not Windows: no such check).
  */
-async function lookBrowsers(ports, now) {
+async function lookBrowsers(ports, memory, now) {
   if (typeof ports.processes !== 'function') return undefined
   try {
-    return { found: leakedBrowsers(await ports.processes(), { now }) }
+    return { found: watchBrowsers(await ports.processes(), memory, { now }) }
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) }
   }

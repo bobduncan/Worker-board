@@ -41,7 +41,7 @@ const check = (id, board, seen = new Map()) => {
 }
 
 test('the watch rules: thirty, report only, each with what it says (signals change 4: wake-failed and nobody-answers-wakes)', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['stale-suspended', 'ready-while-free', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'handover-held', 'handover-unanswered', 'clear-owed-repeat', 'wake-failed', 'nobody-answers-wakes', 'check-unreachable', 'old-limit-reading', 'board-deaf', 'board-slow', 'week-stop-ignored', 'five-hour-stop-ignored', 'pause-stale', 'obsolete-wrong'])
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['stale-suspended', 'ready-while-free', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'browser-leaks', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'handover-held', 'handover-unanswered', 'clear-owed-repeat', 'wake-failed', 'nobody-answers-wakes', 'check-unreachable', 'old-limit-reading', 'board-deaf', 'board-slow', 'week-stop-ignored', 'five-hour-stop-ignored', 'pause-stale', 'obsolete-wrong'])
   // Redesign Part 2: the rules of Main's queues are gone.
   // T8.5 step 6: the old hand-over rules are gone (their findings are handover-held and handover-unanswered now).
   for (const gone of ['idle-while-waiting', 'queued-not-running', 'not-cleared', 'not-taking']) assert.equal(WATCH_RULES.some(one => one.id === gone), false, gone)
@@ -208,6 +208,17 @@ test('repair-repeats: the same repair three times in a day trips; twice, or once
   assert.deepEqual(check('repair-repeats', view({ repairs: [repair(200), repair(10)] })), [])
   assert.deepEqual(check('repair-repeats', view({ repairs: [repair(25 * 60), repair(200), repair(10)] })), [])
   assert.equal(check('repair-repeats', view({ repairs: [repair(200), repair(10)], settings: { repairsPerDay: 2 } })).length, 1)
+})
+
+test('browser-leaks (2026-11-13): one tool\'s headless browsers closed three times in a day is an incident naming the tool; two, or another tool\'s, is not; browsers are no repair-repeats', () => {
+  const closed = (minutes, tool = 'edge-cdp-b1126') => ({ at: ago(minutes), rule: 'browsers', subject: tool, key: `browser ${minutes}:1` })
+  const found = check('browser-leaks', view({ repairs: [closed(300), closed(200), closed(10), closed(5, 'board-evidence')] }))
+  assert.deepEqual(found.map(one => [one.key, one.subject]), [['browser-leaks edge-cdp-b1126', 'edge-cdp-b1126']])
+  assert.equal(found[0].text, 'The tool "edge-cdp-b1126" leaked 3 headless browsers in a day (their starter gone, the board closed them): its browser handling wants a fix')
+  assert.match(found[0].evidence, /^closed at \d\d:\d\d, \d\d:\d\d, \d\d:\d\d: browser 10:1$/)
+  assert.deepEqual(check('browser-leaks', view({ repairs: [closed(200), closed(10)] })), [])
+  assert.deepEqual(check('browser-leaks', view({ repairs: [closed(25 * 60), closed(200), closed(10)] })), [])
+  assert.deepEqual(check('repair-repeats', view({ repairs: [closed(300), closed(200), closed(10)] })), [], 'the leaks are their own incident, not a repeat')
 })
 
 test('repair-repeats (B551, X11): repairs from before its incident\'s fix was done never count again; three after it do, a restart one after it does not', () => {

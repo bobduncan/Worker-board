@@ -568,11 +568,13 @@ test('worktree clean-up in the runner: it looks with the store\'s items; a run t
   assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text]), [['Left', 'leftover worktrees: not looked at (the project folder could not be read)']])
 })
 
-test('leaked headless browsers (2026-11-13): one whose starter is gone for over 10 minutes is closed (Cleaned, the row naming its profile prefix); a failed close or listing is Left; no chat is told', async () => {
+test('leaked headless browsers (2026-11-13): one in the temp folder whose starter is gone for over 30 min is closed once (Cleaned, the row naming its prefix and CPU); a busy one at the second sample; a failed close or listing is Left; not during a landing; no chat is told', async () => {
   const FILETIME = ms => (ms + 11_644_473_600_000) * 10_000
-  const edge = (pid, parent, minutesAgo, more = {}) => ({ pid, parent, name: 'msedge.exe', priority: 8, threads: 30, created: FILETIME(NOW - minutesAgo * MIN), commandLine: `msedge.exe --headless=new --remote-debugging-port=9391 --user-data-dir=C:\\Temp\\edge-cdp-b1126-k3Xp9q`, ...more })
-  let listing = [edge(500, 499, 800), { pid: 501, parent: 500, name: 'msedge.exe', threads: 12, created: FILETIME(NOW - 799 * MIN), commandLine: 'msedge.exe --type=gpu-process' }]
+  const edge = (pid, parent, minutesAgo, more = {}) => ({ pid, parent, name: 'msedge.exe', priority: 8, threads: 30, cpuMs: 0, created: FILETIME(NOW - minutesAgo * MIN), commandLine: `msedge.exe --headless=new --remote-debugging-port=9391 --user-data-dir=${join(tmpdir(), 'edge-cdp-b1126-k3Xp9q')}`, ...more })
+  let listing = [edge(500, 499, 800, { cpuMs: 800 * MIN * 12.8 }), { pid: 501, parent: 500, name: 'msedge.exe', threads: 12, created: FILETIME(NOW - 799 * MIN), commandLine: 'msedge.exe --type=gpu-process' }]
   let closing = async () => ({ ok: true, why: null, profile: 'removed' })
+  let landing = false
+  let clock = NOW
   const closed = []
   const runner = syncRunner({
     state: async () => ({ chats: [LEAD], chatPrefix: '', limits: {}, pause: null }),
@@ -582,15 +584,25 @@ test('leaked headless browsers (2026-11-13): one whose starter is gone for over 
     apply: async () => ({ ok: true }),
     wake: async () => { throw new Error('no chat is woken for a browser') },
     noted: { load: async () => [], save: async () => {} },
-    now: () => NOW,
+    now: () => clock,
+    landing: () => landing,
     processes: async () => { if (listing === null) throw new Error('PowerShell did not answer'); return listing },
     closeBrowser: async one => { closed.push(one); return closing(one) },
   })
+  // Guard 4: never during a landing.
+  landing = true
+  assert.deepEqual((await runner.run()).rows, [])
+  landing = false
   const done = await runner.run()
-  assert.deepEqual(done.rows.map(one => [one.check, one.status, one.text]), [['browsers', 'Cleaned', 'edge-cdp-b1126: a headless Edge (process 500, started 12:40, 13 h 20) with its starter gone: closed, its profile removed']])
+  assert.deepEqual(done.rows.map(one => [one.check, one.status, one.text]), [['browsers', 'Cleaned', 'edge-cdp-b1126: a headless Edge (process 500, started 12:40, 13 h 20, 12.8 cores) with its starter gone, ran over 30 min: closed, its profile removed']])
   assert.deepEqual(closed.map(one => [one.pid, one.children, one.prefix]), [[500, [501], 'edge-cdp-b1126']])
   assert.equal(done.rows.some(one => one.status === 'Sent' || one.status === 'For Main'), false, 'no chat is told')
+  // Guard 4: still listed at the next run (a kill that takes a moment): Left, never a second close.
+  clock = NOW + 3 * MIN
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text.split(': ').at(-1)]), [['Left', 'closed at 02:00, still listed (not closed again)']])
+  assert.equal(closed.length, 1)
   // The close failed: Left with why. The listing failed: one Left row, not the end of the run.
+  listing = [edge(510, 499, 800)]
   closing = async () => ({ ok: false, why: 'access denied' })
   assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text.split(': ').at(-1)]), [['Left', 'not closed (access denied)']])
   listing = null
@@ -598,6 +610,17 @@ test('leaked headless browsers (2026-11-13): one whose starter is gone for over 
   // The person's own Edge, and a headless one whose starter still runs: nothing.
   listing = [{ ...edge(600, 1, 800), commandLine: 'msedge.exe --profile-directory=Default' }, { pid: 1, parent: 0, name: 'node.exe', threads: 9, created: FILETIME(NOW - 900 * MIN), commandLine: 'node helper.mjs' }, edge(601, 1, 800)]
   assert.deepEqual((await runner.run()).rows, [])
+  // Guard 2: a 10-minute-old Edge, starter gone, at 12.8 cores: the runner's samples at 3-minute steps close it at the third (6 minutes over 2 cores), a quiet one not.
+  closing = async () => ({ ok: true, why: null, profile: 'removed' })
+  const young = cpuMs => [edge(700, 7000, 0, { created: FILETIME(NOW - 10 * MIN), cpuMs }), edge(800, 7001, 0, { created: FILETIME(NOW - 10 * MIN), cpuMs: cpuMs / 40, commandLine: `msedge.exe --headless=new --remote-debugging-port=0 --user-data-dir=${join(tmpdir(), 'board-evidence-GYJKCI', 'profile')}` })]
+  for (const [minutes, cpuMs] of [[0, 10 * MIN * 12.8], [3, 13 * MIN * 12.8]]) {
+    clock = NOW + minutes * MIN
+    listing = young(cpuMs)
+    assert.deepEqual((await runner.run()).rows, [], `${minutes} min`)
+  }
+  clock = NOW + 6 * MIN
+  listing = young(16 * MIN * 12.8)
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text]), [['Cleaned', 'edge-cdp-b1126: a headless Edge (process 700, started 01:50, 16 min, 12.8 cores) with its starter gone, over 2 cores for 5 min: closed, its profile removed']])
 })
 
 test('B488: of two processes that claim an empty lock at once, the write that stands wins and the other finds out', async () => {
