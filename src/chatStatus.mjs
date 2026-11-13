@@ -12,6 +12,7 @@
 import { BAN_WHY_MARK, UNANSWERED_WHY } from './work/handover.mjs'
 import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from './work/waitsOn.mjs'
 import { assetWaitWords, isAssetWait } from './work/assetWait.mjs'
+import { MOD_GONE_WHY } from './modGone.mjs'
 
 const MIN = 60_000
 
@@ -19,7 +20,7 @@ const MIN = 60_000
 export const STATUSES = Object.freeze({
   WORKING: 'Working', WAITING: 'Waiting for you', CHECKING: 'Checking', HANDING: 'Handing', OFFERED: 'Offered', HELD: 'Held',
   NO_ANSWER: 'Did not answer', PAUSED: 'Paused', RESTARTING: 'Restarting', STOPPED: 'Stopped', FREE: 'Free', ASLEEP: 'Asleep',
-  NOT_RUNNING: 'Not running', UNKNOWN: 'Unknown',
+  NOT_RUNNING: 'Not running', UNKNOWN: 'Unknown', LINK_GONE: 'Link gone',
 })
 
 /** The status list, as the page reads it (a drawn status is always one of these). */
@@ -45,6 +46,8 @@ export const STATUS_FACTS = Object.freeze({
   [STATUSES.ASLEEP]: { key: 'asleep', tone: 'quiet', busy: false },
   [STATUSES.NOT_RUNNING]: { key: 'off', tone: 'attention', busy: false },
   [STATUSES.UNKNOWN]: { key: 'unknown', tone: 'late', busy: false },
+  // F9: the chat's Workers mod was unloaded: the board cannot reach it until the person restarts it.
+  [STATUSES.LINK_GONE]: { key: 'linkgone', tone: 'attention', busy: false },
 })
 
 /** The head count's keys, in the statuses order (the head's counts are one number per status). */
@@ -133,6 +136,9 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
   }
   // 2. Waiting for you: a fresh report says asking, or a blocking ask is open.
   if (state === 'waiting') return out(STATUSES.WAITING, null, report?.since)
+  // 2b. F9 (chat 1's fix item 7, 2026-11-13): its Workers mod was unloaded and the board cannot reach it (src/modGone.mjs): this before
+  // the hand-over's Did not answer, Unknown and Not running, which would only guess. The person restarts the chat.
+  if (lane.modGone !== null && lane.modGone !== undefined) return out(STATUSES.LINK_GONE, MOD_GONE_WHY, lane.modGone.at)
   // 3 to 6, a worker on the hand-over: its report's check runs, a task is being handed or offered, the hand-over is held, or it
   // did not answer.
   if (hand === 'checking') return out(STATUSES.CHECKING, handover.step ?? null)

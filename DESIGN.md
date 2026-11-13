@@ -5212,7 +5212,13 @@ decides on, **status** is what the pill shows.
   FREE for a worker on it; `state` free for a worker on the timers (the escape hatch), the main chat, the partner, the
   supervisor and the Product owner; never for a worker the hand-out skips (HELD, HANDING...). 12 **Not running** (the kind:
   a wake that did not take, ended with no app session, silent, unreported; attention). 13 **Unknown**: no report to go by,
-  always "no report for N" (quiet under two minutes, attention after). A leftover has no status. Only Working counts busy:
+  always "no report for N" (quiet under two minutes, attention after). 2b **Link gone** (F9, 2026-11-13, src/modGone.mjs): its
+  transcript shows the CLI unloaded its Workers mod (the tools retracted, cause not_configured, then the server's instructions
+  removed) after its last restore, silent for over two minutes since, in the same run of the app: "its board link is gone: restart
+  this chat" (attention), before the hand-over's rows; no wake and no line go to it, and its "No ask filed" card names the cause.
+  A popup ask about the board's own tools (Q742, Q744) makes no Waiting for you: Working, "its call to the board is slow"; the
+  Supervisor's board-slow counts it. A real popup's hands entry, Waiting for you and window link to its chat in the app.
+  A leftover has no status. Only Working counts busy:
   "N of M workers busy" does not grow.
 - **The age.** `age = now - report.at` on the board's clock (`board.now` at the read), never the page's: the mod refreshes `at`
   with every 5-second ping, so a live chat's age is seconds. The pill shows it over 10 seconds ("Working · 25 s ago");

@@ -137,7 +137,8 @@ export function mayWake(state, chat) {
   if (isHolding(state?.pause)) return false
   const lane = (state?.chats ?? []).find(one => one.name === chat && !one.isLeftover)
   // B567: or one that rests while every step it holds waits on the person (the reconciler's `restFree`).
-  return lane !== undefined && (lane.state === 'free' || (state?.reconciled?.restFree ?? []).includes(chat))
+  // F9: never to a chat whose Workers mod was unloaded: nothing there takes the line (src/modGone.mjs).
+  return lane !== undefined && (lane.modGone ?? null) === null && (lane.state === 'free' || (state?.reconciled?.restFree ?? []).includes(chat))
 }
 
 /**

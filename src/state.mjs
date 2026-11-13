@@ -80,6 +80,7 @@ import { countsOf, sinceClock, statusOf } from './chatStatus.mjs'
 import { factsOf, offMsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
+import { MOD_GONE_WHY, modGoneOf, modUnloadedAt } from './modGone.mjs'
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -632,7 +633,7 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
-  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, boardCall: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
+  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, boardCall: null, modGone: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
   // B847: what the board needs to tell a replaced chat of a routine (an older chat of the same name) from the live one.
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt, createdAt: chat.createdAt ?? null, cwd: chat.cwd ?? null, needsAction: chat.summary?.needsAction ?? null }
 
@@ -656,6 +657,9 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // mod reports: it takes the place of the reading below (the turn in its transcript, cut off, held by its card, its
   // branch or its background work). Null: the chat sends none, and that reading stands.
   const reported = reportOf(chat)
+  // F9 (chat 1's fix item 7, 2026-11-13): its Workers mod was unloaded mid-session and not loaded again: the board's link to it is gone
+  // (src/modGone.mjs). Read from the deep look's tool deltas; never for a leftover.
+  const modGone = chat.isLeftover ? null : modGoneOf({ unloadedAt: modUnloadedAt(tail?.mods ?? ''), report: reported?.entry ?? null, appStartedAt: raw.appStartedAt ?? null, now })
   const wasCutOff = reported === null && isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now })
   // An ended turn is not a free chat while something of its work is open: it is between two turns.
   // Clear after each step: a chat cleared into this session (its card says so, or the board followed its old card here)
@@ -788,6 +792,8 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     needsYou,
     // The chat is in its call to the board, which is slow (a popup ask about the board's own tool): `{ since, ask }`, or null.
     boardCall,
+    // F9: its Workers mod was unloaded and the board cannot reach it: `{ at }`, or null.
+    modGone,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
     waitingSince: state !== 'waiting' ? null : reported !== null ? reported.entry?.since ?? null : entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null,
@@ -1090,7 +1096,10 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       from: lane.name,
       kind: 'unfiled',
       title: `${lane.name} wrote questions in its chat but filed no ask`,
-      text: `Its last answer ends with a "For you" block, and the work store holds no ask of it since that turn began${lane.unfiled.isStartUnknown ? ' (the board could not tell when this turn began, so it warns all the same)' : ''}. The board does not read questions from a chat: answer them in its chat, or ask it to file them with work ask.${(lane.task?.stepId ?? null) === null ? '' : ` Its step: ${lane.task.stepId}.`}`,
+      // F9: a chat whose Workers mod was unloaded could not file an ask: the card names that cause and the one way out.
+      text: (lane.modGone ?? null) !== null
+        ? `Its last answer ends with a "For you" block, and the work store holds no ask of it: its Workers mod was unloaded at ${hourMinute(lane.modGone.at)}, so ${MOD_GONE_WHY}. Answer its questions in its chat.${(lane.task?.stepId ?? null) === null ? '' : ` Its step: ${lane.task.stepId}.`}`
+        : `Its last answer ends with a "For you" block, and the work store holds no ask of it since that turn began${lane.unfiled.isStartUnknown ? ' (the board could not tell when this turn began, so it warns all the same)' : ''}. The board does not read questions from a chat: answer them in its chat, or ask it to file them with work ask.${(lane.task?.stepId ?? null) === null ? '' : ` Its step: ${lane.task.stepId}.`}`,
       at: lane.unfiled.at,
       ...blank,
       version: null,
@@ -2160,6 +2169,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       // It asks in its chat (the app's question form), and whether that is a slow call to the board (`card`, `boardCall`).
       isAsking: advisorCard.isAsking === true,
       boardCall: advisorCard.boardCall ?? null,
+      modGone: advisorCard.modGone ?? null,
       // The model chip: the model and the effort the app's file of its chat says it runs at (`effort` below is B352's mode).
       model: advisorCard.model ?? null,
       appEffort: advisorCard.effort ?? null,
@@ -2863,6 +2873,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       appSession: helperLane.appSession,
       isAsking: helperLane.isAsking === true,
       boardCall: helperLane.boardCall ?? null,
+      modGone: helperLane.modGone ?? null,
       // The model chip: what the app's file of its chat says it runs at.
       model: helperLane.model ?? null,
       effort: helperLane.effort ?? null,
@@ -2891,6 +2902,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       appSession: supervisorLane.appSession,
       isAsking: supervisorLane.isAsking === true,
       boardCall: supervisorLane.boardCall ?? null,
+      modGone: supervisorLane.modGone ?? null,
       model: supervisorLane.model ?? null,
       effort: supervisorLane.effort ?? null,
       // T7.5: the setting the board holds it at (`supervisorModel`, `supervisorEffort`) and whether its file shows it.
@@ -2917,6 +2929,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       appSession: ownerLane.appSession,
       isAsking: ownerLane.isAsking === true,
       boardCall: ownerLane.boardCall ?? null,
+      modGone: ownerLane.modGone ?? null,
       model: ownerLane.model ?? null,
       effort: ownerLane.effort ?? null,
       setting: supervisorRun({ lane: ownerLane, setting: OWNER_SETTING, models: runSettings(config).models }),

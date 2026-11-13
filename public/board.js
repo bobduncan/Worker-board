@@ -60,6 +60,8 @@ const STATUS_VIEW = {
   'Asleep': { key: 'asleep', tone: 'quiet' },
   'Not running': { key: 'off', tone: 'attention' },
   'Unknown': { key: 'unknown', tone: 'late' },
+  // F9: its Workers mod was unloaded: the board cannot reach it until the person restarts the chat.
+  'Link gone': { key: 'linkgone', tone: 'attention' },
 }
 /** The head's count keys in the statuses' order, and the status of a key. */
 const STATUS_KEYS = Object.fromEntries(Object.entries(STATUS_VIEW).map(([status, view]) => [view.key, status]))
