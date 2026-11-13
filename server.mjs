@@ -3920,7 +3920,8 @@ async function main(args) {
       await chatLogs.reload()
       void chatLogs.resume().catch(error => loops.failed('chat-logs', error))
     }
-    await claimBridge()
+    // 2026-11-13 (chat 1): not awaited: the claim tries until the note is written, and a lasting refusal must not hold the loops' gain.
+    void claimBridge()
   }
   // Signals change 5: the port was held since the start (`holdPort`); from here the board's own server answers, and the
   // keeper hears that this board is up: only a board that was up is started again after a crash.
@@ -3932,7 +3933,8 @@ async function main(args) {
     const owns = await ownsLoops()
     if (owns) void chatLogs?.resume().catch(error => loops.failed('chat-logs', error))
     if (bridgeKey !== null && config.project !== '') {
-      if (owns) await claimBridge()
+      // Not awaited (chat 1): a lasting refusal of board.json must not hold the start (the check, the PC's list of boards, the ready line).
+      if (owns) void claimBridge()
       else console.error('Another board process of this project runs the loops (.claude/sync-loop.json): this one shows the page and reads.')
     }
     // The start-up check (2026-11-05): once, when the first state can be read; it does not wait for the board's other looks.

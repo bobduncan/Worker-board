@@ -4,6 +4,7 @@
 // board closes. An injected EPERM-then-ok write; made-up samples.
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import { CLAIM_BACKOFF_MS, claimUntilWritten } from '../src/bridgeClaim.mjs'
@@ -49,4 +50,24 @@ test('another board that delivers already: nothing is written and nothing report
   // A write that goes through at once: one try, one success.
   const once = await claimUntilWritten({ write: async () => {}, onSucceeded: () => reported.push('ok') })
   assert.deepEqual([once, reported], [{ written: true, taken: false, tries: 1 }, ['ok']])
+})
+
+test('the start goes on while the claim keeps failing: neither caller in server.mjs awaits it, and a claim that never writes holds nothing of its caller', async () => {
+  const server = readFileSync(new URL('../server.mjs', import.meta.url), 'utf8')
+  assert.equal((server.match(/void claimBridge\(\)/g) ?? []).length, 2, 'both callers let it run')
+  assert.doesNotMatch(server, /await claimBridge\(\)/)
+  // The claim itself: a write that never goes through, a wait held by the test: the caller's own work runs on at once.
+  let release = () => {}
+  let closing = false
+  const held = new Promise(done => { release = done })
+  const failures = []
+  const claim = claimUntilWritten({ write: async () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }) }, onFailed: (error, tries) => failures.push(tries), wait: () => held, isClosing: () => closing })
+  const went = await Promise.race([claim.then(() => 'claim ended'), Promise.resolve('the start went on')])
+  assert.equal(went, 'the start went on')
+  await new Promise(done => setTimeout(done, 20))
+  assert.deepEqual(failures, [1], 'one failure recorded so far')
+  // The board closes: the claim ends, unwritten.
+  closing = true
+  release()
+  assert.deepEqual(await claim, { written: false, taken: false, tries: 1 })
 })
