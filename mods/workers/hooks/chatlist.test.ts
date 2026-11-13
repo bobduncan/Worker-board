@@ -4711,10 +4711,14 @@ describe('0.31.1 (F4): no hook of the mod outlives the engine\'s budget', () => 
     await clock.advance(5000)
     await end
     expect(ended).toBe(true)
-    // The chain moves: the writes land (the last state wins), nothing was lost.
+    // The chain moves: the detached writes land in order (no half-written card: each is a whole card the test parses), the last state wins.
+    const before = w.writes.filter(path => path === `${CHATS}/units.json`).length
     release()
     await settle()
     await clock.advance(0)
+    const cards = w.writes.filter(path => path === `${CHATS}/units.json`).length
+    expect(cards).toBeGreaterThan(before)
+    expect(parseChat(w.files[`${CHATS}/units.json`])).not.toBeNull()
     expect(fileOf(w)?.state).toBe('waiting')
   })
 
@@ -4763,29 +4767,33 @@ describe('0.31.1 (F4): no hook of the mod outlives the engine\'s budget', () => 
     expect(fileOf(w)?.state).toBe('waiting')
   })
 
-  test('the card scan reads a file again only when its size or time changed, and skips cards not written for a week', async ($, on) => {
+  test('the card scan reads a file again only when its size or time changed, and skips cards not written for a week unless list.json names the chat (chat 1\'s guard: the Product owner asleep over a week stays)', async ($, on) => {
     const clock = mock.clock(on, { now: 10 * 24 * 60 * MIN })
     const old = { name: 'Old chat', role: 'worker' as const, state: 'free' as const, task: null, at: 0 }
-    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 0 }, props: { name: 'Props', role: 'worker', state: 'working', task: null, at: 0 }, old }), [BOARD]: board })
-    // Props was written an hour ago; Old chat eight days ago; Units (this chat) is read whatever its time.
+    const owner = { name: 'Product owner', role: 'worker' as const, state: 'free' as const, task: null, at: 0 }
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: null, at: 0 }, props: { name: 'Props', role: 'worker', state: 'working', task: null, at: 0 }, old, owner }), [BOARD]: board })
+    w.files[`${CHATS}/list.json`] = '{ "prefix": "Game - ", "main": "Main", "owner": "Product owner" }\n'
+    // Props was written an hour ago; Old chat and the Product owner eight days ago (the owner is the list's: it stays); Units (this chat) is read whatever its time.
     w.mtimes[`${CHATS}/props.json`] = clock.now() - 60 * MIN
     w.mtimes[`${CHATS}/old.json`] = clock.now() - 8 * 24 * 60 * MIN
+    w.mtimes[`${CHATS}/owner.json`] = clock.now() - 8 * 24 * 60 * MIN
     w.mtimes[`${CHATS}/units.json`] = clock.now() - 8 * 24 * 60 * MIN
     stand(on, w)
     await startedAs($, w, 'Units')
     const listed1 = String((await $.tool.call({ tool: TOOL, action: 'list' })).result)
     expect(listed1).toContain('Props')
     expect(listed1).toContain('Units')
+    expect(listed1).toContain('Product owner')
     expect(listed1).not.toContain('Old chat')
     // A second reading reads no card again: the sizes and times stand.
     w.reads = []
     await $.tool.call({ tool: TOOL, action: 'list' })
-    expect(w.reads.filter(path => path.startsWith(`${CHATS}/`))).toEqual([])
+    expect(w.reads.filter(path => path.startsWith(`${CHATS}/`) && !path.endsWith('/list.json'))).toEqual([], 'the list alone is read, no card')
     // Props written anew (its time moves): read again, the others not.
     w.files[`${CHATS}/props.json`] = chatText({ ...old, name: 'Props', state: 'waiting' })
     w.mtimes[`${CHATS}/props.json`] = clock.now()
     w.reads = []
     await $.tool.call({ tool: TOOL, action: 'list' })
-    expect(w.reads.filter(path => path.startsWith(`${CHATS}/`))).toEqual([`${CHATS}/props.json`])
+    expect(w.reads.filter(path => path.startsWith(`${CHATS}/`) && !path.endsWith('/list.json'))).toEqual([`${CHATS}/props.json`])
   })
 })

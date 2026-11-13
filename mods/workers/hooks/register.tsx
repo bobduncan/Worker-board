@@ -442,28 +442,33 @@ async function readFiles($: EngineInterface): Promise<ChatRow[]> {
   }
   const now = await $.clock.now()
   const own = await $.session.id().catch(() => null)
+  // Chat 1's guard: a chat named in list.json (the main chat, the supervisor, the Product owner) stays whatever its card's age (a role chat
+  // asleep over a week is still the list's); the age skips only cards of chats the list does not name.
+  const list = parseList(await $.fs.read(inFolder(dir, LIST_FILE)).catch(() => ''))
+  const named = new Set([list?.main, list?.supervisor, list?.owner].filter((name): name is string => typeof name === 'string' && name !== '').map(name => name.toLowerCase()))
   const rows: ChatRow[] = []
   const seen = new Set<string>()
   for (const entry of entries) {
     // The file of a chat that left is a few bytes: it is not opened again at every reading.
     const id = entry.kind === 'file' && entry.size > LEFT_MAX_SIZE ? sessionOf(entry.name) : null
     if (id === null) continue
-    if (id !== own && Number.isFinite(entry.mtimeMs) && now - entry.mtimeMs > CARD_STALE_MS) continue
+    const isStale = id !== own && Number.isFinite(entry.mtimeMs) && now - entry.mtimeMs > CARD_STALE_MS
     seen.add(id)
     const kept = cardsRead.get(id)
     if (kept !== undefined && kept.size === entry.size && kept.mtimeMs === entry.mtimeMs) {
-      if (kept.chat !== null) rows.push({ ...kept.chat, id })
+      if (kept.chat !== null && (!isStale || named.has(kept.chat.name.toLowerCase()))) rows.push({ ...kept.chat, id })
       continue
     }
+    // A stale card is read once (its name decides whether the list keeps it), then answered from the reading.
     const chat = await readChat($, dir, id)
     cardsRead.set(id, { size: entry.size, mtimeMs: entry.mtimeMs, chat })
-    if (chat !== null) rows.push({ ...chat, id })
+    if (chat !== null && (!isStale || named.has(chat.name.toLowerCase()))) rows.push({ ...chat, id })
   }
   for (const id of [...cardsRead.keys()]) if (!seen.has(id)) cardsRead.delete(id)
 
   return rows
 }
-/** 0.31.1: a card not written for this long is a chat that is gone (a live one writes at every change and heartbeat). */
+/** 0.31.1: a card not written for this long is a chat that is gone (a live one writes at every change and heartbeat), unless list.json names it. */
 const CARD_STALE_MS = 7 * 24 * 60 * 60_000
 /** 0.31.1: the last reading of each card, by session: its size and time, and the chat it held (null: no chat). */
 const cardsRead = new Map<string, { size: number; mtimeMs: number; chat: ChatFile | null }>()

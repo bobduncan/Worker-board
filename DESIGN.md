@@ -3990,7 +3990,8 @@ on it:
 5. **The catch-all tool.call** keeps `await next(e)` (free of the budget while in flight) and does nothing else that waits: the
    popup's stop is detached; the pause read runs under the deadline.
 6. **The card scan** (`readFiles`): a card not written for CARD_STALE_MS (7 days) is skipped (766 of the 855 files; a live chat
-   writes its card at every change and heartbeat; this chat's own file is read whatever its time), and a card whose size and
+   writes its card at every change and heartbeat; this chat's own file is read whatever its time; chat 1's guard: a chat list.json
+   names, the main chat, the supervisor, the Product owner, stays whatever its card's age), and a card whose size and
    time (`FsEntry.mtimeMs`) are the last reading's is answered from that reading (`cardsRead`).
 
 Tests: `mods/workers/hooks/chatlist.test.ts` "0.31.1 (F4)": a turn's start and end, the prompt, the chat tool and the work tool
