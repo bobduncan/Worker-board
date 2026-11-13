@@ -33,7 +33,7 @@ const of = (found, check) => found.filter(one => one.check === check)
 const checkedPass = { History: [`- ${stamp(ago(30))} server: check passed: merged`] }
 
 test('the list names every check once, with its words', () => {
-  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'closed-worker', 'partner-ask', 'unchecked', 'refine-again', 'incident-again', 'held-elsewhere', 'base-equal', 'merged-now', 'faults-gone', 'none-ready', 'worktrees'])
+  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'closed-worker', 'partner-ask', 'unchecked', 'refine-again', 'incident-again', 'held-elsewhere', 'base-equal', 'merged-now', 'faults-gone', 'none-ready', 'worktrees', 'browsers'])
   // Signals change 6 (B915, Addendum 4): the repair fix-dropped is retired; the watch rule dropped-fix files the case once.
   assert.ok(RETIRED_RULES.some(one => one.id === 'fix-dropped'))
   assert.ok(CHECKS.every(one => typeof one.words === 'string' && one.words.length > 0))
@@ -566,6 +566,38 @@ test('worktree clean-up in the runner: it looks with the store\'s items; a run t
   assert.equal(runner.shown(NOW).rows[0].status, 'Cleaned')
   isBroken = true
   assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text]), [['Left', 'leftover worktrees: not looked at (the project folder could not be read)']])
+})
+
+test('leaked headless browsers (2026-11-13): one whose starter is gone for over 10 minutes is closed (Cleaned, the row naming its profile prefix); a failed close or listing is Left; no chat is told', async () => {
+  const FILETIME = ms => (ms + 11_644_473_600_000) * 10_000
+  const edge = (pid, parent, minutesAgo, more = {}) => ({ pid, parent, name: 'msedge.exe', priority: 8, threads: 30, created: FILETIME(NOW - minutesAgo * MIN), commandLine: `msedge.exe --headless=new --remote-debugging-port=9391 --user-data-dir=C:\\Temp\\edge-cdp-b1126-k3Xp9q`, ...more })
+  let listing = [edge(500, 499, 800), { pid: 501, parent: 500, name: 'msedge.exe', threads: 12, created: FILETIME(NOW - 799 * MIN), commandLine: 'msedge.exe --type=gpu-process' }]
+  let closing = async () => ({ ok: true, why: null, profile: 'removed' })
+  const closed = []
+  const runner = syncRunner({
+    state: async () => ({ chats: [LEAD], chatPrefix: '', limits: {}, pause: null }),
+    items: async () => new Map(),
+    outbox: () => [],
+    refused: () => [],
+    apply: async () => ({ ok: true }),
+    wake: async () => { throw new Error('no chat is woken for a browser') },
+    noted: { load: async () => [], save: async () => {} },
+    now: () => NOW,
+    processes: async () => { if (listing === null) throw new Error('PowerShell did not answer'); return listing },
+    closeBrowser: async one => { closed.push(one); return closing(one) },
+  })
+  const done = await runner.run()
+  assert.deepEqual(done.rows.map(one => [one.check, one.status, one.text]), [['browsers', 'Cleaned', 'edge-cdp-b1126: a headless Edge (process 500, started 12:40, 13 h 20) with its starter gone: closed, its profile removed']])
+  assert.deepEqual(closed.map(one => [one.pid, one.children, one.prefix]), [[500, [501], 'edge-cdp-b1126']])
+  assert.equal(done.rows.some(one => one.status === 'Sent' || one.status === 'For Main'), false, 'no chat is told')
+  // The close failed: Left with why. The listing failed: one Left row, not the end of the run.
+  closing = async () => ({ ok: false, why: 'access denied' })
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text.split(': ').at(-1)]), [['Left', 'not closed (access denied)']])
+  listing = null
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text]), [['Left', 'leaked browsers: not looked at (PowerShell did not answer)']])
+  // The person's own Edge, and a headless one whose starter still runs: nothing.
+  listing = [{ ...edge(600, 1, 800), commandLine: 'msedge.exe --profile-directory=Default' }, { pid: 1, parent: 0, name: 'node.exe', threads: 9, created: FILETIME(NOW - 900 * MIN), commandLine: 'node helper.mjs' }, edge(601, 1, 800)]
+  assert.deepEqual((await runner.run()).rows, [])
 })
 
 test('B488: of two processes that claim an empty lock at once, the write that stands wins and the other finds out', async () => {

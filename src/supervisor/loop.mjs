@@ -10,6 +10,7 @@
 // it to the supervisor as its port `owns`. The runner reads the view, runs the rules over it, and acts only through the
 // ports it is given.
 
+import { leakedBrowsers } from './browsers.mjs'
 import { CHECKS, REPAIR_RULES } from './rules/repair.mjs'
 import { buildView } from './view.mjs'
 
@@ -151,6 +152,12 @@ export async function applySync(findings, ports, noted = new Set()) {
       // B751: a folder with files and no git is moved aside, and the row says where.
       if (done?.ok === true) row(one, 'Cleaned', typeof done.movedTo === 'string' ? `${one.text}: moved to ${String(done.movedTo).replace(/\\/g, '/')}` : one.text)
       else row(one, 'Left', `${one.text}: not removed (${done?.why ?? 'no answer'})`)
+    } else if (fix.do === 'close') {
+      // Leaked headless browsers (2026-11-13): closed by the board, its temp profile removed; one that could not be is listed, no chat told.
+      const done = await Promise.resolve().then(() => ports.closeBrowser(fix.browser))
+        .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
+      if (done?.ok === true) row(one, 'Cleaned', `${one.text}: closed, its profile ${done.profile ?? 'not looked at'}`)
+      else row(one, 'Left', `${one.text}: not closed (${done?.why ?? 'no answer'})`)
     } else if (fix.do === 'list') {
       row(one, 'Left', one.text)
     } else if (fix.do === 'hand') {
@@ -249,7 +256,7 @@ export function withRun(spans, now, status) {
  * names a chat was refused under lately, `apply(body)` the work API as the board, `wake({ chat, id, text, key })` a
  * line sent once per key (the message, or null), `noted` `{ load(), save(keys) }` the keys the main chat was told of,
  * `now()`; B598: `bases()` (check.mjs `basesNow`) and `recheck(id, why)` (the board's check run again); worktree clean-up: `leftovers({ items, now })` what worktrees.mjs `findLeftovers` finds, and `clean(one)`
- * its `cleanLeftover` (both left out: no such check). `run({ asked, subject })` answers `{ at, asked, subject, rows, fine,
+ * its `cleanLeftover` (both left out: no such check); leaked browsers: `processes()` the PC's processes with their threads (cpu.mjs) and `closeBrowser(one)` browsers.mjs `closeLeaked` (both left out: no such check). `run({ asked, subject })` answers `{ at, asked, subject, rows, fine,
  * newAt, findings }` (`subject` the chat "Check now" in its menu named, or null; `newAt` when a repair finding last came
  * that the run before did not have, or null);
  * `shown(now)` is what the page shows: the newest run that was asked or found something (more than what it only lists,
@@ -291,7 +298,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     const items = await ports.items()
     const assets = typeof ports.assets === 'function' ? await ports.assets() : null
     const view = buildView({
-      state, items, assets, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), bases: await lookBases(ports), branches: await lookBranches(ports), live: lookLive(ports),
+      state, items, assets, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), browsers: await lookBrowsers(ports, now), bases: await lookBases(ports), branches: await lookBranches(ports), live: lookLive(ports),
       repairs: memory.repairs, mods: typeof ports.mods === 'function' ? await ports.mods() : null, settings: ports.settings ?? {}, now,
     })
     const repairs = runRules(rules, view, { seen, observed })
@@ -309,6 +316,7 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
       apply: ports.apply,
       wake: ports.wake,
       clean: ports.clean,
+      closeBrowser: ports.closeBrowser,
     }, noted)
     // The keys the main chat was told of in this run's note (for the repairs of the day, below).
     const told = new Set()
@@ -392,6 +400,20 @@ async function lookLeftovers(ports, items, now) {
   if (typeof ports.leftovers !== 'function') return undefined
   try {
     return { found: await ports.leftovers({ items, now }) }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Leaked headless browsers (2026-11-13): the PC's processes through the runner's port `processes` (cpu.mjs's listing, with
+ * each one's threads), read for the rule `browsers` (browsers.mjs `leakedBrowsers`): `{ found }`, or `{ error }` when the
+ * listing failed (one row, Left, not the end of the run); undefined without the port (not Windows: no such check).
+ */
+async function lookBrowsers(ports, now) {
+  if (typeof ports.processes !== 'function') return undefined
+  try {
+    return { found: leakedBrowsers(await ports.processes(), { now }) }
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) }
   }

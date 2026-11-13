@@ -18,6 +18,11 @@
 // folders they left in the project folder (src/work/worktrees.mjs `findLeftovers`, looked at by the loop through its
 // port `leftovers`, in the view as `leftovers`). The safe ones the board removes itself (Cleaned, port `clean`); the
 // rest it only lists, with the reason (Left), and tells no chat of them.
+//
+// Leaked headless browsers (2026-11-13, the person's PC lagging): the rule `browsers` lists the headless Edge main
+// processes whose starter is gone and that run over ten minutes (src/supervisor/browsers.mjs `leakedBrowsers`, from the
+// loop's look through its port `processes`, in the view as `browsers`); the board closes each and removes its temp
+// profile (Cleaned, port `closeBrowser`), the row naming the profile's prefix so a tool that keeps leaking is visible.
 
 import { earlierOfCard, shortAnswer } from '../../work/autopilot.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
@@ -31,6 +36,7 @@ import { UNCHECKED_MS, gitCheckPassed, needsResultCheck, resultCheckAtMs, result
 import { asksOfStep } from '../../work/stepAsks.mjs'
 import { heldReason } from '../../work/parked.mjs'
 import { goOnLine, goneWords } from '../../work/holderTimers.mjs'
+import { leakedWords } from '../browsers.mjs'
 import { advisorStillWaitText, advisorWaitText } from '../../stepStatus.mjs'
 
 const MIN = 60_000
@@ -579,6 +585,20 @@ function worktrees(view) {
 }
 
 /**
+ * Leaked headless browsers: the view's `browsers`, what the loop's look found (`{ found }`, browsers.mjs `leakedBrowsers`),
+ * why it failed (`{ error }`: one row, Left, not the end of the run), or undefined when the board has no such look (not
+ * Windows). One finding per browser, keyed by its process; the fix `{ do: 'close', browser }` is the loop's.
+ */
+function browsers(view) {
+  const look = view.browsers
+  if (look === undefined || look === null) return []
+  if (typeof look.error === 'string') {
+    return [finding('browsers', 'browsers not read', 'browsers', `leaked browsers: not looked at (${look.error})`, { do: 'list' })]
+  }
+  return (look.found ?? []).map(one => finding('browsers', `browser ${one.pid}`, one.prefix, leakedWords(one, view.now), { do: 'close', browser: one }))
+}
+
+/**
  * B567 (X23: B522 sat in progress 2 h, its checkpoint "report B522", while its worker did other steps): a step in
  * progress over HELD_ELSEWHERE_MS whose owner's card names another step, with nothing that names why it waits (an open
  * ask, a park, an open blocker: parked.mjs `heldReason`), is named to the main chat, once per step an hour: the watch
@@ -795,6 +815,7 @@ export const REPAIR_RULES = [
   { id: 'faults-gone', kind: 'repair', says: 'a step in review whose check failed only on a branch or worktree left, now gone, or a branch on origin now merged', check: faultsGone, skips: faultsGoneSkips },
   { id: 'none-ready', kind: 'repair', says: 'the focus goal has work, none can be handed out, and a worker is free for 10 running minutes: told to the main chat once per cause and to the partner once per free spell', check: noneReady, countsBy: 'key' },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
+  { id: 'browsers', kind: 'repair', says: 'a headless test browser running over 10 minutes with its starter gone', check: browsers },
 ]
 
 /**
@@ -834,5 +855,5 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  */
 export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], appStartedAt = null, focus = null, bases = [], branches = [], live = {}, ready = [], recaps = [], seen = new Map(), observed = [] }) {
   const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused, appStartedAt, focus, bases, branches, live, ready, recaps }
-  return REPAIR_RULES.filter(rule => rule.id !== 'worktrees').flatMap(rule => rule.check(view, { seen, observed }))
+  return REPAIR_RULES.filter(rule => rule.id !== 'worktrees' && rule.id !== 'browsers').flatMap(rule => rule.check(view, { seen, observed }))
 }

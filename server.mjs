@@ -40,7 +40,7 @@ import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
-import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
+import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
@@ -123,6 +123,7 @@ import { stillTruePass } from './src/stillTrue.mjs'
 import { HANDOVER_COMMAND, envelopesOf, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
 import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
+import { closeLeaked } from './src/supervisor/browsers.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, SUPERVISOR_RULE_KEYS, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
@@ -4290,6 +4291,9 @@ async function main(args) {
           runs: runsNow,
         }),
         clean: one => cleanLeftover(one),
+        // Leaked headless browsers (2026-11-13): the PC's processes with their threads (cpu.mjs's listing) for the rule browsers, and
+        // the close of one (its tree, its temp profile); Windows only (elsewhere no such check).
+        ...(process.platform === 'win32' ? { processes: () => windowsProcesses.list(), closeBrowser: one => closeLeaked(one) } : {}),
         // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule
         // base-equal); workAction runs the check that the action answers
         bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),

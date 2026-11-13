@@ -3812,6 +3812,7 @@ stuck that day was found by the person. They are now one list in the board, each
 | `refine-again` | (T9.4) a step still new whose refine word the Advisor took (arrived) 30 min ago or more, with no block written since, none waiting for the person's answers, the board not stopped on it (`refineStop`), not a fix | the Advisor woken with the same word, every 30 min, three times (Woke); then one note to the person (Sent) |
 | `incident-again` | (T9.4; signals change 6, B915) an incident "with the supervisor" for 2 h or more (the pause not counted), with no fix named and not closed | one note to the person (Sent), once; no asks again since change 6 |
 | `worktrees` | a worktree of a repository the board knows, or an empty folder one left in the project folder (2026-10-24) | removed by the board when safe (Cleaned); else listed with why (Left), no chat told: "Worktree clean-up" below |
+| `browsers` | a headless or remote-driven Edge main process whose starter is gone, running over 10 minutes with more than one thread (2026-11-13) | its tree closed and its temp profile removed (Cleaned, the row naming the profile's prefix); one that could not be, Left with why, no chat told: "Leaked headless browsers" below |
 
 - **At its take** (B542, X10): a step's `Blocked by` loses the steps done, dropped or in review, and a `Waits for` whose
   every step is goes, each with a History line naming the blocker, so no step in progress still shows a wait. The
@@ -3960,6 +3961,35 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
 - Tests: `test/work/worktrees.test.mjs` (temporary git repositories: merged and unmerged worktrees, changes, held
   ones, an empty leftover folder, a junction made with `mklink /J`, skipped with its reason where none can be made),
   `test/work/check.test.mjs`, `test/work/resultCheck.test.mjs`, `test/supervisor/selfCheck.test.mjs`, `test/outOfSync.test.mjs`.
+
+## Leaked headless browsers (2026-11-13)
+
+The person's PC lagged (2026-11-13, 21:00): one headless Edge (`--use-angle=swiftshader`, profile `%TEMP%\edge-cdp-b1126-*`)
+started the day before at 07:42, its starter process gone, was rendering the game on the CPU at about 55% of the PC (13 of 24
+cores); three more had leaked that evening. The cause was a worker's scratch CDP helper on a fixed port (a killed run's Edge
+stayed and every later run connected to it); the helper was fixed, and the board catches any tool that leaks a browser:
+
+- **The rule `browsers`** (src/supervisor/browsers.mjs, rules/repair.mjs, shaped like `worktrees`; a repair, no AI, no
+  tokens, no chat told): each loop, from one listing of the PC's processes (cpu.mjs `LIST_SCRIPT`, which now carries each
+  process's `threads`), every `msedge.exe` MAIN process with `--headless` or `--remote-debugging-port` and no `--type=`
+  (the person's own Edge has neither flag and is never touched) that has more than one thread (a killed main process
+  lingers as a 1-thread zombie for a while; the game's `browserTree.mjs` counts the same), started over `LEAKED_AFTER_MS`
+  (10 minutes) ago, whose starter is gone: its parent not listed, or listed but created after it (a process number given
+  out again). The delay matters: a board-evidence Edge (`--disable-gpu`, port 0) was seen with its starter already gone
+  seconds after it started.
+- **The fix** (`closeLeaked`, the loop's `close`): `taskkill /F /T` on the process and the tree below it (children that
+  started after their parent), then the tool's folder in the temp folder removed (`tempRootOf`: the first folder below
+  `%TEMP%` on the way to the profile; the evidence tool keeps its profile IN its `board-evidence-<tail>` folder), a
+  profile anywhere else kept; one Cleaned row, "<prefix>: a headless Edge (process N, started HH:MM, 13 h 20) with its starter gone:
+  closed, its profile removed", the prefix the tool's own (`prefixOf`: the profile's name up to its first number or
+  random tail: `edge-cdp-b1126`, `board-evidence`, `lava-shot`), so a tool that keeps leaking is visible on the board. A
+  kill that fails is Left with why; a listing that fails is one Left row ("leaked browsers: not looked at"), not the end
+  of the run.
+- **Ports** (server.mjs, Windows only): `processes()` (cpu.mjs `windowsProcesses.list`) and `closeBrowser(one)`; without
+  them (another platform, a test runner) the rule finds nothing.
+- Tests: `test/supervisor/browsers.test.mjs` (the person's Edge untouched, a starter alive, the ten minutes, the zombie,
+  a reused parent number, the tree, the prefixes, the temp folder, the close with fakes), `test/supervisor/selfCheck.test.mjs`
+  (the loop's Cleaned and Left rows, the failed listing), `test/cpu.test.mjs` (`threads` in the listing).
 
 ## The supervisor, part 1 (2026-10-24): the board checks itself
 
