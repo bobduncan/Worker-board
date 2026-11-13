@@ -148,3 +148,14 @@ test('the Supervisor names free workers idling 30 min while every waiting step s
   const withReady = buildView({ state: { chats: lanes, today: [], limits: {}, pause: null, chatPrefix: '', readyList: { ready: [{ id: 'B1151' }], held } }, items: new Map(), outbox: [], settings: {}, now: NOW })
   assert.deepEqual(rule.check(withReady, { seen: new Map([['overlap-idle board', NOW - 31 * MIN]]), observed: [] }), [])
 })
+
+test('verifier 2, 7: the set word for Main and its hand-over are written in one go', async () => {
+  const one = await garden(opusStep('B1163'))
+  try {
+    const batches = []
+    const sayAll = one.outbox.sayAll.bind(one.outbox)
+    one.outbox.sayAll = async added => { batches.push(added.map(message => message.id)); return sayAll(added) }
+    const first = await one.decide(await one.lane(), NOW)
+    assert.deepEqual(batches, [[first.envelope.waitsFor, first.envelope.id]])
+  } finally { await cleanUp(one.dir) }
+})

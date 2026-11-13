@@ -12,7 +12,10 @@
  * permission"; src/goalGuard.mjs `fableAskOf`).
  */
 import { familyOf, isSetRefused } from './work/effort.mjs'
-import { TRIES, passesBySelf } from './work/passing.mjs'
+import { AGAIN_AFTER_MS, TRIES, passesBySelf } from './work/passing.mjs'
+
+/** F5 verifier 4: how long after a failure the outbox's retry still comes (it copies a word AGAIN_AFTER_MS after it failed, at a sweep). */
+const RETRY_DUE_MS = AGAIN_AFTER_MS + 2 * 60_000
 
 export const PARTNER_MODES = {
   usual: { model: 'claude-opus-5-5', effort: 'xhigh', label: 'Opus 5.5, extra high' },
@@ -49,12 +52,15 @@ export function partnerEffortWords({ to, partner, session, mode, why, yes = null
  * mode, so high effort is still known, and switched back on Go. A word that did not arrive (expired, or the Workers mod
  * could not type it) changed nothing: it is `missed`. `labels` name the modes for the switch.
  */
-export function partnerEffort({ sent, partner, entries }) {
+export function partnerEffort({ sent, partner, entries, now = null }) {
   const words = (sent ?? []).filter(message => message.command === 'partner-effort' && message.about === partner && Object.hasOwn(PARTNER_MODES, message.mode ?? ''))
   // B1160 round 3, items 1 and 3: a word the app refused (closed by the sweep as refused) changed nothing either: the mode is not taken from it.
   // F5 review 9: a failed word whose retry is still to come is not missed: the switch shows it settling.
-  const isRetryComing = message => message.state === 'failed' && message.final !== true && passesBySelf(message.why) && (message.tries ?? 1) < TRIES
-    && (message.retriedAs === undefined || words.some(one => one.id === message.retriedAs && one.state === 'waiting'))
+  // F5 verifier 4: only while a retry really is due: its copy waits, or (no copy yet) the outbox's retry would still make one: a failure
+  // time within RETRY_DUE_MS of `now`, tries left, a reason that passes by itself, not final. Without `now` only a waiting copy counts.
+  const isRetryComing = message => message.state === 'failed' && (message.retriedAs !== undefined
+    ? words.some(one => one.id === message.retriedAs && one.state === 'waiting')
+    : message.final !== true && passesBySelf(message.why) && (message.tries ?? 1) < TRIES && Number.isFinite(now) && Number.isFinite(message.failedAt) && now - message.failedAt < RETRY_DUE_MS)
   const isMissed = message => message.state === 'expired' || (message.state === 'failed' && !isRetryComing(message)) || message.refused === true
   const last = words.findLast(message => !isMissed(message))
   const latest = words.at(-1)

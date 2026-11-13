@@ -2188,7 +2188,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       // while it is being typed (ten minutes at most); for two minutes after it arrived, before its turn shows; and then
       // while the Advisor is at work on the turn that began with it (an hour at most). A turn begun later is another.
       // B352: the high effort mode last asked for it, what its last answer ran on, and whether that is the mode asked.
-      effort: partnerEffort({ sent, partner: advisorChat.name, entries: advisorEntries }),
+      effort: partnerEffort({ sent, partner: advisorChat.name, entries: advisorEntries, now }),
       roundRuns: (() => {
         const last = sent.findLast(message => message.to === advisorChat.name && (message.command === 'round' || message.command === 'recheck'))
         if (last === undefined) return false

@@ -241,7 +241,7 @@ function overlapIdle(view, ctx) {
     rule: 'overlap-idle', key, subject: 'board',
     // F5 review 11, 12: the span is the board's (workers free behind overlaps), not each worker's; the step it waits on may wait for the person.
     text: `workers free behind Touches overlaps for ${minutes(ms)} min (${free.map(lane => lane.name).join(', ')}): every waiting step shares its files with a step given or at work: ${pairs.join(', ')}${waiting.length > 8 ? ', ...' : ''}`,
-    evidence: `held back by an overlap: ${waiting.map(one => `${one.id}: ${one.why}`).join('; ')}; free: ${free.map(lane => lane.name).join(', ')}; ready for a worker: none. Narrow their Touches, or move the step they wait on along.`,
+    evidence: `held back by an overlap: ${waiting.map(one => `${one.id}: ${one.why}`).join('; ')}; free: ${free.map(lane => lane.name).join(', ')}; ready steps: none. Narrow their Touches, or move the step they wait on along.`,
   }]
 }
 
@@ -704,6 +704,8 @@ function personHold(view, held) {
 
 /** B1021: the states in which a step is with a worker that was given it or took it. */
 const MOVING = ['queued', 'taken', 'in progress']
+/** F5 verifier 3, 6: the states of the step a Touches overlap hold waits for in which the hold is a wait. */
+const OVERLAP_WAITS = [...MOVING, 'waiting on you']
 
 /**
  * B1021 (X148: B1018 blocked by B1014, which waited for its own ready fix B1020 while the limit held every hand-out): whether a
@@ -731,7 +733,9 @@ function stepMoves(view, id, visited) {
 export function holdMoves(view, held, visited = new Set()) {
   // F5 review 7: a step held back by a Touches overlap waits for that step: a wait while it moves.
   const overlap = /^waits: same files as (B[0-9]+)\b/.exec(held ?? '')?.[1] ?? null
-  if (overlap !== null) return stepMoves(view, overlap, visited)
+  // F5 verifier 3, 6: any overlap hold is a wait while its step is under way, waiting on the person included (the ready list holds
+  // it only then; the step itself is the one named).
+  if (overlap !== null) return OVERLAP_WAITS.includes(stateOf(view.items.get(overlap))) || stepMoves(view, overlap, visited)
   if (!BLOCKED_HOLD.test(held)) return false
   const ids = [...new Set(held.match(/B[0-9]+/g) ?? [])]
   return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps) || stepMoves(view, id, visited))

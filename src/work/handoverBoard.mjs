@@ -290,21 +290,23 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
   // B1160 part 2 (chat 1's decision 4): while the app refuses the board's set calls, the owed set goes to a model turn of Main: one word
   // to Main that no hand claims (`forModel`), asked once per hand-over while the worker is free; the envelope waits for the worker to run
   // at it, or MAIN_SET_WAIT_MS, then goes without it (the pass below; `asked` keeps what was asked for the step's line).
+  // F5 verifier 2, 7: the set word and its envelope are written in one go, so a take of Main in between never finds the word without it.
+  const words = []
   if (isRefused && main !== null) {
     const { usual } = runSettings(config)
     const models = runSettings(config).models
     const word = { id: newId(), at: now, ...effortWords({ to: main, chat: lane.name, session: lane.appSession ?? null, level: envelope.set.effort, model: envelope.set.model, usual: usual.effort, usualModel: models[usual.model] ?? null, step: envelope.step, why: `${envelope.step} is ${lane.name}'s next step (its hand-over); the app no longer lets the board's code set it, so set it yourself` }), forModel: true, state: 'waiting', envelope: id }
-    await outbox.say(word)
+    words.push(word)
     message.waitsFor = word.id
   }
   if (message.set !== null) {
     const { usual } = runSettings(config)
     const models = runSettings(config).models
     const word = { id: newId(), at: now, ...effortWords({ to: main, chat: lane.name, session: lane.appSession ?? null, level: envelope.set.effort, model: envelope.set.model, usual: usual.effort, usualModel: models[usual.model] ?? null, step: envelope.step, why: `${envelope.step} is ${lane.name}'s next step (its hand-over)` }), state: 'waiting', envelope: id }
-    await outbox.say(word)
+    words.push(word)
     message.waitsFor = word.id
   }
-  await outbox.say(message)
+  await outbox.sayAll([...words, message])
   // Signals change 3: the "go on" line stands in the step's History too ("the board asked Worker N to go on (stopped since HH:MM)").
   if (decision.goOn !== null) await apply({ action: 'advance', id: decision.goOn.step, goOn: { chat: decision.goOn.chat, since: decision.goOn.since } }).catch(() => null)
   return { decision, envelope: message }

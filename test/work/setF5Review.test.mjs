@@ -73,7 +73,7 @@ test('review 7: review-held reads a fix held back by an overlap with a moving st
 
 test('review 9: a failed partner word whose retry is still to come shows settling, not "flip the switch again"', () => {
   const first = { id: 'p1', command: 'partner-effort', about: 'Partner', mode: 'high', at: NOW - 30_000, state: 'failed', failedAt: NOW - 20_000, why: REFUSAL, tries: 1 }
-  const effort = partnerEffort({ sent: [first], partner: 'Partner', entries: [{ type: 'assistant', isSidechain: false, model: OPUS, effort: 'xhigh', at: NOW - MIN }] })
+  const effort = partnerEffort({ sent: [first], partner: 'Partner', entries: [{ type: 'assistant', isSidechain: false, model: OPUS, effort: 'xhigh', at: NOW - MIN }], now: NOW })
   assert.deepEqual([effort.missed, effort.isSet, effort.mode], [null, false, 'high'])
 })
 
@@ -103,4 +103,32 @@ test('review 15: the probe never picks a worker whose hand-over waits or that go
   assert.equal(probeOf({ sent: [refused, forDigger], lanes, now: NOW, main: 'Lead' }).word.chat, 'Mower')
   const envelope = { id: 'e', command: 'handover', to: 'Mower', state: 'waiting', at: NOW - MIN }
   assert.equal(probeOf({ sent: [refused, forDigger, envelope], lanes, now: NOW, main: 'Lead' }).word, null)
+})
+
+test('verifier 1, 5: a Main set word is met by the model alone while the app shows no effort, never by a wrong model', () => {
+  const word = { id: 'w3', to: 'Lead', command: 'worker-effort', about: 'Digger', model: OPUS, effort: 'high', forModel: true, state: 'delivered', at: NOW - 2 * MIN }
+  const met = whyClosed(word, { all: [word], items: new Map(), now: NOW, keep: KEEP, lanes: [{ name: 'Digger', model: OPUS, effort: null }] })
+  assert.deepEqual([met?.state, met?.met], ['dropped', true])
+  assert.notEqual(whyClosed(word, { all: [word], items: new Map(), now: NOW, keep: KEEP, lanes: [{ name: 'Digger', model: SONNET, effort: null }] })?.met, true, 'wrong model')
+  assert.notEqual(whyClosed(word, { all: [word], items: new Map(), now: NOW, keep: KEEP, lanes: [{ name: 'Digger', model: OPUS, effort: 'low' }] })?.met, true, 'shown effort differs')
+  const effortOnly = { ...word, model: null }
+  assert.notEqual(whyClosed(effortOnly, { all: [effortOnly], items: new Map(), now: NOW, keep: KEEP, lanes: [{ name: 'Digger', model: OPUS, effort: null }] })?.met, true, 'no model to judge by')
+})
+
+test('verifier 3, 6: a hold behind a Touches overlap is a wait while its step waits for you too', () => {
+  assert.equal(holdMoves(viewOf({ items: new Map([['B1149', step('B1149', 'waiting on you', { Owner: 'Worker 3' })]]) }), 'waits: same files as B1149, which waits for you'), true)
+  assert.equal(holdMoves(viewOf({ items: new Map([['B1149', step('B1149', 'queued', { Owner: 'Worker 3' })]]) }), 'waits: same files as B1149, given'), true)
+  assert.equal(holdMoves(viewOf({ items: new Map([['B1149', step('B1149', 'done')]]) }), 'waits: same files as B1149, under way'), false)
+})
+
+test('verifier 4: a failed partner word with no retry coming is missed, not settling', () => {
+  const entries = [{ type: 'assistant', isSidechain: false, model: OPUS, effort: 'xhigh', at: NOW - MIN }]
+  const word = more => ({ id: 'p2', command: 'partner-effort', about: 'Partner', mode: 'high', at: NOW - 30 * MIN, state: 'failed', failedAt: NOW - 20_000, why: REFUSAL, tries: 1, ...more })
+  assert.notEqual(partnerEffort({ sent: [word({ failedAt: NOW - 20 * MIN })], partner: 'Partner', entries, now: NOW }).missed, null, 'its retry time long past')
+  assert.notEqual(partnerEffort({ sent: [word({ tries: 3 })], partner: 'Partner', entries, now: NOW }).missed, null, 'no try left')
+  assert.notEqual(partnerEffort({ sent: [word({ final: true })], partner: 'Partner', entries, now: NOW }).missed, null, 'final')
+  assert.notEqual(partnerEffort({ sent: [word({})], partner: 'Partner', entries, now: null }).missed, null, 'no clock: no retry assumed')
+  assert.equal(partnerEffort({ sent: [word({})], partner: 'Partner', entries, now: NOW }).missed, null, 'retry due')
+  const retried = word({ retriedAs: 'p3' })
+  assert.equal(partnerEffort({ sent: [retried, { ...word({}), id: 'p3', state: 'waiting', failedAt: undefined, at: NOW - 5000 }], partner: 'Partner', entries, now: NOW }).missed, null, 'its copy waits')
 })

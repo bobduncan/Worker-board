@@ -120,7 +120,9 @@ export function whyClosed(message, ctx) {
     if (newer !== undefined) return { state: 'dropped', why: `superseded by a newer word for ${message.about}'s setting (${stamp(newer.at)})` }
     const lane = (ctx.lanes ?? []).find(one => one.name === message.about && !one.isLeftover)
     // B1160: the probe asks the chat's own setting on purpose (its hand's answer is the point): never met before a hand took it.
-    if (message.probe !== true && lane !== undefined && lane.effort === message.effort && ((message.model ?? null) === null || sameModel(lane.model, message.model))) {
+    // F5 verifier 1, 5: an effort the app's file does not show is not judged: the model alone counts then (as the hand-over pass's runsIt).
+    const effortMet = lane !== undefined && (lane.effort === message.effort || ((lane.effort ?? null) === null && (message.model ?? null) !== null))
+    if (message.probe !== true && lane !== undefined && effortMet && ((message.model ?? null) === null || sameModel(lane.model, message.model))) {
       // B1051 (X153): the setting was met: a success, not a failure. `met` tells the hand-over pass so (it waits for this word).
       return { state: 'dropped', met: true, why: `${message.about} runs at ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort} already` }
     }
