@@ -4026,7 +4026,8 @@ Chat 1's review of the hotfix (2026-11-14, `.claude/plans/2026-11-14-mod-hotfix-
 
 Tests for the round, in the same describe: the blocker (two turn-ended calls with their own `since` and block while the first is
 held past 5 s), the repeat's follow-up and the reused request id, the no-plan error and the pending word under a stuck chain, the
-budget guard of the signal, the warm pass and `chat list` in the scan test.
+warm pass and `chat list` in the scan test. The signal's budget guard has no test of its own: the kit's signal aborts early by
+design, and the deadline test covers what the hook answers.
 
 Tests: `mods/workers/hooks/chatlist.test.ts` "0.31.1 (F4)": a turn's start and end, the prompt, the chat tool and the work tool
 answer within their time while the board hangs and the card chain is stuck (the test world's `writeHold`; on 0.31.0 each waited
