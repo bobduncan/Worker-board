@@ -4067,6 +4067,34 @@ answer within their time while the board hangs and the card chain is stuck (the 
 for ever), a subagent's turns write nothing, the scan's cache and the week; the B412 tests as 0.31.1 has them. The board's
 `test/modVersionEverywhere.test.mjs` pins the version and the note.
 
+## The Workers mod 0.31.2 (2026-11-14): chat 1's final check of the hotfix
+
+Chat 1's final check of 0.31.1 at e0c6d30b (`.claude/plans/2026-11-14-mod-hotfix-0311-final.md`: no blockers, 7 should-fixes, two
+pairs of them one finding) builds as 0.31.2 right after 0.31.1 went live, on `mod-hotfix-0312` from the hotfix head:
+
+1. **The clear's and the session's end under the race** (1): `clearThenPrepare` awaits nothing between the clear's answer and
+   `withinHook` (the clock read is part of `prepareAfterClear`); `session.end` runs its work (`sessionEnds`: the carry after a
+   /clear, else the ended report and the waiting card) under `withinHook` with its `next`.
+2. **Only the queue's tail sets the projection** (2, 5): `applyMine` writes `projected` only while `chainPending <= 1`, so a write
+   queued ahead of a plan said Pending never puts the card without the plan back; the step after it is queued, not refused.
+3. **The pause's lines are marked where they are pushed** (3, 6): `pauseLines` answers `{ lines, commit }`; `promptContext` and the
+   catch-all run `commit` (the keys into `pauseGiven`, the resume key into the store, detached) in the same step as the push, only
+   while the hook is not late.
+4. **A form the engine ran itself keeps its asks open** (4): when the form's hook went late and its `next` throws (the engine opened
+   the form), the filing goes to `orphanForms` instead of `afterForm`: nothing is withdrawn, the report stays asking; the turn's end
+   closes those asks as answered in the chat (`closeOrphanForms`, detached).
+5. **The work tool's late answer knows the board's** (7): the hook hands `workToolCall` a `WorkInFlight` the call fills (request,
+   answer); at the deadline `workLateText` gives the board's text with the card pending when the answer is in, its refusal when
+   refused, else NOT_KNOWN with "Do not call again" and the request registered in `repeating`, so the same call again reuses the id
+   and the follow-up runs once (the entry goes once it ran).
+
+Tests (the F4 describe): two writes ahead of a Pending plan, the first released, the step after it queued (kills `projected` on every
+write); the board's answer at 9.5 s with the card and the refresh late (the text with Pending, not NOT_KNOWN); no answer at 13.5 s
+and the same call again with the one request id (the board call's own 10 s bound answers first, as a cut, so the hook's bound never
+falls without an answer in: the registration branch of 5 is for a slow start before the call, untested). Not testable in the kit (no
+main-thread stall, no throwing `next`): 1 and 4; 3 and 6 need a join longer than its 1.5 s bound. The version test pins 0.31.2 and
+the note.
+
 ## The supervisor, part 1 (2026-10-24): the board checks itself
 
 The person, 2026-10-24 (the chat "Worker board task reliability", goal map T7): "a supervisor chat/worker. its goal is
