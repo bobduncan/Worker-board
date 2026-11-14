@@ -267,6 +267,9 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
   let fault = null
   let running = null
   let isFreed = false
+  // F24b: under Low the board's own processes get Normal and all cores back FIRST, before the listing and the sessions, which a
+  // starved board (Idle on two crowded cores, inherited from the chat that started it) could not get through (chat 1, 2026-11-14).
+  let isRestored = false
   // B440: the last line about the board's own priority; a line is written only when it says something new.
   let lastLine = null
   const tell = line => {
@@ -288,6 +291,12 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
       const done = own.length === 0 ? [] : await processes.set(own).catch(() => [])
       isFreed = own.every(one => Array.isArray(done) && done.includes(one.pid))
       if (own.length > 0) tell(`CPU for Claude: the board's own processes ${isFreed ? 'are at Normal on all cores' : 'could not be set to Normal yet; tried again next pass'}.`)
+    }
+    if (available && current === 'low' && !isRestored) {
+      const own = boardChanges(spare, cores)
+      const done = own.length === 0 ? [] : await processes.set(own).catch(() => [])
+      isRestored = own.every(one => Array.isArray(done) && done.includes(one.pid))
+      if (own.length > 0) tell(`CPU for Claude: the board's own processes ${isRestored ? 'are at Normal on all cores' : 'could not be set to Normal yet; tried again next pass'}.`)
     }
     if (!available || (current === 'full' && restore === 0)) {
       count = 0

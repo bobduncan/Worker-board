@@ -177,7 +177,7 @@ export function pauseFacts({ pause, items, lanes = [], prefix = '', pending = []
   const laneOf = chat => lanes.find(lane => plain(lane.name, prefix) === plain(chat, prefix))
   const holders = holdersOf(items, prefix).filter(holder => laneOf(holder.chat) !== undefined)
   if (pause.state === 'pausing') {
-    const asking = lanes.filter(lane => lane.isAsking === true && lane.state !== 'off').map(lane => lane.name)
+    const asking = lanes.filter(lane => lane.isAsking === true && !lane.boardCall && lane.state !== 'off').map(lane => lane.name)
     const working = lanes.filter(lane => runsTurn(lane) && !asking.includes(lane.name)).map(lane => lane.name)
     const typing = [...new Set((pending ?? []).map(one => one?.to).filter(to => typeof to === 'string' && to !== ''))]
     // Pause truth item 7: a step in review is named so (`inReview`): no chat resumes it, the board goes on with its check.
@@ -319,4 +319,5 @@ export function heldMs(message, now, pause) {
 export const chatsWithoutProcess = lanes => (Array.isArray(lanes) ? lanes : []).filter(lane => lane?.isRunning === false && typeof lane.name === 'string').map(lane => lane.name)
 
 /** Review 2: the names of the chats that report asking (the app's question form, or waiting on the person): their popup may be real. */
+// F9's review: a chat in its slow call to the board (`boardCall`) still asks here, so the sweep keeps its popup ask open while the call runs.
 export const chatsAsking = lanes => (Array.isArray(lanes) ? lanes : []).filter(lane => (lane?.isAsking === true || lane?.state === 'waiting') && typeof lane.name === 'string').map(lane => lane.name)

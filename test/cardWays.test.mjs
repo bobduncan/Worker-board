@@ -13,7 +13,9 @@ const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
 const page = {}
-vm.runInNewContext(`${cut('cardways')}\n${cut('focus')}\nObject.assign(this, { cardWays, nudgeWords, focusGuardView, focusRecheckView })`, page)
+// F9: a link into a chat is built by the waitline region's `openChatHref` (every link into a chat is built there).
+const chatLink = `${script.match(/^const APP_SESSION_PATTERN = .*$/m)[0]}\n${script.match(/^function openChatHref\([\s\S]*?^}$/m)[0]}`
+vm.runInNewContext(`${chatLink}\n${cut('cardways')}\n${cut('focus')}\nObject.assign(this, { cardWays, nudgeWords, focusGuardView, focusRecheckView })`, page)
 const ways = (need, canCheck = true) => JSON.parse(JSON.stringify(page.cardWays(need, canCheck)))
 const KINDS = Object.keys(vm.runInNewContext(`(${script.slice(script.indexOf('const KINDS = {') + 'const KINDS = '.length, script.indexOf('\n}\n', script.indexOf('const KINDS = {')) + 2)})`))
 

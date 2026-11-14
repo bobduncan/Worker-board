@@ -813,6 +813,8 @@ export function resumesDue(state, outbox) {
     if (lane.onSequence === true) continue
     if (lane.state === 'suspended' || (lane.suspended ?? null) !== null || Number.isFinite(lane.removedAt) || lane.removal?.isOpen === true) continue
     if (stoppedOf(outbox, lane) !== null) continue
+    // F23: not to a chat whose board link is gone: nothing there takes it; after its restart the chat reports and resumes (src/modGone.mjs).
+    if ((lane.modGone ?? null) !== null) continue
     const held = (lane.storeSteps ?? []).filter(one => RESUMED_STEPS.includes(one.state))
     if (held.length === 0) continue
     const step = held.find(one => one.id === lane.task?.stepId) ?? held[0]
@@ -965,6 +967,8 @@ export function wakesStopped(state, stopped, outbox, clock) {
     .filter(lane => !outbox.some(sent => sent.command === 'wake' && sent.about === lane.name && sent.stoppedAt === stopped.get(lane.name).since))
     // B986 (the review, 6): no word for a chat that cannot be woken (not in the app's list, not the chat the board shows).
     .filter(lane => cannotWakeWhy(lane) === null)
+    // F9's review, round 3: no wake to a chat whose Workers mod was unloaded (src/modGone.mjs): its row says to restart it.
+    .filter(lane => (lane.modGone ?? null) === null)
     .map(lane => wakeStoppedWords(main, lane, stopped.get(lane.name), clock))
 }
 

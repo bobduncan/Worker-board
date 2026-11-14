@@ -11,6 +11,7 @@ import { shownChats } from '../bridge.mjs'
 import { heldTooLong, isHandTaken, isMootSpawn, isTaskStopWord, mootWhy, stopSettleWhy } from '../hands.mjs'
 import { RESUME_STEP, isLimitStopWord, waitsLong } from '../say.mjs'
 import { DOUBT_MS, isLate, keepMs } from '../store.mjs'
+import { isHeldForLink, linkGoneNames, markLinkHeld, wordLanesOf } from '../modGone.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { familyOf, isSetRefused, sameModel } from './effort.mjs'
 import { TRIES } from './passing.mjs'
@@ -22,6 +23,7 @@ import { readStore } from './store.mjs'
 import { RESUME_KIND, TIMED_STATES, markerStep } from './holderTimers.mjs'
 import { WITH_WORKER } from './rethink.mjs'
 import { workLineWhy } from './workLines.mjs'
+import { isUntaken, untakenWhy } from './judgeWord.mjs'
 
 /** P2: why a waiting "back to you" word is closed when its step's check passed since. */
 export const BACK_PASSED_WHY = 'its check passed since (board re-run)'
@@ -43,9 +45,16 @@ const isStanding = message => ['waiting', 'taken', 'delivered', 'copied'].includ
  * The reason a waiting word no longer matters, or null. `ctx`: `all` (every word of the outbox), `items` (the work store's
  * items by id, null when the board has no store), `runs` (chat name to whether it runs), `goals` (the goal map's nodes),
  * `now`, `keep`, `closing` (what this sweep closes already), `lanes` (the board's chats, with the effort and model each runs at),
- * `onBoard` (B880: the names of the chats on the board now, the partner, helper, supervisor and Product owner among them).
+ * `onBoard` (B880: the names of the chats on the board now, the partner, helper, supervisor and Product owner among them),
+ * `supervisor` (B1174: the Supervisor's lane, with its wake, for why a judge word went untaken; null for none).
  */
 export function whyClosed(message, ctx) {
+  const closed = whyClosedNow(message, ctx)
+  // F23: a word waiting for a chat whose board link is gone is held for its restart: it never expires (src/modGone.mjs).
+  return closed?.state === 'expired' && isHeldForLink(message, ctx.gone) ? null : closed
+}
+
+function whyClosedNow(message, ctx) {
   // A person's answer waits for its chat, also one that is off on purpose.
   if ((message.ask ?? null) !== null) return null
   const { all, items, now, keep } = ctx
@@ -177,6 +186,8 @@ export function whyClosed(message, ctx) {
     // gone by itself or being fixed), so a chat that did not run for hours is not typed a judgment of nothing.
     const waits = message.incidents.some(id => ['open', 'came back', 'with the supervisor'].includes(value(items.get(id), 'State')))
     if (!waits) return { state: 'dropped', why: `none of ${message.incidents.join(', ')} waits for a judgment any more` }
+    // B1174 (X43): one its chat did not take within 30 min holds no later judgment: closed with why (judgeWord.mjs), its incidents wait again.
+    if (isUntaken(message, now, keep)) return { state: 'expired', untaken: true, why: untakenWhy(message.to, ctx.supervisor?.name === message.to ? ctx.supervisor : null) }
   } else if (message.command === 'wake' && ctx.stopped instanceof Map) {
     // B577: the main chat's word to wake a stopped chat: not needed once that chat began a turn, or another session
     // stands under its name (a chat replaced), or nothing waits for it any more.
@@ -352,7 +363,12 @@ export function vanishedChatWords({ outbox, state, now }) {
  * `{ id, state, why }` (a replay on a copy of the outbox passes `dry: true`: nothing is written then). `to`, when given,
  * judges only the words to that chat (a chat's take: the store is read only when something waits for it).
  */
-export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = false, to = null }) {
+export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = false, to = null, back = null }) {
+  // F23 review 1, 3: the held words' marks first: their age stops while the link is gone, and they are released once it is back. The re-check, B:
+  // `back` a chat whose take proves its link is back, though a cached state may still read it gone.
+  const linkGone = linkGoneNames(wordLanesOf(state))
+  if (typeof back === 'string') linkGone.delete(back)
+  if (!dry) await markLinkHeld({ outbox, gone: linkGone, now, to })
   // Without the outbox's keep (a caller that delivers work lines only) nothing is judged.
   if ((keep ?? null) === null) return []
   if (!dry) await giveBackHeld(outbox, now)
@@ -377,7 +393,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const off = new Set(shownChats(state ?? {}).filter(chat => chat.isRunning === false).map(chat => chat.name))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)) }
+  const ctx = { gone: linkGone, all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)), supervisor: state?.supervisorChat ?? null }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
@@ -385,7 +401,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
     if (closed !== null && (message.state === 'waiting' || closed.state === 'dropped')) closing.set(message.id, { id: message.id, ...closed })
   }
   // B1071: a stop settled as done is closed delivered, at this sweep.
-  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : one.refused === true ? { refused: true } : one.state === 'delivered' ? { deliveredAt: now } : {})
+  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : one.refused === true ? { refused: true } : one.untaken === true ? { untaken: true } : one.state === 'delivered' ? { deliveredAt: now } : {})
   return [...settled, ...closing.values()]
 }
 
@@ -421,7 +437,9 @@ export const stoppedChats = (outbox, state) => new Map(shownChats(state ?? {}).m
  * never handed a word whose purpose is gone, then what still waits for it (store.mjs `take`).
  */
 export async function takeFor({ dir, outbox, state, now, keep, chat, only, fs }) {
-  await sweepOutbox({ dir, outbox, state, now, keep, fs, to: chat }).catch(error => console.error(`The outbox sweep failed: ${error.message}`))
+  // F23 review 1, 3: a take proves the chat's link is back: its held words are released before anything is judged, and go out now.
+  await markLinkHeld({ outbox, gone: new Set(), now, to: chat, isBack: () => true })
+  await sweepOutbox({ dir, outbox, state, now, keep, fs, to: chat, back: chat }).catch(error => console.error(`The outbox sweep failed: ${error.message}`))
   // B577: a chat whose session was stopped takes nothing until it gets input (the app would drop every word): its words
   // wait, and the main chat is asked to wake it (say.mjs `wakesStopped`).
   const lane = shownChats(state ?? {}).find(one => one.name === chat)

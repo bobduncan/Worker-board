@@ -97,7 +97,7 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     stalls: Object.freeze((Array.isArray(state.stalls) ? state.stalls : []).map(stallOf).filter(one => one !== null).map(one => Object.freeze(one))),
     // board-fast-answer: the day's work-call figures (state.mjs `workCalls`), or null.
     workCalls: state.workCalls !== null && typeof state.workCalls === 'object' ? Object.freeze({ ...state.workCalls }) : null,
-    lateCalls: Object.freeze((Array.isArray(state.lateCalls) ? state.lateCalls : []).filter(one => Number.isFinite(one?.at) && Number.isFinite(one?.ms)).map(one => Object.freeze({ at: one.at, ms: one.ms }))),
+    lateCalls: Object.freeze((Array.isArray(state.lateCalls) ? state.lateCalls : []).filter(one => Number.isFinite(one?.at) && Number.isFinite(one?.ms)).map(one => Object.freeze({ at: one.at, ms: one.ms, ...(typeof one.popup === 'string' ? { popup: one.popup } : {}) }))),
     since: statesSince(timeline, lanes),
     repairs: Object.freeze([...repairs]),
     // B664: since when the watch rules first saw each key (the supervisor's memory), so the health summary times a

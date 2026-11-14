@@ -132,7 +132,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   for (const item of ok.filter(one => stateOf(one) === 'queued').sort(fixFirst)) {
     const owner = valueOf(item, 'Owner')
     const lane = laneOf(owner)
-    if (!isMainLane(lane) || (lane.state !== 'free' && !restFree.includes(lane.name)) || holding.has(plain(owner, prefix)) || handedBack.has(lane.name) || deliveries.some(one => one.chat === lane.name)) continue
+    // F9's review: never to a chat whose Workers mod was unloaded (src/modGone.mjs): nothing there takes the line.
+    if (!isMainLane(lane) || (lane.modGone ?? null) !== null || (lane.state !== 'free' && !restFree.includes(lane.name)) || holding.has(plain(owner, prefix)) || handedBack.has(lane.name) || deliveries.some(one => one.chat === lane.name)) continue
     const ctx = { store: { items }, freeChats: new Set([owner]), now, overlaps }
     if (!mayMove(flow, item, 'taken', 'server', ctx).ok) continue
     const id = valueOf(item, 'Id')
@@ -206,7 +207,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // review: never for its own notes, nor for the board's note of a report (Via: report: the worker tells it itself).
   const notes = []
   const mainLane = live.find(lane => lane.isMain === true)
-  if (mainLane !== undefined && mainLane.state !== 'suspended') {
+  // F9's review: nor to a main chat whose Workers mod was unloaded: its notes wait until it is restarted.
+  if (mainLane !== undefined && mainLane.state !== 'suspended' && (mainLane.modGone ?? null) === null) {
     const mains = new Set(['main', plain(mainLane.name, prefix)])
     for (const item of [...items.values()].filter(one => kindOf(one) === 'note' && valueOf(one, 'Main read') === null && valueOf(one, 'Via') !== 'report' && mains.has(plain(valueOf(one, 'To'), prefix)) && !mains.has(plain(valueOf(one, 'From'), prefix))).sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))) {
       notes.push({ id: valueOf(item, 'Id'), chat: mainLane.name, from: valueOf(item, 'From') === null ? 'the board' : laneOf(valueOf(item, 'From'))?.name ?? plainFrom(valueOf(item, 'From'), prefix), since: valueOf(item, 'Since') })
@@ -287,7 +289,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const escalations = []
   const isOn = store.partnerAnswers?.on !== false
   const isHeld = isHolding(store.pause)
-  const isFree = partner !== null && (partner.state === 'free' || partner.state === 'off' || partner.isRunning === false)
+  // F9's review: a partner whose Workers mod was unloaded is not woken for them (src/modGone.mjs); they still go to the person after 30 min.
+  const isFree = partner !== null && (partner.modGone ?? null) === null && (partner.state === 'free' || partner.state === 'off' || partner.isRunning === false)
   const routed = [...items.values()].filter(item => isRoutedToPartner(item) && !broken.has(valueOf(item, 'Id'))).sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   for (const item of routed) {
     const id = valueOf(item, 'Id')

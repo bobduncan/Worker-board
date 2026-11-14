@@ -1151,10 +1151,10 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .count-pill.is-working { border-color: #1f5a3a; }
 .count-pill.is-waiting { border-color: #6a531d; }
 .count-pill.is-free { border-color: #1f3f7a; }
-.count-pill.is-interrupted, .count-pill.is-held, .count-pill.is-noanswer { border-color: #6a3a2a; }
-.is-interrupted > .dot, .dot.is-interrupted, .is-held > .dot, .dot.is-held, .is-noanswer > .dot, .dot.is-noanswer { background: var(--warn); }
-.lane.is-interrupted, .lane.is-held, .lane.is-noanswer { border-color: #6a3a2a; }
-.is-interrupted .avatar, .is-held .avatar, .is-noanswer .avatar { color: var(--warn); border-color: #6a3a2a; }
+.count-pill.is-interrupted, .count-pill.is-held, .count-pill.is-noanswer, .count-pill.is-linkgone { border-color: #6a3a2a; }
+.is-interrupted > .dot, .dot.is-interrupted, .is-held > .dot, .dot.is-held, .is-noanswer > .dot, .dot.is-noanswer, .is-linkgone > .dot, .dot.is-linkgone { background: var(--warn); }
+.lane.is-interrupted, .lane.is-held, .lane.is-noanswer, .lane.is-linkgone { border-color: #6a3a2a; }
+.is-interrupted .avatar, .is-held .avatar, .is-noanswer .avatar, .is-linkgone .avatar { color: var(--warn); border-color: #6a3a2a; }
 
 /* B113: a worker held by the plan's limit, and the limits in the head */
 :root { --suspended: #a78bfa; }
@@ -1188,7 +1188,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .limit.is-full .limit-top b { color: var(--warn); }
 .limit small, .limit-age { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
 .limit-age.is-old { color: var(--waiting); }
-.pill.is-interrupted, .pill.is-held, .pill.is-noanswer { background: var(--warn); color: var(--ink); }
+.pill.is-interrupted, .pill.is-held, .pill.is-noanswer, .pill.is-linkgone { background: var(--warn); color: var(--ink); }
 /* B315: a lane whose card was left "working" by a quit app, its process not running. */
 .count-pill.is-off { border-color: #4a5262; }
 .is-off > .dot, .dot.is-off { background: var(--muted); }
@@ -1197,16 +1197,16 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .span.is-off { background: var(--muted); }
 .worker-icon.is-off { color: var(--muted); }
 .workers-panel .pill.is-off { background: rgba(141, 154, 174, 0.14); color: var(--muted); box-shadow: inset 0 0 0 1px rgba(141, 154, 174, 0.5); }
-.is-interrupted .fill, .is-held .fill, .is-noanswer .fill { background: var(--warn); }
-.span.is-interrupted, .span.is-held, .span.is-noanswer { background: var(--warn); }
+.is-interrupted .fill, .is-held .fill, .is-noanswer .fill, .is-linkgone .fill { background: var(--warn); }
+.span.is-interrupted, .span.is-held, .span.is-noanswer, .span.is-linkgone { background: var(--warn); }
 /* T13 part 3: an asleep chat whose turn was cut resumes by itself: a quiet cool tone, never the alarm's. */
 .pill.is-asleep, .pill.is-stopped, .pill.is-restarting, .pill.is-checking, .pill.is-handing, .pill.is-offered { background: #5b7fae; color: var(--ink); }
 .pill.is-unknown.is-late, .workers-panel .pill.is-unknown.is-late, .pill.is-working.is-late, .workers-panel .pill.is-working.is-late { background: rgba(141, 154, 174, 0.14); color: var(--warn); box-shadow: inset 0 0 0 1px rgba(255, 122, 89, 0.5); }
 .status-why { margin-left: 8px; color: var(--muted); font-size: 0.78rem; }
 .count-pill.is-checking, .count-pill.is-handing, .count-pill.is-offered, .count-pill.is-restarting, .count-pill.is-stopped, .count-pill.is-asleep { border-color: #34465f; }
-.count-pill.is-held, .count-pill.is-noanswer { border-color: #6a3a2a; }
+.count-pill.is-held, .count-pill.is-noanswer, .count-pill.is-linkgone { border-color: #6a3a2a; }
 .count-pill.is-paused { border-color: #4b3f85; }
-.is-held > .dot, .dot.is-held, .is-noanswer > .dot, .dot.is-noanswer { background: var(--warn); }
+.is-held > .dot, .dot.is-held, .is-noanswer > .dot, .dot.is-noanswer, .is-linkgone > .dot, .dot.is-linkgone { background: var(--warn); }
 .is-checking > .dot, .dot.is-checking, .is-handing > .dot, .dot.is-handing, .is-offered > .dot, .dot.is-offered, .is-restarting > .dot, .dot.is-restarting, .is-stopped > .dot, .dot.is-stopped, .is-asleep > .dot, .dot.is-asleep { background: #5b7fae; }
 .is-paused > .dot, .dot.is-paused { background: var(--suspended); }
 .is-unknown > .dot, .dot.is-unknown { background: var(--unknown); }
@@ -1487,14 +1487,14 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .worker-icon.is-waiting { color: var(--waiting); }
 .worker-icon.is-free { color: #7fb0ff; }
 .worker-icon.is-suspended, .worker-icon.is-paused { color: var(--suspended); }
-.worker-icon.is-interrupted, .worker-icon.is-held, .worker-icon.is-noanswer { color: var(--warn); }
+.worker-icon.is-interrupted, .worker-icon.is-held, .worker-icon.is-noanswer, .worker-icon.is-linkgone { color: var(--warn); }
 .workers-panel .pill { padding: 2px 9px; border-radius: 6px; font-size: 12.5px; font-weight: 600; background: rgba(91, 103, 121, 0.22); color: #aab4c3; box-shadow: inset 0 0 0 1px rgba(91, 103, 121, 0.5); }
 .workers-panel .pill.is-working { background: rgba(63, 210, 127, 0.12); color: var(--working); box-shadow: inset 0 0 0 1px rgba(63, 210, 127, 0.45); }
 .workers-panel .pill.is-waiting { background: rgba(246, 185, 59, 0.12); color: var(--waiting); box-shadow: inset 0 0 0 1px rgba(246, 185, 59, 0.45); }
 .workers-panel .pill.is-partner { background: rgba(240, 166, 202, 0.12); color: var(--partner); box-shadow: inset 0 0 0 1px rgba(240, 166, 202, 0.45); }
 .workers-panel .pill.is-free { background: rgba(59, 130, 246, 0.14); color: #7fb0ff; box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.5); }
 .workers-panel .pill.is-suspended, .workers-panel .pill.is-paused { background: rgba(167, 139, 250, 0.14); color: var(--suspended); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.5); }
-.workers-panel .pill.is-interrupted, .workers-panel .pill.is-held, .workers-panel .pill.is-noanswer { background: rgba(255, 122, 89, 0.14); color: var(--warn); box-shadow: inset 0 0 0 1px rgba(255, 122, 89, 0.5); }
+.workers-panel .pill.is-interrupted, .workers-panel .pill.is-held, .workers-panel .pill.is-noanswer, .workers-panel .pill.is-linkgone { background: rgba(255, 122, 89, 0.14); color: var(--warn); box-shadow: inset 0 0 0 1px rgba(255, 122, 89, 0.5); }
 .workers-panel .task { font-size: 15px; }
 /* B182: the backlog step's number in front of a worker's task: part of the title, a little quieter than its words. */
 .task .task-code { color: #9db8e8; font-variant-numeric: tabular-nums; }
@@ -1510,7 +1510,7 @@ body.is-resizing { cursor: col-resize; user-select: none; }
 .simple-of { color: var(--muted); font-weight: 400; font-size: 12px; }
 .progress-count { color: var(--muted); font-size: 13px; text-align: right; }
 .lane.is-suspended .fill, .lane.is-paused .fill { background: var(--suspended); }
-.lane.is-interrupted .fill, .lane.is-held .fill, .lane.is-noanswer .fill { background: var(--warn); }
+.lane.is-interrupted .fill, .lane.is-held .fill, .lane.is-noanswer .fill, .lane.is-linkgone .fill { background: var(--warn); }
 .workers-panel .eta b { font-size: 16px; }
 .workers-panel .eta .state { font-size: 15px; }
 .workers-panel .eta small { font-size: 12px; }
@@ -2228,8 +2228,8 @@ a.block-goal:hover, a.block-goal:focus-visible { color: #cfe0ff; border-bottom-c
 .lane.is-waiting .lane-row > .who, .lane.is-waiting .lane-row > .what, .lane.is-waiting .lane-row > .eta { cursor: pointer; }
 .lane.is-waiting .lane-row:hover > .what { background: rgba(255, 196, 61, 0.05); }
 /* B151: a working lane opens its task as it was given */
-:is(.lane.is-working, .lane.is-suspended, .lane.is-interrupted, .lane.is-paused, .lane.is-stopped, .lane.is-off) .lane-row > :is(.who, .what, .eta) { cursor: pointer; }
-:is(.lane.is-working, .lane.is-suspended, .lane.is-interrupted, .lane.is-paused, .lane.is-stopped, .lane.is-off) .lane-row:hover > .what { background: rgba(63, 210, 127, 0.04); }
+:is(.lane.is-working, .lane.is-suspended, .lane.is-interrupted, .lane.is-paused, .lane.is-stopped, .lane.is-off, .lane.is-linkgone) .lane-row > :is(.who, .what, .eta) { cursor: pointer; }
+:is(.lane.is-working, .lane.is-suspended, .lane.is-interrupted, .lane.is-paused, .lane.is-stopped, .lane.is-off, .lane.is-linkgone) .lane-row:hover > .what { background: rgba(63, 210, 127, 0.04); }
 .details-head .kind.is-working { background: #12381f; color: var(--working); }
 button.needs-you { padding: 0; border: 0; background: none; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
 button.needs-you small { color: var(--muted); font-size: 12.5px; }
@@ -2575,6 +2575,8 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
    so the task keeps its room. */
 .simple-end { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 0; max-width: 190px; }
 .simple-end .run-chip { justify-content: flex-end; }
+/* F9: "Open its chat" of a chat that waits because it asks in its chat. */
+.simple-chat-link { margin-left: 8px; font-size: 12.5px; white-space: nowrap; }
 @media (max-width: 600px) {
   .simple-end { display: contents; }
   .simple-end .run-chip { grid-column: 2 / -1; justify-self: start; justify-content: flex-start; }

@@ -55,6 +55,7 @@ import { STOP_HANDS_MS, isHandTaken } from './hands.mjs'
 import { answeredCard, planAnswered } from './plan.mjs'
 import { PLAN_DECISIONS, PLAN_MOVES } from './planMoves.mjs'
 import { isLate } from './store.mjs'
+import { MOD_GONE_WHY } from './modGone.mjs'
 import { WAKE_PENDING, triedWords } from './wake.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
 import { TRIES, passesBySelf } from './work/passing.mjs'
@@ -340,6 +341,9 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
   // 4. Sent: why it is not picked up yet, as far as the board knows. A chat that does not run first: its wake words.
   const sent = `Sent ${clockOf(word.at)}`
   if (word.isHeld === true) return line('sent', sent, 'held while you pause the chats', word.at)
+  // F23 review 5: held for the chat's restart (its board link is gone): the person restarts it; the board never wakes such a chat.
+  // The re-check, B: only a word still waiting (one its chat took after the restart is no held word, whatever a cached lane says).
+  if (word.state === 'waiting' && ((lane?.modGone ?? null) !== null || isTime(word.linkHeldAt))) return line('late', `Held for ${chat}'s restart`, `its board link is gone · ${MOD_GONE_WHY}`, word.at)
   if (lane?.isRunning === false) return line('sent', sent, wakingWords(chat, lane, wake), word.at)
   if (arrived !== null) {
     const turn = waitingTurn({ report: hasReport ? report : null, ahead, arrived, chat, paused, running, limitMs: judge.limitMs ?? DELIVERY_LIMIT_MS })

@@ -25,6 +25,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs'
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
+import { constants as osConstants, setPriority } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -112,6 +113,7 @@ import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isF
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, carrierWords, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
+import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
 import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
@@ -142,6 +144,16 @@ import { absentAs, readKept, sweepBeside, writeAtomic, writeUnflushed } from './
 import { claimUntilWritten } from './src/bridgeClaim.mjs'
 import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
 import { fileHolders } from './src/work/holders.mjs'
+
+// F24b (2026-11-14, chat 1's diagnosis): a chat's mod (re)started the board and Windows handed the chat's CPU "Low" on to it: Idle
+// priority on two cores that carry a hundred processes, so the board's thread got no CPU at all (the page in 8-11 s, /api/state in 30 s).
+// The keeper and the board take Normal back as their first act, before anything waits on a starved thread; the cores come back in
+// the CPU job's first pass (src/cpu.mjs once(): the board's own changes first, before the listing).
+try {
+  setPriority(osConstants.priority.PRIORITY_NORMAL)
+} catch {
+  // not allowed here: the CPU job tries again with Windows' own tools
+}
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** The board's own writes into the product plan (src/planWrite.mjs): a data file, so the record survives a restart. */
@@ -2294,7 +2306,10 @@ async function main(args) {
   /** Everything that was sent, with what waited too long marked so. */
   const sentNow = () => {
     const now = clock()
-    return store.outbox().map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
+    // F23: a word held for a chat whose board link is gone is no expired word: it waits for the restart (src/modGone.mjs), so the round
+    // and refine words are not written again beside it.
+    const gone = linkGoneNames(wordLanesOf(readState.last() ?? {}))
+    return store.outbox().map(message => (message.state === 'waiting' && isLate(message, now, keep) && !isHeldForLink(message, gone) ? { ...message, state: 'expired' } : message))
   }
   /** The Design tab's calls, one after the other. */
   const designTurn = inTurn()
@@ -4273,7 +4288,9 @@ async function main(args) {
       if (bridgeKey !== null && state.bridge?.isMissing !== true) {
         const now = clock()
         const begun = firstLook(refineKept, state)
-        const due = begun === null ? { release: [], drop: [], refine: null, notice: null, kept: null } : refineWhenDue(state, sentNow(), begun, now)
+        const due0 = begun === null ? { release: [], drop: [], refine: null, notice: null, kept: null } : refineWhenDue(state, sentNow(), begun, now)
+        // F23 review 7: no new refine while the Advisor's board link is gone (one held refine is enough; the gate would open every 30 min).
+        const due = (state.advisor?.modGone ?? null) !== null ? { ...due0, refine: null } : due0
         if (due.kept !== null && JSON.stringify(due.kept) !== JSON.stringify(refineKept)) {
           await writeAtomic(REFINE_FILE, JSON.stringify(due.kept))
           refineKept = due.kept

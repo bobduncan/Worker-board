@@ -11,7 +11,7 @@ import { checkpointOf, isHolding } from '../work/pause.mjs'
 import { GO_ON_LINE, continuationOf } from '../work/holderTimers.mjs'
 import { isFailedForGood } from '../work/outboxSweep.mjs'
 import { openQaTaskOf, qaStandOf } from '../work/qaTask.mjs'
-import { reviewWaitOf } from '../work/resultCheck.mjs'
+import { reportCheckFailedOf, reviewWaitOf } from '../work/resultCheck.mjs'
 import { ACTIVE, heldReason, openAskIds, workingOnOther } from '../work/parked.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
 import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from '../work/waitsOn.mjs'
@@ -125,7 +125,11 @@ function chatLines(view, now) {
     const wants = on === null ? '' : `; its step ${onId} wants ${modelOf(on).family} · ${effortOf(on).level}${switchWords(switching, now, view.setsRefused?.nextCheckAt ?? null)}`
     // X76 (B708): a step the board has just handed over (queued for it) is its step before it takes it: working on it is no odd one.
     const handed = onId === null ? mine.find(item => valueOf(item, 'State') === 'queued')?.head.get('Id') ?? null : null
-    const onWords = onId === null ? `; on no step${handed === null ? '' : `; ${handed} handed to it`}` : `; on ${onId}${on === null ? '' : ` "${oneLine(valueOf(on, 'Title'), 60)}" (${valueOf(on, 'State')})`}`
+    // B1176 (X198: Worker 4 merged B423 for an hour while its card named no step): a step of its own in review that the board's check
+    // handed back to it (`reportCheckFailedOf`: not merged, or a fact to fix) is the step it is on, not no step.
+    const back = onId === null && handed === null ? mine.find(item => reportCheckFailedOf(item) !== null) ?? null : null
+    const backWords = back === null ? '' : `; on ${valueOf(back, 'Id')} "${oneLine(valueOf(back, 'Title'), 60)}" (review, back with it since ${dayClockOf(reportCheckFailedOf(back).at, now)}${reportCheckFailedOf(back).notMerged === null ? '' : ': not merged'})`
+    const onWords = onId === null ? back !== null ? backWords : `; on no step${handed === null ? '' : `; ${handed} handed to it`}` : `; on ${onId}${on === null ? '' : ` "${oneLine(valueOf(on, 'Title'), 60)}" (${valueOf(on, 'State')})`}`
     const reports = mine.flatMap(item => (item.sections?.get('History') ?? []).filter(line => REPORTED.test(line)).map(line => ({ id: valueOf(item, 'Id'), at: historyAt(line) })))
       .filter(one => Number.isFinite(one.at)).sort((a, b) => b.at - a.at)
     const report = reports.length === 0 ? '; no report known' : `; last report ${reports[0].id} at ${dayClockOf(reports[0].at, now)}`
@@ -139,7 +143,7 @@ function chatLines(view, now) {
     // X46: a chat that is off or unknown, does not run and holds no step is closed, which is normal.
     const isClosed = (lane.state === 'off' || lane.state === 'unknown') && lane.isRunning !== true && onId === null
     const stopped = purpose === null && !isClosed && lane.asleep !== true && (ODD_STATES.includes(lane.state) || (lane.isRunning === false && onId !== null))
-    const idle = lane.state === 'working' && onId === null && handed === null && role === 'worker' && !waitsForPartner
+    const idle = lane.state === 'working' && onId === null && handed === null && back === null && role === 'worker' && !waitsForPartner
     const late = role === 'worker' && switching?.late === true
     // The lazy clear (Task 4, R6): a worker that owes its clear says so with its last why (the envelope's clearWhy): no fault, 'info'.
     const owes = role === 'worker' && (lane.clearOwed ?? null) !== null
