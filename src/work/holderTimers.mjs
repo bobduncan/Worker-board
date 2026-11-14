@@ -265,7 +265,9 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   const assetAt = assetProgressAt(holding, assets, { chat: name, prefix })
   const progressAt = Math.max(-Infinity, ...[changedAt, checkpointOf(holding)?.at, ...answered, ...waitMarks, landedAt, assetAt].filter(finite))
   const report = worker.report ?? null
-  const stoppedAt = report === null ? -Infinity : ['idle', 'ended'].includes(report.state) ? (finite(report.since) ? report.since : report.at) : report.at
+  // F26b: a kept report's `at` moved to the board's start after a restart is no work: the time it was really heard (`heardAt`) counts.
+  const heardAt = report === null ? null : finite(report.heardAt) ? report.heardAt : report.at
+  const stoppedAt = report === null ? -Infinity : ['idle', 'ended'].includes(report.state) ? (finite(report.since) ? report.since : heardAt) : heardAt
   const since = Math.max(progressAt, ...[stoppedAt, worker.turnAt].filter(finite))
   if (!finite(since)) return null
   // F26 (chat 1's review, finding 3): a report gap (lane unknown) over a chat that was busy or had background work: it may well still
@@ -293,7 +295,7 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
     return { since, asked: lastAt, resume: null, giveBack: isOver ? { step: id, chat: name, askedAt: lastAt } : null, close: isOver && asked?.state === 'waiting' ? asked.id : null }
   }
   const workedAfter = at => progressAt > at || (finite(worker.turnAt) && worker.turnAt > at)
-    || (report?.state === 'idle' && finite(report.since) && report.since > at) || (report?.state === 'busy' && finite(report.at) && report.at > at)
+    || (report?.state === 'idle' && finite(report.since) && report.since > at) || (report?.state === 'busy' && finite(heardAt) && heardAt > at)
   if (asked !== null && !workedAfter(asked.at)) {
     // The 15 minutes count from the line being written, not delivered: a chat the app will not open never holds it for ever.
     const isOver = mayGiveBack && runningMs(afterPause(pause, asked.at)) >= giveBackMs

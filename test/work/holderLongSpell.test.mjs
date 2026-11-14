@@ -232,4 +232,14 @@ test('F26b: a board restart is no proof of work: a kept report whose `at` moved 
   assert.notEqual(decideAt(t(10, 58, 30), restarted(t(10, 58))).giveBack, null)
   // The mutant: `at` alone (no heardAt): the restart counts as work and the step is held again.
   assert.equal(decideAt(t(10, 58, 30), laneOf({ ...dead, at: t(10, 58) })).giveBack, null)
+  // The first go-on path too (one line sent at 09:33, not yet the cap): the holder's last real report came at 09:30 (busy since 09:25), the
+  // board restarted at 09:50 and moved the report's `at` there. At 09:51 the step goes back (15 min after the line, nothing heard since);
+  // the mutant (`at` alone) reads the restart as work after the line and keeps it.
+  const early = item({ ...Object.fromEntries(B1151.head), Checkpoint: checkpointLine({ commit: '5a3aa994', next: 'Waiting for sheets', now: t(9, 11) }) }, {
+    History: B1151.sections.get('History').slice(0, 4),
+  })
+  const once = (now, worker) => holderTimers({ worker, holding: early, items: new Map([['B1151', early]]), envelopes: [envelopes[0]], runningMs: from => now - from })
+  const busyDead = { state: 'busy', since: t(9, 25), background: false, turn: t(9, 25), busyAt: t(9, 25), workFrom: t(9, 25) }
+  assert.notEqual(once(t(9, 51), laneOf({ ...busyDead, at: t(9, 50), heardAt: t(9, 30) })).giveBack, null, 'back 15 min after the 09:33 line: the restart is no work')
+  assert.equal(once(t(9, 51), laneOf({ ...busyDead, at: t(9, 50) })).giveBack, null, 'the mutant reads the restart as work')
 })
