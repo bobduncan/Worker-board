@@ -2,7 +2,7 @@
 // wake.mjs spellOf gave a side lane that read off with no asleepSince the spell 0. The live data/wakes.json has held the Supervisor's
 // spell 0 since 2026-11-05 with its tries spent: the board reused it, nextPath gave null, and from 00:14 to 12:43 today it never tried to
 // wake the Supervisor (and X157, "wake-failed Supervisor 0", came back stale 213 times). A side lane gets a real spell now: its
-// session-checked report, else its kept report (the workers' rule, B986), else its off time; a spent spell 0 is dropped at load. The
+// session-checked report, else its kept report (the workers' rule, B986), else its off time; a spent spell 0 that is not the newest is revived once. The
 // board-level cases are chat 1's review probe (buildState over a made-up project).
 
 import assert from 'node:assert/strict'
@@ -10,7 +10,7 @@ import test from 'node:test'
 
 import { parseConfig } from '../src/config.mjs'
 import { buildState } from '../src/state.mjs'
-import { newSpell, nextPath, spellOf, wakeOf, wakesOfFile } from '../src/wake.mjs'
+import { claim, newSpell, nextPath, pass, spellOf, textOfWakes, wakeOf, wakesOfFile } from '../src/wake.mjs'
 import { storeFromText } from '../src/work/read.mjs'
 
 const MIN = 60_000
@@ -72,7 +72,14 @@ test('F27, the live case: with the spent spell 0 of 2026-11-05 in the record, th
   assert.equal(nextPath(record, { chat: 'Supervisor', spell: 0, senderClaims: true, paths: ['message', 'launch'] }), null, 'before it is the newest')
   assert.equal(newSpell(record, 'Supervisor', 0, NOW + MIN), true)
   assert.equal(nextPath(record, { chat: 'Supervisor', spell: 0, senderClaims: true, paths: ['message', 'launch'] }), 'message')
-  // Once: spent again later, it is not re-opened a second time.
-  newSpell(record, 'Supervisor', spell + 1, NOW + 2 * MIN)
-  assert.equal(newSpell(record, 'Supervisor', 0, NOW + 3 * MIN), false)
+  // Chat 1's re-check 1: a try claimed at the pass's older `now` (30 ms before the revival's stamp) counts: no second launch beside it.
+  claim(record, { chat: 'Supervisor', spell: 0, path: 'launch', by: 'board', jobId: 'l1', now: NOW + MIN - 30, paths: ['message', 'launch'] })
+  assert.equal(nextPath(record, { chat: 'Supervisor', spell: 0, senderClaims: false, paths: ['launch'] }), null, 'its launch is pending')
+  // Re-check 2: the revival leaves G1's mark alone (the start-up check's one wake-again).
+  assert.equal(record.wakes.get('Supervisor').at(-1).reopenedAt, undefined)
+  // Once, also across a restart: spent again later, it is not revived a second time.
+  const reloaded = wakesOfFile(JSON.parse(textOfWakes(record)))
+  pass(reloaded, NOW + 30 * MIN)
+  newSpell(reloaded, 'Supervisor', spell + 1, NOW + 31 * MIN)
+  assert.equal(newSpell(reloaded, 'Supervisor', 0, NOW + 32 * MIN), false)
 })

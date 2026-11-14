@@ -97,11 +97,15 @@ const countedOf = entry => (isTime(entry?.reopenedAt) ? (entry.attempts ?? []).f
 export function newSpell(record, chat, spell, now = Date.now()) {
   if (!isTime(spell) || typeof chat !== 'string' || chat === '') return false
   // F27 (the review, 2): a spent spell 0 that is not the chat's newest entry (a real spell came between) is replaced ONCE when the lane reads
-  // spell 0 again: it becomes the newest, re-opened (its tries count from now, as G1's reopen), never the dead end of the 2026-11-05 Supervisor.
+  // spell 0 again: it becomes the newest with its spent tries moved aside (`revivedAt`, its own mark: never G1's `reopenedAt`, which is the
+  // start-up check's one wake-again, and no clock against the pass's `now`: every try after this counts, whenever claimed), never the dead
+  // end of the 2026-11-05 Supervisor.
   const entries0 = entriesOf(record, chat)
   const zero = spell === 0 ? entries0.find(one => one.spell === 0) ?? null : null
-  if (zero !== null && entries0.at(-1) !== zero && !isTime(zero.reopenedAt) && zero.attempts.length > 0 && zero.attempts.every(one => one.verdict === 'failed')) {
-    zero.reopenedAt = now
+  if (zero !== null && entries0.at(-1) !== zero && !isTime(zero.revivedAt) && zero.attempts.length > 0 && zero.attempts.every(one => one.verdict === 'failed')) {
+    zero.revivedAt = now
+    zero.attempts = []
+    zero.told = { failed: false, nobody: false }
     record.wakes.set(chat, [...entries0.filter(one => one !== zero), zero])
     return true
   }
@@ -759,6 +763,8 @@ export function savedSpell(value) {
     spell: value.spell, attempts: value.attempts.map(savedAttempt).filter(one => one !== null), turnEndedAt: value.turnEndedAt,
     told: { failed: told.failed === true, nobody: told.nobody === true },
     ...(isTime(value.reopenedAt) ? { reopenedAt: value.reopenedAt } : {}),
+    // F27: a spent spell 0 revived once keeps that mark across the board's restart.
+    ...(isTime(value.revivedAt) ? { revivedAt: value.revivedAt } : {}),
   }
 }
 
