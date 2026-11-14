@@ -52,7 +52,7 @@ import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './
 import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
 import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, backgroundNoNewsOf, lateAssetsOf } from './work/assetWait.mjs'
 import { reconcile } from './work/reconcile.mjs'
-import { EFFORTS, effortPlan, probeOf, runSettings, setsRefusedOf } from './work/effort.mjs'
+import { EFFORTS, effortPlan, planWordsFor, probeOf, runSettings, setsRefusedOf } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
 import { isJudging } from './work/judgeWord.mjs'
 import { OWNER_LABEL, OWNER_SETTING, talkPartnerOf } from './talkPartner.mjs'
@@ -2602,7 +2602,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // The partner and its helper are skipped: their own setting (B352, set once) is never the board's to overwrite.
   const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name, ownerChat?.name], ...runSettings(config), refused: setsRefusedOf(stepWords, now), known: stepWords })
   // T8.5: a worker on the sequence is set by its envelope's `set`, at its hand-over: no word of the old plan for it.
-  if (efforts) efforts.words = efforts.words.filter(word => chats.find(lane => lane.name === word.chat)?.onSequence !== true)
+  // B1207 (X26 back): except a held step's setting that changed after its hand-over (`changed`): no envelope comes for it any more.
+  if (efforts) efforts.words = planWordsFor(efforts.words, chats)
   // T7.5 (the person, 2026-10-28: "do B"): the Supervisor's chat is held at its own setting (`supervisorModel`, `supervisorEffort`:
   // Sonnet, low), by the same word and the same half-hour dedupe as a worker's: the plan above skips it, so its word is added.
   // Signals change 6 (B915, Addendum 7): while it judges incidents (a judge word in flight, or an incident waiting for one:

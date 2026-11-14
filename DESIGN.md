@@ -4282,7 +4282,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   whose effort, or model where the settings name model ids, differs from its step's over 10 min after the take, with no
   switch read back; one finding per chat and step; not while the person pauses or a limit is full, and the pause's time
   does not count; the health summary says beside "wants" "switch asked HH:MM" or "switched", and marks the mismatch
-  "!" only once it lasts).
+  "!" only once it lasts; B1207: a step whose setting changed after its hand-over counts its 10 min from the change, the
+  run's `changed.at`, and its text says "after B12 changed to sonnet · high at 16:12 (its hand-over asked sonnet · medium)").
   What a step in review waits for (`resultCheck.mjs reviewWaitOf`: its first check, its check again, the person's
   answer, its fix B<n>, its fix dropped, or (B740, X92: B727's report check failed at 21:03 and its worker never reported it
   again, so it sat in review an hour with nothing said) its worker's new report: "waits for <worker> to report again: its
@@ -5938,6 +5939,17 @@ and free workers sat idle. Never a way around the refusal (no permission or mode
   asked)." and its chips "(asked)", never "is set to" or "not set yet". A held or queued step is judged by its own newest envelope to
   its worker (handed with its set: no gap of the refusal's). A peer never owns a step queued, taken or in progress (the work API would
   refuse it), and its bars are read lazily from the envelopes its own decide reads (no 'go on' lines).
+- A setting that changes after the hand-over (B1207, X26 back after B576: Worker 5 got B1196 at 15:50 at sonnet · medium, set by
+  Main's model; at 16:12 its Effort became high and no word went, as the sequence drops every effort-plan word for its workers and
+  the refusal asks none; effort-mismatch then fired one minute after the change, "no switch asked"). The envelope keeps the step's
+  whole setting at its hand-over (`wants`, set or not; the mod's contract leaves it out). The effort plan reads what a held step's
+  newest delivered envelope asked (`handedSettingOf`: its `wants`, else `set` or `asked`, else the set word written for it, also
+  one Main's model made, whose envelope holds neither); a step that wants another setting since gets one word to Main (`changed`,
+  why "B12 changed after its hand-over (asked ... at HH:MM, now ...)"), through the sequence (`planWordsFor`) and while the refusal
+  stands, then for Main's model (`forModel`). The quiet gap covers only the setting its envelope asked. The run carries
+  `changed: { from, fromWords, handedAt, at }`, `at` the earlier of the step's newest refine line since the hand-over and the first
+  such word. The outbox sweep drops a waiting `changed` word once its step wants another setting again. Tests:
+  `test/work/effortChanged.test.mjs` (the real case's records), `handoverBoard.test.mjs` (`wants`).
 - Tests: `test/work/setRefused.test.mjs` and `setRefusedReview.test.mjs` (the refusal's real words; B1160 sent again without a take-back; no set word while refused; an
   old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off
   sonnet steps; the plain row words). The owed set through a model turn of Main (decision 4) is the second landing.

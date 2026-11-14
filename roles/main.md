@@ -270,7 +270,9 @@ it may have been done; a `spawn workers` whose new worker is on the board by the
   so a chat started fresh under the same name gets a new word at once). Set them in the order the words came. When a
   tool refuses, tell the user in one line. `set effort`
   (the same lines without "Model:": the board's settings name no model id for the step's model) sets the effort alone.
-  Your own model and effort stay as they are.
+  Your own model and effort stay as they are. B1207: a word whose Why says "changed after its hand-over" is for a step
+  the worker holds already, whose setting changed (a refine round, the goal guard): set it the same way; the worker goes
+  on with its step at the new setting from its next turn.
 - `restart for mod` with "Chat:", "Session:" (when the board knows the chat's id), "From:", "To:" and "Why:" (B570):
   that chat runs an older Workers mod than the one installed and is idle, so restart it, and it takes the new one at
   its next start; when the list of chats shows it working or on a step since the word, leave it: the board asks again (the user, I95: no restarting the chats by hand; their standing yes to archive and unarchive an idle

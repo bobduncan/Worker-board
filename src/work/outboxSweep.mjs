@@ -13,7 +13,7 @@ import { RESUME_STEP, isLimitStopWord, waitsLong } from '../say.mjs'
 import { DOUBT_MS, isLate, keepMs } from '../store.mjs'
 import { isHeldForLink, linkGoneNames, markLinkHeld, wordLanesOf } from '../modGone.mjs'
 import { stoppedOf } from '../stopped.mjs'
-import { familyOf, isSetRefused, sameModel } from './effort.mjs'
+import { effortOf, familyOf, isSetRefused, modelOf, sameModel } from './effort.mjs'
 import { TRIES } from './passing.mjs'
 import { HANDS_FIRST_MS } from '../hands.mjs'
 import { stamp } from './migrate.mjs'
@@ -125,6 +125,15 @@ function whyClosedNow(message, ctx) {
     // B1160 review 6: a set word the app refused (in auto mode it does not run a plugin's own set call) is closed at once, in plain words,
     // kept marked `refused` so the board knows the refusal stands (effort.mjs `setsRefusedOf`): never an undelivered word for rule 8.
     if (message.state === 'failed' && isSetRefused(message)) return { state: 'dropped', refused: true, why: "the app refuses the board's set calls; it runs on its current model" }
+    // B1207 (X26 back): a waiting word for a held step's changed setting (`changed`) is moot once the step wants another setting again
+    // (changed back before Main set it): never typed later, setting the worker to what its step no longer wants.
+    if (message.state === 'waiting' && message.changed === true && typeof message.forStep === 'string' && items instanceof Map) {
+      const step = items.get(message.forStep)
+      const wants = step === undefined ? null : { effort: effortOf(step).level, family: modelOf(step).family }
+      if (wants !== null && (wants.effort !== message.effort || ((message.model ?? null) !== null && familyOf(message.model) !== wants.family))) {
+        return { state: 'dropped', why: `${message.forStep} no longer wants ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort}` }
+      }
+    }
     const newer = all.find(one => one.id !== message.id && one.at > message.at && isStanding(one) && kindOf(one) === kindOf(message))
     if (newer !== undefined) return { state: 'dropped', why: `superseded by a newer word for ${message.about}'s setting (${stamp(newer.at)})` }
     const lane = (ctx.lanes ?? []).find(one => one.name === message.about && !one.isLeftover)

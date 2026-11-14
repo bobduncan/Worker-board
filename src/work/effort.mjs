@@ -182,6 +182,50 @@ export const lastWord = (sent, chat, prefix = '', session = null) => sent.findLa
 export const sameTarget = (word, level, model) => word.effort === level && (word.model ?? null) === (model ?? null)
 
 /**
+ * B1207 (X26 back): a step's setting as the app names it, `{ model, effort }`: the settings' id of its model family (null when
+ * the settings name none) and its effort. The hand-over keeps it on its envelope (`wants`), whether or not it had to set it.
+ */
+export function settingOf(item, models = {}) {
+  if (item === undefined || item === null) return null
+  return { model: models[modelOf(item).family] ?? null, effort: effortOf(item).level }
+}
+
+/**
+ * B1207: whether a setting a hand-over asked (`{ model, effort }`; a model null: the effort alone, as a set for a chat that ran
+ * the model already) is `level` and the model id `model`.
+ */
+export const sameSetting = (handed, level, model) => handed?.effort === level && ((handed.model ?? null) === null || (model ?? null) === null || sameModel(handed.model, model))
+
+/**
+ * B1207 (X26 back: B1196 was handed at medium at 15:50 and its Effort became high at 16:12; no word went): the setting a step's
+ * hand-over asked for: its envelope's `wants` (the step's whole setting then), else its `set` or `asked`, else the set word written
+ * for it (`envelope`, also one Main's model made: then the envelope's own set and asked are cleared, `setByMain`). Null when none
+ * says it (an envelope of before `wants` for a chat that ran the step's setting already).
+ */
+export function handedSettingOf(envelope, sent = []) {
+  if (envelope === undefined || envelope === null) return null
+  const own = envelope.wants ?? envelope.set ?? envelope.asked ?? null
+  if (own !== null && typeof own.effort === 'string') return { model: own.model ?? null, effort: own.effort }
+  const word = sent.find(one => one?.command === 'worker-effort' && one.envelope === envelope.id && typeof one.effort === 'string')
+  return word === undefined ? null : { model: word.model ?? null, effort: word.effort }
+}
+
+/**
+ * T8.5 step 6: the plan's words that go: none for a worker on the hand-over sequence (its envelope's `set` sets it at its hand-over),
+ * except (B1207, X26 back) a word for a held step whose setting changed after its hand-over (`changed`): no envelope comes for that.
+ */
+export const planWordsFor = (words, lanes = []) => words.filter(word => word.changed === true || lanes.find(lane => lane.name === word.chat)?.onSequence !== true)
+
+/** B1207: a step's newest History line that refined it, by its time, or null (when a setting changed after a hand-over without a word to tell). */
+const REFINED_LINE = /^-\s+(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?\s+[^:]+: (?:refined\b(?!\s*→)|.*→ refined\b)/
+function refinedAtOf(item, after) {
+  const times = (item?.sections?.get('History') ?? []).map(line => REFINED_LINE.exec(line)).filter(Boolean)
+    .map(([, y, mo, d, h, mi, s]) => new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s ?? 0)).getTime())
+    .filter(at => at >= after - 60_000)
+  return times.length === 0 ? null : Math.max(...times)
+}
+
+/**
  * B813 (X2: the word of 23:13 that set Worker 4 back to its usual setting failed, "The app has not reported its model
  * list yet; try again in a moment", while the board went off for 28 minutes; back on, the word was too old for the
  * outbox to try again, and this half hour's dedupe held a new one, so nothing went): whether a word that failed for good
@@ -233,7 +277,7 @@ export function runSettings(config = {}) {
  * `why`. Without a model id (the settings name none for the family) it is B468's word, the effort alone. One message
  * of the outbox.
  */
-export function effortWords({ to, chat, session, level, model = null, usual, usualModel = null, step, why, probe = false }) {
+export function effortWords({ to, chat, session, level, model = null, usual, usualModel = null, step, why, probe = false, changed = false, forModel = false }) {
   const id = typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? [`Session: ${session}`] : []
   const forStep = step === null ? [] : [`Step: ${step}`]
   const text = model === null
@@ -243,6 +287,9 @@ export function effortWords({ to, chat, session, level, model = null, usual, usu
     to, ask: null, step: null, title: null, version: null, verdict: null, command: 'worker-effort', about: chat, effort: level, model, usual, usualModel, forStep: step,
     session: id.length === 0 ? null : session,
     ...(probe === true ? { probe: true } : {}),
+    // B1207: a step's setting that changed after its hand-over (`changed`); while the app refuses the hands, for Main's model (`forModel`).
+    ...(changed === true ? { changed: true } : {}),
+    ...(forModel === true ? { forModel: true } : {}),
     text: text.join('\n'),
   }
 }
@@ -388,12 +435,17 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     // gap is known and quiet whatever the refusal says now; with its set it is no gap of the refusal's. A step not handed yet follows
     // the refusal as it stands.
     const ownEnvelope = step === null ? undefined : (known ?? sent).filter(one => one?.command === 'handover' && plain(one.to, prefix) === plain(lane.name, prefix) && one.step === step && Number.isFinite(one.at)).sort((a, b) => a.at - b.at).at(-1)
-    const isQuietGap = ownEnvelope === undefined ? isRefused : (ownEnvelope.set ?? null) === null && (ownEnvelope.asked ?? null) !== null
     const effort = next === undefined ? null : effortOf(next)
     const model = next === undefined ? null : modelOf(next)
     const level = effort?.level ?? usualEffort
     const family = model?.family ?? usualFamily
     const id = idOf(family)
+    // B1207 (X26 back): the setting the step's hand-over asked, and whether the step wants another one since (a refine round, the
+    // goal guard): a held step handed at one setting that now wants another gets its own word, also on the sequence and while the
+    // app refuses the hands (then for Main's model). The quiet gap covers only the setting its envelope asked, never a newer one.
+    const handedAs = ownEnvelope === undefined || working === undefined || ownEnvelope.state !== 'delivered' ? null : handedSettingOf(ownEnvelope, known ?? sent)
+    const isChanged = handedAs !== null && !sameSetting(handedAs, level, id)
+    const isQuietGap = ownEnvelope === undefined ? isRefused : (ownEnvelope.set ?? null) === null && (ownEnvelope.asked ?? null) !== null && !isChanged
     // A word on its way for this very setting is no word against it.
     const against = onItsWay !== null && !sameTarget(onItsWay, level, id) ? onItsWay : null
     // Back to the usual setting only after a word of the board changed it, and only when it does not run at it: a
@@ -417,7 +469,13 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     // An opus step's word waits while a word for another model is on its way, so the reading after both is right (the
     // main chat sets them in their order).
     const isAgainstModel = against !== null && (against.model ?? null) !== null && !sameModel(against.model, id)
-    const canAsk = !isRefused && !isQuietGap && main !== null && !isSet && asked === null && (isStrict ? !isAgainstModel : current !== null)
+    const canAsk = (isChanged || (!isRefused && !isQuietGap)) && main !== null && !isSet && asked === null && (isStrict ? !isAgainstModel : current !== null)
+    // B1207: since when the step wants its new setting: the earlier of the step's newest refine line since the hand-over and the first
+    // word written for it since then (the reading that saw the change), else now (this reading is the first to see it).
+    const changedAt = !isChanged ? null
+      : Math.min(...[refinedAtOf(next, ownEnvelope.at), ...mine.filter(word => word.forStep === step && sameTarget(word, level, id) && word.at >= ownEnvelope.at && word.envelope === undefined).map(word => word.at)].filter(Number.isFinite), now)
+    const handedWords = handedAs === null ? null : [handedAs.model === null ? null : familyOf(handedAs.model), handedAs.effort].filter(Boolean).join(' · ')
+    const changedWhy = `${step} changed after its hand-over (asked ${handedWords} at ${clockOf(ownEnvelope?.at)}, now ${id === null ? level : `${family} · ${level}`})`
     // Only a step it does not hold yet waits for Opus: one it holds already is set as soon as can be.
     let waitsFor = null
     if (isStrict && !isModelSet && holding === undefined && !isQuietGap) {
@@ -431,8 +489,12 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     runs.set(lane.name, {
       level, model: hasModels ? family : null, usual: usualEffort, usualModel: hasModels ? usualFamily : null, step, why: effort?.why ?? null, modelWhy: model?.why ?? null, isSet,
       asked: asked === null ? null : { at: asked.at, state: asked.state }, waitsFor, ...(isQuietGap && !isSet ? { refused: true } : {}),
+      ...(isChanged ? { changed: { from: handedAs, fromWords: handedWords, handedAt: ownEnvelope.at, at: changedAt } } : {}),
     })
-    if (canAsk) words.push({ to: main, chat: lane.name, session: lane.appSession ?? null, level, model: id, usual: usualEffort, usualModel: usualId, step, why })
+    if (canAsk && isChanged) {
+      words.push({ to: main, chat: lane.name, session: lane.appSession ?? null, level, model: id, usual: usualEffort, usualModel: usualId, step, changed: true,
+        ...(isRefused ? { forModel: true } : {}), why: `${changedWhy}${isRefused ? "; the app no longer lets the board's code set it, so set it yourself" : ''}` })
+    } else if (canAsk) words.push({ to: main, chat: lane.name, session: lane.appSession ?? null, level, model: id, usual: usualEffort, usualModel: usualId, step, why })
   }
   return { words, runs }
 }
