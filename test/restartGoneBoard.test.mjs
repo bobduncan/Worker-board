@@ -198,7 +198,8 @@ test('a starter: Main\'s restart entry lists the board\'s other chats to unarchi
   const closed = (await words()).find(one => one.id === handed[0].id)
   assert.deepEqual([closed.state, closed.why], ['dropped', 'the app refused the archive'])
   await until(async () => (await record()).restartTries?.Main?.[0]?.verdict === 'refused', 'refused in the record', 10_000)
-  await until(async () => (await laneOf('Main')).why === 'the app refused the archive', 'the refused why', 30_000)
+  // The verifier's N6: the refused row says when the courier tries again.
+  await until(async () => /^the app refused the archive · tries again about \d\d:\d\d$/.test((await laneOf('Main')).why ?? ''), 'the refused why', 30_000)
   assert.notEqual((await laneOf('Main')).quiet, true, 'attention')
   assert.deepEqual((await json('/api/bridge/wakes-due', RESTARTS)).wakes, [])
   assert.equal(restarts(await words()).length, 1, 'no second word within 30 min')
