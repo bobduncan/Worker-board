@@ -81,6 +81,8 @@ import { factsOf, offMsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
 import { MOD_GONE_WHY, modGoneOf, modUnloadedAt } from './modGone.mjs'
+/** F9's review: a board-call popup counts for the asking spell it was filed in; filed this long before the spell began it is an old one. */
+const BOARD_CALL_SLACK_MS = 2 * 60_000
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -732,10 +734,16 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   const isAsked = reported !== null ? reported.entry?.state === 'asking' : turn === 'asking'
   // 2026-11-13 (Q742, Q744): a chat that asks while its only open form asks are popups about the board's own tools is in its slow call
   // to the board: working, never waiting for the person (`waits.boardCall`, work/lists.mjs storeWaits).
-  const boardCall = isAsked && readState === 'waiting' ? waits.boardCall?.get(chat.name.toLowerCase()) ?? null : null
-  const state = boardCall !== null ? 'working' : readState
-  // No sign of life is about a turn that runs: between two turns a chat writes nothing.
-  const quietMs = state === 'working' && held === null && lastWriteAt !== null ? Math.max(0, now - lastWriteAt) : null
+  // The review of F9: only a popup filed in this asking spell (an old one whose withdraw got lost never hides a later real wait), and
+  // never for a chat asleep since (an app restart mid-call).
+  const askingSince = Number.isFinite(reported?.entry?.since) ? reported.entry.since : null
+  const callNow = isAsked && readState === 'waiting' && reported !== null && reported.asleep !== true ? waits.boardCall?.get(chat.name.toLowerCase()) ?? null : null
+  const boardCall = callNow !== null && askingSince !== null && Number.isFinite(callNow.since) && callNow.since >= askingSince - BOARD_CALL_SLACK_MS ? callNow : null
+  // F9's review: a chat whose Workers mod was unloaded is not known to be free, asleep or running: Unknown (its status says Link gone),
+  // so no hand-out, wake or line counts it as free or asleep.
+  const state = modGone !== null ? 'unknown' : boardCall !== null ? 'working' : readState
+  // No sign of life is about a turn that runs: between two turns a chat writes nothing. A chat in its slow call to the board is no quiet chat.
+  const quietMs = state === 'working' && held === null && boardCall === null && lastWriteAt !== null ? Math.max(0, now - lastWriteAt) : null
 
   let needsYou = null
   if (state === 'waiting') needsYou = isAsked ? ASKED : summary?.needsAction?.trim() || summary?.detail?.trim() || null
@@ -863,8 +871,9 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
         // T13 part 3: a wake that did not take.
         : reported.why === 'woken' ? `woken at ${hourMinute(reported.wokenAt)}, it did not start` : 'the app started again after its last report',
     // T13 part 3: its process ended while its last report stands (chatReport.mjs `asleepLane`): asleep since when, or null.
-    asleep: reported?.asleep === true,
-    asleepSince: reported?.asleep === true ? reported.asleepSince : null,
+    // F9's review: a chat whose Workers mod was unloaded is never asleep for the board (a wake would reach no mod).
+    asleep: modGone === null && reported?.asleep === true,
+    asleepSince: modGone === null && reported?.asleep === true ? reported.asleepSince : null,
     // Signals change 4: since when it sleeps, kept once a wake did not take (Not running "woken"): the wake record's spell.
     sleepSince: reported?.asleep === true ? reported.asleepSince : reported?.why === 'woken' && Number.isFinite(reported.sleptSince) ? reported.sleptSince : null,
   }
@@ -1897,7 +1906,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     // since (the app started after that report, B315's fact) keeps the report as it was: it is asleep (`laneFromReport`).
     const isOld = saved !== null && Number.isFinite(board?.startedAt) && saved.at < board.startedAt
     const isAppAfter = saved !== null && Number.isFinite(raw.appStartedAt) && raw.appStartedAt > saved.at
-    const entry = isOld && !isAppAfter ? { ...saved, at: board.startedAt } : saved
+    // F9's review: `heardAt` keeps the report's own time, which the unloaded-mod check (src/modGone.mjs) compares with the unload.
+    const entry = isOld && !isAppAfter ? { ...saved, at: board.startedAt, heardAt: saved.at } : saved
     // Gap 1: no report from this session while its card says a mod that reports: unknown, then off, never guessed.
     if (entry === null || entry.session !== chat.cliSessionId) {
       const silent = !(reports instanceof Map) ? null : laneWithoutReport({

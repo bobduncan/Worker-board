@@ -115,6 +115,9 @@ function factsOf(view) {
     holds: name => steps.some(item => HOLDS.includes(stateOf(item)) && plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix)),
     isFull: ['fiveHour', 'week'].some(limit => limits?.[limit]?.level === 'full'),
     wakeOr: (key, wake, late) => {
+      // F9's review: a chat whose Workers mod was unloaded takes no wake (src/modGone.mjs): the other way at once.
+      const target = wake?.do === 'wake' && typeof wake.chat === 'string' ? live.find(lane => plain(lane.name, prefix) === plain(wake.chat, prefix)) : undefined
+      if ((target?.modGone ?? null) !== null) return late
       const at = outbox.findLast(message => message.syncKey === key)?.at ?? null
       if (at === null) return wake
       return now - at < AGAIN_MS ? { do: 'woken', at } : late

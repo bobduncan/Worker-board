@@ -134,11 +134,12 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
     if (state === 'working') return out(STATUSES.WORKING, lane.heldBy === 'asset' && typeof lane.assetWork?.words === 'string' ? lane.assetWork.words : partner ? 'waits for the partner' : lane.heldBy === 'background' ? 'background' : null, report?.since)
     if (state === 'suspended' && lane.suspended?.by === 'note' && isFreshBusy) return out(STATUSES.WORKING, null, report.since)
   }
+  // 2a. F9 (chat 1's fix item 7, 2026-11-13): its Workers mod was unloaded and the board cannot reach it (src/modGone.mjs): this before
+  // Waiting for you (an answer would reach no mod), the hand-over's Did not answer, Unknown and Not running, which would only guess.
+  // The person restarts the chat.
+  if (lane.modGone !== null && lane.modGone !== undefined) return out(STATUSES.LINK_GONE, MOD_GONE_WHY, lane.modGone.at)
   // 2. Waiting for you: a fresh report says asking, or a blocking ask is open.
   if (state === 'waiting') return out(STATUSES.WAITING, null, report?.since)
-  // 2b. F9 (chat 1's fix item 7, 2026-11-13): its Workers mod was unloaded and the board cannot reach it (src/modGone.mjs): this before
-  // the hand-over's Did not answer, Unknown and Not running, which would only guess. The person restarts the chat.
-  if (lane.modGone !== null && lane.modGone !== undefined) return out(STATUSES.LINK_GONE, MOD_GONE_WHY, lane.modGone.at)
   // 3 to 6, a worker on the hand-over: its report's check runs, a task is being handed or offered, the hand-over is held, or it
   // did not answer.
   if (hand === 'checking') return out(STATUSES.CHECKING, handover.step ?? null)

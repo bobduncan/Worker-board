@@ -46,7 +46,8 @@ export function modGoneOf({ unloadedAt, report = null, appStartedAt = null, now 
   if (!Number.isFinite(unloadedAt)) return null
   if (Number.isFinite(appStartedAt) && appStartedAt > unloadedAt) return null
   if (report?.state === 'ended') return null
-  const reportAt = Number.isFinite(report?.at) ? report.at : null
+  // A report kept from before the board's start reads as heard at that start (state.mjs); its own time is `heardAt`.
+  const reportAt = Number.isFinite(report?.heardAt) ? report.heardAt : Number.isFinite(report?.at) ? report.at : null
   if (reportAt !== null && reportAt > unloadedAt) return null
   if (now - (reportAt ?? unloadedAt) <= MOD_GONE_AFTER_MS || now - unloadedAt <= MOD_GONE_AFTER_MS) return null
   return { at: unloadedAt }

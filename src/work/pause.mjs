@@ -319,4 +319,5 @@ export function heldMs(message, now, pause) {
 export const chatsWithoutProcess = lanes => (Array.isArray(lanes) ? lanes : []).filter(lane => lane?.isRunning === false && typeof lane.name === 'string').map(lane => lane.name)
 
 /** Review 2: the names of the chats that report asking (the app's question form, or waiting on the person): their popup may be real. */
-export const chatsAsking = lanes => (Array.isArray(lanes) ? lanes : []).filter(lane => ((lane?.isAsking === true && !lane?.boardCall) || lane?.state === 'waiting') && typeof lane.name === 'string').map(lane => lane.name)
+// F9's review: a chat in its slow call to the board (`boardCall`) still asks here, so the sweep keeps its popup ask open while the call runs.
+export const chatsAsking = lanes => (Array.isArray(lanes) ? lanes : []).filter(lane => (lane?.isAsking === true || lane?.state === 'waiting') && typeof lane.name === 'string').map(lane => lane.name)
