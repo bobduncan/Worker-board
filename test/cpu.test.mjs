@@ -261,19 +261,50 @@ test('under Low what the board and its keeper start is limited with the rest, ne
   const make = () => cpuLimiter({ file: join(dir, 'cpu.json'), fallback: 'low', platform: 'win32', cores: 24, sessions: async () => [A, B], processes: windows.processes, spare: [901, 900] })
   const limiter = make()
   await limiter.apply()
-  const first = windows.calls.sets.flat()
+  // F24b: the first call sets the board's own processes to Normal on all cores (before the listing); the rest is limited after.
+  assert.deepEqual(windows.calls.sets[0].map(one => [one.pid, one.priority, one.affinity]), [[901, 'Normal', String(0xFFFFFF)], [900, 'Normal', String(0xFFFFFF)]])
+  const first = windows.calls.sets.slice(1).flat()
   assert.deepEqual(sorted(first), [200, 201, 202, 203, 300, 301, 700, 800, 810, 811, 902])
   assert.ok(first.every(one => one.priority === 'Idle' && one.affinity === String(0xC00000) && one.eco === true))
   assert.equal(limiter.view().count, 11)
   settle(first)
-  // The board restarts from a chat at Idle (a new limiter, a new process picture): its Idle is undone, Normal on all cores.
+  // The board restarts from a chat at Idle (a new limiter, a new process picture): its Idle is undone, Normal on all cores, first thing.
   state.get(901).priority = 4
   windows.calls.sets.length = 0
   const again = make()
   await again.apply()
+  assert.deepEqual(windows.calls.sets[0].map(one => [one.pid, one.priority, one.affinity]), [[901, 'Normal', String(0xFFFFFF)], [900, 'Normal', String(0xFFFFFF)]], 'first thing')
+  // The listing (the fake keeps 901 at Idle) has it set once more with the rest: Normal on all cores too.
   const board = windows.calls.sets.flat().filter(one => one.pid === 901 || one.pid === 900)
-  assert.deepEqual(board.map(one => [one.pid, one.priority, one.affinity]), [[901, 'Normal', String(0xFFFFFF)]])
-  assert.ok(windows.calls.sets.flat().filter(one => one.pid !== 901).every(one => one.priority === 'Idle'), 'everything else stays limited')
+  assert.ok(board.length >= 2 && board.every(one => one.priority === 'Normal' && one.affinity === String(0xFFFFFF)))
+  assert.ok(windows.calls.sets.flat().filter(one => one.pid !== 901 && one.pid !== 900).every(one => one.priority === 'Idle'), 'everything else stays limited')
+})
+
+test('F24b: under Low the board\'s own Normal and all cores come FIRST, before the process listing and the sessions (a starved board never gets through those); once done it is not repeated', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'cpu-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const { state } = toolsMachine()
+  const order = []
+  const processes = {
+    list: async () => { order.push('list'); return [...state.values()] },
+    set: async changes => { order.push(`set ${changes.map(one => one.pid).join(',')}`); return changes.map(one => one.pid) },
+  }
+  const sessions = async () => { order.push('sessions'); return [A, B] }
+  const limiter = cpuLimiter({ file: join(dir, 'cpu.json'), fallback: 'low', platform: 'win32', cores: 24, sessions, processes, spare: [901, 900] })
+  await limiter.apply()
+  assert.deepEqual(order.slice(0, 3), ['set 901,900', 'list', 'sessions'], 'the board\'s own change goes before the listing (the mutant, the old order, lists first)')
+  // The next pass does not set the board again (it is at Normal in the listing): the listing, the sessions, nothing else for the board.
+  order.length = 0
+  await limiter.apply()
+  assert.deepEqual(order.filter(one => one.startsWith('set 901') || one.startsWith('set 900')), [])
+  // A failed first call is tried again next pass, still first.
+  const failing = { ...processes, set: async changes => { order.push(`set ${changes.map(one => one.pid).join(',')}`); throw new Error('Access is denied') } }
+  const retry = cpuLimiter({ file: join(dir, 'cpu.json'), fallback: 'low', platform: 'win32', cores: 24, sessions, processes: failing, spare: [901, 900] })
+  order.length = 0
+  await retry.apply()
+  order.length = 0
+  await retry.apply()
+  assert.equal(order[0], 'set 901,900')
 })
 
 test('B735: a process started under Low is limited on the next refresh; a program not of the project is never touched', async t => {

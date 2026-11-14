@@ -35,7 +35,10 @@ export function savedEntry(value, now) {
   const idle = value.lastIdle
   const lastIdle = idle !== null && typeof idle === 'object' && (idle.word === null || isWordId(idle.word)) && isTime(idle.since) && idle.since <= now ? { word: idle.word, since: idle.since } : undefined
   const restAt = isTime(value.restAt) && value.restAt <= now ? value.restAt : undefined
-  return { state, since, background, run, seq, at, session, mod, busyAt, ...(value.word === undefined ? {} : { word: value.word }), ...(value.turn === undefined ? {} : { turn: value.turn }), ...(app === undefined ? {} : { app }), ...(lastIdle === undefined ? {} : { lastIdle }), ...(restAt === undefined ? {} : { restAt }) }
+  // F26: the work spell (bridge.mjs `spellOf`): when the chat left rest, and the end of its last long spell, when kept.
+  const workFrom = isTime(value.workFrom) && value.workFrom <= now ? value.workFrom : undefined
+  const longEndAt = isTime(value.longEndAt) && value.longEndAt <= now ? value.longEndAt : undefined
+  return { state, since, background, run, seq, at, session, mod, busyAt, ...(value.word === undefined ? {} : { word: value.word }), ...(value.turn === undefined ? {} : { turn: value.turn }), ...(app === undefined ? {} : { app }), ...(lastIdle === undefined ? {} : { lastIdle }), ...(restAt === undefined ? {} : { restAt }), ...(workFrom === undefined ? {} : { workFrom }), ...(longEndAt === undefined ? {} : { longEndAt }) }
 }
 
 /** The reports as the file holds them: `{ "reports": { "<chat>": entry } }`. */

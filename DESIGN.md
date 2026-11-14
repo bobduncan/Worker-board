@@ -8296,3 +8296,103 @@ words at HH:MM`. A released ask is never held again by later words; a re-ask is 
 **Tests.** `test/work/wordsRecheck.test.mjs` (mutants: no Filed guard, a side chat allowed every action, no word to the chat, 1 minute instead of 60,
 no pause skip, `where` not required, the step window's rows gone: each fails it).
 
+## start-board.mjs: a slow board is a running board (F24a, 2026-11-14)
+
+On 2026-11-14 the main board answered in 8-11 s per page (F24, cause under diagnosis) and failed start-board.mjs's 1.5 s
+runs-already check. Every chat's Workers mod (`keepBoards`, every 15 s, two misses in a row, once a minute per chat) then ran
+start-board.mjs through its launcher, and each run made a new keeper whose child died on "Port 4310 is in use" (a keeper a minute,
+each from a parent that had exited; the board slower with every one). Chat 1's brief: the script counts a board as running when a
+keeper of this folder runs or a process of this folder holds the port, starts nothing then and says so, and waits longer for the page.
+
+- **The check** (`boardRuns`, the decision pure in src/keeperStart.mjs `runsAlready`): the page within `ANSWER_MS` (15 s; a dead port
+  refuses at once, so a down board costs no wait); then, on Windows, one PowerShell listing of the node processes and `netstat -ano`
+  for the port's holder, both at once. A keeper of this folder (a process whose command line runs `<this folder>\server.mjs`, with
+  no parent that does) or the port's holder running from this folder: "The worker board runs already: <url> (a keeper of this folder
+  runs (process N, board M) but did not answer within 15 seconds: slow or starting; nothing started)", exit 0 (`--quiet` says
+  nothing, as before). Another program on the port: "Port P is held by process N (<command line>), not by this folder's board: nothing
+  started.", exit 1 (a keeper would have died on it). A listing that fails or takes longer than 10 s (`LIST_MS`): "... did not answer
+  within 15 seconds and the PC's processes could not be listed (<why>): whether this folder's board runs is unknown; nothing started.",
+  exit 1 (chat 1's must: never a start on a guess; the mod's next run looks again). A free port with no keeper of this folder: a
+  start, as before. PowerShell and netstat run with `windowsHide` (the script runs detached from a chat's mod; 758178e5). Board side
+  only; the mod's `keepBoards` is unchanged for now.
+- **Tests**: test/keeperStart.test.mjs (the listing read, the keepers, the netstat holder, the decision table); test/startBoard.test.mjs
+  (a made-up board of this folder, a node process with this folder's server.mjs path on its command line: answering in 10 s → "runs
+  already", the script waited, nothing started; never answering → the keeper line, nothing started; another program on the port → said,
+  exit 1; no PowerShell on the PATH → unknown, exit 1). Mutant: main's start-board.mjs (753e3eba) put back fails all of them (it
+  starts a keeper, whose child dies on the port).
+- F10 (boards-survive-updates) has its own src/keeperStart.mjs with these listing parts and more; F10 merges this.
+
+**F24b, the slowness itself** (chat 1's diagnosis, 2026-11-14): a chat's mod (`keepBoards`) had (re)started the main board, and Windows
+handed the chat's CPU "Low" on to it: Idle priority, pinned to the last two cores (affinity C00000), which carried about 110 processes,
+so the board's thread got no CPU at all (the page in 8-11 s, /api/state in 30 s, loop stalls at almost no CPU). Its own CPU job would
+have undone that, but under Low it first waited for the process listing and the sessions on the starved thread (src/cpu.mjs once()).
+Now: server.mjs's first act, keeper and board alike, is `os.setPriority(PRIORITY_NORMAL)`; and under Low the CPU job's first pass sets
+the board's own processes to Normal on all cores BEFORE the listing and the sessions, as Full does (`isRestored`; a failed call is tried
+again next pass, still first). Tests: test/cpu.test.mjs (the order with a fake, where the mutant, the old order, lists first; the Low
+test's first call is the board's own), test/cpuStartIdle.test.mjs (the real case: a copy of the board started by `start /LOW /AFFINITY
+<the last two cores>` runs its keeper and board at Normal on all cores within a minute; `start /LOW /AFFINITY` is checked to apply).
+
+**Chat 1's review of F24a+b** (`.claude/plans/2026-11-14-f24-review.md`, 6 findings): start-board.mjs raises itself to Normal as its
+first statement after the imports (a chat under Low runs it at Idle on two crowded cores: PowerShell, netstat, the keeper and so the
+board were born starved); `powershell()` and `netstat()` give their child Normal from outside right after the spawn, as cpu.mjs does for
+its helper; the listing has 20 s and is tried twice, and only two failures are "unknown", which still starts nothing (never a start on a
+guess). A process counts as this board's (`isBoardOf`) only when its command line runs the folder's server.mjs with no `--demo`,
+`--history-from` or `--launch-entry` and no `--port` other than the resolved one; the port's holder is judged first (this board's child,
+or another program's, a keeper of the folder beside it notwithstanding), a keeper of this board only on a free port. The real-case tests
+(test/cpuStartIdle.test.mjs) can fail: a probe started by the same `start /LOW /AFFINITY` line is read as Idle on the two-core mask; a
+demo board (no CPU job) started that way reads Normal while its affinity is still the two cores (through start-board.mjs: the direct
+test of the re-check round proves server.mjs's raise alone); the
+copy of the board runs at FULL (a Low CPU job of a copy would throttle every codex, vite and headless Edge on the PC; the one Low run
+of the first version was at 12:31 on 2026-11-14) and ends at Normal on all cores; after each, every node.exe running the copy's
+server.mjs is killed by its command line and the folder removed once they have let go. The keeper's board is found by its command line
+under the keeper, never by the parent pid alone (Windows gives a dead process's pid out again within seconds: a lingering Idle probe
+once passed for the board). start-board.mjs's own Normal is read while it waits on a slow board (test/startBoard.test.mjs).
+
+**Chat 1's re-check** (`.claude/plans/2026-11-14-f24-recheck.md`, the last round): the fetch is a probe now (`probeBoard`: answers,
+refused, silent); when nothing listens (refused) AND netstat saw no holder, a failed listing does not block the start (a duplicate
+keeper there dies on EADDRINUSE; a board left down heals nothing), said in a note; a failed netstat stays unknown. A port's holder the
+listing does not know, beside a keeper of this board, is that keeper's child restarting between the two looks, never foreign (a foreign
+reading made land.ps1 roll back). The raise runs inside start-board.mjs's entry block, not at module load, so the test files that import
+it stay at their own priority (tested: an importing process under `start /LOW` stays Idle; the mutant with the raise at module load
+fails). `start-board.mjs --demo` sees its own demo (`isBoardOf`'s `isDemo`). The server.mjs raise is proven on the demo keeper started
+DIRECTLY with `start /LOW /AFFINITY` (no start-board.mjs between): keeper and board Normal on the two-core mask, the mutant Idle. The
+start-board test sweeps start-board.mjs and every demo keeper by command line until none is left.
+
+## F26: a holder's work spell is the whole stretch, not its last turn (B1151, 2026-11-14)
+
+At 13:00 the board gave B1151 back from Worker 2 ("did not resume it (asked 10:16)") while it worked: after the two go-ons (GO_ON_MOST)
+only a checkpoint or a busy spell over LONG_BUSY_MS restarts the 15 minutes, and the spell was read from the transcript's last typed
+turn; every turn after 10:17 began with the chat's own background work (a task finished, a helper handed back), which transcript.mjs
+`turnStart` does not count. Chat 4's first fix (branch holder-any-turn) took the newest of the typed turn, the mod's `turn` and the
+board's `busyAt`; chat 1's review (`.claude/plans/2026-11-14-f26-review.md`) showed that one short last turn then wipes an earlier long
+spell (the hand-back turns of 13:00:57 and 13:02:43 right after the six-minute turn), and that chained short turns with background
+work between never count. Chat 1's design, built by chat 3 on top of chat 4's branch:
+
+- **The work spell lives on the report entry** (bridge.mjs `spellOf`, with `restOf`): `workFrom`, the board's receipt of the chat leaving
+  REST (a busy report, or an idle one with background work), carried while it works (an asking report carries it too); when it comes back
+  to rest (idle, no background) or its session ends, a spell over LONG_BUSY_MS leaves `longEndAt` (the report's since), carried through the
+  session until a later long spell's end replaces it. A new session starts afresh. Persisted in data/reports.json (reportsKept.mjs
+  `savedEntry`: `workFrom`, `longEndAt`; `restAt` was there), handed to the lane with `restAt` (state.mjs). Background time is work.
+- **The timers read three spells after the last go-on** (holderTimers.mjs `busySpellAfter`): the last turn that ended (the newest start,
+  to the idle since; an `ended` report measures to the turn's own end, `restAt`, never to the session's end: finding 5), the work going
+  on (busy or idle with background, from `workFrom`, else the newest start, to the last receipt: finding 2), and `longEndAt`. The latest
+  LONG one wins, else the latest. So B1151's 13:00:50 rest after 10:16:40-13:00:50 holds the step until 13:15:50 whatever short turns
+  follow, and the review's 86-second turn after an hour of work (11:20:38-11:22:04) holds it until 11:37.
+- **Two guards** (holderTimers.mjs `mayGiveBack`): nothing goes back while the lane is only 'unknown' (a 30-second report gap) over a
+  busy report or an idle one with background work: the chat may well work; the lane resolves within offAfterMinutes (finding 3). And a
+  give-back needs the holder stopped for REST_MIN_MS (one minute) since its report said so: the seconds between a turn's end and a
+  hand-back turn never trigger one (finding 1). The "go on" line is not held by either.
+- Tests: test/work/holderLongSpell.test.mjs (the spell through noteReport on Worker 2's real day, its persistence, the whole-day decision
+  with the mutant that drops `longEndAt`, the review's short-last-turn case with its mutant, the unknown gap, the minute's rest, the
+  ended turn's own end), test/work/holderTimersB1151.test.mjs (chat 4's, the minute's rest added), test/work/holderTimers.test.mjs (the
+  cap test: unknown over busy gives nothing back; resolved, it does). Code mutants run on the way: without `mayGiveBack` three tests fail;
+  with `longEndAt` ignored the two timeline tests fail.
+- **F26b** (chat 1's re-check, `.claude/plans/2026-11-14-f26-recheck.md`): an asking report is work too (the unknown gate holds it, its
+  spell counts); the spell begins at the report's own since when that is before the receipt; a rest shorter than REST_MIN_MS does not end
+  the spell (the start rides on the resting entry; the next work goes on from it, so B1151's hand-back turns after rests of seconds make
+  one spell 10:16:40-13:03:18 and the step is held until 13:18:18); a spell closed at a rest is not closed again by a later `ended`; the
+  chat's last rest rides into its `ended` entry, so the ended branch measures a turn to its own end; without `workFrom` the EARLIEST start
+  after the go-on counts (the stretch is continuous); and a kept report whose `at` moved to the board's start after a restart carries
+  `heardAt` (state.mjs), the time it was really heard: the work-going-on reading ends there, so a board restart is no proof of work and
+  a dead holder goes back 15 minutes after its last real report whatever the landings. Mutants: asking excluded, the short rest ending
+  the spell, heardAt ignored, the latest start again: each fails its test.

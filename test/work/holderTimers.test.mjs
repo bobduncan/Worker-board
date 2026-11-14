@@ -519,8 +519,11 @@ test('the cap: a busy spell of 3 min after the second line starts the 15 minutes
   assert.equal(decideAt(26.5, { envelopes: lines, worker: turned(12, 13, 26.5) }).giveBack?.step, 'B12')
   // While it is busy (lane Working) nothing happens at all.
   assert.equal(decideAt(27, { envelopes: lines, worker: stopped(at(27), { state: 'working', report: { state: 'busy', since: at(25), background: false, at: at(27) } }) }).giveBack, null)
-  // A busy report heard for 3 min after the second line, then silence (its process ended): from its last report.
+  // A busy report heard for 3 min after the second line, then silence (its process ended): from its last report. F26: while the lane
+  // is only 'unknown' (a report gap) over a busy report, nothing is given back; once it resolves (interrupted, asleep, off) it is.
   const cut = stopped(at(30), { state: 'unknown', isRunning: null, report: { state: 'busy', since: at(12), background: false, at: at(15) } })
   assert.equal(decideAt(29.9, { envelopes: lines, worker: cut }).giveBack, null)
-  assert.equal(decideAt(30, { envelopes: lines, worker: cut }).giveBack?.step, 'B12')
+  assert.equal(decideAt(30, { envelopes: lines, worker: cut }).giveBack, null, 'unknown over busy: nothing back')
+  assert.equal(decideAt(30, { envelopes: lines, worker: { ...cut, state: 'interrupted', isRunning: true } }).giveBack?.step, 'B12')
+  assert.equal(decideAt(30, { envelopes: lines, worker: { ...cut, state: 'off', isRunning: false } }).giveBack?.step, 'B12')
 })

@@ -13,6 +13,7 @@
 // The word says its trigger and lists the unowned lines, so the chat reads those. One thing at a time with the chat: no sweep
 // while it judges incidents (index.mjs, the judge word).
 
+import { SWEEP_LINK_GONE } from '../modGone.mjs'
 import { parseTail } from '../transcript.mjs'
 
 const MIN = 60_000
@@ -95,6 +96,8 @@ export function whyNoSweep(chat) {
     return 'the list of chats names no supervisor chat ("supervisor" in .claude/chats/list.json)'
   }
   if (chat.card === null || chat.card === undefined) return `no chat "${chat.title ?? chat.named}" is open in the app`
+  // F23 review 2, 6: its board link is gone (src/modGone.mjs): no sweep, before any other check.
+  if ((chat.card.modGone ?? null) !== null) return SWEEP_LINK_GONE
   if (chat.withoutMod === true) return 'no Workers mod takes the board\'s words'
   if (chat.mod === null) return `its Workers mod is older than ${SWEEP_MOD}, which knows work health: start its chat anew`
   if (typeof chat.mod === 'string' && isOlder(chat.mod, SWEEP_MOD)) return `its Workers mod is ${chat.mod}, older than ${SWEEP_MOD}, which knows work health: start its chat anew`
@@ -187,6 +190,11 @@ export function sweepRunner({ every, workRuns, paused, atLimit, limitsOld = asyn
     last = { ...last, ended: at, how, ...more }
   }
   async function settle(now) {
+    // F23 review 2, 6: an open sweep whose chat's link is gone ends at once, with that reason (its held word is no running sweep).
+    if (isOpen() && ((await chat())?.card?.modGone ?? null) !== null) {
+      end(now, 'quiet', { note: SWEEP_LINK_GONE })
+      return true
+    }
     if (!isOpen() || now - last.at < SWEEP_SETTLE_MS) return false
     // The review: one open too long has ended, whatever its word or its chat says.
     const isLong = now - last.at >= SWEEP_LONGEST_MS
