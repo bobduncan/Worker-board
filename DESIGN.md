@@ -7494,6 +7494,10 @@ Codex" or Working, the person chose Working: the task's work goes on, done by Co
   never a Late (the provider's own ask holds the person's action). A pick request (mode pick, the sound library) is the chat's own job:
   it names the sound with `work asset ... picked`, so it is no wait, and the timers run as for any stopped holder. With an auto request
   open beside a person's, the provider's work shows (mode auto wins).
+- **A request without its step** (F21, chat 1, 2026-11-14; api.mjs `asset`): Worker 5 filed A330-A332 and A345/A346 without `of`, so
+  no wait tied them to B1150: its lane read "Stopped · task open" while Codex drew, and their delivery woke nobody. A `work asset`
+  without `of` from a chat that holds exactly one step at work (taken or in progress) is filed under that step, and the answer ends
+  "Filed under B1150."; with none, or two, it is filed as before. Pinned by `test/work/assetOfStep.test.mjs` (the real case, with a mutant).
 - **The cap**: past the provider's time limit for a job (`assetSeconds`, 240 s by default, plus a minute of grace; F18, 2026-11-14:
   for Codex the limit grows with the attached pictures, 120 s per picture past the first, 900 s at most, in the provider and in the
   Late alike, since corrections with three references were stopped at 240 s) a running request
