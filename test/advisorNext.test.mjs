@@ -226,6 +226,8 @@ function pageWith() {
     'const $ = () => host', 'host.querySelector = selector => { assert.equal(selector, "[data-advisor-next]"); return all(host, node => node.dataset.advisorNext !== undefined)[0] ?? null }',
     "const drawHelperCard = () => null, drawOwnerCard = () => null, icon = () => document.createElement('svg'), runChipOf = () => null, drawRunChip = () => null, advisorRefine = () => null",
     "const drawEta = () => document.createElement('div'), taskTitle = () => document.createElement('p')",
+    // F9's review: "Open its chat" (the waitline region) is drawn only for a card that waits because it asks in its chat; none here.
+    'const askChatHref = () => null, drawAskChatLink = () => null',
     'function drawLanes(state) { host.replaceChildren(drawAdvisorLane(state)); drawn += 1 }',
     'Object.assign(this, { advisorQueued, advisorNextHref, advisorNextWords, drawWaitingAsks, drawAdvisorLane, drawLanes, advisorNextUi })',
   ].join('\n'), Object.assign(page, { assert, all }))

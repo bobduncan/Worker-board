@@ -20,9 +20,10 @@ import { SWEEP_AT_LEAST_HOURS, SWEEP_MOD, sweepRunner, tokensOfTurn } from './sw
 
 import { judgeWords, sweepWords } from '../say.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
+import { linkGoneNames, wordLanesOf } from '../modGone.mjs'
 import { isLate } from '../store.mjs'
 import { isHolding } from '../work/pause.mjs'
-import { JUDGE, arrivedAt, awaitingJudgment, judgeInFlight, judgeWordNamed, judgeWordOf } from '../work/judgeWord.mjs'
+import { JUDGE, arrivedAt, awaitingJudgment, judgeHeldBack, judgeInFlight, judgeWordNamed, judgeWordOf } from '../work/judgeWord.mjs'
 
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
 export { REFUSED_MS }
@@ -292,7 +293,9 @@ export function createSupervisor(ports) {
       }
     }
     if (moved) await readIncidents()
-    if (judgeInFlight(outbox, supervisor, now, keep) || (sweeper !== null && sweeper.view().last?.ended === null)) return failed
+    // B1174 (X43): after a judge word its chat did not take in 30 min, the next goes only once that chat took a word since (it runs
+    // again), listing all that wait then: never one each 30 min to a chat that does not run.
+    if (judgeInFlight(outbox, supervisor, now, keep) || judgeHeldBack(outbox, supervisor, now, keep) || (sweeper !== null && sweeper.view().last?.ended === null)) return failed
     const lineOwed = new Set(owed.map(one => one.id))
     const waiting = new Set(awaitingJudgment(items, outbox, supervisor))
     const ready = incidents.filter(one => waiting.has(one.id) && (!lineOwed.has(one.id) || lined.has(one.id)))
@@ -509,6 +512,8 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings, judging }
     wake: async ({ subject, trigger = null, lines = [] }) => {
       const card = (await sweep.chat())?.card ?? null
       if (card === null) return { ok: false, why: 'its chat is not on the board' }
+      // F23 review 6: no second sweep word beside one held for its chat's restart (its board link is gone).
+      if (linkGoneNames(wordLanesOf(await ports.state())).has(card.name) && ports.outbox().some(message => message.to === card.name && message.command === 'sweep' && message.state === 'waiting')) return { ok: false, why: 'its board link is gone: a sweep word waits for its restart' }
       const told = await tell(sweepWords(card.name, { subject, job: sweep.job, trigger, lines }))
       if (told?.ok !== true) return { ok: false, why: told?.why ?? 'no answer' }
       const note = told.started === true ? 'its chat does not run: the main chat was asked to start it'

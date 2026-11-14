@@ -4339,7 +4339,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   tail stayed: the board rebuilds its whole picture after almost any change, and a turn's end brings its own rebuild, the
   hand-over's and 5 to 8 jobs at once, so no single blocker is left): the 5 s the board aims at is measured, not an alarm. A
   call answered after 2 to 10 s goes to the stall log only; an alarm sounds only when a slow answer does harm: board-slow for
-  calls answered after the chat gave up (10 s, two within 2 min), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
+  calls answered after the chat gave up (10 s, two within 2 min) or stuck over a minute (F9: a popup ask about the board's own
+  tools that no late answer stands for), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
   clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. **A sleep is no stall** (B1049 part 2: the PC
   slept 2026-11-04 23:45 to 11-05 08:15 and `data/stalls.json` held it as 8.5 h of "the loop blocked"): a stall is written as
   `kind: 'sleep'` (no requests or jobs named) when a stall of the loop lasts over 10 min, spans a clock jump (the wall clock and the monotonic
@@ -5520,7 +5521,20 @@ decides on, **status** is what the pill shows.
   FREE for a worker on it; `state` free for a worker on the timers (the escape hatch), the main chat, the partner, the
   supervisor and the Product owner; never for a worker the hand-out skips (HELD, HANDING...). 12 **Not running** (the kind:
   a wake that did not take, ended with no app session, silent, unreported; attention). 13 **Unknown**: no report to go by,
-  always "no report for N" (quiet under two minutes, attention after). A leftover has no status. Only Working counts busy:
+  always "no report for N" (quiet under two minutes, attention after). 2b **Link gone** (F9, 2026-11-13, src/modGone.mjs): its
+  transcript shows the CLI unloaded its Workers mod (the tools retracted, cause not_configured, then the server's instructions
+  removed) after its last restore, silent for over two minutes since, in the same run of the app: Link gone, "restart this chat:
+  archive it, then unarchive it" (attention), before the hand-over's rows; no wake and no line go to it (no step, note or partner
+  ask of the reconciler, no repair word of the Supervisor, also to the Advisor, its helper, the Supervisor's chat or the Product
+  owner, no main-chat word to wake it once stopped), and its "No ask filed" card says "its board link is gone" and offers only
+  "Open <chat>'s chat".
+  A popup ask about the board's own tools (Q742, Q744) makes no Waiting for you: Working, "its call to the board is slow"; the
+  Supervisor's board-slow counts it, unless a late answer from a minute before its filing to 10 min after stands for that call.
+  It is no filed form ask and no filing of the chat's questions: one whose withdraw got lost never hides a later real question
+  (the board's own "Asked you a question in its chat" card stands).
+  A real popup's hands entry, "Waiting for you" (the worker rows, the Advisor's, its helper's and the Product owner's cards, the
+  Simple view: "Open its chat") and window link to its chat in the app.
+  A leftover has no status. Only Working counts busy:
   "N of M workers busy" does not grow.
 - **The age.** `age = now - report.at` on the board's clock (`board.now` at the read), never the page's: the mod refreshes `at`
   with every 5-second ping, so a live chat's age is seconds. The pill shows it over 10 seconds ("Working · 25 s ago");
@@ -6253,6 +6267,61 @@ Tests: `test/wake.test.mjs`, `test/wakeNeeds.test.mjs`, `test/opener.test.mjs` (
 wake job and its claim), `test/work/handover.test.mjs` and `test/work/handoverBoard.test.mjs` (the hand-over around a wake,
 the real envelopes eb4fe8aada155b05 and 93ee0a904d02d2dc), `test/supervisor/handoverRules.test.mjs` (the alarms),
 `test/asleepAfterRestart.test.mjs` (the lane's words, the notice, the ⚙ row).
+
+### Wakes without code sends (F17, 2026-11-14)
+
+*Landing 1 (chat 1's verifier, 2026-11-14): B only. A is built but off (`CARRY_BY_MODEL`, on only with WORKER_BOARD_CARRY_BY_MODEL=1 for
+its tests): no carry word goes to a chat until landing 2 fixes its turn start (the mod's typed report settles the word first) and drops
+the turn-time fallback. In landing 1 a wake handed to the courier counts as sent at the hand-off; a pause gives the waiting carry words
+back with their attempts; the refusal the record's old attempts show is seeded as its own fact; the daily probe goes to any free chat.*
+*Landing 1 check (chat 1, 2026-11-14): a start or wake word's carry (`of`) taken and never said sent closes after CARRY_VERDICT_MS and never
+holds a wake need, Send again or the launch off (only another such word); wakes-due closes one whose target has a wake on its way; a
+carry word keeps as long as an answer (the courier's 15-min wait); only a pause holds the wakes, Resume all does not; a raw refusal in
+the record is read plain at load, and the could-not-wake evidence uses plain words.*
+*Re-check (chat 1, 2026-11-14): while Resume all runs, the main chat's model sends the resume line to its list itself; a resume-list need
+gets no courier word and no launch for RESUME_GRACE_MS (3 min) from the resume's start while the main chat runs or its own wake is on its
+way (`mainCoversResume`), then the holders still asleep are taken. A carry word records what it is for (`for`, wakeNeeds's why).*
+
+Chat 1's brief (`.claude/plans/2026-11-14-f17-wakes-brief.md`, the person's "Both (A + B)") and its review
+(`.claude/plans/2026-11-14-f17-review.md`). Since the app's update of 08:10 (5.11492.5.0) auto mode refuses the Workers mod's own
+`send_message` calls too ("...send_message hook error: Not run: in auto mode Claude Desktop doesn't run this tool when a plugin's own
+code calls it. Have Claude make the call."). Only a model turn may send to another chat now; the refusal itself is never worked around
+(no mode or permission change, no other code path).
+
+- **The refusal** (`src/wakeCarry.mjs` `sendsRefusedOf`): the wake record's own fact `sendsRefusedSince` (kept apart from the spells it
+  prunes, saved in data/wakes.json), set by every refused hand send (`failedToSend` keeps the attempt `refused`, in plain words: "the
+  app no longer lets the board's code send to a chat", never the raw hook text), or a start or wake word that failed on it. No clock
+  lifts it. While it stands no hand gets a message job. Once a day (`probeDue`, PROBE_MS) ONE hand that may send gets a probe job
+  (`send-probe:<time>`, PROBE_LINE) to a free chat other than itself, never a real wake: its send lifts the refusal
+  (`sendsLiftedAt`), a refusal renews it.
+- **A, the main route** (`wake.mjs` `carryPlan`, server.mjs `carryPass` in the wake pass): every need whose next path is the message
+  gets ONE `wake-carry` word (`forModel`: no hand takes it), its attempt claimed in the same step (`carry: 'model'`), never two for a
+  spell nor beside an open carry word of the chat. Its carrier (`carrierOf`) is a chat that is free and whose mod reported idle within
+  60 s, the main chat first; never the target, the helper or the Product owner, never one that is busy, asking, interrupted, stopped
+  (its words held), unlinked, a leftover, removed, suspended or without an app id. Its take hands the word only while its report is
+  idle (a busy chat would queue it behind its turn and send a stale wake later); the attempt counts as sent only once the carrier's
+  turn on the word began (`carryTurnBegan`: its report busy on the word, or on a turn begun after the take). The word asks for the one
+  call and "then end this turn; do nothing else". A carried attempt has 10 min to be sent, then 5 min for the target's own report,
+  then the launch may follow. The lane says "waking through Worker 3's turn", then "woken through Worker 3's turn"; a target that woke
+  by itself before the word went gets no carrier's credit (`heard`: `self`, its take line not waived). A waiting start or wake word
+  (the reconciler's start, B577's wake of a stopped chat) gets one carry word too (`of`), which types the hands' line; the word closes
+  once its carrier's turn on it began.
+- **B, the fallback** (`tools/wake-courier.md`, a scheduled task chat 1 makes): the board counts on the courier only while it called
+  wakes-due within 25 min (`courierAlive`); then a need with no free carrier gets a word for it (it waits 15 min for the courier's
+  run), else the message try stays unspent and the launch goes as before (the board-wide one included). `POST /api/bridge/wakes-due`
+  (the board key) first closes what ended, then hands each due word ONCE (a word to the courier, a carrier's word not taken within
+  3 min, any when nobody runs; only for a target that still sleeps with its attempt pending), taken in the same step it is checked,
+  with a fresh 10-min window from that take (`heldAt`); nothing while the person pauses. `POST /api/bridge/wakes-sent` with the ids
+  closes each once and marks its attempt sent.
+- **Closing** (`carryCloses`, applied against each word's state at that moment): delivered once its target woke from it; dropped once
+  the target woke by itself, runs again or its attempt ended; a carrier that can no longer carry before it took the word gives its
+  attempt back unspent. Send again while refused is one carry word as its own attempt (else the launch). Rule 8 leaves carry words to
+  the record.
+
+Tests: `test/wakeCarry.test.mjs` (the live refusal and its fact, the probe, the carrier, the plan, the turn start, woke by itself, the
+windows, the courier's list, the closes, Send again, the file), `test/wakeCarryBoard.test.mjs` (on a running board copy: the hands
+gate, a carried wake word, the courier's routes, a target that woke, a busy carrier's take and its turn start, the real case with
+and without the refusal, the daily probe), `test/hands.test.mjs`.
 
 ## A lane's own chat, and one way back for a held step (B986, X140, 2026-11-04)
 
@@ -7494,6 +7563,10 @@ Codex" or Working, the person chose Working: the task's work goes on, done by Co
   never a Late (the provider's own ask holds the person's action). A pick request (mode pick, the sound library) is the chat's own job:
   it names the sound with `work asset ... picked`, so it is no wait, and the timers run as for any stopped holder. With an auto request
   open beside a person's, the provider's work shows (mode auto wins).
+- **A request without its step** (F21, chat 1, 2026-11-14; api.mjs `asset`): Worker 5 filed A330-A332 and A345/A346 without `of`, so
+  no wait tied them to B1150: its lane read "Stopped · task open" while Codex drew, and their delivery woke nobody. A `work asset`
+  without `of` from a chat that holds exactly one step at work (taken or in progress) is filed under that step, and the answer ends
+  "Filed under B1150."; with none, or two, it is filed as before. Pinned by `test/work/assetOfStep.test.mjs` (the real case, with a mutant).
 - **The cap**: past the provider's time limit for a job (`assetSeconds`, 240 s by default, plus a minute of grace; F18, 2026-11-14:
   for Codex the limit grows with the attached pictures, 120 s per picture past the first, 900 s at most, in the provider and in the
   Late alike, since corrections with three references were stopped at 240 s) a running request
@@ -7741,6 +7814,18 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
 - **The gate** runs BEFORE the lock (it takes about ten minutes): `git worktree add --detach` of the head in a temporary
   folder, a junction `node_modules` to the main checkout's, `npm test` there (2026-11-11: below-normal priority on half the
   PC's cores, and it waits its turn in the PC's one queue of heavy runs, `tools/one-at-a-time.mjs`, so a landing never runs
+  beside another heavy run. F14 (2026-11-14, the person: speed up): the gate's run goes FIRST-CLASS in that queue (HEAVY_RUN_FIRST=1:
+  its ticket goes ahead of the ordinary runs), and the gate's clock (`gateMinutes`, 60) starts only once the run holds its slot (the
+  helper's line "one-at-a-time: ... runs now" in the gate log; while it says "waiting for ..." the clock does not run; a command
+  that never queues counts from its launch after a 30 s grace); the wait for the slot has its own bound (`gateQueueMinutes`, 120).
+  Past either bound the whole tree is killed (taskkill /T, then the leftover descendants by their parent chain) BEFORE the log line
+  "the gate ran longer than N minutes after it got its slot and was stopped" (or "waited longer than ... for the one-at-a-time
+  slot"), which `gatePassed` reads as the verdict, so the refusal names the timeout. The word HEAVY_RUN_FIRST stays with the helper:
+  the gate command runs without it (chat 1's check: passed on, it made the test's own runs first-class and every gate after F14
+  refused itself), and the script reads all the log got since its last look, never a tail alone (a run writing more than a tail
+  between two looks would hide its runs-now line). Tests: test/oneAtATime.test.mjs (the first-class
+  ticket, the runs-now line, `aheadOf`), test/landScript.test.mjs (a gate queued 2.5 s passes under a 1.2 s clock; a hung gate is
+  stopped with its child and refused with the timeout words).
   beside a chat's tests) and, only when the branch touches `mods/workers/`,
   `claude.exe plugin test .` in its `mods/workers` (the app's own command-line program under its data folder, never the desktop
   app: none found is a refusal), with `NO_COLOR=1` and no `FORCE_COLOR`. It passes only on the run's own summary line (`src/landing.mjs`,
@@ -8361,3 +8446,42 @@ it stay at their own priority (tested: an importing process under `start /LOW` s
 fails). `start-board.mjs --demo` sees its own demo (`isBoardOf`'s `isDemo`). The server.mjs raise is proven on the demo keeper started
 DIRECTLY with `start /LOW /AFFINITY` (no start-board.mjs between): keeper and board Normal on the two-core mask, the mutant Idle. The
 start-board test sweeps start-board.mjs and every demo keeper by command line until none is left.
+
+## F26: a holder's work spell is the whole stretch, not its last turn (B1151, 2026-11-14)
+
+At 13:00 the board gave B1151 back from Worker 2 ("did not resume it (asked 10:16)") while it worked: after the two go-ons (GO_ON_MOST)
+only a checkpoint or a busy spell over LONG_BUSY_MS restarts the 15 minutes, and the spell was read from the transcript's last typed
+turn; every turn after 10:17 began with the chat's own background work (a task finished, a helper handed back), which transcript.mjs
+`turnStart` does not count. Chat 4's first fix (branch holder-any-turn) took the newest of the typed turn, the mod's `turn` and the
+board's `busyAt`; chat 1's review (`.claude/plans/2026-11-14-f26-review.md`) showed that one short last turn then wipes an earlier long
+spell (the hand-back turns of 13:00:57 and 13:02:43 right after the six-minute turn), and that chained short turns with background
+work between never count. Chat 1's design, built by chat 3 on top of chat 4's branch:
+
+- **The work spell lives on the report entry** (bridge.mjs `spellOf`, with `restOf`): `workFrom`, the board's receipt of the chat leaving
+  REST (a busy report, or an idle one with background work), carried while it works (an asking report carries it too); when it comes back
+  to rest (idle, no background) or its session ends, a spell over LONG_BUSY_MS leaves `longEndAt` (the report's since), carried through the
+  session until a later long spell's end replaces it. A new session starts afresh. Persisted in data/reports.json (reportsKept.mjs
+  `savedEntry`: `workFrom`, `longEndAt`; `restAt` was there), handed to the lane with `restAt` (state.mjs). Background time is work.
+- **The timers read three spells after the last go-on** (holderTimers.mjs `busySpellAfter`): the last turn that ended (the newest start,
+  to the idle since; an `ended` report measures to the turn's own end, `restAt`, never to the session's end: finding 5), the work going
+  on (busy or idle with background, from `workFrom`, else the newest start, to the last receipt: finding 2), and `longEndAt`. The latest
+  LONG one wins, else the latest. So B1151's 13:00:50 rest after 10:16:40-13:00:50 holds the step until 13:15:50 whatever short turns
+  follow, and the review's 86-second turn after an hour of work (11:20:38-11:22:04) holds it until 11:37.
+- **Two guards** (holderTimers.mjs `mayGiveBack`): nothing goes back while the lane is only 'unknown' (a 30-second report gap) over a
+  busy report or an idle one with background work: the chat may well work; the lane resolves within offAfterMinutes (finding 3). And a
+  give-back needs the holder stopped for REST_MIN_MS (one minute) since its report said so: the seconds between a turn's end and a
+  hand-back turn never trigger one (finding 1). The "go on" line is not held by either.
+- Tests: test/work/holderLongSpell.test.mjs (the spell through noteReport on Worker 2's real day, its persistence, the whole-day decision
+  with the mutant that drops `longEndAt`, the review's short-last-turn case with its mutant, the unknown gap, the minute's rest, the
+  ended turn's own end), test/work/holderTimersB1151.test.mjs (chat 4's, the minute's rest added), test/work/holderTimers.test.mjs (the
+  cap test: unknown over busy gives nothing back; resolved, it does). Code mutants run on the way: without `mayGiveBack` three tests fail;
+  with `longEndAt` ignored the two timeline tests fail.
+- **F26b** (chat 1's re-check, `.claude/plans/2026-11-14-f26-recheck.md`): an asking report is work too (the unknown gate holds it, its
+  spell counts); the spell begins at the report's own since when that is before the receipt; a rest shorter than REST_MIN_MS does not end
+  the spell (the start rides on the resting entry; the next work goes on from it, so B1151's hand-back turns after rests of seconds make
+  one spell 10:16:40-13:03:18 and the step is held until 13:18:18); a spell closed at a rest is not closed again by a later `ended`; the
+  chat's last rest rides into its `ended` entry, so the ended branch measures a turn to its own end; without `workFrom` the EARLIEST start
+  after the go-on counts (the stretch is continuous); and a kept report whose `at` moved to the board's start after a restart carries
+  `heardAt` (state.mjs), the time it was really heard: the work-going-on reading ends there, so a board restart is no proof of work and
+  a dead holder goes back 15 minutes after its last real report whatever the landings. Mutants: asking excluded, the short rest ending
+  the spell, heardAt ignored, the latest start again: each fails its test.

@@ -506,6 +506,20 @@ test('the review: at a full limit, a card left working by a chat that does not r
   assert.deepEqual(check('working-not-running', suspended), [])
 })
 
+test('B1172 (X176): a worker whose step waits on the person is no working-not-running case; one with no step still is', () => {
+  // The live case of 2026-11-14: Worker 5 asked Q782 (blocking) at 10:23:35, so B1150 went "waiting on you"; its turn ended at 10:23:54 and
+  // its card read working until 10:54 (X176 open from 10:40 to 10:52). Its chat made no call: it was waiting, not stuck.
+  const board = (state, owner = 'Painter') => view({
+    chats: [LEAD, lane('Painter', { state: 'working', isRunning: false })],
+    items: items(step('B1150', state, { Owner: owner })),
+  })
+  const seen = new Map([['working-not-running Painter', ago(30)]])
+  assert.deepEqual(check('working-not-running', board('waiting on you'), seen), [], 'its step waits on you')
+  assert.equal(check('working-not-running', board('in progress'), seen).length, 0, 'a step in progress belongs to the hand-over timers')
+  assert.equal(check('working-not-running', board('queued', 'Mason'), seen).length, 1, 'a step of another worker holds nothing of Painter')
+  assert.equal(check('working-not-running', view({ chats: [LEAD, lane('Painter', { state: 'working', isRunning: false })] }), seen).length, 1, 'B736: no step, a silent chat still opens')
+})
+
 test('the review: a compaction skipped because more of the same work follows is by design, as the Workers mod means it', () => {
   const why = 'more of the same work follows'
   const board = view({ chats: [LEAD, lane('Painter', { compaction: { kind: 'skipped', at: ago(2), why } })] })

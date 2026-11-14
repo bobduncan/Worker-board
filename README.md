@@ -153,6 +153,10 @@ and the briefings for the main chat and the workers.
    same folder and whose folder has nothing uncommitted. The live chat is never archived. Each archive is one line in
    `board.log` ("B847: archived the replaced chat ...").
    Setup also brings your project's own `flow.json` up to date with the moves the board's code needs (a new board feature does nothing in an older flow file): it shows what it would add, asks y/n (without a keyboard only `npm run setup -- --flow yes` writes), never changes or removes a move of yours, and keeps the old file as `flow.json.bak-<time>`. `npm run setup -- --check` shows it and writes nothing.
+   **The wake courier** (F17, 2026-11-14): since the Claude app refuses a mod's own sends in Auto mode, a scheduled task wakes the
+   sleeping chats: "Worker board wake courier", every 10 minutes, on the cheapest model, in Auto mode, with the prompt in
+   `tools/wake-courier.md`. Setup cannot make it (code cannot create a scheduled task); `npm run setup` and `-- --check` print what to
+   ask a chat once on a new PC: create it with `create_scheduled_task` from that prompt. It stops at once when nothing is due.
 4. **The project's files.** Make `<project>\.claude\` and copy into it from `examples\`: `list.json` into
    `.claude\chats\` with your prefix, `main-briefing.md` and `worker-briefing.md`; in the two briefings
    replace `<project>`, `<prefix>` and `<repository>`. For the Design tab, also `design.json` into `.claude\`, with
@@ -238,7 +242,7 @@ and the briefings for the main chat and the workers.
   ...").
 - The head shows the plan's limits; a worker that paused for the limit shows as "Paused" until it goes on.
 - Every chat in the Workers list has ONE status, the same in every view (Working, Waiting for you, Checking, Handing, Offered,
-  Held, Did not answer, Paused, Restarting, Stopped, Free, Asleep, Not running, Unknown), with how old its information is
+  Held, Did not answer, Paused, Restarting, Stopped, Free, Asleep, Not running, Unknown, Link gone), with how old its information is
   when over 10 seconds ("Working · 25 s ago"); Free means the board would give it work now (DESIGN.md, "One status per chat").
 - Before you quit the app: "Pause all" on the board (each chat writes its checkpoint and stops; the board says when
   it is safe), and "Resume all" after it is open again (open the main chat when the board says so).
@@ -447,7 +451,7 @@ speaker and every tool call and result in full, with an exact copy of the transc
 finished when the board stops is finished at its next start (`data\chat-logs.json`). A moment the board itself stalls
 (its event loop held, or a work call answered after over 2 s) is written to `data\stalls.json` with what the board ran
 then (B934), and the supervisor's rule board-slow cites it; harm is the bar (B1011): a call answered after 2 to 10 s stays in that
-log and opens no finding, board-slow sounds only for calls answered after the chat gave up (10 s). A sleep of the PC (a stall of the loop over 10 min, across a clock jump or a start of the board; a work call that waited long while the loop kept ticking is a hang, not a sleep; a call spanning a logged sleep is that sleep) is kept in the log as a sleep, in plain words, and is never a slow board. The chat's card moves to its new
+log and opens no finding, board-slow sounds only for calls answered after the chat gave up (10 s) or stuck over a minute (a popup ask about the board's own tools that no late answer stands for). A sleep of the PC (a stall of the loop over 10 min, across a clock jump or a start of the board; a work call that waited long while the loop kept ticking is a hang, not a sleep; a call spanning a logged sleep is that sleep) is kept in the log as a sleep, in plain words, and is never a slow board. The chat's card moves to its new
 session id and the board follows it, so its lane, steps, asks and instructions stay the same chat's; the lane says
 "cleared after B482 · log", and "log" opens the text in the board. A worker that may not be cleared then (the person
 pauses, a question not filed as an ask, something of it still running, no log) is compacted as before.

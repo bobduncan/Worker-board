@@ -121,6 +121,10 @@ test("the turn rule through the board's state (the signals lead's decision of 20
   const own = serverState({ reports: [idle('Lead'), digger('busy', at(2), { word: 'w5', turn: at(18) }), idle('Advisor')], outbox: [delivered] })
   assert.deepEqual([own.state.waits.w5.state, own.state.waits.w5.lead, own.state.waits.w5.rest], ['picked-up', 'Digger is on it', `since ${hhmm(at(18))}`])
   assert.deepEqual(own.state.chats.find(one => one.name === 'Digger').report.word, 'w5', 'the lane carries what the mod said')
+  // F26: the work spell and the rest the board kept reach the lane too (holderTimers.mjs reads them).
+  const spelled = serverState({ reports: [idle('Lead'), report('Digger', 'idle', at(4), { busyAt: at(40), workFrom: at(50), longEndAt: at(5), restAt: at(4) }), idle('Advisor')], outbox: [] })
+  const lane = spelled.state.chats.find(one => one.name === 'Digger').report
+  assert.deepEqual([lane.workFrom, lane.longEndAt, lane.restAt], [at(50), at(5), at(4)])
   // The live case: the chat is busy on another task in a later turn. The word was answered before: "by", not "on it".
   const live = serverState({ reports: [idle('Lead'), digger('busy', at(3), { word: 'b920-word', turn: at(3) }), idle('Advisor')], outbox: [delivered] })
   assert.equal(live.state.chats.find(one => one.name === 'Digger').status, 'Working')

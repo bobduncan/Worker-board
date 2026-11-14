@@ -71,7 +71,8 @@ const isPlain = message => (message.command ?? null) === null || message.command
 // once its worker stopped), then the main chat may take it: it is kept that long and a plain word's keep after it.
 export const keepMs = (message, keep) => (isAnswer(message) || isLimitStopWord(message.command) ? Infinity
   : isTaskStopWord(message) ? STOP_HANDS_MS + keep.messageMs
-  : isPlain(message) || ['step', 'refined', 'work', 'incident', 'handover'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
+  // F17 check 2: a wake's carry word waits for the scheduled courier's next run (15 min and more); src/wakeCarry.mjs `carryCloses` closes it.
+  : isPlain(message) || ['step', 'refined', 'work', 'incident', 'handover', 'wake-carry'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
 /**
  * B891 (the result check of B880: a word went twice): a hand's call that gave no answer in time may still have acted (the
  * real case's ran the Product owner's routine and never answered). A word given back after such a call is in doubt from its
@@ -82,7 +83,8 @@ export const keepMs = (message, keep) => (isAnswer(message) || isLimitStopWord(m
 export const DOUBT_MS = 5 * 60_000
 /** B891: whether a word waits in doubt now (`doubtAt`, DOUBT_MS). */
 export const isInDoubt = (message, now) => Number.isFinite(message?.doubtAt) && now - message.doubtAt < DOUBT_MS
-export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > keepMs(message, keep)
+// F23 review 1, 3: a word held for a chat whose board link is gone (`linkHeldAt`, src/modGone.mjs) is never late: its clock starts at its release.
+export const isLate = (message, now, keep) => !Number.isFinite(message.linkHeldAt) && now - message.at - heldMs(message, now, keep.pause ?? null) > keepMs(message, keep)
 
 /**
  * What was sent from the page, as the board sees it now. A message that waited too long is `expired` and never
@@ -165,9 +167,11 @@ function storeOver(lines, messages, alive, write) {
       const taken = messages.filter(message => message.to === to && message.state === 'waiting' && !isLate(message, now, keep) && !isInDoubt(message, now) && only(message))
       // B880: a word a hand gave back names no hand once its chat takes it (the log keeps the last `takenBy`, so it is cleared).
       const hadHand = new Set(taken.filter(message => typeof message.takenBy === 'string').map(message => message.id))
-      for (const message of taken) Object.assign(message, { state: 'taken', takenAt: now }, hadHand.has(message.id) ? { takenBy: null } : {})
+      // F23's re-check, B: a word held for a gone link that its chat takes is no longer held (`linkHeldAt` cleared).
+      const wasHeld = new Set(taken.filter(message => Number.isFinite(message.linkHeldAt)).map(message => message.id))
+      for (const message of taken) Object.assign(message, { state: 'taken', takenAt: now }, hadHand.has(message.id) ? { takenBy: null } : {}, wasHeld.has(message.id) ? { linkHeldAt: null } : {})
       try {
-        if (taken.length > 0) await write.outbox(taken.map(message => ({ id: message.id, state: 'taken', takenAt: now, ...(hadHand.has(message.id) ? { takenBy: null } : {}) })))
+        if (taken.length > 0) await write.outbox(taken.map(message => ({ id: message.id, state: 'taken', takenAt: now, ...(hadHand.has(message.id) ? { takenBy: null } : {}), ...(wasHeld.has(message.id) ? { linkHeldAt: null } : {}) })))
       } catch (error) {
         for (const message of taken) {
           message.state = 'waiting'
@@ -177,8 +181,10 @@ function storeOver(lines, messages, alive, write) {
       }
       // B532: a word that waited longer than a typed line is kept goes with its age, so the chat reads it as late.
       // B577: so does a word that waited for a stopped chat, or that failed for the session a new one replaced.
-      const isAged = message => now - message.at > keep.messageMs || ((Number.isFinite(message.stoppedAt) || message.revivedFor !== undefined) && now > message.at)
-      return taken.map(message => ({ ...message, ...(isAged(message) ? { lateMs: now - message.at } : {}) }))
+      // F23's re-check, nit: a word held for a gone link and released counts its wait from when it was first sent (`heldFrom`).
+      const sentAt = message => (Number.isFinite(message.heldFrom) ? message.heldFrom : message.at)
+      const isAged = message => now - sentAt(message) > keep.messageMs || ((Number.isFinite(message.stoppedAt) || message.revivedFor !== undefined) && now > message.at)
+      return taken.map(message => ({ ...message, ...(isAged(message) ? { lateMs: now - sentAt(message) } : {}) }))
     },
     /**
      * B753: hands out the words that are a hand's to send (`isHand`, src/hands.mjs `isHandWord`), whoever they are

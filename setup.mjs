@@ -16,6 +16,7 @@ import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 
 import { loadConfig, workFolder } from './src/config.mjs'
+import { courierLines } from './src/courierSetup.mjs'
 import { describeFlow, setupFlow } from './src/flowSetup.mjs'
 import { findClaude, runSetup } from './src/setup.mjs'
 import { setupWatcher } from './src/watcherSetup.mjs'
@@ -100,5 +101,14 @@ if (process.platform === 'win32') {
   for (const line of watcher.lines) console.log(line)
   if (!watcher.ok) good = false
 } else console.log('The watcher part is for Windows alone: skipped.')
+
+// F17: the wake courier, a scheduled task only a model can make: what to ask for on this PC (with or without --check).
+let courierProject = null
+try {
+  courierProject = (await loadConfig(join(here, 'config.json'))).project
+} catch {
+  // No config: the lines name the placeholder only.
+}
+for (const line of courierLines(courierProject)) console.log(line)
 
 process.exitCode = good ? 0 : 1
