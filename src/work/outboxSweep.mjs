@@ -22,6 +22,7 @@ import { readStore } from './store.mjs'
 import { RESUME_KIND, TIMED_STATES, markerStep } from './holderTimers.mjs'
 import { WITH_WORKER } from './rethink.mjs'
 import { workLineWhy } from './workLines.mjs'
+import { isUntaken, untakenWhy } from './judgeWord.mjs'
 
 /** P2: why a waiting "back to you" word is closed when its step's check passed since. */
 export const BACK_PASSED_WHY = 'its check passed since (board re-run)'
@@ -43,7 +44,8 @@ const isStanding = message => ['waiting', 'taken', 'delivered', 'copied'].includ
  * The reason a waiting word no longer matters, or null. `ctx`: `all` (every word of the outbox), `items` (the work store's
  * items by id, null when the board has no store), `runs` (chat name to whether it runs), `goals` (the goal map's nodes),
  * `now`, `keep`, `closing` (what this sweep closes already), `lanes` (the board's chats, with the effort and model each runs at),
- * `onBoard` (B880: the names of the chats on the board now, the partner, helper, supervisor and Product owner among them).
+ * `onBoard` (B880: the names of the chats on the board now, the partner, helper, supervisor and Product owner among them),
+ * `supervisor` (B1174: the Supervisor's lane, with its wake, for why a judge word went untaken; null for none).
  */
 export function whyClosed(message, ctx) {
   // A person's answer waits for its chat, also one that is off on purpose.
@@ -177,6 +179,8 @@ export function whyClosed(message, ctx) {
     // gone by itself or being fixed), so a chat that did not run for hours is not typed a judgment of nothing.
     const waits = message.incidents.some(id => ['open', 'came back', 'with the supervisor'].includes(value(items.get(id), 'State')))
     if (!waits) return { state: 'dropped', why: `none of ${message.incidents.join(', ')} waits for a judgment any more` }
+    // B1174 (X43): one its chat did not take within 30 min holds no later judgment: closed with why (judgeWord.mjs), its incidents wait again.
+    if (isUntaken(message, now, keep)) return { state: 'expired', untaken: true, why: untakenWhy(message.to, ctx.supervisor?.name === message.to ? ctx.supervisor : null) }
   } else if (message.command === 'wake' && ctx.stopped instanceof Map) {
     // B577: the main chat's word to wake a stopped chat: not needed once that chat began a turn, or another session
     // stands under its name (a chat replaced), or nothing waits for it any more.
@@ -377,7 +381,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const off = new Set(shownChats(state ?? {}).filter(chat => chat.isRunning === false).map(chat => chat.name))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)) }
+  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)), supervisor: state?.supervisorChat ?? null }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
@@ -385,7 +389,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
     if (closed !== null && (message.state === 'waiting' || closed.state === 'dropped')) closing.set(message.id, { id: message.id, ...closed })
   }
   // B1071: a stop settled as done is closed delivered, at this sweep.
-  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : one.refused === true ? { refused: true } : one.state === 'delivered' ? { deliveredAt: now } : {})
+  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : one.refused === true ? { refused: true } : one.untaken === true ? { untaken: true } : one.state === 'delivered' ? { deliveredAt: now } : {})
   return [...settled, ...closing.values()]
 }
 
