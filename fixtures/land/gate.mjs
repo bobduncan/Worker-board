@@ -4,7 +4,7 @@
 //     | board-pass-then-empty (a gate that empties node_modules through the junction) | board-pass-then-block (a gate that leaves a
 //     real folder where the junction was, so rmdir cannot remove it) | board-queued-then-pass (F14: waits in the one-at-a-time queue
 //     for 2.5 s, then runs now and passes) | board-hang-after-start <pid file> (F14: runs now, starts a child that writes its pid there,
-//     then hangs)
+//     then hangs) | board-hang-after-noisy-start <pid file> (the same, with 64 KB of output right after the runs-now line)
 import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 
@@ -55,9 +55,11 @@ else if (mode === 'board-pass-then-copy') {
     console.error(`one-at-a-time: test runs now (waited 2 s) first=${process.env.HEAVY_RUN_FIRST ?? 'unset'}`)
     setTimeout(() => board(0), 300)
   }, 2500)
-} else if (mode === 'board-hang-after-start') {
-  // F14: the run holds its slot and hangs; a child of its own too, its pid written to `from` so the test can see it gone.
+} else if (mode === 'board-hang-after-start' || mode === 'board-hang-after-noisy-start') {
+  // F14: the run holds its slot and hangs; a child of its own too, its pid written to `from` so the test can see it gone. The noisy
+  // one writes 64 KB right after the runs-now line (more than a tail): the script must read all that is new, not a tail.
   console.error('one-at-a-time: test runs now (waited 0 s)')
+  if (mode === 'board-hang-after-noisy-start') process.stderr.write(`${'a test line that says nothing, repeated\n'.repeat(1700)}`)
   const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore', windowsHide: true })
   writeFileSync(from, String(child.pid))
   setTimeout(() => {}, 120000)

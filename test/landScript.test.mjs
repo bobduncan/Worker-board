@@ -321,6 +321,22 @@ test('F14: a gate that hangs after it got its slot is stopped at the clock with 
   assertCleanedUp(world)
 })
 
+test('F14: a gate that writes 64 KB right after its runs-now line is still stopped at the clock: the script reads all that is new, not a tail', LONG, async t => {
+  const world = await makeWorld(t)
+  world.branch('feat')
+  const pidFile = join(world.root, 'child.pid')
+  // The queue bound is short too: a script that missed the runs-now line would end there, with another refusal.
+  world.config({ gateBoard: `${world.gate('board-hang-after-noisy-start')} "${pidFile}"`, gateMinutes: 0.02, gateQueueMinutes: 0.15, pollMs: 200 })
+  const ran = await world.land('feat')
+  assert.equal(ran.status, 1)
+  const [line] = world.landings()
+  const log = readFileSync(line.gateLog, 'utf8')
+  assert.ok(log.length > 65536, `the gate wrote more than a tail: ${log.length} bytes`)
+  assert.match(lines(ran.out).at(-1), /^refused: the gate failed on [0-9a-f]{7}: the gate ran longer than 1 seconds after it got its slot and was stopped/)
+  assert.doesNotMatch(log, /waited longer than/)
+  assertCleanedUp(world)
+})
+
 test('a gate with no summary line is refused, even when the command ended with 0', LONG, async t => {
   const world = await makeWorld(t)
   world.branch('feat')

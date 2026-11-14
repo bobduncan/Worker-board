@@ -688,13 +688,19 @@ function Span-Words([double]$Minutes) {
 }
 
 # The last part of a file another process appends to (shared for writing), as text; '' when it cannot be read yet.
-function Read-Tail([string]$File, [int]$Bytes = 16384) {
+# F14: what a growing log got since the last look, from byte $From (moved to the end), as text; '' when nothing came or the file
+# cannot be read yet. Every look scans all that is new, never a tail alone (chat 1's check: a run that writes more than a tail
+# between two looks would hide its "runs now" line, and the clock would never start).
+function Read-NewText([string]$File, [ref]$From) {
   try {
     $stream = [System.IO.File]::Open($File, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
     try {
-      if ($stream.Length -gt $Bytes) { $stream.Position = $stream.Length - $Bytes }
+      if ($stream.Length -le $From.Value) { return '' }
+      $stream.Position = $From.Value
       $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::UTF8)
-      return $reader.ReadToEnd()
+      $text = $reader.ReadToEnd()
+      $From.Value = $stream.Length
+      return $text
     } finally { $stream.Dispose() }
   } catch { return '' }
 }
@@ -743,12 +749,17 @@ function Invoke-GateCommand([string]$Command, [string]$WorkDir, [string]$Output)
   $clockFrom = $null
   $queued = $false
   $graceSeconds = 30
+  $readFrom = [long]0
+  $carry = ''
   while (-not $process.WaitForExit($pollMs)) {
     $now = Get-Date
     if ($null -eq $clockFrom) {
-      $tail = Read-Tail $Output
-      if ($tail -match 'one-at-a-time: .* runs now') { $clockFrom = $now }
-      elseif ($tail -match '(?m)^waiting for ') { $queued = $true }
+      # All that is new since the last look, with the unfinished last line of the look before (a line may arrive in two parts).
+      $fresh = $carry + (Read-NewText $Output ([ref]$readFrom))
+      $break = $fresh.LastIndexOf("`n")
+      $carry = if ($break -ge 0) { $fresh.Substring($break + 1) } else { $fresh }
+      if ($fresh -match 'one-at-a-time: .* runs now') { $clockFrom = $now }
+      elseif ($fresh -match '(?m)^waiting for ') { $queued = $true }
       elseif (-not $queued -and ($now - $launched).TotalSeconds -ge $graceSeconds) { $clockFrom = $launched }
     }
     if ($null -ne $clockFrom -and ($now - $clockFrom).TotalMinutes -gt $gateMinutes) {

@@ -33,7 +33,9 @@
 // - F14 (2026-11-14): a run with HEAVY_RUN_FIRST=1 (a landing's gate, tools/land.ps1) goes ahead of the ordinary runs in the
 //   queue: its ticket carries `first`, and an ordinary run counts every first-class ticket as ahead of it, also one that came
 //   later. When a run takes its slot it says "one-at-a-time: <label> runs now (waited N s)", so a log of the run shows the
-//   moment its work began (land.ps1 starts the gate's clock there, not while the run queues).
+//   moment its work began (land.ps1 starts the gate's clock there, not while the run queues). The word stays with this
+//   helper: the command runs without HEAVY_RUN_FIRST, so the runs the command starts in turn (a test of this helper under
+//   the gate) are ordinary ones (chat 1's check, 2026-11-14: with the word passed on, every gate after F14 refused itself).
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, openSync, closeSync, readFileSync, readdirSync, unlinkSync, writeSync } from 'node:fs'
 import os from 'node:os'
@@ -339,7 +341,8 @@ export async function runOneAtATime({
     }
     const exited = new Promise((resolve) => {
       forceExit = () => resolve(signalExit(signalled))
-      child = spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...env, HEAVY_RUN_HELD: '1' } })
+      const { HEAVY_RUN_FIRST: _first, ...plain } = env
+      child = spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, HEAVY_RUN_HELD: '1' } })
       child.on('error', (error) => {
         say(`one-at-a-time: could not start the command: ${error.message}`)
         resolve(127)
