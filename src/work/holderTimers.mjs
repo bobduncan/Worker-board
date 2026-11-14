@@ -180,7 +180,11 @@ function goOnsOf(item, name, prefix, from) {
  */
 function busySpellAfter(worker, at) {
   const report = worker.report ?? null
-  const turnAt = worker.turnAt
+  // F26 (B1151, 2026-11-14): a turn of any kind counts: the transcript's typed turn (`turnAt`), and the turn the report holds (the mod's
+  // own `turn`, the board's receipt `busyAt`): a turn the chat's own background work began (a task finished, a helper handed back)
+  // moves only those two. The latest start after `at`.
+  const starts = [worker.turnAt, report?.turn, report?.busyAt].filter(start => finite(start) && start > at)
+  const turnAt = starts.length === 0 ? worker.turnAt : Math.max(...starts)
   if (finite(turnAt) && turnAt > at && ['idle', 'ended'].includes(report?.state) && finite(report.since) && report.since >= turnAt) return { ms: report.since - turnAt, end: report.since }
   if (report?.state === 'busy' && finite(report.since) && report.since > at && finite(report.at)) return { ms: report.at - report.since, end: report.at }
   return null
