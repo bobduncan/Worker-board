@@ -222,6 +222,13 @@ export const planWordsFor = (words, lanes = []) => words.filter(word => word.cha
  * changes nothing does not move the clock), or with no main chat. The newest, so an earlier refine that changed nothing never starts
  * it early (verifier 3).
  */
+/**
+ * Check 2026-11-14 (chat 1, both lenses): a changed word that never set anything: dropped by the sweep as moot (its step no longer
+ * wants it, or is no longer that worker's), refused, expired or failed, and not met. It counts as no ask, for no dedupe and as no
+ * change's first word, so a change, a change back and a change again gets its word at once.
+ */
+export const isMootChanged = word => word?.changed === true && LOST.includes(word.state) && word.met !== true
+
 const REFINED_LINE = /^-\s+(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?\s+[^:]+: (?:refined\b(?!\s*→)|.*→ refined\b)/
 function refinedAtOf(item, after) {
   const times = (item?.sections?.get('History') ?? []).map(line => REFINED_LINE.exec(line)).filter(Boolean)
@@ -425,8 +432,11 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     const live = mine.filter(message => !LOST.includes(message.state))
     // B1207 review 3 (lens 1): the words of its steps also from the step words the board keeps longer (`known`), so a change's time does
     // not move when its first word leaves the outbox's window.
-    const stepMine = known === null ? mine : [...new Map([...known, ...sent].filter(message => message?.command === 'worker-effort' && plain(message.about, prefix) === plain(lane.name, prefix)
+    // Check 2026-11-14 (chat 1, nit): built only when a hand-over setting applies.
+    const stepMineOf = () => known === null ? mine : [...new Map([...known, ...sent].filter(message => message?.command === 'worker-effort' && plain(message.about, prefix) === plain(lane.name, prefix)
       && (lane.appSession == null || sessionOf(message) === null || sessionOf(message) === lane.appSession)).map(message => [message.id ?? message, message])).values()].sort((a, b) => a.at - b.at)
+    let stepMineKept = null
+    const stepMine = () => (stepMineKept ??= stepMineOf())
     const current = typeof lane.effort === 'string' && EFFORTS.includes(lane.effort) ? lane.effort : null
     // The newest word on its way that the app's file does not show yet: it changes the chat after any reading now.
     const lastLive = live.at(-1)
@@ -453,11 +463,11 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     // B1207 (X26 back): the setting the step's hand-over asked, and whether the step wants another one since (a refine round, the
     // goal guard): a held step handed at one setting that now wants another gets its own word, also on the sequence and while the
     // app refuses the hands (then for Main's model). The quiet gap covers only the setting its envelope asked, never a newer one.
-    const handedAs = ownEnvelope === undefined || working === undefined || ownEnvelope.state !== 'delivered' ? null : handedSettingOf(ownEnvelope, known ?? sent)
+    const handedAs = ownEnvelope === undefined || holding === undefined || ownEnvelope.state !== 'delivered' ? null : handedSettingOf(ownEnvelope, known ?? sent)
     // Review 1 (lens 1, 2; verifier 1): once a changed word went for it, the step stays changed (a change back to the hand-over's setting,
     // also after Main set the new one, gets its word and its own clock). The setting before this change: the newest changed word for
     // another setting, else the hand-over's.
-    const changedWords = handedAs === null ? [] : stepMine.filter(word => word.changed === true && word.forStep === step && word.at >= ownEnvelope.at)
+    const changedWords = handedAs === null ? [] : stepMine().filter(word => word.changed === true && word.forStep === step && word.at >= ownEnvelope.at)
     const other = changedWords.filter(word => !sameTarget(word, level, id)).at(-1)
     const isChanged = handedAs !== null && (!sameSetting(handedAs, level, id) || other !== undefined)
     const before = other === undefined ? handedAs : { model: other.model ?? null, effort: other.effort }
@@ -475,7 +485,7 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     }
     // B813: a word for it that failed for a passing reason asks for it no longer.
     // B1207 review 5: a changed setting's word the app refused (a hand's, before the refusal was known) asks for it no longer either.
-    const asked = last !== undefined && sameTarget(last, level, id) && now - last.at < AGAIN_MS && !goesAgain(last, mine, now) && !(isChanged && isSetRefused(last)) ? last : null
+    const asked = last !== undefined && sameTarget(last, level, id) && now - last.at < AGAIN_MS && !goesAgain(last, mine, now) && !(isChanged && isSetRefused(last)) && !isMootChanged(last) ? last : null
     const isModelSet = against === null && runsOn(id)
     const isSet = isModelSet && current === level
     // Model per step: an opus step is asked for even when the app's file names no effort; the lane says it waits for Opus.
@@ -492,10 +502,13 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     // the change; kept in `known`, so it stays put), else (no word yet, or no main chat) the step's newest refine line since then, else
     // the setting before it's time (review 3: never now, which would restart the clock at every reading; verifier 3: never an earlier
     // refine that changed nothing).
-    const firstWord = !isChanged ? undefined : stepMine.find(word => word.forStep === step && sameTarget(word, level, id) && word.at >= beforeAt && word.envelope === undefined && word.at <= now)
+    const firstWord = !isChanged ? undefined : stepMine().find(word => !isMootChanged(word) && word.forStep === step && sameTarget(word, level, id) && word.at >= beforeAt && word.envelope === undefined && word.at <= now)
     const changedAt = !isChanged ? null : firstWord?.at ?? refinedAtOf(next, beforeAt) ?? beforeAt
-    const handedWords = before === null ? null : [before.model === null ? null : familyOf(before.model), before.effort].filter(Boolean).join(' · ')
-    const changedWhy = `${step} changed after its hand-over (asked ${handedWords} at ${clockOf(beforeAt)}, now ${id === null ? level : `${family} · ${level}`})`
+    // Check 2026-11-14 (chat 1): "its hand-over asked" is the hand-over's setting; an earlier change is named apart ("then ... at HH:MM").
+    const wordsOf = setting => setting === null ? null : [(setting.model ?? null) === null ? null : familyOf(setting.model), setting.effort].filter(Boolean).join(' · ')
+    const handedWords = wordsOf(handedAs)
+    const thenWords = other === undefined ? null : wordsOf(before)
+    const changedWhy = `${step} changed after its hand-over (asked ${handedWords} at ${clockOf(ownEnvelope?.at)}${thenWords === null ? '' : `, then ${thenWords} at ${clockOf(beforeAt)}`}, now ${id === null ? level : `${family} · ${level}`})`
     // Only a step it does not hold yet waits for Opus: one it holds already is set as soon as can be.
     let waitsFor = null
     if (isStrict && !isModelSet && holding === undefined && !isQuietGap) {
@@ -509,7 +522,7 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     runs.set(lane.name, {
       level, model: hasModels ? family : null, usual: usualEffort, usualModel: hasModels ? usualFamily : null, step, why: effort?.why ?? null, modelWhy: model?.why ?? null, isSet,
       asked: asked === null ? null : { at: asked.at, state: asked.state }, waitsFor, ...(isQuietGap && !isSet ? { refused: true } : {}),
-      ...(isChanged ? { changed: { from: handedAs, fromWords: handedWords, handedAt: ownEnvelope.at, at: changedAt } } : {}),
+      ...(isChanged ? { changed: { from: handedAs, fromWords: handedWords, then: thenWords, thenAt: thenWords === null ? null : beforeAt, handedAt: ownEnvelope.at, at: changedAt } } : {}),
     })
     if (canAsk && isChanged) {
       words.push({ to: main, chat: lane.name, session: lane.appSession ?? null, level, model: id, usual: usualEffort, usualModel: usualId, step, changed: true,

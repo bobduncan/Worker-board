@@ -131,10 +131,10 @@ function whyClosedNow(message, ctx) {
       const step = items.get(message.forStep)
       // Review 2 (lens 2): and once its step is gone or no longer that worker's (reported, given back): never typed into its next step.
       const isHeld = step !== undefined && ['taken', 'in progress', 'waiting on you'].includes(value(step, 'State')) && plainName(value(step, 'Owner'), ctx.prefix ?? '') === plainName(message.about, ctx.prefix ?? '')
-      if (!isHeld) return { state: 'dropped', why: `${message.forStep} is no longer ${message.about}'s` }
+      if (!isHeld) return { state: 'dropped', moot: true, why: `${message.forStep} is no longer ${message.about}'s` }
       const wants = { effort: effortOf(step).level, family: modelOf(step).family }
       if (wants.effort !== message.effort || ((message.model ?? null) !== null && familyOf(message.model) !== wants.family)) {
-        return { state: 'dropped', why: `${message.forStep} no longer wants ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort}` }
+        return { state: 'dropped', moot: true, why: `${message.forStep} no longer wants ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort}` }
       }
     }
     const newer = all.find(one => one.id !== message.id && one.at > message.at && isStanding(one) && kindOf(one) === kindOf(message))
@@ -142,7 +142,8 @@ function whyClosedNow(message, ctx) {
     const lane = (ctx.lanes ?? []).find(one => one.name === message.about && !one.isLeftover)
     // B1160: the probe asks the chat's own setting on purpose (its hand's answer is the point): never met before a hand took it.
     // F5 verifier 1, 5: an effort the app's file does not show is not judged: the model alone counts then (as the hand-over pass's runsIt).
-    const effortMet = lane !== undefined && (lane.effort === message.effort || ((lane.effort ?? null) === null && (message.model ?? null) !== null))
+    // Check 2026-11-14 (chat 1, nit): a changed word is for its effort above all: an effort the app's file does not show is not met.
+    const effortMet = lane !== undefined && (lane.effort === message.effort || ((lane.effort ?? null) === null && (message.model ?? null) !== null && message.changed !== true))
     if (message.probe !== true && lane !== undefined && effortMet && ((message.model ?? null) === null || sameModel(lane.model, message.model))) {
       // B1051 (X153): the setting was met: a success, not a failure. `met` tells the hand-over pass so (it waits for this word).
       return { state: 'dropped', met: true, why: `${message.about} runs at ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort} already` }

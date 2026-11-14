@@ -111,13 +111,13 @@ test('a setting changed back before the 10 minutes: no word, no finding, and the
   const sent = [...CASE, waiting]
   const ctx = { all: sent, items: items(back), now: at(16, 16), keep: KEEP, lanes: [lane()] }
   const closed = whyClosed(waiting, ctx)
-  assert.deepEqual(closed, { state: 'dropped', why: 'B1196 no longer wants sonnet · high' })
+  assert.deepEqual(closed, { state: 'dropped', moot: true, why: 'B1196 no longer wants sonnet · high' })
   // While the step still wants high, the word stays.
   assert.equal(whyClosed(waiting, { ...ctx, items: items(b1196()) }), null)
   // After the sweep: set, no new word, no mismatch.
   const { words, runs } = plan(back, at(16, 16), [...CASE, { ...waiting, ...closed }])
   // Still a changed step (a word went for it), but set: nothing to ask.
-  assert.deepEqual([words, runs.get('Worker 5').isSet, runs.get('Worker 5').changed.fromWords], [[], true, 'sonnet · high'])
+  assert.deepEqual([words, runs.get('Worker 5').isSet, runs.get('Worker 5').changed.then], [[], true, 'sonnet · high'])
   assert.equal(switchOf({ ...lane(), effortRun: { step: 'B1196', ...runs.get('Worker 5') } }, back, view(at(16, 30))).mismatch, false)
 })
 
@@ -141,7 +141,7 @@ test('review 1 (both lenses): back to the hand-over\'s medium after Main set hig
   const back = item({ ...Object.fromEntries(b1196().head) }, { ...Object.fromEntries(b1196().sections), Effort: ['medium · the evaluation ended'], History: [...b1196().sections.get('History'), `- ${stamp(at(16, 40))} Partner: refined is ready`] })
   const { words, runs } = plan(back, at(16, 40, 30), [...CASE, high], { lane: { effort: 'high' } })
   assert.deepEqual(words.map(one => [one.level, one.changed, one.forModel]), [['medium', true, true]])
-  assert.match(words[0].why, /asked sonnet · high at 16:12, now sonnet · medium/)
+  assert.match(words[0].why, /asked sonnet · medium at 15:50, then sonnet · high at 16:12, now sonnet · medium/)
   assert.equal(runs.get('Worker 5').changed.at, at(16, 40))
   const found = switchOf({ ...lane({ effort: 'high' }), effortRun: { step: 'B1196', ...runs.get('Worker 5') } }, back, view(at(16, 45)))
   assert.deepEqual([found.mismatch, found.late, found.changedAt], [true, false, at(16, 40)])
@@ -178,6 +178,37 @@ test('review 2 (lens 2): a waiting changed word is dropped once its step is no l
   const waiting = { id: 'w2', at: at(16, 12, 30), ...effortWords(plan(b1196(), at(16, 12, 30)).words[0]), state: 'waiting' }
   const reported = item({ ...Object.fromEntries(b1196().head), State: 'review' }, Object.fromEntries(b1196().sections))
   const ctx = step => ({ all: [waiting], items: step === null ? new Map() : items(step), now: at(16, 20), keep: KEEP, lanes: [lane()] })
-  assert.deepEqual(whyClosed(waiting, ctx(reported)), { state: 'dropped', why: "B1196 is no longer Worker 5's" })
-  assert.deepEqual(whyClosed(waiting, ctx(null)), { state: 'dropped', why: "B1196 is no longer Worker 5's" })
+  assert.deepEqual(whyClosed(waiting, ctx(reported)), { state: 'dropped', moot: true, why: "B1196 is no longer Worker 5's" })
+  assert.deepEqual(whyClosed(waiting, ctx(null)), { state: 'dropped', moot: true, why: "B1196 is no longer Worker 5's" })
+})
+
+test('chat 1\'s check (both lenses): change, back, change again within the half hour: the dropped word counts for nothing, a word goes at once', () => {
+  const step = (effort, refines) => item({ ...Object.fromEntries(b1196().head) }, { ...Object.fromEntries(b1196().sections), Effort: [`${effort} · the goal guard`], History: [...b1196().sections.get('History').slice(0, 4), ...refines.map(one => `- ${stamp(one)} Partner: refined is ready`)] })
+  const high = step('high', [at(16, 12)])
+  const waiting = { id: 'w2', at: at(16, 12, 30), ...effortWords(plan(high, at(16, 12, 30)).words[0]), state: 'waiting' }
+  const back = step('medium', [at(16, 12), at(16, 15)])
+  const closed = whyClosed(waiting, { all: [...CASE, waiting], items: items(back), now: at(16, 15, 10), keep: KEEP, lanes: [lane()] })
+  const dropped = { ...waiting, ...closed }
+  assert.equal(dropped.moot, true)
+  const again = step('high', [at(16, 12), at(16, 15), at(16, 25)])
+  const { words, runs } = plan(again, at(16, 25, 30), [...CASE, dropped])
+  assert.deepEqual(words.map(one => [one.level, one.changed, one.forModel]), [['high', true, true]])
+  assert.deepEqual([runs.get('Worker 5').asked, runs.get('Worker 5').changed.at], [null, at(16, 25)])
+  const found = switchOf({ ...lane(), effortRun: { step: 'B1196', ...runs.get('Worker 5') } }, again, view(at(16, 25, 30)))
+  assert.deepEqual([found.state, found.late], ['none', false])
+})
+
+test('chat 1\'s check: a held step waiting on the person keeps its change: its word goes and the clock counts from the change', () => {
+  const waitingOnYou = item({ ...Object.fromEntries(b1196().head), State: 'waiting on you' }, Object.fromEntries(b1196().sections))
+  const { words, runs } = plan(waitingOnYou, at(16, 14))
+  assert.deepEqual(words.map(one => [one.level, one.changed]), [['high', true]])
+  const found = switchOf({ ...lane(), effortRun: { step: 'B1196', ...runs.get('Worker 5') } }, waitingOnYou, view(at(16, 14)))
+  assert.deepEqual([found.changedAt, found.late], [at(16, 12), false])
+})
+
+test('chat 1\'s check (nit): a changed word whose chat runs its model but whose effort the app\'s file does not show is not met', () => {
+  const word = { id: 'w4', at: at(17, 0), ...effortWords({ to: 'Lead', chat: 'Worker 5', session: 'local_88208666', level: 'high', model: OPUS, usual: 'medium', usualModel: SONNET, step: 'B1196', why: 'x', changed: true }), state: 'waiting' }
+  const opusStep = b1196({ model: 'opus' })
+  const ctx = { all: [word], items: items(opusStep), now: at(17, 1), keep: KEEP, lanes: [lane({ model: OPUS, effort: null })] }
+  assert.equal(whyClosed(word, ctx), null)
 })

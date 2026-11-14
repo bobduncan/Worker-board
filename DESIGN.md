@@ -5952,7 +5952,12 @@ and free workers sat idle. Never a way around the refusal (no permission or mode
   first word for the new setting since the setting before it (kept in the step words, so it stays put), else the step's newest
   refine line since then, else the setting before it's time; never now. A hand's refused changed word asks again at once, for
   Main's model. The outbox sweep drops a waiting `changed` word once its step wants another setting again, or is no longer that
-  worker's. The health summary says "after its setting changed HH:MM". Tests:
+  worker's (marked `moot`). A changed word that never set anything (moot, refused, expired or failed, not met: `isMootChanged`) is
+  no ask, no dedupe and no change's first word, so a change, a change back and a change again gets its word at once (chat 1's
+  check). A step waiting on the person keeps its change. "Its hand-over asked" names the hand-over's setting; an earlier change is
+  named apart ("then sonnet · high at 16:12"). A changed word is not met while the app's file shows no effort. The health summary
+  says "after its setting changed HH:MM". Steps handed before B1207 landed carry no `wants`: a change on one whose hand-over set
+  nothing stays unseen until its next hand-over. Tests:
   `test/work/effortChanged.test.mjs` (the real case's records), `handoverBoard.test.mjs` (`wants`).
 - Tests: `test/work/setRefused.test.mjs` and `setRefusedReview.test.mjs` (the refusal's real words; B1160 sent again without a take-back; no set word while refused; an
   old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off

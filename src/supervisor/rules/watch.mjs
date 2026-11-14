@@ -1076,6 +1076,7 @@ export function switchOf(lane, item, view) {
     runs: `${family ?? 'a model not known'} · ${effort ?? 'effort not known'}`, wants: `${want.family} · ${want.level}`, mismatch, state,
     askedAt: own?.asked?.at ?? null, askState: own?.asked?.state ?? null, takenAt, since, late,
     changedAt: changed === null || !Number.isFinite(began) ? null : began, handedAs: changed?.fromWords ?? null,
+    thenAs: changed?.then ?? null, thenAt: changed?.thenAt ?? null,
   }
 }
 
@@ -1095,7 +1096,7 @@ function effortMismatch(view) {
       // Signals change 6 (Addendum 2; X110 'effort-mismatch Worker 4 B810'): the key is the rule and the chat only; the step is in the text.
       rule: 'effort-mismatch', key: `effort-mismatch ${lane.name}`, subject: lane.name,
       text: at.changedAt === null ? `${lane.name} runs ${at.runs} ${minutes(at.since)} min after it took ${id}, which wants ${at.wants}`
-        : `${lane.name} runs ${at.runs} ${minutes(at.since)} min after ${id} changed to ${at.wants} at ${clockOf(at.changedAt)} (its hand-over asked ${at.handedAs ?? 'another setting'})`,
+        : `${lane.name} runs ${at.runs} ${minutes(at.since)} min after ${id} changed to ${at.wants} at ${clockOf(at.changedAt)} (its hand-over asked ${at.handedAs ?? 'another setting'}${at.thenAs === null ? '' : `, then ${at.thenAs} at ${clockOf(at.thenAt)}`})`,
       evidence: `took ${id} at ${clockOf(at.takenAt)}${at.changedAt === null ? '' : `; its setting changed at ${clockOf(at.changedAt)}`}; ${at.state === 'asked' ? `switch asked ${clockOf(at.askedAt)} (${at.askState ?? 'not known'}), not read back` : 'no switch asked'}; the app's file says ${at.runs}`,
     })
   }
