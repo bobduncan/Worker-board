@@ -887,7 +887,8 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
       ...(Number.isFinite(reported.entry.run) ? { run: reported.entry.run } : {}),
       ...(reported.entry.word === undefined ? {} : { word: reported.entry.word }), ...(Number.isFinite(reported.entry.turn) ? { turn: reported.entry.turn } : {}), ...(Number.isFinite(reported.entry.busyAt) ? { busyAt: reported.entry.busyAt } : {}),
       // F26: the work spell (bridge.mjs `spellOf`) and the chat's rest, for the timers' reading of a holder's busy spell.
-      ...(Number.isFinite(reported.entry.workFrom) ? { workFrom: reported.entry.workFrom } : {}), ...(Number.isFinite(reported.entry.longEndAt) ? { longEndAt: reported.entry.longEndAt } : {}), ...(Number.isFinite(reported.entry.restAt) ? { restAt: reported.entry.restAt } : {}) },
+      ...(Number.isFinite(reported.entry.workFrom) ? { workFrom: reported.entry.workFrom } : {}), ...(Number.isFinite(reported.entry.longEndAt) ? { longEndAt: reported.entry.longEndAt } : {}), ...(Number.isFinite(reported.entry.restAt) ? { restAt: reported.entry.restAt } : {}),
+      ...(Number.isFinite(reported.entry.heardAt) ? { heardAt: reported.entry.heardAt } : {}) },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
     offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
       : reported.why === 'silent' ? `silent since ${sinceClock(reported.entry.at, now)}`
@@ -1971,7 +1972,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     // since (the app started after that report, B315's fact) keeps the report as it was: it is asleep (`laneFromReport`).
     const isOld = saved !== null && Number.isFinite(board?.startedAt) && saved.at < board.startedAt
     const isAppAfter = saved !== null && Number.isFinite(raw.appStartedAt) && raw.appStartedAt > saved.at
-    const entry = isOld && !isAppAfter ? { ...saved, at: board.startedAt } : saved
+    // F26b: the time it was really heard rides along (`heardAt`): the timers count no work the board did not hear (holderTimers.mjs).
+    const entry = isOld && !isAppAfter ? { ...saved, at: board.startedAt, heardAt: saved.at } : saved
     // Gap 1: no report from this session while its card says a mod that reports: unknown, then off, never guessed.
     if (entry === null || entry.session !== chat.cliSessionId) {
       const silent = !(reports instanceof Map) ? null : laneWithoutReport({

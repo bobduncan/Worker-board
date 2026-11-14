@@ -8228,3 +8228,12 @@ work between never count. Chat 1's design, built by chat 3 on top of chat 4's br
   ended turn's own end), test/work/holderTimersB1151.test.mjs (chat 4's, the minute's rest added), test/work/holderTimers.test.mjs (the
   cap test: unknown over busy gives nothing back; resolved, it does). Code mutants run on the way: without `mayGiveBack` three tests fail;
   with `longEndAt` ignored the two timeline tests fail.
+- **F26b** (chat 1's re-check, `.claude/plans/2026-11-14-f26-recheck.md`): an asking report is work too (the unknown gate holds it, its
+  spell counts); the spell begins at the report's own since when that is before the receipt; a rest shorter than REST_MIN_MS does not end
+  the spell (the start rides on the resting entry; the next work goes on from it, so B1151's hand-back turns after rests of seconds make
+  one spell 10:16:40-13:03:18 and the step is held until 13:18:18); a spell closed at a rest is not closed again by a later `ended`; the
+  chat's last rest rides into its `ended` entry, so the ended branch measures a turn to its own end; without `workFrom` the EARLIEST start
+  after the go-on counts (the stretch is continuous); and a kept report whose `at` moved to the board's start after a restart carries
+  `heardAt` (state.mjs), the time it was really heard: the work-going-on reading ends there, so a board restart is no proof of work and
+  a dead holder goes back 15 minutes after its last real report whatever the landings. Mutants: asking excluded, the short rest ending
+  the spell, heardAt ignored, the latest start again: each fails its test.

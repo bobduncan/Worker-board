@@ -27,7 +27,7 @@ test('the board keeps word and turn with the report, through a take as through a
   const reports = new Map()
   const body = (state, seq, more = {}) => ({ chat: 'Units', session: 's-units', mod: '0.30.0', report: { state, since: 300, run: 7, seq, ...more } })
   assert.deepEqual(answerReport(reports, body('busy', 1, { word: 'w1', turn: 290 }), checkTake(body('busy', 1), board), 500), { ok: true, result: { ok: true } })
-  assert.deepEqual(reports.get('Units'), { state: 'busy', since: 300, background: false, run: 7, seq: 1, word: 'w1', turn: 290, at: 500, session: 's-units', mod: '0.30.0', busyAt: 500, workFrom: 500 })
+  assert.deepEqual(reports.get('Units'), { state: 'busy', since: 300, background: false, run: 7, seq: 1, word: 'w1', turn: 290, at: 500, session: 's-units', mod: '0.30.0', busyAt: 500, workFrom: 300 })
   const note = (one, now) => noteReport(reports, one, checkTake(one, board), now)
   note(body('idle', 2, { word: 'w1', turn: 290 }), 600)
   assert.deepEqual([reports.get('Units').state, reports.get('Units').word, reports.get('Units').turn, reports.get('Units').busyAt], ['idle', 'w1', 290, 500])

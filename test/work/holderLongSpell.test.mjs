@@ -40,7 +40,7 @@ const said = (state, since, more = {}) => ({ chat: 'Worker 2', session: 's-w2', 
 /** The lane as state.mjs hands it to the timers: the kept entry's fields, the lane state given. */
 const laneOf = (entry, state = 'interrupted') => ({
   name: 'Worker 2', isMain: false, isLeftover: false, isRunning: state !== 'off', state, turnAt: null,
-  report: { state: entry.state, since: entry.since, background: entry.background, at: entry.at, ...pick(entry, ['turn', 'busyAt', 'workFrom', 'longEndAt', 'restAt']) },
+  report: { state: entry.state, since: entry.since, background: entry.background, at: entry.at, ...pick(entry, ['turn', 'busyAt', 'workFrom', 'longEndAt', 'restAt', 'heardAt']) },
 })
 const pick = (entry, keys) => Object.fromEntries(keys.filter(key => Number.isFinite(entry[key])).map(key => [key, entry[key]]))
 const decideAt = (now, worker) => holderTimers({ worker, holding: B1151, items: new Map([['B1151', B1151]]), envelopes, runningMs: from => now - from })
@@ -63,34 +63,47 @@ function worker2Day(reports = new Map()) {
 test('the work spell: leaving rest starts it, background time belongs to it, coming to rest after over 2 minutes leaves longEndAt; a short spell leaves the earlier end', () => {
   const reports = worker2Day()
   const kept = reports.get('Worker 2')
-  // One spell from the typed turn of 10:16:40 to the rest of 13:00:50: long.
-  assert.deepEqual([kept.state, kept.background, kept.workFrom, kept.longEndAt, kept.restAt], ['idle', false, undefined, t(13, 0, 50), t(13, 0, 52)])
-  // The hand-back turns of 13:00:57 (1:42) and 13:02:43 (35 s): short spells, the long end stays.
+  // One spell from the typed turn of 10:16:40 (the busy report's own since, F26b) to the rest of 13:00:50: long. The start rides on the
+  // resting entry (a short rest may go on with it).
+  assert.deepEqual([kept.state, kept.background, kept.workFrom, kept.longEndAt, kept.restAt], ['idle', false, t(10, 16, 40), t(13, 0, 50), t(13, 0, 52)])
+  // The hand-back turns of 13:00:57 (1:42) and 13:02:43 (35 s) come after rests of seconds: shorter than REST_MIN_MS, so the spell goes
+  // on from 10:16:40 (F26b (c)), and each rest moves the long end.
   const note = (body, now) => noteReport(reports, body, checked, now)
   note(said('busy', t(13, 0, 57), { turn: t(13, 0, 57) }), t(13, 0, 58))
-  assert.deepEqual([reports.get('Worker 2').workFrom, reports.get('Worker 2').longEndAt], [t(13, 0, 58), t(13, 0, 50)])
+  assert.deepEqual([reports.get('Worker 2').workFrom, reports.get('Worker 2').longEndAt], [t(10, 16, 40), t(13, 0, 50)])
   note(said('idle', t(13, 2, 39), { background: false }), t(13, 2, 40))
+  assert.equal(reports.get('Worker 2').longEndAt, t(13, 2, 39))
   note(said('busy', t(13, 2, 43), { turn: t(13, 2, 43) }), t(13, 2, 44))
   note(said('idle', t(13, 3, 18), { background: false }), t(13, 3, 19))
-  assert.deepEqual([reports.get('Worker 2').workFrom, reports.get('Worker 2').longEndAt], [undefined, t(13, 0, 50)])
+  assert.deepEqual([reports.get('Worker 2').workFrom, reports.get('Worker 2').longEndAt], [t(10, 16, 40), t(13, 3, 18)])
+  // A rest of a full minute ends the spell: the next turn begins a new one at its own since; a short one (40 s) after that leaves nothing long.
+  note(said('busy', t(13, 5, 0), { turn: t(13, 5, 0) }), t(13, 5, 1))
+  assert.deepEqual([reports.get('Worker 2').workFrom, reports.get('Worker 2').longEndAt], [t(13, 5, 0), t(13, 3, 18)])
+  note(said('idle', t(13, 5, 40), { background: false }), t(13, 5, 41))
+  assert.equal(reports.get('Worker 2').longEndAt, t(13, 3, 18))
   // An asking report in a spell carries it; a session's end closes it (a long one leaves its end).
   const asking = new Map()
   const ask = (body, now) => noteReport(asking, body, checked, now)
   ask(said('busy', t(14, 0), { turn: t(14, 0) }), t(14, 0, 1))
   ask(said('asking', t(14, 1)), t(14, 1, 1))
-  assert.equal(asking.get('Worker 2').workFrom, t(14, 0, 1))
+  assert.equal(asking.get('Worker 2').workFrom, t(14, 0))
+  // An asking report from rest begins a spell too (F26b (a)).
+  const asks = new Map()
+  noteReport(asks, said('idle', t(14, 0), { background: false }), checked, t(14, 0, 1))
+  noteReport(asks, said('asking', t(14, 2)), checked, t(14, 2, 1))
+  assert.equal(asks.get('Worker 2').workFrom, t(14, 2))
   ask(said('ended', t(14, 5)), t(14, 5, 1))
-  assert.equal(asking.get('Worker 2').longEndAt, t(14, 5))
+  assert.deepEqual([asking.get('Worker 2').longEndAt, 'workFrom' in asking.get('Worker 2')], [t(14, 5), false])
   // Another session starts afresh.
   ask({ ...said('busy', t(14, 10), { turn: t(14, 10) }), session: 's-new' }, t(14, 10, 1))
-  assert.deepEqual([asking.get('Worker 2').workFrom, asking.get('Worker 2').longEndAt], [t(14, 10, 1), undefined])
+  assert.deepEqual([asking.get('Worker 2').workFrom, asking.get('Worker 2').longEndAt], [t(14, 10), undefined])
   assert.equal(LONG_BUSY_MS, 2 * MIN)
 })
 
 test('data/reports.json keeps workFrom and longEndAt (never one from the future)', () => {
   const entry = { ...worker2Day().get('Worker 2') }
   const saved = savedEntry(entry, t(13, 1))
-  assert.deepEqual([saved.longEndAt, saved.restAt, 'workFrom' in saved], [t(13, 0, 50), t(13, 0, 52), false])
+  assert.deepEqual([saved.longEndAt, saved.restAt, saved.workFrom], [t(13, 0, 50), t(13, 0, 52), t(10, 16, 40)])
   const busy = savedEntry({ ...entry, state: 'busy', workFrom: t(12, 54, 44) }, t(13, 1))
   assert.equal(busy.workFrom, t(12, 54, 44))
   assert.equal('longEndAt' in savedEntry({ ...entry, longEndAt: t(13, 2) }, t(13, 1)), false, 'a future end is dropped')
@@ -110,8 +123,9 @@ test('the real case, the whole day: B1151 is not given back at 13:00, nor after 
   const rested = reports.get('Worker 2')
   assert.equal(decideAt(t(13, 3, 20), laneOf({ ...rested, at: t(13, 3, 20) })).giveBack, null)
   assert.equal(decideAt(t(13, 10), laneOf({ ...rested, at: t(13, 10) })).giveBack, null)
-  assert.equal(decideAt(t(13, 15, 49), laneOf({ ...rested, at: t(13, 15, 49) })).giveBack, null)
-  assert.deepEqual(decideAt(t(13, 15, 51), laneOf({ ...rested, at: t(13, 15, 51) })).giveBack, { step: 'B1151', chat: 'Worker 2', askedAt: t(10, 16, 5) })
+  // The rests of seconds did not end the spell (F26b (c)): it ran from 10:16:40 to 13:03:18, so the 15 minutes count from there.
+  assert.equal(decideAt(t(13, 18, 17), laneOf({ ...rested, at: t(13, 18, 17) })).giveBack, null)
+  assert.deepEqual(decideAt(t(13, 18, 19), laneOf({ ...rested, at: t(13, 18, 19) })).giveBack, { step: 'B1151', chat: 'Worker 2', askedAt: t(10, 16, 5) })
   // The mutant: chat 4's reading alone (no longEndAt): the short last turn gives it back at 13:04:20.
   const { longEndAt: _gone, ...mutant } = rested
   assert.notEqual(decideAt(t(13, 4, 20), laneOf({ ...mutant, at: t(13, 4, 20) })).giveBack, null, 'without longEndAt the short last turn gives the step back')
@@ -168,4 +182,54 @@ test('a give-back needs the holder stopped for a minute since its report said so
   note(said('busy', t(10, 20), { turn: t(10, 20) }), t(10, 20, 1))
   note(said('ended', t(10, 30)), t(10, 30, 1))
   assert.equal(reports.get('Worker 2').longEndAt, t(10, 30))
+})
+
+test('F26b: an asking report is work: the unknown gate holds it, and its spell counts; without workFrom the EARLIEST start after the go-on counts (the stretch is continuous)', () => {
+  const asking = { state: 'asking', since: t(12, 50), background: false, at: t(13, 0, 20), turn: t(12, 50), busyAt: t(12, 50), workFrom: t(12, 50) }
+  assert.equal(decideAt(t(13, 6), laneOf(asking, 'unknown')).giveBack, null, 'unknown over asking: nothing back')
+  // Resolved to interrupted at 13:06: the asking spell 12:50-13:00:20 (10 min) is long: the 15 minutes count from 13:00:20.
+  assert.equal(decideAt(t(13, 15, 10), laneOf(asking)).giveBack, null)
+  assert.notEqual(decideAt(t(13, 15, 30), laneOf(asking)).giveBack, null)
+  // No workFrom (a report from before F26): a busy report since 12:50 whose turn moved to 12:59:30 is one stretch from 12:50 (the review's
+  // finding 2), not a 50-second one.
+  const chained = { state: 'busy', since: t(12, 50), background: false, at: t(13, 0, 20), turn: t(12, 59, 30), busyAt: t(12, 50) }
+  assert.equal(decideAt(t(13, 6), laneOf(chained)).giveBack, null)
+  assert.equal(decideAt(t(13, 15, 10), laneOf(chained)).giveBack, null)
+  assert.notEqual(decideAt(t(13, 15, 30), laneOf(chained)).giveBack, null)
+})
+
+test('F26b: an ended report measures the last turn to the chat\'s last rest, which rides into the ended entry', () => {
+  const reports = new Map()
+  const note = (body, now) => noteReport(reports, body, checked, now)
+  note(said('busy', t(10, 20), { turn: t(10, 20) }), t(10, 20, 1))
+  note(said('idle', t(10, 20, 30), { background: false }), t(10, 20, 31))
+  note(said('ended', t(10, 30)), t(10, 30, 1))
+  const ended = reports.get('Worker 2')
+  assert.deepEqual([ended.state, ended.restAt, ended.longEndAt], ['ended', t(10, 20, 31), undefined])
+  // The turn of 10:20 is 31 s, not 10 minutes: back at 10:31:10 (the review's finding 5), with restAt carried; without it (the mutant,
+  // the old entry shape) the ended report has no end for the turn and nothing is counted either: back as well.
+  assert.notEqual(decideAt(t(10, 31, 10), laneOf({ ...ended, busyAt: t(10, 20) })).giveBack, null)
+  // A long turn that ended before the session did: its spell holds the step from its own end.
+  const long = new Map()
+  const say = (body, now) => noteReport(long, body, checked, now)
+  say(said('busy', t(10, 20), { turn: t(10, 20) }), t(10, 20, 1))
+  say(said('idle', t(10, 25), { background: false }), t(10, 25, 1))
+  say(said('ended', t(10, 38)), t(10, 38, 1))
+  const entry = { ...long.get('Worker 2'), busyAt: t(10, 20) }
+  assert.equal(decideAt(t(10, 39, 50), laneOf(entry)).giveBack, null, 'held until 10:40:01 (15 min after 10:25:01)')
+  assert.notEqual(decideAt(t(10, 40, 10), laneOf(entry)).giveBack, null)
+  const { restAt: _gone, longEndAt: _gone2, ...mutant } = entry
+  assert.notEqual(decideAt(t(10, 39, 50), laneOf(mutant)).giveBack, null, 'without restAt and the long end the turn counts for nothing')
+})
+
+test('F26b: a board restart is no proof of work: a kept report whose `at` moved to the board\'s start keeps its real `heardAt`, and the spell ends there', () => {
+  // The holder's last report: idle with background, workFrom 10:20, really heard 10:30; then its process is gone without an ended report.
+  // The board restarts at 10:44 and 10:58 (two landings): without the fix each restart made a fresh long spell ending at the restart.
+  const dead = { state: 'idle', since: t(10, 20), background: true, turn: t(10, 20), busyAt: t(10, 20), workFrom: t(10, 20) }
+  const restarted = at => laneOf({ ...dead, at, heardAt: t(10, 30) })
+  assert.equal(decideAt(t(10, 44, 50), restarted(t(10, 44))).giveBack, null)
+  assert.notEqual(decideAt(t(10, 45, 10), restarted(t(10, 44))).giveBack, null, 'back 15 min after the last real report, whatever the restart')
+  assert.notEqual(decideAt(t(10, 58, 30), restarted(t(10, 58))).giveBack, null)
+  // The mutant: `at` alone (no heardAt): the restart counts as work and the step is held again.
+  assert.equal(decideAt(t(10, 58, 30), laneOf({ ...dead, at: t(10, 58) })).giveBack, null)
 })

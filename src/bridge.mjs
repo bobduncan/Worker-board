@@ -6,7 +6,7 @@
 
 import { parseReport } from './chatReport.mjs'
 import { pictureLine } from './talkPicture.mjs'
-import { LONG_BUSY_MS } from './work/holderTimers.mjs'
+import { LONG_BUSY_MS, REST_MIN_MS } from './work/holderTimers.mjs'
 
 const refuse = (status, why) => ({ ok: false, status, why })
 
@@ -107,7 +107,9 @@ function restOf(report, kept, now) {
   const idle = named ?? (kept?.lastIdle !== undefined && kept.lastIdle !== null ? kept.lastIdle : null)
   const isRest = report.state === 'idle' && report.background !== true
   const wasRest = kept !== undefined && kept.state === 'idle' && kept.background !== true && Number.isFinite(kept.restAt)
-  return { ...(idle === null ? {} : { lastIdle: idle }), ...(isRest ? { restAt: wasRest ? kept.restAt : now } : {}), ...spellOf(report, kept, now) }
+  // F26b: the chat's last rest rides into its `ended` entry, so a turn that ended before the session did measures to its own end.
+  const restAt = isRest ? (wasRest ? kept.restAt : now) : report.state === 'ended' && Number.isFinite(kept?.restAt) ? kept.restAt : null
+  return { ...(idle === null ? {} : { lastIdle: idle }), ...(restAt === null ? {} : { restAt }), ...spellOf(report, kept, now) }
 }
 
 /**
@@ -119,15 +121,24 @@ function restOf(report, kept, now) {
  * never wipes a long one (chat 1's review of chat 4's fix, findings 1, 2 and 4). The timers read it (holderTimers.mjs busySpellAfter).
  */
 function spellOf(report, kept, now) {
-  const isWorking = report.state === 'busy' || (report.state === 'idle' && report.background === true)
+  // F26b (chat 1's re-check): an asking report is work too (the chat waits in its turn); the spell begins at the report's own since (the
+  // turn's start, for a busy one) when that is earlier than the receipt; a rest shorter than REST_MIN_MS does not end the spell: the
+  // earlier workFrom stays (it rides on the resting entry for that).
+  const isWorking = ['busy', 'asking'].includes(report.state) || (report.state === 'idle' && report.background === true)
   const keptFrom = kept !== undefined && Number.isFinite(kept.workFrom) ? kept.workFrom : null
   const keptLong = kept !== undefined && Number.isFinite(kept.longEndAt) ? kept.longEndAt : null
-  if (isWorking) return { workFrom: keptFrom ?? now, ...(keptLong === null ? {} : { longEndAt: keptLong }) }
-  if (report.state === 'asking') return { ...(keptFrom === null ? {} : { workFrom: keptFrom }), ...(keptLong === null ? {} : { longEndAt: keptLong }) }
-  // Rest, or the session's end: the spell is over.
+  const wasRest = kept !== undefined && kept.state === 'idle' && kept.background !== true
+  if (isWorking) {
+    const shortRest = wasRest && keptFrom !== null && Number.isFinite(kept.restAt) && now - kept.restAt < REST_MIN_MS
+    const begun = Math.min(now, Number.isFinite(report.since) ? report.since : now)
+    const workFrom = keptFrom !== null && (!wasRest || shortRest) ? keptFrom : begun
+    return { workFrom, ...(keptLong === null ? {} : { longEndAt: keptLong }) }
+  }
+  // Rest, or the session's end: the spell is over (a rest may still turn out short).
   const end = Number.isFinite(report.since) ? Math.min(report.since, now) : now
-  const longEndAt = keptFrom !== null && end - keptFrom > LONG_BUSY_MS ? end : keptLong
-  return longEndAt === null ? {} : { longEndAt }
+  // A spell that closed at an earlier rest is not closed again here (an ended session after a rest measures nothing new).
+  const longEndAt = keptFrom !== null && !wasRest && end - keptFrom > LONG_BUSY_MS ? end : keptLong
+  return { ...(keptFrom === null || report.state === 'ended' ? {} : { workFrom: keptFrom }), ...(longEndAt === null ? {} : { longEndAt }) }
 }
 
 /** B986: the app's id of the chat the board shows under `checked.chat` (its lane's `appSession`), or null. */

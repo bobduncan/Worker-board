@@ -164,8 +164,8 @@ test('a report call keeps the chat\'s state by the name the board shows, with th
   const reports = new Map()
   const body = { chat: 'Units', session: 's-units', report: { state: 'busy', since: 100 }, mod: '0.19.0' }
   assert.deepEqual(answerReport(reports, body, checkTake(body, board), 500), { ok: true, result: { ok: true } })
-  // F26: a busy report leaves rest: the work spell begins at the board's receipt (`workFrom`).
-  assert.deepEqual(reports.get('Units'), { state: 'busy', since: 100, background: false, run: null, seq: null, at: 500, session: 's-units', mod: '0.19.0', busyAt: 500, workFrom: 500 })
+  // F26: a busy report leaves rest: the work spell begins at the report's own since (the turn's start; F26b), the receipt when that is later.
+  assert.deepEqual(reports.get('Units'), { state: 'busy', since: 100, background: false, run: null, seq: null, at: 500, session: 's-units', mod: '0.19.0', busyAt: 500, workFrom: 100 })
 })
 
 test('a take that carries a report keeps it the same way', () => {
@@ -173,7 +173,7 @@ test('a take that carries a report keeps it the same way', () => {
   const body = { chat: 'Units', session: 's-units', report: { state: 'idle', since: 300, background: true } }
   assert.equal(noteReport(reports, body, checkTake(body, board), 700), true)
   // F26: idle with background work is no rest either: the work spell begins here too.
-  assert.deepEqual(reports.get('Units'), { state: 'idle', since: 300, background: true, run: null, seq: null, at: 700, session: 's-units', mod: null, busyAt: null, workFrom: 700 })
+  assert.deepEqual(reports.get('Units'), { state: 'idle', since: 300, background: true, run: null, seq: null, at: 700, session: 's-units', mod: null, busyAt: null, workFrom: 300 })
   // A take without a report, or with one that is no report, keeps what was there and is not refused for it.
   assert.equal(noteReport(reports, { chat: 'Units', session: 's-units' }, checkTake({ chat: 'Units', session: 's-units' }, board), 800), false)
   assert.equal(noteReport(reports, { chat: 'Units', session: 's-units', report: { state: 'nap' } }, { ok: true, chat: 'Units' }, 800), false)

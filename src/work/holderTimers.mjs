@@ -192,10 +192,13 @@ function busySpellAfter(worker, at) {
     const end = report?.state === 'idle' && finite(report.since) ? report.since : report?.state === 'ended' && finite(report.restAt) ? report.restAt : null
     if (end !== null && end >= turnAt) spells.push({ ms: end - turnAt, end })
   }
-  const isWorking = report?.state === 'busy' || (report?.state === 'idle' && report.background === true)
-  if (isWorking && finite(report.at)) {
-    const from = finite(report.workFrom) ? Math.max(report.workFrom, at) : Math.max(-Infinity, ...[report.since, report.turn, report.busyAt].filter(start => finite(start) && start > at))
-    if (finite(from) && report.at >= from) spells.push({ ms: report.at - from, end: report.at })
+  // F26b: an asking report is work too; without `workFrom` the EARLIEST start after `at` (the stretch is continuous); the end is when the
+  // report was really heard (`heardAt`: a kept report's `at` moved to the board's start after a restart is no proof of work).
+  const isWorking = ['busy', 'asking'].includes(report?.state) || (report?.state === 'idle' && report.background === true)
+  const heardAt = finite(report?.heardAt) ? report.heardAt : report?.at
+  if (isWorking && finite(heardAt)) {
+    const from = finite(report.workFrom) ? Math.max(report.workFrom, at) : Math.min(Infinity, ...[report.since, report.turn, report.busyAt].filter(start => finite(start) && start > at))
+    if (finite(from) && heardAt >= from) spells.push({ ms: heardAt - from, end: heardAt })
   }
   if (finite(report?.longEndAt) && report.longEndAt > at) spells.push({ ms: LONG_BUSY_MS + 1, end: report.longEndAt })
   if (spells.length === 0) return null
@@ -268,7 +271,7 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   // F26 (chat 1's review, finding 3): a report gap (lane unknown) over a chat that was busy or had background work: it may well still
   // work; nothing is given back until the lane resolves (interrupted, asleep or off, at most offAfterMinutes). And a give-back needs
   // the holder stopped for REST_MIN_MS since its report said so (finding 1: the seconds between a turn's end and a hand-back turn).
-  const isWorkingReport = report?.state === 'busy' || (report?.state === 'idle' && report.background === true)
+  const isWorkingReport = ['busy', 'asking'].includes(report?.state) || (report?.state === 'idle' && report.background === true)
   const mayGiveBack = !(worker.state === 'unknown' && isWorkingReport) && (!finite(stoppedAt) || runningMs(afterPause(pause, stoppedAt)) >= REST_MIN_MS)
 
   const mine = envelopes.filter(one => one?.kind === RESUME_KIND && markerStep(one.resume) === id && finite(one.at))
