@@ -12,6 +12,7 @@
 // holds the supervisor's own watch: `seen` (since when it first saw what only counts once it lasts) and `observed`
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
+import { linkGoneNames, wordLanesOf } from '../../modGone.mjs'
 import { RETIRED_WATCH_RULES } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
@@ -478,8 +479,8 @@ export function undeliveredWords(view) {
 export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   // The person pauses: the bridge holds every word until Resume all.
   if (judged === null) return false
-  const { stillWaits, waking } = judged
-  if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to))) return false
+  const { stillWaits, waking, gone = new Set() } = judged
+  if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to) && !gone.has(message.to))) return false
   // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
   // hold before its release (B285).
   const held = message.at + heldMs(message, view.now, view.pause)
@@ -510,7 +511,9 @@ export function undeliveredJudged(view) {
   // Signals change 4 (decision 7): a word whose chat is in a pending or failed wake is not undelivered: it waits for the wake
   // (the rules wake-failed and nobody-answers-wakes name a wake that failed).
   const waking = new Set(wakeLanesOf(view).filter(lane => ['waiting-sender', 'on-its-way', 'sent', 'launched', 'failed'].includes(lane.wake?.state)).map(lane => lane.name))
-  return { limit, stillWaits, waking }
+  // F23: a word for a chat whose board link is gone waits for its restart (src/modGone.mjs): no undelivered word.
+  const gone = linkGoneNames(wordLanesOf(view))
+  return { limit, stillWaits, waking, gone }
 }
 
 /** A History line's stamp. */

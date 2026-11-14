@@ -20,6 +20,7 @@ import { SWEEP_AT_LEAST_HOURS, SWEEP_MOD, sweepRunner, tokensOfTurn } from './sw
 
 import { judgeWords, sweepWords } from '../say.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
+import { linkGoneNames, wordLanesOf } from '../modGone.mjs'
 import { isLate } from '../store.mjs'
 import { isHolding } from '../work/pause.mjs'
 import { JUDGE, arrivedAt, awaitingJudgment, judgeInFlight, judgeWordOf } from '../work/judgeWord.mjs'
@@ -499,6 +500,9 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings, judging }
       if (card === null) return false
       if (card.state === 'working' || card.state === 'waiting') return true
       const now = ports.now()
+      // F23: its chat's board link is gone: the sweep word already waiting is held for its restart; no second word beside it.
+      const gone = linkGoneNames(wordLanesOf(await ports.state()))
+      if (gone.has(card.name) && ports.outbox().some(message => message.to === card.name && message.command === 'sweep' && message.state === 'waiting')) return true
       return ports.outbox().some(message => message.to === card.name && message.command === 'sweep'
         && ((message.state === 'waiting' && !isLate(message, now, keep)) || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_MS)))
     },

@@ -112,6 +112,7 @@ import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
+import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
@@ -2261,7 +2262,10 @@ async function main(args) {
   /** Everything that was sent, with what waited too long marked so. */
   const sentNow = () => {
     const now = clock()
-    return store.outbox().map(message => (message.state === 'waiting' && isLate(message, now, keep) ? { ...message, state: 'expired' } : message))
+    // F23: a word held for a chat whose board link is gone is no expired word: it waits for the restart (src/modGone.mjs), so the round
+    // and refine words are not written again beside it.
+    const gone = linkGoneNames(wordLanesOf(readState.last() ?? {}))
+    return store.outbox().map(message => (message.state === 'waiting' && isLate(message, now, keep) && !isHeldForLink(message, gone) ? { ...message, state: 'expired' } : message))
   }
   /** The Design tab's calls, one after the other. */
   const designTurn = inTurn()

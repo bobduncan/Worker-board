@@ -55,3 +55,17 @@ export function modGoneOf({ unloadedAt, report = null, appStartedAt = null, now 
 
 /** The way out, beside its Link gone pill (the pill names the cause; its "No ask filed" card says it in a sentence of its own). */
 export const MOD_GONE_WHY = 'restart this chat: archive it, then unarchive it'
+
+/**
+ * F23 (chat 1, 2026-11-14): the chats whose board link is gone (`modGone`), by name, among the lanes given (the board's chats, the partner,
+ * its helper, the supervisor's chat, the Product owner). A word waiting for one of them is held quietly for its restart: it never expires,
+ * rule 8 never names it undelivered, and its chat takes it at its first take once the link is back. The one home of the link-gone rule.
+ */
+export const linkGoneNames = lanes => new Set((lanes ?? []).filter(lane => lane !== null && lane !== undefined && lane.isLeftover !== true
+  && typeof lane.name === 'string' && (lane.modGone ?? null) !== null).map(lane => lane.name))
+
+/** The board's lanes of a state (or a supervisor view) that a word may be addressed to. */
+export const wordLanesOf = state => [...(state?.chats ?? state?.lanes ?? []), state?.advisor ?? state?.partner, state?.advisorHelper ?? state?.helper, state?.supervisorChat ?? state?.supervisor, state?.productOwner ?? state?.owner]
+
+/** Whether a word waits for a chat whose board link is gone: held for its restart (`gone` from `linkGoneNames`). */
+export const isHeldForLink = (message, gone) => message?.state === 'waiting' && typeof message.to === 'string' && gone instanceof Set && gone.has(message.to)

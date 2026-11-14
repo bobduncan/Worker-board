@@ -11,6 +11,7 @@ import { shownChats } from '../bridge.mjs'
 import { heldTooLong, isHandTaken, isMootSpawn, isTaskStopWord, mootWhy, stopSettleWhy } from '../hands.mjs'
 import { RESUME_STEP, isLimitStopWord, waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
+import { isHeldForLink, linkGoneNames, wordLanesOf } from '../modGone.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { familyOf, sameModel } from './effort.mjs'
 import { stamp } from './migrate.mjs'
@@ -44,6 +45,12 @@ const isStanding = message => ['waiting', 'taken', 'delivered', 'copied'].includ
  * `onBoard` (B880: the names of the chats on the board now, the partner, helper, supervisor and Product owner among them).
  */
 export function whyClosed(message, ctx) {
+  const closed = whyClosedNow(message, ctx)
+  // F23: a word waiting for a chat whose board link is gone is held for its restart: it never expires (src/modGone.mjs).
+  return closed?.state === 'expired' && isHeldForLink(message, ctx.gone) ? null : closed
+}
+
+function whyClosedNow(message, ctx) {
   // A person's answer waits for its chat, also one that is off on purpose.
   if ((message.ask ?? null) !== null) return null
   const { all, items, now, keep } = ctx
@@ -350,7 +357,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const off = new Set(shownChats(state ?? {}).filter(chat => chat.isRunning === false).map(chat => chat.name))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)) }
+  const ctx = { gone: linkGoneNames(wordLanesOf(state)), all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)) }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
