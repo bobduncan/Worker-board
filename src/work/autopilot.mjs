@@ -47,6 +47,7 @@ import { isHoldLine } from './askHold.mjs'
 import { chainWaitOf, checkedOf, fixRootsOf, fixesOf } from './resultCheck.mjs'
 import { HANDED_KEPT_WORDS, HANDED_ON_WHO, KEPT_LOOK_WORDS, handedOnKeptWords, isKeptLook } from './keptLook.mjs'
 import { LANDING_ROUTE_WHY, landingAskOfItem } from './landingAsk.mjs'
+import { DROP_ROUTE_WHY, dropAskOfItem } from './dropAsk.mjs'
 import { standardOf } from './standard.mjs'
 
 // A look the partner handed over, or a worker's look with pictures or a Play link, that Autopilot keeps for the recap (src/work/keptLook.mjs): its
@@ -826,6 +827,10 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   // never Autopilot's to answer, whatever its advice: the person's, so chat 1 can ask them for their own yes (src/work/landingAsk.mjs;
   // the work API refuses a new one, this holds for one filed anyway and for every pass). After their hands, which name what they do.
   if (landingAskOfItem(item) !== null) return { to: 'person', why: LANDING_ROUTE_WHY }
+  // Drop asks go to the person (2026-11-11; the live Q733 "Drop B1011, B978 and B934 now?": Autopilot's yes dropped three steps the
+  // person never saw): an ask to drop or remove a step or goal is theirs, whatever its advice (src/work/dropAsk.mjs). The main chat's
+  // store bookkeeping (a superseded step, one built elsewhere) is no ask: it drops those itself with a why.
+  if (dropAskOfItem(item) !== null) return { to: 'person', why: DROP_ROUTE_WHY }
   // Never Fable without the person's yes (the person, 2026-10-24: "you cant run fable without my permission"): an ask that names
   // Fable in its words or options is theirs, whatever its advice, so neither the board nor the partner says yes for them.
   if (/\bFable\b/i.test(`${title(item)} ${text(item)} ${valueOf(item, 'Options') ?? ''}`)) return { to: 'person', why: 'only the person says yes to Fable' }

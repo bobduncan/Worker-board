@@ -178,7 +178,7 @@ test('the styles: one quiet grey outline for every chip, a small dot says the mo
   assert.match(css, /\.run-chip\.is-pending \{ border-style: dashed; \}/)
   assert.match(css, /\.run-now, \.run-to \{ white-space: nowrap; \}/)
   // Simple: under the time, and under the task on a phone
-  assert.match(css, /\.simple-end \{[^}]*flex-direction: column;[^}]*max-width: 150px;/)
+  assert.match(css, /\.simple-end \{[^}]*flex-direction: column;[^}]*max-width: 190px;/)
   assert.match(css, /@media \(max-width: 600px\) \{\s*\.simple-end \{ display: contents; \}\s*\.simple-end \.run-chip \{ grid-column: 2 \/ -1;/)
 })
 

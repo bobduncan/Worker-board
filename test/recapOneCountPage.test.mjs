@@ -58,10 +58,10 @@ test('1 ready row and 2 kept looks are 3 to judge on the Product owner\'s card, 
   const state = withLooks(1)
   const page = await opened(state, popupOf(state, ['Row 1']))
   try {
-    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap is ready · 3 to judge')
+    assert.equal(page.text('#needs .is-recap-ready h4'), 'G6 · Garden: your recap so far · 3 to judge')
     assert.equal(page.text('#needs-count'), '3', 'the Needs count carries the same number')
     await page.click('[data-tab="advice"]')
-    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 3 to judge')
+    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap so far · 3 to judge')
     assert.match(words(page.find('.focus-progress small')), / · 3 to judge$/)
     assert.equal(page.all('.focus-recap-tile').length, 3, 'three tiles: the row and the two looks')
     assert.equal(page.all('.focus-recap-more').length, 0, 'nothing is left out')
@@ -80,7 +80,7 @@ test('the Focus card shows three tiles whatever waits, and what is left out is o
   try {
     assert.equal(page.text('#needs-count'), '6')
     await page.click('[data-tab="advice"]')
-    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap is ready · 6 to judge')
+    assert.equal(page.text('.focus-recap-ready h3'), 'Your recap so far · 6 to judge')
     assert.deepEqual([page.all('.focus-recap-tiles').length, page.all('.focus-recap-tile').length], [1, 3], 'one row of three')
     const more = page.find('.focus-recap-more')
     assert.equal(words(more), '+3 more in the recap')

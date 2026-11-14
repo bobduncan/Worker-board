@@ -224,9 +224,11 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
   another (the hand-over as one sequence, T8.5). Then and at the start of any task:
   `work next`, and work from the record it answers. `work take B<id>`
   with your branch and `minutes` (the time left for the whole step, e.g. 45) starts it and names your card; the board refuses
-  a take without `minutes` (B832, the user, 2026-10-31: "no ETA"), so your task has a time from the start (the board keeps the take's minutes as `Taken for`; your row's time is the step's refine size, else those minutes, counted from your take: signals change 7); `work step` moves your plan on (and your card), which your row shows on hover as your own words. Write your step's
-  checkpoint with every commit: `work step B<id>` with `commit` (the hash, or none) and `next` (your next action, in
-  one line); after a restart you go on from it (below, "A pause of all chats"). When the work is
+  a take without `minutes` (B832, the user, 2026-10-31: "no ETA"), so your task has a time from the start (the board keeps the take's minutes as `Taken for`; your row counts down your latest minutes-left in working time: the take's minutes first, then each `work step` with `minutes`); `work step` moves your plan on (and your card), which your row shows on hover as your own words. Write your step's
+  checkpoint with every commit: `work step B<id>` with `commit` (the hash, or none), `next` (your next action, in
+  one line) and `minutes` (the minutes still expected for the whole step: your row counts down from it, "about 1 h 06 left ·
+  re-estimated 19:46"; without it the answer asks, and past your estimate the answer of your next `work step` asks once for a
+  fresh one, eta-remaining 2026-11-11; on a step in review that the check handed back to you, minutes are left out); after a restart you go on from it (below, "A pause of all chats"). When the work is
   merged and its worktree removed: `work report B<id>` with what the user gets and the commit; the board checks the
   merge itself, and that no worktree of the step is left. The board checks the work, not the wording (the user,
   2026-10-25): it sends a report back only for a fact (a base branch that differs from its remote, a branch or worktree
@@ -250,6 +252,8 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
   A visible change: shoot what the user sees before your change and after it, `<picture folder>/B<id>/before.png` and
   `after.png`, at the same size and place; the check sets them side by side for the card. The flow
   file says who moves a step and when; the board refuses a move it does not allow and says why.
+- `npm test` (2026-11-11) runs at low priority on half the PC's cores and waits its turn: one heavy run at a time on the
+  PC, across every chat and landing. A "waiting for ..." line is that queue: let it wait, never start a second run.
 - Tests bite (B527): when your change touches a test file, make the mutant before you report: in a scratch copy
   (never on your branch), undo the fix, run the new tests, see which assertion fails, then delete the copy. Your
   report's result then holds one line `Tests bite: <what was undone in a copy> → <the assertion that

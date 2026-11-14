@@ -16,7 +16,7 @@ import { GIVEN_BACK, GIVE_BACK_MINUTES, RESUME_KIND, RESUME_MINUTES, continuatio
 import { sinceMs, valueOf } from './item.mjs'
 import { reportCheckFailedOf } from './resultCheck.mjs'
 import { holdEndOf } from './pause.mjs'
-import { familyOf } from './effort.mjs'
+import { chatEffort, familyOf, isSetRefused } from './effort.mjs'
 import { stamp } from './migrate.mjs'
 import { logBranchName } from '../landing.mjs'
 
@@ -115,6 +115,8 @@ export function isClearOwedOnly(envelope, outcome = envelope?.outcome ?? null) {
 export function failedOf(envelope) {
   if (envelope === null || envelope === undefined) return false
   const outcome = envelope.outcome ?? null
+  // B1160: a set the app refused is no failure of the hand-over (nothing happened in the chat): it goes again without its set.
+  if (isSetRefused(envelope)) return false
   if (outcome === null) return envelope.state === 'failed'
   if (envelope.restart === true) return outcome.restarted === false
   // The lazy clear (D4): a clear owed while the line went in is no failure.
@@ -200,6 +202,11 @@ const hourMinuteOf = ms => `${two(new Date(ms).getHours())}:${two(new Date(ms).g
 /** When an envelope was settled (its outcome), or failed. */
 const settledAt = envelope => [envelope?.settledAt, envelope?.deliveredAt, envelope?.failedAt].find(Number.isFinite) ?? envelope?.at ?? -Infinity
 
+/** Verifier 1: the states in which the work API refuses a worker a second task (api.mjs HOLDS_FOR_GIVE). */
+const HOLDS_FOR_GIVE = ['queued', 'taken', 'in progress']
+/** Whether `name` owns a step the work API would refuse it a second task for. */
+export const holdsForGive = (items, name, prefix = '') => [...items.values()].some(item => kindOf(item) === 'step' && HOLDS_FOR_GIVE.includes(stateOf(item)) && isMine(item, name, prefix))
+
 /** The step the worker holds now (taken, in progress or waiting on you), or undefined. */
 export const holdingOf = (items, name, prefix) => [...items.values()].find(item => kindOf(item) === 'step' && HOLDS.includes(stateOf(item)) && isMine(item, name, prefix))
 
@@ -272,6 +279,25 @@ function backWords(id, failed) {
   return `work: ${id}'s report check failed at ${failed.clock} (${failed.why}): fix what it names and report it again`
 }
 
+/**
+ * B1160 (chat 1, the person's screenshot of 2026-11-12: the row showed the raw refusal over its "free since"): a free worker's quiet
+ * words while the app refuses the board's set calls: what it runs on, in plain words (rule 16); the app's own words stay in the outbox.
+ */
+export const REFUSED_MARK = 'the app no longer lets the board switch it'
+const runName = worker => {
+  const family = familyOf(worker?.model)
+  const effort = chatEffort(worker)
+  return [family === null ? null : `${family[0].toUpperCase()}${family.slice(1)}`, effort].filter(Boolean).join(' · ')
+}
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const dayClock = (at, now) => {
+  const day = new Date(at)
+  const clockOf = `${String(day.getHours()).padStart(2, '0')}:${String(day.getMinutes()).padStart(2, '0')}`
+  return Number.isFinite(now) && new Date(now).toDateString() === day.toDateString() ? clockOf : `${day.getDate()} ${MONTHS[day.getMonth()]} ${clockOf}`
+}
+/** The words, with when the board next checks whether the app lets it set again (verifier 3, the probe: effort.mjs `probeOf`). */
+export const refusedWords = (worker, nextCheckAt = null, now = null) => `on ${runName(worker) || 'its own model'} (${REFUSED_MARK}${Number.isFinite(nextCheckAt) ? `; next check ${dayClock(nextCheckAt, now)}` : ''})`
+
 /** The words a lane's why carries while a ban stands (laneWords reads them; a test pins them). */
 export const BAN_WHY_MARK = ' steps: its set failed at '
 
@@ -292,7 +318,7 @@ export function bansOf(envelopes, now = null) {
     if (envelope.state === 'delivered') barred.clear()
     const model = envelope.set?.model ?? null
     if (model === null) continue
-    if (envelope.outcome?.set === false) barred.set(model, envelope)
+    if (envelope.outcome?.set === false && !isSetRefused(envelope)) barred.set(model, envelope)
     else if (envelope.outcome?.set === true) barred.delete(model)
   }
   if (now !== null) for (const [model, envelope] of barred) if (now - failedAtOf(envelope) >= BAN_MS) barred.delete(model)
@@ -359,7 +385,7 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * give in the same call, the envelope to write, the envelope the net fired for (marked once), one that waits in the outbox
  * and is to be closed (its task went back).
  */
-export function decide({ worker, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null, landing = null, landings = [], assets = [] }) {
+export function decide({ worker, peers = [], setsRefused = false, nextCheckAt = null, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null, landing = null, landings = [], assets = [] }) {
   const name = worker.name
   const isTurnEnd = event?.kind === 'turn-ended'
   const turnSince = isTurnEnd && Number.isFinite(event.since) ? event.since : -Infinity
@@ -421,6 +447,10 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
   if (inFlight !== null) {
     const id = inFlight.step
     const isCarried = inFlight.state !== 'waiting'
+    // B1160: its set word was refused by the app: the same task again at once, without its set (no take-back, no bounce).
+    if (isSetRefused(inFlight)) {
+      return result(STATES.HANDING, null, { step: id, envelope: { kind: 'task', step: id, clear: inFlight.clear ?? null, restart: false, set: null, asked: inFlight.set ?? inFlight.asked ?? null, line: inFlight.line ?? lineFor(id), back: null } })
+    }
     if (failedOf(inFlight)) {
       const why = failedWhy(inFlight)
       return result(STATES.HELD, why, { step: id, takeBack: { id, why }, close: closeOf(inFlight) })
@@ -525,12 +555,31 @@ export function decide({ worker, items = new Map(), ready = [], prefix = '', pau
   }
   const noModel = failedModels(envelopes, now)
   const open = ready.filter(one => !barred.has(one.id) && !noModel.has(setFor(one.id)?.model ?? null))
-  const given = match({ ready: open, idle: [worker], items: scratch, prefix })[0] ?? null
+  // B1160 (decision 3): the free workers beside it (`peers`) take part, so a step goes to the one closest to its run (handOut.mjs `match`).
+  // B1160 review 1-3 (blocker): a peer wins a step only when its own decide could be given it: not barred for it (notOfferedAgain: taken
+  // back or given back from it since its last take) and no ban of its own on the step's model; else the deciding worker takes it, so
+  // a step never waits for a peer that will never get it.
+  // Verifier 1: never a peer that owns a step queued, taken or in progress (the work API refuses it a second task, HOLDS_FOR_GIVE),
+  // also one given a step earlier in this pass. Verifier 8: its bans from the envelopes its own decide reads (no 'go on' lines).
+  // Verifier 13: its bars are worked out only when a step could go to it, once per peer.
+  const others = open.length === 0 ? [] : peers.filter(one => plain(one?.name, prefix) !== plain(name, prefix) && !holdsForGive(items, one.name, prefix))
+  const peerBars = new Map()
+  const barsOf = lane => {
+    if (!peerBars.has(lane.name)) peerBars.set(lane.name, { ids: notOfferedAgain(items, lane.name, prefix), models: failedModels((lane.envelopes ?? []).filter(one => one?.kind !== RESUME_KIND), now), setFor: typeof lane.setFor === 'function' ? lane.setFor : () => null })
+    return peerBars.get(lane.name)
+  }
+  const isPeer = lane => others.includes(lane)
+  const mayTake = (task, lane) => {
+    if (!isPeer(lane)) return true
+    const bars = barsOf(lane)
+    return !bars.ids.has(task.id) && !bars.models.has(bars.setFor(task.id)?.model ?? null)
+  }
+  const given = match({ ready: open, idle: [worker, ...others], items: scratch, prefix, mayTake }).find(one => plain(one.chat, prefix) === plain(name, prefix)) ?? null
   const clear = owed === null || owed === undefined ? null : { step: owed.step, reportedAt: owed.reportedAt }
   const said = takenBack === null ? null : `${NOT_TAKEN_WHY.replace('it', takenBack.id)}`
   // The lazy clear (R1, 2026-11-03): no clear is ever sent alone. A free worker that owes one stays FREE and uncleared (an
   // idle chat costs no tokens); the clear rides its next task's envelope. Its lane says nothing of it (D6).
-  if (given === null) return result(STATES.FREE, [said, banWhy(envelopes, now)].filter(one => one !== null).join('; ') || null, { takeBack: takenBack })
+  if (given === null) return result(STATES.FREE, [said, banWhy(envelopes, now), setsRefused ? refusedWords(worker, nextCheckAt, now) : null].filter(one => one !== null).join('; ') || null, { takeBack: takenBack })
   const set = setFor(given.id) ?? null
   // Signals change 3: a step the board gave back goes to its next worker as a continuation from its checkpoint.
   const item = items.get(given.id)
@@ -650,7 +699,7 @@ export function laneWords(decision) {
     case STATES.OFFERED: return `offered ${step}, not taken yet`
     case STATES.HELD: return `held: ${decision.why ?? 'no reason given'}`
     case STATES.UNKNOWN: return decision.why === null ? 'unknown' : decision.why.startsWith(UNANSWERED_WHY) || decision.why === RESTART_LATE_WHY ? decision.why : null
-    case STATES.FREE: return typeof decision.why === 'string' && decision.why.includes(BAN_WHY_MARK) ? decision.why : null
+    case STATES.FREE: return typeof decision.why === 'string' && (decision.why.includes(BAN_WHY_MARK) || decision.why.includes(REFUSED_MARK)) ? decision.why : null
     case STATES.RESTARTING: return 'restarting for the new Workers mod'
     case STATES.CHECKING: return step === null ? null : `${step}: the board checks its report`
     default: return null

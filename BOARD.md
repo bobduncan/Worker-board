@@ -503,7 +503,7 @@ Undo."; Off, "Questions come to you as before."
 - **One count for the recap** (T20.1, 2026-11-04: "I'm confused. what do you mean 5 verdicts wait while of the 5 open now, only 1 is
   done? And when we open the demo i see only 3 items"; the review of the same day): **N to judge** = the rows of the recap you can
   judge now + the kept looks and dos of the goal, and nothing else. The same N stands on the Product owner's card in Needs your
-  attention, the Focus page's card ("Your recap is ready · N to judge"; at most 3 tiles, then "+K more in the recap"), the progress
+  attention, the Focus page's card ("Your recap is ready · N to judge", or the words it has before the recap is built; at most 3 tiles, then "+K more in the recap"), the progress
   line, the recap popup's head ("Round 3 · N to judge") and, with the cards it draws besides, the Needs count (an ask the recap card
   counts is never a card of its own as well). An Accept card, a look or question that stands with you and the goal's own "open the
   recap / play it" ask are cards of their own in Needs your attention (or, routed to the recap, one line under the card): never a
@@ -518,7 +518,9 @@ Undo."; Off, "Questions come to you as before."
   pictures, or an own-senses do the main chat or the partner handed on; Autopilot keeps them for the recap) is a row of the popup, in
   its section "Looks kept for your recap": its title and words (their links are links), pictures, **Play** link (the ask's own `## Play`,
   else that of the ask its words link: Q616 "reopen the Q600 play link" carries Q600's map) and Approve ("Done" for a do) / Send back
-  with a note, part of the same Send; the Send answers it as its window's form would and wakes the chat that asked. The recap is done
+  with a note, part of the same Send; the Send answers it as its window's form would and wakes the chat that asked. Its own window
+  (where the card leads while no recap is made yet; G95's Q740, 2026-11-12) shows the same: its pictures large, Play, and its options
+  as choices: Looks right needs a pick, which goes with the verdict, and Send back takes the pick and the note. The recap is done
   ("Every part is approved") only when no kept look or do still waits; else the page and the partner's word say how many wait. An ask
   the recap closes (a row's verdict named in its words, or waiting under a step) is written `Answered by: recap` and is never your slim
   "Answered" card. In Open now and All work blocks a block with a row ready or a kept look of its steps reads "Waits for your verdict in
@@ -526,9 +528,11 @@ Undo."; Off, "Questions come to you as before."
   "Being reworked: <the same words>"; and the line under Open now counts "1 of 5 done · 4 wait for your verdict · 3 being reworked",
   the 4 being the card's N.
 - **Your recap is ready** (2026-11-01) at the top of the Focus page, under the head: while something is left to judge, a card with its
-  title ("Your recap is ready · 3 to judge"), its line ("Everything is built. Judge each part: approve it,
-  or send it back with a note.", or "Judge what is ready: ..." while parts are still being built), one big button **Open the
-  recap** (the attention colour: it is your action) and ONE row of at most 3 tiles: each its picture (the row's, else the look's
+  title ("Your recap is ready · 3 to judge" once everything is built; "Your recap so far · 3 to judge" while parts are still being
+  built; before any recap is made, G95 2026-11-12, what it is: "1 picture to judge · <the look's title>", or "N to judge"), its line
+  ("Everything is built. Judge each part: approve it, or send it back with a note.", or "Judge what is ready: ..." while parts are
+  still being built), one big button **Open the recap** (**Open it** for an ask's window before any recap) (the attention colour: it
+  is your action) and ONE row of at most 3 tiles: each its picture (the row's, else the look's
   first), title and "64 of 75 · approve or send back" ("approve or send back" without a score; "a look · advised: yes" for a look).
   Six waiting look the same as three, only the title says 6; a narrow page shows fewer tiles, never a second row. What counts is
   "One count for the recap" above: the rows ready to judge (its recap file: the goal's Demo line, else the newest demo.json of the

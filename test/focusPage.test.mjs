@@ -94,7 +94,8 @@ test('each part\'s progress follows its steps in the store: done, in progress wi
     // Redesign Part 2: its step is made but not refined yet: it waits for its refine, then goes on the list.
     { title: 'One look at the whole garden', size: '1 h', state: 'refining', owner: null, done: 0, total: 1, standards: [] },
   ])
-  assert.deepEqual(run.progress, { done: 2, total: 4, minutesLeft: 180 })
+  // eta-remaining (review D): an open step with no Size counts its share of its part (Light the path: 2 h over B13 and B14, one done).
+  assert.deepEqual(run.progress, { done: 2, total: 4, minutesLeft: 120 })
   assert.deepEqual([run.partnerDecides, run.youDecide], [['the wood\'s colour'], ['how many benches']])
   // A part without steps is next; sizes nobody can read leave the time out.
   const bare = stateOf(map(AGREED, ['    Part: Something · soon'], RUN))
@@ -158,7 +159,7 @@ test('the head and the stage strip for each stage, as the mockups draw them', ()
   const run = page.focusView(stateOf(map(AGREED, HOW, RUN)), goalsOf(map()))
   assert.deepEqual(run.strip.map(one => one.state), ['done', 'done', 'now'])
   // Work blocks (2026-10-31): the progress counts work blocks.
-  assert.deepEqual(run.progress, { text: '2 of 4 work blocks done · about 3 h left', percent: 50 })
+  assert.deepEqual(run.progress, { text: '2 of 4 work blocks done · about 2 h left', percent: 50 })
 })
 
 test('the run shows the parts with progress and who is on each, step ids only inside the steps; the note card waits for the partner\'s note', () => {
