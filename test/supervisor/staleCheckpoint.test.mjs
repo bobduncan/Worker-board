@@ -204,3 +204,19 @@ test('T9.1.1: a Quality Assurance task in progress, with no branch, is watched a
   // A checkpoint within the last 120 minutes keeps it quiet, as for any step.
   assert.deepEqual(check(view(items(task({ Checkpoint: checkpoint('none', 'compare the lamps with the points of B522', ago(30)) })))), [])
 })
+
+// B1175 (X196): B1151 was worked 10:16 to 13:03 with no checkpoint after 10:10, its lane stopped for one minute: the rule is right,
+// and its evidence says how long the worker worked and how long it stood stopped. Only the time its lane worked counts.
+test('B1175: the quiet time counts only the time the lane worked: a stop of 2 h then 20 min of work is quiet; the real case still files, with its working time', () => {
+  const store = () => items(step('B9', 'in progress', { Since: stamp(ago(180)), Checkpoint: checkpoint('e14ee5f', 'go on', ago(170)) }))
+  const spans = list => [{ chat: 'Picker', spans: list }]
+  // the real case: working all but one minute
+  const real = check(view(store(), { today: spans([{ from: ago(170), to: ago(60), state: 'working' }, { from: ago(60), to: ago(59), state: 'interrupted' }, { from: ago(59), to: NOW, state: 'working' }]) }))
+  assert.equal(real.length, 1)
+  assert.match(real[0].evidence, /worked 2 h 49 min since then, stopped 1 min meanwhile/)
+  // stopped 2 h after the checkpoint, then working 20 min: not named, for each kind of stop
+  for (const state of ['interrupted', 'unknown', 'waiting', 'free', 'suspended', 'off']) {
+    const stopped = spans([{ from: ago(170), to: ago(20), state }, { from: ago(20), to: NOW, state: 'working' }])
+    assert.deepEqual(check(view(store(), { today: stopped })), [], state)
+  }
+})
