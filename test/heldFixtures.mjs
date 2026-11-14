@@ -48,7 +48,7 @@ const DONE_YES = ['Sown.', '', '---', '', '```diff', '  Prompt: sow', '  Who:   
  * `isFree`; `card` is its card, `leadCard` the main chat's (its turn then runs too), `items` the store's steps, `lines` the
  * history, `planSeen` the board's memory of plan words from an earlier read.
  */
-export function stateAt(now, { items = [], card = null, leadCard = null, lines = [], isFree = false, planSeen = null, goals = null } = {}) {
+export function stateAt(now, { items = [], card = null, leadCard = null, lines = [], isFree = false, planSeen = null, goals = null, outbox = [] } = {}) {
   const work = storeFromText('## Garden\n- [ ] B12 Plant the hedge\n', { now: at(9, 0) })
   for (const one of items) work.items.set(valueOf(one, 'Id'), one)
   const tailOf = entries => ({ text: entries.join('\n'), isCut: false, modifiedAt: now - MIN })
@@ -63,7 +63,7 @@ export function stateAt(now, { items = [], card = null, leadCard = null, lines =
     planLineTexts: { ...(card === null ? {} : { 'cli-Digger': card }), ...(leadCard === null ? {} : { 'cli-Lead': leadCard }) },
     adviceText: null, folders: null, askTexts: [], pictureLists: {}, work, ...(goals === null ? {} : { goalsText: goals }),
   }
-  return buildState(raw, { lines, outbox: [], runs: [], board: null, seen: null, now, planSeen, config: { ...parseConfig('{}', {}), project: 'C:\\garden' } })
+  return buildState(raw, { lines, outbox, runs: [], board: null, seen: null, now, planSeen, config: { ...parseConfig('{}', {}), project: 'C:\\garden' } })
 }
 export const digger = state => state.chats.find(lane => lane.name === 'Digger')
 

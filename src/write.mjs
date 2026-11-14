@@ -5,9 +5,10 @@
 // is set aside at the board's start instead of stopping it.
 
 import { randomBytes } from 'node:crypto'
-import { appendFile, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { appendFile, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 
-const files = { open, writeFile, rename, rm, readFile, appendFile }
+const files = { open, writeFile, rename, rm, readFile, appendFile, readdir, stat }
 
 /** The codes with which Windows refuses a file it holds for a moment. */
 export const BUSY = ['EPERM', 'EBUSY', 'EACCES']
@@ -54,8 +55,44 @@ export async function writeNew(beside, data, fs = files, { flush = true } = {}) 
   }
 }
 
+/**
+ * The rename's tries: 2026-11-13 20:59, right after the PC woke, the loop lock's rename got EPERM beyond five tries (an indexer or a
+ * virus scanner held the file for a second or more): eight tries, 60 ms times the try in between (about 1.7 s in all).
+ */
+export const RENAME_TRIES = 8
+export const RENAME_WAIT_MS = 60
 /** Puts `beside` in the place of `file`: a rename, tried again while Windows holds either. */
-export const moveInPlace = (beside, file, fs = files) => again(() => fs.rename(beside, file))
+export const moveInPlace = (beside, file, fs = files) => again(() => fs.rename(beside, file), { tries: RENAME_TRIES, waitMs: RENAME_WAIT_MS })
+
+/** A file beside `file` as `besideOf` names them (`<file>.<pid>.<8 hex>.tmp`). */
+const BESIDE = /\.\d{1,10}\.[0-9a-f]{8}\.tmp$/
+/**
+ * Sweeps the files left beside `file` by writes that were cut off (a rename that failed for good, a board killed mid-write): those
+ * older than `olderThanMs` (a write under way is young). Answers the names removed; a folder that cannot be read answers none.
+ */
+export async function sweepBeside(file, fs = files, { olderThanMs = 60_000, now = Date.now() } = {}) {
+  const dir = dirname(file)
+  const name = basename(file)
+  let names
+  try {
+    names = await fs.readdir(dir)
+  } catch {
+    return []
+  }
+  const removed = []
+  for (const one of names) {
+    if (!one.startsWith(`${name}.`) || !BESIDE.test(one.slice(name.length))) continue
+    try {
+      const age = now - (await fs.stat(join(dir, one))).mtimeMs
+      if (age < olderThanMs) continue
+      await removeFile(join(dir, one), fs, { force: true })
+      removed.push(one)
+    } catch {
+      // held, or gone meanwhile: left for the next start
+    }
+  }
+  return removed
+}
 
 /** Takes a file away, tried again while Windows holds it. */
 export const removeFile = (file, fs = files, options = undefined) => again(() => fs.rm(file, options))

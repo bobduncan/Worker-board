@@ -58,7 +58,7 @@ test('a take without minutes is refused in one line naming the field; with minut
     for (const bad of [0, -5, 'soon', 5000]) assert.equal((await board({ action: 'take', id: 'B1', minutes: bad })).status, 400, String(bad))
     const taken = await board({ action: 'take', id: 'B1', minutes: 45 })
     assert.equal(taken.ok, true, taken.why)
-    assert.equal(valueOf(await item(dir, 'B1'), 'Plan'), `until ${stampSecond(NOW + MIN + 45 * MIN)} | at ${stampSecond(NOW + MIN)}`)
+    assert.equal(valueOf(await item(dir, 'B1'), 'Plan'), `until ${stampSecond(NOW + MIN + 45 * MIN)} | at ${stampSecond(NOW + MIN)} | estimated ${stampSecond(NOW + MIN)}`)
   } finally {
     await clean(dir)
   }
