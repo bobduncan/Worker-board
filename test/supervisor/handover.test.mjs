@@ -218,25 +218,37 @@ test('a word that could not go is tried at the next run; one on its way is not s
   assert.equal((await b.lines()).length, 1, 'no second line')
 })
 
-test('the review: a judge word waits as long as a step\'s; one lost is sent again; one taken long ago arrived; one arrived ends after 30 min without a turn\'s end', async t => {
+test('the review, B1174: a judge word its chat did not take in 30 min holds nothing; the next goes once the chat ran, never one each 30 min; one taken long ago arrived; one arrived ends after 30 min without a turn\'s end', async t => {
   const b = await board(t, { keep: { messageMs: 10 * MIN, answerMs: 60 * MIN } })
   await b.run()
   b.at(30)
   await b.run()
-  assert.equal(b.words().length, 1, 'still waiting after 30 minutes')
-  b.at(61)
+  assert.equal(b.words().length, 1, 'on its way for 30 minutes')
+  // B1174 (X43, 2026-11-14 00:14-12:43): not taken in 30 min, it no longer holds the next judgment, and no word goes again while
+  // the chat does not take one: not at 31, not at 61, not past the word's own keep.
+  for (const minutes of [31, 61, 125]) {
+    b.at(minutes)
+    await b.run()
+    assert.equal(b.words().length, 1, `no second word at +${minutes} min while the chat took nothing`)
+  }
+  assert.equal(judgeInFlight(b.outbox, 'Watcher', START + 31 * MIN, { messageMs: 10 * MIN, answerMs: 60 * MIN }), false)
+  assert.equal((await b.incident('X1')).head.get('State'), 'open', 'its incident waits again')
+  // The chat runs again: it takes its sweep's word. The next judge word goes and lists what waits.
+  b.outbox.push({ id: 'sw', to: 'Watcher', command: 'sweep', at: START + 125 * MIN, state: 'delivered', takenAt: START + 126 * MIN, deliveredAt: START + 126 * MIN })
+  b.at(127)
   await b.run()
-  assert.equal(b.words().length, 2, 'lost past its time: sent again')
-  Object.assign(b.outbox.at(-1), { state: 'taken', takenAt: START + 62 * MIN })
-  b.at(70)
+  assert.equal(b.words().length, 2, 'sent again once the chat ran')
+  assert.ok(b.words()[1].incidents.includes('X1'), 'listing every incident that waits, the untaken one\'s among them')
+  Object.assign(b.outbox.at(-1), { state: 'taken', takenAt: START + 128 * MIN })
+  b.at(136)
   await b.run()
   assert.equal((await b.incident('X1')).head.get('State'), 'open', 'taken a moment ago: on its way')
-  b.at(73)
+  b.at(139)
   await b.run()
   assert.equal((await b.incident('X1')).head.get('State'), 'with the supervisor')
   // No turn's end ever comes (a word pasted by hand): it stops counting as in flight 30 min after it arrived.
-  assert.equal(judgeInFlight(b.outbox, 'Watcher', START + 91 * MIN, { messageMs: 10 * MIN, answerMs: 60 * MIN }), true)
-  assert.equal(judgeInFlight(b.outbox, 'Watcher', START + 92 * MIN, { messageMs: 10 * MIN, answerMs: 60 * MIN }), false)
+  assert.equal(judgeInFlight(b.outbox, 'Watcher', START + 157 * MIN, { messageMs: 10 * MIN, answerMs: 60 * MIN }), true)
+  assert.equal(judgeInFlight(b.outbox, 'Watcher', START + 158 * MIN, { messageMs: 10 * MIN, answerMs: 60 * MIN }), false)
 })
 
 test('the effort: the judge word waits for the chat to run at its judging effort, at most 5 min, then says it was not set', async t => {
