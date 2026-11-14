@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_SLOTS, pidRuns, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
+import { DEFAULT_SLOTS, aheadOf, pidRuns, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
 
 const HELPER = fileURLToPath(new URL('../tools/one-at-a-time.mjs', import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), 'heavy-run-test-'))
@@ -28,9 +28,12 @@ function newLock() {
   return join(folder, 'heavy.lock')
 }
 
-/** The environment of a run: this test's lock, a short poll and say, and no HEAVY_RUN_HELD (npm test itself sets it). */
+/**
+ * The environment of a run: this test's lock, a short poll and say, and no HEAVY_RUN_HELD (npm test itself sets it) and no
+ * HEAVY_RUN_FIRST (a landing's gate sets it, F14: the runs of this test are ordinary unless a case says otherwise).
+ */
 function envFor(lock, extra = {}) {
-  const { HEAVY_RUN_HELD: _held, ...plain } = process.env
+  const { HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, ...plain } = process.env
   // One slot unless a test asks for more: the older cases are about one run at a time.
   return { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50', HEAVY_RUN_SAY_MS: '200', HEAVY_RUN_SLOTS: '1', ...extra }
 }
@@ -95,6 +98,27 @@ test('a second run waits until the first has ended, and says who it waits for', 
   assert.ok(Number(two.out) >= Number(one.out), 'the second command ran only after the first one was done')
   assert.match(two.err, /waiting for first in .+ \(since \d\d:\d\d\)/)
   assert.equal(existsSync(lock), false)
+})
+
+test('F14: a first-class run (HEAVY_RUN_FIRST=1, a landing\'s gate) goes ahead of the ordinary runs waiting, and every run says when it runs', async () => {
+  const lock = newLock()
+  writeFileSync(lock, lockText())
+  const first = start(lock, 'first', node('console.log(Date.now())'))
+  await until(() => /waiting for/.test(first.err), 'the first ordinary run waiting')
+  const second = start(lock, 'second', node('console.log(Date.now())'))
+  await until(() => /waiting for/.test(second.err), 'the second ordinary run waiting')
+  const gate = start(lock, 'gate', node('console.log(Date.now())'), { HEAVY_RUN_FIRST: '1' })
+  await until(() => /waiting for/.test(gate.err), 'the gate waiting')
+  rmSync(lock)
+  const [one, two, three] = await Promise.all([first.done, second.done, gate.done])
+  assert.deepEqual([one.code, two.code, three.code], [0, 0, 0])
+  assert.ok(Number(three.out) <= Number(one.out) && Number(three.out) <= Number(two.out), 'the gate ran before both ordinary runs that came earlier')
+  assert.ok(Number(one.out) <= Number(two.out), 'the ordinary runs keep their order')
+  assert.match(three.err, /one-at-a-time: gate runs now \(waited \d+ s\)/)
+  assert.match(one.err, /one-at-a-time: first runs now \(waited \d+ s\)/)
+  // The pure order: a first-class ticket counts only earlier first-class ones; an ordinary one every earlier ticket and every first-class one.
+  const order = [{ name: 'a', first: false }, { name: 'b', first: false }, { name: 'c', first: true }, { name: 'd', first: true }]
+  assert.deepEqual([aheadOf(order, 'c', true), aheadOf(order, 'd', true), aheadOf(order, 'a', false), aheadOf(order, 'b', false)], [0, 1, 2, 3])
 })
 
 test('it says who it waits for once in a while, not at every look', async () => {

@@ -153,6 +153,10 @@ and the briefings for the main chat and the workers.
    same folder and whose folder has nothing uncommitted. The live chat is never archived. Each archive is one line in
    `board.log` ("B847: archived the replaced chat ...").
    Setup also brings your project's own `flow.json` up to date with the moves the board's code needs (a new board feature does nothing in an older flow file): it shows what it would add, asks y/n (without a keyboard only `npm run setup -- --flow yes` writes), never changes or removes a move of yours, and keeps the old file as `flow.json.bak-<time>`. `npm run setup -- --check` shows it and writes nothing.
+   **The wake courier** (F17, 2026-11-14): since the Claude app refuses a mod's own sends in Auto mode, a scheduled task wakes the
+   sleeping chats: "Worker board wake courier", every 10 minutes, on the cheapest model, in Auto mode, with the prompt in
+   `tools/wake-courier.md`. Setup cannot make it (code cannot create a scheduled task); `npm run setup` and `-- --check` print what to
+   ask a chat once on a new PC: create it with `create_scheduled_task` from that prompt. It stops at once when nothing is due.
 4. **The project's files.** Make `<project>\.claude\` and copy into it from `examples\`: `list.json` into
    `.claude\chats\` with your prefix, `main-briefing.md` and `worker-briefing.md`; in the two briefings
    replace `<project>`, `<prefix>` and `<repository>`. For the Design tab, also `design.json` into `.claude\`, with

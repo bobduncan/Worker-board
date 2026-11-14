@@ -74,6 +74,8 @@ export type ChatFile = {
   clearNote?: { at: number; why: string }
   /** Clear after each step: the clear the mod is about to run (its mark, written just before /clear). */
   clearing?: { at: number; step: string | null; log: string | null }
+  /** 0.32.0, point 2: why the mod cleared the card's task (the board gave the step back, stopped or dropped it), and when; gone with the next task. */
+  taskNote?: { at: number; why: string }
 }
 
 /** A chat of the list with the id of its session. */

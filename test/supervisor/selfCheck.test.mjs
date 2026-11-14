@@ -5,6 +5,7 @@
 
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { browserKey } from '../../src/supervisor/browsers.mjs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -15,7 +16,8 @@ import { workApi } from '../../src/work/api.mjs'
 import { deliverWork } from '../../src/work/deliver.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
-import { AGAIN_MS, CHECKS, OWNER_GONE_MS, RETIRED_RULES, findStuck, leftoverFindings } from '../../src/supervisor/rules/repair.mjs'
+import { AGAIN_MS, CHECKS, OWNER_GONE_MS, REPAIR_RULES, RETIRED_RULES, findStuck, leftoverFindings } from '../../src/supervisor/rules/repair.mjs'
+import { WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
 import { LOOP_LOCK_MS, SYNC_SHOWN_MS, applySync, loopGate, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/supervisor/loop.mjs'
 
 const MIN = 60_000
@@ -33,7 +35,7 @@ const of = (found, check) => found.filter(one => one.check === check)
 const checkedPass = { History: [`- ${stamp(ago(30))} server: check passed: merged`] }
 
 test('the list names every check once, with its words', () => {
-  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'closed-worker', 'partner-ask', 'unchecked', 'refine-again', 'incident-again', 'held-elsewhere', 'base-equal', 'merged-now', 'faults-gone', 'none-ready', 'worktrees'])
+  assert.deepEqual(CHECKS.map(one => one.key), ['blocked', 'owner-gone', 'refine-drop', 'limit-back', 'old-name', 'helper', 'closed-worker', 'partner-ask', 'unchecked', 'refine-again', 'incident-again', 'held-elsewhere', 'base-equal', 'merged-now', 'faults-gone', 'none-ready', 'worktrees', 'browsers'])
   // Signals change 6 (B915, Addendum 4): the repair fix-dropped is retired; the watch rule dropped-fix files the case once.
   assert.ok(RETIRED_RULES.some(one => one.id === 'fix-dropped'))
   assert.ok(CHECKS.every(one => typeof one.words === 'string' && one.words.length > 0))
@@ -568,6 +570,128 @@ test('worktree clean-up in the runner: it looks with the store\'s items; a run t
   assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text]), [['Left', 'leftover worktrees: not looked at (the project folder could not be read)']])
 })
 
+test('leaked headless browsers (2026-11-13): one in the temp folder whose starter is gone for over 30 min is closed once (Cleaned, the row naming its prefix and CPU); a busy tree at the third sample; a failed close is not tried again; a failed listing is Left; not during a landing; no chat is told', async () => {
+  const FILETIME = ms => (ms + 11_644_473_600_000) * 10_000
+  const edge = (pid, parent, minutesAgo, more = {}) => ({ pid, parent, name: 'msedge.exe', priority: 8, threads: 30, cpuMs: 0, created: FILETIME(NOW - minutesAgo * MIN), commandLine: `msedge.exe --headless=new --remote-debugging-port=9391 --user-data-dir=${join(tmpdir(), 'edge-cdp-b1126-k3Xp9q')}`, ...more })
+  const gpu = (pid, parent, minutesAgo, cpuMs) => ({ pid, parent, name: 'msedge.exe', threads: 12, created: FILETIME(NOW - minutesAgo * MIN), commandLine: 'msedge.exe --type=gpu-process', cpuMs })
+  let listing = [edge(500, 499, 800, { cpuMs: 800 * MIN * 0.3 }), gpu(501, 500, 799, 800 * MIN * 12.5)]
+  let closing = async () => ({ ok: true, skipped: false, why: null, profile: 'removed' })
+  let clock = NOW
+  const closed = []
+  const runner = syncRunner({
+    state: async () => ({ chats: [LEAD], chatPrefix: '', limits: {}, pause: null }),
+    items: async () => new Map(),
+    outbox: () => [],
+    refused: () => [],
+    apply: async () => ({ ok: true }),
+    wake: async () => { throw new Error('no chat is woken for a browser') },
+    noted: { load: async () => [], save: async () => {} },
+    now: () => clock,
+    processes: async () => { if (listing === null) throw new Error('PowerShell did not answer'); return listing },
+    closeBrowser: async one => { closed.push(one); return closing(one) },
+  })
+  // Guard 4: a landing runs (the server's close port reads the lock right before the kill): skipped, nothing counted, Left.
+  closing = async () => ({ ok: false, skipped: true, why: 'a landing runs', profile: null })
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text.split(': ').at(-1)]), [['Left', 'not closed (a landing runs)']])
+  closing = async () => ({ ok: true, skipped: false, why: null, profile: 'removed' })
+  const done = await runner.run()
+  assert.deepEqual(done.rows.map(one => [one.check, one.status, one.text]), [['browsers', 'Cleaned', 'edge-cdp-b1126: a headless Edge (process 500, started 12:40, 13 h 20, 12.8 cores) with its starter gone, ran over 30 min: closed, its profile removed']])
+  assert.deepEqual(closed.map(one => [one.pid, one.children.map(child => child.pid), one.prefix]), [[500, [501], 'edge-cdp-b1126'], [500, [501], 'edge-cdp-b1126']], 'the skipped try and the close')
+  assert.equal(done.rows.some(one => one.status === 'Sent' || one.status === 'For Main'), false, 'no chat is told')
+  // Guard 4: still listed at the next run (a kill that takes a moment): Left, never a second close.
+  clock = NOW + 3 * MIN
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text.split(': ').at(-1)]), [['Left', 'closed at 02:00, still listed (not closed again)']])
+  assert.equal(closed.length, 2)
+  // Guard 4 (chat 1's review, 8): a close that failed is not tried again either: Left "close failed", one try.
+  listing = [edge(510, 499, 800)]
+  closing = async () => ({ ok: false, skipped: false, why: 'access denied', profile: null })
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text.split(': ').at(-1)]), [['Left', 'not closed (access denied)']])
+  clock = NOW + 6 * MIN
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text.split(': ').at(-1)]), [['Left', 'close failed at 02:03, not tried again']])
+  assert.equal(closed.filter(one => one.pid === 510).length, 1)
+  // The listing failed: one Left row, not the end of the run.
+  listing = null
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text]), [['Left', 'leaked browsers: not looked at (PowerShell did not answer)']])
+  // The person's own Edge, and a headless one whose starter still runs: nothing.
+  listing = [{ ...edge(600, 1, 800), commandLine: 'msedge.exe --profile-directory=Default' }, { pid: 1, parent: 0, name: 'node.exe', threads: 9, created: FILETIME(NOW - 900 * MIN), commandLine: 'node helper.mjs' }, edge(601, 1, 800)]
+  assert.deepEqual((await runner.run()).rows, [])
+  // Guard 2: a 10-minute-old Edge, starter gone, its gpu child at 12.8 cores: the runner's samples at 3-minute steps close it at the third
+  // (6 minutes over 2 cores); a quiet one (the evidence tool's) not.
+  closing = async () => ({ ok: true, skipped: false, why: null, profile: 'removed' })
+  const young = cpuMs => [
+    edge(700, 7000, 0, { created: FILETIME(NOW - 10 * MIN), cpuMs: cpuMs / 100 }), gpu(701, 700, 0, cpuMs),
+    edge(800, 7001, 0, { created: FILETIME(NOW - 10 * MIN), cpuMs: cpuMs / 40, commandLine: `msedge.exe --headless=new --remote-debugging-port=0 --user-data-dir=${join(tmpdir(), 'board-evidence-GYJKCI', 'profile')}` }),
+  ]
+  for (const [minutes, cpuMs] of [[0, 10 * MIN * 12.7], [3, 13 * MIN * 12.7]]) {
+    clock = NOW + minutes * MIN
+    listing = young(cpuMs)
+    assert.deepEqual((await runner.run()).rows, [], `${minutes} min`)
+  }
+  clock = NOW + 6 * MIN
+  listing = young(16 * MIN * 12.7)
+  assert.deepEqual((await runner.run()).rows.map(one => [one.status, one.text]), [['Cleaned', 'edge-cdp-b1126: a headless Edge (process 700, started 01:50, 16 min, 12.8 cores) with its starter gone, over 2 cores for 5 min: closed, its profile removed']])
+})
+
+test('leaked headless browsers, guard 3 end to end: three closes of one tool\'s browsers in a day make the incident browser-leaks naming the tool, two of another do not; a close stands in the day\'s repairs, so a restarted board never closes the same browser again', async () => {
+  const FILETIME = ms => (ms + 11_644_473_600_000) * 10_000
+  const edge = (pid, prefix, minutesAgo) => ({ pid, parent: 7000 + pid, name: 'msedge.exe', threads: 30, cpuMs: 0, created: FILETIME(NOW - minutesAgo * MIN), commandLine: `msedge.exe --headless=new --remote-debugging-port=9391 --user-data-dir=${join(tmpdir(), `${prefix}-${String(pid).padStart(6, 'a')}`)}` })
+  let clock = NOW
+  let listing = []
+  let memory = null
+  const closed = []
+  const ports = () => ({
+    state: async () => ({ chats: [LEAD], chatPrefix: '', limits: {}, pause: null, today: [] }),
+    items: async () => new Map(), outbox: () => [], refused: () => [],
+    apply: async () => ({ ok: true, result: {} }), wake: async () => null,
+    noted: { load: async () => [], save: async () => {} },
+    memory: { load: async () => memory, save: async value => { memory = value } },
+    now: () => clock, settings: {},
+    processes: async () => listing,
+    closeBrowser: async one => { closed.push(one.pid); return { ok: true, skipped: false, why: null, profile: 'removed' } },
+  })
+  let runner = syncRunner(ports(), REPAIR_RULES, WATCH_RULES)
+  // Three leaks of edge-cdp-b1126 over the day, two of lava-shot: each closed as it shows (its folder stands right below the temp folder).
+  const leaks = [[500, 'edge-cdp-b1126'], [510, 'lava-shot-4321'], [520, 'edge-cdp-b1126'], [530, 'lava-shot-4321'], [540, 'edge-cdp-b1126']]
+  const runs = []
+  for (const [pid, prefix] of leaks) {
+    listing = [edge(pid, prefix, 40)]
+    runs.push(await runner.run())
+    clock += 60 * MIN
+  }
+  assert.deepEqual(closed, [500, 510, 520, 530, 540])
+  assert.deepEqual(memory.repairs.map(one => [one.rule, one.subject]), [['browsers', 'edge-cdp-b1126'], ['browsers', 'lava-shot'], ['browsers', 'edge-cdp-b1126'], ['browsers', 'lava-shot'], ['browsers', 'edge-cdp-b1126']], 'the day\'s repairs, by the tool')
+  const incidents = runs.flatMap(one => one.findings).filter(one => one.rule === 'browser-leaks')
+  assert.deepEqual([...new Set(incidents.map(one => one.key))], ['browser-leaks edge-cdp-b1126'], 'the tool with three closes, not the one with two')
+  assert.match(incidents[0].text, /^The tool "edge-cdp-b1126" leaked 3 headless browsers in a day/)
+  assert.deepEqual(runs.flatMap(one => one.findings).filter(one => one.rule === 'repair-repeats'), [], 'the closes are no repair-repeats')
+  // A restarted board (a new runner on the saved memory) sees the last browser still listed: its Cleaned row stands in the repairs, so it is listed, never closed again.
+  runner = syncRunner(ports(), REPAIR_RULES, WATCH_RULES)
+  listing = [edge(540, 'edge-cdp-b1126', 40)]
+  clock += MIN
+  const again = await runner.run()
+  assert.deepEqual(again.rows.filter(one => one.check === 'browsers').map(one => [one.status, one.text.split(', ').at(-1)]), [['Left', 'still listed (not closed again)']])
+  assert.deepEqual(closed, [500, 510, 520, 530, 540], 'no sixth close')
+  // Chat 1's verifier of F8 (7): a close that was tried and FAILED stands in the supervisor's memory too: a restarted board does not try that browser again.
+  const failing = () => ({ ...ports(), closeBrowser: async one => { closed.push(one.pid); return { ok: false, skipped: false, why: 'access denied', profile: null } } })
+  runner = syncRunner(failing(), REPAIR_RULES, WATCH_RULES)
+  listing = [edge(550, 'edge-cdp-b1126', 40)]
+  clock += MIN
+  const failed = await runner.run()
+  assert.deepEqual(failed.rows.filter(one => one.check === 'browsers').map(one => [one.status, one.text.split(': ').at(-1)]), [['Left', 'not closed (access denied)']])
+  assert.deepEqual(closed, [500, 510, 520, 530, 540, 550])
+  assert.deepEqual(Object.keys(memory.browsers ?? {}), [browserKey(listing[0])], 'the failed try is kept with the memory')
+  runner = syncRunner(failing(), REPAIR_RULES, WATCH_RULES)
+  clock += MIN
+  const afterRestart = await runner.run()
+  assert.deepEqual(afterRestart.rows.filter(one => one.check === 'browsers').map(one => [one.status, one.text.split(', ').at(-1)]), [['Left', 'not tried again']])
+  assert.deepEqual(closed, [500, 510, 520, 530, 540, 550], 'no seventh close: the failed try stands across the restart')
+  // Once the browser is gone from the listing, its record goes with it.
+  listing = []
+  clock += MIN
+  await runner.run()
+  assert.deepEqual(Object.keys(memory.browsers ?? {}), [])
+})
+
 test('B488: of two processes that claim an empty lock at once, the write that stands wins and the other finds out', async () => {
   let file = ''
   const clock = NOW
@@ -591,9 +715,10 @@ test('B488: the loop gate answers from the lock at most once a second, says no w
   let asked = 0
   const gained = []
   const failed = []
+  const succeeded = []
   const gate = loopGate({
     owner: async () => { asked += 1; const next = answers.shift(); if (next === undefined) throw new Error('lock unreadable'); return next },
-    now: () => clock, onGained: async () => { gained.push(clock) }, onFailed: error => failed.push(error.message),
+    now: () => clock, onGained: async () => { gained.push(clock) }, onFailed: error => failed.push(error.message), onSucceeded: () => succeeded.push(clock),
   })
   assert.equal(await gate(), false)
   assert.equal(await gate(), false, 'the answer of this second stands')
@@ -608,6 +733,8 @@ test('B488: the loop gate answers from the lock at most once a second, says no w
   clock += 1500
   assert.equal(await gate(), false, 'a lock that cannot be read is a no')
   assert.deepEqual(failed, ['lock unreadable'])
+  // 2026-11-13: every check that answered (yes or no) is a success of the loop-lock (its failure ends); the one that threw is not.
+  assert.equal(succeeded.length, 3)
   answers = [true]
   clock += 1500
   assert.equal(await gate(), true)

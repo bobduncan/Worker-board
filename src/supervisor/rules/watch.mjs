@@ -12,7 +12,8 @@
 // holds the supervisor's own watch: `seen` (since when it first saw what only counts once it lasts) and `observed`
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
-import { RETIRED_WATCH_RULES } from '../../work/holderTimers.mjs'
+import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
+import { RETIRED_WATCH_RULES, givenBackFrom } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
@@ -218,22 +219,60 @@ function readyWhileFree(view, ctx) {
   return found
 }
 
+/** B1160 part 2: how long free workers may idle while every waiting step is held back by a Touches overlap before the rule names it. */
+export const OVERLAP_IDLE_MINUTES = 30
+
+/**
+ * B1160 part 2 (chat 1, the live G95 case of 2026-11-13: nine unit steps showed "Ready for a worker (9)" with three workers free, and
+ * none could be handed out: their Touches overlapped B1149, under way): a free worker idles while nothing is ready and every step that
+ * would be is held back by an overlap (the ready list's `held` with `overlap`), for longer than OVERLAP_IDLE_MINUTES of running time.
+ * One finding for the board (key `overlap-idle board`), the held steps and what they wait on in the text. Not while the person pauses
+ * or a limit is full.
+ */
+function overlapIdle(view, ctx) {
+  if (isPaused(view) || isFull(view)) return []
+  const free = workersOf(view).filter(lane => lane.onSequence === true && lane.handover?.state === STATES.FREE)
+  const waiting = (view.held ?? []).filter(one => typeof one?.overlap === 'string')
+  if (free.length === 0 || waiting.length === 0 || (view.ready ?? []).length > 0) return []
+  const key = 'overlap-idle board'
+  const ms = lasted(view, ctx, key)
+  if (ms <= OVERLAP_IDLE_MINUTES * MIN) return []
+  const pairs = waiting.slice(0, 8).map(one => `${one.id} (same files as ${one.overlap})`)
+  return [{
+    rule: 'overlap-idle', key, subject: 'board',
+    // F5 review 11, 12: the span is the board's (workers free behind overlaps), not each worker's; the step it waits on may wait for the person.
+    text: `workers free behind Touches overlaps for ${minutes(ms)} min (${free.map(lane => lane.name).join(', ')}): every waiting step shares its files with a step given or at work: ${pairs.join(', ')}${waiting.length > 8 ? ', ...' : ''}`,
+    evidence: `held back by an overlap: ${waiting.map(one => `${one.id}: ${one.why}`).join('; ')}; free: ${free.map(lane => lane.name).join(', ')}; ready steps: none. Narrow their Touches, or move the step they wait on along.`,
+  }]
+}
+
 /**
  * B566 (X22, X21: chats shown not running while they ran, the board's only sign their takes): a worker whose card says
  * it works (or that the board shows off for a card left working) while its chat made no call to the board, took
  * nothing and wrote nothing to its conversation (the board's `isRunning` false) for longer than 5 minutes: one
  * incident per worker. A worker on a step in progress is the hand-over's timers' (signals change 3), never this rule's.
+ * B1168 (X72 came back 3 times after its close; Worker 1 stopped mid-turn at 21:20, the timers gave B423 back at 21:23): a stop is
+ * answered for, and never counts, once the board gave the worker a step back since the stop began (the timers acted and wrote their
+ * line), or once the incident's last close (`fixedAtOf`) came after the stop began; a stop that begins after a close counts anew. The
+ * stop began at the card's `offSince`, else when the rules' watch first saw it. B736's lone silent chat (nothing given back) still opens.
+ * B1172 (X176 came back 33 times: Worker 5 asked Q782 at 10:23, its step went "waiting on you" and its turn ended, yet its card read working
+ * until 10:54): a worker whose step waits on the person is left out as one on a step taken or in progress is; HOLDS stays as it was for the other rules.
  */
 const WORKING_NOT_RUNNING_MS = 5 * MIN
 function workingNotRunning(view, ctx) {
   const found = []
   if (isPaused(view) || isFull(view)) return found
   const holding = new Set(stepsOf(view).filter(one => HOLDS.includes(stateOf(one))).map(one => plain(valueOf(one, 'Owner'), view.prefix)))
+  // B1172 (X176): a worker whose step waits on the person asked and ended its turn: its chat makes no call on purpose.
+  const waitingOnYou = new Set(stepsOf(view).filter(one => stateOf(one) === 'waiting on you').map(one => plain(valueOf(one, 'Owner'), view.prefix)))
   for (const lane of workersOf(view)) {
     const isWorkingCard = lane.state === 'working' || (lane.state === 'off' && Number.isFinite(lane.offSince))
     // The asset wait: a worker whose lane works for the provider's pictures makes no call of its own while Codex draws: no fault.
-    if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix)) || lane.heldBy === 'asset') continue
+    if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix)) || waitingOnYou.has(plain(lane.name, view.prefix)) || lane.heldBy === 'asset') continue
     const key = `working-not-running ${lane.name}`
+    const stopFrom = Number.isFinite(lane.offSince) ? lane.offSince : ctx.seen.get(key) ?? view.now
+    if (givenBackFrom(view.items, lane.name, view.prefix).some(back => back.at >= stopFrom)) continue
+    if (stopFrom <= fixedAtOf(view, key)) continue
     const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : null), { heard: true })
     if (ms <= WORKING_NOT_RUNNING_MS) continue
     found.push({
@@ -324,6 +363,31 @@ function fixedAtOf(view, key) {
   return at
 }
 
+/** Leaked headless browsers (2026-11-13, chat 1's guard 3): this many closes of one tool's browsers in a day is the tool's own fault. */
+export const LEAKS_PER_DAY = 3
+/**
+ * 7b. One tool's headless browsers (the rule `browsers`, by the profile's prefix: edge-cdp-b1126, board-evidence, lava-shot)
+ * closed by the board LEAKS_PER_DAY times or more in a day: the tool leaks, and its fix is a step of its own (the incident
+ * names the tool). Repairs from before the incident's fix was done do not count again (`fixedAtOf`, as repair-repeats).
+ */
+function browserLeaks(view) {
+  const byTool = new Map()
+  for (const one of view.repairs.filter(repair => repair.rule === 'browsers' && view.now - repair.at < DAY && typeof repair.subject === 'string')) {
+    byTool.set(one.subject, [...(byTool.get(one.subject) ?? []), one])
+  }
+  const found = []
+  for (const [tool, all0] of [...byTool].sort(([a], [b]) => byId(a, b))) {
+    const all = all0.filter(one => one.at > fixedAtOf(view, `browser-leaks ${tool}`))
+    if (all.length < LEAKS_PER_DAY) continue
+    found.push({
+      rule: 'browser-leaks', key: `browser-leaks ${tool}`, subject: tool,
+      text: `The tool "${tool}" leaked ${all.length} headless browsers in a day (their starter gone, the board closed them): its browser handling wants a fix`,
+      evidence: `closed at ${all.map(one => clockOf(one.at)).join(', ')}: ${all.at(-1).key}`,
+    })
+  }
+  return found
+}
+
 /**
  * 7. The same repair (a repair rule, on the same chat or step) `repairsPerDay` times or more in a day. B546: a repair
  * the app's restart caused (`cause: 'restart'`, a chat stopped because the app started anew) does not count. B551: nor
@@ -384,7 +448,10 @@ function undelivered(view) {
       return {
         // Signals change 6 (Addendum 2): the key is the rule and the chat only, as for a chat not stopped: a stop's time in the
         // key opened the same undelivered words again at every new stop, which made "gone" read a cure that was none.
-        rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: oldest.at,
+        // B1170 (X173): the case of a chat that was stopped began at its stop, never before its oldest word: the words keep their own
+        // time through every retry, so an incident closed after the first of them would read a stop of later (23:10, closed 22:59) as
+        // that old case still standing, and no incident showed words that went on waiting.
+        rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: Math.max(oldest.at, stop.since),
         text: `${chat} was stopped at ${clockOf(stop.since)}: ${words.length} ${words.length === 1 ? 'word waits' : 'words wait'} for it, the oldest for ${minutes(view.now - oldest.at)} min`,
         evidence: woken === undefined ? 'the main chat is not asked to wake it yet' : `the main chat was asked to wake it at ${clockOf(woken.at)} (${woken.state})`,
       }
@@ -475,11 +542,16 @@ export function undeliveredWords(view) {
  * N min" and the alarm read one function and never two clocks. `judged` what every word of the view shares
  * (`undeliveredJudged`), made once by a caller that asks for many words; false for every word while the person pauses.
  */
+/** B1164: how long a set word may be with Main's model before rule 8 names it. */
+export const MAIN_MODEL_SET_MS = 10 * 60_000
+
 export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   // The person pauses: the bridge holds every word until Resume all.
   if (judged === null) return false
   const { stillWaits, waking } = judged
   if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to))) return false
+  // F17: a wake's carry word is the wake record's: its attempt's verdict and the board's "could not wake" name it, never rule 8 too.
+  if (isCarryWord(message)) return false
   // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
   // hold before its release (B285).
   const held = message.at + heldMs(message, view.now, view.pause)
@@ -489,6 +561,16 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
   // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
   if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)
+  // B1164 (B1160 part 2): a set word for Main's model (the app refuses the hands' set calls) is with Main once taken or typed: left out
+  // while Main's model may still do it, counted once MAIN_MODEL_SET_MS passed and the worker still does not run at it (`stillWaits`).
+  if (message.forModel === true && ['taken', 'delivered'].includes(message.state)) {
+    // F5 review 1, 2: a partner word Main carried is done: the Focus switch shows what the partner runs on.
+    if (message.command !== 'worker-effort') return false
+    // F5 review 3, 8: only while its step is still the worker's (given, taken or at work), and within UNDELIVERED_LOOK_MS.
+    const step = typeof message.forStep === 'string' ? view.items?.get?.(message.forStep) : undefined
+    const isOnIt = step !== undefined && ['queued', 'taken', 'in progress', 'waiting on you'].includes(valueOf(step, 'State')) && plain(valueOf(step, 'Owner'), view.prefix) === plain(message.about, view.prefix)
+    return isOnIt && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > MAIN_MODEL_SET_MS && stillWaits(message)
+  }
   return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
 }
 
@@ -664,6 +746,8 @@ function personHold(view, held) {
 
 /** B1021: the states in which a step is with a worker that was given it or took it. */
 const MOVING = ['queued', 'taken', 'in progress']
+/** F5 verifier 3, 6: the states of the step a Touches overlap hold waits for in which the hold is a wait. */
+const OVERLAP_WAITS = [...MOVING, 'waiting on you']
 
 /**
  * B1021 (X148: B1018 blocked by B1014, which waited for its own ready fix B1020 while the limit held every hand-out): whether a
@@ -688,7 +772,12 @@ function stepMoves(view, id, visited) {
 }
 
 /** B1021: whether a held why is a block by steps that all move or wait for the person (`stepMoves`, B916's `personHold`). */
-function holdMoves(view, held, visited = new Set()) {
+export function holdMoves(view, held, visited = new Set()) {
+  // F5 review 7: a step held back by a Touches overlap waits for that step: a wait while it moves.
+  const overlap = /^waits: same files as (B[0-9]+)\b/.exec(held ?? '')?.[1] ?? null
+  // F5 verifier 3, 6: any overlap hold is a wait while its step is under way, waiting on the person included (the ready list holds
+  // it only then; the step itself is the one named).
+  if (overlap !== null) return OVERLAP_WAITS.includes(stateOf(view.items.get(overlap))) || stepMoves(view, overlap, visited)
   if (!BLOCKED_HOLD.test(held)) return false
   const ids = [...new Set(held.match(/B[0-9]+/g) ?? [])]
   return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps) || stepMoves(view, id, visited))
@@ -965,11 +1054,12 @@ export function switchOf(lane, item, view) {
   const want = { family: modelOf(item).family, level: effortOf(item).level }
   const isModelSet = typeof own?.model === 'string'
   const mismatch = effort !== null && (effort !== want.level || (isModelSet && family !== null && family !== want.family))
-  const state = own?.isSet === true ? 'switched' : own?.asked != null ? 'asked' : 'none'
+  // B1160 review 8: a run the app's refusal left unset (`refused`, effort.mjs) is known and quiet: the board decided it runs on.
+  const state = own?.isSet === true ? 'switched' : own?.refused === true ? 'refused' : own?.asked != null ? 'asked' : 'none'
   const takenAt = takenAtOf(item)
   const taken = afterPause(view, takenAt)
   const since = view.now - taken - boardOffMs(view, taken)
-  const late = mismatch && state !== 'switched' && !isPaused(view) && !isFull(view) && Number.isFinite(since) && since > view.settings.switchMinutes * MIN
+  const late = mismatch && state !== 'switched' && state !== 'refused' && !isPaused(view) && !isFull(view) && Number.isFinite(since) && since > view.settings.switchMinutes * MIN
   return {
     runs: `${family ?? 'a model not known'} · ${effort ?? 'effort not known'}`, wants: `${want.family} · ${want.level}`, mismatch, state,
     askedAt: own?.asked?.at ?? null, askState: own?.asked?.state ?? null, takenAt, since, late,
@@ -1349,7 +1439,7 @@ function wakeFailed(view) {
       rule: 'wake-failed', key: `wake-failed ${lane.name} ${lane.wake.spell ?? 'none'}`, subject: lane.name,
       ...(Number.isFinite(attempts[0]?.at) ? { since: attempts[0].at } : {}),
       text: `could not wake ${lane.name}: ${tried.join('; ')}`,
-      evidence: attempts.length === 0 ? `no attempt: ${lane.wake.why ?? 'none'}` : attempts.map(one => `${one.path} at ${clockOf(one.at)} by ${one.by}${Number.isFinite(one.sentAt) ? `, sent ${clockOf(one.sentAt)}` : ''}: ${one.verdict ?? 'pending'}${one.why ? ` (${one.why})` : ''}`).join('; '),
+      evidence: attempts.length === 0 ? `no attempt: ${lane.wake.why ?? 'none'}` : attempts.map(one => `${one.path} at ${clockOf(one.at)} by ${one.by}${Number.isFinite(one.sentAt) ? `, sent ${clockOf(one.sentAt)}` : ''}: ${one.verdict ?? 'pending'}${one.why ? ` (${plainWhy(one.why)})` : ''}`).join('; '),
     }
   })
 }
@@ -1463,10 +1553,12 @@ const SKIPS_HELD = view => SKIPS_ON_PAUSE_OR_LIMIT(view) ?? (Array.isArray(view.
 export const WATCH_RULES = [
   { id: 'stale-suspended', kind: 'watch', says: 'a worker "suspended" after its limit came back', check: staleSuspended, skips: SKIPS_ON_PAUSE },
   { id: 'ready-while-free', kind: 'watch', says: 'a ready task waits while a worker is free', check: readyWhileFree, skips: SKIPS_ON_PAUSE_OR_LIMIT },
+  { id: 'overlap-idle', kind: 'watch', says: 'free workers idle over 30 min while every waiting step shares its files with a step under way', check: overlapIdle, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'working-not-running', kind: 'watch', says: 'a worker whose card says it works while its chat makes no call and writes nothing', check: workingNotRunning, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'skip-repeats', kind: 'watch', says: 'a compaction skipped for the same reason twice in a row', check: skipRepeats },
   { id: 'repair-repeats', kind: 'watch', says: 'the same repair three times or more in a day', check: repairRepeats },
+  { id: 'browser-leaks', kind: 'watch', says: 'one tool\'s headless browsers leaked and closed three times or more in a day', check: browserLeaks },
   { id: 'undelivered', kind: 'watch', says: 'a word to a chat not delivered', check: undelivered, skips: SKIPS_ON_PAUSE },
   { id: 'report-check-twice', kind: 'watch', says: 'a step whose board check failed twice', check: reportCheckTwice },
   { id: 'old-mod', kind: 'watch', says: 'a chat idle on an older Workers mod than the one installed for over 30 min', check: oldMod },

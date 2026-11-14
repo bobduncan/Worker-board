@@ -10,6 +10,7 @@
 // it to the supervisor as its port `owns`. The runner reads the view, runs the rules over it, and acts only through the
 // ports it is given.
 
+import { browserMemory, watchBrowsers } from './browsers.mjs'
 import { CHECKS, REPAIR_RULES } from './rules/repair.mjs'
 import { buildView } from './view.mjs'
 
@@ -151,6 +152,16 @@ export async function applySync(findings, ports, noted = new Set()) {
       // B751: a folder with files and no git is moved aside, and the row says where.
       if (done?.ok === true) row(one, 'Cleaned', typeof done.movedTo === 'string' ? `${one.text}: moved to ${String(done.movedTo).replace(/\\/g, '/')}` : one.text)
       else row(one, 'Left', `${one.text}: not removed (${done?.why ?? 'no answer'})`)
+    } else if (fix.do === 'close') {
+      // Leaked headless browsers (2026-11-13): closed by the board, its temp profile removed; one that could not be is listed, no chat told.
+      const done = await Promise.resolve().then(() => ports.closeBrowser(fix.browser))
+        .catch(error => ({ ok: false, why: error instanceof Error ? error.message : String(error) }))
+      // Chat 1's guard 4: one close per browser, tried once whatever its outcome (a failed kill is not tried every run); the runner
+      // remembers it (`closedBrowser`), the rule lists it from then on. A close skipped before anything was tried (a landing runs, the
+      // browser is in use) counts as none.
+      if (done?.skipped !== true && typeof ports.closedBrowser === 'function') ports.closedBrowser(fix.browser, done?.ok === true)
+      if (done?.ok === true) row(one, 'Cleaned', `${one.text}: closed, its profile ${done.profile ?? 'not looked at'}`)
+      else row(one, 'Left', `${one.text}: not closed (${done?.why ?? 'no answer'})`)
     } else if (fix.do === 'list') {
       row(one, 'Left', one.text)
     } else if (fix.do === 'hand') {
@@ -212,7 +223,7 @@ export function runRules(rules, view, ctx) {
   return { findings, failed, states }
 }
 
-/** The supervisor's own memory as its file keeps it: `{ seen, repairs, trips, runs }`, anything else left out. */
+/** The supervisor's own memory as its file keeps it: `{ seen, repairs, trips, runs, browsers }`, anything else left out. */
 export function memoryOf(value) {
   const seen = value?.seen !== null && typeof value?.seen === 'object' ? Object.entries(value.seen).filter(([, at]) => Number.isFinite(at)) : []
   const repairs = Array.isArray(value?.repairs) ? value.repairs.filter(one => Number.isFinite(one?.at) && typeof one?.rule === 'string') : []
@@ -220,9 +231,13 @@ export function memoryOf(value) {
     ? Object.entries(value.trips).filter(([, times]) => Array.isArray(times)).map(([id, times]) => [id, times.filter(Number.isFinite)]) : []
   const runs = value?.runs !== null && typeof value?.runs === 'object'
     ? Object.entries(value.runs).filter(([, spans]) => Array.isArray(spans)).map(([id, spans]) => [id, spans.filter(isSpan)]) : []
-  return { seen: new Map(seen), repairs, trips: new Map(trips), runs: new Map(runs) }
+  // Chat 1's verifier of F8 (7): every close of a leaked browser that was tried, by its key `pid:created` (`{ at, ok }`), so a board
+  // restarted does not try the same browser again (a failed close too); pruned to the browsers still listed.
+  const browsers = value?.browsers !== null && typeof value?.browsers === 'object'
+    ? Object.entries(value.browsers).filter(([, tried]) => Number.isFinite(tried?.at) && typeof tried?.ok === 'boolean').map(([key, tried]) => [key, { at: tried.at, ok: tried.ok }]) : []
+  return { seen: new Map(seen), repairs, trips: new Map(trips), runs: new Map(runs), browsers: new Map(browsers) }
 }
-const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.seen), repairs: memory.repairs, trips: Object.fromEntries(memory.trips), runs: Object.fromEntries(memory.runs) })
+const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.seen), repairs: memory.repairs, trips: Object.fromEntries(memory.trips), runs: Object.fromEntries(memory.runs), browsers: Object.fromEntries(memory.browsers ?? []) })
 
 /** Signals change 6: how a rule stood in one run, for the gone clock: it looked (`complete`), it did not (`skipped`), or it threw. */
 const RUN_STATES = ['complete', 'skipped', 'failed']
@@ -249,7 +264,7 @@ export function withRun(spans, now, status) {
  * names a chat was refused under lately, `apply(body)` the work API as the board, `wake({ chat, id, text, key })` a
  * line sent once per key (the message, or null), `noted` `{ load(), save(keys) }` the keys the main chat was told of,
  * `now()`; B598: `bases()` (check.mjs `basesNow`) and `recheck(id, why)` (the board's check run again); worktree clean-up: `leftovers({ items, now })` what worktrees.mjs `findLeftovers` finds, and `clean(one)`
- * its `cleanLeftover` (both left out: no such check). `run({ asked, subject })` answers `{ at, asked, subject, rows, fine,
+ * its `cleanLeftover` (both left out: no such check); leaked browsers: `processes()` the PC's processes with their threads (cpu.mjs) and `closeBrowser(one)` browsers.mjs `closeLeaked` (both left out: no such check). `run({ asked, subject })` answers `{ at, asked, subject, rows, fine,
  * newAt, findings }` (`subject` the chat "Check now" in its menu named, or null; `newAt` when a repair finding last came
  * that the run before did not have, or null);
  * `shown(now)` is what the page shows: the newest run that was asked or found something (more than what it only lists,
@@ -273,6 +288,8 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
   // The keys of the repair findings of the last run, and when one came that the run before did not have.
   let repairKeys = new Set()
   let newAt = null
+  // Leaked headless browsers: the CPU samples per browser and the ones closed, between runs (browsers.mjs `watchBrowsers`).
+  const browsers = browserMemory()
   let status = { at: null, rules: [...rules, ...watch].map(rule => ({ id: rule.id, kind: rule.kind, says: rule.says, state: null, why: null, trips: 0 })) }
   async function once(asked, subject) {
     const now = ports.now()
@@ -286,12 +303,14 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     }
     // The supervisor's own memory, read at every run as sync.json is.
     if (typeof ports.memory?.load === 'function') memory = memoryOf(await ports.memory.load())
+    // Chat 1's verifier of F8 (7): the closes tried before this process (the memory's) stand in the runner's map, so none is tried again.
+    for (const [key, tried] of memory.browsers) if (!browsers.closed.has(key)) browsers.closed.set(key, tried)
     const memoryBefore = memoryText(memory)
     const observed = []
     const items = await ports.items()
     const assets = typeof ports.assets === 'function' ? await ports.assets() : null
     const view = buildView({
-      state, items, assets, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), bases: await lookBases(ports), branches: await lookBranches(ports), live: lookLive(ports),
+      state, items, assets, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), browsers: await lookBrowsers(ports, browsers, now), bases: await lookBases(ports), branches: await lookBranches(ports), live: lookLive(ports),
       repairs: memory.repairs, mods: typeof ports.mods === 'function' ? await ports.mods() : null, settings: ports.settings ?? {}, now,
     })
     const repairs = runRules(rules, view, { seen, observed })
@@ -309,6 +328,8 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
       apply: ports.apply,
       wake: ports.wake,
       clean: ports.clean,
+      closeBrowser: ports.closeBrowser,
+      closedBrowser: (one, ok) => browsers.closed.set(one.key, { at: now, ok }),
     }, noted)
     // The keys the main chat was told of in this run's note (for the repairs of the day, below).
     const told = new Set()
@@ -362,6 +383,8 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
         why: one.failed?.text ?? (one.skipped ? `did not look: ${one.skipped}` : null), trips: (memory.trips.get(one.rule.id) ?? []).length,
       })),
     }
+    // Chat 1's verifier of F8 (7): the closes tried, as the look pruned them to the browsers still listed.
+    memory.browsers = new Map(browsers.closed)
     if (typeof ports.memory?.save === 'function' && memoryText(memory) !== memoryBefore) await ports.memory.save(JSON.parse(memoryText(memory)))
     // Signals change 6: the rules' runs and the board's off time go with the answer, for the incidents' gone clock (index.mjs).
     const answer = {
@@ -392,6 +415,23 @@ async function lookLeftovers(ports, items, now) {
   if (typeof ports.leftovers !== 'function') return undefined
   try {
     return { found: await ports.leftovers({ items, now }) }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Leaked headless browsers (2026-11-13): the PC's processes through the runner's port `processes` (cpu.mjs's listing, with
+ * each one's threads and CPU time), read for the rule `browsers` (browsers.mjs `watchBrowsers`, with the runner's memory of
+ * samples and closes): `{ found }`, or `{ error }` when the
+ * listing failed (one row, Left, not the end of the run); undefined without the port (not Windows: no such check).
+ */
+async function lookBrowsers(ports, memory, now) {
+  if (typeof ports.processes !== 'function') return undefined
+  try {
+    const list = await ports.processes()
+    // The samples are stamped with the listing's moment, not the run's start (chat 1's review, 13).
+    return { found: watchBrowsers(list, memory, { now: typeof ports.now === 'function' ? ports.now() : now }) }
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) }
   }
@@ -468,9 +508,11 @@ export function loopOwner({ read, write, alive, pid, port, now, settleMs = 0, wa
  * it at most once in `holdMs` (the loops ask at every run, the answer of a second ago stands), and a check that fails is
  * a no, told to `onFailed`. When this process gains the lock after it was refused it (another board process held it,
  * then ended), `onGained` runs first: its memory of the files the other board wrote is read again, and the chats are
- * told where it delivers. Gives a function answering true while this process may run the loops.
+ * told where it delivers. `onSucceeded` runs after every check that answered (yes or no): the loop record's "loop-lock" is healthy
+ * again after a failure (2026-11-13: a rename that failed once at 20:59 showed as failing for over an hour, nothing cleared it).
+ * Gives a function answering true while this process may run the loops.
  */
-export function loopGate({ owner, now, holdMs = 1000, onGained, onFailed }) {
+export function loopGate({ owner, now, holdMs = 1000, onGained, onFailed, onSucceeded }) {
   let last = null
   let asking = null
   let was = null
@@ -480,6 +522,7 @@ export function loopGate({ owner, now, holdMs = 1000, onGained, onFailed }) {
       let owns = false
       try {
         owns = await owner()
+        onSucceeded?.()
       } catch (error) {
         onFailed?.(error)
       }

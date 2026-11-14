@@ -173,6 +173,11 @@ test('only the holder\'s own open requests for the step it holds count; the word
   assert.equal(assetWorkOf(step, soon, { chat: 'Worker 5' }).total, 5)
   // A running request without a start time counts from its ask for the Late (finding 8).
   assert.deepEqual(lateAssetsOf({ chat: 'Worker 5', step, assets: [request('A224', 'running')], now: at(10, 49), jobMs: 240_000 }).map(one => one.asset), ['A224'])
+  // F18: a Codex job with pictures attached (here a correction: the earlier picture and three references) may take 600 s: not late at 5 min, late past 11.
+  const withPictures = { ...request('A317', 'running', { started: at(10, 43) }), pictures: ['C:\\a.png', 'C:\\b.png', 'C:\\c.png'], follows: 'A300' }
+  assert.deepEqual(lateAssetsOf({ chat: 'Worker 5', step, assets: [withPictures], now: at(10, 49), jobMs: 240_000 }), [])
+  assert.deepEqual(lateAssetsOf({ chat: 'Worker 5', step, assets: [withPictures], now: at(10, 53), jobMs: 240_000 }), [])
+  assert.deepEqual(lateAssetsOf({ chat: 'Worker 5', step, assets: [withPictures], now: at(10, 55), jobMs: 240_000 }).map(one => one.asset), ['A317'])
 })
 
 test('Resume all skips it, in the state\'s facts and in the main chat\'s list; without the records (the mutant) it is resumed', () => {

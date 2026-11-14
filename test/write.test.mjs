@@ -7,7 +7,7 @@ import { appendFile, open, readdir, readFile, rename, rm, writeFile } from 'node
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { absentAs, again, appendLines, readKept, writeAtomic, writeUnflushed } from '../src/write.mjs'
+import { RENAME_TRIES, absentAs, again, appendLines, readKept, sweepBeside, writeAtomic, writeUnflushed } from '../src/write.mjs'
 import { tempDir } from './tempDir.mjs'
 
 const real = { open, writeFile, rename, rm, readFile, appendFile }
@@ -45,6 +45,35 @@ test('a write Windows refuses once with EBUSY goes through on the next try', asy
   await writeAtomic(file, '{"ok":1}', once)
   assert.equal(refused, 2)
   assert.equal(await readFile(file, 'utf8'), '{"ok":1}')
+})
+
+test('2026-11-13: a rename Windows refuses seven times with EPERM (the PC just woke) still goes through on the eighth try; the ninth refusal is the error', async t => {
+  assert.equal(RENAME_TRIES, 8)
+  const dir = await tempDir(t)
+  const file = join(dir, 'lock.json')
+  let refused = 0
+  const seven = { ...real, rename: async (from, to) => { if (refused++ < 7) throw busy('EPERM'); return rename(from, to) } }
+  await writeUnflushed(file, '{"pid":1}', seven)
+  assert.equal(await readFile(file, 'utf8'), '{"pid":1}')
+  // The mutant (five tries): the eight refusals below would pass; eight tries give up on the eighth refusal, and nothing is left beside.
+  let count = 0
+  const eight = { ...real, rename: async () => { count += 1; throw busy('EPERM') } }
+  await assert.rejects(writeUnflushed(join(dir, 'other.json'), 'x', eight), { code: 'EPERM' })
+  assert.equal(count, 8)
+  assert.deepEqual((await readdir(dir)).filter(name => name.endsWith('.tmp')), [])
+})
+
+test('2026-11-13: sweepBeside removes the files a cut-off write left beside the file, older than a minute; a fresh one, the file itself and other names stay', async t => {
+  const dir = await tempDir(t)
+  const file = join(dir, 'sync-loop.json')
+  await writeFile(file, '{}')
+  for (const name of ['sync-loop.json.24572.b61e6846.tmp', 'sync-loop.json.29336.2fbb1185.tmp', 'sync-loop.json.fresh.00000000.tmp', 'sync-loop.jsonx.1.00000000.tmp', 'other.json.1.00000000.tmp']) await writeFile(join(dir, name), 'x')
+  const now = Date.now() + 2 * 60_000
+  const removed = await sweepBeside(file, undefined, { now })
+  assert.deepEqual(removed.sort(), ['sync-loop.json.24572.b61e6846.tmp', 'sync-loop.json.29336.2fbb1185.tmp'])
+  assert.deepEqual((await readdir(dir)).sort(), ['other.json.1.00000000.tmp', 'sync-loop.json', 'sync-loop.json.fresh.00000000.tmp', 'sync-loop.jsonx.1.00000000.tmp'])
+  assert.deepEqual(await sweepBeside(file, undefined, { now: Date.now() }), [], 'a young file beside is a write under way')
+  assert.deepEqual(await sweepBeside(join(dir, 'no-such-folder', 'x.json')), [], 'a folder that is not there answers none')
 })
 
 test('again tries five times on EPERM, EBUSY and EACCES, and never on anything else', async () => {

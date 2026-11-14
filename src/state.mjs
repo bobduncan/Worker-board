@@ -10,7 +10,7 @@ import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
 import { allWords, closedForYou, minutesOf, sizeMinutes, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
-import { gapsOf, hourEnd, hourStart, notWorkedCounter, taskFacts, today } from './history.mjs'
+import { gapsOf, hourEnd, hourStart, notWorkedBetween, notWorkedCounter, taskFacts, today } from './history.mjs'
 import { DEAF_KEEP_MS, deafSpans } from './hearing.mjs'
 import { finishedList } from './finished.mjs'
 import { askFacts, brainstormNeeds, brainstormsState } from './brainstorm.mjs'
@@ -29,7 +29,7 @@ import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { planOf } from './work/stepPlan.mjs'
-import { heldOf, lastReportedOf, pickHeld } from './work/held.mjs'
+import { heldOf, lastReportedOf, pickHeld, sizeOf } from './work/held.mjs'
 import { planStarting, planState, withPlanWork } from './plan.mjs'
 import { standardHold } from './work/standardHold.mjs'
 import { askIdsIn, askKey, askPartsOf, sameAsk } from './work/askWords.mjs'
@@ -52,7 +52,7 @@ import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './
 import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
 import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, backgroundNoNewsOf, lateAssetsOf } from './work/assetWait.mjs'
 import { reconcile } from './work/reconcile.mjs'
-import { EFFORTS, effortPlan, runSettings } from './work/effort.mjs'
+import { EFFORTS, effortPlan, probeOf, runSettings, setsRefusedOf } from './work/effort.mjs'
 import { supervisorEffortWord, supervisorRun, supervisorSetting } from './work/supervisorEffort.mjs'
 import { isJudging } from './work/judgeWord.mjs'
 import { OWNER_LABEL, OWNER_SETTING, talkPartnerOf } from './talkPartner.mjs'
@@ -596,28 +596,69 @@ function planLineOf(name, task, held, { memory, kept, now }) {
 /**
  * Signals change 7 (B914, 2026-11-02): a worker's lane with `held`, the step it holds by the store (work/held.mjs `heldOf`,
  * `found`) and what the row draws of it: `eta` (etaOf's refine branch, generalised: the size from the take, plus the time
- * not worked since as B793 counts it per chat, `notWorked`; `from: 'size'`), `planLine` (`planLineOf`) and, when the step
+ * not worked since as B793 counts it per chat, `notWorkedTo`; eta-remaining: `heldEstimateOf`), `planLine` (`planLineOf`) and, when the step
  * its turn was given differs, the step's `brief` for its window. Null for a worker that holds none, for the main chat and a
  * leftover. The card (`lane.task`) stays as it was for the card flag, the sync check, Stop task, the Supervisor rules and an
  * ask's step; the row reads `held` only. Also: `isWithoutTime` only for a working worker whose held step has no size (B832
  * should prevent it), never one that holds none; `lastTask` (B148) the step it reported last (`lastReported`), not its card.
  */
-function withHeld(lane, { found, notWorked, lastReported, briefOf, planMemory, planKept, now }) {
+function withHeld(lane, { found, notWorkedTo = () => 0, lastReported, briefOf, planMemory, planKept, now }) {
   if (lane.isMain === true || lane.isLeftover === true) return lane
   if (found === null) {
     const last = lane.state === 'free' && lastReported !== null ? { text: `${lastReported.id} ${lastReported.title}`, id: lastReported.id, title: lastReported.title, at: lastReported.at } : null
     return { ...lane, held: null, isWithoutTime: false, lastTask: last }
   }
-  const eta = found.size === null || found.since === null ? null
-    : etaOf({ leftMs: null, estimateAt: null, stepMinutes: null, refineMinutes: found.size, takenAt: found.since, offTakenMs: notWorked(found.since) }, 'working', now)
+  const eta = heldEstimateOf(found, { notWorkedTo, now })
   const brief = lane.givenTask?.step?.id === found.id ? null : briefOf(found.id)
   const held = {
     ...found,
-    eta: eta === null ? null : { at: eta.at, leftMs: eta.leftMs, isOver: eta.isOver, isOverdue: eta.isOverdue, from: 'size' },
+    eta,
     planLine: planLineOf(lane.name, lane.task ?? null, found, { memory: planMemory, kept: planKept, now }),
     ...(brief === null ? {} : { brief }),
   }
-  return { ...lane, held, isWithoutTime: lane.state === 'working' && found.size === null, lastTask: null }
+  return { ...lane, held, isWithoutTime: lane.state === 'working' && eta === null, lastTask: null }
+}
+
+/**
+ * eta-remaining (the person, 2026-11-11: "i want the board to reflect the remainting ETA"; the case: Worker 1 on B1125 read "2 h 30 min
+ * over" in amber from its size while it worked on, its last minutes-left at 13:44). A held step's time: its latest estimate minus
+ * the working time since it was said (B793: a pause, a stop, a wait or the board off is no time worked; `notWorkedTo(from, to)`).
+ * The estimate is the worker's own minutes-left (`plan.until`, given at `plan.estimatedAt`): `from: 'take'` when given with the take
+ * (within its minute), `from: 'own'` for a later `work step` with minutes; without one since the take, its size from the take
+ * (`from: 'size'`, `saidAt` the take). `{ at, leftMs, saidAt, from, isOver, isOverdue: false, share, asked }`. Past it, `at` is the
+ * moment the worked time first reached the estimate (review blocker 2: it never drifts with a later pause); never overdue (quiet,
+ * never amber); `asked` once the board asked a fresh estimate for this one (its History line, held.mjs `askedFor`, written by the
+ * work API's `step` answer). Null with neither.
+ */
+export function heldEstimateOf(found, { notWorkedTo = () => 0, now }) {
+  const plan = found?.plan ?? null
+  const since = Number.isFinite(found?.since) ? found.since : null
+  const isOwn = plan !== null && Number.isFinite(plan.until) && Number.isFinite(plan.estimatedAt) && (since === null || plan.estimatedAt >= since)
+  if (!isOwn && (!Number.isFinite(found?.size) || since === null)) return null
+  const saidAt = isOwn ? plan.estimatedAt : since
+  const needMs = isOwn ? Math.max(0, plan.until - plan.estimatedAt) : found.size * MIN
+  const workedBy = to => Math.max(0, to - saidAt - notWorkedTo(saidAt, to))
+  const worked = workedBy(now)
+  const isOver = worked >= needMs && now > saidAt + needMs
+  let at = now + (needMs - worked)
+  if (isOver) {
+    // The first moment the worked time reached the estimate: worked time only grows, so a search to the second finds it.
+    let low = saidAt + needMs
+    let high = now
+    while (high - low > 1000) {
+      const middle = Math.floor((low + high) / 2)
+      if (workedBy(middle) >= needMs) high = middle
+      else low = middle
+    }
+    // Inside that second the chat worked, so the worked time grew with the clock: step back by what it ran over.
+    at = Math.max(low, high - (workedBy(high) - needMs))
+  }
+  const total = since === null ? null : Math.max(0, now - since - notWorkedTo(since, now))
+  const leftMs = isOver ? 0 : Math.max(0, needMs - worked)
+  const share = total === null ? null : total + leftMs === 0 ? 1 : Math.min(1, total / (total + leftMs))
+  // eta verifier 12: with no take known (a renamed chat's take is under its old name) it is not known that it was re-estimated: 'take'.
+  const from = !isOwn ? 'size' : since === null || plan.estimatedAt - since < MIN ? 'take' : 'own'
+  return { at, leftMs, saidAt, from, isOver, isOverdue: false, share, asked: isOver && found.askedFor === saidAt }
 }
 
 /**
@@ -1544,6 +1585,49 @@ function goalsUnder(goalMap, id) {
  * task that checks one of them (`workerOn`), never a step's Owner alone; null when no card does. 2026-11-01: `options.autopilot`,
  * whether Autopilot is on (an ask routed to the recap stands with the person only then, src/recapCard.mjs `standingAsksOf`).
  */
+/**
+ * eta-remaining (the person, 2026-11-11: "i want the board to reflect the remainting ETA"; G64 read "about 10 h left" from the sizes of
+ * its how, made at the start): the minutes an open part still needs, its open steps' latest estimates added up: a step a worker holds
+ * (also one in review that the check handed back to it, held.mjs R2) counts its held time left (`heldEstimateOf`); past its estimate it
+ * is not known, so it counts its refine Size (held.mjs `sizeOf`), else its share of the part (review D: never 0 while it is worked on).
+ * A step in review that no worker holds counts 0 (built, its check left); one not started its refine Size, else its share of the part
+ * (the part's size over its steps), so one unsized step never puts the whole part back on its first size (review 18, 26). A part with
+ * no steps yet counts its own size. Null when nothing of it names a time.
+ */
+function partLeftMinutes(part, steps, lanes, now) {
+  const known = (part?.steps ?? []).map(id => steps.get(id)).filter(one => one !== undefined)
+  const partSize = sizeMinutes(part?.size ?? null)
+  if (known.length === 0) return partSize
+  const share = partSize === null ? null : Math.ceil(partSize / known.length)
+  const open = known.filter(one => !FINISHED.includes(one.head.get('State')))
+  if (open.length === 0) return 0
+  // A step's time: the lane that holds it (its time left), past its estimate its Size, else its share of the part.
+  const timeOf = one => {
+    const lane = (lanes ?? []).find(each => each?.held?.id === one.head.get('Id') && (each.held.eta ?? null) !== null)
+    if (lane !== undefined && lane.held.eta.isOver !== true) return Math.max(1, Math.ceil(lane.held.eta.leftMs / MIN))
+    return sizeOf(one) ?? share
+  }
+  // eta verifier 2: a step in review whose fix is under way (a step with `Fix of` it, not finished, in no part maybe) counts that fix's
+  // time; only one whose fixes are all finished (its check left) counts 0.
+  const fixesOf = id => [...steps.values()].filter(one => one.head.get('Fix of') === id && !FINISHED.includes(one.head.get('State')))
+  const reviewTime = (one, seen = new Set()) => {
+    const id = one.head.get('Id')
+    if (seen.has(id)) return 0
+    seen.add(id)
+    const fixes = fixesOf(id)
+    if (fixes.length === 0) return 0
+    const times = fixes.map(fix => (fix.head.get('State') === 'review' ? reviewTime(fix, seen) : timeOf(fix)))
+    return times.some(time => time === null) ? null : times.reduce((sum, time) => sum + time, 0)
+  }
+  const times = open.map(one => {
+    const isHeld = (lanes ?? []).some(each => each?.held?.id === one.head.get('Id') && (each.held.eta ?? null) !== null)
+    if (!isHeld && one.head.get('State') === 'review') return reviewTime(one)
+    return timeOf(one)
+  })
+  // eta verifier 6: a step that names no time leaves the part's time not known (null): the goal line then gives no "only checks" words.
+  return times.some(one => one === null) ? null : times.reduce((sum, one) => sum + one, 0)
+}
+
 export function focusState(goalMap, items, threads, prefix, partner = null, now = null, lanes = null, recaps = null, goalRecaps = null, options = {}) {
   const node = goalMap?.focus ? goalMap.byId.get(goalMap.focus) ?? null : null
   if (node === null) return null
@@ -1626,7 +1710,10 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     const known = node.parts[index].steps.map(id => steps.get(id)).filter(one => one !== undefined)
     return known.length > 0 && known.every(one => FINISHED.includes(one.head.get('State')) || waiting.has(one.head.get('Id')))
   }).length
-  const left = whole.filter(part => part.state !== 'done' && part.state !== 'stopped').map(part => sizeMinutes(part.size)).filter(one => one !== null)
+  const leftAll = whole.filter(part => part.state !== 'done' && part.state !== 'stopped').map(part => partLeftMinutes(node.parts[parts.indexOf(part)], steps, lanes, now))
+  const left = leftAll.filter(one => one !== null)
+  // eta verifier 6: an open part whose time is not known makes the sum a lower bound (`timeUnknown`): no "only checks" words then.
+  const timeUnknown = leftAll.some(one => one === null)
   // B343: the goal's steps one by one, for the simple Overview: its parts' in order, then its own ("Steps:"), each once;
   // a step the store does not hold, or one dropped, is not listed.
   const stepList = [...new Set([...node.parts.flatMap(part => part.steps), ...node.steps])]
@@ -1679,7 +1766,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     partnerDecides: node.partnerDecides,
     youDecide: node.youDecide,
     howAgreed: node.howAgreed,
-    progress: { done: whole.filter(part => part.state === 'done').length, total: whole.length, ...(stopped > 0 ? { stopped } : {}), minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0), ...(recapRows.length > 0 ? { forDemo } : {}) },
+    progress: { done: whole.filter(part => part.state === 'done').length, total: whole.length, ...(stopped > 0 ? { stopped } : {}), minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0), ...(timeUnknown && left.length > 0 ? { timeUnknown: true } : {}), ...(recapRows.length > 0 ? { forDemo } : {}) },
     // Autopilot: the steps that wait for the goal's recap, each with its asks, for the goal demo's words.
     ...(recapRows.length > 0 ? { recapRows } : {}),
     // Work blocks (2026-10-31): the round of its work (null before Go), and the blocks open in it, by their place in `parts`.
@@ -2220,7 +2307,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       // while it is being typed (ten minutes at most); for two minutes after it arrived, before its turn shows; and then
       // while the Advisor is at work on the turn that began with it (an hour at most). A turn begun later is another.
       // B352: the high effort mode last asked for it, what its last answer ran on, and whether that is the mode asked.
-      effort: partnerEffort({ sent, partner: advisorChat.name, entries: advisorEntries }),
+      effort: partnerEffort({ sent, partner: advisorChat.name, entries: advisorEntries, now }),
       roundRuns: (() => {
         const last = sent.findLast(message => message.to === advisorChat.name && (message.command === 'round' || message.command === 'recheck'))
         if (last === undefined) return false
@@ -2404,8 +2491,11 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // T8.5: a worker on the sequence: its state now, as the one decision reads it. Nothing is decided here (no ready task and
   // no clear are offered, so only what the facts say shows); the board's refresh and the worker's turn end carry it out.
   // Signals change 3: with `asked`, when its "go on" line of this stopped spell was written (the lane's "asked to go on at HH:MM").
+  // B1160 round 3, item 5: the refusal and its next check from the whole outbox (`stepWords`), before the lanes' own decisions, so a free
+  // worker's words say when the board checks again (effort.mjs `probeOf`; its `dueAt` needs no lanes).
+  const setsRefusedEarly = setsRefusedOf(stepWords, now) ? { nextCheckAt: probeOf({ sent: stepWords, lanes: [], now, main: null }).dueAt } : null
   const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step, asked, kind }) => ({ state, why, step, asked, ...(typeof kind === 'string' ? { kind } : {}) }))(decide({
-    ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps, assets: assetRecords }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' }, wakes }),
+    ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps, assets: assetRecords, setsRefused: setsRefusedEarly }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' }, wakes }),
     ready: [], owed: null,
   })))
   // Signals change 7: each worker's hand-over, decided once, for the step it holds (`held`) and its lane's line below.
@@ -2441,7 +2531,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const planKept = new Map()
   const chats = sequenced.map(lane => withHeld(lane, {
     found: lane.isLeftover === true || lane.isMain === true || !workOk ? null : heldOf(raw.work.items, lane.name, prefix, { handoverStep: handovers.get(lane.name)?.step ?? null }),
-    notWorked: notWorkedCounter(lines, lane.name, now, aliveAt),
+    // eta-remaining: the time not worked between two moments, for when the worked time reached the estimate.
+    notWorkedTo: notWorkedBetween(lines, lane.name, now, aliveAt),
     lastReported: lane.isLeftover === true || lane.isMain === true || !workOk ? null : lastReportedOf(raw.work.items, lane.name, prefix),
     briefOf, planMemory, planKept, now,
   }))
@@ -2496,7 +2587,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // mod). Model per step: its model too, by the settings' model ids, and the usual setting between steps from the settings.
   // T8.5 step 6: no line waits for a clear or a setting here: the hand-over's envelope carries both before its line.
   // The partner and its helper are skipped: their own setting (B352, set once) is never the board's to overwrite.
-  const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name, ownerChat?.name], ...runSettings(config) })
+  const efforts = reconciled === null ? null : effortPlan({ items: raw.work.items, lanes: chats, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, skip: [advisorChat?.name, helperChat?.name, ownerChat?.name], ...runSettings(config), refused: setsRefusedOf(stepWords, now), known: stepWords })
   // T8.5: a worker on the sequence is set by its envelope's `set`, at its hand-over: no word of the old plan for it.
   if (efforts) efforts.words = efforts.words.filter(word => chats.find(lane => lane.name === word.chat)?.onSequence !== true)
   // T7.5 (the person, 2026-10-28: "do B"): the Supervisor's chat is held at its own setting (`supervisorModel`, `supervisorEffort`:
@@ -2506,10 +2597,15 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const judging = workOk && supervisorLane !== null && supervisorLane !== undefined && isJudging({ items: raw.work.items, outbox: sent, to: supervisorLane.name, now })
   const supervisorWants = judging ? { ...supervisorSetting(config), effort: EFFORTS.includes(config.supervisorJudgeEffort) ? config.supervisorJudgeEffort : 'medium' } : supervisorSetting(config)
   const supervisorWord = efforts === null ? null : supervisorEffortWord({ lane: supervisorLane, setting: supervisorWants, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix })
-  if (supervisorWord !== null) efforts.words.push(supervisorWord)
+  // B1160 review 5, 7, 11: no set word to the hands while the app refuses them (effort.mjs `setsRefusedOf`), the Supervisor's and the owner's neither.
+  const setsRefused = setsRefusedOf(stepWords, now)
+  if (supervisorWord !== null && !setsRefused) efforts.words.push(supervisorWord)
   // The Product owner (2026-10-31): held at Opus, medium by code, by the same word and dedupe as the Supervisor's (src/talkPartner.mjs).
   const ownerWord = efforts === null ? null : supervisorEffortWord({ lane: ownerLane, setting: OWNER_SETTING, models: runSettings(config).models, sent, now, main: isBridgeMissing === true ? null : main?.name ?? null, prefix, who: OWNER_LABEL })
-  if (ownerWord !== null) efforts.words.push(ownerWord)
+  if (ownerWord !== null && !setsRefused) efforts.words.push(ownerWord)
+  // B1160 (verifier 3, chat 1's probe): while the refusal stands, once a day one set word that changes nothing; its hand's answer settles it.
+  const probe = efforts === null ? { dueAt: null, word: null } : probeOf({ sent: stepWords, lanes: chats, now, main: isBridgeMissing === true ? null : main?.name ?? null, ...runSettings(config) })
+  if (probe.word !== null) efforts.words.push(probe.word)
   // B570: a chat on an older Workers mod is restarted between its steps (work/modRollout.mjs): the words that ask its
   // restarter (the main chat; the partner for the main chat). T8.5 step 6: no worker: it restarts by its envelope.
   const side = (lane, name) => (lane === null || lane === undefined ? null : { ...lane, name, isRunning: lane.state === 'off' ? false : runningOf(name) })
@@ -2719,6 +2815,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     workFlags: [...(reconciled?.flags ?? []).filter(flag => flag.kind === 'broken' || flag.kind === 'handover off').map(flag => flag.text),
       // Model per step: settings that name the model ids otherwise than both, each "claude-...": the effort alone.
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
+    // B1160: whether the app refuses the board's set calls, and when the board next checks (the row and the health line say it).
+    setsRefused: efforts === null || !setsRefused ? null : { nextCheckAt: probe.dueAt },
     reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),

@@ -378,12 +378,15 @@ export function causeClassOf(one) {
  * that waits for the person's answers or for the partner's, a refine the gate stopped on or has in its line (`skip`), a rebuild
  * hold (`skip`), a step held by a blocker that someone has.
  */
-function leftOutWhy(one, { items, skip }) {
+export function leftOutWhy(one, { items, skip }) {
   if (skip instanceof Map && skip.has(one.id)) return skip.get(one.id)
   if (one.kind === 'refine' && (one.toAdvisor === true || one.held === true)) return 'a word to the Advisor is in flight'
   if (one.kind === 'refine' && one.where === 'answers') return 'its refine waits for the person\'s answers'
   if (one.kind === 'refine' && one.where === 'stopped') return 'the refine gate stopped on it'
   if (one.kind === 'partner') return 'it waits for the partner'
+  // F5 review 6: a step held back by a Touches overlap with a step at work waits for it (the rule overlap-idle is its one signal).
+  const overlap = /^waits: same files as (B[0-9]+)\b/.exec(one.why ?? '')?.[1] ?? null
+  if (one.kind === 'held' && overlap !== null && BLOCKER_AT_WORK.includes(valueOf(items.get(overlap), 'State'))) return `its files' step ${overlap} is at work`
   if (one.kind === 'held' && /^blocked by\b/.test(one.why ?? '')) {
     const atWork = blockersOf(one.why).filter(id => BLOCKER_AT_WORK.includes(valueOf(items.get(id), 'State')))
     if (atWork.length > 0) return `its blocker ${atWork.join(', ')} is at work`
