@@ -206,6 +206,8 @@ export function workerNames(state) {
  * restart for a new mod of one of the `workers`; for one that `canSpawn`, a word for a new worker.
  */
 export function isHandWord(message, { canSend = true, canSet = false, canRestart = false, canSpawn = false, workers = null } = {}) {
+  // B1160 part 2 (chat 1's decision 4): a set word meant for Main's model (the app refuses a plugin's own set call) is never a hand's.
+  if (message?.forModel === true) return false
   if (canSpawn && message?.command === 'spawn') return true
   if (typeof message?.about !== 'string') return false
   if (canSend && HAND_COMMANDS.includes(message.command)) return true

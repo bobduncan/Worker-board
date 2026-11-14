@@ -98,14 +98,15 @@ test('decision 2: an envelope whose set word the app refused goes again at once 
   }
 })
 
-test('decision 2: while the refusal stands no set word is written: the envelope goes without its set and keeps it as asked', async () => {
+// Part 2 (F5): with no main chat the envelope goes without its set at once; with one, the set goes to Main's model (setMain.test.mjs).
+test('decision 2: while the refusal stands no set word goes to the hands: with no main chat the envelope goes without its set, asked kept', async () => {
   const one = await garden(reported(), opusStep('B1163'))
   try {
     await one.outbox.say({ id: 'w0', at: NOW - 2 * MIN, to: 'Lead', command: 'worker-effort', about: 'Mower', effort: 'high', state: 'failed', failedAt: NOW - 2 * MIN, why: REFUSAL })
     assert.equal(setsRefusedOf(one.outbox.outbox(), NOW), true)
     assert.equal(setsRefusedOf(one.outbox.outbox(), NOW + 3 * 60 * MIN), true, 'no timer: it stands until a set is seen to work (review 15)')
     const lane = await one.lane()
-    const first = await one.decide(lane, NOW, { kind: 'turn-ended', since: NOW - 10 * MIN })
+    const first = await handOver({ lane, state: await one.state([lane], { restart: { main: null } }), dir: one.dir, outbox: one.outbox, apply: one.apply(NOW), config: CONFIG, now: NOW, newId: one.newId, event: { kind: 'turn-ended', since: NOW - 10 * MIN } })
     assert.deepEqual([first.envelope.set, first.envelope.asked, first.envelope.waitsFor], [null, { model: OPUS, effort: 'high' }, undefined])
     assert.equal(one.outbox.outbox().filter(message => message.command === 'worker-effort').length, 1, 'no new set word')
     assert.match(first.envelope.text, /Asked, not set \(the app refuses the board's set\): claude-opus-5-5 · high/)

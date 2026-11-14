@@ -104,7 +104,7 @@ import { minuteKeeper, stabilityKeeper } from './src/stability.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, keepPersonAction, workApi } from './src/work/api.mjs'
-import { effortOf } from './src/work/effort.mjs'
+import { effortOf, setsRefusedOf } from './src/work/effort.mjs'
 import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
@@ -1067,7 +1067,7 @@ async function main(args) {
     const back = isSameFocus || !isKnown || running.length > 0 ? null : effortBack(body.command, state.advisor?.effort)
     const main = state.restart?.main ?? null
     if (back !== null && main !== null) {
-      const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: 'usual', why: back })
+      const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: 'usual', why: back, forModel: setsRefusedOf(store.outbox(), clock()) })
       const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' }
       // Review: copied, it keeps its words as pasted, with the board's mark, as every copied word (the restart banner).
       await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
@@ -1082,7 +1082,7 @@ async function main(args) {
   const partnerMode = async (state, mode, why, yes = null) => {
     const main = state.restart?.main ?? null
     if (main === null || (state.advisor ?? null) === null || (state.advisor.effort?.mode ?? 'usual') === mode) return
-    const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode, why, yes })
+    const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode, why, yes, forModel: setsRefusedOf(store.outbox(), clock()) })
     const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' }
     await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
   }
@@ -3503,7 +3503,8 @@ async function main(args) {
       const workers = workerNames(await readState())
       const base = isHolding((await readState()).pause) ? message => message.command === 'resume' : message => !isForHandsYet(message, now, workers)
       // T8.5: an envelope is no word to type: it goes as `handover` (below), once its set is done; never while the person pauses.
-      const only = message => message.command !== HANDOVER_COMMAND && base(message)
+      // B1160 round 3, item 6: the probe is a hand's alone (its point is a hand's answer): never typed into Main.
+      const only = message => message.command !== HANDOVER_COMMAND && message.probe !== true && base(message)
       // B532: what no longer matters is closed first, so a chat is never handed a word whose purpose is gone.
       const taken = await takeFor({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep, chat: checked.chat, only })
       // What was taken shows as on its way at once.
@@ -3580,7 +3581,9 @@ async function main(args) {
         const spell = spellOf(lanes.find(lane => lane.name === message.about))
         if (spell !== null && isWakeOnItsWay(wakes, message.about, spell) && await store.close(message.id, 'dropped', 'the wake procedure wakes it', clock())) readState.reset()
       }
-      const isHand = message => !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set'), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
+      // B1160 part 2 (B1164): while the app refuses the board's set calls no hand claims a set job, but the daily probe (effort.mjs `probeOf`).
+      const setsRefusedNow = setsRefusedOf(store.outbox(), clock())
+      const isHand = message => !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null

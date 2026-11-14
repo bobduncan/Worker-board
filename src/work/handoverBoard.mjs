@@ -75,6 +75,9 @@ export const peersOf = (state, lane, config, { items = new Map(), sent = [] } = 
   // B1160 review 1-3: with what its own decide reads to bar a step (its envelopes for its bans, its set for a step).
   .map(other => ({ ...other, envelopes: envelopesOf(sent, other.name, state.chatPrefix ?? ''), setFor: setterFor(other, items, config) }))
 
+/** B1160 part 2 (chat 1's decision 4): how long a hand-over waits for Main's model to set the worker before its line goes in without it. */
+export const MAIN_SET_WAIT_MS = 5 * MIN
+
 /** Signals change 3: the person's stop and remove words about a worker (B769, carried out by code), from the outbox. */
 const stopsOf = (sent, name) => (sent ?? []).filter(one => (one?.command === 'stop' || one?.command === 'remove') && one.byCode === true && one.about === name)
 
@@ -88,7 +91,7 @@ export function factsOf({ lane, state, items, pause, sent, config, installed = n
     worker: lane, items, prefix,
     peers: peersOf(state, lane, config, { items, sent }),
     // B1160: whether the app refuses the board's set calls now (the lane says so in plain words).
-    setsRefused: setsRefusedOf(sent, now),
+    setsRefused: (state.setsRefused ?? null) !== null || setsRefusedOf(sent, now),
     nextCheckAt: state.setsRefused?.nextCheckAt ?? null,
     // P1 (2026-11-09): the branch a landing (tools/land.ps1) is running for now (its lock, else its gate log without a landings
     // line yet: src/landing.mjs `runningLanding`), or null: no give-back of its step. `landings`: the landed lines of
@@ -144,6 +147,8 @@ async function localOnlyOf(ready, items, isPushed) {
  * marks it `met`): the setting holds, so its envelope goes on. A word dropped as superseded, or one that failed, is not done.
  */
 const isWordDone = word => word?.state === 'delivered' || (word?.state === 'dropped' && word.met === true)
+/** B1160 part 2: a word for Main's model is done only when its setting was met; typed into Main is not done yet (the pass releases it). */
+const isWaitDone = word => (word?.forModel === true ? word.state === 'dropped' && word.met === true : isWordDone(word))
 
 /**
  * The envelope waiting for `chat` that may be handed out now: its set word (when it has one) is done. Signals change 4, D.4
@@ -153,7 +158,7 @@ const isWordDone = word => word?.state === 'delivered' || (word?.state === 'drop
 export function carryable(sent, chat, now, keep, { holdClear = false } = {}) {
   return sent.find(message => message.command === HANDOVER_COMMAND && message.to === chat && message.state === 'waiting' && !isLate(message, now, keep)
     && !(holdClear && message.clear !== null && message.clear !== undefined)
-    && (typeof message.waitsFor !== 'string' || isWordDone(sent.find(one => one.id === message.waitsFor)))) ?? null
+    && (typeof message.waitsFor !== 'string' || isWaitDone(sent.find(one => one.id === message.waitsFor)))) ?? null
 }
 
 /** Hands the carryable envelope of `chat` out (marked taken, as a take marks a word): its contract, or null. */
@@ -282,14 +287,26 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
     await outbox.say({ ...message, state: 'failed', failedAt: now, settledAt: now, outcome: { cleared: null, set: false, typed: false, restarted: null, background: false, why: 'no main chat whose hands could set it' } })
     return { decision, envelope: null }
   }
+  // B1160 part 2 (chat 1's decision 4): while the app refuses the board's set calls, the owed set goes to a model turn of Main: one word
+  // to Main that no hand claims (`forModel`), asked once per hand-over while the worker is free; the envelope waits for the worker to run
+  // at it, or MAIN_SET_WAIT_MS, then goes without it (the pass below; `asked` keeps what was asked for the step's line).
+  // F5 verifier 2, 7: the set word and its envelope are written in one go, so a take of Main in between never finds the word without it.
+  const words = []
+  if (isRefused && main !== null) {
+    const { usual } = runSettings(config)
+    const models = runSettings(config).models
+    const word = { id: newId(), at: now, ...effortWords({ to: main, chat: lane.name, session: lane.appSession ?? null, level: envelope.set.effort, model: envelope.set.model, usual: usual.effort, usualModel: models[usual.model] ?? null, step: envelope.step, why: `${envelope.step} is ${lane.name}'s next step (its hand-over); the app no longer lets the board's code set it, so set it yourself` }), forModel: true, state: 'waiting', envelope: id }
+    words.push(word)
+    message.waitsFor = word.id
+  }
   if (message.set !== null) {
     const { usual } = runSettings(config)
     const models = runSettings(config).models
     const word = { id: newId(), at: now, ...effortWords({ to: main, chat: lane.name, session: lane.appSession ?? null, level: envelope.set.effort, model: envelope.set.model, usual: usual.effort, usualModel: models[usual.model] ?? null, step: envelope.step, why: `${envelope.step} is ${lane.name}'s next step (its hand-over)` }), state: 'waiting', envelope: id }
-    await outbox.say(word)
+    words.push(word)
     message.waitsFor = word.id
   }
-  await outbox.say(message)
+  await outbox.sayAll([...words, message])
   // Signals change 3: the "go on" line stands in the step's History too ("the board asked Worker N to go on (stopped since HH:MM)").
   if (decision.goOn !== null) await apply({ action: 'advance', id: decision.goOn.step, goOn: { chat: decision.goOn.chat, since: decision.goOn.since } }).catch(() => null)
   return { decision, envelope: message }
@@ -310,6 +327,22 @@ export async function handoverPass({ state, dir, outbox, apply, config, installe
       const sent = outbox.outbox()
       for (const message of sent.filter(one => one.command === HANDOVER_COMMAND && one.to === lane.name && one.state === 'waiting' && typeof one.waitsFor === 'string')) {
         const word = sent.find(one => one.id === message.waitsFor)
+        // B1160 part 2: a set word for Main's model: the envelope goes once the worker runs at it, or after MAIN_SET_WAIT_MS without it (Main is
+        // busy): never twice, never a failure.
+        if (word !== undefined && word.forModel === true) {
+          const asked = message.asked ?? null
+          // F5 review 3: an effort the app's file does not say is not judged: the model alone counts then.
+          const runsIt = asked !== null && (chatEffort(lane) === null || chatEffort(lane) === asked.effort) && ((asked.model ?? null) === null || sameModel(lane.model, asked.model))
+            && !(chatEffort(lane) === null && (asked.model ?? null) === null)
+          if (runsIt || now - word.at >= MAIN_SET_WAIT_MS) {
+            // F5 review 14: the envelope's words follow (no stale "Asked, not set").
+            const after = runsIt ? { set: null, asked: null } : {}
+            await outbox.update(message.id, { waitsFor: null, ...after, ...(runsIt ? { setByMain: true } : {}), text: textOf({ ...message, ...after, asked: runsIt ? null : message.asked ?? null }) })
+            // F5 review 4, 13: the hand-over went on: a set word Main has not taken yet is closed, never typed later (mid-step, or twice).
+            if (word.state === 'waiting') await outbox.close(word.id, 'dropped', runsIt ? 'the worker runs at it already' : 'its hand-over went on without it', now)
+          }
+          continue
+        }
         // B1160: a set word the app refused does not fail the envelope: it goes on without its set, the set kept as asked.
         if (word !== undefined && isSetRefused(word)) {
           await outbox.update(message.id, { set: null, asked: message.set ?? null, waitsFor: null, text: textOf({ ...message, set: null, asked: message.set ?? null }) })

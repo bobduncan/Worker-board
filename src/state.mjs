@@ -2275,7 +2275,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       // while it is being typed (ten minutes at most); for two minutes after it arrived, before its turn shows; and then
       // while the Advisor is at work on the turn that began with it (an hour at most). A turn begun later is another.
       // B352: the high effort mode last asked for it, what its last answer ran on, and whether that is the mode asked.
-      effort: partnerEffort({ sent, partner: advisorChat.name, entries: advisorEntries }),
+      effort: partnerEffort({ sent, partner: advisorChat.name, entries: advisorEntries, now }),
       roundRuns: (() => {
         const last = sent.findLast(message => message.to === advisorChat.name && (message.command === 'round' || message.command === 'recheck'))
         if (last === undefined) return false
@@ -2459,8 +2459,11 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // T8.5: a worker on the sequence: its state now, as the one decision reads it. Nothing is decided here (no ready task and
   // no clear are offered, so only what the facts say shows); the board's refresh and the worker's turn end carry it out.
   // Signals change 3: with `asked`, when its "go on" line of this stopped spell was written (the lane's "asked to go on at HH:MM").
+  // B1160 round 3, item 5: the refusal and its next check from the whole outbox (`stepWords`), before the lanes' own decisions, so a free
+  // worker's words say when the board checks again (effort.mjs `probeOf`; its `dueAt` needs no lanes).
+  const setsRefusedEarly = setsRefusedOf(stepWords, now) ? { nextCheckAt: probeOf({ sent: stepWords, lanes: [], now, main: null }).dueAt } : null
   const handoverOf = lane => (lane.onSequence !== true || !workOk ? null : (({ state, why, step, asked, kind }) => ({ state, why, step, asked, ...(typeof kind === 'string' ? { kind } : {}) }))(decide({
-    ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps, assets: assetRecords }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' }, wakes }),
+    ...factsOf({ lane, state: { chatPrefix: prefix, readyList: null, limits, gaps, assets: assetRecords, setsRefused: setsRefusedEarly }, items: raw.work.items, pause: pauseRecord, sent, config, installed: modsLately?.installed ?? null, now, event: { kind: 'pass' }, wakes }),
     ready: [], owed: null,
   })))
   // Signals change 7: each worker's hand-over, decided once, for the step it holds (`held`) and its lane's line below.
