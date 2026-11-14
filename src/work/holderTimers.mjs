@@ -186,7 +186,9 @@ function busySpellAfter(worker, at) {
   const starts = [worker.turnAt, report?.turn, report?.busyAt].filter(start => finite(start) && start > at)
   const turnAt = starts.length === 0 ? worker.turnAt : Math.max(...starts)
   if (finite(turnAt) && turnAt > at && ['idle', 'ended'].includes(report?.state) && finite(report.since) && report.since >= turnAt) return { ms: report.since - turnAt, end: report.since }
-  if (report?.state === 'busy' && finite(report.since) && report.since > at && finite(report.at)) return { ms: report.at - report.since, end: report.at }
+  // F26 (chat 1): a turn still running (its report busy, no end yet) counts from its start too: the report's own since, or a turn start it holds.
+  const busyFrom = Math.max(-Infinity, ...[report?.since, report?.turn, report?.busyAt].filter(start => finite(start) && start > at))
+  if (report?.state === 'busy' && finite(busyFrom) && finite(report.at)) return { ms: report.at - busyFrom, end: report.at }
   return null
 }
 

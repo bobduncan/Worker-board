@@ -57,3 +57,13 @@ test('F26: the board\'s receipt of the turn start alone (a mod that sends no `tu
   // No turn at all after the go-on: given back, as before.
   assert.notEqual(decideAt(now, worker2({ turn: undefined, busyAt: undefined })).giveBack, null)
 })
+
+test('F26 (chat 1): a turn still running (its report busy, no end yet) counts from its start: not given back while it works', () => {
+  const now = t(13, 0, 52)
+  // The report says busy since 12:54:43 (its turn), heard at 13:00:52; the lane read interrupted for a moment.
+  assert.equal(decideAt(now, worker2({ state: 'busy', since: t(12, 54, 43), at: now })).giveBack, null)
+  // Its start as the turn alone (the report's since from before the go-on).
+  assert.equal(decideAt(now, worker2({ state: 'busy', since: t(10, 0), at: now })).giveBack, null)
+  // A busy report begun a minute ago only: under LONG_BUSY_MS, the give-back goes.
+  assert.notEqual(decideAt(now, worker2({ state: 'busy', since: t(12, 59, 52), turn: t(12, 59, 52), busyAt: t(12, 59, 52), at: now })).giveBack, null)
+})
