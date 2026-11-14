@@ -112,7 +112,7 @@ import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isF
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, carrierWords, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
-import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
@@ -2691,6 +2691,19 @@ async function main(args) {
   const carriedAttemptOf = word => (wakes.wakes.get(word.about) ?? []).flatMap(entry => entry.attempts).findLast(one => one.jobId === word.id) ?? null
   /** F17 review 7, 18: when the scheduled courier last asked for wakes (wakes-due), or null: the board counts on it only while it calls. */
   let lastCourierAt = null
+  /** F17, chat 1's re-check 1: whether the main chat covers Resume all's list itself: it runs, or its own wake is on its way. */
+  const mainCoversOf = state => {
+    const main = boardLanes(state).find(lane => lane.name === state.restart?.main && lane.isLeftover !== true) ?? null
+    if (main === null) return false
+    if (main.isRunning === true) return true
+    const spell = spellOf(main)
+    return spell !== null && isWakeOnItsWay(wakes, main.name, spell)
+  }
+  /** F17, chat 1's re-check 1: the needs a carry word or a launch may take now (a resume-list need waits while the main chat covers it). */
+  const wakeNeedsNow = (state, needs, now) => {
+    const mainCovers = mainCoversOf(state)
+    return needs.filter(need => !mainCoversResume(need, { pause: state.pause, now, mainCovers }))
+  }
   /** F17: the chats that may carry a wake: the board's lanes but the helper and the Product owner (as say.mjs `wakerOrder`). */
   const carriersOf = state => boardLanes(state).filter(lane => lane.name !== state.advisorHelper?.name && lane.name !== state.productOwner?.name)
   /**
@@ -2752,7 +2765,7 @@ async function main(args) {
       const main = state.restart?.main ?? null
       const alive = courierAlive(lastCourierAt, now)
       const newId = () => randomBytes(8).toString('hex')
-      const needs = wakeNeeds(state, outbox, { resumeList: await resumeListOf(state), canLaunch: canLaunchNow() })
+      const needs = wakeNeedsNow(state, wakeNeeds(state, outbox, { resumeList: await resumeListOf(state), canLaunch: canLaunchNow() }), now)
       // Claimed in the record before any await (`carryPlan`): a hand or a second pass in between finds the claim.
       const words = carryPlan(wakes, { needs, lanes: carriers, main, now, newId, runOf: chat => reports?.get(chat)?.run ?? null, outbox: store.outbox(), courierAlive: alive })
       // Review 8: a start or wake word no hand may send now (the reconciler's start of a free worker, B577's wake of a stopped chat): one
@@ -2811,7 +2824,7 @@ async function main(args) {
     const outbox = store.outbox().filter(message => !isLate(message, now, keep))
     const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
     const nobody = gone ? nobodyRunsSpell(state, outbox) : null
-    const needs = wakeNeeds(state, outbox, { resumeList: await resumeListOf(state), canLaunch: canLaunchNow() })
+    const needs = wakeNeedsNow(state, wakeNeeds(state, outbox, { resumeList: await resumeListOf(state), canLaunch: canLaunchNow() }), now)
     // One launch per check (src/wake.mjs `launchPlan`): the next waits for the next minute's look.
     // F17: a carried message is a sender too (a model's turn, or the courier): the launch waits for its verdict, as for a hand's.
     // Review 7, 18: while refused, the message way has a sender only through a free carrier or a courier that calls; else the launch goes at once.

@@ -6264,6 +6264,9 @@ back with their attempts; the refusal the record's old attempts show is seeded a
 holds a wake need, Send again or the launch off (only another such word); wakes-due closes one whose target has a wake on its way; a
 carry word keeps as long as an answer (the courier's 15-min wait); only a pause holds the wakes, Resume all does not; a raw refusal in
 the record is read plain at load, and the could-not-wake evidence uses plain words.*
+*Re-check (chat 1, 2026-11-14): while Resume all runs, the main chat's model sends the resume line to its list itself; a resume-list need
+gets no courier word and no launch for RESUME_GRACE_MS (3 min) from the resume's start while the main chat runs or its own wake is on its
+way (`mainCoversResume`), then the holders still asleep are taken. A carry word records what it is for (`for`, wakeNeeds's why).*
 
 Chat 1's brief (`.claude/plans/2026-11-14-f17-wakes-brief.md`, the person's "Both (A + B)") and its review
 (`.claude/plans/2026-11-14-f17-review.md`). Since the app's update of 08:10 (5.11492.5.0) auto mode refuses the Workers mod's own

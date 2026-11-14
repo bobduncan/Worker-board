@@ -9,7 +9,7 @@ import { WATCH_RULES, isUndelivered } from '../src/supervisor/rules/watch.mjs'
 import { isLate, keepMs } from '../src/store.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { emptyWakes, claim, carryPlan, failedToSend, heard, nextPath, pass, personAgain, sent, statusOf, textOfWakes, triedWords, wakeCarriedTake, wakeNeeds, wakeOf, wakesOfFile, wakeWords } from '../src/wake.mjs'
-import { CARRY_BY_MODEL, CARRY_VERDICT_MS, COURIER, carriedChats, carryPaused, closeWay, CARRY_DUE_MS, SEND_REFUSED_WHY, carrierOf, freeChatOf, carryCloses, carryText, carryTurnBegan, courierAlive, dueOf, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from '../src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, CARRY_VERDICT_MS, COURIER, RESUME_GRACE_MS, carriedChats, carryPaused, closeWay, mainCoversResume, CARRY_DUE_MS, SEND_REFUSED_WHY, carrierOf, freeChatOf, carryCloses, carryText, carryTurnBegan, courierAlive, dueOf, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from '../src/wakeCarry.mjs'
 import { PROBE_MS } from '../src/work/effort.mjs'
 
 const MIN = 60_000
@@ -314,4 +314,14 @@ test('F17 check 4: a refusal the record keeps in raw words is read plain, marked
   const [found] = WATCH_RULES.find(one => one.id === 'wake-failed').check(view, { seen: new Map(), observed: [] })
   assert.ok(found, 'the incident')
   assert.doesNotMatch(`${found.text} ${found.evidence}`, RAW)
+})
+
+test('chat 1\'s re-check 1: while Resume all runs and the main chat covers its list, a resume need waits RESUME_GRACE_MS; then it is taken', () => {
+  const pause = { state: 'resuming', since: NOW }
+  const need = { chat: 'Worker 2', why: 'resume' }
+  assert.equal(mainCoversResume(need, { pause, now: NOW + MIN, mainCovers: true }), true)
+  assert.equal(mainCoversResume(need, { pause, now: NOW + RESUME_GRACE_MS, mainCovers: true }), false, 'after the grace: the holders still asleep')
+  assert.equal(mainCoversResume(need, { pause, now: NOW + MIN, mainCovers: false }), false, 'no main chat to cover it')
+  assert.equal(mainCoversResume({ ...need, why: 'envelope' }, { pause, now: NOW + MIN, mainCovers: true }), false, 'only the resume list')
+  assert.equal(mainCoversResume(need, { pause: { state: 'running', since: NOW }, now: NOW + MIN, mainCovers: true }), false)
 })

@@ -145,6 +145,8 @@ export function carryWord({ id, at, need, carrier, of = null }) {
   return {
     id, at, to: carrier ?? COURIER, command: CARRY_COMMAND, about: need.chat, forModel: true, spell: need.spell ?? null, session: need.appSession,
     wakeText: need.text, text: carryText(need.chat, need.appSession, need.text), state: 'waiting', ...(of === null ? {} : { of }),
+    // What the wake is for (wakeNeeds's why: an envelope, the resume list, words, ...), for the log and the checks.
+    ...(typeof need.why === 'string' ? { for: need.why } : {}),
   }
 }
 
@@ -213,6 +215,16 @@ export function carryCloses({ outbox, lanes, attemptOf, now, paused = false }) {
   }
   return out
 }
+
+/**
+ * Chat 1's re-check of 2026-11-14, 1: while Resume all runs, the main chat's model sends the resume line to every holder on its list
+ * (sends the board does not see). So a resume-list need gets no courier word and no launch for RESUME_GRACE_MS from the resume's start
+ * while the main chat runs or its own wake is on its way (`mainCovers`); after it, the courier or the launch takes the holders that still
+ * have not started. Without the main chat, the courier takes them at once.
+ */
+export const RESUME_GRACE_MS = CARRY_DUE_MS
+export const mainCoversResume = (need, { pause, now, mainCovers = false }) => pause?.state === 'resuming' && need?.why === 'resume' && mainCovers === true
+  && isTime(pause.since) && isTime(now) && now - pause.since < RESUME_GRACE_MS
 
 /** Verifier 6, 10: the person pauses (or the resume runs): carry words wait no more, nothing goes to the courier. */
 // F17 check 3: only while the person pauses; while Resume all runs the wakes go (the resume list is a need).

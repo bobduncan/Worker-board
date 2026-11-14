@@ -68,7 +68,7 @@ const SPELL = NOW - 40 * MIN
  * A board over a made-up project: Main and Worker 1 report idle (they run), Worker 2 never reported (asleep). `refused`: the wake record
  * holds the live refusal of a hand's send (08:16's, at today's time). `lines` the outbox; `attempts` more attempts of Worker 2's spell.
  */
-async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NOW - 30 * MIN, byModel = false, pause = null }) {
+async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NOW - 30 * MIN, byModel = false, pause = null, files = {} }) {
   const dir = await mkdtemp(join(tmpdir(), 'board-carry-'))
   const started = []
   t.after(async () => {
@@ -86,6 +86,8 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   const wakes = { wakes: { ...(refused ? { Old: [{ spell: refusedAt - MIN, attempts: [old], turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}), ...(attempts.length > 0 ? { 'Worker 2': [{ spell: SPELL, attempts, turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}) } }
   await put(join(board, 'data', 'wakes.json'), `${JSON.stringify(wakes)}\n`)
   if (pause !== null) await put(join(project, '.claude', 'work', 'pause.json'), JSON.stringify(pause))
+  for (const [id, text] of Object.entries(files)) await put(join(project, '.claude', 'work', `${id}.md`), text)
+  if (Object.keys(files).length > 0) await put(join(project, '.claude', 'work', 'activities.json'), `${JSON.stringify({ preamble: [], activities: [{ name: 'Art', steps: Object.keys(files) }] }, null, 1)}\n`)
   const chats = join(project, '.claude', 'chats')
   await put(join(chats, 'list.json'), '{"prefix":"Game - ","main":"Main"}')
   const appChat = (name, sessionId, cliSessionId) => JSON.stringify({ title: `Game - ${name}`, sessionId, cliSessionId, cwd: project, isArchived: false, createdAt: NOW - 600 * MIN, lastActivityAt: NOW - 2 * MIN })
@@ -296,4 +298,47 @@ test('F17 check 1: a start word\'s courier word handed out and never said sent h
     return carried.length > 0
   }, 'the wake need\'s own courier word beside the start word\'s')
   assert.equal(carried.length, 1)
+})
+
+const two = n => String(n).padStart(2, '0')
+const stampOf = ms => { const d = new Date(ms); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}` }
+/** Worker 2 holds B12 (in progress): an asleep holder Resume all must wake. */
+const HELD = { B12: `Id: B12\nKind: step\nTitle: Plant the hedge\nState: in progress\nOwner: Worker 2\nSince: ${stampOf(NOW - 60 * MIN)}\n\n## History\n- ${stampOf(NOW - 60 * MIN)} Worker 2: taken\n` }
+
+test('chat 1\'s re-check 1: Resume all just began and Main runs: no courier word for the asleep holder (Main\'s list sends its line)', { timeout: 240_000 }, async t => {
+  const pause = { state: 'resuming', since: Date.now() - 20_000, pausedSince: NOW - 60 * MIN, by: 'person' }
+  const { json, words } = await boardWith(t, { refused: true, pause, files: HELD })
+  // The board's state has read Main's report (it runs) before the courier calls.
+  await new Promise(done => setTimeout(done, 3000))
+  await json('/api/bridge/wakes-due', {})
+  // The wake pass runs at the board's start, ten seconds on, then once a minute: past the next one.
+  await new Promise(done => setTimeout(done, 15_000))
+  assert.deepEqual((await words()).filter(one => one.command === 'wake-carry' && one.about === 'Worker 2'), [])
+})
+
+test('chat 1\'s re-check 1: past the grace the holder that still has not started gets the courier\'s word', { timeout: 240_000 }, async t => {
+  const pause = { state: 'resuming', since: Date.now() - 4 * MIN, pausedSince: NOW - 60 * MIN, by: 'person' }
+  const { json, words } = await boardWith(t, { refused: true, pause, files: HELD })
+  // The board's state has read Main's report (it runs) before the courier calls.
+  await new Promise(done => setTimeout(done, 3000))
+  await json('/api/bridge/wakes-due', {})
+  // Within 20 s (Main's report in this test goes stale after a minute; then Main no longer covers the list either way).
+  let found = false
+  for (const end = Date.now() + 20_000; Date.now() < end && !found;) {
+    found = (await words()).some(one => one.command === 'wake-carry' && one.about === 'Worker 2' && typeof one.of !== 'string')
+    if (!found) await new Promise(done => setTimeout(done, 250))
+  }
+  assert.ok(found, 'the courier\'s word for the holder, past the grace')
+  assert.deepEqual((await words()).filter(one => one.command === 'wake-carry' && one.about === 'Worker 2').map(one => one.for), ['resume'])
+})
+
+test('chat 1\'s re-check 2: a carried start word that keeps waiting gets ONE word for the courier, never a second across the passes', { timeout: 240_000 }, async t => {
+  const start = { ...WAKE_WORD, id: 'startword000002', command: 'start' }
+  const { json, words } = await boardWith(t, { refused: true, lines: [start] })
+  await json('/api/bridge/wakes-due', {})
+  await until(async () => (await words()).some(one => one.of === start.id), 'the start word\'s carry word')
+  // Past the next wake pass (once a minute).
+  await new Promise(done => setTimeout(done, 65_000))
+  assert.equal((await words()).find(one => one.id === start.id).state, 'waiting')
+  assert.equal((await words()).filter(one => one.command === 'wake-carry' && typeof one.of === 'string' && one.about === 'Worker 2').length, 1)
 })
