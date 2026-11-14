@@ -52,10 +52,13 @@ test('F26: the board\'s receipt of the turn start alone (a mod that sends no `tu
   assert.equal(decideAt(now, worker2({ turn: undefined })).giveBack, null)
   // And the mod's own turn start alone (the board's receipt lost, say after its restart).
   assert.equal(decideAt(now, worker2({ busyAt: undefined })).giveBack, null)
-  // A short turn (under LONG_BUSY_MS) after the last go-on starts nothing anew: the give-back still goes.
-  assert.notEqual(decideAt(now, worker2({ turn: t(12, 59, 50), busyAt: t(12, 59, 50) })).giveBack, null)
+  // A short turn (under LONG_BUSY_MS) after the last go-on starts nothing anew: the give-back still goes, once the holder has been stopped
+  // for a minute (F26, chat 1's design: never in the seconds between a turn's end and a hand-back turn).
+  assert.equal(decideAt(now, worker2({ turn: t(12, 59, 50), busyAt: t(12, 59, 50) })).giveBack, null, 'stopped 2 s ago: not yet')
+  const later = t(13, 1, 51)
+  assert.notEqual(decideAt(later, worker2({ turn: t(12, 59, 50), busyAt: t(12, 59, 50), at: later })).giveBack, null)
   // No turn at all after the go-on: given back, as before.
-  assert.notEqual(decideAt(now, worker2({ turn: undefined, busyAt: undefined })).giveBack, null)
+  assert.notEqual(decideAt(later, worker2({ turn: undefined, busyAt: undefined, at: later })).giveBack, null)
 })
 
 test('F26 (chat 1): a turn still running (its report busy, no end yet) counts from its start: not given back while it works', () => {
@@ -64,6 +67,8 @@ test('F26 (chat 1): a turn still running (its report busy, no end yet) counts fr
   assert.equal(decideAt(now, worker2({ state: 'busy', since: t(12, 54, 43), at: now })).giveBack, null)
   // Its start as the turn alone (the report's since from before the go-on).
   assert.equal(decideAt(now, worker2({ state: 'busy', since: t(10, 0), at: now })).giveBack, null)
-  // A busy report begun a minute ago only: under LONG_BUSY_MS, the give-back goes.
-  assert.notEqual(decideAt(now, worker2({ state: 'busy', since: t(12, 59, 52), turn: t(12, 59, 52), busyAt: t(12, 59, 52), at: now })).giveBack, null)
+  // A busy report begun a minute ago only, under LONG_BUSY_MS: the give-back goes once that report is a minute old (F26: the holder
+  // stopped for a minute), not while it was just heard.
+  assert.equal(decideAt(now, worker2({ state: 'busy', since: t(12, 59, 52), turn: t(12, 59, 52), busyAt: t(12, 59, 52), at: now })).giveBack, null)
+  assert.notEqual(decideAt(t(13, 1, 55), worker2({ state: 'busy', since: t(12, 59, 52), turn: t(12, 59, 52), busyAt: t(12, 59, 52), at: now })).giveBack, null)
 })

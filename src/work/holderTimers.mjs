@@ -174,23 +174,37 @@ function goOnsOf(item, name, prefix, from) {
 }
 
 /**
- * The worker's last busy spell that began after `at`, from its lane: `{ ms, end }`, or null. A turn begun after it
- * (`turnAt`) that ended (its report idle, or its session ended, since then), or a busy report begun after it (heard last
- * at `report.at`).
+ * The worker's work spell after `at`, from its lane: `{ ms, end }`, the latest LONG one when there is one, else the latest; null for
+ * none. F26 (B1151, 2026-11-14, chat 1's design after its review of chat 4's fix): three readings, each only after `at`:
+ * - a turn of any kind that ended: the latest start of the transcript's typed turn (`turnAt`), the mod's own `turn` and the board's
+ *   receipt `busyAt` (a turn the chat's own background work began moves only those two), to the report's idle since; an `ended`
+ *   report measures to the turn's own end (`restAt`, the chat's last rest), never to the session's end (finding 5);
+ * - work going on (busy, or idle with background work): from when the chat left rest (`workFrom`, bridge.mjs `spellOf`), so chained
+ *   turns and background time count as one stretch (finding 2), else from the latest start; to the report's last receipt;
+ * - the end of the last long spell the board saw (`longEndAt`): a short last turn never wipes a long one (findings 1 and 4).
  */
 function busySpellAfter(worker, at) {
   const report = worker.report ?? null
-  // F26 (B1151, 2026-11-14): a turn of any kind counts: the transcript's typed turn (`turnAt`), and the turn the report holds (the mod's
-  // own `turn`, the board's receipt `busyAt`): a turn the chat's own background work began (a task finished, a helper handed back)
-  // moves only those two. The latest start after `at`.
+  const spells = []
   const starts = [worker.turnAt, report?.turn, report?.busyAt].filter(start => finite(start) && start > at)
   const turnAt = starts.length === 0 ? worker.turnAt : Math.max(...starts)
-  if (finite(turnAt) && turnAt > at && ['idle', 'ended'].includes(report?.state) && finite(report.since) && report.since >= turnAt) return { ms: report.since - turnAt, end: report.since }
-  // F26 (chat 1): a turn still running (its report busy, no end yet) counts from its start too: the report's own since, or a turn start it holds.
-  const busyFrom = Math.max(-Infinity, ...[report?.since, report?.turn, report?.busyAt].filter(start => finite(start) && start > at))
-  if (report?.state === 'busy' && finite(busyFrom) && finite(report.at)) return { ms: report.at - busyFrom, end: report.at }
-  return null
+  if (finite(turnAt) && turnAt > at) {
+    const end = report?.state === 'idle' && finite(report.since) ? report.since : report?.state === 'ended' && finite(report.restAt) ? report.restAt : null
+    if (end !== null && end >= turnAt) spells.push({ ms: end - turnAt, end })
+  }
+  const isWorking = report?.state === 'busy' || (report?.state === 'idle' && report.background === true)
+  if (isWorking && finite(report.at)) {
+    const from = finite(report.workFrom) ? Math.max(report.workFrom, at) : Math.max(-Infinity, ...[report.since, report.turn, report.busyAt].filter(start => finite(start) && start > at))
+    if (finite(from) && report.at >= from) spells.push({ ms: report.at - from, end: report.at })
+  }
+  if (finite(report?.longEndAt) && report.longEndAt > at) spells.push({ ms: LONG_BUSY_MS + 1, end: report.longEndAt })
+  if (spells.length === 0) return null
+  const long = spells.filter(one => one.ms > LONG_BUSY_MS)
+  return (long.length > 0 ? long : spells).reduce((latest, one) => (one.end > latest.end ? one : latest))
 }
+
+/** F26: a give-back needs the holder stopped for this long since its report said so (the seconds between a turn's end and a hand-back turn never trigger one). */
+export const REST_MIN_MS = MIN
 
 /**
  * The two timers of one holder (rule 2 of the decision), or null when none runs: its lane works (fresh busy, background
@@ -251,6 +265,11 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   const stoppedAt = report === null ? -Infinity : ['idle', 'ended'].includes(report.state) ? (finite(report.since) ? report.since : report.at) : report.at
   const since = Math.max(progressAt, ...[stoppedAt, worker.turnAt].filter(finite))
   if (!finite(since)) return null
+  // F26 (chat 1's review, finding 3): a report gap (lane unknown) over a chat that was busy or had background work: it may well still
+  // work; nothing is given back until the lane resolves (interrupted, asleep or off, at most offAfterMinutes). And a give-back needs
+  // the holder stopped for REST_MIN_MS since its report said so (finding 1: the seconds between a turn's end and a hand-back turn).
+  const isWorkingReport = report?.state === 'busy' || (report?.state === 'idle' && report.background === true)
+  const mayGiveBack = !(worker.state === 'unknown' && isWorkingReport) && (!finite(stoppedAt) || runningMs(afterPause(pause, stoppedAt)) >= REST_MIN_MS)
 
   const mine = envelopes.filter(one => one?.kind === RESUME_KIND && markerStep(one.resume) === id && finite(one.at))
   const asked = mine.at(-1) ?? null
@@ -267,14 +286,14 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
     const checkpointAt = checkpointOf(holding)?.at
     const busy = busySpellAfter(worker, lastAt)
     const from = Math.max(lastAt, ...[checkpointAt, landedAt, assetAt, busy !== null && busy.ms > LONG_BUSY_MS ? busy.end : null].filter(at => finite(at) && at > lastAt))
-    const isOver = runningMs(afterPause(pause, from)) >= giveBackMs
+    const isOver = mayGiveBack && runningMs(afterPause(pause, from)) >= giveBackMs
     return { since, asked: lastAt, resume: null, giveBack: isOver ? { step: id, chat: name, askedAt: lastAt } : null, close: isOver && asked?.state === 'waiting' ? asked.id : null }
   }
   const workedAfter = at => progressAt > at || (finite(worker.turnAt) && worker.turnAt > at)
     || (report?.state === 'idle' && finite(report.since) && report.since > at) || (report?.state === 'busy' && finite(report.at) && report.at > at)
   if (asked !== null && !workedAfter(asked.at)) {
     // The 15 minutes count from the line being written, not delivered: a chat the app will not open never holds it for ever.
-    const isOver = runningMs(afterPause(pause, asked.at)) >= giveBackMs
+    const isOver = mayGiveBack && runningMs(afterPause(pause, asked.at)) >= giveBackMs
     return { since, asked: asked.at, resume: null, giveBack: isOver ? { step: id, chat: name, askedAt: asked.at } : null, close: isOver && asked.state === 'waiting' ? asked.id : null }
   }
   const idle = { since, asked: null, resume: null, giveBack: null, close: null }

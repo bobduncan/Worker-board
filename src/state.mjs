@@ -885,7 +885,9 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     report: reported?.entry == null ? null : { state: reported.entry.state, since: reported.entry.since, background: reported.entry.background, at: reported.entry.at, mod: reported.entry.mod ?? null,
       // Start-up check, MUST 1: the session's start (the mod's run id), to tell that the chat ran after a failed wake (wake.mjs `ranSince`).
       ...(Number.isFinite(reported.entry.run) ? { run: reported.entry.run } : {}),
-      ...(reported.entry.word === undefined ? {} : { word: reported.entry.word }), ...(Number.isFinite(reported.entry.turn) ? { turn: reported.entry.turn } : {}), ...(Number.isFinite(reported.entry.busyAt) ? { busyAt: reported.entry.busyAt } : {}) },
+      ...(reported.entry.word === undefined ? {} : { word: reported.entry.word }), ...(Number.isFinite(reported.entry.turn) ? { turn: reported.entry.turn } : {}), ...(Number.isFinite(reported.entry.busyAt) ? { busyAt: reported.entry.busyAt } : {}),
+      // F26: the work spell (bridge.mjs `spellOf`) and the chat's rest, for the timers' reading of a holder's busy spell.
+      ...(Number.isFinite(reported.entry.workFrom) ? { workFrom: reported.entry.workFrom } : {}), ...(Number.isFinite(reported.entry.longEndAt) ? { longEndAt: reported.entry.longEndAt } : {}), ...(Number.isFinite(reported.entry.restAt) ? { restAt: reported.entry.restAt } : {}) },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
     offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
       : reported.why === 'silent' ? `silent since ${sinceClock(reported.entry.at, now)}`
