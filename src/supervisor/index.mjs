@@ -20,6 +20,7 @@ import { SWEEP_AT_LEAST_HOURS, SWEEP_MOD, sweepRunner, tokensOfTurn } from './sw
 
 import { judgeWords, sweepWords } from '../say.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
+import { linkGoneNames, wordLanesOf } from '../modGone.mjs'
 import { isLate } from '../store.mjs'
 import { isHolding } from '../work/pause.mjs'
 import { JUDGE, arrivedAt, awaitingJudgment, judgeHeldBack, judgeInFlight, judgeWordNamed, judgeWordOf } from '../work/judgeWord.mjs'
@@ -511,6 +512,8 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings, judging }
     wake: async ({ subject, trigger = null, lines = [] }) => {
       const card = (await sweep.chat())?.card ?? null
       if (card === null) return { ok: false, why: 'its chat is not on the board' }
+      // F23 review 6: no second sweep word beside one held for its chat's restart (its board link is gone).
+      if (linkGoneNames(wordLanesOf(await ports.state())).has(card.name) && ports.outbox().some(message => message.to === card.name && message.command === 'sweep' && message.state === 'waiting')) return { ok: false, why: 'its board link is gone: a sweep word waits for its restart' }
       const told = await tell(sweepWords(card.name, { subject, job: sweep.job, trigger, lines }))
       if (told?.ok !== true) return { ok: false, why: told?.why ?? 'no answer' }
       const note = told.started === true ? 'its chat does not run: the main chat was asked to start it'
