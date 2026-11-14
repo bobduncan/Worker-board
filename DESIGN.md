@@ -4035,7 +4035,7 @@ Chat 1's verifier of the rework (2026-11-14, `.claude/plans/2026-11-14-f8-verifi
 
 - **The rule's switch is read where its facts exist** (blocker 1): `closesBrowsers` stood above `const historyFrom` and `const isShowOnly`
   in `main`, so on Windows every start threw in their temporal dead zone; it now follows `isShowOnly`. A source-order test in
-  `browsers.test.mjs` pins it, and `test/startBoard.test.mjs` starts a board.
+  `browsers.test.mjs` holds that order, and `test/startBoard.test.mjs` starts a board.
 - **The creation time goes in exact** (blocker 2): the listing carries `createdText` (the FILETIME as a string) beside the number, which
   loses its last digits through JSON (a double steps by 16 at 1.3e17, so an exact compare missed most processes and the folder was
   removed under a live Edge); `killVerified` names each process by that text and compares with a tolerance of 20 ticks, reports per
