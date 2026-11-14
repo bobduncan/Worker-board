@@ -985,7 +985,8 @@ export function checkpointLate(item, view) {
   const written = Number.isFinite(checkpoint?.at) && checkpoint.at >= began ? checkpoint.at : null
   const counted = from => view.now - afterPause(view, from) - boardOffMs(view, afterPause(view, from)) - (owner === undefined ? 0 : standingStillMs(view, owner.name, afterPause(view, from)))
   const quiet = counted(written ?? began)
-  const late = { step: view.now - began, checkpoint, quiet }
+  // B1175 (X196): `stopped` is the time its lane stood stopped since the checkpoint (the quiet time already leaves it out).
+  const late = { step: view.now - began, checkpoint, quiet, stopped: standingStillMs(view, owner.name, afterPause(view, written ?? began)) }
   return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
 }
 
@@ -993,9 +994,12 @@ export function checkpointLate(item, view) {
  * B572, X80: how long the chat stood suspended for the limit, or was off (not running), between `from` and now, by its
  * timeline's spans: it can write no checkpoint meanwhile. The board's own stops are boardOffMs's.
  */
+const STOPPED_STATES = new Set(['suspended', 'off', 'interrupted', 'unknown', 'waiting', 'free'])
 function standingStillMs(view, name, from) {
   const spans = view.timeline.find(one => plain(one.chat, view.prefix) === plain(name, view.prefix))?.spans ?? []
-  return spans.filter(span => span.state === 'suspended' || span.state === 'off')
+  // B1175 (X196): a stopped spell (interrupted, unknown, waiting, free) counts out like suspended and off: only the time the
+  // worker's lane read working counts toward a stale checkpoint. A time with no span (before the window) still counts.
+  return spans.filter(span => STOPPED_STATES.has(span.state))
     .reduce((sum, span) => sum + Math.max(0, Math.min(span.to ?? view.now, view.now) - Math.max(span.from, from)), 0)
 }
 
@@ -1017,7 +1021,7 @@ function staleCheckpoint(view) {
       // stale checkpoint of the same step is the same case, which must not read as gone and open again.
       rule: 'stale-checkpoint', key: `stale-checkpoint ${id}`, subject: id, text,
       evidence: `in progress since ${clockOf(sinceMs(valueOf(item, 'Since')))}; ${checkpoint === null ? 'no checkpoint in its record'
-        : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next} at ${Number.isFinite(checkpoint.at) ? clockOf(checkpoint.at) : 'a time not known'}`}`,
+        : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next} at ${Number.isFinite(checkpoint.at) ? clockOf(checkpoint.at) : 'a time not known'}`}; worked ${lasting(late.quiet)} since then, stopped ${lasting(late.stopped)} meanwhile`,
     })
   }
   return found
