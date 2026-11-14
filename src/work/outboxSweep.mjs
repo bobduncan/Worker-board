@@ -10,10 +10,12 @@
 import { shownChats } from '../bridge.mjs'
 import { heldTooLong, isHandTaken, isMootSpawn, isTaskStopWord, mootWhy, stopSettleWhy } from '../hands.mjs'
 import { RESUME_STEP, isLimitStopWord, waitsLong } from '../say.mjs'
-import { isLate, keepMs } from '../store.mjs'
+import { DOUBT_MS, isLate, keepMs } from '../store.mjs'
 import { isHeldForLink, linkGoneNames, markLinkHeld, wordLanesOf } from '../modGone.mjs'
 import { stoppedOf } from '../stopped.mjs'
-import { familyOf, sameModel } from './effort.mjs'
+import { familyOf, isSetRefused, sameModel } from './effort.mjs'
+import { TRIES } from './passing.mjs'
+import { HANDS_FIRST_MS } from '../hands.mjs'
 import { stamp } from './migrate.mjs'
 import { OLD_CHECK_WHY } from './qaTask.mjs'
 import { gitCheckAtMs, gitCheckPassed } from './resultCheck.mjs'
@@ -21,6 +23,7 @@ import { readStore } from './store.mjs'
 import { RESUME_KIND, TIMED_STATES, markerStep } from './holderTimers.mjs'
 import { WITH_WORKER } from './rethink.mjs'
 import { workLineWhy } from './workLines.mjs'
+import { isUntaken, untakenWhy } from './judgeWord.mjs'
 
 /** P2: why a waiting "back to you" word is closed when its step's check passed since. */
 export const BACK_PASSED_WHY = 'its check passed since (board re-run)'
@@ -42,7 +45,8 @@ const isStanding = message => ['waiting', 'taken', 'delivered', 'copied'].includ
  * The reason a waiting word no longer matters, or null. `ctx`: `all` (every word of the outbox), `items` (the work store's
  * items by id, null when the board has no store), `runs` (chat name to whether it runs), `goals` (the goal map's nodes),
  * `now`, `keep`, `closing` (what this sweep closes already), `lanes` (the board's chats, with the effort and model each runs at),
- * `onBoard` (B880: the names of the chats on the board now, the partner, helper, supervisor and Product owner among them).
+ * `onBoard` (B880: the names of the chats on the board now, the partner, helper, supervisor and Product owner among them),
+ * `supervisor` (B1174: the Supervisor's lane, with its wake, for why a judge word went untaken; null for none).
  */
 export function whyClosed(message, ctx) {
   const closed = whyClosedNow(message, ctx)
@@ -98,11 +102,36 @@ function whyClosedNow(message, ctx) {
   }
   // B813 (X2): the word that sets a worker's model and effort no longer matters once a newer one for that worker stands,
   // or the worker runs at its setting already; waiting or failed.
+  // B1160 (verifier 4, 5, 7): a partner's set word the app refused, with no try left (or tried again already), is closed quietly in plain
+  // words, marked refused: never an undelivered word with the app's raw text for rule 8. While a copy is on its way it stays as it is.
+  if (message.command === 'partner-effort' && message.state === 'failed' && isSetRefused(message) && (message.retriedAs !== undefined || (message.tries ?? 1) >= TRIES)) {
+    return { state: 'dropped', refused: true, why: "the app refuses the board's set calls; your partner runs on its current setting" }
+  }
+  // B1160 round 3, item 6: the probe is a hand's alone: one that no hand carried within HANDS_FIRST_MS, or that failed for another reason
+  // than the refusal, is closed in plain words (the next probe comes a day later); a refused one is closed below as refused.
+  // F5 review 10: a probe a hand gave back in doubt stays open until DOUBT_MS passed, so the hand's late answer still settles it.
+  const isProbeInDoubt = message.probe === true && message.state === 'waiting' && Number.isFinite(message.doubtAt) && now - message.doubtAt < DOUBT_MS
+  if (message.command === 'worker-effort' && message.probe === true && !isSetRefused(message) && !isProbeInDoubt
+    && ((message.state === 'waiting' && now - message.at >= HANDS_FIRST_MS) || message.state === 'failed')) {
+    return { state: 'dropped', why: 'the check whether the app lets the board set again could not run; the next comes later' }
+  }
+  // F5 review 4, 13: a set word for Main's model that Main has not taken yet is moot once its hand-over went on without it (its envelope
+  // no longer waits for it): never typed later, mid-step or twice.
+  if (message.command === 'worker-effort' && message.forModel === true && message.state === 'waiting' && typeof message.envelope === 'string') {
+    const envelope = all.find(one => one.id === message.envelope)
+    if (envelope === undefined || envelope.state !== 'waiting' || envelope.waitsFor !== message.id) return { state: 'dropped', why: 'its hand-over went on without it' }
+  }
   if (message.command === 'worker-effort') {
+    // B1160 review 6: a set word the app refused (in auto mode it does not run a plugin's own set call) is closed at once, in plain words,
+    // kept marked `refused` so the board knows the refusal stands (effort.mjs `setsRefusedOf`): never an undelivered word for rule 8.
+    if (message.state === 'failed' && isSetRefused(message)) return { state: 'dropped', refused: true, why: "the app refuses the board's set calls; it runs on its current model" }
     const newer = all.find(one => one.id !== message.id && one.at > message.at && isStanding(one) && kindOf(one) === kindOf(message))
     if (newer !== undefined) return { state: 'dropped', why: `superseded by a newer word for ${message.about}'s setting (${stamp(newer.at)})` }
     const lane = (ctx.lanes ?? []).find(one => one.name === message.about && !one.isLeftover)
-    if (lane !== undefined && lane.effort === message.effort && ((message.model ?? null) === null || sameModel(lane.model, message.model))) {
+    // B1160: the probe asks the chat's own setting on purpose (its hand's answer is the point): never met before a hand took it.
+    // F5 verifier 1, 5: an effort the app's file does not show is not judged: the model alone counts then (as the hand-over pass's runsIt).
+    const effortMet = lane !== undefined && (lane.effort === message.effort || ((lane.effort ?? null) === null && (message.model ?? null) !== null))
+    if (message.probe !== true && lane !== undefined && effortMet && ((message.model ?? null) === null || sameModel(lane.model, message.model))) {
       // B1051 (X153): the setting was met: a success, not a failure. `met` tells the hand-over pass so (it waits for this word).
       return { state: 'dropped', met: true, why: `${message.about} runs at ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort} already` }
     }
@@ -157,6 +186,8 @@ function whyClosedNow(message, ctx) {
     // gone by itself or being fixed), so a chat that did not run for hours is not typed a judgment of nothing.
     const waits = message.incidents.some(id => ['open', 'came back', 'with the supervisor'].includes(value(items.get(id), 'State')))
     if (!waits) return { state: 'dropped', why: `none of ${message.incidents.join(', ')} waits for a judgment any more` }
+    // B1174 (X43): one its chat did not take within 30 min holds no later judgment: closed with why (judgeWord.mjs), its incidents wait again.
+    if (isUntaken(message, now, keep)) return { state: 'expired', untaken: true, why: untakenWhy(message.to, ctx.supervisor?.name === message.to ? ctx.supervisor : null) }
   } else if (message.command === 'wake' && ctx.stopped instanceof Map) {
     // B577: the main chat's word to wake a stopped chat: not needed once that chat began a turn, or another session
     // stands under its name (a chat replaced), or nothing waits for it any more.
@@ -359,7 +390,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const off = new Set(shownChats(state ?? {}).filter(chat => chat.isRunning === false).map(chat => chat.name))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { gone: linkGoneNames(wordLanesOf(state)), all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)) }
+  const ctx = { gone: linkGoneNames(wordLanesOf(state)), all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)), supervisor: state?.supervisorChat ?? null }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
@@ -367,7 +398,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
     if (closed !== null && (message.state === 'waiting' || closed.state === 'dropped')) closing.set(message.id, { id: message.id, ...closed })
   }
   // B1071: a stop settled as done is closed delivered, at this sweep.
-  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : one.state === 'delivered' ? { deliveredAt: now } : {})
+  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : one.refused === true ? { refused: true } : one.untaken === true ? { untaken: true } : one.state === 'delivered' ? { deliveredAt: now } : {})
   return [...settled, ...closing.values()]
 }
 

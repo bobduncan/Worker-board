@@ -196,7 +196,8 @@ export async function shootPage({ browser = findBrowser(), html, url, layoutScri
   const profile = join(work, 'profile')
   const page = join(work, 'evidence.html')
   if (url === undefined) await writeFile(page, html)
-  const child = spawn(browser, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore', windowsHide: true })
+  // 2026-11-13 (the rule browsers): no compat-layer relaunch, so this process stays the browser's parent (a relaunched Edge has a dead stub for one).
+  const child = spawn(browser, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--edge-skip-compat-layer-relaunch', `--user-data-dir=${profile}`, '--remote-debugging-port=0', 'about:blank'], { stdio: 'ignore', windowsHide: true })
   let socket
   const deadline = setTimeout(() => socket?.close(), timeoutMs)
   try {

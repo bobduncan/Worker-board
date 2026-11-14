@@ -5,7 +5,7 @@
 // (handover.mjs `decide`, which calls `match` for that one worker); the take-back and stuck clocks are gone. The code
 // says "step"; the person reads "task".
 
-import { familyOf, modelOf } from './effort.mjs'
+import { chatEffort, effortOf, familyOf, modelOf } from './effort.mjs'
 import { UNDER_WAY, overlapIn, readyHold } from './guards.mjs'
 import { isFix, sinceMs, valueOf } from './item.mjs'
 import { barredFrom, isQaTask, notDueWhy } from './qaTask.mjs'
@@ -141,6 +141,14 @@ export function readyList(items, { now, focus = null, focusGoals = [], followUpM
     const why = staleQaWhy(item, items, now) ?? readyHold(item, ctx) ?? standardHold?.(item) ?? (routingHeld.has(id) ? 'held by its routing record' : null)
     if (why !== null) {
       held.push({ id, why })
+      continue
+    }
+    // B1160 part 2 (chat 1, the live G95 case: nine unit steps 'Ready for a worker (9)' with three workers free, none handed out: their
+    // Touches overlap B1149, under way): a step whose Touches overlap a step given or under way waits, and says so; it is not ready.
+    const overlap = overlapIn(items, item, COUNTS_FOR_TOUCHES)
+    if (overlap !== null) {
+      // F5 review 12: the words say where that step stands: given, waiting on the person, or under way.
+      held.push({ id, why: `waits: same files as ${overlap.id}, ${overlap.state === 'queued' ? 'given' : overlap.state === 'waiting on you' ? 'which waits for you' : 'under way'}`, overlap: overlap.id })
       continue
     }
     const pinned = valueOf(item, 'Pinned') === null ? null : bare(valueOf(item, 'Pinned'), prefix)
@@ -293,7 +301,7 @@ const isBarred = (one, worker, prefix = '', items = null) => {
  * idle it waits for another, and the next task of the list goes on to them. (T8.5 step 6: the hand-over's `decide` calls
  * it for one worker at a time; what it may not offer that worker it leaves out of `ready` itself.)
  */
-export function match({ ready = [], idle = [], items, prefix = '' }) {
+export function match({ ready = [], idle = [], items, prefix = '', mayTake = () => true }) {
   const scratch = new Map(items)
   // Signals change 4, D.5 (decision 13): running lanes before asleep ones, each in their given order (a stable sort).
   const free = [...idle].sort((a, b) => (a?.isRunning === true ? 0 : 1) - (b?.isRunning === true ? 0 : 1))
@@ -306,7 +314,8 @@ export function match({ ready = [], idle = [], items, prefix = '' }) {
   }
   const overlaps = one => overlapIn(scratch, items.get(one.id), COUNTS_FOR_TOUCHES) !== null
   // T9.1.1: a QA task is never given to a chat that built the step it checks, pinned or not.
-  const may = (one, worker) => !isBarred(one, worker, prefix, items)
+  // B1160 review 1-3: `mayTake(task, worker)`, the caller's own word on whether that worker could be given the task (a peer's bars).
+  const may = (one, worker) => !isBarred(one, worker, prefix, items) && mayTake(one, worker) !== false
   for (const one of ready.filter(task => task.keptFor !== null && items.has(task.id))) {
     const lane = free.find(worker => plain(worker.name, prefix) === plain(one.keptFor, prefix) && may(one, worker))
     if (lane === undefined || overlaps(one)) continue
@@ -318,8 +327,13 @@ export function match({ ready = [], idle = [], items, prefix = '' }) {
     const family = modelOf(items.get(one.id)).family
     const open = free.filter(worker => may(one, worker))
     const preferred = (one.prefers ?? null) === null ? undefined : open.find(worker => plain(worker.name, prefix) === plain(one.prefers, prefix))
-    const onIt = open.find(worker => familyOf(worker.model) === family)
-    const lane = preferred ?? onIt ?? open[0]
+    // B1160 (chat 1's decision 3, 2026-11-11: the app refuses the board's set calls since 22:43): the worker closest to the step's
+    // run first, so most hand-overs need no set: already on its model and effort, then on its model, then on its effort.
+    const effort = effortOf(items.get(one.id)).level
+    const distance = worker => (familyOf(worker.model) === family ? 0 : 2) + (chatEffort(worker) === effort ? 0 : 1)
+    const closest = [...open].sort((a, b) => distance(a) - distance(b))[0]
+    const onIt = closest !== undefined && familyOf(closest.model) === family ? closest : undefined
+    const lane = preferred ?? closest
     if (lane === undefined) continue
     give(one, lane, preferred !== undefined ? `${one.id} follows up what ${lane.name} finished` : `${one.id} is the first ready task${onIt === undefined ? '' : ` for a worker on ${family}`}; ${lane.name} is free`)
   }

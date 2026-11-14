@@ -498,6 +498,8 @@ export function parseConfig(text, env) {
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
   if (isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0) config.advisorParts = [...new Set(raw.advisorParts)]
   if (cpuLevelOf(raw.cpuLimit) !== null) config.cpuLimit = cpuLevelOf(raw.cpuLimit)
+  // Leaked headless browsers (2026-11-13): whether this board runs the PC-wide rule `browsers`; left out, the PC's first board does.
+  if (typeof raw.browsersRule === 'boolean') config.browsersRule = raw.browsersRule
   // B354: the kinds that are right, each once.
   if (Array.isArray(raw.kinds)) {
     const seen = new Set()
@@ -563,6 +565,7 @@ export function configProblem(fileText) {
   if (has('runGame') && !(Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== ''))) return wrong('runGame', 'a list of words, the program first')
   if (has('advisorParts') && !(isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0)) return wrong('advisorParts', `a list of one or more of the Focus tab's parts: ${ADVISOR_PARTS.join(', ')}`)
   if (has('cpuLimit') && cpuLevelOf(raw.cpuLimit) === null) return wrong('cpuLimit', '"full" or "low"')
+  if (has('browsersRule') && typeof raw.browsersRule !== 'boolean') return wrong('browsersRule', 'true or false')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))
   if (has('usualEffort') && !(typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase()))) return wrong('usualEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)

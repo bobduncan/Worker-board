@@ -1695,6 +1695,9 @@ a.recap-checked:hover { text-decoration: underline; }
 .recap-attention-look:hover, .recap-attention-look:focus-visible { color: #c3d6ff; }
 /* The answer form of a look in its window (the Product owner's card and the recap card name it): a note and two buttons. */
 .look-answer-note { width: 100%; box-sizing: border-box; }
+/* G95: a look's options as choices over the note, one per line. */
+.look-answer-picks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.look-answer-pick { display: flex; align-items: baseline; gap: 8px; cursor: pointer; overflow-wrap: anywhere; }
 /* T20: "Autopilot cleared n: ..." under the recap card: information, so quiet cool tones, dashed, never amber; its Undo is a link. */
 .autopilot-cleared { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 10px 14px; border: 1px dashed var(--line); border-radius: 9px; color: var(--muted); font-size: 13.5px; }
 .autopilot-cleared-words { flex: 1 1 18em; min-width: 0; overflow-wrap: anywhere; }
@@ -2562,13 +2565,15 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .run-chip.is-opus, .run-next.is-opus { --dot: var(--chip-opus); }
 .run-chip.is-fable, .run-next.is-fable { --dot: var(--chip-fable); }
 .run-chip.is-pending { border-style: dashed; }
+/* B1160: the setting a step asked that the app's refusal left unset, quiet beside what it runs on. */
+.run-asked { color: var(--muted); }
 .run-now, .run-to { white-space: nowrap; }
 .run-to { display: inline-flex; gap: 5px; }
 .run-arrow { color: var(--muted); }
 .run-next { --dot: var(--chip-sonnet); display: inline-flex; align-items: center; gap: 4px; color: var(--chip); }
 /* Simple's third cell: the time, with the chip under it, both at the right. On a phone the chip goes under the task instead,
    so the task keeps its room. */
-.simple-end { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 0; max-width: 150px; }
+.simple-end { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 0; max-width: 190px; }
 .simple-end .run-chip { justify-content: flex-end; }
 /* F9: "Open its chat" of a chat that waits because it asks in its chat. */
 .simple-chat-link { margin-left: 8px; font-size: 12.5px; white-space: nowrap; }
@@ -2839,7 +2844,9 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .simple-sub-head { margin: 14px 0 2px; color: var(--advisor); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
 .simple-task { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .simple-track.is-small { height: 5px; }
-.simple-left { white-space: nowrap; }
+/* eta-remaining (2026-11-11): the time words wrap inside the end column ("past its estimate since 14:44"), the quieter part under them. */
+.simple-left { white-space: normal; text-align: right; overflow-wrap: anywhere; }
+.simple-left .simple-of { display: block; }
 /* Needs your attention as today, without the backlog, the instructions, what is closed, and the order and closed switches. */
 #view-overview[data-mode="simple"] .inbox-top,
 #view-overview[data-mode="simple"] #needs .need.is-closed,

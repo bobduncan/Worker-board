@@ -122,7 +122,7 @@ function chatLines(view, now) {
     const on = onId === null ? null : view.items.get(onId) ?? null
     // B576 (X26): how the switch to the step's setting stands; a mismatch is odd only once it lasts after the take.
     const switching = on === null ? null : switchOf(lane, on, view)
-    const wants = on === null ? '' : `; its step ${onId} wants ${modelOf(on).family} · ${effortOf(on).level}${switchWords(switching, now)}`
+    const wants = on === null ? '' : `; its step ${onId} wants ${modelOf(on).family} · ${effortOf(on).level}${switchWords(switching, now, view.setsRefused?.nextCheckAt ?? null)}`
     // X76 (B708): a step the board has just handed over (queued for it) is its step before it takes it: working on it is no odd one.
     const handed = onId === null ? mine.find(item => valueOf(item, 'State') === 'queued')?.head.get('Id') ?? null : null
     const onWords = onId === null ? `; on no step${handed === null ? '' : `; ${handed} handed to it`}` : `; on ${onId}${on === null ? '' : ` "${oneLine(valueOf(on, 'Title'), 60)}" (${valueOf(on, 'State')})`}`
@@ -197,9 +197,11 @@ function onPurposeOf(lane, held, view) {
 }
 
 /** B576: the switch beside "wants": "(switched)", "(switch asked HH:MM)", and once it lasts how long after the take. */
-function switchWords(switching, now) {
+function switchWords(switching, now, nextCheckAt = null) {
   if (switching === null || (!switching.mismatch && switching.state !== 'switched')) return ''
   if (switching.state === 'switched') return ' (switched)'
+  // B1160 review 8: the app refuses the board's set calls: it runs on, known and quiet.
+  if (switching.state === 'refused') return ` (runs on: the app refuses the board's set calls${!Number.isFinite(nextCheckAt) ? '' : nextCheckAt <= now ? '; next check when a worker is free' : `; next check ${dayClockOf(nextCheckAt, now)}`})`
   const asked = switching.state === 'asked' ? `switch asked ${dayClockOf(switching.askedAt, now)}` : ''
   if (!switching.late) return asked === '' ? '' : ` (${asked})`
   return ` (${asked === '' ? 'no switch asked' : `${asked}, not read back`}, ${lasting(switching.since)} after the take)`

@@ -194,7 +194,8 @@ test('B766: the jobs: a restart names the board\'s chats to reopen; one new work
 test('B766: the server gives the restart and spawn words only by what the claiming chat may do', async () => {
   const { readFile } = await import('node:fs/promises')
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
-  assert.match(server, /isHandWord\(message, \{ canSend, canSet: can\.has\('set'\), canRestart: can\.has\('restart'\), canSpawn: can\.has\('spawn'\), workers \}\)/)
+  // B1160 part 2: while the app refuses the board's set calls no hand claims a set job but the probe.
+  assert.match(server, /isHandWord\(message, \{ canSend, canSet: can\.has\('set'\) && \(!setsRefusedNow \|\| message\?\.probe === true\), canRestart: can\.has\('restart'\), canSpawn: can\.has\('spawn'\), workers \}\)/)
   assert.match(server, /nextSpawn\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix, basename\(config\.project\)\)/)
   assert.match(server, /!isForHandsYet\(message, now, workers\)/)
 })
@@ -290,7 +291,8 @@ test('T14: the server keeps the claim\'s mod and gives the send jobs by it', asy
   const { readFile } = await import('node:fs/promises')
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /const claim = \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\), mod: typeof body\?\.mod === 'string' \? body\.mod : null, since: claimSince \}/)
-  assert.match(server, /const canSend = maySend\(claim\)/)
+  // F17: and no send job while the app refuses the hands' sends (src/wakeCarry.mjs `sendsRefusedOf`).
+  assert.match(server, /const mayCode = maySend\(claim\)\n\s+const canSend = mayCode && sendsRefusedOf\(wakes, store\.outbox\(\)\) === null/)
   // The Product owner (2026-10-31): and its jobs first, the wake job too.
   assert.match(server, /canSend, first: state\.productOwner\?\.name \?\? null \}\)/)
   assert.match(server, /return \{ ok: true, result: \{ jobs: ownerFirst\(jobs, state\.productOwner\?\.name \?\? null\) \} \}/)

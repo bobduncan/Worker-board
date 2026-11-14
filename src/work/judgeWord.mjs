@@ -10,6 +10,7 @@
 
 import { isLate } from '../store.mjs'
 import { sinceMs, valueOf } from './item.mjs'
+import { heldMs } from './pause.mjs'
 
 const MIN = 60_000
 /** The command and the kind of the judge word. */
@@ -29,6 +30,15 @@ export function judgeWordOf(outbox, to) {
 }
 
 /**
+ * Workers mod 0.32.0, point 5: the judge word to `to` the turn's end names (`id`, the outbox id the mod's turn ran on), or null when
+ * the id names no judge word to that chat (a line the person typed, a sweep's word, an older mod that names none).
+ */
+export function judgeWordNamed(outbox, to, id) {
+  if (typeof id !== 'string' || id === '') return null
+  return (outbox ?? []).find(message => message?.command === JUDGE && message.to === to && message.id === id) ?? null
+}
+
+/**
  * When a judge word arrived in the Supervisor's chat (typed, copied for the person to paste, or taken by its mod long ago), or
  * null while it is on its way or was lost (expired, failed, dropped, waiting past its keep).
  */
@@ -39,9 +49,54 @@ export function arrivedAt(word, now, keep = KEEP) {
   return null
 }
 
-/** Whether a judge word is on its way: waiting within its keep, held by a pause, or taken lately. */
-const onItsWay = (word, now, keep) => (word.state === 'waiting' && !isLate(word, now, keep)) || word.state === 'held'
+/**
+ * B1174 (X43, 2026-11-14: the judge word of 00:14:40 waited 12 h 28 min, taken only at 12:43:01 when the Supervisor's chat ran again,
+ * and held every later judgment all night): a judge word its chat did not take within this long after it was sent (the person's pause
+ * not counted) is no longer on its way. The outbox sweep closes it expired with its reason (`untakenWhy`), its incidents wait again,
+ * and the next judge word goes only once the chat took a word after it (`judgeHeldBack`).
+ */
+export const JUDGE_UNTAKEN_MS = 30 * MIN
+
+/** B1174: whether a judge word was not taken within JUDGE_UNTAKEN_MS: still waiting past it, or closed expired for it. */
+export function isUntaken(word, now, keep = KEEP) {
+  if (word === null || word === undefined) return false
+  if (word.state === 'expired' && word.untaken === true) return true
+  return word.state === 'waiting' && now - word.at - heldMs(word, now, keep.pause ?? null) > JUDGE_UNTAKEN_MS
+}
+
+/** Whether a judge word is on its way: waiting within its keep and not untaken, held by a pause, or taken lately. */
+const onItsWay = (word, now, keep) => (word.state === 'waiting' && !isLate(word, now, keep) && !isUntaken(word, now, keep)) || word.state === 'held'
   || (word.state === 'taken' && now - (word.takenAt ?? word.at) < TAKEN_MS)
+
+/** When a word's chat (or a hand) took it or it was typed, or null. */
+const tookAt = message => (['taken', 'delivered', 'copied'].includes(message?.state) ? Math.max(...[message.takenAt, message.deliveredAt].filter(Number.isFinite), -Infinity) : -Infinity)
+
+/**
+ * B1174: whether the newest judge word to `to` went untaken and its chat has taken no word since it did (it does not run, or its mod
+ * takes nothing): then no new judge word goes, so a chat that does not run gets one word, not one each 30 min (its sweep's word, which
+ * wakes it too, says when it runs again). From when it went untaken: its close, else JUDGE_UNTAKEN_MS after it was sent.
+ */
+export function judgeHeldBack(outbox, to, now, keep = KEEP) {
+  const word = judgeWordOf(outbox, to)
+  if (!isUntaken(word, now, keep)) return false
+  const since = Number.isFinite(word.closedAt) ? Math.min(word.closedAt, word.at + JUDGE_UNTAKEN_MS) : word.at + JUDGE_UNTAKEN_MS
+  return !(outbox ?? []).some(message => message?.to === to && message.id !== word.id && tookAt(message) > since)
+}
+
+/**
+ * B1174: why a judge word to `to` was not taken, from the Supervisor's lane as the board's state gives it (`lane`: `isRunning`,
+ * `wake`), for the outbox's record and rule 8's evidence: who did not take it, and how its chat stands.
+ */
+export function untakenWhy(to, lane) {
+  const head = `${to} did not take it within ${JUDGE_UNTAKEN_MS / MIN} min`
+  if (lane === null || lane === undefined) return `${head}: its chat is not on the board`
+  if (lane.isRunning === true) return `${head}: its chat runs, but its Workers mod did not take it`
+  if (lane.isRunning !== false) return `${head}: the board cannot tell whether its chat runs`
+  const wake = lane.wake ?? null
+  if (wake?.state === 'failed') return `${head}: its chat does not run and the board could not wake it${typeof wake.why === 'string' && wake.why !== '' ? ` (${wake.why})` : ''}`
+  if (wake === null || wake.state === 'none' || wake.state === undefined) return `${head}: its chat does not run (no wake tried yet)`
+  return `${head}: its chat does not run (its wake: ${wake.state})`
+}
 
 /**
  * Whether a judge word to `to` is in flight at `now`: the newest one is on its way, or it arrived and the Supervisor's turn

@@ -29,15 +29,19 @@ const valueOf = (item, key) => {
   return found === undefined || found === '' || found === '-' ? null : found
 }
 
+/** An app session id as a word carries it, or null. */
+const sessionId = session => (typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? session : null)
+
 /**
  * The word that asks `to` (the main chat, or the partner for the main chat) to restart `chat` (its app session
  * `session` when the board knows it) so it takes the Workers mod `installed` instead of `runs`. One message of the outbox.
  */
 export function restartWords({ to, chat, session, runs, installed, why }) {
-  const id = typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? [`Session: ${session}`] : []
+  const id = sessionId(session)
+  // 0.32.0: the session on the record too (the chat the word is about, as the app knows it).
   return {
-    to, ask: null, step: null, title: null, version: installed, verdict: null, command: RESTART_COMMAND, about: chat, runs,
-    text: ['restart for mod', `Chat: ${chat}`, ...id, `From: ${runs}`, `To: ${installed}`, `Why: ${why}`].join('\n'),
+    to, ask: null, step: null, title: null, version: installed, verdict: null, command: RESTART_COMMAND, about: chat, runs, session: id,
+    text: ['restart for mod', `Chat: ${chat}`, ...(id === null ? [] : [`Session: ${id}`]), `From: ${runs}`, `To: ${installed}`, `Why: ${why}`].join('\n'),
   }
 }
 

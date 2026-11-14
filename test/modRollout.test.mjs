@@ -88,6 +88,13 @@ test('the word names the chat, its session and both versions; the partner\'s cop
   assert.equal(isPartnerWord('mod-restart'), true)
 })
 
+test('the Workers mod release 0.32.0: the restart word carries the chat\'s session (the rollout journal that read it is split out: F20)', () => {
+  const named = restartWords({ to: 'Guide', chat: 'Lead', session: 'local_lead', runs: '0.31.0', installed: '0.32.0', why: 'x' })
+  assert.deepEqual([named.session, Object.hasOwn(named, 'chats')], ['local_lead', false])
+  assert.match(named.text, /^restart for mod\nChat: Lead\nSession: local_lead\n/)
+  assert.equal(restartWords({ to: 'Lead', chat: 'P', session: 'bad id!', runs: '1', installed: '2', why: 'x' }).session, null)
+})
+
 test('the review: a restart word stays known a day, so the three tries are counted beyond the outbox\'s two hours', () => {
   const word = { id: 'r1', to: 'Lead', command: 'mod-restart', about: 'Painter', version: '0.17.0', at: NOW - 3 * 60 * MIN, state: 'taken', text: 'restart for mod' }
   const other = { ...word, id: 'e1', command: 'worker-start' }

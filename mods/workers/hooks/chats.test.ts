@@ -646,6 +646,16 @@ describe('2c (0.28.0): the pane shows the board\'s status', () => {
     // Statuses that are not fresh: the card's task, as before, whatever the old entry held.
     expect(line('Units', board([entry('Units', 'Working', { held })], 'unreached')).text).toBe('Skeleton Archer · 3 of 5 · ~40 min')
     expect(chatsSummary(rows, NOW, [], facts).split('\n')).toContain('● Units  Working  B855 The walk · 1 h 56 of its 2 h')
+    // 0.32.0, point 2 (chat 1's verifier 2): a worker the board says holds NOTHING shows no task: the card's is stale (given back, stopped or
+    // dropped, also while its process was down). The mutant "keep the card's words" would read "Free  Skeleton Archer · 3 of 5 · ~40 min".
+    // The board sends `held` for worker lanes alone, so a role chat's or the main chat's own words (no `held`) stay.
+    expect(line('Units', board([entry('Units', 'Free', { held: null })])).text).toBe('Free')
+    expect(line('Props', board([entry('Props', 'Stopped', { held: null })])).text).toBe('Stopped')
+    expect(line('Units', board([entry('Units', 'Free')])).text).toBe('Free  Skeleton Archer · 3 of 5 · ~40 min')
+    // And the pane's own reading (statuses older than 120 s) never shows a task the board last said was none; an entry without held keeps it.
+    expect(line('Props', board([entry('Props', 'Free', { held: null })], 'plain')).text).toBe('free')
+    expect(line('Units', board([entry('Units', 'Free', { held: null })], 'plain')).text).toBe('working')
+    expect(line('Props', board([entry('Props', 'Free')], 'plain')).text).toBe('your turn · Props · 1 of 2')
     expect(heldText({ id: 'B9', title: '', time: 'No time' })).toBe('B9 · No time')
   })
 
