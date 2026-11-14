@@ -4836,34 +4836,14 @@ a chat's mod behaves as before for that chat (the call's header says the mod).
 5. **judgeTurnEnded on the named word** (judgeWord.mjs `judgeWordNamed`, supervisor/index.mjs): the mod's turn-ended carries `word`,
    the outbox id its turn ran on (8c); the board ends that judge word when it is one to the Supervisor's chat, else the newest in
    flight as before (an older mod, a turn no word started).
-- **The rollout's guard, a journal** (chat 1's review and its two verifiers, the account-switch lesson: an archived real chat must
-  always come back; chat 1's verifier of the journal, 2026-11-14, `.claude/plans/2026-11-14-f7-verifier.md`: a state machine per
-  session). Inference from snapshots, live mod calls and wall-clock windows kept producing holes (an archived main chat named from
-  the open lanes, workers on the sequence left out of a snapshot, a 2-minute mod window, a 2-hour cause window while the board was off
-  37 h), so the guard is a JOURNAL (src/work/rolloutJournal.mjs, data/rollout.json, read by the server once and written back when a
-  state build changed it): when a `restart for mod` word first shows in the outbox, a record takes the word's id, its restarter and
-  every project chat open at that moment, by session (the main chat, every worker, the side chats: whatever that archive can take
-  along). While the word waits for its restarter the list is kept current (a session archived meanwhile, the person's or the board's,
-  leaves it; one opened meanwhile joins); when the word reaches, the record keeps `reachedAt` and judges from itself from then on,
-  also once the outbox has forgotten the word. Each session goes `listed` (open, not judged) -> `archived` (seen archived after the
-  reach) -> `open` (seen open after that: the restart finished, or the person unarchived it; done). A session still open and never
-  seen archived leaves only once the restarter's turn that carried the word has ended (the lane's report after the reach says idle or
-  ended; `reportOf` from the state): a restarter cut off mid-turn never ends it, so what it archived gets its words. Also done: `gone`
-  (its app file missing from the folder listing `appFiles`, or unreadable on MISSING_LOOKS (2) looks in a row: one torn read is no
-  verdict), `removed` (a `remove` word about it since the word was made, or its card says left), `given up` (its tries spent and the
-  last one waited its turn: the person archived it on purpose). A session `archived` gets its restarter the word `unarchive chat`
-  (command `mod-unarchive`, a partner word, with the chat's session and the record's id; modRollout.mjs `unarchiveWords`;
-  roles/main.md, roles/partner.md: `unarchive_session` it, archive nothing): the restarters named from the LIST of chats (the
-  partner for the main chat, the main chat for the rest, archived or not), after UNARCHIVE_AFTER_MS of grace from the reach, again
-  UNARCHIVE_AGAIN_MS after the last word that REACHED the restarter, UNARCHIVE_TRIES (3) times in all per session across records (a
-  chat two restarts archived is asked three times, not six), never while one of its words still waits; the asks are kept on the
-  record (id, when, reached: the outbox may forget them, the record does not). A record whose word was lost or forgotten before it
-  reached goes (no archive happened); one whose every session left goes. The outbox's sweep drops a waiting unarchive word whose
-  chat is open again (outboxSweep.mjs `whyClosed`, the state's `openSessions`). Tests: test/work/rolloutJournal.test.mjs (the
-  record and its file, the blocker's order: reached, nothing archived yet, then archived; the main chat and its workers; the list kept
-  current while the word waits and the removal from the making; the torn read; the tries on the record across a forgotten outbox and
-  a 37-hour gap, and across records; the waiting asks; the leavings; the sweep), test/modUnarchive.state.test.mjs (the real case
-  through `buildState`, the journal back out of the state).
+- **The rollout's guard, split out (F20)**: chat 1's review and its verifiers asked for a guard that brings back a chat left archived
+  by a cut-off restart (the account-switch lesson). Two builds of it (an inference from snapshots, then a journal of records per restart
+  word, `data/rollout.json`) each left holes a verifier found (the last: a word in a hand's keeping counted as not reached; a hand's
+  failed job dropped the record; the spacing counted from an ask's making). Chat 1's decision of 2026-11-14: the journal is out of
+  0.32.0, which ships without an unarchive guard, as 0.31.x has none; the guard is its own item (F20), to be designed fresh from
+  take-time evidence (`.claude/plans/2026-11-14-f7-journal-r2-check.md` and the two verifier files before it hold the cases); F19
+  (carriers restart chats whose link is gone) may cover most of it. What stays of that work: the restart word carries the chat's
+  session (modRollout.mjs `restartWords`).
 - **The release**: version 0.32.0 (plugin.json, `MOD_VERSION`); land.ps1 runs the app's `claude.exe plugin test .` beside `npm test`
   when mods/workers changed; after the landing the merging chat runs `plugin marketplace update worker-board` and `plugin update
   workers@worker-board` once (roles/worker.md B570). A chat takes the mod only when its process starts anew: the rollout restarts
@@ -4871,7 +4851,7 @@ a chat's mod behaves as before for that chat (the call's header says the mod).
   chat still on the old mod after 30 minutes shows in Needs your attention (B541). The person picks the moment.
 - Pinned by the mod's tests (board.test.ts: the whole-text rule, the long word, the clash, the envelope word, `contextForTake`,
   `startedAt`; chats.test.ts: the pane with `held` null and its fallback; chatlist.test.ts: the card cleared through a take with its
-  three guards), `test/modRollout.test.mjs` (the unarchive words) and `test/judgeWordNamed.test.mjs`.
+  three guards), `test/modRollout.test.mjs` (the restart word's session) and `test/judgeWordNamed.test.mjs`.
 
 ## Clear after each step (2026-10-23)
 

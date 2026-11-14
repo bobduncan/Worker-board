@@ -283,10 +283,6 @@ it may have been done; a `spawn workers` whose new worker is on the board by the
   queued message, a background agent, the app's safety check), do nothing more: the board asks again in half an hour. When Remote Control is
   on for it, leave it running and tell the user in one line which chat keeps the older mod. Never for a chat that holds
   a step in progress (the board does not ask for one), and never for yourself (the partner restarts you).
-- `unarchive chat` with "Chat:", "Session:" (when the board knows it) and "Why:" (the Workers mod release 0.32.0): that chat is still
-  archived after its restart for the mod (the archive went, the unarchive did not: a restart in between). With the app's session tools
-  `unarchive_session` it (by its session id, else its title), nothing else; archive nothing. The board asks again in half an hour while
-  it stays archived.
 - `remove worker` with "Name: ...", "State: ..." and "Why: ...": the user removes that worker. If it works, ask it to
   stop at a safe point (work committed and pushed, nothing new started) and wait for its note; then take it out of
   the list of chats (the chat tool, action "leave" with its name) and close its chat; the board takes back a task it

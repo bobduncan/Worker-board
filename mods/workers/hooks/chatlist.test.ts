@@ -4760,6 +4760,34 @@ describe('Task 6 (0.31.0): the app merges the words queued while the chat is bus
     expect(typedOf(w).filter(id => id === 'e2c84352' || id === '45ac6f71').sort()).toEqual(['45ac6f71', 'e2c84352'])
   })
 
+  test('chat 1\'s check of F7 (7): the turn-ended call carries the word THIS turn ran on, also when the next turn (on another word) began while the tail waited for its card write', async ($, on) => {
+    const { w, clock, texts } = await queued($, on, ['e2c84352', '45ac6f71'])
+    await clock.advance(1000)
+    await $.turn.start({ text: texts.join('\n\n'), turnId: 't1' })
+    await settle()
+    // A third word is typed while T1 runs.
+    w.waiting.push({ id: '77955933', text: textOf('77955933') })
+    await clock.advance(5000)
+    await settle()
+    // T1 ends with the card chain stuck: its tail waits 1.5 s for the say; T2 starts on the third word meanwhile.
+    let releaseWrite = (): void => {}
+    w.writeHold = new Promise<void>(done => { releaseWrite = done })
+    w.worked = []
+    const ending = $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    const starting = $.turn.start({ text: textOf('77955933'), turnId: 't2' })
+    await settle()
+    await clock.advance(5000)
+    await ending
+    await starting
+    await settle()
+    releaseWrite()
+    await settle()
+    await clock.advance(0)
+    const ended = w.worked.map(body => JSON.parse(body) as { action?: string; word?: string }).filter(one => one.action === 'turn-ended')
+    expect(ended.map(one => one.word)).toEqual(['e2c84352'])
+  })
+
   test('a turn whose prompt is the person\'s own line reports none and names no word; the words stay on their way until their own prompt starts', async ($, on) => {
     const { w, clock, texts } = await queued($, on, ['7a972772', 'cf04b25b'])
     await clock.advance(1000)

@@ -19,8 +19,9 @@ import { isSetRefused } from './work/effort.mjs'
 /**
  * B1160 (verifier 4, 5, 7): a worker's set word the app refused (it does not run a plugin's own set call in auto mode) is never tried
  * again: retried it is refused again. Only a worker's: a partner-effort word keeps its retry, whose copy Main's own take may carry.
+ * Round 3, item 6: nor the probe (a hand's alone; the sweep closes it, the next comes a day later).
  */
-const isRefusedSet = message => message?.command === 'worker-effort' && isSetRefused(message)
+const isRefusedSet = message => (message?.command === 'worker-effort' && isSetRefused(message)) || message?.probe === true
 
 /** outbox.jsonl is a log: a line with an id seen before changes that message (delivered, later on). */
 export function foldOutbox(text) {
@@ -117,8 +118,7 @@ export function outboxNow(messages, now, keep, shownMs = 12 * 60 * 60_000) {
       || ((message.state === 'taken' || message.state === 'delivered') && message.command === 'recommend')
       // A word to a chat stays known for a while: the board says how it fared.
       || (typeof message.command === 'string' && now - message.at < COMMAND_KNOWN_MS)
-      // The Workers mod release 0.32.0 (chat 1's verifier): the unarchive words count the tries per restart, so they are kept as long.
-      || ((message.command === 'mod-restart' || message.command === 'mod-unarchive') && now - message.at < MOD_WORD_KEPT_MS)
+      || (message.command === 'mod-restart' && now - message.at < MOD_WORD_KEPT_MS)
       // B212: words copied for the person to paste, without a Workers mod: shown for a while, and an answer stays closed.
       || (message.state === 'copied' && (isAnswer(message) || now - message.at < shownMs))
       // A line that was taken shows as on its way until the chat has it.

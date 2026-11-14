@@ -133,7 +133,6 @@ import { readAutopilotClearedFile, readObsoleteFile, readStore } from './src/wor
 import { obsoleteView, openItemsOf } from './src/work/obsolete.mjs'
 import { evidenceLanes, obsoleteEvidence } from './src/work/obsoleteEvidence.mjs'
 import { giveBackHeld, stoppedChats, takeFor } from './src/work/outboxSweep.mjs'
-import { emptyJournal, journalOfFile, journalText } from './src/work/rolloutJournal.mjs'
 import { dismissCopied, fileStore, isLate, memoryStore, outboxKnown, outboxNow, tick } from './src/store.mjs'
 import { loads, readVersion } from './src/version.mjs'
 import { activePages, blockersOf, reportedNotLogged, selfUpdater } from './src/selfUpdate.mjs'
@@ -2077,11 +2076,6 @@ async function main(args) {
   if (savedWakes?.setAside != null) setAside.push({ file: basename(WAKES_FILE), aside: basename(savedWakes.setAside), why: null })
   else if (savedWakes?.unread != null) setAside.push({ file: basename(WAKES_FILE), aside: null, why: savedWakes.unread })
   const wakes = savedWakes?.record ?? emptyWakes()
-  // The Workers mod release 0.32.0: the rollout's journal (work/rolloutJournal.mjs), the chats open when each restart word went and
-  // the unarchive words made for them; read once here, brought up to date by every state build, written back when it changed.
-  const ROLLOUT_FILE = join(HERE, 'data', 'rollout.json')
-  let rolloutJournal = isDemo || historyFrom !== undefined ? emptyJournal() : journalOfFile((await readKept(ROLLOUT_FILE, clock()).catch(error => { loops.failed('rollout-file', error); return { value: null } })).value) ?? emptyJournal()
-  let rolloutText = journalText(rolloutJournal)
   const wakesSave = savedWakes === null ? null : wakesSaver({ file: WAKES_FILE, record: wakes, onError: error => loops.failed('wakes-file', error), onSaved: () => loops.succeeded('wakes-file') })
   // B767: what each chat's mod said its code may do at its last claim of the hands (`{ can, at, mod, since }` by name; T14:
   // with its mod's version, null for none said; change 4: `since`, when its claims began, for decision 8's "new sender").
@@ -2397,7 +2391,6 @@ async function main(args) {
       mods: Object.fromEntries([...modOf].map(([name, one]) => [name, one.version])),
       // B570: the Workers mod installed and the version each chat's mod said lately, for the restarts between steps.
       modsLately: isDemo ? demoMods() : await modsNow(),
-      rolloutJournal,
       keptReadings,
       providers,
       // Signals change 7 (B914): when each worker's own plan words last changed, as the last read saw them (memory only).
@@ -2406,15 +2399,6 @@ async function main(args) {
       now: clock(),
       config: { ...config, project },
     })
-    // The rollout's journal written back when the build changed it (the records' chats, the tries): the file is the memory.
-    if (!isDemo && historyFrom === undefined && state.rolloutJournal) {
-      const text = journalText(state.rolloutJournal)
-      if (text !== rolloutText) {
-        rolloutText = text
-        rolloutJournal = state.rolloutJournal
-        void writeUnflushed(ROLLOUT_FILE, text).then(() => loops.succeeded('rollout-file'), error => loops.failed('rollout-file', error))
-      }
-    }
     planSeen = state.planSeen ?? {}
     noWorkSeen = state.noWorkSeen ?? null
     // Only the board that runs the loops writes; a copy beside it reads what that one kept.

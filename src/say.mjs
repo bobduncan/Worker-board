@@ -559,7 +559,7 @@ export function checkSay(body, state, maxChars) {
       // 2026-10-24: the person's switch sets high effort (Opus at max) or the usual partner, never Fable.
       if (!SWITCH_MODES.includes(body.mode)) return refuse(400, 'High effort or the usual partner.')
       if (!state.advisor?.name) return refuse(409, 'No partner chat is on the board.')
-      return { ok: true, message: partnerEffortWords({ to: body.to, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: body.mode, why: 'switched on the Focus page' }) }
+      return { ok: true, message: partnerEffortWords({ to: body.to, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: body.mode, why: 'switched on the Focus page', forModel: (state.setsRefused ?? null) !== null }) }
     }
     // B438: the person thinks the board and a worker, or the whole board (`board`), are out of sync: the main chat
     // checks and fixes. What the board shows is read here, from its own state: the page names the worker only. Not the
@@ -697,7 +697,7 @@ export function spawnWhenAlone(state, outbox, lines) {
 
 /** The commands the board puts to a chat other than the main one: a word the chat's work stands on (`isWakeWord`). */
 // B570: and the board's word that asks the partner to restart the main chat on a new Workers mod.
-const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'mod-unarchive', 'obsolete-check', 'recap-feedback', 'recap-round', ...FOCUS_COMMANDS]
+const PARTNER_WORDS = ['recommend', 'refine', 'result-check', 'evaluate', 'work', 'recheck', 'goal-ask', 'brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-change', 'brainstorm-understood', 'brainstorm-not-quite', 'brainstorm-fix', 'brainstorm-stranded', 'incident', 'mod-restart', 'obsolete-check', 'recap-feedback', 'recap-round', ...FOCUS_COMMANDS]
 export const isPartnerWord = command => typeof command === 'string' && (command.startsWith('plan-') || PARTNER_WORDS.includes(command))
 
 /** 2026-10-26: the command of the board's word that has a worker holding a step go on from its checkpoint (`resumesDue`). */
@@ -722,6 +722,8 @@ export const waitsLong = command => command === 'start' || command === 'wake' ||
  * whole purpose is to have its chat started.
  */
 export const isWakeWord = (message, state) => {
+  // B1160 round 3, item 6: the probe waits for a hand alone: it wakes nobody.
+  if (message?.probe === true) return false
   const main = state.restart?.main ?? null
   const command = message.command ?? null
   // Signals change 3: the hand-over's "go on" line to a stopped holder stands in for RESUME_STEP: it wakes its chat too.

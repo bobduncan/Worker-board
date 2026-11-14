@@ -16,12 +16,6 @@ export const RESTART_AGAIN_MS = 30 * MIN
 export const RESTART_TRIES = 3
 /** The outbox command of the word. */
 export const RESTART_COMMAND = 'mod-restart'
-/** The Workers mod release 0.32.0 (chat 1's review): the word that has a chat still archived after its restart for the mod unarchived. */
-export const UNARCHIVE_COMMAND = 'mod-unarchive'
-/** A chat archived this long after the restart word went (the archive done, the unarchive not: a restart of the board or of the restarter in between) gets the word. */
-export const UNARCHIVE_AFTER_MS = 5 * MIN
-/** The word goes again after this long while the chat is still archived. */
-export const UNARCHIVE_AGAIN_MS = 30 * MIN
 
 const HOLDS = ['taken', 'in progress', 'waiting on you']
 const LOST = ['expired', 'failed', 'dropped']
@@ -35,16 +29,6 @@ const valueOf = (item, key) => {
   return found === undefined || found === '' || found === '-' ? null : found
 }
 
-/**
- * The word that asks `to` (the restarter: the main chat, the partner for the main chat) to unarchive `chat`, which stayed archived
- * after its restart for the mod (the account-switch lesson: an archived real chat must always come back). One message of the outbox.
- */
-export function unarchiveWords({ to, chat, session, why, record = null }) {
-  const id = sessionId(session)
-  // The journal (rolloutJournal.mjs): the restart word's id this word belongs to (`record`), so its tries are counted on that record.
-  return { to, ask: null, step: null, title: null, version: null, verdict: null, command: UNARCHIVE_COMMAND, about: chat, session: id, ...(typeof record === 'string' ? { record } : {}), text: ['unarchive chat', `Chat: ${chat}`, ...(id === null ? [] : [`Session: ${id}`]), `Why: ${why}`].join('\n') }
-}
-
 /** An app session id as a word carries it, or null. */
 const sessionId = session => (typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? session : null)
 
@@ -54,8 +38,7 @@ const sessionId = session => (typeof session === 'string' && /^[\w-]{1,80}$/.tes
  */
 export function restartWords({ to, chat, session, runs, installed, why }) {
   const id = sessionId(session)
-  // 0.32.0: the session on the record too (the chat the word is about, as the app knows it); the journal (rolloutJournal.mjs) takes
-  // the chats open when the word goes, so nothing more is needed here.
+  // 0.32.0: the session on the record too (the chat the word is about, as the app knows it).
   return {
     to, ask: null, step: null, title: null, version: installed, verdict: null, command: RESTART_COMMAND, about: chat, runs, session: id,
     text: ['restart for mod', `Chat: ${chat}`, ...(id === null ? [] : [`Session: ${id}`]), `From: ${runs}`, `To: ${installed}`, `Why: ${why}`].join('\n'),

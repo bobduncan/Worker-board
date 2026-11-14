@@ -6,10 +6,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { RESTART_AGAIN_MS, RESTART_TRIES, restartWords, rolloutPlan, unarchiveWords } from '../src/work/modRollout.mjs'
+import { RESTART_AGAIN_MS, RESTART_TRIES, restartWords, rolloutPlan } from '../src/work/modRollout.mjs'
 import { isPartnerWord } from '../src/say.mjs'
 import { outboxNow } from '../src/store.mjs'
-import { readFileSync } from 'node:fs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 24, 22, 0).getTime()
@@ -89,22 +88,11 @@ test('the word names the chat, its session and both versions; the partner\'s cop
   assert.equal(isPartnerWord('mod-restart'), true)
 })
 
-test('the Workers mod release 0.32.0: the unarchive word names the chat, its session and its restart record; the restart word carries its session (the journal, test/work/rolloutJournal.test.mjs, does the rest)', () => {
-  const word = unarchiveWords({ to: 'Lead', chat: 'Painter', session: 'local_painter', why: 'still archived', record: 'r-1' })
-  assert.equal(word.text, 'unarchive chat\nChat: Painter\nSession: local_painter\nWhy: still archived')
-  assert.deepEqual([word.command, word.about, word.to, word.session, word.record], ['mod-unarchive', 'Painter', 'Lead', 'local_painter', 'r-1'])
-  assert.equal(Object.hasOwn(unarchiveWords({ to: 'Lead', chat: 'Painter', session: null, why: 'x' }), 'record'), false)
-  assert.equal(isPartnerWord('mod-unarchive'), true)
+test('the Workers mod release 0.32.0: the restart word carries the chat\'s session (the rollout journal that read it is split out: F20)', () => {
   const named = restartWords({ to: 'Guide', chat: 'Lead', session: 'local_lead', runs: '0.31.0', installed: '0.32.0', why: 'x' })
   assert.deepEqual([named.session, Object.hasOwn(named, 'chats')], ['local_lead', false])
+  assert.match(named.text, /^restart for mod\nChat: Lead\nSession: local_lead\n/)
   assert.equal(restartWords({ to: 'Lead', chat: 'P', session: 'bad id!', runs: '1', installed: '2', why: 'x' }).session, null)
-  // The board's state wires the journal with the outbox, the app's chats and the restarters from the LIST (the main chat archived or
-  // not): the real case is test/modUnarchive.state.test.mjs.
-  const state = readFileSync(new URL('../src/state.mjs', import.meta.url), 'utf8')
-  assert.match(state, /const journal = journalNext\(rolloutJournal \?\? emptyJournal\(\), \{\n\s+sent, apps, appFiles: Array\.isArray\(raw\.appFiles\) \? raw\.appFiles : null, project: config\.project, prefix, now, main: isBridgeMissing === true \? null : list\.main \?\? null, partner: isBridgeMissing === true \? null : config\.advisor \?\? null,/)
-  // The verifier of the journal: the app's folder listing (a torn read is no verdict) and each chat's latest report (the restarter's turn ended).
-  assert.match(state, /reportOf: name => reportedOf\.get\(name\)\?\.entry \?\? null,/)
-  assert.match(state, /unarchives: rollout === null \? \[\] : journal\.words,/)
 })
 
 test('the review: a restart word stays known a day, so the three tries are counted beyond the outbox\'s two hours', () => {

@@ -18,7 +18,7 @@ import { assetsFolderOf, listAssets } from '../assets.mjs'
 import { SYNC_LINE_MS, assetResends, workLineWhy } from './workLines.mjs'
 import { PARTNER_AGAIN_MS, isPartnerAskWord, partnerAskWords } from './partnerAnswers.mjs'
 import { AGAIN_MS, effortWords, goesAgain, lastWord, sameTarget } from './effort.mjs'
-import { RESTART_AGAIN_MS, RESTART_COMMAND, UNARCHIVE_AGAIN_MS, UNARCHIVE_COMMAND, restartWords, unarchiveWords } from './modRollout.mjs'
+import { RESTART_AGAIN_MS, RESTART_COMMAND, restartWords } from './modRollout.mjs'
 import { START_WAIT_MS } from './handOut.mjs'
 
 export { partnerAskWords }
@@ -336,19 +336,6 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const twin = outbox.outbox().findLast(message => message.command === RESTART_COMMAND && message.about === one.chat && message.version === one.installed)
     if (twin !== undefined && now - twin.at < RESTART_AGAIN_MS) continue
     const message = { id: newId(), at: now, ...restartWords(one), state: 'waiting' }
-    try {
-      await outbox.say(message)
-      done.sent.push(message)
-    } catch {
-      // Planned again at the next refresh.
-    }
-  }
-  // The Workers mod release 0.32.0 (chat 1's review): a chat still archived after its restart for the mod is unarchived by its restarter
-  // (modRollout.mjs `archivedAfterRestart`); not again within the half hour.
-  for (const one of plan.unarchives ?? []) {
-    const twin = outbox.outbox().findLast(message => message.command === UNARCHIVE_COMMAND && (typeof one.session === 'string' && typeof message.session === 'string' ? message.session === one.session : message.about === one.chat))
-    if (twin !== undefined && now - twin.at < UNARCHIVE_AGAIN_MS) continue
-    const message = { id: newId(), at: now, ...unarchiveWords(one), state: 'waiting' }
     try {
       await outbox.say(message)
       done.sent.push(message)
