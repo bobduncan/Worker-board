@@ -219,6 +219,8 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
       const deep = await earlier(file, now).catch(() => null)
       tail.earlier = deep?.tasks ?? null
       tail.usage = deep?.usage ?? null
+      // F9: the lines where its Workers mod was unloaded or restored (src/modGone.mjs).
+      tail.mods = deep?.mods ?? null
     }
     tails[cliSessionId] = tail
     const card = join(claude, 'chats', `${cliSessionId}.json`)

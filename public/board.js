@@ -60,6 +60,8 @@ const STATUS_VIEW = {
   'Asleep': { key: 'asleep', tone: 'quiet' },
   'Not running': { key: 'off', tone: 'attention' },
   'Unknown': { key: 'unknown', tone: 'late' },
+  // F9: its Workers mod was unloaded: the board cannot reach it until the person restarts the chat.
+  'Link gone': { key: 'linkgone', tone: 'attention' },
 }
 /** The head's count keys in the statuses' order, and the status of a key. */
 const STATUS_KEYS = Object.fromEntries(Object.entries(STATUS_VIEW).map(([status, view]) => [view.key, status]))
@@ -141,6 +143,36 @@ const WAIT_DONE_SHOWN_MS = 10 * 60_000
 function waitLaneOf(part, name) {
   return [...(part?.chats ?? []).filter(lane => lane?.isLeftover !== true), part?.advisor, part?.advisorHelper, part?.supervisorChat, part?.productOwner]
     .find(lane => typeof lane?.name === 'string' && lane.name === name) ?? null
+}
+
+/** The app's own id of a chat (`local_` and a uuid): the one `claude://claude.ai/epitaxy/<id>` opens (state.mjs APP_SESSION_ID). */
+const APP_SESSION_PATTERN = /^local_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/** The link that opens a chat in the app by its app id, or null when there is no app id (every link into a chat is built here). */
+function openChatHref(session) {
+  return typeof session === 'string' && APP_SESSION_PATTERN.test(session) ? `claude://claude.ai/epitaxy/${session}` : null
+}
+/**
+ * The link into a chat by its name, from a state or a part of it (`waitLaneOf`; a slim part, such as Needs your attention's view, gives
+ * the app ids by name in `chatApps`, cardsView): null for a chat the page does not know or without an app id.
+ */
+const chatHrefOf = (part, name) => (typeof name !== 'string' ? null
+  : openChatHref(Object.hasOwn(part?.chatApps ?? {}, name) ? part.chatApps[name] : waitLaneOf(part, name)?.appSession))
+
+/**
+ * F9's review: where "Open its chat" leads for a chat that waits because it asks in its chat (Waiting for you while it reports asking:
+ * the app's question form, a popup), or null: any other status, or no app id. One rule for the worker rows, the Advisor's, its helper's
+ * and the Product owner's cards and the Simple view.
+ */
+const askChatHref = lane => (laneStatus(lane)?.status === 'Waiting for you' && lane.isAsking === true ? openChatHref(lane.appSession) : null)
+
+/** The "Open its chat" link (`askChatHref`), or null. Its click opens the chat only: the Advisor's card opens the Advisor tab on a click. */
+function drawAskChatLink(href, name, className = 'status-why chat-link') {
+  if (typeof href !== 'string') return null
+  const open = el('a', className, 'Open its chat')
+  open.href = href
+  open.title = `Opens ${name}'s chat in the app: its question or popup waits there`
+  open.addEventListener('click', event => event.stopPropagation())
+  return open
 }
 
 /** The pill beside a line: the chat's own status (`laneStatus`), its words without the age, which would draw the card anew every few seconds. */
@@ -2041,7 +2073,7 @@ function drawSimpleColumns(state) {
   const steps = simpleSteps(state.focus ?? null, state.chats ?? [], state.readAt)
   // B424: the partner and its helper under the workers, apart from them.
   // The Product owner (2026-10-31): with the partner and its helper, apart from the workers.
-  const workers = simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt, [state.advisor, state.advisorHelper, state.productOwner])
+  const workers = simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt, [state.advisor, state.advisorHelper, state.productOwner], askChatHref)
   once('simple-columns', [steps, workers], () => fillSimpleColumns(steps, workers))
 }
 
@@ -2066,7 +2098,9 @@ function fillSimpleColumns(steps, workers) {
   const rowOf = row => {
     const line = el('div', `simple-row simple-worker is-${row.tone}`)
     const middle = el('div', 'simple-task')
-    if (row.task === null) middle.append(el('span', 'muted', row.left))
+    // F9's review: a chat that waits because it asks in its chat: "Open its chat" beside its status words (askChatHref).
+    const askLink = drawAskChatLink(row.chat ?? null, row.name, 'simple-chat-link chat-link')
+    if (row.task === null) middle.append(...[el('span', 'muted', row.left), askLink].filter(one => one !== null))
     else {
       const what = el('span', 'simple-what clip')
       if (row.code !== null) what.append(el('b', 'task-code', row.code), ' ')
@@ -2081,6 +2115,7 @@ function fillSimpleColumns(steps, workers) {
     // Signals change 7: "1 h 56" with "of its 2 h" beside it, quieter.
     if (row.task !== null && typeof row.leftOf === 'string' && row.leftOf !== '') left.append(' ', el('small', 'simple-of', row.leftOf))
     end.append(left)
+    if (row.task !== null && askLink !== null) end.append(askLink)
     const chip = drawRunChip(row.run ?? null)
     if (chip !== null) end.append(chip)
     line.append(el('b', 'simple-name', row.name), middle, end)
@@ -2520,8 +2555,8 @@ function pauseLines(pause) {
   }
   // The review of part 1: "not known yet" while no mod has asked the board; the link only for an app id (local_ and a uuid).
   const open = { tone: 'alert', text: main.isRunning === false ? `${main.title} is not running: open it; its Workers mod tells it whom to wake.` : `Whether ${main.title} runs is not known yet: open it; its Workers mod tells it whom to wake.` }
-  const isAppId = typeof main.session === 'string' && /^local_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(main.session)
-  lines.push(isAppId ? { ...open, link: { label: `Open ${main.title}`, href: `claude://claude.ai/epitaxy/${main.session}` } } : open)
+  const href = openChatHref(main.session)
+  lines.push(href !== null ? { ...open, link: { label: `Open ${main.title}`, href } } : open)
   return lines
 }
 // pause:end
@@ -3091,9 +3126,11 @@ function simpleIdle(lane, now = Date.now()) {
  * B424: `partner` the same rows for the partner and its helper (state.advisor, state.advisorHelper; a missing one is
  * left out), shown apart under the workers and not counted among them.
  */
-function simpleWorkers(chats = [], counts = {}, now = Date.now(), partners = []) {
+function simpleWorkers(chats = [], counts = {}, now = Date.now(), partners = [], chatOf = () => null) {
   const all = chatsCounted(counts)
-  const rowOf = lane => {
+  // F9's review: a row that waits because its chat asks there carries where "Open its chat" leads (`chatOf`: askChatHref).
+  const rowOf = lane => ({ ...plainRowOf(lane), ...(chatOf(lane) === null ? {} : { chat: chatOf(lane) }) })
+  const plainRowOf = lane => {
     // Signals change 7: a worker's row is its held step: id and title, the bar of its size used, the time left of it.
     if (isHeldRow(lane)) {
       const held = lane.held ?? null
@@ -3546,6 +3583,9 @@ function drawLane(lane, state) {
     if (recapLink !== null) why.href = recapLink
     names.append(why)
   }
+  // A chat that waits because it asks in its chat (the app's question form, a popup): the link that opens that chat in the app.
+  const askLink = drawAskChatLink(askChatHref(lane), lane.name)
+  if (askLink !== null) names.append(askLink)
   // The model chip (runchip) beside the pill: what the chat runs at now, and a switch it waits for. None for a leftover.
   const runChip = lane.isLeftover ? null : drawRunChip(runChipOf(lane))
   if (runChip !== null) names.append(runChip)
@@ -3989,6 +4029,17 @@ function advisorStanding(advisor) {
 }
 
 /**
+ * F9's review: a side card's words beside its pill (`advisorStanding`): the status's why where a worker's row shows one (drawLane: every
+ * status but Unknown, which carries its own in the label), such as "its call to the board is slow" or Link gone's way out; and "Open its
+ * chat" while it asks in its chat.
+ */
+function standingParts(lane) {
+  const found = laneStatus(lane)
+  const why = found !== null && found.why !== null && found.status !== 'Unknown' ? el('small', 'status-why', found.why) : null
+  return [why, drawAskChatLink(askChatHref(lane), lane.name)].filter(one => one !== null)
+}
+
+/**
  * B464: what it asks you, for its row: the first of its open asks by id and title (and how many more), or its chat when
  * the app's question form asks; null while it asks you nothing. The person, 2026-10-21: "i dont see this. please fix
  * the notification for that" (its row said "Needs your answer" beside a refine line that waited for it, not for them).
@@ -4164,7 +4215,7 @@ function drawAdvisorLane(state) {
   sign.setAttribute('aria-hidden', 'true')
   sign.append(icon('advisor'))
   const names = el('div', 'who-names')
-  names.append(el('h3', '', advisor.name), el('span', `pill is-${standing.key}`, standing.label))
+  names.append(el('h3', '', advisor.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(advisor))
   const runChip = drawRunChip(runChipOf(advisor))
   if (runChip !== null) names.append(runChip)
   who.append(sign, names)
@@ -4291,7 +4342,7 @@ function drawHelperCard(state) {
   sign.setAttribute('aria-hidden', 'true')
   sign.append(icon('advisor'))
   const names = el('div', 'who-names')
-  names.append(el('h3', '', helper.name), el('span', `pill is-${standing.key}`, standing.label))
+  names.append(el('h3', '', helper.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(helper))
   const runChip = drawRunChip(runChipOf(helper))
   if (runChip !== null) names.append(runChip)
   who.append(sign, names)
@@ -4354,7 +4405,7 @@ function drawOwnerCard(state) {
   sign.setAttribute('aria-hidden', 'true')
   sign.append(icon('advisor'))
   const names = el('div', 'who-names')
-  names.append(el('h3', '', owner.name), el('span', `pill is-${standing.key}`, standing.label), el('small', 'owner-role', view.label))
+  names.append(el('h3', '', owner.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(owner), el('small', 'owner-role', view.label))
   if (view.setting !== null) {
     const chip = el('small', `owner-setting${view.setting.isSet ? '' : ' is-unset'}`, view.setting.text)
     chip.title = view.setting.isSet ? 'The board holds it at this model and effort' : 'The board is setting it to this model and effort'
@@ -5186,7 +5237,7 @@ function handsNeedsOf(needs, isAutopilotOn) {
  * (`handsWords`: "Worker 5's chat waits on a popup: change directory"), and a chat's identical words stand once, even when the
  * mod filed them twice before the board folded them (the live Q629 and Q632).
  */
-function handsLineView(list) {
+function handsLineView(list, hrefOf = () => null) {
   if (!Array.isArray(list) || list.length === 0) return null
   const seen = new Set()
   const items = list.flatMap(need => {
@@ -5194,7 +5245,9 @@ function handsLineView(list) {
     const own = typeof need.handsWords === 'string' && need.handsWords !== '' ? need.handsWords : null
     if (own !== null && seen.has(own)) return []
     if (own !== null) seen.add(own)
-    return [{ id, words: own ?? cutWords(String(need.title ?? id), 40), title: `Open ${id}: ${need.title ?? ''} (only you can: ${need.hands})`, href: `#details=${id}` }]
+    // A form ask (a popup, a question in its chat) waits in its chat: the entry opens that chat in the app when the board knows its app id.
+    const chat = need.isForm === true ? hrefOf(need.from) : null
+    return [{ id, words: own ?? cutWords(String(need.title ?? id), 40), title: chat !== null ? `Opens ${need.from}'s chat in the app: its question or popup waits there` : `Open ${id}: ${need.title ?? ''} (only you can: ${need.hands})`, href: chat ?? `#details=${id}` }]
   })
   return { items, isBlocking: list.some(need => need.blocking === true) }
 }
@@ -5338,7 +5391,15 @@ function answerPart(need, state, isFolded, inWindow = false) {
     const where = isStep(need) ? 'No main chat is open to take the answer.'
       : String(need.id).startsWith('quiet:') ? `${check.length > 0 ? 'Or look' : 'Look'} at its chat in the Claude app.`
         : 'Answer it in its chat in the Claude app: that form takes its answer only there.'
-    return [...parts, ...check, el('p', 'muted', where)]
+    const chat = need.isForm === true ? chatHrefOf(state, need.from) : null
+    const line = el('p', 'muted', where)
+    if (chat !== null) {
+      const open = el('a', 'chat-link', 'Open its chat')
+      open.href = chat
+      open.title = `Opens ${need.from}'s chat in the app: its question or popup waits there`
+      line.append(' ', open)
+    }
+    return [...parts, ...check, line]
   }
   if (isFolded && !openForms.has(need.id)) {
     const open = el('button', 'choice', `Answer (goes to ${need.from})`)
@@ -5418,14 +5479,18 @@ function cardWays(need, canCheck) {
   if (need.kind === 'old-mod') return [{ way: 'pause' }]
   // P1: the Late of a recorded wait: open the worker's chat in the app (its app id, as the pause banner's link does); without the id,
   // the worker's answer window, said so. Its step is linked in the title; no nudge: the wait is on purpose.
+  // F9's review, round 3: the link into its chat is built by `openChatHref` (the waitline region), as every link into a chat.
+  const chatHref = openChatHref(need.chat?.session ?? null)
   if (need.kind === 'wait late') {
-    const session = need.chat?.session ?? null
-    return session === null ? [{ way: 'talk', to: need.id, label: `Open ${need.from}'s answer` }] : [{ way: 'chat', to: need.from, href: `claude://claude.ai/epitaxy/${session}`, label: `Open ${need.from}'s chat` }]
+    return chatHref === null ? [{ way: 'talk', to: need.id, label: `Open ${need.from}'s answer` }] : [{ way: 'chat', to: need.from, href: chatHref, label: `Open ${need.from}'s chat` }]
   }
+  // F9's review: a chat whose Workers mod was unloaded has no work tool to file asks with (state.mjs `modGone`): no "Ask it to file them",
+  // only the way into its chat, in the app by its app id (to restart it there), else where the board shows its chat.
+  if (need.kind === 'unfiled' && (need.modGone ?? null) !== null && chatHref !== null) return [{ way: 'chat', to: need.from, href: chatHref, label: `Open ${need.from}'s chat` }]
   if (need.kind === 'unfiled' || need.kind === 'idle') {
     const talk = { way: 'talk', to: need.talk === 'main' || need.talk === 'advisor' ? need.talk : need.id }
     talk.label = need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`
-    return [talk, { way: 'nudge', to: need.from, ...nudgeWords(need) }]
+    return need.kind === 'unfiled' && (need.modGone ?? null) !== null ? [talk] : [talk, { way: 'nudge', to: need.from, ...nudgeWords(need) }]
   }
   if (String(need.id).startsWith('quiet:')) return need.isMain !== true && canCheck ? [{ way: 'check', chat: need.from }] : [{ way: 'app' }]
   if (need.canAnswer === true) return [{ way: 'form' }]
@@ -6759,7 +6824,7 @@ function drawNeeds(state) {
   const every = panelNeeds({ ...state, forYou })
   // Autopilot v2: what only the person's hands can do is one quiet line under the cards, not a card each (handsNeedsOf).
   const hands = handsNeedsOf(every, isPilot)
-  const handsLine = handsLineView(hands)
+  const handsLine = handsLineView(hands, chat => chatHrefOf(state, chat))
   const needs = hands.length === 0 ? every : every.filter(need => !hands.includes(need))
   const open = needs.filter(need => !isClosed(need))
   // B287: a refine question has no card: its step's line says it, and only while it is open.
@@ -6837,6 +6902,15 @@ const minuteOf = at => Math.floor((at ?? 0) / MIN) * MIN
 const runnerOf = chat => ((chat ?? null) === null ? null : { name: chat.name, isRunning: chat.isRunning ?? null })
 const stepKeysOf = backlog => [{ steps: (backlog ?? []).flatMap(activity => activity.steps ?? []).map(step => ({ key: step.key })) }]
 
+/**
+ * F9's review: the app id of each chat the state names (its lanes, the Advisor, its helper, the Supervisor's chat, the Product owner) by
+ * name, for a part that keeps no whole lane (chatHrefOf checks the id).
+ */
+function chatAppsOf(state) {
+  const lanes = [...(state?.chats ?? []).filter(lane => lane?.isLeftover !== true), state?.advisor, state?.advisorHelper, state?.supervisorChat, state?.productOwner]
+  return Object.fromEntries(lanes.filter(lane => typeof lane?.name === 'string' && typeof lane.appSession === 'string').map(lane => [lane.name, lane.appSession]))
+}
+
 /** What a card of Needs your attention reads (drawNeed, drawRecap): the asks (its linked words), who runs, the box's length. */
 function cardsView(state) {
   return {
@@ -6847,6 +6921,8 @@ function cardsView(state) {
     recapsShow: state.recapsShow ?? null,
     chats: (state.chats ?? []).map(runnerOf),
     advisor: runnerOf(state.advisor),
+    // F9's review: each chat's app id by name, so a form ask's hands entry and its window open that chat (chatHrefOf).
+    chatApps: chatAppsOf(state),
     restart: { main: state.restart?.main ?? null, starting: state.restart?.starting ?? [] },
     backlog: stepKeysOf(state.backlog),
     stories: storiesOf(state, [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])]),

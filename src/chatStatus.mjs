@@ -12,6 +12,7 @@
 import { BAN_WHY_MARK, REFUSED_MARK, UNANSWERED_WHY } from './work/handover.mjs'
 import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from './work/waitsOn.mjs'
 import { assetWaitWords, isAssetWait } from './work/assetWait.mjs'
+import { MOD_GONE_WHY } from './modGone.mjs'
 
 const MIN = 60_000
 
@@ -19,7 +20,7 @@ const MIN = 60_000
 export const STATUSES = Object.freeze({
   WORKING: 'Working', WAITING: 'Waiting for you', CHECKING: 'Checking', HANDING: 'Handing', OFFERED: 'Offered', HELD: 'Held',
   NO_ANSWER: 'Did not answer', PAUSED: 'Paused', RESTARTING: 'Restarting', STOPPED: 'Stopped', FREE: 'Free', ASLEEP: 'Asleep',
-  NOT_RUNNING: 'Not running', UNKNOWN: 'Unknown',
+  NOT_RUNNING: 'Not running', UNKNOWN: 'Unknown', LINK_GONE: 'Link gone',
 })
 
 /** The status list, as the page reads it (a drawn status is always one of these). */
@@ -45,6 +46,8 @@ export const STATUS_FACTS = Object.freeze({
   [STATUSES.ASLEEP]: { key: 'asleep', tone: 'quiet', busy: false },
   [STATUSES.NOT_RUNNING]: { key: 'off', tone: 'attention', busy: false },
   [STATUSES.UNKNOWN]: { key: 'unknown', tone: 'late', busy: false },
+  // F9: the chat's Workers mod was unloaded: the board cannot reach it until the person restarts it.
+  [STATUSES.LINK_GONE]: { key: 'linkgone', tone: 'attention', busy: false },
 })
 
 /** The head count's keys, in the statuses order (the head's counts are one number per status). */
@@ -126,9 +129,15 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
     // The asset wait (the person's "A, Working"): the provider's line, "Codex draws 4 pictures for it · 2 of 4 done · since 10:43".
     // The asset-stop rerun (2026-11-11, A245): a background-only lane whose asset requests are all final for over 30 running minutes says so, attention after 60.
     if (state === 'working' && lane.heldBy === 'background' && typeof lane.backgroundNoNews?.words === 'string') return { ...out(STATUSES.WORKING, lane.backgroundNoNews.words, lane.backgroundNoNews.since), attention: lane.backgroundNoNews.attention === true }
+    // 2026-11-13 (Q742, Q744): its popup ask is about the board's own tool: its call to the board is slow, the person has nothing to do.
+    if (state === 'working' && lane.boardCall) return out(STATUSES.WORKING, 'its call to the board is slow', lane.boardCall.since ?? report?.since)
     if (state === 'working') return out(STATUSES.WORKING, lane.heldBy === 'asset' && typeof lane.assetWork?.words === 'string' ? lane.assetWork.words : partner ? 'waits for the partner' : lane.heldBy === 'background' ? 'background' : null, report?.since)
     if (state === 'suspended' && lane.suspended?.by === 'note' && isFreshBusy) return out(STATUSES.WORKING, null, report.since)
   }
+  // 2a. F9 (chat 1's fix item 7, 2026-11-13): its Workers mod was unloaded and the board cannot reach it (src/modGone.mjs): this before
+  // Waiting for you (an answer would reach no mod), the hand-over's Did not answer, Unknown and Not running, which would only guess.
+  // The person restarts the chat.
+  if (lane.modGone !== null && lane.modGone !== undefined) return out(STATUSES.LINK_GONE, MOD_GONE_WHY, lane.modGone.at)
   // 2. Waiting for you: a fresh report says asking, or a blocking ask is open.
   if (state === 'waiting') return out(STATUSES.WAITING, null, report?.since)
   // 3 to 6, a worker on the hand-over: its report's check runs, a task is being handed or offered, the hand-over is held, or it

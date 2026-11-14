@@ -581,6 +581,23 @@ test('X76 (B708): a worker shown working while the board has just handed it a qu
   assert.match(chatLine(calmBoard([lane('Worker 1', { state: 'working' })], [step('B704', 'queued', { Owner: 'Worker 2' }), step('B705', 'refined', { Owner: 'Worker 1' })]), 'Worker 1'), /^- ! Worker 1/)
 })
 
+test('B1176 (X198): a worker working while its own step stands in review back with it (board check: not merged) is on that step, no "!"; with none back with it stays odd', () => {
+  const back = [`- ${stamp(ago(110))} Worker 4: in progress → review`, `- ${stamp(ago(108))} server: check failed: not merged: work is on branch b423-slime-art, not on main`]
+  const held = step('B423', 'review', { Owner: 'Worker 4' }, { History: back })
+  const line = chatLine(calmBoard([lane('Worker 4', { state: 'working' })], [held]), 'Worker 4')
+  assert.doesNotMatch(line, /^- !/)
+  assert.match(line, /; on B423 "Step B423 of the garden" \(review, back with it since \d\d:\d\d: not merged\);/)
+  assert.doesNotMatch(line, /on no step/)
+  // Reported again since: the check is no longer back with it, so the worker on no step is odd again.
+  const again = step('B423', 'review', { Owner: 'Worker 4' }, { History: [...back, `- ${stamp(ago(60))} Worker 4: reported again`] })
+  assert.match(chatLine(calmBoard([lane('Worker 4', { state: 'working' })], [again]), 'Worker 4'), /^- ! Worker 4 .*; on no step;/)
+  // A step in review for another worker, or one without a failed check, is no step of this one.
+  const other = step('B423', 'review', { Owner: 'Worker 3' }, { History: back })
+  assert.match(chatLine(calmBoard([lane('Worker 4', { state: 'working' })], [other]), 'Worker 4'), /^- ! Worker 4 .*; on no step;/)
+  const waiting = step('B423', 'review', { Owner: 'Worker 4' }, { History: [back[0]] })
+  assert.match(chatLine(calmBoard([lane('Worker 4', { state: 'working' })], [waiting]), 'Worker 4'), /^- ! Worker 4 .*; on no step;/)
+})
+
 test('X51, X52: a worker interrupted while its step waits for another open step or for your answer stands on purpose: no "!", and the line says why; one with nothing to wait for stays odd', () => {
   const waiting = calmBoard([lane('Worker 3', { state: 'interrupted', task: { stepId: 'B611', text: 'x' } }), lane('Worker 4', { state: 'interrupted' })], [
     step('B611', 'in progress', { Owner: 'Worker 3', 'Waits for': 'B623' }),

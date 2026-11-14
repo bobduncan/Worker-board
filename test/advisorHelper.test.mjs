@@ -227,7 +227,8 @@ ${cut('chatstatus')}\n${cut('stepline')}\n${cut('lanetime')}\n${cut('lanewindow'
   assert.deepEqual(JSON.parse(JSON.stringify(page.simpleWorkers([], {}, AT, [null, undefined]))).partner, [])
   assert.deepEqual(JSON.parse(JSON.stringify(page.simpleWorkers([], {}, AT))).partner, [])
   // The Product owner (2026-10-31): listed with them, apart from the workers.
-  assert.ok(script.includes('simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt, [state.advisor, state.advisorHelper, state.productOwner])'))
+  // F9's review: and where "Open its chat" leads for a row that waits because its chat asks there (askChatHref).
+  assert.ok(script.includes('simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt, [state.advisor, state.advisorHelper, state.productOwner], askChatHref)'))
   assert.ok(script.includes("[el('h3', 'simple-sub-head', 'Advisor'), ...workers.partner.map(rowOf)]"))
   assert.match(style, /\.simple-sub-head \{/)
 })
