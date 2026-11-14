@@ -3975,6 +3975,157 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
   ones, an empty leftover folder, a junction made with `mklink /J`, skipped with its reason where none can be made),
   `test/work/check.test.mjs`, `test/work/resultCheck.test.mjs`, `test/supervisor/selfCheck.test.mjs`, `test/outOfSync.test.mjs`.
 
+## The Workers mod hotfix 0.31.1 (2026-11-13): chats losing the mod (F4)
+
+Chat 1's write-up (`.claude/plans/2026-11-13-workers-mod-unload-cause.md`): the CLI's hooks worker unloads the plugin it blames
+for overrunning hooks, and the chat has no `work` and `chat` tools until its process starts anew (most of the red on the board
+that evening). A hook has a budget of 10 s of its OWN time (a `next` or `$` call in flight does not count; a clock wait and a
+wait on the mod's own promises do), plus 5 s of linger; two overruns are a runaway. The Workers mod's hooks waited on the shared
+card chain (`mine`), slept inside the work tool (3 × 2 s), said "working" for every subagent's turn too (three judges at once piled
+up on the chain), and read and parsed 842 card files at every tick, say and setTask. The hotfix, from main, before 0.32.0 rebases
+on it:
+
+1. **A deadline on every hook** (register.tsx `withinHook`, HOOK_MS 5 s, `$.clock.after`): session.start (after its
+   registrations), prompt.submit (the words beside the prompt; past the deadline the prompt goes on bare), turn.start and
+   turn.complete (the chat's own work after `next`), the catch-all's pause read, AskUserQuestion's filing. Past it the hook
+   answers (`next(e)`, an empty context, no filing) and the work finishes detached with its errors swallowed. The dispatch's
+   abort signal is read behind a gate (items 8 and 18 below): the timer is the first bound, the signal the second under a
+   main-thread stall. The hooks' own work moved to top-level functions (`sessionStarts`, `promptContext`,
+   `ownTurnStarts`, `afterOwnTurn`): the engine's loader wants every function that takes `$` declared at the top of the file.
+2. **The card chain is waited for briefly, never for good**: `say` and the work tool's report path wait SAY_MS (1.5 s) for their
+   write, `setTask` SET_TASK_MS (2 s) and then answers "Pending: the card is written in the background and not yet confirmed."
+   (never "Recorded" for a write not seen through), the turn's own `atTurnStart` write is queued; `setTask` judges the change
+   against the card as it stands first (an error, such as a step with no plan, is answered at once under a stuck chain) and
+   builds its line from the pane's view with the card as written, not a fresh read of every card.
+3. **A subagent's turn** (`e.agentId` set) passes `turn.start` and `turn.complete` at once: no say, no card write, no report, no
+   refresh or git (`noteAgents` runs detached); so an async judge after the chat's turn sets `isInTurn` no more.
+4. **The work tool sleeps no more**: a cut answer is said at once ("not known whether it was recorded ... asked again in the
+   background with the same request id") and `repeatWork` asks again three times, 2 s apart, outside any hook; the board
+   records a request id once.
+5. **The catch-all tool.call** keeps `await next(e)` (free of the budget while in flight) and does nothing else that waits: the
+   popup's stop is detached; the pause read runs under the deadline.
+6. **The card scan** (`readFiles`): a card not written for CARD_STALE_MS (7 days) is skipped (766 of the 855 files; a live chat
+   writes its card at every change and heartbeat; this chat's own file is read whatever its time; chat 1's guard: a chat list.json
+   names, the main chat, the supervisor, the Product owner, stays whatever its card's age), and a card whose size and
+   time (`FsEntry.mtimeMs`) are the last reading's is answered from that reading (`cardsRead`).
+
+The rules every later hook keeps to (the budget, `next.signal` behind its gate, functions that take `$` at the top of the file, the test
+kit's clock) stand in MODS.md, "Writing a hook of the Workers mod: the engine's rules".
+
+Chat 1's review of the hotfix (2026-11-14, `.claude/plans/2026-11-14-mod-hotfix-0311-review.md`), as built:
+
+7. **A turn's end owns its start** (the blocker): `afterOwnTurn` takes the turn's `since`, its "told" flags, its asks and its
+   report before its first await and resets them there, so a turn that starts while the last end still tells the board gets its
+   own start, and both ends reach the board with their own `since` and "For you" block (before: one call, the second turn's asks
+   never filed).
+8. **The deadline reads the dispatch's signal only when the budget is spent**: `withinHook` also ends on `next.signal`, but only
+   while `next.budget.remainingMs` is 0 or below (the kit aborts the signal as soon as a hook beneath settles; the budget tells
+   that apart from a real expiry).
+9. **A cut work call's background repeat runs the call's follow-up** (`afterWorkAnswer`, bound to the turn the call was made in):
+   a report answered to the repeat marks the card and sets the report for that turn's end; a later turn's flags are not set.
+   Meanwhile the same call again reuses the request id and its promise (`repeating`), and its text tells the model not to call
+   again; the board records the id once.
+10. **Every wait on the card chain is bounded** (`awaitWrite` = `withinTime`, always): an idle chain is no exception, since one
+    held write is enough to hang a hook. The chain's entries go through `queued` (counted in `chainPending`).
+11. **The tick's beat is guarded** (`isBeating`): a slow chain queues no beat on beat; the tick's other work runs as before.
+12. **`join` and `leave` are bounded and `join` answers whether the card is written**; a rename's follow (`followShown`) waits
+    SET_TASK_MS for the join and goes on under the new name when it was quick (B463 as before), else answers the 409.
+13. **The open instructions line comes after the prompt's filing**, so a prompt filed names itself among them; late, it comes
+    with the next prompt.
+14. **The card scan's cold pass is the tick's** (`warmStaleCards`, WARM_PER_TICK 40): a hook never reads 766 stale cards at once;
+    `chat list` reads every card (`all: true`), so a chat closed for good is still named and `leave` finds it; the pane and the
+    hooks skip the week-old cards of chats the list does not name. One reading of the chat files at a time (`loadChats` guard).
+15. **Kept** (chat 1's acceptance): the catch-all keeps `await next(e)`; the pane hides a worker card's step task while the
+    board's `held` is null.
+
+Tests for the round, in the same describe: the blocker (two turn-ended calls with their own `since` and block while the first is
+held past 5 s), the repeat's follow-up and the reused request id, the no-plan error and the pending word under a stuck chain, the
+warm pass and `chat list` in the scan test. The signal's budget guard has no test of its own: the kit's signal aborts early by
+design, and the deadline test covers what the hook answers.
+
+Chat 1's verifier of that round (2026-11-14, `.claude/plans/2026-11-14-mod-hotfix-0311-verifier.md`: no blockers, 15 should-fixes),
+as built:
+
+16. **The turn's end owns its counts** (1, 11): `turnAt` (the prompt and turn counts) is taken with the snapshot and is the clear's
+    baseline in `carryEnvelope`, `whenTurnEnds`, `envelopeWhenAnswered`, `clearWhenAnswered` and `clearAfter`; `asked` goes into
+    `say` (its closure read the global before); once the next turn has started, the tail's idle report and waiting say are skipped.
+17. **Every hook races its `next`** (2): the chat and work tools run under `withinHook` (`chatToolCall`, `workToolCall`; the work
+    tool's wall-clock bound WORK_HOOK_MS, past the board call's own 10 s, the budget's signal being the guard under a stall), the
+    question form's asking report and say under the filing's deadline, its bookkeeping after the answer detached (`afterForm`; the
+    duplicated wait of 15 is gone), `clearThenPrepare` takes the hook's `next`, session.start's clock read moved into `sessionStarts`.
+18. **An abort with a reason is late** (3): `withinHook` answers its fallback on an abort when the budget is spent or
+    `next.signal.reason` is set (the interrupt), and passes over a bare abort with budget left (the kit's). MODS.md's rule rewritten.
+19. **One-shot words survive a late prompt** (4): `pauseLines` builds its lines into a copy of what was given and marks nothing while
+    the hook is late (the resume line comes with the next prompt); `promptContext` notes what it took (`TakenWords`) and a `next` that
+    throws once the hook is late puts the start words, the asks, the left-out line and the stop line back (`putBackWords`).
+20. **A reading is shared only with its own kind** (5, 14): `loadChats` shares an in-flight reading with a caller that wants the
+    same cards; `chat list` (all) waits for a plain reading and reads anew; an all reading never reaches the pane's atom.
+21. **The pre-check follows the queue** (7, 10): `setTask` judges against the card on disk while the chain is idle, else against
+    `projected`, the card as the last queued change leaves it (`applyMine` keeps it true); unknown (a join on its way), the change is
+    queued unjudged. So a plan said Pending is what the next step is judged against, and an error still comes at once.
+22. **The follow-up runs once** (12): settling the cut call is a claim (`workTool` with `owns`, `repeatWork` checks `settled` after its
+    call); the text names the number of repeats, no window.
+23. **The tick reads the clock outside the beat's guard** (13): `clockSeen` moves while a beat write hangs, so a working chat's tool
+    calls re-read the pause after 20 s.
+
+Tests, each killing its mutant (run in a copy of the mod): the blocker's order (6: the first end's answer between turn 2's start and
+end), the held write before the step (7), the repeat's turn binding (8), the turn's own asked in the card (9: the write beside the
+next turn), the plan then step under a stuck chain (10), the late tail's clear baseline (11), the follow-up once (12), the clock
+while a beat hangs (13), `chat list` during the tick's reading and the pane without the all reading (14). Not tested: the resume
+line built late (4: every wait before the pause's lines is bounded at 1.5 s, so in the kit they are never built past the 5 s
+deadline; the fix is the copy of `given`), a `next` that throws (the kit has no way to make it), an interrupt's abort (the kit
+fires none), a main-thread stall (2's mutant; the race is the same code the deadline tests run), the tail's skipped say (16).
+
+Tests: `mods/workers/hooks/chatlist.test.ts` "0.31.1 (F4)": a turn's start and end, the prompt, the chat tool and the work tool
+answer within their time while the board hangs and the card chain is stuck (the test world's `writeHold`; on 0.31.0 each waited
+for ever), a subagent's turns write nothing, the scan's cache and the week; the B412 tests as 0.31.1 has them. The board's
+`test/modVersionEverywhere.test.mjs` pins the version and the note.
+
+## The Workers mod 0.31.2 (2026-11-14): chat 1's final check of the hotfix
+
+Chat 1's final check of 0.31.1 at e0c6d30b (`.claude/plans/2026-11-14-mod-hotfix-0311-final.md`: no blockers, 7 should-fixes, two
+pairs of them one finding) builds as 0.31.2 right after 0.31.1 went live, on `mod-hotfix-0312` from the hotfix head:
+
+1. **The clear's and the session's end under the race** (1): `clearThenPrepare` awaits nothing between the clear's answer and
+   `withinHook` (the clock read is part of `prepareAfterClear`); `session.end` runs its work (`sessionEnds`: the carry after a
+   /clear, else the ended report and the waiting card) under `withinHook` with its `next`.
+2. **Only the queue's tail sets the projection** (2, 5): `applyMine` writes `projected` only while `chainPending <= 1`, so a write
+   queued ahead of a plan said Pending never puts the card without the plan back; the step after it is queued, not refused.
+3. **The pause's lines are marked where they are pushed** (3, 6): `pauseLines` answers `{ lines, commit }`; `promptContext` and the
+   catch-all run `commit` (the keys into `pauseGiven`, the resume key into the store, detached) in the same step as the push, only
+   while the hook is not late.
+4. **A form the engine ran itself keeps its asks open** (4): when the form's hook went late and its `next` throws (the engine opened
+   the form), the filing goes to `orphanForms` instead of `afterForm`: nothing is withdrawn, the report stays asking; the turn's end
+   closes those asks as answered in the chat (`closeOrphanForms`, detached).
+5. **The work tool's late answer knows the board's** (7): the hook hands `workToolCall` a `WorkInFlight` the call fills (request,
+   answer); at the deadline `workLateText` gives the board's text with the card pending when the answer is in, its refusal when
+   refused, else NOT_KNOWN with "Do not call again" and the request registered in `repeating`, so the same call again reuses the id
+   and the follow-up runs once (the entry goes once it ran).
+
+Tests (the F4 describe): two writes ahead of a Pending plan, the first released, the step after it queued (kills `projected` on every
+write); the board's answer at 9.5 s with the card and the refresh late (the text with Pending, not NOT_KNOWN); no answer at 13.5 s
+and the same call again with the one request id (the board call's own 10 s bound answers first, as a cut, so the hook's bound never
+falls without an answer in: the registration branch of 5 is for a slow start before the call, untested). Not testable in the kit (no
+main-thread stall, no throwing `next`): 1 and 4; 3 and 6 need a join longer than its 1.5 s bound. The version test pins 0.31.2 and
+the note.
+
+Chat 1's check of that round (`.claude/plans/2026-11-14-mod-hotfix-0312-check.md`, 4 should-fixes), as built:
+
+6. **Only the engine's expiry orphans a form** (1): `wentLate` is set in the fallback only while `next.budget.remainingMs` is 0 or
+   below; the mod's own 5 s bound and the person's interrupt go through `afterForm` as before (withdraw when closed, busy). The
+   orphans keep their `filed` arrays; the catch-all tool.call hook, which awaits the form beneath, closes them with the real result
+   (`closeOrphans`); the turn's end stays the last net.
+7. **The pause's lines are built at commit** (2, 3): `commit` runs `pauseContexts` against `pauseGiven` as it stands when the lines
+   are pushed, so two prompts in flight give a once-line once (a claim), and the first prompt is used up (`isFirstPrompt`) there, so
+   a first prompt dropped as late reads the pause again as a first prompt (the checkpoint line).
+8. **`pendingMark` under the race** (4): the mod's /clear on the "queued before the reload" path races its clock read too; late,
+   the clear is let go as without a mark.
+
+Tests: a form closed after the mod's 5 s bound with the budget intact withdraws its asks and the card works on (kills `wentLate` on
+any bound); a first prompt late by slow card reads keeps the first-prompt reading and the next prompt carries the checkpoint line
+(kills the early `isFirstPrompt = false`); two prompts in flight carry the resume line once (kills the prebuilt-lines commit).
+4 is not testable in the kit (no main-thread stall).
+
 ## The supervisor, part 1 (2026-10-24): the board checks itself
 
 The person, 2026-10-24 (the chat "Worker board task reliability", goal map T7): "a supervisor chat/worker. its goal is

@@ -60,6 +60,37 @@ This one the board leans on. It is several things in one; each is weighed on its
 mod the board stays better; without it the board still shows everything and asks the person to paste instead of
 typing for them.
 
+### Writing a hook of the Workers mod: the engine's rules (0.31.1, 2026-11-13)
+
+Learnt from F4 (chats losing the mod) and the engine's own types (`plugin-authoring/types/claude-code.d.ts`, `HookBudget`,
+`Next`): a change to `register.tsx` keeps to these, or the next release trips on them.
+
+- **A hook has 10 s of its OWN time per dispatch**, and one still running 5 s after that counts toward a runaway; two
+  overruns unload the plugin for the rest of the process (the chat has no `work` and `chat` tools until it starts anew). The
+  clock stops while a `next(e)` or any `$` call of the hook's is in flight (a board call, a file read, the tool beneath the
+  catch-all), and runs through `$.clock.sleep` and `$.clock.after` AND through every wait on the mod's own promises (the
+  shared card chain `mine`, another hook's work). So: no sleep inside a hook; the card chain waited for briefly (`say` 1.5 s,
+  `setTask` 2 s) and left to finish; the hook's work raced against HOOK_MS (5 s) with `withinHook`, the rest detached with
+  `.catch`.
+- **`next.signal` is read through a gate** (`withinHook`). It aborts when the dispatch is abandoned: the person interrupted,
+  the budget ran out, or "another hook settled first"; beneath the test kit's world it may abort with budget left and no reason,
+  so a hook that fell back on any abort would fall back at once in those tests. The gate: an abort counts (the hook answers its
+  fallback at once) when `next.budget.remainingMs` is 0 or below (the expiry) or `next.signal.reason` is set (the engine's
+  interrupt and expiry carry one); a bare abort with budget left is passed over. The clock's timer (`$.clock.after`) is the
+  second bound: under a main-thread stall only the signal fires, so every hook passes its `next` into the race, the chat and
+  work tools too (`chatToolCall`, `workToolCall`), and nothing a hook awaits outside the race may be a clock op or a chain wait.
+- **Every function that takes `$` is declared at the top of the file** (a function declaration, or a const bound to one), never
+  nested in `register` or another function: the engine's loader follows `$` from the hook into the functions it is passed to,
+  and refuses a module that passes it anywhere else ("$ is passed to ..., which is not a function declared at the top of this
+  file"). The hooks' bodies are top-level functions (`sessionStarts`, `promptContext`, `ownTurnStarts`, `afterOwnTurn`); a
+  closure over `register`'s variables is not possible there, so what they share is module state.
+- **A subagent's turn** (`e.agentId` set) is none of the list's: `turn.start` and `turn.complete` pass it at once.
+- **`FsEntry` carries `mtimeMs`**: a scan over many files reads a file again only when its size or time changed (`cardsRead`),
+  and skips what list.json does not name once it is a week old.
+- **The test kit's clock** (`mock.clock`) holds every wait until the test advances it, and a wait held past a hook's budget
+  (ten seconds of real time) is let go as an overrun: a test that proves a deadline starts the hook unawaited, `settle()`s,
+  checks it has not answered, then `clock.advance(5000)` and awaits it.
+
 ## The order, one piece at a time
 
 **The user's choice (B205, 2026-10-14):** "make the board work without the workers mod and drop backlog mode from teh
