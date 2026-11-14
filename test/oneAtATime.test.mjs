@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_SLOTS, pidRuns, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
+import { DEFAULT_SLOTS, aheadOf, pidRuns, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
 
 const HELPER = fileURLToPath(new URL('../tools/one-at-a-time.mjs', import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), 'heavy-run-test-'))
@@ -95,6 +95,27 @@ test('a second run waits until the first has ended, and says who it waits for', 
   assert.ok(Number(two.out) >= Number(one.out), 'the second command ran only after the first one was done')
   assert.match(two.err, /waiting for first in .+ \(since \d\d:\d\d\)/)
   assert.equal(existsSync(lock), false)
+})
+
+test('F14: a first-class run (HEAVY_RUN_FIRST=1, a landing\'s gate) goes ahead of the ordinary runs waiting, and every run says when it runs', async () => {
+  const lock = newLock()
+  writeFileSync(lock, lockText())
+  const first = start(lock, 'first', node('console.log(Date.now())'))
+  await until(() => /waiting for/.test(first.err), 'the first ordinary run waiting')
+  const second = start(lock, 'second', node('console.log(Date.now())'))
+  await until(() => /waiting for/.test(second.err), 'the second ordinary run waiting')
+  const gate = start(lock, 'gate', node('console.log(Date.now())'), { HEAVY_RUN_FIRST: '1' })
+  await until(() => /waiting for/.test(gate.err), 'the gate waiting')
+  rmSync(lock)
+  const [one, two, three] = await Promise.all([first.done, second.done, gate.done])
+  assert.deepEqual([one.code, two.code, three.code], [0, 0, 0])
+  assert.ok(Number(three.out) <= Number(one.out) && Number(three.out) <= Number(two.out), 'the gate ran before both ordinary runs that came earlier')
+  assert.ok(Number(one.out) <= Number(two.out), 'the ordinary runs keep their order')
+  assert.match(three.err, /one-at-a-time: gate runs now \(waited \d+ s\)/)
+  assert.match(one.err, /one-at-a-time: first runs now \(waited \d+ s\)/)
+  // The pure order: a first-class ticket counts only earlier first-class ones; an ordinary one every earlier ticket and every first-class one.
+  const order = [{ name: 'a', first: false }, { name: 'b', first: false }, { name: 'c', first: true }, { name: 'd', first: true }]
+  assert.deepEqual([aheadOf(order, 'c', true), aheadOf(order, 'd', true), aheadOf(order, 'a', false), aheadOf(order, 'b', false)], [0, 1, 2, 3])
 })
 
 test('it says who it waits for once in a while, not at every look', async () => {

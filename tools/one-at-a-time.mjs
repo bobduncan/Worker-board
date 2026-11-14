@@ -30,6 +30,10 @@
 //   1, and every slot file a run holds counts, also one beyond this run's own slots: a copy of this helper that still
 //   allows two (the game's) never makes this one start beside it. A landing's gate is `npm test` too, so it waits in the
 //   same queue.
+// - F14 (2026-11-14): a run with HEAVY_RUN_FIRST=1 (a landing's gate, tools/land.ps1) goes ahead of the ordinary runs in the
+//   queue: its ticket carries `first`, and an ordinary run counts every first-class ticket as ahead of it, also one that came
+//   later. When a run takes its slot it says "one-at-a-time: <label> runs now (waited N s)", so a log of the run shows the
+//   moment its work began (land.ps1 starts the gate's clock there, not while the run queues).
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, openSync, closeSync, readFileSync, readdirSync, unlinkSync, writeSync } from 'node:fs'
 import os from 'node:os'
@@ -184,7 +188,7 @@ export function slotCountOf(file, slots) {
   return highest
 }
 
-/** The live tickets of the queue folder, oldest first; a ticket whose process is gone is removed. */
+/** The live tickets of the queue folder, oldest first (`{ name, first }` each); a ticket whose process is gone is removed. */
 function queueOf(folder) {
   let names = []
   try {
@@ -195,24 +199,29 @@ function queueOf(folder) {
   const live = []
   for (const name of names) {
     const ticket = readLock(path.join(folder, name))
-    if (ticket?.info && pidRuns(ticket.info.pid)) live.push(name)
+    if (ticket?.info && pidRuns(ticket.info.pid)) live.push({ name, first: ticket.info.first === true })
     else if (ticket) removeFile(path.join(folder, name))
   }
   return live
+}
+
+/** How many tickets go before `ticketName`: for a first-class run the first-class ones that came earlier; for an ordinary run every earlier one and every first-class one. */
+export function aheadOf(order, ticketName, first) {
+  return order.filter((one) => one.name !== ticketName && (first ? one.first && one.name < ticketName : one.name < ticketName || one.first)).length
 }
 
 /**
  * Waits for a slot and takes it, first come first served. Resolves to the function that gives it back, or to null when
  * `stop` aborted the wait. The poll and say intervals are in `timing`; `slots` how many may run at once.
  */
-async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1 }) {
+async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first = false }) {
   mkdirSync(path.dirname(file), { recursive: true })
   const queue = `${file}.queue`
   mkdirSync(queue, { recursive: true })
   const came = Date.now()
   const ticketName = `${String(came).padStart(15, '0')}-${String(process.pid).padStart(8, '0')}.json`
   const ticket = path.join(queue, ticketName)
-  const ticketText = JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date(came).toISOString() })
+  const ticketText = JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date(came).toISOString(), ...(first ? { first: true } : {}) })
   createLock(ticket, ticketText)
   const leave = () => giveBack(ticket, ticketText)
   process.on('exit', leave)
@@ -235,14 +244,20 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1 }) {
         else if (n <= slots) free.push(slot)
       }
       const order = queueOf(queue)
-      const ahead = order.indexOf(ticketName)
+      // F14: a first-class run (a landing's gate) counts only the first-class tickets before it; an ordinary run counts every ticket
+      // before it and every first-class one.
+      const ahead = aheadOf(order, ticketName, first)
       // Our turn when fewer runs came before us than there is room (a ticket we cannot read: go by the room). Room is our
       // slots less every run that holds one, ours or beyond (2026-11-11).
       const room = Math.min(free.length, slots - holders.length)
-      if (room > 0 && (ahead === -1 ? 0 : ahead) < room) {
+      if (room > 0 && ahead < room) {
         for (const slot of free) {
           const text = JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date().toISOString() })
-          if (createLock(slot, text)) return () => giveBack(slot, text)
+          if (createLock(slot, text)) {
+            // F14: the moment the work begins, for a log of the run (land.ps1 starts the gate's clock here).
+            say(`one-at-a-time: ${label} runs now (waited ${Math.round((Date.now() - came) / 1000)} s)`)
+            return () => giveBack(slot, text)
+          }
         }
         await nap(50)
         continue
@@ -319,7 +334,7 @@ export async function runOneAtATime({
   try {
     if (env.HEAVY_RUN_HELD !== '1') {
       const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS) }
-      giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env) })
+      giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1' })
       if (!giveLockBack || signalled) return signalExit(signalled)
     }
     const exited = new Promise((resolve) => {

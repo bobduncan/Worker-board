@@ -288,6 +288,39 @@ test('a failing gate is refused: its log is named, and the temporary worktree an
   assertCleanedUp(world)
 })
 
+test('F14: the gate\'s clock starts once its run holds the one-at-a-time slot: a gate queued for 2.5 s passes under a 1.2 s clock; the run goes first-class', LONG, async t => {
+  const world = await makeWorld(t)
+  world.branch('feat')
+  world.config({ gateBoard: world.gate('board-queued-then-pass'), gateMinutes: 0.02, pollMs: 200 })
+  const ran = await world.land('feat')
+  assert.equal(ran.status, 0, ran.out)
+  assert.match(lines(ran.out).at(-1), /^landed: feat by /)
+  const [line] = world.landings()
+  const log = readFileSync(line.gateLog, 'utf8')
+  assert.match(log, /waiting for test in C:\/elsewhere/)
+  assert.match(log, /one-at-a-time: test runs now \(waited 2 s\) first=1/, 'the gate command runs first-class in the queue')
+  assert.doesNotMatch(log, /was stopped/)
+})
+
+test('F14: a gate that hangs after it got its slot is stopped at the clock with its whole tree, and the refusal names the timeout', LONG, async t => {
+  const world = await makeWorld(t)
+  world.branch('feat')
+  const pidFile = join(world.root, 'child.pid')
+  world.config({ gateBoard: `${world.gate('board-hang-after-start')} "${pidFile}"`, gateMinutes: 0.02, pollMs: 200 })
+  const ran = await world.land('feat')
+  assert.equal(ran.status, 1)
+  const [line] = world.landings()
+  assert.match(lines(ran.out).at(-1), new RegExp(`^refused: the gate failed on ${line.head.slice(0, 7)}: the gate ran longer than 1 seconds after it got its slot and was stopped \\(see .*landings.*\\.log\\)$`))
+  const log = readFileSync(line.gateLog, 'utf8')
+  assert.match(log, /\nthe gate ran longer than 1 seconds after it got its slot and was stopped/)
+  // The grandchild the gate started is gone too (the tree, not the root alone).
+  const child = Number(readFileSync(pidFile, 'utf8'))
+  await sleep(500)
+  assert.throws(() => process.kill(child, 0), 'the gate\'s child process was killed with the tree')
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), world.before)
+  assertCleanedUp(world)
+})
+
 test('a gate with no summary line is refused, even when the command ended with 0', LONG, async t => {
   const world = await makeWorld(t)
   world.branch('feat')

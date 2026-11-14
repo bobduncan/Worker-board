@@ -2,7 +2,10 @@
 // with the junction to node_modules) and a summary the way the real gates do.
 //   node gate.mjs board-pass | board-fail | board-fail-files | no-summary | print-env | mod-pass | mod-fail | board-pass-then-copy <from> <to>
 //     | board-pass-then-empty (a gate that empties node_modules through the junction) | board-pass-then-block (a gate that leaves a
-//     real folder where the junction was, so rmdir cannot remove it)
+//     real folder where the junction was, so rmdir cannot remove it) | board-queued-then-pass (F14: waits in the one-at-a-time queue
+//     for 2.5 s, then runs now and passes) | board-hang-after-start <pid file> (F14: runs now, starts a child that writes its pid there,
+//     then hangs)
+import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 
 const [mode, from, to] = process.argv.slice(2)
@@ -45,7 +48,21 @@ else if (mode === 'board-pass-then-copy') {
 } else if (mode === 'board-fail') {
   board(2)
   process.exitCode = 1
-} else if (mode === 'no-summary') console.log('everything looked fine, and no summary was printed')
+} else if (mode === 'board-queued-then-pass') {
+  // F14: the one-at-a-time helper's words while the run waits, then the moment it runs; the gate's clock must start at the second.
+  console.error('waiting for test in C:/elsewhere (since 10:00)')
+  setTimeout(() => {
+    console.error(`one-at-a-time: test runs now (waited 2 s) first=${process.env.HEAVY_RUN_FIRST ?? 'unset'}`)
+    setTimeout(() => board(0), 300)
+  }, 2500)
+} else if (mode === 'board-hang-after-start') {
+  // F14: the run holds its slot and hangs; a child of its own too, its pid written to `from` so the test can see it gone.
+  console.error('one-at-a-time: test runs now (waited 0 s)')
+  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore', windowsHide: true })
+  writeFileSync(from, String(child.pid))
+  setTimeout(() => {}, 120000)
+}
+else if (mode === 'no-summary') console.log('everything looked fine, and no summary was printed')
 else if (mode === 'mod-pass') console.log('(pass) a made-up mod test [0.4ms]\n\n 2 pass\n 0 fail\nRan 2 tests across 1 files. [10ms]')
 else if (mode === 'mod-fail') {
   console.log('(fail) a made-up mod test [0.4ms]\n\n 0 pass\n 3 fail\nRan 3 tests across 1 files. [10ms]')

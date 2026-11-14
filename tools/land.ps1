@@ -41,7 +41,7 @@
 #  Exit 0 only for `landed`. Exit 1 refused, 2 rolled back, 3 rollback failed. Every run adds one line to data/landings.jsonl.
 #
 # -Config <json file> is for tests only: { main, boards: [{ dir, port }], remote, trialRemote, gateBoard, gateMod, gateFile ({file}
-# in it is the test file run again alone), claudeExe, dataDir, tempRoot, nodeModules, nodeModulesMarker, comeBackSeconds, pollMs, gateMinutes, pushTimeoutSeconds, lockStaleMinutes,
+# in it is the test file run again alone), claudeExe, dataDir, tempRoot, nodeModules, nodeModulesMarker, comeBackSeconds, pollMs, gateMinutes, gateQueueMinutes, pushTimeoutSeconds, lockStaleMinutes,
 # processesFile, connectionsFile, claudeProcesses, printBoards, printClaude, failAfter }. Without it the defaults are the PC's real boards: the
 # main checkout (the repository's first working tree) with the port the PC's list of boards gives it, and each trial copy (a board
 # of that list that is a clone of the main checkout: its remote `local`). The boards chosen are said on every run.
@@ -136,7 +136,9 @@ $script:teardownWhy = $null
 $script:branches = [ordered]@{ swept = @(); kept = @(); landed = $null }
 $comeBackSeconds = 90
 $pollMs = 2000
-$gateMinutes = 60
+$gateMinutes = [double]60
+# F14: how long a gate may wait for its one-at-a-time slot before it is stopped (the clock above counts only once it holds the slot).
+$gateQueueMinutes = [double]120
 $pushTimeoutSeconds = 300
 $lockStaleMinutes = 15
 $processesFile = ''
@@ -255,7 +257,8 @@ function Initialize-Settings {
   $script:nodeModulesMarker = [string](Get-Setting 'nodeModulesMarker' 'happy-dom')
   $script:comeBackSeconds = [int](Get-Setting 'comeBackSeconds' 90)
   $script:pollMs = [int](Get-Setting 'pollMs' 2000)
-  $script:gateMinutes = [int](Get-Setting 'gateMinutes' 60)
+  $script:gateMinutes = [double](Get-Setting 'gateMinutes' 60)
+  $script:gateQueueMinutes = [double](Get-Setting 'gateQueueMinutes' 120)
   $script:pushTimeoutSeconds = [int](Get-Setting 'pushTimeoutSeconds' 300)
   $script:lockStaleMinutes = [int](Get-Setting 'lockStaleMinutes' 15)
   $script:processesFile = [string](Get-Setting 'processesFile' '')
@@ -678,8 +681,50 @@ function Find-ClaudeExe {
   return $null
 }
 
+# A span of minutes in words: whole minutes as minutes, else seconds (the tests run with a short clock).
+function Span-Words([double]$Minutes) {
+  if ($Minutes -ge 1 -and $Minutes -eq [math]::Floor($Minutes)) { return "$([int]$Minutes) minutes" }
+  return "$([int][math]::Round($Minutes * 60)) seconds"
+}
+
+# The last part of a file another process appends to (shared for writing), as text; '' when it cannot be read yet.
+function Read-Tail([string]$File, [int]$Bytes = 16384) {
+  try {
+    $stream = [System.IO.File]::Open($File, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    try {
+      if ($stream.Length -gt $Bytes) { $stream.Position = $stream.Length - $Bytes }
+      $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::UTF8)
+      return $reader.ReadToEnd()
+    } finally { $stream.Dispose() }
+  } catch { return '' }
+}
+
+# F14: ends a gate's process with its whole tree: taskkill /T first, then every process whose parent chain leads to it (a child
+# cmd or node started while taskkill walked the tree), then the root; waits for the root to be gone.
+function Stop-GateTree([System.Diagnostics.Process]$Root) {
+  Stop-Tree $Root.Id
+  try {
+    $all = @(Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId, ParentProcessId)
+    $wanted = New-Object System.Collections.Generic.HashSet[int]
+    [void]$wanted.Add([int]$Root.Id)
+    $grew = $true
+    while ($grew) {
+      $grew = $false
+      foreach ($one in $all) { if ($wanted.Contains([int]$one.ParentProcessId) -and $wanted.Add([int]$one.ProcessId)) { $grew = $true } }
+    }
+    foreach ($id in $wanted) { if ($id -ne $Root.Id) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue } }
+  } catch { $null = $_ }
+  Stop-Process -Id $Root.Id -Force -ErrorAction SilentlyContinue
+  [void]$Root.WaitForExit(5000)
+}
+
 # Runs a gate command through cmd with its words appended to a file as they are (a UTF-8 summary line must not pass through the
 # console's code page), within the time, without colour (a coloured summary line starts with a code); gives back the exit code.
+# F14 (2026-11-14): the command runs first-class in the PC's one-at-a-time queue (HEAVY_RUN_FIRST), and the gate's clock
+# ($gateMinutes) starts only once its run holds the slot (the helper's line "one-at-a-time: ... runs now" in the log), not while it
+# queues ("waiting for ..." lines; a command that never queues counts from its launch, judged after a short grace); the wait for the
+# slot has its own bound ($gateQueueMinutes). Past either, the whole tree is killed BEFORE the log line that names what was stopped,
+# which the gate's verdict reads (src/landing.mjs gatePassed).
 function Invoke-GateCommand([string]$Command, [string]$WorkDir, [string]$Output) {
   $line = "/s /c `"$Command >> `"$Output`" 2>&1`""
   $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -690,13 +735,32 @@ function Invoke-GateCommand([string]$Command, [string]$WorkDir, [string]$Output)
   $psi.CreateNoWindow = $true
   $psi.RedirectStandardInput = $true
   $psi.EnvironmentVariables['NO_COLOR'] = '1'
+  $psi.EnvironmentVariables['HEAVY_RUN_FIRST'] = '1'
   if ($psi.EnvironmentVariables.ContainsKey('FORCE_COLOR')) { $psi.EnvironmentVariables.Remove('FORCE_COLOR') }
   $process = [System.Diagnostics.Process]::Start($psi)
   $process.StandardInput.Close()
-  if (-not $process.WaitForExit($gateMinutes * 60 * 1000)) {
-    Stop-Tree $process.Id
-    [System.IO.File]::AppendAllText($Output, "`r`nthe gate command ran longer than $gateMinutes minutes and was stopped`r`n")
-    return -1
+  $launched = Get-Date
+  $clockFrom = $null
+  $queued = $false
+  $graceSeconds = 30
+  while (-not $process.WaitForExit($pollMs)) {
+    $now = Get-Date
+    if ($null -eq $clockFrom) {
+      $tail = Read-Tail $Output
+      if ($tail -match 'one-at-a-time: .* runs now') { $clockFrom = $now }
+      elseif ($tail -match '(?m)^waiting for ') { $queued = $true }
+      elseif (-not $queued -and ($now - $launched).TotalSeconds -ge $graceSeconds) { $clockFrom = $launched }
+    }
+    if ($null -ne $clockFrom -and ($now - $clockFrom).TotalMinutes -gt $gateMinutes) {
+      Stop-GateTree $process
+      [System.IO.File]::AppendAllText($Output, "`r`nthe gate ran longer than $(Span-Words $gateMinutes) after it got its slot and was stopped`r`n")
+      return -1
+    }
+    if ($null -eq $clockFrom -and ($now - $launched).TotalMinutes -gt $gateQueueMinutes) {
+      Stop-GateTree $process
+      [System.IO.File]::AppendAllText($Output, "`r`nthe gate waited longer than $(Span-Words $gateQueueMinutes) for the one-at-a-time slot and was stopped`r`n")
+      return -1
+    }
   }
   $process.WaitForExit()
   return $process.ExitCode
