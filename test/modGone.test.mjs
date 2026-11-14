@@ -231,3 +231,18 @@ test('the real case end to end: Worker 4\'s transcript on disk, read the way the
   assert.deepEqual([lane.status, lane.why], [STATUSES.LINK_GONE, MOD_GONE_WHY])
   assert.equal(state.chats.find(one => one.name === 'Main').modGone, null)
 })
+
+test('Link gone has the attention colour wherever Did not answer has it: the pill, the count, the dot, the row, the icon', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const css = await readFile(new URL('../public/board.css', import.meta.url), 'utf8')
+  // Each rule that gives Did not answer (is-noanswer) the warn colour names Link gone (is-linkgone) the same way.
+  const rules = css.split('\n').filter(line => /is-noanswer\b/.test(line) && line.includes('{'))
+  const selectorsOf = rule => rule.split('{')[0].split(',').map(one => one.trim())
+  for (const part of ['.pill', '.count-pill', '.dot', '.lane', '.worker-icon', '.workers-panel .pill', '.fill', '.span']) {
+    assert.ok(rules.some(rule => selectorsOf(rule).some(one => one === `${part}.is-noanswer` || one === `.is-noanswer ${part}`)), `a rule for ${part} of Did not answer`)
+  }
+  for (const rule of rules) {
+    const selectors = selectorsOf(rule)
+    for (const selector of selectors.filter(one => one.includes('is-noanswer'))) assert.ok(selectors.includes(selector.replace('is-noanswer', 'is-linkgone')), `${selector.replace('is-noanswer', 'is-linkgone')} beside ${selector}`)
+  }
+})

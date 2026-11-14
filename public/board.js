@@ -4016,14 +4016,18 @@ function drawWorkers(state) {
 function advisorStanding(advisor) {
   // Signals change 2: its one status, as a worker's lane says it (laneStatus); a board without statuses reads its old state.
   const found = laneStatus(advisor)
-  // F9's review: and its why where a worker's row shows one (drawLane: every status but Unknown, which carries its own in the label),
-  // such as "its call to the board is slow" or Link gone's way out.
-  return { key: found.key, label: statusLabel(found), why: found.why !== null && found.status !== 'Unknown' ? found.why : null }
+  return { key: found.key, label: statusLabel(found) }
 }
 
-/** F9's review: a side card's status words beside its pill (`advisorStanding`): its why, and "Open its chat" while it asks in its chat. */
-function standingParts(lane, standing) {
-  return [standing.why === null ? null : el('small', 'status-why', standing.why), drawAskChatLink(askChatHref(lane), lane.name)].filter(one => one !== null)
+/**
+ * F9's review: a side card's words beside its pill (`advisorStanding`): the status's why where a worker's row shows one (drawLane: every
+ * status but Unknown, which carries its own in the label), such as "its call to the board is slow" or Link gone's way out; and "Open its
+ * chat" while it asks in its chat.
+ */
+function standingParts(lane) {
+  const found = laneStatus(lane)
+  const why = found !== null && found.why !== null && found.status !== 'Unknown' ? el('small', 'status-why', found.why) : null
+  return [why, drawAskChatLink(askChatHref(lane), lane.name)].filter(one => one !== null)
 }
 
 /**
@@ -4202,7 +4206,7 @@ function drawAdvisorLane(state) {
   sign.setAttribute('aria-hidden', 'true')
   sign.append(icon('advisor'))
   const names = el('div', 'who-names')
-  names.append(el('h3', '', advisor.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(advisor, standing))
+  names.append(el('h3', '', advisor.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(advisor))
   const runChip = drawRunChip(runChipOf(advisor))
   if (runChip !== null) names.append(runChip)
   who.append(sign, names)
@@ -4329,7 +4333,7 @@ function drawHelperCard(state) {
   sign.setAttribute('aria-hidden', 'true')
   sign.append(icon('advisor'))
   const names = el('div', 'who-names')
-  names.append(el('h3', '', helper.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(helper, standing))
+  names.append(el('h3', '', helper.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(helper))
   const runChip = drawRunChip(runChipOf(helper))
   if (runChip !== null) names.append(runChip)
   who.append(sign, names)
@@ -4392,7 +4396,7 @@ function drawOwnerCard(state) {
   sign.setAttribute('aria-hidden', 'true')
   sign.append(icon('advisor'))
   const names = el('div', 'who-names')
-  names.append(el('h3', '', owner.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(owner, standing), el('small', 'owner-role', view.label))
+  names.append(el('h3', '', owner.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(owner), el('small', 'owner-role', view.label))
   if (view.setting !== null) {
     const chip = el('small', `owner-setting${view.setting.isSet ? '' : ' is-unset'}`, view.setting.text)
     chip.title = view.setting.isSet ? 'The board holds it at this model and effort' : 'The board is setting it to this model and effort'
