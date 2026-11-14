@@ -9,6 +9,15 @@
 //
 // The board's own output goes to data/board.log. A board that cannot start (a broken settings file, the first start
 // that makes config.json) has its words printed here, and this ends with 1.
+//
+// F24a (2026-11-14): a slow board is a running board. The runs-already check waits ANSWER_MS for the page (the main board
+// answered in 8-11 s on 2026-11-14 and failed a 1.5 s check; every chat's mod then ran this script once a minute and each
+// run made a new keeper whose child died on "Port 4310 is in use"); a board that still does not answer counts as running
+// when a keeper of this folder runs or a process of this folder holds the port (slow or starting: the keeper brings it
+// back), and nothing is started. Another program on the port: said, nothing started, 1. A listing that fails or takes
+// longer than 10 s: said, nothing started, 1 (never a start on a guess). Only a free port with no keeper of this folder
+// starts one (src/keeperStart.mjs `runsAlready`). PowerShell and netstat run hidden (windowsHide: this script runs detached
+// from a chat's mod; a console program started without it pops a terminal up, 758178e5).
 
 import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
@@ -18,20 +27,37 @@ import { fileURLToPath } from 'node:url'
 import { loadConfig } from './src/config.mjs'
 import { startEnv } from './src/keeper.mjs'
 import { gitRunner } from './src/folders.mjs'
+import { LIST_MS, LIST_SCRIPT, netstat, parseProcessList, portHolderOf, powershell, runsAlready } from './src/keeperStart.mjs'
 import { boardsFile, resolvePort } from './src/ports.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const HOST = '127.0.0.1'
 const WAIT_MS = 20_000
+/** F24a: how long the runs-already check waits for the page of a board that is slow. */
+export const ANSWER_MS = 15_000
 
-/** Whether a worker board answers on the port: its page names itself. */
-export async function boardAt(port) {
+/** Whether a worker board answers on the port within `timeoutMs`: its page names itself. */
+export async function boardAt(port, timeoutMs = 1500) {
   try {
-    const answer = await fetch(`http://${HOST}:${port}/`, { signal: AbortSignal.timeout(1500) })
+    const answer = await fetch(`http://${HOST}:${port}/`, { signal: AbortSignal.timeout(timeoutMs) })
     return answer.ok && (await answer.text()).includes('<title>Worker board</title>')
   } catch {
     return false
   }
+}
+
+/**
+ * F24a: whether this folder's board runs: its page within ANSWER_MS (a slow board is a running board), else (Windows) one listing of
+ * the node processes and the holder of the port, judged by `runsAlready`. A listing that fails or times out: unknown, no start.
+ */
+export async function boardRuns(port, { answers = boardAt, list = () => powershell(LIST_SCRIPT, LIST_MS), ports = () => netstat(LIST_MS), platform = process.platform, dir = HERE } = {}) {
+  const answerSeconds = ANSWER_MS / 1000
+  if (await answers(port, ANSWER_MS)) return runsAlready({ dir, answers: true, answerSeconds })
+  if (platform !== 'win32') return { runs: false }
+  let listingError = null
+  const [listed, holder] = await Promise.all([list().then(parseProcessList, error => { listingError = error?.message ?? String(error); return null }), ports().then(text => portHolderOf(text, port), () => null)])
+  if (listed === null && listingError === null) listingError = 'the listing was not JSON'
+  return runsAlready({ dir, answers: false, processes: listed?.processes ?? null, holder, answerSeconds, listingError })
 }
 
 /** B320: the program that opens a page in the person's browser, with its words. */
@@ -71,10 +97,19 @@ async function main(args) {
   const boards = isDemo || !config.project ? null : boardsFile()
   const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: config.project ? resolve(HERE, config.project) : null, gamePort: config.gamePort, boards })
   const url = `http://${HOST}:${port}/`
-  if (await boardAt(port)) {
-    if (!isQuiet) console.log(`The worker board runs already: ${url}`)
+  const runs = await boardRuns(port)
+  if (runs.runs) {
+    if (!isQuiet) console.log(`The worker board runs already: ${url}${runs.why === 'it answers' ? '' : ` (${runs.why})`}`)
     if (isOpen) openPage(url)
     return 0
+  }
+  if (runs.foreign) {
+    console.error(`Port ${port} is held by process ${runs.foreign.pid}${runs.foreign.commandLine ? ` (${runs.foreign.commandLine})` : ''}, not by this folder's board: nothing started.`)
+    return 1
+  }
+  if (runs.unknown) {
+    console.error(`The worker board on ${url} did not answer within ${ANSWER_MS / 1000} seconds and ${runs.unknown}.`)
+    return 1
   }
 
   mkdirSync(join(HERE, 'data'), { recursive: true })

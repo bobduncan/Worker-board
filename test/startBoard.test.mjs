@@ -2,13 +2,14 @@
 // quiet as a hook. Tried with the demo on a free port; the board started here is stopped again.
 
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
+import { createConnection } from 'node:net'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { boardAt } from '../start-board.mjs'
+import { ANSWER_MS, boardAt } from '../start-board.mjs'
 import { startEnv } from '../src/keeper.mjs'
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), '..', 'start-board.mjs')
@@ -69,4 +70,68 @@ test('run from inside a board\'s process, the script still starts a keeper with 
   assert.ok(token !== undefined && token !== kept, 'a new token')
   const state = await fetch(`http://127.0.0.1:${port}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
   assert.equal(state.version.canRestart, true, 'the board runs under a keeper: it can be started anew')
+})
+
+// F24a (2026-11-14): a slow board is a running board. A made-up board of this folder (a node process with this folder's server.mjs
+// path on its command line, as a keeper's child has) holds the port and answers late or never: the script starts nothing and says
+// so. Another program on the port: said, nothing started. Windows only for the process parts (the listing is PowerShell's).
+const HERE = join(dirname(fileURLToPath(import.meta.url)), '..')
+const windows = { skip: process.platform !== 'win32' ? 'Windows only' : false }
+const FAKE = "const http = require('node:http'); const [, , port, delay] = process.argv; http.createServer((q, r) => setTimeout(() => r.end('<title>Worker board</title>'), Number(delay))).listen(Number(port), '127.0.0.1')"
+/** A made-up board of this folder on `port` that answers after `delayMs`; resolves once it listens. */
+async function fakeBoard(t, port, delayMs) {
+  const child = spawn(process.execPath, ['-e', FAKE, join(HERE, 'server.mjs'), String(port), String(delayMs)], { stdio: 'ignore', windowsHide: true })
+  t.after(() => { try { child.kill() } catch {} })
+  const until = Date.now() + 5000
+  while (Date.now() < until) {
+    const open = await new Promise(done => { const s = createConnection({ port: Number(port), host: '127.0.0.1' }); s.once('connect', () => { s.destroy(); done(true) }); s.once('error', () => done(false)) })
+    if (open) return child
+    await new Promise(done => setTimeout(done, 100))
+  }
+  throw new Error('the made-up board did not listen')
+}
+
+test('F24a: a board that answers in 10 s is a running board: the script waits for it and starts nothing', windows, async t => {
+  const port = String(await freePort())
+  const fake = await fakeBoard(t, port, 10_000)
+  const began = Date.now()
+  const said = spawnSync(process.execPath, [SCRIPT, '--demo', '--port', port], { encoding: 'utf8', timeout: 40_000, env: startEnv(process.env) })
+  assert.deepEqual([said.status, said.stdout.trim()], [0, `The worker board runs already: http://127.0.0.1:${port}/`], said.stderr)
+  assert.ok(Date.now() - began >= 10_000, 'it waited for the answer')
+  assert.ok(ANSWER_MS > 10_000)
+  // The made-up board still holds the port: nothing else was started on it.
+  assert.equal(fake.exitCode, null)
+  assert.equal(await boardAt(port, ANSWER_MS), true)
+})
+
+test('F24a: a board of this folder that never answers is still a running board (its keeper brings it back): nothing started, the line says why', windows, async t => {
+  const port = String(await freePort())
+  const fake = await fakeBoard(t, port, 120_000)
+  const said = spawnSync(process.execPath, [SCRIPT, '--demo', '--port', port], { encoding: 'utf8', timeout: 40_000, env: startEnv(process.env) })
+  assert.equal(said.status, 0, said.stderr)
+  assert.match(said.stdout.trim(), new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\((a keeper of this folder runs \\(process ${fake.pid}\\)|process ${fake.pid} of this folder holds the port) but did not answer within 15 seconds: slow or starting; nothing started\\)$`))
+  assert.equal(fake.exitCode, null, 'the made-up board was left alone')
+  const quiet = spawnSync(process.execPath, [SCRIPT, '--demo', '--port', port, '--quiet'], { encoding: 'utf8', timeout: 40_000, env: startEnv(process.env) })
+  assert.deepEqual([quiet.status, quiet.stdout], [0, ''])
+})
+
+test('F24a: a listing that fails or takes too long: unknown, nothing started, said with 1 (never a start on a guess)', windows, async t => {
+  const port = String(await freePort())
+  await fakeBoard(t, port, 120_000)
+  // A PATH without PowerShell: the listing cannot start; the holder alone does not decide.
+  const said = spawnSync(process.execPath, [SCRIPT, '--demo', '--port', port], { encoding: 'utf8', timeout: 40_000, env: { ...startEnv(process.env), PATH: dirname(process.execPath), Path: dirname(process.execPath) } })
+  assert.equal(said.status, 1)
+  assert.match(said.stderr.trim(), new RegExp(`^The worker board on http://127\\.0\\.0\\.1:${port}/ did not answer within 15 seconds and the PC's processes could not be listed \\(.+\\): whether this folder's board runs is unknown; nothing started\\.$`))
+  assert.equal(said.stdout, '')
+})
+
+test('F24a: another program on the port is said, and nothing is started on it', windows, async t => {
+  const server = createServer((req, res) => res.end('<title>Something else</title>')).listen(0, '127.0.0.1')
+  await new Promise(done => server.once('listening', done))
+  t.after(() => server.close())
+  const port = String(server.address().port)
+  const said = spawnSync(process.execPath, [SCRIPT, '--demo', '--port', port], { encoding: 'utf8', timeout: 40_000, env: startEnv(process.env) })
+  assert.equal(said.status, 1)
+  assert.match(said.stderr.trim(), new RegExp(`^Port ${port} is held by process ${process.pid} \\(.*startBoard\\.test\\.mjs.*\\), not by this folder's board: nothing started\\.$`))
+  assert.equal(said.stdout, '')
 })

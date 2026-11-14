@@ -8195,3 +8195,28 @@ words at HH:MM`. A released ask is never held again by later words; a re-ask is 
 **Tests.** `test/work/wordsRecheck.test.mjs` (mutants: no Filed guard, a side chat allowed every action, no word to the chat, 1 minute instead of 60,
 no pause skip, `where` not required, the step window's rows gone: each fails it).
 
+## start-board.mjs: a slow board is a running board (F24a, 2026-11-14)
+
+On 2026-11-14 the main board answered in 8-11 s per page (F24, cause under diagnosis) and failed start-board.mjs's 1.5 s
+runs-already check. Every chat's Workers mod (`keepBoards`, every 15 s, two misses in a row, once a minute per chat) then ran
+start-board.mjs through its launcher, and each run made a new keeper whose child died on "Port 4310 is in use" (a keeper a minute,
+each from a parent that had exited; the board slower with every one). Chat 1's brief: the script counts a board as running when a
+keeper of this folder runs or a process of this folder holds the port, starts nothing then and says so, and waits longer for the page.
+
+- **The check** (`boardRuns`, the decision pure in src/keeperStart.mjs `runsAlready`): the page within `ANSWER_MS` (15 s; a dead port
+  refuses at once, so a down board costs no wait); then, on Windows, one PowerShell listing of the node processes and `netstat -ano`
+  for the port's holder, both at once. A keeper of this folder (a process whose command line runs `<this folder>\server.mjs`, with
+  no parent that does) or the port's holder running from this folder: "The worker board runs already: <url> (a keeper of this folder
+  runs (process N, board M) but did not answer within 15 seconds: slow or starting; nothing started)", exit 0 (`--quiet` says
+  nothing, as before). Another program on the port: "Port P is held by process N (<command line>), not by this folder's board: nothing
+  started.", exit 1 (a keeper would have died on it). A listing that fails or takes longer than 10 s (`LIST_MS`): "... did not answer
+  within 15 seconds and the PC's processes could not be listed (<why>): whether this folder's board runs is unknown; nothing started.",
+  exit 1 (chat 1's must: never a start on a guess; the mod's next run looks again). A free port with no keeper of this folder: a
+  start, as before. PowerShell and netstat run with `windowsHide` (the script runs detached from a chat's mod; 758178e5). Board side
+  only; the mod's `keepBoards` is unchanged for now.
+- **Tests**: test/keeperStart.test.mjs (the listing read, the keepers, the netstat holder, the decision table); test/startBoard.test.mjs
+  (a made-up board of this folder, a node process with this folder's server.mjs path on its command line: answering in 10 s → "runs
+  already", the script waited, nothing started; never answering → the keeper line, nothing started; another program on the port → said,
+  exit 1; no PowerShell on the PATH → unknown, exit 1). Mutant: main's start-board.mjs (753e3eba) put back fails all of them (it
+  starts a keeper, whose child dies on the port).
+- F10 (boards-survive-updates) has its own src/keeperStart.mjs with these listing parts and more; F10 merges this.
