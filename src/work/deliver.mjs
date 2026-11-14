@@ -17,7 +17,7 @@ import { isFailedForGood, sweepOutbox } from './outboxSweep.mjs'
 import { assetsFolderOf, listAssets } from '../assets.mjs'
 import { SYNC_LINE_MS, assetResends, workLineWhy } from './workLines.mjs'
 import { PARTNER_AGAIN_MS, isPartnerAskWord, partnerAskWords } from './partnerAnswers.mjs'
-import { AGAIN_MS, effortWords, goesAgain, lastWord, sameTarget } from './effort.mjs'
+import { AGAIN_MS, effortWords, goesAgain, isSetRefused, lastWord, sameTarget } from './effort.mjs'
 import { RESTART_AGAIN_MS, RESTART_COMMAND, restartWords } from './modRollout.mjs'
 import { START_WAIT_MS } from './handOut.mjs'
 
@@ -321,7 +321,8 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   for (const one of plan.efforts ?? []) {
     const last = lastWord(outbox.outbox(), one.chat, state.chatPrefix ?? '', one.session ?? null)
     const mine = () => outbox.outbox().filter(message => message.command === 'worker-effort' && message.about === last.about)
-    if ((last !== undefined && sameTarget(last, one.level, one.model ?? null) && now - last.at < AGAIN_MS && !goesAgain(last, mine(), now)) || one.to === null) continue
+    // B1207 review 5 (both lenses): a changed setting's word goes again at once when the app refused the last one (now for Main's model).
+    if ((last !== undefined && sameTarget(last, one.level, one.model ?? null) && now - last.at < AGAIN_MS && !goesAgain(last, mine(), now) && !(one.changed === true && isSetRefused(last))) || one.to === null) continue
     const message = { id: newId(), at: now, ...effortWords(one), state: 'waiting' }
     try {
       await outbox.say(message)

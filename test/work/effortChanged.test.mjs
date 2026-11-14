@@ -134,3 +134,39 @@ test('an envelope still on its way is no hand-over yet: no changed word', () => 
   const { words } = plan(b1196(), at(15, 50, 50), [refused, handedWord, { ...envelope, state: 'waiting', deliveredAt: undefined }])
   assert.deepEqual(words.filter(one => one.changed === true), [])
 })
+
+test('review 1 (both lenses): back to the hand-over\'s medium after Main set high: one word for medium, counted from the change back', () => {
+  const high = { id: 'w2', at: at(16, 12, 30), ...effortWords(plan(b1196(), at(16, 12, 30)).words[0]), state: 'delivered', deliveredAt: at(16, 12, 40) }
+  const back = item({ ...Object.fromEntries(b1196().head) }, { ...Object.fromEntries(b1196().sections), Effort: ['medium · the evaluation ended'], History: [...b1196().sections.get('History'), `- ${stamp(at(16, 40))} Partner: refined is ready`] })
+  const { words, runs } = plan(back, at(16, 40, 30), [...CASE, high], { lane: { effort: 'high' } })
+  assert.deepEqual(words.map(one => [one.level, one.changed, one.forModel]), [['medium', true, true]])
+  assert.match(words[0].why, /asked sonnet · high at 16:12, now sonnet · medium/)
+  assert.equal(runs.get('Worker 5').changed.at, at(16, 40))
+  const found = switchOf({ ...lane({ effort: 'high' }), effortRun: { step: 'B1196', ...runs.get('Worker 5') } }, back, view(at(16, 45)))
+  assert.deepEqual([found.mismatch, found.late, found.changedAt], [true, false, at(16, 40)])
+})
+
+test('review 3: with no word and no refine line (no main chat) the change counts from its hand-over, never from now', () => {
+  const step = b1196({ refinedAt: null })
+  const first = plan(step, at(16, 20), CASE, { plan: { main: null } }).runs.get('Worker 5').changed.at
+  const later = plan(step, at(16, 30), CASE, { plan: { main: null } }).runs.get('Worker 5').changed.at
+  assert.deepEqual([first, later], [at(15, 50, 43), at(15, 50, 43)])
+  // A second refine that changes nothing does not move it: the first refine line counts.
+  const twice = item({ ...Object.fromEntries(b1196().head) }, { ...Object.fromEntries(b1196().sections), History: [...b1196().sections.get('History'), `- ${stamp(at(16, 30))} Partner: refined, round 2`] })
+  assert.equal(plan(twice, at(16, 31), CASE, { plan: { main: null } }).runs.get('Worker 5').changed.at, at(16, 12))
+})
+
+test('review 5 (both lenses): a changed word the app refused asks again at once, for Main\'s model', () => {
+  const word = plan(b1196(), at(16, 12, 30), [handedWord, envelope]).words[0]
+  const refusedWord = { id: 'w2', at: at(16, 12, 30), ...effortWords(word), state: 'dropped', refused: true, failedAt: at(16, 12, 50), why: REFUSAL, takenBy: 'hand', takenAt: at(16, 12, 40), handTakenAt: at(16, 12, 40) }
+  const { words } = plan(b1196(), at(16, 13), [handedWord, envelope, refusedWord])
+  assert.deepEqual(words.map(one => [one.level, one.forModel]), [['high', true]])
+})
+
+test('review 2 (lens 2): a waiting changed word is dropped once its step is no longer the worker\'s', () => {
+  const waiting = { id: 'w2', at: at(16, 12, 30), ...effortWords(plan(b1196(), at(16, 12, 30)).words[0]), state: 'waiting' }
+  const reported = item({ ...Object.fromEntries(b1196().head), State: 'review' }, Object.fromEntries(b1196().sections))
+  const ctx = step => ({ all: [waiting], items: step === null ? new Map() : items(step), now: at(16, 20), keep: KEEP, lanes: [lane()] })
+  assert.deepEqual(whyClosed(waiting, ctx(reported)), { state: 'dropped', why: "B1196 is no longer Worker 5's" })
+  assert.deepEqual(whyClosed(waiting, ctx(null)), { state: 'dropped', why: "B1196 is no longer Worker 5's" })
+})

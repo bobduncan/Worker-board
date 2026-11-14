@@ -129,8 +129,11 @@ function whyClosedNow(message, ctx) {
     // (changed back before Main set it): never typed later, setting the worker to what its step no longer wants.
     if (message.state === 'waiting' && message.changed === true && typeof message.forStep === 'string' && items instanceof Map) {
       const step = items.get(message.forStep)
-      const wants = step === undefined ? null : { effort: effortOf(step).level, family: modelOf(step).family }
-      if (wants !== null && (wants.effort !== message.effort || ((message.model ?? null) !== null && familyOf(message.model) !== wants.family))) {
+      // Review 2 (lens 2): and once its step is gone or no longer that worker's (reported, given back): never typed into its next step.
+      const isHeld = step !== undefined && ['taken', 'in progress', 'waiting on you'].includes(value(step, 'State')) && plainName(value(step, 'Owner'), ctx.prefix ?? '') === plainName(message.about, ctx.prefix ?? '')
+      if (!isHeld) return { state: 'dropped', why: `${message.forStep} is no longer ${message.about}'s` }
+      const wants = { effort: effortOf(step).level, family: modelOf(step).family }
+      if (wants.effort !== message.effort || ((message.model ?? null) !== null && familyOf(message.model) !== wants.family)) {
         return { state: 'dropped', why: `${message.forStep} no longer wants ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort}` }
       }
     }

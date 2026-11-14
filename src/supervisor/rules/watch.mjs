@@ -1075,7 +1075,7 @@ export function switchOf(lane, item, view) {
   return {
     runs: `${family ?? 'a model not known'} · ${effort ?? 'effort not known'}`, wants: `${want.family} · ${want.level}`, mismatch, state,
     askedAt: own?.asked?.at ?? null, askState: own?.asked?.state ?? null, takenAt, since, late,
-    changedAt: changed === null ? null : began, handedAs: changed?.fromWords ?? null,
+    changedAt: changed === null || !Number.isFinite(began) ? null : began, handedAs: changed?.fromWords ?? null,
   }
 }
 
