@@ -1394,8 +1394,6 @@ async function makeAsk(w, { of = null, kind, blocking = false, text, options = [
 
 /** Part C: at most this many reference pictures go with an asset request. */
 const ASSET_PICTURES = 8
-/** F21: the states of a step whose holder's request without `of` is filed under it (src/work/assetWait.mjs `AT_WORK`). */
-const ASSET_AT_WORK = ['taken', 'in progress']
 
 /**
  * Part C of the asset providers (spec 2026-11-01, part 4; spec 2026-10-25, part 2): a chat asks the board for an asset,
@@ -1417,14 +1415,8 @@ async function asset(body, w) {
   if (!ASSET_KINDS.includes(kind)) return refuse(400, `"kind" is ${ASSET_KINDS.join(', ')}.`)
   const text = lines(body.text).join('\n').trim().slice(0, TEXT_CHARS)
   if (text === '') return refuse(400, `Say in "text" what it should ${kind === 'visual' ? 'show' : 'sound like'}.`)
-  const givenOf = line(body.of, 20)
-  if (givenOf !== '' && !STEP_ID.test(givenOf)) return refuse(400, `"of" is your step (B12): ${givenOf} is none.`)
-  // F21 (chat 1, 2026-11-14): Worker 5 filed A330-A332 and A345/A346 without `of`, so the board tied them to no step: its lane read
-  // Stopped with its task open while Codex drew, and their delivery woke nobody. A request without `of` from a chat that holds exactly
-  // one step at work (taken or in progress, as the asset wait reads it) is filed under that step, and the answer says so.
-  const atWork = givenOf === '' ? [...(w.store?.items?.values() ?? [])].filter(one => kindOf(one) === 'step' && ASSET_AT_WORK.includes(stateOf(one)) && isOwner(one, w.who, w.prefix)) : []
-  const of = givenOf !== '' ? givenOf : atWork.length === 1 ? valueOf(atWork[0], 'Id') : ''
-  const filedUnder = givenOf === '' && of !== '' ? ` Filed under ${of}.` : ''
+  const of = line(body.of, 20)
+  if (of !== '' && !STEP_ID.test(of)) return refuse(400, `"of" is your step (B12): ${of} is none.`)
   const follows = line(body.follows, 20)
   if (follows !== '') {
     const before = ASSET_ID.test(follows) ? await readAsset(assets.dir, follows) : null
@@ -1452,7 +1444,7 @@ async function asset(body, w) {
   }
   const { id } = record
   const folder = assetFolder(assets.dir, id)
-  const answer = (text, more = {}) => ({ ok: true, result: { id, place: null, provider: provider.name, mode: provider.mode, folder, text: `${text}${filedUnder}`, changed: false, ...more } })
+  const answer = (text, more = {}) => ({ ok: true, result: { id, place: null, provider: provider.name, mode: provider.mode, folder, text, changed: false, ...more } })
   if (provider.mode === 'auto') {
     // Its place: the requests of its provider that wait or run, oldest first, up to it.
     const inLine = (await listAssets(assets.dir)).filter(one => one.provider === provider.name && ['waiting', 'running'].includes(one.state))
