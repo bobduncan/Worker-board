@@ -212,3 +212,46 @@ test('chat 1\'s check (nit): a changed word whose chat runs its model but whose 
   const ctx = { all: [word], items: items(opusStep), now: at(17, 1), keep: KEEP, lanes: [lane({ model: OPUS, effort: null })] }
   assert.equal(whyClosed(word, ctx), null)
 })
+
+test('chat 1\'s re-check, probe B: a changed word a hand failed for good is no moot word: no new word every pass, the half hour holds', () => {
+  const word = plan(b1196(), at(16, 12, 30), [handedWord, envelope]).words[0]
+  const failed = { id: 'w2', at: at(16, 12, 30), ...effortWords(word), state: 'failed', failedAt: at(16, 12, 40), why: 'Session local_88208666 not found', tries: 3 }
+  for (const now of [at(16, 13), at(16, 20), at(16, 40)]) assert.deepEqual(plan(b1196(), now, [handedWord, envelope, failed]).words, [], `no word at ${new Date(now).toTimeString().slice(0, 5)}`)
+})
+
+test('chat 1\'s re-check, probe A: an expired changed word keeps the half hour and the change\'s clock', () => {
+  const word = plan(b1196(), at(16, 12, 30)).words[0]
+  const expired = { id: 'w2', at: at(16, 12, 30), ...effortWords(word), state: 'expired', closedAt: at(16, 22, 30), why: 'not taken in time' }
+  const { words, runs } = plan(b1196(), at(16, 23), [...CASE, expired])
+  assert.deepEqual([words, runs.get('Worker 5').changed.at], [[], at(16, 12, 30)])
+})
+
+test('chat 1\'s re-check, probe D: a failed word\'s retry copy dropped as superseded is no moot word: no second word beside the taken one', () => {
+  const word = effortWords(plan(b1196(), at(16, 12, 30)).words[0])
+  const sent = [...CASE,
+    { id: 'w2', at: at(16, 12, 30), ...word, state: 'failed', failedAt: at(16, 12, 40), retriedAs: 'w2r', why: 'the app has not reported its model list yet' },
+    { id: 'w3', at: at(16, 20), ...word, state: 'taken', takenAt: at(16, 20, 10) },
+    { id: 'w2r', at: at(16, 12, 30), ...word, state: 'dropped', why: 'superseded by a newer word for Worker 5\'s setting (16:20)' }]
+  assert.deepEqual(plan(b1196(), at(16, 21), sent).words, [])
+})
+
+test('chat 1\'s re-check: the sweep keeps the moot mark on the word it closes', async () => {
+  const { memoryStore } = await import('../../src/store.mjs')
+  const { sweepOutbox } = await import('../../src/work/outboxSweep.mjs')
+  const { writeStore } = await import('../../src/work/store.mjs')
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'effort-changed-'))
+  try {
+    const back = b1196({ effort: 'medium', refinedAt: at(16, 15) })
+    await writeStore(dir, { items: items(back), activities: [{ name: 'Garden', isFocus: false, steps: ['B1196'], notes: [], loose: [] }] }, undefined, { now: at(16, 0) })
+    const outbox = memoryStore()
+    await outbox.say({ id: 'w2', at: at(16, 12, 30), ...effortWords(plan(b1196(), at(16, 12, 30)).words[0]), state: 'waiting' })
+    await sweepOutbox({ dir, outbox, state: { chats: [lane({ isMain: false, isLeftover: false, isRunning: true })], chatPrefix: '' }, now: at(16, 16), keep: KEEP })
+    const closed = outbox.outbox().find(one => one.id === 'w2')
+    assert.deepEqual([closed.state, closed.moot], ['dropped', true])
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})

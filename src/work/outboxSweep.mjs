@@ -414,7 +414,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
     if (closed !== null && (message.state === 'waiting' || closed.state === 'dropped')) closing.set(message.id, { id: message.id, ...closed })
   }
   // B1071: a stop settled as done is closed delivered, at this sweep.
-  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.met === true ? { met: true } : one.refused === true ? { refused: true } : one.untaken === true ? { untaken: true } : one.state === 'delivered' ? { deliveredAt: now } : {})
+  if (!dry) for (const one of closing.values()) await outbox.close(one.id, one.state, one.why, now, one.moot === true ? { moot: true } : one.met === true ? { met: true } : one.refused === true ? { refused: true } : one.untaken === true ? { untaken: true } : one.state === 'delivered' ? { deliveredAt: now } : {})
   return [...settled, ...closing.values()]
 }
 

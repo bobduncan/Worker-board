@@ -217,18 +217,19 @@ export function handedSettingOf(envelope, sent = []) {
 export const planWordsFor = (words, lanes = []) => words.filter(word => word.changed === true || lanes.find(lane => lane.name === word.chat)?.onSequence !== true)
 
 /**
+ * Check 2026-11-14 (chat 1, both lenses; re-check): a changed word the sweep dropped as moot (its step no longer wants it, or is no
+ * longer that worker's; `moot` kept on the closed word). It never set anything and its purpose may come back: no ask, no dedupe and
+ * no change's first word, so a change, a change back and a change again gets its word at once. An expired or failed word is not
+ * one: it stays under the half hour's hold and goesAgain (a re-ask each pass, a restarting clock, a second word beside a retry copy).
+ */
+export const isMootChanged = word => word?.changed === true && word.state === 'dropped' && word.moot === true
+
+/**
  * B1207: the time of a step's newest History line that refined it in a minute after `after`'s, or
  * null: the change's time while no word for it was written yet (the first word's time counts from then on, so a later refine that
  * changes nothing does not move the clock), or with no main chat. The newest, so an earlier refine that changed nothing never starts
  * it early (verifier 3).
  */
-/**
- * Check 2026-11-14 (chat 1, both lenses): a changed word that never set anything: dropped by the sweep as moot (its step no longer
- * wants it, or is no longer that worker's), refused, expired or failed, and not met. It counts as no ask, for no dedupe and as no
- * change's first word, so a change, a change back and a change again gets its word at once.
- */
-export const isMootChanged = word => word?.changed === true && LOST.includes(word.state) && word.met !== true
-
 const REFINED_LINE = /^-\s+(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?\s+[^:]+: (?:refined\b(?!\s*→)|.*→ refined\b)/
 function refinedAtOf(item, after) {
   const times = (item?.sections?.get('History') ?? []).map(line => REFINED_LINE.exec(line)).filter(Boolean)
