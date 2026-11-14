@@ -384,7 +384,10 @@ function undelivered(view) {
       return {
         // Signals change 6 (Addendum 2): the key is the rule and the chat only, as for a chat not stopped: a stop's time in the
         // key opened the same undelivered words again at every new stop, which made "gone" read a cure that was none.
-        rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: oldest.at,
+        // B1170 (X173): the case of a chat that was stopped began at its stop, never before its oldest word: the words keep their own
+        // time through every retry, so an incident closed after the first of them would read a stop of later (23:10, closed 22:59) as
+        // that old case still standing, and no incident showed words that went on waiting.
+        rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: Math.max(oldest.at, stop.since),
         text: `${chat} was stopped at ${clockOf(stop.since)}: ${words.length} ${words.length === 1 ? 'word waits' : 'words wait'} for it, the oldest for ${minutes(view.now - oldest.at)} min`,
         evidence: woken === undefined ? 'the main chat is not asked to wake it yet' : `the main chat was asked to wake it at ${clockOf(woken.at)} (${woken.state})`,
       }
