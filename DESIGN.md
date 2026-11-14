@@ -7695,6 +7695,18 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
 - **The gate** runs BEFORE the lock (it takes about ten minutes): `git worktree add --detach` of the head in a temporary
   folder, a junction `node_modules` to the main checkout's, `npm test` there (2026-11-11: below-normal priority on half the
   PC's cores, and it waits its turn in the PC's one queue of heavy runs, `tools/one-at-a-time.mjs`, so a landing never runs
+  beside another heavy run. F14 (2026-11-14, the person: speed up): the gate's run goes FIRST-CLASS in that queue (HEAVY_RUN_FIRST=1:
+  its ticket goes ahead of the ordinary runs), and the gate's clock (`gateMinutes`, 60) starts only once the run holds its slot (the
+  helper's line "one-at-a-time: ... runs now" in the gate log; while it says "waiting for ..." the clock does not run; a command
+  that never queues counts from its launch after a 30 s grace); the wait for the slot has its own bound (`gateQueueMinutes`, 120).
+  Past either bound the whole tree is killed (taskkill /T, then the leftover descendants by their parent chain) BEFORE the log line
+  "the gate ran longer than N minutes after it got its slot and was stopped" (or "waited longer than ... for the one-at-a-time
+  slot"), which `gatePassed` reads as the verdict, so the refusal names the timeout. The word HEAVY_RUN_FIRST stays with the helper:
+  the gate command runs without it (chat 1's check: passed on, it made the test's own runs first-class and every gate after F14
+  refused itself), and the script reads all the log got since its last look, never a tail alone (a run writing more than a tail
+  between two looks would hide its runs-now line). Tests: test/oneAtATime.test.mjs (the first-class
+  ticket, the runs-now line, `aheadOf`), test/landScript.test.mjs (a gate queued 2.5 s passes under a 1.2 s clock; a hung gate is
+  stopped with its child and refused with the timeout words).
   beside a chat's tests) and, only when the branch touches `mods/workers/`,
   `claude.exe plugin test .` in its `mods/workers` (the app's own command-line program under its data folder, never the desktop
   app: none found is a refusal), with `NO_COLOR=1` and no `FORCE_COLOR`. It passes only on the run's own summary line (`src/landing.mjs`,

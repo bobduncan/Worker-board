@@ -56,6 +56,9 @@ export function gateVerdict(output, kind = 'board', exitCode = undefined) {
  * with 0 when `exitCode` is given.
  */
 export function gatePassed(output, kind = 'board', exitCode = undefined) {
+  // F14: a gate land.ps1 stopped at its clock (or at the queue's bound) says so in its log: that line is the verdict, not "no summary".
+  const stopped = /^the gate (?:command )?(?:ran|waited) longer than .+? and was stopped\s*$/m.exec(stripAnsi(output))
+  if (stopped !== null) return { ok: false, why: stopped[0].trim() }
   const pattern = kind === 'mod' ? /^\s*(\d+) fail\s*$/ : /^(?:ℹ|#) fail (\d+)\s*$/
   const fails = stripAnsi(output).split(/\r?\n/).map(line => pattern.exec(line)?.[1]).filter(found => found !== undefined).map(Number)
   if (fails.length === 0) return { ok: false, why: `no summary line in the output (a line "${kind === 'mod' ? 'N fail' : 'fail N'}" is missing)` }
