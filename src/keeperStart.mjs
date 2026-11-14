@@ -35,6 +35,13 @@ export function raiseChild(pid) {
 }
 
 
+/** The `--port N` among a keeper's arguments, or null (the folder's own port then). */
+export function portOfArgs(args) {
+  const at = args.indexOf('--port')
+  const given = at >= 0 ? Number(args[at + 1]) : NaN
+  return Number.isInteger(given) && given > 0 ? given : null
+}
+
 /** The keeper's command line for WMI: node, the folder's server.mjs, `--log`, then the words given (each quoted when it has a space or a quote). */
 export function keeperCommandLine({ node, dir, args = [] }) {
   const quote = word => (/[\s"]/.test(word) ? `"${word.replace(/"/g, '\\"')}"` : word)
@@ -134,7 +141,8 @@ export async function startKeeper({ dir, args = [], node = process.execPath, run
       // Create may have run all the same: a keeper of this folder made since the call is ours.
       try {
         const listed = await list()
-        const made = keepersOf((listed?.processes ?? []).filter(one => Number.isFinite(one.createdAt) && one.createdAt >= since), dir)
+        // This board's keepers only (its port, demo or not: a demo keeper of the folder is not it; chat 1's round-3 check).
+        const made = keepersOf((listed?.processes ?? []).filter(one => Number.isFinite(one.createdAt) && one.createdAt >= since), dir, portOfArgs(args), { isDemo: args.includes('--demo') })
         if (made.length > 0) return { pid: made[0].pid, how: 'wmi', why: null, late: why }
       } catch {
         // no listing: the fallback below
@@ -173,29 +181,31 @@ export function isBoardOf(commandLine, dir, port, { isDemo = false } = {}) {
   if (/\s--demo(?:\s|$)/.test(commandLine) !== isDemo) return false
   if (/\s--(?:history-from|launch-entry)(?:\s|$)/.test(commandLine)) return false
   const given = /\s--port\s+(\d+)/.exec(commandLine)
-  return given === null || Number(given[1]) === Number(port)
+  return port === null || given === null || Number(given[1]) === Number(port)
 }
 
 /**
  * The keepers of the board in `dir` among the PC's node processes (`list`: `{ pid, parent, commandLine }` each): a process whose
  * command line runs that folder's server.mjs and whose parent runs none (the child's parent is the keeper). Both slashes count.
- * With `port`, only the processes that are this board's (`isBoardOf`).
+ * Only the processes that are this board's (`isBoardOf`; a null `port` takes any port of the folder).
  */
 export function keepersOf(list, dir, port = null, { isDemo = false } = {}) {
-  const ours = (Array.isArray(list) ? list : []).filter(one => (port === null ? runsFolder(one?.commandLine, dir) : isBoardOf(one?.commandLine, dir, port, { isDemo })))
+  // A null port: any port of the folder, still never a demo's (unless isDemo), a history copy's or a launch-entry run.
+  const ours = (Array.isArray(list) ? list : []).filter(one => isBoardOf(one?.commandLine, dir, port, { isDemo }))
   return ours.filter(one => !ours.some(other => other.pid === one.parent)).map(one => ({ pid: one.pid, children: ours.filter(other => other.parent === one.pid).map(other => other.pid) }))
 }
 
 /**
  * The PowerShell that lists the PC's node processes with their command lines, as JSON, with the last boot time and the start of
- * the person's logon session (Win32_LogonSession, the oldest interactive one of this user; Fast Startup leaves LastBootUpTime at the
- * last full boot, so the logon is the cut-off for stop signs; chat 1's review and re-check), both ISO, UTC. A failed CIM query ends
+ * the person's logon session (the Win32_LogonSession that holds the user's explorer.exe, by the CIM association, the oldest when
+ * there are several; never a stale session of an earlier logon that Win32_LogonSession still lists; Fast Startup leaves
+ * LastBootUpTime at the last full boot, so the logon is the cut-off for stop signs; chat 1's review and checks), both ISO, UTC. A failed CIM query ends
  * the script with an error (`$ErrorActionPreference = 'Stop'`), never with an empty list that would read as "no keeper".
  */
 export const LIST_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
   "$boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')",
-  "$logon = $null; foreach ($s in @(Get-CimInstance Win32_LogonSession | Where-Object { $_.LogonType -in 2, 10, 11 })) { try { $acc = @(Get-CimAssociatedInstance -InputObject $s -ResultClassName Win32_Account); if ($acc.Count -gt 0 -and $acc[0].Name -eq $env:USERNAME -and $s.StartTime -and ($null -eq $logon -or $s.StartTime -lt $logon)) { $logon = $s.StartTime } } catch {} }",
+  "$logon = $null; foreach ($e in @(Get-CimInstance Win32_Process -Filter \"Name='explorer.exe'\")) { try { $o = Invoke-CimMethod -InputObject $e -MethodName GetOwner; if ($o.User -ne $env:USERNAME) { continue }; foreach ($s in @(Get-CimAssociatedInstance -InputObject $e -ResultClassName Win32_LogonSession)) { if ($s.LogonType -in 2, 10, 11 -and $s.StartTime -and ($null -eq $logon -or $s.StartTime -lt $logon)) { $logon = $s.StartTime } } } catch {} }",
   "$list = @(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; commandLine = [string]$_.CommandLine; created = $(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { $null }) } })",
   "[pscustomobject]@{ boot = $boot; logon = $(if ($logon) { $logon.ToUniversalTime().ToString('o') } else { $null }); processes = $list } | ConvertTo-Json -Compress -Depth 3",
 ].join('; ')

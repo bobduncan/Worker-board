@@ -348,7 +348,9 @@ function Restart-BoardWarm($Board, [string]$Want) {
   if ($null -eq $was) {
     # The lead's rule: a board is started with start-board.mjs, never with a bare `node server.mjs`.
     Say "note: the board on $($Board.port) still does not answer: starting it with node start-board.mjs"
-    $started = Invoke-Native $node @('start-board.mjs', '--quiet') $Board.dir 90
+    # F10 round 4: start-board.mjs may take 15 s (the page probe) + 2 x 20 s (the listing, twice) + 30 s (the WMI start) + 30 s (its late
+    # look after a WMI timeout) + 20 s (the wait for the page): about 135 s at worst, so its bound is 150 s, not 90.
+    $started = Invoke-Native $node @('start-board.mjs', '--quiet') $Board.dir 150
     if ($started.code -ne 0) { return "$($Board.port) did not start: $(Git-Line $started)" }
   } elseif (Test-Commit $was.commit $Want) {
     Say "note: the board on $($Board.port) runs $(Short $Want) already (it restarted itself)"
@@ -374,7 +376,7 @@ function Restart-BoardCold($Board, [object[]]$Old) {
   if (-not (Test-Path -LiteralPath $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
   # F10 (2026-11-14): through start-board.mjs --anew: the keeper is made by WMI, outside this process's job (an app update ends every
   # process in the Claude app's job, and a landing run from a chat sits in it), quiet, and never as a bare `node server.mjs`.
-  $anew = Invoke-Native $node @('start-board.mjs', '--anew', '--quiet') $Board.dir 90
+  $anew = Invoke-Native $node @('start-board.mjs', '--anew', '--quiet') $Board.dir 150
   if ($anew.code -ne 0) { Say "note: start-board.mjs --anew on $($Board.port) ended with $($anew.code): $(Git-Line $anew)" }
   Start-Sleep -Milliseconds 1500
   $mine = @($Old | Where-Object { $_.port -eq $Board.port })

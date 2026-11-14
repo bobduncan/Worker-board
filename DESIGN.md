@@ -7699,6 +7699,16 @@ its two-lens review of the first build (`.claude/plans/2026-11-14-f10-review.md`
   runs (the task's XML → the .vbs → the watcher), with a WARNING when it is another checkout's. `--watcher off` writes its marker only
   after a successful /Delete (or when no task was registered). stability.mjs reads a 'watcher' start like a 'keeper' one (no
   "restart by hand"). `--anew` (the cold restart) still skips the runs-already check; every other start asks F24's `boardRuns` first.
+- **Round 4** (chat 1's round-3 check, `.claude/plans/2026-11-14-f10-round3-check.md`): the watcher, `--stop` and startKeeper's late
+  look read this board's keepers only (`keepersOf(list, dir, port, { isDemo })`: a demo keeper of the folder is not the board's); a lost
+  port race is read from the whole log since the start, on the WMI route and the fallback route alike (`earlyEndVerdict`), and under
+  `--anew` it is a failure at once (the "winner" is the old board the cold restart kills next); land.ps1's warm start and cold restart
+  allow start-board.mjs 150 s (the merged worst case is about 135 s: the probe, two listings, the WMI start, its late look, the wait);
+  the logon cut-off is the Win32_LogonSession that holds the user's explorer.exe (the CIM association), never a stale session of an
+  earlier logon. Tests: the sweeps of the demo tests take the keeper's line ("server.mjs" --log --demo --port N) and loop until none is
+  left; F24's tests keep their per-request fake and 10 s, the race test has a fixed-time fake of its own (14 s) and a test hook
+  (`WORKER_BOARD_SKIP_CHECK`, the test's alone) for a start that crosses another's; `--anew` on a lost race ends with 1 at once; the
+  verdict's words; a 'watcher' start is no intervention (stability).
 
 ## Going live: tools/land.ps1 (2026-11-04)
 

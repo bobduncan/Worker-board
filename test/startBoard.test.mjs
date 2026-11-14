@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 
-import { ANSWER_MS, boardAt } from '../start-board.mjs'
+import { ANSWER_MS, boardAt, earlyEndVerdict } from '../start-board.mjs'
 import { startEnv } from '../src/keeper.mjs'
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), '..', 'start-board.mjs')
@@ -86,6 +86,18 @@ const JOB_KILL = join(dirname(fileURLToPath(import.meta.url)), '..', 'tools', 'j
 const windows = { skip: process.platform !== 'win32' ? 'Windows only' : false }
 const isAlive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
 const parentNameOf = pid => spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $p.ParentProcessId)).Name`], { encoding: 'utf8', timeout: 30_000, windowsHide: true }).stdout.trim()
+/** Ends every keeper and board of the demo on `port` (the keeper's line is "server.mjs" --log --demo --port N), until none is left. */
+async function sweep(port) {
+  const psRun = command => spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 30_000, windowsHide: true }).stdout.trim()
+  const until = Date.now() + 15_000
+  let left = '1'
+  while (Date.now() < until && left !== '0') {
+    psRun(`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs*--demo --port ${port}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`)
+    await new Promise(done => setTimeout(done, 400))
+    left = psRun(`@(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs*--demo --port ${port}*' }).Count`)
+  }
+  assert.equal(left, '0', `nothing of the demo on ${port} is left running`)
+}
 const stopDemo = async (pid, port) => {
   if (Number.isInteger(pid)) spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
   const until = Date.now() + 10_000
@@ -143,8 +155,9 @@ test('F10: --stop writes the stop sign first (so the watcher leaves the board do
   const sign = join(DATA, 'stop.json')
   const before = existsSync(sign) ? readFileSync(sign, 'utf8') : null
   t.after(() => { if (before === null) rmSync(sign, { force: true }); else writeFileSync(sign, before) })
+  // --stop names the board it stops (its port, the demo): a demo keeper of the folder is not the real board's, and the other way round (round 4).
   const began = Date.now()
-  const stopped = run('--stop')
+  const stopped = run('--stop', '--demo', '--port', port)
   assert.equal(stopped.status, 0, stopped.stderr)
   assert.match(stopped.stdout, /^The worker board is stopped \(keeper /)
   const written = JSON.parse(readFileSync(sign, 'utf8'))
@@ -157,11 +170,13 @@ test('F10: --stop writes the stop sign first (so the watcher leaves the board do
 // path on its command line, as a keeper's child has) holds the port and answers late or never: the script starts nothing and says
 // so. Another program on the port: said, nothing started. Windows only for the process parts (the listing is PowerShell's).
 const HERE = join(dirname(fileURLToPath(import.meta.url)), '..')
-const FAKE = "const http = require('node:http'); const [port, delay] = process.argv.slice(-2); const ready = Date.now() + Number(delay); http.createServer((q, r) => setTimeout(() => r.end('<title>Worker board</title>'), Math.max(0, ready - Date.now()))).listen(Number(port), '127.0.0.1')"
+const FAKE = "const http = require('node:http'); const [port, delay] = process.argv.slice(-2); http.createServer((q, r) => setTimeout(() => r.end('<title>Worker board</title>'), Number(delay))).listen(Number(port), '127.0.0.1')"
+/** The race's winner: a board that is up after `delay` ms from its start and answers every request at once from then on. */
+const RACE_FAKE = "const http = require('node:http'); const [port, delay] = process.argv.slice(-2); const ready = Date.now() + Number(delay); http.createServer((q, r) => setTimeout(() => r.end('<title>Worker board</title>'), Math.max(0, ready - Date.now()))).listen(Number(port), '127.0.0.1')"
 /** A made-up board of this folder on `port` that answers after `delayMs`; resolves once it listens. */
-async function fakeBoard(t, port, delayMs) {
+async function fakeBoard(t, port, delayMs, script = FAKE) {
   // Its command line is the demo's own board's (this folder's server.mjs, --demo, the port): what start-board.mjs --demo looks for.
-  const child = spawn(process.execPath, ['-e', FAKE, join(HERE, 'server.mjs'), '--demo', '--port', String(port), String(port), String(delayMs)], { stdio: 'ignore', windowsHide: true })
+  const child = spawn(process.execPath, ['-e', script, join(HERE, 'server.mjs'), '--demo', '--port', String(port), String(port), String(delayMs)], { stdio: 'ignore', windowsHide: true })
   t.after(() => { try { child.kill() } catch {} })
   const until = Date.now() + 5000
   while (Date.now() < until) {
@@ -178,7 +193,7 @@ test('F24a: a board that answers in 10 s is a running board: the script waits fo
   const began = Date.now()
   const said = spawnSync(process.execPath, [SCRIPT, '--demo', '--port', port], { encoding: 'utf8', timeout: 40_000, env: startEnv(process.env) })
   assert.deepEqual([said.status, said.stdout.trim()], [0, `The worker board runs already: http://127.0.0.1:${port}/`], said.stderr)
-  assert.ok(Date.now() - began >= 9_000, 'it waited for the answer (the fake counts its 10 s from its own start, a moment before)')
+  assert.ok(Date.now() - began >= 10_000, 'it waited for the answer')
   assert.ok(ANSWER_MS > 10_000)
   // The made-up board still holds the port: nothing else was started on it.
   assert.equal(fake.exitCode, null)
@@ -223,9 +238,10 @@ test('F24, chat 1\'s review: start-board.mjs itself runs at Normal when a chat u
     const until = Date.now() + 15_000
     let left = '1'
     while (Date.now() < until && left !== '0') {
-      ps(`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs --demo --port ${port}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`)
+      // The keeper's line is "server.mjs" --log --demo --port N: the wildcard between takes keeper and board alike.
+      ps(`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs*--demo --port ${port}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`)
       await new Promise(done => setTimeout(done, 500))
-      left = ps(`@(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs --demo --port ${port}*' -or $_.CommandLine -like '*start-board.mjs*--demo --port ${port}*' }).Count`)
+      left = ps(`@(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs*--demo --port ${port}*' -or $_.CommandLine -like '*start-board.mjs*--demo --port ${port}*' }).Count`)
     }
     assert.equal(left, '0', 'nothing of the test is left running')
   })
@@ -262,19 +278,32 @@ test('F24a: another program on the port is said, and nothing is started on it', 
   const port = String(server.address().port)
   const said = spawnSync(process.execPath, [SCRIPT, '--demo', '--port', port], { encoding: 'utf8', timeout: 40_000, env: startEnv(process.env) })
   assert.equal(said.status, 1)
-  assert.match(said.stderr.trim(), new RegExp(`^Port ${port} is held by process ${process.pid} \(.*startBoard\.test\.mjs.*\), not by this folder's board: nothing started\.$`))
+  assert.match(said.stderr.trim(), new RegExp(`^Port ${port} is held by process ${process.pid} \\(.*startBoard\\.test\\.mjs.*\\), not by this folder's board: nothing started\\.$`))
   assert.equal(said.stdout, '')
 })
 
 test('F10, re-check item 2: a keeper that loses the port race (another keeper\'s board holds the port and answers seconds later) is no failure: the script waits for the board and ends with 0', windows, async t => {
   const port = String(await freePort())
-  // A board of this folder (the demo's own, by its command line) that holds the port and answers after 6 s: the race's winner.
-  await fakeBoard(t, port, 10_000)
-  t.after(() => spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs*--demo --port ${port}*' -and $_.CommandLine -notlike '*-e *' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`], { windowsHide: true }))
-  // --anew skips the runs-already check (land.ps1's cold restart): a new keeper is made, its child dies on the port at once.
+  // A board of this folder (the demo's own, by its command line) that holds the port and is up after 14 s: the race's winner. The check
+  // before the start is skipped by a test hook here (WORKER_BOARD_SKIP_CHECK, this test's alone), as a second keeper's start would be
+  // in flight when a chat's start and a landing's restart cross.
+  await fakeBoard(t, port, 14_000, RACE_FAKE)
+  t.after(() => sweep(port))
+  const began = Date.now()
+  const said = spawnSync(process.execPath, [SCRIPT, '--demo', '--port', port], { encoding: 'utf8', timeout: 40_000, env: { ...startEnv(process.env), WORKER_BOARD_SKIP_CHECK: '1' } })
+  assert.equal(said.status, 0, `${said.stdout} ${said.stderr}`)
+  assert.ok(Date.now() - began >= 12_000, 'it waited for the winner\'s board, instead of failing on the keeper\'s early end')
+  assert.match(said.stdout, new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\(another keeper won the port; this one, process \\d+, ended\\)`))
+})
+
+test('F10, round 4: under --anew a lost race IS a failure (the winner is the old board the cold restart kills next): 1 at once, with the log\'s words; the verdict in words', windows, async t => {
+  const port = String(await freePort())
+  await fakeBoard(t, port, 120_000, RACE_FAKE)
+  t.after(() => sweep(port))
   const began = Date.now()
   const said = run('--demo', '--port', port, '--anew')
-  assert.equal(said.status, 0, `${said.stdout} ${said.stderr}`)
-  assert.ok(Date.now() - began >= 9_000, 'it waited for the winner\'s board, instead of failing on the keeper\'s early end')
-  assert.match(said.stdout, new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\(another keeper won the port; this one, process \\d+, ended\\)`))
+  assert.equal(said.status, 1, `${said.stdout} ${said.stderr}`)
+  assert.ok(Date.now() - began < 15_000, `at once, not after the wait: ${Date.now() - began} ms`)
+  assert.match(said.stderr, /is in use|before it was up/)
+  assert.deepEqual([earlyEndVerdict({ words: 'Port 4310 is in use: the board may be running already.', isAnew: false }), earlyEndVerdict({ words: 'Port 4310 is in use', isAnew: true }), earlyEndVerdict({ words: 'The board ended with code 1 before it was up', isAnew: false }), earlyEndVerdict({ words: '' })], ['race', 'fail', 'fail', 'fail'])
 })

@@ -27,9 +27,9 @@ test('the task: one name for the PC, its XML (logon and every 5 minutes, the int
     assert.ok(xml.includes(part), part)
   }
   assert.doesNotMatch(xml, /Password|<RunLevel>HighestAvailable/, 'no password, no admin')
-  const vbs = vbsText({ node: 'C:\\Program Files\\nodejs\\node.exe', script: 'C:\\Web\\lava-tactics-project\\worker-board\\tools\\watch-boards.mjs' })
+  const vbs = vbsText({ node: 'C:\\Program Files\\nodejs\\node.exe', script: 'D:\\Proj\\garden\\worker-board\\tools\\watch-boards.mjs' })
   // VBScript doubles a quote inside a string: the run string is "<node>" "<script>", window style 0, no wait.
-  assert.match(vbs, /^shell\.Run """C:\\Program Files\\nodejs\\node\.exe"" ""C:\\Web\\lava-tactics-project\\worker-board\\tools\\watch-boards\.mjs""", 0, True$/m, 'window style 0, waits for node')
+  assert.match(vbs, /^shell\.Run """C:\\Program Files\\nodejs\\node\.exe"" ""D:\\Proj\\garden\\worker-board\\tools\\watch-boards\.mjs""", 0, True$/m, 'window style 0, waits for node')
   // The XML file's bytes: UTF-16LE with a BOM, as its first line declares (a UTF-8 file with that line is refused by schtasks).
   const bytes = xmlBytes(xml)
   assert.deepEqual([bytes[0], bytes[1]], [0xff, 0xfe])
@@ -54,12 +54,12 @@ test('setup registers the task from an XML in the person\'s worker-board home (G
   const run = async (program, args) => {
     calls.push([program, ...args])
     if (args[0] === '/Query') return { code: 1, out: '', err: 'ERROR: The system cannot find the file specified.' }
-    return { code: 0, out: 'SUCCESS: The scheduled task "Worker board watcher (lava-tactics-project)" has successfully been created.', err: '' }
+    return { code: 0, out: 'SUCCESS: The scheduled task "Worker board watcher" has successfully been created.', err: '' }
   }
   const write = async (file, text) => { written.push([file, text]) }
   const markers = new Set()
   const marker = 'C:\\Users\\me\\.worker-board\\watcher-off.json'
-  const common = { home: 'C:\\Users\\me\\.worker-board', node: 'C:\\node.exe', script: 'C:\\Web\\lava-tactics-project\\worker-board\\tools\\watch-boards.mjs', user: 'PC\\me', run, write, exists: async file => markers.has(file), remove: async file => { markers.delete(file) } }
+  const common = { home: 'C:\\Users\\me\\.worker-board', node: 'C:\\node.exe', script: 'D:\\Proj\\garden\\worker-board\\tools\\watch-boards.mjs', user: 'PC\\me', run, write, exists: async file => markers.has(file), remove: async file => { markers.delete(file) } }
   const on = await setupWatcher({ mode: 'on', ...common })
   assert.equal(on.ok, true)
   assert.match(on.lines[0], /^The watcher task "Worker board watcher" is registered: every 5 minutes and at logon, as PC\\me, hidden \(wscript, C:\\Users\\me\\.worker-board\\watch-boards\.vbs\)/)
@@ -85,9 +85,9 @@ test('setup registers the task from an XML in the person\'s worker-board home (G
   }
   const vbsOf = script => vbsText({ node: 'C:\\node.exe', script })
   const ours = await setupWatcher({ mode: 'check', ...common, run: registered, read: async () => vbsOf(common.script) })
-  assert.match(ours.lines[1], /^The task runs this checkout's watcher: C:\\Web\\lava-tactics-project\\worker-board\\tools\\watch-boards\.mjs\.$/)
-  const other = await setupWatcher({ mode: 'check', ...common, run: registered, read: async () => vbsOf('C:\\Web\\board-trial\\worker-board\\tools\\watch-boards.mjs') })
-  assert.match(other.lines[1], /^WARNING: the task runs C:\\Web\\board-trial\\worker-board\\tools\\watch-boards\.mjs, not this checkout's /)
+  assert.match(ours.lines[1], /^The task runs this checkout's watcher: D:\\Proj\\garden\\worker-board\\tools\\watch-boards\.mjs\.$/)
+  const other = await setupWatcher({ mode: 'check', ...common, run: registered, read: async () => vbsOf('D:\\Proj\\garden-trial\\worker-board\\tools\\watch-boards.mjs') })
+  assert.match(other.lines[1], /^WARNING: the task runs D:\\Proj\\garden-trial\\worker-board\\tools\\watch-boards\.mjs, not this checkout's /)
   assert.match((await setupWatcher({ mode: 'check', ...common, run: registered, read: async () => null })).lines[1], /could not be read/)
   // --watcher off with the task there: deleted; not there: nothing to remove.
   const there = async (program, args) => { calls.push([program, ...args]); return { code: 0, out: args[0] === '/Query' ? 'TaskName: x\r\nStatus: Ready\r\nLast Run Time: never\r\nLast Result: 0\r\n' : '', err: '' } }
@@ -140,14 +140,15 @@ test('one pass at a time: the lock is taken with wx, a fresh one is another pass
 })
 
 test('one pass of the watcher: an answering board costs one request; the others share one process listing; a killed board is started through the given route with one log line; a keeper that runs is left alone; the record is kept', async () => {
-  const boards = [{ folder: 'C:\\Web\\a\\worker-board', port: 4310 }, { folder: 'C:\\Web\\b\\worker-board', port: 4314 }, { folder: 'C:\\Web\\c\\worker-board', port: 4320 }]
+  const boards = [{ folder: 'D:\\Proj\\a\\worker-board', port: 4310 }, { folder: 'D:\\Proj\\b\\worker-board', port: 4314 }, { folder: 'D:\\Proj\\c\\worker-board', port: 4320 }]
   const asked = []
   let listed = 0
   const started = []
   const logged = []
   let kept = null
   const answers = async port => { asked.push(port); return port === 4310 }
-  const listProcesses = async () => { listed += 1; return { bootAt: NOW - 24 * 60 * MIN, processes: [{ pid: 900, parent: 1, commandLine: '"C:\\node.exe" "C:\\Web\\c\\worker-board\\server.mjs" --log' }] } }
+  // Board c has its keeper; board b has only a DEMO keeper on another port, which is not its board: b is started.
+  const listProcesses = async () => { listed += 1; return { bootAt: NOW - 24 * 60 * MIN, processes: [{ pid: 900, parent: 1, commandLine: '"C:\\node.exe" "D:\\Proj\\c\\worker-board\\server.mjs" --log' }, { pid: 950, parent: 1, commandLine: '"C:\\node.exe" "D:\\Proj\\b\\worker-board\\server.mjs" --log --demo --port 4399' }] } }
   const readStarted = async () => ({ at: NOW - 60 * MIN })
   const keptOrder = []
   const start = async ({ dir }) => { started.push(dir); keptOrder.push('start'); return { pid: 5100, how: 'wmi', why: null } }
@@ -156,12 +157,12 @@ test('one pass of the watcher: an answering board costs one request; the others 
   assert.deepEqual(outcomes.map(one => [one.port, one.do]), [[4310, 'nothing'], [4314, 'start'], [4320, 'nothing']])
   assert.deepEqual(asked, [4310, 4314, 4320], 'the HTTP answer first, once per board')
   assert.equal(listed, 1, 'one listing for the boards that did not answer')
-  assert.deepEqual(started, ['C:\\Web\\b\\worker-board'])
-  assert.deepEqual(logged.map(([dir, text]) => [dir, text.replace(/\(.*\)/, '(...)')]), [['C:\\Web\\b\\worker-board', 'watcher: started the board (...): keeper process 5100 by WMI']])
-  assert.deepEqual(kept.boards['C:\\Web\\b\\worker-board'], { starts: [NOW], silentLooks: 0 })
+  assert.deepEqual(started, ['D:\\Proj\\b\\worker-board'])
+  assert.deepEqual(logged.map(([dir, text]) => [dir, text.replace(/\(.*\)/, '(...)')]), [['D:\\Proj\\b\\worker-board', 'watcher: started the board (...): keeper process 5100 by WMI']])
+  assert.deepEqual(kept.boards['D:\\Proj\\b\\worker-board'], { starts: [NOW], silentLooks: 0 })
   // The record is kept BEFORE the start as well (a pass the task's time limit cuts off mid-start still counts toward the cap).
   assert.ok(keptOrder.indexOf('record') < keptOrder.indexOf('start'), `record before start: ${keptOrder.join(' → ')}`)
-  assert.deepEqual(kept.boards['C:\\Web\\c\\worker-board'], { starts: [], silentLooks: 1 })
+  assert.deepEqual(kept.boards['D:\\Proj\\c\\worker-board'], { starts: [], silentLooks: 1 })
   // Nothing to do: no listing, no log line, the record untouched but for the answering board's count.
   asked.length = 0
   logged.length = 0
@@ -176,7 +177,7 @@ test('one pass of the watcher: an answering board costs one request; the others 
     assert.deepEqual(unsure.map(one => one.do), ['nothing', 'nothing', 'nothing'])
     assert.match(unsure[1].why, /^the PC's processes could not be listed \((PowerShell took longer than 30 s|the listing could not be read)\) while the board does not answer: nothing started$/)
     assert.deepEqual(started, [])
-    assert.deepEqual(logged.map(([dir]) => dir), ['C:\\Web\\b\\worker-board', 'C:\\Web\\c\\worker-board'], 'one line per silent board')
+    assert.deepEqual(logged.map(([dir]) => dir), ['D:\\Proj\\b\\worker-board', 'D:\\Proj\\c\\worker-board'], 'one line per silent board')
   }
   // --dry: the decision said, nothing started or logged.
   started.length = 0

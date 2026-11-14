@@ -117,7 +117,7 @@ export async function watchOnce({
       const stop = parseStop(await readFile(join(dir, 'data', 'stop.json'), 'utf8').catch(() => ''))
       const started = await readStarted(dir)
       const decided = watchDecision({
-        answers: false, keepers: keepersOf(listed.processes, dir), lockAgeMs: lock === null ? null : lock.ageMs, stop,
+        answers: false, keepers: keepersOf(listed.processes, dir, board.port), lockAgeMs: lock === null ? null : lock.ageMs, stop,
         startedAt: Number.isFinite(started?.at) ? started.at : null, bootAt: listed.logonAt ?? listed.bootAt ?? null, now, record: record.boards[dir],
       })
       record.boards[dir] = decided.record

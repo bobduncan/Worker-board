@@ -8,11 +8,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { LOCK_FRESH_MS, SILENT_LOOKS, STARTS_PER_HOUR, STARTS_WITHIN_MS, clockOf, isSignCurrent, startsWithin, watchDecision, watcherRecordOf } from '../src/boardWatcher.mjs'
-import { LIST_SCRIPT, WMI_START_MS, keeperCommandLine, keepersOf, parseCreated, parseProcessList, psQuote, startKeeper, wmiCreateScript } from '../src/keeperStart.mjs'
+import { LIST_SCRIPT, WMI_START_MS, keeperCommandLine, keepersOf, parseCreated, parseProcessList, portOfArgs, psQuote, startKeeper, wmiCreateScript } from '../src/keeperStart.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 10, 14, 10, 0).getTime()
-const DIR = 'C:\\Web\\lava-tactics-project\\worker-board'
+const DIR = 'D:\\Proj\\garden\\worker-board'
 
 test('the table: an answering board is left alone; a keeper that runs is given time, and after three silent looks one line, never a second keeper', () => {
   assert.deepEqual(watchDecision({ answers: true, now: NOW, record: { starts: [NOW - MIN], silentLooks: 2 } }), { do: 'nothing', why: 'the board answers', record: { starts: [NOW - MIN], silentLooks: 0 } })
@@ -122,7 +122,7 @@ test('the WMI start route: the command line, the hidden Create, what it prints, 
   assert.match(script, /Get-CimClass -ClassName Win32_ProcessStartup/)
   assert.match(script, /ShowWindow = \[uint16\]0/, 'the console is never shown')
   assert.doesNotMatch(script, /CreateFlags/, 'CreateFlags made Create answer 21 on this PC')
-  assert.match(script, /Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @\{ CommandLine = '"C:\\Program Files\\nodejs\\node\.exe" "C:\\Web\\lava-tactics-project\\worker-board\\server\.mjs" --log'; CurrentDirectory = 'C:\\Web\\lava-tactics-project\\worker-board'; ProcessStartupInformation = \$startup \}/)
+  assert.match(script, /Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @\{ CommandLine = '"C:\\Program Files\\nodejs\\node\.exe" "D:\\Proj\\garden\\worker-board\\server\.mjs" --log'; CurrentDirectory = 'D:\\Proj\\garden\\worker-board'; ProcessStartupInformation = \$startup \}/)
   assert.equal(psQuote("it's"), "'it''s'")
   assert.deepEqual(parseCreated('ret=0 pid=4321\r\n'), { ret: 0, pid: 4321 })
   assert.deepEqual(parseCreated('ret=21 pid='), { ret: 21, pid: null })
@@ -138,6 +138,9 @@ test('the WMI start route: the command line, the hidden Create, what it prints, 
   // A timeout or an unreadable answer is no proof that Create failed (chat 1's review, item 8): a keeper of the folder made since the
   // call is ours, nothing is spawned; one from before the call is not.
   const made = { pid: 6100, parent: 1, commandLine: `"${node}" "${DIR}\\server.mjs" --log`, createdAt: NOW }
+  // The late look takes this board's keeper alone: a demo keeper of the folder made since the call is not it.
+  const demoMade = { pid: 6200, parent: 1, commandLine: `"${node}" "${DIR}\\server.mjs" --log --demo --port 4311`, createdAt: NOW }
+  assert.equal((await startKeeper({ dir: DIR, args: [], node, run: async () => { throw new Error('PowerShell took longer than 30 s') }, spawnChild: () => ({ pid: 77, on: () => {} }), log: () => {}, platform: 'win32', now: () => NOW, list: async () => ({ processes: [demoMade] }) })).how, 'child')
   const slow = async () => { throw new Error('PowerShell took longer than 30 s') }
   assert.deepEqual(await startKeeper({ dir: DIR, args: [], node, run: slow, spawnChild, log, platform: 'win32', now: () => NOW, list: async () => ({ processes: [made] }) }), { pid: 6100, how: 'wmi', why: null, late: 'PowerShell took longer than 30 s' })
   assert.deepEqual(await startKeeper({ dir: DIR, args: [], node, run: async () => 'garbage', spawnChild, log, platform: 'win32', now: () => NOW, list: async () => ({ processes: [made] }) }), { pid: 6100, how: 'wmi', why: null, late: 'WMI gave no answer that could be read' })
@@ -166,13 +169,13 @@ test('the keepers of a folder among the PC\'s node processes: the one running it
   const list = [
     { pid: 100, parent: 1, commandLine: `"C:\\nodejs\\node.exe" "${DIR}\\server.mjs" --log` },
     { pid: 101, parent: 100, commandLine: `"C:\\nodejs\\node.exe" ${DIR}/server.mjs` },
-    { pid: 200, parent: 1, commandLine: '"C:\\nodejs\\node.exe" "C:\\Web\\board-trial\\worker-board\\server.mjs"' },
+    { pid: 200, parent: 1, commandLine: '"C:\\nodejs\\node.exe" "D:\\Proj\\garden-trial\\worker-board\\server.mjs"' },
     { pid: 300, parent: 1, commandLine: `"C:\\nodejs\\node.exe" "${DIR}\\tools\\watch-boards.mjs"` },
     { pid: 400, parent: 1, commandLine: null },
   ]
   assert.deepEqual(keepersOf(list, DIR), [{ pid: 100, children: [101] }])
   assert.deepEqual(keepersOf(list, `${DIR}\\`), [{ pid: 100, children: [101] }])
-  assert.deepEqual(keepersOf(list, 'C:/Web/board-trial/worker-board'), [{ pid: 200, children: [] }])
+  assert.deepEqual(keepersOf(list, 'D:/Proj/garden-trial/worker-board'), [{ pid: 200, children: [] }])
   assert.deepEqual(keepersOf([], DIR), [])
   // The listing script's answer read: the boot time and the processes.
   const read = parseProcessList('\uFEFF{"boot":"2026-11-14T07:09:45.5000000Z","processes":[{"pid":100,"parent":1,"commandLine":"x","created":"2026-11-14T08:00:00.0000000Z"},{"pid":"bad"}]}')
@@ -182,5 +185,6 @@ test('the keepers of a folder among the PC\'s node processes: the one running it
   // F10's re-check: a CIM query that fails ends the script with an error (never an empty list), the logon comes from Win32_LogonSession.
   assert.match(LIST_SCRIPT, /^\$ErrorActionPreference = 'Stop'; /)
   assert.match(LIST_SCRIPT, /Win32_LogonSession/)
-  assert.doesNotMatch(LIST_SCRIPT, /explorer\.exe/)
+  assert.match(LIST_SCRIPT, /explorer\.exe'.*Get-CimAssociatedInstance -InputObject \$e -ResultClassName Win32_LogonSession/, 'the session holding the user\'s explorer')
+  assert.deepEqual([portOfArgs(['--demo', '--port', '4311']), portOfArgs(['--quiet']), portOfArgs(['--port', 'x'])], [4311, null, null])
 })

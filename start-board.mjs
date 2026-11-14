@@ -98,21 +98,35 @@ function openPage(url) {
   }
 }
 
-/** What this start wrote into the board's log (from `from` on), its last lines, for a start that failed. */
-const lastWords = (file, from) => {
+/** What this start wrote into the board's log (from `from` on), whole. */
+const logSince = (file, from) => {
   try {
-    return readFileSync(file).subarray(from).toString('utf8').trim().split('\n').slice(-3).join('\n')
+    return readFileSync(file).subarray(from).toString('utf8').trim()
   } catch {
     return ''
   }
+}
+/** What this start wrote into the board's log (from `from` on), its last lines, for a start that failed. */
+const lastWords = (file, from) => logSince(file, from).split('\n').slice(-3).join('\n')
+
+/**
+ * F10's round 4: how an early end of the keeper (or of the child, on the fallback route) is read: a 'race' when the log since the start
+ * says the port was in use (another keeper's board won it: the board answers seconds later, so the wait goes on), else a 'fail' (said
+ * at once). Under --anew a lost race is a failure too: the "winner" is the old board land.ps1's cold restart kills next.
+ */
+export function earlyEndVerdict({ words, isAnew = false }) {
+  return !isAnew && /is in use|EADDRINUSE/.test(String(words ?? '')) ? 'race' : 'fail'
 }
 
 /** Whether a process is there (a signal 0). */
 const isAlive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
 
 /** F10: `--stop`: the stop sign first (the watcher then leaves the board down), then the keeper and its child, found by their command lines; the sign again once they are gone. */
-async function stopBoard(isQuiet) {
+async function stopBoard(isQuiet, passed) {
   mkdirSync(join(HERE, 'data'), { recursive: true })
+  // This board's keepers only (its port, the demo's when --stop --demo): a demo keeper of the folder is left alone (chat 1's round-3 check).
+  const port = await portOf(passed)
+  const isDemo = passed.includes('--demo')
   let started = null
   try {
     started = JSON.parse(readFileSync(join(HERE, 'data', 'started.json'), 'utf8')).at
@@ -124,7 +138,7 @@ async function stopBoard(isQuiet) {
   try {
     const listed = parseProcessList(await powershell(LIST_SCRIPT, 30_000), { ownPid: process.pid })
     if (listed === null) throw new Error('the listing was not JSON, or lacks this process')
-    keepers = keepersOf(listed.processes, HERE)
+    keepers = keepersOf(listed.processes, HERE, port, { isDemo })
   } catch (error) {
     console.error(`The board's processes could not be listed: ${error instanceof Error ? error.message : String(error)}`)
     return 1
@@ -139,22 +153,29 @@ async function stopBoard(isQuiet) {
   return 0
 }
 
-async function main(args) {
-  const isQuiet = args.includes('--quiet')
-  const isOpen = args.includes('--open')
-  const isAnew = args.includes('--anew')
-  if (args.includes('--stop')) return stopBoard(isQuiet)
-  const passed = args.filter(arg => arg !== '--quiet' && arg !== '--open' && arg !== '--anew')
+/** The port the board takes for these words, as the server works it out (a broken settings file is the server's to name). */
+async function portOf(passed) {
   const given = passed.includes('--port') ? passed[passed.indexOf('--port') + 1] : undefined
-  // The port the board takes, as the server works it out; a broken settings file is the server's to name.
   const config = await loadConfig(join(HERE, 'config.json')).catch(() => ({ port: 4310, gamePort: 5300, project: '' }))
   // B319: with the PC's list of boards, as the server reads it: another project's board may hold the configured port.
   const isDemo = passed.includes('--demo')
   const boards = isDemo || !config.project ? null : boardsFile()
   const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: config.project ? resolve(HERE, config.project) : null, gamePort: config.gamePort, boards })
+  return port
+}
+
+async function main(args) {
+  const isQuiet = args.includes('--quiet')
+  const isOpen = args.includes('--open')
+  const isAnew = args.includes('--anew')
+  const passed = args.filter(arg => arg !== '--quiet' && arg !== '--open' && arg !== '--anew' && arg !== '--stop')
+  if (args.includes('--stop')) return stopBoard(isQuiet, passed)
+  const isDemo = passed.includes('--demo')
+  const port = await portOf(passed)
   const url = `http://${HOST}:${port}/`
   // F10's --anew (land.ps1's cold restart) starts a keeper although the board answers; every other start asks first (F24).
-  const runs = isAnew ? { runs: false } : await boardRuns(port, { isDemo })
+  // WORKER_BOARD_SKIP_CHECK: the test's way to a start that crosses another's (test/startBoard.test.mjs, the port race); nothing else sets it.
+  const runs = isAnew || process.env.WORKER_BOARD_SKIP_CHECK === '1' ? { runs: false } : await boardRuns(port, { isDemo })
   if (runs.runs) {
     if (!isQuiet) console.log(`The worker board runs already: ${url}${runs.why === 'it answers' ? '' : ` (${runs.why})`}`)
     if (isOpen) openPage(url)
@@ -185,18 +206,15 @@ async function main(args) {
   made.child?.on('exit', code => { ended = code ?? 1 })
   const until = Date.now() + WAIT_MS
   while (Date.now() < until) {
-    if (ended !== null) {
-      console.error(lastWords(logFile, from) || `The worker board did not start (it ended with ${ended}).`)
-      return 1
-    }
-    // A WMI keeper is no child of ours: its end shows only by its pid (the keeper ends when its board dies before it is up). One that
-    // ended on the port race ("Port N is in use": another keeper's board won it) is no failure yet: the board answers seconds later,
-    // so the wait goes on to WAIT_MS (chat 1's re-check of F10: land.ps1 rolled back on that early 1).
-    if (made.how === 'wmi' && !isAlive(made.pid) && !raceLost) {
-      const words = lastWords(logFile, from)
-      if (/is in use|EADDRINUSE/.test(words)) raceLost = true
+    // An early end of the keeper (a WMI keeper is no child of ours: its end shows only by its pid) or of the child on the fallback route.
+    // The keeper ends when its board dies before it is up. One that ended on the port race ("Port N is in use": another keeper's board
+    // won it) is no failure yet: the board answers seconds later, so the wait goes on to WAIT_MS (chat 1's re-check: land.ps1 rolled
+    // back on that early 1); under --anew it is one (the winner is the old board the cold restart kills next). Any other end: 1 at once.
+    const endedEarly = ended !== null || (made.how === 'wmi' && !isAlive(made.pid))
+    if (endedEarly && !raceLost) {
+      if (earlyEndVerdict({ words: logSince(logFile, from), isAnew }) === 'race') raceLost = true
       else {
-        console.error(words || `The worker board did not start (its keeper, process ${made.pid}, ended before the board answered).`)
+        console.error(lastWords(logFile, from) || (ended !== null ? `The worker board did not start (it ended with ${ended}).` : `The worker board did not start (its keeper, process ${made.pid}, ended before the board answered).`))
         return 1
       }
     }

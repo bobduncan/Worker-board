@@ -88,7 +88,16 @@ test('the probe, read while it runs: Idle, the two-core mask', windows, async t 
 
 test('F24b through start-board.mjs, under F10: the keeper is made by WMI and inherits nothing from the chat at Idle on two cores: keeper and board at Normal on ALL cores', windows, async t => {
   const port = await freePort()
-  t.after(() => killRunning(`server.mjs --demo --port ${port}`))
+  t.after(async () => {
+    // The keeper's line is "server.mjs" --log --demo --port N: the wildcard takes keeper and board; swept until none is left.
+    const script = `server.mjs*--demo --port ${port}`
+    const until = Date.now() + 15_000
+    do {
+      killRunning(script)
+      await new Promise(done => setTimeout(done, 400))
+    } while (Date.now() < until && stillRunning(script) !== '0')
+    assert.equal(stillRunning(script), '0', 'keeper and board of the demo are gone')
+  })
   const started = startLow([join(ROOT, 'start-board.mjs'), '--demo', '--port', String(port)], { cwd: ROOT })
   const keeper = Number(started.stdout.match(/process (\d+)/)?.[1])
   assert.ok(Number.isInteger(keeper), `${started.stdout} ${started.stderr}`)
@@ -101,7 +110,7 @@ test('F24b through start-board.mjs, under F10: the keeper is made by WMI and inh
 test('F24b, server.mjs alone, directly: the demo keeper started with start /LOW /AFFINITY (no start-board.mjs) and its board read Normal while their affinity is still the two cores (fails without the raise in server.mjs)', windows, async t => {
   const { spawn } = await import('node:child_process')
   const port = await freePort()
-  const script = `server.mjs --demo --port ${port}`
+  const script = `server.mjs*--demo --port ${port}`
   t.after(async () => {
     const until = Date.now() + 15_000
     do {
