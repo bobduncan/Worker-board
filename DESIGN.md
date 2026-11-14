@@ -4039,7 +4039,9 @@ Chat 1's verifier of the rework (2026-11-14, `.claude/plans/2026-11-14-f8-verifi
   pid (killed, gone, mismatch, alive, error) after reading the processes again, and `ok` follows the main alone; `closeLeaked` removes
   the folder and counts the close only when the kill says the main was killed, gone, or its number another process's.
 - **Each Stop-Process stands alone** (5, 6): `-ErrorAction SilentlyContinue` with its error read per process; a child gone with its main
-  is no failure.
+  is no failure. Chat 1's check of the round: each WMI read runs under try/catch with `-ErrorAction Stop`, so a failed read (a quota,
+  a timeout) is an error line, never "gone" (the folder stays, the close is not done); a process found without a creation time is an
+  error too.
 - **A tried close survives a restart** (7): the supervisor's memory keeps `browsers` (`{ key: { at, ok } }`, every close tried, failed
   ones too), seeded into the runner's map at each run and pruned to the browsers still listed, so a restarted board tries no browser
   again; the guard-3 test covers the failed close across a restart.

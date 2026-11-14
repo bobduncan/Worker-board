@@ -239,12 +239,16 @@ export async function killVerified(processes, { platform = process.platform, run
   if (platform !== 'win32') return { ok: false, why: 'only on Windows', killed: 0, outcomes: {} }
   const timeOf = one => (/^\d{1,20}$/.test(String(one.createdText ?? '')) ? String(one.createdText) : String(Math.round(one.created)))
   const rows = wanted.map(one => `@{ pid = ${one.pid}; created = [long]${timeOf(one)} }`).join(', ')
-  const match = '($p -and $p.CreationDate -and [math]::Abs([long]$p.CreationDate.ToFileTimeUtc() - $one.created) -le 20)'
+  // Chat 1's check (F8, 3a8bb073): a WMI read that fails (a quota, a timeout) is an error line, never "gone": the folder stays and the close
+  // is not done. A process found with no CreationDate is an error too (its time cannot be matched), not a mismatch.
+  const matched = '([math]::Abs([long]$p.CreationDate.ToFileTimeUtc() - $one.created) -le 20)'
+  const read = '$p = Get-CimInstance Win32_Process -Filter "ProcessId=$($one.pid)" -ErrorAction Stop'
+  const failed = `$out += "$($one.pid) error $($_.Exception.Message -replace '[\\r\\n]+', ' ')"; continue`
   const script = [
     `$rows = @(${rows}); $out = @()`,
-    `foreach ($one in $rows) { $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($one.pid)" -ErrorAction SilentlyContinue; if (-not $p) { $out += "$($one.pid) gone"; continue }; if (-not ${match}) { $out += "$($one.pid) mismatch"; continue }; $e = $null; Stop-Process -Id $one.pid -Force -ErrorAction SilentlyContinue -ErrorVariable e; if ($e) { $out += "$($one.pid) error $($e[0].Exception.Message -replace '[\r\n]+', ' ')" } else { $out += "$($one.pid) killed" } }`,
+    `foreach ($one in $rows) { try { ${read} } catch { ${failed} }; if (-not $p) { $out += "$($one.pid) gone"; continue }; if (-not $p.CreationDate) { $out += "$($one.pid) error no creation time"; continue }; if (-not ${matched}) { $out += "$($one.pid) mismatch"; continue }; $e = $null; Stop-Process -Id $one.pid -Force -ErrorAction SilentlyContinue -ErrorVariable e; if ($e) { $out += "$($one.pid) error $($e[0].Exception.Message -replace '[\\r\\n]+', ' ')" } else { $out += "$($one.pid) killed" } }`,
     'Start-Sleep -Milliseconds 300',
-    `foreach ($one in $rows) { $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($one.pid)" -ErrorAction SilentlyContinue; if (${match} -and [int]$p.ThreadCount -gt 1) { $out += "$($one.pid) alive" } }`,
+    `foreach ($one in $rows) { try { ${read} } catch { ${failed} }; if ($p -and $p.CreationDate -and ${matched} -and [int]$p.ThreadCount -gt 1) { $out += "$($one.pid) alive" } }`,
     '$out -join "`n"',
   ].join('; ')
   try {
@@ -254,8 +258,9 @@ export async function killVerified(processes, { platform = process.platform, run
       const m = /^(\d+) (killed|gone|mismatch|alive|error)(?: (.*))?$/.exec(line.trim())
       if (m === null) continue
       const pid = Number(m[1])
-      // The second pass ('alive') overrides; an error keeps its words.
-      if (m[2] === 'alive' || outcomes[pid] === undefined) outcomes[pid] = m[2] === 'error' ? `error: ${m[3] ?? ''}`.trim() : m[2]
+      // The second pass overrides with 'alive' or an error of its read (a kill not verified is no kill); the first pass's error keeps its words.
+      const word = m[2] === 'error' ? `error: ${m[3] ?? ''}`.trim() : m[2]
+      if (outcomes[pid] === undefined || m[2] === 'alive' || (m[2] === 'error' && outcomes[pid] === 'killed')) outcomes[pid] = word
     }
     const main = wanted[0].pid
     const mainOut = outcomes[main]

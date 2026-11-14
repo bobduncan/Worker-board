@@ -188,6 +188,7 @@ test('closing: the landing and a live DevTools connection skip it (nothing count
   calls.length = 0
   assert.deepEqual(await closeLeaked(one, { kill: async () => ({ ok: true, why: null, killed: 0 }), remove, inUse }), { ok: false, skipped: false, why: 'the kill did not say what became of process 500', profile: null })
   assert.deepEqual(await closeLeaked(one, { kill: async () => ({ ok: true, why: null, killed: 2, outcomes: { 500: 'alive', 501: 'killed', 502: 'killed' } }), remove, inUse }), { ok: false, skipped: false, why: 'the kill did not say what became of process 500', profile: null })
+  assert.deepEqual(await closeLeaked(one, { kill: async () => ({ ok: true, why: null, killed: 0, outcomes: { 500: 'error: Quota violation' } }), remove, inUse }), { ok: false, skipped: false, why: 'the kill did not say what became of process 500', profile: null })
   assert.deepEqual(calls.filter(([what]) => what === 'remove'), [], 'nothing removed under a browser that may still run')
   // A main gone before the kill, or whose number is another process's now, is closed: its folder is the tool's to remove.
   assert.deepEqual(await closeLeaked(one, { kill: async () => ({ ok: true, why: null, killed: 0, outcomes: { 500: 'gone' } }), remove, inUse }), { ok: true, skipped: false, why: null, profile: 'removed' })
@@ -206,10 +207,14 @@ test('the Windows calls: the kill names each process with its creation time in o
   assert.equal(scripts.length, 1)
   assert.match(scripts[0], /@\{ pid = 500; created = \[long\]133800000000000010 \}, @\{ pid = 501; created = \[long\]133800000000001000 \}/)
   assert.match(scripts[0], /\[math\]::Abs\(\[long\]\$p\.CreationDate\.ToFileTimeUtc\(\) - \$one\.created\) -le 20/, 'the creation time must match, within 2 us')
+  // Chat 1's check: each WMI read under try/catch with -ErrorAction Stop, its failure an error line (never "gone"); no creation time is an error too.
+  assert.equal((scripts[0].match(/try \{ \$p = Get-CimInstance Win32_Process -Filter "ProcessId=\$\(\$one\.pid\)" -ErrorAction Stop \} catch \{ \$out \+= "\$\(\$one\.pid\) error /g) ?? []).length, 2, 'both lookups')
+  assert.doesNotMatch(scripts[0], /Get-CimInstance[^;]*-ErrorAction SilentlyContinue/)
+  assert.match(scripts[0], /if \(-not \$p\.CreationDate\) \{ \$out \+= "\$\(\$one\.pid\) error no creation time"; continue \}/)
   assert.match(scripts[0], /Stop-Process -Id \$one\.pid -Force -ErrorAction SilentlyContinue/)
   // Chat 1's verifier of F8 (5, 6): no Stop-Process may end the whole script (a child gone with its main is no failure); the processes are read again after.
   assert.doesNotMatch(scripts[0], /Stop-Process[^;]*-ErrorAction Stop/)
-  assert.match(scripts[0], /Start-Sleep -Milliseconds 300; foreach[^;]*ProcessId=\$\(\$one\.pid\)[^;]*; if \([^;]*ThreadCount -gt 1\) \{ \$out \+= "\$\(\$one\.pid\) alive" \}/)
+  assert.match(scripts[0], /Start-Sleep -Milliseconds 300; foreach \(\$one in \$rows\) \{ try \{ [^}]*\} catch \{ [^}]*\}; if \(\$p -and \$p\.CreationDate -and [^;]*ThreadCount -gt 1\) \{ \$out \+= "\$\(\$one\.pid\) alive" \} \}/)
   assert.doesNotMatch(scripts[0], /taskkill|\/T/, 'no tree kill by number')
   // A number only (an older listing) still goes in, rounded; `ok` follows the main alone.
   assert.match((await (async () => { await killVerified([{ pid: 7, created: 133800000000000000 }], { platform: 'win32', run }); return scripts.at(-1) })()), /pid = 7; created = \[long\]133800000000000000/)
@@ -221,6 +226,11 @@ test('the Windows calls: the kill names each process with its creation time in o
   assert.deepEqual((await killVerified([{ pid: 500, createdText: '1' }], { platform: 'win32', run })).why, 'process 500 is still alive after the kill')
   answer = '500 error Access is denied\n'
   assert.deepEqual((await killVerified([{ pid: 500, createdText: '1' }], { platform: 'win32', run })).why, 'process 500: Access is denied')
+  // A failed read of the main (a WMI quota): not ok, so nothing is removed and the close is not done.
+  answer = '500 error Quota violation\n'
+  assert.deepEqual(await killVerified([{ pid: 500, createdText: '1' }], { platform: 'win32', run }), { ok: false, why: 'process 500: Quota violation', killed: 0, outcomes: { 500: 'error: Quota violation' } })
+  answer = '500 killed\n500 error Quota violation\n'
+  assert.deepEqual((await killVerified([{ pid: 500, createdText: '1' }], { platform: 'win32', run })).ok, false, 'a kill the second read could not verify is no kill')
   answer = '500 mismatch\n'
   assert.deepEqual(await killVerified([{ pid: 500, createdText: '1' }], { platform: 'win32', run }), { ok: true, why: null, killed: 0, outcomes: { 500: 'mismatch' } })
   answer = '2\n'
