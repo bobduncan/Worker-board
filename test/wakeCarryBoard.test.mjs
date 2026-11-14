@@ -68,7 +68,7 @@ const SPELL = NOW - 40 * MIN
  * A board over a made-up project: Main and Worker 1 report idle (they run), Worker 2 never reported (asleep). `refused`: the wake record
  * holds the live refusal of a hand's send (08:16's, at today's time). `lines` the outbox; `attempts` more attempts of Worker 2's spell.
  */
-async function boardWith(t, { refused, lines = [], attempts = [] }) {
+async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NOW - 30 * MIN }) {
   const dir = await mkdtemp(join(tmpdir(), 'board-carry-'))
   const started = []
   t.after(async () => {
@@ -82,8 +82,8 @@ async function boardWith(t, { refused, lines = [], attempts = [] }) {
     await writeFile(path, text)
   }
   await put(join(board, 'data', 'outbox.jsonl'), lines.length === 0 ? '' : `${lines.map(line => JSON.stringify(line)).join('\n')}\n`)
-  const old = { path: 'message', at: NOW - 30 * MIN, by: 'Worker 1', jobId: `wake:${NOW - 31 * MIN}:Old`, sentAt: null, runBefore: null, verdict: 'failed', verdictAt: NOW - 30 * MIN, why: REFUSAL, step: null }
-  const wakes = { wakes: { ...(refused ? { Old: [{ spell: NOW - 31 * MIN, attempts: [old], turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}), ...(attempts.length > 0 ? { 'Worker 2': [{ spell: SPELL, attempts, turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}) } }
+  const old = { path: 'message', at: refusedAt, by: 'Worker 1', jobId: `wake:${refusedAt - MIN}:Old`, sentAt: null, runBefore: null, verdict: 'failed', verdictAt: refusedAt, why: REFUSAL, step: null }
+  const wakes = { wakes: { ...(refused ? { Old: [{ spell: refusedAt - MIN, attempts: [old], turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}), ...(attempts.length > 0 ? { 'Worker 2': [{ spell: SPELL, attempts, turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}) } }
   await put(join(board, 'data', 'wakes.json'), `${JSON.stringify(wakes)}\n`)
   const chats = join(project, '.claude', 'chats')
   await put(join(chats, 'list.json'), '{"prefix":"Game - ","main":"Main"}')
@@ -138,39 +138,76 @@ test('while the app refuses the hands\' sends, no hand gets a message job; witho
   assert.deepEqual((await free.words()).filter(one => one.command === 'wake-carry'), [])
 })
 
-test('the courier: wakes-due lists the courier\'s word and keeps it until wakes-sent; never a word a carrier took; nothing due is an empty list', { timeout: 240_000 }, async t => {
-  const word = { id: 'carry00000000001', at: NOW - MIN, to: 'the courier', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'The worker board holds words for you: run work next', text: 'Wake Worker 2 for the worker board', state: 'waiting' }
-  const taken = { ...word, id: 'carry00000000002', to: 'Worker 1' }
+
+test('review 8: while refused, the page\'s wake word for Worker 2 goes as one carry word to a free chat; once that word closes, so does the carry word', { timeout: 240_000 }, async t => {
+  const { words } = await boardWith(t, { refused: true, lines: [WAKE_WORD] })
+  let carried = []
+  await until(async () => {
+    carried = (await words()).filter(one => one.command === 'wake-carry')
+    return carried.length > 0
+  }, 'a carry word for the wake word')
+  assert.deepEqual([carried.length, carried[0].of, carried[0].about, carried[0].wakeText], [1, WAKE_WORD.id, 'Worker 2', 'The worker board holds words for you; they come in now.'])
+  assert.ok(['Main', 'Worker 1'].includes(carried[0].to), carried[0].to)
+  // In this garden Worker 2 is no stopped chat: the outbox sweep closes the page's wake word, and the carry word follows it.
+  await until(async () => (await words()).find(one => one.id === WAKE_WORD.id).state === 'dropped', 'the wake word closed')
+  // (Its carrier's mod pings no more in this test, so after a minute "can no longer carry it" may come first: either closes it.)
+  await until(async () => (await words()).find(one => one.id === carried[0].id).state === 'dropped', 'the carry word closed with it')
+  assert.match((await words()).find(one => one.id === carried[0].id).why, /^(the word it carried is closed|(Main|Worker 1) can no longer carry it)$/)
+})
+
+test('the courier: wakes-due hands each word once with a fresh window; never a carrier\'s word, never a target that woke; wakes-sent closes it once', { timeout: 240_000 }, async t => {
+  const word = { id: 'c0c0c0c0c0c0c001', at: NOW - MIN, to: 'the courier', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'The worker board holds words for you: run work next', text: 'Wake Worker 2 for the worker board', state: 'waiting' }
+  const taken = { ...word, id: 'c0c0c0c0c0c0c002', to: 'Worker 1' }
   const attempt = id => ({ path: 'message', at: NOW - MIN, by: id === word.id ? 'the courier' : 'Worker 1', jobId: id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: id === word.id ? 'courier' : 'model' })
-  const { call, json, words, record } = await boardWith(t, { refused: true, lines: [word, taken, { id: taken.id, state: 'taken', takenBy: 'Worker 1', takenAt: NOW - 30_000 }], attempts: [attempt(word.id)] })
+  const { call, json, words, record } = await boardWith(t, { refused: true, lines: [word, taken, { id: taken.id, state: 'taken', takenAt: NOW - 30_000 }], attempts: [attempt(word.id)] })
   // Only the board's key.
   assert.equal((await call('/api/bridge/wakes-due', {}, { 'X-Board-Key': 'no' })).status, 403)
   const due = { id: word.id, chat: 'Worker 2', session: 'local_w2', text: 'The worker board holds words for you: run work next' }
+  const before = Date.now()
   assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [due], JSON.stringify((await words()).find(one => one.id === word.id)))
   assert.equal((await words()).find(one => one.id === word.id).takenBy, 'the courier')
-  // Asked again before it said sent: the same list (idempotent), the word not carried twice by anyone else.
-  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [due])
+  // Review 17: a second run before it said sent gets nothing (never sent twice).
+  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])
+  // Review 3, 11: its window from the take.
+  await until(async () => ((await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === word.id)?.heldAt ?? 0) >= before, 'the courier\'s window')
   assert.deepEqual((await json('/api/bridge/wakes-sent', { ids: [word.id, taken.id, 'nothing'] })), { closed: 1 })
   assert.deepEqual((await json('/api/bridge/wakes-sent', { ids: [word.id] })), { closed: 0 }, 'said twice: once')
   assert.equal((await words()).find(one => one.id === word.id).state, 'delivered')
-  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])
-  // The record is written a moment after a change (WAKES_SAVE_MS): the attempt sent, by the courier.
   await until(async () => typeof (await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === word.id)?.sentAt === 'number', 'the attempt sent')
-  assert.equal((await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === word.id).carry, 'courier')
 })
 
-test('A on the board: the carry word goes into its carrier at its take, never to a hand; its attempt counts as sent from then', { timeout: 240_000 }, async t => {
-  const word = { id: 'carry00000000003', at: NOW - MIN, to: 'Main', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'The worker board holds words for you: run work next', text: 'Wake Worker 2 for the worker board: send_message with session_id "local_w2"', state: 'waiting' }
+test('review 12: a target that woke before the courier asked: its word is not listed', { timeout: 240_000 }, async t => {
+  const word = { id: 'c0c0c0c0c0c0c003', at: NOW - MIN, to: 'the courier', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'x', text: 'Wake Worker 2', state: 'waiting' }
+  const attempt = { path: 'message', at: NOW - MIN, by: 'the courier', jobId: word.id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: 'courier' }
+  const { json, words } = await boardWith(t, { refused: true, lines: [word], attempts: [attempt] })
+  // Worker 2 is back by itself (the person opened it): a report with a new run.
+  await json('/api/bridge/report', { chat: 'Worker 2', session: 'w2-id', report: { state: 'idle', since: Date.now(), seq: 2, run: 2 } })
+  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])
+  assert.notEqual((await words()).find(one => one.id === word.id).state, 'taken')
+})
+
+test('review 1, 2: a carrier whose report is busy takes no carry word; the attempt is not sent at a take, only once its turn on the word began', { timeout: 240_000 }, async t => {
+  const word = { id: 'c0c0c0c0c0c0c004', at: NOW - MIN, to: 'Main', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'x', text: 'Wake Worker 2 for the worker board: send_message with session_id "local_w2"', state: 'waiting' }
   const attempt = { path: 'message', at: NOW - MIN, by: 'Main', jobId: word.id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: 'model' }
   const { json, claim, words, record } = await boardWith(t, { refused: true, lines: [word], attempts: [attempt] })
   assert.deepEqual((await claim()).filter(job => job.id === word.id), [], 'no hand takes it')
-  const taken = await json('/api/bridge/take', { chat: 'Main', session: 'main-id' })
-  assert.deepEqual((taken.messages ?? []).filter(one => one.id === word.id).map(one => one.text), [word.text])
-  assert.equal((await words()).find(one => one.id === word.id).state, 'taken')
-  await until(async () => typeof (await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === word.id)?.sentAt === 'number', 'the attempt sent at the take')
+  // Main busy on its own turn: its take does not get the word.
+  await json('/api/bridge/report', { chat: 'Main', session: 'main-id', report: { state: 'busy', since: Date.now(), seq: 2, run: 1, word: null, turn: Date.now() - 1000 } })
+  const busy = await json('/api/bridge/take', { chat: 'Main', session: 'main-id' })
+  assert.deepEqual((busy.messages ?? []).filter(one => one.id === word.id), [])
+  assert.equal((await words()).find(one => one.id === word.id).state, 'waiting')
+  // Main idle: its take types it; not sent yet.
+  await json('/api/bridge/report', { chat: 'Main', session: 'main-id', report: { state: 'idle', since: Date.now(), seq: 3, run: 1 } })
+  const idle = await json('/api/bridge/take', { chat: 'Main', session: 'main-id' })
+  assert.deepEqual((idle.messages ?? []).filter(one => one.id === word.id).map(one => one.text), [word.text])
+  await new Promise(done => setTimeout(done, 1500))
+  assert.equal((await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === word.id).sentAt, null, 'not at the take')
+  // Its turn on the word: sent.
+  await json('/api/bridge/report', { chat: 'Main', session: 'main-id', report: { state: 'busy', since: Date.now(), seq: 4, run: 1, word: word.id, turn: Date.now() } })
+  await until(async () => typeof (await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === word.id)?.sentAt === 'number', 'sent at the carrier\'s turn')
 })
 
-test('the real case on the board: Worker 2 asleep with an answer waiting, the hands\' sends refused: ONE carry word to an idle running chat, none twice', { timeout: 240_000 }, async t => {
+test('the real case on the board: Worker 2 asleep with an answer waiting, the hands\' sends refused: ONE carry word to a free chat, none twice', { timeout: 240_000 }, async t => {
   const answerWord = { id: 'answer000000001', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
   const { claim, words } = await boardWith(t, { refused: true, lines: [answerWord] })
   let carried = []
@@ -197,4 +234,19 @@ test('the same case without the refusal: no carry word, the next hand gets the m
     return jobs.length > 0
   }, 'the hand\'s message job')
   assert.equal(jobs[0].to, 'local_w2')
+})
+
+test('review 16: a day after the refusal ONE probe goes to a hand, to a free chat other than itself, never a real wake; its send lifts the refusal', { timeout: 240_000 }, async t => {
+  const answerWord = { id: 'answer000000002', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
+  const { call, claim, record } = await boardWith(t, { refused: true, refusedAt: NOW - 25 * 60 * MIN, lines: [answerWord] })
+  const jobs = await claim()
+  const probes = jobs.filter(job => /^send-probe:/.test(job.id))
+  assert.equal(probes.length, 1)
+  assert.deepEqual([probes[0].chat, probes[0].to], ['Main', 'local_main'])
+  assert.deepEqual(jobs.filter(job => job.chat === 'Worker 2'), [], 'the real wake is carried, never the probe')
+  assert.deepEqual((await claim()).filter(job => /^send-probe:/.test(job.id)), [], 'once a day')
+  const done = await call('/api/bridge/hands-done', { chat: 'Worker 1', session: 'w1-id', results: [{ id: probes[0].id, ok: true }] })
+  assert.equal(done.status, 200, await done.text())
+  // Lifted: the record says so (saved), and the hands may send again.
+  await until(async () => typeof (await record()).sendsLiftedAt === 'number', 'the refusal lifted')
 })

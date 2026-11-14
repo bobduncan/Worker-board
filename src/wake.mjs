@@ -24,7 +24,7 @@ import { NOT_LISTED_WHY, NOT_SHOWN_WHY, OTHER_ACCOUNT_WHY, RESTART_WHY, cannotWa
 import { boardLanes, isWakeWord, wakeWordOf, wakerOrder } from './say.mjs'
 import { envelopesOf } from './work/handover.mjs'
 import { isHolding } from './work/pause.mjs'
-import { CARRY_SEND_MS, CARRY_VERDICT_MS, COURIER, carrierOf, carryWord, isSendRefusal, plainWhy } from './wakeCarry.mjs'
+import { CARRY_SEND_MS, CARRY_VERDICT_MS, COURIER, COURIER_WAIT_MS, carriedChats, carrierOf, carryWord, isSendRefusal, noteSendRefused, plainWhy } from './wakeCarry.mjs'
 import { moveInPlace, readKept, stampOf, writeUnflushed } from './write.mjs'
 
 /** A wake attempt sent this long ago without the woken chat's report is failed. */
@@ -230,14 +230,14 @@ export function wakeCarriedTake(record, chat, step) {
  * pending (a click during a wake changes nothing). It is counted in the record as any attempt (`again: 'person'`) and
  * gets its verdict by the same rules (`sent`, `heard`, `pass`). The attempt, or false.
  */
-export function personAgain(record, { chat, spell, path, by, jobId, now, runBefore = null }) {
+export function personAgain(record, { chat, spell, path, by, jobId, now, runBefore = null, carry = null }) {
   if (!['message', 'launch'].includes(path) || !isTime(spell) || !isTime(now) || typeof chat !== 'string' || chat === '') return false
   newSpell(record, chat, spell)
   // Only the chat's newest spell (the goal chat's wait-line test, 2026-11-02: spells A, B, then A again put the attempt in
   // the older entry A, which the hands route never reads, so the message was never handed out and failed after 3 min).
   const entry = newestOf(record, chat)
   if (entry === null || entry.spell !== spell || entry.attempts.some(isPending)) return false
-  const attempt = { path, at: now, by: String(by ?? (path === 'launch' ? 'board' : '')), jobId: String(jobId ?? ''), sentAt: null, runBefore: runBefore ?? null, verdict: null, verdictAt: null, why: null, again: 'person' }
+  const attempt = { path, at: now, by: String(by ?? (path === 'launch' ? 'board' : '')), jobId: String(jobId ?? ''), sentAt: null, runBefore: runBefore ?? null, verdict: null, verdictAt: null, why: null, again: 'person', ...(path === 'message' && ['model', 'courier'].includes(carry) ? { carry } : {}) }
   entry.attempts.push(attempt)
   return attempt
 }
@@ -265,7 +265,10 @@ export function failedToSend(record, chat, jobId, why, now) {
   attempt.verdict = 'failed'
   attempt.verdictAt = now
   // F17: the app's refusal of a code send is kept in plain words, marked (wakeCarry.mjs `sendsRefusedOf`), never its raw hook text.
-  if (isSendRefusal(why)) attempt.refused = true
+  if (isSendRefusal(why)) {
+    attempt.refused = true
+    noteSendRefused(record, now)
+  }
   attempt.why = String(plainWhy(why) ?? 'not sent').replace(/\s+/g, ' ').trim().slice(0, 200) || 'not sent'
   // B986 (B984 at 11:31: "Session local_82c0c4cd... not found"): the app has no such session; the spell tries nothing more.
   // "archived" is no such answer: X140's launch after it (11:35) worked.
@@ -301,6 +304,13 @@ export function heard(record, chat, report, now) {
   if (!isNew) return null
   attempt.verdict = 'woke'
   attempt.verdictAt = now
+  // F17 review 5: a carried attempt not sent yet (its word waits for its carrier or the courier) did not wake it: the chat woke by itself,
+  // with no carrier's credit and no carried take line (its envelope's own line is typed as usual).
+  if (attempt.carry != null && !isTime(attempt.sentAt)) {
+    delete attempt.carry
+    attempt.step = null
+    attempt.self = true
+  }
   return attempt
 }
 
@@ -322,12 +332,15 @@ export function heardClaim(record, claimAt, now) {
  * the same step (the cap of one message attempt per spell: never a second word for the spell). `runOf(chat)` the chat's report's run.
  * The words to write, in order.
  */
-export function carryPlan(record, { needs = [], lanes = [], main = null, now, newId, runOf = () => null }) {
+export function carryPlan(record, { needs = [], lanes = [], main = null, now, newId, runOf = () => null, outbox = [], courierAlive = false }) {
   const words = []
+  const open = carriedChats(outbox)
   for (const need of needs ?? []) {
-    if (!(need.paths ?? []).includes('message') || !isTime(need.spell)) continue
+    if (!(need.paths ?? []).includes('message') || !isTime(need.spell) || open.has(need.chat)) continue
     if (nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths }) !== 'message') continue
-    const carrier = carrierOf(lanes, { target: need.chat, main, now })
+    const carrier = carrierOf(lanes, { target: need.chat, main, now, outbox })
+    // Review 7, 18: no carrier and no courier that called lately: the message try stays unspent; the launch goes as before.
+    if (carrier === null && !courierAlive) continue
     const word = carryWord({ id: newId(), at: now, need, carrier: carrier?.name ?? null })
     const step = typeof need.step === 'string' && need.text === takeLine(need.step) ? need.step : null
     if (!claim(record, { chat: need.chat, spell: need.spell, path: 'message', by: word.to, jobId: word.id, now, runBefore: runOf(need.chat), paths: need.paths, step, carry: carrier === null ? 'courier' : 'model' })) continue
@@ -355,7 +368,7 @@ export function pass(record, now, { verdictMs = WAKE_VERDICT_MS, sendMs = WAKE_S
         const isCarried = attempt.carry != null
         if (isTime(attempt.sentAt) && now - attempt.sentAt >= (isCarried ? Math.max(verdictMs, CARRY_VERDICT_MS) : verdictMs)) {
           attempt.why = FAILED_WHY[attempt.path]
-        } else if (attempt.sentAt === null && now - attempt.at >= (isCarried ? Math.max(sendMs, CARRY_SEND_MS) : sendMs)) {
+        } else if (attempt.sentAt === null && now - (isTime(attempt.heldAt) ? attempt.heldAt : attempt.at) >= (!isCarried ? sendMs : attempt.carry === 'courier' && !isTime(attempt.heldAt) ? Math.max(sendMs, COURIER_WAIT_MS) : Math.max(sendMs, CARRY_SEND_MS))) {
           attempt.why = attempt.path === 'launch' ? 'the launch did not end' : isCarried ? `${carrierWords(attempt.by)} did not carry the message within 10 minutes` : `the message was not sent within 3 minutes (held by ${attempt.by})`
         } else continue
         attempt.verdict = 'failed'
@@ -721,7 +734,7 @@ function savedAttempt(value) {
   // T22: an attempt the person asked for ("Send again") keeps that mark; the step whose take line it carried too.
   return { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why, ...(value.again === 'person' ? { again: 'person' } : {}), ...(value.unlisted === true ? { unlisted: true } : {}),
     // F17: a wake a model carried (a carrier's turn, the courier), and a send the app refused, keep their marks across the board's restart.
-    ...(value.path === 'message' && ['model', 'courier'].includes(value.carry) ? { carry: value.carry } : {}), ...(value.refused === true ? { refused: true } : {}), step: typeof value.step === 'string' && /^[A-Z]\d{1,6}$/.test(value.step) ? value.step : null }
+    ...(value.path === 'message' && ['model', 'courier'].includes(value.carry) ? { carry: value.carry } : {}), ...(value.refused === true ? { refused: true } : {}), ...(isTime(value.heldAt) ? { heldAt: value.heldAt } : {}), ...(value.self === true ? { self: true } : {}), step: typeof value.step === 'string' && /^[A-Z]\d{1,6}$/.test(value.step) ? value.step : null }
 }
 
 /** One saved spell entry, or null when it is none (an attempt that is no attempt is left out). */
@@ -737,13 +750,18 @@ export function savedSpell(value) {
 }
 
 /** The record as the file holds it: `{ "wakes": { "<chat>": [spellEntry, ...] } }`. */
-export const textOfWakes = record => `${JSON.stringify({ wakes: Object.fromEntries(record.wakes), ...(isTime(record.heardRunAt) ? { heardRunAt: record.heardRunAt } : {}) })}\n`
+/** F17: the record's facts of the refusal of the hands' sends (src/wakeCarry.mjs). */
+const SEND_FACTS = ['sendsRefusedSince', 'sendsLiftedAt', 'probeAt']
+
+export const textOfWakes = record => `${JSON.stringify({ wakes: Object.fromEntries(record.wakes), ...(isTime(record.heardRunAt) ? { heardRunAt: record.heardRunAt } : {}), ...Object.fromEntries(SEND_FACTS.filter(key => isTime(record[key])).map(key => [key, record[key]])) })}\n`
 
 /** The record a parsed file holds, left out the entries that are no spell; null when the file is not that shape. */
 export function wakesOfFile(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value) || value.wakes === null || typeof value.wakes !== 'object' || Array.isArray(value.wakes)) return null
   const record = emptyWakes()
   if (isTime(value.heardRunAt)) record.heardRunAt = value.heardRunAt
+  // F17 review 10: the refusal of the hands' sends, its lift and the last probe are the record's own facts, kept apart from the spells.
+  for (const key of SEND_FACTS) if (isTime(value[key])) record[key] = value[key]
   for (const [chat, entries] of Object.entries(value.wakes)) {
     if (chat === '' || !Array.isArray(entries)) continue
     const kept = entries.map(savedSpell).filter(one => one !== null).slice(-WAKE_SPELLS_KEPT)

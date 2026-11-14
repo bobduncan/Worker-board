@@ -5,15 +5,22 @@
 // worked around (no mode or permission change, no other code path into send_message):
 //
 // A. While the refusal stands, a wake's message goes as ONE word for a model (`forModel`, as F5's set words for Main: no hand takes it)
-//    to an awake board chat: an idle one first, then the main chat, then any running one; never the target, never a chat whose board link
-//    is gone. Its own mod types the word; its model makes the one send_message call. One word per wake spell (the record's cap of one
-//    message attempt per spell); the target's own report is the verdict, as for any wake.
-// B. Nobody awake, or no carrier took the word in CARRY_DUE_MS: a scheduled courier (tools/wake-courier.md) asks the board for the wakes
-//    due (POST /api/bridge/wakes-due), sends each and says so (POST /api/bridge/wakes-sent): each word is carried once.
+//    to an awake board chat that is free and idle right now (chat 1's review of 2026-11-14, 1, 2, 14: a busy or asking chat would queue
+//    it behind its turn and send a stale wake later); never the target, never a chat whose board link is gone or whose words a stop
+//    holds. Its own mod types the word, only while its report is idle; its model makes the one send_message call. One word per wake
+//    spell (the record's cap of one message attempt per spell); the attempt counts as sent once the carrier's turn on the word began,
+//    and the target's own report is the verdict, as for any wake.
+// B. Nobody free, or no carrier took the word in CARRY_DUE_MS: a scheduled courier (tools/wake-courier.md) asks the board for the wakes
+//    due (POST /api/bridge/wakes-due), sends each and says so (POST /api/bridge/wakes-sent): each word is handed to it once. The board
+//    counts on the courier only while it called lately (COURIER_ALIVE_MS); else the launch goes as before.
 //
-// PURE: the server wires it (server.mjs `wakePass`, the take, the two bridge routes).
+// The refusal is a fact the wake record keeps (`sendsRefusedSince`), lifted only by the daily probe's success: one hand send to a free
+// chat, never a real wake.
+//
+// PURE: the server wires it (server.mjs `wakePass`, the take, the report, the hands route, the two bridge routes, Send again).
 
 import { isAppId } from './hands.mjs'
+import { stoppedOf } from './stopped.mjs'
 import { PROBE_MS } from './work/effort.mjs'
 
 /** The app's refusal of a plugin's own send_message call, as the hands' results and the outbox hold it. */
@@ -24,11 +31,22 @@ export const SEND_REFUSED_WHY = "the app no longer lets the board's code send to
 export const CARRY_COMMAND = 'wake-carry'
 /** The addressee of a word no awake chat can carry: the scheduled courier's (no chat is named so; no take hands it out). */
 export const COURIER = 'the courier'
-/** A carrier's word not taken this long after it was written is the courier's too (a busy carrier). */
+/** A carrier's word not taken this long after it was written is the courier's too (its carrier went busy). */
 export const CARRY_DUE_MS = 3 * 60_000
-/** A carried attempt's windows: not sent (typed or carried) within CARRY_SEND_MS, or no report CARRY_VERDICT_MS after: failed. */
+/**
+ * A carried attempt's windows: not sent within CARRY_SEND_MS (a carrier's word from when it was made; the courier's from when the
+ * courier took it, `heldAt`), or no report CARRY_VERDICT_MS after it was sent: failed. A word for the courier that it has not taken yet
+ * waits COURIER_WAIT_MS: its run comes every 10 minutes.
+ */
 export const CARRY_SEND_MS = 10 * 60_000
 export const CARRY_VERDICT_MS = 5 * 60_000
+export const COURIER_WAIT_MS = 15 * 60_000
+/** The board counts on the courier while it asked for wakes this recently (two of its runs and some). */
+export const COURIER_ALIVE_MS = 25 * 60_000
+/** The probe's line: one send from a hand to a free chat, once a day while the refusal stands. */
+export const PROBE_LINE = 'The worker board checks whether its code may send messages again. Nothing to do: end this turn.'
+/** The probe's job id. */
+export const PROBE_JOB = /^send-probe:(\d{1,16})$/
 
 const isTime = value => Number.isFinite(value)
 /** Whether a why (an attempt's, a word's, an outcome's) is the app's refusal of a code send. */
@@ -37,92 +55,137 @@ export const isSendRefusal = why => SEND_REFUSED.test(String(why ?? ''))
 export const plainWhy = why => (isSendRefusal(why) ? SEND_REFUSED_WHY : why)
 
 /**
- * Whether the app refuses the hands' sends now, and since when: `{ since }` or null. The newest refusal (a message attempt of the wake
- * record failed on it, marked `refused` or with its raw text, or a start or wake word of the outbox that failed on it) stands until a
- * hand's message attempt made after it was sent (the hand's ok: the app ran the call), or PROBE_MS has passed: then the next wake goes
- * to a hand again, and that one job is the probe (F2's daily idea; no separate no-op send).
+ * Whether the app refuses the hands' sends now, and since when: `{ since }` or null. The record's own fact (`sendsRefusedSince`, set by
+ * every refused send, kept apart from the spells the record prunes: review 10), or the newest refusal the record's attempts or the
+ * outbox's start and wake words show; it stands until the probe's send went (`sendsLiftedAt` after it). No clock lifts it (review 16).
  */
-export function sendsRefusedOf(record, outbox = [], now = Date.now()) {
+export function sendsRefusedOf(record, outbox = []) {
   const attempts = [...(record?.wakes?.values?.() ?? [])].flatMap(entries => entries.flatMap(entry => entry.attempts ?? [])).filter(one => one.path === 'message')
   const refusedAt = [
+    record?.sendsRefusedSince,
     ...attempts.filter(one => one.verdict === 'failed' && (one.refused === true || isSendRefusal(one.why))).map(one => (isTime(one.verdictAt) ? one.verdictAt : one.at)),
     ...(outbox ?? []).filter(one => ['start', 'wake'].includes(one?.command) && one.state === 'failed' && isSendRefusal(one.why)).map(one => (isTime(one.failedAt) ? one.failedAt : one.at)),
   ].filter(isTime)
   if (refusedAt.length === 0) return null
   const since = Math.max(...refusedAt)
-  // A hand's send after it went: its call ran (a carried attempt is a model's, and says nothing of the hands).
-  if (attempts.some(one => one.carry == null && isTime(one.sentAt) && one.at > since)) return null
-  if (!isTime(now) || now - since >= PROBE_MS) return null
+  if (isTime(record?.sendsLiftedAt) && record.sendsLiftedAt >= since) return null
   return { since }
 }
 
-const IDLE = ['free', 'idle']
+/** A refused send seen (`at`): the record keeps it as its fact. True when it changed. */
+export function noteSendRefused(record, at) {
+  if (!isTime(at) || (isTime(record.sendsRefusedSince) && record.sendsRefusedSince >= at)) return false
+  record.sendsRefusedSince = at
+  return true
+}
+
+/** The probe's send went (the app ran a hand's call again): the refusal is lifted. */
+export function noteSendLifted(record, at) {
+  if (!isTime(at)) return false
+  record.sendsLiftedAt = at
+  record.sendsRefusedSince = null
+  return true
+}
+
+/** Whether the daily probe is due: the refusal stands and PROBE_MS passed since it, and since the last probe. */
+export function probeDue(record, outbox, now) {
+  const refused = sendsRefusedOf(record, outbox)
+  if (refused === null || !isTime(now)) return false
+  return now - Math.max(refused.since, isTime(record?.probeAt) ? record.probeAt : -Infinity) >= PROBE_MS
+}
+
 /** Chat 1's point 1 (2026-11-14): a carrier's mod reported this recently: a running chat whose mod the CLI unloaded keeps its process but stops
  * reporting, and a word to it never reaches its model. */
 export const CARRIER_REPORT_MS = 60_000
-/** A chat that can carry: on the board, running, joined (the board follows its session), not being removed, with its app id. */
-const canCarry = (lane, target, now) => lane !== null && lane !== undefined && lane.name !== target && lane.isLeftover !== true && lane.isRunning === true
-  && isTime(now) && isTime(lane.report?.at) && now - lane.report.at <= CARRIER_REPORT_MS
-  && (lane.unjoined ?? null) === null && !isTime(lane.removedAt) && lane.removal?.isOpen !== true && lane.state !== 'suspended' && (lane.suspended ?? null) === null
-  && isAppId(lane.appSession)
+/**
+ * A chat that can carry now: on the board, running, joined (the board follows its session), not being removed or suspended, with its app
+ * id; its mod reported within CARRIER_REPORT_MS, and that report is idle (review 1, 2: the take types a word into a busy chat's queue);
+ * free (review 14: never interrupted, waiting on an ask, or working); no stop holds its words (review 9: its take hands out nothing).
+ */
+export const canCarry = (lane, target, now, outbox = []) => lane !== null && lane !== undefined && lane.name !== target && lane.isLeftover !== true && lane.isRunning === true
+  && isTime(now) && isTime(lane.report?.at) && now - lane.report.at <= CARRIER_REPORT_MS && lane.report.state === 'idle' && lane.report.background !== true
+  && lane.state === 'free' && (lane.unjoined ?? null) === null && !isTime(lane.removedAt) && lane.removal?.isOpen !== true && (lane.suspended ?? null) === null
+  && isAppId(lane.appSession) && stoppedOf(outbox, lane) === null
 
 /**
- * Who carries a wake of `target`: a running, idle board chat first (its own mod types the word at once), then the main chat, then any
- * running one (a busy one takes it at its next turn's end). Never the target itself, never a chat whose board link is gone, nor one whose mod has
- * not reported within CARRIER_REPORT_MS of `now`. The lane, or
- * null (then the courier).
+ * Who carries a wake of `target`: the first chat that can carry now (`canCarry`), the main chat first when it can. `lanes` the chats that
+ * may carry (server.mjs leaves out the helper and the Product owner, as `wakerOrder` does). The lane, or null (then the courier, if alive).
  */
-export function carrierOf(lanes, { target, main = null, now } = {}) {
-  const able = (lanes ?? []).filter(lane => canCarry(lane, target, now))
-  return able.find(lane => IDLE.includes(lane.state)) ?? able.find(lane => lane.name === main || lane.isMain === true) ?? able[0] ?? null
+export function carrierOf(lanes, { target, main = null, now, outbox = [] } = {}) {
+  const able = (lanes ?? []).filter(lane => canCarry(lane, target, now, outbox))
+  return able.find(lane => lane.name === main) ?? able[0] ?? null
 }
 
-/** The words the carrier's model reads: the one tool call, with the target's app session id and the wake's own text. */
-export const carryText = (target, session, text) => `Wake ${target} for the worker board: the app no longer lets the board's code send to a chat, so make this one call yourself, then go on with what you were doing: send_message with session_id "${session}" and message "${text}". Nothing else.`
+/** Whether the courier asked for wakes lately (`lastAt`, when it last called wakes-due). */
+export const courierAlive = (lastAt, now) => isTime(lastAt) && isTime(now) && now - lastAt <= COURIER_ALIVE_MS
+
+/** The words the carrier's model reads: the one tool call, with the target's app session id and the wake's own text; then the turn ends. */
+export const carryText = (target, session, text) => `Wake ${target} for the worker board: the app no longer lets the board's code send to a chat, so make this one call yourself: send_message with session_id "${session}" and message "${text}". Then end this turn; do nothing else.`
 
 /**
  * The word for one wake (`need`: wakeNeeds's `{ chat, spell, appSession, text }`): to the carrier's chat, or the courier's (no carrier).
- * `forModel`: no hand takes it (src/hands.mjs `isHandWord`); its id is the record's job id of the attempt.
+ * `forModel`: no hand takes it (src/hands.mjs `isHandWord`); its id is the record's job id of the attempt. `of`: the start or wake word it
+ * carries (review 8), for a chat that runs (no spell, no attempt).
  */
-export function carryWord({ id, at, need, carrier }) {
+export function carryWord({ id, at, need, carrier, of = null }) {
   return {
-    id, at, to: carrier ?? COURIER, command: CARRY_COMMAND, about: need.chat, forModel: true, spell: need.spell, session: need.appSession,
-    wakeText: need.text, text: carryText(need.chat, need.appSession, need.text), state: 'waiting',
+    id, at, to: carrier ?? COURIER, command: CARRY_COMMAND, about: need.chat, forModel: true, spell: need.spell ?? null, session: need.appSession,
+    wakeText: need.text, text: carryText(need.chat, need.appSession, need.text), state: 'waiting', ...(of === null ? {} : { of }),
   }
 }
 
 /** Whether a word is a carry word. */
 export const isCarryWord = message => message?.command === CARRY_COMMAND
 
-/**
- * The courier's list (B): the carry words it may send now, `[{ id, chat, session, text }]`: those it holds already (taken by it, not yet
- * said sent: the call is idempotent), those addressed to it, and those a carrier did not take within CARRY_DUE_MS, or any waiting one when
- * no chat runs (`anyRuns` false). Never a word a carrier took (it carries it).
- */
-export function dueOf(outbox, now, { anyRuns = true } = {}) {
-  return (outbox ?? []).filter(message => isCarryWord(message) && (
-    (message.state === 'taken' && message.takenBy === COURIER)
-    || (message.state === 'waiting' && (message.to === COURIER || !anyRuns || (isTime(message.at) && now - message.at >= CARRY_DUE_MS)))
-  )).map(message => ({ id: message.id, chat: message.about, session: message.session, text: message.wakeText }))
-}
+/** The chats a carry word is open for (waiting or taken): never a second word beside it. */
+export const carriedChats = outbox => new Set((outbox ?? []).filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state)).map(one => one.about))
 
 /**
- * What becomes of the carry words still open (`waiting` or `taken`), `[{ id, state, why, giveBack }]`: the target runs again (its spell
- * ended: woke by the word or by itself): closed; the attempt failed: closed; a carrier that can no longer carry (stopped, gone from the
- * board) before it took the word: closed and its attempt given back (no try spent; the next pass picks another carrier).
+ * The courier's candidates (B): the waiting carry words it may take now: those addressed to it, those a carrier did not take within
+ * CARRY_DUE_MS, or any when no chat runs (`anyRuns` false). Never a taken word: each goes to the courier once (review 17); the server
+ * checks the record and the target too, and takes each in the same step (review 6, 12).
+ */
+export function dueOf(outbox, now, { anyRuns = true } = {}) {
+  return (outbox ?? []).filter(message => isCarryWord(message) && message.state === 'waiting'
+    && (message.to === COURIER || !anyRuns || (isTime(message.at) && now - message.at >= CARRY_DUE_MS)))
+}
+
+/** The courier's entry of a word. */
+export const dueEntry = message => ({ id: message.id, chat: message.about, session: message.session, text: message.wakeText })
+
+/**
+ * What becomes of the carry words still open (`waiting` or `taken`), `[{ id, state, why, giveBack }]`:
+ * - the target woke: delivered when its attempt was sent, else dropped "woke by itself" (review 5);
+ * - the target runs again, or is gone: dropped; the attempt failed: dropped;
+ * - a word that carries a start or wake word of a running chat (`of`, no attempt): dropped once that word is closed;
+ * - a carrier that can no longer carry before it took the word: dropped, and its attempt given back (no try spent; the next pass picks
+ *   another), which the server does only when the close applied (review 21).
  * `lanes` the board's lanes; `attemptOf(word)` the record's attempt of the word (its job id), or null.
  */
 export function carryCloses({ outbox, lanes, attemptOf, now }) {
   const out = []
+  const laneOf = name => (lanes ?? []).find(lane => lane.name === name) ?? null
   for (const message of (outbox ?? []).filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state))) {
-    const target = (lanes ?? []).find(lane => lane.name === message.about) ?? null
+    const target = laneOf(message.about)
+    const carrierGone = message.state === 'waiting' && message.to !== COURIER && !canCarry(laneOf(message.to), message.about, now, outbox)
+    if (typeof message.of === 'string') {
+      const carried = (outbox ?? []).find(one => one.id === message.of)
+      if (target === null || carried === undefined || carried.state !== 'waiting') out.push({ id: message.id, state: 'dropped', why: target === null ? `${message.about} is no longer on the board` : 'the word it carried is closed', giveBack: false })
+      else if (carrierGone) out.push({ id: message.id, state: 'dropped', why: `${message.to} can no longer carry it`, giveBack: false })
+      continue
+    }
     const attempt = attemptOf(message)
-    if (attempt?.verdict === 'woke') out.push({ id: message.id, state: 'delivered', why: `${message.about} woke`, giveBack: false })
+    if (attempt?.verdict === 'woke') out.push(isTime(attempt.sentAt) && attempt.self !== true ? { id: message.id, state: 'delivered', why: `${message.about} woke`, giveBack: false } : { id: message.id, state: 'dropped', why: `${message.about} woke by itself`, giveBack: false })
     else if (target === null || target.isRunning === true) out.push({ id: message.id, state: 'dropped', why: target === null ? `${message.about} is no longer on the board` : `${message.about} runs again`, giveBack: false })
     else if (attempt === null || attempt.verdict === 'failed') out.push({ id: message.id, state: 'dropped', why: 'its wake attempt ended without it', giveBack: false })
-    else if (message.state === 'waiting' && message.to !== COURIER && !canCarry((lanes ?? []).find(lane => lane.name === message.to), message.about, now)) {
-      out.push({ id: message.id, state: 'dropped', why: `${message.to} can no longer carry it`, giveBack: true })
-    }
+    else if (carrierGone) out.push({ id: message.id, state: 'dropped', why: `${message.to} can no longer carry it`, giveBack: true })
   }
   return out
 }
+
+/**
+ * Review 1, 2: whether a carrier's turn on its taken carry word began: its report is busy on that word, or on a turn that began after the
+ * take (the mod types the word only into an idle chat, so the next turn is the word's).
+ */
+export const carryTurnBegan = (word, report) => report != null && report.state === 'busy' && isTime(word?.takenAt)
+  && (report.word === word.id || (isTime(report.turn) && report.turn >= word.takenAt))
