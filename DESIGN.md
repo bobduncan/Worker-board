@@ -5528,6 +5528,22 @@ decides on, **status** is what the pill shows.
   ask of the reconciler, no repair word of the Supervisor, also to the Advisor, its helper, the Supervisor's chat or the Product
   owner, no main-chat word to wake it once stopped), and its "No ask filed" card says "its board link is gone" and offers only
   "Open <chat>'s chat".
+  F19 (2026-11-14, src/restartGone.mjs, `.claude/plans/2026-11-14-f19-restart-gone-link.md` with chat 1's review D1-D9): the scheduled
+  courier restarts such a chat by itself. Only a board lane with an app id that is idle by its transcript (`transcriptTurn` 'ended',
+  `background` 0, `transcriptAt` 10 min quiet; a starter, Main or the Advisor, only while every other board lane is idle the same way),
+  with no hold (the person's pause, a full limit, a suspended lane, a stop that holds its words) and its spell (the unload's time)
+  untried gets ONE `chat-restart` word for the courier, made in the wake pass only while the courier calls. wakes-due re-checks and
+  takes it in one step (`{ id, chat, session, text, restart: true, alsoUnarchive }`, a starter's list of the board's other chats set at
+  the take); the try is the wake record's (`restartTries`, by chat and spell, saved, pruned with the spells), counted from the take. The
+  courier archives the chat, unarchives the listed ones and the chat, then sends the fixed wake; wakes-sent takes `ids` (sentAt; the
+  word stays taken), `refused` (closed, no try spent, the next word 30 min later at the earliest) and `stuck` (closed failed, "it stayed
+  archived"). The closes (`restartCloses`, every pass): its link back, "its link is back"; sent and no report in 10 min, "a restart did
+  not bring it back"; taken and no wakes-sent in 15 min, failed (and, when the board saw the chat archived in that window and it is still
+  off the board with no removal open, one unarchive-only entry for the courier's next run); waiting during a hold, "held back"; waiting
+  untaken COURIER_WAIT_MS, "the courier did not come" (neither spends the try). The word never expires and rule 8 never names it. Its row:
+  Link gone in the quiet colour, "restarts by itself at HH:MM" (the quiet clock's end) while F19 will act; Restarting, "its board link was
+  gone: the courier restarts it", once taken; else Link gone in the attention colour with the way out above or the failed why. A chat a
+  restart left archived is named on the Overview's wake line ("<chat> is archived: unarchive it").
   A popup ask about the board's own tools (Q742, Q744) makes no Waiting for you: Working, "its call to the board is slow"; the
   Supervisor's board-slow counts it, unless a late answer from a minute before its filing to 10 min after stands for that call.
   It is no filed form ask and no filing of the chat's questions: one whose withdraw got lost never hides a later real question
