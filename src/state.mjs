@@ -1854,7 +1854,8 @@ function focusRun(node, items, prefix, partner) {
  */
 const spellReportOf = (lane, kept = null) => {
   const report = Number.isFinite(lane?.report?.at) ? lane.report : Number.isFinite(kept?.at) ? kept : null
-  return report === null ? lane?.ownReport ?? null : { state: report.state, since: report.since ?? null, at: report.at, run: report.run ?? null }
+  // F19, the verifier's FF1: with the time it was really heard (`heardAt`), for the link back of a side lane's restart (src/restartGone.mjs).
+  return report === null ? lane?.ownReport ?? null : { state: report.state, since: report.since ?? null, at: report.at, run: report.run ?? null, ...(Number.isFinite(report.heardAt) ? { heardAt: report.heardAt } : {}) }
 }
 
 export function buildState(raw, options) {

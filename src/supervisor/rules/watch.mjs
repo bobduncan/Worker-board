@@ -599,6 +599,8 @@ export function undeliveredJudged(view) {
   const waking = new Set(wakeLanesOf(view).filter(lane => ['waiting-sender', 'on-its-way', 'sent', 'launched', 'failed'].includes(lane.wake?.state)).map(lane => lane.name))
   // F23: a word for a chat whose board link is gone waits for its restart (src/modGone.mjs): no undelivered word.
   const gone = linkGoneNames(wordLanesOf(view))
+  // F19, the verifier's N3: and a chat the courier's run has archived right now (off the board, its restart word taken).
+  for (const one of view.outbox ?? []) if (one?.command === 'chat-restart' && one.state === 'taken' && typeof one.about === 'string') gone.add(one.about)
   return { limit, stillWaits, waking, gone }
 }
 

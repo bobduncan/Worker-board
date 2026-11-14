@@ -3994,6 +3994,8 @@ async function main(args) {
       for (const word of due) {
         if (word.unarchive !== 'due') continue
         const listing = unarchiveListing(word, { now, outbox: store.outbox(), lanes: boardLanes(state), isArchived })
+        // The verifier's N1: a failed read of the app's files keeps the flag due.
+        if (listing.wait !== undefined) continue
         if (listing.entry === undefined) {
           await store.update(word.id, { unarchive: null, unarchiveWhy: listing.clear })
           changed = true
@@ -4023,7 +4025,9 @@ async function main(args) {
           const word = store.outbox().find(message => message.id === id)
           if (!isCouriers(word)) continue
           // The fix round, item 6: a stuck run's chats the app's files show archived now are kept on the word (the Overview names them).
-          const archived = verdict === 'stuck' ? archivedOfWord(word, await archivedNow()) : []
+          // The verifier's N2: without a read of the files a stuck target is still named (the courier said it stayed archived).
+          const read = verdict === 'stuck' ? await archivedNow() : null
+          const archived = verdict !== 'stuck' ? [] : read === null ? [{ id: word.session, chat: word.about }] : archivedOfWord(word, read)
           if (!isCouriers(word)) continue
           await store.update(id, { state: 'dropped', why, closedAt: now, ...(verdict === 'stuck' ? { failed: true, archived } : {}) })
           noteRestartVerdict(wakes, word, verdict, why, now)

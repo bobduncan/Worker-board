@@ -118,14 +118,27 @@ export const restartSpent = (record, chat, spell, outbox = []) => triesOf(record
   || (outbox ?? []).some(one => isTakenWord(one, chat, spell))
 /** The spell's newest try, or null. */
 const newestTry = (record, chat, spell) => triesOf(record, chat).findLast(one => one.spell === spell) ?? null
+/**
+ * The verifier's N5: the tries of a chat in the record and in the raw outbox (a stale record after a loop takeover), one per word:
+ * `[{ word, spell, takenAt, verdict, verdictAt }]`.
+ */
+function allTries(record, chat, outbox = []) {
+  const out = new Map(triesOf(record, chat).map(one => [one.word, one]))
+  for (const one of (outbox ?? []).filter(word => isRestartWord(word) && word.about === chat && isTime(word.takenAt))) {
+    if (out.has(one.id)) continue
+    const refused = one.state === 'dropped' && one.why === REFUSED_WHY
+    out.set(one.id, { word: one.id, spell: one.spell, takenAt: one.takenAt, verdict: refused ? 'refused' : null, verdictAt: refused ? one.closedAt ?? null : null })
+  }
+  return [...out.values()]
+}
 /** Until when a refused archive holds the next word off (D2), or null. */
-export function refusedUntil(record, chat, spell) {
-  const refused = triesOf(record, chat).filter(one => one.spell === spell && one.verdict === 'refused' && isTime(one.verdictAt))
+export function refusedUntil(record, chat, spell, outbox = []) {
+  const refused = allTries(record, chat, outbox).filter(one => one.spell === spell && one.verdict === 'refused' && isTime(one.verdictAt))
   return refused.length === 0 ? null : Math.max(...refused.map(one => one.verdictAt)) + RESTART_REFUSED_MS
 }
-const refusedCount = (record, chat, spell) => triesOf(record, chat).filter(one => one.spell === spell && one.verdict === 'refused').length
+const refusedCount = (record, chat, spell, outbox = []) => allTries(record, chat, outbox).filter(one => one.spell === spell && one.verdict === 'refused').length
 /** The restarts of a chat the courier took within RESTART_DAY_MS (any spell, refused ones not counted). */
-const restartsToday = (record, chat, now) => triesOf(record, chat).filter(one => one.verdict !== 'refused' && isTime(one.takenAt) && now - one.takenAt < RESTART_DAY_MS).length
+const restartsToday = (record, chat, now, outbox = []) => allTries(record, chat, outbox).filter(one => one.verdict !== 'refused' && isTime(one.takenAt) && now - one.takenAt < RESTART_DAY_MS).length
 
 /** The record's tries as the file holds them: `{ "<chat>": [try, ...] }`, or null for none. */
 export function textOfRestartTries(record) {
@@ -206,13 +219,13 @@ export function restartStandOf(lane, { lanes = [], children = [], pause = null, 
   // The fix round, item 5: an open try reads Restarting only while its word is open; else it failed (its word was closed without a verdict).
   if (last !== null && last.verdict === null && (outbox ?? []).some(one => one.id === last.word && isOpenWord(one))) return { kind: 'restarting' }
   if (restartSpent(record, lane.name, spell, outbox)) return { kind: 'failed', why: last?.why ?? NOT_BACK_WHY }
-  if (refusedCount(record, lane.name, spell) >= REFUSED_MOST) return { kind: 'no', why: MOD_GONE_WHY, reason: `the app refused the archive ${REFUSED_MOST} times` }
-  const until = refusedUntil(record, lane.name, spell)
+  if (refusedCount(record, lane.name, spell, outbox) >= REFUSED_MOST) return { kind: 'no', why: MOD_GONE_WHY, reason: `the app refused the archive ${REFUSED_MOST} times` }
+  const until = refusedUntil(record, lane.name, spell, outbox)
   if (until !== null && isTime(now) && now < until) return { kind: 'refused', why: REFUSED_WHY, until }
   if (courierAlive !== true) return { kind: 'no', why: MOD_GONE_WHY, reason: 'no courier' }
   if (!isAppId(lane.appSession)) return { kind: 'no', why: MOD_GONE_WHY, reason: 'no app id' }
   if (lane.remoteControl === true) return { kind: 'no', why: MOD_GONE_WHY, reason: REMOTE_WHY }
-  if (isTime(now) && restartsToday(record, lane.name, now) >= RESTARTS_MOST) return { kind: 'no', why: MOD_GONE_WHY, reason: `restarted ${RESTARTS_MOST} times in a day` }
+  if (isTime(now) && restartsToday(record, lane.name, now, outbox) >= RESTARTS_MOST) return { kind: 'no', why: MOD_GONE_WHY, reason: `restarted ${RESTARTS_MOST} times in a day` }
   const hold = restartHoldOf(lane, { pause, limits, outbox })
   if (hold !== null) return { kind: 'no', why: MOD_GONE_WHY, reason: hold, hold: true }
   const own = quietEndOf(lane)
@@ -222,6 +235,10 @@ export function restartStandOf(lane, { lanes = [], children = [], pause = null, 
   for (const child of childrenOf(lane, children)) {
     const board = (lanes ?? []).find(one => one?.isLeftover !== true && one.appSession === child.id)
     if (board === undefined) return { kind: 'no', why: MOD_GONE_WHY, reason: unseenChildWhy(child.title) }
+    // The verifier's F1: the archive would take along a child the person drives from the phone, removes or stopped.
+    if (board.remoteControl === true) return { kind: 'no', why: MOD_GONE_WHY, reason: `${board.name}: ${REMOTE_WHY}` }
+    const childHold = restartHoldOf(board, { outbox })
+    if (childHold !== null) return { kind: 'no', why: MOD_GONE_WHY, reason: `${board.name}: ${childHold}` }
     const end = quietEndOf(board)
     if (end === null) return { kind: 'no', why: MOD_GONE_WHY, reason: 'its chats are not idle' }
     ends.push(end)
@@ -296,7 +313,9 @@ export function restartCloses({ outbox, lanes, now, pause = null, limits = null,
   for (const word of (outbox ?? []).filter(isOpenWord)) {
     const lane = (lanes ?? []).find(one => one.name === word.about && one.isLeftover !== true)
     const archived = word.state === 'taken' ? { archived: archivedOfWord(word, isArchived) } : {}
-    const heard = isTime(lane?.report?.heardAt) ? lane.report.heardAt : lane?.report?.at
+    // The verifier's FF1: the side lanes (the Advisor, its helper, the Supervisor, the Product owner) carry their report as `ownReport`.
+    const report = lane?.report ?? lane?.ownReport ?? null
+    const heard = isTime(report?.heardAt) ? report.heardAt : report?.at
     if (lane !== undefined && ((isTime(heard) && heard > word.spell) || (isTime(appStartedAt) && appStartedAt > word.spell))) {
       out.push({ id: word.id, state: isTime(word.sentAt) ? 'delivered' : 'dropped', why: LINK_BACK_WHY, verdict: word.state === 'taken' ? 'back' : null, ...archived })
     } else if (word.state === 'taken' && isTime(word.sentAt)) {
@@ -324,7 +343,9 @@ export function unarchiveListing(word, { now, outbox = [], lanes = [], isArchive
   if (!isTime(word?.closedAt) || now - word.closedAt > UNARCHIVE_LIST_MS) return { clear: 'listed too late' }
   const lane = (lanes ?? []).find(one => one.name === word.about && one.isLeftover !== true)
   if (removedSince(outbox, word.about, word.takenAt) || restartHoldOf(lane ?? null, { chat: word.about, outbox }) === 'it is being removed') return { clear: 'its chat is being removed' }
-  if (typeof isArchived !== 'function' || isArchived(word.session) !== true) return { clear: 'it is no longer archived' }
+  // The verifier's N1: a failed read of the app's files says nothing: the flag stays due for the next run.
+  if (typeof isArchived !== 'function') return { wait: 'the app\'s files could not be read' }
+  if (isArchived(word.session) !== true) return { clear: 'it is no longer archived' }
   return { entry: unarchiveEntry(word, (word.alsoUnarchive ?? []).filter(id => isArchived(id) === true)) }
 }
 
@@ -347,6 +368,10 @@ export function restartRowOf(stand, { courierAt = null } = {}) {
   if (stand.kind === 'restarting') return { restarting: true, why: RESTARTING_WHY, quiet: true }
   if (stand.kind === 'ready' || stand.kind === 'quiet') return { restarting: false, why: restartsAtWhy(Math.max(stand.at, isTime(courierAt) ? courierAt + COURIER_EVERY_MS : -Infinity)), quiet: true }
   if (stand.kind === 'failed') return { restarting: false, why: MOD_GONE_WHY, quiet: false }
+  // The verifier's N6: a refused archive says when the courier tries again.
+  if (stand.kind === 'refused') return { restarting: false, why: `${REFUSED_WHY} · tries again about ${hourMinute(Math.max(stand.until, isTime(courierAt) ? courierAt + COURIER_EVERY_MS : -Infinity))}`, quiet: false }
+  // The verifier's N8: a chat being removed gets no restart advice.
+  if (stand.hold === true && stand.reason === 'it is being removed') return { restarting: false, why: 'it is being removed', quiet: false }
   // Group D: a hold says why the courier does not restart it now ("not by itself while you pause the chats").
   if (stand.hold === true) return { restarting: false, why: `${MOD_GONE_WHY} (not by itself while ${stand.reason})`, quiet: false }
   return { restarting: false, why: stand.why ?? MOD_GONE_WHY, quiet: false }

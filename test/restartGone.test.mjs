@@ -12,7 +12,7 @@ import { foldOutbox, isLate, keepMs, memoryStore, outboxKnown } from '../src/sto
 import { isUndelivered } from '../src/supervisor/rules/watch.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { wordJudge } from '../src/supervisor/index.mjs'
-import { waitLineOf } from '../src/waitLine.mjs'
+import { waitLineOf, waitsOf } from '../src/waitLine.mjs'
 import { emptyWakes, textOfWakes, wakesOfFile } from '../src/wake.mjs'
 import { COURIER, COURIER_WAIT_MS, carryCloses, isCarryWord } from '../src/wakeCarry.mjs'
 import { MOD_GONE_WHY } from '../src/modGone.mjs'
@@ -361,6 +361,10 @@ test('the fix round, item 2: the prompt says the handshake, sends only to an ent
   assert.match(prompt, /Else send it in step 4\./)
   assert.match(prompt, /It gets nothing in step 4\./)
   assert.match(prompt, /select:mcp__ccd_session_mgmt__send_message,mcp__ccd_session_mgmt__archive_session,mcp__ccd_session_mgmt__unarchive_session/)
+  // The verifier's F2: both tools take `session_id` (their `session` is a label the app adds).
+  assert.match(prompt, /call `archive_session` with `session_id` set to its `session`\./)
+  assert.match(prompt, /call `unarchive_session` with `session_id` set to each id in `alsoUnarchive` \(ignore an error on one\), then set to the entry's `session`\./)
+  assert.match(prompt, /call only `unarchive_session`, with `session_id` set to each id in `alsoUnarchive` \(ignore errors\), then set to its `session`\./)
   assert.match(prompt, /Load that tool first with one ToolSearch call if it is deferred/)
   assert.match(prompt, /<project folder>/)
   assert.doesNotMatch(prompt, /For each entry in `wakes`, call `send_message`/)
@@ -396,4 +400,51 @@ test('the fix round, item 10: the "No ask filed" card of a chat the courier rest
 test('group D: a held Link gone row says why the courier does not restart it now', () => {
   const ctx = ctxOf([MAIN, gone('Worker 4')], { pause: { state: 'pausing', since: NOW - MIN } })
   assert.equal(restartRowOf(restartStandOf(ctx.lanes[1], ctx)).why, `${MOD_GONE_WHY} (not by itself while you pause the chats)`)
+})
+
+test('the verifier\'s FF1: a side lane\'s link back reads its ownReport (with heardAt): the Advisor\'s restart closes "its link is back"', () => {
+  const sent = waiting({ about: 'Advisor', session: 'local_advisor', state: 'taken', takenBy: COURIER, takenAt: NOW - 3 * MIN, sentAt: NOW - 2 * MIN })
+  const advisor = more => ({ name: 'Advisor', isLeftover: false, appSession: 'local_advisor', modGone: null, ...more })
+  assert.equal(restartCloses({ outbox: [sent], lanes: [MAIN, advisor({ ownReport: { state: 'idle', at: NOW - 30_000 } })], now: NOW })[0]?.why, LINK_BACK_WHY)
+  // A report kept from before the board's start reads `at` = the start; its real time is before the unload: no link back.
+  assert.deepEqual(restartCloses({ outbox: [sent], lanes: [MAIN, advisor({ ownReport: { state: 'idle', at: NOW - MIN, heardAt: GONE - MIN } })], now: NOW }), [])
+})
+
+test('the verifier\'s F1: a child with Remote Control on, being removed or stopped by the person keeps its parent from qualifying', () => {
+  const main = gone('Main', { isMain: true, appSession: 'local_main' })
+  const children = [child('local_adv', 'local_main', 'Game - Advisor')]
+  const adv = more => lane('Advisor', { appSession: 'local_adv', ...more })
+  const stop = { id: 'st', at: NOW - MIN, to: 'Main', command: 'stop', byCode: true, about: 'Advisor', text: 'x', state: 'waiting' }
+  assert.equal(restartStandOf(main, ctxOf([main, adv({})], { children })).kind, 'ready')
+  assert.equal(restartStandOf(main, ctxOf([main, adv({ remoteControl: true })], { children })).reason, 'Advisor: Remote Control is on')
+  assert.equal(restartStandOf(main, ctxOf([main, adv({ removedAt: NOW - MIN })], { children })).reason, 'Advisor: it is being removed')
+  assert.equal(restartStandOf(main, ctxOf([main, adv({})], { children, outbox: [stop] })).reason, 'Advisor: you stopped it')
+})
+
+test('the verifier\'s N1, N5, N6, N8: a failed read keeps the unarchive due; refusals and restarts count from the raw outbox; the rows say why', () => {
+  const closed = { ...waiting(), state: 'dropped', why: UNSAID_WHY, failed: true, takenAt: NOW - 20 * MIN, closedAt: NOW - 5 * MIN, unarchive: 'due', alsoUnarchive: [] }
+  assert.deepEqual(unarchiveListing(closed, { now: NOW, outbox: [closed], lanes: [MAIN], isArchived: null }), { wait: 'the app\'s files could not be read' })
+  // N5: a refused word in the raw outbox, a record that lacks it (a loop takeover): still the 30-min wait.
+  const refused = { ...waiting(), state: 'dropped', why: REFUSED_WHY, takenAt: NOW - 12 * MIN, closedAt: NOW - 10 * MIN }
+  const stand = restartStandOf(gone('Worker 4'), ctxOf([], { outbox: [refused] }))
+  assert.deepEqual(stand, { kind: 'refused', why: REFUSED_WHY, until: NOW - 10 * MIN + RESTART_REFUSED_MS })
+  // N6: its row says when the courier tries again.
+  assert.deepEqual(restartRowOf(stand), { restarting: false, why: `${REFUSED_WHY} · tries again about ${hm(NOW + 20 * MIN)}`, quiet: false })
+  // N8: a chat being removed gets no restart advice.
+  const removing = ctxOf([MAIN, gone('Worker 4', { removedAt: NOW - MIN })])
+  assert.deepEqual(restartRowOf(restartStandOf(removing.lanes[1], removing)), { restarting: false, why: 'it is being removed', quiet: false })
+})
+
+test('the verifier\'s N3: a word held for a chat the courier\'s run has archived right now reads the quiet Restarting line', () => {
+  const KEEP = { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN, pause: null }
+  const word = { id: 'w1', at: NOW - 20 * MIN, to: 'Worker 4', ask: 'Q12', command: null, text: 'Yes, B', state: 'waiting', linkHeldAt: NOW - 19 * MIN }
+  const taken = waiting({ state: 'taken', takenBy: COURIER, takenAt: NOW - MIN })
+  const state = { chats: [MAIN], pause: null, chatPrefix: '', restart: { main: 'Main' } }
+  const judge = wordJudge({ state, outbox: [word, taken], settings: {}, now: NOW })
+  const line = waitsOf({ state, outbox: [word, taken], now: NOW, keep: KEEP, judge }).w1
+  assert.deepEqual([line?.state, line?.rest], ['sent', `its board link is gone · ${RESTARTING_WHY}`])
+  // Rule 8 names it no undelivered word meanwhile.
+  assert.equal(judge.isUndelivered(word), false)
+  // Without the taken restart word: as before (late).
+  assert.equal(waitsOf({ state, outbox: [word], now: NOW, keep: KEEP, judge: wordJudge({ state, outbox: [word], settings: {}, now: NOW }) }).w1?.state, 'late')
 })

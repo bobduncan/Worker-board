@@ -56,6 +56,7 @@ import { answeredCard, planAnswered } from './plan.mjs'
 import { PLAN_DECISIONS, PLAN_MOVES } from './planMoves.mjs'
 import { isLate } from './store.mjs'
 import { MOD_GONE_WHY } from './modGone.mjs'
+import { RESTARTING_WHY } from './restartGone.mjs'
 import { WAKE_PENDING, triedWords } from './wake.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
 import { TRIES, passesBySelf } from './work/passing.mjs'
@@ -987,7 +988,10 @@ export function waitsOf({ state, outbox = [], now, keep = {}, judge, reports = n
     if (!isPersonWord(asked, { sweepWord, now }) || now - asked.at >= WAITS_KEPT_MS + ENDED_SHOWN_MS) continue
     const word = standingWord(asked, byId)
     const place = placeOfWord(word, { threads, items })
-    const lane = lanes.get(word.to) ?? null
+    // F19, the verifier's N3: a word held for a chat the courier's run has archived right now (off the board, its restart word taken) reads
+    // the quiet Restarting line, never the hand restart.
+    const isRestarting = !lanes.has(word.to) && isTime(word.linkHeldAt) && outbox.some(one => one.command === 'chat-restart' && one.about === word.to && one.state === 'taken')
+    const lane = lanes.get(word.to) ?? (isRestarting ? { name: word.to, status: 'Restarting', why: RESTARTING_WHY } : null)
     const report = (reports instanceof Map ? reports.get(word.to) : null) ?? lane?.report ?? null
     const queue = outbox.filter(one => one.to === word.to && one.state === 'waiting' && one.isHeld !== true && one.id !== word.id && isTime(one.at) && one.at < word.at).length
     // Chat 1's ruling (2026-11-11): a plan word counts the partner's page write only after the word was PICKED UP: the record on the word, or the turn
