@@ -12,7 +12,7 @@
 // holds the supervisor's own watch: `seen` (since when it first saw what only counts once it lasts) and `observed`
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
-import { RETIRED_WATCH_RULES } from '../../work/holderTimers.mjs'
+import { RETIRED_WATCH_RULES, givenBackFrom } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
@@ -250,6 +250,10 @@ function overlapIdle(view, ctx) {
  * it works (or that the board shows off for a card left working) while its chat made no call to the board, took
  * nothing and wrote nothing to its conversation (the board's `isRunning` false) for longer than 5 minutes: one
  * incident per worker. A worker on a step in progress is the hand-over's timers' (signals change 3), never this rule's.
+ * B1168 (X72 came back 3 times after its close; Worker 1 stopped mid-turn at 21:20, the timers gave B423 back at 21:23): a stop is
+ * answered for, and never counts, once the board gave the worker a step back since the stop began (the timers acted and wrote their
+ * line), or once the incident's last close (`fixedAtOf`) came after the stop began; a stop that begins after a close counts anew. The
+ * stop began at the card's `offSince`, else when the rules' watch first saw it. B736's lone silent chat (nothing given back) still opens.
  */
 const WORKING_NOT_RUNNING_MS = 5 * MIN
 function workingNotRunning(view, ctx) {
@@ -261,6 +265,9 @@ function workingNotRunning(view, ctx) {
     // The asset wait: a worker whose lane works for the provider's pictures makes no call of its own while Codex draws: no fault.
     if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix)) || lane.heldBy === 'asset') continue
     const key = `working-not-running ${lane.name}`
+    const stopFrom = Number.isFinite(lane.offSince) ? lane.offSince : ctx.seen.get(key) ?? view.now
+    if (givenBackFrom(view.items, lane.name, view.prefix).some(back => back.at >= stopFrom)) continue
+    if (stopFrom <= fixedAtOf(view, key)) continue
     const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : null), { heard: true })
     if (ms <= WORKING_NOT_RUNNING_MS) continue
     found.push({
@@ -436,7 +443,10 @@ function undelivered(view) {
       return {
         // Signals change 6 (Addendum 2): the key is the rule and the chat only, as for a chat not stopped: a stop's time in the
         // key opened the same undelivered words again at every new stop, which made "gone" read a cure that was none.
-        rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: oldest.at,
+        // B1170 (X173): the case of a chat that was stopped began at its stop, never before its oldest word: the words keep their own
+        // time through every retry, so an incident closed after the first of them would read a stop of later (23:10, closed 22:59) as
+        // that old case still standing, and no incident showed words that went on waiting.
+        rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: Math.max(oldest.at, stop.since),
         text: `${chat} was stopped at ${clockOf(stop.since)}: ${words.length} ${words.length === 1 ? 'word waits' : 'words wait'} for it, the oldest for ${minutes(view.now - oldest.at)} min`,
         evidence: woken === undefined ? 'the main chat is not asked to wake it yet' : `the main chat was asked to wake it at ${clockOf(woken.at)} (${woken.state})`,
       }

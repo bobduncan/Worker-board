@@ -320,6 +320,29 @@ test('B532 undelivered: a word the outbox sweep drops is not named, nor an answe
   assert.deepEqual(check('undelivered', view({ items: items(step('B8', 'review')), outbox: [old] })), [])
 })
 
+test('B1170 (X173, the real case of 2026-11-13 23:12): words to a worker on no step are named; its case began at its last stop, not at its oldest word', () => {
+  // The words as the outbox held them at 23:12: the report-background word of 22:47 (expired, tried anew at each stop of the
+  // session), and two answers (22:55, 22:59) retried at the stop of 23:10. Worker 2's session is the one that was stopped, and it
+  // holds no step. The rule named them all; the incident of its key (X107) was closed at 22:59 and the finding's `since` (22:47)
+  // made it "old case still standing", so no incident showed them.
+  const SESSION = 'session-that-was-stopped'
+  const stop = { stoppedAt: ago(2), stoppedSession: SESSION }
+  const outbox = [
+    { id: 'rb', to: 'Worker 2', command: 'report-background', about: 'B1168', at: ago(25), state: 'expired', ...stop },
+    { id: 'a764', to: 'Worker 2', ask: 'work:Q764', step: 'Q764', at: ago(17), state: 'waiting', ...stop },
+    { id: 'a763', to: 'Worker 2', ask: 'work:Q763', step: 'Q763', at: ago(13), state: 'waiting', ...stop },
+  ]
+  const board = more => view({ chats: [LEAD, lane('Worker 2', { session: SESSION, state: 'working' })], outbox, ...more })
+  const found = check('undelivered', board())
+  assert.deepEqual(found.map(one => [one.key, one.subject]), [['undelivered Worker 2', 'Worker 2']])
+  assert.equal(found[0].text, `Worker 2 was stopped at ${clockOf(ago(2))}: 3 words wait for it, the oldest for 25 min`)
+  assert.equal(found[0].since, ago(2), 'the case of a chat that was stopped began at its stop: a stop after an incident was closed is a new case')
+  // A stop older than its oldest word (the word came later) never moves the case before the word.
+  assert.equal(check('undelivered', view({ chats: [LEAD, lane('Worker 2', { session: SESSION })], outbox: [{ ...outbox[1], stoppedAt: ago(30) }] }))[0].since, ago(17))
+  // A chat that was not stopped keeps the case at its oldest word (B584).
+  assert.equal(check('undelivered', board({ chats: [LEAD, lane('Worker 2', { session: 'another-session' })] }))[0].since, ago(25))
+})
+
 test('report-check-twice: a step whose board check failed twice since its last pass trips; once, or passed after, does not', () => {
   const line = (minutes, words) => `- ${stamp(ago(minutes))} server: ${words}`
   const board = (...history) => view({ items: items(step('B12', 'review', { Owner: 'Painter' }, { History: history })) })

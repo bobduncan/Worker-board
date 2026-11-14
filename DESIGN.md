@@ -2575,6 +2575,9 @@ chat being replaced and never handed the words to the new one. Now (`src/stopped
    `withdrawStale` close those whose purpose is gone, as any waiting word.
 4. Rule 8 names a stopped chat once per stop ("Worker 5 was stopped at 21:42: 2 words wait for it"), with whether the
    main chat was asked to wake it, not word by word; a word that went again is named by the word that stands for it.
+   B1170 (X173): its finding's `since` is the stop, never before its oldest word (a word keeps its own time through every
+   retry): an incident closed after those words came, then a later stop of the same chat, is a new case and comes
+   back, where the oldest word's time made it "old case still standing" and showed nothing.
 5. roles/main.md: a worker the main chat stops or replaces is named to the board in the same move (a work note, "Stopped
    <name> at HH:MM: <why>"), and a stopped worker it keeps is woken at once.
 

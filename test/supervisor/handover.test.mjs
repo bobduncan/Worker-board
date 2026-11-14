@@ -45,7 +45,9 @@ async function board(t, { supervisor = watcher(), keep = undefined, two = false,
   const failures = []
   const chat = { value: supervisor }
   const ctx = () => ({ dir, now, prefix: '', roleOf: name => ROLES[name] ?? null })
-  const stuck = name => lane(name, { state: 'working', isRunning: false, offSince: START - 20 * MIN })
+  // B1168: when the stop began (a close answers for the stop it was about; a stop after the close counts anew: `stopAt`)
+  const off = { at: START - 20 * MIN }
+  const stuck = name => lane(name, { state: 'working', isRunning: false, offSince: off.at })
   const state = () => ({
     chats: [lane('Lead', { isMain: true }), stuckOne ? stuck('Digger') : lane('Digger'), ...(two ? [stuck('Shoveller')] : [])], advisor: lane('Partner'), supervisorChat: chat.value, chatPrefix: '',
   })
@@ -78,6 +80,8 @@ async function board(t, { supervisor = watcher(), keep = undefined, two = false,
     /** Its turn after the word ended. */
     ended: () => sup.heard({ action: 'turn-ended', ok: true, session: 's-Watcher', since: now - MIN }),
     at: minutes => { now = START + minutes * MIN },
+    /** A new stop of the stuck workers begins at this minute (after a close, B1168). */
+    stopAt: minutes => { off.at = START + minutes * MIN },
     run: () => sup.run(),
     chat: (name, body) => workApi({ chat: name, ...body }, ctx()),
     person: body => workApi(body, { ...ctx(), as: 'person' }),
@@ -170,8 +174,9 @@ test('a returned one gives a line and a judge word again, naming its count; the 
   assert.equal((await b.person({ action: 'tick', id: 'B12' })).ok, true)
   b.at(5)
   assert.deepEqual((await b.server({ action: 'incident-gone', fixed: [{ id: 'X1', notSeenSince: START }] })).result.fixed, ['X1'])
-  // Seen again: it came back.
-  b.at(10)
+  // Seen again: it came back. B1168: the stop the close answered for never counts again, so the worker stops anew after the close.
+  b.stopAt(6)
+  b.at(13)
   await b.run()
   const back = await b.incident('X1')
   assert.deepEqual([back.head.get('Count'), back.head.get('State')], ['3', 'came back'])
