@@ -10,10 +10,11 @@
 import { shownChats } from '../bridge.mjs'
 import { heldTooLong, isHandTaken, isMootSpawn, isTaskStopWord, mootWhy, stopSettleWhy } from '../hands.mjs'
 import { RESUME_STEP, isLimitStopWord, waitsLong } from '../say.mjs'
-import { isLate, keepMs } from '../store.mjs'
+import { DOUBT_MS, isLate, keepMs } from '../store.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { familyOf, isSetRefused, sameModel } from './effort.mjs'
 import { TRIES } from './passing.mjs'
+import { HANDS_FIRST_MS } from '../hands.mjs'
 import { stamp } from './migrate.mjs'
 import { OLD_CHECK_WHY } from './qaTask.mjs'
 import { gitCheckAtMs, gitCheckPassed } from './resultCheck.mjs'
@@ -97,6 +98,20 @@ export function whyClosed(message, ctx) {
   if (message.command === 'partner-effort' && message.state === 'failed' && isSetRefused(message) && (message.retriedAs !== undefined || (message.tries ?? 1) >= TRIES)) {
     return { state: 'dropped', refused: true, why: "the app refuses the board's set calls; your partner runs on its current setting" }
   }
+  // B1160 round 3, item 6: the probe is a hand's alone: one that no hand carried within HANDS_FIRST_MS, or that failed for another reason
+  // than the refusal, is closed in plain words (the next probe comes a day later); a refused one is closed below as refused.
+  // F5 review 10: a probe a hand gave back in doubt stays open until DOUBT_MS passed, so the hand's late answer still settles it.
+  const isProbeInDoubt = message.probe === true && message.state === 'waiting' && Number.isFinite(message.doubtAt) && now - message.doubtAt < DOUBT_MS
+  if (message.command === 'worker-effort' && message.probe === true && !isSetRefused(message) && !isProbeInDoubt
+    && ((message.state === 'waiting' && now - message.at >= HANDS_FIRST_MS) || message.state === 'failed')) {
+    return { state: 'dropped', why: 'the check whether the app lets the board set again could not run; the next comes later' }
+  }
+  // F5 review 4, 13: a set word for Main's model that Main has not taken yet is moot once its hand-over went on without it (its envelope
+  // no longer waits for it): never typed later, mid-step or twice.
+  if (message.command === 'worker-effort' && message.forModel === true && message.state === 'waiting' && typeof message.envelope === 'string') {
+    const envelope = all.find(one => one.id === message.envelope)
+    if (envelope === undefined || envelope.state !== 'waiting' || envelope.waitsFor !== message.id) return { state: 'dropped', why: 'its hand-over went on without it' }
+  }
   if (message.command === 'worker-effort') {
     // B1160 review 6: a set word the app refused (in auto mode it does not run a plugin's own set call) is closed at once, in plain words,
     // kept marked `refused` so the board knows the refusal stands (effort.mjs `setsRefusedOf`): never an undelivered word for rule 8.
@@ -105,7 +120,9 @@ export function whyClosed(message, ctx) {
     if (newer !== undefined) return { state: 'dropped', why: `superseded by a newer word for ${message.about}'s setting (${stamp(newer.at)})` }
     const lane = (ctx.lanes ?? []).find(one => one.name === message.about && !one.isLeftover)
     // B1160: the probe asks the chat's own setting on purpose (its hand's answer is the point): never met before a hand took it.
-    if (message.probe !== true && lane !== undefined && lane.effort === message.effort && ((message.model ?? null) === null || sameModel(lane.model, message.model))) {
+    // F5 verifier 1, 5: an effort the app's file does not show is not judged: the model alone counts then (as the hand-over pass's runsIt).
+    const effortMet = lane !== undefined && (lane.effort === message.effort || ((lane.effort ?? null) === null && (message.model ?? null) !== null))
+    if (message.probe !== true && lane !== undefined && effortMet && ((message.model ?? null) === null || sameModel(lane.model, message.model))) {
       // B1051 (X153): the setting was met: a success, not a failure. `met` tells the hand-over pass so (it waits for this word).
       return { state: 'dropped', met: true, why: `${message.about} runs at ${(message.model ?? null) === null ? '' : `${familyOf(message.model)} · `}${message.effort} already` }
     }

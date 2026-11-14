@@ -218,6 +218,33 @@ function readyWhileFree(view, ctx) {
   return found
 }
 
+/** B1160 part 2: how long free workers may idle while every waiting step is held back by a Touches overlap before the rule names it. */
+export const OVERLAP_IDLE_MINUTES = 30
+
+/**
+ * B1160 part 2 (chat 1, the live G95 case of 2026-11-13: nine unit steps showed "Ready for a worker (9)" with three workers free, and
+ * none could be handed out: their Touches overlapped B1149, under way): a free worker idles while nothing is ready and every step that
+ * would be is held back by an overlap (the ready list's `held` with `overlap`), for longer than OVERLAP_IDLE_MINUTES of running time.
+ * One finding for the board (key `overlap-idle board`), the held steps and what they wait on in the text. Not while the person pauses
+ * or a limit is full.
+ */
+function overlapIdle(view, ctx) {
+  if (isPaused(view) || isFull(view)) return []
+  const free = workersOf(view).filter(lane => lane.onSequence === true && lane.handover?.state === STATES.FREE)
+  const waiting = (view.held ?? []).filter(one => typeof one?.overlap === 'string')
+  if (free.length === 0 || waiting.length === 0 || (view.ready ?? []).length > 0) return []
+  const key = 'overlap-idle board'
+  const ms = lasted(view, ctx, key)
+  if (ms <= OVERLAP_IDLE_MINUTES * MIN) return []
+  const pairs = waiting.slice(0, 8).map(one => `${one.id} (same files as ${one.overlap})`)
+  return [{
+    rule: 'overlap-idle', key, subject: 'board',
+    // F5 review 11, 12: the span is the board's (workers free behind overlaps), not each worker's; the step it waits on may wait for the person.
+    text: `workers free behind Touches overlaps for ${minutes(ms)} min (${free.map(lane => lane.name).join(', ')}): every waiting step shares its files with a step given or at work: ${pairs.join(', ')}${waiting.length > 8 ? ', ...' : ''}`,
+    evidence: `held back by an overlap: ${waiting.map(one => `${one.id}: ${one.why}`).join('; ')}; free: ${free.map(lane => lane.name).join(', ')}; ready steps: none. Narrow their Touches, or move the step they wait on along.`,
+  }]
+}
+
 /**
  * B566 (X22, X21: chats shown not running while they ran, the board's only sign their takes): a worker whose card says
  * it works (or that the board shows off for a card left working) while its chat made no call to the board, took
@@ -500,6 +527,9 @@ export function undeliveredWords(view) {
  * N min" and the alarm read one function and never two clocks. `judged` what every word of the view shares
  * (`undeliveredJudged`), made once by a caller that asks for many words; false for every word while the person pauses.
  */
+/** B1164: how long a set word may be with Main's model before rule 8 names it. */
+export const MAIN_MODEL_SET_MS = 10 * 60_000
+
 export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   // The person pauses: the bridge holds every word until Resume all.
   if (judged === null) return false
@@ -514,6 +544,16 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
   // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
   if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)
+  // B1164 (B1160 part 2): a set word for Main's model (the app refuses the hands' set calls) is with Main once taken or typed: left out
+  // while Main's model may still do it, counted once MAIN_MODEL_SET_MS passed and the worker still does not run at it (`stillWaits`).
+  if (message.forModel === true && ['taken', 'delivered'].includes(message.state)) {
+    // F5 review 1, 2: a partner word Main carried is done: the Focus switch shows what the partner runs on.
+    if (message.command !== 'worker-effort') return false
+    // F5 review 3, 8: only while its step is still the worker's (given, taken or at work), and within UNDELIVERED_LOOK_MS.
+    const step = typeof message.forStep === 'string' ? view.items?.get?.(message.forStep) : undefined
+    const isOnIt = step !== undefined && ['queued', 'taken', 'in progress', 'waiting on you'].includes(valueOf(step, 'State')) && plain(valueOf(step, 'Owner'), view.prefix) === plain(message.about, view.prefix)
+    return isOnIt && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > MAIN_MODEL_SET_MS && stillWaits(message)
+  }
   return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
 }
 
@@ -689,6 +729,8 @@ function personHold(view, held) {
 
 /** B1021: the states in which a step is with a worker that was given it or took it. */
 const MOVING = ['queued', 'taken', 'in progress']
+/** F5 verifier 3, 6: the states of the step a Touches overlap hold waits for in which the hold is a wait. */
+const OVERLAP_WAITS = [...MOVING, 'waiting on you']
 
 /**
  * B1021 (X148: B1018 blocked by B1014, which waited for its own ready fix B1020 while the limit held every hand-out): whether a
@@ -713,7 +755,12 @@ function stepMoves(view, id, visited) {
 }
 
 /** B1021: whether a held why is a block by steps that all move or wait for the person (`stepMoves`, B916's `personHold`). */
-function holdMoves(view, held, visited = new Set()) {
+export function holdMoves(view, held, visited = new Set()) {
+  // F5 review 7: a step held back by a Touches overlap waits for that step: a wait while it moves.
+  const overlap = /^waits: same files as (B[0-9]+)\b/.exec(held ?? '')?.[1] ?? null
+  // F5 verifier 3, 6: any overlap hold is a wait while its step is under way, waiting on the person included (the ready list holds
+  // it only then; the step itself is the one named).
+  if (overlap !== null) return OVERLAP_WAITS.includes(stateOf(view.items.get(overlap))) || stepMoves(view, overlap, visited)
   if (!BLOCKED_HOLD.test(held)) return false
   const ids = [...new Set(held.match(/B[0-9]+/g) ?? [])]
   return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps) || stepMoves(view, id, visited))
@@ -1483,6 +1530,7 @@ const SKIPS_HELD = view => SKIPS_ON_PAUSE_OR_LIMIT(view) ?? (Array.isArray(view.
 export const WATCH_RULES = [
   { id: 'stale-suspended', kind: 'watch', says: 'a worker "suspended" after its limit came back', check: staleSuspended, skips: SKIPS_ON_PAUSE },
   { id: 'ready-while-free', kind: 'watch', says: 'a ready task waits while a worker is free', check: readyWhileFree, skips: SKIPS_ON_PAUSE_OR_LIMIT },
+  { id: 'overlap-idle', kind: 'watch', says: 'free workers idle over 30 min while every waiting step shares its files with a step under way', check: overlapIdle, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'working-not-running', kind: 'watch', says: 'a worker whose card says it works while its chat makes no call and writes nothing', check: workingNotRunning, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'skip-repeats', kind: 'watch', says: 'a compaction skipped for the same reason twice in a row', check: skipRepeats },
