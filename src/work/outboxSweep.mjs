@@ -363,9 +363,12 @@ export function vanishedChatWords({ outbox, state, now }) {
  * `{ id, state, why }` (a replay on a copy of the outbox passes `dry: true`: nothing is written then). `to`, when given,
  * judges only the words to that chat (a chat's take: the store is read only when something waits for it).
  */
-export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = false, to = null }) {
-  // F23 review 1, 3: the held words' marks first: their age stops while the link is gone, and they are released once it is back.
-  if (!dry) await markLinkHeld({ outbox, gone: linkGoneNames(wordLanesOf(state)), now, to })
+export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = false, to = null, back = null }) {
+  // F23 review 1, 3: the held words' marks first: their age stops while the link is gone, and they are released once it is back. The re-check, B:
+  // `back` a chat whose take proves its link is back, though a cached state may still read it gone.
+  const linkGone = linkGoneNames(wordLanesOf(state))
+  if (typeof back === 'string') linkGone.delete(back)
+  if (!dry) await markLinkHeld({ outbox, gone: linkGone, now, to })
   // Without the outbox's keep (a caller that delivers work lines only) nothing is judged.
   if ((keep ?? null) === null) return []
   if (!dry) await giveBackHeld(outbox, now)
@@ -390,7 +393,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const off = new Set(shownChats(state ?? {}).filter(chat => chat.isRunning === false).map(chat => chat.name))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { gone: linkGoneNames(wordLanesOf(state)), all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)), supervisor: state?.supervisorChat ?? null }
+  const ctx = { gone: linkGone, all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)), supervisor: state?.supervisorChat ?? null }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
@@ -436,7 +439,7 @@ export const stoppedChats = (outbox, state) => new Map(shownChats(state ?? {}).m
 export async function takeFor({ dir, outbox, state, now, keep, chat, only, fs }) {
   // F23 review 1, 3: a take proves the chat's link is back: its held words are released before anything is judged, and go out now.
   await markLinkHeld({ outbox, gone: new Set(), now, to: chat, isBack: () => true })
-  await sweepOutbox({ dir, outbox, state, now, keep, fs, to: chat }).catch(error => console.error(`The outbox sweep failed: ${error.message}`))
+  await sweepOutbox({ dir, outbox, state, now, keep, fs, to: chat, back: chat }).catch(error => console.error(`The outbox sweep failed: ${error.message}`))
   // B577: a chat whose session was stopped takes nothing until it gets input (the app would drop every word): its words
   // wait, and the main chat is asked to wake it (say.mjs `wakesStopped`).
   const lane = shownChats(state ?? {}).find(one => one.name === chat)

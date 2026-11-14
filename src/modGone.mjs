@@ -74,13 +74,16 @@ export const isHeldForLink = (message, gone) => message?.state === 'waiting' && 
  * F23 review 1, 3: the words that go stale in minutes by design (a sweep, a sync, a set word, a spawn): at link back they are dropped with
  * a why, so their makers write fresh ones; every other held word is released (its clock starts at the release).
  */
-export const LINK_STALE_COMMANDS = ['sweep', 'sync', 'worker-effort', 'partner-effort', 'effort', 'spawn']
+// The F23 re-check, A: never a partner-effort (nothing writes it again: the Focus switch would stay on Switching), a spawn the person asked for,
+// or the old sync: those are released like any held word.
+export const LINK_STALE_COMMANDS = ['sweep', 'worker-effort', 'effort']
 
 /** What a word held for a gone link becomes once its link is back (`now`): `{ drop: why }` or `{ release: fields }`. */
 export function linkReleaseOf(message, now) {
   const span = Math.max(1, Math.round((now - message.linkHeldAt) / 60_000))
   if (LINK_STALE_COMMANDS.includes(message.command)) return { drop: `its chat's board link was gone for ${span} min: a fresh word comes` }
-  return { release: { at: now, releasedAt: now, linkHeldAt: null } }
+  // The re-check's nit: the word keeps when it was first sent (`heldFrom`), so the chat reads how long it waited (store.mjs take, lateMs).
+  return { release: { at: now, releasedAt: now, linkHeldAt: null, heldFrom: Number.isFinite(message.heldFrom) ? message.heldFrom : message.at } }
 }
 
 /**

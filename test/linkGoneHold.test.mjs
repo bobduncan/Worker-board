@@ -84,6 +84,15 @@ test('F23 review 1, 3: a held word with a 10-minute keep, far older than its kee
   // An hour later the person restarted Lead; its mod's first take (the state may still read the link gone: a take proves it is back).
   const taken = await takeFor({ dir: null, outbox, state: goneLead, now: NOW + 60 * MIN, keep: KEEP, chat: 'Lead', only: () => true })
   assert.deepEqual(taken.map(one => one.id), ['n1'])
+  // The re-check, B: the take ran on a state that still read Lead gone: the word is not stamped held again, and the take cleared the mark.
+  const after = outbox.outbox()[0]
+  assert.deepEqual([after.state, after.linkHeldAt], ['taken', null])
+  // The nit: the chat reads how long it waited, from when it was first sent (40 min before, plus the hour held).
+  assert.equal(taken[0].lateMs, 100 * MIN)
+  // A taken word never reads "Held for Lead's restart", whatever a cached lane says.
+  const leadGone = lane('Lead', { isMain: true, modGone: GONE })
+  const judge = wordJudge({ state: { chats: [leadGone], pause: null, chatPrefix: '' }, outbox: outbox.outbox(), settings: {}, now: NOW + 60 * MIN })
+  assert.doesNotMatch(String(waitLineOf({ word: { ...after, linkHeldAt: NOW }, lane: leadGone, now: NOW + 60 * MIN, keep: KEEP, judge })?.lead ?? ''), /Held for/)
   // Rule 8 counts from the release: not undelivered at once.
   const view = buildView({ state: backLead, items: new Map(), outbox: outbox.outbox(), settings: {}, now: NOW + 61 * MIN })
   assert.equal(isUndelivered(view, { ...outbox.outbox()[0], state: 'waiting' }), false)
@@ -115,4 +124,24 @@ test('F23 review 2, 6, 7: no sweep while the Supervisor\'s link is gone, an open
   assert.match(sweepFile, /if \(isOpen\(\) && \(\(await chat\(\)\)\?\.card\?\.modGone \?\? null\) !== null\) \{\n\s+end\(now, 'quiet', \{ note: SWEEP_LINK_GONE \}\)/)
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /const due = \(state\.advisor\?\.modGone \?\? null\) !== null \? \{ \.\.\.due0, refine: null \} : due0/)
+})
+
+test('F23 re-check A: at link back only a sweep or a set word is dropped (their makers write fresh ones); a partner switch, a spawn and a sync are released', async () => {
+  const { linkReleaseOf } = await import('../src/modGone.mjs')
+  for (const command of ['partner-effort', 'spawn', 'sync', 'next', 'round', null]) {
+    assert.equal(linkReleaseOf({ command, at: NOW - 30 * MIN, linkHeldAt: NOW - 20 * MIN }, NOW).release?.at, NOW, String(command))
+  }
+  for (const command of ['sweep', 'worker-effort', 'effort']) assert.match(linkReleaseOf({ command, at: NOW - 30 * MIN, linkHeldAt: NOW - 20 * MIN }, NOW).drop, /a fresh word comes/, command)
+})
+
+test('F23 re-check B, each part on its own: a sweep with `back` never stamps that chat\'s words held; a take clears a held mark', async () => {
+  const goneLead = stateOf({ chats: [lane('Lead', { isMain: true, modGone: GONE })] })
+  const outbox = memoryStore()
+  await outbox.say({ id: 'w1', at: NOW - MIN, to: 'Lead', ask: null, command: 'next', text: 'go', state: 'waiting' })
+  await sweepOutbox({ dir: null, outbox, state: goneLead, now: NOW, keep: KEEP, back: 'Lead' })
+  assert.equal(outbox.outbox()[0].linkHeldAt, undefined, 'its take proves the link is back')
+  await outbox.update('w1', { linkHeldAt: NOW })
+  const [taken] = await outbox.take('Lead', NOW + MIN, KEEP)
+  assert.equal(taken.linkHeldAt, null)
+  assert.equal(outbox.outbox()[0].linkHeldAt, null)
 })
