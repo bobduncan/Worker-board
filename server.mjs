@@ -2771,7 +2771,9 @@ async function main(args) {
       // Review 8: a start or wake word no hand may send now (the reconciler's start of a free worker, B577's wake of a stopped chat): one
       // word for a model that types the hands' line into that chat; the word itself waits until its carrier's turn began.
       const open = carriedChats([...store.outbox(), ...words], { ofWords: true })
-      for (const message of outbox.filter(one => one.state === 'waiting' && ['start', 'wake'].includes(one.command) && typeof one.about === 'string' && !open.has(one.about))) {
+      for (const message of outbox.filter(one => one.state === 'waiting' && ['start', 'wake'].includes(one.command) && typeof one.about === 'string')) {
+        // Checked per word (the list is made once): two start or wake words of one chat in one pass get ONE carry word.
+        if (open.has(message.about)) continue
         const lane = boardLanes(state).find(one => one.name === message.about && one.isLeftover !== true)
         const ids = wakeIdsOf(lane)
         if (lane === undefined || ids.why !== null || !isHandAppId(ids.appSession)) continue

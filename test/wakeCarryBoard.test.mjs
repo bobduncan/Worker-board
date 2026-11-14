@@ -156,7 +156,11 @@ test('review 8: while refused, the page\'s wake word for Worker 2 goes as one wo
   assert.equal(carried[0].to, 'the courier')
   // In this garden Worker 2 is no stopped chat: the outbox sweep closes the page's wake word, and the carry word follows it.
   await until(async () => (await words()).find(one => one.id === WAKE_WORD.id).state === 'dropped', 'the wake word closed')
-  await until(async () => (await words()).find(one => one.id === carried[0].id).state === 'dropped', 'the carry word closed with it')
+  // At the next wake pass (once a minute): up to two minutes.
+  for (const end = Date.now() + 130_000; Date.now() < end;) {
+    if ((await words()).find(one => one.id === carried[0].id).state === 'dropped') break
+    await new Promise(done => setTimeout(done, 500))
+  }
   assert.equal((await words()).find(one => one.id === carried[0].id).why, 'the word it carried is closed')
 })
 
@@ -332,13 +336,23 @@ test('chat 1\'s re-check 1: past the grace the holder that still has not started
   assert.deepEqual((await words()).filter(one => one.command === 'wake-carry' && one.about === 'Worker 2').map(one => one.for), ['resume'])
 })
 
-test('chat 1\'s re-check 2: a carried start word that keeps waiting gets ONE word for the courier, never a second across the passes', { timeout: 240_000 }, async t => {
-  const start = { ...WAKE_WORD, id: 'startword000002', command: 'start' }
-  const { json, words } = await boardWith(t, { refused: true, lines: [start] })
+test('chat 1\'s re-check 2: a carried wake word that keeps waiting (B577: Worker 2 runs, its words held by a stop) gets ONE word for the courier, never a second across the passes', { timeout: 240_000 }, async t => {
+  // B577's wake of a stopped chat, and the word the stop holds (so the wake word keeps its purpose).
+  const held = { id: 'heldword0000001', at: NOW - 5 * MIN, to: 'Worker 2', ask: null, step: null, title: null, version: null, verdict: null, text: 'Go on.', state: 'waiting', stoppedAt: Date.now() - 4 * MIN }
+  const { json, words } = await boardWith(t, { refused: true, lines: [WAKE_WORD, held] })
+  // Worker 2 runs (its mod reports idle): no wake need of its own, only the page's wake word.
+  await json('/api/bridge/report', { chat: 'Worker 2', session: 'w2-id', report: { state: 'idle', since: Date.now(), seq: 2, run: 2 } })
   await json('/api/bridge/wakes-due', {})
-  await until(async () => (await words()).some(one => one.of === start.id), 'the start word\'s carry word')
-  // Past the next wake pass (once a minute).
-  await new Promise(done => setTimeout(done, 65_000))
-  assert.equal((await words()).find(one => one.id === start.id).state, 'waiting')
-  assert.equal((await words()).filter(one => one.command === 'wake-carry' && typeof one.of === 'string' && one.about === 'Worker 2').length, 1)
+  await until(async () => (await words()).some(one => one.of === WAKE_WORD.id), 'the wake word\'s carry word')
+  // Past the next wake passes (once a minute), Worker 2 still reporting.
+  for (let at = 0; at < 13; at += 1) {
+    await new Promise(done => setTimeout(done, 5000))
+    await json('/api/bridge/report', { chat: 'Worker 2', session: 'w2-id', report: { state: 'idle', since: Date.now(), seq: 3 + at, run: 2 } })
+  }
+  // (The board writes its own newer wake word for the stopped chat meanwhile: the older is superseded, and each gets its own carry.)
+  const ofs = (await words()).filter(one => one.command === 'wake-carry' && typeof one.of === 'string' && one.about === 'Worker 2')
+  const per = new Map()
+  for (const one of ofs) per.set(one.of, (per.get(one.of) ?? 0) + 1)
+  assert.deepEqual([...per.values()].filter(n => n > 1), [], 'never a second carry word for the same wake word')
+  assert.ok(ofs.filter(one => ['waiting', 'taken'].includes(one.state)).length <= 1, 'one open at a time (also two wake words of one chat in one pass)')
 })
