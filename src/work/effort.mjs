@@ -217,9 +217,10 @@ export function handedSettingOf(envelope, sent = []) {
 export const planWordsFor = (words, lanes = []) => words.filter(word => word.changed === true || lanes.find(lane => lane.name === word.chat)?.onSequence !== true)
 
 /**
- * B1207: the time of a step's first History line that refined it in a minute after `after`'s, or
- * null: when a setting changed after a hand-over without a word to tell. The first, so a later refine that changes nothing does not
- * move the clock (review 3).
+ * B1207: the time of a step's newest History line that refined it in a minute after `after`'s, or
+ * null: the change's time while no word for it was written yet (the first word's time counts from then on, so a later refine that
+ * changes nothing does not move the clock), or with no main chat. The newest, so an earlier refine that changed nothing never starts
+ * it early (verifier 3).
  */
 const REFINED_LINE = /^-\s+(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?\s+[^:]+: (?:refined\b(?!\s*→)|.*→ refined\b)/
 function refinedAtOf(item, after) {
@@ -227,7 +228,7 @@ function refinedAtOf(item, after) {
     .map(([, y, mo, d, h, mi, s]) => new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s ?? 0)).getTime())
     // A line's whole minute: one in the same minute as `after` is the refine that led to it (B1207 review 1), so only later minutes count.
     .filter(at => at > Math.floor(after / 60_000) * 60_000)
-  return times.length === 0 ? null : Math.min(...times)
+  return times.length === 0 ? null : Math.max(...times)
 }
 
 /**
@@ -453,13 +454,14 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     // goal guard): a held step handed at one setting that now wants another gets its own word, also on the sequence and while the
     // app refuses the hands (then for Main's model). The quiet gap covers only the setting its envelope asked, never a newer one.
     const handedAs = ownEnvelope === undefined || working === undefined || ownEnvelope.state !== 'delivered' ? null : handedSettingOf(ownEnvelope, known ?? sent)
-    // Review 1 (lens 2): and against the newest changed word for it that got through (delivered to Main, or met), so a step changed
-    // back after Main set the new setting gets its word too.
-    const gotThrough = handedAs === null ? undefined : stepMine.filter(word => word.changed === true && word.forStep === step && word.at >= ownEnvelope.at && (word.state === 'delivered' || word.met === true)).at(-1)
-    const isChanged = handedAs !== null && (!sameSetting(handedAs, level, id) || (gotThrough !== undefined && !sameTarget(gotThrough, level, id)))
-    // The setting the step wanted before this change: the got-through word's, else the hand-over's.
-    const before = gotThrough === undefined || sameTarget(gotThrough, level, id) ? handedAs : { model: gotThrough.model ?? null, effort: gotThrough.effort }
-    const beforeAt = gotThrough === undefined || sameTarget(gotThrough, level, id) ? ownEnvelope?.at : gotThrough.at
+    // Review 1 (lens 1, 2; verifier 1): once a changed word went for it, the step stays changed (a change back to the hand-over's setting,
+    // also after Main set the new one, gets its word and its own clock). The setting before this change: the newest changed word for
+    // another setting, else the hand-over's.
+    const changedWords = handedAs === null ? [] : stepMine.filter(word => word.changed === true && word.forStep === step && word.at >= ownEnvelope.at)
+    const other = changedWords.filter(word => !sameTarget(word, level, id)).at(-1)
+    const isChanged = handedAs !== null && (!sameSetting(handedAs, level, id) || other !== undefined)
+    const before = other === undefined ? handedAs : { model: other.model ?? null, effort: other.effort }
+    const beforeAt = other === undefined ? ownEnvelope?.at : other.at
     const isQuietGap = ownEnvelope === undefined ? isRefused : (ownEnvelope.set ?? null) === null && (ownEnvelope.asked ?? null) !== null && !isChanged
     // A word on its way for this very setting is no word against it.
     const against = onItsWay !== null && !sameTarget(onItsWay, level, id) ? onItsWay : null
@@ -486,11 +488,12 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
     // main chat sets them in their order).
     const isAgainstModel = against !== null && (against.model ?? null) !== null && !sameModel(against.model, id)
     const canAsk = (isChanged || (!isRefused && !isQuietGap)) && main !== null && !isSet && asked === null && (isStrict ? !isAgainstModel : current !== null)
-    // B1207: since when the step wants its new setting: the earliest of the step's refine lines since the setting before it and the
-    // first word written for it since then (the reading that saw the change); with neither (no main chat), the setting before it's
-    // time (review 3: never now, which would restart the clock at every reading).
-    const seenAt = !isChanged ? [] : [refinedAtOf(next, beforeAt), ...stepMine.filter(word => word.forStep === step && sameTarget(word, level, id) && word.at >= beforeAt && word.envelope === undefined).map(word => word.at)].filter(at => Number.isFinite(at) && at <= now)
-    const changedAt = !isChanged ? null : seenAt.length === 0 ? beforeAt : Math.min(...seenAt)
+    // B1207: since when the step wants its new setting: the first word written for it since the setting before it (the reading that saw
+    // the change; kept in `known`, so it stays put), else (no word yet, or no main chat) the step's newest refine line since then, else
+    // the setting before it's time (review 3: never now, which would restart the clock at every reading; verifier 3: never an earlier
+    // refine that changed nothing).
+    const firstWord = !isChanged ? undefined : stepMine.find(word => word.forStep === step && sameTarget(word, level, id) && word.at >= beforeAt && word.envelope === undefined && word.at <= now)
+    const changedAt = !isChanged ? null : firstWord?.at ?? refinedAtOf(next, beforeAt) ?? beforeAt
     const handedWords = before === null ? null : [before.model === null ? null : familyOf(before.model), before.effort].filter(Boolean).join(' · ')
     const changedWhy = `${step} changed after its hand-over (asked ${handedWords} at ${clockOf(beforeAt)}, now ${id === null ? level : `${family} · ${level}`})`
     // Only a step it does not hold yet waits for Opus: one it holds already is set as soon as can be.

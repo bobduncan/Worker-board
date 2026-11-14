@@ -74,7 +74,7 @@ test('X26 real case: once written, the word is not written again within the half
   const sent = [...CASE, { id: 'w2', at: at(16, 12, 30), ...first, state: 'waiting' }]
   const { words, runs } = plan(b1196(), now, sent)
   assert.deepEqual(words, [])
-  assert.deepEqual([runs.get('Worker 5').asked.at, runs.get('Worker 5').changed.at], [at(16, 12, 30), at(16, 12)])
+  assert.deepEqual([runs.get('Worker 5').asked.at, runs.get('Worker 5').changed.at], [at(16, 12, 30), at(16, 12, 30)])
 })
 
 test('X26 real case, effort-mismatch: no finding at 16:13; one at 16:23 if not read back, counted from the change and saying it', () => {
@@ -84,7 +84,7 @@ test('X26 real case, effort-mismatch: no finding at 16:13; one at 16:23 if not r
   const early = switchOf(runAt(at(16, 13)), step, view(at(16, 13)))
   assert.deepEqual([early.mismatch, early.state, early.late], [true, 'asked', false])
   const late = switchOf(runAt(at(16, 23)), step, view(at(16, 23)))
-  assert.deepEqual([late.late, late.changedAt, late.handedAs, Math.round(late.since / MIN)], [true, at(16, 12), 'sonnet · medium', 11])
+  assert.deepEqual([late.late, late.changedAt, late.handedAs, Math.round(late.since / MIN)], [true, at(16, 12, 30), 'sonnet · medium', 11])
   // Read back (the app's file says high): no finding.
   const set = switchOf({ ...lane({ effort: 'high' }), effortRun: { step: 'B1196', ...plan(step, at(16, 23), sent, { lane: { effort: 'high' } }).runs.get('Worker 5') } }, step, view(at(16, 23)))
   assert.equal(set.mismatch, false)
@@ -116,7 +116,8 @@ test('a setting changed back before the 10 minutes: no word, no finding, and the
   assert.equal(whyClosed(waiting, { ...ctx, items: items(b1196()) }), null)
   // After the sweep: set, no new word, no mismatch.
   const { words, runs } = plan(back, at(16, 16), [...CASE, { ...waiting, ...closed }])
-  assert.deepEqual([words, runs.get('Worker 5').isSet, runs.get('Worker 5').changed], [[], true, undefined])
+  // Still a changed step (a word went for it), but set: nothing to ask.
+  assert.deepEqual([words, runs.get('Worker 5').isSet, runs.get('Worker 5').changed.fromWords], [[], true, 'sonnet · high'])
   assert.equal(switchOf({ ...lane(), effortRun: { step: 'B1196', ...runs.get('Worker 5') } }, back, view(at(16, 30))).mismatch, false)
 })
 
@@ -144,6 +145,12 @@ test('review 1 (both lenses): back to the hand-over\'s medium after Main set hig
   assert.equal(runs.get('Worker 5').changed.at, at(16, 40))
   const found = switchOf({ ...lane({ effort: 'high' }), effortRun: { step: 'B1196', ...runs.get('Worker 5') } }, back, view(at(16, 45)))
   assert.deepEqual([found.mismatch, found.late, found.changedAt], [true, false, at(16, 40)])
+  // Verifier 1: the medium word delivered at 16:40:40, Main not done yet at 16:41: still changed, asked, counted from the change back.
+  const mediumWord = { id: 'w3', at: at(16, 40, 30), ...effortWords(words[0]), state: 'delivered', deliveredAt: at(16, 40, 40) }
+  const after = plan(back, at(16, 41), [...CASE, high, mediumWord], { lane: { effort: 'high' } })
+  assert.deepEqual([after.words, after.runs.get('Worker 5').changed.at, after.runs.get('Worker 5').asked.at], [[], at(16, 40, 30), at(16, 40, 30)])
+  const still = switchOf({ ...lane({ effort: 'high' }), effortRun: { step: 'B1196', ...after.runs.get('Worker 5') } }, back, view(at(16, 41)))
+  assert.deepEqual([still.state, still.late, still.changedAt], ['asked', false, at(16, 40, 30)])
 })
 
 test('review 3: with no word and no refine line (no main chat) the change counts from its hand-over, never from now', () => {
@@ -151,9 +158,13 @@ test('review 3: with no word and no refine line (no main chat) the change counts
   const first = plan(step, at(16, 20), CASE, { plan: { main: null } }).runs.get('Worker 5').changed.at
   const later = plan(step, at(16, 30), CASE, { plan: { main: null } }).runs.get('Worker 5').changed.at
   assert.deepEqual([first, later], [at(15, 50, 43), at(15, 50, 43)])
-  // A second refine that changes nothing does not move it: the first refine line counts.
+  // Verifier 3: an earlier refine that changed nothing (15:55) never starts the clock early: the newest refine line counts (16:12).
+  const early = item({ ...Object.fromEntries(b1196().head) }, { ...Object.fromEntries(b1196().sections), History: [...b1196().sections.get('History').slice(0, 4), `- ${stamp(at(15, 55))} Partner: refined, round 2`, `- ${stamp(at(16, 12))} Partner: refined is ready`] })
+  assert.equal(plan(early, at(16, 13), CASE, { plan: { main: null } }).runs.get('Worker 5').changed.at, at(16, 12))
+  // Once a word went, a later refine that changes nothing does not move it: the first word's time counts.
+  const word = { id: 'w2', at: at(16, 12, 30), ...effortWords(plan(b1196(), at(16, 12, 30)).words[0]), state: 'delivered', deliveredAt: at(16, 12, 40) }
   const twice = item({ ...Object.fromEntries(b1196().head) }, { ...Object.fromEntries(b1196().sections), History: [...b1196().sections.get('History'), `- ${stamp(at(16, 30))} Partner: refined, round 2`] })
-  assert.equal(plan(twice, at(16, 31), CASE, { plan: { main: null } }).runs.get('Worker 5').changed.at, at(16, 12))
+  assert.equal(plan(twice, at(16, 31), [...CASE, word]).runs.get('Worker 5').changed.at, at(16, 12, 30))
 })
 
 test('review 5 (both lenses): a changed word the app refused asks again at once, for Main\'s model', () => {

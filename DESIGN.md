@@ -5946,9 +5946,13 @@ and free workers sat idle. Never a way around the refusal (no permission or mode
   newest delivered envelope asked (`handedSettingOf`: its `wants`, else `set` or `asked`, else the set word written for it, also
   one Main's model made, whose envelope holds neither); a step that wants another setting since gets one word to Main (`changed`,
   why "B12 changed after its hand-over (asked ... at HH:MM, now ...)"), through the sequence (`planWordsFor`) and while the refusal
-  stands, then for Main's model (`forModel`). The quiet gap covers only the setting its envelope asked. The run carries
-  `changed: { from, fromWords, handedAt, at }`, `at` the earlier of the step's newest refine line since the hand-over and the first
-  such word. The outbox sweep drops a waiting `changed` word once its step wants another setting again. Tests:
+  stands, then for Main's model (`forModel`). The quiet gap covers only the setting its envelope asked. Once a changed word went, the
+  step stays changed: a change back (also to the hand-over's setting, also after Main set the new one) gets its word, the setting
+  before it being the newest changed word for another setting. The run carries `changed: { from, fromWords, handedAt, at }`, `at` the
+  first word for the new setting since the setting before it (kept in the step words, so it stays put), else the step's newest
+  refine line since then, else the setting before it's time; never now. A hand's refused changed word asks again at once, for
+  Main's model. The outbox sweep drops a waiting `changed` word once its step wants another setting again, or is no longer that
+  worker's. The health summary says "after its setting changed HH:MM". Tests:
   `test/work/effortChanged.test.mjs` (the real case's records), `handoverBoard.test.mjs` (`wants`).
 - Tests: `test/work/setRefused.test.mjs` and `setRefusedReview.test.mjs` (the refusal's real words; B1160 sent again without a take-back; no set word while refused; an
   old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off
