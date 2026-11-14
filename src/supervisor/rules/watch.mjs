@@ -990,11 +990,12 @@ export function switchOf(lane, item, view) {
   const want = { family: modelOf(item).family, level: effortOf(item).level }
   const isModelSet = typeof own?.model === 'string'
   const mismatch = effort !== null && (effort !== want.level || (isModelSet && family !== null && family !== want.family))
-  const state = own?.isSet === true ? 'switched' : own?.asked != null ? 'asked' : 'none'
+  // B1160 review 8: a run the app's refusal left unset (`refused`, effort.mjs) is known and quiet: the board decided it runs on.
+  const state = own?.isSet === true ? 'switched' : own?.refused === true ? 'refused' : own?.asked != null ? 'asked' : 'none'
   const takenAt = takenAtOf(item)
   const taken = afterPause(view, takenAt)
   const since = view.now - taken - boardOffMs(view, taken)
-  const late = mismatch && state !== 'switched' && !isPaused(view) && !isFull(view) && Number.isFinite(since) && since > view.settings.switchMinutes * MIN
+  const late = mismatch && state !== 'switched' && state !== 'refused' && !isPaused(view) && !isFull(view) && Number.isFinite(since) && since > view.settings.switchMinutes * MIN
   return {
     runs: `${family ?? 'a model not known'} · ${effort ?? 'effort not known'}`, wants: `${want.family} · ${want.level}`, mismatch, state,
     askedAt: own?.asked?.at ?? null, askState: own?.asked?.state ?? null, takenAt, since, late,

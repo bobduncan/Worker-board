@@ -185,14 +185,22 @@ const page = {}
 vm.runInNewContext(`const MIN = 60000\n${cut('times')}\n${cut('heldrow')}\nObject.assign(this, { heldTime })`, page)
 const rowWords = (held, now) => { const time = page.heldTime(held, now); return time === null ? null : [time.main, time.of].filter(part => part !== '').join(' ') }
 
-test('7c: a held step\'s time in the row\'s words: left of its size, over it, no take, no size; the same as the page\'s heldTime', () => {
+// eta-remaining (2026-11-11): the latest estimate minus the working time since; past it quiet, "new estimate asked" once asked.
+const hhmm = ms => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
+test('7c: a held step\'s time in the row\'s words: left of its latest estimate, past it, asked, no take, no size; the same as the page\'s heldTime', () => {
   const B855 = { id: 'B855', title: 'The walk', size: 120, since: NOW - 4 * MIN }
   const cases = [
-    [{ ...B855, eta: { at: NOW + 116 * MIN } }, '1 h 56 of its 2 h'],
-    [{ ...B855, eta: { at: NOW - 12 * MIN, isOverdue: false } }, '12 min over its 2 h'],
-    [{ ...B855, eta: null }, '– of its 2 h'],
+    [{ ...B855, eta: { at: NOW + 116 * MIN, from: 'size', saidAt: NOW - 4 * MIN } }, `about 1 h 56 left · estimated ${hhmm(NOW - 4 * MIN)}`],
+    [{ ...B855, eta: { at: NOW + 70 * MIN, from: 'own', saidAt: NOW - MIN } }, `about 1 h 10 left · re-estimated ${hhmm(NOW - MIN)}`],
+    [{ ...B855, eta: { at: NOW + 116 * MIN } }, 'about 1 h 56 left'],
+    [{ ...B855, eta: { at: NOW - 12 * MIN, from: 'own', saidAt: NOW - 50 * MIN, asked: false } }, `past its estimate since ${hhmm(NOW - 12 * MIN)}`],
+    [{ ...B855, eta: { at: NOW - 12 * MIN, from: 'own', saidAt: NOW - 50 * MIN, asked: true } }, `past its estimate since ${hhmm(NOW - 12 * MIN)} · new estimate asked`],
+    [{ ...B855, eta: null }, '– · its size 2 h'],
     [{ ...B855, size: null, eta: null }, 'No time'],
-    [{ ...B855, size: 45, eta: { at: NOW + 20 * SEC } }, 'under a minute of its 45 min'],
+    [{ ...B855, size: 45, eta: { at: NOW + 20 * SEC } }, 'under a minute left'],
+    // eta verifier 17: an estimate given yesterday, and a past time of yesterday, say the day.
+    [{ ...B855, eta: { at: NOW + 70 * MIN, from: 'own', saidAt: NOW - 24 * 60 * MIN } }, `about 1 h 10 left · re-estimated yesterday ${hhmm(NOW - 24 * 60 * MIN)}`],
+    [{ ...B855, eta: { at: NOW - 24 * 60 * MIN, from: 'own', saidAt: NOW - 25 * 60 * MIN, asked: false } }, `past its estimate since yesterday ${hhmm(NOW - 24 * 60 * MIN)}`],
   ]
   for (const [held, words] of cases) {
     assert.equal(heldTimeText(held, NOW), words)
@@ -205,7 +213,7 @@ test('7c: a held step\'s time in the row\'s words: left of its size, over it, no
 test('7c: statusesOf sends each lane\'s held step (id, title cut to 60, the row\'s time) and null for a chat that holds none', () => {
   const held = { id: 'B855', title: `The walk ${'x'.repeat(80)}`, size: 120, since: NOW - 4 * MIN, eta: { at: NOW + 116 * MIN } }
   const sent = statusesOf({ chats: [{ name: 'Worker 5', status: STATUSES.WORKING, held }, { name: 'Lead', status: STATUSES.FREE, held: null }], advisor: { name: 'Advisor', status: STATUSES.WORKING } }, NOW)
-  assert.deepEqual(sent.map(one => one.held), [{ id: 'B855', title: `The walk ${'x'.repeat(50)}…`, time: '1 h 56 of its 2 h' }, null, null])
+  assert.deepEqual(sent.map(one => one.held), [{ id: 'B855', title: `The walk ${'x'.repeat(50)}…`, time: 'about 1 h 56 left' }, null, null])
   assert.equal(sent[0].held.title.length, 60)
   // Without a clock the step is still named, its time left out.
   assert.deepEqual(statusesOf({ chats: [{ name: 'Worker 5', status: STATUSES.WORKING, held }] })[0].held.time, null)

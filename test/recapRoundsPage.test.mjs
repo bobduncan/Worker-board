@@ -162,8 +162,8 @@ test('the Focus page while round 2 is being made: a quiet card with the same wor
   try {
     await written.click('[data-tab="advice"]')
     assert.equal(written.all('#advisor-focus .focus-recap-making').length, 0)
-    assert.match(words(written.find('#advisor-focus .focus-recap-ready h3')), /Your recap is ready · 2 to judge/)
-    assert.match(words(written.find('#needs .is-recap-ready h4')), /your recap is ready/)
+    assert.match(words(written.find('#advisor-focus .focus-recap-ready h3')), /Your recap so far · 2 to judge/)
+    assert.match(words(written.find('#needs .is-recap-ready h4')), /your recap so far/)
     assert.equal(written.all('#needs .is-recap-making').length, 0)
   } finally { await written.close() }
 })

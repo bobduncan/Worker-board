@@ -52,7 +52,7 @@ test('work step takes commit and next: the step record holds its checkpoint, and
     at(NOW + 5 * MIN + 7_000)
     const saved = await board({ action: 'step', id: 'B1', commit: 'a1b2c3d', next: 'wire the strip into the page' })
     assert.equal(saved.ok, true)
-    assert.equal(saved.result.text, 'B1: checkpoint a1b2c3d · wire the strip into the page.')
+    assert.equal(saved.result.text, 'B1: checkpoint a1b2c3d · wire the strip into the page. Give your minutes left with every checkpoint: work step id=B1 minutes=<the minutes still expected for the whole step> with commit and next.')
     assert.equal(valueOf(await item(dir, 'B1'), 'Checkpoint'), 'a1b2c3d · wire the strip into the page · 2026-10-18 21:05:07')
     assert.equal((await item(dir, 'B1')).sections.get('History').at(-1), '- 2026-10-18 21:05 Board: checkpoint a1b2c3d · wire the strip into the page')
     // A checkpoint without a commit says "none"; the newest stands, History keeps each.

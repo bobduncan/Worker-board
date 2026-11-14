@@ -9,7 +9,7 @@
 // The statuses and their precedence (the first that holds wins) are the brief's table, with the age: `age = now - report.at`
 // (the mod refreshes `at` with every 5 s ping, so a live chat's age is seconds). Times are the board's own clock (`now`).
 
-import { BAN_WHY_MARK, UNANSWERED_WHY } from './work/handover.mjs'
+import { BAN_WHY_MARK, REFUSED_MARK, UNANSWERED_WHY } from './work/handover.mjs'
 import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from './work/waitsOn.mjs'
 import { assetWaitWords, isAssetWait } from './work/assetWait.mjs'
 
@@ -117,7 +117,7 @@ export function statusOf({ lane, handover = null, modRun = null, clearedAt = nul
   const isFreshBusy = report?.state === 'busy' && reportAt !== null && now - reportAt <= unknownAfterMs
   const hand = handover?.state ?? null
   // B1051 (X153): a free worker the board gives no step of a model (its set failed) says so; the page reads this why.
-  const banWhy = typeof handover?.why === 'string' && handover.why.includes(BAN_WHY_MARK) ? handover.why : null
+  const banWhy = typeof handover?.why === 'string' && (handover.why.includes(BAN_WHY_MARK) || handover.why.includes(REFUSED_MARK)) ? handover.why : null
   const partner = (lane.waitsForPartner ?? []).length > 0 || lane.heldBy === 'partner'
 
   // 1. Working: a fresh report says busy (also background work after a reported step, and a wait for the partner). A fresh busy
@@ -261,13 +261,12 @@ function spanText(ms) {
  */
 export function heldTimeText(held, now) {
   if (held === null || held === undefined || !finite(now)) return null
-  if (!finite(held.size)) return 'No time'
-  const size = held.size * MIN
-  const its = `its ${spanText(size)}`
   const eta = held.eta ?? null
-  if (eta === null || !finite(eta.at)) return `– of ${its}`
+  // eta-remaining (2026-11-11): its latest estimate minus the working time since (state.mjs `heldEstimateOf`), as the page words it.
+  if (eta === null || !finite(eta.at)) return finite(held.size) ? `– · its size ${spanText(held.size * MIN)}` : 'No time'
+  const said = finite(eta.saidAt) ? ` · ${eta.from === 'own' ? 're-estimated' : 'estimated'} ${sinceClock(eta.saidAt, now)}` : ''
   const left = eta.at - now
-  return left > 0 ? `${spanText(left)} of ${its}` : `${spanText(-left)} over ${its}`
+  return left > 0 ? `${left < MIN / 2 ? 'under a minute left' : `about ${spanText(left)} left`}${said}` : `past its estimate since ${sinceClock(eta.at, now)}${eta.asked === true ? ' · new estimate asked' : ''}`
 }
 
 /**

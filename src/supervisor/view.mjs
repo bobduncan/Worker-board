@@ -73,6 +73,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     // The start-up check (2026-11-05): the newest check's result (`state.check`), or null before the first; the rule check-unreachable reads it.
     check: state.check !== null && typeof state.check === 'object' ? Object.freeze({ ...state.check }) : null,
     limits: limits ?? state.limits ?? {},
+    // B1160: whether the app refuses the board's set calls, and when the board next checks (state.mjs `setsRefused`).
+    setsRefused: state.setsRefused ?? null,
     pause: pause ?? state.pause ?? null,
     refused,
     leftovers,

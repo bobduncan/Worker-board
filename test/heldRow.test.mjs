@@ -49,7 +49,7 @@ test('the checkpoint: commit, next clipped to 120 characters, its time; one olde
 })
 
 test('the store\'s plan rides along as the chat\'s words: step, steps, names, when written', () => {
-  assert.deepEqual(heldOf(itemsOf(b855()), 'Worker 1').plan, { step: 4, steps: 4, names: ['Read', 'Build', 'Test', 'Report'], at: at(11, 14) })
+  assert.deepEqual(heldOf(itemsOf(b855()), 'Worker 1').plan, { step: 4, steps: 4, names: ['Read', 'Build', 'Test', 'Report'], at: at(11, 14), until: at(11, 54), estimatedAt: at(11, 14) })
 })
 
 // Which step is held (R1, R2)
@@ -132,16 +132,18 @@ test('a history line says source step for a worker that holds a step, null other
 const GOALS_WITH = id => ['Last id: G6', 'Focus: G6', '', '- [~] G6 The polish', '    Done when: you judge a fight fun', '    Goal definition: every fight reads at a glance',
   '    Goal definition agreed: 2026-10-18 10:00', `    Part: Show the squares · about 2 h · steps ${id}`, '    How agreed: 2026-10-18 11:00', ''].join('\n')
 
-test('B855 at 11:16: the row\'s task is the store\'s B855 whatever the card names; 1 h 56 of its 2 h; the card stays as it was', () => {
+test('B855 at 11:16: the row\'s task is the store\'s B855 whatever the card names; its own 40 min from 11:14; the card stays as it was', () => {
   const state = stateAt(at(11, 16), { items: [b855d()], card: B855_CARD, lines: B855_LINES, goals: GOALS_WITH('B855') })
   const lane = digger(state)
   assert.equal(lane.held.id, 'B855')
   assert.equal(lane.held.title, 'A walkable tile always shows its whole move/target square')
   assert.equal(lane.held.since, at(11, 10))
   assert.equal(lane.held.size, 120)
-  // 6 minutes since the take, 2 of them interrupted: 4 worked, 116 left; the card's 40 min is not the row's time.
-  assert.equal(lane.held.eta.leftMs, 116 * MIN)
-  assert.equal(lane.held.eta.from, 'size')
+  // eta-remaining (2026-11-11): its latest own estimate, the store Plan's 40 min at 11:14 (a work step with minutes), minus the
+  // working time since: interrupted 11:14-11:16, so 40 min are still left at 11:16; the size is only the fallback.
+  assert.equal(lane.held.eta.leftMs, 40 * MIN)
+  assert.equal(lane.held.eta.from, 'own')
+  assert.equal(lane.held.eta.saidAt, at(11, 14))
   assert.equal(lane.held.eta.isOver, false)
   // The card stays the card, for its readers (the card flag, the sync check, Stop task, the Supervisor rules).
   assert.match(lane.task.text, /QA of B813/)
@@ -174,17 +176,18 @@ test('a held step without a size: "No time" while it works (B832 should prevent 
   assert.equal(lane.isWithoutTime, true)
 })
 
-test('overdue only past twice its size and by 10 minutes (B185); a pause and a board gap are no time worked', () => {
+test('eta-remaining: past its estimate is never overdue (quiet, never amber); a pause and a board gap are no time worked', () => {
   const small = stepItem('B21', { owner: 'Digger', size: 'about 30 min', history: [[at(11, 10), 'Digger', 'taken → in progress']] })
   const lines = [{ at: at(11, 10), chat: 'Digger', state: 'working', task: null, source: 'step' }]
   const over = digger(stateAt(at(11, 55), { items: [small], lines })).held.eta
   assert.deepEqual([over.isOver, over.isOverdue], [true, false])
   const overdue = digger(stateAt(at(12, 21), { items: [small], lines })).held.eta
-  assert.deepEqual([overdue.isOver, overdue.isOverdue], [true, true])
+  assert.deepEqual([overdue.isOver, overdue.isOverdue], [true, false])
+  assert.equal(overdue.at, at(11, 40), 'its 30 min from the take at 11:10')
   const paused = [...lines, { at: at(11, 20), chat: 'Digger', state: 'suspended', task: null, source: 'step' }, { at: at(11, 50), chat: 'Digger', state: 'working', task: null, source: 'step' }]
-  assert.deepEqual([digger(stateAt(at(12, 21), { items: [small], lines: paused })).held.eta.isOverdue], [false])
+  assert.equal(digger(stateAt(at(12, 21), { items: [small], lines: paused })).held.eta.at, at(12, 10), 'the 30 min paused move it on')
   const gap = [...lines, { at: at(11, 20), gap: true }, { at: at(11, 50), chat: 'Digger', state: 'working', task: null, source: 'step' }]
-  assert.equal(digger(stateAt(at(12, 21), { items: [small], lines: gap })).held.eta.isOverdue, false)
+  assert.equal(digger(stateAt(at(12, 21), { items: [small], lines: gap })).held.eta.at, at(12, 10), 'so does a board gap')
 })
 
 test('its plan: the store\'s at 11:14 is current at 11:40 and stale at 11:45; a reported step shows none', () => {
