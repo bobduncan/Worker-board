@@ -12,6 +12,7 @@
 // holds the supervisor's own watch: `seen` (since when it first saw what only counts once it lasts) and `observed`
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
+import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
 import { RETIRED_WATCH_RULES, givenBackFrom } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
@@ -254,16 +255,20 @@ function overlapIdle(view, ctx) {
  * answered for, and never counts, once the board gave the worker a step back since the stop began (the timers acted and wrote their
  * line), or once the incident's last close (`fixedAtOf`) came after the stop began; a stop that begins after a close counts anew. The
  * stop began at the card's `offSince`, else when the rules' watch first saw it. B736's lone silent chat (nothing given back) still opens.
+ * B1172 (X176 came back 33 times: Worker 5 asked Q782 at 10:23, its step went "waiting on you" and its turn ended, yet its card read working
+ * until 10:54): a worker whose step waits on the person is left out as one on a step taken or in progress is; HOLDS stays as it was for the other rules.
  */
 const WORKING_NOT_RUNNING_MS = 5 * MIN
 function workingNotRunning(view, ctx) {
   const found = []
   if (isPaused(view) || isFull(view)) return found
   const holding = new Set(stepsOf(view).filter(one => HOLDS.includes(stateOf(one))).map(one => plain(valueOf(one, 'Owner'), view.prefix)))
+  // B1172 (X176): a worker whose step waits on the person asked and ended its turn: its chat makes no call on purpose.
+  const waitingOnYou = new Set(stepsOf(view).filter(one => stateOf(one) === 'waiting on you').map(one => plain(valueOf(one, 'Owner'), view.prefix)))
   for (const lane of workersOf(view)) {
     const isWorkingCard = lane.state === 'working' || (lane.state === 'off' && Number.isFinite(lane.offSince))
     // The asset wait: a worker whose lane works for the provider's pictures makes no call of its own while Codex draws: no fault.
-    if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix)) || lane.heldBy === 'asset') continue
+    if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix)) || waitingOnYou.has(plain(lane.name, view.prefix)) || lane.heldBy === 'asset') continue
     const key = `working-not-running ${lane.name}`
     const stopFrom = Number.isFinite(lane.offSince) ? lane.offSince : ctx.seen.get(key) ?? view.now
     if (givenBackFrom(view.items, lane.name, view.prefix).some(back => back.at >= stopFrom)) continue
@@ -546,6 +551,8 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   if (judged === null) return false
   const { stillWaits, waking } = judged
   if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to))) return false
+  // F17: a wake's carry word is the wake record's: its attempt's verdict and the board's "could not wake" name it, never rule 8 too.
+  if (isCarryWord(message)) return false
   // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
   // hold before its release (B285).
   const held = message.at + heldMs(message, view.now, view.pause)
@@ -1427,7 +1434,7 @@ function wakeFailed(view) {
       rule: 'wake-failed', key: `wake-failed ${lane.name} ${lane.wake.spell ?? 'none'}`, subject: lane.name,
       ...(Number.isFinite(attempts[0]?.at) ? { since: attempts[0].at } : {}),
       text: `could not wake ${lane.name}: ${tried.join('; ')}`,
-      evidence: attempts.length === 0 ? `no attempt: ${lane.wake.why ?? 'none'}` : attempts.map(one => `${one.path} at ${clockOf(one.at)} by ${one.by}${Number.isFinite(one.sentAt) ? `, sent ${clockOf(one.sentAt)}` : ''}: ${one.verdict ?? 'pending'}${one.why ? ` (${one.why})` : ''}`).join('; '),
+      evidence: attempts.length === 0 ? `no attempt: ${lane.wake.why ?? 'none'}` : attempts.map(one => `${one.path} at ${clockOf(one.at)} by ${one.by}${Number.isFinite(one.sentAt) ? `, sent ${clockOf(one.sentAt)}` : ''}: ${one.verdict ?? 'pending'}${one.why ? ` (${plainWhy(one.why)})` : ''}`).join('; '),
     }
   })
 }
