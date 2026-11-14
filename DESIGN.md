@@ -7494,7 +7494,9 @@ Codex" or Working, the person chose Working: the task's work goes on, done by Co
   never a Late (the provider's own ask holds the person's action). A pick request (mode pick, the sound library) is the chat's own job:
   it names the sound with `work asset ... picked`, so it is no wait, and the timers run as for any stopped holder. With an auto request
   open beside a person's, the provider's work shows (mode auto wins).
-- **The cap**: past the provider's time limit for a job (`assetSeconds`, 240 s by default, plus a minute of grace) a running request
+- **The cap**: past the provider's time limit for a job (`assetSeconds`, 240 s by default, plus a minute of grace; F18, 2026-11-14:
+  for Codex the limit grows with the attached pictures, 120 s per picture past the first, 900 s at most, in the provider and in the
+  Late alike, since corrections with three references were stopped at 240 s) a running request
   turns one Late on the person's list (kind 'wait late', id `asset:A225`): "Codex has not delivered attack since 10:47 on B1124", with
   the words to look at the provider on the Settings tab or tell the worker to go on without it (`lateAssetsOf`, state.mjs `lateAssets`);
   a waiting request is late only while nothing of its provider runs, counted from the newest end of that provider's jobs (the hand-off
