@@ -11,7 +11,7 @@ import { shownChats } from '../bridge.mjs'
 import { heldTooLong, isHandTaken, isMootSpawn, isTaskStopWord, mootWhy, stopSettleWhy } from '../hands.mjs'
 import { RESUME_STEP, isLimitStopWord, waitsLong } from '../say.mjs'
 import { isLate, keepMs } from '../store.mjs'
-import { isHeldForLink, linkGoneNames, wordLanesOf } from '../modGone.mjs'
+import { isHeldForLink, linkGoneNames, markLinkHeld, wordLanesOf } from '../modGone.mjs'
 import { stoppedOf } from '../stopped.mjs'
 import { familyOf, sameModel } from './effort.mjs'
 import { stamp } from './migrate.mjs'
@@ -333,6 +333,8 @@ export function vanishedChatWords({ outbox, state, now }) {
  * judges only the words to that chat (a chat's take: the store is read only when something waits for it).
  */
 export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = false, to = null }) {
+  // F23 review 1, 3: the held words' marks first: their age stops while the link is gone, and they are released once it is back.
+  if (!dry) await markLinkHeld({ outbox, gone: linkGoneNames(wordLanesOf(state)), now, to })
   // Without the outbox's keep (a caller that delivers work lines only) nothing is judged.
   if ((keep ?? null) === null) return []
   if (!dry) await giveBackHeld(outbox, now)
@@ -401,6 +403,8 @@ export const stoppedChats = (outbox, state) => new Map(shownChats(state ?? {}).m
  * never handed a word whose purpose is gone, then what still waits for it (store.mjs `take`).
  */
 export async function takeFor({ dir, outbox, state, now, keep, chat, only, fs }) {
+  // F23 review 1, 3: a take proves the chat's link is back: its held words are released before anything is judged, and go out now.
+  await markLinkHeld({ outbox, gone: new Set(), now, to: chat, isBack: () => true })
   await sweepOutbox({ dir, outbox, state, now, keep, fs, to: chat }).catch(error => console.error(`The outbox sweep failed: ${error.message}`))
   // B577: a chat whose session was stopped takes nothing until it gets input (the app would drop every word): its words
   // wait, and the main chat is asked to wake it (say.mjs `wakesStopped`).

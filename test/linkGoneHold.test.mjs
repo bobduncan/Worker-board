@@ -5,12 +5,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { isHeldForLink, linkGoneNames, wordLanesOf } from '../src/modGone.mjs'
+import { SWEEP_LINK_GONE, isHeldForLink, linkGoneNames, wordLanesOf } from '../src/modGone.mjs'
 import { resumesDue } from '../src/say.mjs'
-import { memoryStore } from '../src/store.mjs'
+import { isLate, memoryStore } from '../src/store.mjs'
 import { isUndelivered } from '../src/supervisor/rules/watch.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
-import { sweepOutbox } from '../src/work/outboxSweep.mjs'
+import { sweepOutbox, takeFor } from '../src/work/outboxSweep.mjs'
+import { holderTimers } from '../src/work/holderTimers.mjs'
+import { stamp } from '../src/work/migrate.mjs'
+import { whyNoSweep } from '../src/supervisor/sweep.mjs'
+import { waitLineOf } from '../src/waitLine.mjs'
+import { wordJudge } from '../src/supervisor/index.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 10, 14, 14, 0).getTime()
@@ -31,17 +36,17 @@ test('the link-gone rule: the chats whose mod was unloaded, among the board\'s c
   assert.deepEqual([...linkGoneNames(wordLanesOf(stateOf({ chats: [lane('Old', { modGone: GONE, isLeftover: true })] })))], [], 'not a leftover')
 })
 
-test('the outbox sweep never expires a word held for a gone link (its purpose still closes it); with the link back it expires as before', async () => {
+test('F23 review 1, 3: a held word stops its clock; at link back a sweep word is dropped with a why (its maker writes a fresh one), a round is released', async () => {
   const gone = stateOf({ advisor: lane('Advisor', { modGone: GONE }), supervisorChat: lane('Supervisor', { modGone: GONE }) })
   const back = stateOf({ advisor: lane('Advisor'), supervisorChat: lane('Supervisor') })
-  const closesOf = async state => {
-    const outbox = memoryStore()
-    for (const one of [round, sweep]) await outbox.say({ ...one })
-    return (await sweepOutbox({ dir: null, outbox, state, now: NOW, keep: KEEP, dry: true })).map(one => [one.id, one.state])
-  }
-  assert.deepEqual(await closesOf(gone), [])
-  // (A round waits long by itself, B532: only the sweep word expires once the link is back.)
-  assert.deepEqual(await closesOf(back), [['s1', 'expired']])
+  const outbox = memoryStore()
+  for (const one of [round, sweep]) await outbox.say({ ...one })
+  assert.deepEqual(await sweepOutbox({ dir: null, outbox, state: gone, now: NOW, keep: KEEP }), [])
+  assert.deepEqual(outbox.outbox().map(one => [one.id, one.state, one.linkHeldAt]), [['r1', 'waiting', NOW], ['s1', 'waiting', NOW]])
+  await sweepOutbox({ dir: null, outbox, state: back, now: NOW + 30 * MIN, keep: KEEP })
+  const after = Object.fromEntries(outbox.outbox().map(one => [one.id, one]))
+  assert.deepEqual([after.s1.state, after.s1.why], ['dropped', 'its chat\'s board link was gone for 30 min: a fresh word comes'])
+  assert.deepEqual([after.r1.state, after.r1.at, after.r1.linkHeldAt], ['waiting', NOW + 30 * MIN, null])
 })
 
 test('rule 8 never names a word held for a gone link undelivered; the same word to a chat with its link is named', () => {
@@ -62,5 +67,52 @@ test('the server\'s sent view and the supervisor\'s sweep hold the words for a g
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /isLate\(message, now, keep\) && !isHeldForLink\(message, gone\) \? \{ \.\.\.message, state: 'expired' \}/)
   const supervisor = await readFile(new URL('../src/supervisor/index.mjs', import.meta.url), 'utf8')
-  assert.match(supervisor, /if \(gone\.has\(card\.name\) && ports\.outbox\(\)\.some\(message => message\.to === card\.name && message\.command === 'sweep' && message\.state === 'waiting'\)\) return true/)
+  // F23 review 6: no second sweep word beside a held one: a check of its own in the wake, never inside sweeping().
+  assert.match(supervisor, /if \(linkGoneNames\(wordLanesOf\(await ports\.state\(\)\)\)\.has\(card\.name\) && ports\.outbox\(\)\.some\(message => message\.to === card\.name && message\.command === 'sweep' && message\.state === 'waiting'\)\) return \{ ok: false/)
+})
+
+test('F23 review 1, 3: a held word with a 10-minute keep, far older than its keep, is handed out at the chat\'s first take after the link is back', async () => {
+  const next = { id: 'n1', at: NOW - 40 * MIN, to: 'Lead', ask: null, command: 'next', text: 'B8 and B9 may go now', state: 'waiting' }
+  const goneLead = stateOf({ chats: [lane('Lead', { isMain: true, modGone: GONE })] })
+  const backLead = stateOf({ chats: [lane('Lead', { isMain: true })] })
+  const outbox = memoryStore()
+  await outbox.say({ ...next })
+  await sweepOutbox({ dir: null, outbox, state: goneLead, now: NOW, keep: KEEP })
+  assert.equal(outbox.outbox()[0].state, 'waiting')
+  // One clock: while held it is never late, for the take, the page's outbox and the wait line alike.
+  assert.equal(isLate(outbox.outbox()[0], NOW + 50 * MIN, KEEP), false)
+  // An hour later the person restarted Lead; its mod's first take (the state may still read the link gone: a take proves it is back).
+  const taken = await takeFor({ dir: null, outbox, state: goneLead, now: NOW + 60 * MIN, keep: KEEP, chat: 'Lead', only: () => true })
+  assert.deepEqual(taken.map(one => one.id), ['n1'])
+  // Rule 8 counts from the release: not undelivered at once.
+  const view = buildView({ state: backLead, items: new Map(), outbox: outbox.outbox(), settings: {}, now: NOW + 61 * MIN })
+  assert.equal(isUndelivered(view, { ...outbox.outbox()[0], state: 'waiting' }), false)
+})
+
+test('F23 review 4: a holder whose link is gone gets no "go on" line and is never given back', () => {
+  const t = minutes => NOW + minutes * MIN
+  const item = { head: new Map(Object.entries({ Id: 'B12', Kind: 'step', Title: 'Hang the gate', State: 'in progress', Owner: 'Worker 3', Since: stamp(t(-60)) })), sections: new Map([['History', [`- ${stamp(t(-60))} Worker 3: taken → in progress`]]]), problem: null }
+  const worker = more => ({ name: 'Worker 3', isMain: false, isLeftover: false, isRunning: true, state: 'unknown', report: { state: 'busy', since: t(-30), at: t(-30) }, ...more })
+  const decide = (minutes, more) => holderTimers({ worker: worker(more), holding: item, items: new Map([['B12', item]]), runningMs: from => t(minutes) - from })
+  assert.equal(decide(40, { modGone: { at: t(-30) } }), null)
+  assert.notEqual(decide(40, {})?.resume ?? null, null, 'with its link: the go on line is due')
+})
+
+test('F23 review 5: the wait line of a word held for a gone link says so, in the attention tone; never "the board wakes it"', () => {
+  const advisor = lane('Advisor', { modGone: GONE, isRunning: false, status: 'Link gone' })
+  const word = { id: 'a1', at: NOW - 20 * MIN, to: 'Advisor', ask: 'Q12', command: null, text: 'Yes, B', state: 'waiting', linkHeldAt: NOW - 19 * MIN }
+  const judge = wordJudge({ state: { chats: [], advisor, pause: null, chatPrefix: '' }, outbox: [word], settings: {}, now: NOW })
+  const line = waitLineOf({ word, lane: advisor, now: NOW, keep: KEEP, judge })
+  assert.deepEqual([line.state, line.chat, line.lead], ['late', 'Advisor', 'Held for Advisor\'s restart'])
+  assert.match(line.rest, /its board link is gone · restart this chat/)
+  assert.doesNotMatch(JSON.stringify(line), /the board wakes it/)
+})
+
+test('F23 review 2, 6, 7: no sweep while the Supervisor\'s link is gone, an open one ends with that reason; no new refine for a gone Advisor', async () => {
+  assert.equal(whyNoSweep({ named: 'Supervisor', title: 'Supervisor', card: { name: 'Supervisor', modGone: GONE }, withoutMod: false, mod: '0.40.0' }), SWEEP_LINK_GONE)
+  const { readFile } = await import('node:fs/promises')
+  const sweepFile = await readFile(new URL('../src/supervisor/sweep.mjs', import.meta.url), 'utf8')
+  assert.match(sweepFile, /if \(isOpen\(\) && \(\(await chat\(\)\)\?\.card\?\.modGone \?\? null\) !== null\) \{\n\s+end\(now, 'quiet', \{ note: SWEEP_LINK_GONE \}\)/)
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /const due = \(state\.advisor\?\.modGone \?\? null\) !== null \? \{ \.\.\.due0, refine: null \} : due0/)
 })

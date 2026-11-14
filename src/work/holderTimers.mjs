@@ -210,6 +210,9 @@ export function holderTimers({ worker, holding, items = new Map(), prefix = '', 
   const name = worker.name
   if (!TIMED_STATES.includes(valueOf(holding, 'State')) || !STOPPED_LANES.includes(worker.state)) return null
   if (finite(worker.removedAt) || worker.removal?.isOpen === true || (worker.suspended ?? null) !== null) return null
+  // F23 review 4: a holder whose board link is gone (src/modGone.mjs) gets no "go on" line and is never given back: its process may still
+  // work on the step; its row says to restart it. The timers count again from its first report after the restart.
+  if ((worker.modGone ?? null) !== null) return null
   // P1 of the one wait system (2026-11-09): a holder that recorded a wait on a chat (`Waits on`, waitsOn.mjs) is nudged by nobody
   // and gives nothing back, whatever its lane reads (interrupted, unknown after a report blip, off after a failed wake): the wait
   // is a record; its limit is the person's Late (state.mjs `lateWaits`).

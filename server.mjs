@@ -4026,7 +4026,9 @@ async function main(args) {
       if (bridgeKey !== null && state.bridge?.isMissing !== true) {
         const now = clock()
         const begun = firstLook(refineKept, state)
-        const due = begun === null ? { release: [], drop: [], refine: null, notice: null, kept: null } : refineWhenDue(state, sentNow(), begun, now)
+        const due0 = begun === null ? { release: [], drop: [], refine: null, notice: null, kept: null } : refineWhenDue(state, sentNow(), begun, now)
+        // F23 review 7: no new refine while the Advisor's board link is gone (one held refine is enough; the gate would open every 30 min).
+        const due = (state.advisor?.modGone ?? null) !== null ? { ...due0, refine: null } : due0
         if (due.kept !== null && JSON.stringify(due.kept) !== JSON.stringify(refineKept)) {
           await writeAtomic(REFINE_FILE, JSON.stringify(due.kept))
           refineKept = due.kept

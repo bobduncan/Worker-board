@@ -500,15 +500,14 @@ function sweepOver(sweep, { ports, every, tell, keep, facts, settings, judging }
       if (card === null) return false
       if (card.state === 'working' || card.state === 'waiting') return true
       const now = ports.now()
-      // F23: its chat's board link is gone: the sweep word already waiting is held for its restart; no second word beside it.
-      const gone = linkGoneNames(wordLanesOf(await ports.state()))
-      if (gone.has(card.name) && ports.outbox().some(message => message.to === card.name && message.command === 'sweep' && message.state === 'waiting')) return true
       return ports.outbox().some(message => message.to === card.name && message.command === 'sweep'
         && ((message.state === 'waiting' && !isLate(message, now, keep)) || (message.state === 'taken' && now - (message.takenAt ?? message.at) < TAKEN_MS)))
     },
     wake: async ({ subject, trigger = null, lines = [] }) => {
       const card = (await sweep.chat())?.card ?? null
       if (card === null) return { ok: false, why: 'its chat is not on the board' }
+      // F23 review 6: no second sweep word beside one held for its chat's restart (its board link is gone).
+      if (linkGoneNames(wordLanesOf(await ports.state())).has(card.name) && ports.outbox().some(message => message.to === card.name && message.command === 'sweep' && message.state === 'waiting')) return { ok: false, why: 'its board link is gone: a sweep word waits for its restart' }
       const told = await tell(sweepWords(card.name, { subject, job: sweep.job, trigger, lines }))
       if (told?.ok !== true) return { ok: false, why: told?.why ?? 'no answer' }
       const note = told.started === true ? 'its chat does not run: the main chat was asked to start it'

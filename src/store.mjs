@@ -74,7 +74,8 @@ export const keepMs = (message, keep) => (isAnswer(message) || isLimitStopWord(m
 export const DOUBT_MS = 5 * 60_000
 /** B891: whether a word waits in doubt now (`doubtAt`, DOUBT_MS). */
 export const isInDoubt = (message, now) => Number.isFinite(message?.doubtAt) && now - message.doubtAt < DOUBT_MS
-export const isLate = (message, now, keep) => now - message.at - heldMs(message, now, keep.pause ?? null) > keepMs(message, keep)
+// F23 review 1, 3: a word held for a chat whose board link is gone (`linkHeldAt`, src/modGone.mjs) is never late: its clock starts at its release.
+export const isLate = (message, now, keep) => !Number.isFinite(message.linkHeldAt) && now - message.at - heldMs(message, now, keep.pause ?? null) > keepMs(message, keep)
 
 /**
  * What was sent from the page, as the board sees it now. A message that waited too long is `expired` and never
