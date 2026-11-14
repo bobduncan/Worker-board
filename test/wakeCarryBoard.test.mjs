@@ -145,8 +145,9 @@ test('while the app refuses the hands\' sends, no hand gets a message job; witho
 
 test('review 8: while refused, the page\'s wake word for Worker 2 goes as one word for the courier (once it calls); once that word closes, so does the carry word', { timeout: 240_000 }, async t => {
   const { json, words } = await boardWith(t, { refused: true, lines: [WAKE_WORD] })
-  // The courier calls (nothing due yet): from now the board counts on it.
-  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])
+  // The courier calls: from now the board counts on it. (A wake pass may run inside this first call, after it set the courier's time:
+  // then this very call lists the new word already. Either is right: the test waits for the word, not for an empty first list.)
+  await json('/api/bridge/wakes-due', {})
   let carried = []
   await until(async () => {
     carried = (await words()).filter(one => one.command === 'wake-carry')
@@ -266,14 +267,16 @@ test('landing 1, the real case: Worker 2 asleep with an answer waiting, the hand
   await new Promise(done => setTimeout(done, 4000))
   assert.deepEqual((await words()).filter(one => one.command === 'wake-carry'), [], 'no courier yet, no carrier: no word')
   assert.deepEqual((await claim()).filter(job => job.chat === 'Worker 2'), [], 'no hand job')
-  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])
+  // The first call may list the word already (a wake pass inside it, after it set the courier's time): what it and the next hand out.
+  const handed = (await json('/api/bridge/wakes-due', {})).wakes.map(one => one.id)
   let carried = []
   await until(async () => {
     carried = (await words()).filter(one => one.command === 'wake-carry')
     return carried.length > 0
   }, 'the courier\'s word')
   assert.deepEqual([carried.length, carried[0].to], [1, 'the courier'])
-  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes.map(one => one.id), [carried[0].id])
+  if (!handed.includes(carried[0].id)) handed.push(...(await json('/api/bridge/wakes-due', {})).wakes.map(one => one.id))
+  assert.deepEqual(handed, [carried[0].id], 'handed to the courier once')
   await until(async () => typeof (await record()).wakes['Worker 2']?.at(-1).attempts.find(one => one.jobId === carried[0].id)?.sentAt === 'number', 'sent at the hand-off')
   // Worker 2 is woken by the courier's message and reports before the courier's wakes-sent: credited, never "woke by itself".
   await json('/api/bridge/report', { chat: 'Worker 2', session: 'w2-id', report: { state: 'busy', since: Date.now(), seq: 2, run: 2 } })

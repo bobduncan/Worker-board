@@ -37,7 +37,7 @@ import { forYouRepeat } from './work/askRepeat.mjs'
 import { isHeld } from './work/askHold.mjs'
 import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
-import { decidedTodayOf, heldAsksOf, informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
+import { decidedTodayOf, boardCallPopups, heldAsksOf, informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
 import { recapsShowOf } from './boardSettings.mjs'
 import { recapWaitOf } from './work/autopilot.mjs'
 import { NOTE_LINE, isDecidedForYou, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
@@ -80,6 +80,9 @@ import { countsOf, sinceClock, statusOf } from './chatStatus.mjs'
 import { factsOf, offMsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
+import { MOD_GONE_WHY, modGoneOf, modUnloadedAt } from './modGone.mjs'
+/** F9's review: a board-call popup counts for the asking spell it was filed in; filed this long before the spell began it is an old one. */
+const BOARD_CALL_SLACK_MS = 2 * 60_000
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
 
 const MIN = 60_000
@@ -673,7 +676,7 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
-  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
+  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, boardCall: null, modGone: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
   // B847: what the board needs to tell a replaced chat of a routine (an older chat of the same name) from the live one.
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt, createdAt: chat.createdAt ?? null, cwd: chat.cwd ?? null, needsAction: chat.summary?.needsAction ?? null }
 
@@ -697,6 +700,9 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // mod reports: it takes the place of the reading below (the turn in its transcript, cut off, held by its card, its
   // branch or its background work). Null: the chat sends none, and that reading stands.
   const reported = reportOf(chat)
+  // F9 (chat 1's fix item 7, 2026-11-13): its Workers mod was unloaded mid-session and not loaded again: the board's link to it is gone
+  // (src/modGone.mjs). Read from the deep look's tool deltas; never for a leftover.
+  const modGone = chat.isLeftover ? null : modGoneOf({ unloadedAt: modUnloadedAt(tail?.mods ?? ''), report: reported?.entry ?? null, appStartedAt: raw.appStartedAt ?? null, now })
   const wasCutOff = reported === null && isCutOff({ turn, plan, lastWriteAt, turnStartedAt, now })
   // An ended turn is not a free chat while something of its work is open: it is between two turns.
   // Clear after each step: a chat cleared into this session (its card says so, or the board followed its old card here)
@@ -764,11 +770,21 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   const parked = paused === null && isStopped && step?.blockedBy?.length > 0 ? { by: 'parked', on: step.blockedBy, limit: null, since: null, named: null }
     : paused === null && isStopped ? waitSuspension(step?.waitsOn ?? null) ?? recapSuspension(reported?.recapWait ?? null) ?? assetSuspension(reported?.assetWait ?? null) : null
   // Suspended is the board's own fact, whatever the chat reports.
-  const state = paused !== null || parked !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
+  const readState = paused !== null || parked !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // Redesign Part 1: what the chat says of its question to the person, or what its transcript shows.
   const isAsked = reported !== null ? reported.entry?.state === 'asking' : turn === 'asking'
-  // No sign of life is about a turn that runs: between two turns a chat writes nothing.
-  const quietMs = state === 'working' && held === null && lastWriteAt !== null ? Math.max(0, now - lastWriteAt) : null
+  // 2026-11-13 (Q742, Q744): a chat that asks while its only open form asks are popups about the board's own tools is in its slow call
+  // to the board: working, never waiting for the person (`waits.boardCall`, work/lists.mjs storeWaits).
+  // The review of F9: only a popup filed in this asking spell (an old one whose withdraw got lost never hides a later real wait), and
+  // never for a chat asleep since (an app restart mid-call).
+  const askingSince = Number.isFinite(reported?.entry?.since) ? reported.entry.since : null
+  const callNow = isAsked && readState === 'waiting' && reported !== null && reported.asleep !== true ? waits.boardCall?.get(chat.name.toLowerCase()) ?? null : null
+  const boardCall = callNow !== null && askingSince !== null && Number.isFinite(callNow.since) && callNow.since >= askingSince - BOARD_CALL_SLACK_MS ? callNow : null
+  // F9's review: a chat whose Workers mod was unloaded is not known to be free, asleep or running: Unknown (its status says Link gone),
+  // so no hand-out, wake or line counts it as free or asleep.
+  const state = modGone !== null ? 'unknown' : boardCall !== null ? 'working' : readState
+  // No sign of life is about a turn that runs: between two turns a chat writes nothing. A chat in its slow call to the board is no quiet chat.
+  const quietMs = state === 'working' && held === null && boardCall === null && lastWriteAt !== null ? Math.max(0, now - lastWriteAt) : null
 
   let needsYou = null
   if (state === 'waiting') needsYou = isAsked ? ASKED : summary?.needsAction?.trim() || summary?.detail?.trim() || null
@@ -823,6 +839,10 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     // Partner answers, the review's findings: the asks of its own it waits on the partner for.
     waitsForPartner: state === 'working' && held?.why === 'partner' ? forPartner : null,
     needsYou,
+    // The chat is in its call to the board, which is slow (a popup ask about the board's own tool): `{ since, ask }`, or null.
+    boardCall,
+    // F9: its Workers mod was unloaded and the board cannot reach it: `{ at }`, or null.
+    modGone,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
     waitingSince: state !== 'waiting' ? null : reported !== null ? reported.entry?.since ?? null : entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null,
@@ -892,8 +912,9 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
         // T13 part 3: a wake that did not take.
         : reported.why === 'woken' ? `woken at ${hourMinute(reported.wokenAt)}, it did not start` : 'the app started again after its last report',
     // T13 part 3: its process ended while its last report stands (chatReport.mjs `asleepLane`): asleep since when, or null.
-    asleep: reported?.asleep === true,
-    asleepSince: reported?.asleep === true ? reported.asleepSince : null,
+    // F9's review: a chat whose Workers mod was unloaded is never asleep for the board (a wake would reach no mod).
+    asleep: modGone === null && reported?.asleep === true,
+    asleepSince: modGone === null && reported?.asleep === true ? reported.asleepSince : null,
     // Signals change 4: since when it sleeps, kept once a wake did not take (Not running "woken"): the wake record's spell.
     sleepSince: reported?.asleep === true ? reported.asleepSince : reported?.why === 'woken' && Number.isFinite(reported.sleptSince) ? reported.sleptSince : null,
   }
@@ -1096,7 +1117,8 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
   for (const lane of asking) {
     // B299: the store's asks are the cards; a chat's own card stays only for the app's question form that the mod could
     // not file.
-    const isFiled = !lane.isAsking || waits.form.has(lane.name.toLowerCase())
+    // F9's review, round 3: a chat in its slow call to the board (`boardCall`) works and asks nothing of the person.
+    const isFiled = !lane.isAsking || (lane.boardCall ?? null) !== null || waits.form.has(lane.name.toLowerCase())
     if (lane.state === 'waiting' && !asked.has(lane.name) && !isFiled) {
       items.push({
         // One id per time it started waiting, so an answer to an earlier question never sticks to a later one.
@@ -1125,7 +1147,10 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       from: lane.name,
       kind: 'unfiled',
       title: `${lane.name} wrote questions in its chat but filed no ask`,
-      text: `Its last answer ends with a "For you" block, and the work store holds no ask of it since that turn began${lane.unfiled.isStartUnknown ? ' (the board could not tell when this turn began, so it warns all the same)' : ''}. The board does not read questions from a chat: answer them in its chat, or ask it to file them with work ask.${(lane.task?.stepId ?? null) === null ? '' : ` Its step: ${lane.task.stepId}.`}`,
+      // F9: a chat whose Workers mod was unloaded could not file an ask: the card names that cause and the one way out.
+      text: (lane.modGone ?? null) !== null
+        ? `Its last answer ends with a "For you" block, and the work store holds no ask of it: its Workers mod was unloaded at ${hourMinute(lane.modGone.at)}, so its board link is gone. ${MOD_GONE_WHY.charAt(0).toUpperCase()}${MOD_GONE_WHY.slice(1)}. Answer its questions in its chat.${(lane.task?.stepId ?? null) === null ? '' : ` Its step: ${lane.task.stepId}.`}`
+        : `Its last answer ends with a "For you" block, and the work store holds no ask of it since that turn began${lane.unfiled.isStartUnknown ? ' (the board could not tell when this turn began, so it warns all the same)' : ''}. The board does not read questions from a chat: answer them in its chat, or ask it to file them with work ask.${(lane.task?.stepId ?? null) === null ? '' : ` Its step: ${lane.task.stepId}.`}`,
       at: lane.unfiled.at,
       ...blank,
       version: null,
@@ -1136,6 +1161,8 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       isAdvisor,
       // Where its chat is on the board: Talk to Main, the Advisor's tab, or a worker's last answer in this card's window.
       talk: lane.isMain === true ? 'main' : isAdvisor ? 'advisor' : 'window',
+      // F9's review: its Workers mod was unloaded (no work tool to file asks with): the card's one way is into its chat, by its app id.
+      ...((lane.modGone ?? null) === null ? {} : { modGone: lane.modGone, chat: { name: lane.name, session: typeof lane.appSession === 'string' && APP_SESSION_ID.test(lane.appSession) ? lane.appSession : null } }),
     })
   }
   // P1 of the one wait system (2026-11-09): a chat wait past its limit (`lateWaitOf`): one Late, linked to the step, with the
@@ -1969,7 +1996,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     // since (the app started after that report, B315's fact) keeps the report as it was: it is asleep (`laneFromReport`).
     const isOld = saved !== null && Number.isFinite(board?.startedAt) && saved.at < board.startedAt
     const isAppAfter = saved !== null && Number.isFinite(raw.appStartedAt) && raw.appStartedAt > saved.at
-    const entry = isOld && !isAppAfter ? { ...saved, at: board.startedAt } : saved
+    // F9's review: `heardAt` keeps the report's own time, which the unloaded-mod check (src/modGone.mjs) compares with the unload.
+    const entry = isOld && !isAppAfter ? { ...saved, at: board.startedAt, heardAt: saved.at } : saved
     // Gap 1: no report from this session while its card says a mod that reports: unknown, then off, never guessed.
     if (entry === null || entry.session !== chat.cliSessionId) {
       const silent = !(reports instanceof Map) ? null : laneWithoutReport({
@@ -2238,6 +2266,10 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       name: advisorChat.name,
       session,
       appSession,
+      // It asks in its chat (the app's question form), and whether that is a slow call to the board (`card`, `boardCall`).
+      isAsking: advisorCard.isAsking === true,
+      boardCall: advisorCard.boardCall ?? null,
+      modGone: advisorCard.modGone ?? null,
       // The model chip: the model and the effort the app's file of its chat says it runs at (`effort` below is B352's mode).
       model: advisorCard.model ?? null,
       appEffort: advisorCard.effort ?? null,
@@ -2535,7 +2567,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const doneAtOf = doneTimes(raw.work, prefix)
   // B356, the review: a board without a partner chat makes no result check, here too.
   // Partner answers (2026-10-19): the partner's card, for the asks routed to it (woken while free, handed on after 30 min).
-  const partner = advisorChat === undefined || advisorCard === null ? null : { name: advisorChat.name, state: advisorCard.state, isRunning: runningOf(advisorChat.name), idle: advisorCard.idle ?? null }
+  // F9's review: with whether its Workers mod was unloaded (no partner ask is typed to it then).
+  const partner = advisorChat === undefined || advisorCard === null ? null : { name: advisorChat.name, state: advisorCard.state, isRunning: runningOf(advisorChat.name), idle: advisorCard.idle ?? null, modGone: advisorCard.modGone ?? null }
   // The guard (2026-10-21): the product plan's standards hold a task back from the hand-out.
   const plan = planState(raw.productPlanText ?? null, itemsOf(raw.work), config.productPlan)
   // Redesign Part 2 (2026-10-25): the board hands out all work: the ready list in the focus goal's order, the settings,
@@ -2916,7 +2949,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     // work calls it answered after the chat's Workers mod gave up (the rules board-deaf and board-slow).
     deaf,
     deafNow,
-    lateCalls: Array.isArray(hearing?.lateCalls) ? hearing.lateCalls : [],
+    // 2026-11-13: and the popup asks about the board's own tools (open or withdrawn), each one late call (work/lists.mjs `boardCallPopups`).
+    lateCalls: [...(Array.isArray(hearing?.lateCalls) ? hearing.lateCalls : []), ...(raw.work === null || raw.work === undefined ? [] : boardCallPopups(raw.work))],
     // B934 (X93): the board's newest stalls (stalls.mjs), which the rule board-slow cites.
     stalls: Array.isArray(stalls) ? stalls : [],
     // board-fast-answer (B1030 way A): the day's work-call figures (src/workCalls.mjs `today`), for the Supervisor's health line.
@@ -2949,6 +2983,9 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       name: helperLane.name,
       session: helperLane.session,
       appSession: helperLane.appSession,
+      isAsking: helperLane.isAsking === true,
+      boardCall: helperLane.boardCall ?? null,
+      modGone: helperLane.modGone ?? null,
       // The model chip: what the app's file of its chat says it runs at.
       model: helperLane.model ?? null,
       effort: helperLane.effort ?? null,
@@ -2975,6 +3012,9 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       name: supervisorLane.name,
       session: supervisorLane.session,
       appSession: supervisorLane.appSession,
+      isAsking: supervisorLane.isAsking === true,
+      boardCall: supervisorLane.boardCall ?? null,
+      modGone: supervisorLane.modGone ?? null,
       model: supervisorLane.model ?? null,
       effort: supervisorLane.effort ?? null,
       // T7.5: the setting the board holds it at (`supervisorModel`, `supervisorEffort`) and whether its file shows it.
@@ -2999,6 +3039,9 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       name: ownerLane.name,
       session: ownerLane.session,
       appSession: ownerLane.appSession,
+      isAsking: ownerLane.isAsking === true,
+      boardCall: ownerLane.boardCall ?? null,
+      modGone: ownerLane.modGone ?? null,
       model: ownerLane.model ?? null,
       effort: ownerLane.effort ?? null,
       setting: supervisorRun({ lane: ownerLane, setting: OWNER_SETTING, models: runSettings(config).models }),

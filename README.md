@@ -234,7 +234,7 @@ and the briefings for the main chat and the workers.
   ...").
 - The head shows the plan's limits; a worker that paused for the limit shows as "Paused" until it goes on.
 - Every chat in the Workers list has ONE status, the same in every view (Working, Waiting for you, Checking, Handing, Offered,
-  Held, Did not answer, Paused, Restarting, Stopped, Free, Asleep, Not running, Unknown), with how old its information is
+  Held, Did not answer, Paused, Restarting, Stopped, Free, Asleep, Not running, Unknown, Link gone), with how old its information is
   when over 10 seconds ("Working · 25 s ago"); Free means the board would give it work now (DESIGN.md, "One status per chat").
 - Before you quit the app: "Pause all" on the board (each chat writes its checkpoint and stops; the board says when
   it is safe), and "Resume all" after it is open again (open the main chat when the board says so).
@@ -443,7 +443,7 @@ speaker and every tool call and result in full, with an exact copy of the transc
 finished when the board stops is finished at its next start (`data\chat-logs.json`). A moment the board itself stalls
 (its event loop held, or a work call answered after over 2 s) is written to `data\stalls.json` with what the board ran
 then (B934), and the supervisor's rule board-slow cites it; harm is the bar (B1011): a call answered after 2 to 10 s stays in that
-log and opens no finding, board-slow sounds only for calls answered after the chat gave up (10 s). A sleep of the PC (a stall of the loop over 10 min, across a clock jump or a start of the board; a work call that waited long while the loop kept ticking is a hang, not a sleep; a call spanning a logged sleep is that sleep) is kept in the log as a sleep, in plain words, and is never a slow board. The chat's card moves to its new
+log and opens no finding, board-slow sounds only for calls answered after the chat gave up (10 s) or stuck over a minute (a popup ask about the board's own tools that no late answer stands for). A sleep of the PC (a stall of the loop over 10 min, across a clock jump or a start of the board; a work call that waited long while the loop kept ticking is a hang, not a sleep; a call spanning a logged sleep is that sleep) is kept in the log as a sleep, in plain words, and is never a slow board. The chat's card moves to its new
 session id and the board follows it, so its lane, steps, asks and instructions stay the same chat's; the lane says
 "cleared after B482 · log", and "log" opens the text in the board. A worker that may not be cleared then (the person
 pauses, a question not filed as an ask, something of it still running, no log) is compacted as before.

@@ -4339,7 +4339,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   tail stayed: the board rebuilds its whole picture after almost any change, and a turn's end brings its own rebuild, the
   hand-over's and 5 to 8 jobs at once, so no single blocker is left): the 5 s the board aims at is measured, not an alarm. A
   call answered after 2 to 10 s goes to the stall log only; an alarm sounds only when a slow answer does harm: board-slow for
-  calls answered after the chat gave up (10 s, two within 2 min), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
+  calls answered after the chat gave up (10 s, two within 2 min) or stuck over a minute (F9: a popup ask about the board's own
+  tools that no late answer stands for), `clear-owed-repeat` and `handover-held` (mod 0.31.0) for a
   clean-up that does not run. Pinned by `test/supervisor/boardSlowHarm.test.mjs`. **A sleep is no stall** (B1049 part 2: the PC
   slept 2026-11-04 23:45 to 11-05 08:15 and `data/stalls.json` held it as 8.5 h of "the loop blocked"): a stall is written as
   `kind: 'sleep'` (no requests or jobs named) when a stall of the loop lasts over 10 min, spans a clock jump (the wall clock and the monotonic
@@ -5520,7 +5521,20 @@ decides on, **status** is what the pill shows.
   FREE for a worker on it; `state` free for a worker on the timers (the escape hatch), the main chat, the partner, the
   supervisor and the Product owner; never for a worker the hand-out skips (HELD, HANDING...). 12 **Not running** (the kind:
   a wake that did not take, ended with no app session, silent, unreported; attention). 13 **Unknown**: no report to go by,
-  always "no report for N" (quiet under two minutes, attention after). A leftover has no status. Only Working counts busy:
+  always "no report for N" (quiet under two minutes, attention after). 2b **Link gone** (F9, 2026-11-13, src/modGone.mjs): its
+  transcript shows the CLI unloaded its Workers mod (the tools retracted, cause not_configured, then the server's instructions
+  removed) after its last restore, silent for over two minutes since, in the same run of the app: Link gone, "restart this chat:
+  archive it, then unarchive it" (attention), before the hand-over's rows; no wake and no line go to it (no step, note or partner
+  ask of the reconciler, no repair word of the Supervisor, also to the Advisor, its helper, the Supervisor's chat or the Product
+  owner, no main-chat word to wake it once stopped), and its "No ask filed" card says "its board link is gone" and offers only
+  "Open <chat>'s chat".
+  A popup ask about the board's own tools (Q742, Q744) makes no Waiting for you: Working, "its call to the board is slow"; the
+  Supervisor's board-slow counts it, unless a late answer from a minute before its filing to 10 min after stands for that call.
+  It is no filed form ask and no filing of the chat's questions: one whose withdraw got lost never hides a later real question
+  (the board's own "Asked you a question in its chat" card stands).
+  A real popup's hands entry, "Waiting for you" (the worker rows, the Advisor's, its helper's and the Product owner's cards, the
+  Simple view: "Open its chat") and window link to its chat in the app.
+  A leftover has no status. Only Working counts busy:
   "N of M workers busy" does not grow.
 - **The age.** `age = now - report.at` on the board's clock (`board.now` at the read), never the page's: the mod refreshes `at`
   with every 5-second ping, so a live chat's age is seconds. The pill shows it over 10 seconds ("Working · 25 s ago");

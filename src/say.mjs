@@ -965,6 +965,8 @@ export function wakesStopped(state, stopped, outbox, clock) {
     .filter(lane => !outbox.some(sent => sent.command === 'wake' && sent.about === lane.name && sent.stoppedAt === stopped.get(lane.name).since))
     // B986 (the review, 6): no word for a chat that cannot be woken (not in the app's list, not the chat the board shows).
     .filter(lane => cannotWakeWhy(lane) === null)
+    // F9's review, round 3: no wake to a chat whose Workers mod was unloaded (src/modGone.mjs): its row says to restart it.
+    .filter(lane => (lane.modGone ?? null) === null)
     .map(lane => wakeStoppedWords(main, lane, stopped.get(lane.name), clock))
 }
 

@@ -114,14 +114,21 @@ function factsOf(view) {
   const all = [...items.values()]
   const steps = all.filter(item => kindOf(item) === 'step' && typeof idOf(item) === 'string').sort(byId)
   const live = lanes.filter(lane => !lane.isLeftover)
+  // F9's review, round 3: the side chats too (the partner, its helper, the Supervisor's chat, the Product owner: not in `lanes`).
+  const chats = [...live, view.partner, view.helper, view.supervisor, view.owner].filter(lane => typeof lane?.name === 'string')
+  /** Whether a chat's Workers mod was unloaded (src/modGone.mjs): no word reaches it, so none is typed to it. */
+  const isModGone = name => typeof name === 'string' && (chats.find(lane => plain(lane.name, prefix) === plain(name, prefix))?.modGone ?? null) !== null
   const facts = {
-    all, steps, live,
+    all, steps, live, isModGone,
     workers: live.filter(lane => lane.isMain !== true),
     laneOf: name => live.find(lane => plain(lane.name, prefix) === plain(name, prefix)),
     isHeld: isHolding(pause),
     holds: name => steps.some(item => HOLDS.includes(stateOf(item)) && plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix)),
     isFull: ['fiveHour', 'week'].some(limit => limits?.[limit]?.level === 'full'),
     wakeOr: (key, wake, late) => {
+      // F9's review: a chat whose Workers mod was unloaded takes no wake (src/modGone.mjs): the other way at once (round 3: a side
+      // chat too). A wake with no other way (`late` null) is then no fix at all: the rule files nothing for it.
+      if (wake?.do === 'wake' && isModGone(wake.chat)) return late
       const at = outbox.findLast(message => message.syncKey === key)?.at ?? null
       if (at === null) return wake
       return now - at < AGAIN_MS ? { do: 'woken', at } : late
@@ -294,9 +301,11 @@ function partnerTouchMs(item, partner, prefix) {
  */
 function helperIdle(view, { seen = new Map(), observed = [] } = {}) {
   const { items = new Map(), partner = null, helper = null, prefix = '', now, outbox = [], appStartedAt = null } = view
-  const { isHeld, wakeOr } = factsOf(view)
+  const { isHeld, wakeOr, isModGone } = factsOf(view)
   const found = []
   if (!(helper !== null && (helper.isRunning === false || helper.state === 'off') && !isHeld)) return found
+  // F9's review, round 3: a partner whose Workers mod was unloaded is handed nothing either: the main chat is told, as with no partner.
+  const isPartnerGone = partner !== null && isModGone(partner.name)
   const isPartnerOff = partner !== null && (partner.isRunning === false || partner.state === 'off')
   const recent = outbox.filter(message => now - message.at < HELPER_LOOK_MS && (partner === null || plain(message.to, prefix) === plain(partner.name, prefix)))
   const waits = new Set()
@@ -321,7 +330,7 @@ function helperIdle(view, { seen = new Map(), observed = [] } = {}) {
     observed.push(watch)
     const key = `helper ${helper.name} ${stamp(seen.get(watch) ?? now)}`
     const text = `${helper.name} is not running: ${ids.length} refines and checks wait`
-    const late = partner === null
+    const late = partner === null || isPartnerGone
       ? { do: 'main', text: `${text} (${ids.join(', ')}), and it did not start when woken: start it` }
       : { do: 'hand', chat: partner.name, id: ids[0], text: `work: ${helper.name} is not running: do the waiting refines and result checks yourself (${ids.join(', ')}); run work next` }
     // B546: what to do, not "ask it which are yours": the partner hands them out by message, so the helper waits for it.
@@ -377,7 +386,7 @@ function closedWorker(view) {
  */
 function partnerAsk(view) {
   const { partner = null, now, outbox = [] } = view
-  const { all, isHeld } = factsOf(view)
+  const { all, isHeld, wakeOr } = factsOf(view)
   const found = []
   if (!(partner !== null && !isHeld)) return found
   for (const ask of all.filter(isRoutedToPartner).sort(byId)) {
@@ -390,7 +399,9 @@ function partnerAsk(view) {
     const key = `partner-ask ${id} ${Math.floor((now - filed) / PARTNER_AGAIN_MS)}`
     // The person's "B" (2026-11-02): an ask routed on their earlier answer names it in the word, as the reconciler's does.
     const earlier = earlierOfCard(ask, all)
-    found.push(finding('partner-ask', key, id, `${id} routed to ${partner.name}, unanswered for ${minutes(now - filed)} min`, { do: 'wake', chat: partner.name, id, text: partnerAskWords(id, earlier === null ? null : { id: earlier.id, answer: shortAnswer(earlier.answer) }) }))
+    // F9's review, round 3: through wakeOr, so a partner whose Workers mod was unloaded gets no word (the ask reaches the person after 30 min).
+    const fix = wakeOr(key, { do: 'wake', chat: partner.name, id, text: partnerAskWords(id, earlier === null ? null : { id: earlier.id, answer: shortAnswer(earlier.answer) }) }, null)
+    if (fix !== null) found.push(finding('partner-ask', key, id, `${id} routed to ${partner.name}, unanswered for ${minutes(now - filed)} min`, fix))
   }
   return found
 }
@@ -413,7 +424,7 @@ function partnerAsk(view) {
  */
 function unchecked(view) {
   const { partner = null, now } = view
-  const { all, steps, isHeld } = factsOf(view)
+  const { all, steps, isHeld, wakeOr } = factsOf(view)
   const found = []
   if (isHeld) return found
   const byId = new Map(all.map(one => [idOf(one), one]))
@@ -426,7 +437,9 @@ function unchecked(view) {
       // no third task. The partner gets one word per wait to file the ask or name the open one that carries it.
       if (wait?.kind === 'unasked') {
         const key = `unasked ${id} ${stamp(wait.since)}`
-        if (!(view.outbox ?? []).some(message => message.syncKey === key)) found.push(finding('unchecked', key, id, `${id} ${wait.text} twice: no new QA task; ${partner.name} is asked to file or name it`, { do: 'wake', chat: partner.name, id, text: unaskedWords(id, wait) }))
+        // F9's review, round 3: through wakeOr: no word to a partner whose Workers mod was unloaded.
+        const fix = (view.outbox ?? []).some(message => message.syncKey === key) ? null : wakeOr(key, { do: 'wake', chat: partner.name, id, text: unaskedWords(id, wait) }, null)
+        if (fix !== null) found.push(finding('unchecked', key, id, `${id} ${wait.text} twice: no new QA task; ${partner.name} is asked to file or name it`, fix))
         continue
       }
       if (wait?.kind !== 'check' || openQaTaskOf(byId, id) !== null) continue
@@ -496,7 +509,9 @@ function askedAgain(view, { rule, id, since, wake, person }) {
     const key = `${base} ${n} ${stamp(from)}`
     if (words.some(message => message.syncKey === key || message.state === 'waiting')) return []
     const text = advisorWaitText(id, `for ${minutes(now - from)} min: asked again (${made + 1} of ${ASKS_AGAIN})`)
-    return [finding(rule, key, id, text, { do: 'wake', chat: partner.name, id, text: wake(made + 1) })]
+    // F9's review, round 3: through wakeOr: no word to a partner whose Workers mod was unloaded.
+    const fix = factsOf(view).wakeOr(key, { do: 'wake', chat: partner.name, id, text: wake(made + 1) }, null)
+    return fix === null ? [] : [finding(rule, key, id, text, fix)]
   }
   // The third ask has its period too, whenever it went.
   if (n <= ASKS_AGAIN || now - Math.max(...reached.map(message => message.at)) < ASK_AGAIN_MS) return []
@@ -808,7 +823,9 @@ function noneReady(view) {
   const first = signal.causes[0]
   const list = signal.causes.map(cause => cause.words).join('; ')
   const words = `focus goal ${signal.goal} has work, none can be handed out ${free}: ${list}. Settle what holds them with the main chat (a standard's foundation, the user's pick); the board's refine gate sends every refine itself.`
-  return [...notes, finding('none-ready', partnerKey, first.id, `${signal.text} ${free}`, { do: 'wake', chat: partner, id: first.id, text: words })]
+  // F9's review, round 3: through wakeOr: no word to a partner whose Workers mod was unloaded (the main chat's notes stand).
+  const fix = factsOf(view).wakeOr(partnerKey, { do: 'wake', chat: partner, id: first.id, text: words }, null)
+  return fix === null ? notes : [...notes, finding('none-ready', partnerKey, first.id, `${signal.text} ${free}`, fix)]
 }
 
 export const REPAIR_RULES = [

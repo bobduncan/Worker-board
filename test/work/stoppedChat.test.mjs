@@ -126,6 +126,8 @@ test('the main chat is asked once per stop to wake the chat, by its session id; 
   assert.equal(wakes[0].command, 'wake')
   assert.match(wakes[0].text, /^wake "Worker 5"\nIts turn was stopped at 21:42 .*1 word from the worker board waits?/)
   assert.match(wakes[0].text, /Its session id: local_w5\.$/)
+  // F9's review, round 3: no such word for a chat whose Workers mod was unloaded (Link gone): the person restarts it.
+  assert.deepEqual(wakesStopped(stateWith({ ...lane('w5'), modGone: { at: at(21, 41) } }), stopped, store.outbox(), clock), [])
   await store.say({ id: 'wake-1', at: at(21, 43), ...wakes[0], state: 'waiting' })
   assert.deepEqual(wakesStopped(state, stoppedChats(store.outbox(), state), store.outbox(), clock), [], 'once per stop')
   const ctx = more => ({ all: store.outbox(), items: null, runs: new Map(), goals: [], now: at(21, 50), keep, closing: new Map(), ...more })

@@ -654,6 +654,8 @@ export function wakeNeeds(state, outbox = [], { resumeList = [], canLaunch = tru
   const needs = []
   for (const lane of boardLanes(state)) {
     if (lane?.isRunning !== false || lane.isLeftover === true || (lane.removedAt ?? null) !== null || typeof lane.name !== 'string') continue
+    // F9: a chat whose Workers mod was unloaded has no mod left to answer a wake: the person restarts it (src/modGone.mjs).
+    if ((lane.modGone ?? null) !== null) continue
     const need = needOf(lane, { state, waiting, prefix, resumeList, ownerName })
     if (need === null) continue
     const paths = pathsOf(lane, canLaunch === true)
