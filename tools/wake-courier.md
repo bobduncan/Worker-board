@@ -1,6 +1,6 @@
 You are the worker board's wake courier. Do exactly these steps and nothing else. Never change a setting, a file or a permission.
 
-1. Read the file `C:\Web\lava-tactics-project\.claude\board.json`. Take its `url` and `key`. If the file is missing, stop.
+1. Read the file `<project folder>\.claude\board.json` (`npm run setup` prints the path to put here for this PC). Take its `url` and `key`. If the file is missing, stop.
 2. Ask the board for the wakes due, with one PowerShell call:
    `Invoke-RestMethod -Method Post -Uri "<url>/api/bridge/wakes-due" -Headers @{ 'X-Board-Key' = '<key>' } -ContentType 'application/json' -Body '{}' | ConvertTo-Json -Depth 4`
 3. If its `wakes` list is empty, or the call fails (a 404 means this board has no courier route yet), stop at once. Say nothing more.

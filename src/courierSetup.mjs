@@ -7,13 +7,18 @@ export const COURIER_TASK = 'Worker board wake courier'
 /** Its prompt file, in the board's folder. */
 export const COURIER_PROMPT = 'tools/wake-courier.md'
 
-/** The lines setup prints about the courier task. */
-export function courierLines() {
+/** The board file the courier reads, for the project folder of this PC's config (`project`): the path to put in its prompt. */
+export const courierBoardFile = project => `${String(project).replace(/[\\/]+$/, '')}\\.claude\\board.json`
+
+/** The lines setup prints about the courier task; `project` this PC's project folder (config.json), or null. */
+export function courierLines(project = null) {
   return [
     `The wake courier (scheduled task "${COURIER_TASK}"): while the Claude app refuses the board's own sends, it wakes the sleeping chats.`,
     `  Its prompt is ${COURIER_PROMPT}; it runs every 10 minutes, on the cheapest model (Haiku), in Auto mode.`,
     '  Setup cannot make it: code cannot create a scheduled task. Ask a chat once on this PC: "create the scheduled task '
       + `${COURIER_TASK} with create_scheduled_task, every 10 minutes, cheapest model, Auto mode, its prompt from ${COURIER_PROMPT}".`,
+    // F17, chat 1: the prompt names no PC's path (the any-project rule); setup says the one for this PC.
+    ...(typeof project === 'string' && project !== '' ? [`  In its prompt, put this project's board file in place of <project folder>\\.claude\\board.json: ${courierBoardFile(project)}`] : []),
     '  It costs nothing when nothing is due (an empty list, or 404 on a board without the courier route, ends its run).',
   ]
 }

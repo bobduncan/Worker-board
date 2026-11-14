@@ -68,6 +68,12 @@ if (file !== null) {
   }
 }
 // F17: the wake courier, a scheduled task only a model can make: what to ask for on this PC (with or without --check).
-for (const line of courierLines()) console.log(line)
+let courierProject = null
+try {
+  courierProject = (await loadConfig(join(here, 'config.json'))).project
+} catch {
+  // No config: the lines name the placeholder only.
+}
+for (const line of courierLines(courierProject)) console.log(line)
 
 process.exitCode = good ? 0 : 1
