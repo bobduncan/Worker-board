@@ -122,7 +122,9 @@ test('F24b, server.mjs alone, directly: the demo keeper started with start /LOW 
   // The keeper itself at Idle on the two cores, as a chat under Low would spawn it; it runs on (no /WAIT), its board under it.
   const shell = spawn('cmd.exe', ['/c', 'start', '/LOW', '/AFFINITY', LAST_TWO.toString(16), '/B', '""', process.execPath, join(ROOT, 'server.mjs'), '--demo', '--port', String(port)], { cwd: ROOT, windowsHide: true, stdio: 'ignore' })
   t.after(() => shell.kill())
-  const until = Date.now() + 30_000
+  // The keeper and its board at Idle on two crowded cores load server.mjs slowly (the whole 3.8 MB graph, twice): a loaded PC takes a
+  // minute before both are there (seen 2026-11-14 under a gate), so the wait is generous.
+  const until = Date.now() + 120_000
   let pids = []
   while (Date.now() < until && pids.length < 2) {
     pids = ps(`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*${inLike(script)}*' } | ForEach-Object { $_.ProcessId }`).split(/\r?\n/).filter(Boolean).map(Number)
