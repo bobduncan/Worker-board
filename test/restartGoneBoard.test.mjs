@@ -73,7 +73,7 @@ async function until(check, what, ms = 130_000) {
  * A board over a made-up project: Main and Worker 1 report idle (they run, quiet for 20 min); `target`'s transcript holds Worker 4's two
  * deltas and an ended turn after them (written 20 min ago); it never reported since the unload.
  */
-async function boardWith(t, { target = 'Worker 4', lines: given = [], archived = [], quietMs = null } = {}) {
+async function boardWith(t, { target = 'Worker 4', lines: given = [], archived = [], quietMs = null, children = {} } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'board-restart-'))
   const started = []
   t.after(async () => {
@@ -89,7 +89,7 @@ async function boardWith(t, { target = 'Worker 4', lines: given = [], archived =
   await put(join(board, 'data', 'outbox.jsonl'), given.length === 0 ? '' : `${given.map(line => JSON.stringify(line)).join('\n')}\n`)
   const chats = join(project, '.claude', 'chats')
   await put(join(chats, 'list.json'), '{"prefix":"Game - ","main":"Main"}')
-  const appChat = (name, sessionId, cliSessionId) => JSON.stringify({ title: `Game - ${name}`, sessionId, cliSessionId, cwd: project, isArchived: archived.includes(name), createdAt: NOW - 600 * MIN, lastActivityAt: NOW - 20 * MIN })
+  const appChat = (name, sessionId, cliSessionId) => JSON.stringify({ title: `Game - ${name}`, sessionId, cliSessionId, cwd: project, isArchived: archived.includes(name), createdAt: NOW - 600 * MIN, lastActivityAt: NOW - 20 * MIN, ...(typeof children[name] === 'string' ? { spawnedFrom: { sessionId: children[name] } } : {}) })
   const lanes = [['Main', 'local_main', 'main-id', 'main'], ['Worker 1', 'local_w1', 'w1-id', 'worker'], ['Worker 4', 'local_w4', 'ddde6d5e-worker-4', 'worker']]
   for (const [name, sessionId, cli, role] of lanes) {
     await put(join(app, 'a', 'b', `${sessionId}.json`), appChat(name, sessionId, cli))
@@ -126,6 +126,8 @@ async function boardWith(t, { target = 'Worker 4', lines: given = [], archived =
 }
 
 const restarts = list => list.filter(one => one.command === 'chat-restart')
+/** The restart prompt's handshake (the fix round, item 1). */
+const RESTARTS = { restarts: true }
 
 test('the real case: Worker 4\'s two deltas, idle and quiet, the courier alive: ONE restart entry; a second call lists nothing; sent records sentAt; its report closes the word "its link is back"', { timeout: 300_000 }, async t => {
   const { json, words, record, laneOf } = await boardWith(t)
@@ -135,8 +137,13 @@ test('the real case: Worker 4\'s two deltas, idle and quiet, the courier alive: 
   assert.deepEqual(restarts(await words()), [], 'no courier, no word')
   const before = await laneOf('Worker 4')
   assert.deepEqual([before.status, before.why, before.quiet === true], ['Link gone', 'restart this chat: archive it, then unarchive it', false])
-  // The courier calls: from now the board counts on it. (A wake pass may run inside a call: what this and the next calls hand out.)
-  const handed = [...(await json('/api/bridge/wakes-due', {})).wakes]
+  // The fix round, item 1: a courier on the old prompt (body `{}`) gets no restart entry, and no restart word is made for it; the row stays as is.
+  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])
+  await new Promise(done => setTimeout(done, 65_000))
+  assert.deepEqual(restarts(await words()), [], 'an old prompt\'s courier: no word')
+  assert.equal((await laneOf('Worker 4')).quiet === true, false, 'nor "restarts by itself"')
+  // The courier on the restart prompt calls: from now the board counts on it. (A wake pass may run inside a call: what this and the next calls hand out.)
+  const handed = [...(await json('/api/bridge/wakes-due', RESTARTS)).wakes]
   let made = []
   await until(async () => {
     made = restarts(await words())
@@ -144,11 +151,11 @@ test('the real case: Worker 4\'s two deltas, idle and quiet, the courier alive: 
   }, 'the restart word')
   assert.equal(made.length, 1)
   assert.deepEqual([made[0].to, made[0].about, made[0].session, made[0].spell, made[0].forModel], ['the courier', 'Worker 4', 'local_w4', GONE, true])
-  if (handed.length === 0) handed.push(...(await json('/api/bridge/wakes-due', {})).wakes)
+  if (handed.length === 0) handed.push(...(await json('/api/bridge/wakes-due', RESTARTS)).wakes)
   const text = `The worker board restarted this chat: its Workers mod was unloaded at ${hm(GONE)}. Go on where you were; if nothing waits for you, end this turn.`
   assert.deepEqual(handed, [{ id: made[0].id, chat: 'Worker 4', session: 'local_w4', text, restart: true, alsoUnarchive: [] }])
   // Taken once: a second call lists nothing; the try is the spell's.
-  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])
+  assert.deepEqual((await json('/api/bridge/wakes-due', RESTARTS)).wakes, [])
   assert.equal((await words()).find(one => one.id === made[0].id).state, 'taken')
   await until(async () => (await record()).restartTries?.['Worker 4']?.[0]?.spell === GONE, 'the try in the record', 10_000)
   // Restarting once taken.
@@ -168,17 +175,22 @@ test('the real case: Worker 4\'s two deltas, idle and quiet, the courier alive: 
 })
 
 test('a starter: Main\'s restart entry lists the board\'s other chats to unarchive; refused spends no try; a quiet Link gone says when it restarts', { timeout: 300_000 }, async t => {
-  // Main's transcript was last written 9 min ago: its quiet clock ends a minute after the test's start.
-  const { json, words, record, laneOf } = await boardWith(t, { target: 'Main', quietMs: 9 * MIN })
-  const handed = [...(await json('/api/bridge/wakes-due', {})).wakes]
-  // The courier calls, the quiet clock still runs: the quiet colour, "restarts by itself at HH:MM" (the clock's end).
+  // Main's transcript was last written 9 min ago: its quiet clock ends a minute after the test's start. Main started Worker 1 and Worker 4 (D3').
+  const { json, words, record, laneOf } = await boardWith(t, { target: 'Main', quietMs: 9 * MIN, children: { 'Worker 1': 'local_main', 'Worker 4': 'local_main' } })
+  const calling = Date.now()
+  const handed = [...(await json('/api/bridge/wakes-due', RESTARTS)).wakes]
+  const called = Date.now()
+  // The courier calls, the quiet clock still runs: the quiet colour, "restarts by itself at the courier's next run (about HH:MM)": the later of
+  // the clock's end and the courier's next run (its call and 10 min).
   if (handed.length === 0) {
     await until(async () => (await laneOf('Main'))?.quiet === true, 'the quiet row', 30_000)
     const lane = await state(laneOf, 'Main')
-    assert.deepEqual([lane.status, lane.why], ['Link gone', `restarts by itself at ${hm(NOW + MIN)}`])
+    const times = [calling, called].map(at => `restarts by itself at the courier's next run (about ${hm(Math.max(NOW + MIN, at + 10 * MIN))})`)
+    assert.equal(lane.status, 'Link gone')
+    assert.ok(times.includes(lane.why), `${lane.why} is one of ${times.join(', ')}`)
   }
   await until(async () => restarts(await words()).length > 0, 'the restart word')
-  if (handed.length === 0) handed.push(...(await json('/api/bridge/wakes-due', {})).wakes)
+  if (handed.length === 0) handed.push(...(await json('/api/bridge/wakes-due', RESTARTS)).wakes)
   assert.equal(handed.length, 1)
   assert.deepEqual([handed[0].chat, handed[0].restart, handed[0].alsoUnarchive.sort()], ['Main', true, ['local_w1', 'local_w4']])
   // The app refused the archive: closed, no try spent, no new word for 30 min.
@@ -188,7 +200,7 @@ test('a starter: Main\'s restart entry lists the board\'s other chats to unarchi
   await until(async () => (await record()).restartTries?.Main?.[0]?.verdict === 'refused', 'refused in the record', 10_000)
   await until(async () => (await laneOf('Main')).why === 'the app refused the archive', 'the refused why', 30_000)
   assert.notEqual((await laneOf('Main')).quiet, true, 'attention')
-  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])
+  assert.deepEqual((await json('/api/bridge/wakes-due', RESTARTS)).wakes, [])
   assert.equal(restarts(await words()).length, 1, 'no second word within 30 min')
 })
 
@@ -214,9 +226,9 @@ test('section 5 and the stuck close: a taken word whose chat the board saw archi
   await until(async () => (await words()).find(one => one.id === four.id).state === 'dropped', 'the 15-min close')
   const closed = (await words()).find(one => one.id === four.id)
   assert.deepEqual([closed.why, closed.failed, closed.unarchive], ['the courier did not say what became of it', true, 'due'])
-  // Listed once: the unarchive entry with the take's list, never again.
-  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes.filter(one => one.id === four.id), [{ id: four.id, chat: 'Worker 4', session: 'local_w4', unarchive: true, alsoUnarchive: ['local_w1'] }])
-  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes.filter(one => one.id === four.id), [], 'once')
+  // Listed once: the unarchive entry with the take's chats archived now (Worker 1 is not), never again.
+  assert.deepEqual((await json('/api/bridge/wakes-due', RESTARTS)).wakes.filter(one => one.id === four.id), [{ id: four.id, chat: 'Worker 4', session: 'local_w4', unarchive: true, alsoUnarchive: [] }])
+  assert.deepEqual((await json('/api/bridge/wakes-due', RESTARTS)).wakes.filter(one => one.id === four.id), [], 'once')
   // The Overview's one wake line names it.
   await until(async () => /Worker 4 is archived: unarchive it/.test((await state()).wakeNotice?.text ?? ''), 'the Overview names it', 30_000)
   // Worker 1's taken word: the courier says it stayed archived: closed failed, the try spent.

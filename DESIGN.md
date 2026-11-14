@@ -5544,6 +5544,19 @@ decides on, **status** is what the pill shows.
   Link gone in the quiet colour, "restarts by itself at HH:MM" (the quiet clock's end) while F19 will act; Restarting, "its board link was
   gone: the courier restarts it", once taken; else Link gone in the attention colour with the way out above or the failed why. A chat a
   restart left archived is named on the Overview's wake line ("<chat> is archived: unarchive it").
+  F19's fix round (both review lenses, 2026-11-14): only a courier on the restart prompt (wakes-due with `{"restarts":true}`, its own
+  `lastRestartCourierAt`) makes, takes or is promised restart words; an old prompt's call keeps F17 only. The prompt sends only to an entry
+  with a `text` that its step 3 did not mark refused or stuck, and loads send_message, archive_session and unarchive_session by their real
+  names. D3' (chat 1): the chats an archive takes along are the target's children as the app's files name them (`spawnedFrom`), for any
+  target; only they must be idle, and a child that is no board lane keeps the target from qualifying. No restart while the chat is being
+  removed or stopped by the person, or its Remote Control is on; at most 3 refused archives per spell and 3 restarts per chat a day.
+  "Its link is back" needs a report heard after the unload (or the app started after it). The spell's try also counts from the raw
+  outbox (a taken word). A taken word's close (and a stuck one) keeps what the app's files show archived of it and its children; the
+  Overview names those while they are off the board, and the unarchive-only entry lists only those, once, within 30 min of the close and
+  re-checked. While a word is taken (or its unarchive is to come), F23 keeps the chat's held words held. The quiet row reads "restarts by
+  itself at the courier's next run (about HH:MM)", counts under Restarting and goes quiet to the Workers pane; its wait lines and its "No ask
+  filed" card say that way, never the person's archive. A hold that starts after the take does not stop the courier's run (one run's
+  window, as F17).
   A popup ask about the board's own tools (Q742, Q744) makes no Waiting for you: Working, "its call to the board is slow"; the
   Supervisor's board-slow counts it, unless a late answer from a minute before its filing to 10 min after stands for that call.
   It is no filed form ask and no filing of the chat's questions: one whose withdraw got lost never hides a later real question

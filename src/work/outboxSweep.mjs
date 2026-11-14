@@ -367,6 +367,14 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   // F23 review 1, 3: the held words' marks first: their age stops while the link is gone, and they are released once it is back. The re-check, B:
   // `back` a chat whose take proves its link is back, though a cached state may still read it gone.
   const linkGone = linkGoneNames(wordLanesOf(state))
+  // F19 fix round, item 8: a chat the courier is restarting (its archive may take it off the board) or whose unarchive is still to come
+  // keeps its held words held: an archive in progress releases nothing.
+  // (An unarchive due or listed counts 30 min from its close or its listing, restartGone.mjs UNARCHIVE_LIST_MS: never held for good.)
+  for (const one of outbox.outbox()) {
+    const since = one?.unarchive === 'listed' ? one.unarchiveAt : one?.closedAt
+    const unarchiving = ['due', 'listed'].includes(one?.unarchive) && Number.isFinite(since) && now - since < 30 * 60_000
+    if (one?.command === 'chat-restart' && typeof one.about === 'string' && (one.state === 'taken' || unarchiving)) linkGone.add(one.about)
+  }
   if (typeof back === 'string') linkGone.delete(back)
   if (!dry) await markLinkHeld({ outbox, gone: linkGone, now, to })
   // Without the outbox's keep (a caller that delivers work lines only) nothing is judged.

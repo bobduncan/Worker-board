@@ -46,6 +46,9 @@ test('parseAppChat keeps the fields the board uses', () => {
     effort: null,
     model: 'ignored',
     summary: { category: 'blocked', detail: 'waits for a pick', needsAction: 'Pick A or B', isCurrent: true },
+    // F19 (D3', the fix round's item 12): who started it, and Remote Control.
+    spawnedFrom: null,
+    remoteControl: false,
   })
 })
 

@@ -76,12 +76,12 @@ import { clearingOf, decide, envelopesOf, holdingOf, lastClearWhyOf, laneWords, 
 import { givenBackFrom } from './work/holderTimers.mjs'
 import { rethinkTopicsOf } from './work/rethinkTopic.mjs'
 import { rethinkFocusOf } from './work/rethinkFocus.mjs'
-import { countsOf, sinceClock, statusOf } from './chatStatus.mjs'
+import { STATUSES, countsOf, sinceClock, statusOf } from './chatStatus.mjs'
 import { factsOf, offMsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
 import { MOD_GONE_WHY, modGoneOf, modUnloadedAt } from './modGone.mjs'
-import { archivedLine, restartArchivedOf, restartRowOf, restartStandOf, startersOf } from './restartGone.mjs'
+import { archivedLine, restartArchivedOf, restartRowOf, restartStandOf } from './restartGone.mjs'
 import { courierAlive } from './wakeCarry.mjs'
 /** F9's review: a board-call popup counts for the asking spell it was filed in; filed this long before the spell began it is an old one. */
 const BOARD_CALL_SLACK_MS = 2 * 60_000
@@ -677,7 +677,7 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // `session` is the id the chat's own process knows itself by: the bridge serves only that one under this name.
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
-  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
+  const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null, remoteControl: chat.remoteControl === true }
   const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, boardCall: null, modGone: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null, transcriptTurn: null, transcriptAt: null }
   // B847: what the board needs to tell a replaced chat of a routine (an older chat of the same name) from the live one.
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt, createdAt: chat.createdAt ?? null, cwd: chat.cwd ?? null, needsAction: chat.summary?.needsAction ?? null }
@@ -2281,7 +2281,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       boardCall: advisorCard.boardCall ?? null,
       modGone: advisorCard.modGone ?? null,
       // F19: the transcript's turn, last write and background count (src/restartGone.mjs).
-      transcriptTurn: advisorCard.transcriptTurn ?? null, transcriptAt: advisorCard.transcriptAt ?? null, background: advisorCard.background ?? null,
+      transcriptTurn: advisorCard.transcriptTurn ?? null, transcriptAt: advisorCard.transcriptAt ?? null, background: advisorCard.background ?? null, remoteControl: advisorCard.remoteControl === true,
       // The model chip: the model and the effort the app's file of its chat says it runs at (`effort` below is B352's mode).
       model: advisorCard.model ?? null,
       appEffort: advisorCard.effort ?? null,
@@ -2802,6 +2802,9 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     recapRows: recapVerdictsOf(raw.recaps),
     // Clear after each step: the sessions the chats went on from, while the app still names them (read on to their ends).
     movedFrom: found.filter(chat => !chat.isLeftover && movedBack.has(chat.cliSessionId)).map(chat => ({ session: movedBack.get(chat.cliSessionId), name: chat.name })),
+    // F19 (D3', chat 1, 2026-11-14): the app chats another chat started (`spawnedFrom`), its archive takes them along; leftovers left out.
+    appChildren: apps.filter(chat => typeof chat.spawnedFrom === 'string' && typeof chat.sessionId === 'string' && !found.some(one => one.isLeftover && one.appSessionId === chat.sessionId))
+      .map(chat => ({ id: chat.sessionId, parent: chat.spawnedFrom, title: chat.title, isArchived: chat.isArchived === true })),
     spendingSubjects: found.filter(chat => !chat.isLeftover).map(chat => ({ session: chat.cliSessionId, appSession: chat.appSessionId, name: chat.name, model: chat.model, effort: chat.effort, role: chat.isMain ? 'main' : isAdvisor(chat) ? 'advisor' : isHelper(chat) ? 'helper' : isSupervisor(chat) ? 'supervisor' : isOwner(chat) ? 'owner' : 'worker' })),
     routing: { mode: config.routing?.ok === false ? 'invalid' : config.routing?.policy?.mode ?? 'off', problem: config.routing?.why ?? null, readiness: enforcementReadiness(null) },
     refreshSeconds: config.refreshSeconds,
@@ -2999,7 +3002,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       boardCall: helperLane.boardCall ?? null,
       modGone: helperLane.modGone ?? null,
       // F19: the transcript's turn, last write and background count (src/restartGone.mjs).
-      transcriptTurn: helperLane.transcriptTurn ?? null, transcriptAt: helperLane.transcriptAt ?? null, background: helperLane.background ?? null,
+      transcriptTurn: helperLane.transcriptTurn ?? null, transcriptAt: helperLane.transcriptAt ?? null, background: helperLane.background ?? null, remoteControl: helperLane.remoteControl === true,
       // The model chip: what the app's file of its chat says it runs at.
       model: helperLane.model ?? null,
       effort: helperLane.effort ?? null,
@@ -3030,7 +3033,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       boardCall: supervisorLane.boardCall ?? null,
       modGone: supervisorLane.modGone ?? null,
       // F19: the transcript's turn, last write and background count (src/restartGone.mjs).
-      transcriptTurn: supervisorLane.transcriptTurn ?? null, transcriptAt: supervisorLane.transcriptAt ?? null, background: supervisorLane.background ?? null,
+      transcriptTurn: supervisorLane.transcriptTurn ?? null, transcriptAt: supervisorLane.transcriptAt ?? null, background: supervisorLane.background ?? null, remoteControl: supervisorLane.remoteControl === true,
       model: supervisorLane.model ?? null,
       effort: supervisorLane.effort ?? null,
       // T7.5: the setting the board holds it at (`supervisorModel`, `supervisorEffort`) and whether its file shows it.
@@ -3059,7 +3062,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       boardCall: ownerLane.boardCall ?? null,
       modGone: ownerLane.modGone ?? null,
       // F19: the transcript's turn, last write and background count (src/restartGone.mjs).
-      transcriptTurn: ownerLane.transcriptTurn ?? null, transcriptAt: ownerLane.transcriptAt ?? null, background: ownerLane.background ?? null,
+      transcriptTurn: ownerLane.transcriptTurn ?? null, transcriptAt: ownerLane.transcriptAt ?? null, background: ownerLane.background ?? null, remoteControl: ownerLane.remoteControl === true,
       model: ownerLane.model ?? null,
       effort: ownerLane.effort ?? null,
       setting: supervisorRun({ lane: ownerLane, setting: OWNER_SETTING, models: runSettings(config).models }),
@@ -3222,12 +3225,14 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
   }
   // F19 (src/restartGone.mjs, section 6): a gone link's row says whether the courier restarts it: Link gone in the quiet colour "restarts by
   // itself at HH:MM", Restarting once the courier took it, else Link gone in the attention colour with F9's way out or the failed why.
-  const restartCtx = { lanes, starters: startersOf(built), pause: pauseRecord ?? null, limits: built.limits ?? null, outbox: sent, record, now, courierAlive: courierAlive(wakes.courierAt ?? null, now) }
+  const restartCtx = { lanes, children: built.appChildren ?? [], pause: pauseRecord ?? null, limits: built.limits ?? null, outbox: sent, record, now, courierAlive: courierAlive(wakes.courierAt ?? null, now) }
+  const rows = new Map()
   const withRestart = lane => {
     if (lane?.status !== 'Link gone') return lane
-    const row = restartRowOf(restartStandOf(lane, restartCtx))
+    const row = restartRowOf(restartStandOf(lane, restartCtx), { courierAt: wakes.courierAt ?? null })
     if (row === null) return lane
-    return { ...lane, ...(row.restarting ? { status: 'Restarting' } : {}), why: row.why, ...(row.quiet ? { quiet: true } : {}) }
+    if (row.quiet) rows.set(lane.name, row)
+    return { ...lane, ...(row.restarting ? { status: STATUSES.RESTARTING } : {}), why: row.why, ...(row.quiet ? { quiet: true } : {}) }
   }
   const withWake = given => {
     if (given === null || given === undefined || given.isLeftover === true) return given
@@ -3244,10 +3249,16 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
   const notice = noticeOf(record, targets, now, hourMinute, { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) })
   // F19 (sections 3, 5): a chat a restart left archived is off the board: the Overview's one wake line names it, in the attention colour.
   const archived = restartArchivedOf(sent, lanes, now).map(archivedLine)
+  // The fix round, item 10: while F19 restarts a chat itself, its "No ask filed" card names that way, never the person's archive.
+  const capital = text => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
+  const forYou = !Array.isArray(built.forYou) ? built.forYou : built.forYou.map(card => (card?.kind === 'unfiled' && rows.has(card.from) && typeof card.text === 'string'
+    ? { ...card, text: card.text.replace(`${capital(MOD_GONE_WHY)}.`, `${capital(rows.get(card.from).why)}.`) } : card))
   return {
-    ...built, chats, ...roles,
+    ...built, chats, ...roles, forYou,
+    // The fix round, item 9: the head's counts of the chats as drawn (a quiet Link gone counts under Restarting, src/chatStatus.mjs `countsOf`).
+    ...(built.counts === undefined ? {} : { counts: countsOf(chats) }),
     // P5: the kept reports the lanes read (the same `lane.report` the hasRunSince above reads), so the notice itself leaves out a chat that ran since its failed wake.
-    wakeNotice: archived.length === 0 ? notice : { ...(notice ?? {}), tone: 'attention', text: [...archived, typeof notice?.text === 'string' && notice.text !== '' ? notice.text : null].filter(Boolean).join('; ') },
+    wakeNotice: archived.length === 0 ? notice : { ...(notice ?? {}), tone: 'attention', text: [...archived, typeof notice?.text === 'string' && notice.text !== '' ? notice.text : null].filter(Boolean).join(' · ') },
     wakes: newestSpells(record),
     // The review of 2026-11-02 (7): the board-wide spell now (nobody runs since), for the rule nobody-answers-wakes.
     wakeBoardSince: nobody?.since ?? null,

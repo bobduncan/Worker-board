@@ -54,6 +54,10 @@ export function parseAppChat(fileText) {
     effort: text(raw.effort),
     model: text(raw.model),
     summary,
+    // F19 (D3', chat 1, 2026-11-14): the chat that started it (`spawnedFrom.sessionId`, its app id), whose archive takes it along; null for none.
+    spawnedFrom: text(raw.spawnedFrom?.sessionId),
+    // F19 fix round, item 12: Remote Control on (the person drives it from the phone): no restart by the courier.
+    remoteControl: raw.remoteControlUserEnabled === true,
   }
 }
 
@@ -131,6 +135,7 @@ export function boardChats(appChats, { project, prefix, main }) {
     effort: chat.effort ?? null,
     model: chat.model ?? null,
     summary: chat.summary,
+    remoteControl: chat.remoteControl === true,
   }))
 
   const names = new Set(named.map(chat => chat.name))

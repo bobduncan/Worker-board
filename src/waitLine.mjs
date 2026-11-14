@@ -343,6 +343,8 @@ export function waitLineOf({ word, lane = null, report = null, ahead = false, wa
   if (word.isHeld === true) return line('sent', sent, 'held while you pause the chats', word.at)
   // F23 review 5: held for the chat's restart (its board link is gone): the person restarts it; the board never wakes such a chat.
   // The re-check, B: only a word still waiting (one its chat took after the restart is no held word, whatever a cached lane says).
+  // F19 fix round, item 10: while the courier restarts the chat itself (its row quiet, or Restarting), the line says that way, quietly.
+  if (word.state === 'waiting' && ((lane?.modGone ?? null) !== null || isTime(word.linkHeldAt)) && (lane?.quiet === true || lane?.status === 'Restarting') && typeof lane.why === 'string') return line('sent', `Held for ${chat}'s restart`, `its board link is gone · ${lane.why}`, word.at)
   if (word.state === 'waiting' && ((lane?.modGone ?? null) !== null || isTime(word.linkHeldAt))) return line('late', `Held for ${chat}'s restart`, `its board link is gone · ${MOD_GONE_WHY}`, word.at)
   if (lane?.isRunning === false) return line('sent', sent, wakingWords(chat, lane, wake), word.at)
   if (arrived !== null) {

@@ -116,7 +116,7 @@ import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
 import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
-import { REFUSED_WHY as RESTART_REFUSED_WHY, STUCK_WHY as RESTART_STUCK_WHY, alsoUnarchiveOf, isArchivedIn, isLimitFull, isRestartWord, noteRestartSent, noteRestartTaken, noteRestartVerdict, restartCloses, restartEntry, restartNeeds, restartTakeable, restartWord, startersOf, unarchiveEntry } from './src/restartGone.mjs'
+import { REFUSED_WHY as RESTART_REFUSED_WHY, STUCK_WHY as RESTART_STUCK_WHY, alsoUnarchiveOf, archivedOfWord, isArchivedIn, isRestartWord, noteRestartSent, noteRestartTaken, noteRestartVerdict, restartCloses, restartEntry, restartNeeds, restartTakeable, restartWord, unarchiveListing } from './src/restartGone.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
@@ -2129,12 +2129,17 @@ async function main(args) {
   const canLaunchNow = () => canOpen && openBlocked === null
   /** F17 review 7, 18: when the scheduled courier last asked for wakes (wakes-due), or null: the board counts on it only while it calls. */
   let lastCourierAt = null
+  /**
+   * F19 fix round, item 1 (the handshake): when a courier on the restart prompt last called (wakes-due with `{"restarts":true}`), or null.
+   * Only it drives the restart words and the page's "restarts by itself"; an old prompt's call keeps F17 and makes or takes no restart word.
+   */
+  let lastRestartCourierAt = null
   /** Change 4: the facts the state reads the wake record with: whether a sender claims, and whether the board can launch. */
   const wakeFacts = () => {
     const now = clock()
     const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
     // F19: and when the courier last called (a gone link's row says whether it restarts by itself).
-    return { record: wakes, senderClaims: !gone, canLaunch: canLaunchNow(), courierAt: lastCourierAt }
+    return { record: wakes, senderClaims: !gone, canLaunch: canLaunchNow(), courierAt: lastRestartCourierAt }
   }
   // B736 (X73, X87, X89): when the board heard no chat at all, and the work calls it answered after the chat's mod gave up.
   const hearing = bridgeKey === null ? null : hearingLog({ startedAt, quietMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000 })
@@ -2811,9 +2816,12 @@ async function main(args) {
     return refused
   }
   /** F19 (src/restartGone.mjs): what the restart checks read: the board's lanes, the starters, the holds, the outbox, the record, the courier. */
-  const restartContextOf = (state, now) => ({ lanes: boardLanes(state), starters: startersOf(state), pause: state.pause ?? null, limits: state.limits ?? null, outbox: store.outbox(), record: wakes, now, courierAlive: courierAlive(lastCourierAt, now) })
-  /** F19, section 4 (D4): a waiting restart word is held back while the person pauses, a limit counts full or its lane is suspended. */
-  const restartHeldOf = state => lane => carryPaused(state.pause) || isLimitFull(state.limits) || (lane?.suspended ?? null) !== null
+  const restartContextOf = (state, now) => ({ lanes: boardLanes(state), children: state.appChildren ?? [], pause: state.pause ?? null, limits: state.limits ?? null, outbox: store.outbox(), record: wakes, now, courierAlive: courierAlive(lastRestartCourierAt, now) })
+  /** F19 fix round, items 6, 7: the app's files, read when a restart word needs them (a taken word, an unarchive due): `isArchived(appId)`. */
+  const archivedNow = async () => {
+    const folders = await readAccountFolders(config.appSessions).catch(() => null)
+    return folders === null ? null : id => isArchivedIn(id, folders)
+  }
   /**
    * F19, section 4 (D5): the restart words whose purpose ended are closed (each only when its state is still the one it was judged in),
    * and the try of a taken one gets its verdict. Section 5 first: a taken word whose chat left the board is marked `archivedAt` once the app
@@ -2822,25 +2830,26 @@ async function main(args) {
   const applyRestartCloses = async (state, now) => {
     let changed = false
     const lanes = boardLanes(state)
+    // The fix round, items 6, 7: the app's files are read while a word is taken (its chats may be archived now).
+    const isArchived = store.outbox().some(one => isRestartWord(one) && one.state === 'taken') ? await archivedNow() : null
     const offBoard = store.outbox().filter(one => isRestartWord(one) && one.state === 'taken' && !Number.isFinite(one.archivedAt) && !lanes.some(lane => lane.name === one.about && lane.isLeftover !== true))
-    if (offBoard.length > 0) {
-      const folders = await readAccountFolders(config.appSessions).catch(() => [])
-      for (const word of offBoard) {
-        if (word.state !== 'taken' || !isArchivedIn(word.session, folders)) continue
-        await store.update(word.id, { archivedAt: now })
-        changed = true
-      }
+    for (const word of offBoard) {
+      if (isArchived === null || word.state !== 'taken' || !isArchived(word.session)) continue
+      await store.update(word.id, { archivedAt: now })
+      changed = true
     }
-    // Judged and their states taken in one step: a take or a wakes-sent in between finds its word changed, and the close is not applied.
+    // Judged and their states taken in one step: a take or a wakes-sent in between finds its word changed (its state, or its sentAt: group
+    // D), and the close is not applied.
     const words = store.outbox().filter(isRestartWord)
-    const was = new Map(words.map(one => [one.id, one.state]))
-    for (const close of restartCloses({ outbox: store.outbox(), lanes, now, isHeld: restartHeldOf(state) })) {
+    const was = new Map(words.map(one => [one.id, `${one.state} ${one.sentAt ?? ''}`]))
+    for (const close of restartCloses({ outbox: store.outbox(), lanes, now, pause: state.pause ?? null, limits: state.limits ?? null, appStartedAt: state.appStartedAt ?? null, isArchived })) {
       const word = store.outbox().find(one => one.id === close.id)
-      if (word === undefined || word.state !== was.get(close.id)) continue
-      const extra = { ...(close.failed === true ? { failed: true } : {}), ...(close.unarchive === true ? { unarchive: 'due' } : {}), ...(close.state === 'delivered' ? { deliveredAt: now } : {}) }
+      if (word === undefined || `${word.state} ${word.sentAt ?? ''}` !== was.get(close.id)) continue
+      // The fix round, item 6: what the app's files show archived of it at its close is kept on the word (the Overview names those).
+      const extra = { ...(close.failed === true ? { failed: true } : {}), ...(close.unarchive === true ? { unarchive: 'due' } : {}), ...(close.state === 'delivered' ? { deliveredAt: now } : {}), ...(Array.isArray(close.archived) ? { archived: close.archived } : {}) }
       const applied = word.state === 'waiting' ? await store.close(word.id, close.state, close.why, now, extra) : await store.update(word.id, { state: close.state, why: close.why, closedAt: now, ...extra })
       if (!applied) continue
-      if (close.verdict !== null) noteRestartVerdict(wakes, word.about, word.id, close.verdict, close.why, now)
+      if (close.verdict !== null) noteRestartVerdict(wakes, word, close.verdict, close.why, now)
       console.log(`Restart: the word to restart ${word.about} is closed at ${timeOf(now)}: ${close.why}${close.unarchive === true ? ' (the courier unarchives it on its next run)' : ''}.`)
       changed = true
     }
@@ -2853,7 +2862,7 @@ async function main(args) {
    */
   const restartPass = async (state, now) => {
     let changed = await applyRestartCloses(state, now)
-    if (courierAlive(lastCourierAt, now)) {
+    if (courierAlive(lastRestartCourierAt, now)) {
       const words = restartNeeds(restartContextOf(state, now)).map(need => restartWord({ id: randomBytes(8).toString('hex'), at: now, need }))
       if (words.length > 0) {
         changed = true
@@ -3919,10 +3928,13 @@ async function main(args) {
     // F17 (B, the fallback): the scheduled courier (tools/wake-courier.md) asks for the wakes no free chat carries. Each word is handed to it
     // ONCE (review 17), taken in the same step as it is checked (review 6), with a fresh window from now (review 3, 11); only for a target
     // that still sleeps with its attempt pending (review 12), and nothing while the person pauses (review 13). Nothing due: an empty list.
-    wakesDue: counted(async () => {
+    wakesDue: counted(async body => {
       if (isShowOnly || bridgeKey === null) return { ok: true, result: { wakes: [] } }
       const now = clock()
       lastCourierAt = now
+      // F19 fix round, item 1: only a courier on the restart prompt says `{"restarts":true}`; only it gets restart and unarchive entries.
+      const restarts = body?.restarts === true
+      if (restarts) lastRestartCourierAt = now
       const state = await readState()
       if (isHolding(state.pause)) return { ok: true, result: { wakes: [] } }
       let changed = await applyCarryCloses(state, now)
@@ -3954,20 +3966,33 @@ async function main(args) {
       }
       // F19 (section 3): the waiting restart words, re-checked against section 1 (src/restartGone.mjs `restartTakeable`) and taken in the
       // same step (no await between); a starter's list of the chats its archive takes along is set at the take (D3); the try is the spell's.
-      for (const word of store.outbox().filter(one => isRestartWord(one) && one.state === 'waiting')) {
+      for (const word of restarts ? store.outbox().filter(one => isRestartWord(one) && one.state === 'waiting') : []) {
         const ctx = restartContextOf(state, now)
         if (!restartTakeable(word, ctx)) continue
-        const alsoUnarchive = alsoUnarchiveOf(ctx.lanes, word.about, { starters: ctx.starters })
-        const marking = store.update(word.id, { state: 'taken', takenBy: COURIER, takenAt: now, alsoUnarchive })
+        // D3': the target's children as the app's files name them, with their board names (the Overview names any left archived).
+        const lane = ctx.lanes.find(one => one.name === word.about && one.isLeftover !== true)
+        const alsoUnarchive = alsoUnarchiveOf(lane, ctx.children)
+        const alsoChats = Object.fromEntries(alsoUnarchive.map(id => [id, ctx.lanes.find(one => one.appSession === id && one.isLeftover !== true)?.name ?? id]))
+        const marking = store.update(word.id, { state: 'taken', takenBy: COURIER, takenAt: now, alsoUnarchive, alsoChats })
         noteRestartTaken(wakes, { chat: word.about, spell: word.spell, word: word.id, now })
         handed.push(restartEntry(word, alsoUnarchive))
         await marking
         changed = true
       }
-      // F19 (section 5, D6): an unarchive-only entry, listed once.
-      for (const word of store.outbox().filter(one => isRestartWord(one) && one.unarchive === 'due')) {
+      // F19 (section 5, D6; the fix round, item 7): an unarchive-only entry, listed once, within UNARCHIVE_LIST_MS of its close, re-checked
+      // (no removal since the take; the target still archived), its list the take's chats archived now; else the flag clears.
+      const due = restarts ? store.outbox().filter(one => isRestartWord(one) && one.unarchive === 'due') : []
+      const isArchived = due.length > 0 ? await archivedNow() : null
+      for (const word of due) {
+        if (word.unarchive !== 'due') continue
+        const listing = unarchiveListing(word, { now, outbox: store.outbox(), lanes: boardLanes(state), isArchived })
+        if (listing.entry === undefined) {
+          await store.update(word.id, { unarchive: null, unarchiveWhy: listing.clear })
+          changed = true
+          continue
+        }
         const marking = store.update(word.id, { unarchive: 'listed', unarchiveAt: now })
-        handed.push(unarchiveEntry(word))
+        handed.push(listing.entry)
         await marking
         changed = true
       }
@@ -3989,8 +4014,11 @@ async function main(args) {
         for (const id of list) {
           const word = store.outbox().find(message => message.id === id)
           if (!isCouriers(word)) continue
-          await store.update(id, { state: 'dropped', why, closedAt: now, ...(verdict === 'stuck' ? { failed: true } : {}) })
-          noteRestartVerdict(wakes, word.about, id, verdict, why, now)
+          // The fix round, item 6: a stuck run's chats the app's files show archived now are kept on the word (the Overview names them).
+          const archived = verdict === 'stuck' ? archivedOfWord(word, await archivedNow()) : []
+          if (!isCouriers(word)) continue
+          await store.update(id, { state: 'dropped', why, closedAt: now, ...(verdict === 'stuck' ? { failed: true, archived } : {}) })
+          noteRestartVerdict(wakes, word, verdict, why, now)
           console.log(`Restart: the courier could not restart ${word.about} at ${timeOf(now)}: ${why}.`)
           restarts += 1
         }
@@ -4000,7 +4028,7 @@ async function main(args) {
         if (isRestartWord(word)) {
           if (!isCouriers(word)) continue
           await store.update(id, { sentAt: now, why: 'the courier restarted it' })
-          noteRestartSent(wakes, word.about, id, now)
+          noteRestartSent(wakes, word, now)
           restarts += 1
           continue
         }

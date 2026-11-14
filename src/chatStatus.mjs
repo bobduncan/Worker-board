@@ -199,7 +199,8 @@ export function toneOf(status, age = null) {
 /** The head's counts: one number per status (every key present), over the chats that carry a status (a leftover has none). */
 export function countsOf(chats) {
   const counts = Object.fromEntries(COUNT_KEYS.map(key => [key, 0]))
-  for (const chat of chats) if (typeof chat?.status === 'string' && STATUS_FACTS[chat.status] !== undefined) counts[STATUS_FACTS[chat.status].key] += 1
+  // F19 fix round, item 9: a Link gone the courier restarts by itself (`quiet`, state.mjs `withWakes`) counts under Restarting, never amber.
+  for (const chat of chats) if (typeof chat?.status === 'string' && STATUS_FACTS[chat.status] !== undefined) counts[STATUS_FACTS[chat.status === STATUSES.LINK_GONE && chat.quiet === true ? STATUSES.RESTARTING : chat.status].key] += 1
   return counts
 }
 
@@ -234,7 +235,8 @@ export function statusesOf(state, now = null) {
       name: chat.name.slice(0, NAME_CHARS),
       status: chat.status,
       why: typeof chat.why === 'string' ? chat.why.slice(0, STATUS_WHY_CHARS) : null,
-      tone: toneOf(chat.status, chat.age ?? null),
+      // F19 fix round, item 9: a quiet Link gone goes to the Workers pane quiet too.
+      tone: chat.quiet === true ? 'quiet' : toneOf(chat.status, chat.age ?? null),
       since: finite(chat.since) ? chat.since : null,
       reportAt: finite(chat.reportAt) ? chat.reportAt : null,
       ...(holds(chat) ? { held: heldEntry(chat.held, now) } : {}),

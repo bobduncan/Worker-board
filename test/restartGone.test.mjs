@@ -1,19 +1,26 @@
-// F19 (.claude/plans/2026-11-14-f19-restart-gone-link.md, section 8): the courier restarts a chat whose board link is gone. The garden is
-// Worker 4's real unload (its two deltas, 2026-11-13 21:36:27Z, 22:36 on this PC's clock) on a made-up board.
+// F19 (.claude/plans/2026-11-14-f19-restart-gone-link.md, section 8, and the fix round of both review lenses): the courier restarts a chat
+// whose board link is gone. The garden is Worker 4's real unload (its two deltas, 2026-11-13 21:36:27Z, 22:36 on this PC's clock) on a
+// made-up board.
 
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-import { foldOutbox, isLate, keepMs, outboxKnown } from '../src/store.mjs'
+import { STATUSES, countsOf, statusesOf } from '../src/chatStatus.mjs'
+import { parseAppChat } from '../src/appChats.mjs'
+import { foldOutbox, isLate, keepMs, memoryStore, outboxKnown } from '../src/store.mjs'
 import { isUndelivered } from '../src/supervisor/rules/watch.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
+import { wordJudge } from '../src/supervisor/index.mjs'
+import { waitLineOf } from '../src/waitLine.mjs'
 import { emptyWakes, textOfWakes, wakesOfFile } from '../src/wake.mjs'
 import { COURIER, COURIER_WAIT_MS, carryCloses, isCarryWord } from '../src/wakeCarry.mjs'
 import { MOD_GONE_WHY } from '../src/modGone.mjs'
+import { sweepOutbox } from '../src/work/outboxSweep.mjs'
 import {
   CHAT_RESTART, HELD_WHY, LINK_BACK_WHY, NOT_BACK_WHY, NO_COURIER_WHY, REFUSED_WHY, RESTARTING_WHY, RESTART_QUIET_MS, RESTART_REFUSED_MS, RESTART_TAKEN_MS,
-  RESTART_VERDICT_MS, STUCK_WHY, UNSAID_WHY, alsoUnarchiveOf, archivedLine, isArchivedIn, isRestartWord, noteRestartSent, noteRestartTaken, noteRestartVerdict, restartArchivedOf,
-  restartCloses, restartNeeds, restartRowOf, restartSpent, restartStandOf, restartTakeable, restartWakeText, restartWord, startersOf,
+  RESTART_VERDICT_MS, STUCK_WHY, UNARCHIVE_LIST_MS, UNSAID_WHY, alsoUnarchiveOf, archivedLine, archivedOfWord, isArchivedIn, isRestartWord, noteRestartSent, noteRestartTaken,
+  noteRestartVerdict, restartArchivedOf, restartCloses, restartNeeds, restartRowOf, restartSpent, restartStandOf, restartTakeable, restartWakeText, restartWord, unarchiveListing,
 } from '../src/restartGone.mjs'
 
 const MIN = 60_000
@@ -22,12 +29,14 @@ const GONE = Date.parse('2026-11-13T21:36:27.000Z')
 const NOW = GONE + 40 * MIN
 const hm = ms => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
 
-/** A board lane: idle by its transcript (ended, background 0, quiet 20 min) unless `more` says otherwise. */
+/** A board lane: idle by its transcript (ended, background 0, quiet 20 min) unless `more` says otherwise; its last report before the unload. */
 const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, isRunning: true, state: 'unknown', appSession: `local_${name.toLowerCase().replace(/ /g, '')}`,
-  modGone: null, transcriptTurn: 'ended', transcriptAt: NOW - 20 * MIN, background: 0, suspended: null, ...more })
+  modGone: null, transcriptTurn: 'ended', transcriptAt: NOW - 20 * MIN, background: 0, suspended: null, report: { state: 'busy', at: GONE - MIN }, ...more })
 const gone = (name, more = {}) => lane(name, { modGone: { at: GONE }, ...more })
 const MAIN = lane('Main', { isMain: true })
-const ctxOf = (lanes, more = {}) => ({ lanes, starters: ['Main', 'Advisor'], pause: null, limits: null, outbox: [], record: emptyWakes(), now: NOW, courierAlive: true, ...more })
+const ctxOf = (lanes, more = {}) => ({ lanes, children: [], pause: null, limits: null, outbox: [], record: emptyWakes(), now: NOW, courierAlive: true, ...more })
+const child = (id, parent, title, more = {}) => ({ id, parent, title, isArchived: false, ...more })
+const wordOf = (id, more = {}) => ({ id, about: 'Worker 4', spell: GONE, takenAt: NOW - 30 * MIN, ...more })
 
 test('the real case: Worker 4 (ended, background 0, quiet 10 min, the courier alive) needs one restart; its word and its wake text', () => {
   const ctx = ctxOf([MAIN, gone('Worker 4', { transcriptAt: GONE + 30_000 })])
@@ -45,12 +54,17 @@ test('the real case: Worker 4 (ended, background 0, quiet 10 min, the courier al
   assert.deepEqual(restartNeeds({ ...ctx, outbox: [word] }), [])
 })
 
-test('a busy, asking or background chat is never listed; quiet 5 min is not (it waits on the quiet clock)', () => {
-  for (const more of [{ transcriptTurn: 'running' }, { transcriptTurn: 'asking' }, { background: 1 }, { background: null }, { transcriptTurn: null }]) {
+test('a busy, asking or background chat is never listed; quiet 5 min is not (it waits on the quiet clock); Remote Control on is not', () => {
+  for (const more of [{ transcriptTurn: 'running' }, { transcriptTurn: 'asking' }, { background: 1 }, { background: null }, { transcriptTurn: null }, { remoteControl: true }]) {
     const ctx = ctxOf([MAIN, gone('Worker 4', more)])
     assert.deepEqual(restartNeeds(ctx), [], JSON.stringify(more))
     assert.equal(restartStandOf(ctx.lanes[1], ctx).kind, 'no', JSON.stringify(more))
   }
+  const remote = ctxOf([MAIN, gone('Worker 4', { remoteControl: true })])
+  assert.equal(restartStandOf(remote.lanes[1], remote).reason, 'Remote Control is on')
+  assert.deepEqual(restartRowOf(restartStandOf(remote.lanes[1], remote)), { restarting: false, why: MOD_GONE_WHY, quiet: false })
+  // The app's file says so (appChats.mjs).
+  assert.equal(parseAppChat(JSON.stringify({ title: 'Game - Worker 4', cliSessionId: 'c', sessionId: 'local_w4', remoteControlUserEnabled: true })).remoteControl, true)
   const quiet = ctxOf([MAIN, gone('Worker 4', { transcriptAt: NOW - 5 * MIN })])
   assert.deepEqual(restartNeeds(quiet), [])
   assert.deepEqual(restartStandOf(quiet.lanes[1], quiet), { kind: 'quiet', at: NOW - 5 * MIN + RESTART_QUIET_MS })
@@ -58,52 +72,80 @@ test('a busy, asking or background chat is never listed; quiet 5 min is not (it 
   assert.equal(restartNeeds(ctxOf([MAIN, gone('Worker 4', { transcriptAt: NOW - RESTART_QUIET_MS })])).length, 1)
 })
 
-test('a starter: Main whose list holds a chat with background work (or not idle) is not listed; with all idle it carries the list', () => {
-  const lanes = more => [gone('Main', { isMain: true }), lane('Worker 1', more), lane('Worker 2'), lane('Old', { isLeftover: true }), lane('No id', { appSession: null })]
-  assert.deepEqual(restartNeeds(ctxOf(lanes({ background: 2 }))), [])
-  assert.equal(restartStandOf(lanes({ background: 2 })[0], ctxOf(lanes({ background: 2 }))).reason, 'its chats are not idle')
-  assert.deepEqual(restartNeeds(ctxOf(lanes({ transcriptTurn: 'running' }))), [])
-  // A started chat on the quiet clock: Main waits for it too.
-  const later = ctxOf(lanes({ transcriptAt: NOW - 4 * MIN }))
-  assert.deepEqual(restartStandOf(later.lanes[0], later), { kind: 'quiet', at: NOW - 4 * MIN + RESTART_QUIET_MS })
-  const all = ctxOf(lanes({}))
-  assert.equal(restartNeeds(all).length, 1)
-  // The list: the board's lanes but the target, the leftovers and those without an app id; archived ones left out.
-  assert.deepEqual(alsoUnarchiveOf(all.lanes, 'Main', { starters: startersOf({ restart: { main: 'Main' }, advisor: { name: 'Advisor' } }) }), ['local_worker1', 'local_worker2'])
-  assert.deepEqual(alsoUnarchiveOf(all.lanes, 'Main', { starters: ['Main'], archived: new Set(['local_worker2']) }), ['local_worker1'])
-  // Any other target carries an empty list (chat 1, 2026-11-14), and its own idle test only.
-  assert.deepEqual(alsoUnarchiveOf(all.lanes, 'Worker 1', { starters: ['Main', 'Advisor'] }), [])
-  assert.equal(restartNeeds(ctxOf([MAIN, gone('Worker 4'), lane('Worker 1', { background: 3 })])).length, 1)
+test('D3\': the chats a target\'s archive takes along are its children as the app\'s files name them; only those must be idle', () => {
+  const main = gone('Main', { isMain: true, appSession: 'local_main' })
+  const lanes = more => [main, lane('Advisor', { appSession: 'local_adv', ...more }), lane('Worker 1', { appSession: 'local_w1', background: 3 })]
+  // Main started the Advisor (its child); Worker 1 is a routine's (no parent): its background work does not hold Main.
+  const children = [child('local_adv', 'local_main', 'Game - Advisor'), child('local_other', 'local_side', 'Chat 3')]
+  assert.equal(restartNeeds(ctxOf(lanes({}), { children })).length, 1)
+  assert.deepEqual(alsoUnarchiveOf(main, children), ['local_adv'])
+  // The child busy or with background work: Main waits.
+  assert.deepEqual(restartNeeds(ctxOf(lanes({ background: 1 }), { children })), [])
+  assert.equal(restartStandOf(main, ctxOf(lanes({ background: 1 }), { children })).reason, 'its chats are not idle')
+  // The child on the quiet clock: Main waits for it too.
+  const later = ctxOf(lanes({ transcriptAt: NOW - 4 * MIN }), { children })
+  assert.deepEqual(restartStandOf(main, later), { kind: 'quiet', at: NOW - 4 * MIN + RESTART_QUIET_MS })
+  // A child the board cannot see (no board lane): Main does not qualify.
+  const unseen = [...children, child('local_side2', 'local_main', 'Chat 4')]
+  assert.deepEqual(restartStandOf(main, ctxOf(lanes({}), { children: unseen })), { kind: 'no', why: MOD_GONE_WHY, reason: 'it started Chat 4, which the board cannot see' })
+  // An archived child is not on the list; a chat without children carries an empty one (any target: a worker too).
+  assert.deepEqual(alsoUnarchiveOf(main, [child('local_adv', 'local_main', 'A', { isArchived: true })]), [])
+  assert.deepEqual(alsoUnarchiveOf(gone('Worker 4'), children), [])
+  assert.deepEqual(alsoUnarchiveOf(gone('Worker 4'), [child('local_x', 'local_worker4', 'X')]), ['local_x'])
+  // The app's file names the parent (appChats.mjs).
+  assert.equal(parseAppChat(JSON.stringify({ title: 'Game - Advisor', cliSessionId: 'c', sessionId: 'local_adv', spawnedFrom: { sessionId: 'local_main' } })).spawnedFrom, 'local_main')
 })
 
-test('the same spell after a taken word is not listed, a new spell is; a refused archive spends no try and waits 30 min', () => {
+test('the same spell after a taken word is not listed, a new spell is; a refused archive spends no try and waits 30 min; three refusals stop it', () => {
   const record = emptyWakes()
   noteRestartTaken(record, { chat: 'Worker 4', spell: GONE, word: 'r1', now: NOW - 30 * MIN })
-  noteRestartVerdict(record, 'Worker 4', 'r1', 'failed', NOT_BACK_WHY, NOW - 15 * MIN)
+  noteRestartVerdict(record, wordOf('r1'), 'failed', NOT_BACK_WHY, NOW - 15 * MIN)
   assert.equal(restartSpent(record, 'Worker 4', GONE), true)
   assert.deepEqual(restartNeeds(ctxOf([MAIN, gone('Worker 4')], { record })), [])
-  assert.deepEqual(restartStandOf(gone('Worker 4'), ctxOf([], { record })), { kind: 'failed', why: NOT_BACK_WHY })
+  assert.equal(restartStandOf(gone('Worker 4'), ctxOf([], { record })).kind, 'failed')
   // A new unload later is a new spell.
   assert.equal(restartNeeds(ctxOf([MAIN, gone('Worker 4', { modGone: { at: GONE + 20 * MIN } })], { record })).length, 1)
   // Refused: no try spent, no word for 30 min after the refusal.
   const refused = emptyWakes()
   noteRestartTaken(refused, { chat: 'Worker 4', spell: GONE, word: 'r2', now: NOW - 12 * MIN })
-  noteRestartVerdict(refused, 'Worker 4', 'r2', 'refused', REFUSED_WHY, NOW - 10 * MIN)
+  noteRestartVerdict(refused, wordOf('r2'), 'refused', REFUSED_WHY, NOW - 10 * MIN)
   assert.equal(restartSpent(refused, 'Worker 4', GONE), false)
   assert.deepEqual(restartStandOf(gone('Worker 4'), ctxOf([], { record: refused })), { kind: 'refused', why: REFUSED_WHY, until: NOW - 10 * MIN + RESTART_REFUSED_MS })
   assert.deepEqual(restartNeeds(ctxOf([MAIN, gone('Worker 4')], { record: refused })), [])
   assert.equal(restartNeeds(ctxOf([MAIN, gone('Worker 4')], { record: refused, now: NOW + 20 * MIN })).length, 1, '30 min after the refusal')
-  // A taken try without its verdict: Restarting.
-  const open = emptyWakes()
-  noteRestartTaken(open, { chat: 'Worker 4', spell: GONE, word: 'r3', now: NOW - MIN })
-  assert.deepEqual(restartStandOf(gone('Worker 4'), ctxOf([], { record: open })), { kind: 'restarting' })
+  for (const n of [3, 4]) {
+    noteRestartTaken(refused, { chat: 'Worker 4', spell: GONE, word: `r${n}`, now: NOW - MIN })
+    noteRestartVerdict(refused, wordOf(`r${n}`), 'refused', REFUSED_WHY, NOW - 100 * MIN)
+  }
+  assert.equal(restartStandOf(gone('Worker 4'), ctxOf([], { record: refused, now: NOW + 60 * MIN })).reason, 'the app refused the archive 3 times')
+})
+
+test('the fix round, item 5: the spell counts spent from the raw outbox too; an open try reads Restarting only while its word is open', () => {
+  // The board died a second after the take: the outbox has the word taken, the record has no try.
+  const taken = { ...restartWord({ id: 'r1', at: NOW - 20 * MIN, need: { chat: 'Worker 4', session: 'local_worker4', spell: GONE } }), state: 'dropped', takenAt: NOW - 19 * MIN, why: NOT_BACK_WHY }
+  assert.equal(restartSpent(emptyWakes(), 'Worker 4', GONE, [taken]), true)
+  assert.deepEqual(restartNeeds(ctxOf([MAIN, gone('Worker 4')], { outbox: [taken] })), [])
+  // A refused one in the outbox spends nothing.
+  assert.equal(restartSpent(emptyWakes(), 'Worker 4', GONE, [{ ...taken, why: REFUSED_WHY }]), false)
+  // The record's try without a verdict whose word is closed: failed, never Restarting for good.
+  const record = emptyWakes()
+  noteRestartTaken(record, { chat: 'Worker 4', spell: GONE, word: 'r1', now: NOW - 19 * MIN })
+  assert.equal(restartStandOf(gone('Worker 4'), ctxOf([], { record, outbox: [taken] })).kind, 'failed')
+  assert.equal(restartStandOf(gone('Worker 4'), ctxOf([], { record, outbox: [{ ...taken, state: 'taken' }] })).kind, 'restarting')
+  // sent and the verdict add the try from the word when the record lacks it.
+  const lacking = emptyWakes()
+  assert.equal(noteRestartSent(lacking, wordOf('r9'), NOW), true)
+  assert.deepEqual(lacking.restartTries.get('Worker 4').map(one => [one.word, one.sentAt]), [['r9', NOW]])
+  const lacking2 = emptyWakes()
+  assert.equal(noteRestartVerdict(lacking2, wordOf('r8'), 'failed', NOT_BACK_WHY, NOW), true)
+  assert.equal(restartSpent(lacking2, 'Worker 4', GONE), true)
 })
 
 test('the try survives a pruned outbox view and the board\'s restart (the record\'s file); pruned with the spells', () => {
   const record = emptyWakes()
   noteRestartTaken(record, { chat: 'Worker 4', spell: GONE, word: 'r1', now: NOW - 30 * MIN })
-  noteRestartSent(record, 'Worker 4', 'r1', NOW - 29 * MIN)
-  noteRestartVerdict(record, 'Worker 4', 'r1', 'failed', NOT_BACK_WHY, NOW - 19 * MIN)
+  noteRestartSent(record, wordOf('r1'), NOW - 29 * MIN)
+  noteRestartVerdict(record, wordOf('r1'), 'failed', NOT_BACK_WHY, NOW - 19 * MIN)
   const again = wakesOfFile(JSON.parse(textOfWakes(record)))
   assert.deepEqual(again.restartTries.get('Worker 4'), [{ spell: GONE, word: 'r1', takenAt: NOW - 30 * MIN, sentAt: NOW - 29 * MIN, verdict: 'failed', verdictAt: NOW - 19 * MIN, why: NOT_BACK_WHY }])
   // No word in the outbox at all (an old view, pruned): still no second try.
@@ -114,7 +156,7 @@ test('the try survives a pruned outbox view and the board\'s restart (the record
   assert.equal(Object.hasOwn(JSON.parse(textOfWakes(emptyWakes())), 'restartTries'), false)
 })
 
-test('pause, a full limit, a suspended lane, a stop: not listed; no courier, no word', () => {
+test('pause, a full limit, a suspended lane, a stop, a removal, a task stop: not listed; no courier, no word; at most 3 restarts a day', () => {
   const lanes = [MAIN, gone('Worker 4')]
   assert.deepEqual(restartNeeds(ctxOf(lanes, { pause: { state: 'pausing', since: NOW - MIN } })), [])
   assert.deepEqual(restartNeeds(ctxOf(lanes, { limits: { week: { level: 'full' }, fiveHour: { level: 'ok' } } })), [])
@@ -123,46 +165,74 @@ test('pause, a full limit, a suspended lane, a stop: not listed; no courier, no 
   assert.deepEqual(restartNeeds(ctxOf([MAIN, gone('Worker 4', { suspended: { by: 'app', limit: 'week' } })])), [])
   const stopped = { id: 's', at: NOW - MIN, to: 'Worker 4', text: 'Go on.', state: 'waiting', stoppedAt: NOW - MIN, stoppedSession: 'x' }
   assert.equal(restartStandOf(lanes[1], ctxOf(lanes, { outbox: [stopped] })).kind, 'no')
+  // The fix round, item 3: being removed, or stopped by the person.
+  for (const [more, outbox] of [[{ removedAt: NOW - MIN }, []], [{ removal: { isOpen: true } }, []], [{}, [{ id: 'rm', at: NOW - MIN, to: 'Main', command: 'remove', about: 'Worker 4', text: 'x', state: 'taken' }]],
+    [{}, [{ id: 'st', at: NOW - MIN, to: 'Main', command: 'stop', byCode: true, about: 'Worker 4', text: 'x', state: 'waiting' }]]]) {
+    const ctx = ctxOf([MAIN, gone('Worker 4', more)], { outbox })
+    assert.deepEqual(restartNeeds(ctx), [], JSON.stringify([more, outbox]))
+  }
   assert.deepEqual(restartNeeds(ctxOf(lanes, { courierAlive: false })), [])
   assert.deepEqual(restartStandOf(lanes[1], ctxOf(lanes, { courierAlive: false })), { kind: 'no', why: MOD_GONE_WHY, reason: 'no courier' })
   // Resumed: listed again (the same spell gets its one word).
   assert.equal(restartNeeds(ctxOf(lanes, { pause: { state: 'resuming', since: NOW - MIN } })).length, 1)
+  // Three restarts in a day (other spells): no fourth.
+  const record = emptyWakes()
+  for (let n = 1; n <= 3; n += 1) {
+    noteRestartTaken(record, { chat: 'Worker 4', spell: GONE - n * MIN, word: `d${n}`, now: NOW - n * 60 * MIN })
+    noteRestartVerdict(record, wordOf(`d${n}`, { spell: GONE - n * MIN }), 'back', LINK_BACK_WHY, NOW - n * 50 * MIN)
+  }
+  assert.equal(restartStandOf(lanes[1], ctxOf(lanes, { record })).reason, 'restarted 3 times in a day')
 })
 
 const waiting = (more = {}) => ({ ...restartWord({ id: 'r1', at: NOW - MIN, need: { chat: 'Worker 4', session: 'local_worker4', spell: GONE } }), ...more })
+const back = (name, more = {}) => lane(name, { report: { state: 'idle', at: NOW - 30_000 }, ...more })
 
 test('the closes: a hold drops a waiting word without a try; COURIER_WAIT_MS drops it "the courier did not come"; link back; the windows', () => {
   const lanes = [MAIN, gone('Worker 4')]
-  const held = () => true
-  assert.deepEqual(restartCloses({ outbox: [waiting()], lanes, now: NOW, isHeld: held }), [{ id: 'r1', state: 'dropped', why: HELD_WHY, verdict: null }])
+  assert.deepEqual(restartCloses({ outbox: [waiting()], lanes, now: NOW, pause: { state: 'pausing' } }), [{ id: 'r1', state: 'dropped', why: HELD_WHY, verdict: null }])
+  assert.deepEqual(restartCloses({ outbox: [waiting()], lanes, now: NOW, limits: { week: { level: 'full' } } }), [{ id: 'r1', state: 'dropped', why: HELD_WHY, verdict: null }])
+  assert.deepEqual(restartCloses({ outbox: [waiting()], lanes: [MAIN, gone('Worker 4', { suspended: { by: 'app' } })], now: NOW }), [{ id: 'r1', state: 'dropped', why: HELD_WHY, verdict: null }])
+  // The fix round, item 3: a removal or a task stop drops it too.
+  assert.equal(restartCloses({ outbox: [waiting()], lanes: [MAIN, gone('Worker 4', { removedAt: NOW - MIN })], now: NOW })[0]?.why, HELD_WHY)
+  assert.equal(restartCloses({ outbox: [waiting(), { id: 'st', at: NOW - MIN, to: 'Main', command: 'stop', byCode: true, about: 'Worker 4', text: 'x', state: 'waiting' }], lanes, now: NOW })[0]?.why, HELD_WHY)
   assert.deepEqual(restartCloses({ outbox: [waiting()], lanes, now: NOW }), [])
   assert.deepEqual(restartCloses({ outbox: [waiting()], lanes, now: NOW - MIN + COURIER_WAIT_MS }), [{ id: 'r1', state: 'dropped', why: NO_COURIER_WHY, verdict: null }])
-  // Link back: any open word (its chat on the board without the gone link, or another spell's).
-  assert.deepEqual(restartCloses({ outbox: [waiting()], lanes: [MAIN, lane('Worker 4')], now: NOW }), [{ id: 'r1', state: 'dropped', why: LINK_BACK_WHY, verdict: null }])
+  // Link back: its chat on the board with a report heard after the unload, or the app started after it.
+  assert.deepEqual(restartCloses({ outbox: [waiting()], lanes: [MAIN, back('Worker 4')], now: NOW }), [{ id: 'r1', state: 'dropped', why: LINK_BACK_WHY, verdict: null }])
+  assert.equal(restartCloses({ outbox: [waiting()], lanes: [MAIN, lane('Worker 4')], now: NOW, appStartedAt: GONE + MIN })[0]?.why, LINK_BACK_WHY)
   const sent = waiting({ state: 'taken', takenBy: COURIER, takenAt: NOW - 3 * MIN, sentAt: NOW - 2 * MIN })
-  assert.deepEqual(restartCloses({ outbox: [sent], lanes: [MAIN, lane('Worker 4')], now: NOW }), [{ id: 'r1', state: 'delivered', why: LINK_BACK_WHY, verdict: 'back' }])
+  assert.deepEqual(restartCloses({ outbox: [sent], lanes: [MAIN, back('Worker 4')], now: NOW }), [{ id: 'r1', state: 'delivered', why: LINK_BACK_WHY, verdict: 'back', archived: [] }])
   // Off the board (archived mid-run): no "link is back".
   assert.deepEqual(restartCloses({ outbox: [sent], lanes: [MAIN], now: NOW }), [])
   // Sent, no report 10 min after: failed.
-  assert.deepEqual(restartCloses({ outbox: [sent], lanes, now: NOW - 2 * MIN + RESTART_VERDICT_MS }), [{ id: 'r1', state: 'dropped', why: NOT_BACK_WHY, verdict: 'failed', failed: true }])
+  assert.deepEqual(restartCloses({ outbox: [sent], lanes, now: NOW - 2 * MIN + RESTART_VERDICT_MS }), [{ id: 'r1', state: 'dropped', why: NOT_BACK_WHY, verdict: 'failed', failed: true, archived: [] }])
   assert.deepEqual(restartCloses({ outbox: [sent], lanes, now: NOW - 2 * MIN + RESTART_VERDICT_MS - 1 }), [])
   // A taken word without wakes-sent: failed at 15 min, not before.
   const taken = waiting({ state: 'taken', takenBy: COURIER, takenAt: NOW - RESTART_TAKEN_MS })
-  assert.deepEqual(restartCloses({ outbox: [taken], lanes, now: NOW }), [{ id: 'r1', state: 'dropped', why: UNSAID_WHY, verdict: 'failed', failed: true, unarchive: false }])
+  assert.deepEqual(restartCloses({ outbox: [taken], lanes, now: NOW }), [{ id: 'r1', state: 'dropped', why: UNSAID_WHY, verdict: 'failed', failed: true, unarchive: false, archived: [] }])
   assert.deepEqual(restartCloses({ outbox: [taken], lanes, now: NOW - 1 }), [])
   // A held taken word is not dropped by the hold (the courier has it).
-  assert.deepEqual(restartCloses({ outbox: [taken], lanes, now: NOW - 1, isHeld: held }), [])
+  assert.deepEqual(restartCloses({ outbox: [taken], lanes, now: NOW - 1, pause: { state: 'pausing' } }), [])
 })
 
-test('the unarchive entry only on its conditions: seen archived within the run window, still off the board, no removal open', () => {
+test('the fix round, item 4: a gone link that reads null alone (an unreadable transcript) is no link back', () => {
+  const sent = waiting({ state: 'taken', takenBy: COURIER, takenAt: NOW - 3 * MIN, sentAt: NOW - 2 * MIN })
+  // modGone null, its last report from before the unload, the app not started since: no close.
+  assert.deepEqual(restartCloses({ outbox: [sent], lanes: [MAIN, lane('Worker 4')], now: NOW }), [])
+  // A report kept from before the board's start reads as heard then; its own time (`heardAt`) counts.
+  assert.deepEqual(restartCloses({ outbox: [sent], lanes: [MAIN, lane('Worker 4', { report: { state: 'idle', at: NOW - MIN, heardAt: GONE - MIN } })], now: NOW }), [])
+})
+
+test('the unarchive entry only on its conditions: seen archived within the run window, still off the board, no removal since the take', () => {
   const taken = more => waiting({ state: 'taken', takenBy: COURIER, takenAt: NOW - RESTART_TAKEN_MS, alsoUnarchive: ['local_worker1'], ...more })
   const closeOf = (word, lanes = [MAIN], outbox = [word]) => restartCloses({ outbox, lanes, now: NOW })[0]
   assert.equal(closeOf(taken({ archivedAt: NOW - 10 * MIN })).unarchive, true)
   assert.equal(closeOf(taken({})).unarchive, false, 'never seen archived')
   assert.equal(closeOf(taken({ archivedAt: NOW - RESTART_TAKEN_MS - MIN })).unarchive, false, 'before the take')
   assert.equal(closeOf(taken({ archivedAt: NOW - 10 * MIN }), [MAIN, gone('Worker 4')]).unarchive, false, 'back on the board')
-  const remove = { id: 'rm', at: NOW - 20 * MIN, to: 'Main', command: 'remove', about: 'Worker 4', state: 'waiting' }
-  assert.equal(closeOf(taken({ archivedAt: NOW - 10 * MIN }), [MAIN], [taken({ archivedAt: NOW - 10 * MIN }), remove]).unarchive, false, 'a removal is open')
+  // The fix round, item 3: a remove word made after the take, in any state (also one already settled).
+  const remove = state => ({ id: 'rm', at: NOW - 5 * MIN, to: 'Main', command: 'remove', about: 'Worker 4', text: 'x', state })
+  for (const state of ['waiting', 'delivered']) assert.equal(closeOf(taken({ archivedAt: NOW - 10 * MIN }), [MAIN], [taken({ archivedAt: NOW - 10 * MIN }), remove(state)]).unarchive, false, state)
   // The app's own file says archived.
   const folders = [{ at: 2, chats: new Map([['local_worker4', { isArchived: true }]]) }, { at: 1, chats: new Map([['local_worker4', { isArchived: false }]]) }]
   assert.equal(isArchivedIn('local_worker4', folders), true)
@@ -170,9 +240,33 @@ test('the unarchive entry only on its conditions: seen archived within the run w
   assert.equal(isArchivedIn('local_other', folders), false)
 })
 
+test('the fix round, items 6, 7: a taken word\'s chats archived at its close are kept and named; the unarchive entry lists only those, once, within 30 min', () => {
+  const archived = new Set(['local_worker4', 'local_adv'])
+  const isArchived = id => archived.has(id)
+  const taken = waiting({ state: 'taken', takenBy: COURIER, takenAt: NOW - RESTART_TAKEN_MS, archivedAt: NOW - 10 * MIN, alsoUnarchive: ['local_adv', 'local_w1'], alsoChats: { local_adv: 'Advisor', local_w1: 'Worker 1' } })
+  assert.deepEqual(archivedOfWord(taken, isArchived), [{ id: 'local_worker4', chat: 'Worker 4' }, { id: 'local_adv', chat: 'Advisor' }])
+  assert.deepEqual(archivedOfWord(taken, null), [], 'no read of the files, no fact')
+  const close = restartCloses({ outbox: [taken], lanes: [MAIN], now: NOW, isArchived })[0]
+  assert.deepEqual([close.unarchive, close.archived], [true, [{ id: 'local_worker4', chat: 'Worker 4' }, { id: 'local_adv', chat: 'Advisor' }]])
+  // A starter's verdict too: its link back with a child still archived.
+  const sent = waiting({ state: 'taken', takenAt: NOW - 3 * MIN, sentAt: NOW - 2 * MIN, alsoUnarchive: ['local_adv'], alsoChats: { local_adv: 'Advisor' } })
+  assert.deepEqual(restartCloses({ outbox: [sent], lanes: [MAIN, back('Worker 4')], now: NOW, isArchived })[0].archived, [{ id: 'local_worker4', chat: 'Worker 4' }, { id: 'local_adv', chat: 'Advisor' }])
+  // The Overview names what the files showed archived, while it is off the board; never "off the board" alone.
+  const closed = { ...taken, state: 'dropped', why: UNSAID_WHY, failed: true, closedAt: NOW, archived: close.archived, unarchive: 'due' }
+  assert.deepEqual(restartArchivedOf([closed], [MAIN], NOW), ['Worker 4', 'Advisor'])
+  assert.deepEqual(restartArchivedOf([closed], [MAIN, lane('Advisor')], NOW), ['Worker 4'])
+  assert.deepEqual(restartArchivedOf([{ ...closed, archived: [] }], [MAIN], NOW), [], 'off the board alone names nothing')
+  // The listing: the take's list that is archived now, the target still archived, within 30 min, no removal since the take.
+  assert.deepEqual(unarchiveListing(closed, { now: NOW + MIN, outbox: [closed], lanes: [MAIN], isArchived }), { entry: { id: 'r1', chat: 'Worker 4', session: 'local_worker4', unarchive: true, alsoUnarchive: ['local_adv'] } })
+  assert.deepEqual(unarchiveListing(closed, { now: NOW + UNARCHIVE_LIST_MS + 1, outbox: [closed], lanes: [MAIN], isArchived }), { clear: 'listed too late' })
+  assert.deepEqual(unarchiveListing(closed, { now: NOW + MIN, outbox: [closed, { id: 'rm', at: NOW, to: 'Main', command: 'remove', about: 'Worker 4', text: 'x', state: 'delivered' }], lanes: [MAIN], isArchived }), { clear: 'its chat is being removed' })
+  assert.deepEqual(unarchiveListing(closed, { now: NOW + MIN, outbox: [closed], lanes: [MAIN], isArchived: () => false }), { clear: 'it is no longer archived' })
+  assert.equal(archivedLine('Worker 4'), 'Worker 4 is archived: unarchive it')
+})
+
 test('a carry word is untouched by these closes, and a restart word by F17\'s', () => {
   const carry = { id: 'c1', at: NOW - 30 * MIN, to: COURIER, command: 'wake-carry', about: 'Worker 4', forModel: true, spell: GONE, session: 'local_worker4', wakeText: 'x', text: 'x', state: 'waiting' }
-  assert.deepEqual(restartCloses({ outbox: [carry], lanes: [MAIN, lane('Worker 4')], now: NOW, isHeld: () => true }), [])
+  assert.deepEqual(restartCloses({ outbox: [carry], lanes: [MAIN, back('Worker 4')], now: NOW, pause: { state: 'pausing' } }), [])
   assert.deepEqual(carryCloses({ outbox: [waiting()], lanes: [MAIN], attemptOf: () => null, now: NOW, paused: true }), [])
 })
 
@@ -186,33 +280,120 @@ test('a waiting word is never expired by the sweep (its own keep), and rule 8 ne
   assert.equal(isUndelivered(view, old), false)
 })
 
-test('the courier\'s take re-checks: a word whose chat is busy now, or of another spell, is not takeable', () => {
+test('the fix round, item 8: while the courier restarts a chat (its archive takes it off the board), F23 releases none of its held words', async () => {
+  const KEEP = { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN, pause: null }
+  const held = { id: 'h1', at: NOW - 40 * MIN, to: 'Worker 4', ask: null, command: 'round', text: 'the round', state: 'waiting', linkHeldAt: NOW - 30 * MIN }
+  const stateOf = chats => ({ chats, chatPrefix: '', restart: { main: 'Main' }, pause: null, today: [], limits: {} })
+  for (const word of [waiting({ state: 'taken', takenAt: NOW - MIN }), waiting({ state: 'dropped', unarchive: 'due', closedAt: NOW - MIN })]) {
+    const outbox = memoryStore()
+    for (const one of [held, word]) await outbox.say({ ...one })
+    // Worker 4 off the board (archived): its held word stays held.
+    await sweepOutbox({ dir: null, outbox, state: stateOf([MAIN]), now: NOW, keep: KEEP })
+    assert.equal(outbox.outbox().find(one => one.id === 'h1').linkHeldAt, NOW - 30 * MIN, word.state)
+  }
+  // Without the restart word, as F23: released.
+  const outbox = memoryStore()
+  await outbox.say({ ...held })
+  await sweepOutbox({ dir: null, outbox, state: stateOf([MAIN]), now: NOW, keep: KEEP })
+  assert.equal(outbox.outbox().find(one => one.id === 'h1').linkHeldAt, null)
+})
+
+test('the courier\'s take re-checks: busy now, another spell or session, an open carry word, a child\'s restart taken: not takeable', () => {
   const ctx = ctxOf([MAIN, gone('Worker 4')])
   assert.equal(restartTakeable(waiting(), ctx), true)
   assert.equal(restartTakeable(waiting(), ctxOf([MAIN, gone('Worker 4', { transcriptTurn: 'running' })])), false)
   assert.equal(restartTakeable(waiting({ spell: GONE - MIN }), ctx), false)
+  assert.equal(restartTakeable(waiting({ session: 'local_other' }), ctx), false)
   assert.equal(restartTakeable(waiting({ state: 'taken' }), ctx), false)
   assert.equal(restartTakeable(waiting(), ctxOf([MAIN])), false, 'off the board')
+  const carry = { id: 'c1', at: NOW - MIN, to: COURIER, command: 'wake-carry', about: 'Worker 4', text: 'x', state: 'waiting' }
+  assert.equal(restartTakeable(waiting(), { ...ctx, outbox: [carry] }), false)
+  const main = gone('Main', { isMain: true, appSession: 'local_main' })
+  const kids = { lanes: [main, gone('Worker 4')], children: [child('local_worker4', 'local_main', 'Game - Worker 4')] }
+  const mainWord = { ...waiting(), id: 'm1', about: 'Main', session: 'local_main' }
+  assert.equal(restartTakeable(mainWord, ctxOf(kids.lanes, { children: kids.children, outbox: [waiting({ state: 'taken', takenAt: NOW })] })), false)
 })
 
-test('the page: quiet "restarts by itself at HH:MM", Restarting once taken, attention otherwise; the Overview names an archived chat', () => {
+test('the page: quiet "restarts by itself at the courier\'s next run (about HH:MM)", Restarting once taken, attention otherwise', () => {
   const quiet = ctxOf([MAIN, gone('Worker 4', { transcriptAt: NOW - 5 * MIN })])
-  assert.deepEqual(restartRowOf(restartStandOf(quiet.lanes[1], quiet)), { restarting: false, why: `restarts by itself at ${hm(NOW + 5 * MIN)}`, quiet: true })
+  assert.deepEqual(restartRowOf(restartStandOf(quiet.lanes[1], quiet)), { restarting: false, why: `restarts by itself at the courier's next run (about ${hm(NOW + 5 * MIN)})`, quiet: true })
+  // The fix round, item 11: the courier's next run when it is later than the quiet clock's end.
   const ready = ctxOf([MAIN, gone('Worker 4')])
-  assert.deepEqual(restartRowOf(restartStandOf(ready.lanes[1], ready)), { restarting: false, why: `restarts by itself at ${hm(NOW - 10 * MIN)}`, quiet: true })
+  assert.equal(restartRowOf(restartStandOf(ready.lanes[1], ready), { courierAt: NOW - 2 * MIN }).why, `restarts by itself at the courier's next run (about ${hm(NOW + 8 * MIN)})`)
+  assert.equal(restartRowOf(restartStandOf(quiet.lanes[1], quiet), { courierAt: NOW - 8 * MIN }).why, `restarts by itself at the courier's next run (about ${hm(NOW + 5 * MIN)})`)
   const taken = ctxOf([MAIN, gone('Worker 4')], { outbox: [waiting({ state: 'taken', takenBy: COURIER, takenAt: NOW })] })
   assert.deepEqual(restartRowOf(restartStandOf(taken.lanes[1], taken)), { restarting: true, why: RESTARTING_WHY, quiet: true })
   for (const ctx of [ctxOf([MAIN, gone('Worker 4', { background: 1 })]), ctxOf([MAIN, gone('Worker 4')], { courierAlive: false }), ctxOf([MAIN, gone('Worker 4', { appSession: null })])]) {
     assert.deepEqual(restartRowOf(restartStandOf(ctx.lanes[1], ctx)), { restarting: false, why: MOD_GONE_WHY, quiet: false })
   }
+  // The fix round, item 13: a failed or stuck try shows F9's way out (the try's why is the log's).
   const record = emptyWakes()
   noteRestartTaken(record, { chat: 'Worker 4', spell: GONE, word: 'r1', now: NOW - 20 * MIN })
-  noteRestartVerdict(record, 'Worker 4', 'r1', 'stuck', STUCK_WHY, NOW - 19 * MIN)
-  assert.deepEqual(restartRowOf(restartStandOf(gone('Worker 4'), ctxOf([], { record }))), { restarting: false, why: STUCK_WHY, quiet: false })
+  noteRestartVerdict(record, wordOf('r1'), 'stuck', STUCK_WHY, NOW - 19 * MIN)
+  assert.deepEqual(restartRowOf(restartStandOf(gone('Worker 4'), ctxOf([], { record }))), { restarting: false, why: MOD_GONE_WHY, quiet: false })
   assert.equal(restartRowOf(null), null)
-  // Stuck, and off the board: the Overview's line.
-  const closed = waiting({ state: 'dropped', why: STUCK_WHY, failed: true, closedAt: NOW - 19 * MIN })
-  assert.deepEqual(restartArchivedOf([closed], [MAIN], NOW), ['Worker 4'])
-  assert.deepEqual(restartArchivedOf([closed], [MAIN, gone('Worker 4')], NOW), [], 'back on the board')
-  assert.equal(archivedLine('Worker 4'), 'Worker 4 is archived: unarchive it')
+})
+
+test('the fix round, item 9: a quiet Link gone counts under Restarting and goes to the Workers pane quiet', () => {
+  const chats = [{ name: 'Worker 4', status: STATUSES.LINK_GONE, quiet: true, why: 'x' }, { name: 'Worker 5', status: STATUSES.LINK_GONE, why: MOD_GONE_WHY }]
+  const counts = countsOf(chats)
+  assert.deepEqual([counts.restarting, counts.linkgone], [1, 1])
+  assert.deepEqual(statusesOf({ chats }).map(one => one.tone), ['quiet', 'attention'])
+})
+
+test('the fix round, item 10: a word held for a chat the courier restarts says that way, quietly; else F9\'s way out, as F23', () => {
+  const quietLane = gone('Worker 4', { isRunning: false, status: 'Link gone', quiet: true, why: 'restarts by itself at the courier\'s next run (about 14:10)' })
+  const word = { id: 'w1', at: NOW - 20 * MIN, to: 'Worker 4', ask: 'Q12', command: null, text: 'Yes, B', state: 'waiting', linkHeldAt: NOW - 19 * MIN }
+  const KEEP = { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN, pause: null }
+  const judge = wordJudge({ state: { chats: [quietLane], pause: null, chatPrefix: '' }, outbox: [word], settings: {}, now: NOW })
+  const line = waitLineOf({ word, lane: quietLane, now: NOW, keep: KEEP, judge })
+  assert.deepEqual([line.state, line.lead, line.rest], ['sent', 'Held for Worker 4\'s restart', 'its board link is gone · restarts by itself at the courier\'s next run (about 14:10)'])
+  const restarting = waitLineOf({ word, lane: { ...quietLane, quiet: undefined, status: 'Restarting', why: RESTARTING_WHY }, now: NOW, keep: KEEP, judge })
+  assert.equal(restarting.rest, `its board link is gone · ${RESTARTING_WHY}`)
+  const attention = waitLineOf({ word, lane: { ...quietLane, quiet: undefined, why: MOD_GONE_WHY }, now: NOW, keep: KEEP, judge })
+  assert.deepEqual([attention.state, attention.rest], ['late', `its board link is gone · ${MOD_GONE_WHY}`])
+})
+
+test('the fix round, item 2: the prompt says the handshake, sends only to an entry with a text that step 3 did not mark, loads the three tools by name', async () => {
+  const prompt = await readFile(new URL('../tools/wake-courier.md', import.meta.url), 'utf8')
+  assert.match(prompt, /-Body '\{"restarts":true\}'/)
+  assert.match(prompt, /For each entry that has a `text` and that step 3 did not mark refused or stuck, call `send_message` once/)
+  assert.match(prompt, /Else send it in step 4\./)
+  assert.match(prompt, /It gets nothing in step 4\./)
+  assert.match(prompt, /select:mcp__ccd_session_mgmt__send_message,mcp__ccd_session_mgmt__archive_session,mcp__ccd_session_mgmt__unarchive_session/)
+  assert.match(prompt, /Load that tool first with one ToolSearch call if it is deferred/)
+  assert.match(prompt, /<project folder>/)
+  assert.doesNotMatch(prompt, /For each entry in `wakes`, call `send_message`/)
+})
+
+test('the fix round, item 10: the "No ask filed" card of a chat the courier restarts names that way, never the person\'s archive', async () => {
+  const { answer, typed } = await import('../fixtures/lines.mjs')
+  const { buildState } = await import('./withStore.mjs')
+  const { parseConfig } = await import('../src/config.mjs')
+  const at = NOW - 30 * MIN
+  const words = ['**Task:** dig the beds', '', '> **For you**', '> 1. **Answer:** Deep enough? I advise yes.', '', '---', '', '```diff', '  Prompt: dig the beds', '  Who:    Garden · Digger', '- Done:   partly, waiting for your answer', '```'].join('\n')
+  const app = (name, lastActivityAt) => JSON.stringify({ title: `Garden · ${name}`, sessionId: `local_${name}`, cliSessionId: `cli-${name}`, cwd: 'C:\garden', isArchived: false, createdAt: name.length, lastActivityAt })
+  const retract = when => JSON.stringify({ attachment: { type: 'deferred_tools_delta', retractedTools: [{ name: 'mcp__workers__work', cause: 'not_configured' }] }, type: 'attachment', timestamp: when })
+  const removed = when => JSON.stringify({ attachment: { type: 'mcp_instructions_delta', addedNames: [], removedNames: ['workers'] }, type: 'attachment', timestamp: when })
+  const lost = new Date(at - 5 * MIN).toISOString()
+  const raw = {
+    listText: '{"prefix":"Garden · ","main":"Lead"}', appChatTexts: [app('Lead', NOW - 5 * MIN), app('Digger', at)],
+    tails: { 'cli-Lead': { text: [typed(NOW - 20 * MIN, 'Report'), answer(NOW - 10 * MIN, 'All quiet.')].join('\n'), isCut: false, modifiedAt: NOW },
+      'cli-Digger': { text: [typed(at - 10 * MIN, 'Dig the beds'), answer(at, words)].join('\n'), isCut: false, modifiedAt: at, mods: [retract(lost), removed(lost)].join('\n') } },
+    planLineTexts: {}, backlogText: '', adviceText: null, folders: null, askTexts: [], pictureLists: {},
+  }
+  const cardWith = courierAt => buildState(raw, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config: { ...parseConfig('{}', {}), project: 'C:\garden' },
+    wakes: { record: emptyWakes(), senderClaims: true, canLaunch: false, courierAt } })
+  const quiet = cardWith(NOW - MIN)
+  assert.equal(quiet.chats.find(one => one.name === 'Digger').quiet, true)
+  const card = quiet.forYou.find(need => need.kind === 'unfiled')
+  assert.match(card.text, /so its board link is gone\. Restarts by itself at the courier's next run \(about \d\d:\d\d\)\. Answer its questions in its chat\./)
+  assert.doesNotMatch(card.text, /archive it, then unarchive it/)
+  // No courier on the restart prompt: F9's way out, as before.
+  assert.match(cardWith(null).forYou.find(need => need.kind === 'unfiled').text, /Restart this chat: archive it, then unarchive it\./)
+})
+
+test('group D: a held Link gone row says why the courier does not restart it now', () => {
+  const ctx = ctxOf([MAIN, gone('Worker 4')], { pause: { state: 'pausing', since: NOW - MIN } })
+  assert.equal(restartRowOf(restartStandOf(ctx.lanes[1], ctx)).why, `${MOD_GONE_WHY} (not by itself while you pause the chats)`)
 })
