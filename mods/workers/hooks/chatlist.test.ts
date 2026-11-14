@@ -5218,4 +5218,85 @@ describe('0.31.1 (F4): no hook of the mod outlives the engine\'s budget', () => 
     expect(new Set(takes.map(([, request]) => request)).size).toBe(1)
     expect(fileOf(w)?.task?.text).toContain('Skeleton Archer')
   })
+  test('chat 1\'s check of 0.31.2 (1): a form closed after the mod\'s own 5 s bound (the budget intact) still withdraws its asks and reports busy; only the engine\'s expiry leaves them open', async ($, on) => {
+    const clock = mock.clock(on)
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('B12 Give the golem', 1, 3, 20), at: 0 } }), [BOARD]: board })
+    stand(on, w)
+    let releaseAsks = (): void => {}
+    w.byAction = { ask: { status: 200, text: JSON.stringify({ id: 'Q5', text: '> **For you**' }) } }
+    await startedAs($, w, 'Units')
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    w.worked = []
+    // The board holds the asks past 5 s: the mod's timer fires, the form opens all the same; the person closes it without an answer.
+    w.holdAction = { action: 'ask', until: new Promise<void>(done => { releaseAsks = done }) }
+    w.formCloses = true
+    // Four questions, each ask held by the board and given up after 1.5 s: the filing takes 6 s, past the mod's own bound.
+    const question = (n: number) => ({ question: `Which port for ${n}?`, header: `Port ${n}`, multiSelect: false, options: [{ label: '4320', description: 'free' }, { label: '4330', description: 'taken' }] })
+    const form = $.tool.call({ tool: 'AskUserQuestion', questions: [question(1), question(2), question(3), question(4)] } as never).catch(() => null)
+    await clock.advance(5000)
+    await form
+    await clock.advance(1000)
+    releaseAsks()
+    await afterForm(30)
+    await clock.advance(1000)
+    await afterForm(30)
+    const actions = w.worked.map(body => (JSON.parse(body) as { action?: string }).action)
+    expect(actions.filter(one => one === 'withdraw').length).toBeGreaterThanOrEqual(1)
+    expect(actions.filter(one => one === 'answered-in-chat')).toEqual([])
+    expect(fileOf(w)?.state).toBe('working')
+  })
+
+  test('chat 1\'s check of 0.31.2 (2): a first prompt dropped as late keeps its first-prompt reading: the next prompt tells the worker the checkpoint it holds', async ($, on) => {
+    const clock = mock.clock(on)
+    const SINCE = Date.UTC(2026, 9, 18, 20, 30)
+    const POINT = { commit: '1a2b3c4', next: 'write the tests', at: SINCE + 60_000, line: '1a2b3c4 · write the tests · 2026-10-18 22:31:00', isSincePause: true }
+    const w = world('units', { ...listed({ units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 1, 3, 30), at: 0 } }), [BOARD]: board })
+    w.pauseAnswer = { text: 'x', state: 'running', since: SINCE, forChat: { holds: [{ id: 'B12', checkpoint: POINT }], mustStop: false }, resumeList: [] }
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    // A minute on: the join asks the board again at the prompt; its card reads are slow (3.6 s), so the pause's lines are built past 5 s.
+    await clock.advance(61_000)
+    let releaseRead = (): void => {}
+    let releasePause = (): void => {}
+    w.readHold = new Promise<void>(done => { releaseRead = done })
+    w.holdAction = { action: 'pause-state', until: new Promise<void>(done => { releasePause = done }) }
+    const first = $.prompt.submit({ text: 'hello', ...ASKED } as never)
+    await clock.advance(3600)
+    w.readHold = null
+    releaseRead()
+    await afterForm(30)
+    await clock.advance(1400)
+    await first
+    await clock.advance(200)
+    w.holdAction = null
+    releasePause()
+    await afterForm(30)
+    expect(w.contexts[0]?.join(' ') ?? '').not.toContain('You hold B12')
+    // The pause reading of the dropped prompt was given up (B786: a silent board keeps the last reading 20 s): the next prompt after that reads anew, as a first prompt still.
+    await clock.advance(21_000)
+    await $.prompt.submit({ text: 'and now', ...ASKED } as never)
+    expect(w.contexts[1]?.join(' ') ?? '').toContain('You hold B12: checkpoint 1a2b3c4')
+  })
+
+  test('chat 1\'s check of 0.31.2 (3): two prompts in flight give the resume line once: the commit is a claim on the line', async ($, on) => {
+    const clock = mock.clock(on)
+    const SINCE = Date.UTC(2026, 9, 18, 20, 30)
+    const w = world('main', { ...listed({ main: { name: 'Main', role: 'main', state: 'waiting', task: null, at: 0 } }), [BOARD]: board })
+    w.pauseAnswer = { text: 'x', state: 'resuming', since: SINCE, forChat: { holds: [], mustStop: false }, resumeList: [{ chat: 'Units', session: 'local_units', cliSession: 'units', step: 'B12', checkpoint: null, hasStarted: false }] }
+    stand(on, w)
+    await $.session.start(START)
+    // The person's prompt is filed and the board holds the filing 1.4 s; a word of the board's comes in meanwhile, not filed.
+    let releaseFiling = (): void => {}
+    w.byAction = { instruction: { status: 200, text: JSON.stringify({ id: 'I7' }) } }
+    w.holdAction = { action: 'instruction', until: new Promise<void>(done => { releaseFiling = done }) }
+    const first = $.prompt.submit({ text: 'hello', ...ASKED } as never)
+    await clock.advance(500)
+    await $.prompt.submit({ text: 'go on', origin: { kind: 'plugin', asUser: true } } as never)
+    releaseFiling()
+    await afterForm(30)
+    await clock.advance(1000)
+    await first
+    const told = w.contexts.map(one => one.join(' ').includes('Resume: wake each chat'))
+    expect(told.filter(Boolean).length).toBe(1)
+  })
 })

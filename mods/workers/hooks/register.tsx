@@ -1043,15 +1043,18 @@ let isBeating = false
  * only at the first one of this process, while the last reading was a pause or a resume, or when the words speak of a
  * resume (the board's "resume", the main chat's "resume your step": then anew); else the last reading stands.
  */
-/** The pause's lines for a hook, with the commit that marks them given (in memory and, for the resume line, in the store), run where they are pushed. */
-type PauseGiven = { lines: string[]; commit: () => void }
-const NO_PAUSE_LINES: PauseGiven = { lines: [], commit: () => undefined }
+/**
+ * The pause's lines for a hook: `commit` builds them where they are pushed, against what is given at that moment (a claim: two prompts
+ * in flight give a once-line once), marks them given (in memory and, for the resume line, in the store) and uses the first prompt up.
+ */
+type PauseGiven = { commit: () => string[] }
+const NO_PAUSE_LINES: PauseGiven = { commit: () => [] }
 async function pauseLines($: EngineInterface, where: PauseWhere, text = ''): Promise<PauseGiven> {
   try {
     if (myself === null) await withinTime($, changeMine($, () => null))
     if (myself === null) return NO_PAUSE_LINES
+    // Chat 1's check of 0.31.2 (2): the first prompt is used up by `commit`, so a first prompt dropped as late reads the pause again.
     const isFirst = where === 'prompt' && isFirstPrompt
-    if (where === 'prompt') isFirstPrompt = false
     // Words of a resume come right after Resume all: they are read anew, whatever the last reading said.
     const isResume = where === 'prompt' && /\bresume\b/i.test(text)
     const isAsked = where !== 'prompt' || isFirst || isResume || pauseRead?.pause?.state !== 'running'
@@ -1064,19 +1067,21 @@ async function pauseLines($: EngineInterface, where: PauseWhere, text = ''): Pro
       const told = await withinTime($, $.store.get(store).catch(() => undefined))
       if (told === pause?.since) pauseGiven.add(resumeKey)
     }
-    const hadResume = resumeKey !== null && pauseGiven.has(resumeKey)
-    // Chat 1's verifier (4), final check (3, 6): the lines are built into a copy of what was given, and marked given (in memory, and the
-    // resume line in the store, detached) only by `commit`, which the caller runs in the same step as it pushes them: a hook that went
-    // late in between drops them unused, so the next prompt builds them again.
-    const given = new Set(pauseGiven)
-    const lines = pauseContexts(pause, { role: myself.role, where, given, isFirst, turn: turnNumber })
+    // Chat 1's verifier (4), final check (3, 6), check of 0.31.2 (2, 3): the lines are built by `commit`, which the caller runs in the
+    // same step as it pushes them, against `pauseGiven` as it stands then (marking them there; the resume line in the store, detached):
+    // a hook that went late drops nothing used up, so the next prompt builds the lines again; a second prompt in flight builds a
+    // once-line no second time.
+    const role = myself.role
     const since = pause?.since ?? 0
-    const commit = (): void => {
-      for (const key of given) pauseGiven.add(key)
+    const commit = (): string[] => {
+      const hadResume = resumeKey !== null && pauseGiven.has(resumeKey)
+      const lines = pauseContexts(pause, { role, where, given: pauseGiven, isFirst, turn: turnNumber })
+      if (where === 'prompt') isFirstPrompt = false
       if (store !== null && resumeKey !== null && !hadResume && pauseGiven.has(resumeKey)) void $.store.set(store, since).catch(() => undefined)
+      return lines
     }
 
-    return { lines, commit }
+    return { commit }
   } catch {
     return NO_PAUSE_LINES
   }
@@ -1095,12 +1100,20 @@ async function holdsNothing($: EngineInterface): Promise<boolean> {
   }
 }
 
-/** Chat 1's final check (4): the filings of forms whose hook went late and whose `next` threw (the engine ran the form itself): closed at the turn's end. */
-let orphanForms: Promise<FiledForm[]>[] = []
+/**
+ * Chat 1's final check (4): the forms whose hook went late on the engine's budget and whose `next` threw (the engine ran the form
+ * itself): their asks are closed with the real result by the catch-all tool.call hook, which awaits the form beneath (`closeOrphans`);
+ * the turn's end is the last net (`closeOrphanForms`: answered in the chat).
+ */
+type OrphanForm = { filing: Promise<FiledForm[]>; filed: FiledForm[] }
+let orphanForms: OrphanForm[] = []
+function closeOrphans($: EngineInterface, result: unknown): void {
+  for (const orphan of orphanForms.splice(0)) void afterForm($, { filed: orphan.filed, filing: orphan.filing, result, isAnswered: true }).catch(() => undefined)
+}
 async function closeOrphanForms($: EngineInterface): Promise<void> {
-  const filings = orphanForms.splice(0)
-  for (const filing of filings) {
-    const filed = await withinTime($, filing, ASKED_WAIT_MS)
+  const orphans = orphanForms.splice(0)
+  for (const orphan of orphans) {
+    const filed = await withinTime($, orphan.filing, ASKED_WAIT_MS)
     for (const one of filed ?? []) {
       const id = typeof one.id === 'string' ? one.id : await withinTime($, one.id)
       if (id !== null) await workQuietly($, { action: 'answered-in-chat', id, text: 'answered in the chat' })
@@ -3240,10 +3253,7 @@ async function promptContext($: EngineInterface, e: PromptEvent, context: string
     const open = instructionsLine(openInstructions)
     if (open !== null && !late.value) context.push(open)
     const given = await paused
-    if (!late.value) {
-      context.push(...given.lines)
-      given.commit()
-    }
+    if (!late.value) context.push(...given.commit())
   }
 }
 
@@ -3556,9 +3566,9 @@ export const register: Register = on => {
       }
       // 0.31.1 (F4): the pause read under the hook's deadline (its own wait); past it the call runs.
       const given = await withinHook($, pauseLines($, 'batch'), () => NO_PAUSE_LINES, next)
-      if (given.lines.length > 0) {
-        given.commit()
-        return { deny: [...given.lines, `(This ${e.tool} call did not run, so that you read this first: run it again only to commit your work.)`].join('\n') }
+      const lines = given.commit()
+      if (lines.length > 0) {
+        return { deny: [...lines, `(This ${e.tool} call did not run, so that you read this first: run it again only to commit your work.)`].join('\n') }
       }
     }
     // A popup that waits for the person shows on the board (popup.ts): the chat's own calls only.
@@ -3568,6 +3578,9 @@ export const register: Register = on => {
     const popup = isInTurn ? watchPopup($, { tool: e.tool, tool_use_id: e.tool_use_id, input: e }) : null
     try {
       const out = await next(e)
+    // Chat 1's check of 0.31.2 (1): the question form the engine ran itself (its own hook went late on the budget): its asks are closed
+    // with this real result, and the chat is busy again.
+    if (e.tool === 'AskUserQuestion' && e.agentId === undefined && orphanForms.length > 0) closeOrphans($, out)
       // Chat 1's review (3): no clock op after `next` (a main stall counts it on every parallel call's budget); a Monitor's time is read
       // detached, the rest noted without one.
       if (e.tool === 'Monitor') void $.clock.now().then(now => noteBackground(e as never, out, now), () => noteBackground(e as never, out, null))
@@ -3591,8 +3604,10 @@ export const register: Register = on => {
     // verifier (2): the asking report and say under the same deadline (their clock op and chain wait counted before it).
     const filed: FiledForm[] = []
     const filing = fileForm($, e, filed)
+    // Chat 1's check of 0.31.2 (1): only the engine's expiry means the engine ran the form itself; the mod's own 5 s bound and the
+    // person's interrupt go through afterForm as before (withdraw when closed, busy).
     let wentLate = false
-    await withinHook($, Promise.all([askingSaid($), filing]), () => { wentLate = true }, next)
+    await withinHook($, Promise.all([askingSaid($), filing]), () => { wentLate = (next.budget?.remainingMs ?? 1) <= 0 }, next)
     let result: unknown
     let isAnswered = false
     let isThrown = false
@@ -3608,7 +3623,7 @@ export const register: Register = on => {
       openForms -= 1
       // Chat 1's final check (4): a `next` that throws once the hook went late means the engine opened the form itself and the person
       // is reading it: the asks stay open (closed at the turn's end with the answer in the chat), the report stays asking.
-      if (isThrown && wentLate) orphanForms.push(filing)
+      if (isThrown && wentLate) orphanForms.push({ filing, filed })
       // Chat 1's verifier (2, 15): the bookkeeping after the answer (the report, the say, the asks closed) runs detached: the tool's
       // result needs none of it, and under a main stall its clock op would count toward the budget.
       else void afterForm($, { filed, filing, result, isAnswered }).catch(() => undefined)
@@ -3669,7 +3684,8 @@ export const register: Register = on => {
     // Its session was cleared already: the move after that clear is the tick's (`settleClear`).
     if (run.verdict === 'moved') return { text: 'Not cleared: this chat was cleared already; this /clear of the Workers mod was let go.' }
     // Queued before the mod was loaded anew: its card's fresh mark, and nothing came in since.
-    const marked = wasEmpty && decided === null ? await pendingMark($) : null
+    // Chat 1's check of 0.31.2 (4): its clock read under the race too; late, the clear is let go as without a mark.
+    const marked = wasEmpty && decided === null ? await withinHook($, pendingMark($), () => null, next) : null
     if (marked !== null) {
       clearing = marked
       // B944 (0.30.0): the clear an earlier process of this chat queued (a reload, a new process) and kept in the mod's store:

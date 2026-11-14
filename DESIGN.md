@@ -4106,6 +4106,23 @@ falls without an answer in: the registration branch of 5 is for a slow start bef
 main-thread stall, no throwing `next`): 1 and 4; 3 and 6 need a join longer than its 1.5 s bound. The version test pins 0.31.2 and
 the note.
 
+Chat 1's check of that round (`.claude/plans/2026-11-14-mod-hotfix-0312-check.md`, 4 should-fixes), as built:
+
+6. **Only the engine's expiry orphans a form** (1): `wentLate` is set in the fallback only while `next.budget.remainingMs` is 0 or
+   below; the mod's own 5 s bound and the person's interrupt go through `afterForm` as before (withdraw when closed, busy). The
+   orphans keep their `filed` arrays; the catch-all tool.call hook, which awaits the form beneath, closes them with the real result
+   (`closeOrphans`); the turn's end stays the last net.
+7. **The pause's lines are built at commit** (2, 3): `commit` runs `pauseContexts` against `pauseGiven` as it stands when the lines
+   are pushed, so two prompts in flight give a once-line once (a claim), and the first prompt is used up (`isFirstPrompt`) there, so
+   a first prompt dropped as late reads the pause again as a first prompt (the checkpoint line).
+8. **`pendingMark` under the race** (4): the mod's /clear on the "queued before the reload" path races its clock read too; late,
+   the clear is let go as without a mark.
+
+Tests: a form closed after the mod's 5 s bound with the budget intact withdraws its asks and the card works on (kills `wentLate` on
+any bound); a first prompt late by slow card reads keeps the first-prompt reading and the next prompt carries the checkpoint line
+(kills the early `isFirstPrompt = false`); two prompts in flight carry the resume line once (kills the prebuilt-lines commit).
+4 is not testable in the kit (no main-thread stall).
+
 ## The supervisor, part 1 (2026-10-24): the board checks itself
 
 The person, 2026-10-24 (the chat "Worker board task reliability", goal map T7): "a supervisor chat/worker. its goal is
