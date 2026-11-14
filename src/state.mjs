@@ -1812,6 +1812,9 @@ function focusRun(node, items, prefix, partner) {
   return { note, needs }
 }
 
+/** F27: a side lane's report as its wake spell reads it (wake.mjs spellOf), or null. */
+const spellReportOf = lane => (Number.isFinite(lane?.report?.at) ? { state: lane.report.state, since: lane.report.since ?? null, at: lane.report.at, run: lane.report.run ?? null } : lane?.ownReport ?? null)
+
 export function buildState(raw, options) {
   // B917 (X93): the fixes and asks of every step from one index of the store per rebuild (work/links.mjs).
   return withLinks(raw?.work?.items, () => builtState(raw, options))
@@ -2942,11 +2945,13 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       }
     })(),
     // Signals change 2: each side chat carries its one status too (`statusFor`), from its card, its running and its mod rollout.
-    advisor: advisor === null ? null : { ...advisor, ...sideUnjoined(advisor), ...statusFor({ ...advisorCard, isRunning: runningOf(advisor.name) }, { modRun: rollout?.runs.get(advisor.name) ?? null }), isRunning: runningOf(advisor.name), waiting: leaveOut(advisorWork.waiting, advisorOn), next: advisorNext, on: advisorOn },
+    advisor: advisor === null ? null : { ...advisor, ...sideUnjoined(advisor), ownReport: spellReportOf(advisor), offSince: advisor.offSince ?? null, ...statusFor({ ...advisorCard, isRunning: runningOf(advisor.name) }, { modRun: rollout?.runs.get(advisor.name) ?? null }), isRunning: runningOf(advisor.name), waiting: leaveOut(advisorWork.waiting, advisorOn), next: advisorNext, on: advisorOn },
     // B424: the partner's helper, on its own card under the Advisor's: how it stands, its task and its time.
     advisorHelper: helperLane === null ? null : {
       ...sideUnjoined(helperLane),
       name: helperLane.name,
+      // F27: its kept report and its off time, for its wake spell (wake.mjs spellOf): never the spell 0 of a lane the board knows nothing of.
+      ownReport: spellReportOf(helperLane), offSince: helperLane.offSince ?? null,
       session: helperLane.session,
       appSession: helperLane.appSession,
       // The model chip: what the app's file of its chat says it runs at.
@@ -2973,6 +2978,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     supervisorChat: supervisorLane === null ? null : {
       ...sideUnjoined(supervisorLane),
       name: supervisorLane.name,
+      // F27: its kept report and its off time, for its wake spell (wake.mjs spellOf): never the spell 0 of a lane the board knows nothing of.
+      ownReport: spellReportOf(supervisorLane), offSince: supervisorLane.offSince ?? null,
       session: supervisorLane.session,
       appSession: supervisorLane.appSession,
       model: supervisorLane.model ?? null,
@@ -2997,6 +3004,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     productOwner: ownerLane === null ? null : {
       ...sideUnjoined(ownerLane),
       name: ownerLane.name,
+      // F27: its kept report and its off time, for its wake spell (wake.mjs spellOf): never the spell 0 of a lane the board knows nothing of.
+      ownReport: spellReportOf(ownerLane), offSince: ownerLane.offSince ?? null,
       session: ownerLane.session,
       appSession: ownerLane.appSession,
       model: ownerLane.model ?? null,

@@ -78,6 +78,8 @@ export function spellOf(lane) {
   const report = lane.report ?? (isTime(lane.ownReport?.at) ? lane.ownReport : null)
   if (report?.state === 'ended' && isTime(report.since)) return report.since
   if (isTime(report?.at)) return report.at
+  // F27: a lane known to have gone off (offLane's since): that is its sleep, never the spell 0 an old spent entry holds.
+  if (isTime(lane.offSince)) return lane.offSince
   return 0
 }
 
