@@ -72,10 +72,13 @@ Learnt from F4 (chats losing the mod) and the engine's own types (`plugin-author
   shared card chain `mine`, another hook's work). So: no sleep inside a hook; the card chain waited for briefly (`say` 1.5 s,
   `setTask` 2 s) and left to finish; the hook's work raced against HOOK_MS (5 s) with `withinHook`, the rest detached with
   `.catch`.
-- **`next.signal` is not read.** It aborts when the dispatch is abandoned: the person interrupted, the budget ran out, or
-  "another hook settled first", and beneath the test kit's world it aborts as soon as the test's own hook beneath settles,
-  so a hook that watched it would fall back at once in every test. The timer alone bounds the hook; a hook that returns at
-  HOOK_MS never lingers.
+- **`next.signal` is read through a gate** (`withinHook`). It aborts when the dispatch is abandoned: the person interrupted,
+  the budget ran out, or "another hook settled first"; beneath the test kit's world it may abort with budget left and no reason,
+  so a hook that fell back on any abort would fall back at once in those tests. The gate: an abort counts (the hook answers its
+  fallback at once) when `next.budget.remainingMs` is 0 or below (the expiry) or `next.signal.reason` is set (the engine's
+  interrupt and expiry carry one); a bare abort with budget left is passed over. The clock's timer (`$.clock.after`) is the
+  second bound: under a main-thread stall only the signal fires, so every hook passes its `next` into the race, the chat and
+  work tools too (`chatToolCall`, `workToolCall`), and nothing a hook awaits outside the race may be a clock op or a chain wait.
 - **Every function that takes `$` is declared at the top of the file** (a function declaration, or a const bound to one), never
   nested in `register` or another function: the engine's loader follows `$` from the hook into the functions it is passed to,
   and refuses a module that passes it anywhere else ("$ is passed to ..., which is not a function declared at the top of this
