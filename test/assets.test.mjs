@@ -9,7 +9,7 @@ import test from 'node:test'
 
 import { STOPPED_WHY, assetQueue, providerAskTitle } from '../src/assetQueue.mjs'
 import { assetFolder, assetsFolderOf, changeAsset, droppedFiles, listAssets, newAsset, readAsset } from '../src/assets.mjs'
-import { codex } from '../src/providers/codex.mjs'
+import { codex, pictureSeconds } from '../src/providers/codex.mjs'
 import { elevenlabs } from '../src/providers/elevenlabs.mjs'
 import { elevenlabsImages } from '../src/providers/elevenlabs-images.mjs'
 import { elevenlabsMusic } from '../src/providers/elevenlabs-music.mjs'
@@ -244,6 +244,11 @@ test('codex provide: one picture through makePicture, with only the request\'s w
   assert.deepEqual(again, { files: ['2.png'] })
   assert.match(calls[1].prompt, /The first attached picture is the last version\. .*change this: greener/)
   assert.equal(calls[1].seconds, 240)
+  // F18: a job with pictures attached gets longer, 120 s per picture past the first, 900 s at most: a correction with three references and
+  // the earlier picture (four attached) gets 600 s where one picture gets the base.
+  await codex.provide({ id: 'A3', kind: 'visual', text: 'warmer', pictures: ['C:\\1.png', 'C:\\a.png', 'C:\\b.png', 'C:\\c.png'], folder, edits: true }, { makePicture: make, findCodex: async () => 'C:\\codex.exe' })
+  assert.equal(calls[2].seconds, 600)
+  assert.deepEqual([pictureSeconds(240, 0), pictureSeconds(240, 1), pictureSeconds(240, 2), pictureSeconds(240, 4), pictureSeconds(600, 4), pictureSeconds(undefined, 3)], [240, 240, 360, 600, 900, 480])
   // Not found, made nothing, or a stand-in that throws: failed with why, never a throw.
   assert.deepEqual(await codex.provide({ text: 'x', folder }, { makePicture: make, findCodex: async () => null }), { failed: 'Codex not found' })
   assert.deepEqual(await codex.provide({ text: 'x', folder }, { makePicture: async () => ({ ok: false, why: 'Codex took longer than 60 seconds and was stopped.' }), findCodex: async () => 'C:\\codex.exe' }), { failed: 'Codex took longer than 60 seconds and was stopped.' })

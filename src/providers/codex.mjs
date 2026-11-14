@@ -10,6 +10,12 @@ import { freeName } from './elevenlabs-key.mjs'
 
 /** How long one picture of a request may take when the board names no time (the Design tab's own default). */
 export const PICTURE_SECONDS = 240
+/** F18 (2026-11-14: corrections with three references ran past 240 s): each attached picture past the first adds this much. */
+export const EXTRA_PICTURE_SECONDS = 120
+/** And no job takes longer than this (the Design tab's setting has the same cap). */
+export const PICTURE_SECONDS_MOST = 900
+/** The time one picture job may take: the base (the Design tab's seconds; PICTURE_SECONDS without) plus EXTRA_PICTURE_SECONDS per attached picture past the first, PICTURE_SECONDS_MOST at most. */
+export const pictureSeconds = (base, pictures) => Math.min(PICTURE_SECONDS_MOST, (Number.isFinite(base) && base > 0 ? Math.round(base) : PICTURE_SECONDS) + EXTRA_PICTURE_SECONDS * Math.max(0, (Number.isInteger(pictures) ? pictures : 0) - 1))
 
 export const codex = {
   name: 'codex',
@@ -35,7 +41,8 @@ export const codex = {
    * taken, so `1.png`), with its words beside it (`1.prompt.txt`, as makePicture keeps them): `{ files: ['1.png'] }`, or
    * `{ failed: why }`. `request.pictures` are whole paths, attached in order; with `request.edits` the first is the
    * earlier iteration to change (the request it follows), the others are references for the look. `tools.makePicture`
-   * and `tools.findCodex` stand in for src/codex.mjs's (the tests'); `tools.seconds` is the time limit. It never throws.
+   * and `tools.findCodex` stand in for src/codex.mjs's (the tests'); `tools.seconds` is the time limit for a job with one picture or
+   * none, longer with more attached (`pictureSeconds`). It never throws.
    */
   async provide(request, { makePicture: make = makePicture, findCodex: find = findCodex, codexPath = '', seconds = PICTURE_SECONDS } = {}) {
     try {
@@ -46,7 +53,7 @@ export const codex = {
       const text = String(request.text ?? '').trim()
       const prompt = promptFor({ opening: '', text, change: edits ? text : null, isEdit: edits, references: pictures.length - (edits ? 1 : 0) })
       const name = await freeName(request.folder, 'png')
-      const made = await make({ command: [path], prompt, images: pictures, to: join(request.folder, name), seconds })
+      const made = await make({ command: [path], prompt, images: pictures, to: join(request.folder, name), seconds: pictureSeconds(seconds, pictures.length) })
       return made?.ok === true ? { files: [name] } : { failed: String(made?.why ?? 'Codex made no picture') }
     } catch {
       return { failed: 'Codex could not be asked for the picture' }
