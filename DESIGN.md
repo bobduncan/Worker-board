@@ -3776,7 +3776,18 @@ reads, so all of them were looked at:
    until the board starts again: the kinds of idea (`design-kinds`, the usual kinds meanwhile), another board's task
    times on a board that shows its history (`history`), and `.claude/board.json`, where the chats find the board
    (`bridge-note`, also on the console as before). Restart says "config.json cannot be read" for a held file, no
-   longer "it is not there".
+   longer "it is not there". 2026-11-13 (chat 1): a rename refused once with EPERM right after the PC woke (an indexer or
+   a virus scanner holding the file) had the head line say "Loop-lock failing since 20:59 ... also telling the chats where the
+   board is" for over an hour while both files were fine, because nothing cleared either: now `moveInPlace` tries the rename
+   eight times (`RENAME_TRIES`, 60 ms times the try: about 1.7 s), `loopGate` reports every heartbeat that answered
+   (`onSucceeded` → `loops.succeeded('loop-lock')`), the bridge note is claimed until it is written (src/bridgeClaim.mjs
+   `claimUntilWritten`, a backoff up to a minute, the board closing ends it; the start and the loops' gain wait for its FIRST
+   try alone, so the note is there for the chats before the loops run and a lasting refusal holds nothing longer than one write;
+   its success ends `bridge-note`'s failure, so the
+   line says "answers will not reach the chats" only while the note really is missing or stale), and the files a cut-off
+   write left beside the lock and the note (`<file>.<pid>.<hex>.tmp`, 13 that evening) are swept at the start when older
+   than a minute (`sweepBeside`). Tests: test/write.test.mjs (seven EPERMs then ok, the eighth refusal the error, the sweep),
+   test/bridgeClaim.test.mjs (EPERM twice then ok, the backoff, another board, the board closing), test/supervisor/selfCheck.test.mjs (the gate's successes).
 6. Two handlers in `server.mjs` still drop their error, each with its reason: the settings queue (its caller gets the
    turn and its error) and an Overturn whose goal could not be opened again (the page is told).
    `test/silentCatches.test.mjs` holds server.mjs to that: no other `.catch(...)`, and no second handler of a
@@ -5714,6 +5725,46 @@ for another, and since step 6 the old rules are gone for every worker:
 
 Tests: `test/supervisor/handoverRules.test.mjs`.
 
+### A set the app refuses (B1160, 2026-11-11)
+
+Since the app's update of 22:43 (5.1231.2) Claude Desktop refuses in auto mode every set_session_model / set_session_effort call the
+Workers mod's own code makes ("Not run: in auto mode Claude Desktop doesn't run this tool when a plugin's own code calls it. Have
+Claude make the call."): 70 refusals by 23:37; B1160 and B1163 bounced between refined and queued every minute, owed clears never ran
+and free workers sat idle. Never a way around the refusal (no permission or mode change). Chat 1's decisions 2 and 3:
+
+- A refused set (effort.mjs `SET_REFUSED`, `isSetRefused`) is no failure of the hand-over and bans no model: a waiting envelope whose
+  set word was refused is released without its set (`set` null, `asked` the set, `waitsFor` null) and carried as any; a task in flight
+  whose outcome says so goes again at once without it; nothing is taken back, nothing held.
+- While the app's newest answer to a set word was a refusal (`setsRefusedOf`: of the words a hand answered, delivered by it or refused or
+  closed as refused, by answer time; words that never reached a hand say nothing), the board writes no set word: envelopes go
+  without their set and keep it as `asked`; the effort plan, the Supervisor's and the Product owner's words ask none; the effort plan
+  waits for no Opus (`run.refused`). It stands until a hand is seen to set again (the probe below), never on a timer (chat 1's review 15, 16). A refused
+  worker's word is never tried again (store.mjs `isRefusedSet`), and the outbox sweep closes it as dropped in plain words, marked
+  `refused` ("the app refuses the board's set calls; it runs on its current model"), never an undelivered word for rule 8. A step that
+  went without its set keeps its quiet gap whatever the refusal says later (the effort plan reads its envelope's `asked`).
+  The chip draws "Sonnet · low (Opus · high asked)" quietly, no arrow and no pending border; a free worker's status "on Sonnet · medium
+  (the app no longer lets the board switch it)", plain words (rule 16); the app's own words stay in the outbox. Rule effort-mismatch
+  and the health summary read such a run as known and quiet (`switchOf` state `refused`).
+- The right worker first (handOut.mjs `match`, with the free workers beside it as `peers`): among free workers the one already on the
+  step's model and effort, then on its model, then on its effort (the family weighs more), so most hand-overs need no set. A peer wins
+  a step only when its own decide could be given it (not barred by a take-back or give-back since its last take, no ban of its own on
+  the step's model: review 1-3); else the deciding worker takes it. A step never waits for a better one.
+- Chat 1's verifier of 2170b4a6: only a hand's answer counts for the refusal (a word a hand took, `isHandTaken`: delivered by it, or
+  the refusal); a word Main's own take typed, or another failure, ends nothing. The refusal ends by a probe (`probeOf`, PROBE_MS):
+  while it stands, at most once a day (from the newest refusal or the last probe) one set word that changes nothing, an idle worker's
+  own model and effort (`probe: true`, never closed as met by the sweep); a hand's delivery ends the refusal, a refusal keeps it. The
+  board does not know the app's version, so a new version does not bring it sooner. The free status and the health line say the
+  next check ("next check 14 Nov 10:00"; state `setsRefused.nextCheckAt`). The no-retry is a worker's set word's alone (store.mjs
+  `isRefusedSet`; NEVER_PASSES as before): a partner's word keeps its retry, whose copy Main's own take may carry; one refused with no
+  try left is closed quietly, marked refused, and the Focus switch says "The app no longer lets the board set it; your partner runs on
+  Sonnet · medium." The step window says "Digger runs on Sonnet · low: the app no longer lets the board switch it (Opus · high
+  asked)." and its chips "(asked)", never "is set to" or "not set yet". A held or queued step is judged by its own newest envelope to
+  its worker (handed with its set: no gap of the refusal's). A peer never owns a step queued, taken or in progress (the work API would
+  refuse it), and its bars are read lazily from the envelopes its own decide reads (no 'go on' lines).
+- Tests: `test/work/setRefused.test.mjs` and `setRefusedReview.test.mjs` (the refusal's real words; B1160 sent again without a take-back; no set word while refused; an
+  old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off
+  sonnet steps; the plain row words). The owed set through a model turn of Main (decision 4) is the second landing.
+
 ### The envelope's contract for the Workers mod
 
 For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers
@@ -7562,6 +7613,40 @@ text") is `art-inbox/B914/row-chosen.png`.
   review step, Taken for surviving `work step minutes`, overdue at 2x and 10 minutes with a pause and a board gap, the plan's
   age and staleness, Last task, the history source), test/heldRow.page.test.mjs (the row draws exactly pill, task and time,
   the bar's width and tone, the hover, the window, "No time" only without a size, the main chat's row unchanged).
+
+### The remaining ETA (eta-remaining, 2026-11-11)
+
+The person, 2026-11-11: "i want the board to reflect the remainting ETA", then "good." to chat 1's design. The case: Worker 1's row
+read "2 h 30 min over" in amber on B1125 from its size, its last minutes-left 60 min at 13:44, while it worked on (last turn 19:46);
+G64's line read "about 10 h left" from the sizes of the how made at the start. Chat 1's core review (three lenses, 30 findings,
+decisions A-H in `.claude/plans/2026-11-11-eta-remaining-review.md`) shaped what follows. This replaces the size-from-the-take time above:
+
+- **The row** (`state.mjs heldEstimateOf`, `held.eta`): the latest estimate minus the working time since it was said (B793: a pause,
+  a stop, a wait or the board off is no time worked; `history.mjs notWorkedBetween`). The worker's own minutes-left (the step's Plan
+  `until`, given at its `estimated <time>` part, stepPlan.mjs), `from: 'take'` when given with the take (within its minute), `from:
+  'own'` for a later `work step` with minutes; without one, the size from the take (`from: 'size'`). The page (`heldTime`, mirrored by
+  chatStatus.mjs `heldTimeText`): "about 1 h 06 left · re-estimated 19:46" ("estimated" for the take's own minutes and the size, E);
+  a time of another day reads "yesterday 19:46" (`sinceClock`, G). The bar is the time worked of worked plus left.
+- **An old Plan line** (no `estimated` part) takes its estimate time from its `at`, and the next `work step` without minutes writes that
+  time as its `estimated` part (`nextPlan`, C), so it never fakes a re-estimate.
+- **Past its estimate**: quiet, never amber, never overdue: "past its estimate since 14:44", the moment the worked time first reached
+  the estimate (B: a later pause or wait never moves it), and "· new estimate asked" once asked.
+- **The asks ride on the worker's own `work step` answer** (A: no typed word, which runs after the turn, crosses a fresh estimate or the
+  report and can wake a chat at rest): a checkpoint without minutes is kept and its answer asks "Give your minutes left with every
+  checkpoint: ..."; while its row says it is past its estimate (the state's lane), the answer asks "B<n> is past its estimate (given
+  13:44): give a fresh minutes-left now: ..." once per estimate, and the step's History gets "server: asked a fresh estimate (estimated
+  <time>)", which the row reads (held.mjs `askedForOf`). Neither ask on a step that takes no minutes (in review handed back, taken),
+  while the person pauses all chats, or on a stop checkpoint (F). A checkpoint with minutes on a step that takes none keeps the
+  checkpoint and leaves the minutes out (F).
+- **The goal line** (`partLeftMinutes`, `focus.progress.minutesLeft`): an open part's open steps added up: a step a worker holds (also
+  one in review its check handed back) its time left; past its estimate its refine Size, else its share of the part (never 0 while it
+  is worked on); one in review that no worker holds 0; one not started its refine Size, else its share (the part's size over its
+  steps, so one unsized step never brings back the whole first size); a part with no steps yet its own size. "Focus G64 · ... · about
+  4 h left"; never "0 min": with only checks left, " · the rest waits for its check" (Overview and Focus page), and the verdict wait
+  as the Focus page says it. No clock time (D: with workers side by side, the limit and nights it cannot be honest).
+- Rule 16: before/after picture `art-inbox/board-eta/eta-before-after.png`. Tests: `test/etaRemaining.test.mjs` (B1125's live Plan
+  and take, G64; a mutant per decision A-H), with heldRow, heldRow.page, chatStatus.state, stepPlanCard, work/stepPlan, workBlocks,
+  focusPage, work/pause, work/taskTime and runChip updated to the new words.
 
 ## Keeping what the person did across a reload (B524)
 

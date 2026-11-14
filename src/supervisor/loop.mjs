@@ -468,9 +468,11 @@ export function loopOwner({ read, write, alive, pid, port, now, settleMs = 0, wa
  * it at most once in `holdMs` (the loops ask at every run, the answer of a second ago stands), and a check that fails is
  * a no, told to `onFailed`. When this process gains the lock after it was refused it (another board process held it,
  * then ended), `onGained` runs first: its memory of the files the other board wrote is read again, and the chats are
- * told where it delivers. Gives a function answering true while this process may run the loops.
+ * told where it delivers. `onSucceeded` runs after every check that answered (yes or no): the loop record's "loop-lock" is healthy
+ * again after a failure (2026-11-13: a rename that failed once at 20:59 showed as failing for over an hour, nothing cleared it).
+ * Gives a function answering true while this process may run the loops.
  */
-export function loopGate({ owner, now, holdMs = 1000, onGained, onFailed }) {
+export function loopGate({ owner, now, holdMs = 1000, onGained, onFailed, onSucceeded }) {
   let last = null
   let asking = null
   let was = null
@@ -480,6 +482,7 @@ export function loopGate({ owner, now, holdMs = 1000, onGained, onFailed }) {
       let owns = false
       try {
         owns = await owner()
+        onSucceeded?.()
       } catch (error) {
         onFailed?.(error)
       }

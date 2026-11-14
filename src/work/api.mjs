@@ -47,12 +47,12 @@ import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mj
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { noteCameDownWords, stillTrueLeaves, stillTrueStep } from './stillTrueRules.mjs'
 import { ASKS_NOTHING_WHY, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, asksNothingOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
-import { HELD, afterPause, checkpointLine, isHolding, pauseAnswer, pauseFacts } from './pause.mjs'
+import { HELD, afterPause, checkpointLine, isHolding, pauseAnswer, pauseFacts, stampSecond } from './pause.mjs'
 import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
 import { BOOKKEEPING_DROP_WORDS } from './dropAsk.mjs'
 import { WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, waitWhatOf, waitWhoOf, waitWhoProblem, waitsOnLine, waitsOnOf } from './waitsOn.mjs'
-import { nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
-import { takenForLine } from './held.mjs'
+import { estimateAtOf, nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
+import { askedForOf, takenAtOf, takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
 import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
@@ -761,18 +761,27 @@ async function step(body, w) {
   if (!found.ok) return found
   const id = valueOf(found.item, 'Id')
   const isCheckpoint = body.commit !== undefined || body.next !== undefined
-  const isPlan = ['step', 'steps', 'names', 'name', 'minutes', 'stepMinutes'].some(key => body[key] !== undefined) || !isCheckpoint
+  // eta-remaining (review F): a checkpoint on a step it holds that takes no plan (in review handed back, taken) keeps the checkpoint
+  // and leaves the minutes and the plan out, rather than refusing it all.
+  const canPlan = PLAN_STATES.includes(stateOf(found.item))
+  const isPlan = (['step', 'steps', 'names', 'name', 'minutes', 'stepMinutes'].some(key => body[key] !== undefined) || !isCheckpoint) && !(isCheckpoint && !canPlan)
   // A checkpoint stands on every step a chat holds (pause.mjs `HELD`), as the pause counts them.
-  const states = isPlan ? ['in progress', 'waiting on you'] : HELD
+  const states = isPlan ? PLAN_STATES : HELD
   if (!isOwner(found.item, w.who, w.prefix) || !states.includes(stateOf(found.item))) return refuse(409, givenBackRefusal(found.item, w.who, w.prefix) ?? `${id} is not in progress for ${w.who}: take it first.`)
   const checkpoint = isCheckpoint ? checkpointOfBody(body) : null
   if (checkpoint !== null && !checkpoint.ok) return checkpoint
+  // eta-remaining: the asks ride on this answer only where the step takes minutes, not while the person pauses all chats, and not on
+  // a stop checkpoint (its step goes back).
+  const mayAsk = canPlan && !isHolding(w.store.pause ?? null) && rethinkWords(found.item) === null && planMinutes(body.minutes) === null
+  const estimate = mayAsk ? estimateAskOf(found.item, w) : null
+  const asked = item => (estimate === null ? item : appendHistory(item, 'server', estimate.line, w.now))
+  const asks = estimate !== null ? estimate.words : mayAsk && isCheckpoint ? minutesAsk(id) : ''
   if (!isPlan) {
-    const item = ordered(said(put(copy(found.item), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
+    const item = ordered(asked(said(put(copy(found.item), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`)))
     const done = await save(item, found.text, w)
     if (!done.ok) return done
     // P1: the forgotten record: a checkpoint while a wait on a chat stands reminds the holder of it.
-    return changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.${waitReminder(waitsOnOf(item), id)}${await giveBackStopped(item, w)}`)
+    return changed(item, `${id}: checkpoint ${checkpoint.commit} · ${checkpoint.next}.${asks}${waitReminder(waitsOnOf(item), id)}${await giveBackStopped(item, w)}`)
   }
   const names = Array.isArray(body.names) ? body.names.map(one => line(one, 60)).filter(Boolean) : []
   const count = Number.isInteger(Number(body.steps)) && Number(body.steps) > 0 ? Number(body.steps) : null
@@ -785,10 +794,44 @@ async function step(body, w) {
   // T13: the plan stays with the step, as the mod's card holds it, so a chat that takes the step over shows it (stepPlan.mjs).
   const saved = nextPlan(planOf(found.item), { names, steps: count, step: number, minutes: planMinutes(body.minutes), stepMinutes: planMinutes(body.stepMinutes) }, w.now)
   const planned = said(saved === null ? found.item : put(copy(found.item), 'Plan', planText(saved)), w, words)
-  const item = ordered(checkpoint === null ? planned : said(put(copy(planned), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`))
+  const item = ordered(asked(checkpoint === null ? planned : said(put(copy(planned), 'Checkpoint', checkpointLine({ ...checkpoint, now: w.now })), w, `checkpoint ${checkpoint.commit} · ${checkpoint.next}`)))
   const done = await save(item, found.text, w)
   if (!done.ok) return done
-  return changed(item, `${id}: ${words}.${checkpoint === null ? '' : ` Checkpoint ${checkpoint.commit} · ${checkpoint.next}.${await giveBackStopped(item, w)}`}`)
+  return changed(item, `${id}: ${words}.${checkpoint === null ? estimate?.words ?? '' : ` Checkpoint ${checkpoint.commit} · ${checkpoint.next}.${asks}${await giveBackStopped(item, w)}`}`)
+}
+
+/** The states in which a step takes a plan and its minutes (a `work step` with them). */
+const PLAN_STATES = ['in progress', 'waiting on you']
+
+/**
+ * eta-remaining (the person, 2026-11-11: "i want the board to reflect the remainting ETA"): every checkpoint carries the minutes
+ * still expected for the whole step, so the worker's row counts down from it; a checkpoint without them is kept, and its answer asks.
+ */
+const minutesAsk = id => ` Give your minutes left with every checkpoint: work step id=${id} minutes=<the minutes still expected for the whole step> with commit and next.`
+
+/**
+ * eta-remaining (review A, chat 1's decision: no typed word, which crosses the turn and can wake a chat at rest): the ask for a fresh
+ * estimate rides on the answer of the holder's own `work step` on the step, while its row says it is past its estimate (the state's
+ * lane, `held.eta`, state.mjs `heldEstimateOf`), once per estimate: `{ words, line }`, the History line the row reads ("asked a fresh
+ * estimate (estimated <time>)", held.mjs `askedForOf`), or null.
+ */
+function estimateAskOf(item, w) {
+  const bare = name => String(name ?? '').replace(w.prefix ?? '', '').trim().toLowerCase()
+  const lane = (w.lanes ?? []).find(one => bare(one?.name) === bare(w.who))
+  const id = valueOf(item, 'Id')
+  const eta = lane?.held?.id === id ? lane.held.eta ?? null : null
+  if (eta === null || eta.isOver !== true || !Number.isFinite(eta.saidAt) || askedForOf(item) === eta.saidAt) return null
+  // eta verifier 4, 5: the lane may come from a kept state older than the worker's own fresh minutes: ask only when the fresh item's own
+  // estimate is still the one the lane is past (its estimate time, else its take for the size).
+  const plan = planOf(item)
+  const since = takenAtOf(item, w.prefix ?? '')
+  const own = Number.isFinite(plan?.until) ? estimateAtOf(plan) : null
+  const current = own !== null && (since === null || own >= since) ? own : since
+  if (current !== eta.saidAt) return null
+  return {
+    words: ` ${id} is past its estimate (${eta.from === 'size' ? 'its size from the take' : `given ${stampSecond(eta.saidAt).slice(11, 16)}`}): give a fresh minutes-left now: work step id=${id} minutes=<the minutes still expected for the whole step>.`,
+    line: `asked a fresh estimate (estimated ${stampSecond(eta.saidAt)})`,
+  }
 }
 
 /**

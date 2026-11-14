@@ -154,6 +154,12 @@ test('the state: the Supervisor on Opus at high gets one worker-effort word abou
   assert.deepEqual([state.supervisorChat.model, state.supervisorChat.effort], [IDS.opus, 'high'])
 })
 
+test('B1160 review 5, 7, 11: while the app refuses the board\'s set calls the Supervisor gets no set word either', () => {
+  const refusal = "PreToolUse:mcp__ccd_session_mgmt__set_session_effort hook error: Not run: in auto mode Claude Desktop doesn't run this tool when a plugin's own code calls it. Have Claude make the call."
+  const refused = { id: 'r1', at: NOW - 5 * 60_000, to: 'Lead', command: 'worker-effort', about: 'Digger', effort: 'high', state: 'failed', failedAt: NOW - 5 * 60_000, why: refusal }
+  assert.deepEqual(wordsOf(build({ outbox: [refused] })), [])
+})
+
 test('the state: at the setting there is no word; the word of ten minutes ago holds it; the settings may name another setting', () => {
   const set = build({ effort: 'low', model: IDS.sonnet })
   assert.deepEqual(wordsOf(set), [])
