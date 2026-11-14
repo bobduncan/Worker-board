@@ -94,8 +94,17 @@ const countedOf = entry => (isTime(entry?.reopenedAt) ? (entry.attempts ?? []).f
  * A new spell entry for `chat` when its newest is of another spell (life came, or a new sleep began); the server calls it
  * from its pass with each lane's `spellOf`, and `claim` does before the first attempt. True when one was added.
  */
-export function newSpell(record, chat, spell) {
+export function newSpell(record, chat, spell, now = Date.now()) {
   if (!isTime(spell) || typeof chat !== 'string' || chat === '') return false
+  // F27 (the review, 2): a spent spell 0 that is not the chat's newest entry (a real spell came between) is replaced ONCE when the lane reads
+  // spell 0 again: it becomes the newest, re-opened (its tries count from now, as G1's reopen), never the dead end of the 2026-11-05 Supervisor.
+  const entries0 = entriesOf(record, chat)
+  const zero = spell === 0 ? entries0.find(one => one.spell === 0) ?? null : null
+  if (zero !== null && entries0.at(-1) !== zero && !isTime(zero.reopenedAt) && zero.attempts.length > 0 && zero.attempts.every(one => one.verdict === 'failed')) {
+    zero.reopenedAt = now
+    record.wakes.set(chat, [...entries0.filter(one => one !== zero), zero])
+    return true
+  }
   // The review of 2026-11-02: a spell value a kept entry already has (A, B, then A again) is that entry, never a new one:
   // the cap of one try per path holds for it.
   if (entriesOf(record, chat).some(one => one.spell === spell)) return false
