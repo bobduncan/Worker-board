@@ -21,6 +21,7 @@
 
 import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
+import { constants as osConstants, setPriority } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -29,6 +30,15 @@ import { startEnv } from './src/keeper.mjs'
 import { gitRunner } from './src/folders.mjs'
 import { LIST_MS, LIST_SCRIPT, netstat, parseProcessList, portHolderOf, powershell, runsAlready } from './src/keeperStart.mjs'
 import { boardsFile, resolvePort } from './src/ports.mjs'
+
+// F24 (chat 1's review): this script's first act is Normal priority. A chat under CPU Low runs it at Idle on two crowded cores, and
+// everything it starts (PowerShell, netstat, the keeper and so the board) would inherit that and starve. ESM evaluates the imports
+// above first; this script's own graph is small (config, keeper, folders, ports, keeperStart), the board's is server.mjs's.
+try {
+  setPriority(osConstants.priority.PRIORITY_NORMAL)
+} catch {
+  // not allowed here: the board raises itself too (server.mjs)
+}
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const HOST = '127.0.0.1'
@@ -48,16 +58,18 @@ export async function boardAt(port, timeoutMs = 1500) {
 
 /**
  * F24a: whether this folder's board runs: its page within ANSWER_MS (a slow board is a running board), else (Windows) one listing of
- * the node processes and the holder of the port, judged by `runsAlready`. A listing that fails or times out: unknown, no start.
+ * the node processes (tried twice) and the holder of the port, judged by `runsAlready`. A listing that fails or times out both
+ * times: unknown, no start (never a start on a guess: a keeper may run).
  */
 export async function boardRuns(port, { answers = boardAt, list = () => powershell(LIST_SCRIPT, LIST_MS), ports = () => netstat(LIST_MS), platform = process.platform, dir = HERE } = {}) {
   const answerSeconds = ANSWER_MS / 1000
   if (await answers(port, ANSWER_MS)) return runsAlready({ dir, answers: true, answerSeconds })
   if (platform !== 'win32') return { runs: false }
   let listingError = null
-  const [listed, holder] = await Promise.all([list().then(parseProcessList, error => { listingError = error?.message ?? String(error); return null }), ports().then(text => portHolderOf(text, port), () => null)])
-  if (listed === null && listingError === null) listingError = 'the listing was not JSON'
-  return runsAlready({ dir, answers: false, processes: listed?.processes ?? null, holder, answerSeconds, listingError })
+  const once = () => list().then(text => { const read = parseProcessList(text); if (read === null) throw new Error('the listing was not JSON'); return read })
+  const twice = () => once().catch(first => once().catch(second => { listingError = `${first?.message ?? first}; again: ${second?.message ?? second}`; return null }))
+  const [listed, holder] = await Promise.all([twice(), ports().then(text => portHolderOf(text, port), () => null)])
+  return runsAlready({ dir, port, answers: false, processes: listed?.processes ?? null, holder, answerSeconds, listingError })
 }
 
 /** B320: the program that opens a page in the person's browser, with its words. */

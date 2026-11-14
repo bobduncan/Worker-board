@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
+import { cpus } from 'node:os'
 import { createServer } from 'node:http'
 import { createConnection } from 'node:net'
 import { dirname, join } from 'node:path'
@@ -123,6 +124,33 @@ test('F24a: a listing that fails or takes too long: unknown, nothing started, sa
   assert.equal(said.status, 1)
   assert.match(said.stderr.trim(), new RegExp(`^The worker board on http://127\\.0\\.0\\.1:${port}/ did not answer within 15 seconds and the PC's processes could not be listed \\(.+\\): whether this folder's board runs is unknown; nothing started\\.$`))
   assert.equal(said.stdout, '')
+})
+
+test('F24, chat 1\'s review: start-board.mjs itself runs at Normal when a chat under Low starts it at Idle (its helpers and the keeper are born from it)', windows, async t => {
+  const port = String(await freePort())
+  // A board of this folder that answers late holds the script in its 15 s wait: time to read the script's own priority.
+  await fakeBoard(t, port, 12_000)
+  const mask = ((1n << BigInt(Math.min(64, cpus().length))) - 1n) ^ ((1n << BigInt(Math.min(64, cpus().length) - 2)) - 1n)
+  const shell = spawn('cmd.exe', ['/c', 'start', '/LOW', '/AFFINITY', mask.toString(16), '/B', '/WAIT', '""', process.execPath, SCRIPT, '--demo', '--port', port], { windowsHide: true, stdio: 'ignore', env: startEnv(process.env) })
+  const ps = command => spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 30_000, windowsHide: true }).stdout.trim()
+  // The script, then any demo keeper it may start once the fake board is gone: nothing of this test lingers.
+  let script = null
+  t.after(() => {
+    shell.kill()
+    if (script !== null) spawnSync('taskkill', ['/PID', String(script), '/T', '/F'], { windowsHide: true })
+    ps(`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs --demo --port ${port}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`)
+  })
+  // The script is born at Idle and raises itself once its (small) import graph has loaded: on two crowded cores that takes a moment.
+  const until = Date.now() + 10_000
+  let state = ''
+  const seen = []
+  while (Date.now() < until && !/^Normal/.test(state)) {
+    state = ps(`$p = Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*start-board.mjs" --demo --port ${port}*' -or $_.CommandLine -like '*start-board.mjs --demo --port ${port}*' } | Select-Object -First 1; if ($p) { $g = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue; if ($g) { "$($g.PriorityClass) $($g.ProcessorAffinity) $($p.ProcessId)" } }`)
+    if (state !== '' && seen.at(-1) !== state.split(' ').slice(0, 2).join(' ')) seen.push(state.split(' ').slice(0, 2).join(' '))
+    if (/^(Normal|Idle)/.test(state)) script = Number(state.split(' ')[2])
+    if (!/^Normal/.test(state)) await new Promise(done => setTimeout(done, 300))
+  }
+  assert.equal(state.split(' ').slice(0, 2).join(' '), `Normal ${mask.toString()}`, `the script raised itself to Normal within 10 s (the cores stay as inherited: the board's CPU job frees those); seen: ${seen.join(' >> ')}`)
 })
 
 test('F24a: another program on the port is said, and nothing is started on it', windows, async t => {

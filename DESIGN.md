@@ -8230,3 +8230,18 @@ the board's own processes to Normal on all cores BEFORE the listing and the sess
 again next pass, still first). Tests: test/cpu.test.mjs (the order with a fake, where the mutant, the old order, lists first; the Low
 test's first call is the board's own), test/cpuStartIdle.test.mjs (the real case: a copy of the board started by `start /LOW /AFFINITY
 <the last two cores>` runs its keeper and board at Normal on all cores within a minute; `start /LOW /AFFINITY` is checked to apply).
+
+**Chat 1's review of F24a+b** (`.claude/plans/2026-11-14-f24-review.md`, 6 findings): start-board.mjs raises itself to Normal as its
+first statement after the imports (a chat under Low runs it at Idle on two crowded cores: PowerShell, netstat, the keeper and so the
+board were born starved); `powershell()` and `netstat()` give their child Normal from outside right after the spawn, as cpu.mjs does for
+its helper; the listing has 20 s and is tried twice, and only two failures are "unknown", which still starts nothing (never a start on a
+guess). A process counts as this board's (`isBoardOf`) only when its command line runs the folder's server.mjs with no `--demo`,
+`--history-from` or `--launch-entry` and no `--port` other than the resolved one; the port's holder is judged first (this board's child,
+or another program's, a keeper of the folder beside it notwithstanding), a keeper of this board only on a free port. The real-case tests
+(test/cpuStartIdle.test.mjs) can fail: a probe started by the same `start /LOW /AFFINITY` line is read as Idle on the two-core mask; a
+demo board (no CPU job) started that way reads Normal while its affinity is still the two cores (fails without server.mjs's raise); the
+copy of the board runs at FULL (a Low CPU job of a copy would throttle every codex, vite and headless Edge on the PC; the one Low run
+of the first version was at 12:31 on 2026-11-14) and ends at Normal on all cores; after each, every node.exe running the copy's
+server.mjs is killed by its command line and the folder removed once they have let go. The keeper's board is found by its command line
+under the keeper, never by the parent pid alone (Windows gives a dead process's pid out again within seconds: a lingering Idle probe
+once passed for the board). start-board.mjs's own Normal is read while it waits on a slow board (test/startBoard.test.mjs).
