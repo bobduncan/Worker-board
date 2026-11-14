@@ -8239,7 +8239,8 @@ guess). A process counts as this board's (`isBoardOf`) only when its command lin
 `--history-from` or `--launch-entry` and no `--port` other than the resolved one; the port's holder is judged first (this board's child,
 or another program's, a keeper of the folder beside it notwithstanding), a keeper of this board only on a free port. The real-case tests
 (test/cpuStartIdle.test.mjs) can fail: a probe started by the same `start /LOW /AFFINITY` line is read as Idle on the two-core mask; a
-demo board (no CPU job) started that way reads Normal while its affinity is still the two cores (fails without server.mjs's raise); the
+demo board (no CPU job) started that way reads Normal while its affinity is still the two cores (through start-board.mjs: the direct
+test of the re-check round proves server.mjs's raise alone); the
 copy of the board runs at FULL (a Low CPU job of a copy would throttle every codex, vite and headless Edge on the PC; the one Low run
 of the first version was at 12:31 on 2026-11-14) and ends at Normal on all cores; after each, every node.exe running the copy's
 server.mjs is killed by its command line and the folder removed once they have let go. The keeper's board is found by its command line

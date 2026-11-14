@@ -14,9 +14,10 @@
 // answered in 8-11 s on 2026-11-14 and failed a 1.5 s check; every chat's mod then ran this script once a minute and each
 // run made a new keeper whose child died on "Port 4310 is in use"); a board that still does not answer counts as running
 // when a keeper of this folder runs or a process of this folder holds the port (slow or starting: the keeper brings it
-// back), and nothing is started. Another program on the port: said, nothing started, 1. A listing that fails or takes
-// longer than 10 s: said, nothing started, 1 (never a start on a guess). Only a free port with no keeper of this folder
-// starts one (src/keeperStart.mjs `runsAlready`). PowerShell and netstat run hidden (windowsHide: this script runs detached
+// back), and nothing is started. Another program on the port: said, nothing started, 1. A listing that fails twice (20 s
+// each): unknown, said, nothing started, 1, unless nothing listens (the connection refused) and netstat saw no holder: then
+// the start goes with a note (a duplicate keeper dies on EADDRINUSE; a board left down heals nothing). Only a free port with
+// no keeper of this folder starts one (src/keeperStart.mjs `runsAlready`). PowerShell and netstat run hidden (windowsHide: this script runs detached
 // from a chat's mod; a console program started without it pops a terminal up, 758178e5).
 
 import { spawn } from 'node:child_process'
@@ -59,7 +60,7 @@ export async function probeBoard(port, timeoutMs = 1500) {
 /**
  * F24a: whether this folder's board runs: its page within ANSWER_MS (a slow board is a running board), else (Windows) one listing of
  * the node processes (tried twice) and the holder of the port, judged by `runsAlready`. A listing that fails or times out both
- * times: unknown, no start (never a start on a guess: a keeper may run).
+ * times: unknown, no start (a keeper may run), unless the port refused the connection and netstat saw no holder: a start with a note.
  */
 export async function boardRuns(port, { answers = probeBoard, list = () => powershell(LIST_SCRIPT, LIST_MS), ports = () => netstat(LIST_MS), platform = process.platform, dir = HERE, isDemo = false } = {}) {
   const answerSeconds = ANSWER_MS / 1000

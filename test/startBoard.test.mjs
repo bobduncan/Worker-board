@@ -164,7 +164,7 @@ test('F24, chat 1\'s review: start-board.mjs itself runs at Normal when a chat u
   assert.equal(state.split(' ').slice(0, 2).join(' '), `Normal ${mask.toString()}`, `the script raised itself to Normal within 10 s (the cores stay as inherited: the board's CPU job frees those); seen: ${seen.join(' >> ')}`)
 })
 
-test('F24, re-check (c): importing start-board.mjs raises nothing (only the script that runs does): a test file under Low stays at Idle', windows, async t => {
+test('F24, re-check (c): importing start-board.mjs raises nothing (only the script that runs does): a test file under Low stays at Idle', { ...windows, timeout: 60_000 }, async t => {
   const mask = ((1n << BigInt(Math.min(64, cpus().length))) - 1n) ^ ((1n << BigInt(Math.min(64, cpus().length) - 2)) - 1n)
   const file = join(tmpdir(), `imports-start-board-${process.pid}.mjs`)
   writeFileSync(file, `import ${JSON.stringify(new URL('../start-board.mjs', import.meta.url).href)}\nconsole.log(process.pid)\nsetTimeout(() => {}, 20000)\n`)

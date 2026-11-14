@@ -129,7 +129,8 @@ export function netstat(timeoutMs = LIST_MS, { raise = raiseChild } = {}) {
  * `{ runs: true, why }` for an answer, a keeper of this folder, or the port held by a process of this folder (slow or starting:
  * nothing is started, the keeper brings the board back); `{ runs: false, foreign: { pid, commandLine } }` when another program
  * holds the port (a start would fail on it); `{ runs: false, unknown }` when the processes could not be listed (`processes` null:
- * the listing failed or took longer than LIST_MS; chat 1's must: never a start on a guess, the next run looks again); `{ runs: false }`
+ * the listing failed or took longer than LIST_MS; no start on a guess, the next run looks again), except `{ runs: false, note }` when
+ * nothing listens (`isRefused`) and netstat saw no holder (`holderKnown`, `holder` null): the start goes, with the note; `{ runs: false }`
  * when nothing of this folder runs and the port is free.
  */
 export function runsAlready({ dir, port = null, isDemo = false, answers, isRefused = false, holderKnown = false, processes = null, holder = null, answerSeconds, listingError = null }) {

@@ -3,8 +3,8 @@
 // as their first act (server.mjs, os.setPriority), start-board.mjs too, and the CPU job gives the board's own processes all cores back
 // before it lists anything (src/cpu.mjs once(); the ORDER is tested with a fake in test/cpu.test.mjs, where the mutant, the old order,
 // fails). Here the real cases, each able to fail (chat 1's review of F24b, items 4 and 6): the start line is proven to start at Idle on
-// two cores by a probe; a demo board (no CPU job) ends at Normal while its affinity is still the two cores (fails without server.mjs's
-// raise); a copy of the board at Full (never a Low CPU job against this PC: it would throttle every codex, vite and headless Edge here,
+// two cores by a probe; the demo keeper started directly (no CPU job) ends at Normal while its affinity is still the two cores (fails
+// without server.mjs's raise); the same through start-board.mjs; a copy of the board at Full (never a Low CPU job against this PC: it would throttle every codex, vite and headless Edge here,
 // item 3) ends at Normal on all cores. Every node.exe running the copy's server.mjs is killed after, whatever stdout said.
 
 import assert from 'node:assert/strict'
@@ -86,7 +86,7 @@ test('the probe, read while it runs: Idle, the two-core mask', windows, async t 
   assert.deepEqual(stateOf([pid]), [`${pid} Idle ${LAST_TWO.toString()}`], 'the start line applies Idle and the two-core mask')
 })
 
-test('F24b, server.mjs alone: a demo board (no CPU job) started at Idle on two cores runs its keeper and board at Normal while their affinity is still the two cores (fails without the raise in server.mjs)', windows, async t => {
+test('F24b through start-board.mjs: a demo board (no CPU job) started at Idle on two cores runs its keeper and board at Normal while their affinity is still the two cores (the raise of start-board.mjs or server.mjs: the direct test below tells server.mjs\'s)', windows, async t => {
   const port = await freePort()
   t.after(() => killRunning(`server.mjs --demo --port ${port}`))
   const started = startLow([join(ROOT, 'start-board.mjs'), '--demo', '--port', String(port)], { cwd: ROOT })
