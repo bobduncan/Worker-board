@@ -4726,6 +4726,40 @@ describe('Task 6 (0.31.0): the app merges the words queued while the chat is bus
     expect(wordsOf(w)).toEqual(['busy e2c84352 6000'])
   })
 
+  test('chat 1\'s verifier of F7 (6): a turn\'s end retries the words of ITS prompt whose report at the start failed, also when the next turn began meanwhile (the per-turn state is taken with the snapshot)', async ($, on) => {
+    const { w, clock, texts } = await queued($, on, ['e2c84352', '45ac6f71'])
+    // At T1's start the board's file cannot be read (a landing's restart): the words' report fails and they are kept for the turn's end.
+    const boardText = w.files[BOARD]
+    delete w.files[BOARD]
+    await clock.advance(1000)
+    await $.turn.start({ text: texts.join('\n\n'), turnId: 't1' })
+    await settle()
+    expect(typedOf(w)).toEqual([])
+    w.files[BOARD] = boardText
+    // A third word is typed while T1 runs (its own prompt is queued behind T1).
+    w.waiting.push({ id: '77955933', text: textOf('77955933') })
+    await clock.advance(5000)
+    await settle()
+    // T1 ends with a For you block; the board holds its turn-ended past the hook's 5 s, so the tail runs beside the next turn.
+    let releaseEnd = (): void => {}
+    w.byAction['turn-ended'] = { status: 200, text: JSON.stringify({ missed: [], open: [], role: 'worker', pause: RUNNING, asked: [], left: [] }) }
+    w.holdAction = { action: 'turn-ended', until: new Promise<void>(done => { releaseEnd = done }) }
+    const ending = $.turn.complete({ ...ENDED, answer: 'Done.\n\n> **For you**\n> 1. **Answer:** Keep it? I advise yes.', turnId: 't1' })
+    await clock.advance(5000)
+    await ending
+    // T2 begins at once on the third word: its start owns the per-turn state now, while T1's tail still waits for the board.
+    await $.turn.start({ text: textOf('77955933'), turnId: 't2' })
+    await settle()
+    // At 6 s T1's tail gives the board up and retries ITS words (the mutant read the next turn's state and retried none); the answer comes later.
+    await clock.advance(2000)
+    await settle()
+    releaseEnd()
+    await settle()
+    await clock.advance(1000)
+    await settle()
+    expect(typedOf(w).filter(id => id === 'e2c84352' || id === '45ac6f71').sort()).toEqual(['45ac6f71', 'e2c84352'])
+  })
+
   test('a turn whose prompt is the person\'s own line reports none and names no word; the words stay on their way until their own prompt starts', async ($, on) => {
     const { w, clock, texts } = await queued($, on, ['7a972772', 'cf04b25b'])
     await clock.advance(1000)

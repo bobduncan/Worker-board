@@ -4837,23 +4837,32 @@ a chat's mod behaves as before for that chat (the call's header says the mod).
    the outbox id its turn ran on (8c); the board ends that judge word when it is one to the Supervisor's chat, else the newest in
    flight as before (an older mod, a turn no word started).
 - **The rollout's guard, a journal** (chat 1's review and its two verifiers, the account-switch lesson: an archived real chat must
-  always come back). Inference from snapshots, live mod calls and wall-clock windows kept producing holes (an archived main chat
-  named from the open lanes, workers on the sequence left out of a snapshot, a 2-minute mod window, a 2-hour cause window while
-  the board was off 37 h), so the guard is a JOURNAL (src/work/rolloutJournal.mjs, data/rollout.json, read by the server once and
-  written back when a state build changed it): when a `restart for mod` word first shows in the outbox, a record takes the word's
-  id and every project chat open at that moment, by session (the main chat, every worker, the side chats: whatever that archive can
-  take along). Each refresh, for a record whose word reached its restarter (delivered; one lost made no archive and goes), a
-  session still archived and never seen open since gets its restarter the word `unarchive chat` (command `mod-unarchive`, a partner
-  word, with the chat's session and the record's id; modRollout.mjs `unarchiveWords`; roles/main.md, roles/partner.md:
-  `unarchive_session` it, archive nothing): the restarters named from the LIST of chats (the partner for the main chat, the main
-  chat for the rest, archived or not), after UNARCHIVE_AFTER_MS of grace from when the word reached, again every UNARCHIVE_AGAIN_MS,
-  UNARCHIVE_TRIES (3) times at most, the tries counted ON the record by the words' ids (the outbox may forget them; the record does
-  not: no clock). A session leaves the record once seen open again (the restart finished, or the person unarchived it), when its app
-  file is gone, when the board or the person removed it (a `remove` word about it after the word reached, or its card says left), or
-  when its tries are spent and the last one waited its turn (given up: the person archived it on purpose). A record goes when
-  every session left. The outbox's sweep drops a waiting unarchive word whose chat is open again (outboxSweep.mjs `whyClosed`, the
-  state's `openSessions`). Tests: test/work/rolloutJournal.test.mjs (the record, the main chat and its workers, the tries on the
-  record across a forgotten outbox and a 37-hour gap, the leavings, the sweep), test/modUnarchive.state.test.mjs (the real case
+  always come back; chat 1's verifier of the journal, 2026-11-14, `.claude/plans/2026-11-14-f7-verifier.md`: a state machine per
+  session). Inference from snapshots, live mod calls and wall-clock windows kept producing holes (an archived main chat named from
+  the open lanes, workers on the sequence left out of a snapshot, a 2-minute mod window, a 2-hour cause window while the board was off
+  37 h), so the guard is a JOURNAL (src/work/rolloutJournal.mjs, data/rollout.json, read by the server once and written back when a
+  state build changed it): when a `restart for mod` word first shows in the outbox, a record takes the word's id, its restarter and
+  every project chat open at that moment, by session (the main chat, every worker, the side chats: whatever that archive can take
+  along). While the word waits for its restarter the list is kept current (a session archived meanwhile, the person's or the board's,
+  leaves it; one opened meanwhile joins); when the word reaches, the record keeps `reachedAt` and judges from itself from then on,
+  also once the outbox has forgotten the word. Each session goes `listed` (open, not judged) -> `archived` (seen archived after the
+  reach) -> `open` (seen open after that: the restart finished, or the person unarchived it; done). A session still open and never
+  seen archived leaves only once the restarter's turn that carried the word has ended (the lane's report after the reach says idle or
+  ended; `reportOf` from the state): a restarter cut off mid-turn never ends it, so what it archived gets its words. Also done: `gone`
+  (its app file missing from the folder listing `appFiles`, or unreadable on MISSING_LOOKS (2) looks in a row: one torn read is no
+  verdict), `removed` (a `remove` word about it since the word was made, or its card says left), `given up` (its tries spent and the
+  last one waited its turn: the person archived it on purpose). A session `archived` gets its restarter the word `unarchive chat`
+  (command `mod-unarchive`, a partner word, with the chat's session and the record's id; modRollout.mjs `unarchiveWords`;
+  roles/main.md, roles/partner.md: `unarchive_session` it, archive nothing): the restarters named from the LIST of chats (the
+  partner for the main chat, the main chat for the rest, archived or not), after UNARCHIVE_AFTER_MS of grace from the reach, again
+  UNARCHIVE_AGAIN_MS after the last word that REACHED the restarter, UNARCHIVE_TRIES (3) times in all per session across records (a
+  chat two restarts archived is asked three times, not six), never while one of its words still waits; the asks are kept on the
+  record (id, when, reached: the outbox may forget them, the record does not). A record whose word was lost or forgotten before it
+  reached goes (no archive happened); one whose every session left goes. The outbox's sweep drops a waiting unarchive word whose
+  chat is open again (outboxSweep.mjs `whyClosed`, the state's `openSessions`). Tests: test/work/rolloutJournal.test.mjs (the
+  record and its file, the blocker's order: reached, nothing archived yet, then archived; the main chat and its workers; the list kept
+  current while the word waits and the removal from the making; the torn read; the tries on the record across a forgotten outbox and
+  a 37-hour gap, and across records; the waiting asks; the leavings; the sweep), test/modUnarchive.state.test.mjs (the real case
   through `buildState`, the journal back out of the state).
 - **The release**: version 0.32.0 (plugin.json, `MOD_VERSION`); land.ps1 runs the app's `claude.exe plugin test .` beside `npm test`
   when mods/workers changed; after the landing the merging chat runs `plugin marketplace update worker-board` and `plugin update

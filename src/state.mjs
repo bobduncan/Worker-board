@@ -2583,9 +2583,12 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // The Workers mod release 0.32.0, the rollout's guard as a journal (work/rolloutJournal.mjs, data/rollout.json through the server):
   // the chats open when each restart word went, and the unarchive words for those still archived after the word reached; the
   // restarters from the LIST of chats (the main chat archived or not). Nothing without the loops (the bridge missing: no words).
+  // Chat 1's verifier of the journal: the app's folder listing (an unreadable file is no verdict) and each chat's latest report (the
+  // restarter's turn that carried the word has ended once its report after the word reached says idle or ended).
   const journal = journalNext(rolloutJournal ?? emptyJournal(), {
-    sent, apps, project: config.project, prefix, now, main: isBridgeMissing === true ? null : list.main ?? null, partner: isBridgeMissing === true ? null : config.advisor ?? null,
+    sent, apps, appFiles: Array.isArray(raw.appFiles) ? raw.appFiles : null, project: config.project, prefix, now, main: isBridgeMissing === true ? null : list.main ?? null, partner: isBridgeMissing === true ? null : config.advisor ?? null,
     left: apps.filter(chat => removedAt.has(chat.cliSessionId)).map(chat => chat.title),
+    reportOf: name => reportedOf.get(name)?.entry ?? null,
   })
   // Signals change 2 (the brief of 2026-10-31): every chat's ONE status, from one pure function (chatStatus.mjs), display only: `state`,
   // `isRunning`, `asleep`, `report` and `handover` stay as the decisions read them; nothing here is read back by one.

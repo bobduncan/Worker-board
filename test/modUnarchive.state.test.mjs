@@ -33,7 +33,8 @@ test('a main chat stuck archived after its restart word gets the partner\'s unar
   const apps = [app('Lead', { isArchived: true }), app('Worker 1', { isArchived: true }), app('Worker 2'), app('Advisor')]
   const due = build({ apps, outbox: [restart('Lead', 'Advisor', 7)], journal: taken.rolloutJournal })
   assert.deepEqual(due.reconciled.unarchives.map(one => [one.to, one.chat, one.session, one.record]), [['Advisor', 'Lead', 'local_Lead', 'r-Lead'], ['Lead', 'Worker 1', 'local_Worker 1', 'r-Lead']])
-  assert.deepEqual(due.rolloutJournal.records[0].chats.map(chat => chat.state), ['archived', 'archived', 'open', 'open'])
+  // The verifier of the journal: a session open and never seen archived stays listed until the restarter's turn ended (no report here).
+  assert.deepEqual(due.rolloutJournal.records[0].chats.map(chat => chat.state), ['archived', 'archived', 'listed', 'listed'])
   assert.deepEqual(due.openSessions, ['local_Worker 2', 'local_Advisor'])
   // Within the grace (the word reached the Advisor a minute ago): nothing yet.
   assert.deepEqual(build({ apps, outbox: [restart('Lead', 'Advisor', 7, { deliveredAt: NOW - MIN })], journal: taken.rolloutJournal }).reconciled.unarchives, [])

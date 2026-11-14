@@ -101,7 +101,9 @@ test('the Workers mod release 0.32.0: the unarchive word names the chat, its ses
   // The board's state wires the journal with the outbox, the app's chats and the restarters from the LIST (the main chat archived or
   // not): the real case is test/modUnarchive.state.test.mjs.
   const state = readFileSync(new URL('../src/state.mjs', import.meta.url), 'utf8')
-  assert.match(state, /const journal = journalNext\(rolloutJournal \?\? emptyJournal\(\), \{\n\s+sent, apps, project: config\.project, prefix, now, main: isBridgeMissing === true \? null : list\.main \?\? null, partner: isBridgeMissing === true \? null : config\.advisor \?\? null,/)
+  assert.match(state, /const journal = journalNext\(rolloutJournal \?\? emptyJournal\(\), \{\n\s+sent, apps, appFiles: Array\.isArray\(raw\.appFiles\) \? raw\.appFiles : null, project: config\.project, prefix, now, main: isBridgeMissing === true \? null : list\.main \?\? null, partner: isBridgeMissing === true \? null : config\.advisor \?\? null,/)
+  // The verifier of the journal: the app's folder listing (a torn read is no verdict) and each chat's latest report (the restarter's turn ended).
+  assert.match(state, /reportOf: name => reportedOf\.get\(name\)\?\.entry \?\? null,/)
   assert.match(state, /unarchives: rollout === null \? \[\] : journal\.words,/)
 })
 

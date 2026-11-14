@@ -3440,6 +3440,11 @@ async function afterOwnTurn($: EngineInterface, e: TurnEndEvent): Promise<void> 
       // Chat 1's verifier (1, 11): the prompt and turn counts of this turn's end, the clear's baseline: read live after the awaits they
       // would be the next turn's, and its conversation would be cleared.
       const turnAt = { prompts: promptCount, turn: turnNumber }
+      // Chat 1's verifier of F7 (6): 0.32.0's per-turn state too: the word this turn ran on, and the words of this prompt whose report at
+      // the start may have failed; the next turn's start owns `enteredThisTurn` alone.
+      const word = turnWords.word
+      const untoldIds = enteredThisTurn
+      enteredThisTurn = []
       hasReported = false
       moreFollows = false
       reportedStep = null
@@ -3470,7 +3475,7 @@ async function afterOwnTurn($: EngineInterface, e: TurnEndEvent): Promise<void> 
         // step, and pulls nothing: the board decides what it gets (its answer's `handover`).
         const pulls = !isOnSequence && await withinTime($, holdsNothing($)) === true && !isPaused(await pauseNow($))
         // 0.32.0, point 5: the word this turn ran on (8c), so the board ends THAT judge word, not the newest in flight.
-        const fields = { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}), ...(turnWords.word !== null ? { word: turnWords.word } : {}) }
+        const fields = { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}), ...(word !== null ? { word } : {}) }
         const call = await workLate($, fields, forYou.length > 0 ? ASKED_WAIT_MS : BOARD_WAIT_MS)
         if (call.read === null && call.late !== null && forYou.length > 0) void takeLateEnded($, call.late, await $.session.id())
         told.ended = call.read
@@ -3486,8 +3491,7 @@ async function afterOwnTurn($: EngineInterface, e: TurnEndEvent): Promise<void> 
       // new prompt or turn came, and for the same step). The snapshot's asked and counts (chat 1's verifier of 0.31.1, 1 and 11).
       if (e.reason === 'answer') lastTurn = { answer: e.answer, asked, ended: told.ended, step: at.step, since: turnAt }
       // 0.32.0, point 1: a word the prompt held whose report at the turn's start failed (the board's file unreadable then) is told now.
-      const untold = enteredThisTurn.filter(id => !reportedWords.has(id))
-      enteredThisTurn = []
+      const untold = untoldIds.filter(id => !reportedWords.has(id))
       if (untold.length > 0) void reportEntered($, untold).catch(() => null)
       // Clear after each step: a worker that reported is cleared or compacted now, the main chat and the partners
       // compacted at rest; the line the board put out for a free worker is typed in after that, unless a clear is
