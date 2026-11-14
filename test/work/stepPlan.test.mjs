@@ -46,11 +46,11 @@ test('a step call with names and minutes writes the plan on the step; a second c
   const { dir, at, board } = await fresh()
   await clean(dir, async () => {
     assert.equal((await board({ action: 'take', minutes: 30, id: 'B1' })).ok, true)
-    assert.equal(await planLine(dir, 'B1'), `until ${stampSecond(NOW + 30 * MIN)} | at ${stampSecond(NOW)}`)
+    assert.equal(await planLine(dir, 'B1'), `until ${stampSecond(NOW + 30 * MIN)} | at ${stampSecond(NOW)} | estimated ${stampSecond(NOW)}`)
     const first = await board({ action: 'step', id: 'B1', names: ['Read', 'Draw', 'Test'], step: 1, minutes: 40, stepMinutes: 10 })
     assert.equal(first.ok, true)
     const stamp = minutes => stampSecond(NOW + minutes * MIN)
-    assert.equal(await planLine(dir, 'B1'), `step 1/3 | parts Read; Draw; Test | until ${stamp(40)} | step until ${stamp(10)} | at ${stamp(0)}`)
+    assert.equal(await planLine(dir, 'B1'), `step 1/3 | parts Read; Draw; Test | until ${stamp(40)} | step until ${stamp(10)} | at ${stamp(0)} | estimated ${stamp(0)}`)
     // The line is part of the head as the store keeps it: the file reads back without a problem.
     assert.deepEqual((await readStore(dir)).problems, [])
 
@@ -58,14 +58,15 @@ test('a step call with names and minutes writes the plan on the step; a second c
     const later = NOW + 10 * MIN
     assert.equal((await at(later, { action: 'step', id: 'B1', step: 2, minutes: 30, stepMinutes: 12 })).ok, true)
     const second = stampSecond
-    assert.equal(await planLine(dir, 'B1'), `step 2/3 | parts Read; Draw; Test | until ${second(later + 30 * MIN)} | step until ${second(later + 12 * MIN)} | at ${second(later)}`)
+    assert.equal(await planLine(dir, 'B1'), `step 2/3 | parts Read; Draw; Test | until ${second(later + 30 * MIN)} | step until ${second(later + 12 * MIN)} | at ${second(later)} | estimated ${second(later)}`)
 
-    // A call that moves on without a time keeps the task's time and drops the part's, as the card does.
+    // A call that moves on without a time keeps the task's time and drops the part's, as the card does; it keeps when the time was given
+    // (eta-remaining: the row counts down from that).
     assert.equal((await at(later + MIN, { action: 'step', id: 'B1', step: 3 })).ok, true)
-    assert.equal(await planLine(dir, 'B1'), `step 3/3 | parts Read; Draw; Test | until ${second(later + 30 * MIN)} | at ${second(later + MIN)}`)
+    assert.equal(await planLine(dir, 'B1'), `step 3/3 | parts Read; Draw; Test | until ${second(later + 30 * MIN)} | at ${second(later + MIN)} | estimated ${second(later)}`)
     // A checkpoint alone is no plan: the line stays as it was.
     assert.equal((await board({ action: 'step', id: 'B1', commit: 'a1b2c3d', next: 'test it' })).ok, true)
-    assert.equal(await planLine(dir, 'B1'), `step 3/3 | parts Read; Draw; Test | until ${second(later + 30 * MIN)} | at ${second(later + MIN)}`)
+    assert.equal(await planLine(dir, 'B1'), `step 3/3 | parts Read; Draw; Test | until ${second(later + 30 * MIN)} | at ${second(later + MIN)} | estimated ${second(later)}`)
   })
 })
 
@@ -73,13 +74,13 @@ test('the plan on the step reads back as the call gave it, parts with a separato
   const plan = nextPlan(null, { names: ['Read; the | code', 'Draw'], step: 2, minutes: 25, stepMinutes: 5 }, NOW)
   assert.deepEqual(plan.names, ['Read, the , code', 'Draw'])
   const item = { head: new Map([['Id', 'B1'], ['Kind', 'step'], ['State', 'in progress'], ['Since', '2026-10-28 20:00'], ['Plan', planText(plan)]]), sections: new Map() }
-  assert.deepEqual(planOf(item), { names: ['Read, the , code', 'Draw'], on: 2, steps: 2, until: NOW + 25 * MIN, stepUntil: NOW + 5 * MIN, writtenAt: NOW })
+  assert.deepEqual(planOf(item), { names: ['Read, the , code', 'Draw'], on: 2, steps: 2, until: NOW + 25 * MIN, stepUntil: NOW + 5 * MIN, writtenAt: NOW, estimatedAt: NOW })
   // A step without a line, or a line with nothing in it, has no plan.
   assert.equal(planOf({ head: new Map([['Id', 'B1']]), sections: new Map() }), null)
   assert.equal(planOf({ head: new Map([['Id', 'B1'], ['Plan', 'at 2026-10-28 20:10:00']]), sections: new Map() }), null)
   // Only minutes, or only a count of the parts: still a plan.
-  assert.deepEqual(nextPlan(null, { minutes: 20 }, NOW), { names: [], on: null, steps: null, until: NOW + 20 * MIN, stepUntil: null, writtenAt: NOW })
-  assert.deepEqual(nextPlan(null, { steps: 4, step: 2 }, NOW), { names: [], on: 2, steps: 4, until: null, stepUntil: null, writtenAt: NOW })
+  assert.deepEqual(nextPlan(null, { minutes: 20 }, NOW), { names: [], on: null, steps: null, until: NOW + 20 * MIN, stepUntil: null, writtenAt: NOW, estimatedAt: NOW })
+  assert.deepEqual(nextPlan(null, { steps: 4, step: 2 }, NOW), { names: [], on: 2, steps: 4, until: null, stepUntil: null, writtenAt: NOW, estimatedAt: null })
   // Nothing given and nothing before it: nothing to keep; a time out of reach is none.
   assert.equal(nextPlan(null, {}, NOW), null)
   assert.equal(nextPlan(null, { minutes: null }, NOW), null)
@@ -96,6 +97,6 @@ test('a step taken from the queue starts on a plan of its own: one saved from an
     assert.equal(written.ok, true, written.why)
     assert.notEqual(await planLine(dir, 'B2'), null)
     assert.equal((await board({ action: 'take', minutes: 30, id: 'B2' })).ok, true)
-    assert.equal(await planLine(dir, 'B2'), `until ${stampSecond(NOW + 30 * MIN)} | at ${stampSecond(NOW)}`)
+    assert.equal(await planLine(dir, 'B2'), `until ${stampSecond(NOW + 30 * MIN)} | at ${stampSecond(NOW)} | estimated ${stampSecond(NOW)}`)
   })
 })
