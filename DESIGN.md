@@ -8280,3 +8280,41 @@ words at HH:MM`. A released ask is never held again by later words; a re-ask is 
 **Tests.** `test/work/wordsRecheck.test.mjs` (mutants: no Filed guard, a side chat allowed every action, no word to the chat, 1 minute instead of 60,
 no pause skip, `where` not required, the step window's rows gone: each fails it).
 
+## F26: a holder's work spell is the whole stretch, not its last turn (B1151, 2026-11-14)
+
+At 13:00 the board gave B1151 back from Worker 2 ("did not resume it (asked 10:16)") while it worked: after the two go-ons (GO_ON_MOST)
+only a checkpoint or a busy spell over LONG_BUSY_MS restarts the 15 minutes, and the spell was read from the transcript's last typed
+turn; every turn after 10:17 began with the chat's own background work (a task finished, a helper handed back), which transcript.mjs
+`turnStart` does not count. Chat 4's first fix (branch holder-any-turn) took the newest of the typed turn, the mod's `turn` and the
+board's `busyAt`; chat 1's review (`.claude/plans/2026-11-14-f26-review.md`) showed that one short last turn then wipes an earlier long
+spell (the hand-back turns of 13:00:57 and 13:02:43 right after the six-minute turn), and that chained short turns with background
+work between never count. Chat 1's design, built by chat 3 on top of chat 4's branch:
+
+- **The work spell lives on the report entry** (bridge.mjs `spellOf`, with `restOf`): `workFrom`, the board's receipt of the chat leaving
+  REST (a busy report, or an idle one with background work), carried while it works (an asking report carries it too); when it comes back
+  to rest (idle, no background) or its session ends, a spell over LONG_BUSY_MS leaves `longEndAt` (the report's since), carried through the
+  session until a later long spell's end replaces it. A new session starts afresh. Persisted in data/reports.json (reportsKept.mjs
+  `savedEntry`: `workFrom`, `longEndAt`; `restAt` was there), handed to the lane with `restAt` (state.mjs). Background time is work.
+- **The timers read three spells after the last go-on** (holderTimers.mjs `busySpellAfter`): the last turn that ended (the newest start,
+  to the idle since; an `ended` report measures to the turn's own end, `restAt`, never to the session's end: finding 5), the work going
+  on (busy or idle with background, from `workFrom`, else the newest start, to the last receipt: finding 2), and `longEndAt`. The latest
+  LONG one wins, else the latest. So B1151's 13:00:50 rest after 10:16:40-13:00:50 holds the step until 13:15:50 whatever short turns
+  follow, and the review's 86-second turn after an hour of work (11:20:38-11:22:04) holds it until 11:37.
+- **Two guards** (holderTimers.mjs `mayGiveBack`): nothing goes back while the lane is only 'unknown' (a 30-second report gap) over a
+  busy report or an idle one with background work: the chat may well work; the lane resolves within offAfterMinutes (finding 3). And a
+  give-back needs the holder stopped for REST_MIN_MS (one minute) since its report said so: the seconds between a turn's end and a
+  hand-back turn never trigger one (finding 1). The "go on" line is not held by either.
+- Tests: test/work/holderLongSpell.test.mjs (the spell through noteReport on Worker 2's real day, its persistence, the whole-day decision
+  with the mutant that drops `longEndAt`, the review's short-last-turn case with its mutant, the unknown gap, the minute's rest, the
+  ended turn's own end), test/work/holderTimersB1151.test.mjs (chat 4's, the minute's rest added), test/work/holderTimers.test.mjs (the
+  cap test: unknown over busy gives nothing back; resolved, it does). Code mutants run on the way: without `mayGiveBack` three tests fail;
+  with `longEndAt` ignored the two timeline tests fail.
+- **F26b** (chat 1's re-check, `.claude/plans/2026-11-14-f26-recheck.md`): an asking report is work too (the unknown gate holds it, its
+  spell counts); the spell begins at the report's own since when that is before the receipt; a rest shorter than REST_MIN_MS does not end
+  the spell (the start rides on the resting entry; the next work goes on from it, so B1151's hand-back turns after rests of seconds make
+  one spell 10:16:40-13:03:18 and the step is held until 13:18:18); a spell closed at a rest is not closed again by a later `ended`; the
+  chat's last rest rides into its `ended` entry, so the ended branch measures a turn to its own end; without `workFrom` the EARLIEST start
+  after the go-on counts (the stretch is continuous); and a kept report whose `at` moved to the board's start after a restart carries
+  `heardAt` (state.mjs), the time it was really heard: the work-going-on reading ends there, so a board restart is no proof of work and
+  a dead holder goes back 15 minutes after its last real report whatever the landings. Mutants: asking excluded, the short rest ending
+  the spell, heardAt ignored, the latest start again: each fails its test.
