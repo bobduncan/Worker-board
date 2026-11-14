@@ -6,6 +6,7 @@
 // Made-up listings shaped like the real one (ThreadCount, the command lines); the Windows calls are fakes.
 
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import { BUSY_CORES, BUSY_MS, LEAKED_AFTER_MS, browserKey, browserMemory, closeLeaked, devtoolsPortNow, devtoolsPortOf, fileTimeMs, isBusy, isHeadlessMain, isInTemp, inUseNow, killVerified, leakedWords, prefixOf, profileOf, toolFolderOf, watchBrowsers } from '../../src/supervisor/browsers.mjs'
@@ -103,8 +104,8 @@ test('leaked: a headless main in the temp folder, over one thread, starter gone,
   ]
   const found = watch(list)
   assert.deepEqual(found, [
-    { pid: 500, created: list[1].created, key: browserKey(list[1]), profile: `${TEMP}\\edge-cdp-b1126-k3Xp9q`, port: 9391, folder: `${TEMP}\\edge-cdp-b1126-k3Xp9q`, prefix: 'edge-cdp-b1126', startedAt: started, children: [{ pid: 501, created: list[2].created }, { pid: 502, created: list[3].created }], cores: 12.8, why: 'ran over 30 min', closedAt: null, closeOk: null },
-    { pid: 1000, created: list[9].created, key: browserKey(list[9]), profile: `${TEMP}\\claude\\lava\\0dd2a510\\scratchpad\\edge-profile`, port: 9222, folder: null, prefix: 'edge-profile', startedAt: NOW - 60 * MIN, children: [], cores: 0.3, why: 'ran over 30 min', closedAt: null, closeOk: null },
+    { pid: 500, created: list[1].created, createdText: null, key: browserKey(list[1]), profile: `${TEMP}\\edge-cdp-b1126-k3Xp9q`, port: 9391, folder: `${TEMP}\\edge-cdp-b1126-k3Xp9q`, prefix: 'edge-cdp-b1126', startedAt: started, children: [{ pid: 501, created: list[2].created, createdText: null }, { pid: 502, created: list[3].created, createdText: null }], cores: 12.8, why: 'ran over 30 min', closedAt: null, closeOk: null },
+    { pid: 1000, created: list[9].created, createdText: null, key: browserKey(list[9]), profile: `${TEMP}\\claude\\lava\\0dd2a510\\scratchpad\\edge-profile`, port: 9222, folder: null, prefix: 'edge-profile', startedAt: NOW - 60 * MIN, children: [], cores: 0.3, why: 'ran over 30 min', closedAt: null, closeOk: null },
   ])
   // The mutants: counted at 30 minutes (not 29); a zombie counted alive; a starter that runs read as gone (then the evidence tool's Edge, by its folder).
   assert.equal(LEAKED_AFTER_MS, 30 * MIN)
@@ -161,12 +162,12 @@ test('guard 4: a browser the board tried to close before and still sees carries 
 
 test('closing: the landing and a live DevTools connection skip it (nothing counted); then each process is killed while its creation time holds, and the tool\'s own folder removed, no other', async () => {
   const calls = []
-  const kill = async processes => { calls.push(['kill', processes]); return { ok: true, why: null, killed: processes.length } }
+  const kill = async processes => { calls.push(['kill', processes]); return { ok: true, why: null, killed: processes.length, outcomes: Object.fromEntries(processes.map(one => [one.pid, 'killed'])) } }
   const remove = async folder => { calls.push(['remove', folder]); return { ok: true, why: null } }
   const inUse = async () => false
   const one = { pid: 500, created: 7, children: [{ pid: 501, created: 8 }, { pid: 502, created: 9 }], profile: `${TEMP}\\edge-cdp-b1126-k3Xp9q`, folder: `${TEMP}\\edge-cdp-b1126-k3Xp9q`, port: 9391, prefix: 'edge-cdp-b1126', startedAt: NOW }
   assert.deepEqual(await closeLeaked(one, { kill, remove, inUse }), { ok: true, skipped: false, why: null, profile: 'removed' })
-  assert.deepEqual(calls, [['kill', [{ pid: 500, created: 7 }, { pid: 501, created: 8 }, { pid: 502, created: 9 }]], ['remove', `${TEMP}\\edge-cdp-b1126-k3Xp9q`]])
+  assert.deepEqual(calls, [['kill', [{ pid: 500, created: 7, createdText: null }, { pid: 501, created: 8 }, { pid: 502, created: 9 }]], ['remove', `${TEMP}\\edge-cdp-b1126-k3Xp9q`]])
   calls.length = 0
   // The evidence tool's folder, not the profile in it, is what goes.
   assert.deepEqual(await closeLeaked({ ...one, profile: `${TEMP}\\board-evidence-f9NyC5\\profile`, folder: `${TEMP}\\board-evidence-f9NyC5` }, { kill, remove, inUse }), { ok: true, skipped: false, why: null, profile: 'removed' })
@@ -183,21 +184,50 @@ test('closing: the landing and a live DevTools connection skip it (nothing count
   assert.deepEqual(calls, [], 'nothing killed, nothing removed')
   // A failed kill is not ok (and the loop records the attempt); a failed remove is said.
   assert.deepEqual(await closeLeaked(one, { kill: async () => ({ ok: false, why: 'access denied', killed: 0 }), remove, inUse }), { ok: false, skipped: false, why: 'access denied', profile: null })
+  // Chat 1's verifier of F8 (2): a kill that killed nothing and says nothing of the main, or that the main is still alive, closes nothing: no folder removed, not ok.
+  calls.length = 0
+  assert.deepEqual(await closeLeaked(one, { kill: async () => ({ ok: true, why: null, killed: 0 }), remove, inUse }), { ok: false, skipped: false, why: 'the kill did not say what became of process 500', profile: null })
+  assert.deepEqual(await closeLeaked(one, { kill: async () => ({ ok: true, why: null, killed: 2, outcomes: { 500: 'alive', 501: 'killed', 502: 'killed' } }), remove, inUse }), { ok: false, skipped: false, why: 'the kill did not say what became of process 500', profile: null })
+  assert.deepEqual(calls.filter(([what]) => what === 'remove'), [], 'nothing removed under a browser that may still run')
+  // A main gone before the kill, or whose number is another process's now, is closed: its folder is the tool's to remove.
+  assert.deepEqual(await closeLeaked(one, { kill: async () => ({ ok: true, why: null, killed: 0, outcomes: { 500: 'gone' } }), remove, inUse }), { ok: true, skipped: false, why: null, profile: 'removed' })
+  assert.deepEqual(await closeLeaked(one, { kill: async () => ({ ok: true, why: null, killed: 0, outcomes: { 500: 'mismatch' } }), remove, inUse }), { ok: true, skipped: false, why: null, profile: 'removed' })
   assert.deepEqual(await closeLeaked(one, { kill, remove: async () => ({ ok: false, why: 'EBUSY' }), inUse }), { ok: true, skipped: false, why: null, profile: 'left (EBUSY)' })
 })
 
 test('the Windows calls: the kill names each process with its creation time in one PowerShell call and kills only on a match; the DevTools port comes from the command line or the profile\'s file; the connection count says in use', async () => {
   const scripts = []
-  const run = async script => { scripts.push(script); return '2\n' }
-  assert.deepEqual(await killVerified([{ pid: 500, created: 133800000000000000 }, { pid: 501, created: 133800000000001000 }, { pid: 'x', created: 1 }], { platform: 'win32', run }), { ok: true, why: null, killed: 2 })
+  let answer = '500 killed\n501 gone\n'
+  const run = async script => { scripts.push(script); return answer }
+  // Chat 1's verifier of F8 (2): the time goes in as the listing's exact text: the number alone came through JSON as a double (133800000000000010
+  // parses to ...016 and prints as ...020), and an exact compare missed most processes; the compare has a 20-tick tolerance besides.
+  const parsed = JSON.parse('{"pid":500,"created":133800000000000010,"createdText":"133800000000000010"}')
+  assert.deepEqual(await killVerified([parsed, { pid: 501, created: 133800000000001000, createdText: '133800000000001000' }, { pid: 'x', created: 1 }], { platform: 'win32', run }), { ok: true, why: null, killed: 1, outcomes: { 500: 'killed', 501: 'gone' } })
   assert.equal(scripts.length, 1)
-  assert.match(scripts[0], /@\{ pid = 500; created = \[long\]133800000000000000 \}, @\{ pid = 501; created = \[long\]133800000000001000 \}/)
-  assert.match(scripts[0], /\[long\]\$p\.CreationDate\.ToFileTimeUtc\(\) -eq \$one\.created/, 'the creation time must match')
-  assert.match(scripts[0], /Stop-Process -Id \$one\.pid -Force/)
+  assert.match(scripts[0], /@\{ pid = 500; created = \[long\]133800000000000010 \}, @\{ pid = 501; created = \[long\]133800000000001000 \}/)
+  assert.match(scripts[0], /\[math\]::Abs\(\[long\]\$p\.CreationDate\.ToFileTimeUtc\(\) - \$one\.created\) -le 20/, 'the creation time must match, within 2 us')
+  assert.match(scripts[0], /Stop-Process -Id \$one\.pid -Force -ErrorAction SilentlyContinue/)
+  // Chat 1's verifier of F8 (5, 6): no Stop-Process may end the whole script (a child gone with its main is no failure); the processes are read again after.
+  assert.doesNotMatch(scripts[0], /Stop-Process[^;]*-ErrorAction Stop/)
+  assert.match(scripts[0], /Start-Sleep -Milliseconds 300; foreach[^;]*ProcessId=\$\(\$one\.pid\)[^;]*; if \([^;]*ThreadCount -gt 1\) \{ \$out \+= "\$\(\$one\.pid\) alive" \}/)
   assert.doesNotMatch(scripts[0], /taskkill|\/T/, 'no tree kill by number')
-  assert.deepEqual(await killVerified([], { platform: 'win32', run }), { ok: true, why: null, killed: 0 })
-  assert.deepEqual(await killVerified([{ pid: 5, created: 1 }], { platform: 'linux', run }), { ok: false, why: 'only on Windows', killed: 0 })
-  assert.deepEqual(await killVerified([{ pid: 5, created: 1 }], { platform: 'win32', run: async () => { throw new Error('Access is denied') } }), { ok: false, why: 'Access is denied', killed: 0 })
+  // A number only (an older listing) still goes in, rounded; `ok` follows the main alone.
+  assert.match((await (async () => { await killVerified([{ pid: 7, created: 133800000000000000 }], { platform: 'win32', run }); return scripts.at(-1) })()), /pid = 7; created = \[long\]133800000000000000/)
+  answer = '500 killed\n501 error Cannot find a process with the process identifier 501.\n'
+  assert.deepEqual(await killVerified([{ pid: 500, createdText: '1' }, { pid: 501, createdText: '2' }], { platform: 'win32', run }), { ok: true, why: null, killed: 1, outcomes: { 500: 'killed', 501: 'error: Cannot find a process with the process identifier 501.' } })
+  answer = '500 killed\n500 alive\n'
+  assert.deepEqual(await killVerified([{ pid: 500, createdText: '1' }], { platform: 'win32', run }), { ok: false, why: 'process 500 is still alive after the kill', killed: 0, outcomes: { 500: 'alive' } })
+  answer = '500 error Access is denied\n500 alive\n'
+  assert.deepEqual((await killVerified([{ pid: 500, createdText: '1' }], { platform: 'win32', run })).why, 'process 500 is still alive after the kill')
+  answer = '500 error Access is denied\n'
+  assert.deepEqual((await killVerified([{ pid: 500, createdText: '1' }], { platform: 'win32', run })).why, 'process 500: Access is denied')
+  answer = '500 mismatch\n'
+  assert.deepEqual(await killVerified([{ pid: 500, createdText: '1' }], { platform: 'win32', run }), { ok: true, why: null, killed: 0, outcomes: { 500: 'mismatch' } })
+  answer = '2\n'
+  assert.deepEqual(await killVerified([{ pid: 500, createdText: '1' }], { platform: 'win32', run }), { ok: false, why: 'the kill said nothing of process 500', killed: 0, outcomes: {} })
+  assert.deepEqual(await killVerified([], { platform: 'win32', run }), { ok: true, why: null, killed: 0, outcomes: {} })
+  assert.deepEqual(await killVerified([{ pid: 5, created: 1 }], { platform: 'linux', run }), { ok: false, why: 'only on Windows', killed: 0, outcomes: {} })
+  assert.deepEqual(await killVerified([{ pid: 5, created: 1 }], { platform: 'win32', run: async () => { throw new Error('Access is denied') } }), { ok: false, why: 'Access is denied', killed: 0, outcomes: {} })
   // The port: the command line's, else the profile's DevToolsActivePort file (its first line), else none.
   assert.equal(await devtoolsPortNow({ port: 9391, profile: 'C:\\p' }), 9391)
   assert.equal(await devtoolsPortNow({ port: null, profile: 'C:\\p' }, { read: async file => { assert.equal(file, 'C:\\p\\DevToolsActivePort'); return '54321\n/devtools/browser/abc' } }), 54321)
@@ -211,3 +241,12 @@ test('the Windows calls: the kill names each process with its creation time in o
   assert.equal(await inUseNow({ port: null, profile: 'C:\\p' }, { platform: 'win32', run: async () => '1', read: async () => { throw new Error('ENOENT') } }), false)
   assert.equal(await inUseNow({ port: 9391 }, { platform: 'win32', run: async () => { throw new Error('no cmdlet') } }), null)
 })
+
+test('chat 1\'s verifier of F8 (1): server.mjs reads `isShowOnly` and `historyFrom` for the browsers rule only after they are declared (every start on Windows threw before)', async () => {
+  const source = await readFile(new URL('../../server.mjs', import.meta.url), 'utf8')
+  const closes = source.indexOf('const closesBrowsers =')
+  assert.ok(closes > 0)
+  assert.ok(source.indexOf('const isShowOnly =') < closes, 'isShowOnly first')
+  assert.ok(source.indexOf('const historyFrom =') < closes, 'historyFrom first')
+})
+

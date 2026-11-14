@@ -174,13 +174,20 @@ test('what to set: Full is Normal on all cores, Low is Idle on the last two in e
 })
 
 test('a process listing in PowerShell\'s JSON, also a single one', () => {
-  assert.deepEqual(parseListing('{"pid":4,"parent":0,"name":"System","priority":8,"created":null,"commandLine":null}'), [{ pid: 4, parent: 0, name: 'System', commandLine: null, priority: 8, threads: null, cpuMs: null, created: null }])
+  assert.deepEqual(parseListing('{"pid":4,"parent":0,"name":"System","priority":8,"created":null,"commandLine":null}'), [{ pid: 4, parent: 0, name: 'System', commandLine: null, priority: 8, threads: null, cpuMs: null, created: null, createdText: null }])
   // Leaked headless browsers (2026-11-13): the listing carries each process's threads.
   assert.deepEqual(parseListing('{"pid":4,"parent":0,"name":"System","threads":31,"cpuMs":1200}').map(one => [one.threads, one.cpuMs]), [[31, 1200]])
   assert.ok(LIST_SCRIPT.includes('threads = [int]$_.ThreadCount'))
   assert.ok(LIST_SCRIPT.includes('cpuMs = [long](([long]$_.KernelModeTime + [long]$_.UserModeTime) / 10000)'))
   assert.equal(parseListing('[{"pid":1},{"name":"no pid"}]').length, 1)
   assert.deepEqual(parseListing(''), [])
+  // Chat 1's verifier of F8 (2): the creation time as text too, kept exact (the number alone comes through JSON rounded: 133800000000000010 parses to ...016).
+  assert.ok(LIST_SCRIPT.includes('createdText = $(if ($_.CreationDate) { [string]$_.CreationDate.ToFileTimeUtc() } else { $null })'))
+  const [exact] = parseListing('[{"pid":500,"parent":1,"name":"msedge.exe","created":133800000000000010,"createdText":"133800000000000010"}]')
+  assert.deepEqual([exact.created, exact.createdText], [133800000000000016, '133800000000000010'])
+  // An older listing without the text: the rounded number as text; no time at all: null.
+  assert.equal(parseListing('[{"pid":5,"created":133800000000000000}]')[0].createdText, '133800000000000000')
+  assert.equal(parseListing('[{"pid":5}]')[0].createdText, null)
 })
 
 test('B735: the listing script asks for the command lines of the chats, node, codex and Edge, and is plain PowerShell (no JavaScript placeholder left in it)', () => {

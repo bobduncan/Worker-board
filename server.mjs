@@ -777,7 +777,6 @@ async function main(args) {
   // Leaked headless browsers (2026-11-13): the PC-wide rule runs on ONE board, the first on the PC's list of boards (the main project's,
   // registered first), unless config.json's `browsersRule` says otherwise (true or false); never on a copy that only shows.
   const firstBoard = boards === null ? null : (await readBoards(boards).catch(error => { console.error(`The list of boards could not be read: ${error.message}`); return [] }))[0]?.folder ?? null
-  const closesBrowsers = process.platform === 'win32' && !isShowOnly && historyFrom === undefined && (config.browsersRule ?? (firstBoard !== null && resolve(firstBoard).toLowerCase() === resolve(HERE).toLowerCase()))
   const register = () => registerHome(boards, { project: home, folder: HERE, port: config.port, gamePort: config.gamePort, asked })
   if (args.includes('--launch-entry')) {
     // This folder's entry for the preview: named after the folder, with the port it listens on.
@@ -874,6 +873,9 @@ async function main(args) {
   // The same holds for a copy in another folder than the repository's main one: a branch that is being built
   // must never take the chats away from the person's board, also not while that board is stopped.
   const isShowOnly = historyFrom !== undefined || chosen.isMain === false
+  // Chat 1's verifier of F8 (1): read here, after `isShowOnly` and `historyFrom` exist (before, every start on Windows threw in their
+  // temporal dead zone); `firstBoard` was read above, where the list of boards is.
+  const closesBrowsers = process.platform === 'win32' && !isShowOnly && historyFrom === undefined && (config.browsersRule ?? (firstBoard !== null && resolve(firstBoard).toLowerCase() === resolve(HERE).toLowerCase()))
   // Focus 2: the board that delivers writes the goal map, its brainstorms and the focus; a copy only a map of its own
   // (whole paths outside the project, by real paths, and not the live board's map), as its own work store. A copy's words
   // then wait in its own outbox: no chat takes from it.

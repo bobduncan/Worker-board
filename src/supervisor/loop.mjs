@@ -223,7 +223,7 @@ export function runRules(rules, view, ctx) {
   return { findings, failed, states }
 }
 
-/** The supervisor's own memory as its file keeps it: `{ seen, repairs, trips, runs }`, anything else left out. */
+/** The supervisor's own memory as its file keeps it: `{ seen, repairs, trips, runs, browsers }`, anything else left out. */
 export function memoryOf(value) {
   const seen = value?.seen !== null && typeof value?.seen === 'object' ? Object.entries(value.seen).filter(([, at]) => Number.isFinite(at)) : []
   const repairs = Array.isArray(value?.repairs) ? value.repairs.filter(one => Number.isFinite(one?.at) && typeof one?.rule === 'string') : []
@@ -231,9 +231,13 @@ export function memoryOf(value) {
     ? Object.entries(value.trips).filter(([, times]) => Array.isArray(times)).map(([id, times]) => [id, times.filter(Number.isFinite)]) : []
   const runs = value?.runs !== null && typeof value?.runs === 'object'
     ? Object.entries(value.runs).filter(([, spans]) => Array.isArray(spans)).map(([id, spans]) => [id, spans.filter(isSpan)]) : []
-  return { seen: new Map(seen), repairs, trips: new Map(trips), runs: new Map(runs) }
+  // Chat 1's verifier of F8 (7): every close of a leaked browser that was tried, by its key `pid:created` (`{ at, ok }`), so a board
+  // restarted does not try the same browser again (a failed close too); pruned to the browsers still listed.
+  const browsers = value?.browsers !== null && typeof value?.browsers === 'object'
+    ? Object.entries(value.browsers).filter(([, tried]) => Number.isFinite(tried?.at) && typeof tried?.ok === 'boolean').map(([key, tried]) => [key, { at: tried.at, ok: tried.ok }]) : []
+  return { seen: new Map(seen), repairs, trips: new Map(trips), runs: new Map(runs), browsers: new Map(browsers) }
 }
-const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.seen), repairs: memory.repairs, trips: Object.fromEntries(memory.trips), runs: Object.fromEntries(memory.runs) })
+const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.seen), repairs: memory.repairs, trips: Object.fromEntries(memory.trips), runs: Object.fromEntries(memory.runs), browsers: Object.fromEntries(memory.browsers ?? []) })
 
 /** Signals change 6: how a rule stood in one run, for the gone clock: it looked (`complete`), it did not (`skipped`), or it threw. */
 const RUN_STATES = ['complete', 'skipped', 'failed']
@@ -299,6 +303,8 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     }
     // The supervisor's own memory, read at every run as sync.json is.
     if (typeof ports.memory?.load === 'function') memory = memoryOf(await ports.memory.load())
+    // Chat 1's verifier of F8 (7): the closes tried before this process (the memory's) stand in the runner's map, so none is tried again.
+    for (const [key, tried] of memory.browsers) if (!browsers.closed.has(key)) browsers.closed.set(key, tried)
     const memoryBefore = memoryText(memory)
     const observed = []
     const items = await ports.items()
@@ -377,6 +383,8 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
         why: one.failed?.text ?? (one.skipped ? `did not look: ${one.skipped}` : null), trips: (memory.trips.get(one.rule.id) ?? []).length,
       })),
     }
+    // Chat 1's verifier of F8 (7): the closes tried, as the look pruned them to the browsers still listed.
+    memory.browsers = new Map(browsers.closed)
     if (typeof ports.memory?.save === 'function' && memoryText(memory) !== memoryBefore) await ports.memory.save(JSON.parse(memoryText(memory)))
     // Signals change 6: the rules' runs and the board's off time go with the answer, for the incidents' gone clock (index.mjs).
     const answer = {

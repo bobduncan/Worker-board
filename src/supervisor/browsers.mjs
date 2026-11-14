@@ -198,8 +198,8 @@ export function watchBrowsers(list, memory, { now, afterMs = LEAKED_AFTER_MS, bu
     const folder = toolFolderOf(profile, temp, platform)
     const tried = memory.closed.get(key) ?? null
     found.push({
-      pid: one.pid, created: one.created ?? null, key, profile, port: devtoolsPortOf(one.commandLine), folder, prefix: prefixOf(folder ?? profile), startedAt,
-      children: tree.map(child => ({ pid: child.pid, created: child.created ?? null })), cores: now > startedAt ? cpuMs / (now - startedAt) : null,
+      pid: one.pid, created: one.created ?? null, createdText: one.createdText ?? null, key, profile, port: devtoolsPortOf(one.commandLine), folder, prefix: prefixOf(folder ?? profile), startedAt,
+      children: tree.map(child => ({ pid: child.pid, created: child.created ?? null, createdText: child.createdText ?? null })), cores: now > startedAt ? cpuMs / (now - startedAt) : null,
       why: busy ? `over ${busyCores} cores for ${spanOf(busyMs)}` : `ran over ${spanOf(afterMs)}`, closedAt: tried?.at ?? null, closeOk: tried?.ok ?? null,
     })
   }
@@ -226,21 +226,46 @@ function powershell(script, timeoutMs = 20_000) {
 }
 
 /**
- * Kills the processes (`{ pid, created }` each), each only while its creation time is still the listing's (chat 1's review: a
- * number Windows gave out again since the listing is another process, and no `/T`); one gone meanwhile is fine. `{ ok, why,
- * killed }`.
+ * Kills the processes (`{ pid, created, createdText }` each), each only while its creation time is still the listing's (chat 1's review: a
+ * number given out again is another process), the main first. Chat 1's verifier of F8 (2, 5, 6): the time goes in as the listing's exact
+ * text (`createdText`; the number alone lost its last digits through JSON) and is compared with a tolerance of 20 ticks (2 us); each
+ * Stop-Process stands alone (a child gone with its main is no failure); afterwards the same processes are read again, and `ok` follows
+ * the main alone: killed, gone, or the number now another process's (a mismatch). Answers `{ ok, why, killed, outcomes }`, `outcomes`
+ * by pid: killed, gone, mismatch, alive (still there after the kill) or error.
  */
 export async function killVerified(processes, { platform = process.platform, run = powershell } = {}) {
-  const wanted = processes.filter(one => Number.isInteger(one?.pid) && Number.isFinite(one?.created))
-  if (wanted.length === 0) return { ok: true, why: null, killed: 0 }
-  if (platform !== 'win32') return { ok: false, why: 'only on Windows', killed: 0 }
-  const rows = wanted.map(one => `@{ pid = ${one.pid}; created = [long]${Math.round(one.created)} }`).join(', ')
-  const script = `$killed = 0; foreach ($one in @(${rows})) { $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($one.pid)" -ErrorAction SilentlyContinue; if ($p -and $p.CreationDate -and [long]$p.CreationDate.ToFileTimeUtc() -eq $one.created) { Stop-Process -Id $one.pid -Force -ErrorAction Stop; $killed += 1 } }; Write-Output $killed`
+  const wanted = processes.filter(one => Number.isInteger(one?.pid) && (Number.isFinite(one?.created) || /^\d{1,20}$/.test(String(one?.createdText ?? ''))))
+  if (wanted.length === 0) return { ok: true, why: null, killed: 0, outcomes: {} }
+  if (platform !== 'win32') return { ok: false, why: 'only on Windows', killed: 0, outcomes: {} }
+  const timeOf = one => (/^\d{1,20}$/.test(String(one.createdText ?? '')) ? String(one.createdText) : String(Math.round(one.created)))
+  const rows = wanted.map(one => `@{ pid = ${one.pid}; created = [long]${timeOf(one)} }`).join(', ')
+  const match = '($p -and $p.CreationDate -and [math]::Abs([long]$p.CreationDate.ToFileTimeUtc() - $one.created) -le 20)'
+  const script = [
+    `$rows = @(${rows}); $out = @()`,
+    `foreach ($one in $rows) { $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($one.pid)" -ErrorAction SilentlyContinue; if (-not $p) { $out += "$($one.pid) gone"; continue }; if (-not ${match}) { $out += "$($one.pid) mismatch"; continue }; $e = $null; Stop-Process -Id $one.pid -Force -ErrorAction SilentlyContinue -ErrorVariable e; if ($e) { $out += "$($one.pid) error $($e[0].Exception.Message -replace '[\r\n]+', ' ')" } else { $out += "$($one.pid) killed" } }`,
+    'Start-Sleep -Milliseconds 300',
+    `foreach ($one in $rows) { $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($one.pid)" -ErrorAction SilentlyContinue; if (${match} -and [int]$p.ThreadCount -gt 1) { $out += "$($one.pid) alive" } }`,
+    '$out -join "`n"',
+  ].join('; ')
   try {
     const out = await run(script)
-    return { ok: true, why: null, killed: Number(out.trim()) || 0 }
+    const outcomes = {}
+    for (const line of out.split(/\r?\n/)) {
+      const m = /^(\d+) (killed|gone|mismatch|alive|error)(?: (.*))?$/.exec(line.trim())
+      if (m === null) continue
+      const pid = Number(m[1])
+      // The second pass ('alive') overrides; an error keeps its words.
+      if (m[2] === 'alive' || outcomes[pid] === undefined) outcomes[pid] = m[2] === 'error' ? `error: ${m[3] ?? ''}`.trim() : m[2]
+    }
+    const main = wanted[0].pid
+    const mainOut = outcomes[main]
+    const killed = Object.values(outcomes).filter(one => one === 'killed').length
+    if (mainOut === undefined) return { ok: false, why: `the kill said nothing of process ${main}`, killed, outcomes }
+    if (mainOut === 'alive') return { ok: false, why: `process ${main} is still alive after the kill`, killed, outcomes }
+    if (mainOut.startsWith('error')) return { ok: false, why: `process ${main}: ${mainOut.slice('error: '.length) || 'the kill failed'}`, killed, outcomes }
+    return { ok: true, why: null, killed, outcomes }
   } catch (error) {
-    return { ok: false, why: error instanceof Error ? error.message : String(error), killed: 0 }
+    return { ok: false, why: error instanceof Error ? error.message : String(error), killed: 0, outcomes: {} }
   }
 }
 
@@ -291,8 +316,12 @@ export async function closeLeaked(one, { kill = killVerified, remove = removeFol
   const used = await inUse(one)
   if (used === true) return { ok: false, skipped: true, why: 'in use: a live process is connected to its DevTools port', profile: null }
   if (used === null) return { ok: false, skipped: true, why: 'its DevTools connections could not be read', profile: null }
-  const killed = await kill([{ pid: one.pid, created: one.created }, ...(one.children ?? [])])
+  const killed = await kill([{ pid: one.pid, created: one.created, createdText: one.createdText ?? null }, ...(one.children ?? [])])
+  // Chat 1's verifier of F8 (2): the main must be killed or verifiably gone (the kill's own word for it); else nothing is removed and nothing
+  // counts as closed (a Left row, tried again never: the memory keeps the failed try).
+  const main = killed.outcomes?.[one.pid]
   if (killed.ok !== true) return { ok: false, skipped: false, why: killed.why ?? 'the kill failed', profile: null }
+  if (main !== 'killed' && main !== 'gone' && main !== 'mismatch') return { ok: false, skipped: false, why: `the kill did not say what became of process ${one.pid}`, profile: null }
   if (typeof one.folder !== 'string' || one.folder === '') return { ok: true, skipped: false, why: null, profile: 'left: not the tool\'s own folder' }
   const removed = await remove(one.folder)
   return { ok: true, skipped: false, why: null, profile: removed.ok ? 'removed' : `left (${removed.why})` }

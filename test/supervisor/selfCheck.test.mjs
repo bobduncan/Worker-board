@@ -5,6 +5,7 @@
 
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { browserKey } from '../../src/supervisor/browsers.mjs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -670,6 +671,25 @@ test('leaked headless browsers, guard 3 end to end: three closes of one tool\'s 
   const again = await runner.run()
   assert.deepEqual(again.rows.filter(one => one.check === 'browsers').map(one => [one.status, one.text.split(', ').at(-1)]), [['Left', 'still listed (not closed again)']])
   assert.deepEqual(closed, [500, 510, 520, 530, 540], 'no sixth close')
+  // Chat 1's verifier of F8 (7): a close that was tried and FAILED stands in the supervisor's memory too: a restarted board does not try that browser again.
+  const failing = () => ({ ...ports(), closeBrowser: async one => { closed.push(one.pid); return { ok: false, skipped: false, why: 'access denied', profile: null } } })
+  runner = syncRunner(failing(), REPAIR_RULES, WATCH_RULES)
+  listing = [edge(550, 'edge-cdp-b1126', 40)]
+  clock += MIN
+  const failed = await runner.run()
+  assert.deepEqual(failed.rows.filter(one => one.check === 'browsers').map(one => [one.status, one.text.split(': ').at(-1)]), [['Left', 'not closed (access denied)']])
+  assert.deepEqual(closed, [500, 510, 520, 530, 540, 550])
+  assert.deepEqual(Object.keys(memory.browsers ?? {}), [browserKey(listing[0])], 'the failed try is kept with the memory')
+  runner = syncRunner(failing(), REPAIR_RULES, WATCH_RULES)
+  clock += MIN
+  const afterRestart = await runner.run()
+  assert.deepEqual(afterRestart.rows.filter(one => one.check === 'browsers').map(one => [one.status, one.text.split(', ').at(-1)]), [['Left', 'not tried again']])
+  assert.deepEqual(closed, [500, 510, 520, 530, 540, 550], 'no seventh close: the failed try stands across the restart')
+  // Once the browser is gone from the listing, its record goes with it.
+  listing = []
+  clock += MIN
+  await runner.run()
+  assert.deepEqual(Object.keys(memory.browsers ?? {}), [])
 })
 
 test('B488: of two processes that claim an empty lock at once, the write that stands wins and the other finds out', async () => {

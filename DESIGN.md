@@ -4028,6 +4028,22 @@ stayed and every later run connected to it); the helper was fixed, and the board
   `test/supervisor/watch.test.mjs` (browser-leaks), `test/cpu.test.mjs` (`threads` and `cpuMs` in the listing),
   `test/config.test.mjs` (`browsersRule`).
 
+Chat 1's verifier of the rework (2026-11-14, `.claude/plans/2026-11-14-f8-verifier.md`: 2 blockers, 2 should-fixes), as built:
+
+- **The rule's switch is read where its facts exist** (blocker 1): `closesBrowsers` stood above `const historyFrom` and `const isShowOnly`
+  in `main`, so on Windows every start threw in their temporal dead zone; it now follows `isShowOnly`. A source-order test in
+  `browsers.test.mjs` pins it, and `test/startBoard.test.mjs` starts a board.
+- **The creation time goes in exact** (blocker 2): the listing carries `createdText` (the FILETIME as a string) beside the number, which
+  loses its last digits through JSON (a double steps by 16 at 1.3e17, so an exact compare missed most processes and the folder was
+  removed under a live Edge); `killVerified` names each process by that text and compares with a tolerance of 20 ticks, reports per
+  pid (killed, gone, mismatch, alive, error) after reading the processes again, and `ok` follows the main alone; `closeLeaked` removes
+  the folder and counts the close only when the kill says the main was killed, gone, or its number another process's.
+- **Each Stop-Process stands alone** (5, 6): `-ErrorAction SilentlyContinue` with its error read per process; a child gone with its main
+  is no failure.
+- **A tried close survives a restart** (7): the supervisor's memory keeps `browsers` (`{ key: { at, ok } }`, every close tried, failed
+  ones too), seeded into the runner's map at each run and pruned to the browsers still listed, so a restarted board tries no browser
+  again; the guard-3 test covers the failed close across a restart.
+
 ## The Workers mod hotfix 0.31.1 (2026-11-13): chats losing the mod (F4)
 
 Chat 1's write-up (`.claude/plans/2026-11-13-workers-mod-unload-cause.md`): the CLI's hooks worker unloads the plugin it blames
