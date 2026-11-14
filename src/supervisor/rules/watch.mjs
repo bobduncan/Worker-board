@@ -13,6 +13,7 @@
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
 import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
+import { isRestartWord } from '../../restartGone.mjs'
 import { RETIRED_WATCH_RULES, givenBackFrom } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
@@ -553,6 +554,8 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to))) return false
   // F17: a wake's carry word is the wake record's: its attempt's verdict and the board's "could not wake" name it, never rule 8 too.
   if (isCarryWord(message)) return false
+  // F19: so is a restart word for the courier: its try's verdict and the Link gone row name it (src/restartGone.mjs).
+  if (isRestartWord(message)) return false
   // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
   // hold before its release (B285).
   const held = message.at + heldMs(message, view.now, view.pause)

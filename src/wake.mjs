@@ -26,6 +26,7 @@ import { envelopesOf } from './work/handover.mjs'
 import { isHolding } from './work/pause.mjs'
 import { CARRY_SEND_MS, CARRY_VERDICT_MS, COURIER, COURIER_WAIT_MS, carriedChats, carrierOf, carryWord, isSendRefusal, noteSendRefused, plainWhy } from './wakeCarry.mjs'
 import { moveInPlace, readKept, stampOf, writeUnflushed } from './write.mjs'
+import { restartTriesOfFile, textOfRestartTries } from './restartGone.mjs'
 
 /** A wake attempt sent this long ago without the woken chat's report is failed. */
 export const WAKE_VERDICT_MS = 2 * 60_000
@@ -757,7 +758,11 @@ export function savedSpell(value) {
 /** F17: the record's facts of the refusal of the hands' sends (src/wakeCarry.mjs). */
 const SEND_FACTS = ['sendsRefusedSince', 'sendsLiftedAt', 'probeAt']
 
-export const textOfWakes = record => `${JSON.stringify({ wakes: Object.fromEntries(record.wakes), ...(isTime(record.heardRunAt) ? { heardRunAt: record.heardRunAt } : {}), ...Object.fromEntries(SEND_FACTS.filter(key => isTime(record[key])).map(key => [key, record[key]])) })}\n`
+// F19 (src/restartGone.mjs): the restart tries of the chats whose board link was gone, keyed by chat and spell, kept with the record.
+export const textOfWakes = record => {
+  const tries = textOfRestartTries(record)
+  return `${JSON.stringify({ wakes: Object.fromEntries(record.wakes), ...(isTime(record.heardRunAt) ? { heardRunAt: record.heardRunAt } : {}), ...Object.fromEntries(SEND_FACTS.filter(key => isTime(record[key])).map(key => [key, record[key]])), ...(tries === null ? {} : { restartTries: tries }) })}\n`
+}
 
 /** The record a parsed file holds, left out the entries that are no spell; null when the file is not that shape. */
 export function wakesOfFile(value) {
@@ -766,6 +771,9 @@ export function wakesOfFile(value) {
   if (isTime(value.heardRunAt)) record.heardRunAt = value.heardRunAt
   // F17 review 10: the refusal of the hands' sends, its lift and the last probe are the record's own facts, kept apart from the spells.
   for (const key of SEND_FACTS) if (isTime(value[key])) record[key] = value[key]
+  // F19: the restart tries survive the board's restart (never an outbox view's: D5).
+  const tries = restartTriesOfFile(value.restartTries)
+  if (tries.size > 0) record.restartTries = tries
   for (const [chat, entries] of Object.entries(value.wakes)) {
     if (chat === '' || !Array.isArray(entries)) continue
     const kept = entries.map(savedSpell).filter(one => one !== null).slice(-WAKE_SPELLS_KEPT)

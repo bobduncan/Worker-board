@@ -676,7 +676,7 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // `appSession` is the id the app knows the chat by: the main chat starts a chat that is not running with it.
   // B468: `effort` is what the app's file of the chat says it runs at, or null.
   const base = { name: chat.name, isMain: chat.isMain, isLeftover: chat.isLeftover, session: chat.cliSessionId ?? null, appSession: chat.appSessionId ?? null, effort: chat.effort ?? null, model: chat.model ?? null, removedAt: chat.removedAt ?? null }
-  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, boardCall: null, modGone: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null }
+  const none = { lastAnswer: null, quietMs: null, isQuiet: false, isAsking: false, doingNow: null, between: null, needsYou: null, boardCall: null, modGone: null, statusDetail: null, waitingSince: null, waitsFor: null, task: null, cutOffAt: null, eta: null, isWithoutTime: false, suspended: null, usage: [], lastTask: null, givenTask: null, feedback: null, compaction: null, unanswered: null, idle: null, unfiled: null, resting: null, waitsForPartner: null, transcriptTurn: null, transcriptAt: null }
   // B847: what the board needs to tell a replaced chat of a routine (an older chat of the same name) from the live one.
   if (chat.isLeftover) return { ...base, state: 'unknown', ...none, lastActivityAt: chat.lastActivityAt, createdAt: chat.createdAt ?? null, cwd: chat.cwd ?? null, needsAction: chat.summary?.needsAction ?? null }
 
@@ -843,6 +843,10 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
     boardCall,
     // F9: its Workers mod was unloaded and the board cannot reach it: `{ at }`, or null.
     modGone,
+    // F19 (src/restartGone.mjs): the transcript's own turn ('ended', 'asking', 'running', ...; the app's summary of an ended turn counts, the
+    // quiet limit's guess of a silent end does not) and its last write, for every lane: a gone link's report is from before the unload.
+    transcriptTurn: said === 'running' && summary !== null ? 'ended' : said,
+    transcriptAt: lastWriteAt,
     statusDetail: turn === 'ended' ? summary?.detail?.trim() || null : null,
     // The turn's last entry: when it ended, or when it asked.
     waitingSince: state !== 'waiting' ? null : reported !== null ? reported.entry?.since ?? null : entries.findLast(entry => entry.type === 'assistant' && !entry.isSidechain)?.at ?? null,
@@ -2270,6 +2274,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       isAsking: advisorCard.isAsking === true,
       boardCall: advisorCard.boardCall ?? null,
       modGone: advisorCard.modGone ?? null,
+      // F19: the transcript's turn, last write and background count (src/restartGone.mjs).
+      transcriptTurn: advisorCard.transcriptTurn ?? null, transcriptAt: advisorCard.transcriptAt ?? null, background: advisorCard.background ?? null,
       // The model chip: the model and the effort the app's file of its chat says it runs at (`effort` below is B352's mode).
       model: advisorCard.model ?? null,
       appEffort: advisorCard.effort ?? null,
@@ -2986,6 +2992,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       isAsking: helperLane.isAsking === true,
       boardCall: helperLane.boardCall ?? null,
       modGone: helperLane.modGone ?? null,
+      // F19: the transcript's turn, last write and background count (src/restartGone.mjs).
+      transcriptTurn: helperLane.transcriptTurn ?? null, transcriptAt: helperLane.transcriptAt ?? null, background: helperLane.background ?? null,
       // The model chip: what the app's file of its chat says it runs at.
       model: helperLane.model ?? null,
       effort: helperLane.effort ?? null,
@@ -3015,6 +3023,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       isAsking: supervisorLane.isAsking === true,
       boardCall: supervisorLane.boardCall ?? null,
       modGone: supervisorLane.modGone ?? null,
+      // F19: the transcript's turn, last write and background count (src/restartGone.mjs).
+      transcriptTurn: supervisorLane.transcriptTurn ?? null, transcriptAt: supervisorLane.transcriptAt ?? null, background: supervisorLane.background ?? null,
       model: supervisorLane.model ?? null,
       effort: supervisorLane.effort ?? null,
       // T7.5: the setting the board holds it at (`supervisorModel`, `supervisorEffort`) and whether its file shows it.
@@ -3042,6 +3052,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       isAsking: ownerLane.isAsking === true,
       boardCall: ownerLane.boardCall ?? null,
       modGone: ownerLane.modGone ?? null,
+      // F19: the transcript's turn, last write and background count (src/restartGone.mjs).
+      transcriptTurn: ownerLane.transcriptTurn ?? null, transcriptAt: ownerLane.transcriptAt ?? null, background: ownerLane.background ?? null,
       model: ownerLane.model ?? null,
       effort: ownerLane.effort ?? null,
       setting: supervisorRun({ lane: ownerLane, setting: OWNER_SETTING, models: runSettings(config).models }),

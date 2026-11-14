@@ -69,7 +69,8 @@ const isPlain = message => (message.command ?? null) === null || message.command
 // holds no step not yet reported, or the limit reset (src/work/outboxSweep.mjs).
 // B1071 (X2): the person's stop or remove by code waits STOP_HANDS_MS for the board to carry it out (the outbox sweep settles it
 // once its worker stopped), then the main chat may take it: it is kept that long and a plain word's keep after it.
-export const keepMs = (message, keep) => (isAnswer(message) || isLimitStopWord(message.command) ? Infinity
+// F19: a restart word for the courier is never expired by the sweep: its own closes settle it (src/restartGone.mjs `restartCloses`).
+export const keepMs = (message, keep) => (isAnswer(message) || isLimitStopWord(message.command) || message.command === 'chat-restart' ? Infinity
   : isTaskStopWord(message) ? STOP_HANDS_MS + keep.messageMs
   // F17 check 2: a wake's carry word waits for the scheduled courier's next run (15 min and more); src/wakeCarry.mjs `carryCloses` closes it.
   : isPlain(message) || ['step', 'refined', 'work', 'incident', 'handover', 'wake-carry'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
