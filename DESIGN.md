@@ -7614,55 +7614,77 @@ heard were awaited inside the answer. The person (2026-11-11): the held items on
 The person, 2026-11-11 ("Yes, build it"): the Claude app updated itself at 22:42 (AppX Register, "TerminateApplications") and ended
 every process in the app's job, both boards' keepers and children among them (alive.json stopped, no stop line); every board started
 from a chat (start-board.mjs in a chat's shell, the start-app launcher, land.ps1) sat in that job. Chat 1's brief
-(`.claude/plans/2026-11-11-boards-survive-app-updates-brief.md`), chat 3's design note (`...-design.md`) and chat 1's guards G4-G8.
+(`.claude/plans/2026-11-11-boards-survive-app-updates-brief.md`), chat 3's design note (`...-design.md`), chat 1's guards G4-G8 and
+its two-lens review of the first build (`.claude/plans/2026-11-14-f10-review.md`: 8 findings and 4 unverified, all taken in below).
 
 - **One way to start a keeper, outside any job** (src/keeperStart.mjs `startKeeper`): WMI `Win32_Process.Create` from a short hidden
   PowerShell, with a `Win32_ProcessStartup` of `ShowWindow` 0 (the console is never shown; `CreateFlags` made Create answer 21 on this
   PC, so ShowWindow alone), the board's folder as working directory and the person's logon environment (Create takes no env block:
   that is `startEnv` by nature, nothing of a chat's own reaches the board; the board needs PATH alone, for node and git). The command
   line is `"<node>" "<dir>\server.mjs" --log <words>`: no shell, no redirect; `--log` has the keeper open data/board.log itself for its
-  child and its own lines (server.mjs `keepBoard`). The keeper's real pid comes back from Create and stands in start-board's line.
-  WMI refused or failing (a return value other than 0, PowerShell missing or slow): the old detached spawn, with one board.log line
-  "started as a child of process N (WMI: <why>): an app update will end it". Never a failed start. Every start goes this way:
-  start-board.mjs, land.ps1's warm start (`start-board.mjs --quiet`) and its cold restart (`start-board.mjs --anew --quiet`, new: a
-  keeper although the old board still answers; the old `Start-Process cmd.exe` is gone), and the watcher.
-- **The proof** (test/startBoard.test.mjs): a shell (a node process) runs start-board.mjs and lingers; the keeper's parent is
-  WmiPrvSE.exe, not the shell; the shell's whole tree is killed (as the update ends the app's job) and the board still answers. A
-  keeper spawned as a child (the mutant) dies with the tree. Measured on the way: `IsProcessInJob(process, NULL)` is no proof by
-  itself: a node process that spawned a child sits in libuv's own job (the keeper true, its board false, a WMI-made node without
-  children false), so `tools/in-job.ps1` is a helper for a look, not the test.
+  child and its own lines (server.mjs `keepBoard`). The keeper's real pid comes back from Create and stands in start-board's line. The
+  WMI call may take `WMI_START_MS` (30 s: PowerShell's cold start and three CIM calls pass 10 s on a loaded PC). A timeout or an
+  unreadable answer is no proof that Create failed (the CIM call may have run while PowerShell was killed): the folder's keepers made
+  since the call are listed first, and one found is the keeper (`late` says what went wrong); only a definite refusal (a return value
+  other than 0, PowerShell missing) or no keeper made runs the fallback: the old detached spawn, with one board.log line "started as a
+  child of process N (WMI: <why>): an app update will end it". Never a failed start. Every start goes this way: start-board.mjs,
+  land.ps1's warm start (`start-board.mjs --quiet`) and its cold restart (`start-board.mjs --anew --quiet`: a keeper although the old
+  board still answers; the old `Start-Process cmd.exe` is gone), and the watcher. `WORKER_BOARD_START_ROUTE=child` in the environment
+  takes the fallback without asking WMI: the proof's mutant, nothing else.
+- **The proof is the update's own mechanism** (test/startBoard.test.mjs, tools/job-kill.ps1): a shell (a node process that runs
+  start-board.mjs and lingers) is put into a Windows job with KILL_ON_JOB_CLOSE, as the app runs its chats; the whole job is ended with
+  TerminateJobObject, as the update does; the keeper's parent is WmiPrvSE.exe and the board still answers. The mutant (the old
+  detached spawn, `WORKER_BOARD_START_ROUTE=child`) is in the job and dies with it, its board too: the test asserts that as well. A
+  tree kill of the shell (the first build's proof) proved nothing: the keeper was an orphan by then. `IsProcessInJob(process, NULL)` is
+  no proof either: a node process that spawned a child sits in libuv's own job (the keeper true, its board false). A WMI keeper whose
+  board dies before it is up (another program on the port, a broken config) ends; start-board.mjs polls the keeper's pid while it
+  waits and ends with 1 and the log's last words at once, not after its 20 s.
 - **The stop sign and `--stop`**: the board writes data/stop.json at its exit once it listened (`{ at, why, started }`; `started` is
-  the board's own start, new); the next start takes it away. `node start-board.mjs --stop` writes `{ why: 'stopped', by: 'command' }`
-  FIRST, then ends the folder's keeper and child (found by their command lines), so a stop the person means is never undone by the
-  watcher. The board writes data/started.json `{ at, pid }` when it listens.
-- **The watcher** (tools/watch-boards.mjs, the decision pure in src/boardWatcher.mjs): a Windows scheduled task per user and project,
-  "Worker board watcher (<project folder>)", at logon and every 5 minutes, the interactive token (only while logged on, no password),
-  hidden, one instance, 4 minutes at most; its action `wscript.exe //B //Nologo "<~/.worker-board>\watch-boards.vbs"` (a console program
-  as an action flashes a console; wscript, a GUI program, does not), the four-line .vbs runs `node tools/watch-boards.mjs` with window
-  style 0 and lives in the person's worker-board home, never in the checkout (G5). For every board of ~/.worker-board/boards.json (G8):
-  the HTTP answer first, and nothing else when it answers (G6); else one WMI listing of the node processes (with the last boot time)
-  for all boards that did not answer; then the table: a keeper of the folder runs with no answer: nothing (starting), and after
-  SILENT_LOOKS (3) looks in a row one log line, never a second keeper (G7); a landing lock under 15 minutes: nothing (land.ps1
-  restarts the boards itself); a current stop sign `stopped`: nothing; a current `crash` (the keeper gave up): a start, STARTS_PER_HOUR
-  (3) per board per hour, then "left alone until HH:MM"; no sign, no keeper, no answer (the update killed it): a start; a board that
-  never ran here (no data/started.json, the Test project's board listed but not started) is left alone: the watcher brings back what
-  ran and starts nothing new. A sign is
-  current only when it is newer than the last boot and belongs to the board started last (`stop.started >= started.json.at`; G4: a
-  Windows restart ends node with code 0 and leaves a 'stopped' sign; land.ps1's cold restart has the old board's exit write its sign
-  after the new keeper started; both are stale). A start goes through `startKeeper` (never as the watcher's child: the Task
-  Scheduler ends a task's tree at its time limit), with one board.log line "watcher: started the board (<why>): keeper process N by
-  WMI"; nothing is logged when nothing is done. Its record (the starts per hour, the silent looks) is ~/.worker-board/watcher.json.
-  `--dry` says what it would do. A pause is no stop of the board: a dead board under a pause comes back, so the person can resume.
-- **Setup** (setup.mjs, the third part, src/watcherSetup.mjs): `npm run setup` registers the task from an XML (`schtasks /Create /XML
-  ... /F`: replaced, never doubled; no admin: a per-user task) and names it; `npm run setup -- --watcher off` deletes it;
-  `--check` says its state (present, last run, last result from `schtasks /Query /V`). The start-app mod's stop for a detached entry
-  runs the entry's `stop` words (start-app 0.4.1, in my-mods), so /stop-app is not undone by the watcher five minutes later. The
-  words stand in the person's `.claude/launch.json`, in the worker-board entry (a chat may not write that file: the guard hook):
-  `"stop": ["C:/Program Files/nodejs/node.exe", "C:/Web/lava-tactics-project/worker-board/start-board.mjs", "--stop"]`.
-- Tests: test/boardWatcher.test.mjs (the table, G4's two orders, G7, the cap, the WMI pieces, the keepers among the processes),
-  test/watcherSetup.test.mjs (the task's XML and .vbs, setup on/off/check with a fake schtasks, one watcher pass with fakes: the
-  HTTP answer first, one listing, one log line, the record), test/startBoard.test.mjs (the tree kill, --anew, --stop),
-  test/landScript.test.mjs (-Cold through start-board.mjs --anew).
+  the board's own start); the next start takes it away. `node start-board.mjs --stop` writes `{ why: 'stopped', by: 'command' }`
+  FIRST, then ends the folder's keeper and child (found by their command lines), waits until they are gone and writes the sign AGAIN
+  (the board's own exit wrote one without `by` over it). A `by: 'command'` sign holds across boots and logons, whatever started.json
+  says: the person meant it; only a real start takes the file away. The board writes data/started.json `{ at, pid }` when it listens.
+  The main board's launch entry (src/ports.mjs `launchEntry`, `node server.mjs --launch-entry`) carries the stop words
+  `"stop": ["<node>", "<folder>/start-board.mjs", "--stop"]`, which start-app 0.4.1 (my-mods) runs for /stop-app and the pane's Stop
+  in place of a kill; the live `.claude/launch.json` is the person's to refresh (the guard hook refuses chats).
+- **The watcher** (tools/watch-boards.mjs, the decision pure in src/boardWatcher.mjs): ONE Windows scheduled task for the PC and
+  user, "Worker board watcher" (it watches every board of ~/.worker-board/boards.json, G8, so a second project's setup replaces it),
+  at logon and every 5 minutes, the interactive token (only while logged on, no password), hidden, one instance, 4 minutes at most;
+  its action `wscript.exe //B //Nologo "<~/.worker-board>\watch-boards.vbs"` (a console program as an action flashes a console;
+  wscript, a GUI program, does not), the four-line .vbs runs `node tools/watch-boards.mjs` with window style 0 and waits for it (so
+  the one-instance rule and the time limit hold) and lives in the person's worker-board home, never in the checkout (G5). One pass at
+  a time on the PC: `~/.worker-board/watcher.lock`, taken with `wx` (pid and time inside), another pass's when younger than 4 minutes,
+  broken when older. For every board: the HTTP answer first, and nothing else when it answers (G6); else one WMI listing of the node
+  processes (with the boot time and the person's logon time) for all boards that did not answer. A listing that fails or cannot be
+  read starts nothing (a keeper may run; one line per silent board: "the PC's processes could not be listed (...): nothing started";
+  the next pass looks again). Then the table: a keeper of the folder runs with no answer: nothing (starting), and after SILENT_LOOKS
+  (3) looks in a row one log line, never a second keeper (G7); a landing lock under 15 minutes: nothing (land.ps1 restarts the boards
+  itself); a board that never ran here (no started.json): nothing; a current `stopped` sign: nothing; a current `crash`, a stale sign,
+  or no sign, no keeper, no answer (the update killed it): a start, and EVERY start counts against the cap, STARTS_PER_HOUR (3) per
+  board per hour, then "left alone until HH:MM" with one line (a board that dies before it listens writes no sign and would otherwise
+  be started every 5 minutes for ever). A sign is current only when it is newer than the person's LOGON (not the last boot: Fast
+  Startup leaves LastBootUpTime at the last full boot; the logon is the oldest explorer.exe of the user in the listing, the boot time
+  the fallback) and belongs to the board started last (`stop.started >= started.json.at`; G4: a Windows restart ends node with code 0
+  and leaves a 'stopped' sign; land.ps1's cold restart has the old board's exit write its sign after the new keeper started; both are
+  stale), or carries `by: 'command'`. A start goes through `startKeeper` with `--started-by watcher` (never as the watcher's child:
+  the Task Scheduler ends a task's tree at its time limit), so the board's gap line and page say "started by the watcher"
+  (src/history.mjs START_HOWS, public/board.js HOW_STARTED), with one board.log line "watcher: started the board (<why>): keeper
+  process N by WMI"; nothing is logged when nothing is done. Its record (the starts per hour, the silent looks) is
+  ~/.worker-board/watcher.json. `--dry` says what it would do (no lock, no line). A pause is no stop of the board: a dead board under
+  a pause comes back, so the person can resume.
+- **Setup** (setup.mjs, the third part, src/watcherSetup.mjs): `npm run setup` registers the task from an XML written as UTF-16LE
+  with a BOM, as its first line declares and as Task Scheduler exports its own (a UTF-8 file with that line is refused by schtasks:
+  "(1,40) switch from current encoding to specified encoding not supported"; the test loads the written file with MSXML 6 and shows the
+  UTF-8 one refused), `schtasks /Create /XML ... /F` (replaced, never doubled; no admin: a per-user task). `npm run setup -- --watcher
+  off` deletes the task and leaves `~/.worker-board/watcher-off.json`: a later plain setup leaves the watcher off and says so;
+  `--watcher on` removes the marker and registers. `--check` says its state (present, last run, last result from `schtasks /Query /V`).
+- Tests: test/boardWatcher.test.mjs (the table, G4's two orders, `by: 'command'` across boots, the cap on every start, G7, the WMI
+  pieces, the late keeper after a timeout, the mutant's route, the keepers among the processes, the logon time read),
+  test/watcherSetup.test.mjs (the task's XML and .vbs, the XML's bytes and its MSXML load, setup on/off/check with a fake schtasks
+  and the off marker, the lock, one watcher pass with fakes: the HTTP answer first, one listing, a failed listing starts nothing, one
+  log line, the record), test/startBoard.test.mjs (the job proof and its mutant, --anew, --stop with the sign written again, a keeper
+  that ends), test/ports.test.mjs (the entry's stop words), test/landScript.test.mjs (-Cold through start-board.mjs --anew). Not
+  tested: G1's environment (a keeper's board running git and codex from the logon env), the real case on 4314.
 
 ## Going live: tools/land.ps1 (2026-11-04)
 

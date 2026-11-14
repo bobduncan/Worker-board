@@ -70,8 +70,8 @@ export function changes(last, chats, now) {
   return lines
 }
 
-/** Signals change 5 (2026-11-02): how a board was started, as the gap line and `board.lastStop` say it (`keptStart`). */
-export const START_HOWS = ['hand', 'keeper']
+/** Signals change 5 (2026-11-02): how a board was started, as the gap line and `board.lastStop` say it (`keptStart`); F10: `watcher`. */
+export const START_HOWS = ['hand', 'keeper', 'watcher']
 
 /** The board watches once a minute. Longer than this without a look means it was off or the PC slept. */
 export const GAP_MS = 3 * 60_000

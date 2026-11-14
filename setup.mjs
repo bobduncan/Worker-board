@@ -12,7 +12,7 @@ import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 
 import { spawn } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { access, mkdir, rm, writeFile } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 
 import { loadConfig, workFolder } from './src/config.mjs'
@@ -92,9 +92,10 @@ if (process.platform === 'win32') {
   }
   const user = `${process.env.USERDOMAIN ?? ''}${process.env.USERDOMAIN ? '\\' : ''}${userInfo().username}`
   const watcher = await setupWatcher({
-    mode: isCheck ? 'check' : given('watcher') === 'off' ? 'off' : 'on',
-    home: process.env.WORKER_BOARD_HOME || join(homedir(), '.worker-board'), node: process.execPath, script: join(here, 'tools', 'watch-boards.mjs'), project, user,
-    run: runProgram, write: async (file, text) => { await mkdir(dirname(file), { recursive: true }); await writeFile(file, text) },
+    mode: isCheck ? 'check' : given('watcher') === 'off' ? 'off' : 'on', isExplicit: given('watcher') === 'on',
+    home: process.env.WORKER_BOARD_HOME || join(homedir(), '.worker-board'), node: process.execPath, script: join(here, 'tools', 'watch-boards.mjs'), user,
+    run: runProgram, write: async (file, bytes) => { await mkdir(dirname(file), { recursive: true }); await writeFile(file, bytes) },
+    exists: async file => { try { await access(file); return true } catch { return false } }, remove: file => rm(file, { force: true }),
   })
   for (const line of watcher.lines) console.log(line)
   if (!watcher.ok) good = false

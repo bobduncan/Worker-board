@@ -8,8 +8,8 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 import { boardAt } from '../start-board.mjs'
 import { startEnv } from '../src/keeper.mjs'
@@ -75,45 +75,60 @@ test('run from inside a board\'s process, the script still starts a keeper with 
 })
 
 // F10 (2026-11-14): the boards survive a Claude app update: the keeper is started through WMI, outside the caller's process tree and
-// its job. The proof is the brief's real case: a shell starts the board and the shell's whole tree is killed; the board must still answer
-// (a keeper spawned as a child, the mutant, dies with the tree). IsProcessInJob alone cannot tell the two apart: a node process that
-// spawned a child sits in libuv's own job (measured 2026-11-14: the keeper true, its board false, a WMI-made node without children
-// false), so tools/in-job.ps1 is a helper for a look, not the proof.
-const IN_JOB = join(dirname(fileURLToPath(import.meta.url)), '..', 'tools', 'in-job.ps1')
+// its job. The proof is the update's own mechanism (chat 1's review): tools/job-kill.ps1 runs a shell (a node process that runs
+// start-board.mjs and lingers) inside a Windows job with KILL_ON_JOB_CLOSE, as the app runs its chats, then ends the whole job with
+// TerminateJobObject, as the app's self-update does; the board must still answer. The mutant (WORKER_BOARD_START_ROUTE=child: the old
+// detached spawn, which inherits the job) dies with the job. (IsProcessInJob alone could not tell the two apart: a node that spawned a
+// child sits in libuv's own job, measured 2026-11-14.)
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data')
+const JOB_KILL = join(dirname(fileURLToPath(import.meta.url)), '..', 'tools', 'job-kill.ps1')
 const windows = { skip: process.platform !== 'win32' ? 'Windows only' : false }
-/** What tools/in-job.ps1 says of the pids: "<pid> True|False|gone" each. */
-const inJob = (...pids) => spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', IN_JOB, ...pids.map(String)], { encoding: 'utf8', timeout: 30_000, windowsHide: true }).stdout.trim().split(/\r?\n/)
+const isAlive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
 const parentNameOf = pid => spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $p.ParentProcessId)).Name`], { encoding: 'utf8', timeout: 30_000, windowsHide: true }).stdout.trim()
 const stopDemo = async (pid, port) => {
   if (Number.isInteger(pid)) spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
   const until = Date.now() + 10_000
   while (await boardAt(port) && Date.now() < until) await new Promise(done => setTimeout(done, 200))
 }
+/** The shell's script: runs start-board.mjs for the demo on `port`, prints its words, lingers (as a chat's shell would). */
+function shellScript(t, port) {
+  const file = join(tmpdir(), `start-board-shell-${process.pid}-${port}.cjs`)
+  writeFileSync(file, `const { spawnSync } = require('child_process'); const run = spawnSync(process.execPath, [${JSON.stringify(SCRIPT)}, '--demo', '--port', '${port}'], { encoding: 'utf8' }); process.stdout.write(run.stdout + run.stderr); setTimeout(() => {}, 60000)`)
+  t.after(() => rmSync(file, { force: true }))
+  return file
+}
+/** Runs the shell inside a job that is then terminated (tools/job-kill.ps1); the helper's words. */
+const jobKill = (file, env = {}) => spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', JOB_KILL, '-FileName', process.execPath, '-Arguments', `"${file}"`], { encoding: 'utf8', timeout: 90_000, windowsHide: true, env: { ...startEnv(process.env), ...env } })
 
-test('F10: a board started from a shell survives the kill of that shell\'s whole process tree (the keeper\'s parent is WmiPrvSE, not the shell); the line names the keeper\'s pid', windows, async t => {
+test('F10: a board started from a shell inside a job survives the job\'s termination (the keeper\'s parent is WmiPrvSE, not the shell); the line names the keeper\'s pid', windows, async t => {
   const port = String(await freePort())
-  // The shell: a node process that runs start-board.mjs and then lingers, as a chat's shell would.
-  const shell = spawn(process.execPath, ['-e', `const { spawnSync } = require('child_process'); const run = spawnSync(process.execPath, [${JSON.stringify(SCRIPT)}, '--demo', '--port', '${port}'], { encoding: 'utf8', env: ${JSON.stringify(startEnv(process.env))} }); process.stdout.write(run.stdout + run.stderr); setTimeout(() => {}, 60000)`], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
-  let said = ''
-  shell.stdout.on('data', chunk => { said += chunk })
-  shell.stderr.on('data', chunk => { said += chunk })
-  await new Promise(done => { const look = () => (/process \d+/.test(said) || /did not/.test(said) ? done() : setTimeout(look, 200)); look() })
-  const pid = Number(said.match(/process (\d+)/)?.[1])
+  const said = jobKill(shellScript(t, port))
+  const pid = Number(said.stdout.match(/process (\d+)/)?.[1])
   t.after(() => stopDemo(pid, port))
-  t.after(() => spawnSync('taskkill', ['/PID', String(shell.pid), '/T', '/F'], { windowsHide: true }))
-  assert.ok(Number.isInteger(pid), said)
-  assert.doesNotMatch(said, /started as a child, not through WMI/, 'the WMI route, not the fallback')
+  assert.equal(said.status, 0, said.stderr)
+  assert.ok(Number.isInteger(pid), said.stdout)
+  assert.doesNotMatch(said.stdout, /started as a child, not through WMI/, 'the WMI route, not the fallback')
+  assert.match(said.stdout, /terminated exited=True/, 'the shell died with its job')
   assert.equal(parentNameOf(pid), 'WmiPrvSE.exe', 'the keeper was made by WMI, not by the shell')
-  assert.equal(await boardAt(port), true)
-  // The shell's whole tree goes (as the app's update ends the app's job): the board is no part of it.
-  spawnSync('taskkill', ['/PID', String(shell.pid), '/T', '/F'], { windowsHide: true })
-  await new Promise(done => setTimeout(done, 1500))
-  assert.equal(await boardAt(port), true, 'the board still answers after its starting shell\'s tree was killed')
-  assert.equal(inJob(pid)[0], `${pid} True`, 'libuv\'s own job: a keeper that spawned its board (not the app\'s)')
+  assert.equal(isAlive(pid), true, 'the keeper outlived the job')
+  assert.equal(await boardAt(port), true, 'the board still answers after the job that started it was terminated')
 })
 
-test('F10: --stop writes the stop sign first (so the watcher leaves the board down), then ends the keeper and its board; --anew starts a new keeper while one answers', windows, async t => {
+test('F10, the mutant: a keeper spawned as the shell\'s child (the old route, WORKER_BOARD_START_ROUTE=child) dies with the job, and so does its board', windows, async t => {
+  const port = String(await freePort())
+  const said = jobKill(shellScript(t, port), { WORKER_BOARD_START_ROUTE: 'child' })
+  const pid = Number(said.stdout.match(/process (\d+)/)?.[1])
+  t.after(() => stopDemo(pid, port))
+  assert.ok(Number.isInteger(pid), said.stdout)
+  assert.match(said.stdout, /started as a child, not through WMI/, 'the fallback route')
+  assert.match(said.stdout, /terminated exited=True/)
+  const until = Date.now() + 5000
+  while (await boardAt(port) && Date.now() < until) await new Promise(done => setTimeout(done, 200))
+  assert.equal(await boardAt(port), false, 'the old route\'s board died with the job: that is what the update did on 2026-11-11')
+  assert.equal(isAlive(pid), false)
+})
+
+test('F10: --stop writes the stop sign first (so the watcher leaves the board down), ends the keeper and its board, and writes the sign again once they are gone; --anew starts a new keeper while one answers', windows, async t => {
   const port = String(await freePort())
   const first = run('--demo', '--port', port)
   const pid = Number(first.stdout.match(/process (\d+)/)?.[1])
@@ -127,13 +142,25 @@ test('F10: --stop writes the stop sign first (so the watcher leaves the board do
   const sign = join(DATA, 'stop.json')
   const before = existsSync(sign) ? readFileSync(sign, 'utf8') : null
   t.after(() => { if (before === null) rmSync(sign, { force: true }); else writeFileSync(sign, before) })
+  const began = Date.now()
   const stopped = run('--stop')
   assert.equal(stopped.status, 0, stopped.stderr)
   assert.match(stopped.stdout, /^The worker board is stopped \(keeper /)
   const written = JSON.parse(readFileSync(sign, 'utf8'))
   assert.deepEqual([written.why, written.by, Number.isFinite(written.at)], ['stopped', 'command', true])
-  const until = Date.now() + 10_000
-  while (await boardAt(port) && Date.now() < until) await new Promise(done => setTimeout(done, 200))
-  assert.equal(await boardAt(port), false, 'the board is gone')
-  assert.deepEqual(inJob(pid, second), [`${pid} gone`, `${second} gone`])
+  assert.ok(written.at >= began, 'the sign was written again after the processes were gone')
+  assert.deepEqual([isAlive(pid), isAlive(second), await boardAt(port)], [false, false, false], 'keepers and board gone')
+})
+
+test('F10: a WMI keeper whose board dies before it is up is noticed: the script ends with 1 and the log\'s last words, not after the 20 s wait', windows, async t => {
+  // Another program holds the port: the board cannot listen, the keeper does not start it again and ends.
+  const server = createServer((req, res) => res.end('<title>Something else</title>')).listen(0, '127.0.0.1')
+  await new Promise(done => server.once('listening', done))
+  t.after(() => server.close())
+  const port = String(server.address().port)
+  const began = Date.now()
+  const said = run('--demo', '--port', port)
+  assert.equal(said.status, 1)
+  assert.ok(Date.now() - began < 18_000, `ended before the wait ran out: ${Date.now() - began} ms`)
+  assert.match(said.stderr, /before it was up|in use|EADDRINUSE|ended/, said.stderr)
 })

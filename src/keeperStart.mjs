@@ -15,8 +15,8 @@ import { join } from 'node:path'
 
 import { startEnv } from './keeper.mjs'
 
-/** How long the WMI start may take before the fallback runs. */
-export const WMI_START_MS = 10_000
+/** How long the WMI start may take (a loaded PC: PowerShell's cold start and three CIM calls pass 10 s; chat 1's review). */
+export const WMI_START_MS = 30_000
 
 /** The keeper's command line for WMI: node, the folder's server.mjs, `--log`, then the words given (each quoted when it has a space or a quote). */
 export function keeperCommandLine({ node, dir, args = [] }) {
@@ -91,19 +91,36 @@ export function logLine(dir, text, now = Date.now()) {
 /**
  * Starts a keeper of the board in `dir` outside any job: through WMI (`run`: the PowerShell runner; `node`: the program to run
  * server.mjs with), else as a detached child of this process (`spawnChild`), with one board.log line saying so. Answers
- * `{ pid, how: 'wmi' | 'child', why }` (`why` the WMI failure for 'child', null for 'wmi'); `pid` is the keeper's.
+ * `{ pid, how: 'wmi' | 'child', why }` (`why` the WMI failure for 'child', null for 'wmi'); `pid` is the keeper's. A timeout or an
+ * unreadable answer is no proof that Create failed (the CIM call may have run while PowerShell was killed): the keepers of the
+ * folder made since the call (`list`) are looked for first, and the fallback runs only when none was made (chat 1's review). The
+ * fallback alone runs when `env.WORKER_BOARD_START_ROUTE` is 'child' (the proof's mutant in test/startBoard.test.mjs).
  */
-export async function startKeeper({ dir, args = [], node = process.execPath, run = powershell, spawnChild = spawnDetached, platform = process.platform, env = process.env, log = logLine }) {
+export async function startKeeper({ dir, args = [], node = process.execPath, run = powershell, spawnChild = spawnDetached, platform = process.platform, env = process.env, log = logLine, list = async () => parseProcessList(await powershell(LIST_SCRIPT, WMI_START_MS)), now = Date.now }) {
   const commandLine = keeperCommandLine({ node, dir, args })
   let why = null
-  if (platform === 'win32') {
+  if (env?.WORKER_BOARD_START_ROUTE === 'child') why = 'WORKER_BOARD_START_ROUTE=child'
+  else if (platform === 'win32') {
+    const since = now() - 5000
+    let unsure = false
     try {
       const made = parseCreated(await run(wmiCreateScript(commandLine, dir)))
-      if (made === null) why = 'WMI gave no answer that could be read'
+      if (made === null) { why = 'WMI gave no answer that could be read'; unsure = true }
       else if (made.ret !== 0 || !Number.isInteger(made.pid)) why = `Win32_Process.Create answered ${made.ret}`
       else return { pid: made.pid, how: 'wmi', why: null }
     } catch (error) {
       why = error instanceof Error ? error.message : String(error)
+      unsure = !/ENOENT/.test(why)
+    }
+    if (unsure) {
+      // Create may have run all the same: a keeper of this folder made since the call is ours.
+      try {
+        const listed = await list()
+        const made = keepersOf((listed?.processes ?? []).filter(one => Number.isFinite(one.createdAt) && one.createdAt >= since), dir)
+        if (made.length > 0) return { pid: made[0].pid, how: 'wmi', why: null, late: why }
+      } catch {
+        // no listing: the fallback below
+      }
     }
   } else why = 'not Windows'
   const child = spawnChild({ dir, args, node, env })
@@ -132,20 +149,26 @@ export function keepersOf(list, dir) {
   return ours.filter(one => !ours.some(other => other.pid === one.parent)).map(one => ({ pid: one.pid, children: ours.filter(other => other.parent === one.pid).map(other => other.pid) }))
 }
 
-/** The PowerShell that lists the PC's node processes with their command lines, as JSON, and the last boot time (ISO, UTC). */
+/**
+ * The PowerShell that lists the PC's node processes with their command lines, as JSON, with the last boot time and the start of
+ * the person's logon session (the oldest explorer.exe of this user; Fast Startup leaves LastBootUpTime at the last full boot, so
+ * the logon is the cut-off for stop signs; chat 1's review), both ISO, UTC.
+ */
 export const LIST_SCRIPT = [
   "$boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')",
+  "$logon = $null; foreach ($e in @(Get-CimInstance Win32_Process -Filter \"Name='explorer.exe'\")) { try { $o = Invoke-CimMethod -InputObject $e -MethodName GetOwner; if ($o.User -eq $env:USERNAME -and $e.CreationDate -and ($null -eq $logon -or $e.CreationDate -lt $logon)) { $logon = $e.CreationDate } } catch {} }",
   "$list = @(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; commandLine = [string]$_.CommandLine; created = $(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { $null }) } })",
-  '[pscustomobject]@{ boot = $boot; processes = $list } | ConvertTo-Json -Compress -Depth 3',
+  "[pscustomobject]@{ boot = $boot; logon = $(if ($logon) { $logon.ToUniversalTime().ToString('o') } else { $null }); processes = $list } | ConvertTo-Json -Compress -Depth 3",
 ].join('; ')
 
-/** The listing read: `{ bootAt (ms), processes }`; null for anything that is not one. */
+/** The listing read: `{ bootAt (ms), logonAt (ms or null), processes }`; null for anything that is not one. */
 export function parseProcessList(text) {
   try {
     const parsed = JSON.parse(String(text ?? '').replace(/^﻿/, ''))
     const list = Array.isArray(parsed?.processes) ? parsed.processes : parsed?.processes ? [parsed.processes] : []
     const bootAt = Date.parse(parsed?.boot)
-    return { bootAt: Number.isFinite(bootAt) ? bootAt : null, processes: list.filter(one => Number.isInteger(one?.pid)).map(one => ({ pid: one.pid, parent: Number.isInteger(one.parent) ? one.parent : -1, commandLine: typeof one.commandLine === 'string' ? one.commandLine : '', createdAt: Number.isFinite(Date.parse(one.created)) ? Date.parse(one.created) : null })) }
+    const logonAt = Date.parse(parsed?.logon)
+    return { bootAt: Number.isFinite(bootAt) ? bootAt : null, logonAt: Number.isFinite(logonAt) ? logonAt : null, processes: list.filter(one => Number.isInteger(one?.pid)).map(one => ({ pid: one.pid, parent: Number.isInteger(one.parent) ? one.parent : -1, commandLine: typeof one.commandLine === 'string' ? one.commandLine : '', createdAt: Number.isFinite(Date.parse(one.created)) ? Date.parse(one.created) : null })) }
   } catch {
     return null
   }

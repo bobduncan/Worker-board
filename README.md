@@ -195,11 +195,12 @@ and the briefings for the main chat and the workers.
    A copy's entry keeps `server.mjs --history-from ...`.
    **Outside the Claude app** (F10, 2026-11-14): every start makes the keeper through WMI (`Win32_Process.Create`), so it sits in
    no process tree or job of a chat: the app's self-update, which ends every process in its job, leaves the boards running. The
-   watcher (`npm run setup` registers it as the scheduled task "Worker board watcher (<project folder>)", every 5 minutes and at
-   logon, hidden, as you) starts a board again that neither answers nor has a keeper, unless it was stopped on purpose:
-   `node start-board.mjs --stop` stops a board on purpose (the sign first, then its processes; /stop-app does the same once the
-   worker-board entry of `.claude/launch.json` carries `"stop": ["<node>", "<this folder>/start-board.mjs", "--stop"]`); `npm run setup -- --watcher off`
-   removes the task; `node tools/watch-boards.mjs --dry` says what the watcher would do.
+   watcher (`npm run setup` registers it as the scheduled task "Worker board watcher", one for the PC, every 5 minutes and at
+   logon, hidden, as you) starts a board again that neither answers nor has a keeper, unless it was stopped on purpose, at most
+   three times an hour: `node start-board.mjs --stop` stops a board on purpose (the sign first, then its processes; /stop-app does
+   the same through the `"stop"` words of the worker-board entry in `.claude/launch.json`, which `node server.mjs --launch-entry`
+   writes); `npm run setup -- --watcher off` removes the task and keeps it off until `--watcher on`; `node tools/watch-boards.mjs
+   --dry` says what the watcher would do.
    **Without the Workers mod** (B211): `node start-board.mjs` starts the board in the background when it does not run
    yet and prints where it runs (its own words go to `data\board.log`); a second call says it runs already. To have
    it start with every chat of the project, copy `examples\settings.json` to `<project>\.claude\settings.json` (or add

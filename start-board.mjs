@@ -67,7 +67,10 @@ const lastWords = (file, from) => {
   }
 }
 
-/** F10: `--stop`: the stop sign first (the watcher then leaves the board down), then the keeper and its child, found by their command lines. */
+/** Whether a process is there (a signal 0). */
+const isAlive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
+
+/** F10: `--stop`: the stop sign first (the watcher then leaves the board down), then the keeper and its child, found by their command lines; the sign again once they are gone. */
 async function stopBoard(isQuiet) {
   mkdirSync(join(HERE, 'data'), { recursive: true })
   let started = null
@@ -85,6 +88,11 @@ async function stopBoard(isQuiet) {
     return 1
   }
   for (const keeper of keepers) endKeeper(keeper)
+  // The board's own exit writes a sign without `by` over ours: wait for the processes to be gone, then write the sign again (chat 1's review).
+  const pids = keepers.flatMap(one => [one.pid, ...one.children])
+  const until = Date.now() + 10_000
+  while (Date.now() < until && pids.some(isAlive)) await new Promise(done => setTimeout(done, 200))
+  writeFileSync(join(HERE, 'data', 'stop.json'), JSON.stringify({ at: Date.now(), why: 'stopped', by: 'command', ...(Number.isFinite(started) ? { started } : {}) }))
   if (!isQuiet) console.log(keepers.length === 0 ? 'No board of this folder was running; the stop sign is written.' : `The worker board is stopped (keeper ${keepers.map(one => one.pid).join(', ')}); the watcher leaves it down until the next start.`)
   return 0
 }
@@ -125,6 +133,11 @@ async function main(args) {
   while (Date.now() < until) {
     if (ended !== null) {
       console.error(lastWords(logFile, from) || `The worker board did not start (it ended with ${ended}).`)
+      return 1
+    }
+    // A WMI keeper is no child of ours: its end shows only by its pid (the keeper ends when its board dies before it is up).
+    if (made.how === 'wmi' && !isAlive(made.pid)) {
+      console.error(lastWords(logFile, from) || `The worker board did not start (its keeper, process ${made.pid}, ended before the board answered).`)
       return 1
     }
     if (await boardAt(port)) {

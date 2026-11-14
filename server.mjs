@@ -807,6 +807,8 @@ async function main(args) {
     process.exit(1)
   })
   const historyFrom = argAfter(args, '--history-from')
+  // F10: the watcher's start says so (tools/watch-boards.mjs START_ARGS), for the gap line and the page; a keeper's restart stays 'keeper'.
+  const startedBy = argAfter(args, '--started-by') === 'watcher' ? 'watcher' : null
   const clock = Date.now
 
   const keep = { messageMs: config.messageKeepMinutes * 60_000, answerMs: config.answerKeepHours * 60 * 60_000 }
@@ -1990,7 +1992,7 @@ async function main(args) {
       return readSources(config, folders, undefined, branches, work)
     }
     if (historyFrom === undefined) {
-      store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start })
+      store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start === 'keeper' ? 'keeper' : startedBy ?? handed.start })
       // The lazy clear (D8): no clear goes alone since Workers mod 0.31.0; one an older board left waiting is closed with its
       // reason at every start (the landing's sweep: the first start on this version closes them, later ones find none).
       if (!isShowOnly) await closeClearOnly(store, clock()).catch(error => loops.failed('clear-only-sweep', error))

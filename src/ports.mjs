@@ -332,8 +332,10 @@ const slashes = path => String(path).replace(/\\/g, '/')
 /**
  * The launch entry of a board folder for `.claude/launch.json`. The project's main board is started by its launcher
  * (`start-board.mjs`, which has the keeper start server.mjs) and marked `"detached": true`: the start-app mod then ends
- * the entry with code 0 while its port answers, so the board belongs to no chat and its log is data/board.log. A copy
- * keeps `server.mjs` with its own port, and shows the history of the board in the main folder (it records none).
+ * the entry with code 0 while its port answers, so the board belongs to no chat and its log is data/board.log, and carries
+ * its `stop` words (F10: `start-board.mjs --stop` writes the stop sign first, so the watcher leaves a stopped board down;
+ * start-app 0.4.1 runs them for /stop-app). A copy keeps `server.mjs` with its own port, and shows the history of the board
+ * in the main folder (it records none).
  */
 export function launchEntry({ folder, port, node, main = null }) {
   const isCopy = main !== null && pathKey(main) !== pathKey(folder)
@@ -344,7 +346,10 @@ export function launchEntry({ folder, port, node, main = null }) {
     port,
     url: `http://127.0.0.1:${port}`,
   }
-  if (!isCopy) entry.detached = true
+  if (!isCopy) {
+    entry.detached = true
+    entry.stop = [slashes(node), `${slashes(folder)}/start-board.mjs`, '--stop']
+  }
   return entry
 }
 

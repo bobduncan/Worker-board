@@ -7,8 +7,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { LOCK_FRESH_MS, SILENT_LOOKS, STARTS_PER_HOUR, STARTS_WITHIN_MS, isSignCurrent, startsWithin, watchDecision, watcherRecordOf } from '../src/boardWatcher.mjs'
-import { keeperCommandLine, keepersOf, parseCreated, parseProcessList, psQuote, startKeeper, wmiCreateScript } from '../src/keeperStart.mjs'
+import { LOCK_FRESH_MS, SILENT_LOOKS, STARTS_PER_HOUR, STARTS_WITHIN_MS, clockOf, isSignCurrent, startsWithin, watchDecision, watcherRecordOf } from '../src/boardWatcher.mjs'
+import { WMI_START_MS, keeperCommandLine, keepersOf, parseCreated, parseProcessList, psQuote, startKeeper, wmiCreateScript } from '../src/keeperStart.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 10, 14, 10, 0).getTime()
@@ -55,8 +55,33 @@ test('G4: a stop sign counts only when it is newer than the last boot and belong
   assert.equal(isSignCurrent({ at: NOW - 5 * MIN, why: 'stopped' }, { bootAt: null, startedAt: NOW - 3 * MIN }), false)
   assert.equal(isSignCurrent({ at: NOW - MIN, why: 'stopped' }, {}), true)
   assert.equal(isSignCurrent(null, {}), false)
-  // start-board.mjs --stop writes the sign with `by: 'command'`: the same reading.
-  assert.equal(watchDecision({ answers: false, stop: { at: NOW - MIN, why: 'stopped', by: 'command', started: NOW - 9 * MIN }, startedAt: NOW - 9 * MIN, bootAt: null, now: NOW }).do, 'nothing')
+  // start-board.mjs --stop (and /stop-app) writes the sign with `by: 'command'`: the person's stop holds across boots and logons, and
+  // whatever started.json says (chat 1's review, item 3); only a real start takes the file away.
+  const byCommand = { at: NOW - 24 * 60 * MIN, why: 'stopped', by: 'command', started: NOW - 30 * 60 * MIN }
+  assert.equal(isSignCurrent(byCommand, { bootAt: NOW - 60 * MIN, startedAt: NOW - 25 * 60 * MIN }), true)
+  const held = watchDecision({ answers: false, stop: byCommand, startedAt: NOW - 25 * 60 * MIN, bootAt: NOW - 60 * MIN, now: NOW })
+  assert.deepEqual([held.do, held.why], ['nothing', `stopped on purpose at ${clockOf(byCommand.at)} (by command: it holds until the next start)`])
+  // The cut-off is the person's logon when the listing has it (Fast Startup leaves the boot time unchanged): the watcher passes it as bootAt.
+  assert.deepEqual(parseProcessList('{"boot":"2026-11-10T06:00:00Z","logon":"2026-11-14T08:30:00Z","processes":[]}'), { bootAt: Date.parse('2026-11-10T06:00:00Z'), logonAt: Date.parse('2026-11-14T08:30:00Z'), processes: [] })
+  assert.equal(parseProcessList('{"boot":"2026-11-10T06:00:00Z","processes":[]}').logonAt, null)
+})
+
+test('every start counts against the cap (chat 1\'s review, items 4 and 7): three "no sign" starts in an hour, and the fourth look leaves the board alone with one line', () => {
+  let record = { starts: [], silentLooks: 0 }
+  for (let n = 1; n <= STARTS_PER_HOUR; n++) {
+    const decided = watchDecision({ answers: false, startedAt: NOW - 60 * MIN, now: NOW + n * MIN, record })
+    assert.equal(decided.do, 'start', `start ${n}`)
+    assert.match(decided.why, new RegExp(`^no keeper, no answer, no stop sign: .*: start ${n} of ${STARTS_PER_HOUR} this hour$`))
+    record = decided.record
+  }
+  const fourth = watchDecision({ answers: false, startedAt: NOW - 60 * MIN, now: NOW + 4 * MIN, record })
+  assert.equal(fourth.do, 'leave')
+  assert.match(fourth.why, /^no keeper, no answer, no stop sign: .*, but it was started 3 times this hour: left alone until \d\d:\d\d$/)
+  assert.deepEqual(fourth.record.starts.length, 3, 'a leave adds no start')
+  // A stale sign's start and a crash's start count the same way.
+  const stale = { at: NOW - 2 * 60 * MIN, why: 'restart', started: NOW - 3 * 60 * MIN }
+  assert.equal(watchDecision({ answers: false, stop: stale, startedAt: NOW - 60 * MIN, bootAt: NOW - 90 * MIN, now: NOW + 4 * MIN, record }).do, 'leave')
+  assert.equal(watchDecision({ answers: false, stop: { at: NOW - MIN, why: 'crash', started: NOW - 60 * MIN }, startedAt: NOW - 60 * MIN, now: NOW + 4 * MIN, record }).do, 'leave')
 })
 
 test('a crash (the keeper gave up): started again, three times an hour at most, then left alone until the hour is over; a killed board (no sign, no keeper) is started', () => {
@@ -71,7 +96,7 @@ test('a crash (the keeper gave up): started again, three times an hour at most, 
   }
   const fourth = watchDecision({ answers: false, stop: crash, startedAt: NOW - 30 * MIN, now: NOW + 4 * MIN, record })
   assert.equal(fourth.do, 'leave')
-  assert.match(fourth.why, /started 3 times this hour: left alone until \d\d:\d\d/)
+  assert.match(fourth.why, /the board crashed .*, but it was started 3 times this hour: left alone until \d\d:\d\d/)
   // An hour on the starts are forgotten.
   assert.equal(watchDecision({ answers: false, stop: crash, startedAt: NOW - 30 * MIN, now: NOW + MIN + STARTS_WITHIN_MS, record }).do, 'start')
   assert.deepEqual(startsWithin([NOW - 2 * STARTS_WITHIN_MS, NOW - MIN], NOW, true), [NOW - MIN, NOW])
@@ -107,13 +132,29 @@ test('the WMI start route: the command line, the hidden Create, what it prints, 
   const logged = []
   const spawnChild = ({ dir, args }) => { spawned.push([dir, args]); return { pid: 77, on: () => {} } }
   const log = (dir, text) => logged.push([dir, text])
-  assert.deepEqual(await startKeeper({ dir: DIR, args: ['--quiet'], node, run: async () => 'ret=0 pid=5100', spawnChild, log, platform: 'win32' }), { pid: 5100, how: 'wmi', why: null })
+  const none = async () => ({ bootAt: null, logonAt: null, processes: [] })
+  assert.deepEqual(await startKeeper({ dir: DIR, args: ['--quiet'], node, run: async () => 'ret=0 pid=5100', spawnChild, log, platform: 'win32', list: none }), { pid: 5100, how: 'wmi', why: null })
   assert.deepEqual([spawned, logged], [[], []])
-  // Create refused, PowerShell failing or slow, or not Windows: the detached child, with one log line that says so.
+  // A timeout or an unreadable answer is no proof that Create failed (chat 1's review, item 8): a keeper of the folder made since the
+  // call is ours, nothing is spawned; one from before the call is not.
+  const made = { pid: 6100, parent: 1, commandLine: `"${node}" "${DIR}\\server.mjs" --log`, createdAt: NOW }
+  const slow = async () => { throw new Error('PowerShell took longer than 30 s') }
+  assert.deepEqual(await startKeeper({ dir: DIR, args: [], node, run: slow, spawnChild, log, platform: 'win32', now: () => NOW, list: async () => ({ processes: [made] }) }), { pid: 6100, how: 'wmi', why: null, late: 'PowerShell took longer than 30 s' })
+  assert.deepEqual(await startKeeper({ dir: DIR, args: [], node, run: async () => 'garbage', spawnChild, log, platform: 'win32', now: () => NOW, list: async () => ({ processes: [made] }) }), { pid: 6100, how: 'wmi', why: null, late: 'WMI gave no answer that could be read' })
+  assert.deepEqual([spawned, logged], [[], []])
+  const older = await startKeeper({ dir: DIR, args: [], node, run: slow, spawnChild, log, platform: 'win32', now: () => NOW, list: async () => ({ processes: [{ ...made, createdAt: NOW - 60_000 }] }) })
+  assert.equal(older.how, 'child', 'a keeper from before the call is not the one Create may have made')
+  assert.equal(WMI_START_MS, 30_000)
+  // The proof's mutant: WORKER_BOARD_START_ROUTE=child takes the old route without asking WMI.
+  spawned.length = 0
+  logged.length = 0
+  const forced = await startKeeper({ dir: DIR, args: [], node, run: async () => { throw new Error('WMI must not be asked') }, spawnChild, log, platform: 'win32', env: { WORKER_BOARD_START_ROUTE: 'child' } })
+  assert.deepEqual([forced.how, forced.why, spawned.length], ['child', 'WORKER_BOARD_START_ROUTE=child', 1])
+  // Create refused, PowerShell missing or slow with no keeper made, an unreadable answer with none, or not Windows: the detached child, with one log line that says so.
   for (const [run, why, platform] of [[async () => 'ret=2 pid=', 'Win32_Process.Create answered 2', 'win32'], [async () => { throw new Error('PowerShell took longer than 10 s') }, 'PowerShell took longer than 10 s', 'win32'], [async () => 'garbage', 'WMI gave no answer that could be read', 'win32'], [async () => 'ret=0 pid=1', 'not Windows', 'linux']]) {
     spawned.length = 0
     logged.length = 0
-    const made = await startKeeper({ dir: DIR, args: [], node, run, spawnChild, log, platform })
+    const made = await startKeeper({ dir: DIR, args: [], node, run, spawnChild, log, platform, list: none, env: {} })
     assert.deepEqual([made.pid, made.how, made.why], [77, 'child', why])
     assert.deepEqual(spawned, [[DIR, []]])
     assert.equal(logged.length, 1)
@@ -135,7 +176,7 @@ test('the keepers of a folder among the PC\'s node processes: the one running it
   assert.deepEqual(keepersOf([], DIR), [])
   // The listing script's answer read: the boot time and the processes.
   const read = parseProcessList('\uFEFF{"boot":"2026-11-14T07:09:45.5000000Z","processes":[{"pid":100,"parent":1,"commandLine":"x","created":"2026-11-14T08:00:00.0000000Z"},{"pid":"bad"}]}')
-  assert.deepEqual(read, { bootAt: Date.parse('2026-11-14T07:09:45.500Z'), processes: [{ pid: 100, parent: 1, commandLine: 'x', createdAt: Date.parse('2026-11-14T08:00:00.000Z') }] })
+  assert.deepEqual(read, { bootAt: Date.parse('2026-11-14T07:09:45.500Z'), logonAt: null, processes: [{ pid: 100, parent: 1, commandLine: 'x', createdAt: Date.parse('2026-11-14T08:00:00.000Z') }] })
   assert.deepEqual(parseProcessList('{"boot":"x","processes":{"pid":5,"parent":2,"commandLine":"y"}}').processes.map(one => one.pid), [5], 'one process comes as an object')
   assert.equal(parseProcessList('not json'), null)
 })
