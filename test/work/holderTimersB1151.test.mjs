@@ -50,6 +50,8 @@ test('F26, the real case: Worker 2 worked six minutes in a turn its own backgrou
 test('F26: the board\'s receipt of the turn start alone (a mod that sends no `turn`) counts too; a one-minute turn does not', () => {
   const now = t(13, 0, 52)
   assert.equal(decideAt(now, worker2({ turn: undefined })).giveBack, null)
+  // And the mod's own turn start alone (the board's receipt lost, say after its restart).
+  assert.equal(decideAt(now, worker2({ busyAt: undefined })).giveBack, null)
   // A short turn (under LONG_BUSY_MS) after the last go-on starts nothing anew: the give-back still goes.
   assert.notEqual(decideAt(now, worker2({ turn: t(12, 59, 50), busyAt: t(12, 59, 50) })).giveBack, null)
   // No turn at all after the go-on: given back, as before.
