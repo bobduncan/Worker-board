@@ -18,7 +18,7 @@ const time = ms => new Date(ms).toTimeString().slice(0, 5)
 const REFUSAL = '{"deny":"PreToolUse:mcp__ccd_session_mgmt__send_message hook error: Not run: in auto mode Claude Desktop doesn\'t run this tool when a plugin\'s own code calls it. Have Claude make the call."}'
 const RAW = /PreToolUse|hook error|deny/
 
-const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, isRunning: true, state: 'free', appSession: `local_${name.toLowerCase().replace(/\s/g, '')}`, session: null, unjoined: null, ...more })
+const lane = (name, more = {}) => ({ name, isMain: false, isLeftover: false, isRunning: true, state: 'free', appSession: `local_${name.toLowerCase().replace(/\s/g, '')}`, session: null, unjoined: null, report: { state: 'idle', at: NOW - 5000 }, ...more })
 const asleep = (name, since, more = {}) => lane(name, { isRunning: false, state: 'off', asleep: true, asleepSince: since, ...more })
 /** The live case after 08:13: a hand's wake job refused (Worker 2 by Worker 4's hand). */
 function refusedRecord(at = NOW - 10 * MIN) {
@@ -68,14 +68,19 @@ test('sends refused: from the record or a start word that failed on it; a hand\'
 
 test('the carrier: an idle board chat first, then the main chat, then any running one; never the target, never a chat whose board link is gone', () => {
   const lanes = [lane('Lead', { isMain: true, state: 'working' }), lane('Worker 1', { state: 'working' }), lane('Worker 3'), asleep('Digger', NOW - 30 * MIN)]
-  assert.equal(carrierOf(lanes, { target: 'Digger', main: 'Lead' }).name, 'Worker 3')
-  assert.equal(carrierOf(lanes, { target: 'Worker 3', main: 'Lead' }).name, 'Lead', 'never the target; Main before any busy one')
-  assert.equal(carrierOf(lanes.filter(one => one.name !== 'Lead'), { target: 'Worker 3', main: 'Lead' }).name, 'Worker 1', 'then any running one')
+  assert.equal(carrierOf(lanes, { target: 'Digger', main: 'Lead', now: NOW }).name, 'Worker 3')
+  assert.equal(carrierOf(lanes, { target: 'Worker 3', main: 'Lead', now: NOW }).name, 'Lead', 'never the target; Main before any busy one')
+  assert.equal(carrierOf(lanes.filter(one => one.name !== 'Lead'), { target: 'Worker 3', main: 'Lead', now: NOW }).name, 'Worker 1', 'then any running one')
   // Gone links: not running, unjoined (the board does not follow its session), a leftover, removed, suspended, no app id.
-  for (const gone of [{ isRunning: false }, { isRunning: null }, { unjoined: { at: NOW, session: 'x' } }, { isLeftover: true }, { removedAt: NOW }, { removal: { isOpen: true } }, { state: 'suspended' }, { appSession: null }]) {
-    assert.equal(carrierOf([lane('Worker 3', gone), asleep('Digger', NOW - 30 * MIN)], { target: 'Digger' }), null, JSON.stringify(gone))
+  for (const gone of [{ isRunning: false }, { isRunning: null }, { report: null }, { report: { state: 'idle', at: NOW - 61_000 } }, { unjoined: { at: NOW, session: 'x' } }, { isLeftover: true }, { removedAt: NOW }, { removal: { isOpen: true } }, { state: 'suspended' }, { appSession: null }]) {
+    assert.equal(carrierOf([lane('Worker 3', gone), asleep('Digger', NOW - 30 * MIN)], { target: 'Digger', now: NOW }), null, JSON.stringify(gone))
   }
-  assert.equal(carrierOf([lane('Digger')], { target: 'Digger' }), null)
+  assert.equal(carrierOf([lane('Digger')], { target: 'Digger', now: NOW }), null)
+  // Chat 1's point 1: a mod that reported within the minute; one the CLI unloaded keeps its process and stops reporting.
+  assert.equal(carrierOf([lane('Worker 3', { report: { state: 'idle', at: NOW - 60_000 } }), asleep('Digger', NOW - 30 * MIN)], { target: 'Digger', now: NOW }).name, 'Worker 3')
+  // A carrier whose mod went quiet before it took the word gives the attempt back.
+  const word = { id: 'w9', to: 'Worker 3', command: 'wake-carry', about: 'Digger', forModel: true, state: 'waiting', at: NOW }
+  assert.equal(carryCloses({ outbox: [word], lanes: [lane('Worker 3', { report: { state: 'idle', at: NOW - 2 * MIN } }), asleep('Digger', NOW - 30 * MIN)], attemptOf: () => ({ verdict: null }), now: NOW })[0]?.giveBack, true)
 })
 
 test('the real case, A: all asleep but one, a step ready: one word for an awake chat\'s model, claimed once per spell; its own report is the verdict', () => {
@@ -147,14 +152,14 @@ test('the carry words close with their purpose: woke, runs again, the attempt en
   const word = { id: 'w1', to: 'Worker 3', command: 'wake-carry', about: 'Digger', forModel: true, state: 'waiting', at: NOW }
   const lanes = [lane('Worker 3'), asleep('Digger', NOW - 30 * MIN)]
   const pending = { verdict: null }
-  assert.deepEqual(carryCloses({ outbox: [word], lanes, attemptOf: () => pending }), [])
-  assert.equal(carryCloses({ outbox: [word], lanes, attemptOf: () => ({ verdict: 'woke' }) })[0].state, 'delivered')
-  assert.match(carryCloses({ outbox: [word], lanes: [lane('Worker 3'), lane('Digger')], attemptOf: () => pending })[0].why, /Digger runs again/)
-  assert.equal(carryCloses({ outbox: [word], lanes, attemptOf: () => ({ verdict: 'failed' }) })[0].state, 'dropped')
-  const gone = carryCloses({ outbox: [word], lanes: [lane('Worker 3', { isRunning: false }), asleep('Digger', NOW - 30 * MIN)], attemptOf: () => pending })[0]
+  assert.deepEqual(carryCloses({ outbox: [word], lanes, attemptOf: () => pending, now: NOW }), [])
+  assert.equal(carryCloses({ outbox: [word], lanes, attemptOf: () => ({ verdict: 'woke' }), now: NOW })[0].state, 'delivered')
+  assert.match(carryCloses({ outbox: [word], lanes: [lane('Worker 3'), lane('Digger')], attemptOf: () => pending, now: NOW })[0].why, /Digger runs again/)
+  assert.equal(carryCloses({ outbox: [word], lanes, attemptOf: () => ({ verdict: 'failed' }), now: NOW })[0].state, 'dropped')
+  const gone = carryCloses({ outbox: [word], lanes: [lane('Worker 3', { isRunning: false }), asleep('Digger', NOW - 30 * MIN)], attemptOf: () => pending, now: NOW })[0]
   assert.deepEqual([gone.state, gone.giveBack], ['dropped', true])
   // A word its carrier already took is its carrier's turn: not taken back.
-  assert.deepEqual(carryCloses({ outbox: [{ ...word, state: 'taken' }], lanes: [lane('Worker 3', { isRunning: false }), asleep('Digger', NOW - 30 * MIN)], attemptOf: () => pending }), [])
+  assert.deepEqual(carryCloses({ outbox: [{ ...word, state: 'taken' }], lanes: [lane('Worker 3', { isRunning: false }), asleep('Digger', NOW - 30 * MIN)], attemptOf: () => pending, now: NOW }), [])
 })
 
 test('rule 8 leaves a carry word to the wake record', () => {

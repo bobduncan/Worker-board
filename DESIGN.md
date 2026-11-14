@@ -6123,7 +6123,8 @@ another chat now; the refusal itself is never worked around (no mode or permissi
   gets ONE `wake-carry` word (`forModel`: no hand takes it), its attempt claimed in the same step (`carry: 'model'`), so never two
   for a spell. It goes to an awake board chat (`carrierOf`): a running idle one first, then the main chat, then any running one;
   never the target, never one whose board link is gone (not running, unjoined, a leftover, removed or being removed, suspended,
-  without an app id). Its own mod types it (no "typed on the worker board" mark: it is the board's word); its model makes the one
+  without an app id), nor one whose mod has not reported within 60 s (chat 1, 2026-11-14: the CLI may unload a running chat's mod,
+  which then stops reporting and would never type the word). Its own mod types it (no "typed on the worker board" mark: it is the board's word); its model makes the one
   `send_message` call. The take marks the attempt sent; the target's own report is the verdict, as for any wake. A carried
   attempt has 10 min to be typed or carried and 5 min for the report, then the launch may follow. The lane says "waking through
   Worker 3's turn", then "woken through Worker 3's turn".

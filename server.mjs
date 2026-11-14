@@ -2676,7 +2676,7 @@ async function main(args) {
   const carryPass = async (state, now) => {
     const lanes = boardLanes(state)
     let changed = false
-    for (const close of carryCloses({ outbox: store.outbox(), lanes, attemptOf: carriedAttemptOf })) {
+    for (const close of carryCloses({ outbox: store.outbox(), lanes, attemptOf: carriedAttemptOf, now })) {
       const word = store.outbox().find(one => one.id === close.id)
       if (word === undefined || !(await store.update(close.id, { state: close.state, why: close.why, closedAt: now, ...(close.state === 'delivered' ? { deliveredAt: now } : {}) }))) continue
       if (close.giveBack) wakeGivenBack(wakes, word.about, word.id)

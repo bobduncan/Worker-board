@@ -57,18 +57,23 @@ export function sendsRefusedOf(record, outbox = [], now = Date.now()) {
 }
 
 const IDLE = ['free', 'idle']
+/** Chat 1's point 1 (2026-11-14): a carrier's mod reported this recently: a running chat whose mod the CLI unloaded keeps its process but stops
+ * reporting, and a word to it never reaches its model. */
+export const CARRIER_REPORT_MS = 60_000
 /** A chat that can carry: on the board, running, joined (the board follows its session), not being removed, with its app id. */
-const canCarry = (lane, target) => lane !== null && lane !== undefined && lane.name !== target && lane.isLeftover !== true && lane.isRunning === true
+const canCarry = (lane, target, now) => lane !== null && lane !== undefined && lane.name !== target && lane.isLeftover !== true && lane.isRunning === true
+  && isTime(now) && isTime(lane.report?.at) && now - lane.report.at <= CARRIER_REPORT_MS
   && (lane.unjoined ?? null) === null && !isTime(lane.removedAt) && lane.removal?.isOpen !== true && lane.state !== 'suspended' && (lane.suspended ?? null) === null
   && isAppId(lane.appSession)
 
 /**
  * Who carries a wake of `target`: a running, idle board chat first (its own mod types the word at once), then the main chat, then any
- * running one (a busy one takes it at its next turn's end). Never the target itself, never a chat whose board link is gone. The lane, or
+ * running one (a busy one takes it at its next turn's end). Never the target itself, never a chat whose board link is gone, nor one whose mod has
+ * not reported within CARRIER_REPORT_MS of `now`. The lane, or
  * null (then the courier).
  */
-export function carrierOf(lanes, { target, main = null } = {}) {
-  const able = (lanes ?? []).filter(lane => canCarry(lane, target))
+export function carrierOf(lanes, { target, main = null, now } = {}) {
+  const able = (lanes ?? []).filter(lane => canCarry(lane, target, now))
   return able.find(lane => IDLE.includes(lane.state)) ?? able.find(lane => lane.name === main || lane.isMain === true) ?? able[0] ?? null
 }
 
@@ -107,7 +112,7 @@ export function dueOf(outbox, now, { anyRuns = true } = {}) {
  * board) before it took the word: closed and its attempt given back (no try spent; the next pass picks another carrier).
  * `lanes` the board's lanes; `attemptOf(word)` the record's attempt of the word (its job id), or null.
  */
-export function carryCloses({ outbox, lanes, attemptOf }) {
+export function carryCloses({ outbox, lanes, attemptOf, now }) {
   const out = []
   for (const message of (outbox ?? []).filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state))) {
     const target = (lanes ?? []).find(lane => lane.name === message.about) ?? null
@@ -115,7 +120,7 @@ export function carryCloses({ outbox, lanes, attemptOf }) {
     if (attempt?.verdict === 'woke') out.push({ id: message.id, state: 'delivered', why: `${message.about} woke`, giveBack: false })
     else if (target === null || target.isRunning === true) out.push({ id: message.id, state: 'dropped', why: target === null ? `${message.about} is no longer on the board` : `${message.about} runs again`, giveBack: false })
     else if (attempt === null || attempt.verdict === 'failed') out.push({ id: message.id, state: 'dropped', why: 'its wake attempt ended without it', giveBack: false })
-    else if (message.state === 'waiting' && message.to !== COURIER && !canCarry((lanes ?? []).find(lane => lane.name === message.to), message.about)) {
+    else if (message.state === 'waiting' && message.to !== COURIER && !canCarry((lanes ?? []).find(lane => lane.name === message.to), message.about, now)) {
       out.push({ id: message.id, state: 'dropped', why: `${message.to} can no longer carry it`, giveBack: true })
     }
   }

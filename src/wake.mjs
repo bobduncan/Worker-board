@@ -327,7 +327,7 @@ export function carryPlan(record, { needs = [], lanes = [], main = null, now, ne
   for (const need of needs ?? []) {
     if (!(need.paths ?? []).includes('message') || !isTime(need.spell)) continue
     if (nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths }) !== 'message') continue
-    const carrier = carrierOf(lanes, { target: need.chat, main })
+    const carrier = carrierOf(lanes, { target: need.chat, main, now })
     const word = carryWord({ id: newId(), at: now, need, carrier: carrier?.name ?? null })
     const step = typeof need.step === 'string' && need.text === takeLine(need.step) ? need.step : null
     if (!claim(record, { chat: need.chat, spell: need.spell, path: 'message', by: word.to, jobId: word.id, now, runBefore: runOf(need.chat), paths: need.paths, step, carry: carrier === null ? 'courier' : 'model' })) continue
