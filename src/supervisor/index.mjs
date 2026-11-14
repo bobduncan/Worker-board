@@ -22,7 +22,7 @@ import { judgeWords, sweepWords } from '../say.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
 import { isLate } from '../store.mjs'
 import { isHolding } from '../work/pause.mjs'
-import { JUDGE, arrivedAt, awaitingJudgment, judgeInFlight, judgeWordOf } from '../work/judgeWord.mjs'
+import { JUDGE, arrivedAt, awaitingJudgment, judgeInFlight, judgeWordNamed, judgeWordOf } from '../work/judgeWord.mjs'
 
 /** How long the server keeps a name a chat's mod was refused under: as long as the rule `old-name` looks back. */
 export { REFUSED_MS }
@@ -33,6 +33,8 @@ export { incidentCards }
  * to the supervisor as `owns`, so the list runs only where every other loop of the board runs.
  */
 export { loopGate, loopOwner } from './loop.mjs'
+// Leaked headless browsers (2026-11-13): the server's port that closes one (the boundary: server.mjs imports the supervisor here alone).
+export { closeLeaked } from './browsers.mjs'
 
 /** Part 2: the Workers mod the supervisor's chat needs for a sweep; what a sweep's turn cost, from its transcript. */
 export { SWEEP_MOD, tokensOfTurn }
@@ -323,7 +325,9 @@ export function createSupervisor(ports) {
   const judgeTurnEnded = async (call = {}) => {
     const name = tell === null ? null : await supervisorName()
     if (name === null) return false
-    const word = judgeWordOf(runnerPorts.outbox(), name)
+    // Workers mod 0.32.0, point 5: the word the turn ran on, when the call names one that is a judge word to this chat; else the newest in
+    // flight as before (an older mod, a turn no word started).
+    const word = judgeWordNamed(runnerPorts.outbox(), name, call.word) ?? judgeWordOf(runnerPorts.outbox(), name)
     const now = runnerPorts.now()
     // The review of 2026-11-02 (4): only a word still in flight (arrived within JUDGE_LONGEST_MS): an old one never swallows
     // the end of a later sweep's turn.

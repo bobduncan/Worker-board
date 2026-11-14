@@ -12,8 +12,8 @@
 // holds the supervisor's own watch: `seen` (since when it first saw what only counts once it lasts) and `observed`
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
-import { isCarryWord } from '../../wakeCarry.mjs'
-import { RETIRED_WATCH_RULES } from '../../work/holderTimers.mjs'
+import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
+import { RETIRED_WATCH_RULES, givenBackFrom } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
@@ -251,6 +251,10 @@ function overlapIdle(view, ctx) {
  * it works (or that the board shows off for a card left working) while its chat made no call to the board, took
  * nothing and wrote nothing to its conversation (the board's `isRunning` false) for longer than 5 minutes: one
  * incident per worker. A worker on a step in progress is the hand-over's timers' (signals change 3), never this rule's.
+ * B1168 (X72 came back 3 times after its close; Worker 1 stopped mid-turn at 21:20, the timers gave B423 back at 21:23): a stop is
+ * answered for, and never counts, once the board gave the worker a step back since the stop began (the timers acted and wrote their
+ * line), or once the incident's last close (`fixedAtOf`) came after the stop began; a stop that begins after a close counts anew. The
+ * stop began at the card's `offSince`, else when the rules' watch first saw it. B736's lone silent chat (nothing given back) still opens.
  */
 const WORKING_NOT_RUNNING_MS = 5 * MIN
 function workingNotRunning(view, ctx) {
@@ -262,6 +266,9 @@ function workingNotRunning(view, ctx) {
     // The asset wait: a worker whose lane works for the provider's pictures makes no call of its own while Codex draws: no fault.
     if (!isWorkingCard || lane.isRunning !== false || holding.has(plain(lane.name, view.prefix)) || lane.heldBy === 'asset') continue
     const key = `working-not-running ${lane.name}`
+    const stopFrom = Number.isFinite(lane.offSince) ? lane.offSince : ctx.seen.get(key) ?? view.now
+    if (givenBackFrom(view.items, lane.name, view.prefix).some(back => back.at >= stopFrom)) continue
+    if (stopFrom <= fixedAtOf(view, key)) continue
     const ms = lasted(view, ctx, key, afterPause(view, Number.isFinite(lane.offSince) ? lane.offSince : null), { heard: true })
     if (ms <= WORKING_NOT_RUNNING_MS) continue
     found.push({
@@ -352,6 +359,31 @@ function fixedAtOf(view, key) {
   return at
 }
 
+/** Leaked headless browsers (2026-11-13, chat 1's guard 3): this many closes of one tool's browsers in a day is the tool's own fault. */
+export const LEAKS_PER_DAY = 3
+/**
+ * 7b. One tool's headless browsers (the rule `browsers`, by the profile's prefix: edge-cdp-b1126, board-evidence, lava-shot)
+ * closed by the board LEAKS_PER_DAY times or more in a day: the tool leaks, and its fix is a step of its own (the incident
+ * names the tool). Repairs from before the incident's fix was done do not count again (`fixedAtOf`, as repair-repeats).
+ */
+function browserLeaks(view) {
+  const byTool = new Map()
+  for (const one of view.repairs.filter(repair => repair.rule === 'browsers' && view.now - repair.at < DAY && typeof repair.subject === 'string')) {
+    byTool.set(one.subject, [...(byTool.get(one.subject) ?? []), one])
+  }
+  const found = []
+  for (const [tool, all0] of [...byTool].sort(([a], [b]) => byId(a, b))) {
+    const all = all0.filter(one => one.at > fixedAtOf(view, `browser-leaks ${tool}`))
+    if (all.length < LEAKS_PER_DAY) continue
+    found.push({
+      rule: 'browser-leaks', key: `browser-leaks ${tool}`, subject: tool,
+      text: `The tool "${tool}" leaked ${all.length} headless browsers in a day (their starter gone, the board closed them): its browser handling wants a fix`,
+      evidence: `closed at ${all.map(one => clockOf(one.at)).join(', ')}: ${all.at(-1).key}`,
+    })
+  }
+  return found
+}
+
 /**
  * 7. The same repair (a repair rule, on the same chat or step) `repairsPerDay` times or more in a day. B546: a repair
  * the app's restart caused (`cause: 'restart'`, a chat stopped because the app started anew) does not count. B551: nor
@@ -412,7 +444,10 @@ function undelivered(view) {
       return {
         // Signals change 6 (Addendum 2): the key is the rule and the chat only, as for a chat not stopped: a stop's time in the
         // key opened the same undelivered words again at every new stop, which made "gone" read a cure that was none.
-        rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: oldest.at,
+        // B1170 (X173): the case of a chat that was stopped began at its stop, never before its oldest word: the words keep their own
+        // time through every retry, so an incident closed after the first of them would read a stop of later (23:10, closed 22:59) as
+        // that old case still standing, and no incident showed words that went on waiting.
+        rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: Math.max(oldest.at, stop.since),
         text: `${chat} was stopped at ${clockOf(stop.since)}: ${words.length} ${words.length === 1 ? 'word waits' : 'words wait'} for it, the oldest for ${minutes(view.now - oldest.at)} min`,
         evidence: woken === undefined ? 'the main chat is not asked to wake it yet' : `the main chat was asked to wake it at ${clockOf(woken.at)} (${woken.state})`,
       }
@@ -1513,6 +1548,7 @@ export const WATCH_RULES = [
   { id: 'opus-wait', kind: 'watch', says: 'an Opus step waiting for Opus too long', check: opusWait, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'skip-repeats', kind: 'watch', says: 'a compaction skipped for the same reason twice in a row', check: skipRepeats },
   { id: 'repair-repeats', kind: 'watch', says: 'the same repair three times or more in a day', check: repairRepeats },
+  { id: 'browser-leaks', kind: 'watch', says: 'one tool\'s headless browsers leaked and closed three times or more in a day', check: browserLeaks },
   { id: 'undelivered', kind: 'watch', says: 'a word to a chat not delivered', check: undelivered, skips: SKIPS_ON_PAUSE },
   { id: 'report-check-twice', kind: 'watch', says: 'a step whose board check failed twice', check: reportCheckTwice },
   { id: 'old-mod', kind: 'watch', says: 'a chat idle on an older Workers mod than the one installed for over 30 min', check: oldMod },

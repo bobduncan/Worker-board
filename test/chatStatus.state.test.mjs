@@ -161,7 +161,9 @@ test('2c: statusesOf names every chat of the roles map (the lanes and the partne
   assert.deepEqual(sent.map(one => one.name), wanted)
   for (const one of sent) {
     const chat = one.name === state.advisor.name ? state.advisor : lane(state, one.name)
-    assert.deepEqual(one, { name: chat.name, status: chat.status, why: chat.why, tone: toneOf(chat.status, chat.age), since: chat.since, reportAt: chat.reportAt, held: null })
+    // 0.32.0 (chat 1's verifier, G2): `held` only on a worker lane's entry; the main chat and the partner carry none (their cards' words are their own).
+    const held = one.name === state.advisor.name || chat.isMain === true ? {} : { held: null }
+    assert.deepEqual(one, { name: chat.name, status: chat.status, why: chat.why, tone: toneOf(chat.status, chat.age), since: chat.since, reportAt: chat.reportAt, ...held })
   }
   assert.equal(sent.find(one => one.name === 'Worker 3').tone, 'attention', 'Waiting for you needs a look')
   assert.equal(sent.find(one => one.name === 'Worker 1').tone, 'quiet')
@@ -175,6 +177,11 @@ test('2c: statusesOf keeps at most 50 chats, cuts a why at 120 characters, and l
   assert.ok(sent.every(one => one.why.length === 120))
   assert.ok(!sent.some(one => one.name === 'Gone' || one.name === 'Blank'))
   assert.deepEqual(statusesOf({ chats: [{ name: 'Worker 1', status: STATUSES.FREE }], advisorHelper: { name: 'Helper', status: STATUSES.ASLEEP }, supervisorChat: { name: 'Super', status: STATUSES.FREE }, productOwner: { name: 'Owner', status: STATUSES.WORKING } }).map(one => one.name), ['Worker 1', 'Helper', 'Super', 'Owner'])
+  // 0.32.0 (chat 1's verifier, G2): a worker's entry carries `held` (a step, or null for none) only from a store the board read; a failed read
+  // (`store.ok` false) sends no `held` at all, so no chat's mod takes it as "holds nothing"; the role chats' entries never carry it.
+  const holding = { name: 'Worker 1', status: STATUSES.WORKING, held: { id: 'B855', title: 'The walk', size: null, since: null, eta: null } }
+  assert.deepEqual(statusesOf({ store: { ok: true }, chats: [holding, { name: 'Worker 2', status: STATUSES.FREE, held: null }, { name: 'Lead', isMain: true, status: STATUSES.FREE }], advisor: { name: 'Advisor', status: STATUSES.WORKING, held: null } }).map(one => [one.name, Object.hasOwn(one, 'held'), one.held?.id ?? one.held]), [['Worker 1', true, 'B855'], ['Worker 2', true, null], ['Lead', false, undefined], ['Advisor', false, undefined]])
+  assert.deepEqual(statusesOf({ store: { ok: false }, chats: [holding, { name: 'Worker 2', status: STATUSES.FREE, held: null }] }).map(one => Object.hasOwn(one, 'held')), [false, false])
 })
 
 // Signals 7c (Workers mod 0.30.0): the held step the take sends, its time in the row's words. The page's own heldTime and span run
@@ -213,7 +220,8 @@ test('7c: a held step\'s time in the row\'s words: left of its latest estimate, 
 test('7c: statusesOf sends each lane\'s held step (id, title cut to 60, the row\'s time) and null for a chat that holds none', () => {
   const held = { id: 'B855', title: `The walk ${'x'.repeat(80)}`, size: 120, since: NOW - 4 * MIN, eta: { at: NOW + 116 * MIN } }
   const sent = statusesOf({ chats: [{ name: 'Worker 5', status: STATUSES.WORKING, held }, { name: 'Lead', status: STATUSES.FREE, held: null }], advisor: { name: 'Advisor', status: STATUSES.WORKING } }, NOW)
-  assert.deepEqual(sent.map(one => one.held), [{ id: 'B855', title: `The walk ${'x'.repeat(50)}…`, time: 'about 1 h 56 left' }, null, null])
+  // 0.32.0 (chat 1's verifier, G2): the partner's entry carries no `held` at all (it never holds a step by the board).
+  assert.deepEqual(sent.map(one => one.held), [{ id: 'B855', title: `The walk ${'x'.repeat(50)}…`, time: 'about 1 h 56 left' }, null, undefined])
   assert.equal(sent[0].held.title.length, 60)
   // Without a clock the step is still named, its time left out.
   assert.deepEqual(statusesOf({ chats: [{ name: 'Worker 5', status: STATUSES.WORKING, held }] })[0].held.time, null)

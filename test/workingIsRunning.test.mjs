@@ -123,3 +123,31 @@ test('working-not-running: not for a chat that runs or that cannot be told, nor 
   // While the person pauses the chats are meant to stand still.
   assert.deepEqual(check(viewOf([watchLane('Painter')], new Map(), { pause: { state: 'pausing', since: stamp(MIN_AGO(30)) } }), long), [])
 })
+
+// B1168 (X72 came back 3 times after its close, 21:35, 21:44, 21:45): Worker 1 stopped mid-turn at 21:20, the hand-over's timers gave its
+// step B423 back at 21:23 (their line), and the card read off, so the rule opened again and again. A worker the board gave a step back
+// from since its stop began is answered for, and a stop that began before the incident's last close is answered for by that close.
+test('B1168: working-not-running leaves out a worker whose step the board gave back since its stop began, and a stop its incident\'s close answered', () => {
+  const key = 'working-not-running Painter'
+  const stepOf = (id, history) => parseItem(`Id: ${id}\nKind: step\nTitle: Step ${id}\nState: queued\nSince: ${stamp(MIN_AGO(60))}\n\n## History\n${history.join('\n')}\n`)
+  const given = (id, ago) => stepOf(id, [`- ${stamp(MIN_AGO(ago))} server: in progress → queued (given back by the board: Painter did not resume it)`])
+  const incident = (closes) => parseItem(`Id: X72\nKind: incident\nTitle: Painter's card works\nState: done\nKey: ${key}\nSince: ${stamp(MIN_AGO(60))}\n\n## History\n${closes.map(ago => `- ${stamp(MIN_AGO(ago))} Supervisor: closed: no fault`).join('\n')}\n`)
+  const items = (...list) => new Map(list.map(one => [one.head.get('Id'), one]))
+  const off = ago => watchLane('Painter', { state: 'off', offSince: MIN_AGO(ago) })
+  const seen = { key, at: MIN_AGO(30) }
+  // The real case: busy, off since 21:20, B423 given back at 21:23: the timers acted, nothing opens.
+  assert.deepEqual(check(viewOf([off(40)], items(given('B423', 37))), seen), [], 'given back since its stop began')
+  // Nothing given back (B736's lone silent chat), or a give-back from before the stop: it opens as before.
+  assert.equal(check(viewOf([off(40)]), seen).length, 1, 'nothing given back')
+  assert.equal(check(viewOf([off(40)], items(given('B423', 50))), seen).length, 1, 'a give-back from before its stop began answers nothing')
+  // A close of the incident after the stop began answers for it, at 21:35 and again at 21:44; a stop that began after the close counts.
+  assert.deepEqual(check(viewOf([off(40)], items(incident([25]))), seen), [], 'closed after the stop began')
+  assert.deepEqual(check(viewOf([off(40)], items(incident([25, 16]))), seen), [], 'closed twice')
+  assert.equal(check(viewOf([off(10)], items(incident([25]))), seen).length, 1, 'a new stop after the close opens it')
+  // X172's real case: Worker 4 off since 22:35, its step given back at 22:48, the incident closed at 22:59, checked at 23:03 (now): none.
+  assert.deepEqual(check(viewOf([off(28)], items(given('B1150', 15), incident([4]))), { key, at: MIN_AGO(28) }), [], 'X172: given back and closed')
+  assert.deepEqual(check(viewOf([off(28)], items(incident([4]))), { key, at: MIN_AGO(28) }), [], 'X172: the close alone answers for the stop')
+  // A card that works (no offSince): the stop began when the board first saw it.
+  assert.deepEqual(check(viewOf([watchLane('Painter')], items(incident([25]))), { key, at: MIN_AGO(30) }), [], 'seen before the close')
+  assert.equal(check(viewOf([watchLane('Painter')], items(incident([25]))), { key, at: MIN_AGO(10) }).length, 1, 'seen after the close')
+})

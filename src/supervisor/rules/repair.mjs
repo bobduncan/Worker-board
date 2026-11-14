@@ -18,6 +18,12 @@
 // folders they left in the project folder (src/work/worktrees.mjs `findLeftovers`, looked at by the loop through its
 // port `leftovers`, in the view as `leftovers`). The safe ones the board removes itself (Cleaned, port `clean`); the
 // rest it only lists, with the reason (Left), and tells no chat of them.
+//
+// Leaked headless browsers (2026-11-13, the person's PC lagging): the rule `browsers` lists the headless Edge main
+// processes in the temp folder whose starter is gone and that run over half an hour, or over two cores for five minutes
+// (src/supervisor/browsers.mjs `watchBrowsers`, from the loop's look through its port `processes`, in the view as
+// `browsers`); the board closes each once and removes its temp folder (Cleaned, port `closeBrowser`), the row naming the
+// profile's prefix and the CPU so a tool that keeps leaking is visible; never while a landing runs.
 
 import { earlierOfCard, shortAnswer } from '../../work/autopilot.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
@@ -31,6 +37,7 @@ import { UNCHECKED_MS, gitCheckPassed, needsResultCheck, resultCheckAtMs, result
 import { asksOfStep } from '../../work/stepAsks.mjs'
 import { heldReason } from '../../work/parked.mjs'
 import { goOnLine, goneWords } from '../../work/holderTimers.mjs'
+import { leakedWords } from '../browsers.mjs'
 import { advisorStillWaitText, advisorWaitText } from '../../stepStatus.mjs'
 
 const MIN = 60_000
@@ -53,7 +60,7 @@ export { UNCHECKED_MS }
 export const ASK_AGAIN_MS = 30 * MIN
 export const ASKS_AGAIN = 3
 /** The rules whose wakes are bounded by design (three, then the person): the watch rule repair-repeats counts none of them. */
-export const BOUNDED_RULES = new Set(['refine-again', 'incident-again'])
+export const BOUNDED_RULES = new Set(['refine-again', 'incident-again', 'browsers'])
 /** The lines to the partner about refines and result checks the helper may be waited on for, this far back. */
 const HELPER_LOOK_MS = 6 * 60 * MIN
 /** B546: a refine or check the running partner has said or done nothing about this long waits for the helper. */
@@ -579,6 +586,33 @@ function worktrees(view) {
 }
 
 /**
+ * Leaked headless browsers: the view's `browsers`, what the loop's look found (`{ found }`, browsers.mjs `watchBrowsers`),
+ * why it failed (`{ error }`: one row, Left, not the end of the run), or undefined when the board has no such look (not
+ * Windows). One finding per browser, keyed by its process; the fix `{ do: 'close', browser }` is the loop's, once: one the
+ * board closed before and still sees is listed (Left), never closed again (chat 1's guard 4). Never while a landing runs
+ * (`skips`: its sweep and restarts are under way).
+ */
+function browsers(view) {
+  const look = view.browsers
+  if (look === undefined || look === null) return []
+  if (typeof look.error === 'string') {
+    return [finding('browsers', 'browsers not read', 'browsers', `leaked browsers: not looked at (${look.error})`, { do: 'list' })]
+  }
+  // Guard 4: one close per browser: the runner's memory of this process, and the day's repairs (the supervisor's memory survives a board
+  // restart: a Cleaned row stands as `{ rule: 'browsers', key: 'browser <pid:created>' }`); a failed close is not tried again either.
+  return (look.found ?? []).map(one => {
+    const key = `browser ${one.key ?? one.pid}`
+    const repaired = (view.repairs ?? []).find(repair => repair.rule === 'browsers' && repair.key === key)
+    if (one.closedAt === null || one.closedAt === undefined) {
+      if (repaired === undefined) return finding('browsers', key, one.prefix, leakedWords(one, view.now), { do: 'close', browser: one })
+      return finding('browsers', `${key} closed`, one.prefix, `${leakedWords(one, view.now)}: closed at ${clockOf(repaired.at)}, still listed (not closed again)`, { do: 'list' })
+    }
+    return finding('browsers', `${key} closed`, one.prefix, `${leakedWords(one, view.now)}: ${one.closeOk === false ? 'close failed' : 'closed'} at ${clockOf(one.closedAt)}, ${one.closeOk === false ? 'not tried again' : 'still listed (not closed again)'}`, { do: 'list' })
+  })
+}
+const browsersSkips = view => (view.live?.landing === true ? 'a landing runs' : null)
+
+/**
  * B567 (X23: B522 sat in progress 2 h, its checkpoint "report B522", while its worker did other steps): a step in
  * progress over HELD_ELSEWHERE_MS whose owner's card names another step, with nothing that names why it waits (an open
  * ask, a park, an open blocker: parked.mjs `heldReason`), is named to the main chat, once per step an hour: the watch
@@ -795,6 +829,7 @@ export const REPAIR_RULES = [
   { id: 'faults-gone', kind: 'repair', says: 'a step in review whose check failed only on a branch or worktree left, now gone, or a branch on origin now merged', check: faultsGone, skips: faultsGoneSkips },
   { id: 'none-ready', kind: 'repair', says: 'the focus goal has work, none can be handed out, and a worker is free for 10 running minutes: told to the main chat once per cause and to the partner once per free spell', check: noneReady, countsBy: 'key' },
   { id: 'worktrees', kind: 'repair', says: 'a leftover worktree, or an empty folder one left in the project folder', check: worktrees },
+  { id: 'browsers', kind: 'repair', says: 'a headless test browser in the temp folder whose starter is gone, over 30 min old or over 2 cores for 5 min', check: browsers, skips: browsersSkips },
 ]
 
 /**
@@ -834,5 +869,5 @@ export const CHECKS = REPAIR_RULES.map(rule => ({ key: rule.id, words: rule.says
  */
 export function findStuck({ items = new Map(), lanes = [], partner = null, helper = null, prefix = '', now, outbox = [], limits = {}, pause = null, refused = [], appStartedAt = null, focus = null, bases = [], branches = [], live = {}, ready = [], recaps = [], seen = new Map(), observed = [] }) {
   const view = { items, lanes, partner, helper, prefix, now, outbox, limits, pause, refused, appStartedAt, focus, bases, branches, live, ready, recaps }
-  return REPAIR_RULES.filter(rule => rule.id !== 'worktrees').flatMap(rule => rule.check(view, { seen, observed }))
+  return REPAIR_RULES.filter(rule => rule.id !== 'worktrees' && rule.id !== 'browsers').flatMap(rule => rule.check(view, { seen, observed }))
 }

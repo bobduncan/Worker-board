@@ -12,7 +12,8 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * The view: `items` (the store's items, a Map), `lanes` (the board's chats, state.mjs; the main chat first), `partner`
  * and `helper` (their cards, or null), `supervisor` (the supervisor's chat's card, or null), `prefix` (the chats' titles' start), `appStartedAt` (the app's last start, or null), `now`, `outbox` (the board's messages as the
  * board sees them now), `limits`, `pause` (the store's), `refused` (the names a chat's mod was refused under lately),
- * `leftovers` (the loop's look at leftover worktrees: `{ found }` or `{ error }`; undefined without one), `bases` (B598:
+ * `leftovers` (the loop's look at leftover worktrees: `{ found }` or `{ error }`; undefined without one), `browsers` (the
+ * loop's look at leaked headless browsers, the same shape), `bases` (B598:
  * `[{ name, base, equal }]`, each repository's base branch against its remote's), `branches` (P2: check.mjs `faultsNow`) and `live` (P2: `{ landing, startedAt, checking }`, the rule faults-gone's facts), `timeline`
  * (state.mjs `today`: per chat its spans of state), `since` (a Map: since when each chat has been in the state it is in
  * now, by the timeline; a chat it does not know is not in it), `repairs` (the repairs of the last day, `[{ at, rule,
@@ -25,7 +26,7 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * their own `wake` (how its wake stands: `{ state, final, need, spell, attempts }`). `check`: the start-up check's newest result
  * (`{ at, running, elsewhere, restartNeeded, nowhere, tooSlow, ... }`), or null.
  */
-export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, bases = [], branches = [], live = {}, repairs = [], mods = null, settings = {}, seen = null, assets = null, now }) {
+export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, browsers, bases = [], branches = [], live = {}, repairs = [], mods = null, settings = {}, seen = null, assets = null, now }) {
   const lanes = state.chats ?? []
   const timeline = Array.isArray(state.today) ? state.today : []
   return Object.freeze({
@@ -77,6 +78,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     pause: pause ?? state.pause ?? null,
     refused,
     leftovers,
+    // Leaked headless browsers (2026-11-13): the loop's look at the PC's processes (`{ found }` or `{ error }`; undefined without one), for the rule browsers.
+    browsers,
     // B598: each repository's base branch against its remote's (check.mjs `basesNow`), for the rule base-equal.
     bases: Object.freeze([...(Array.isArray(bases) ? bases : [])].map(one => Object.freeze({ ...one }))),
     // P2 (T2.11): what stands in each repository now (check.mjs `faultsNow`: branches, remote branches, worktrees), for the rule faults-gone.

@@ -23,6 +23,7 @@
 //   (src/assetQueue.mjs), the providers, the wake.
 
 import { PROVIDERS } from '../providers/index.mjs'
+import { pictureSeconds } from '../providers/codex.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 import { hourMinute } from './waitsOn.mjs'
 import { waitsForLimit } from './providerLimit.mjs'
@@ -234,7 +235,8 @@ export function backgroundNoNewsOf({ lane, steps = [], assets = [], runningMs, p
 }
 
 /**
- * The Lates of an auto provider's work: a running request past the provider's time limit for a job (`jobMs`, plus a minute of grace)
+ * The Lates of an auto provider's work: a running request past the provider's time limit for a job (`jobMs`, plus a minute of grace;
+ * F18: for Codex the limit grows with the request's attached pictures as the provider's own does, `pictureSeconds`)
  * since it started, or a waiting one past it while nothing of its provider runs (a stuck queue), counted from the newest end of that
  * provider's jobs (the hand-off between two jobs is no wait: the review's finding 4). A person's or a pick's request is the person's,
  * never late here. One per request, the oldest first, each `{ chat, id (the step), who, what, since, minutes, asset, name, kind:
@@ -243,7 +245,10 @@ export function backgroundNoNewsOf({ lane, steps = [], assets = [], runningMs, p
 export function lateAssetsOf({ chat, step, assets, now = Date.now(), jobMs = DEFAULT_JOB_MS, prefix = '' }) {
   const wait = assetWaitOf(step, assets, { chat, prefix })
   if (wait === null) return []
-  const limit = (finite(jobMs) && jobMs > 0 ? jobMs : DEFAULT_JOB_MS) + LATE_GRACE_MS
+  const base = finite(jobMs) && jobMs > 0 ? jobMs : DEFAULT_JOB_MS
+  // F18: a Codex job with pictures attached (a follow-up's earlier picture counts) may take longer, as the provider gives it.
+  const picturesOf = one => (Array.isArray(one.pictures) ? one.pictures.length : 0) + (one.follows !== null && one.follows !== undefined ? 1 : 0)
+  const limitOf = one => (one.provider === 'codex' ? pictureSeconds(base / 1000, picturesOf(one)) * 1000 : base) + LATE_GRACE_MS
   const all = (Array.isArray(assets) ? assets : []).filter(isRecord)
   const running = new Set(all.filter(one => one.state === 'running').map(one => one.provider))
   const endedOf = provider => Math.max(-Infinity, ...all.filter(one => one.provider === provider && finite(one.times?.ended)).map(one => one.times.ended))
@@ -252,7 +257,7 @@ export function lateAssetsOf({ chat, step, assets, now = Date.now(), jobMs = DEF
     const from = one.state === 'running' ? (finite(one.times?.started) ? one.times.started : one.times?.asked)
       : finite(one.limit?.until) && one.limit.until > now ? one.limit.until
       : running.has(one.provider) ? null : Math.max(...[one.times?.asked, endedOf(one.provider), finite(one.limit?.until) ? one.limit.until : null].filter(finite), -Infinity)
-    if (!finite(from) || now - from < limit) return null
+    if (!finite(from) || now - from < limitOf(one)) return null
     const minutes = Math.floor((now - from) / 60_000)
     const name = pieceNameOf(one, step)
     return { chat, id: valueOf(step, 'Id'), who: wait.who, what: `${wait.who}: ${assetIdsWords(wait.ids)}`, since: from, minutes, asset: one.id, name, kind: 'asset', text: `${wait.who} has not delivered ${name} since ${hourMinute(from)}` }

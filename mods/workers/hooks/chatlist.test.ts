@@ -919,6 +919,62 @@ describe('what the person answers on the worker board reaches the chat it is for
     expect(listed).toContain('● Units  Working')
   })
 
+  test('0.32.0, point 2: a fresh board verdict that this chat holds nothing clears the card\'s stale task, once, with why; not in the board\'s start window, not while the person pauses, not from an older board', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_000_000 })
+    const w = world('units', { ...listed({
+      units: { name: 'Units', role: 'worker', state: 'waiting', task: task('Skeleton Archer', 3, 5, 40), at: 0 },
+      cleanup: { name: 'Cleanup', role: 'worker', state: 'waiting', task: null, at: 0 },
+    }), [BOARD]: board })
+    stand(on, w)
+    await startedAs($, w, 'Units')
+    const verdict = (held: unknown, startedAt: unknown): { status: number; text: string } => ({ status: 200, text: JSON.stringify({ messages: [], startedAt, statuses: [status('Units', 'Free', { held }), status('Cleanup', 'Free', { held: null })] }) })
+    // A verdict of "holds nothing" from the start (the board never named a held step): the card is left alone (the main chat's and the
+    // partners' never hold one; a worker's own plan before its take neither).
+    w.takeAnswers.push(verdict(null, 1_000_000 - 600_000))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    // The board says Units holds B13 (the step the card is on), then, in its start window (started 60 s ago), that it holds nothing: the
+    // verdict does not count; the card keeps its task.
+    w.takeAnswers.push(verdict({ id: 'B13', title: 'Skeleton Archer', time: null }, 1_000_000 - 600_000))
+    await clock.advance(5000)
+    w.takeAnswers.push(verdict(null, 1_000_000 - 60_000))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    // An older board (no startedAt): neither.
+    w.takeAnswers.push(verdict(null, undefined))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    // The board says Units holds B13 again: nothing to clear. Round 4: the worker's own plan renames the card while B13 is held: the
+    // card's task as it stands at the board's LAST naming of B13 is the one a give-back clears.
+    w.takeAnswers.push(verdict({ id: 'B13', title: 'Skeleton Archer', time: null }, 1_000_000 - 600_000))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer')
+    await $.tool.call({ tool: TOOL, action: 'plan', text: 'Skeleton Archer sprites', steps: 2, minutes: 30 })
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer sprites')
+    w.takeAnswers.push(verdict({ id: 'B13', title: 'Skeleton Archer', time: null }, 1_000_000 - 600_000))
+    await clock.advance(5000)
+    // While the person pauses: nothing (the pause is read anew for it).
+    w.pauseAnswer = { text: 'x', state: 'pausing', since: 1_000_000, forChat: { holds: [], mustStop: true }, resumeList: [] }
+    w.takeAnswers.push(verdict(null, 1_000_000 - 600_000))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task?.text).toBe('Skeleton Archer sprites')
+    w.pauseAnswer = RUNNING
+    // The pause reading is kept a while (PAUSE_MS): the resume shows once the mod reads it anew.
+    await clock.advance(70_000)
+    // A fresh verdict, the board well past its start: the task was given back, stopped or dropped on the board: the card is cleared, with why.
+    w.takeAnswers.push(verdict(null, 1_000_000 - 600_000))
+    await clock.advance(5000)
+    expect(fileOf(w)?.task).toBeNull()
+    expect(fileOf(w)?.task).toBeNull()
+    expect(fileOf(w)?.taskNote?.why).toBe('the board gives this chat no task now: B13 was given back, stopped or dropped')
+    expect(fileOf(w)?.clearNote).toBeUndefined()
+    // The pane says Free with no task for Units (the board's verdict), as the list does.
+    const ui = await $.ui.mount({ plugin: 'workers', surface: 'desktop', ...PANE })
+    for (let i = 0; i < 10; i++) await settle()
+    expect((await ui.find(lineOf('Units')))?.text).toStartWith('○ Units  Free')
+    expect((await ui.find(lineOf('Units')))?.text).not.toContain('Skeleton Archer')
+  })
+
   test('2c: after 120 s with no statuses the pane reads its own files again and marks the line; a fresh process is not marked', async ($, on) => {
     const { w, clock, ui, text } = await paneWorld($, on)
     // The board answers nothing for a while (down): a fresh process (under 120 s) shows today's line, no mark.
@@ -4668,6 +4724,68 @@ describe('Task 6 (0.31.0): the app merges the words queued while the chat is bus
     await settle()
     expect(typedOf(w)).toEqual(['77955933', 'e2c84352', '45ac6f71'])
     expect(wordsOf(w)).toEqual(['busy e2c84352 6000'])
+  })
+
+  test('chat 1\'s verifier of F7 (6): a turn\'s end retries the words of ITS prompt whose report at the start failed, also when the next turn began meanwhile (the per-turn state is taken with the snapshot)', async ($, on) => {
+    const { w, clock, texts } = await queued($, on, ['e2c84352', '45ac6f71'])
+    // At T1's start the board's file cannot be read (a landing's restart): the words' report fails and they are kept for the turn's end.
+    const boardText = w.files[BOARD]
+    delete w.files[BOARD]
+    await clock.advance(1000)
+    await $.turn.start({ text: texts.join('\n\n'), turnId: 't1' })
+    await settle()
+    expect(typedOf(w)).toEqual([])
+    w.files[BOARD] = boardText
+    // A third word is typed while T1 runs (its own prompt is queued behind T1).
+    w.waiting.push({ id: '77955933', text: textOf('77955933') })
+    await clock.advance(5000)
+    await settle()
+    // T1 ends with a For you block; the board holds its turn-ended past the hook's 5 s, so the tail runs beside the next turn.
+    let releaseEnd = (): void => {}
+    w.byAction['turn-ended'] = { status: 200, text: JSON.stringify({ missed: [], open: [], role: 'worker', pause: RUNNING, asked: [], left: [] }) }
+    w.holdAction = { action: 'turn-ended', until: new Promise<void>(done => { releaseEnd = done }) }
+    const ending = $.turn.complete({ ...ENDED, answer: 'Done.\n\n> **For you**\n> 1. **Answer:** Keep it? I advise yes.', turnId: 't1' })
+    await clock.advance(5000)
+    await ending
+    // T2 begins at once on the third word: its start owns the per-turn state now, while T1's tail still waits for the board.
+    await $.turn.start({ text: textOf('77955933'), turnId: 't2' })
+    await settle()
+    // At 6 s T1's tail gives the board up and retries ITS words (the mutant read the next turn's state and retried none); the answer comes later.
+    await clock.advance(2000)
+    await settle()
+    releaseEnd()
+    await settle()
+    await clock.advance(1000)
+    await settle()
+    expect(typedOf(w).filter(id => id === 'e2c84352' || id === '45ac6f71').sort()).toEqual(['45ac6f71', 'e2c84352'])
+  })
+
+  test('chat 1\'s check of F7 (7): the turn-ended call carries the word THIS turn ran on, also when the next turn (on another word) began while the tail waited for its card write', async ($, on) => {
+    const { w, clock, texts } = await queued($, on, ['e2c84352', '45ac6f71'])
+    await clock.advance(1000)
+    await $.turn.start({ text: texts.join('\n\n'), turnId: 't1' })
+    await settle()
+    // A third word is typed while T1 runs.
+    w.waiting.push({ id: '77955933', text: textOf('77955933') })
+    await clock.advance(5000)
+    await settle()
+    // T1 ends with the card chain stuck: its tail waits 1.5 s for the say; T2 starts on the third word meanwhile.
+    let releaseWrite = (): void => {}
+    w.writeHold = new Promise<void>(done => { releaseWrite = done })
+    w.worked = []
+    const ending = $.turn.complete({ ...ENDED, turnId: 't1' })
+    await settle()
+    const starting = $.turn.start({ text: textOf('77955933'), turnId: 't2' })
+    await settle()
+    await clock.advance(5000)
+    await ending
+    await starting
+    await settle()
+    releaseWrite()
+    await settle()
+    await clock.advance(0)
+    const ended = w.worked.map(body => JSON.parse(body) as { action?: string; word?: string }).filter(one => one.action === 'turn-ended')
+    expect(ended.map(one => one.word)).toEqual(['e2c84352'])
   })
 
   test('a turn whose prompt is the person\'s own line reports none and names no word; the words stay on their way until their own prompt starts', async ($, on) => {

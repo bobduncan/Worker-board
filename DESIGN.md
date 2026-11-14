@@ -2575,6 +2575,9 @@ chat being replaced and never handed the words to the new one. Now (`src/stopped
    `withdrawStale` close those whose purpose is gone, as any waiting word.
 4. Rule 8 names a stopped chat once per stop ("Worker 5 was stopped at 21:42: 2 words wait for it"), with whether the
    main chat was asked to wake it, not word by word; a word that went again is named by the word that stands for it.
+   B1170 (X173): its finding's `since` is the stop, never before its oldest word (a word keeps its own time through every
+   retry): an incident closed after those words came, then a later stop of the same chat, is a new case and comes
+   back, where the oldest word's time made it "old case still standing" and showed nothing.
 5. roles/main.md: a worker the main chat stops or replaces is named to the board in the same move (a work note, "Stopped
    <name> at HH:MM: <why>"), and a stopped worker it keeps is woken at once.
 
@@ -3823,6 +3826,7 @@ stuck that day was found by the person. They are now one list in the board, each
 | `refine-again` | (T9.4) a step still new whose refine word the Advisor took (arrived) 30 min ago or more, with no block written since, none waiting for the person's answers, the board not stopped on it (`refineStop`), not a fix | the Advisor woken with the same word, every 30 min, three times (Woke); then one note to the person (Sent) |
 | `incident-again` | (T9.4; signals change 6, B915) an incident "with the supervisor" for 2 h or more (the pause not counted), with no fix named and not closed | one note to the person (Sent), once; no asks again since change 6 |
 | `worktrees` | a worktree of a repository the board knows, or an empty folder one left in the project folder (2026-10-24) | removed by the board when safe (Cleaned); else listed with why (Left), no chat told: "Worktree clean-up" below |
+| `browsers` | a headless or remote-driven Edge main process with its profile in the temp folder, more than one thread and its starter gone, over 30 min old or its tree over 2 cores for 5 min in a row (2026-11-13) | its tree closed once (each process while its creation time holds; not while a landing runs or a live process is connected to its DevTools port) and the tool's own folder removed (Cleaned, the row naming the profile's prefix and the tree's CPU); one that could not be, or was tried before, Left with why; the PC's first board alone; no chat told: "Leaked headless browsers" below |
 
 - **At its take** (B542, X10): a step's `Blocked by` loses the steps done, dropped or in review, and a `Waits for` whose
   every step is goes, each with a History line naming the blocker, so no step in progress still shows a wait. The
@@ -3971,6 +3975,79 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
 - Tests: `test/work/worktrees.test.mjs` (temporary git repositories: merged and unmerged worktrees, changes, held
   ones, an empty leftover folder, a junction made with `mklink /J`, skipped with its reason where none can be made),
   `test/work/check.test.mjs`, `test/work/resultCheck.test.mjs`, `test/supervisor/selfCheck.test.mjs`, `test/outOfSync.test.mjs`.
+
+## Leaked headless browsers (2026-11-13)
+
+The person's PC lagged (2026-11-13, 21:00): one headless Edge (`--use-angle=swiftshader`, profile `%TEMP%\edge-cdp-b1126-*`)
+started the day before at 07:42, its starter process gone, was rendering the game on the CPU at about 55% of the PC (13 of 24
+cores); three more had leaked that evening. The cause was a worker's scratch CDP helper on a fixed port (a killed run's Edge
+stayed and every later run connected to it); the helper was fixed, and the board catches any tool that leaks a browser:
+
+- **The rule `browsers`** (src/supervisor/browsers.mjs, rules/repair.mjs, shaped like `worktrees`; a repair, no AI, no
+  tokens, no chat told): each loop (every 3 minutes), from one listing of the PC's processes (cpu.mjs `LIST_SCRIPT`, which
+  now carries each process's `threads` and `cpuMs`), every `msedge.exe` MAIN process with `--headless` or
+  `--remote-debugging-port` and no `--type=` (the person's own Edge has neither flag and is never touched) whose profile
+  (`--user-data-dir`, the last one, as Chromium reads it) stands in the temp folder (guard 1: a profile anywhere else is
+  somebody's own, never closed), that has more than one thread (a killed main process lingers as a 1-thread zombie for a
+  while; the game's `browserTree.mjs` counts the same), whose starter is gone (its parent not listed, or listed but created
+  after it: a process number given out again), and that has run over `LEAKED_AFTER_MS` (30 minutes) OR whose TREE (the
+  gpu and renderer children, where the rendering sits) used over `BUSY_CORES` (2) cores for `BUSY_MS` (5 minutes) in a
+  row (guard 2: a worker may detach a CDP helper on purpose and keep using it; the runner keeps the CPU samples per
+  browser between runs, stamped with the listing's moment, `watchBrowsers`, `isBusy`: the leak of 13 cores closes at the
+  third sample, two steps of 3 minutes, a quiet helper only after half an hour). Chat 1's review: Edge relaunched through
+  its compat layer has a dead stub for a parent, so the board's own tools pass `--edge-skip-compat-layer-relaunch`
+  (tools/evidence.mjs) and, right before any close, the board checks that no live process holds an established connection
+  to the browser's DevTools port (`inUseNow`: the command line's port, else the profile's DevToolsActivePort file; a tool
+  still driving it is left alone, nothing counted).
+- **The fix** (`closeLeaked`, the loop's `close`): the landing lock read right before the kill (a landing runs: skipped,
+  nothing counted); then the main process and the tree below it (children that started after their parent) killed in one
+  PowerShell call, each only while its Win32_Process creation time is still the listing's (`killVerified`, no `taskkill /T`:
+  a number Windows gave out again since the listing is another process); then the TOOL's own folder removed and nothing
+  else (`toolFolderOf`, guard 1 as chat 1's review sharpened it: the profile itself when it is `edge-cdp-<name>-<tail>` or
+  `lava-shot-<pid>-<tail>` right below %TEMP%, the evidence tool's `board-evidence-<tail>` folder when the profile is its
+  `profile`; a worker's scratchpad profile, %TEMP%\claude\..., is left: "left: not the tool's own folder"). One Cleaned row,
+  "<prefix>: a headless Edge (process N, started HH:MM, 13 h 20, 12.8 cores) with its starter gone, ran over 30 min: closed,
+  its profile removed", the prefix the tool's own (`prefixOf`), so a tool that keeps leaking is visible on the board
+  (guard 3). One close per browser, tried once whatever its outcome (guard 4): the runner remembers the attempt
+  (`browserMemory`, "closed at HH:MM, still listed" or "close failed at HH:MM, not tried again"), and the day's repairs
+  (the supervisor's memory, which survives a board restart) say the same by the finding's key `browser <pid:created>`.
+  A listing that fails is one Left row ("leaked browsers: not looked at"), not the end of the run.
+- **One board** (chat 1's review: three boards on this PC, 4310, the Test board and the trial copy, would each close the
+  same browser, split a tool's leak count and read their own landing lock): the rule's ports go to the PC's first board on
+  ~/.worker-board/boards.json alone (the main project's, registered first; `closesBrowsers` in server.mjs), unless
+  config.json's `browsersRule` (true or false) says otherwise; never to a copy that only shows.
+- **The incident** (guard 3; the watch rule `browser-leaks`, watch.mjs): one tool's browsers closed `LEAKS_PER_DAY` (3)
+  times or more in a day files an incident naming the tool ("The tool "edge-cdp-b1126" leaked 3 headless browsers in a
+  day ...: its browser handling wants a fix"), so the fix becomes a step of its own; the closes are no repair-repeats
+  (`BOUNDED_RULES`). Tested end to end through the runner (three closes of one prefix, two of another: one incident).
+- **Ports** (server.mjs, Windows only, the first board): `processes()` (cpu.mjs `windowsProcesses.list`) and `closeBrowser(one)`
+  (with the landing lock); without them (another platform, another board, a test runner) the rule finds nothing.
+- Tests: `test/supervisor/browsers.test.mjs` (every exclusion on a listing shaped like the real one: the person's Edge, a
+  profile outside the temp folder, a starter alive, under 30 minutes and quiet, the zombie, a reused parent number; the
+  tree's CPU and the busy case at the third sample; the tool folders and the scratchpad profile left; the close with fakes:
+  the landing, in use, the verified kill, the folder), `test/supervisor/selfCheck.test.mjs` (the loop's Cleaned and Left
+  rows, the busy close, one close per browser also after a failed one and across the day's repairs, the landing, the
+  failed listing; guard 3 end to end: three closes of one tool make the incident, two of another do not),
+  `test/supervisor/watch.test.mjs` (browser-leaks), `test/cpu.test.mjs` (`threads` and `cpuMs` in the listing),
+  `test/config.test.mjs` (`browsersRule`).
+
+Chat 1's verifier of the rework (2026-11-14, `.claude/plans/2026-11-14-f8-verifier.md`: 2 blockers, 2 should-fixes), as built:
+
+- **The rule's switch is read where its facts exist** (blocker 1): `closesBrowsers` stood above `const historyFrom` and `const isShowOnly`
+  in `main`, so on Windows every start threw in their temporal dead zone; it now follows `isShowOnly`. A source-order test in
+  `browsers.test.mjs` holds that order, and `test/startBoard.test.mjs` starts a board.
+- **The creation time goes in exact** (blocker 2): the listing carries `createdText` (the FILETIME as a string) beside the number, which
+  loses its last digits through JSON (a double steps by 16 at 1.3e17, so an exact compare missed most processes and the folder was
+  removed under a live Edge); `killVerified` names each process by that text and compares with a tolerance of 20 ticks, reports per
+  pid (killed, gone, mismatch, alive, error) after reading the processes again, and `ok` follows the main alone; `closeLeaked` removes
+  the folder and counts the close only when the kill says the main was killed, gone, or its number another process's.
+- **Each Stop-Process stands alone** (5, 6): `-ErrorAction SilentlyContinue` with its error read per process; a child gone with its main
+  is no failure. Chat 1's check of the round: each WMI read runs under try/catch with `-ErrorAction Stop`, so a failed read (a quota,
+  a timeout) is an error line, never "gone" (the folder stays, the close is not done); a process found without a creation time is an
+  error too.
+- **A tried close survives a restart** (7): the supervisor's memory keeps `browsers` (`{ key: { at, ok } }`, every close tried, failed
+  ones too), seeded into the runner's map at each run and pruned to the browsers still listed, so a restarted board tries no browser
+  again; the guard-3 test covers the failed close across a restart.
 
 ## The Workers mod hotfix 0.31.1 (2026-11-13): chats losing the mod (F4)
 
@@ -4783,6 +4860,75 @@ do this so it doesnt try to double assign work to a singler worker if it expect 
   guard holds (`mayMove` holds when any server move to that state does, which named a fix under B303's move, without a
   worker), and `advance` never queues a step without a chat.
 - Tests: `test/work/autoQueueFixes.test.mjs`.
+
+## The Workers mod release 0.32.0: everything that waited for a mod release (2026-11-11)
+
+The person (2026-11-11): the three held items one at a time; the mod release the second. Chat 1's brief and review
+(.claude/plans/2026-11-11-workers-mod-release-design.md). The board's side of each point lands in the same branch, and a board ahead of
+a chat's mod behaves as before for that chat (the call's header says the mod).
+
+1. **A merged prompt reports every word** (board.ts `wordsIn`, `hitsIn`, register.tsx the turn's start): a word counts only with its
+   WHOLE text in the prompt; one over `LONG_WORD_CHARS` (200) by its first 200 and its last 80 characters both in it, the tail after
+   the head (searched from where it can start, so a word of 201 to 279 characters matches too); a hit wholly inside a longer hit is
+   placed where its text stands outside it, or gives way to the longer hit when it stands nowhere else (a take word inside the
+   envelope's line that carries it: the envelope's turn; the take word after the envelope: both); where the hits of two open words
+   OVERLAP otherwise (the same opening), neither is reported, never a guess; of open words with the SAME text (a repeated line) as
+   many of the oldest as the prompt holds copies are reported and taken off the queue (else they would stay queued for ever; `wordsIn`
+   names what `turnBegan` takes, so a twin the previous process typed is reported too), the rest go with the next such prompt. Also a word the chat's previous process typed: the typed words are kept in the mod's store
+   under the chat's session (`typedWordsKey`, as `pendingClearKey`: the store is one file for every chat) across a restart or a clear,
+   each stamped with the process run that typed it (`run`, `at`); at a new process's first own turn the restored words of another
+   run, not entered and not in that prompt, go (`restoredDropped`: the app's queue went with the process, verifier 2 finding 8), a
+   whole-prompt hit wins over a head-and-tail hit on the same stretch, and long twins are counted by head and tail as they are found
+   (finding 14); and `wordsIn` reads them; an envelope's line (`isEnvelope`) is never reported typed by the turn (its outcome is its own,
+   `takeWordsOf`). A report that failed at the turn's start (the board's file unreadable) is told again at the turn's end.
+2. **A stale Workers-pane card is cleared** (register.tsx `clearStaleCard`, chats.ts `lineOf`): the take answer carries the board's
+   `startedAt` (server.mjs); a WORKER's card is cleared once, with why in the card's own `taskNote` ("the board gives this chat no
+   task now: B<n> was given back, stopped or dropped"), on the CHANGE from a step the board said it held (`heldByBoard`) to none
+   (`held` null in this take's statuses, a board of 0.30.0 or newer): the main chat's and the partners' cards never hold a step by the
+   board, so theirs are left alone. Never in the board's first two minutes (`BOARD_START_WINDOW_MS`), never while the person pauses
+   (the pause read anew for it), never in a turn of the chat, never from an older board (no `held`, no start); a verdict that does not
+   count leaves the change for the next one; only the task the card showed at the board's LAST verdict naming that step is cleared
+   (`heldTask`, read at every such verdict: a step given back and the next taken in one turn leaves the next step's card alone; the
+   worker's own plan renaming the card while the step is held is still cleared); the pause's kept reading is used when it says a
+   pause, else read anew once per such change. Known limit: a give-back while the chat's process was down (no verdict named the step
+   to this process) is not cleared; the next step's take names the card anew. Chat 1's verifier (G2): the board sends `held` only for
+   a WORKER lane and only from a store it read (chatStatus.mjs `statusesOf`, `store.ok`; a failed read sends no verdict, so one bad
+   refresh clears no card), and the mod keeps an entry without `held` WITHOUT one (board.ts `parseStatuses`: no verdict; null is the
+   verdict "holds nothing"); a clear is bound to its verdict (`verdicts` counter): a newer verdict during its reads wins, and a turn
+   that starts during them leaves the change for the next verdict (verifier 2, finding 13). The pane shows the board's held step when
+   it names one, the status alone for a worker the board says holds nothing (a stale step task, also one given back while the
+   worker's process was down: chat 1's verifier 2, findings 7, 9 and 12), and the card's own words for an entry without `held` (the
+   main chat, a role chat).
+3. **The block/unblock tool text** names a wait on a chat ("the chat whose answer you wait for, with why: the board shows you as
+   waiting on purpose ... for 90 minutes of its running time, then shows the person a Late") and rule 15's hold (`note "still
+   stands: <why>"` with `of` the ask, `withdraw`), in the `on` field's description: the tool's description is cut by the app at about
+   4096 characters and was over it before this release (its tail, `words`, `asset` and the Supervisor's actions, is not shown to the
+   model), so the action text itself got shorter, not longer; the whole description wants a tidy of its own. The `on` text keeps
+   "unblock without on clears what the step waits for" and names the wait as the board's (90 minutes unless set).
+4. **The envelope at the next take keeps the turn's context** (board.ts `contextForTake`, register.tsx `lastTurn`): a turn's end
+   leaves its answer, asked, the board's answer, its step and the prompt and turn counts; an envelope that comes with a take uses them
+   only while no new prompt or turn came since and its clear names the same step (or none); else the take's empty context as before.
+   The board may later answer turn-ended at once and hand the envelope at the take (board-fast-answer's next step), only for a mod of
+   0.32.0 or newer by the call's header; `setOnSequence` keeps reading `parseHandover(ended) !== null`. Not in this release.
+5. **judgeTurnEnded on the named word** (judgeWord.mjs `judgeWordNamed`, supervisor/index.mjs): the mod's turn-ended carries `word`,
+   the outbox id its turn ran on (8c); the board ends that judge word when it is one to the Supervisor's chat, else the newest in
+   flight as before (an older mod, a turn no word started).
+- **The rollout's guard, split out (F20)**: chat 1's review and its verifiers asked for a guard that brings back a chat left archived
+  by a cut-off restart (the account-switch lesson). Two builds of it (an inference from snapshots, then a journal of records per restart
+  word, `data/rollout.json`) each left holes a verifier found (the last: a word in a hand's keeping counted as not reached; a hand's
+  failed job dropped the record; the spacing counted from an ask's making). Chat 1's decision of 2026-11-14: the journal is out of
+  0.32.0, which ships without an unarchive guard, as 0.31.x has none; the guard is its own item (F20), to be designed fresh from
+  take-time evidence (`.claude/plans/2026-11-14-f7-journal-r2-check.md` and the two verifier files before it hold the cases); F19
+  (carriers restart chats whose link is gone) may cover most of it. What stays of that work: the restart word carries the chat's
+  session (modRollout.mjs `restartWords`).
+- **The release**: version 0.32.0 (plugin.json, `MOD_VERSION`); land.ps1 runs the app's `claude.exe plugin test .` beside `npm test`
+  when mods/workers changed; after the landing the merging chat runs `plugin marketplace update worker-board` and `plugin update
+  workers@worker-board` once (roles/worker.md B570). A chat takes the mod only when its process starts anew: the rollout restarts
+  idle non-worker chats through Main or the partner (archive + unarchive), workers through their hand-over envelope between steps; a
+  chat still on the old mod after 30 minutes shows in Needs your attention (B541). The person picks the moment.
+- Pinned by the mod's tests (board.test.ts: the whole-text rule, the long word, the clash, the envelope word, `contextForTake`,
+  `startedAt`; chats.test.ts: the pane with `held` null and its fallback; chatlist.test.ts: the card cleared through a take with its
+  three guards), `test/modRollout.test.mjs` (the restart word's session) and `test/judgeWordNamed.test.mjs`.
 
 ## Clear after each step (2026-10-23)
 
@@ -7396,7 +7542,9 @@ Codex" or Working, the person chose Working: the task's work goes on, done by Co
   never a Late (the provider's own ask holds the person's action). A pick request (mode pick, the sound library) is the chat's own job:
   it names the sound with `work asset ... picked`, so it is no wait, and the timers run as for any stopped holder. With an auto request
   open beside a person's, the provider's work shows (mode auto wins).
-- **The cap**: past the provider's time limit for a job (`assetSeconds`, 240 s by default, plus a minute of grace) a running request
+- **The cap**: past the provider's time limit for a job (`assetSeconds`, 240 s by default, plus a minute of grace; F18, 2026-11-14:
+  for Codex the limit grows with the attached pictures, 120 s per picture past the first, 900 s at most, in the provider and in the
+  Late alike, since corrections with three references were stopped at 240 s) a running request
   turns one Late on the person's list (kind 'wait late', id `asset:A225`): "Codex has not delivered attack since 10:47 on B1124", with
   the words to look at the provider on the Settings tab or tell the worker to go on without it (`lateAssetsOf`, state.mjs `lateAssets`);
   a waiting request is late only while nothing of its provider runs, counted from the newest end of that provider's jobs (the hand-off

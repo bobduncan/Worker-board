@@ -7,8 +7,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, MOST_CHARS, MOST_STAGES, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn } from './board'
-import type { Board, BoardStart, ClearStage, Envelope, Handover, Outcome, PauseState, PauseWhere, PendingClear, StopAsk, TurnReport, TurnWords, Whoami } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, TYPED_MOST, contextForTake, restoredDropped, takeWordsOf, typedWordsKey, MOST_CHARS, MOST_STAGES, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn } from './board'
+import type { Board, BoardStart, ClearStage, Envelope, Handover, Outcome, PauseState, PauseWhere, PendingClear, StopAsk, TurnContext, TurnReport, TurnWords, TypedWord, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
   boardReading, cardStep, foldersAbove, formAnswer, formQuestions, hasLeft, instructionsLine, isAgentId, isFiled, isOwnerChat, lineOf, modNote, movedText, nameFromTitle, openFrom, orderChats, parseChat, personsWords, parseList, recordedLine, roleFrom, roleOrOwner, sessionOf, uniqueByName,
@@ -90,6 +90,8 @@ let reportRun = 0
 let reportSeq = 0
 /** 8c (0.30.0): the words of ours on their way, the word the current or last turn ran on, and that turn's start (board.ts `TurnWords`). */
 let turnWords: TurnWords = NO_TURN_WORDS
+/** 0.32.0, point 4: what the last turn's end left for an envelope that comes with a later take (board.ts `contextForTake`). */
+let lastTurn: TurnContext | null = null
 /**
  * 2c (0.28.0): the board's status of every chat of its list, as its last answer to a take gave them, and when that was. A take
  * the board does not answer (down, or a 409 after a rename) leaves the statuses to stand for 120 s (chats.ts `boardReading`):
@@ -251,6 +253,35 @@ let takeNumber = 0
 const TAKE_MS = 15_000
 /** The board's messages typed in this process: one the board hands out again is not typed again. */
 const typedIds = new Set<string>()
+/** 0.32.0, point 1: the words the running turn's prompt held (reported at its start; told again at its end when that failed). */
+let enteredThisTurn: string[] = []
+/** Chat 1's verifier 2 (finding 8): this process's run, stamped on the words it types; a restored word of another run is judged at the first own turn. */
+const PROCESS_RUN = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+let isRestoredJudged = false
+/**
+ * 0.32.0, point 1: the words of ours on their way, kept in the mod's store so the next process still knows them (a restart, a clear).
+ * Under this chat's session (the plugin's store is one file for every chat, as `pendingClearKey`): another chat's words are never this one's.
+ */
+async function keepTypedWords($: EngineInterface): Promise<void> {
+  const typed = turnWords.typed
+  // Round 4: one write after the other (a late earlier write would else put a stale list back after the delete).
+  keptWrites = keptWrites.then(async () => {
+    try {
+      const key = typedWordsKey(await $.session.id())
+      if (typed.length === 0) await $.store.delete(key)
+      else await $.store.set(key, typed)
+    } catch {
+      // this process keeps them all the same
+    }
+  })
+  return keptWrites
+}
+let keptWrites: Promise<void> = Promise.resolve()
+/** 0.32.0: the typed words a previous process left in the store, as `TypedWord`s; none when there are none or they cannot be read. */
+function typedWordsKept(kept: unknown): TypedWord[] {
+  if (!Array.isArray(kept)) return []
+  return kept.filter((one): one is TypedWord => typeof one === 'object' && one !== null && typeof (one as TypedWord).id === 'string' && typeof (one as TypedWord).text === 'string' && typeof (one as TypedWord).isEntered === 'boolean').slice(-TYPED_MOST)
+}
 /** B298: when this session's running turn started; null between turns. */
 let turnStartedAt: number | null = null
 /** B298: true once the board was told that this turn ended: a second end of the same turn tells it nothing. */
@@ -615,6 +646,67 @@ function queued<T>(work: () => Promise<T>): Promise<T> {
 async function awaitWrite<T>($: EngineInterface, run: Promise<T>, waitMs: number): Promise<T | null> {
   // Always bounded: one write held by a slow file system is the F4 case too (the chain's count is for the pane's words alone).
   return withinTime($, run, waitMs)
+}
+
+/** 0.32.0, point 2: the board's first two minutes after a start, while its state is still being built: no verdict of "holds nothing" counts. */
+const BOARD_START_WINDOW_MS = 120_000
+/** 0.32.0, point 2: the step the board last said this chat holds (`held.id`), null for none, undefined before the first verdict. */
+let heldByBoard: string | null | undefined
+/** 0.32.0, point 2: the card's task text as it stood when the board last named that held step: the one task a later "holds nothing" may clear. */
+let heldTask: string | null = null
+/** Chat 1's verifier (G2 race): counts the verdicts; a clear decided on one verdict never acts after a newer one came in. */
+let verdicts = 0
+/**
+ * 0.32.0, point 2 (chat 1's review): the board's FRESH verdict that this chat holds nothing (`held` null in this take's statuses, from a
+ * board of 0.30.0 or newer) while the card still names a task: the task was given back, stopped or dropped on the board, so the card is
+ * cleared once, with why. Never in the board's start window, never while the person pauses, never in a turn of this chat (it may be
+ * about to report), nothing for an older board (no `held`, no start time).
+ */
+async function clearStaleCard($: EngineInterface, taken: TakenAnswer, now: number): Promise<void> {
+  if (myself === null || chatsDir === null) return
+  const mine = taken.statuses?.find(one => one.name.toLowerCase() === myself?.name.toLowerCase())
+  if (mine === undefined || mine.held === undefined) return
+  // The review: only a WORKER's card, and only on the change from a step the board said it held to none (the main chat and the partners
+  // never hold a step by the board, and their cards' tasks are their own); the step the board named is the task that went. The change is
+  // used up only by a verdict that counts: one in the board's start window or under the person's pause leaves it for the next.
+  const verdict = ++verdicts
+  if (mine.held !== null) {
+    // The verifier: the card's task as it stood at the LAST verdict that named this step is the one task a later "holds nothing" may
+    // clear (a step given back in a turn that then took the next: the next step's task is not it; round 4: the card renamed by the
+    // worker's own plan while the step is held, or empty at the first naming, is read again every time).
+    heldByBoard = mine.held.id
+    const text = (await readChat($, chatsDir, await $.session.id()))?.task?.text ?? null
+    if (verdict === verdicts) heldTask = text
+    return
+  }
+  if (myself.role !== 'worker' || typeof heldByBoard !== 'string' || isInTurn) return
+  if (taken.boardStartedAt === null || now - taken.boardStartedAt < BOARD_START_WINDOW_MS) return
+  // Bound to THIS verdict (G2 race): a newer verdict during the reads below (a take right after a clear) wins, and this one does nothing.
+  const was = heldByBoard
+  const gone = heldTask
+  // The pause: the kept reading when it says a pause already, else read anew (the verifier: not one call per take under a pause).
+  if (isPaused(await pauseNow($)) || isPaused(await pauseNow($, true))) return
+  if (verdict !== verdicts) return
+  const chat = await readChat($, chatsDir, await $.session.id())
+  if (verdict !== verdicts) return
+  // Chat 1's verifier 2 (finding 13): a turn that started during the reads leaves the change for the next verdict (no reset).
+  if (isInTurn) return
+  if (chat === null || chat.task === null || chat.task.isReported || gone === null || chat.task.text !== gone) {
+    heldByBoard = null
+    heldTask = null
+    return
+  }
+  // The review: a take that lands in between (a new turn, a new task) is left alone: only the task seen is cleared, and never in a turn.
+  let wrote = false
+  await changeMine($, (me, at) => {
+    if (me.task === null || me.task.text !== gone || isInTurn || verdict !== verdicts) return null
+    wrote = true
+    return { ...me, task: null, taskNote: { at, why: `the board gives this chat no task now: ${was} was given back, stopped or dropped` } }
+  })
+  if (verdict !== verdicts || !wrote) return
+  heldByBoard = null
+  heldTask = null
+  void refreshChats($)
 }
 
 /** Says what this session is doing now, when it is in the list: a turn runs, it asks the person, or it waits. */
@@ -1315,6 +1407,8 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
       shownVerdict = verdict
       void refreshChats($)
     }
+    // 0.32.0, point 2: a card whose task the board no longer gives this chat is cleared (a give-back, a stop, a drop).
+    if (taken !== null && taken.statuses !== null) void clearStaleCard($, taken, now).catch(() => null)
     if (taken === null) return
     if (taken.refused.length > 0) void reportTyped($, board, [], [], taken.why, taken.refused)
     // The lazy clear (0.31.0, D5): a clear the board names at a take (B547's, none since T8.5 step 6) is not acted on: a clear
@@ -1322,16 +1416,19 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
     // B769: the person's stop or remove for this worker, told at its next tool call and prompt (once each).
     stopAsked = taken.stop
     // T8.5: the board's envelope that waited for this worker (late answer, an asleep chat, its set done): carried out now.
-    if (taken.handover !== null) void carryEnvelope($, taken.handover, { answer: '', asked: false, ended: null, step: null }).catch(() => null)
+    // 0.32.0, point 4: with the last turn's context when it still holds (no new prompt or turn since, the same step), else none as before.
+    if (taken.handover !== null) void carryEnvelope($, taken.handover, contextForTake(lastTurn, taken.handover, { prompts: promptCount, turn: turnNumber }) ?? { answer: '', asked: false, ended: null, step: null }).catch(() => null)
     for (const message of taken.messages) {
       if (typedIds.has(message.id)) continue
       typedIds.add(message.id)
       // 8c: noted before the submit, in the order the board handed them out (its outbox order), so the turn it starts names it.
-      turnWords = wordTyping(turnWords, message.id, message.text)
+      turnWords = wordTyping(turnWords, message.id, message.text, false, { run: PROCESS_RUN, at: Date.now() })
+      void keepTypedWords($)
       void $.prompt.submit({ text: message.text, asUser: true }).then(
         // A prompt a hook dropped did not enter the chat, though the call itself went well.
         entered => {
           turnWords = wordSettled(turnWords, message.id, entered.drop === undefined)
+          void keepTypedWords($)
           // 0.31.0, Task 6: a word its turn's start already reported typed (a merged prompt) is not reported again.
           if (!markReported(message.id)) return undefined
           return entered.drop === undefined
@@ -1340,6 +1437,7 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
         },
         reason => {
           turnWords = wordSettled(turnWords, message.id, false)
+          void keepTypedWords($)
           if (!markReported(message.id)) return undefined
           return reportTyped($, board, [], [message.id], { [message.id]: typedWhy(reason, 'the chat did not take it') })
         },
@@ -1988,7 +2086,8 @@ async function typeLine($: EngineInterface, envelope: Envelope, outcome: Outcome
       // `typedAt` just before the submit and `enteredAt` when it resolved (the line entered the chat), so the board's take-back
       // rule compares a turn with the line's own entry, not the envelope's hand-out (the 11:07 case: handed out 11:01:57, entered
       // 11:07:22 after the wake's first turn of 11:06:56-11:07:21 had ended).
-      turnWords = wordTyping(turnWords, envelope.id, text)
+      turnWords = wordTyping(turnWords, envelope.id, text, true, { run: PROCESS_RUN, at: Date.now() })
+      void keepTypedWords($)
       // The review of 0.30.0: each clock read is one that cannot throw, so neither the settle is skipped nor `typed` flipped.
       const typedAt = await Promise.resolve($.clock.now()).catch(() => null)
       if (typedAt !== null) outcome.typedAt = typedAt
@@ -1996,6 +2095,7 @@ async function typeLine($: EngineInterface, envelope: Envelope, outcome: Outcome
         const entered = await $.prompt.submit({ text, asUser: true })
         outcome.typed = entered.drop === undefined
         turnWords = wordSettled(turnWords, envelope.id, outcome.typed)
+        void keepTypedWords($)
         if (entered.drop === undefined) {
           // The review of 0.30.0: the submit resolves once the line entered and its turn started, so the clock now may be a few
           // ms past that turn's start, and the board's take-back (`turnSince >= enteredAt`) would never count the line's own
@@ -2006,6 +2106,7 @@ async function typeLine($: EngineInterface, envelope: Envelope, outcome: Outcome
         } else outcome.why = typedWhy(entered.drop, 'a hook dropped it')
       } catch (err) {
         turnWords = wordSettled(turnWords, envelope.id, false)
+        void keepTypedWords($)
         outcome.typed = false
         outcome.why = typedWhy(err, 'the chat did not take it')
       }
@@ -2961,7 +3062,7 @@ const WORK_TOOL = {
     + 'Advisor: also an ask with no asking chat, one carried over from the old backlog): their words, with the date, so '
     + 'the board no longer shows it open. "note" ("to" you or main, "text", "of"): information, '
     + 'never a question; the partner\'s daily note on the focus goal is a note to you with "of" G<n>, "decided" and "needs". "report" ("id", "result", "merged"): your step is done (the only way to end it: no message does); the board checks it and tells the main '
-    + 'chat. "block" and "unblock" ("id", "on"); "unblock" without "on" (the main chat): clears what the step "Waits for". "new" ("title", "activity", "goal", "text", "priority", "standard", "model", "effort"): a new step ("priority" '
+    + 'chat. "block" ("id", "on", "why") and "unblock" ("id", "on"): the step waits for a step or a chat (see "on"). "new" ("title", "activity", "goal", "text", "priority", "standard", "model", "effort"): a new step ("priority" '
     + 'fix: a fix for the worker board, first on the board\'s list); the board hands it out to a free worker once it is refined '
     + '(nobody queues; the person may pin it to a worker on the board). "close" ("id", "as"): an instruction is done, and what came of it. "drop" '
     + '("id", "why"). "refine" ("id", "summary", "picture", "goal", "size", "standard", "model", "effort", "questions") and "refined" ("id", "what", "standard", "model", "effort"): '
@@ -3006,7 +3107,7 @@ const WORK_TOOL = {
       to: { type: 'string', description: "note: you (the person) or main (the main chat). rename: the chat's new name." },
       result: { type: 'string', description: 'report: what the person gets now, in a line.' },
       merged: { type: 'string', description: 'report: the commit it was merged with.' },
-      on: { type: 'string', description: 'block, unblock: the step it waits on; unblock without it clears Waits for.' },
+      on: { type: 'string', description: 'block: the step (B<n>) or the chat (its board name, or "chat 1"; with "why") your step waits for: the board shows you waiting on purpose, no go-on line, for the board\'s wait time (90 minutes unless set), then a Late; unblock when the answer came, or without "on" to clear what the step waits for. A held ask (rule 15) is lifted by note "still stands: <why>" with "of" the ask, or withdraw.' },
       title: { type: 'string', description: "new: the step's title. incident: what looks wrong, in one plain line." },
       activity: { type: 'string', description: 'new: the activity it belongs under.' },
       goal: { type: 'string', description: 'new, refine: the goal it serves (G17); definition-draft, how-draft: the focus goal.' },
@@ -3179,6 +3280,13 @@ async function sessionStarts($: EngineInterface): Promise<void> {
   turnReport = { state: 'idle', since: await $.clock.now(), background: false }
   reportRun = turnReport.since
   reportSeq = 0
+  // 0.32.0, point 1: a new process knows the words the previous process typed whose turn may still come (the mod's store), so a merged
+  // prompt that holds one is reported for it too.
+  try {
+    turnWords = { ...NO_TURN_WORDS, typed: typedWordsKept(await $.store.get(typedWordsKey(await $.session.id()))) }
+  } catch {
+    turnWords = NO_TURN_WORDS
+  }
   // The Task 2 review (D5): whether its session was on the sequence before this process (a restart keeps the session).
   isOnSequence = await onSequenceKept($)
   // Chat 1's review (7): the tools and the list first (the git scan of every checkout under the root took the deadline's time before, and
@@ -3273,10 +3381,20 @@ async function ownTurnStarts($: EngineInterface, e: { readonly text: string; rea
   // busy keeps both). A start whose state report does not change (a question still open) is told at once all the same.
   const isOwnStart = e.agentId === undefined && !isInTurn
   if (isOwnStart) {
+    // Chat 1's verifier 2 (finding 8): the first own turn of this process judges the words restored from the store: those another
+    // process typed, not entered and not in this prompt never ran (the app's queue went with the process) and go.
+    if (!isRestoredJudged) {
+      isRestoredJudged = true
+      turnWords = restoredDropped(turnWords, e.text, PROCESS_RUN)
+    }
     // 0.31.0, Task 6: the words of ours this prompt holds have entered, merged or not: each taken word not yet reported is
     // reported typed now (its own submit may never resolve), once; the turn is named by the first of them.
-    const entered = wordsIn(turnWords, e.text).filter(id => typedIds.has(id) && !reportedWords.has(id))
+    // 0.32.0, point 1: also a word the chat's previous process typed (the queue is kept in the mod's store across a restart or a
+    // clear in between), so no word "waits for its turn" on the board after its turn ran; told again at the turn's end when it failed.
+    const entered = takeWordsOf(turnWords, wordsIn(turnWords, e.text)).filter(id => !reportedWords.has(id))
+    enteredThisTurn = entered
     turnWords = turnBegan(turnWords, e.text, await $.clock.now())
+    void keepTypedWords($)
     if (entered.length > 0) void reportEntered($, entered).catch(() => null)
   }
   const wasBusy = turnReport.state === 'busy'
@@ -3322,6 +3440,11 @@ async function afterOwnTurn($: EngineInterface, e: TurnEndEvent): Promise<void> 
       // Chat 1's verifier (1, 11): the prompt and turn counts of this turn's end, the clear's baseline: read live after the awaits they
       // would be the next turn's, and its conversation would be cleared.
       const turnAt = { prompts: promptCount, turn: turnNumber }
+      // Chat 1's verifier of F7 (6): 0.32.0's per-turn state too: the word this turn ran on, and the words of this prompt whose report at
+      // the start may have failed; the next turn's start owns `enteredThisTurn` alone.
+      const word = turnWords.word
+      const untoldIds = enteredThisTurn
+      enteredThisTurn = []
       hasReported = false
       moreFollows = false
       reportedStep = null
@@ -3351,7 +3474,8 @@ async function afterOwnTurn($: EngineInterface, e: TurnEndEvent): Promise<void> 
         // T8.5 (the spec's mod change 5): a worker on the sequence tells every answered turn's end, also while it holds a
         // step, and pulls nothing: the board decides what it gets (its answer's `handover`).
         const pulls = !isOnSequence && await withinTime($, holdsNothing($)) === true && !isPaused(await pauseNow($))
-        const fields = { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}) }
+        // 0.32.0, point 5: the word this turn ran on (8c), so the board ends THAT judge word, not the newest in flight.
+        const fields = { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}), ...(word !== null ? { word } : {}) }
         const call = await workLate($, fields, forYou.length > 0 ? ASKED_WAIT_MS : BOARD_WAIT_MS)
         if (call.read === null && call.late !== null && forYou.length > 0) void takeLateEnded($, call.late, await $.session.id())
         told.ended = call.read
@@ -3363,6 +3487,12 @@ async function afterOwnTurn($: EngineInterface, e: TurnEndEvent): Promise<void> 
         // request id, for the clear's decision; a board that refused is not.
         else if (!call.isRefused && call.request !== null) told.retry = { fields, request: call.request, late: call.late }
       }
+      // 0.32.0, point 4: what this turn's end leaves for an envelope that comes with a later take (`contextForTake`: only while no
+      // new prompt or turn came, and for the same step). The snapshot's asked and counts (chat 1's verifier of 0.31.1, 1 and 11).
+      if (e.reason === 'answer') lastTurn = { answer: e.answer, asked, ended: told.ended, step: at.step, since: turnAt }
+      // 0.32.0, point 1: a word the prompt held whose report at the turn's start failed (the board's file unreadable then) is told now.
+      const untold = untoldIds.filter(id => !reportedWords.has(id))
+      if (untold.length > 0) void reportEntered($, untold).catch(() => null)
       // Clear after each step: a worker that reported is cleared or compacted now, the main chat and the partners
       // compacted at rest; the line the board put out for a free worker is typed in after that, unless a clear is
       // on its way (then the conversation after it takes it).
@@ -3648,6 +3778,7 @@ export const register: Register = on => {
     if (e.reason === 'clear') {
       // 8c: the conversation after a /clear runs none of the words still queued, and its first turn is no word's.
       turnWords = wordsCleared(turnWords)
+      void keepTypedWords($)
       // F (0.30.0): the conversation after a /clear has started no background work: the count starts at 0 again.
       backgroundIds.clear()
     } else {

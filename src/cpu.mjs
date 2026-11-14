@@ -174,7 +174,9 @@ const COMMAND_LINES = "('claude.exe','node.exe','codex.exe','msedge.exe') -conta
 export const LIST_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
   "try { (Get-Process -Id $PID).PriorityClass = 'BelowNormal' } catch {}",
-  `Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; name = [string]$_.Name; priority = [int]$_.Priority; created = $(if ($_.CreationDate) { [long]$_.CreationDate.ToFileTimeUtc() } else { $null }); commandLine = $(if (${COMMAND_LINES}) { [string]$_.CommandLine } else { $null }) } } | ConvertTo-Json -Compress -Depth 2`,
+  // Leaked headless browsers (2026-11-13): `threads` too, so a killed Edge that lingers as a 1-thread zombie is told from a live one,
+  // and `cpuMs` (kernel and user time, ms), so a browser eating cores is told from a quiet one.
+  `Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; name = [string]$_.Name; priority = [int]$_.Priority; threads = [int]$_.ThreadCount; cpuMs = [long](([long]$_.KernelModeTime + [long]$_.UserModeTime) / 10000); created = $(if ($_.CreationDate) { [long]$_.CreationDate.ToFileTimeUtc() } else { $null }); createdText = $(if ($_.CreationDate) { [string]$_.CreationDate.ToFileTimeUtc() } else { $null }); commandLine = $(if (${COMMAND_LINES}) { [string]$_.CommandLine } else { $null }) } } | ConvertTo-Json -Compress -Depth 2`,
 ].join('; ')
 
 // Efficiency mode (EcoQoS): SetProcessInformation(ProcessPowerThrottling), the execution-speed bit on for Low, forced off for Full.
@@ -227,7 +229,12 @@ export function parseListing(text) {
     name: typeof one.name === 'string' ? one.name : '',
     commandLine: typeof one.commandLine === 'string' ? one.commandLine : null,
     priority: Number.isFinite(one.priority) ? one.priority : null,
+    threads: Number.isInteger(one.threads) ? one.threads : null,
+    cpuMs: Number.isFinite(one.cpuMs) ? one.cpuMs : null,
     created: Number.isFinite(one.created) ? one.created : null,
+    // Chat 1's verifier of F8 (2): the FILETIME as an exact string too: through JSON the number loses its last digits (a double steps by
+    // 16 at 1.3e17), and a kill must name the process's own time.
+    createdText: typeof one.createdText === 'string' && /^\d{1,20}$/.test(one.createdText) ? one.createdText : Number.isFinite(one.created) ? String(Math.round(one.created)) : null,
   }))
 }
 

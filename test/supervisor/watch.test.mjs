@@ -40,8 +40,8 @@ const check = (id, board, seen = new Map()) => {
   return Object.defineProperty(found, 'observed', { value: observed, enumerable: false })
 }
 
-test('the watch rules: thirty-one, report only, each with what it says (signals change 4: wake-failed and nobody-answers-wakes)', () => {
-  assert.deepEqual(WATCH_RULES.map(one => one.id), ['stale-suspended', 'ready-while-free', 'overlap-idle', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'handover-held', 'handover-unanswered', 'clear-owed-repeat', 'wake-failed', 'nobody-answers-wakes', 'check-unreachable', 'old-limit-reading', 'board-deaf', 'board-slow', 'week-stop-ignored', 'five-hour-stop-ignored', 'pause-stale', 'obsolete-wrong'])
+test('the watch rules: thirty-two, report only, each with what it says (signals change 4: wake-failed and nobody-answers-wakes)', () => {
+  assert.deepEqual(WATCH_RULES.map(one => one.id), ['stale-suspended', 'ready-while-free', 'overlap-idle', 'working-not-running', 'opus-wait', 'skip-repeats', 'repair-repeats', 'browser-leaks', 'undelivered', 'report-check-twice', 'old-mod', 'odd-effort', 'review-stuck', 'dropped-fix', 'review-held', 'chain-long', 'open-fix', 'stale-checkpoint', 'effort-mismatch', 'handover-held', 'handover-unanswered', 'clear-owed-repeat', 'wake-failed', 'nobody-answers-wakes', 'check-unreachable', 'old-limit-reading', 'board-deaf', 'board-slow', 'week-stop-ignored', 'five-hour-stop-ignored', 'pause-stale', 'obsolete-wrong'])
   // Redesign Part 2: the rules of Main's queues are gone.
   // T8.5 step 6: the old hand-over rules are gone (their findings are handover-held and handover-unanswered now).
   for (const gone of ['idle-while-waiting', 'queued-not-running', 'not-cleared', 'not-taking']) assert.equal(WATCH_RULES.some(one => one.id === gone), false, gone)
@@ -210,6 +210,17 @@ test('repair-repeats: the same repair three times in a day trips; twice, or once
   assert.equal(check('repair-repeats', view({ repairs: [repair(200), repair(10)], settings: { repairsPerDay: 2 } })).length, 1)
 })
 
+test('browser-leaks (2026-11-13): one tool\'s headless browsers closed three times in a day is an incident naming the tool; two, or another tool\'s, is not; browsers are no repair-repeats', () => {
+  const closed = (minutes, tool = 'edge-cdp-b1126') => ({ at: ago(minutes), rule: 'browsers', subject: tool, key: `browser ${minutes}:1` })
+  const found = check('browser-leaks', view({ repairs: [closed(300), closed(200), closed(10), closed(5, 'board-evidence')] }))
+  assert.deepEqual(found.map(one => [one.key, one.subject]), [['browser-leaks edge-cdp-b1126', 'edge-cdp-b1126']])
+  assert.equal(found[0].text, 'The tool "edge-cdp-b1126" leaked 3 headless browsers in a day (their starter gone, the board closed them): its browser handling wants a fix')
+  assert.match(found[0].evidence, /^closed at \d\d:\d\d, \d\d:\d\d, \d\d:\d\d: browser 10:1$/)
+  assert.deepEqual(check('browser-leaks', view({ repairs: [closed(200), closed(10)] })), [])
+  assert.deepEqual(check('browser-leaks', view({ repairs: [closed(25 * 60), closed(200), closed(10)] })), [])
+  assert.deepEqual(check('repair-repeats', view({ repairs: [closed(300), closed(200), closed(10)] })), [], 'the leaks are their own incident, not a repeat')
+})
+
 test('repair-repeats (B551, X11): repairs from before its incident\'s fix was done never count again; three after it do, a restart one after it does not', () => {
   const wake = (minutes, more = {}) => ({ at: ago(minutes), rule: 'helper', subject: 'Helper', key: `helper Helper ${minutes}`, ...more })
   const history = lines => ({ History: lines.map(([minutes, words]) => `- ${stamp(ago(minutes))} ${words}`) })
@@ -307,6 +318,29 @@ test('B532 undelivered: a word the outbox sweep drops is not named, nor an answe
   // T9.1.1: an old check word is never needed, whatever its step is: a worker checks it now, the Advisor can no longer.
   const old = { id: 'c3', to: 'Painter', command: 'result-check', about: 'B8', at, state: 'waiting' }
   assert.deepEqual(check('undelivered', view({ items: items(step('B8', 'review')), outbox: [old] })), [])
+})
+
+test('B1170 (X173, the real case of 2026-11-13 23:12): words to a worker on no step are named; its case began at its last stop, not at its oldest word', () => {
+  // The words as the outbox held them at 23:12: the report-background word of 22:47 (expired, tried anew at each stop of the
+  // session), and two answers (22:55, 22:59) retried at the stop of 23:10. Worker 2's session is the one that was stopped, and it
+  // holds no step. The rule named them all; the incident of its key (X107) was closed at 22:59 and the finding's `since` (22:47)
+  // made it "old case still standing", so no incident showed them.
+  const SESSION = 'session-that-was-stopped'
+  const stop = { stoppedAt: ago(2), stoppedSession: SESSION }
+  const outbox = [
+    { id: 'rb', to: 'Worker 2', command: 'report-background', about: 'B1168', at: ago(25), state: 'expired', ...stop },
+    { id: 'a764', to: 'Worker 2', ask: 'work:Q764', step: 'Q764', at: ago(17), state: 'waiting', ...stop },
+    { id: 'a763', to: 'Worker 2', ask: 'work:Q763', step: 'Q763', at: ago(13), state: 'waiting', ...stop },
+  ]
+  const board = more => view({ chats: [LEAD, lane('Worker 2', { session: SESSION, state: 'working' })], outbox, ...more })
+  const found = check('undelivered', board())
+  assert.deepEqual(found.map(one => [one.key, one.subject]), [['undelivered Worker 2', 'Worker 2']])
+  assert.equal(found[0].text, `Worker 2 was stopped at ${clockOf(ago(2))}: 3 words wait for it, the oldest for 25 min`)
+  assert.equal(found[0].since, ago(2), 'the case of a chat that was stopped began at its stop: a stop after an incident was closed is a new case')
+  // A stop older than its oldest word (the word came later) never moves the case before the word.
+  assert.equal(check('undelivered', view({ chats: [LEAD, lane('Worker 2', { session: SESSION })], outbox: [{ ...outbox[1], stoppedAt: ago(30) }] }))[0].since, ago(17))
+  // A chat that was not stopped keeps the case at its oldest word (B584).
+  assert.equal(check('undelivered', board({ chats: [LEAD, lane('Worker 2', { session: 'another-session' })] }))[0].since, ago(25))
 })
 
 test('report-check-twice: a step whose board check failed twice since its last pass trips; once, or passed after, does not', () => {

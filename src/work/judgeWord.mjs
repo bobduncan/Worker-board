@@ -29,6 +29,15 @@ export function judgeWordOf(outbox, to) {
 }
 
 /**
+ * Workers mod 0.32.0, point 5: the judge word to `to` the turn's end names (`id`, the outbox id the mod's turn ran on), or null when
+ * the id names no judge word to that chat (a line the person typed, a sweep's word, an older mod that names none).
+ */
+export function judgeWordNamed(outbox, to, id) {
+  if (typeof id !== 'string' || id === '') return null
+  return (outbox ?? []).find(message => message?.command === JUDGE && message.to === to && message.id === id) ?? null
+}
+
+/**
  * When a judge word arrived in the Supervisor's chat (typed, copied for the person to paste, or taken by its mod long ago), or
  * null while it is on its way or was lost (expired, failed, dropped, waiting past its keep).
  */

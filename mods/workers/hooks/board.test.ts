@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
+import { LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, restoredDropped, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -156,6 +156,113 @@ describe('Task 6 (0.31.0): words the app merged into one prompt have all entered
     expect(wordsIn(approved, 'B13: approved, but wait')).toEqual([])
   })
 
+  test('0.32.0 (chat 1\'s review): a word counts only with its WHOLE text in the prompt; a long one by its head and its tail; one stretch that matches two words reports neither', () => {
+    // The first 200 characters of a word in the prompt, the rest not: no match (the mutant "the head is enough" would report w1).
+    const long = 'L'.repeat(LONG_WORD_CHARS) + ' middle words of the long word ' + 'T'.repeat(LONG_WORD_TAIL)
+    const words = wordTyping(wordTyping(NO_TURN_WORDS, 'w1', long), 'w2', 'work: B13 is yours; run work next')
+    expect(wordsIn(words, `${long.slice(0, LONG_WORD_CHARS)} and then something else`)).toEqual([])
+    // Head and tail both in the prompt, the tail after the head: a match, also when the app re-wrapped the middle.
+    expect(wordsIn(words, `${long.slice(0, LONG_WORD_CHARS)}  re-wrapped  middle  ${long.slice(-LONG_WORD_TAIL)}`)).toEqual(['w1'])
+    // The tail alone, or the tail before the head: no match.
+    expect(wordsIn(words, `${long.slice(-LONG_WORD_TAIL)} ${long.slice(0, LONG_WORD_CHARS)}`)).toEqual([])
+    // A word of ordinary length needs its whole text: its first half in the prompt is nothing.
+    expect(wordsIn(words, 'work: B13 is yours; and more')).toEqual([])
+    expect(wordsIn(words, `the person wrote this\n\nwork: B13 is yours; run work next`)).toEqual(['w2'])
+    // Two open words with the same text (two "work next" lines) and the stretch once: the oldest is reported (round 4: as the turn takes
+    // it; a twin the previous process typed has no submit to report it); a third, distinct word too.
+    const same = wordTyping(wordTyping(wordTyping(NO_TURN_WORDS, 'a1', 'work: B13 is yours; run work next'), 'a2', 'work: B13 is yours; run work next'), 'a3', 'asset A224 ready: C:/p/.claude/assets/A224')
+    expect(wordsIn(same, 'work: B13 is yours; run work next\n\nasset A224 ready: C:/p/.claude/assets/A224')).toEqual(['a1', 'a3'])
+    // Two identical texts and a prompt of one of them: the oldest is reported, the turn is the oldest's (see the twins below).
+    expect(wordsIn(same, 'work: B13 is yours; run work next')).toEqual(['a1'])
+    expect(turnBegan(same, 'work: B13 is yours; run work next', 9).word).toBe('a1')
+    expect(LONG_WORD_CHARS).toBe(200)
+    expect(LONG_WORD_TAIL).toBe(80)
+    // The review: a word of 201 to 279 characters (its tail starts before character 200) matches too, whole in the prompt.
+    for (const length of [201, 250, 279, 280, 400]) {
+      const text = Array.from({ length }, (_, i) => String.fromCharCode(97 + (i % 26))).join('')
+      const one = wordTyping(NO_TURN_WORDS, 'w', text)
+      expect([length, wordsIn(one, `before\n\n${text}\n\nafter`)]).toEqual([length, ['w']])
+    }
+    // The review: a word whose text sits INSIDE another open word's text (not at its start) overlaps it: neither is reported, the turn is no word's.
+    // The verifier: a hit INSIDE a longer hit whose text is nowhere else in the prompt gives way to it: a take word inside the envelope's
+    // line that carries it names the envelope's turn (the mutant "neither" left the entered envelope queued).
+    const inside = wordTyping(wordTyping(NO_TURN_WORDS, 'c', 'run work next, then report back to main'), 'd', 'B13: run work next, then report back to main')
+    expect(wordsIn(inside, 'B13: run work next, then report back to main')).toEqual(['d'])
+    expect(turnBegan(inside, 'B13: run work next, then report back to main', 1).word).toBe('d')
+    const carried = wordTyping(wordTyping(NO_TURN_WORDS, 'take', 'work: B13 is yours; run work next'), 'env', 'hand-over\n\nwork: B13 is yours; run work next', true)
+    expect(wordsIn(carried, 'hand-over\n\nwork: B13 is yours; run work next')).toEqual(['env'])
+    expect(turnBegan(carried, 'hand-over\n\nwork: B13 is yours; run work next', 1).word).toBe('env')
+    // But a take word that stands in the prompt on its own too (merged before the envelope) is its own hit: both enter.
+    expect(wordsIn(carried, 'work: B13 is yours; run work next\n\nhand-over\n\nwork: B13 is yours; run work next').sort()).toEqual(['env', 'take'])
+    // Round 4: the envelope first and the take word after it: the take word's hit is placed outside the envelope's, both enter.
+    const after = 'hand-over\n\nwork: B13 is yours; run work next\n\nwork: B13 is yours; run work next'
+    expect(wordsIn(carried, after).sort()).toEqual(['env', 'take'])
+    expect([turnBegan(carried, after, 1).word, turnBegan(carried, after, 1).typed]).toEqual(['take', []])
+    // Chat 1's verifier 2 (finding 8): a word restored from the store that another process typed, never entered, and the same text typed
+    // afresh: the prompt is the new word's; the restored one goes at the first own turn (its queue went with its process).
+    const stale = wordTyping(NO_TURN_WORDS, 'S', 'stop task\nName: Game - Worker 3\nTask: B12\nWhy: stopped with the button', false, { run: 'run-1', at: 1 })
+    const afresh = wordTyping(stale, 'N', 'stop task\nName: Game - Worker 3\nTask: B12\nWhy: stopped with the button', false, { run: 'run-2', at: 2 })
+    expect(afresh.typed.map(one => [one.id, one.run, one.at])).toEqual([['S', 'run-1', 1], ['N', 'run-2', 2]])
+    const judged = restoredDropped(afresh, 'stop task\nName: Game - Worker 3\nTask: B12\nWhy: stopped with the button', 'run-2')
+    expect(judged.typed.map(one => one.id)).toEqual(['N'])
+    expect([wordsIn(judged, 'stop task\nName: Game - Worker 3\nTask: B12\nWhy: stopped with the button'), turnBegan(judged, 'stop task\nName: Game - Worker 3\nTask: B12\nWhy: stopped with the button', 1).word]).toEqual([['N'], 'N'])
+    // A restored word that entered, or one this first prompt holds, stays; the person's own line drops only what is not in it.
+    const kept = { ...afresh, typed: [{ ...afresh.typed[0], isEntered: true }, afresh.typed[1]] }
+    expect(restoredDropped(kept, 'the person wrote this', 'run-2').typed.map(one => one.id)).toEqual(['S', 'N'])
+    expect(restoredDropped(afresh, 'the person wrote this', 'run-2').typed.map(one => one.id)).toEqual(['N'])
+    // Finding 8, the second case: a stale long sweep and a new one with the same head and tail; the prompt is the new one's exact text: the
+    // whole-prompt hit wins, the head-and-tail hit of the stale one is not in this prompt.
+    const body = (middle: string) => `sweep: ${'a'.repeat(190)} ${middle} ${'z'.repeat(70)} end`
+    const sweeps = wordTyping(wordTyping(NO_TURN_WORDS, 'S1', body('old lines'), false, { run: 'run-1' }), 'S2', body('other odd lines'), false, { run: 'run-2' })
+    expect(wordsIn(sweeps, body('other odd lines'))).toEqual(['S2'])
+    // Finding 14: two long twins (the same 300 characters) and the prompt their text once with its middle re-wrapped: the oldest enters.
+    const longTwins = wordTyping(wordTyping(NO_TURN_WORDS, 'old', body('the same')), 'new', body('the same'))
+    expect(wordsIn(longTwins, body('the  same'))).toEqual(['old'])
+    expect(wordsIn(longTwins, `${body('the  same')}\n\n${body('the same')}`)).toEqual(['old', 'new'])
+    // Chat 1's verifier: two take twins and the envelope that carries one copy, the prompt the envelope's line and ONE copy on its own:
+    // the copy inside the envelope is the envelope's, so one twin enters, the other stays queued (the mutant counted both copies).
+    const twinsCarried = wordTyping(wordTyping(wordTyping(NO_TURN_WORDS, 'take1', 'work: B13 is yours; run work next'), 'take2', 'work: B13 is yours; run work next'), 'env', 'hand-over\n\nwork: B13 is yours; run work next', true)
+    expect(wordsIn(twinsCarried, 'hand-over\n\nwork: B13 is yours; run work next\n\nwork: B13 is yours; run work next').sort()).toEqual(['env', 'take1'])
+    expect(turnBegan(twinsCarried, 'hand-over\n\nwork: B13 is yours; run work next\n\nwork: B13 is yours; run work next', 1).typed.map(one => one.id)).toEqual(['take2'])
+    // The review: two open words with the SAME text (a repeated line): the oldest is reported and the turn is its and it leaves the
+    // queue (else both would stay queued for ever); the second goes with the next such prompt.
+    const twins = wordTyping(wordTyping(NO_TURN_WORDS, 'old', 'work: B13 is yours; run work next'), 'new', 'work: B13 is yours; run work next')
+    expect(wordsIn(twins, 'work: B13 is yours; run work next')).toEqual(['old'])
+    expect(wordsIn(twins, 'work: B13 is yours; run work next\n\nwork: B13 is yours; run work next')).toEqual(['old', 'new'])
+    const first = turnBegan(twins, 'work: B13 is yours; run work next', 1)
+    expect([first.word, first.typed.map(one => one.id)]).toEqual(['old', ['new']])
+    const second = turnBegan(first, 'work: B13 is yours; run work next', 2)
+    expect([second.word, second.typed]).toEqual(['new', []])
+    // The verifier: the two merged into one prompt (the text twice): both enter, the turn is the oldest's, the queue is empty.
+    const both = turnBegan(twins, 'work: B13 is yours; run work next\n\nwork: B13 is yours; run work next', 3)
+    expect([both.word, both.typed]).toEqual(['old', []])
+  })
+
+  test('0.32.0: an envelope\'s line is no take word: the turn\'s start reports only the take words the prompt holds', () => {
+    const words = wordTyping(wordTyping(NO_TURN_WORDS, 'env1', 'hand-over\n\nwork: B13 is yours; run work next', true), 'm9', 'B13: approved by the person on the board')
+    expect(takeWordsOf(words, ['env1', 'm9'])).toEqual(['m9'])
+    expect(words.typed.map(one => one.isEnvelope === true)).toEqual([true, false])
+  })
+
+  test('0.32.0, point 4: an envelope that comes with a take keeps the last turn\'s context only while no prompt or turn came since and for the same step', () => {
+    const last = { answer: 'Done: yes', asked: false, ended: { ok: true }, step: 'B13', since: { prompts: 4, turn: 2 } }
+    const clear = { id: 'e1', kind: 'clear' as const, step: 'B13', clear: { step: 'B13', reportedAt: 1 }, restart: false, set: null, line: 'work next', version: null }
+    expect(contextForTake(last, clear, { prompts: 4, turn: 2 })).toBe(last)
+    expect(contextForTake(last, clear, { prompts: 5, turn: 2 })).toBeNull()
+    expect(contextForTake(last, clear, { prompts: 4, turn: 3 })).toBeNull()
+    expect(contextForTake(last, { ...clear, clear: { step: 'B14', reportedAt: 1 } }, { prompts: 4, turn: 2 })).toBeNull()
+    // A plain line, or a restart, names no clear step: the context holds while the counts do.
+    expect(contextForTake(last, { ...clear, clear: null, kind: 'task' as const }, { prompts: 4, turn: 2 })).toBe(last)
+    expect(contextForTake(null, clear, { prompts: 4, turn: 2 })).toBeNull()
+    expect(contextForTake(last, null, { prompts: 4, turn: 2 })).toBeNull()
+  })
+
+  test('0.32.0, point 2: the take answer says when the board started; an older board says none', () => {
+    expect(parseTaken('{"messages":[],"startedAt":1700000000000}').boardStartedAt).toBe(1700000000000)
+    expect(parseTaken('{"messages":[],"startedAt":"x"}').boardStartedAt).toBeNull()
+    expect(parseTaken('{"messages":[]}').boardStartedAt).toBeNull()
+  })
+
   test('a word with no text enters nothing (an empty text is "in" every prompt)', () => {
     const words = wordTyping(NO_TURN_WORDS, 'empty', '')
     expect(wordsIn(words, 'anything')).toEqual([])
@@ -259,9 +366,9 @@ describe('the worker board, as the mod reads it', () => {
     // What cannot be typed is named, so the board can say it did not arrive.
     // B532: with why, so the board does not try it again and names the reason.
     expect(parseTaken(answer)).toEqual({ messages: [{ id: 'm1', text: 'Sheet B' }], refused: ['m2', 'm3', 'm4'],
-      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: true })
-    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: true })
-    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: false })
+      why: { m2: `too long: ${MOST_CHARS + 1} > ${MOST_CHARS} characters`, m3: 'no text', m4: 'no text' }, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: true, boardStartedAt: null })
+    expect(parseTaken('{"messages":"x"}')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: true, boardStartedAt: null })
+    expect(parseTaken('')).toEqual({ messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: false, boardStartedAt: null })
     // B738: the chats the board shows as not running; anything that is no name is left out.
     expect(parseTaken('{"messages":[],"off":["Worker 5",3,""]}').off).toEqual(['Worker 5'])
     expect(parseTaken('{"messages":[],"off":"x"}').off).toEqual([])
@@ -278,7 +385,9 @@ describe('the worker board, as the mod reads it', () => {
     expect(parseTaken('{"messages":[],"stop":{"id":"../x","kind":"stop"}}').stop).toBeNull()
     // 2c (0.28.0): the board's statuses, kept with their caps; an older board's answer (none) is told apart from no answer.
     const entry = { name: 'Worker 1', status: 'Working', why: 'waits for the partner', tone: 'quiet', since: 5, reportAt: 9 }
-    expect(parseTaken(JSON.stringify({ messages: [], statuses: [entry] })).statuses).toEqual([{ ...entry, held: null }])
+    // 0.32.0 (chat 1's verifier, G2): an entry without `held` stays without one (no verdict); `held: null` is the verdict "holds nothing".
+    expect(parseTaken(JSON.stringify({ messages: [], statuses: [entry] })).statuses).toEqual([entry])
+    expect(parseTaken(JSON.stringify({ messages: [], statuses: [{ ...entry, held: null }] })).statuses).toEqual([{ ...entry, held: null }])
     expect(parseTaken(JSON.stringify({ messages: [] })).statuses).toBeNull()
     expect(parseTaken('{"messages":[],"statuses":"x"}').statuses).toBeNull()
     expect(parseTaken('{"messages":[]}').isAnswer).toBe(true)
@@ -294,8 +403,8 @@ describe('the worker board, as the mod reads it', () => {
       { name: 'D', status: 'Not running', tone: 'attention', since: 1, reportAt: 2 },
     ]
     expect(parseTaken(JSON.stringify({ messages: [], statuses: odd })).statuses).toEqual([
-      { name: 'C', status: 'Held', why: 'w'.repeat(120), tone: 'quiet', since: null, reportAt: null, held: null },
-      { name: 'D', status: 'Not running', why: null, tone: 'attention', since: 1, reportAt: 2, held: null },
+      { name: 'C', status: 'Held', why: 'w'.repeat(120), tone: 'quiet', since: null, reportAt: null },
+      { name: 'D', status: 'Not running', why: null, tone: 'attention', since: 1, reportAt: 2 },
     ])
   })
 
@@ -500,7 +609,7 @@ describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
     // 0.27.3: the work tool says "goal definition" and takes definition-draft (this branch carried 0.27.1, the main branch is at 0.27.2).
-    expect(MOD_VERSION).toBe('0.31.2')
+    expect(MOD_VERSION).toBe('0.32.0')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {

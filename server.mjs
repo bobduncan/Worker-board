@@ -40,14 +40,14 @@ import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
-import { cpuLimiter, logicalCores, sessionsOfCards } from './src/cpu.mjs'
+import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { boardView, exitAt, keptStart, lastStopOf, stopWhy, writeStop } from './src/boardSelf.mjs'
 import { START_ANEW, keep, startEnv } from './src/keeper.mjs'
-import { boardAddress, gamePortFor, workerPort, boardsFile, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
+import { boardAddress, gamePortFor, workerPort, boardsFile, readBoards, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
 import { findClaude, marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
 import { dayRecaps } from './src/dayRecap.mjs'
 import { dayOf, doneSteps, isDay, lastDays, recapText, stepsOfDay } from './src/work/doneDays.mjs'
@@ -124,7 +124,7 @@ import { stillTruePass } from './src/stillTrue.mjs'
 import { HANDOVER_COMMAND, envelopesOf, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
 import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
-import { REFUSED_MS, SUPERVISOR_RULES, SUPERVISOR_RULE_KEYS, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
+import { REFUSED_MS, SUPERVISOR_RULES, SUPERVISOR_RULE_KEYS, closeLeaked, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -780,6 +780,9 @@ async function main(args) {
   if (chosen.gamePort !== undefined) config.gamePort = chosen.gamePort
   /** The main folder's board, on the port it was not given by hand: the one that keeps its project's place in the list. */
   const isHome = boards !== null && chosen.isMain && chosen.why !== 'given'
+  // Leaked headless browsers (2026-11-13): the PC-wide rule runs on ONE board, the first on the PC's list of boards (the main project's,
+  // registered first), unless config.json's `browsersRule` says otherwise (true or false); never on a copy that only shows.
+  const firstBoard = boards === null ? null : (await readBoards(boards).catch(error => { console.error(`The list of boards could not be read: ${error.message}`); return [] }))[0]?.folder ?? null
   const register = () => registerHome(boards, { project: home, folder: HERE, port: config.port, gamePort: config.gamePort, asked })
   if (args.includes('--launch-entry')) {
     // This folder's entry for the preview: named after the folder, with the port it listens on.
@@ -876,6 +879,9 @@ async function main(args) {
   // The same holds for a copy in another folder than the repository's main one: a branch that is being built
   // must never take the chats away from the person's board, also not while that board is stopped.
   const isShowOnly = historyFrom !== undefined || chosen.isMain === false
+  // Chat 1's verifier of F8 (1): read here, after `isShowOnly` and `historyFrom` exist (before, every start on Windows threw in their
+  // temporal dead zone); `firstBoard` was read above, where the list of boards is.
+  const closesBrowsers = process.platform === 'win32' && !isShowOnly && historyFrom === undefined && (config.browsersRule ?? (firstBoard !== null && resolve(firstBoard).toLowerCase() === resolve(HERE).toLowerCase()))
   // Focus 2: the board that delivers writes the goal map, its brainstorms and the focus; a copy only a map of its own
   // (whole paths outside the project, by real paths, and not the live board's map), as its own work store. A copy's words
   // then wait in its own outbox: no chat takes from it.
@@ -2910,7 +2916,8 @@ async function main(args) {
     // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.
     // B760: by the state the board has, as the check of the call: work health's answer never waits for a whole read.
     if (supervisor !== null && ['health', 'incident', 'turn-ended'].includes(body?.action) && done.ok && laneRole(readState.last() ?? await readState(), checked.chat) === 'supervisor') {
-      afterAnswer(() => loops.run('supervisor-heard', () => supervisor.heard({ action: body.action, ok: true, session: typeof body.session === 'string' ? body.session : null, since: body.since ?? null })))
+      // Workers mod 0.32.0, point 5: `word`, the outbox id of the word the turn ran on, so the judge word that ended is the named one.
+      afterAnswer(() => loops.run('supervisor-heard', () => supervisor.heard({ action: body.action, ok: true, session: typeof body.session === 'string' ? body.session : null, since: body.since ?? null, word: typeof body.word === 'string' ? body.word : null })))
     }
     // Partner answers (2026-10-19): the partner's answer wakes the chat that asked, as the person's answer on the page does.
     // And the partner's hand-over of a look that Autopilot keeps for the recap: the worker its blocking ask held goes on (`wake`).
@@ -3654,7 +3661,8 @@ async function main(args) {
         // Signals 7c: the held step's time in the row's words, at this moment.
         now: clock(),
       })
-      return { ok: true, result: { messages: fit.messages, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }), ...(statuses.length === 0 ? {} : { statuses }) } }
+      // Workers mod 0.32.0, point 2: when this board started, so the mod clears no card on a verdict of the board's first two minutes.
+      return { ok: true, result: { messages: fit.messages, startedAt, ...(off.length === 0 ? {} : { off }), ...stop, ...(envelope === null ? {} : { handover: envelope }), ...(statuses.length === 0 ? {} : { statuses }) } }
     }),
     // B753: the board's hands in code. A running chat's Workers mod claims the start and wake words (whoever they are
     // addressed to) and, while resuming, a resume line for each chat that has not started; it sends each with the app's
@@ -4511,6 +4519,11 @@ async function main(args) {
           runs: runsNow,
         }),
         clean: one => cleanLeftover(one),
+        // Leaked headless browsers (2026-11-13): the PC's processes with their threads and CPU (cpu.mjs's listing) for the rule browsers,
+        // and the close of one (its tree, each process while its creation time holds; the tool's own folder); Windows only, and only on
+        // the PC's first board (chat 1's review: three boards on this PC would each close the same browser and split the leak count), the
+        // landing read right before the kill.
+        ...(closesBrowsers ? { processes: () => windowsProcesses.list(), closeBrowser: one => closeLeaked(one, { landing: () => { const held = lockHolder(join(HERE, 'data', 'landing.lock'), clock()); return held !== null && held.ageMs < STALE_LOCK_MS } }) } : {}),
         // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule
         // base-equal); workAction runs the check that the action answers
         bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),

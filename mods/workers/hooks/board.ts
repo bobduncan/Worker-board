@@ -33,7 +33,7 @@ export type TurnReport = { state: 'busy' | 'idle' | 'asking' | 'ended'; since: n
  */
 export type TurnWords = { typed: TypedWord[]; word: string | null; turn: number | null }
 /** 8c: a word of ours typed into the chat: the outbox id, the text exactly as submitted, and whether the submit said it entered. */
-export type TypedWord = { id: string; text: string; isEntered: boolean }
+export type TypedWord = { id: string; text: string; isEntered: boolean; isEnvelope?: boolean; run?: string; at?: number }
 export const NO_TURN_WORDS: Readonly<TurnWords> = Object.freeze({ typed: [], word: null, turn: null })
 /** 8c: the most words kept on their way; the oldest goes first (a word whose turn never came, its prompt held by the app). */
 export const TYPED_MOST = 20
@@ -41,10 +41,27 @@ export const TYPED_MOST = 20
 const sameWords = (a: unknown, b: unknown): boolean => String(a ?? '').replace(/\s+/g, ' ').trim() === String(b ?? '').replace(/\s+/g, ' ').trim()
 
 /** 8c: a word of ours about to be submitted (a take's message or an envelope's line), after those before it: outbox order. */
-export function wordTyping(words: TurnWords, id: string, text: string): TurnWords {
+export function wordTyping(words: TurnWords, id: string, text: string, isEnvelope = false, stamp: { run?: string; at?: number } = {}): TurnWords {
   if (words.typed.some(one => one.id === id)) return words
-  return { ...words, typed: [...words.typed, { id, text, isEntered: false }].slice(-TYPED_MOST) }
+  // Chat 1's verifier 2 (finding 8): the process run that typed it and when, so a word restored from the store is known as another process's.
+  return { ...words, typed: [...words.typed, { id, text, isEntered: false, ...(isEnvelope ? { isEnvelope: true } : {}), ...(typeof stamp.run === 'string' ? { run: stamp.run } : {}), ...(Number.isFinite(stamp.at) ? { at: stamp.at } : {}) }].slice(-TYPED_MOST) }
 }
+
+/**
+ * Chat 1's verifier 2 (finding 8): at a new process's FIRST own turn, the words restored from the store that another process typed
+ * (`run` not this one's), not entered, and not in this prompt go: the app's queue is first in, first out, so a queue that survived
+ * runs before anything typed afresh; what the first prompt does not hold never ran (the app's queue was lost with the process) and
+ * would else stay queued for ever and take the next same-text word's credit.
+ */
+export function restoredDropped(words: TurnWords, text: string, run: string): TurnWords {
+  const inPrompt = new Set(wordsIn(words, text))
+  // A restored word with a fresh twin (the same text typed by this process) gave way to it: the fresh one is the one that ran.
+  const fresh = new Set(words.typed.filter(one => one.run === run).map(one => normal(one.text)))
+  return { ...words, typed: words.typed.filter(one => one.run === run || one.isEntered || (inPrompt.has(one.id) && !fresh.has(normal(one.text)))) }
+}
+
+/** 0.32.0: the take words (not an envelope's line, whose outcome is its own) among `ids`, as `wordsIn` names them. */
+export const takeWordsOf = (words: TurnWords, ids: string[]): string[] => ids.filter(id => words.typed.find(one => one.id === id)?.isEnvelope !== true)
 
 /** 8c: the submit of a word resolved: entered (no drop) it stays until its turn starts; dropped or refused it never runs. */
 export function wordSettled(words: TurnWords, id: string, isEntered: boolean): TurnWords {
@@ -62,7 +79,9 @@ export function wordSettled(words: TurnWords, id: string, isEntered: boolean): T
  */
 export function turnBegan(words: TurnWords, text: string, now: number): TurnWords {
   // 0.31.0, Task 6: the app may merge several queued prompts of ours into one turn's prompt: every word whose text the
-  // prompt holds entered with it; the turn is named by the first of them in outbox order.
+  // prompt holds entered with it; the turn is named by the first of them in outbox order. 0.32.0: of two open words with the SAME
+  // text (a repeated "work next" line) the oldest entered (the stretch is one of theirs: no guess which, so the oldest, in outbox
+  // order, as the app queues them); a clash of different texts (one inside another) names none, and both stay on their way.
   const inPrompt = new Set(wordsIn(words, text))
   const at = words.typed.findIndex(one => inPrompt.has(one.id))
   if (at < 0) return { typed: words.typed, word: null, turn: now }
@@ -82,16 +101,118 @@ const normal = (value: unknown): string => String(value ?? '').replace(/\s+/g, '
  * stand inside the person's own line is never counted entered.
  */
 export function wordsIn(words: TurnWords, text: string): string[] {
+  const hits = hitsIn(words, text)
+  const entered = new Set(hits.filter(one => !one.clashes).map(one => one.id))
+  // Twins (the same text): as many of the oldest as the prompt holds copies of the text (the verifier: a prompt that merged two identical
+  // lines enters both), when no hit of another text overlaps them; round 4: reported entered too (a twin the previous process typed has
+  // no submit of its own to report it), as `turnBegan` takes them.
+  const groups = new Map<string, WordHit[]>()
+  for (const hit of hits.filter(one => one.clashes)) groups.set(hit.text, [...(groups.get(hit.text) ?? []), hit])
+  for (const [own, same] of groups) {
+    if (same.length < 2 || hits.some(other => other.clashes && other.text !== own && same.some(hit => overlaps(hit, other)))) continue
+    // Chat 1's verifier: a copy that stands inside a longer hit of another text (the envelope's line) is that hit's, not a twin's.
+    for (const hit of same.slice(0, occurrencesOutside(normal(text), own, hits.filter(other => other.text !== own && other.len > own.length && !other.clashes)))) entered.add(hit.id)
+  }
+  return words.typed.filter(one => entered.has(one.id)).map(one => one.id)
+}
+
+/** 0.32.0: a word found in the prompt: where (`at`, its normalised length `len`), and whether another open word's hit overlaps it. */
+type WordHit = { id: string; at: number; len: number; text: string; clashes: boolean }
+
+/**
+ * 0.32.0 (chat 1's review): a word counts only with its WHOLE text in the prompt; a long one (over LONG_WORD_CHARS) by its first
+ * LONG_WORD_CHARS and its last LONG_WORD_TAIL characters both in it, the tail after the head (searched from where it can start, so a
+ * word of 201 to 279 characters matches too). Where one stretch of the prompt matches two open words (the same opening: two "work
+ * next" lines; a word inside another's text), the hits overlap and both are marked `clashes`: neither is reported, never a guess;
+ * `turnBegan` names the oldest of identical texts all the same (two identical words would else stay queued for ever).
+ */
+function hitsIn(words: TurnWords, text: string): WordHit[] {
   const prompt = normal(text)
   if (prompt === '') return []
-  return words.typed.filter(one => {
+  const hits = words.typed.map(one => {
     const own = normal(one.text)
-    return own !== '' && (sameWords(one.text, text) || (own.length >= MERGED_MIN_CHARS && prompt.includes(own)))
-  }).map(one => one.id)
+    if (own === '') return null
+    if (sameWords(one.text, text)) return { id: one.id, at: 0, len: own.length, text: own, clashes: false }
+    if (own.length < MERGED_MIN_CHARS) return null
+    if (own.length <= LONG_WORD_CHARS) {
+      const at = prompt.indexOf(own)
+      return at < 0 ? null : { id: one.id, at, len: own.length, text: own, clashes: false }
+    }
+    const at = prompt.indexOf(own.slice(0, LONG_WORD_CHARS))
+    if (at < 0) return null
+    const tailAt = prompt.indexOf(own.slice(-LONG_WORD_TAIL), at + Math.max(0, Math.min(LONG_WORD_CHARS, own.length - LONG_WORD_TAIL)))
+    return tailAt < 0 ? null : { id: one.id, at, len: tailAt + LONG_WORD_TAIL - at, text: own, clashes: false }
+  }).filter((one): one is WordHit => one !== null)
+  // Chat 1's verifier 2 (finding 8): a hit that IS the whole prompt wins over a head-and-tail hit of another word on the same stretch (a
+  // stale long word whose head and tail match this prompt's: its own text is not in it). Twins of the whole prompt stay twins.
+  const whole = hits.filter(hit => hit.at === 0 && hit.len === prompt.length && hit.text === prompt)
+  const trimmed = whole.length === 0 ? hits : hits.filter(hit => hit.text === prompt || !whole.some(other => overlaps(hit, other)))
+  // The verifier of 0.32.0: a hit wholly inside a LONGER hit whose text occurs nowhere else in the prompt gives way to it (a take word
+  // "work: B13 is yours; run work next" inside the envelope's line that carries it: the envelope's turn is the envelope's); a hit that
+  // is the whole prompt always wins.
+  // Round 4: an inner hit whose text stands outside the longer hit too is placed THERE (the envelope first, the take word after it:
+  // both enter), so it overlaps the longer hit no more.
+  const inside = (hit: WordHit, outer: WordHit): boolean => outer !== hit && outer.len > hit.len && outer.at <= hit.at && hit.at + hit.len <= outer.at + outer.len
+  const kept = trimmed.map(hit => {
+    const outer = trimmed.find(other => inside(hit, other))
+    if (outer === undefined) return hit
+    const at = outsideAt(prompt, hit.text, outer)
+    return at < 0 ? null : { ...hit, at, len: hit.text.length }
+  }).filter((one): one is WordHit => one !== null)
+  return kept.map(one => ({ ...one, clashes: kept.some(other => other !== one && overlaps(one, other)) }))
 }
+
+const overlaps = (a: WordHit, b: WordHit): boolean => a.at < b.at + b.len && b.at < a.at + a.len
+/** Where `text` stands in `prompt` outside the stretch of `outer`, -1 for nowhere. */
+function outsideAt(prompt: string, text: string, outer: WordHit): number {
+  for (let at = prompt.indexOf(text); at >= 0; at = prompt.indexOf(text, at + 1)) if (at + text.length <= outer.at || at >= outer.at + outer.len) return at
+  return -1
+}
+/**
+ * How many times `text` stands in `prompt`, without overlap and outside every stretch of `outers`; a long text (over LONG_WORD_CHARS)
+ * the way `hitsIn` finds it, by its head with its tail after it (chat 1's verifier 2, finding 14: merged long twins whose middle the
+ * app re-wrapped would else count zero).
+ */
+function occurrencesOutside(prompt: string, text: string, outers: readonly WordHit[]): number {
+  let count = 0
+  const isOutside = (at: number, len: number) => !outers.some(outer => at >= outer.at && at + len <= outer.at + outer.len)
+  if (text.length <= LONG_WORD_CHARS) {
+    for (let at = prompt.indexOf(text); at >= 0; at = prompt.indexOf(text, at + text.length)) if (isOutside(at, text.length)) count += 1
+    return count
+  }
+  const head = text.slice(0, LONG_WORD_CHARS)
+  const tail = text.slice(-LONG_WORD_TAIL)
+  for (let at = prompt.indexOf(head); at >= 0; at = prompt.indexOf(head, at + 1)) {
+    const tailAt = prompt.indexOf(tail, at + Math.max(0, Math.min(LONG_WORD_CHARS, text.length - LONG_WORD_TAIL)))
+    if (tailAt < 0) break
+    if (isOutside(at, tailAt + LONG_WORD_TAIL - at)) count += 1
+    at = tailAt + LONG_WORD_TAIL - 1
+  }
+  return count
+}
+
+/** 0.32.0: a word longer than this is matched by its head and its tail (the app may re-wrap the middle of a merged prompt). */
+export const LONG_WORD_CHARS = 200
+/** 0.32.0: how much of a long word's end must be in the prompt too. */
+export const LONG_WORD_TAIL = 80
 
 /** Task 6, the whole-branch review: the shortest normalised word text that counts as one part of a longer merged prompt. */
 export const MERGED_MIN_CHARS = 24
+
+/**
+ * 0.32.0, point 4 of the release: what a turn's end left for an envelope that comes with a LATER take (the board may answer the
+ * turn's end at once and hand the envelope out at the next take): the turn's answer, whether it asked, the board's answer to its
+ * end, the step it reported, and the prompt and turn counts of that moment. `contextForTake` gives it to the envelope only while
+ * no new prompt or turn came since (`now` the counts at the take) and the envelope's clear names the same step (or no step at all);
+ * else null, and the take's empty context stands as before.
+ */
+export type TurnContext = { answer: string; asked: boolean; ended: Record<string, unknown> | null; step: string | null; since: { prompts: number; turn: number } }
+export function contextForTake(last: TurnContext | null, envelope: { clear: { step: string | null } | null; restart: boolean } | null, now: { prompts: number; turn: number }): TurnContext | null {
+  if (last === null || envelope === null) return null
+  if (last.since.prompts !== now.prompts || last.since.turn !== now.turn) return null
+  if (envelope.clear !== null && envelope.clear.step !== last.step) return null
+  return last
+}
 
 /** 8c: a /clear: the new conversation runs no word of the old one's queue, and no turn has run on a word in it yet. */
 export function wordsCleared(words: TurnWords): TurnWords {
@@ -116,7 +237,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.31.2'
+export const MOD_VERSION = '0.32.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -241,9 +362,11 @@ export function parseWhoami(text: string): Whoami | null {
  */
 export function parseTaken(text: string): TakenAnswer {
   const raw = parsed(text)
-  const taken: TakenAnswer = { messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: false }
+  const taken: TakenAnswer = { messages: [], refused: [], why: {}, clear: null, off: [], stop: null, handover: null, statuses: null, isAnswer: false, boardStartedAt: null }
   if (!isRecord(raw)) return taken
   taken.isAnswer = true
+  // 0.32.0, point 2: when the board started (its first two minutes are its start window: the state is still being built).
+  taken.boardStartedAt = typeof raw.startedAt === 'number' && Number.isFinite(raw.startedAt) ? raw.startedAt : null
   // 2c (0.28.0): the board's status of every chat of its list (what its page draws), for the Workers pane. Null when the answer
   // has none (an older board); fields not named here are ignored.
   taken.statuses = parseStatuses(raw.statuses)
@@ -280,6 +403,8 @@ export type TakenAnswer = {
   messages: Taken[]
   refused: string[]
   why: Record<string, string>
+  /** 0.32.0: when the board started, or null (an older board). */
+  boardStartedAt: number | null
   clear: OwedClear | null
   off: string[]
   stop: StopAsk | null
@@ -314,7 +439,9 @@ export function parseStatuses(raw: unknown): BoardStatus[] | null {
       tone: one.tone === 'attention' ? 'attention' : 'quiet',
       since: finiteOrNull(one.since),
       reportAt: finiteOrNull(one.reportAt),
-      held: parseHeld(one.held),
+      // Chat 1's verifier of 0.32.0 (G2): an entry without `held` stays without (an older board, a board whose store read failed, a chat the
+      // board holds no step for): no verdict; null is the verdict "holds nothing".
+      ...(one.held === undefined ? {} : { held: parseHeld(one.held) }),
     })
     if (out.length >= STATUSES_MOST) break
   }
@@ -566,6 +693,8 @@ export type PendingClear = { ticket: string; from: string; step: string | null; 
  * record itself is kept under its session (`pendingClearKey`): `$.store` is one file for every chat of the plugin.
  */
 export const pendingClearKey = (session: string): string => `clear-pending:${session}`
+/** 0.32.0, point 1: the store key of the typed words of ours on their way, per chat (its session). */
+export const typedWordsKey = (session: string): string => `typed-words:${session}`
 export const clearTicket = (run: number, count: number): string => `clear-${Math.round(run)}-${count}`
 const TICKET = /^clear-\d{1,16}-\d{1,9}$/
 
