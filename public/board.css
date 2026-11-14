@@ -2573,7 +2573,7 @@ button.needs-you:hover small, button.needs-you:focus-visible small { color: var(
 .run-next { --dot: var(--chip-sonnet); display: inline-flex; align-items: center; gap: 4px; color: var(--chip); }
 /* Simple's third cell: the time, with the chip under it, both at the right. On a phone the chip goes under the task instead,
    so the task keeps its room. */
-.simple-end { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 0; max-width: 150px; }
+.simple-end { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 0; max-width: 190px; }
 .simple-end .run-chip { justify-content: flex-end; }
 @media (max-width: 600px) {
   .simple-end { display: contents; }
@@ -2842,7 +2842,9 @@ body.is-resizing-rows { cursor: row-resize; user-select: none; }
 .simple-sub-head { margin: 14px 0 2px; color: var(--advisor); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
 .simple-task { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .simple-track.is-small { height: 5px; }
-.simple-left { white-space: nowrap; }
+/* eta-remaining (2026-11-11): the time words wrap inside the end column ("past its estimate since 14:44"), the quieter part under them. */
+.simple-left { white-space: normal; text-align: right; overflow-wrap: anywhere; }
+.simple-left .simple-of { display: block; }
 /* Needs your attention as today, without the backlog, the instructions, what is closed, and the order and closed switches. */
 #view-overview[data-mode="simple"] .inbox-top,
 #view-overview[data-mode="simple"] #needs .need.is-closed,

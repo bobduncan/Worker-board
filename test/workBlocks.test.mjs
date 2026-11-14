@@ -146,7 +146,8 @@ test('Open now, the person\'s example: 10 blocks, 3 reworked after an evaluation
   // T20.1: Block 8 had work before the round and its task B28 is under way: it is being reworked (nobody's card shows B28).
   assert.deepEqual(focus.openNow, [{ index: 2, title: 'Block 3', kind: 'rework' }, { index: 4, title: 'Block 5', kind: 'rework' }, { index: 7, title: 'Block 8', kind: 'rework', rework: { step: 'B28', state: 'in progress', worker: null, words: 'B28 · a worker is on it' } }])
   assert.deepEqual(focus.openNow.map(one => focus.parts[one.index].state), ['done', 'done', 'now'])
-  assert.deepEqual(focus.progress, { done: 9, total: 10, minutesLeft: 60 })
+  // eta-remaining (review D): Block 8 (1 h, B8 done, B28 under way with no Size) counts B28's share, half of it.
+  assert.deepEqual(focus.progress, { done: 9, total: 10, minutesLeft: 30 })
   // Each block has its done-when line in the state.
   assert.equal(focus.parts[2].doneWhen, 'line 3')
   // Round 1 (no evaluation yet): every block is in the list, as All work blocks.
@@ -356,7 +357,7 @@ test('the Focus page: the switch with its counts; All work blocks with each bloc
   try {
     await page.click('[data-tab="advice"]')
     assert.deepEqual(page.all('.focus-strip .focus-stage').map(one => one.children[1].textContent), ['The goal', 'Work blocks', 'The run'])
-    assert.equal(page.text('.focus-progress small'), '9 of 10 work blocks done · about 1 h left')
+    assert.equal(page.text('.focus-progress small'), '9 of 10 work blocks done · about 30 min left')
     assert.deepEqual(page.all('[data-focus-blocks]').map(one => [one.dataset.focusBlocks, one.textContent, one.getAttribute('aria-pressed')]), [['all', 'All work blocks9/10', 'true'], ['open', 'Open now2/3', 'false']])
     // All work blocks: today's run card, renamed, each block with its done-when line and its tasks counted.
     assert.equal(page.text('.focus-run h3'), 'All work blocks')
