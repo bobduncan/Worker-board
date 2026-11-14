@@ -1,0 +1,200 @@
+// F17 end to end on a running board (a copy on a made-up project in a temporary folder): the hands get no message job while the app
+// refuses their sends (the live refusal's text), and the scheduled courier's two routes carry a wake once.
+
+import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import test from 'node:test'
+import { fileURLToPath } from 'node:url'
+
+import { answer, typed } from '../fixtures/lines.mjs'
+import { foldOutbox } from '../src/store.mjs'
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const COPIED = ['server.mjs', 'run-game.mjs', 'start-board.mjs', 'package.json', 'src', 'public', 'roles', 'examples', 'fixtures']
+const NOW = Date.now()
+const MIN = 60_000
+
+const freePort = () => new Promise(done => {
+  const server = createServer().listen(0, '127.0.0.1', () => {
+    const { port } = server.address()
+    server.close(() => done(port))
+  })
+})
+
+function run(started, board, env) {
+  const child = spawn(process.execPath, [join(board, 'server.mjs')], { cwd: board, env: { ...process.env, CLAUDE_CONFIG_DIR: join(dirname(board), 'claude-config'), WORKER_BOARD_TICK_MS: '1000', ...env, WORKER_BOARD_CHILD: '1' }, windowsHide: true })
+  started.push(child)
+  return new Promise((done, fail) => {
+    let out = ''
+    const late = setTimeout(() => fail(new Error(`The board did not start: ${out}`)), 90_000)
+    const read = chunk => {
+      out += chunk
+      if (!/Worker board: http:\/\/127\.0\.0\.1:\d+\//.test(out)) return
+      clearTimeout(late)
+      done({ child, out: () => out })
+    }
+    child.stdout.on('data', read)
+    child.stderr.on('data', read)
+    child.once('exit', code => {
+      clearTimeout(late)
+      fail(new Error(`The board ended (${code}): ${out}`))
+    })
+  })
+}
+
+async function stop(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  const gone = new Promise(done => child.once('exit', done))
+  child.kill('SIGKILL')
+  await gone
+}
+
+async function until(check, what) {
+  for (const end = Date.now() + 60_000; Date.now() < end;) {
+    if (await check()) return
+    await new Promise(done => setTimeout(done, 200))
+  }
+  throw new Error(`Not within 60 s: ${what}`)
+}
+
+const REFUSAL = '{"deny":"PreToolUse:mcp__ccd_session_mgmt__send_message hook error: Not run: in auto mode Claude Desktop doesn\'t run this tool when a plugin\'s own code calls it. Have Claude make the call."}'
+const SPELL = NOW - 40 * MIN
+
+/**
+ * A board over a made-up project: Main and Worker 1 report idle (they run), Worker 2 never reported (asleep). `refused`: the wake record
+ * holds the live refusal of a hand's send (08:16's, at today's time). `lines` the outbox; `attempts` more attempts of Worker 2's spell.
+ */
+async function boardWith(t, { refused, lines = [], attempts = [] }) {
+  const dir = await mkdtemp(join(tmpdir(), 'board-carry-'))
+  const started = []
+  t.after(async () => {
+    await Promise.all(started.map(stop))
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+  const [board, project, app, transcripts] = ['board', 'project', 'app', 'transcripts'].map(name => join(dir, name))
+  for (const part of COPIED) await cp(join(ROOT, part), join(board, part), { recursive: true })
+  const put = async (path, text) => {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, text)
+  }
+  await put(join(board, 'data', 'outbox.jsonl'), lines.length === 0 ? '' : `${lines.map(line => JSON.stringify(line)).join('\n')}\n`)
+  const old = { path: 'message', at: NOW - 30 * MIN, by: 'Worker 1', jobId: `wake:${NOW - 31 * MIN}:Old`, sentAt: null, runBefore: null, verdict: 'failed', verdictAt: NOW - 30 * MIN, why: REFUSAL, step: null }
+  const wakes = { wakes: { ...(refused ? { Old: [{ spell: NOW - 31 * MIN, attempts: [old], turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}), ...(attempts.length > 0 ? { 'Worker 2': [{ spell: SPELL, attempts, turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}) } }
+  await put(join(board, 'data', 'wakes.json'), `${JSON.stringify(wakes)}\n`)
+  const chats = join(project, '.claude', 'chats')
+  await put(join(chats, 'list.json'), '{"prefix":"Game - ","main":"Main"}')
+  const appChat = (name, sessionId, cliSessionId) => JSON.stringify({ title: `Game - ${name}`, sessionId, cliSessionId, cwd: project, isArchived: false, createdAt: NOW - 600 * MIN, lastActivityAt: NOW - 2 * MIN })
+  for (const [name, sessionId, cli, role] of [['Main', 'local_main', 'main-id', 'main'], ['Worker 1', 'local_w1', 'w1-id', 'worker'], ['Worker 2', 'local_w2', 'w2-id', 'worker']]) {
+    await put(join(app, 'a', 'b', `${sessionId}.json`), appChat(name, sessionId, cli))
+    // Worker 2 wrote nothing lately (its session ended at SPELL): never read as running before its report comes.
+    if (name === 'Worker 2') continue
+    await put(join(transcripts, `${cli}.jsonl`), `${[typed(NOW - 8 * MIN, 'Status?'), answer(NOW - 7 * MIN, 'All fine.')].join('\n')}\n`)
+    await put(join(chats, `${cli}.json`), JSON.stringify({ name, role, state: 'waiting', task: null, at: NOW - MIN }))
+  }
+  const port = await freePort()
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'carry', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
+  const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc') })
+  const base = `http://127.0.0.1:${port}`
+  const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
+  const call = (path, body, headers = {}) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.27.1', ...headers }, body: JSON.stringify(body) })
+  const json = async (path, body) => {
+    const reply = await call(path, body)
+    const text = await reply.text()
+    assert.equal(reply.status, 200, text)
+    const parsed = JSON.parse(text)
+    return parsed.result ?? parsed
+  }
+  for (const [chat, session] of [['Main', 'main-id'], ['Worker 1', 'w1-id']]) await json('/api/bridge/report', { chat, session, report: { state: 'idle', since: NOW - 2 * MIN, seq: 1, run: 1 } })
+  // Worker 2's session ended at SPELL: it does not run (its spell).
+  await json('/api/bridge/report', { chat: 'Worker 2', session: 'w2-id', report: { state: 'ended', since: SPELL, seq: 1, run: 1 } })
+  const claim = async () => (await json('/api/bridge/hands', { chat: 'Worker 1', session: 'w1-id', mod: '0.27.1', can: ['send'] })).jobs ?? []
+  const words = async () => foldOutbox(await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8'))
+  const record = async () => JSON.parse(await readFile(join(board, 'data', 'wakes.json'), 'utf8'))
+  return { out, call, json, claim, words, record }
+}
+
+/** The page's word to wake Worker 2 (a B577 wake word): a hand's job, but only while the app runs the hands' sends. */
+const WAKE_WORD = { id: 'wakeword0000001', at: NOW - MIN, to: 'Main', ask: null, step: null, title: null, version: null, verdict: null, command: 'wake', about: 'Worker 2', text: 'The worker board holds words for you: run work next', state: 'waiting' }
+
+test('while the app refuses the hands\' sends, no hand gets a message job; without the refusal it does', { timeout: 240_000 }, async t => {
+  const refused = await boardWith(t, { refused: true, lines: [WAKE_WORD] })
+  for (let at = 0; at < 3; at += 1) {
+    assert.deepEqual((await refused.claim()).filter(job => job.id === WAKE_WORD.id), [], `claim ${at}`)
+    await new Promise(done => setTimeout(done, 300))
+  }
+  const free = await boardWith(t, { refused: false, lines: [WAKE_WORD] })
+  let jobs = []
+  await until(async () => {
+    jobs = (await free.claim()).filter(job => job.id === WAKE_WORD.id)
+    return jobs.length > 0
+  }, 'the hand gets the wake word')
+  assert.equal(jobs[0].chat, 'Worker 2')
+  // Without the refusal the board writes no word for a model: the hands carry the wakes.
+  await new Promise(done => setTimeout(done, 3000))
+  assert.deepEqual((await free.words()).filter(one => one.command === 'wake-carry'), [])
+})
+
+test('the courier: wakes-due lists the courier\'s word and keeps it until wakes-sent; never a word a carrier took; nothing due is an empty list', { timeout: 240_000 }, async t => {
+  const word = { id: 'carry00000000001', at: NOW - MIN, to: 'the courier', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'The worker board holds words for you: run work next', text: 'Wake Worker 2 for the worker board', state: 'waiting' }
+  const taken = { ...word, id: 'carry00000000002', to: 'Worker 1' }
+  const attempt = id => ({ path: 'message', at: NOW - MIN, by: id === word.id ? 'the courier' : 'Worker 1', jobId: id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: id === word.id ? 'courier' : 'model' })
+  const { call, json, words, record } = await boardWith(t, { refused: true, lines: [word, taken, { id: taken.id, state: 'taken', takenBy: 'Worker 1', takenAt: NOW - 30_000 }], attempts: [attempt(word.id)] })
+  // Only the board's key.
+  assert.equal((await call('/api/bridge/wakes-due', {}, { 'X-Board-Key': 'no' })).status, 403)
+  const due = { id: word.id, chat: 'Worker 2', session: 'local_w2', text: 'The worker board holds words for you: run work next' }
+  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [due], JSON.stringify((await words()).find(one => one.id === word.id)))
+  assert.equal((await words()).find(one => one.id === word.id).takenBy, 'the courier')
+  // Asked again before it said sent: the same list (idempotent), the word not carried twice by anyone else.
+  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [due])
+  assert.deepEqual((await json('/api/bridge/wakes-sent', { ids: [word.id, taken.id, 'nothing'] })), { closed: 1 })
+  assert.deepEqual((await json('/api/bridge/wakes-sent', { ids: [word.id] })), { closed: 0 }, 'said twice: once')
+  assert.equal((await words()).find(one => one.id === word.id).state, 'delivered')
+  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])
+  // The record is written a moment after a change (WAKES_SAVE_MS): the attempt sent, by the courier.
+  await until(async () => typeof (await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === word.id)?.sentAt === 'number', 'the attempt sent')
+  assert.equal((await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === word.id).carry, 'courier')
+})
+
+test('A on the board: the carry word goes into its carrier at its take, never to a hand; its attempt counts as sent from then', { timeout: 240_000 }, async t => {
+  const word = { id: 'carry00000000003', at: NOW - MIN, to: 'Main', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'The worker board holds words for you: run work next', text: 'Wake Worker 2 for the worker board: send_message with session_id "local_w2"', state: 'waiting' }
+  const attempt = { path: 'message', at: NOW - MIN, by: 'Main', jobId: word.id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: 'model' }
+  const { json, claim, words, record } = await boardWith(t, { refused: true, lines: [word], attempts: [attempt] })
+  assert.deepEqual((await claim()).filter(job => job.id === word.id), [], 'no hand takes it')
+  const taken = await json('/api/bridge/take', { chat: 'Main', session: 'main-id' })
+  assert.deepEqual((taken.messages ?? []).filter(one => one.id === word.id).map(one => one.text), [word.text])
+  assert.equal((await words()).find(one => one.id === word.id).state, 'taken')
+  await until(async () => typeof (await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === word.id)?.sentAt === 'number', 'the attempt sent at the take')
+})
+
+test('the real case on the board: Worker 2 asleep with an answer waiting, the hands\' sends refused: ONE carry word to an idle running chat, none twice', { timeout: 240_000 }, async t => {
+  const answerWord = { id: 'answer000000001', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
+  const { claim, words } = await boardWith(t, { refused: true, lines: [answerWord] })
+  let carried = []
+  await until(async () => {
+    carried = (await words()).filter(one => one.command === 'wake-carry')
+    return carried.length > 0
+  }, 'a carry word')
+  assert.equal(carried.length, 1)
+  assert.ok(['Main', 'Worker 1'].includes(carried[0].to), carried[0].to)
+  assert.deepEqual([carried[0].about, carried[0].session, carried[0].forModel], ['Worker 2', 'local_w2', true])
+  assert.deepEqual((await claim()).filter(job => job.chat === 'Worker 2'), [], 'no hand job beside it')
+  await new Promise(done => setTimeout(done, 3000))
+  assert.equal((await words()).filter(one => one.command === 'wake-carry').length, 1, 'never a second word for the spell')
+})
+
+test('the same case without the refusal: no carry word, the next hand gets the message job', { timeout: 240_000 }, async t => {
+  const answerWord = { id: 'answer000000001', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
+  const { claim, words } = await boardWith(t, { refused: false, lines: [answerWord] })
+  await new Promise(done => setTimeout(done, 4000))
+  assert.deepEqual((await words()).filter(one => one.command === 'wake-carry'), [])
+  let jobs = []
+  await until(async () => {
+    jobs = (await claim()).filter(job => job.chat === 'Worker 2')
+    return jobs.length > 0
+  }, 'the hand\'s message job')
+  assert.equal(jobs[0].to, 'local_w2')
+})

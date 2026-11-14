@@ -110,8 +110,9 @@ import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/code
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, carrierWords, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
+import { COURIER, carryCloses, dueOf, isCarryWord, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
@@ -278,6 +279,9 @@ export const POST_ROUTES = Object.freeze({
   // B753: the board's hands in code: a running chat's Workers mod claims the start, wake and resume jobs and says what it sent.
   '/api/bridge/hands': { kind: 'bridge', guard: 'lock' },
   '/api/bridge/hands-done': { kind: 'bridge', guard: 'lock' },
+  // F17: the scheduled courier (tools/wake-courier.md): the wakes no awake chat carries, and its word that it sent them.
+  '/api/bridge/wakes-due': { kind: 'bridge', guard: 'lock' },
+  '/api/bridge/wakes-sent': { kind: 'bridge', guard: 'lock' },
   '/api/bridge/work': { kind: 'bridge', guard: 'lock' },
   '/api/bridge/typed': { kind: 'bridge', guard: 'lock' },
   '/api/bridge/report': { kind: 'bridge', guard: 'free', why: 'the chat\'s turn state, kept in memory only; the hand-out it wakes runs on the holder only' },
@@ -343,7 +347,8 @@ export function createBoard({
   report = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   whoami = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   hands = async () => ({ ok: false, status: 404, why: 'Not here.' }), handsDone = async () => ({ ok: false, status: 404, why: 'Not here.' }),
-  design = async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  wakesDue = async () => ({ ok: false, status: 404, why: 'Not here.' }), wakesSent = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  design =async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bugs = async () => ({ ok: false, status: 404, why: 'Not here.' }), bugPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   talkPicture = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   plan = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -433,7 +438,8 @@ export function createBoard({
       // an older one. A body's own is not taken. Fix 0.31.0: on every route, the typed one too (bridge.mjs `withModHeader`).
       parsed = withModHeader(parsed, req.headers['x-workers-mod'])
       const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : pathname === '/api/bridge/report' ? report : pathname === '/api/bridge/whoami' ? whoami
-        : pathname === '/api/bridge/hands' ? hands : pathname === '/api/bridge/hands-done' ? handsDone : typed)(parsed)
+        : pathname === '/api/bridge/hands' ? hands : pathname === '/api/bridge/hands-done' ? handsDone
+          : pathname === '/api/bridge/wakes-due' ? wakesDue : pathname === '/api/bridge/wakes-sent' ? wakesSent : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
     }
 
@@ -2659,6 +2665,38 @@ async function main(args) {
     if (opened.length > 0) wakesChanged()
     return opened.length > 0
   }
+  /** F17: the record's attempt of a carry word (its job id is the word's id), or null. */
+  const carriedAttemptOf = word => (wakes.wakes.get(word.about) ?? []).flatMap(entry => entry.attempts).findLast(one => one.jobId === word.id) ?? null
+  /**
+   * F17 (src/wakeCarry.mjs): first the carry words whose purpose ended are closed (a carrier that can no longer carry gives its attempt
+   * back); then, while the app refuses the hands' sends and the person does not pause, every chat that needs a wake whose next path is the
+   * message gets ONE word, to an awake chat's model or the courier, claimed in the record in the same tick as the word is made. The
+   * refusal (`{ since }`) or null.
+   */
+  const carryPass = async (state, now) => {
+    const lanes = boardLanes(state)
+    let changed = false
+    for (const close of carryCloses({ outbox: store.outbox(), lanes, attemptOf: carriedAttemptOf })) {
+      const word = store.outbox().find(one => one.id === close.id)
+      if (word === undefined || !(await store.update(close.id, { state: close.state, why: close.why, closedAt: now, ...(close.state === 'delivered' ? { deliveredAt: now } : {}) }))) continue
+      if (close.giveBack) wakeGivenBack(wakes, word.about, word.id)
+      changed = true
+    }
+    const refused = sendsRefusedOf(wakes, store.outbox(), now)
+    if (refused !== null && !isHolding(state.pause)) {
+      const outbox = store.outbox().filter(message => !isLate(message, now, keep))
+      const needs = wakeNeeds(state, outbox, { resumeList: await resumeListOf(state), canLaunch: canLaunchNow() })
+      // Claimed in the record before any await (`carryPlan`): a hand or a second pass in between finds the claim.
+      const words = carryPlan(wakes, { needs, lanes, main: state.restart?.main ?? null, now, newId: () => randomBytes(8).toString('hex'), runOf: chat => reports?.get(chat)?.run ?? null })
+      if (words.length > 0) {
+        changed = true
+        await store.sayAll(words)
+      }
+      for (const word of words) console.log(`Wake: the app refuses the hands' sends: the message to ${word.about} goes through ${carrierWords(word.to)} at ${timeOf(now)}.`)
+    }
+    if (changed) wakesChanged()
+    return refused
+  }
   const wakePass = async (given = null) => {
     if (isClosing || isOpening || bridgeKey === null || isShowOnly) return
     if (!(await ownsLoops())) return
@@ -2681,6 +2719,8 @@ async function main(args) {
     }
     if (reopenWakes(state)) changed = true
     if (changed) wakesChanged()
+    // F17: while the app refuses the hands' sends, a wake's message goes as one word for an awake chat's model (or the courier's).
+    const refused = await carryPass(state, now)
     if (!canOpen || isHolding(state.pause)) return
     // The review of 2026-11-02 (4a): a launch the board could not make waits until its program and folder pass again.
     if (openBlocked !== null) {
@@ -2692,7 +2732,8 @@ async function main(args) {
     const nobody = gone ? nobodyRunsSpell(state, outbox) : null
     const needs = wakeNeeds(state, outbox, { resumeList: await resumeListOf(state), canLaunch: canLaunchNow() })
     // One launch per check (src/wake.mjs `launchPlan`): the next waits for the next minute's look.
-    const plan = launchPlan(wakes, { needs, nobody, senderClaims: !gone, target: chatToOpen(state, outbox) })
+    // F17: a carried message is a sender too (a model's turn, or the courier): the launch waits for its verdict, as for a hand's.
+    const plan = launchPlan(wakes, { needs, nobody, senderClaims: !gone || refused !== null, target: chatToOpen(state, outbox) })
     if (plan !== null) await launchFor({ target: { chat: plan.chat, session: plan.session }, key: plan.key, spell: plan.spell, now })
   }
   // The start-up check (2026-11-05, src/startupCheck.mjs and startupCheckRun.mjs): one moment where the board re-reads reality
@@ -3509,6 +3550,10 @@ async function main(args) {
       const taken = await takeFor({ dir: workDir, outbox: store, state: await readState(), now: clock(), keep, chat: checked.chat, only })
       // What was taken shows as on its way at once.
       if (taken.length > 0) readState.reset()
+      // F17: a carry word handed to its carrier: the message's minutes count from now (its model makes the one call in this turn).
+      let carried = false
+      for (const message of taken.filter(isCarryWord)) if (wakeSent(wakes, message.about, message.id, clock()) !== null) carried = true
+      if (carried) wakesChanged()
       const handed = taken.map(message => ({ id: message.id, text: messageText(message, timeOf, path => inProject(config.project, path)) }))
       // B532: a word longer than the Workers mod types is never handed out: it fails at once, for good, with its why
       // (2026-10-24: the goal guard's evaluate word of 9459 characters was refused and nobody saw why).
@@ -3557,9 +3602,12 @@ async function main(args) {
       const claimSince = Number.isFinite(before?.at) && clock() - before.at < HANDS_GONE_MS ? before.since ?? before.at : clock()
       const claim = { can: [...can].slice(0, 10), at: clock(), mod: typeof body?.mod === 'string' ? body.mod : null, since: claimSince }
       codeClaims.set(checked.chat, claim)
-      const canSend = maySend(claim)
+      // F17: while the app refuses the hands' sends no hand gets a message job (the carry pass's words go to a model instead); the
+      // claim's own facts (the board-wide launch's verdict below) still count it as a sender.
+      const mayCode = maySend(claim)
+      const canSend = mayCode && sendsRefusedOf(wakes, store.outbox(), clock()) === null
       // Change 4 (C.3): a hand that may send claims after the board-wide launch: that launch woke a chat.
-      if (canSend) {
+      if (mayCode) {
         const board = wakeHeardClaim(wakes, claim.at, clock())
         if (board !== null) {
           sayVerdict(BOARD_KEY, board)
@@ -3686,6 +3734,41 @@ async function main(args) {
       if (taken.length > back.length) readState.reset()
       // The Product owner (2026-10-31): its jobs first, the wake job too.
       return { ok: true, result: { jobs: ownerFirst(jobs, state.productOwner?.name ?? null) } }
+    }),
+    // F17 (B, the fallback): the scheduled courier (tools/wake-courier.md) asks for the wakes no awake chat carries. Each is the courier's
+    // from then on (taken by it: no carrier types it any more, and the same list comes back until it says sent); nothing due: an empty list.
+    wakesDue: counted(async () => {
+      if (isShowOnly || bridgeKey === null) return { ok: true, result: { wakes: [] } }
+      const now = clock()
+      const state = readState.last() ?? await readState()
+      const anyRuns = boardLanes(state).some(lane => lane.isLeftover !== true && lane.isRunning === true)
+      const due = dueOf(store.outbox(), now, { anyRuns })
+      let changed = false
+      for (const one of due) {
+        const word = store.outbox().find(message => message.id === one.id)
+        if (word?.state !== 'waiting') continue
+        await store.update(word.id, { state: 'taken', takenBy: COURIER, takenAt: now })
+        const attempt = carriedAttemptOf(word)
+        if (attempt !== null && attempt.verdict === null) Object.assign(attempt, { by: COURIER, carry: 'courier' })
+        changed = true
+      }
+      if (changed) wakesChanged()
+      return { ok: true, result: { wakes: due } }
+    }),
+    // F17: the courier sent these (`ids`): each closed delivered once, its attempt sent (the verdict waits for the chat's own report).
+    wakesSent: counted(async body => {
+      const ids = Array.isArray(body?.ids) ? body.ids.filter(id => typeof id === 'string').slice(0, 50) : []
+      const now = clock()
+      let closed = 0
+      for (const id of ids) {
+        const word = store.outbox().find(message => message.id === id)
+        if (!isCarryWord(word) || word.state !== 'taken' || word.takenBy !== COURIER) continue
+        await store.update(id, { state: 'delivered', deliveredAt: now, why: 'the courier sent it' })
+        wakeSent(wakes, word.about, id, now)
+        closed += 1
+      }
+      if (closed > 0) wakesChanged()
+      return { ok: true, result: { closed } }
     }),
     handsDone: counted(async body => {
       const { checked } = await checkFresh(body)

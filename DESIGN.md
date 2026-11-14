@@ -6108,6 +6108,36 @@ wake job and its claim), `test/work/handover.test.mjs` and `test/work/handoverBo
 the real envelopes eb4fe8aada155b05 and 93ee0a904d02d2dc), `test/supervisor/handoverRules.test.mjs` (the alarms),
 `test/asleepAfterRestart.test.mjs` (the lane's words, the notice, the ⚙ row).
 
+### Wakes without code sends (F17, 2026-11-14)
+
+Chat 1's brief (`.claude/plans/2026-11-14-f17-wakes-brief.md`, the person's "Both (A + B)"). Since the app's update of 08:10
+(5.11492.5.0) auto mode refuses the Workers mod's own `send_message` calls too ("...send_message hook error: Not run: in auto mode
+Claude Desktop doesn't run this tool when a plugin's own code calls it. Have Claude make the call."). Only a model turn may send to
+another chat now; the refusal itself is never worked around (no mode or permission change, no other code path).
+
+- **The refusal** (`src/wakeCarry.mjs` `sendsRefusedOf`): a message attempt of the record that failed on it (`failedToSend` keeps it
+  marked `refused`, in plain words: "the app no longer lets the board's code send to a chat", never the raw hook text), or a start or
+  wake word that failed on it. It stands until a hand's message attempt made after it is sent, or `PROBE_MS` (24 h) passed: then the
+  next wake goes to a hand once more, and that job is the probe. While it stands no hand gets a message job (the hands route).
+- **A, the main route** (`wake.mjs` `carryPlan`, server.mjs `carryPass` in the wake pass): every need whose next path is the message
+  gets ONE `wake-carry` word (`forModel`: no hand takes it), its attempt claimed in the same step (`carry: 'model'`), so never two
+  for a spell. It goes to an awake board chat (`carrierOf`): a running idle one first, then the main chat, then any running one;
+  never the target, never one whose board link is gone (not running, unjoined, a leftover, removed or being removed, suspended,
+  without an app id). Its own mod types it (no "typed on the worker board" mark: it is the board's word); its model makes the one
+  `send_message` call. The take marks the attempt sent; the target's own report is the verdict, as for any wake. A carried
+  attempt has 10 min to be typed or carried and 5 min for the report, then the launch may follow. The lane says "waking through
+  Worker 3's turn", then "woken through Worker 3's turn".
+- **B, the fallback** (`tools/wake-courier.md`, a scheduled task chat 1 makes): with no carrier the word is the courier's
+  (`to: 'the courier'`); a carrier's word not taken within 3 min is too, and every waiting one when no chat runs. `POST
+  /api/bridge/wakes-due` (the board key) lists them and marks each the courier's (the same list comes back until it says sent;
+  never a word a carrier took); `POST /api/bridge/wakes-sent` with the ids closes each once and marks its attempt sent.
+- **Closing**: a carry word is delivered once its target woke, dropped once the target runs again or its attempt ended; a carrier
+  that can no longer carry gives its attempt back unspent (the next pass picks another). Rule 8 leaves carry words to the record.
+
+Tests: `test/wakeCarry.test.mjs` (the live refusal, the carrier, the plan, the windows, the courier's list, the closes, the file),
+`test/wakeCarryBoard.test.mjs` (on a running board copy: the hands gate, the courier's routes, the take, the real case with and
+without the refusal), `test/hands.test.mjs`.
+
 ## A lane's own chat, and one way back for a held step (B986, X140, 2026-11-04)
 
 **The case.** Worker 4 paused for the week's limit at 10:13 holding B968 (checkpoint c3186b6). The board was off
