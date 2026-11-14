@@ -63,7 +63,8 @@ test('its row: Link gone with the one way out, before the hand-over\'s Did not a
     const found = statusOf({ lane: { ...lane, modGone: { at: AGAIN }, report: { state: 'busy', at: AGAIN - 10_000 } }, handover: { state: 'noanswer', why: 'did not answer' }, now })
     assert.deepEqual([found.status, found.why, found.since], [STATUSES.LINK_GONE, MOD_GONE_WHY, AGAIN], lane.state)
   }
-  assert.equal(MOD_GONE_WHY, 'its board link is gone: restart this chat')
+  // The review of F9 (rule 16): the pill says Link gone; its why is only the way out.
+  assert.equal(MOD_GONE_WHY, 'restart this chat: archive it, then unarchive it')
   // Without it, as before.
   assert.equal(statusOf({ lane: { state: 'unknown', modGone: null }, now }).status, STATUSES.UNKNOWN)
 })
@@ -133,8 +134,100 @@ test('its "No ask filed" card names the cause: the mod was unloaded, restart thi
     return withStore(raw, { lines: [], outbox: [], runs: [], board: null, seen: null, now: NOW, config: { ...parseConfig('{}', {}), project: 'C:\garden' } }).forYou.find(need => need.kind === 'unfiled')
   }
   const gone = card([retract(lost), removed(lost)].join('\n'))
-  assert.match(gone.text, /its Workers mod was unloaded at \d\d:\d\d, so its board link is gone: restart this chat\./)
+  assert.match(gone.text, /its Workers mod was unloaded at \d\d:\d\d, so its board link is gone\. Restart this chat: archive it, then unarchive it\. Answer its questions in its chat\./)
+  // The review of F9: the card knows the cause and the chat's app id (here none: `local_Digger` is no app id).
+  assert.deepEqual([gone.modGone?.at, gone.chat], [Date.parse(lost), { name: 'Digger', session: null }])
   const plain = card(null)
   assert.match(plain.text, /The board does not read questions from a chat/)
   assert.doesNotMatch(plain.text, /unloaded/)
+  assert.equal(Object.hasOwn(plain, 'modGone'), false, 'a card without the unload is as before')
+})
+
+// The review of F9 (lens 1): the card's ways, the reconciler's lines, the Supervisor's count and the deep look on a real file.
+
+test('the "No ask filed" card of a gone link offers only the way into its chat, never "Ask it to file them as asks"', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const vm = await import('node:vm')
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
+  const page = {}
+  vm.runInNewContext(`${cut('cardways')}\nObject.assign(this, { cardWays })`, page)
+  const ways = need => JSON.parse(JSON.stringify(page.cardWays(need, true)))
+  const need = { id: 'unfiled:Worker 4:1', kind: 'unfiled', from: 'Worker 4', canAnswer: false, talk: 'window', modGone: { at: AGAIN } }
+  const SESSION = 'local_00000000-0000-4000-8000-000000000004'
+  assert.deepEqual(ways({ ...need, chat: { name: 'Worker 4', session: SESSION } }), [{ way: 'chat', to: 'Worker 4', href: `claude://claude.ai/epitaxy/${SESSION}`, label: 'Open Worker 4\'s chat' }])
+  // Without its app id: where the board shows its chat, and still no nudge (it has no work tool).
+  assert.deepEqual(ways({ ...need, chat: { name: 'Worker 4', session: null } }), [{ way: 'talk', to: 'unfiled:Worker 4:1', label: 'Open Worker 4\'s answer' }])
+  // Without the unload, as before: the nudge too.
+  const { modGone: _gone, ...plain } = need
+  assert.deepEqual(ways(plain).map(way => way.way), ['talk', 'nudge'])
+})
+
+test('the reconciler types no step, note or partner ask to a chat whose Workers mod was unloaded', async () => {
+  const { reconcile } = await import('../src/work/reconcile.mjs')
+  const { parseItem } = await import('../src/work/item.mjs')
+  const now = AGAIN + 5 * MIN
+  const store = storeFromText('## Work\n', { now: now - 60 * MIN })
+  const stamp = new Date(now - 20 * MIN)
+  const since = `${stamp.getFullYear()}-${String(stamp.getMonth() + 1).padStart(2, '0')}-${String(stamp.getDate()).padStart(2, '0')} ${String(stamp.getHours()).padStart(2, '0')}:${String(stamp.getMinutes()).padStart(2, '0')}`
+  for (const text of [
+    `Id: N1\nKind: note\nTitle: For you\nState: open\nFrom: Worker 4\nTo: main\nSince: ${since}\n`,
+    `Id: Q1\nKind: ask\nTitle: Which hedge?\nState: open\nOwner: Worker 4\nSince: ${since}\nFiled: ${now - 2 * MIN}\nAsks: decide\nBlocking: no\nVia: chat\nRoute: partner\n`,
+  ]) store.items.set(text.match(/^Id: (\S+)/)[1], parseItem(text))
+  const main = { name: 'Lead', isMain: true, isLeftover: false, state: 'free', isRunning: true, modGone: null }
+  const run = ({ lead = main, partner = { name: 'Advisor', state: 'free', isRunning: true, modGone: null } } = {}) => reconcile({ store, lanes: [lead], now, times: { graceMs: 5 * MIN, askMs: 30 * MIN, idleMs: 30 * MIN }, partner })
+  const before = run()
+  assert.deepEqual([before.notes.map(one => one.id), before.partnerAsks.map(one => one.id)], [['N1'], ['Q1']], 'as before without the unload')
+  assert.deepEqual(run({ lead: { ...main, modGone: { at: AGAIN } } }).notes, [])
+  assert.deepEqual(run({ partner: { name: 'Advisor', state: 'free', isRunning: true, modGone: { at: AGAIN } } }).partnerAsks, [])
+})
+
+test('the deep look on a real transcript file keeps the two deltas among its other lines, and the board reads the unload from them', async t => {
+  const { mkdir, mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { join } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const { readDeep } = await import('../src/transcript.mjs')
+  // In the board's own git-ignored data folder, as test/sources.test.mjs makes its projects; removed after.
+  const data = fileURLToPath(new URL('../data/', import.meta.url))
+  await mkdir(data, { recursive: true })
+  const root = await mkdtemp(join(data, 'modgone-'))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const other = at => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'deferred tools delta, said in words' }] }, timestamp: at })
+  const file = join(root, 'ddde6d5e.jsonl')
+  await writeFile(file, [other('2026-11-13T21:10:00Z'), ...worker4.slice(0, 2), other('2026-11-13T21:20:00Z'), ...worker4.slice(2), other('2026-11-13T21:40:00Z')].join('\n'))
+  const deep = await readDeep(file)
+  assert.deepEqual(deep.mods.split('\n'), worker4)
+  assert.equal(modUnloadedAt(deep.mods), AGAIN)
+})
+
+test('the real case end to end: Worker 4\'s transcript on disk, read the way the board reads its sources, gives Link gone on its row', async t => {
+  const { mkdir, mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { dirname, join } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const { readSources } = await import('../src/sources.mjs')
+  const data = fileURLToPath(new URL('../data/', import.meta.url))
+  await mkdir(data, { recursive: true })
+  const root = await mkdtemp(join(data, 'modgone-'))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const put = async (path, text) => {
+    await mkdir(dirname(join(root, path)), { recursive: true })
+    await writeFile(join(root, path), text)
+  }
+  const now = AGAIN + 5 * MIN
+  const project = join(root, 'project')
+  const chat = (name, cliSessionId) => JSON.stringify({ title: `Game - ${name}`, sessionId: `local_${name.replace(/\s/g, '')}`, cliSessionId, cwd: project, isArchived: false, createdAt: name.length, lastActivityAt: now - 4 * MIN })
+  await put('project/.claude/chats/list.json', '{"prefix":"Game - ","main":"Main"}')
+  await put('app/a/b/local_main.json', chat('Main', 'main-id'))
+  await put('app/a/b/local_worker4.json', chat('Worker 4', 'ddde6d5e-worker-4'))
+  const said = at => JSON.stringify({ type: 'assistant', isSidechain: false, message: { role: 'assistant', content: [{ type: 'text', text: 'Building the strip.' }] }, timestamp: at, uuid: `u-${at}` })
+  await put('transcripts/main-id.jsonl', said(new Date(now - 3 * MIN).toISOString()))
+  await put('transcripts/ddde6d5e-worker-4.jsonl', [said('2026-11-13T21:10:00Z'), ...worker4, said('2026-11-13T21:36:20Z')].join('\n'))
+  const config = { ...parseConfig('{}', {}), project, appSessions: join(root, 'app'), transcripts: join(root, 'transcripts') }
+  const raw = await readSources(config, async () => null, now)
+  assert.equal(modUnloadedAt(raw.tails['ddde6d5e-worker-4'].mods), AGAIN, 'the deep look kept the deltas')
+  const state = buildState({ ...raw, work: storeFromText('## Work\n', { now: now - 60 * MIN }) }, { lines: [], outbox: [], runs: [], now, config, seen: null, board: null })
+  const lane = state.chats.find(one => one.name === 'Worker 4')
+  assert.deepEqual(lane.modGone, { at: AGAIN })
+  assert.deepEqual([lane.status, lane.why], [STATUSES.LINK_GONE, MOD_GONE_WHY])
+  assert.equal(state.chats.find(one => one.name === 'Main').modGone, null)
 })

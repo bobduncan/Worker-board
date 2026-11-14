@@ -53,5 +53,5 @@ export function modGoneOf({ unloadedAt, report = null, appStartedAt = null, now 
   return { at: unloadedAt }
 }
 
-/** The words its row and its cards give the cause in. */
-export const MOD_GONE_WHY = 'its board link is gone: restart this chat'
+/** The way out, beside its Link gone pill (the pill names the cause; its "No ask filed" card says it in a sentence of its own). */
+export const MOD_GONE_WHY = 'restart this chat: archive it, then unarchive it'

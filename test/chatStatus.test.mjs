@@ -168,7 +168,8 @@ test('the age: now minus the report\'s time, the board\'s clock; since stays apa
 
 test('tones per the table: attention only for what needs attention', () => {
   const attention = STATUS_LIST.filter(status => toneOf(status, 0) === 'attention')
-  assert.deepEqual(attention, [STATUSES.WAITING, STATUSES.HELD, STATUSES.NO_ANSWER, STATUSES.NOT_RUNNING])
+  // F9: Link gone (its Workers mod was unloaded) is the person's to fix by a restart.
+  assert.deepEqual(attention, [STATUSES.WAITING, STATUSES.HELD, STATUSES.NO_ANSWER, STATUSES.NOT_RUNNING, STATUSES.LINK_GONE])
   for (const status of [STATUSES.WORKING, STATUSES.CHECKING, STATUSES.HANDING, STATUSES.OFFERED, STATUSES.PAUSED, STATUSES.RESTARTING, STATUSES.STOPPED, STATUSES.FREE, STATUSES.ASLEEP]) assert.equal(toneOf(status, 0), 'quiet')
 })
 

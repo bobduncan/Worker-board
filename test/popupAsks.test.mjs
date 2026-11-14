@@ -124,27 +124,36 @@ test('the Supervisor: two board-call popups within 2 minutes fire board-slow and
   assert.deepEqual(check([popup('Q1', 'use ccd directory (change directory)', { filed: Q742_FILED }), popup('Q2', 'use ccd directory (change directory)', { filed: Q742_FILED + 90 * SEC })], Q742_FILED + 3 * MIN), [])
 })
 
-// The page: the Needs list and the Advisor's row, from the board's own state of the same case.
+// The page: the Needs list, the Advisor's card, a worker's row and the Simple view, from the board's own state of the same case.
 
 const { openPage } = await import('./pageHarness.mjs')
 const sent = state => JSON.parse(JSON.stringify(state))
+/** A worker's row of the Details view; the Advisor's own card is `.lane.is-advisor` (it opens the Advisor tab on a click). */
 const rowOf = (page, name) => page.all('[data-lane]').find(one => one.dataset.lane === name)
+const advisorCard = page => page.find('.lane.is-advisor[data-open-advisor]')
+/** A row of the Simple view (the default Overview), the workers' and the Advisor's, by its chat's name. */
+const simpleRowOf = (page, name) => page.all('#simple-workers .simple-worker').find(one => one.querySelector('.simple-name')?.textContent === name)
 const APP_LINK = `claude://claude.ai/epitaxy/${APP_ID}`
+const WORKER_ID = 'local_00000000-0000-4000-8000-000000000001'
+const WORKER_LINK = `claude://claude.ai/epitaxy/${WORKER_ID}`
+/** The state with Worker 1's app id (`local_` and a uuid), so its row can open its chat. */
+const withWorkerId = state => ({ ...state, chats: state.chats.map(lane => (lane.name === 'Worker 1' ? { ...lane, appSession: WORKER_ID } : lane)) })
 
-test('the page: a board-call popup shows nothing in Needs your attention, and the Advisor\'s row says Working with its slow call and no link into a chat', async () => {
+test('the page: a board-call popup shows nothing in Needs your attention, and the Advisor\'s card says Working with its slow call and no link into a chat', async () => {
   const page = await openPage({ state: sent(build([Q742(), Q744()])) })
   try {
     assert.equal(page.all('#needs .hands-line').length, 0, 'no hands line')
     assert.equal(page.text('#waits-for-you'), '', 'nothing waits for you')
     assert.equal(page.all('#needs [data-id^="work:"]').length, 0)
-    const row = rowOf(page, 'Advisor')
-    assert.equal(row.querySelector('.pill').textContent, 'Working')
-    assert.equal(row.querySelector('.status-why').textContent, 'its call to the board is slow')
-    assert.equal(row.querySelectorAll('.chat-link').length, 0)
+    const card = advisorCard(page)
+    assert.equal(card.querySelector('.pill').textContent, 'Working')
+    assert.equal(card.querySelector('.status-why').textContent, 'its call to the board is slow')
+    assert.equal(card.querySelectorAll('.chat-link').length, 0)
+    assert.equal(simpleRowOf(page, 'Advisor').querySelectorAll('.chat-link').length, 0)
   } finally { await page.close() }
 })
 
-test('the page: a real popup\'s entry in the hands line, the row\'s Waiting for you and the ask\'s window each open its chat in the app', async () => {
+test('the page: a real popup\'s hands entry, the Advisor\'s card, a worker\'s row, the Simple view and the ask\'s window each open its chat in the app', async () => {
   const state = sent(build([Q742(), Q744(), REAL()]))
   const page = await openPage({ state })
   try {
@@ -152,19 +161,99 @@ test('the page: a real popup\'s entry in the hands line, the row\'s Waiting for 
     assert.equal(entry.getAttribute('href'), APP_LINK)
     assert.match(entry.getAttribute('title'), /^Opens Advisor's chat in the app: its question or popup waits there/)
     assert.match(page.text('#needs .hands-line'), /Advisor's chat waits on a popup: change directory/)
-    const row = rowOf(page, 'Advisor')
-    assert.equal(row.querySelector('.pill').textContent, 'Waiting for you')
-    assert.equal(row.querySelector('a.chat-link').getAttribute('href'), APP_LINK)
+    const card = advisorCard(page)
+    assert.equal(card.querySelector('.pill').textContent, 'Waiting for you')
+    assert.equal(card.querySelector('a.chat-link').getAttribute('href'), APP_LINK)
+    assert.equal(simpleRowOf(page, 'Advisor').querySelector('a.chat-link').getAttribute('href'), APP_LINK)
   } finally { await page.close() }
   const window = await openPage({ state, hash: 'details=Q750' })
   try {
-    const link = window.all('a.chat-link').find(one => one.textContent === 'Open its chat' && !one.closest('[data-lane]'))
+    const link = window.all('#details a.chat-link').find(one => one.textContent === 'Open its chat')
     assert.equal(link?.getAttribute('href'), APP_LINK, 'the ask\'s window has "Open its chat"')
   } finally { await window.close() }
-  // A chat the board has no app id for keeps the old entry: the ask's own window.
-  const other = sent(build([popup('Q751', 'use ccd directory (change directory)', { filed: Q744_FILED, owner: 'Worker 1' })], { reports: [['Worker 1', 'asking']] }))
-  const bare = await openPage({ state: { ...other, chats: other.chats.map(lane => ({ ...lane, appSession: null })) } })
+  // A worker with a real popup: its row of the Details view and of the Simple view, and its hands entry.
+  const worker = withWorkerId(sent(build([popup('Q751', 'use ccd directory (change directory)', { filed: Q744_FILED, owner: 'Worker 1' })], { reports: [['Worker 1', 'asking']] })))
+  const rows = await openPage({ state: worker })
   try {
-    assert.equal(bare.find('#needs .hands-line a').getAttribute('href'), '#details=Q751')
-  } finally { await bare.close() }
+    const row = rowOf(rows, 'Worker 1')
+    assert.equal(row.querySelector('.pill').textContent, 'Waiting for you')
+    assert.equal(row.querySelector('a.chat-link').getAttribute('href'), WORKER_LINK)
+    assert.equal(simpleRowOf(rows, 'Worker 1').querySelector('a.chat-link').getAttribute('href'), WORKER_LINK)
+    assert.equal(rows.find('#needs .hands-line a').getAttribute('href'), WORKER_LINK)
+    // The main chat asks nothing: no link on its row.
+    assert.equal(rowOf(rows, 'Lead').querySelectorAll('.chat-link').length, 0)
+  } finally { await rows.close() }
+})
+
+test('the page: the Advisor\'s "Open its chat" opens only the chat; a click elsewhere on its card opens the Advisor tab as before', async () => {
+  const page = await openPage({ state: sent(build([REAL()])) })
+  try {
+    const link = advisorCard(page).querySelector('a.chat-link')
+    // The test stops the browser's own follow of the claude:// link; the page's handlers still see the click.
+    link.addEventListener('click', event => event.preventDefault())
+    link.dispatchEvent(new page.window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    assert.equal(page.find('#view-overview').hidden, false, 'still on the Overview')
+    advisorCard(page).querySelector('.what').dispatchEvent(new page.window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    assert.equal(page.find('#view-overview').hidden, true, 'the card itself opens the Advisor tab')
+  } finally { await page.close() }
+})
+
+test('the hands line: a form ask of a chat with an app id opens that chat; a sign-in, or a chat without an app id, keeps the ask\'s window', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const vm = await import('node:vm')
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  const fn = name => script.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, 'm'))[0]
+  // A top-level const up to the blank line or the comment after it.
+  const constant = name => script.match(new RegExp(`^const ${name} = [\\s\\S]*?(?=\\n\\n|\\n/)`, 'm'))[0]
+  const views = vm.runInNewContext(`${[constant('APP_SESSION_PATTERN'), fn('openChatHref'), fn('waitLaneOf'), constant('chatHrefOf'), constant('cutWords')].join('\n')}
+${script.slice(script.indexOf('// handsline:start'), script.indexOf('// handsline:end'))}\n;({ handsLineView, chatHrefOf })`, {})
+  const lane = (name, appSession) => ({ name, appSession, isLeftover: false, state: 'waiting' })
+  const state = { chats: [lane('Worker 1', WORKER_ID), lane('Worker 2', null)], advisor: lane('Advisor', APP_ID) }
+  const need = (id, from, more = {}) => ({ id: `work:${id}`, workId: id, from, title: `${id} title`, hands: 'a popup in its chat', isForm: true, ...more })
+  const view = views.handsLineView([
+    need('Q1', 'Worker 1', { handsWords: 'Worker 1\'s chat waits on a popup: change directory' }),
+    need('Q2', 'Worker 1', { isForm: false, hands: 'a sign-in', title: 'Sign in to the store' }),
+    need('Q3', 'Worker 2', { handsWords: 'Worker 2\'s chat waits on a popup: change directory' }),
+    need('Q4', 'Advisor', { handsWords: 'Advisor\'s chat waits on a popup: change directory' }),
+  ], chat => views.chatHrefOf(state, chat))
+  assert.deepEqual(view.items.map(one => one.href), [WORKER_LINK, '#details=Q2', '#details=Q3', APP_LINK])
+  // A slim part (Needs your attention's view) gives the app ids by name: the same links; a name that is no app id gives none.
+  assert.equal(views.chatHrefOf({ chats: [{ name: 'Worker 1', isRunning: true }], chatApps: { 'Worker 1': WORKER_ID } }, 'Worker 1'), WORKER_LINK)
+  assert.equal(views.chatHrefOf({ chatApps: { 'Worker 1': 'local_Worker 1' } }, 'Worker 1'), null)
+})
+
+test('Pause all: a chat in its slow call to the board is no chat that asks you; the sweep still keeps its popup ask open', async () => {
+  const { chatsAsking, pauseFacts } = await import('../src/work/pause.mjs')
+  const lanes = [
+    { name: 'Advisor', isAsking: true, state: 'working', boardCall: { since: Q744_FILED, ask: 'Q744' } },
+    { name: 'Worker 1', isAsking: true, state: 'waiting', boardCall: null },
+  ]
+  const facts = pauseFacts({ pause: { state: 'pausing', since: NOW - 60_000 }, items: new Map(), lanes })
+  assert.deepEqual(facts.asking, ['Worker 1'])
+  assert.deepEqual(chatsAsking(lanes), ['Advisor', 'Worker 1'])
+})
+
+test('board-call popups: only the store\'s popup asks of the app\'s form count, and a popup whose call the board answered late counts once', () => {
+  const work = storeFromText('## Work\n', { now: NOW })
+  const chatAsk = parseItem([
+    'Id: Q745', 'Kind: ask', 'Title: A popup in its chat may wait for you: it has tried to use workers (chat) for over a minute.', 'State: open', 'Owner: Advisor',
+    `Filed: ${Q744_FILED}`, 'Asks: do', 'Blocking: no', 'Via: chat', '',
+  ].join('\n'))
+  for (const one of [Q742(), chatAsk]) work.items.set(one.head.get('Id'), one)
+  assert.deepEqual(boardCallPopups(work).map(one => one.popup), ['Q742'], 'Via chat is no popup of the form')
+  // The Supervisor: two popups 90 s apart. Alone they are two slow calls, in words that say they were stuck.
+  const rule = WATCH_RULES.find(one => one.id === 'board-slow')
+  const check = lateCalls => rule.check(buildView({ state: { lateCalls }, items: new Map(), now: Q742_FILED + 3 * MIN }), { seen: new Map(), observed: [] })
+  const popups = [{ at: Q742_FILED, ms: 60_000, popup: 'Q742' }, { at: Q742_FILED + 90 * SEC, ms: 60_000, popup: 'Q744' }]
+  assert.match(check(popups)[0].text, /: 2 work calls in 10 min stuck over a minute or answered after the chat gave up$/)
+  // The call they stood for was answered late 50 s after the second one's filing: that one late call, never three (one alone fires nothing).
+  assert.deepEqual(check([...popups, { at: Q742_FILED + 140 * SEC, ms: 200_000 }]), [])
+  // From a minute before a popup's filing on, a late answer is its call too.
+  assert.deepEqual(check([...popups, { at: Q742_FILED - 50 * SEC, ms: 70_000 }]), [])
+  // A late answer before that is another call: all three count, and the words say some were stuck.
+  const three = check([...popups, { at: Q742_FILED - 2 * MIN, ms: 70_000 }])
+  assert.match(three[0].text, /: 3 work calls in 10 min stuck over a minute or answered after the chat gave up$/)
+  assert.match(three[0].evidence, /\(Q742\).*\(Q744\)/)
+  // Late answers alone: the words as before.
+  assert.match(check([{ at: Q742_FILED, ms: 70_000 }, { at: Q742_FILED + 60 * SEC, ms: 70_000 }])[0].text, /: 2 work calls in 10 min answered after the chat gave up$/)
 })

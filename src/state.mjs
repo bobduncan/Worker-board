@@ -1107,7 +1107,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       title: `${lane.name} wrote questions in its chat but filed no ask`,
       // F9: a chat whose Workers mod was unloaded could not file an ask: the card names that cause and the one way out.
       text: (lane.modGone ?? null) !== null
-        ? `Its last answer ends with a "For you" block, and the work store holds no ask of it: its Workers mod was unloaded at ${hourMinute(lane.modGone.at)}, so ${MOD_GONE_WHY}. Answer its questions in its chat.${(lane.task?.stepId ?? null) === null ? '' : ` Its step: ${lane.task.stepId}.`}`
+        ? `Its last answer ends with a "For you" block, and the work store holds no ask of it: its Workers mod was unloaded at ${hourMinute(lane.modGone.at)}, so its board link is gone. ${MOD_GONE_WHY.charAt(0).toUpperCase()}${MOD_GONE_WHY.slice(1)}. Answer its questions in its chat.${(lane.task?.stepId ?? null) === null ? '' : ` Its step: ${lane.task.stepId}.`}`
         : `Its last answer ends with a "For you" block, and the work store holds no ask of it since that turn began${lane.unfiled.isStartUnknown ? ' (the board could not tell when this turn began, so it warns all the same)' : ''}. The board does not read questions from a chat: answer them in its chat, or ask it to file them with work ask.${(lane.task?.stepId ?? null) === null ? '' : ` Its step: ${lane.task.stepId}.`}`,
       at: lane.unfiled.at,
       ...blank,
@@ -1119,6 +1119,8 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       isAdvisor,
       // Where its chat is on the board: Talk to Main, the Advisor's tab, or a worker's last answer in this card's window.
       talk: lane.isMain === true ? 'main' : isAdvisor ? 'advisor' : 'window',
+      // F9's review: its Workers mod was unloaded (no work tool to file asks with): the card's one way is into its chat, by its app id.
+      ...((lane.modGone ?? null) === null ? {} : { modGone: lane.modGone, chat: { name: lane.name, session: typeof lane.appSession === 'string' && APP_SESSION_ID.test(lane.appSession) ? lane.appSession : null } }),
     })
   }
   // P1 of the one wait system (2026-11-09): a chat wait past its limit (`lateWaitOf`): one Late, linked to the step, with the
@@ -2473,7 +2475,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const doneAtOf = doneTimes(raw.work, prefix)
   // B356, the review: a board without a partner chat makes no result check, here too.
   // Partner answers (2026-10-19): the partner's card, for the asks routed to it (woken while free, handed on after 30 min).
-  const partner = advisorChat === undefined || advisorCard === null ? null : { name: advisorChat.name, state: advisorCard.state, isRunning: runningOf(advisorChat.name), idle: advisorCard.idle ?? null }
+  // F9's review: with whether its Workers mod was unloaded (no partner ask is typed to it then).
+  const partner = advisorChat === undefined || advisorCard === null ? null : { name: advisorChat.name, state: advisorCard.state, isRunning: runningOf(advisorChat.name), idle: advisorCard.idle ?? null, modGone: advisorCard.modGone ?? null }
   // The guard (2026-10-21): the product plan's standards hold a task back from the hand-out.
   const plan = planState(raw.productPlanText ?? null, itemsOf(raw.work), config.productPlan)
   // Redesign Part 2 (2026-10-25): the board hands out all work: the ready list in the focus goal's order, the settings,

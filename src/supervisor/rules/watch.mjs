@@ -1064,6 +1064,8 @@ function boardDeaf(view) {
 const SLOW_PAIR_MS = 2 * MIN
 /** B736: how far back a late answer still counts. */
 const SLOW_LOOK_MS = 10 * MIN
+/** F9's review: a late answer this long before a popup ask's filing (the call had waited a minute then) is that popup's own call. */
+const POPUP_BEFORE_MS = MIN
 /** A call sent this close after a sleep began (or before) still counts as sent before it. */
 const SLEEP_SLACK_MS = 5000
 /** Round 3: a stall of the loop can be a hang with the PC awake only under this long, and only for a call sent this long before its end. */
@@ -1087,7 +1089,11 @@ function boardSlow(view) {
   // A call counts unless its chat sent it before a sleep began: the chats sleep with the PC, so a call sent inside the window
   // proves the PC was awake (a hang of the board), however long it waited.
   const duringSleep = call => sleeps.some(sleep => call.at - call.ms <= sleep.at - sleep.ms + SLEEP_SLACK_MS && call.at > sleep.at - sleep.ms)
-  const recent = (view.lateCalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS && !duringSleep(one)).sort((a, b) => a.at - b.at)
+  // F9's review: a popup ask for a slow board call (state.mjs, work/lists.mjs `boardCallPopups`) and the late answer of that same call are
+  // one slow call: a popup counts only when no call was answered late from a minute before its filing to 10 minutes after.
+  const answered = (view.lateCalls ?? []).filter(one => typeof one.popup !== 'string')
+  const isTwice = popup => answered.some(call => call.at >= popup.at - POPUP_BEFORE_MS && call.at <= popup.at + SLOW_LOOK_MS)
+  const recent = (view.lateCalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS && !duringSleep(one) && !(typeof one.popup === 'string' && isTwice(one))).sort((a, b) => a.at - b.at)
   if (!recent.some((one, index) => index > 0 && one.at - recent[index - 1].at <= SLOW_PAIR_MS)) return []
   const worst = Math.max(...recent.map(one => one.ms))
   const inLook = (view.stalls ?? []).filter(one => view.now - one.at <= SLOW_LOOK_MS).sort((a, b) => a.at - b.at)
@@ -1101,7 +1107,7 @@ function boardSlow(view) {
   const stallLine = one => (hangs.includes(one) ? `the loop blocked ${minutes(one.ms)} min to ${secondsOf(one.at)}; calls were sent inside it: not a sleep` : stallWords(one, secondsOf))
   return [{
     rule: 'board-slow', key: 'board-slow board', subject: 'board',
-    text: `the board did not answer for ${Math.round(worst / 1000)} s: ${recent.length} work calls in ${minutes(SLOW_LOOK_MS)} min answered after the chat gave up`,
+    text: `the board did not answer for ${Math.round(worst / 1000)} s: ${recent.length} work calls in ${minutes(SLOW_LOOK_MS)} min ${recent.some(one => typeof one.popup === 'string') ? 'stuck over a minute or answered' : 'answered'} after the chat gave up`,
     evidence: [
       recent.slice(-6).map(one => (typeof one.popup === 'string' ? `a popup ask for a slow board call (${one.popup}) at ${clockOf(one.at)}` : `answered ${clockOf(one.at)} after ${Math.round(one.ms / 1000)} s`)).join('; '),
       stalls.length === 0 ? `the stall log names no stall in ${minutes(SLOW_LOOK_MS)} min` : `stalls: ${stalls.map(stallLine).join('; ')}`,

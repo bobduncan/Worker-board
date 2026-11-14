@@ -151,8 +151,29 @@ const APP_SESSION_PATTERN = /^local_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 function openChatHref(session) {
   return typeof session === 'string' && APP_SESSION_PATTERN.test(session) ? `claude://claude.ai/epitaxy/${session}` : null
 }
-/** The link into a chat by its name, from a state or a part of it (`waitLaneOf`): null for a chat the page does not know or without an app id. */
-const chatHrefOf = (part, name) => (typeof name === 'string' ? openChatHref(waitLaneOf(part, name)?.appSession) : null)
+/**
+ * The link into a chat by its name, from a state or a part of it (`waitLaneOf`; a slim part, such as Needs your attention's view, gives
+ * the app ids by name in `chatApps`, cardsView): null for a chat the page does not know or without an app id.
+ */
+const chatHrefOf = (part, name) => (typeof name !== 'string' ? null
+  : openChatHref(Object.hasOwn(part?.chatApps ?? {}, name) ? part.chatApps[name] : waitLaneOf(part, name)?.appSession))
+
+/**
+ * F9's review: where "Open its chat" leads for a chat that waits because it asks in its chat (Waiting for you while it reports asking:
+ * the app's question form, a popup), or null: any other status, or no app id. One rule for the worker rows, the Advisor's, its helper's
+ * and the Product owner's cards and the Simple view.
+ */
+const askChatHref = lane => (laneStatus(lane)?.status === 'Waiting for you' && lane.isAsking === true ? openChatHref(lane.appSession) : null)
+
+/** The "Open its chat" link (`askChatHref`), or null. Its click opens the chat only: the Advisor's card opens the Advisor tab on a click. */
+function drawAskChatLink(href, name, className = 'status-why chat-link') {
+  if (typeof href !== 'string') return null
+  const open = el('a', className, 'Open its chat')
+  open.href = href
+  open.title = `Opens ${name}'s chat in the app: its question or popup waits there`
+  open.addEventListener('click', event => event.stopPropagation())
+  return open
+}
 
 /** The pill beside a line: the chat's own status (`laneStatus`), its words without the age, which would draw the card anew every few seconds. */
 function waitPillOf(lane, now = Date.now()) {
@@ -2052,7 +2073,7 @@ function drawSimpleColumns(state) {
   const steps = simpleSteps(state.focus ?? null, state.chats ?? [], state.readAt)
   // B424: the partner and its helper under the workers, apart from them.
   // The Product owner (2026-10-31): with the partner and its helper, apart from the workers.
-  const workers = simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt, [state.advisor, state.advisorHelper, state.productOwner])
+  const workers = simpleWorkers(state.chats ?? [], state.counts ?? {}, state.readAt, [state.advisor, state.advisorHelper, state.productOwner], askChatHref)
   once('simple-columns', [steps, workers], () => fillSimpleColumns(steps, workers))
 }
 
@@ -2077,7 +2098,9 @@ function fillSimpleColumns(steps, workers) {
   const rowOf = row => {
     const line = el('div', `simple-row simple-worker is-${row.tone}`)
     const middle = el('div', 'simple-task')
-    if (row.task === null) middle.append(el('span', 'muted', row.left))
+    // F9's review: a chat that waits because it asks in its chat: "Open its chat" beside its status words (askChatHref).
+    const askLink = drawAskChatLink(row.chat ?? null, row.name, 'simple-chat-link chat-link')
+    if (row.task === null) middle.append(...[el('span', 'muted', row.left), askLink].filter(one => one !== null))
     else {
       const what = el('span', 'simple-what clip')
       if (row.code !== null) what.append(el('b', 'task-code', row.code), ' ')
@@ -2092,6 +2115,7 @@ function fillSimpleColumns(steps, workers) {
     // Signals change 7: "1 h 56" with "of its 2 h" beside it, quieter.
     if (row.task !== null && typeof row.leftOf === 'string' && row.leftOf !== '') left.append(' ', el('small', 'simple-of', row.leftOf))
     end.append(left)
+    if (row.task !== null && askLink !== null) end.append(askLink)
     const chip = drawRunChip(row.run ?? null)
     if (chip !== null) end.append(chip)
     line.append(el('b', 'simple-name', row.name), middle, end)
@@ -3094,9 +3118,11 @@ function simpleIdle(lane, now = Date.now()) {
  * B424: `partner` the same rows for the partner and its helper (state.advisor, state.advisorHelper; a missing one is
  * left out), shown apart under the workers and not counted among them.
  */
-function simpleWorkers(chats = [], counts = {}, now = Date.now(), partners = []) {
+function simpleWorkers(chats = [], counts = {}, now = Date.now(), partners = [], chatOf = () => null) {
   const all = chatsCounted(counts)
-  const rowOf = lane => {
+  // F9's review: a row that waits because its chat asks there carries where "Open its chat" leads (`chatOf`: askChatHref).
+  const rowOf = lane => ({ ...plainRowOf(lane), ...(chatOf(lane) === null ? {} : { chat: chatOf(lane) }) })
+  const plainRowOf = lane => {
     // Signals change 7: a worker's row is its held step: id and title, the bar of its size used, the time left of it.
     if (isHeldRow(lane)) {
       const held = lane.held ?? null
@@ -3549,13 +3575,8 @@ function drawLane(lane, state) {
     names.append(why)
   }
   // A chat that waits because it asks in its chat (the app's question form, a popup): the link that opens that chat in the app.
-  const askHref = found?.status === 'Waiting for you' && lane.isAsking === true ? openChatHref(lane.appSession) : null
-  if (askHref !== null) {
-    const open = el('a', 'status-why chat-link', 'Open its chat')
-    open.href = askHref
-    open.title = `Opens ${lane.name}'s chat in the app: its question or popup waits there`
-    names.append(open)
-  }
+  const askLink = drawAskChatLink(askChatHref(lane), lane.name)
+  if (askLink !== null) names.append(askLink)
   // The model chip (runchip) beside the pill: what the chat runs at now, and a switch it waits for. None for a leftover.
   const runChip = lane.isLeftover ? null : drawRunChip(runChipOf(lane))
   if (runChip !== null) names.append(runChip)
@@ -3995,7 +4016,14 @@ function drawWorkers(state) {
 function advisorStanding(advisor) {
   // Signals change 2: its one status, as a worker's lane says it (laneStatus); a board without statuses reads its old state.
   const found = laneStatus(advisor)
-  return { key: found.key, label: statusLabel(found) }
+  // F9's review: and its why where a worker's row shows one (drawLane: every status but Unknown, which carries its own in the label),
+  // such as "its call to the board is slow" or Link gone's way out.
+  return { key: found.key, label: statusLabel(found), why: found.why !== null && found.status !== 'Unknown' ? found.why : null }
+}
+
+/** F9's review: a side card's status words beside its pill (`advisorStanding`): its why, and "Open its chat" while it asks in its chat. */
+function standingParts(lane, standing) {
+  return [standing.why === null ? null : el('small', 'status-why', standing.why), drawAskChatLink(askChatHref(lane), lane.name)].filter(one => one !== null)
 }
 
 /**
@@ -4174,7 +4202,7 @@ function drawAdvisorLane(state) {
   sign.setAttribute('aria-hidden', 'true')
   sign.append(icon('advisor'))
   const names = el('div', 'who-names')
-  names.append(el('h3', '', advisor.name), el('span', `pill is-${standing.key}`, standing.label))
+  names.append(el('h3', '', advisor.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(advisor, standing))
   const runChip = drawRunChip(runChipOf(advisor))
   if (runChip !== null) names.append(runChip)
   who.append(sign, names)
@@ -4301,7 +4329,7 @@ function drawHelperCard(state) {
   sign.setAttribute('aria-hidden', 'true')
   sign.append(icon('advisor'))
   const names = el('div', 'who-names')
-  names.append(el('h3', '', helper.name), el('span', `pill is-${standing.key}`, standing.label))
+  names.append(el('h3', '', helper.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(helper, standing))
   const runChip = drawRunChip(runChipOf(helper))
   if (runChip !== null) names.append(runChip)
   who.append(sign, names)
@@ -4364,7 +4392,7 @@ function drawOwnerCard(state) {
   sign.setAttribute('aria-hidden', 'true')
   sign.append(icon('advisor'))
   const names = el('div', 'who-names')
-  names.append(el('h3', '', owner.name), el('span', `pill is-${standing.key}`, standing.label), el('small', 'owner-role', view.label))
+  names.append(el('h3', '', owner.name), el('span', `pill is-${standing.key}`, standing.label), ...standingParts(owner, standing), el('small', 'owner-role', view.label))
   if (view.setting !== null) {
     const chip = el('small', `owner-setting${view.setting.isSet ? '' : ' is-unset'}`, view.setting.text)
     chip.title = view.setting.isSet ? 'The board holds it at this model and effort' : 'The board is setting it to this model and effort'
@@ -5384,10 +5412,13 @@ function cardWays(need, canCheck) {
     const session = need.chat?.session ?? null
     return session === null ? [{ way: 'talk', to: need.id, label: `Open ${need.from}'s answer` }] : [{ way: 'chat', to: need.from, href: `claude://claude.ai/epitaxy/${session}`, label: `Open ${need.from}'s chat` }]
   }
+  // F9's review: a chat whose Workers mod was unloaded has no work tool to file asks with (state.mjs `modGone`): no "Ask it to file them",
+  // only the way into its chat, in the app by its app id (to restart it there), else where the board shows its chat.
+  if (need.kind === 'unfiled' && (need.modGone ?? null) !== null && typeof need.chat?.session === 'string') return [{ way: 'chat', to: need.from, href: `claude://claude.ai/epitaxy/${need.chat.session}`, label: `Open ${need.from}'s chat` }]
   if (need.kind === 'unfiled' || need.kind === 'idle') {
     const talk = { way: 'talk', to: need.talk === 'main' || need.talk === 'advisor' ? need.talk : need.id }
     talk.label = need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`
-    return [talk, { way: 'nudge', to: need.from, ...nudgeWords(need) }]
+    return need.kind === 'unfiled' && (need.modGone ?? null) !== null ? [talk] : [talk, { way: 'nudge', to: need.from, ...nudgeWords(need) }]
   }
   if (String(need.id).startsWith('quiet:')) return need.isMain !== true && canCheck ? [{ way: 'check', chat: need.from }] : [{ way: 'app' }]
   if (need.canAnswer === true) return [{ way: 'form' }]
@@ -6799,6 +6830,15 @@ const minuteOf = at => Math.floor((at ?? 0) / MIN) * MIN
 const runnerOf = chat => ((chat ?? null) === null ? null : { name: chat.name, isRunning: chat.isRunning ?? null })
 const stepKeysOf = backlog => [{ steps: (backlog ?? []).flatMap(activity => activity.steps ?? []).map(step => ({ key: step.key })) }]
 
+/**
+ * F9's review: the app id of each chat the state names (its lanes, the Advisor, its helper, the Supervisor's chat, the Product owner) by
+ * name, for a part that keeps no whole lane (chatHrefOf checks the id).
+ */
+function chatAppsOf(state) {
+  const lanes = [...(state?.chats ?? []).filter(lane => lane?.isLeftover !== true), state?.advisor, state?.advisorHelper, state?.supervisorChat, state?.productOwner]
+  return Object.fromEntries(lanes.filter(lane => typeof lane?.name === 'string' && typeof lane.appSession === 'string').map(lane => [lane.name, lane.appSession]))
+}
+
 /** What a card of Needs your attention reads (drawNeed, drawRecap): the asks (its linked words), who runs, the box's length. */
 function cardsView(state) {
   return {
@@ -6809,6 +6849,8 @@ function cardsView(state) {
     recapsShow: state.recapsShow ?? null,
     chats: (state.chats ?? []).map(runnerOf),
     advisor: runnerOf(state.advisor),
+    // F9's review: each chat's app id by name, so a form ask's hands entry and its window open that chat (chatHrefOf).
+    chatApps: chatAppsOf(state),
     restart: { main: state.restart?.main ?? null, starting: state.restart?.starting ?? [] },
     backlog: stepKeysOf(state.backlog),
     stories: storiesOf(state, [...(state.forYou ?? []), ...(state.backlogForYou ?? []), ...(state.backlogClosed ?? [])]),
