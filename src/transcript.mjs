@@ -109,8 +109,11 @@ const USAGE_MARKS = ['\\"windows\\": [', '\\"windows\\":[']
  */
 export async function readDeep(path, maxBytes = DEEP_BYTES) {
   const piece = await readPiece(path, maxBytes)
-  return piece === null ? null : { tasks: markedIn(piece.buffer, piece.isCut), usage: markedIn(piece.buffer, piece.isCut, USAGE_MARKS) }
+  return piece === null ? null : { tasks: markedIn(piece.buffer, piece.isCut), usage: markedIn(piece.buffer, piece.isCut, USAGE_MARKS), mods: markedIn(piece.buffer, piece.isCut, MOD_MARKS) }
 }
+
+/** F9: the lines where the app changed a chat's tools or servers: the Workers mod's unload and its restore (src/modGone.mjs). */
+const MOD_MARKS = ['"deferred_tools_delta"', '"mcp_instructions_delta"']
 
 function blocksOf(content) {
   if (typeof content === 'string') return [{ type: 'text', text: content }]

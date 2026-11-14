@@ -10,6 +10,7 @@ import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 
 import { loadConfig, workFolder } from './src/config.mjs'
+import { courierLines } from './src/courierSetup.mjs'
 import { describeFlow, setupFlow } from './src/flowSetup.mjs'
 import { findClaude, runSetup } from './src/setup.mjs'
 
@@ -66,4 +67,13 @@ if (file !== null) {
     else console.log(`Added ${done.added.length} move${done.added.length === 1 ? '' : 's'}${done.states.length === 0 ? '' : ` and ${done.states.length} state${done.states.length === 1 ? '' : 's'}`} to ${done.file}; the old file is kept as ${done.backup}`)
   }
 }
+// F17: the wake courier, a scheduled task only a model can make: what to ask for on this PC (with or without --check).
+let courierProject = null
+try {
+  courierProject = (await loadConfig(join(here, 'config.json'))).project
+} catch {
+  // No config: the lines name the placeholder only.
+}
+for (const line of courierLines(courierProject)) console.log(line)
+
 process.exitCode = good ? 0 : 1

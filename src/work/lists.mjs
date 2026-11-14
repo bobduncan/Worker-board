@@ -11,6 +11,7 @@ import { NOTE_LINE, PARTNER_ANSWER_MS, TAKE_BACK_MS, isDecidedForYou, isRoutedTo
 import { TOOK_ADVICE, autopilotRoute, formHandsOf, routedAt, standsForPerson } from './autopilot.mjs'
 import { heldAtMs, heldFrom, isHeld } from './askHold.mjs'
 import { isKeptLook } from './keptLook.mjs'
+import { isBoardCallPopup } from './yourWords.mjs'
 import { isRecap } from './recap.mjs'
 
 const DAY = 24 * 60 * 60_000
@@ -59,6 +60,19 @@ export const nameFinder = (names, prefix = '') => owner => names.find(name => pl
 const textOf = item => (item.sections.get('Text') ?? []).filter(one => one.trim() !== '')
 const asksOfStore = work => itemsOf(work).filter(item => valueOf(item, 'Kind') === 'ask' && /^Q\d+$/.test(valueOf(item, 'Id') ?? ''))
 
+/** How long a popup ask's call had been stuck when the mod filed it (the Workers mod's popup.ts `STUCK_SHOWN_MS`). */
+export const BOARD_CALL_POPUP_MS = 60_000
+/**
+ * 2026-11-13 (Q742, Q744): the popup asks about the board's own tools, open or withdrawn, as the late work calls they stand for:
+ * `[{ at, ms, popup }]`, `at` the time the ask was filed, `ms` how long the call had waited, `popup` the ask's id. The Supervisor's rule
+ * board-slow counts them with the calls the board answered after the mod gave up.
+ */
+export function boardCallPopups(work) {
+  return asksOfStore(work).filter(item => valueOf(item, 'Via') === 'form' && isBoardCallPopup(item))
+    .map(item => ({ at: askFiledMs(item), ms: BOARD_CALL_POPUP_MS, popup: valueOf(item, 'Id') }))
+    .filter(one => Number.isFinite(one.at))
+}
+
 /**
  * B299: who waits for the person by the store: the chats (by plain name, lower case) with an open blocking ask, and
  * those with an open ask of the app's question form. B301: `filed`, per chat when it last filed an ask of its own
@@ -71,7 +85,8 @@ export function storeWaits(work, prefix = '') {
   const own = asksOfStore(work).filter(item => valueOf(item, 'Owner') !== null)
   const open = own.filter(item => valueOf(item, 'State') === 'open')
   const filed = new Map()
-  for (const item of own) {
+  // F9's review, round 3: a popup ask about the board's own tools is the mod's, filed for a slow call: never the chat's filing of its questions.
+  for (const item of own.filter(one => !(valueOf(one, 'Via') === 'form' && isBoardCallPopup(one)))) {
     const name = plainName(valueOf(item, 'Owner'), prefix)
     const at = askFiledMs(item)
     if (Number.isFinite(at)) filed.set(name, Math.max(filed.get(name) ?? -Infinity, at))
@@ -85,16 +100,34 @@ export function storeWaits(work, prefix = '') {
   // the person (`partner`: per chat the ids of such asks).
   const forPartner = new Map()
   // Rule 15: an ask held for the person's words (Route asker) asks nobody and blocks nobody.
-  const forYou = open.filter(item => valueOf(item, 'Via') !== 'refine' && !isRoutedToPartner(item) && valueOf(item, 'Route') !== 'asker')
+  const forYou = open.filter(item => valueOf(item, 'Via') !== 'refine' && !isRoutedToPartner(item) && valueOf(item, 'Route') !== 'asker' && !(valueOf(item, 'Via') === 'form' && isBoardCallPopup(item)))
     .sort((a, b) => Number(valueOf(a, 'Id').slice(1)) - Number(valueOf(b, 'Id').slice(1)))
   for (const item of open.filter(one => valueOf(one, 'Blocking') === 'yes' && isRoutedToPartner(one))) {
     const name = plainName(valueOf(item, 'Owner'), prefix)
     forPartner.set(name, [...(forPartner.get(name) ?? []), valueOf(item, 'Id')])
   }
+  // 2026-11-13 (Q742, Q744): a chat whose only open form asks are popups about the board's own tools (and that holds no open blocking
+  // ask for the person) is in its call to the board, not waiting for the person: per chat `{ since, ask }`, the newest such ask.
+  const isForm = item => valueOf(item, 'Via') === 'form'
+  const boardCall = new Map()
+  for (const item of open.filter(one => isForm(one) && isBoardCallPopup(one))) {
+    const name = plainName(valueOf(item, 'Owner'), prefix)
+    const at = askFiledMs(item)
+    const before = boardCall.get(name)
+    if (before === undefined || !(at <= before.since)) boardCall.set(name, { since: Number.isFinite(at) ? at : null, ask: valueOf(item, 'Id') })
+  }
+  const blockingNames = new Set(open.filter(item => valueOf(item, 'Blocking') === 'yes' && !isRoutedToPartner(item) && valueOf(item, 'Route') !== 'asker').map(item => plainName(valueOf(item, 'Owner'), prefix)))
+  for (const item of open.filter(one => isForm(one) && !isBoardCallPopup(one))) boardCall.delete(plainName(valueOf(item, 'Owner'), prefix))
+  for (const name of blockingNames) boardCall.delete(name)
   return {
-    blocking: new Set(open.filter(item => valueOf(item, 'Blocking') === 'yes' && !isRoutedToPartner(item) && valueOf(item, 'Route') !== 'asker').map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    blocking: blockingNames,
     partner: forPartner,
-    form: new Set(open.filter(item => valueOf(item, 'Via') === 'form').map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    // The chats with an open ask of the app's form the mod filed for them: then the board files no "Asked you a question in its chat"
+    // card of its own. F9's review, round 3: a popup about the board's own tools is no such ask (one whose withdraw got lost would hide
+    // a later real question); while it holds the lane in its call (`boardCall`) the lane works and gets no such card anyway.
+    form: new Set(open.filter(item => isForm(item) && !isBoardCallPopup(item)).map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    // The chats whose open form asks are all popups about the board's own tools: in their call to the board (see above).
+    boardCall,
     // B280: the chats with an open ask of their own for the person, blocking or not; a refine question is the refine's.
     // B464: one routed to the partner first is not the person's (it stands under no Needs your attention).
     asking: new Set(forYou.map(item => plainName(valueOf(item, 'Owner'), prefix))),
@@ -145,6 +178,8 @@ export function storeNeeds(work, { now, names = [], prefix = '', answerOf = () =
   const nameOf = owner => names.find(name => plainName(name, prefix) === plainName(owner, prefix)) ?? owner
   return asksOfStore(work).flatMap(item => {
     const state = valueOf(item, 'State')
+    // 2026-11-13 (Q742, Q744): a popup ask about the board's own tools is the call's slowness, never the person's: no card, no hands entry.
+    if (valueOf(item, 'Via') === 'form' && isBoardCallPopup(item)) return []
     const since = sinceMs(valueOf(item, 'Since'))
     // Autopilot (2026-10-31): an answer decided for the person (the partner's, the board's taken advice, the main chat's).
     const byPartner = isDecidedForYou(item)

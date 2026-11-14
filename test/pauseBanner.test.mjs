@@ -112,7 +112,9 @@ test('resuming: done once every holder has started a turn since the resume; the 
 const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
 const html = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'index.html'), 'utf8')
 const page = { clock: ms => { const at = new Date(ms); return `${two(at.getHours())}:${two(at.getMinutes())}` } }
-vm.runInNewContext(`${script.slice(script.indexOf('// pause:start'), script.indexOf('// pause:end'))}\nObject.assign(this, { pauseLines, pauseRing })`, page)
+// F9: the link into the main chat is built by the waitline region's `openChatHref` (every link into a chat is built there).
+const chatLink = `${script.match(/^const APP_SESSION_PATTERN = .*$/m)[0]}\n${script.match(/^function openChatHref\([\s\S]*?^}$/m)[0]}`
+vm.runInNewContext(`${chatLink}\n${script.slice(script.indexOf('// pause:start'), script.indexOf('// pause:end'))}\nObject.assign(this, { pauseLines, pauseRing })`, page)
 /** The page's lines, as plain objects of this realm. */
 const pauseLinesOf = pause => JSON.parse(JSON.stringify(page.pauseLines(pause)))
 
