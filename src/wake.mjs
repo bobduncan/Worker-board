@@ -332,13 +332,13 @@ export function heardClaim(record, claimAt, now) {
  * the same step (the cap of one message attempt per spell: never a second word for the spell). `runOf(chat)` the chat's report's run.
  * The words to write, in order.
  */
-export function carryPlan(record, { needs = [], lanes = [], main = null, now, newId, runOf = () => null, outbox = [], courierAlive = false }) {
+export function carryPlan(record, { needs = [], lanes = [], main = null, now, newId, runOf = () => null, outbox = [], courierAlive = false, byModel = undefined }) {
   const words = []
   const open = carriedChats(outbox)
   for (const need of needs ?? []) {
     if (!(need.paths ?? []).includes('message') || !isTime(need.spell) || open.has(need.chat)) continue
     if (nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths }) !== 'message') continue
-    const carrier = carrierOf(lanes, { target: need.chat, main, now, outbox })
+    const carrier = carrierOf(lanes, { target: need.chat, main, now, outbox, ...(byModel === undefined ? {} : { byModel }) })
     // Review 7, 18: no carrier and no courier that called lately: the message try stays unspent; the launch goes as before.
     if (carrier === null && !courierAlive) continue
     const word = carryWord({ id: newId(), at: now, need, carrier: carrier?.name ?? null })

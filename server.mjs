@@ -112,7 +112,7 @@ import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isF
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, carrierWords, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
-import { COURIER, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
@@ -2694,16 +2694,21 @@ async function main(args) {
    */
   const applyCarryCloses = async (state, now) => {
     let changed = false
-    for (const close of carryCloses({ outbox: store.outbox(), lanes: boardLanes(state), attemptOf: carriedAttemptOf, now })) {
+    const paused = carryPaused(state.pause)
+    for (const close of carryCloses({ outbox: store.outbox(), lanes: boardLanes(state), attemptOf: carriedAttemptOf, now, paused })) {
       const word = store.outbox().find(one => one.id === close.id)
       if (word === undefined) continue
+      // Verifier 8: the word's state before the close; a give-back only through a close of a word that still waits (a take in between
+      // made it its carrier's: then nothing is closed).
+      const was = word.state
+      const way = closeWay(close, was)
+      if (way === null) continue
       const extra = close.state === 'delivered' ? { deliveredAt: now } : {}
-      const applied = word.state === 'waiting' ? await store.close(word.id, close.state, close.why, now, extra)
-        : word.state !== 'taken' ? false
-          : close.state === 'delivered' ? await store.update(word.id, { state: 'delivered', why: close.why, closedAt: now, ...extra })
-            : (await store.closeTaken([{ id: word.id, state: close.state, why: close.why }], now)) > 0
+      const applied = way === 'close' ? await store.close(word.id, close.state, close.why, now, extra)
+        : way === 'update' ? await store.update(word.id, { state: 'delivered', why: close.why, closedAt: now, ...extra })
+          : (await store.closeTaken([{ id: word.id, state: close.state, why: close.why }], now)) > 0
       if (!applied) continue
-      if (close.giveBack && word.state !== 'taken') wakeGivenBack(wakes, word.about, word.id)
+      if (close.giveBack && way === 'close') wakeGivenBack(wakes, word.about, word.id)
       changed = true
     }
     return changed
@@ -2732,6 +2737,8 @@ async function main(args) {
   const carryPass = async (state, now) => {
     let changed = await applyCarryCloses(state, now)
     const refused = sendsRefusedOf(wakes, store.outbox())
+    // Verifier 7, 11: the refusal the record's attempts or the outbox show becomes the record's own fact, so pruned spells never lift it.
+    if (refused !== null && noteSendRefused(wakes, refused.since)) changed = true
     if (refused !== null && !isHolding(state.pause) && state.pause?.state !== 'resuming') {
       const outbox = store.outbox().filter(message => !isLate(message, now, keep))
       const carriers = carriersOf(state)
@@ -2801,7 +2808,7 @@ async function main(args) {
     // One launch per check (src/wake.mjs `launchPlan`): the next waits for the next minute's look.
     // F17: a carried message is a sender too (a model's turn, or the courier): the launch waits for its verdict, as for a hand's.
     // Review 7, 18: while refused, the message way has a sender only through a free carrier or a courier that calls; else the launch goes at once.
-    const senders = refused === null ? !gone : courierAlive(lastCourierAt, now) || carriersOf(state).some(lane => canCarry(lane, null, now, store.outbox()))
+    const senders = refused === null ? !gone : courierAlive(lastCourierAt, now) || (CARRY_BY_MODEL && carriersOf(state).some(lane => canCarry(lane, null, now, store.outbox())))
     const plan = launchPlan(wakes, { needs, nobody: senders ? null : nobodyRunsSpell(state, outbox), senderClaims: senders, target: chatToOpen(state, outbox) })
     if (plan !== null) await launchFor({ target: { chat: plan.chat, session: plan.session }, key: plan.key, spell: plan.spell, now })
   }
@@ -3677,7 +3684,7 @@ async function main(args) {
       const mayCode = maySend(claim)
       const canSend = mayCode && sendsRefusedOf(wakes, store.outbox()) === null
       // F17 review 16: while refused, once a day ONE send by a hand that may send, to a free chat (never a real wake): its answer lifts or renews it.
-      const probeTo = !canSend && mayCode && !isHolding(state.pause) && probeDue(wakes, store.outbox(), clock()) ? carrierOf(carriersOf(state), { target: checked.chat, now: clock(), outbox: store.outbox() }) : null
+      const probeTo = !canSend && mayCode && !isHolding(state.pause) && probeDue(wakes, store.outbox(), clock()) ? freeChatOf(carriersOf(state), { target: checked.chat, now: clock(), outbox: store.outbox() }) : null
       // Change 4 (C.3): a hand that may send claims after the board-wide launch: that launch woke a chat.
       if (mayCode) {
         const board = wakeHeardClaim(wakes, claim.at, clock())
@@ -3833,7 +3840,12 @@ async function main(args) {
         // Checked and taken in one step (no await between): a take of its carrier in the meantime finds it taken.
         if (word.state !== 'waiting') continue
         const marking = store.update(word.id, { state: 'taken', takenBy: COURIER, takenAt: now })
-        if (attempt !== null) Object.assign(attempt, { by: COURIER, carry: 'courier', heldAt: now })
+        // Verifier 3, 4: handed to the courier is sent: its run sends at once, and the target's report may come before its wakes-sent; the
+        // verdict's minutes count from now (no launch inside them).
+        if (attempt !== null) {
+          Object.assign(attempt, { by: COURIER, carry: 'courier', heldAt: now })
+          wakeSent(wakes, word.about, word.id, now)
+        }
         handed.push(dueEntry(word))
         await marking
         changed = true

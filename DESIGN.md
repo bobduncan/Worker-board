@@ -6110,6 +6110,11 @@ the real envelopes eb4fe8aada155b05 and 93ee0a904d02d2dc), `test/supervisor/hand
 
 ### Wakes without code sends (F17, 2026-11-14)
 
+*Landing 1 (chat 1's verifier, 2026-11-14): B only. A is built but off (`CARRY_BY_MODEL`, on only with WORKER_BOARD_CARRY_BY_MODEL=1 for
+its tests): no carry word goes to a chat until landing 2 fixes its turn start (the mod's typed report settles the word first) and drops
+the turn-time fallback. In landing 1 a wake handed to the courier counts as sent at the hand-off; a pause gives the waiting carry words
+back with their attempts; the refusal the record's old attempts show is seeded as its own fact; the daily probe goes to any free chat.*
+
 Chat 1's brief (`.claude/plans/2026-11-14-f17-wakes-brief.md`, the person's "Both (A + B)") and its review
 (`.claude/plans/2026-11-14-f17-review.md`). Since the app's update of 08:10 (5.11492.5.0) auto mode refuses the Workers mod's own
 `send_message` calls too ("...send_message hook error: Not run: in auto mode Claude Desktop doesn't run this tool when a plugin's own

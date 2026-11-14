@@ -68,7 +68,7 @@ const SPELL = NOW - 40 * MIN
  * A board over a made-up project: Main and Worker 1 report idle (they run), Worker 2 never reported (asleep). `refused`: the wake record
  * holds the live refusal of a hand's send (08:16's, at today's time). `lines` the outbox; `attempts` more attempts of Worker 2's spell.
  */
-async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NOW - 30 * MIN }) {
+async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NOW - 30 * MIN, byModel = false }) {
   const dir = await mkdtemp(join(tmpdir(), 'board-carry-'))
   const started = []
   t.after(async () => {
@@ -97,7 +97,8 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   }
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'carry', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
-  const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc') })
+  // Landing 1 ships A off; a board copy that tests A (landing 2) turns it on.
+  const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_CARRY_BY_MODEL: byModel ? '1' : '0' })
   const base = `http://127.0.0.1:${port}`
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   const call = (path, body, headers = {}) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.27.1', ...headers }, body: JSON.stringify(body) })
@@ -139,20 +140,21 @@ test('while the app refuses the hands\' sends, no hand gets a message job; witho
 })
 
 
-test('review 8: while refused, the page\'s wake word for Worker 2 goes as one carry word to a free chat; once that word closes, so does the carry word', { timeout: 240_000 }, async t => {
-  const { words } = await boardWith(t, { refused: true, lines: [WAKE_WORD] })
+test('review 8: while refused, the page\'s wake word for Worker 2 goes as one word for the courier (once it calls); once that word closes, so does the carry word', { timeout: 240_000 }, async t => {
+  const { json, words } = await boardWith(t, { refused: true, lines: [WAKE_WORD] })
+  // The courier calls (nothing due yet): from now the board counts on it.
+  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])
   let carried = []
   await until(async () => {
     carried = (await words()).filter(one => one.command === 'wake-carry')
     return carried.length > 0
   }, 'a carry word for the wake word')
   assert.deepEqual([carried.length, carried[0].of, carried[0].about, carried[0].wakeText], [1, WAKE_WORD.id, 'Worker 2', 'The worker board holds words for you; they come in now.'])
-  assert.ok(['Main', 'Worker 1'].includes(carried[0].to), carried[0].to)
+  assert.equal(carried[0].to, 'the courier')
   // In this garden Worker 2 is no stopped chat: the outbox sweep closes the page's wake word, and the carry word follows it.
   await until(async () => (await words()).find(one => one.id === WAKE_WORD.id).state === 'dropped', 'the wake word closed')
-  // (Its carrier's mod pings no more in this test, so after a minute "can no longer carry it" may come first: either closes it.)
   await until(async () => (await words()).find(one => one.id === carried[0].id).state === 'dropped', 'the carry word closed with it')
-  assert.match((await words()).find(one => one.id === carried[0].id).why, /^(the word it carried is closed|(Main|Worker 1) can no longer carry it)$/)
+  assert.equal((await words()).find(one => one.id === carried[0].id).why, 'the word it carried is closed')
 })
 
 test('the courier: wakes-due hands each word once with a fresh window; never a carrier\'s word, never a target that woke; wakes-sent closes it once', { timeout: 240_000 }, async t => {
@@ -186,10 +188,10 @@ test('review 12: a target that woke before the courier asked: its word is not li
   assert.notEqual((await words()).find(one => one.id === word.id).state, 'taken')
 })
 
-test('review 1, 2: a carrier whose report is busy takes no carry word; the attempt is not sent at a take, only once its turn on the word began', { timeout: 240_000 }, async t => {
+test('A (landing 2, on in this copy), review 1, 2: a carrier whose report is busy takes no carry word; the attempt is not sent at a take, only once its turn on the word began', { timeout: 240_000 }, async t => {
   const word = { id: 'c0c0c0c0c0c0c004', at: NOW - MIN, to: 'Main', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'x', text: 'Wake Worker 2 for the worker board: send_message with session_id "local_w2"', state: 'waiting' }
   const attempt = { path: 'message', at: NOW - MIN, by: 'Main', jobId: word.id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: 'model' }
-  const { json, claim, words, record } = await boardWith(t, { refused: true, lines: [word], attempts: [attempt] })
+  const { json, claim, words, record } = await boardWith(t, { refused: true, lines: [word], attempts: [attempt], byModel: true })
   assert.deepEqual((await claim()).filter(job => job.id === word.id), [], 'no hand takes it')
   // Main busy on its own turn: its take does not get the word.
   await json('/api/bridge/report', { chat: 'Main', session: 'main-id', report: { state: 'busy', since: Date.now(), seq: 2, run: 1, word: null, turn: Date.now() - 1000 } })
@@ -207,9 +209,9 @@ test('review 1, 2: a carrier whose report is busy takes no carry word; the attem
   await until(async () => typeof (await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === word.id)?.sentAt === 'number', 'sent at the carrier\'s turn')
 })
 
-test('the real case on the board: Worker 2 asleep with an answer waiting, the hands\' sends refused: ONE carry word to a free chat, none twice', { timeout: 240_000 }, async t => {
+test('A (landing 2, on in this copy), the real case on the board: Worker 2 asleep with an answer waiting, the hands\' sends refused: ONE carry word to a free chat, none twice', { timeout: 240_000 }, async t => {
   const answerWord = { id: 'answer000000001', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
-  const { claim, words } = await boardWith(t, { refused: true, lines: [answerWord] })
+  const { claim, words } = await boardWith(t, { refused: true, lines: [answerWord], byModel: true })
   let carried = []
   await until(async () => {
     carried = (await words()).filter(one => one.command === 'wake-carry')
@@ -249,4 +251,32 @@ test('review 16: a day after the refusal ONE probe goes to a hand, to a free cha
   assert.equal(done.status, 200, await done.text())
   // Lifted: the record says so (saved), and the hands may send again.
   await until(async () => typeof (await record()).sendsLiftedAt === 'number', 'the refusal lifted')
+})
+
+test('landing 1, the real case: Worker 2 asleep with an answer waiting, the hands\' sends refused, free chats but A off: no word until the courier calls; then ONE word for it, sent at its hand-off, credited when Worker 2 reports first', { timeout: 240_000 }, async t => {
+  const answerWord = { id: 'answer000000003', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
+  const { json, claim, words, record } = await boardWith(t, { refused: true, lines: [answerWord] })
+  await new Promise(done => setTimeout(done, 4000))
+  assert.deepEqual((await words()).filter(one => one.command === 'wake-carry'), [], 'no courier yet, no carrier: no word')
+  assert.deepEqual((await claim()).filter(job => job.chat === 'Worker 2'), [], 'no hand job')
+  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])
+  let carried = []
+  await until(async () => {
+    carried = (await words()).filter(one => one.command === 'wake-carry')
+    return carried.length > 0
+  }, 'the courier\'s word')
+  assert.deepEqual([carried.length, carried[0].to], [1, 'the courier'])
+  assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes.map(one => one.id), [carried[0].id])
+  await until(async () => typeof (await record()).wakes['Worker 2']?.at(-1).attempts.find(one => one.jobId === carried[0].id)?.sentAt === 'number', 'sent at the hand-off')
+  // Worker 2 is woken by the courier's message and reports before the courier's wakes-sent: credited, never "woke by itself".
+  await json('/api/bridge/report', { chat: 'Worker 2', session: 'w2-id', report: { state: 'busy', since: Date.now(), seq: 2, run: 2 } })
+  await until(async () => (await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === carried[0].id)?.verdict === 'woke', 'woke')
+  const attempt = (await record()).wakes['Worker 2'].at(-1).attempts.find(one => one.jobId === carried[0].id)
+  assert.deepEqual([attempt.carry, attempt.self], ['courier', undefined])
+})
+
+test('verifier 7, 11: a refusal known only from the record\'s old attempts becomes the record\'s own fact', { timeout: 240_000 }, async t => {
+  const { record } = await boardWith(t, { refused: true })
+  await until(async () => typeof (await record()).sendsRefusedSince === 'number', 'the fact saved')
+  assert.equal((await record()).sendsRefusedSince, NOW - 30 * MIN)
 })

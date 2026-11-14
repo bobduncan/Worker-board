@@ -22,6 +22,7 @@
 import { isAppId } from './hands.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { PROBE_MS } from './work/effort.mjs'
+import { isHolding } from './work/pause.mjs'
 
 /** The app's refusal of a plugin's own send_message call, as the hands' results and the outbox hold it. */
 export const SEND_REFUSED = /send_message hook error[\s\S]*(doesn't run this tool when a plugin's own code calls it|Have Claude make the call)/i
@@ -94,6 +95,13 @@ export function probeDue(record, outbox, now) {
   return now - Math.max(refused.since, isTime(record?.probeAt) ? record.probeAt : -Infinity) >= PROBE_MS
 }
 
+/**
+ * Chat 1's verifier of 2026-11-14: F17 lands in two. Landing 1 is B (the courier) with the refusal's parts; A (a free chat's model carries the
+ * wake) stays off until its fixes land (landing 2): no carry word goes to a chat. On only for a board copy that tests A
+ * (WORKER_BOARD_CARRY_BY_MODEL=1) and for the tests that pass `byModel`.
+ */
+export const CARRY_BY_MODEL = process.env.WORKER_BOARD_CARRY_BY_MODEL === '1'
+
 /** Chat 1's point 1 (2026-11-14): a carrier's mod reported this recently: a running chat whose mod the CLI unloaded keeps its process but stops
  * reporting, and a word to it never reaches its model. */
 export const CARRIER_REPORT_MS = 60_000
@@ -111,7 +119,13 @@ export const canCarry = (lane, target, now, outbox = []) => lane !== null && lan
  * Who carries a wake of `target`: the first chat that can carry now (`canCarry`), the main chat first when it can. `lanes` the chats that
  * may carry (server.mjs leaves out the helper and the Product owner, as `wakerOrder` does). The lane, or null (then the courier, if alive).
  */
-export function carrierOf(lanes, { target, main = null, now, outbox = [] } = {}) {
+export function carrierOf(lanes, { target, main = null, now, outbox = [], byModel = CARRY_BY_MODEL } = {}) {
+  if (byModel !== true) return null
+  return freeChatOf(lanes, { target, main, now, outbox })
+}
+
+/** A chat that is free and idle now (`canCarry`), the main chat first, or null: the probe's addressee, and A's carrier. */
+export function freeChatOf(lanes, { target, main = null, now, outbox = [] } = {}) {
   const able = (lanes ?? []).filter(lane => canCarry(lane, target, now, outbox))
   return able.find(lane => lane.name === main) ?? able[0] ?? null
 }
@@ -162,19 +176,28 @@ export const dueEntry = message => ({ id: message.id, chat: message.about, sessi
  *   another), which the server does only when the close applied (review 21).
  * `lanes` the board's lanes; `attemptOf(word)` the record's attempt of the word (its job id), or null.
  */
-export function carryCloses({ outbox, lanes, attemptOf, now }) {
+export function carryCloses({ outbox, lanes, attemptOf, now, paused = false }) {
   const out = []
   const laneOf = name => (lanes ?? []).find(lane => lane.name === name) ?? null
   for (const message of (outbox ?? []).filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state))) {
     const target = laneOf(message.about)
     const carrierGone = message.state === 'waiting' && message.to !== COURIER && !canCarry(laneOf(message.to), message.about, now, outbox)
     if (typeof message.of === 'string') {
+      if (paused && message.state === 'waiting') {
+        out.push({ id: message.id, state: 'dropped', why: 'held back while you pause the chats', giveBack: false })
+        continue
+      }
       const carried = (outbox ?? []).find(one => one.id === message.of)
       if (target === null || carried === undefined || carried.state !== 'waiting') out.push({ id: message.id, state: 'dropped', why: target === null ? `${message.about} is no longer on the board` : 'the word it carried is closed', giveBack: false })
       else if (carrierGone) out.push({ id: message.id, state: 'dropped', why: `${message.to} can no longer carry it`, giveBack: false })
       continue
     }
     const attempt = attemptOf(message)
+    // Verifier 6, 10: the person pauses: a word still waiting goes back with its attempt (no try spent); the next pass after the resume plans it again.
+    if (paused && message.state === 'waiting' && attempt !== null && attempt.verdict === null) {
+      out.push({ id: message.id, state: 'dropped', why: 'held back while you pause the chats', giveBack: true })
+      continue
+    }
     if (attempt?.verdict === 'woke') out.push(isTime(attempt.sentAt) && attempt.self !== true ? { id: message.id, state: 'delivered', why: `${message.about} woke`, giveBack: false } : { id: message.id, state: 'dropped', why: `${message.about} woke by itself`, giveBack: false })
     else if (target === null || target.isRunning === true) out.push({ id: message.id, state: 'dropped', why: target === null ? `${message.about} is no longer on the board` : `${message.about} runs again`, giveBack: false })
     else if (attempt === null || attempt.verdict === 'failed') out.push({ id: message.id, state: 'dropped', why: 'its wake attempt ended without it', giveBack: false })
@@ -182,6 +205,16 @@ export function carryCloses({ outbox, lanes, attemptOf, now }) {
   }
   return out
 }
+
+/** Verifier 6, 10: the person pauses (or the resume runs): carry words wait no more, nothing goes to the courier. */
+export const carryPaused = pause => isHolding(pause) || pause?.state === 'resuming'
+
+/**
+ * Verifier 8 (review 21): how a close applies to a word whose state was `was` right before it: 'close' (a waiting word, the only way a
+ * give-back goes), 'update' (a taken word delivered), 'closeTaken' (a taken word dropped), or null (nothing: a give-back for a word a
+ * take made its carrier's meanwhile, or a word already closed).
+ */
+export const closeWay = (close, was) => (was === 'waiting' ? 'close' : close.giveBack || was !== 'taken' ? null : close.state === 'delivered' ? 'update' : 'closeTaken')
 
 /**
  * Review 1, 2: whether a carrier's turn on its taken carry word began: its report is busy on that word, or on a turn that began after the
