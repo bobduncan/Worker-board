@@ -12,6 +12,7 @@
 // holds the supervisor's own watch: `seen` (since when it first saw what only counts once it lasts) and `observed`
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
+import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
 import { RETIRED_WATCH_RULES, givenBackFrom } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
@@ -458,8 +459,9 @@ function undelivered(view) {
     return {
       rule: 'undelivered', key: `undelivered ${chat}`, subject: chat, since: oldest.at,
       text: `${words.length} ${words.length === 1 ? 'word' : 'words'} to ${chat} not delivered, the oldest for ${minutes(view.now - oldest.at)} min`,
-      // B813: a failed word with its last why. B880: and the hand that holds a taken word, or failed it.
-      evidence: words.map(one => `${clockOf(one.at)} ${one.command ?? 'answer'}${one.about ? ` ${one.about}` : ''} (${one.state}${handOf(one)}${one.state === 'failed' && typeof one.why === 'string' && one.why.trim() !== '' ? `: ${shortWhy(one.why)}` : ''})`).join('; '),
+      // B813: a failed word with its last why. B880: and the hand that holds a taken word, or failed it. B1174: and a judge word its
+      // chat did not take (expired `untaken`), with why: the cause, not only how long it waited.
+      evidence: words.map(one => `${clockOf(one.at)} ${one.command ?? 'answer'}${one.about ? ` ${one.about}` : ''} (${one.state}${handOf(one)}${(one.state === 'failed' || one.untaken === true) && typeof one.why === 'string' && one.why.trim() !== '' ? `: ${one.untaken === true ? one.why : shortWhy(one.why)}` : ''})`).join('; '),
     }
   })]
 }
@@ -519,7 +521,7 @@ function closeCtxOf(view) {
   const runs = new Map(view.lanes.filter(chat => !chat.isLeftover).map(chat => [chat.name, chat.isRunning === true]))
   // T9.4: the chats known not to run (outboxSweep.mjs): a start word one of them holds is closed, so it matters to no rule.
   const off = new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor].filter(chat => chat?.isRunning === false).map(chat => chat.name))
-  const ctx = { all: view.outbox, items: view.items, assets: view.assets ?? undefined, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped: stoppedOfView(view), prefix: view.prefix ?? '', main: view.lanes.find(chat => chat.isMain === true)?.name ?? null, off, handedBack: view.handedBack ?? [], lanes: view.lanes, onBoard: new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor, view.owner].filter(chat => typeof chat?.name === 'string').map(chat => chat.name)) }
+  const ctx = { all: view.outbox, items: view.items, assets: view.assets ?? undefined, runs, goals: view.goals ?? [], now: view.now, keep: view.keep, closing: new Map(), stopped: stoppedOfView(view), prefix: view.prefix ?? '', main: view.lanes.find(chat => chat.isMain === true)?.name ?? null, off, handedBack: view.handedBack ?? [], lanes: view.lanes, onBoard: new Set([...view.lanes.filter(chat => !chat.isLeftover), view.partner, view.helper, view.supervisor, view.owner].filter(chat => typeof chat?.name === 'string').map(chat => chat.name)), supervisor: view.supervisor ?? null }
   return ctx
 }
 
@@ -549,6 +551,8 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   if (judged === null) return false
   const { stillWaits, waking } = judged
   if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to))) return false
+  // F17: a wake's carry word is the wake record's: its attempt's verdict and the board's "could not wake" name it, never rule 8 too.
+  if (isCarryWord(message)) return false
   // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
   // hold before its release (B285).
   const held = message.at + heldMs(message, view.now, view.pause)
@@ -985,7 +989,8 @@ export function checkpointLate(item, view) {
   const written = Number.isFinite(checkpoint?.at) && checkpoint.at >= began ? checkpoint.at : null
   const counted = from => view.now - afterPause(view, from) - boardOffMs(view, afterPause(view, from)) - (owner === undefined ? 0 : standingStillMs(view, owner.name, afterPause(view, from)))
   const quiet = counted(written ?? began)
-  const late = { step: view.now - began, checkpoint, quiet }
+  // B1175 (X196): `stopped` is the time its lane stood stopped since the checkpoint (the quiet time already leaves it out).
+  const late = { step: view.now - began, checkpoint, quiet, stopped: standingStillMs(view, owner.name, afterPause(view, written ?? began)) }
   return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
 }
 
@@ -993,9 +998,12 @@ export function checkpointLate(item, view) {
  * B572, X80: how long the chat stood suspended for the limit, or was off (not running), between `from` and now, by its
  * timeline's spans: it can write no checkpoint meanwhile. The board's own stops are boardOffMs's.
  */
+const STOPPED_STATES = new Set(['suspended', 'off', 'interrupted', 'unknown', 'waiting', 'free'])
 function standingStillMs(view, name, from) {
   const spans = view.timeline.find(one => plain(one.chat, view.prefix) === plain(name, view.prefix))?.spans ?? []
-  return spans.filter(span => span.state === 'suspended' || span.state === 'off')
+  // B1175 (X196): a stopped spell (interrupted, unknown, waiting, free) counts out like suspended and off: only the time the
+  // worker's lane read working counts toward a stale checkpoint. A time with no span (before the window) still counts.
+  return spans.filter(span => STOPPED_STATES.has(span.state))
     .reduce((sum, span) => sum + Math.max(0, Math.min(span.to ?? view.now, view.now) - Math.max(span.from, from)), 0)
 }
 
@@ -1017,7 +1025,7 @@ function staleCheckpoint(view) {
       // stale checkpoint of the same step is the same case, which must not read as gone and open again.
       rule: 'stale-checkpoint', key: `stale-checkpoint ${id}`, subject: id, text,
       evidence: `in progress since ${clockOf(sinceMs(valueOf(item, 'Since')))}; ${checkpoint === null ? 'no checkpoint in its record'
-        : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next} at ${Number.isFinite(checkpoint.at) ? clockOf(checkpoint.at) : 'a time not known'}`}`,
+        : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next} at ${Number.isFinite(checkpoint.at) ? clockOf(checkpoint.at) : 'a time not known'}`}; worked ${lasting(late.quiet)} since then, stopped ${lasting(late.stopped)} meanwhile`,
     })
   }
   return found
@@ -1430,7 +1438,7 @@ function wakeFailed(view) {
       rule: 'wake-failed', key: `wake-failed ${lane.name} ${lane.wake.spell ?? 'none'}`, subject: lane.name,
       ...(Number.isFinite(attempts[0]?.at) ? { since: attempts[0].at } : {}),
       text: `could not wake ${lane.name}: ${tried.join('; ')}`,
-      evidence: attempts.length === 0 ? `no attempt: ${lane.wake.why ?? 'none'}` : attempts.map(one => `${one.path} at ${clockOf(one.at)} by ${one.by}${Number.isFinite(one.sentAt) ? `, sent ${clockOf(one.sentAt)}` : ''}: ${one.verdict ?? 'pending'}${one.why ? ` (${one.why})` : ''}`).join('; '),
+      evidence: attempts.length === 0 ? `no attempt: ${lane.wake.why ?? 'none'}` : attempts.map(one => `${one.path} at ${clockOf(one.at)} by ${one.by}${Number.isFinite(one.sentAt) ? `, sent ${clockOf(one.sentAt)}` : ''}: ${one.verdict ?? 'pending'}${one.why ? ` (${plainWhy(one.why)})` : ''}`).join('; '),
     }
   })
 }
