@@ -1429,7 +1429,7 @@ function wakeFailed(view) {
       rule: 'wake-failed', key: `wake-failed ${lane.name} ${lane.wake.spell ?? 'none'}`, subject: lane.name,
       ...(Number.isFinite(attempts[0]?.at) ? { since: attempts[0].at } : {}),
       text: `could not wake ${lane.name}: ${tried.join('; ')}`,
-      evidence: attempts.length === 0 ? `no attempt: ${lane.wake.why ?? 'none'}` : attempts.map(one => `${one.path} at ${clockOf(one.at)} by ${one.by}${Number.isFinite(one.sentAt) ? `, sent ${clockOf(one.sentAt)}` : ''}: ${one.verdict ?? 'pending'}${one.why ? ` (${one.why})` : ''}`).join('; '),
+      evidence: attempts.length === 0 ? `no attempt: ${lane.wake.why ?? 'none'}` : attempts.map(one => `${one.path} at ${clockOf(one.at)} by ${one.by}${Number.isFinite(one.sentAt) ? `, sent ${clockOf(one.sentAt)}` : ''}: ${one.verdict ?? 'pending'}${one.why ? ` (${plainWhy(one.why)})` : ''}`).join('; '),
     }
   })
 }

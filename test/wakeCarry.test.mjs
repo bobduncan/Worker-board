@@ -5,10 +5,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { isHandWord } from '../src/hands.mjs'
-import { isUndelivered } from '../src/supervisor/rules/watch.mjs'
+import { WATCH_RULES, isUndelivered } from '../src/supervisor/rules/watch.mjs'
+import { isLate, keepMs } from '../src/store.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { emptyWakes, claim, carryPlan, failedToSend, heard, nextPath, pass, personAgain, sent, statusOf, textOfWakes, triedWords, wakeCarriedTake, wakeNeeds, wakeOf, wakesOfFile, wakeWords } from '../src/wake.mjs'
-import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, CARRY_DUE_MS, SEND_REFUSED_WHY, carrierOf, freeChatOf, carryCloses, carryText, carryTurnBegan, courierAlive, dueOf, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from '../src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, CARRY_VERDICT_MS, COURIER, carriedChats, carryPaused, closeWay, CARRY_DUE_MS, SEND_REFUSED_WHY, carrierOf, freeChatOf, carryCloses, carryText, carryTurnBegan, courierAlive, dueOf, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from '../src/wakeCarry.mjs'
 import { PROBE_MS } from '../src/work/effort.mjs'
 
 const MIN = 60_000
@@ -115,8 +116,8 @@ test('the real case, A: Digger asleep with a step ready: ONE word for a free cha
   assert.deepEqual(plan(), [])
   assert.deepEqual(plan([word]), [])
   assert.equal(record.wakes.get('Digger').at(-1).attempts.length, 1)
-  // Review 8: a carry word open for Digger (a carried start word, no attempt of its own) holds a second one off, also in a fresh record.
-  assert.deepEqual(carryPlan(refusedRecord(), { needs: needsOf(chats), lanes: chats, now: NOW, newId: () => 'x', outbox: [{ ...word, id: 'o1', of: 'start1' }], byModel: true }), [])
+  // F17 check 1: a carried start word's word (`of`) never holds the wake need's word off (else the chat waits for that word's 24 h).
+  assert.equal(carryPlan(refusedRecord(), { needs: needsOf(chats), lanes: chats, now: NOW, newId: () => 'x', outbox: [{ ...word, id: 'o1', of: 'start1' }], byModel: true }).length, 1)
   assert.equal(wakeWords(wakeOf(record, { chat: 'Digger', spell: NOW - 30 * MIN, paths: ['message'] }, { senderClaims: true }), time).text, 'waking through Worker 3\'s turn')
   // Review 1, 2: taken at 09:00:05 is not sent; the carrier's turn on it is.
   const taken = { ...word, state: 'taken', takenAt: NOW + 5000 }
@@ -275,7 +276,7 @@ test('rule 8 leaves a carry word to the wake record', () => {
 
 test('verifier 6, 8, 10: the pause the carry words read; how a close applies against the word\'s state right before it', () => {
   assert.equal(carryPaused(null), false)
-  assert.equal(carryPaused({ state: 'resuming', since: NOW }), true)
+  assert.equal(carryPaused({ state: 'resuming', since: NOW }), false, 'F17 check 3: Resume all wakes')
   assert.equal(carryPaused({ state: 'pausing', since: NOW }), true)
   const back = { state: 'dropped', giveBack: true }
   assert.equal(closeWay(back, 'waiting'), 'close')
@@ -283,4 +284,34 @@ test('verifier 6, 8, 10: the pause the carry words read; how a close applies aga
   assert.equal(closeWay({ state: 'delivered', giveBack: false }, 'taken'), 'update')
   assert.equal(closeWay({ state: 'dropped', giveBack: false }, 'taken'), 'closeTaken')
   assert.equal(closeWay({ state: 'dropped', giveBack: false }, 'delivered'), null)
+})
+
+test('F17 check 1: a courier-taken start word\'s carry never said sent closes after the verdict\'s window; of words count apart', () => {
+  const of = { id: 'o1', to: COURIER, command: 'wake-carry', about: 'Worker 3', forModel: true, state: 'taken', takenBy: COURIER, takenAt: NOW, at: NOW - MIN, of: 'start1' }
+  const start = { id: 'start1', command: 'start', about: 'Worker 3', to: 'Lead', state: 'waiting', at: NOW - 2 * MIN }
+  const lanes = [asleep('Worker 3', NOW - 30 * MIN)]
+  assert.deepEqual(carryCloses({ outbox: [of, start], lanes, attemptOf: () => null, now: NOW + CARRY_VERDICT_MS - 1000 }), [])
+  const [close] = carryCloses({ outbox: [of, start], lanes, attemptOf: () => null, now: NOW + CARRY_VERDICT_MS })
+  assert.deepEqual([close.state, close.why], ['dropped', 'the courier did not say it sent it'])
+  assert.deepEqual([...carriedChats([of])], [])
+  assert.deepEqual([...carriedChats([of], { ofWords: true })], ['Worker 3'])
+})
+
+test('F17 check 2: a carry word waits for the courier\'s next run: never expired at the message keep', () => {
+  const keep = { messageMs: 10 * MIN, answerMs: 48 * 60 * MIN, pause: null }
+  const word = { id: 'w', to: COURIER, command: 'wake-carry', about: 'Digger', state: 'waiting', at: NOW }
+  assert.equal(keepMs(word, keep), keep.answerMs)
+  assert.equal(isLate(word, NOW + 11 * MIN, keep), false)
+})
+
+test('F17 check 4: a refusal the record keeps in raw words is read plain, marked refused; the could-not-wake evidence never shows it raw', () => {
+  const back = wakesOfFile({ wakes: { 'Worker 2': [{ spell: 1, attempts: [{ path: 'message', at: NOW, by: 'Worker 4', jobId: 'j', sentAt: null, runBefore: null, verdict: 'failed', verdictAt: NOW, why: REFUSAL }], turnEndedAt: null, told: {} }] } })
+  const attempt = back.wakes.get('Worker 2')[0].attempts[0]
+  assert.deepEqual([attempt.why, attempt.refused], [SEND_REFUSED_WHY, true])
+  assert.notEqual(sendsRefusedOf(back, []), null)
+  const raw = { path: 'message', at: NOW, by: 'Worker 4', jobId: 'j', sentAt: null, verdict: 'failed', verdictAt: NOW, why: REFUSAL }
+  const view = buildView({ state: { chats: [asleep('Worker 2', NOW - 30 * MIN, { wake: { state: 'failed', final: true, spell: 1, attempts: [raw] } })], today: [], limits: {}, pause: null, chatPrefix: '', restart: { main: 'Lead' } }, items: new Map(), outbox: [], settings: {}, now: NOW })
+  const [found] = WATCH_RULES.find(one => one.id === 'wake-failed').check(view, { seen: new Map(), observed: [] })
+  assert.ok(found, 'the incident')
+  assert.doesNotMatch(`${found.text} ${found.evidence}`, RAW)
 })

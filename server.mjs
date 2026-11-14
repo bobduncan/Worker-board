@@ -2745,7 +2745,8 @@ async function main(args) {
     const refused = sendsRefusedOf(wakes, store.outbox())
     // Verifier 7, 11: the refusal the record's attempts or the outbox show becomes the record's own fact, so pruned spells never lift it.
     if (refused !== null && noteSendRefused(wakes, refused.since)) changed = true
-    if (refused !== null && !isHolding(state.pause) && state.pause?.state !== 'resuming') {
+    // F17 check 3: also while Resume all runs (its list is a need): held only while the person pauses.
+    if (refused !== null && !isHolding(state.pause)) {
       const outbox = store.outbox().filter(message => !isLate(message, now, keep))
       const carriers = carriersOf(state)
       const main = state.restart?.main ?? null
@@ -2756,7 +2757,7 @@ async function main(args) {
       const words = carryPlan(wakes, { needs, lanes: carriers, main, now, newId, runOf: chat => reports?.get(chat)?.run ?? null, outbox: store.outbox(), courierAlive: alive })
       // Review 8: a start or wake word no hand may send now (the reconciler's start of a free worker, B577's wake of a stopped chat): one
       // word for a model that types the hands' line into that chat; the word itself waits until its carrier's turn began.
-      const open = carriedChats([...store.outbox(), ...words])
+      const open = carriedChats([...store.outbox(), ...words], { ofWords: true })
       for (const message of outbox.filter(one => one.state === 'waiting' && ['start', 'wake'].includes(one.command) && typeof one.about === 'string' && !open.has(one.about))) {
         const lane = boardLanes(state).find(one => one.name === message.about && one.isLeftover !== true)
         const ids = wakeIdsOf(lane)
@@ -3836,7 +3837,7 @@ async function main(args) {
       const now = clock()
       lastCourierAt = now
       const state = await readState()
-      if (isHolding(state.pause) || state.pause?.state === 'resuming') return { ok: true, result: { wakes: [] } }
+      if (isHolding(state.pause)) return { ok: true, result: { wakes: [] } }
       let changed = await applyCarryCloses(state, now)
       const lanes = boardLanes(state)
       const anyRuns = lanes.some(lane => lane.isLeftover !== true && lane.isRunning === true)
@@ -3845,6 +3846,12 @@ async function main(args) {
         const target = lanes.find(lane => lane.name === word.about && lane.isLeftover !== true)
         const attempt = typeof word.of === 'string' ? null : carriedAttemptOf(word)
         if (target === undefined || (typeof word.of !== 'string' && (attempt === null || attempt.verdict !== null || target.isRunning !== false))) continue
+        // F17 check 1: a start or wake word's carry for a chat whose wake is on its way or done (a message or a launch) goes no more.
+        const spell = typeof word.of === 'string' ? spellOf(target) : null
+        if (spell !== null && isWakeOnItsWay(wakes, target.name, spell)) {
+          if (await store.close(word.id, 'dropped', `a wake of ${target.name} is on its way`, now)) changed = true
+          continue
+        }
         // Checked and taken in one step (no await between): a take of its carrier in the meantime finds it taken.
         if (word.state !== 'waiting') continue
         const marking = store.update(word.id, { state: 'taken', takenBy: COURIER, takenAt: now })

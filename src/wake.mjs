@@ -730,11 +730,13 @@ function savedAttempt(value) {
   if (!(value.sentAt === null || isTime(value.sentAt)) || !(value.verdict === null || ['woke', 'failed'].includes(value.verdict))) return null
   if (!(value.verdictAt === null || isTime(value.verdictAt)) || !(value.why === null || (typeof value.why === 'string' && WHYS.test(value.why)))) return null
   if (!(value.runBefore === null || isTime(value.runBefore) || (typeof value.runBefore === 'string' && value.runBefore.length <= 64))) return null
-  const { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why } = value
+  const { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt } = value
+  // F17 check 4: a refusal kept in its raw hook text (attempts from before F17) is read in plain words, marked refused.
+  const why = plainWhy(value.why)
   // T22: an attempt the person asked for ("Send again") keeps that mark; the step whose take line it carried too.
   return { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why, ...(value.again === 'person' ? { again: 'person' } : {}), ...(value.unlisted === true ? { unlisted: true } : {}),
     // F17: a wake a model carried (a carrier's turn, the courier), and a send the app refused, keep their marks across the board's restart.
-    ...(value.path === 'message' && ['model', 'courier'].includes(value.carry) ? { carry: value.carry } : {}), ...(value.refused === true ? { refused: true } : {}), ...(isTime(value.heldAt) ? { heldAt: value.heldAt } : {}), ...(value.self === true ? { self: true } : {}), step: typeof value.step === 'string' && /^[A-Z]\d{1,6}$/.test(value.step) ? value.step : null }
+    ...(value.path === 'message' && ['model', 'courier'].includes(value.carry) ? { carry: value.carry } : {}), ...(value.refused === true || isSendRefusal(value.why) ? { refused: true } : {}), ...(isTime(value.heldAt) ? { heldAt: value.heldAt } : {}), ...(value.self === true ? { self: true } : {}), step: typeof value.step === 'string' && /^[A-Z]\d{1,6}$/.test(value.step) ? value.step : null }
 }
 
 /** One saved spell entry, or null when it is none (an attempt that is no attempt is left out). */

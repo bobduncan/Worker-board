@@ -71,7 +71,8 @@ const isPlain = message => (message.command ?? null) === null || message.command
 // once its worker stopped), then the main chat may take it: it is kept that long and a plain word's keep after it.
 export const keepMs = (message, keep) => (isAnswer(message) || isLimitStopWord(message.command) ? Infinity
   : isTaskStopWord(message) ? STOP_HANDS_MS + keep.messageMs
-  : isPlain(message) || ['step', 'refined', 'work', 'incident', 'handover'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
+  // F17 check 2: a wake's carry word waits for the scheduled courier's next run (15 min and more); src/wakeCarry.mjs `carryCloses` closes it.
+  : isPlain(message) || ['step', 'refined', 'work', 'incident', 'handover', 'wake-carry'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
 /**
  * B891 (the result check of B880: a word went twice): a hand's call that gave no answer in time may still have acted (the
  * real case's ran the Product owner's routine and never answered). A word given back after such a call is in doubt from its

@@ -68,7 +68,7 @@ const SPELL = NOW - 40 * MIN
  * A board over a made-up project: Main and Worker 1 report idle (they run), Worker 2 never reported (asleep). `refused`: the wake record
  * holds the live refusal of a hand's send (08:16's, at today's time). `lines` the outbox; `attempts` more attempts of Worker 2's spell.
  */
-async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NOW - 30 * MIN, byModel = false }) {
+async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NOW - 30 * MIN, byModel = false, pause = null }) {
   const dir = await mkdtemp(join(tmpdir(), 'board-carry-'))
   const started = []
   t.after(async () => {
@@ -85,6 +85,7 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   const old = { path: 'message', at: refusedAt, by: 'Worker 1', jobId: `wake:${refusedAt - MIN}:Old`, sentAt: null, runBefore: null, verdict: 'failed', verdictAt: refusedAt, why: REFUSAL, step: null }
   const wakes = { wakes: { ...(refused ? { Old: [{ spell: refusedAt - MIN, attempts: [old], turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}), ...(attempts.length > 0 ? { 'Worker 2': [{ spell: SPELL, attempts, turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}) } }
   await put(join(board, 'data', 'wakes.json'), `${JSON.stringify(wakes)}\n`)
+  if (pause !== null) await put(join(project, '.claude', 'work', 'pause.json'), JSON.stringify(pause))
   const chats = join(project, '.claude', 'chats')
   await put(join(chats, 'list.json'), '{"prefix":"Game - ","main":"Main"}')
   const appChat = (name, sessionId, cliSessionId) => JSON.stringify({ title: `Game - ${name}`, sessionId, cliSessionId, cwd: project, isArchived: false, createdAt: NOW - 600 * MIN, lastActivityAt: NOW - 2 * MIN })
@@ -279,4 +280,20 @@ test('verifier 7, 11: a refusal known only from the record\'s old attempts becom
   const { record } = await boardWith(t, { refused: true })
   await until(async () => typeof (await record()).sendsRefusedSince === 'number', 'the fact saved')
   assert.equal((await record()).sendsRefusedSince, NOW - 30 * MIN)
+})
+
+test('F17 check 1: a start word\'s courier word handed out and never said sent holds no wake of Worker 2 off: its answer still gets the courier\'s word', { timeout: 240_000 }, async t => {
+  const start = { ...WAKE_WORD, id: 'startword000001', command: 'start' }
+  // The start word's carry, handed to the courier a minute ago and never said sent.
+  const held = { id: 'c0c0c0c0c0c0c0f1', at: NOW - 2 * MIN, to: 'the courier', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: null, session: 'local_w2', wakeText: 'x', text: 'Wake Worker 2', state: 'waiting', of: start.id }
+  const answerWord = { id: 'answer000000004', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
+  const { json, words } = await boardWith(t, { refused: true, lines: [start, held, { id: held.id, state: 'taken', takenBy: 'the courier', takenAt: Date.now() - MIN }, answerWord] })
+  // The courier calls: from now the board counts on it.
+  await json('/api/bridge/wakes-due', {})
+  let carried = []
+  await until(async () => {
+    carried = (await words()).filter(one => one.command === 'wake-carry' && one.about === 'Worker 2' && typeof one.of !== 'string')
+    return carried.length > 0
+  }, 'the wake need\'s own courier word beside the start word\'s')
+  assert.equal(carried.length, 1)
 })

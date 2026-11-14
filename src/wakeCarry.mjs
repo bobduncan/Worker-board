@@ -151,8 +151,11 @@ export function carryWord({ id, at, need, carrier, of = null }) {
 /** Whether a word is a carry word. */
 export const isCarryWord = message => message?.command === CARRY_COMMAND
 
-/** The chats a carry word is open for (waiting or taken): never a second word beside it. */
-export const carriedChats = outbox => new Set((outbox ?? []).filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state)).map(one => one.about))
+/**
+ * The chats a carry word is open for (waiting or taken): never a second word beside it. F17 check 1: a word that carries a start or wake word
+ * (`of`) holds off only another such word (`ofWords`), never a wake need's word, Send again or the launch.
+ */
+export const carriedChats = (outbox, { ofWords = false } = {}) => new Set((outbox ?? []).filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state) && (typeof one.of === 'string') === ofWords).map(one => one.about))
 
 /**
  * The courier's candidates (B): the waiting carry words it may take now: those addressed to it, those a carrier did not take within
@@ -187,6 +190,11 @@ export function carryCloses({ outbox, lanes, attemptOf, now, paused = false }) {
         out.push({ id: message.id, state: 'dropped', why: 'held back while you pause the chats', giveBack: false })
         continue
       }
+      // F17 check 1: one its carrier (the courier) took and never said it sent has the verdict's window, then it is closed.
+      if (message.state === 'taken' && isTime(message.takenAt) && isTime(now) && now - message.takenAt >= CARRY_VERDICT_MS) {
+        out.push({ id: message.id, state: 'dropped', why: `${message.takenBy === COURIER ? 'the courier' : message.to} did not say it sent it`, giveBack: false })
+        continue
+      }
       const carried = (outbox ?? []).find(one => one.id === message.of)
       if (target === null || carried === undefined || carried.state !== 'waiting') out.push({ id: message.id, state: 'dropped', why: target === null ? `${message.about} is no longer on the board` : 'the word it carried is closed', giveBack: false })
       else if (carrierGone) out.push({ id: message.id, state: 'dropped', why: `${message.to} can no longer carry it`, giveBack: false })
@@ -207,7 +215,8 @@ export function carryCloses({ outbox, lanes, attemptOf, now, paused = false }) {
 }
 
 /** Verifier 6, 10: the person pauses (or the resume runs): carry words wait no more, nothing goes to the courier. */
-export const carryPaused = pause => isHolding(pause) || pause?.state === 'resuming'
+// F17 check 3: only while the person pauses; while Resume all runs the wakes go (the resume list is a need).
+export const carryPaused = pause => isHolding(pause)
 
 /**
  * Verifier 8 (review 21): how a close applies to a word whose state was `was` right before it: 'close' (a waiting word, the only way a
