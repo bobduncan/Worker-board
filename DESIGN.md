@@ -8220,3 +8220,13 @@ keeper of this folder runs or a process of this folder holds the port, starts no
   exit 1; no PowerShell on the PATH → unknown, exit 1). Mutant: main's start-board.mjs (753e3eba) put back fails all of them (it
   starts a keeper, whose child dies on the port).
 - F10 (boards-survive-updates) has its own src/keeperStart.mjs with these listing parts and more; F10 merges this.
+
+**F24b, the slowness itself** (chat 1's diagnosis, 2026-11-14): a chat's mod (`keepBoards`) had (re)started the main board, and Windows
+handed the chat's CPU "Low" on to it: Idle priority, pinned to the last two cores (affinity C00000), which carried about 110 processes,
+so the board's thread got no CPU at all (the page in 8-11 s, /api/state in 30 s, loop stalls at almost no CPU). Its own CPU job would
+have undone that, but under Low it first waited for the process listing and the sessions on the starved thread (src/cpu.mjs once()).
+Now: server.mjs's first act, keeper and board alike, is `os.setPriority(PRIORITY_NORMAL)`; and under Low the CPU job's first pass sets
+the board's own processes to Normal on all cores BEFORE the listing and the sessions, as Full does (`isRestored`; a failed call is tried
+again next pass, still first). Tests: test/cpu.test.mjs (the order with a fake, where the mutant, the old order, lists first; the Low
+test's first call is the board's own), test/cpuStartIdle.test.mjs (the real case: a copy of the board started by `start /LOW /AFFINITY
+<the last two cores>` runs its keeper and board at Normal on all cores within a minute; `start /LOW /AFFINITY` is checked to apply).
