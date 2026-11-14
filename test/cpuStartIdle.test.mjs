@@ -98,6 +98,32 @@ test('F24b, server.mjs alone: a demo board (no CPU job) started at Idle on two c
   assert.deepEqual([...seen], [`${keeper} Normal ${LAST_TWO.toString()}`, `${board} Normal ${LAST_TWO.toString()}`], `Normal at once, the cores as inherited (no CPU job in a demo); saw over time: ${(seen.history ?? seen).join(' >> ')}`)
 })
 
+test('F24b, server.mjs alone, directly: the demo keeper started with start /LOW /AFFINITY (no start-board.mjs) and its board read Normal while their affinity is still the two cores (fails without the raise in server.mjs)', windows, async t => {
+  const { spawn } = await import('node:child_process')
+  const port = await freePort()
+  const script = `server.mjs --demo --port ${port}`
+  t.after(async () => {
+    const until = Date.now() + 15_000
+    do {
+      killRunning(script)
+      await new Promise(done => setTimeout(done, 500))
+    } while (Date.now() < until && stillRunning(script) !== '0')
+    assert.equal(stillRunning(script), '0')
+  })
+  // The keeper itself at Idle on the two cores, as a chat under Low would spawn it; it runs on (no /WAIT), its board under it.
+  const shell = spawn('cmd.exe', ['/c', 'start', '/LOW', '/AFFINITY', LAST_TWO.toString(16), '/B', '""', process.execPath, join(ROOT, 'server.mjs'), '--demo', '--port', String(port)], { cwd: ROOT, windowsHide: true, stdio: 'ignore' })
+  t.after(() => shell.kill())
+  const until = Date.now() + 30_000
+  let pids = []
+  while (Date.now() < until && pids.length < 2) {
+    pids = ps(`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*${inLike(script)}*' } | ForEach-Object { $_.ProcessId }`).split(/\r?\n/).filter(Boolean).map(Number)
+    if (pids.length < 2) await new Promise(done => setTimeout(done, 500))
+  }
+  assert.equal(pids.length, 2, `keeper and board: ${pids}`)
+  const seen = await untilState(pids, `Normal ${LAST_TWO.toString()}`)
+  assert.deepEqual([...seen].sort(), pids.map(pid => `${pid} Normal ${LAST_TWO.toString()}`).sort(), `Normal at once, the cores as inherited; saw over time: ${(seen.history ?? seen).join(' >> ')}`)
+})
+
 test('F24b, the CPU job: a copy of the board at Full started at Idle on two cores runs its keeper and board at Normal on all cores', windows, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'board-idle-'))
   const board = join(dir, 'kiwi-board')

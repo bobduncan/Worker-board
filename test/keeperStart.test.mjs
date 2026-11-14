@@ -9,7 +9,8 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { LIST_MS, isBoardOf, keepersOf, netstat, parseProcessList, portHolderOf, powershell, runsAlready, runsFolder } from '../src/keeperStart.mjs'
-import { boardRuns } from '../start-board.mjs'
+import { boardRuns, probeBoard } from '../start-board.mjs'
+import { createServer } from 'node:http'
 import { unhidden } from './windowsHide.test.mjs'
 
 const DIR = 'C:\\Web\\p\\worker-board'
@@ -54,6 +55,10 @@ test('this board\'s processes: the folder\'s server.mjs without --demo, --histor
   assert.equal(isBoardOf(`${node} C:\\Web\\other\\server.mjs`, DIR, 4310), false)
   assert.deepEqual(keepersOf([KEEPER, BOARD, { pid: 300, parent: 1, commandLine: `${node} ${DIR}\\server.mjs --demo --port 4311` }], DIR, 4310), [{ pid: 100, children: [101] }])
   assert.equal(LIST_MS, 20_000)
+  // start-board.mjs --demo sees its own demo (re-check nit): a demo on the port is its board then, and the real board is not.
+  assert.equal(isBoardOf(`${node} ${DIR}\\server.mjs --demo --port 4311`, DIR, 4311, { isDemo: true }), true)
+  assert.equal(isBoardOf(`${node} ${DIR}\\server.mjs --port 4311`, DIR, 4311, { isDemo: true }), false)
+  assert.deepEqual(keepersOf([KEEPER, { pid: 300, parent: 1, commandLine: `${node} ${DIR}\\server.mjs --demo --port 4311` }], DIR, 4311, { isDemo: true }), [{ pid: 300, children: [] }])
 })
 
 test('the decision: an answer, a keeper of the folder, the port held by the folder\'s process: runs, nothing started; a foreign holder: not ours; nothing: start', () => {
@@ -72,9 +77,19 @@ test('the decision: an answer, a keeper of the folder, the port held by the fold
   const demo = { pid: 400, parent: 1, commandLine: '"C:\\Program Files\\nodejs\\node.exe" C:\\Web\\p\\worker-board\\server.mjs --demo --port 4310' }
   assert.deepEqual(runsAlready({ ...at, answers: false, processes: [demo], holder: 400 }).foreign?.pid, 400)
   assert.deepEqual(runsAlready({ ...at, answers: false, processes: [demo], holder: null }), { runs: false }, 'a demo keeper is no keeper of this board')
+  // The port's holder is not in the listing (its child restarted between the two looks) while a keeper of this board runs: the keeper's, never
+  // foreign (re-check (b): a foreign reading made land.ps1 roll back). Without a keeper, it is foreign with no command line.
+  const changed = runsAlready({ ...at, answers: false, processes: [KEEPER], holder: 777 })
+  assert.deepEqual([changed.runs, changed.why], [true, 'a keeper of this folder runs (process 100); the port\'s holder 777 changed while looking: did not answer within 15 seconds: slow or starting; nothing started'])
+  assert.deepEqual(runsAlready({ ...at, answers: false, processes: [OTHER], holder: 777 }), { runs: false, foreign: { pid: 777, commandLine: '' } })
   assert.deepEqual(runsAlready({ ...at, answers: false, processes: [], holder: 999 }), { runs: false, foreign: { pid: 999, commandLine: '' } })
   // Nothing of this folder and a free port: a start.
   assert.deepEqual(runsAlready({ ...at, answers: false, processes: [OTHER], holder: null }), { runs: false })
+  // No listing, but nothing listens (the fetch was refused) and netstat saw no holder: a start all the same, with a note (the re-check's
+  // rule: a duplicate keeper dies on EADDRINUSE, a board left down does not heal). Netstat unknown, or the port not refused: unknown.
+  assert.deepEqual(runsAlready({ ...at, answers: false, isRefused: true, holderKnown: true, holder: null, processes: null, listingError: 'x' }), { runs: false, note: "the PC's processes could not be listed (x), but nothing listens on the port: started all the same" })
+  assert.equal(runsAlready({ ...at, answers: false, isRefused: true, holderKnown: false, holder: null, processes: null }).unknown !== undefined, true)
+  assert.equal(runsAlready({ ...at, answers: false, isRefused: false, holderKnown: true, holder: null, processes: null }).unknown !== undefined, true)
   // No listing (it failed or took too long): unknown, never a start on a guess; the holder alone does not decide.
   assert.deepEqual(runsAlready({ ...at, answers: false, processes: null, holder: null, listingError: 'PowerShell took longer than 10 s' }), { runs: false, unknown: "the PC's processes could not be listed (PowerShell took longer than 10 s): whether this folder's board runs is unknown; nothing started" })
   assert.deepEqual(runsAlready({ ...at, answers: false, processes: null, holder: 45400 }).runs, false)
@@ -100,6 +115,18 @@ test('PowerShell and netstat get Normal priority from outside at once (a start-b
   const unknown = await boardRuns(4310, { answers: async () => false, list: broken, ports: async () => '', platform: 'win32', dir: 'C:\\Web\\p\\worker-board' })
   assert.equal(calls, 2)
   assert.match(unknown.unknown, /^the PC's processes could not be listed \(PowerShell took longer than 20 s; again: PowerShell took longer than 20 s\): whether this folder's board runs is unknown; nothing started$/)
+  // Refused (nothing listens) and netstat free: the failed listing does not block the start; a failed netstat does.
+  const refused = await boardRuns(4310, { answers: async () => 'refused', list: broken, ports: async () => '', platform: 'win32', dir: 'C:\\Web\\p\\worker-board' })
+  assert.deepEqual([refused.runs, refused.unknown, /started all the same$/.test(refused.note)], [false, undefined, true])
+  const noNetstat = await boardRuns(4310, { answers: async () => 'refused', list: broken, ports: async () => { throw new Error('netstat ended with 1') }, platform: 'win32', dir: 'C:\\Web\\p\\worker-board' })
+  assert.equal(noNetstat.unknown !== undefined, true)
+  // The probe tells the three apart on real ports: a free port is refused, another program's page is silent.
+  const free = await new Promise(done => { const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => done(port)) }) })
+  assert.equal(await probeBoard(free, 2000), 'refused')
+  const other = createServer((req, res) => res.end('<title>Something else</title>')).listen(0, '127.0.0.1')
+  await new Promise(done => other.once('listening', done))
+  t.after(() => other.close())
+  assert.equal(await probeBoard(other.address().port, 2000), 'silent')
 })
 
 test('the listing has a 20 s bound, and PowerShell and netstat are started hidden (start-board.mjs runs detached from a chat\'s mod: a console program without windowsHide pops a terminal up)', () => {

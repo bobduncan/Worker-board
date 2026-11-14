@@ -59,9 +59,11 @@ export function runsFolder(commandLine, dir) {
  * `--history-from` or `--launch-entry`, and no `--port` other than `port` (a demo or a second board of the folder on another port is
  * not it; chat 1's review of F24a, item 2).
  */
-export function isBoardOf(commandLine, dir, port) {
+export function isBoardOf(commandLine, dir, port, { isDemo = false } = {}) {
   if (!runsFolder(commandLine, dir)) return false
-  if (/\s--(?:demo|history-from|launch-entry)(?:\s|$)/.test(commandLine)) return false
+  // The demo's own board is a demo (start-board.mjs --demo sees it); the real board's never is.
+  if (/\s--demo(?:\s|$)/.test(commandLine) !== isDemo) return false
+  if (/\s--(?:history-from|launch-entry)(?:\s|$)/.test(commandLine)) return false
   const given = /\s--port\s+(\d+)/.exec(commandLine)
   return given === null || Number(given[1]) === Number(port)
 }
@@ -71,8 +73,8 @@ export function isBoardOf(commandLine, dir, port) {
  * command line runs that folder's server.mjs and whose parent runs none (the child's parent is the keeper). Both slashes count.
  * With `port`, only the processes that are this board's (`isBoardOf`).
  */
-export function keepersOf(list, dir, port = null) {
-  const ours = (Array.isArray(list) ? list : []).filter(one => (port === null ? runsFolder(one?.commandLine, dir) : isBoardOf(one?.commandLine, dir, port)))
+export function keepersOf(list, dir, port = null, { isDemo = false } = {}) {
+  const ours = (Array.isArray(list) ? list : []).filter(one => (port === null ? runsFolder(one?.commandLine, dir) : isBoardOf(one?.commandLine, dir, port, { isDemo })))
   return ours.filter(one => !ours.some(other => other.pid === one.parent)).map(one => ({ pid: one.pid, children: ours.filter(other => other.parent === one.pid).map(other => other.pid) }))
 }
 
@@ -130,18 +132,26 @@ export function netstat(timeoutMs = LIST_MS, { raise = raiseChild } = {}) {
  * the listing failed or took longer than LIST_MS; chat 1's must: never a start on a guess, the next run looks again); `{ runs: false }`
  * when nothing of this folder runs and the port is free.
  */
-export function runsAlready({ dir, port = null, answers, processes = null, holder = null, answerSeconds, listingError = null }) {
+export function runsAlready({ dir, port = null, isDemo = false, answers, isRefused = false, holderKnown = false, processes = null, holder = null, answerSeconds, listingError = null }) {
   if (answers) return { runs: true, why: 'it answers' }
-  if (!Array.isArray(processes)) return { runs: false, unknown: `the PC's processes could not be listed${listingError ? ` (${listingError})` : ''}: whether this folder's board runs is unknown; nothing started` }
+  if (!Array.isArray(processes)) {
+    // The re-check's rule (chat 1, 2026-11-14): nothing listens (the fetch was refused) and netstat saw no holder: a failed listing does not
+    // block the start. A duplicate keeper there is harmless (its child ends on EADDRINUSE and it exits); a board left down is not.
+    if (isRefused && holderKnown && holder === null) return { runs: false, note: `the PC's processes could not be listed${listingError ? ` (${listingError})` : ''}, but nothing listens on the port: started all the same` }
+    return { runs: false, unknown: `the PC's processes could not be listed${listingError ? ` (${listingError})` : ''}: whether this folder's board runs is unknown; nothing started` }
+  }
   const silent = `did not answer within ${answerSeconds} seconds: slow or starting; nothing started`
-  // The port first: its holder is this board's child (slow), or another program's (a start would die on it).
+  const [keeper] = keepersOf(processes, dir, port, { isDemo })
+  const keeperWords = keeper === undefined ? '' : `a keeper of this folder runs (process ${keeper.pid}${keeper.children.length ? `, board ${keeper.children.join(', ')}` : ''})`
+  // The port first: its holder is this board's child (slow), or another program's (a start would die on it). A holder the listing does
+  // not know (a child that restarted between the two looks) beside a keeper of this board is that keeper's: never foreign.
   if (holder !== null) {
     const process = processes.find(one => one.pid === holder)
-    if (process && isBoardOf(process.commandLine, dir, port)) return { runs: true, why: `process ${holder} of this folder holds the port but ${silent}` }
+    if (process && isBoardOf(process.commandLine, dir, port, { isDemo })) return { runs: true, why: `process ${holder} of this folder holds the port but ${silent}` }
+    if (!process && keeper !== undefined) return { runs: true, why: `${keeperWords}; the port's holder ${holder} changed while looking: ${silent}` }
     return { runs: false, foreign: { pid: holder, commandLine: process?.commandLine ?? '' } }
   }
   // A free port: a keeper of this board (not a demo's or another port's) is starting its child.
-  const [keeper] = keepersOf(processes, dir, port)
-  if (keeper) return { runs: true, why: `a keeper of this folder runs (process ${keeper.pid}${keeper.children.length ? `, board ${keeper.children.join(', ')}` : ''}) but ${silent}` }
+  if (keeper !== undefined) return { runs: true, why: `${keeperWords} but ${silent}` }
   return { runs: false }
 }

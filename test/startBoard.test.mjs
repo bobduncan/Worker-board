@@ -3,12 +3,13 @@
 
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { cpus } from 'node:os'
+import { cpus, tmpdir } from 'node:os'
 import { createServer } from 'node:http'
 import { createConnection } from 'node:net'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { rmSync, writeFileSync } from 'node:fs'
 
 import { ANSWER_MS, boardAt } from '../start-board.mjs'
 import { startEnv } from '../src/keeper.mjs'
@@ -78,10 +79,11 @@ test('run from inside a board\'s process, the script still starts a keeper with 
 // so. Another program on the port: said, nothing started. Windows only for the process parts (the listing is PowerShell's).
 const HERE = join(dirname(fileURLToPath(import.meta.url)), '..')
 const windows = { skip: process.platform !== 'win32' ? 'Windows only' : false }
-const FAKE = "const http = require('node:http'); const [, , port, delay] = process.argv; http.createServer((q, r) => setTimeout(() => r.end('<title>Worker board</title>'), Number(delay))).listen(Number(port), '127.0.0.1')"
+const FAKE = "const http = require('node:http'); const [port, delay] = process.argv.slice(-2); http.createServer((q, r) => setTimeout(() => r.end('<title>Worker board</title>'), Number(delay))).listen(Number(port), '127.0.0.1')"
 /** A made-up board of this folder on `port` that answers after `delayMs`; resolves once it listens. */
 async function fakeBoard(t, port, delayMs) {
-  const child = spawn(process.execPath, ['-e', FAKE, join(HERE, 'server.mjs'), String(port), String(delayMs)], { stdio: 'ignore', windowsHide: true })
+  // Its command line is the demo's own board's (this folder's server.mjs, --demo, the port): what start-board.mjs --demo looks for.
+  const child = spawn(process.execPath, ['-e', FAKE, join(HERE, 'server.mjs'), '--demo', '--port', String(port), String(port), String(delayMs)], { stdio: 'ignore', windowsHide: true })
   t.after(() => { try { child.kill() } catch {} })
   const until = Date.now() + 5000
   while (Date.now() < until) {
@@ -133,12 +135,21 @@ test('F24, chat 1\'s review: start-board.mjs itself runs at Normal when a chat u
   const mask = ((1n << BigInt(Math.min(64, cpus().length))) - 1n) ^ ((1n << BigInt(Math.min(64, cpus().length) - 2)) - 1n)
   const shell = spawn('cmd.exe', ['/c', 'start', '/LOW', '/AFFINITY', mask.toString(16), '/B', '/WAIT', '""', process.execPath, SCRIPT, '--demo', '--port', port], { windowsHide: true, stdio: 'ignore', env: startEnv(process.env) })
   const ps = command => spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', timeout: 30_000, windowsHide: true }).stdout.trim()
-  // The script, then any demo keeper it may start once the fake board is gone: nothing of this test lingers.
+  // The script (by its command line too), then any demo keeper it may start once the fake board is gone, swept until none is left:
+  // nothing of this test lingers (re-check (d): a demo board left running from the gate).
   let script = null
-  t.after(() => {
+  t.after(async () => {
     shell.kill()
     if (script !== null) spawnSync('taskkill', ['/PID', String(script), '/T', '/F'], { windowsHide: true })
-    ps(`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs --demo --port ${port}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`)
+    ps(`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*start-board.mjs*--demo --port ${port}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`)
+    const until = Date.now() + 15_000
+    let left = '1'
+    while (Date.now() < until && left !== '0') {
+      ps(`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs --demo --port ${port}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`)
+      await new Promise(done => setTimeout(done, 500))
+      left = ps(`@(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs --demo --port ${port}*' -or $_.CommandLine -like '*start-board.mjs*--demo --port ${port}*' }).Count`)
+    }
+    assert.equal(left, '0', 'nothing of the test is left running')
   })
   // The script is born at Idle and raises itself once its (small) import graph has loaded: on two crowded cores that takes a moment.
   const until = Date.now() + 10_000
@@ -151,6 +162,19 @@ test('F24, chat 1\'s review: start-board.mjs itself runs at Normal when a chat u
     if (!/^Normal/.test(state)) await new Promise(done => setTimeout(done, 300))
   }
   assert.equal(state.split(' ').slice(0, 2).join(' '), `Normal ${mask.toString()}`, `the script raised itself to Normal within 10 s (the cores stay as inherited: the board's CPU job frees those); seen: ${seen.join(' >> ')}`)
+})
+
+test('F24, re-check (c): importing start-board.mjs raises nothing (only the script that runs does): a test file under Low stays at Idle', windows, async t => {
+  const mask = ((1n << BigInt(Math.min(64, cpus().length))) - 1n) ^ ((1n << BigInt(Math.min(64, cpus().length) - 2)) - 1n)
+  const file = join(tmpdir(), `imports-start-board-${process.pid}.mjs`)
+  writeFileSync(file, `import ${JSON.stringify(new URL('../start-board.mjs', import.meta.url).href)}\nconsole.log(process.pid)\nsetTimeout(() => {}, 20000)\n`)
+  t.after(() => rmSync(file, { force: true }))
+  const shell = spawn('cmd.exe', ['/c', 'start', '/LOW', '/AFFINITY', mask.toString(16), '/B', '/WAIT', '""', process.execPath, file], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
+  let out = ''
+  const pid = await new Promise(done => shell.stdout.on('data', chunk => { out += chunk; const found = Number(out.trim().split(/\s+/)[0]); if (found) done(found) }))
+  t.after(() => { spawnSync('taskkill', ['/PID', String(pid), '/F'], { windowsHide: true }); shell.kill() })
+  const state = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `$g = Get-Process -Id ${pid}; "$($g.PriorityClass) $($g.ProcessorAffinity)"`], { encoding: 'utf8', timeout: 30_000, windowsHide: true }).stdout.trim()
+  assert.equal(state, `Idle ${mask.toString()}`, 'the importing process keeps its Idle: the raise is the running script\'s alone')
 })
 
 test('F24a: another program on the port is said, and nothing is started on it', windows, async t => {

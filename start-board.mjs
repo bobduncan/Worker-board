@@ -31,15 +31,6 @@ import { gitRunner } from './src/folders.mjs'
 import { LIST_MS, LIST_SCRIPT, netstat, parseProcessList, portHolderOf, powershell, runsAlready } from './src/keeperStart.mjs'
 import { boardsFile, resolvePort } from './src/ports.mjs'
 
-// F24 (chat 1's review): this script's first act is Normal priority. A chat under CPU Low runs it at Idle on two crowded cores, and
-// everything it starts (PowerShell, netstat, the keeper and so the board) would inherit that and starve. ESM evaluates the imports
-// above first; this script's own graph is small (config, keeper, folders, ports, keeperStart), the board's is server.mjs's.
-try {
-  setPriority(osConstants.priority.PRIORITY_NORMAL)
-} catch {
-  // not allowed here: the board raises itself too (server.mjs)
-}
-
 const HERE = dirname(fileURLToPath(import.meta.url))
 const HOST = '127.0.0.1'
 const WAIT_MS = 20_000
@@ -48,11 +39,20 @@ export const ANSWER_MS = 15_000
 
 /** Whether a worker board answers on the port within `timeoutMs`: its page names itself. */
 export async function boardAt(port, timeoutMs = 1500) {
+  return (await probeBoard(port, timeoutMs)) === 'answers'
+}
+
+/**
+ * F24: what the port says within `timeoutMs`: 'answers' (the board's page), 'refused' (nothing listens: the connection was refused at
+ * once) or 'silent' (anything else: a timeout, another program's page, a reset).
+ */
+export async function probeBoard(port, timeoutMs = 1500) {
   try {
     const answer = await fetch(`http://${HOST}:${port}/`, { signal: AbortSignal.timeout(timeoutMs) })
-    return answer.ok && (await answer.text()).includes('<title>Worker board</title>')
-  } catch {
-    return false
+    return answer.ok && (await answer.text()).includes('<title>Worker board</title>') ? 'answers' : 'silent'
+  } catch (error) {
+    const codes = [error?.cause?.code, error?.code, ...(Array.isArray(error?.cause?.errors) ? error.cause.errors.map(one => one?.code) : [])]
+    return codes.includes('ECONNREFUSED') ? 'refused' : 'silent'
   }
 }
 
@@ -61,15 +61,17 @@ export async function boardAt(port, timeoutMs = 1500) {
  * the node processes (tried twice) and the holder of the port, judged by `runsAlready`. A listing that fails or times out both
  * times: unknown, no start (never a start on a guess: a keeper may run).
  */
-export async function boardRuns(port, { answers = boardAt, list = () => powershell(LIST_SCRIPT, LIST_MS), ports = () => netstat(LIST_MS), platform = process.platform, dir = HERE } = {}) {
+export async function boardRuns(port, { answers = probeBoard, list = () => powershell(LIST_SCRIPT, LIST_MS), ports = () => netstat(LIST_MS), platform = process.platform, dir = HERE, isDemo = false } = {}) {
   const answerSeconds = ANSWER_MS / 1000
-  if (await answers(port, ANSWER_MS)) return runsAlready({ dir, answers: true, answerSeconds })
+  const probed = await answers(port, ANSWER_MS)
+  if (probed === true || probed === 'answers') return runsAlready({ dir, answers: true, answerSeconds })
   if (platform !== 'win32') return { runs: false }
   let listingError = null
   const once = () => list().then(text => { const read = parseProcessList(text); if (read === null) throw new Error('the listing was not JSON'); return read })
   const twice = () => once().catch(first => once().catch(second => { listingError = `${first?.message ?? first}; again: ${second?.message ?? second}`; return null }))
-  const [listed, holder] = await Promise.all([twice(), ports().then(text => portHolderOf(text, port), () => null)])
-  return runsAlready({ dir, port, answers: false, processes: listed?.processes ?? null, holder, answerSeconds, listingError })
+  // netstat's answer is told from no answer: a failed netstat is unknown, a free port is known free.
+  const [listed, held] = await Promise.all([twice(), ports().then(text => ({ known: true, holder: portHolderOf(text, port) }), () => ({ known: false, holder: null }))])
+  return runsAlready({ dir, port, isDemo, answers: false, isRefused: probed === 'refused', holderKnown: held.known, processes: listed?.processes ?? null, holder: held.holder, answerSeconds, listingError })
 }
 
 /** B320: the program that opens a page in the person's browser, with its words. */
@@ -109,7 +111,7 @@ async function main(args) {
   const boards = isDemo || !config.project ? null : boardsFile()
   const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: config.project ? resolve(HERE, config.project) : null, gamePort: config.gamePort, boards })
   const url = `http://${HOST}:${port}/`
-  const runs = await boardRuns(port)
+  const runs = await boardRuns(port, { isDemo })
   if (runs.runs) {
     if (!isQuiet) console.log(`The worker board runs already: ${url}${runs.why === 'it answers' ? '' : ` (${runs.why})`}`)
     if (isOpen) openPage(url)
@@ -123,6 +125,7 @@ async function main(args) {
     console.error(`The worker board on ${url} did not answer within ${ANSWER_MS / 1000} seconds and ${runs.unknown}.`)
     return 1
   }
+  if (runs.note && !isQuiet) console.log(`Note: ${runs.note}.`)
 
   mkdirSync(join(HERE, 'data'), { recursive: true })
   const logFile = join(HERE, 'data', 'board.log')
@@ -158,6 +161,14 @@ async function main(args) {
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  // F24 (chat 1's review and re-check): this script's first act, when it RUNS (not when a test imports it), is Normal priority. A chat
+  // under CPU Low runs it at Idle on two crowded cores, and everything it starts (PowerShell, netstat, the keeper and so the board)
+  // would inherit that and starve. ESM evaluates the imports first; this script's own graph is small, the board's is server.mjs's.
+  try {
+    setPriority(osConstants.priority.PRIORITY_NORMAL)
+  } catch {
+    // not allowed here: the board raises itself too (server.mjs)
+  }
   // 2026-11-02 (the gate's flake since change 5: "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c",
   // exit 0xC0000409, once in a few runs of start-board's tests): `process.exit` right after `child.unref()` ended the
   // process while libuv still closed the detached child's handle on Windows. The code is set and the loop drains by itself

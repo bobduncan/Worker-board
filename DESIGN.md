@@ -8245,3 +8245,13 @@ of the first version was at 12:31 on 2026-11-14) and ends at Normal on all cores
 server.mjs is killed by its command line and the folder removed once they have let go. The keeper's board is found by its command line
 under the keeper, never by the parent pid alone (Windows gives a dead process's pid out again within seconds: a lingering Idle probe
 once passed for the board). start-board.mjs's own Normal is read while it waits on a slow board (test/startBoard.test.mjs).
+
+**Chat 1's re-check** (`.claude/plans/2026-11-14-f24-recheck.md`, the last round): the fetch is a probe now (`probeBoard`: answers,
+refused, silent); when nothing listens (refused) AND netstat saw no holder, a failed listing does not block the start (a duplicate
+keeper there dies on EADDRINUSE; a board left down heals nothing), said in a note; a failed netstat stays unknown. A port's holder the
+listing does not know, beside a keeper of this board, is that keeper's child restarting between the two looks, never foreign (a foreign
+reading made land.ps1 roll back). The raise runs inside start-board.mjs's entry block, not at module load, so the test files that import
+it stay at their own priority (tested: an importing process under `start /LOW` stays Idle; the mutant with the raise at module load
+fails). `start-board.mjs --demo` sees its own demo (`isBoardOf`'s `isDemo`). The server.mjs raise is proven on the demo keeper started
+DIRECTLY with `start /LOW /AFFINITY` (no start-board.mjs between): keeper and board Normal on the two-core mask, the mutant Idle. The
+start-board test sweeps start-board.mjs and every demo keeper by command line until none is left.
