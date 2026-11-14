@@ -86,22 +86,31 @@ test('the probe, read while it runs: Idle, the two-core mask', windows, async t 
   assert.deepEqual(stateOf([pid]), [`${pid} Idle ${LAST_TWO.toString()}`], 'the start line applies Idle and the two-core mask')
 })
 
-test('F24b through start-board.mjs: a demo board (no CPU job) started at Idle on two cores runs its keeper and board at Normal while their affinity is still the two cores (the raise of start-board.mjs or server.mjs: the direct test below tells server.mjs\'s)', windows, async t => {
+test('F24b through start-board.mjs, under F10: the keeper is made by WMI and inherits nothing from the chat at Idle on two cores: keeper and board at Normal on ALL cores', windows, async t => {
   const port = await freePort()
-  t.after(() => killRunning(`server.mjs --demo --port ${port}`))
+  t.after(async () => {
+    // The keeper's line is "server.mjs" --log --demo --port N: the wildcard takes keeper and board; swept until none is left.
+    const script = `server.mjs*--demo --port ${port}`
+    const until = Date.now() + 15_000
+    do {
+      killRunning(script)
+      await new Promise(done => setTimeout(done, 400))
+    } while (Date.now() < until && stillRunning(script) !== '0')
+    assert.equal(stillRunning(script), '0', 'keeper and board of the demo are gone')
+  })
   const started = startLow([join(ROOT, 'start-board.mjs'), '--demo', '--port', String(port)], { cwd: ROOT })
   const keeper = Number(started.stdout.match(/process (\d+)/)?.[1])
   assert.ok(Number.isInteger(keeper), `${started.stdout} ${started.stderr}`)
   const board = childOf(keeper, `server.mjs --demo --port ${port}`)
   assert.ok(Number.isInteger(board) && board > 0, 'the keeper has its board')
-  const seen = await untilState([keeper, board], `Normal ${LAST_TWO.toString()}`)
-  assert.deepEqual([...seen], [`${keeper} Normal ${LAST_TWO.toString()}`, `${board} Normal ${LAST_TWO.toString()}`], `Normal at once, the cores as inherited (no CPU job in a demo); saw over time: ${(seen.history ?? seen).join(' >> ')}`)
+  const seen = await untilState([keeper, board], `Normal ${ALL.toString()}`)
+  assert.deepEqual([...seen], [`${keeper} Normal ${ALL.toString()}`, `${board} Normal ${ALL.toString()}`], `a WMI keeper: Normal on all cores, nothing inherited; saw over time: ${(seen.history ?? seen).join(' >> ')}`)
 })
 
 test('F24b, server.mjs alone, directly: the demo keeper started with start /LOW /AFFINITY (no start-board.mjs) and its board read Normal while their affinity is still the two cores (fails without the raise in server.mjs)', windows, async t => {
   const { spawn } = await import('node:child_process')
   const port = await freePort()
-  const script = `server.mjs --demo --port ${port}`
+  const script = `server.mjs*--demo --port ${port}`
   t.after(async () => {
     const until = Date.now() + 15_000
     do {
@@ -113,7 +122,9 @@ test('F24b, server.mjs alone, directly: the demo keeper started with start /LOW 
   // The keeper itself at Idle on the two cores, as a chat under Low would spawn it; it runs on (no /WAIT), its board under it.
   const shell = spawn('cmd.exe', ['/c', 'start', '/LOW', '/AFFINITY', LAST_TWO.toString(16), '/B', '""', process.execPath, join(ROOT, 'server.mjs'), '--demo', '--port', String(port)], { cwd: ROOT, windowsHide: true, stdio: 'ignore' })
   t.after(() => shell.kill())
-  const until = Date.now() + 30_000
+  // The keeper and its board at Idle on two crowded cores load server.mjs slowly (the whole 3.8 MB graph, twice): a loaded PC takes a
+  // minute before both are there (seen 2026-11-14 under a gate), so the wait is generous.
+  const until = Date.now() + 120_000
   let pids = []
   while (Date.now() < until && pids.length < 2) {
     pids = ps(`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*${inLike(script)}*' } | ForEach-Object { $_.ProcessId }`).split(/\r?\n/).filter(Boolean).map(Number)

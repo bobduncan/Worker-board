@@ -58,7 +58,9 @@ export function keptStart({ token = '', key = '' } = {}) {
 export function parseStop(text) {
   try {
     const record = JSON.parse(text)
-    return Number.isFinite(record?.at) && STOP_WHYS.includes(record?.why) ? { at: record.at, why: record.why } : null
+    if (!Number.isFinite(record?.at) || !STOP_WHYS.includes(record?.why)) return null
+    // F10: `started` (the start the sign belongs to) and `by` ('command' for start-board.mjs --stop) ride along when there.
+    return { at: record.at, why: record.why, ...(Number.isFinite(record.started) ? { started: record.started } : {}), ...(typeof record.by === 'string' ? { by: record.by } : {}) }
   } catch {
     return null
   }

@@ -258,6 +258,8 @@ test('a board started by hand is an intervention unless a landing is within 5 mi
   const landed = interventionsOf({ lastStop: stop('hand', Date.parse(landings[1].at) + 4 * MIN), landings, day: TODAY })
   assert.deepEqual(landed.interventions, [])
   assert.deepEqual(interventionsOf({ lastStop: stop('keeper', t(14, 0)), landings, day: TODAY }), { interventions: [], unsure: [] })
+  // F10: the watcher's start is the board's own way back too: no intervention, nothing unsure.
+  assert.deepEqual(interventionsOf({ lastStop: stop('watcher', t(14, 0)), landings, day: TODAY }), { interventions: [], unsure: [] })
   const unknown = interventionsOf({ lastStop: stop(null, t(14, 0)), landings, day: TODAY })
   assert.deepEqual(unknown.interventions, [])
   assert.equal(unknown.unsure[0].kind, 'restart-by-hand')

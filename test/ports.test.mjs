@@ -98,6 +98,9 @@ test('launchEntry: a folder\'s entry is named after it and opens its own port; a
   const main = launchEntry({ folder: 'C:\\x\\board', port: 4310, node, main: 'C:/x/Board/' })
   assert.deepEqual(main.runtimeArgs, ['C:/x/board/start-board.mjs'])
   assert.equal(main.detached, true)
+  // F10: the launcher's stop words (start-app 0.4.1 runs them for /stop-app: the stop sign first, so the watcher leaves the board down).
+  assert.deepEqual(main.stop, ['C:/Program Files/nodejs/node.exe', 'C:/x/board/start-board.mjs', '--stop'])
+  assert.equal('stop' in launchEntry({ folder: 'C:\\x\\board-one', port: 4320, node, main: 'C:\\x\\board' }), false)
   assert.deepEqual(launchEntry({ folder: 'C:\\x\\board', port: 4310, node }).runtimeArgs, ['C:/x/board/start-board.mjs'])
   assert.equal('detached' in launchEntry({ folder: 'C:\\x\\board-one', port: 4320, node, main: 'C:\\x\\board' }), false)
 })

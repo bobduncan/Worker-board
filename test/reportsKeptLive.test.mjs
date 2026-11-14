@@ -2,7 +2,8 @@
 // a worker busy), keeps their reports in data/reports.json, is stopped, and started anew a while after the reports went
 // stale. At its start each lane reads as the chat last said (free, working), not Unknown; a chat that reports after the
 // restart is read from its new report. A torn reports file is set aside and the board starts without it. The settings'
-// 15 s stand for the 30 s of every day. A copy of the board on a made-up project in a temporary folder only.
+// 45 s stand for the 30 s of every day (F28: wider than every check after the restart takes under a landing gate's load, so a
+// saved report never goes unknown in the middle of them; the pause before the restart is still longer than it). A copy of the board on a made-up project in a temporary folder only.
 
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -21,8 +22,12 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const COPIED = ['server.mjs', 'run-game.mjs', 'start-board.mjs', 'package.json', 'src', 'public', 'roles', 'examples', 'fixtures']
 const NOW = Date.now()
 const MIN = 60_000
-/** A report silent this long is unknown; the pause before the restart is longer, so the saved reports are stale by then. */
-const UNKNOWN_S = 15
+/**
+ * A report silent this long is unknown; the pause before the restart is longer, so the saved reports are stale by then. F28 (2026-11-14):
+ * 45 s, not 15: under a landing gate's load the board's start, its first state read and the new report's round trip took past 15 s
+ * after the restart, so the lead's saved report went unknown before the test read it (a flaky landing).
+ */
+const UNKNOWN_S = 45
 const pause = ms => new Promise(done => setTimeout(done, ms))
 
 const freePort = () => new Promise(done => {
@@ -129,7 +134,7 @@ test('a restart of the board keeps each chat\'s last state: free stays free, wor
   }, 'the reports in data/reports.json')
   assert.deepEqual((await readdir(join(board, 'data'))).filter(name => name.includes('reports')), ['reports.json'], 'nothing is left beside the file')
 
-  // The board stops and starts again after its reports went stale (longer than 15 s).
+  // The board stops and starts again after its reports went stale (longer than UNKNOWN_S).
   await stop(first.child)
   await pause((UNKNOWN_S + 3) * 1000)
   const second = await start()

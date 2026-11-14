@@ -22,7 +22,7 @@
 
 import { spawn } from 'node:child_process'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { constants as osConstants, setPriority } from 'node:os'
@@ -826,6 +826,14 @@ async function main(args) {
     process.exit(1)
   })
   const historyFrom = argAfter(args, '--history-from')
+  // WORKER_BOARD_FAIL_START: a test's way to a board that ends before it is up (test/startBoard.test.mjs, an early end that is no port race);
+  // nothing else sets it, and the keeper never hands it on by itself (only the fallback route's child inherits the caller's env).
+  if (process.env.WORKER_BOARD_FAIL_START === '1') {
+    console.error('WORKER_BOARD_FAIL_START is set: this board ends before it is up (a test).')
+    process.exit(3)
+  }
+  // F10: the watcher's start says so (tools/watch-boards.mjs START_ARGS), for the gap line and the page; a keeper's restart stays 'keeper'.
+  const startedBy = argAfter(args, '--started-by') === 'watcher' ? 'watcher' : null
   const clock = Date.now
 
   const keep = { messageMs: config.messageKeepMinutes * 60_000, answerMs: config.answerKeepHours * 60 * 60_000 }
@@ -2025,7 +2033,7 @@ async function main(args) {
       return readSources(config, folders, undefined, branches, work)
     }
     if (historyFrom === undefined) {
-      store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start })
+      store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start === 'keeper' ? 'keeper' : startedBy ?? handed.start })
       // The lazy clear (D8): no clear goes alone since Workers mod 0.31.0; one an older board left waiting is closed with its
       // reason at every start (the landing's sweep: the first start on this version closes them, later ones find none).
       if (!isShowOnly) await closeClearOnly(store, clock()).catch(error => loops.failed('clear-only-sweep', error))
@@ -4205,7 +4213,8 @@ async function main(args) {
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(0))
   process.on('exit', code => {
     // Signals change 1: why the board ended, for the next start's gap line (a board that records, once it listened).
-    if (isUp && !isDemo && historyFrom === undefined) writeStop(join(HERE, 'data', 'stop.json'), { at: clock(), why: stopWhy({ code }) })
+    // F10: the sign names the start it belongs to (`started`), so the watcher tells a stale sign from the last board's (G4).
+    if (isUp && !isDemo && historyFrom === undefined) writeStop(join(HERE, 'data', 'stop.json'), { at: clock(), why: stopWhy({ code }), started: startedAt })
     games.stopAll()
     // A picture that is being made ends with the board, and its folder under the temporary folder goes with it.
     making?.stop()
@@ -4299,6 +4308,8 @@ async function main(args) {
   void (async () => {
     isUp = true
     process.send?.({ up: true })
+    // F10: when this board started (data/started.json), for the watcher's reading of a stop sign (src/boardWatcher.mjs).
+    if (!isDemo && historyFrom === undefined) void writeUnflushed(join(HERE, 'data', 'started.json'), JSON.stringify({ at: startedAt, pid: process.pid })).catch(error => loops.failed('started-file', error))
     // B529: the loops' first owner finishes the open chat logs; one that gains the loops later does it then.
     const owns = await ownsLoops()
     if (owns) void chatLogs?.resume().catch(error => loops.failed('chat-logs', error))
@@ -4774,16 +4785,43 @@ async function main(args) {
  * board ends asking for that; stopping it stops the board. `--launch-entry` writes a file and ends: it needs none.
  */
 function keepBoard(args) {
+  // F10 (2026-11-14): `--log`: a keeper started through WMI (src/keeperStart.mjs, no shell, no redirect) opens data/board.log itself
+  // and gives it to its child as its output; its own lines go there too. Without the flag the output is the keeper's own (the old
+  // detached spawn gave it the log).
+  const isOwnLog = args.includes('--log')
+  const passed = args.filter(arg => arg !== '--log')
+  const logFile = join(HERE, 'data', 'board.log')
+  const openLog = () => {
+    try {
+      return openSync(logFile, 'a')
+    } catch {
+      return 'ignore'
+    }
+  }
+  const say = line => {
+    if (!isOwnLog) return console.error(line)
+    try {
+      appendFileSync(logFile, `${new Date().toISOString()} keeper: ${line}\n`)
+    } catch {
+      console.error(line)
+    }
+  }
   const keeper = keep({
     // Signals change 5 (2026-11-02): the page's token goes to the next board as the chats' key does, so the open page is
     // answered 200 after a restart and does not reload (eight restarts on 2026-11-01, the recap popup's text lost each time).
-    start: ({ key, token }) => spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), ...args], {
-      stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-      env: { ...startEnv(process.env), WORKER_BOARD_CHILD: '1', ...(key === null ? {} : { WORKER_BOARD_KEY: key }), ...(token === null ? {} : { WORKER_BOARD_TOKEN: token }) },
-      windowsHide: true,
-    }),
+    start: ({ key, token }) => {
+      const log = isOwnLog ? openLog() : null
+      const child = spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), ...passed], {
+        stdio: isOwnLog ? ['ignore', log, log, 'ipc'] : ['inherit', 'inherit', 'inherit', 'ipc'],
+        env: { ...startEnv(process.env), WORKER_BOARD_CHILD: '1', ...(key === null ? {} : { WORKER_BOARD_KEY: key }), ...(token === null ? {} : { WORKER_BOARD_TOKEN: token }) },
+        windowsHide: true,
+      })
+      // The child has its own copy of the descriptor.
+      if (typeof log === 'number') closeSync(log)
+      return child
+    },
     done: code => process.exit(code),
-    say: line => console.error(line),
+    say,
   })
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(signal, () => {

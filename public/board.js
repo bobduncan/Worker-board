@@ -23383,7 +23383,7 @@ const GAP_MS = 3 * MIN
 /** Why the board was off, as `board.lastStop.why` says it, in plain words. */
 const WHY_OFF = { restart: 'a new version started', stopped: 'stopped', crash: 'it crashed', unknown: 'the PC slept or the board was ended' }
 /** Signals change 5 (2026-11-02): how the board was started after it, as `board.lastStop.start` says it; nothing when it does not say. */
-const HOW_STARTED = { hand: 'started by hand', keeper: 'started again by itself' }
+const HOW_STARTED = { hand: 'started by hand', keeper: 'started again by itself', watcher: 'started by the watcher' }
 
 /** What the banner knows: the last good answer, the failing asks since, a restart announced, and a return to explain. */
 const banner = {

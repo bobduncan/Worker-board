@@ -20,7 +20,10 @@ const OTHER = { pid: 200, parent: 1, commandLine: '"C:\\Program Files\\nodejs\\n
 
 test('the listing read, the keepers of a folder (the child\'s parent is the keeper; both slashes; another folder is not ours)', () => {
   const text = '\uFEFF{"boot":"2026-11-14T06:00:00.0000000Z","processes":[{"pid":100,"parent":1,"commandLine":"x","created":"2026-11-14T07:00:00.0000000Z"},{"pid":"bad"}]}'
-  assert.deepEqual(parseProcessList(text), { bootAt: Date.parse('2026-11-14T06:00:00Z'), processes: [{ pid: 100, parent: 1, commandLine: 'x', createdAt: Date.parse('2026-11-14T07:00:00Z') }] })
+  assert.deepEqual(parseProcessList(text), { bootAt: Date.parse('2026-11-14T06:00:00Z'), logonAt: null, processes: [{ pid: 100, parent: 1, commandLine: 'x', createdAt: Date.parse('2026-11-14T07:00:00Z') }] })
+  // F10's re-check: a listing that lacks the caller's own pid is a broken read (a failed CIM query), never "no keeper".
+  assert.equal(parseProcessList(text, { ownPid: 4242 }), null)
+  assert.equal(parseProcessList(text, { ownPid: 100 })?.processes.length, 1)
   assert.equal(parseProcessList('not json'), null)
   assert.deepEqual(keepersOf([KEEPER, BOARD, OTHER], DIR), [{ pid: 100, children: [101] }])
   assert.deepEqual(keepersOf([KEEPER, BOARD, OTHER], 'D:/Proj/p/worker-board/'), [{ pid: 100, children: [101] }])
@@ -106,7 +109,8 @@ test('PowerShell and netstat get Normal priority from outside at once (a start-b
   assert.ok(raised.every(pid => Number.isInteger(pid) && pid > 0), String(raised))
   // boardRuns (start-board.mjs): a listing that fails once is tried again; twice is unknown, never a start.
   let calls = 0
-  const listing = JSON.stringify({ boot: '2026-11-14T06:00:00Z', processes: [{ pid: 100, parent: 1, commandLine: '"C:\\node.exe" D:\\Proj\\p\\worker-board\\server.mjs' }] })
+  // The listing carries this process too (boardRuns reads one without it as broken).
+  const listing = JSON.stringify({ boot: '2026-11-14T06:00:00Z', processes: [{ pid: 100, parent: 1, commandLine: '"C:\\node.exe" D:\\Proj\\p\\worker-board\\server.mjs' }, { pid: process.pid, parent: 1, commandLine: 'node test' }] })
   const flaky = async () => { calls += 1; if (calls === 1) throw new Error('PowerShell took longer than 20 s'); return listing }
   const onceOk = await boardRuns(4310, { answers: async () => false, list: flaky, ports: async () => '', platform: 'win32', dir: 'D:\\Proj\\p\\worker-board' })
   assert.deepEqual([calls, onceOk.runs], [2, true])
@@ -133,5 +137,5 @@ test('the listing has a 20 s bound, and PowerShell and netstat are started hidde
   assert.equal(LIST_MS, 20_000)
   const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'keeperStart.mjs'), 'utf8')
   assert.deepEqual(unhidden(source), [])
-  assert.equal((source.match(/windowsHide: true/g) ?? []).length, 2, 'both spawns')
+  assert.equal((source.match(/windowsHide: true/g) ?? []).length, 3, 'PowerShell, netstat and the fallback spawn')
 })
