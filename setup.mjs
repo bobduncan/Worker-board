@@ -4,14 +4,21 @@
 // needs (src/flowSetup.mjs): it shows them, asks y/n (without a keyboard only `--flow yes` writes), keeps the person's own moves
 // and copies the old file to flow.json.bak-<time> first. The two parts are independent. `npm run setup -- --check` only says what
 // it would do, for both parts, and writes nothing.
+// F10 (2026-11-14): a third part, the boards' watcher: a Windows scheduled task (src/watcherSetup.mjs) that starts a board again when
+// an app update or a crash ended it; `--watcher off` removes it; `--check` says its state.
 
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 
+import { spawn } from 'node:child_process'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { homedir, userInfo } from 'node:os'
+
 import { loadConfig, workFolder } from './src/config.mjs'
 import { describeFlow, setupFlow } from './src/flowSetup.mjs'
 import { findClaude, runSetup } from './src/setup.mjs'
+import { setupWatcher } from './src/watcherSetup.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const args = process.argv.slice(2)
@@ -66,4 +73,31 @@ if (file !== null) {
     else console.log(`Added ${done.added.length} move${done.added.length === 1 ? '' : 's'}${done.states.length === 0 ? '' : ` and ${done.states.length} state${done.states.length === 1 ? '' : 's'}`} to ${done.file}; the old file is kept as ${done.backup}`)
   }
 }
+// F10: the watcher part (Windows only): the scheduled task that brings a dead board back.
+if (process.platform === 'win32') {
+  const runProgram = (program, programArgs) => new Promise(resolve => {
+    const child = spawn(program, programArgs, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    let err = ''
+    child.stdout.setEncoding('utf8').on('data', chunk => { out += chunk })
+    child.stderr.setEncoding('utf8').on('data', chunk => { err += chunk })
+    child.on('error', error => resolve({ code: 1, out, err: error.message }))
+    child.on('exit', code => resolve({ code: code ?? 1, out, err }))
+  })
+  let project = here
+  try {
+    project = (await loadConfig(join(here, 'config.json'))).project || here
+  } catch {
+    // the folder's own name then
+  }
+  const user = `${process.env.USERDOMAIN ?? ''}${process.env.USERDOMAIN ? '\\' : ''}${userInfo().username}`
+  const watcher = await setupWatcher({
+    mode: isCheck ? 'check' : given('watcher') === 'off' ? 'off' : 'on',
+    home: process.env.WORKER_BOARD_HOME || join(homedir(), '.worker-board'), node: process.execPath, script: join(here, 'tools', 'watch-boards.mjs'), project, user,
+    run: runProgram, write: async (file, text) => { await mkdir(dirname(file), { recursive: true }); await writeFile(file, text) },
+  })
+  for (const line of watcher.lines) console.log(line)
+  if (!watcher.ok) good = false
+} else console.log('The watcher part is for Windows alone: skipped.')
+
 process.exitCode = good ? 0 : 1

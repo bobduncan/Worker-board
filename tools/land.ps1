@@ -368,13 +368,14 @@ function Restart-BoardWarm($Board, [string]$Want) {
 }
 
 # Cold: the new keeper first (the landed holdPort retries the bind), then the old keeper BEFORE its child (a keeper starts a crashed
-# child again). start-board.mjs would only say "runs already" while the old board answers, so the keeper is started the way
-# start-board.mjs does it (the env without the keeper's own words, src/keeper.mjs startEnv; they were removed from this process at
-# its start): `node server.mjs`, its words appended to data\board.log.
+# child again). start-board.mjs --anew starts the new keeper although the old board still answers (F10: through WMI, outside any job).
 function Restart-BoardCold($Board, [object[]]$Old) {
   $logDir = Join-Path $Board.dir 'data'
   if (-not (Test-Path -LiteralPath $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
-  Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'node server.mjs >> data\board.log 2>&1' -WorkingDirectory $Board.dir -WindowStyle Hidden
+  # F10 (2026-11-14): through start-board.mjs --anew: the keeper is made by WMI, outside this process's job (an app update ends every
+  # process in the Claude app's job, and a landing run from a chat sits in it), quiet, and never as a bare `node server.mjs`.
+  $anew = Invoke-Native $node @('start-board.mjs', '--anew', '--quiet') $Board.dir 90
+  if ($anew.code -ne 0) { Say "note: start-board.mjs --anew on $($Board.port) ended with $($anew.code): $(Git-Line $anew)" }
   Start-Sleep -Milliseconds 1500
   $mine = @($Old | Where-Object { $_.port -eq $Board.port })
   foreach ($one in @($mine | Where-Object { $_.role -eq 'keeper' })) { Stop-Process -Id $one.pid -Force -ErrorAction SilentlyContinue }
