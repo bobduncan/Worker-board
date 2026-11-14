@@ -143,6 +143,14 @@ export function readyList(items, { now, focus = null, focusGoals = [], followUpM
       held.push({ id, why })
       continue
     }
+    // B1160 part 2 (chat 1, the live G95 case: nine unit steps 'Ready for a worker (9)' with three workers free, none handed out: their
+    // Touches overlap B1149, under way): a step whose Touches overlap a step given or under way waits, and says so; it is not ready.
+    const overlap = overlapIn(items, item, COUNTS_FOR_TOUCHES)
+    if (overlap !== null) {
+      // F5 review 12: the words say where that step stands: given, waiting on the person, or under way.
+      held.push({ id, why: `waits: same files as ${overlap.id}, ${overlap.state === 'queued' ? 'given' : overlap.state === 'waiting on you' ? 'which waits for you' : 'under way'}`, overlap: overlap.id })
+      continue
+    }
     const pinned = valueOf(item, 'Pinned') === null ? null : bare(valueOf(item, 'Pinned'), prefix)
     const isKept = followUpMs > 0
     const isQa = isQaTask(item)

@@ -5785,6 +5785,33 @@ and free workers sat idle. Never a way around the refusal (no permission or mode
   old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off
   sonnet steps; the plain row words). The owed set through a model turn of Main (decision 4) is the second landing.
 
+- Part 2 (F5, chat 1's decisions 4 and 5, B1164): while the refusal stands the owed set goes to a model turn of Main. The hand-over
+  writes one set word to Main marked `forModel` (no hand ever claims it: hands.mjs `isHandWord`; Main's own take carries it at once),
+  asked once per hand-over while the worker is free; the envelope (set null, `asked`) waits for it (`isWaitDone`: typed into Main is
+  not done) until the worker runs at that setting (released, `setByMain`) or MAIN_SET_WAIT_MS (5 min, Main busy: released, `asked`
+  kept for the step's line). While refused no hand claims any set job but the probe (server `isHand`, `setsRefusedOf`). Rule 8 leaves
+  a `forModel` word out while it is with Main (MAIN_MODEL_SET_MS, 10 min), then names it while the worker still does not run at it.
+  handover-held stays as it is: a refused set holds nobody. Tests: `test/work/setMain.test.mjs`.
+- A ready step whose Touches overlap a step given or under way (the live G95 case: nine unit steps behind B1149) is not ready: it
+  stands in the ready list's `held` as "waits: same files as B1149, under way" (`overlap`). The rule overlap-idle names free workers
+  idling over 30 min while every waiting step is so held, once for the board (key `overlap-idle board`).
+
+- Round 3 (chat 1's final check of F2): while refused, a partner-effort word is Main's model's too (`forModel`, from the Focus switch,
+  Go and the evaluation's switch); a partner word closed as refused counts as missed, so the switch follows what the partner runs on
+  and Go sends no "usual" word; the plain line shows only once no try is left. The state's own hand-over decisions get the refusal
+  and its next check from the whole outbox, so a free worker's status says "next check …". The probe is a hand's alone: never in
+  Main's take, no wake word, never retried, only for a lane a hand may set (no Fable); one no hand carried within its minute, or that
+  failed for another reason, is closed in plain words (the next comes a day later). Tests: `test/work/setRound3.test.mjs`.
+
+- F5 review (chat 1, 2026-11-14): rule 8 never names a partner word Main carried out, and names a worker's Main word only while its step
+  is still that worker's and within UNDELIVERED_LOOK_MS. A Main word not taken yet is closed when its hand-over goes on (the pass's
+  release, or the sweep once its envelope no longer waits for it), so Main never sets a worker mid-step or twice; a release by the
+  worker's own setting rewrites the envelope's words. A next check already past reads "next check when a worker is free". A step held by
+  an overlap with a step at work is no none-ready cause and no review-held lateness. A partner word with a retry still to come shows
+  settling; a probe a hand gave back in doubt stays open DOUBT_MS; the probe never picks a worker whose hand-over waits or that got a set
+  word lately. Overlap words say where the step stands ("which waits for you"); overlap-idle names the board's span, not each worker's.
+  Tests: `test/work/setF5Review.test.mjs`.
+
 ### The envelope's contract for the Workers mod
 
 For step 3 (Workers mod 0.27.0). The board side is live behind `handover: "sequence"`; with `"timers"` the board answers
