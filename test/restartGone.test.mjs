@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { isLate, keepMs, outboxKnown } from '../src/store.mjs'
+import { foldOutbox, isLate, keepMs, outboxKnown } from '../src/store.mjs'
 import { isUndelivered } from '../src/supervisor/rules/watch.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { emptyWakes, textOfWakes, wakesOfFile } from '../src/wake.mjs'
@@ -36,6 +36,8 @@ test('the real case: Worker 4 (ended, background 0, quiet 10 min, the courier al
   assert.deepEqual([word.to, word.command, word.forModel, word.about, word.session, word.spell, word.state], [COURIER, CHAT_RESTART, true, 'Worker 4', 'local_worker4', GONE, 'waiting'])
   assert.equal(word.wakeText, `The worker board restarted this chat: its Workers mod was unloaded at ${hm(GONE)}. Go on where you were; if nothing waits for you, end this turn.`)
   assert.equal(restartWakeText(GONE), word.wakeText)
+  // The outbox keeps it (a word without a text is no word for store.mjs `foldOutbox`: lost at the board's restart).
+  assert.deepEqual(foldOutbox(`${JSON.stringify(word)}\n`).map(one => one.id), ['r1'])
   // F17's flow never sees it.
   assert.equal(isCarryWord(word), false)
   assert.equal(isRestartWord(word), true)

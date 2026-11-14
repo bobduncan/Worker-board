@@ -114,6 +114,7 @@ import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirs
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
+import { REFUSED_WHY as RESTART_REFUSED_WHY, STUCK_WHY as RESTART_STUCK_WHY, alsoUnarchiveOf, isArchivedIn, isLimitFull, isRestartWord, noteRestartSent, noteRestartTaken, noteRestartVerdict, restartCloses, restartEntry, restartNeeds, restartTakeable, restartWord, startersOf, unarchiveEntry } from './src/restartGone.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
@@ -2114,11 +2115,14 @@ async function main(args) {
   let openBlocked = null
   /** The review of 2026-11-02 (4a): the launch path counts only while the board can launch, so a blocked launch is no silent hold. */
   const canLaunchNow = () => canOpen && openBlocked === null
+  /** F17 review 7, 18: when the scheduled courier last asked for wakes (wakes-due), or null: the board counts on it only while it calls. */
+  let lastCourierAt = null
   /** Change 4: the facts the state reads the wake record with: whether a sender claims, and whether the board can launch. */
   const wakeFacts = () => {
     const now = clock()
     const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
-    return { record: wakes, senderClaims: !gone, canLaunch: canLaunchNow() }
+    // F19: and when the courier last called (a gone link's row says whether it restarts by itself).
+    return { record: wakes, senderClaims: !gone, canLaunch: canLaunchNow(), courierAt: lastCourierAt }
   }
   // B736 (X73, X87, X89): when the board heard no chat at all, and the work calls it answered after the chat's mod gave up.
   const hearing = bridgeKey === null ? null : hearingLog({ startedAt, quietMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000 })
@@ -2689,8 +2693,6 @@ async function main(args) {
   }
   /** F17: the record's attempt of a carry word (its job id is the word's id), or null. */
   const carriedAttemptOf = word => (wakes.wakes.get(word.about) ?? []).flatMap(entry => entry.attempts).findLast(one => one.jobId === word.id) ?? null
-  /** F17 review 7, 18: when the scheduled courier last asked for wakes (wakes-due), or null: the board counts on it only while it calls. */
-  let lastCourierAt = null
   /** F17, chat 1's re-check 1: whether the main chat covers Resume all's list itself: it runs, or its own wake is on its way. */
   const mainCoversOf = state => {
     const main = boardLanes(state).find(lane => lane.name === state.restart?.main && lane.isLeftover !== true) ?? null
@@ -2793,6 +2795,59 @@ async function main(args) {
     if (changed) wakesChanged()
     return refused
   }
+  /** F19 (src/restartGone.mjs): what the restart checks read: the board's lanes, the starters, the holds, the outbox, the record, the courier. */
+  const restartContextOf = (state, now) => ({ lanes: boardLanes(state), starters: startersOf(state), pause: state.pause ?? null, limits: state.limits ?? null, outbox: store.outbox(), record: wakes, now, courierAlive: courierAlive(lastCourierAt, now) })
+  /** F19, section 4 (D4): a waiting restart word is held back while the person pauses, a limit counts full or its lane is suspended. */
+  const restartHeldOf = state => lane => carryPaused(state.pause) || isLimitFull(state.limits) || (lane?.suspended ?? null) !== null
+  /**
+   * F19, section 4 (D5): the restart words whose purpose ended are closed (each only when its state is still the one it was judged in),
+   * and the try of a taken one gets its verdict. Section 5 first: a taken word whose chat left the board is marked `archivedAt` once the app
+   * lists it archived (the courier's archive; its run window is RESTART_TAKEN_MS). True when one changed.
+   */
+  const applyRestartCloses = async (state, now) => {
+    let changed = false
+    const lanes = boardLanes(state)
+    const offBoard = store.outbox().filter(one => isRestartWord(one) && one.state === 'taken' && !Number.isFinite(one.archivedAt) && !lanes.some(lane => lane.name === one.about && lane.isLeftover !== true))
+    if (offBoard.length > 0) {
+      const folders = await readAccountFolders(config.appSessions).catch(() => [])
+      for (const word of offBoard) {
+        if (word.state !== 'taken' || !isArchivedIn(word.session, folders)) continue
+        await store.update(word.id, { archivedAt: now })
+        changed = true
+      }
+    }
+    // Judged and their states taken in one step: a take or a wakes-sent in between finds its word changed, and the close is not applied.
+    const words = store.outbox().filter(isRestartWord)
+    const was = new Map(words.map(one => [one.id, one.state]))
+    for (const close of restartCloses({ outbox: store.outbox(), lanes, now, isHeld: restartHeldOf(state) })) {
+      const word = store.outbox().find(one => one.id === close.id)
+      if (word === undefined || word.state !== was.get(close.id)) continue
+      const extra = { ...(close.failed === true ? { failed: true } : {}), ...(close.unarchive === true ? { unarchive: 'due' } : {}), ...(close.state === 'delivered' ? { deliveredAt: now } : {}) }
+      const applied = word.state === 'waiting' ? await store.close(word.id, close.state, close.why, now, extra) : await store.update(word.id, { state: close.state, why: close.why, closedAt: now, ...extra })
+      if (!applied) continue
+      if (close.verdict !== null) noteRestartVerdict(wakes, word.about, word.id, close.verdict, close.why, now)
+      console.log(`Restart: the word to restart ${word.about} is closed at ${timeOf(now)}: ${close.why}${close.unarchive === true ? ' (the courier unarchives it on its next run)' : ''}.`)
+      changed = true
+    }
+    return changed
+  }
+  /**
+   * F19: every pass the restart words are closed (`applyRestartCloses`); while the courier calls (`courierAlive`), every board chat whose
+   * link is gone and that qualifies (src/restartGone.mjs `restartNeeds`: idle, no hold, its spell untried) gets ONE word for it, made in the
+   * same step as it is judged (no await between: a second pass finds it).
+   */
+  const restartPass = async (state, now) => {
+    let changed = await applyRestartCloses(state, now)
+    if (courierAlive(lastCourierAt, now)) {
+      const words = restartNeeds(restartContextOf(state, now)).map(need => restartWord({ id: randomBytes(8).toString('hex'), at: now, need }))
+      if (words.length > 0) {
+        changed = true
+        await store.sayAll(words)
+        for (const word of words) console.log(`Restart: ${word.about}'s board link is gone since ${timeOf(word.spell)}: the scheduled courier restarts it (${timeOf(now)}).`)
+      }
+    }
+    if (changed) wakesChanged()
+  }
   const wakePass = async (given = null) => {
     if (isClosing || isOpening || bridgeKey === null || isShowOnly) return
     if (!(await ownsLoops())) return
@@ -2817,6 +2872,8 @@ async function main(args) {
     if (changed) wakesChanged()
     // F17: while the app refuses the hands' sends, a wake's message goes as one word for an awake chat's model (or the courier's).
     const refused = await carryPass(state, now)
+    // F19: a chat whose board link is gone is restarted by the courier (src/restartGone.mjs).
+    await restartPass(state, now)
     if (!canOpen || isHolding(state.pause)) return
     // The review of 2026-11-02 (4a): a launch the board could not make waits until its program and folder pass again.
     if (openBlocked !== null) {
@@ -3880,25 +3937,66 @@ async function main(args) {
         await marking
         changed = true
       }
+      // F19 (section 3): the waiting restart words, re-checked against section 1 (src/restartGone.mjs `restartTakeable`) and taken in the
+      // same step (no await between); a starter's list of the chats its archive takes along is set at the take (D3); the try is the spell's.
+      for (const word of store.outbox().filter(one => isRestartWord(one) && one.state === 'waiting')) {
+        const ctx = restartContextOf(state, now)
+        if (!restartTakeable(word, ctx)) continue
+        const alsoUnarchive = alsoUnarchiveOf(ctx.lanes, word.about, { starters: ctx.starters })
+        const marking = store.update(word.id, { state: 'taken', takenBy: COURIER, takenAt: now, alsoUnarchive })
+        noteRestartTaken(wakes, { chat: word.about, spell: word.spell, word: word.id, now })
+        handed.push(restartEntry(word, alsoUnarchive))
+        await marking
+        changed = true
+      }
+      // F19 (section 5, D6): an unarchive-only entry, listed once.
+      for (const word of store.outbox().filter(one => isRestartWord(one) && one.unarchive === 'due')) {
+        const marking = store.update(word.id, { unarchive: 'listed', unarchiveAt: now })
+        handed.push(unarchiveEntry(word))
+        await marking
+        changed = true
+      }
       if (changed) wakesChanged()
       return { ok: true, result: { wakes: handed } }
     }),
     // F17: the courier sent these (`ids`): each closed delivered once, its attempt sent (the verdict waits for the chat's own report); a word
     // that carried a start or wake word closes that word too.
+    // F19 (D2, D5): a restart word's id under `ids` records `sentAt` (it stays taken until its verdict, src/restartGone.mjs `restartCloses`);
+    // under `refused` it closes "the app refused the archive" (no try spent); under `stuck` it closes failed "it stayed archived".
     wakesSent: counted(async body => {
-      const ids = Array.isArray(body?.ids) ? body.ids.filter(id => typeof id === 'string').slice(0, 50) : []
+      const listOf = value => (Array.isArray(value) ? value.filter(id => typeof id === 'string').slice(0, 50) : [])
+      const ids = listOf(body?.ids)
       const now = clock()
       let closed = 0
+      let restarts = 0
+      const isCouriers = word => isRestartWord(word) && word.state === 'taken' && word.takenBy === COURIER && !Number.isFinite(word.sentAt)
+      for (const [list, verdict, why] of [[listOf(body?.refused), 'refused', RESTART_REFUSED_WHY], [listOf(body?.stuck), 'stuck', RESTART_STUCK_WHY]]) {
+        for (const id of list) {
+          const word = store.outbox().find(message => message.id === id)
+          if (!isCouriers(word)) continue
+          await store.update(id, { state: 'dropped', why, closedAt: now, ...(verdict === 'stuck' ? { failed: true } : {}) })
+          noteRestartVerdict(wakes, word.about, id, verdict, why, now)
+          console.log(`Restart: the courier could not restart ${word.about} at ${timeOf(now)}: ${why}.`)
+          restarts += 1
+        }
+      }
       for (const id of ids) {
         const word = store.outbox().find(message => message.id === id)
+        if (isRestartWord(word)) {
+          if (!isCouriers(word)) continue
+          await store.update(id, { sentAt: now, why: 'the courier restarted it' })
+          noteRestartSent(wakes, word.about, id, now)
+          restarts += 1
+          continue
+        }
         if (!isCarryWord(word) || word.state !== 'taken' || word.takenBy !== COURIER) continue
         await store.update(id, { state: 'delivered', deliveredAt: now, why: 'the courier sent it' })
         if (typeof word.of === 'string') await store.close(word.of, 'delivered', 'carried by the courier', now, { deliveredAt: now })
         else wakeSent(wakes, word.about, id, now)
         closed += 1
       }
-      if (closed > 0) wakesChanged()
-      return { ok: true, result: { closed } }
+      if (closed + restarts > 0) wakesChanged()
+      return { ok: true, result: { closed, ...(restarts > 0 ? { restarts } : {}) } }
     }),
     handsDone: counted(async body => {
       const { checked } = await checkFresh(body)

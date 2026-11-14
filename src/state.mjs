@@ -81,6 +81,8 @@ import { factsOf, offMsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
 import { MOD_GONE_WHY, modGoneOf, modUnloadedAt } from './modGone.mjs'
+import { archivedLine, restartArchivedOf, restartRowOf, restartStandOf, startersOf } from './restartGone.mjs'
+import { courierAlive } from './wakeCarry.mjs'
 /** F9's review: a board-call popup counts for the asking spell it was filed in; filed this long before the spell began it is an old one. */
 const BOARD_CALL_SLACK_MS = 2 * 60_000
 import { backgroundRunning, conversation, doingNow, finishedBetween, saysUnfinished, parseTail, saysDone, taskOrigin, turnEnded, turnStart, turnState, unanswered, waitingFor } from './transcript.mjs'
@@ -3214,8 +3216,18 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
     }
     return { ...wakeStatusOf(record, lane.name, spellOf(lane)), final: false, need: false, shown: false }
   }
-  const withWake = lane => {
-    if (lane === null || lane === undefined || lane.isLeftover === true) return lane
+  // F19 (src/restartGone.mjs, section 6): a gone link's row says whether the courier restarts it: Link gone in the quiet colour "restarts by
+  // itself at HH:MM", Restarting once the courier took it, else Link gone in the attention colour with F9's way out or the failed why.
+  const restartCtx = { lanes, starters: startersOf(built), pause: pauseRecord ?? null, limits: built.limits ?? null, outbox: sent, record, now, courierAlive: courierAlive(wakes.courierAt ?? null, now) }
+  const withRestart = lane => {
+    if (lane?.status !== 'Link gone') return lane
+    const row = restartRowOf(restartStandOf(lane, restartCtx))
+    if (row === null) return lane
+    return { ...lane, ...(row.restarting ? { status: 'Restarting' } : {}), why: row.why, ...(row.quiet ? { quiet: true } : {}) }
+  }
+  const withWake = given => {
+    if (given === null || given === undefined || given.isLeftover === true) return given
+    const lane = withRestart(given)
     const wake = wakeOfLane(lane)
     const words = wake.shown === false ? null : wakeWords(wake, hourMinute)
     const flag = words === null ? [] : [{ kind: words.tone === 'attention' ? 'wake failed' : 'wake', id: null, text: words.text, button: null }]
@@ -3225,10 +3237,13 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
   const chats = (built.chats ?? []).map(withWake)
   const roles = Object.fromEntries(['advisor', 'advisorHelper', 'supervisorChat', 'productOwner'].map(key => [key, built[key] == null ? built[key] : withWake(built[key])]))
   const nobody = nobodyRunsSpell(built, sent)
+  const notice = noticeOf(record, targets, now, hourMinute, { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) })
+  // F19 (sections 3, 5): a chat a restart left archived is off the board: the Overview's one wake line names it, in the attention colour.
+  const archived = restartArchivedOf(sent, lanes, now).map(archivedLine)
   return {
     ...built, chats, ...roles,
     // P5: the kept reports the lanes read (the same `lane.report` the hasRunSince above reads), so the notice itself leaves out a chat that ran since its failed wake.
-    wakeNotice: noticeOf(record, targets, now, hourMinute, { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }),
+    wakeNotice: archived.length === 0 ? notice : { ...(notice ?? {}), tone: 'attention', text: [...archived, typeof notice?.text === 'string' && notice.text !== '' ? notice.text : null].filter(Boolean).join('; ') },
     wakes: newestSpells(record),
     // The review of 2026-11-02 (7): the board-wide spell now (nobody runs since), for the rule nobody-answers-wakes.
     wakeBoardSince: nobody?.since ?? null,

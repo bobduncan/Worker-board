@@ -88,8 +88,11 @@ function laneStatus(lane) {
         : (lane.waitsForPartner ?? []).length > 0 ? 'Working' : STATES[lane.state] ?? 'Unknown'
   const age = isBoards && Number.isFinite(lane.age) ? lane.age : null
   // The asset-stop rerun: a status the server marked `attention` (a background task with no news for an hour) draws the warn colour.
-  const tone = isBoards && lane.attention === true ? 'attention' : STATUS_VIEW[status].tone === 'late' ? (age !== null && age > UNKNOWN_LATE_MS ? 'attention' : 'quiet') : STATUS_VIEW[status].tone
-  return { status, key: STATUS_VIEW[status].key, tone, why: isBoards && typeof lane.why === 'string' ? lane.why : null, since: isBoards && Number.isFinite(lane.since) ? lane.since : null, age, isReported: isBoards }
+  // F19: a gone link the courier restarts by itself (state.mjs `withWakes`, `quiet`) draws the quiet colour.
+  const tone = isBoards && lane.attention === true ? 'attention' : isBoards && lane.quiet === true ? 'quiet' : STATUS_VIEW[status].tone === 'late' ? (age !== null && age > UNKNOWN_LATE_MS ? 'attention' : 'quiet') : STATUS_VIEW[status].tone
+  // F19: its pill, dot and row draw in the quiet colour too: the classes of Restarting (the quiet status it turns into once the courier takes it).
+  const key = status === 'Link gone' && tone === 'quiet' ? STATUS_VIEW.Restarting.key : STATUS_VIEW[status].key
+  return { status, key, tone, why: isBoards && typeof lane.why === 'string' ? lane.why : null, since: isBoards && Number.isFinite(lane.since) ? lane.since : null, age, isReported: isBoards }
 }
 
 /**

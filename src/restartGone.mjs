@@ -191,10 +191,13 @@ export function restartNeeds(ctx) {
     .map(lane => ({ chat: lane.name, session: lane.appSession, spell: lane.modGone.at }))
 }
 
+/** What the courier does with the word, in words (the outbox keeps only a word with a `text`: store.mjs `foldOutbox`). */
+export const restartText = chat => `Restart ${chat} for the worker board: archive it, unarchive it (and the chats its archive took along), then send it the wake.`
+
 /** The word (section 2): for the courier's model (`forModel`: no hand takes it); its list is set at the take (D3). */
 export const restartWord = ({ id, at, need }) => ({
   id, at, to: COURIER, command: CHAT_RESTART, forModel: true, about: need.chat, session: need.session, spell: need.spell, alsoUnarchive: [],
-  wakeText: restartWakeText(need.spell), state: 'waiting',
+  wakeText: restartWakeText(need.spell), text: restartText(need.chat), state: 'waiting',
 })
 
 /** The courier's entries: the restart (archive, unarchive, send) and the unarchive-only one (section 5). */
