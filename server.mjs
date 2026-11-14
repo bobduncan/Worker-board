@@ -818,6 +818,12 @@ async function main(args) {
     process.exit(1)
   })
   const historyFrom = argAfter(args, '--history-from')
+  // WORKER_BOARD_FAIL_START: a test's way to a board that ends before it is up (test/startBoard.test.mjs, an early end that is no port race);
+  // nothing else sets it, and the keeper never hands it on by itself (only the fallback route's child inherits the caller's env).
+  if (process.env.WORKER_BOARD_FAIL_START === '1') {
+    console.error('WORKER_BOARD_FAIL_START is set: this board ends before it is up (a test).')
+    process.exit(3)
+  }
   // F10: the watcher's start says so (tools/watch-boards.mjs START_ARGS), for the gap line and the page; a keeper's restart stays 'keeper'.
   const startedBy = argAfter(args, '--started-by') === 'watcher' ? 'watcher' : null
   const clock = Date.now

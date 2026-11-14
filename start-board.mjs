@@ -127,13 +127,17 @@ async function stopBoard(isQuiet, passed) {
   // This board's keepers only (its port, the demo's when --stop --demo): a demo keeper of the folder is left alone (chat 1's round-3 check).
   const port = await portOf(passed)
   const isDemo = passed.includes('--demo')
+  // The stop sign is the REAL board's alone (no --demo, the folder's own port): a sign written for a demo or another port would hold
+  // the watcher off the real board across an app update, the case F10 exists for (chat 1's round-4 check).
+  const isRealBoard = !isDemo && port === await portOf(passed.filter((word, at, all) => word !== '--port' && all[at - 1] !== '--port'))
+  const sign = () => { if (isRealBoard) writeFileSync(join(HERE, 'data', 'stop.json'), JSON.stringify({ at: Date.now(), why: 'stopped', by: 'command', ...(Number.isFinite(started) ? { started } : {}) })) }
   let started = null
   try {
     started = JSON.parse(readFileSync(join(HERE, 'data', 'started.json'), 'utf8')).at
   } catch {
     // never started here, or not recorded
   }
-  writeFileSync(join(HERE, 'data', 'stop.json'), JSON.stringify({ at: Date.now(), why: 'stopped', by: 'command', ...(Number.isFinite(started) ? { started } : {}) }))
+  sign()
   let keepers = []
   try {
     const listed = parseProcessList(await powershell(LIST_SCRIPT, 30_000), { ownPid: process.pid })
@@ -148,8 +152,9 @@ async function stopBoard(isQuiet, passed) {
   const pids = keepers.flatMap(one => [one.pid, ...one.children])
   const until = Date.now() + 10_000
   while (Date.now() < until && pids.some(isAlive)) await new Promise(done => setTimeout(done, 200))
-  writeFileSync(join(HERE, 'data', 'stop.json'), JSON.stringify({ at: Date.now(), why: 'stopped', by: 'command', ...(Number.isFinite(started) ? { started } : {}) }))
-  if (!isQuiet) console.log(keepers.length === 0 ? 'No board of this folder was running; the stop sign is written.' : `The worker board is stopped (keeper ${keepers.map(one => one.pid).join(', ')}); the watcher leaves it down until the next start.`)
+  sign()
+  const kept = isRealBoard ? 'the stop sign is written; the watcher leaves it down until the next start' : `no stop sign (${isDemo ? 'a demo' : `port ${port}`} is not this folder's board)`
+  if (!isQuiet) console.log(keepers.length === 0 ? `No board of this folder was running on port ${port}; ${kept}.` : `The worker board on port ${port} is stopped (keeper ${keepers.map(one => one.pid).join(', ')}); ${kept}.`)
   return 0
 }
 

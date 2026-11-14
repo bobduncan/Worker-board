@@ -100,8 +100,7 @@ async function sweep(port) {
 }
 const stopDemo = async (pid, port) => {
   if (Number.isInteger(pid)) spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
-  const until = Date.now() + 10_000
-  while (await boardAt(port) && Date.now() < until) await new Promise(done => setTimeout(done, 200))
+  await sweep(port)
 }
 /** The shell's script: runs start-board.mjs for the demo on `port`, prints its words, lingers (as a chat's shell would). */
 function shellScript(t, port) {
@@ -151,19 +150,30 @@ test('F10: --stop writes the stop sign first (so the watcher leaves the board do
   const second = Number(anew.stdout.match(/process (\d+)/)?.[1])
   t.after(() => stopDemo(second, port))
   assert.ok(Number.isInteger(second) && second !== pid, `a second keeper although the board answers: ${anew.stdout} ${anew.stderr}`)
-  // A demo board writes no started.json and no stop.json of its own; --stop writes the sign all the same and ends every keeper of this folder.
+  // --stop names the board it stops (its port, the demo): a demo keeper of the folder is not the real board's, and the other way round
+  // (round 4). The stop sign is the REAL board's alone: a demo's stop writes none (round-4 check: a sign for a demo would hold the watcher
+  // off the real board after an app update).
   const sign = join(DATA, 'stop.json')
   const before = existsSync(sign) ? readFileSync(sign, 'utf8') : null
   t.after(() => { if (before === null) rmSync(sign, { force: true }); else writeFileSync(sign, before) })
-  // --stop names the board it stops (its port, the demo): a demo keeper of the folder is not the real board's, and the other way round (round 4).
-  const began = Date.now()
+  rmSync(sign, { force: true })
   const stopped = run('--stop', '--demo', '--port', port)
   assert.equal(stopped.status, 0, stopped.stderr)
-  assert.match(stopped.stdout, /^The worker board is stopped \(keeper /)
-  const written = JSON.parse(readFileSync(sign, 'utf8'))
-  assert.deepEqual([written.why, written.by, Number.isFinite(written.at)], ['stopped', 'command', true])
-  assert.ok(written.at >= began, 'the sign was written again after the processes were gone')
+  assert.match(stopped.stdout, new RegExp(`^The worker board on port ${port} is stopped \\(keeper .*\\); no stop sign \\(a demo is not this folder's board\\)\\.`))
+  assert.equal(existsSync(sign), false, 'a demo\'s stop writes no stop sign')
   assert.deepEqual([isAlive(pid), isAlive(second), await boardAt(port)], [false, false, false], 'keepers and board gone')
+  // The real board's --stop (its own port, no keeper running here): the sign, written first and again, with by: 'command'.
+  const began = Date.now()
+  const real = run('--stop')
+  assert.equal(real.status, 0, real.stderr)
+  assert.match(real.stdout, /^No board of this folder was running on port \d+; the stop sign is written; the watcher leaves it down until the next start\.$/m)
+  const written = JSON.parse(readFileSync(sign, 'utf8'))
+  assert.deepEqual([written.why, written.by, written.at >= began], ['stopped', 'command', true])
+  // Another port of the folder: no sign either.
+  rmSync(sign, { force: true })
+  const other = run('--stop', '--port', String(Number(port) + 1))
+  assert.match(other.stdout, /no stop sign \(port \d+ is not this folder's board\)/)
+  assert.equal(existsSync(sign), false)
 })
 
 // F24a (2026-11-14): a slow board is a running board. A made-up board of this folder (a node process with this folder's server.mjs
@@ -294,6 +304,18 @@ test('F10, re-check item 2: a keeper that loses the port race (another keeper\'s
   assert.equal(said.status, 0, `${said.stdout} ${said.stderr}`)
   assert.ok(Date.now() - began >= 12_000, 'it waited for the winner\'s board, instead of failing on the keeper\'s early end')
   assert.match(said.stdout, new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\(another keeper won the port; this one, process \\d+, ended\\)`))
+})
+
+test('F10, round 5: an early end that is no port race (the child dies before it is up) fails at once with the log\'s words, not after the 20 s wait', windows, async t => {
+  const port = String(await freePort())
+  t.after(() => sweep(port))
+  // The fallback route (the keeper as this script's child) hands the caller's env on; the test hook ends the board at once.
+  const began = Date.now()
+  const said = spawnSync(process.execPath, [SCRIPT, '--demo', '--port', port], { encoding: 'utf8', timeout: 40_000, env: { ...startEnv(process.env), WORKER_BOARD_START_ROUTE: 'child', WORKER_BOARD_FAIL_START: '1' } })
+  assert.equal(said.status, 1, `${said.stdout} ${said.stderr}`)
+  assert.ok(Date.now() - began < 12_000, `at once, not after the wait: ${Date.now() - began} ms`)
+  assert.match(said.stderr, /WORKER_BOARD_FAIL_START is set|before it was up/)
+  assert.doesNotMatch(said.stderr, /did not answer on .* within 20 seconds/)
 })
 
 test('F10, round 4: under --anew a lost race IS a failure (the winner is the old board the cold restart kills next): 1 at once, with the log\'s words; the verdict in words', windows, async t => {

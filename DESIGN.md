@@ -7709,6 +7709,12 @@ its two-lens review of the first build (`.claude/plans/2026-11-14-f10-review.md`
   left; F24's tests keep their per-request fake and 10 s, the race test has a fixed-time fake of its own (14 s) and a test hook
   (`WORKER_BOARD_SKIP_CHECK`, the test's alone) for a start that crosses another's; `--anew` on a lost race ends with 1 at once; the
   verdict's words; a 'watcher' start is no intervention (stability).
+- **Round 5** (chat 1's round-4 check): `--stop` writes the stop sign only when it stops the REAL board (no `--demo`, the folder's own
+  port): a sign for a demo or another port would hold the watcher off the real board after an app update, the case F10 exists for; its
+  line says "no stop sign (a demo / port N is not this folder's board)". A non-race early end is proven at the loop level: the fallback
+  route's child ends at once under `WORKER_BOARD_FAIL_START=1` (server.mjs, a test's hook; only that route hands the caller's env on),
+  and the script fails within seconds with the log's words, never after the 20 s wait (the mutant "every early end is a race" fails it).
+  stopDemo sweeps by command line as `sweep()` does. The whole startBoard file ran green (16) before this commit.
 
 ## Going live: tools/land.ps1 (2026-11-04)
 
