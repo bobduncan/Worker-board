@@ -156,12 +156,13 @@ export function isPersonsWords(text) {
 export const isPopupAsk = ask => /^a popup in its chat may wait for you\b/i.test(oneLine(valueOf(ask, 'Title') ?? (ask.sections?.get('Text') ?? [])[0] ?? '', 200))
 
 /**
- * The popup asks about the board's own tools: the Workers mod's tools (`use workers (chat)`, or by its old name `use folder branches (work)`,
- * popup.ts `plainAction`). The board answers those calls itself and they come back at once: such a popup is the call's own slowness, never
- * a popup the person can act on (2026-11-13, Q742 and Q744). One rule for every reader.
+ * The popup asks about the board's own tools: the Workers mod's tools (`use workers (chat)`, or by its old name `use folder-branches (work)`:
+ * popup.ts `plainAction` turns only `_` into spaces, so the hyphen stays; a space is taken too). The board answers those calls itself and
+ * they come back at once: such a popup is the call's own slowness, never a popup the person can act on (2026-11-13, Q742 and Q744). One rule
+ * for every reader.
  */
 export const isBoardCallPopup = ask => isPopupAsk(ask)
-  && /^a popup in its chat may wait for you: it has tried to use (?:workers|folder branches) \(/i.test(oneLine(valueOf(ask, 'Title') ?? (ask.sections?.get('Text') ?? [])[0] ?? '', 200))
+  && /^a popup in its chat may wait for you: it has tried to use (?:workers|folder[- ]branches) \(/i.test(oneLine(valueOf(ask, 'Title') ?? (ask.sections?.get('Text') ?? [])[0] ?? '', 200))
 
 /** The line the ask call's answer ends with, on a step with Your words; '' for none. */
 export function yourWordsLine(item) {

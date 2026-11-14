@@ -1076,7 +1076,8 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
   for (const lane of asking) {
     // B299: the store's asks are the cards; a chat's own card stays only for the app's question form that the mod could
     // not file.
-    const isFiled = !lane.isAsking || waits.form.has(lane.name.toLowerCase())
+    // F9's review, round 3: a chat in its slow call to the board (`boardCall`) works and asks nothing of the person.
+    const isFiled = !lane.isAsking || (lane.boardCall ?? null) !== null || waits.form.has(lane.name.toLowerCase())
     if (lane.state === 'waiting' && !asked.has(lane.name) && !isFiled) {
       items.push({
         // One id per time it started waiting, so an answer to an earlier question never sticks to a later one.

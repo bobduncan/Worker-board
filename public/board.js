@@ -5412,13 +5412,14 @@ function cardWays(need, canCheck) {
   if (need.kind === 'old-mod') return [{ way: 'pause' }]
   // P1: the Late of a recorded wait: open the worker's chat in the app (its app id, as the pause banner's link does); without the id,
   // the worker's answer window, said so. Its step is linked in the title; no nudge: the wait is on purpose.
+  // F9's review, round 3: the link into its chat is built by `openChatHref` (the waitline region), as every link into a chat.
+  const chatHref = openChatHref(need.chat?.session ?? null)
   if (need.kind === 'wait late') {
-    const session = need.chat?.session ?? null
-    return session === null ? [{ way: 'talk', to: need.id, label: `Open ${need.from}'s answer` }] : [{ way: 'chat', to: need.from, href: `claude://claude.ai/epitaxy/${session}`, label: `Open ${need.from}'s chat` }]
+    return chatHref === null ? [{ way: 'talk', to: need.id, label: `Open ${need.from}'s answer` }] : [{ way: 'chat', to: need.from, href: chatHref, label: `Open ${need.from}'s chat` }]
   }
   // F9's review: a chat whose Workers mod was unloaded has no work tool to file asks with (state.mjs `modGone`): no "Ask it to file them",
   // only the way into its chat, in the app by its app id (to restart it there), else where the board shows its chat.
-  if (need.kind === 'unfiled' && (need.modGone ?? null) !== null && typeof need.chat?.session === 'string') return [{ way: 'chat', to: need.from, href: `claude://claude.ai/epitaxy/${need.chat.session}`, label: `Open ${need.from}'s chat` }]
+  if (need.kind === 'unfiled' && (need.modGone ?? null) !== null && chatHref !== null) return [{ way: 'chat', to: need.from, href: chatHref, label: `Open ${need.from}'s chat` }]
   if (need.kind === 'unfiled' || need.kind === 'idle') {
     const talk = { way: 'talk', to: need.talk === 'main' || need.talk === 'advisor' ? need.talk : need.id }
     talk.label = need.talk === 'main' ? `Open Talk to ${need.from}` : need.talk === 'advisor' ? `Open ${need.from}'s chat` : `Open ${need.from}'s answer`

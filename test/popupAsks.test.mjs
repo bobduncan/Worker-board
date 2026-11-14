@@ -44,16 +44,17 @@ export const Q744 = () => popup('Q744', 'use workers (chat)', { filed: Q744_FILE
 export const REAL = () => popup('Q750', 'use ccd directory (change directory)', { filed: Q744_FILED + 5 * SEC })
 
 /** The board's own state pass with a main chat, a worker and the Advisor; `reports` the mods' reports (the Advisor asks). */
-export function build(items = [], { reports = [['Advisor', 'asking']], autopilot = true } = {}) {
+export function build(items = [], { reports = [['Advisor', 'asking']], autopilot = true, tails = {}, appStartedAt = NOW - 5 * 60 * MIN } = {}) {
   const work = storeFromText('## Work\n', { now: NOW - 60 * MIN })
   for (const one of items) work.items.set(one.head.get('Id'), one)
   const raw = {
-    listText: '{"prefix":"Studio · ","main":"Lead"}', appChatTexts: NAMES.map(app), tails: {}, planLineTexts: {}, work, adviceText: null, folders: null, askTexts: [], pictureLists: {},
-    appStartedAt: NOW - 5 * 60 * MIN,
+    listText: '{"prefix":"Studio · ","main":"Lead"}', appChatTexts: NAMES.map(app), tails, planLineTexts: {}, work, adviceText: null, folders: null, askTexts: [], pictureLists: {},
+    appStartedAt,
   }
   return buildState(raw, {
     lines: [], outbox: [], runs: [], now: NOW, config: { ...config, autopilot }, seen: { shown: Object.fromEntries(NAMES.map(name => [name, NOW - 5 * SEC])), other: {} }, board: { startedAt: NOW - 30 * MIN, offSince: null },
-    reports: new Map(reports.map(([name, state]) => [name, { state, since: NOW - 40 * SEC, background: false, at: NOW - 2 * SEC, session: `cli-${name}`, mod: '0.27.0' }])),
+    // A report is `[name, state]`, or `[name, state, since, at]` for an asking spell that began at `since`, reported at `at`.
+    reports: new Map(reports.map(([name, state, since = NOW - 40 * SEC, at = NOW - 2 * SEC]) => [name, { state, since, background: false, at, session: `cli-${name}`, mod: '0.27.0' }])),
     mods: { Lead: '0.27.0', Advisor: '0.27.0', 'Worker 1': '0.27.0' },
   })
 }
@@ -105,7 +106,9 @@ test('a board-call popup is a call to the board only while the chat\'s open form
   for (const one of [Q742(), Q744()]) work.items.set(one.head.get('Id'), one)
   assert.deepEqual(storeNeeds(work, { now: NOW, names: NAMES, autopilot: false }), [])
   assert.deepEqual([...storeWaits(work).boardCall], [['advisor', { since: Q744_FILED, ask: 'Q744' }]])
-  assert.equal(storeWaits(work).form.has('advisor'), true, 'the board still files no card of its own for it')
+  // F9's review, round 3: a board-call popup is no filed form ask (the lane's boardCall keeps the board's own card away instead).
+  assert.equal(storeWaits(work).form.has('advisor'), false)
+  assert.equal(storeWaits(work).filed.has('advisor'), false, 'nor a filing of the chat\'s questions')
   assert.deepEqual(boardCallPopups(work), [{ at: Q742_FILED, ms: 60_000, popup: 'Q742' }, { at: Q744_FILED, ms: 60_000, popup: 'Q744' }])
 })
 
@@ -256,4 +259,43 @@ test('board-call popups: only the store\'s popup asks of the app\'s form count, 
   assert.match(three[0].evidence, /\(Q742\).*\(Q744\)/)
   // Late answers alone: the words as before.
   assert.match(check([{ at: Q742_FILED, ms: 70_000 }, { at: Q742_FILED + 60 * SEC, ms: 70_000 }])[0].text, /: 2 work calls in 10 min answered after the chat gave up$/)
+})
+
+// Round 3 (the verifier's B, C e and D).
+
+test('round 3 B: a stale board-call popup (its withdraw lost) hides no later real question: Waiting for you, the board\'s own card, the count', async () => {
+  // The popup about workers (work) was filed 10 minutes ago; the chat asks again since 5 minutes ago and the mod could file nothing.
+  const stale = popup('Q760', 'use workers (work)', { filed: NOW - 10 * MIN, owner: 'Worker 1' })
+  const state = build([stale], { reports: [['Worker 1', 'asking', NOW - 5 * MIN]] })
+  const lane = state.chats.find(one => one.name === 'Worker 1')
+  assert.deepEqual([lane.state, lane.boardCall, lane.status], ['waiting', null, STATUSES.WAITING])
+  assert.deepEqual(state.forYou.filter(need => need.from === 'Worker 1').map(need => need.title), ['Asked you a question in its chat'])
+  const page = await openPage({ state: sent(state) })
+  try {
+    assert.match(page.text('#waits-for-you'), /^1 waits? for you$/)
+    assert.match(page.text('#needs'), /Asked you a question in its chat/)
+  } finally { await page.close() }
+})
+
+test('round 1 e: a board-call popup counts only in the asking spell it was filed in, never for an asleep chat, and its chat is no quiet chat', () => {
+  // Filed 10 minutes before the chat began to ask (over 2 minutes before its spell): an old popup whose withdraw got lost: it waits.
+  const old = build([popup('Q761', 'use workers (chat)', { filed: NOW - 10 * MIN })], { reports: [['Advisor', 'asking', NOW - 40 * SEC]] })
+  assert.deepEqual([old.advisor.state, old.advisor.boardCall, old.advisor.status], ['waiting', null, STATUSES.WAITING])
+  // Filed within 2 minutes before the spell began: its call.
+  assert.equal(build([popup('Q762', 'use workers (chat)', { filed: NOW - 2 * MIN })], { reports: [['Advisor', 'asking', NOW - 40 * SEC]] }).advisor.state, 'working')
+  // Its last report (asking since 11 minutes ago) is 10 minutes old and the app started after it: the chat is asleep, in no call.
+  const asleep = build([Q744()], { reports: [['Advisor', 'asking', NOW - 11 * MIN, NOW - 10 * MIN]], appStartedAt: NOW - 5 * MIN })
+  assert.equal(asleep.advisor.asleep, true)
+  assert.equal(asleep.advisor.boardCall, null)
+  assert.notEqual(asleep.advisor.status, STATUSES.WORKING)
+  // A worker in its slow call whose transcript was last written 5 minutes ago is no quiet chat.
+  const tails = { 'cli-Worker 1': { text: '', isCut: false, modifiedAt: NOW - 5 * MIN, earlier: null, usage: null } }
+  const quiet = build([popup('Q763', 'use workers (work)', { filed: NOW - 30 * SEC, owner: 'Worker 1' })], { reports: [['Worker 1', 'asking']], tails }).chats.find(one => one.name === 'Worker 1')
+  assert.deepEqual([quiet.state, quiet.boardCall?.ask, quiet.quietMs], ['working', 'Q763', null])
+})
+
+test('round 3 D: the old name of the Workers mod keeps its hyphen in a popup ask (popup.ts plainAction turns only _ into spaces)', () => {
+  assert.equal(isBoardCallPopup(popup('Q1', 'use folder-branches (work)', { filed: 1 })), true)
+  assert.equal(isBoardCallPopup(popup('Q1', 'use folder branches (work)', { filed: 1 })), true)
+  assert.equal(isBoardCallPopup(popup('Q1', 'use folder-tools (work)', { filed: 1 })), false)
 })

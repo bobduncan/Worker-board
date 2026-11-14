@@ -5217,9 +5217,13 @@ decides on, **status** is what the pill shows.
   transcript shows the CLI unloaded its Workers mod (the tools retracted, cause not_configured, then the server's instructions
   removed) after its last restore, silent for over two minutes since, in the same run of the app: Link gone, "restart this chat:
   archive it, then unarchive it" (attention), before the hand-over's rows; no wake and no line go to it (no step, note or partner
-  ask of the reconciler either), and its "No ask filed" card says "its board link is gone" and offers only "Open <chat>'s chat".
+  ask of the reconciler, no repair word of the Supervisor, also to the Advisor, its helper, the Supervisor's chat or the Product
+  owner, no main-chat word to wake it once stopped), and its "No ask filed" card says "its board link is gone" and offers only
+  "Open <chat>'s chat".
   A popup ask about the board's own tools (Q742, Q744) makes no Waiting for you: Working, "its call to the board is slow"; the
   Supervisor's board-slow counts it, unless a late answer from a minute before its filing to 10 min after stands for that call.
+  It is no filed form ask and no filing of the chat's questions: one whose withdraw got lost never hides a later real question
+  (the board's own "Asked you a question in its chat" card stands).
   A real popup's hands entry, "Waiting for you" (the worker rows, the Advisor's, its helper's and the Product owner's cards, the
   Simple view: "Open its chat") and window link to its chat in the app.
   A leftover has no status. Only Working counts busy:

@@ -87,7 +87,7 @@ const { parseConfig } = await import('../src/config.mjs')
 const { buildState } = await import('../src/state.mjs')
 const { storeFromText } = await import('../src/work/read.mjs')
 
-function boardAt(now, { mods = worker4.join('\n'), reportAt = AGAIN - 10_000, appStartedAt = LOST - 60 * MIN } = {}) {
+function boardAt(now, { mods = worker4.join('\n'), reportAt = AGAIN - 10_000, appStartedAt = LOST - 60 * MIN, boardStartedAt = now - 30 * MIN, reportState = 'busy' } = {}) {
   const names = ['Lead', 'Worker 4']
   const app = name => JSON.stringify({ title: `Studio · ${name}`, sessionId: `local_0000000${name.length}-aaaa-bbbb-cccc-ddddeeeeffff`, cliSessionId: `cli-${name}`, cwd: 'C:\game', isArchived: false, createdAt: name.length, lastActivityAt: now - 2 * MIN, lastAssistantUuid: 'u-1' })
   const raw = {
@@ -97,8 +97,8 @@ function boardAt(now, { mods = worker4.join('\n'), reportAt = AGAIN - 10_000, ap
   }
   return buildState(raw, {
     lines: [], outbox: [], runs: [], now, config: { ...parseConfig('{}', {}), project: 'C:\game' }, seen: { shown: Object.fromEntries(names.map(name => [name, now - 5000])), other: {} },
-    board: { startedAt: now - 30 * MIN, offSince: null },
-    reports: new Map([['Lead', { state: 'idle', since: now - MIN, background: false, at: now - 2000, session: 'cli-Lead', mod: '0.31.0' }], ['Worker 4', { state: 'busy', since: reportAt - MIN, background: false, at: reportAt, session: 'cli-Worker 4', mod: '0.31.0' }]]),
+    board: { startedAt: boardStartedAt, offSince: null },
+    reports: new Map([['Lead', { state: 'idle', since: now - MIN, background: false, at: now - 2000, session: 'cli-Lead', mod: '0.31.0' }], ['Worker 4', { state: reportState, since: reportAt - MIN, background: false, at: reportAt, session: 'cli-Worker 4', mod: '0.31.0' }]]),
     mods: { Lead: '0.31.0', 'Worker 4': '0.31.0' },
   })
 }
@@ -151,7 +151,8 @@ test('the "No ask filed" card of a gone link offers only the way into its chat, 
   const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
   const cut = name => script.slice(script.indexOf(`// ${name}:start`), script.indexOf(`// ${name}:end`))
   const page = {}
-  vm.runInNewContext(`${cut('cardways')}\nObject.assign(this, { cardWays })`, page)
+  const chatLink = `${script.match(/^const APP_SESSION_PATTERN = .*$/m)[0]}\n${script.match(/^function openChatHref\([\s\S]*?^}$/m)[0]}`
+  vm.runInNewContext(`${chatLink}\n${cut('cardways')}\nObject.assign(this, { cardWays })`, page)
   const ways = need => JSON.parse(JSON.stringify(page.cardWays(need, true)))
   const need = { id: 'unfiled:Worker 4:1', kind: 'unfiled', from: 'Worker 4', canAnswer: false, talk: 'window', modGone: { at: AGAIN } }
   const SESSION = 'local_00000000-0000-4000-8000-000000000004'
@@ -245,4 +246,65 @@ test('Link gone has the attention colour wherever Did not answer has it: the pil
     const selectors = selectorsOf(rule)
     for (const selector of selectors.filter(one => one.includes('is-noanswer'))) assert.ok(selectors.includes(selector.replace('is-noanswer', 'is-linkgone')), `${selector.replace('is-noanswer', 'is-linkgone')} beside ${selector}`)
   }
+  // Round 3: its row is clickable as a Not running one is (the pointer and the hover of the rows that open their window).
+  const clickable = css.split('\n').filter(line => line.startsWith(':is(') && line.includes('.lane.is-off'))
+  assert.equal(clickable.length, 2)
+  for (const rule of clickable) assert.ok(rule.includes('.lane.is-linkgone'), rule.slice(0, 80))
+})
+
+// Round 3 (the verifier's C and A): a test for each fix of round 1, and the Supervisor's repair words to a gone side chat.
+
+test('round 1 a: a report kept from before a board restart still reads Link gone: its own time, not the restart\'s, meets the unload', () => {
+  const now = AGAIN + 5 * MIN
+  // The board started again 2 minutes after the unload: the kept report reads as heard then (`at`), its own time is before the unload.
+  const lane = boardAt(now, { boardStartedAt: AGAIN + 2 * MIN }).chats.find(one => one.name === 'Worker 4')
+  assert.deepEqual(lane.modGone, { at: AGAIN })
+  assert.equal(lane.status, STATUSES.LINK_GONE)
+})
+
+test('round 1 c: a gone lane is never asleep and its state is unknown, so nothing counts it free or asleep', () => {
+  const now = AGAIN + 5 * MIN
+  // The app started after its last report (before the unload): without the unload the lane reads asleep.
+  const asleep = boardAt(now, { mods: '', appStartedAt: AGAIN - 5000 }).chats.find(one => one.name === 'Worker 4')
+  assert.equal(asleep.asleep, true, 'without the unload: asleep')
+  const gone = boardAt(now, { appStartedAt: AGAIN - 5000 }).chats.find(one => one.name === 'Worker 4')
+  assert.deepEqual([gone.state, gone.asleep, gone.asleepSince, gone.status], ['unknown', false, null, STATUSES.LINK_GONE])
+})
+
+test('round 1 d: a lane both gone and waiting reads Link gone (row 2a stands before Waiting for you)', () => {
+  const now = AGAIN + 5 * MIN
+  const report = { state: 'asking', at: AGAIN - 10_000, since: AGAIN - MIN }
+  assert.equal(statusOf({ lane: { state: 'waiting', modGone: { at: AGAIN }, report }, now }).status, STATUSES.LINK_GONE)
+  assert.equal(statusOf({ lane: { state: 'waiting', modGone: null, report }, now }).status, STATUSES.WAITING)
+})
+
+test('round 1 f and round 3: the Supervisor\'s repair words go to no chat whose Workers mod was unloaded: a worker, the partner, its helper', async () => {
+  const { findStuck } = await import('../src/supervisor/rules/repair.mjs')
+  const { stamp } = await import('../src/work/migrate.mjs')
+  const now = AGAIN + 15 * MIN
+  const item = head => ({ head: new Map(Object.entries(head)), sections: new Map() })
+  const items = (...all) => new Map(all.map(one => [one.head.get('Id'), one]))
+  const LEAD = { name: 'Lead', isMain: true, isLeftover: false, state: 'working', isRunning: true }
+  const gone = { modGone: { at: AGAIN } }
+  // f: a worker paused for the limit whose limit is back is woken; a gone one is not: the main chat is told instead.
+  const held = { name: 'Worker 4', isMain: false, isLeftover: false, state: 'suspended', isRunning: true, suspended: { by: 'note', limit: 'fiveHour', since: now - 300 * MIN, until: now - 10 * MIN, isBack: true } }
+  const step = item({ Id: 'B4', Kind: 'step', Title: 'Step B4', State: 'in progress', Owner: 'Worker 4', Since: stamp(now - 60 * MIN) })
+  const limitBack = lane => findStuck({ items: items(step), lanes: [LEAD, lane], now }).filter(one => one.check === 'limit-back').map(one => [one.fix.do, one.fix.chat ?? null])
+  assert.deepEqual(limitBack(held), [['wake', 'Worker 4']])
+  assert.deepEqual(limitBack({ ...held, ...gone }), [['main', null]])
+  // A: an ask routed to the partner, 11 minutes old with no word about it: a healthy partner is woken, a gone one gets no word.
+  const routed = item({ Id: 'Q60', Kind: 'ask', Title: 'Which hedge?', State: 'open', Owner: 'Lead', Since: stamp(now - 11 * MIN), Filed: String(now - 11 * MIN), Asks: 'decide', Blocking: 'no', Via: 'chat', Route: 'partner' })
+  const partner = { name: 'Advisor', state: 'working', isRunning: true, modGone: null }
+  const partnerAsk = one => findStuck({ items: items(routed), lanes: [LEAD], partner: one, now }).filter(found => found.check === 'partner-ask').map(found => [found.fix.do, found.fix.chat])
+  assert.deepEqual(partnerAsk(partner), [['wake', 'Advisor']])
+  assert.deepEqual(partnerAsk({ ...partner, ...gone }), [])
+  // A: the helper is not running while a refine waits for the partner: it is woken; a gone helper is not (its work goes to the partner),
+  // and with a gone partner too the main chat is told.
+  const refine = item({ Id: 'B8', Kind: 'step', Title: 'Step B8', State: 'new', Since: stamp(now - 60 * MIN) })
+  const helper = { name: 'Advisor 2', state: 'off', isRunning: false, modGone: null }
+  const outbox = [{ id: 'r1', command: 'refine', about: 'B8', to: 'Advisor', at: now - 20 * MIN, state: 'delivered' }]
+  const helperIdle = (one, two = partner) => findStuck({ items: items(refine), lanes: [LEAD], partner: two, helper: one, now, outbox }).filter(found => found.check === 'helper').map(found => [found.fix.do, found.fix.chat ?? null])
+  assert.deepEqual(helperIdle(helper), [['wake', 'Advisor 2']])
+  assert.deepEqual(helperIdle({ ...helper, ...gone }), [['hand', 'Advisor']])
+  assert.deepEqual(helperIdle({ ...helper, ...gone }, { ...partner, ...gone }), [['main', null]])
 })

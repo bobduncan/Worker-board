@@ -85,7 +85,8 @@ export function storeWaits(work, prefix = '') {
   const own = asksOfStore(work).filter(item => valueOf(item, 'Owner') !== null)
   const open = own.filter(item => valueOf(item, 'State') === 'open')
   const filed = new Map()
-  for (const item of own) {
+  // F9's review, round 3: a popup ask about the board's own tools is the mod's, filed for a slow call: never the chat's filing of its questions.
+  for (const item of own.filter(one => !(valueOf(one, 'Via') === 'form' && isBoardCallPopup(one)))) {
     const name = plainName(valueOf(item, 'Owner'), prefix)
     const at = askFiledMs(item)
     if (Number.isFinite(at)) filed.set(name, Math.max(filed.get(name) ?? -Infinity, at))
@@ -121,7 +122,10 @@ export function storeWaits(work, prefix = '') {
   return {
     blocking: blockingNames,
     partner: forPartner,
-    form: new Set(open.filter(item => valueOf(item, 'Via') === 'form').map(item => plainName(valueOf(item, 'Owner'), prefix))),
+    // The chats with an open ask of the app's form the mod filed for them: then the board files no "Asked you a question in its chat"
+    // card of its own. F9's review, round 3: a popup about the board's own tools is no such ask (one whose withdraw got lost would hide
+    // a later real question); while it holds the lane in its call (`boardCall`) the lane works and gets no such card anyway.
+    form: new Set(open.filter(item => isForm(item) && !isBoardCallPopup(item)).map(item => plainName(valueOf(item, 'Owner'), prefix))),
     // The chats whose open form asks are all popups about the board's own tools: in their call to the board (see above).
     boardCall,
     // B280: the chats with an open ask of their own for the person, blocking or not; a refine question is the refine's.
