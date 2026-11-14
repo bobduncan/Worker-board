@@ -12,7 +12,7 @@ import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 
 import { spawn } from 'node:child_process'
-import { access, mkdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 
 import { loadConfig, workFolder } from './src/config.mjs'
@@ -95,7 +95,7 @@ if (process.platform === 'win32') {
     mode: isCheck ? 'check' : given('watcher') === 'off' ? 'off' : 'on', isExplicit: given('watcher') === 'on',
     home: process.env.WORKER_BOARD_HOME || join(homedir(), '.worker-board'), node: process.execPath, script: join(here, 'tools', 'watch-boards.mjs'), user,
     run: runProgram, write: async (file, bytes) => { await mkdir(dirname(file), { recursive: true }); await writeFile(file, bytes) },
-    exists: async file => { try { await access(file); return true } catch { return false } }, remove: file => rm(file, { force: true }),
+    exists: async file => { try { await access(file); return true } catch { return false } }, remove: file => rm(file, { force: true }), read: file => readFile(file, 'utf8').catch(() => null),
   })
   for (const line of watcher.lines) console.log(line)
   if (!watcher.ok) good = false

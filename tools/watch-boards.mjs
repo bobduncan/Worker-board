@@ -87,7 +87,7 @@ const readJson = async file => {
  * or null), `start({ dir })`, `now`, `record`/`keepRecord`, `log(dir, text)`, `isDry`. Answers `[{ folder, port, do, why }]`.
  */
 export async function watchOnce({
-  boards, answers = boardAnswers, listProcesses = async () => parseProcessList(await powershell(LIST_SCRIPT, 30_000)), start = ({ dir }) => startKeeper({ dir, args: START_ARGS }),
+  boards, answers = boardAnswers, listProcesses = async () => parseProcessList(await powershell(LIST_SCRIPT, 30_000), { ownPid: process.pid }), start = ({ dir }) => startKeeper({ dir, args: START_ARGS }),
   now = Date.now(), record = { boards: {} }, keepRecord = async () => {}, log = logLine, isDry = false, wait = waitForAnswer, readStarted = dir => readJson(join(dir, 'data', 'started.json')),
 } = {}) {
   const outcomes = []
@@ -125,6 +125,8 @@ export async function watchOnce({
       if (isDry) continue
       if (decided.do === 'say' || decided.do === 'leave') log(dir, `watcher: ${decided.why}`, now)
       if (decided.do === 'start') {
+        // The record first: a pass the task's time limit cuts off mid-start still counts toward the cap (chat 1's re-check).
+        await keepRecord(record)
         const made = await start({ dir })
         const answered = await wait(board.port, answers)
         log(dir, `watcher: started the board (${decided.why}): keeper process ${made.pid} by ${made.how === 'wmi' ? 'WMI' : 'a plain spawn'}${answered ? '' : `; it did not answer within ${WAIT_MS / 1000} s`}`, now)

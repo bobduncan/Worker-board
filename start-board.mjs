@@ -17,29 +17,69 @@
 // F10 (2026-11-14): the keeper is started OUTSIDE any job, through WMI (src/keeperStart.mjs `startKeeper`): a keeper started as a
 // child of a chat's shell sat in the Claude app's job and died with the app's update (2026-11-11). The line names the keeper's
 // real pid. When WMI refuses, the old detached spawn runs, with a board.log line saying so.
+//
+// F24a (2026-11-14): a slow board is a running board. The runs-already check waits ANSWER_MS for the page (the main board
+// answered in 8-11 s on 2026-11-14 and failed a 1.5 s check; every chat's mod then ran this script once a minute and each
+// run made a new keeper whose child died on "Port 4310 is in use"); a board that still does not answer counts as running
+// when a keeper of this folder runs or a process of this folder holds the port (slow or starting: the keeper brings it
+// back), and nothing is started. Another program on the port: said, nothing started, 1. A listing that fails twice (20 s
+// each): unknown, said, nothing started, 1, unless nothing listens (the connection refused) and netstat saw no holder: then
+// the start goes with a note (a duplicate keeper dies on EADDRINUSE; a board left down heals nothing). Only a free port with
+// no keeper of this folder starts one (src/keeperStart.mjs `runsAlready`). PowerShell and netstat run hidden (windowsHide: this script runs detached
+// from a chat's mod; a console program started without it pops a terminal up, 758178e5).
 
 import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { constants as osConstants, setPriority } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { loadConfig } from './src/config.mjs'
-import { LIST_SCRIPT, endKeeper, keepersOf, parseProcessList, powershell, startKeeper } from './src/keeperStart.mjs'
 import { gitRunner } from './src/folders.mjs'
+import { LIST_MS, LIST_SCRIPT, endKeeper, keepersOf, netstat, parseProcessList, portHolderOf, powershell, runsAlready, startKeeper } from './src/keeperStart.mjs'
 import { boardsFile, resolvePort } from './src/ports.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const HOST = '127.0.0.1'
 const WAIT_MS = 20_000
+/** F24a: how long the runs-already check waits for the page of a board that is slow. */
+export const ANSWER_MS = 15_000
 
-/** Whether a worker board answers on the port: its page names itself. */
-export async function boardAt(port) {
+/** Whether a worker board answers on the port within `timeoutMs`: its page names itself. */
+export async function boardAt(port, timeoutMs = 1500) {
+  return (await probeBoard(port, timeoutMs)) === 'answers'
+}
+
+/**
+ * F24: what the port says within `timeoutMs`: 'answers' (the board's page), 'refused' (nothing listens: the connection was refused at
+ * once) or 'silent' (anything else: a timeout, another program's page, a reset).
+ */
+export async function probeBoard(port, timeoutMs = 1500) {
   try {
-    const answer = await fetch(`http://${HOST}:${port}/`, { signal: AbortSignal.timeout(1500) })
-    return answer.ok && (await answer.text()).includes('<title>Worker board</title>')
-  } catch {
-    return false
+    const answer = await fetch(`http://${HOST}:${port}/`, { signal: AbortSignal.timeout(timeoutMs) })
+    return answer.ok && (await answer.text()).includes('<title>Worker board</title>') ? 'answers' : 'silent'
+  } catch (error) {
+    const codes = [error?.cause?.code, error?.code, ...(Array.isArray(error?.cause?.errors) ? error.cause.errors.map(one => one?.code) : [])]
+    return codes.includes('ECONNREFUSED') ? 'refused' : 'silent'
   }
+}
+
+/**
+ * F24a: whether this folder's board runs: its page within ANSWER_MS (a slow board is a running board), else (Windows) one listing of
+ * the node processes (tried twice) and the holder of the port, judged by `runsAlready`. A listing that fails or times out both
+ * times: unknown, no start (a keeper may run), unless the port refused the connection and netstat saw no holder: a start with a note.
+ */
+export async function boardRuns(port, { answers = probeBoard, list = () => powershell(LIST_SCRIPT, LIST_MS), ports = () => netstat(LIST_MS), platform = process.platform, dir = HERE, isDemo = false } = {}) {
+  const answerSeconds = ANSWER_MS / 1000
+  const probed = await answers(port, ANSWER_MS)
+  if (probed === true || probed === 'answers') return runsAlready({ dir, answers: true, answerSeconds })
+  if (platform !== 'win32') return { runs: false }
+  let listingError = null
+  const once = () => list().then(text => { const read = parseProcessList(text, { ownPid: process.pid }); if (read === null) throw new Error('the listing was not JSON, or lacks this process'); return read })
+  const twice = () => once().catch(first => once().catch(second => { listingError = `${first?.message ?? first}; again: ${second?.message ?? second}`; return null }))
+  // netstat's answer is told from no answer: a failed netstat is unknown, a free port is known free.
+  const [listed, held] = await Promise.all([twice(), ports().then(text => ({ known: true, holder: portHolderOf(text, port) }), () => ({ known: false, holder: null }))])
+  return runsAlready({ dir, port, isDemo, answers: false, isRefused: probed === 'refused', holderKnown: held.known, processes: listed?.processes ?? null, holder: held.holder, answerSeconds, listingError })
 }
 
 /** B320: the program that opens a page in the person's browser, with its words. */
@@ -82,7 +122,9 @@ async function stopBoard(isQuiet) {
   writeFileSync(join(HERE, 'data', 'stop.json'), JSON.stringify({ at: Date.now(), why: 'stopped', by: 'command', ...(Number.isFinite(started) ? { started } : {}) }))
   let keepers = []
   try {
-    keepers = keepersOf(parseProcessList(await powershell(LIST_SCRIPT, 30_000))?.processes ?? [], HERE)
+    const listed = parseProcessList(await powershell(LIST_SCRIPT, 30_000), { ownPid: process.pid })
+    if (listed === null) throw new Error('the listing was not JSON, or lacks this process')
+    keepers = keepersOf(listed.processes, HERE)
   } catch (error) {
     console.error(`The board's processes could not be listed: ${error instanceof Error ? error.message : String(error)}`)
     return 1
@@ -111,11 +153,22 @@ async function main(args) {
   const boards = isDemo || !config.project ? null : boardsFile()
   const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: config.project ? resolve(HERE, config.project) : null, gamePort: config.gamePort, boards })
   const url = `http://${HOST}:${port}/`
-  if (!isAnew && await boardAt(port)) {
-    if (!isQuiet) console.log(`The worker board runs already: ${url}`)
+  // F10's --anew (land.ps1's cold restart) starts a keeper although the board answers; every other start asks first (F24).
+  const runs = isAnew ? { runs: false } : await boardRuns(port, { isDemo })
+  if (runs.runs) {
+    if (!isQuiet) console.log(`The worker board runs already: ${url}${runs.why === 'it answers' ? '' : ` (${runs.why})`}`)
     if (isOpen) openPage(url)
     return 0
   }
+  if (runs.foreign) {
+    console.error(`Port ${port} is held by process ${runs.foreign.pid}${runs.foreign.commandLine ? ` (${runs.foreign.commandLine})` : ''}, not by this folder's board: nothing started.`)
+    return 1
+  }
+  if (runs.unknown) {
+    console.error(`The worker board on ${url} did not answer within ${ANSWER_MS / 1000} seconds and ${runs.unknown}.`)
+    return 1
+  }
+  if (runs.note && !isQuiet) console.log(`Note: ${runs.note}.`)
 
   mkdirSync(join(HERE, 'data'), { recursive: true })
   const logFile = join(HERE, 'data', 'board.log')
@@ -128,6 +181,7 @@ async function main(args) {
   // F10: the keeper outside any job (WMI), else the old detached child with a log line saying so.
   const made = await startKeeper({ dir: HERE, args: passed })
   let ended = null
+  let raceLost = false
   made.child?.on('exit', code => { ended = code ?? 1 })
   const until = Date.now() + WAIT_MS
   while (Date.now() < until) {
@@ -135,13 +189,19 @@ async function main(args) {
       console.error(lastWords(logFile, from) || `The worker board did not start (it ended with ${ended}).`)
       return 1
     }
-    // A WMI keeper is no child of ours: its end shows only by its pid (the keeper ends when its board dies before it is up).
-    if (made.how === 'wmi' && !isAlive(made.pid)) {
-      console.error(lastWords(logFile, from) || `The worker board did not start (its keeper, process ${made.pid}, ended before the board answered).`)
-      return 1
+    // A WMI keeper is no child of ours: its end shows only by its pid (the keeper ends when its board dies before it is up). One that
+    // ended on the port race ("Port N is in use": another keeper's board won it) is no failure yet: the board answers seconds later,
+    // so the wait goes on to WAIT_MS (chat 1's re-check of F10: land.ps1 rolled back on that early 1).
+    if (made.how === 'wmi' && !isAlive(made.pid) && !raceLost) {
+      const words = lastWords(logFile, from)
+      if (/is in use|EADDRINUSE/.test(words)) raceLost = true
+      else {
+        console.error(words || `The worker board did not start (its keeper, process ${made.pid}, ended before the board answered).`)
+        return 1
+      }
     }
     if (await boardAt(port)) {
-      if (!isQuiet) console.log(`The worker board runs: ${url} (process ${made.pid}; its words go to data/board.log${made.how === 'wmi' ? '' : '; started as a child, not through WMI'})`)
+      if (!isQuiet) console.log(raceLost ? `The worker board runs already: ${url} (another keeper won the port; this one, process ${made.pid}, ended)` : `The worker board runs: ${url} (process ${made.pid}; its words go to data/board.log${made.how === 'wmi' ? '' : '; started as a child, not through WMI'})`)
       if (isOpen) openPage(url)
       return 0
     }
@@ -152,6 +212,14 @@ async function main(args) {
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  // F24 (chat 1's review and re-check): this script's first act, when it RUNS (not when a test imports it), is Normal priority. A chat
+  // under CPU Low runs it at Idle on two crowded cores, and everything it starts (PowerShell, netstat, the keeper and so the board)
+  // would inherit that and starve. ESM evaluates the imports first; this script's own graph is small, the board's is server.mjs's.
+  try {
+    setPriority(osConstants.priority.PRIORITY_NORMAL)
+  } catch {
+    // not allowed here: the board raises itself too (server.mjs)
+  }
   // 2026-11-02 (the gate's flake since change 5: "Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c",
   // exit 0xC0000409, once in a few runs of start-board's tests): `process.exit` right after `child.unref()` ended the
   // process while libuv still closed the detached child's handle on Windows. The code is set and the loop drains by itself

@@ -25,6 +25,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
+import { constants as osConstants, setPriority } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -141,6 +142,16 @@ import { absentAs, readKept, sweepBeside, writeAtomic, writeUnflushed } from './
 import { claimUntilWritten } from './src/bridgeClaim.mjs'
 import { afterError, failingLine, fileLog, loopRecord, settleWithin } from './src/loops.mjs'
 import { fileHolders } from './src/work/holders.mjs'
+
+// F24b (2026-11-14, chat 1's diagnosis): a chat's mod (re)started the board and Windows handed the chat's CPU "Low" on to it: Idle
+// priority on two cores that carry a hundred processes, so the board's thread got no CPU at all (the page in 8-11 s, /api/state in 30 s).
+// The keeper and the board take Normal back as their first act, before anything waits on a starved thread; the cores come back in
+// the CPU job's first pass (src/cpu.mjs once(): the board's own changes first, before the listing).
+try {
+  setPriority(osConstants.priority.PRIORITY_NORMAL)
+} catch {
+  // not allowed here: the CPU job tries again with Windows' own tools
+}
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** The board's own writes into the product plan (src/planWrite.mjs): a data file, so the record survives a restart. */

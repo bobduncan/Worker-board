@@ -212,7 +212,7 @@ export function interventionsOf({ actions = [], lastStop = null, kept = [], kept
   // restart-by-hand: the board started by hand with no landing around its start.
   if (lastStop !== null && inDay(lastStop.to) && !nearLanding(landings, lastStop.to)) {
     if (lastStop.start === 'hand') found.push({ at: lastStop.to, kind: 'restart-by-hand', what: 'The board was started by hand, with no landing around it' })
-    else if (lastStop.start !== 'keeper') unsure.push({ at: lastStop.to, kind: 'restart-by-hand', what: 'The board started with no landing around it', why: 'the stop record does not say how it was started (hand or keeper)' })
+    else if (!['keeper', 'watcher'].includes(lastStop.start)) unsure.push({ at: lastStop.to, kind: 'restart-by-hand', what: 'The board started with no landing around it', why: 'the stop record does not say how it was started (hand or keeper)' })
   }
 
   // app-restart and unsure starts: a chat that started a run (or came back from off) with nobody reaching it first. Only an app

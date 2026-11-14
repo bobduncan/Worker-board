@@ -67,12 +67,28 @@ test('setup registers the task from an XML in the person\'s worker-board home (G
   assert.ok(Buffer.isBuffer(written[1][1]) && written[1][1][0] === 0xff && written[1][1][1] === 0xfe, 'the XML goes as UTF-16LE with a BOM')
   assert.ok(written.every(([file]) => !file.includes('\\tools\\')), 'nothing is written into the checkout')
   assert.deepEqual(calls.at(-1), ['schtasks', '/Create', '/XML', 'C:\\Users\\me\\.worker-board\\watch-boards.task.xml', '/TN', 'Worker board watcher', '/F'])
-  // --check: tells, writes nothing, creates nothing.
+  // --check: tells, writes nothing, creates nothing; with the off marker it says the watcher stays off.
   calls.length = 0
   written.length = 0
   const check = await setupWatcher({ mode: 'check', ...common })
   assert.deepEqual([check.ok, written, calls.map(one => one[1])], [true, [], ['/Query']])
   assert.match(check.lines[0], /is not registered: setup would register it/)
+  markers.add(marker)
+  assert.match((await setupWatcher({ mode: 'check', ...common })).lines[0], /is not registered and stays off \(`--watcher off` was given/)
+  markers.delete(marker)
+  // --check on a registered task names the script it runs (the task's XML → the .vbs → the watcher) and warns when it is another checkout's.
+  const registered = async (program, args) => {
+    calls.push([program, ...args])
+    if (args[0] === '/Query' && args.includes('/XML')) return { code: 0, out: '<Task><Actions><Exec><Command>wscript.exe</Command><Arguments>//B //Nologo "C:\\Users\\me\\.worker-board\\watch-boards.vbs"</Arguments></Exec></Actions></Task>', err: '' }
+    if (args[0] === '/Query') return { code: 0, out: 'TaskName: x\r\nStatus: Ready\r\nLast Run Time: 14-11-2026 10:05:00\r\nLast Result: 0\r\n', err: '' }
+    return { code: 0, out: '', err: '' }
+  }
+  const vbsOf = script => vbsText({ node: 'C:\\node.exe', script })
+  const ours = await setupWatcher({ mode: 'check', ...common, run: registered, read: async () => vbsOf(common.script) })
+  assert.match(ours.lines[1], /^The task runs this checkout's watcher: C:\\Web\\lava-tactics-project\\worker-board\\tools\\watch-boards\.mjs\.$/)
+  const other = await setupWatcher({ mode: 'check', ...common, run: registered, read: async () => vbsOf('C:\\Web\\board-trial\\worker-board\\tools\\watch-boards.mjs') })
+  assert.match(other.lines[1], /^WARNING: the task runs C:\\Web\\board-trial\\worker-board\\tools\\watch-boards\.mjs, not this checkout's /)
+  assert.match((await setupWatcher({ mode: 'check', ...common, run: registered, read: async () => null })).lines[1], /could not be read/)
   // --watcher off with the task there: deleted; not there: nothing to remove.
   const there = async (program, args) => { calls.push([program, ...args]); return { code: 0, out: args[0] === '/Query' ? 'TaskName: x\r\nStatus: Ready\r\nLast Run Time: never\r\nLast Result: 0\r\n' : '', err: '' } }
   calls.length = 0
@@ -92,6 +108,12 @@ test('setup registers the task from an XML in the person\'s worker-board home (G
   assert.match(stillOff.lines[0], /^The watcher stays off \(`--watcher off` was given before, .*watcher-off\.json\): `npm run setup -- --watcher on` turns it on again\.$/)
   const onAgain = await setupWatcher({ mode: 'on', isExplicit: true, ...common })
   assert.deepEqual([onAgain.ok, markers.has(marker), calls.at(-1)[1]], [true, false, '/Create'])
+  // --watcher off whose delete fails: said, and NO marker (the task still runs).
+  const stuck = async (program, args) => { calls.push([program, ...args]); return args[0] === '/Query' ? { code: 0, out: 'TaskName: x\r\nStatus: Ready\r\n', err: '' } : { code: 1, out: '', err: 'ERROR: Access is denied.' } }
+  written.length = 0
+  const notOff = await setupWatcher({ mode: 'off', ...common, run: stuck })
+  assert.deepEqual([notOff.ok, written.length], [false, 0])
+  assert.match(notOff.lines[0], /could not be removed/)
   // A failing schtasks is said, never thrown.
   const failing = async () => ({ code: 1, out: '', err: 'ERROR: Access is denied.' })
   assert.deepEqual(await setupWatcher({ mode: 'on', ...common, run: failing }), { ok: false, lines: ['The watcher task "Worker board watcher" could not be registered: ERROR: Access is denied.'] })
@@ -127,15 +149,18 @@ test('one pass of the watcher: an answering board costs one request; the others 
   const answers = async port => { asked.push(port); return port === 4310 }
   const listProcesses = async () => { listed += 1; return { bootAt: NOW - 24 * 60 * MIN, processes: [{ pid: 900, parent: 1, commandLine: '"C:\\node.exe" "C:\\Web\\c\\worker-board\\server.mjs" --log' }] } }
   const readStarted = async () => ({ at: NOW - 60 * MIN })
-  const start = async ({ dir }) => { started.push(dir); return { pid: 5100, how: 'wmi', why: null } }
+  const keptOrder = []
+  const start = async ({ dir }) => { started.push(dir); keptOrder.push('start'); return { pid: 5100, how: 'wmi', why: null } }
   assert.deepEqual(START_ARGS, ['--started-by', 'watcher'], 'the start says who started the board (the page: "started by the watcher")')
-  const outcomes = await watchOnce({ boards, answers, listProcesses, start, readStarted, now: NOW, record: { boards: {} }, keepRecord: async record => { kept = record }, log: (dir, text) => logged.push([dir, text]), wait: async () => true })
+  const outcomes = await watchOnce({ boards, answers, listProcesses, start, readStarted, now: NOW, record: { boards: {} }, keepRecord: async record => { kept = record; keptOrder.push('record') }, log: (dir, text) => logged.push([dir, text]), wait: async () => true })
   assert.deepEqual(outcomes.map(one => [one.port, one.do]), [[4310, 'nothing'], [4314, 'start'], [4320, 'nothing']])
   assert.deepEqual(asked, [4310, 4314, 4320], 'the HTTP answer first, once per board')
   assert.equal(listed, 1, 'one listing for the boards that did not answer')
   assert.deepEqual(started, ['C:\\Web\\b\\worker-board'])
   assert.deepEqual(logged.map(([dir, text]) => [dir, text.replace(/\(.*\)/, '(...)')]), [['C:\\Web\\b\\worker-board', 'watcher: started the board (...): keeper process 5100 by WMI']])
   assert.deepEqual(kept.boards['C:\\Web\\b\\worker-board'], { starts: [NOW], silentLooks: 0 })
+  // The record is kept BEFORE the start as well (a pass the task's time limit cuts off mid-start still counts toward the cap).
+  assert.ok(keptOrder.indexOf('record') < keptOrder.indexOf('start'), `record before start: ${keptOrder.join(' → ')}`)
   assert.deepEqual(kept.boards['C:\\Web\\c\\worker-board'], { starts: [], silentLooks: 1 })
   // Nothing to do: no listing, no log line, the record untouched but for the answering board's count.
   asked.length = 0

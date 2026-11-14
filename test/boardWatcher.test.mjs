@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { LOCK_FRESH_MS, SILENT_LOOKS, STARTS_PER_HOUR, STARTS_WITHIN_MS, clockOf, isSignCurrent, startsWithin, watchDecision, watcherRecordOf } from '../src/boardWatcher.mjs'
-import { WMI_START_MS, keeperCommandLine, keepersOf, parseCreated, parseProcessList, psQuote, startKeeper, wmiCreateScript } from '../src/keeperStart.mjs'
+import { LIST_SCRIPT, WMI_START_MS, keeperCommandLine, keepersOf, parseCreated, parseProcessList, psQuote, startKeeper, wmiCreateScript } from '../src/keeperStart.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 10, 14, 10, 0).getTime()
@@ -179,4 +179,8 @@ test('the keepers of a folder among the PC\'s node processes: the one running it
   assert.deepEqual(read, { bootAt: Date.parse('2026-11-14T07:09:45.500Z'), logonAt: null, processes: [{ pid: 100, parent: 1, commandLine: 'x', createdAt: Date.parse('2026-11-14T08:00:00.000Z') }] })
   assert.deepEqual(parseProcessList('{"boot":"x","processes":{"pid":5,"parent":2,"commandLine":"y"}}').processes.map(one => one.pid), [5], 'one process comes as an object')
   assert.equal(parseProcessList('not json'), null)
+  // F10's re-check: a CIM query that fails ends the script with an error (never an empty list), the logon comes from Win32_LogonSession.
+  assert.match(LIST_SCRIPT, /^\$ErrorActionPreference = 'Stop'; /)
+  assert.match(LIST_SCRIPT, /Win32_LogonSession/)
+  assert.doesNotMatch(LIST_SCRIPT, /explorer\.exe/)
 })

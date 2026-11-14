@@ -7494,7 +7494,9 @@ Codex" or Working, the person chose Working: the task's work goes on, done by Co
   never a Late (the provider's own ask holds the person's action). A pick request (mode pick, the sound library) is the chat's own job:
   it names the sound with `work asset ... picked`, so it is no wait, and the timers run as for any stopped holder. With an auto request
   open beside a person's, the provider's work shows (mode auto wins).
-- **The cap**: past the provider's time limit for a job (`assetSeconds`, 240 s by default, plus a minute of grace) a running request
+- **The cap**: past the provider's time limit for a job (`assetSeconds`, 240 s by default, plus a minute of grace; F18, 2026-11-14:
+  for Codex the limit grows with the attached pictures, 120 s per picture past the first, 900 s at most, in the provider and in the
+  Late alike, since corrections with three references were stopped at 240 s) a running request
   turns one Late on the person's list (kind 'wait late', id `asset:A225`): "Codex has not delivered attack since 10:47 on B1124", with
   the words to look at the provider on the Settings tab or tell the worker to go on without it (`lateAssetsOf`, state.mjs `lateAssets`);
   a waiting request is late only while nothing of its provider runs, counted from the newest end of that provider's jobs (the hand-off
@@ -7685,6 +7687,18 @@ its two-lens review of the first build (`.claude/plans/2026-11-14-f10-review.md`
   log line, the record), test/startBoard.test.mjs (the job proof and its mutant, --anew, --stop with the sign written again, a keeper
   that ends), test/ports.test.mjs (the entry's stop words), test/landScript.test.mjs (-Cold through start-board.mjs --anew). Not
   tested: G1's environment (a keeper's board running git and codex from the logon env), the real case on 4314.
+- **Round 3** (chat 1's re-check, `.claude/plans/2026-11-14-f10-recheck.md`), on top of F24's start-board.mjs (merged first): the
+  listing script runs with `$ErrorActionPreference = 'Stop'` (a failed CIM query ends it with an error, never with an empty list that
+  reads as "no keeper"), and a listing that lacks the caller's own pid (`parseProcessList(text, { ownPid })`: start-board.mjs, the
+  watcher, --stop and startKeeper's late look all pass theirs) is a broken read: unknown, nothing started. A WMI keeper that ends on the
+  port race ("Port N is in use": another keeper's board won it, say land.ps1's cold restart beside a mod's start) is no failure: the
+  script keeps polling for the board to WAIT_MS and ends with 0 "runs already (another keeper won the port; this one ended)"; any other
+  early end still fails at once. The logon cut-off is Win32_LogonSession's StartTime (the oldest interactive session of this user), not
+  explorer.exe. The watcher keeps its record BEFORE each start, so a pass the task's 4-minute limit cuts off still counts toward the cap.
+  `--check` respects the off marker (and says when both the marker and the task are there), and names the script the registered task
+  runs (the task's XML → the .vbs → the watcher), with a WARNING when it is another checkout's. `--watcher off` writes its marker only
+  after a successful /Delete (or when no task was registered). stability.mjs reads a 'watcher' start like a 'keeper' one (no
+  "restart by hand"). `--anew` (the cold restart) still skips the runs-already check; every other start asks F24's `boardRuns` first.
 
 ## Going live: tools/land.ps1 (2026-11-04)
 
@@ -8270,3 +8284,64 @@ words at HH:MM`. A released ask is never held again by later words; a re-ask is 
 **Tests.** `test/work/wordsRecheck.test.mjs` (mutants: no Filed guard, a side chat allowed every action, no word to the chat, 1 minute instead of 60,
 no pause skip, `where` not required, the step window's rows gone: each fails it).
 
+## start-board.mjs: a slow board is a running board (F24a, 2026-11-14)
+
+On 2026-11-14 the main board answered in 8-11 s per page (F24, cause under diagnosis) and failed start-board.mjs's 1.5 s
+runs-already check. Every chat's Workers mod (`keepBoards`, every 15 s, two misses in a row, once a minute per chat) then ran
+start-board.mjs through its launcher, and each run made a new keeper whose child died on "Port 4310 is in use" (a keeper a minute,
+each from a parent that had exited; the board slower with every one). Chat 1's brief: the script counts a board as running when a
+keeper of this folder runs or a process of this folder holds the port, starts nothing then and says so, and waits longer for the page.
+
+- **The check** (`boardRuns`, the decision pure in src/keeperStart.mjs `runsAlready`): the page within `ANSWER_MS` (15 s; a dead port
+  refuses at once, so a down board costs no wait); then, on Windows, one PowerShell listing of the node processes and `netstat -ano`
+  for the port's holder, both at once. A keeper of this folder (a process whose command line runs `<this folder>\server.mjs`, with
+  no parent that does) or the port's holder running from this folder: "The worker board runs already: <url> (a keeper of this folder
+  runs (process N, board M) but did not answer within 15 seconds: slow or starting; nothing started)", exit 0 (`--quiet` says
+  nothing, as before). Another program on the port: "Port P is held by process N (<command line>), not by this folder's board: nothing
+  started.", exit 1 (a keeper would have died on it). A listing that fails or takes longer than 10 s (`LIST_MS`): "... did not answer
+  within 15 seconds and the PC's processes could not be listed (<why>): whether this folder's board runs is unknown; nothing started.",
+  exit 1 (chat 1's must: never a start on a guess; the mod's next run looks again). A free port with no keeper of this folder: a
+  start, as before. PowerShell and netstat run with `windowsHide` (the script runs detached from a chat's mod; 758178e5). Board side
+  only; the mod's `keepBoards` is unchanged for now.
+- **Tests**: test/keeperStart.test.mjs (the listing read, the keepers, the netstat holder, the decision table); test/startBoard.test.mjs
+  (a made-up board of this folder, a node process with this folder's server.mjs path on its command line: answering in 10 s → "runs
+  already", the script waited, nothing started; never answering → the keeper line, nothing started; another program on the port → said,
+  exit 1; no PowerShell on the PATH → unknown, exit 1). Mutant: main's start-board.mjs (753e3eba) put back fails all of them (it
+  starts a keeper, whose child dies on the port).
+- F10 (boards-survive-updates) has its own src/keeperStart.mjs with these listing parts and more; F10 merges this.
+
+**F24b, the slowness itself** (chat 1's diagnosis, 2026-11-14): a chat's mod (`keepBoards`) had (re)started the main board, and Windows
+handed the chat's CPU "Low" on to it: Idle priority, pinned to the last two cores (affinity C00000), which carried about 110 processes,
+so the board's thread got no CPU at all (the page in 8-11 s, /api/state in 30 s, loop stalls at almost no CPU). Its own CPU job would
+have undone that, but under Low it first waited for the process listing and the sessions on the starved thread (src/cpu.mjs once()).
+Now: server.mjs's first act, keeper and board alike, is `os.setPriority(PRIORITY_NORMAL)`; and under Low the CPU job's first pass sets
+the board's own processes to Normal on all cores BEFORE the listing and the sessions, as Full does (`isRestored`; a failed call is tried
+again next pass, still first). Tests: test/cpu.test.mjs (the order with a fake, where the mutant, the old order, lists first; the Low
+test's first call is the board's own), test/cpuStartIdle.test.mjs (the real case: a copy of the board started by `start /LOW /AFFINITY
+<the last two cores>` runs its keeper and board at Normal on all cores within a minute; `start /LOW /AFFINITY` is checked to apply).
+
+**Chat 1's review of F24a+b** (`.claude/plans/2026-11-14-f24-review.md`, 6 findings): start-board.mjs raises itself to Normal as its
+first statement after the imports (a chat under Low runs it at Idle on two crowded cores: PowerShell, netstat, the keeper and so the
+board were born starved); `powershell()` and `netstat()` give their child Normal from outside right after the spawn, as cpu.mjs does for
+its helper; the listing has 20 s and is tried twice, and only two failures are "unknown", which still starts nothing (never a start on a
+guess). A process counts as this board's (`isBoardOf`) only when its command line runs the folder's server.mjs with no `--demo`,
+`--history-from` or `--launch-entry` and no `--port` other than the resolved one; the port's holder is judged first (this board's child,
+or another program's, a keeper of the folder beside it notwithstanding), a keeper of this board only on a free port. The real-case tests
+(test/cpuStartIdle.test.mjs) can fail: a probe started by the same `start /LOW /AFFINITY` line is read as Idle on the two-core mask; a
+demo board (no CPU job) started that way reads Normal while its affinity is still the two cores (through start-board.mjs: the direct
+test of the re-check round proves server.mjs's raise alone); the
+copy of the board runs at FULL (a Low CPU job of a copy would throttle every codex, vite and headless Edge on the PC; the one Low run
+of the first version was at 12:31 on 2026-11-14) and ends at Normal on all cores; after each, every node.exe running the copy's
+server.mjs is killed by its command line and the folder removed once they have let go. The keeper's board is found by its command line
+under the keeper, never by the parent pid alone (Windows gives a dead process's pid out again within seconds: a lingering Idle probe
+once passed for the board). start-board.mjs's own Normal is read while it waits on a slow board (test/startBoard.test.mjs).
+
+**Chat 1's re-check** (`.claude/plans/2026-11-14-f24-recheck.md`, the last round): the fetch is a probe now (`probeBoard`: answers,
+refused, silent); when nothing listens (refused) AND netstat saw no holder, a failed listing does not block the start (a duplicate
+keeper there dies on EADDRINUSE; a board left down heals nothing), said in a note; a failed netstat stays unknown. A port's holder the
+listing does not know, beside a keeper of this board, is that keeper's child restarting between the two looks, never foreign (a foreign
+reading made land.ps1 roll back). The raise runs inside start-board.mjs's entry block, not at module load, so the test files that import
+it stay at their own priority (tested: an importing process under `start /LOW` stays Idle; the mutant with the raise at module load
+fails). `start-board.mjs --demo` sees its own demo (`isBoardOf`'s `isDemo`). The server.mjs raise is proven on the demo keeper started
+DIRECTLY with `start /LOW /AFFINITY` (no start-board.mjs between): keeper and board Normal on the two-core mask, the mutant Idle. The
+start-board test sweeps start-board.mjs and every demo keeper by command line until none is left.

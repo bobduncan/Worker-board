@@ -70,7 +70,7 @@ export function queryWords(output) {
  * logon name (DOMAIN\user), `run(program, args)` runs a program and answers `{ code, out, err }`, `write(file, bytes)` writes a
  * file (text or a Buffer), `exists(file)` and `remove(file)` for the marker. Answers `{ ok, lines }` and never throws.
  */
-export async function setupWatcher({ mode, isExplicit = false, home, node, script, user, run, write, exists = async () => false, remove = async () => {}, now = Date.now() }) {
+export async function setupWatcher({ mode, isExplicit = false, home, node, script, user, run, write, exists = async () => false, remove = async () => {}, read = async () => null, now = Date.now() }) {
   const name = TASK_NAME
   const folder = home.replace(/[\\/]+$/, '')
   const vbs = `${folder}\\watch-boards.vbs`
@@ -80,16 +80,35 @@ export async function setupWatcher({ mode, isExplicit = false, home, node, scrip
     const asked = await run('schtasks', ['/Query', '/TN', name, '/V', '/FO', 'LIST'])
     const state = asked.code === 0 ? queryWords(asked.out) : { present: false }
     if (mode === 'check') {
+      const isOff = await exists(marker)
       lines.push(state.present
         ? `The watcher task "${name}" is registered (${state.status ?? 'state unknown'}; last run ${state.lastRun ?? 'never'}, result ${state.lastResult ?? '?'}); setup would write it again from ${vbs}.`
-        : `The watcher task "${name}" is not registered: setup would register it (every 5 minutes and at logon, as you, hidden), with ${vbs}.`)
+        : isOff ? `The watcher task "${name}" is not registered and stays off (\`--watcher off\` was given, ${marker}): \`npm run setup -- --watcher on\` turns it on.`
+          : `The watcher task "${name}" is not registered: setup would register it (every 5 minutes and at logon, as you, hidden), with ${vbs}.`)
+      if (state.present && isOff) lines.push(`The off marker ${marker} is there although the task is registered: \`--watcher off\` removes the task, \`--watcher on\` the marker.`)
+      // The registered script: the task's own XML names the .vbs, the .vbs names the watcher; a path that differs from this checkout's is said.
+      if (state.present) {
+        const xml = await run('schtasks', ['/Query', '/TN', name, '/XML'])
+        const registeredVbs = xml.code === 0 ? /"([^"]+\.vbs)"/i.exec(String(xml.out))?.[1] ?? null : null
+        const vbsText = registeredVbs === null ? null : await read(registeredVbs)
+        const registered = vbsText === null ? null : /""([^"]+\.mjs)""/i.exec(String(vbsText))?.[1] ?? null
+        const same = path => String(path ?? '').replace(/\//g, '\\').toLowerCase()
+        if (registered === null) lines.push(`The task's script could not be read (${registeredVbs ?? 'its XML names no .vbs'}).`)
+        else if (same(registered) !== same(script)) lines.push(`WARNING: the task runs ${registered}, not this checkout's ${script}: run \`npm run setup\` here to point it at this one.`)
+        else lines.push(`The task runs this checkout's watcher: ${registered}.`)
+      }
       return { ok: true, lines }
     }
     if (mode === 'off') {
-      await write(marker, JSON.stringify({ at: now, by: 'npm run setup -- --watcher off' }))
-      if (!state.present) return { ok: true, lines: [`The watcher task "${name}" was not registered: nothing to remove; it stays off until \`npm run setup -- --watcher on\`.`] }
+      const mark = () => write(marker, JSON.stringify({ at: now, by: 'npm run setup -- --watcher off' }))
+      if (!state.present) {
+        await mark()
+        return { ok: true, lines: [`The watcher task "${name}" was not registered: nothing to remove; it stays off until \`npm run setup -- --watcher on\`.`] }
+      }
       const gone = await run('schtasks', ['/Delete', '/TN', name, '/F'])
+      // The marker only once the task is really gone: a failed delete leaves the task running and says so, with no marker that says off.
       if (gone.code !== 0) return { ok: false, lines: [`The watcher task "${name}" could not be removed: ${(gone.err || gone.out).trim().split('\n')[0]}`] }
+      await mark()
       return { ok: true, lines: [`The watcher task "${name}" is removed (the .vbs in ${home} stays; the boards run on until they stop). It stays off until \`npm run setup -- --watcher on\`.`] }
     }
     if (await exists(marker)) {

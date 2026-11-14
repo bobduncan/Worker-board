@@ -11,12 +11,29 @@
 
 import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, writeFileSync } from 'node:fs'
+import { constants as osConstants, setPriority } from 'node:os'
 import { join } from 'node:path'
 
 import { startEnv } from './keeper.mjs'
 
 /** How long the WMI start may take (a loaded PC: PowerShell's cold start and three CIM calls pass 10 s; chat 1's review). */
 export const WMI_START_MS = 30_000
+
+/** How long a PowerShell listing may take (the 20 s cpu.mjs gives its own; chat 1's review of F24a). */
+export const LIST_MS = 20_000
+
+/**
+ * Gives a child Normal priority from outside, at once: a start-board.mjs run by a chat under CPU Low is at Idle on two crowded cores,
+ * and PowerShell or netstat born there would be starved before they answer (cpu.mjs does the same for its helper). Never throws.
+ */
+export function raiseChild(pid) {
+  try {
+    setPriority(pid, osConstants.priority.PRIORITY_NORMAL)
+  } catch {
+    // gone already, or not allowed
+  }
+}
+
 
 /** The keeper's command line for WMI: node, the folder's server.mjs, `--log`, then the words given (each quoted when it has a space or a quote). */
 export function keeperCommandLine({ node, dir, args = [] }) {
@@ -48,7 +65,7 @@ export function parseCreated(text) {
 }
 
 /** Runs a PowerShell script hidden; resolves to its output, rejects when it fails or takes longer than `timeoutMs`. */
-export function powershell(script, timeoutMs = WMI_START_MS) {
+export function powershell(script, timeoutMs = WMI_START_MS, { raise = raiseChild } = {}) {
   return new Promise((resolve, reject) => {
     let child
     try {
@@ -57,6 +74,7 @@ export function powershell(script, timeoutMs = WMI_START_MS) {
       reject(error)
       return
     }
+    raise(child.pid)
     let out = ''
     let err = ''
     const timer = setTimeout(() => child.kill(), timeoutMs)
@@ -96,7 +114,7 @@ export function logLine(dir, text, now = Date.now()) {
  * folder made since the call (`list`) are looked for first, and the fallback runs only when none was made (chat 1's review). The
  * fallback alone runs when `env.WORKER_BOARD_START_ROUTE` is 'child' (the proof's mutant in test/startBoard.test.mjs).
  */
-export async function startKeeper({ dir, args = [], node = process.execPath, run = powershell, spawnChild = spawnDetached, platform = process.platform, env = process.env, log = logLine, list = async () => parseProcessList(await powershell(LIST_SCRIPT, WMI_START_MS)), now = Date.now }) {
+export async function startKeeper({ dir, args = [], node = process.execPath, run = powershell, spawnChild = spawnDetached, platform = process.platform, env = process.env, log = logLine, list = async () => parseProcessList(await powershell(LIST_SCRIPT, WMI_START_MS), { ownPid: process.pid }), now = Date.now }) {
   const commandLine = keeperCommandLine({ node, dir, args })
   let why = null
   if (env?.WORKER_BOARD_START_ROUTE === 'child') why = 'WORKER_BOARD_START_ROUTE=child'
@@ -138,40 +156,126 @@ export function spawnDetached({ dir, args, node = process.execPath, env = proces
   return child
 }
 
+/** Whether a process's command line runs the board in `dir` (its server.mjs); both slashes count. */
+export function runsFolder(commandLine, dir) {
+  const wanted = `${dir.replace(/[\\/]+$/, '')}`.replace(/\//g, '\\').toLowerCase()
+  return typeof commandLine === 'string' && commandLine.replace(/\//g, '\\').toLowerCase().includes(`${wanted}\\server.mjs`)
+}
+
+/**
+ * Whether a process's command line is THIS board's (keeper or child): it runs the folder's server.mjs with no `--demo`,
+ * `--history-from` or `--launch-entry`, and no `--port` other than `port` (a demo or a second board of the folder on another port is
+ * not it; chat 1's review of F24a, item 2).
+ */
+export function isBoardOf(commandLine, dir, port, { isDemo = false } = {}) {
+  if (!runsFolder(commandLine, dir)) return false
+  // The demo's own board is a demo (start-board.mjs --demo sees it); the real board's never is.
+  if (/\s--demo(?:\s|$)/.test(commandLine) !== isDemo) return false
+  if (/\s--(?:history-from|launch-entry)(?:\s|$)/.test(commandLine)) return false
+  const given = /\s--port\s+(\d+)/.exec(commandLine)
+  return given === null || Number(given[1]) === Number(port)
+}
+
 /**
  * The keepers of the board in `dir` among the PC's node processes (`list`: `{ pid, parent, commandLine }` each): a process whose
  * command line runs that folder's server.mjs and whose parent runs none (the child's parent is the keeper). Both slashes count.
+ * With `port`, only the processes that are this board's (`isBoardOf`).
  */
-export function keepersOf(list, dir) {
-  const wanted = `${dir.replace(/[\\/]+$/, '')}`.replace(/\//g, '\\').toLowerCase()
-  const runsHere = one => typeof one?.commandLine === 'string' && one.commandLine.replace(/\//g, '\\').toLowerCase().includes(`${wanted}\\server.mjs`)
-  const ours = (Array.isArray(list) ? list : []).filter(runsHere)
+export function keepersOf(list, dir, port = null, { isDemo = false } = {}) {
+  const ours = (Array.isArray(list) ? list : []).filter(one => (port === null ? runsFolder(one?.commandLine, dir) : isBoardOf(one?.commandLine, dir, port, { isDemo })))
   return ours.filter(one => !ours.some(other => other.pid === one.parent)).map(one => ({ pid: one.pid, children: ours.filter(other => other.parent === one.pid).map(other => other.pid) }))
 }
 
 /**
  * The PowerShell that lists the PC's node processes with their command lines, as JSON, with the last boot time and the start of
- * the person's logon session (the oldest explorer.exe of this user; Fast Startup leaves LastBootUpTime at the last full boot, so
- * the logon is the cut-off for stop signs; chat 1's review), both ISO, UTC.
+ * the person's logon session (Win32_LogonSession, the oldest interactive one of this user; Fast Startup leaves LastBootUpTime at the
+ * last full boot, so the logon is the cut-off for stop signs; chat 1's review and re-check), both ISO, UTC. A failed CIM query ends
+ * the script with an error (`$ErrorActionPreference = 'Stop'`), never with an empty list that would read as "no keeper".
  */
 export const LIST_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
   "$boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')",
-  "$logon = $null; foreach ($e in @(Get-CimInstance Win32_Process -Filter \"Name='explorer.exe'\")) { try { $o = Invoke-CimMethod -InputObject $e -MethodName GetOwner; if ($o.User -eq $env:USERNAME -and $e.CreationDate -and ($null -eq $logon -or $e.CreationDate -lt $logon)) { $logon = $e.CreationDate } } catch {} }",
+  "$logon = $null; foreach ($s in @(Get-CimInstance Win32_LogonSession | Where-Object { $_.LogonType -in 2, 10, 11 })) { try { $acc = @(Get-CimAssociatedInstance -InputObject $s -ResultClassName Win32_Account); if ($acc.Count -gt 0 -and $acc[0].Name -eq $env:USERNAME -and $s.StartTime -and ($null -eq $logon -or $s.StartTime -lt $logon)) { $logon = $s.StartTime } } catch {} }",
   "$list = @(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ForEach-Object { [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; commandLine = [string]$_.CommandLine; created = $(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { $null }) } })",
   "[pscustomobject]@{ boot = $boot; logon = $(if ($logon) { $logon.ToUniversalTime().ToString('o') } else { $null }); processes = $list } | ConvertTo-Json -Compress -Depth 3",
 ].join('; ')
 
-/** The listing read: `{ bootAt (ms), logonAt (ms or null), processes }`; null for anything that is not one. */
-export function parseProcessList(text) {
+/**
+ * The listing read: `{ bootAt (ms), logonAt (ms or null), processes }`; null for anything that is not one, and null for a listing that
+ * lacks `ownPid` (the caller's own node process must be in a list of the PC's node processes: one without it is a broken read, never
+ * "no keeper"; chat 1's re-check of F10).
+ */
+export function parseProcessList(text, { ownPid = null } = {}) {
   try {
     const parsed = JSON.parse(String(text ?? '').replace(/^﻿/, ''))
     const list = Array.isArray(parsed?.processes) ? parsed.processes : parsed?.processes ? [parsed.processes] : []
     const bootAt = Date.parse(parsed?.boot)
     const logonAt = Date.parse(parsed?.logon)
+    if (Number.isInteger(ownPid) && !list.some(one => one?.pid === ownPid)) return null
     return { bootAt: Number.isFinite(bootAt) ? bootAt : null, logonAt: Number.isFinite(logonAt) ? logonAt : null, processes: list.filter(one => Number.isInteger(one?.pid)).map(one => ({ pid: one.pid, parent: Number.isInteger(one.parent) ? one.parent : -1, commandLine: typeof one.commandLine === 'string' ? one.commandLine : '', createdAt: Number.isFinite(Date.parse(one.created)) ? Date.parse(one.created) : null })) }
   } catch {
     return null
   }
+}
+
+/** The pid listening on the TCP port in `netstat -ano` output (any local address), or null when none. */
+export function portHolderOf(text, port) {
+  const want = new RegExp(`^\\s*TCP\\s+\\S+:${port}\\s+\\S+\\s+LISTENING\\s+(\\d+)\\s*$`, 'im')
+  const match = String(text ?? '').match(want)
+  return match ? Number(match[1]) : null
+}
+
+/** Runs `netstat -ano -p tcp`; resolves to its output, rejects when it fails or takes longer than `timeoutMs`. */
+export function netstat(timeoutMs = LIST_MS, { raise = raiseChild } = {}) {
+  return new Promise((resolve, reject) => {
+    let child
+    try {
+      child = spawn('netstat', ['-ano', '-p', 'tcp'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    } catch (error) {
+      reject(error)
+      return
+    }
+    raise(child.pid)
+    let out = ''
+    const timer = setTimeout(() => child.kill(), timeoutMs)
+    child.stdout.setEncoding('utf8').on('data', chunk => { out += chunk })
+    child.on('error', error => { clearTimeout(timer); reject(error) })
+    child.on('exit', code => { clearTimeout(timer); if (code === 0) resolve(out); else reject(new Error(`netstat ended with ${code}`)) })
+  })
+}
+
+/**
+ * Whether the board of `dir` runs, from what was looked at: `answers` (its page came within the long timeout), `processes` (the
+ * PC's node processes, or null when they could not be listed) and `holder` (the pid on the port, or null when none or unknown).
+ * `{ runs: true, why }` for an answer, a keeper of this folder, or the port held by a process of this folder (slow or starting:
+ * nothing is started, the keeper brings the board back); `{ runs: false, foreign: { pid, commandLine } }` when another program
+ * holds the port (a start would fail on it); `{ runs: false, unknown }` when the processes could not be listed (`processes` null:
+ * the listing failed or took longer than LIST_MS; no start on a guess, the next run looks again), except `{ runs: false, note }` when
+ * nothing listens (`isRefused`) and netstat saw no holder (`holderKnown`, `holder` null): the start goes, with the note; `{ runs: false }`
+ * when nothing of this folder runs and the port is free.
+ */
+export function runsAlready({ dir, port = null, isDemo = false, answers, isRefused = false, holderKnown = false, processes = null, holder = null, answerSeconds, listingError = null }) {
+  if (answers) return { runs: true, why: 'it answers' }
+  if (!Array.isArray(processes)) {
+    // The re-check's rule (chat 1, 2026-11-14): nothing listens (the fetch was refused) and netstat saw no holder: a failed listing does not
+    // block the start. A duplicate keeper there is harmless (its child ends on EADDRINUSE and it exits); a board left down is not.
+    if (isRefused && holderKnown && holder === null) return { runs: false, note: `the PC's processes could not be listed${listingError ? ` (${listingError})` : ''}, but nothing listens on the port: started all the same` }
+    return { runs: false, unknown: `the PC's processes could not be listed${listingError ? ` (${listingError})` : ''}: whether this folder's board runs is unknown; nothing started` }
+  }
+  const silent = `did not answer within ${answerSeconds} seconds: slow or starting; nothing started`
+  const [keeper] = keepersOf(processes, dir, port, { isDemo })
+  const keeperWords = keeper === undefined ? '' : `a keeper of this folder runs (process ${keeper.pid}${keeper.children.length ? `, board ${keeper.children.join(', ')}` : ''})`
+  // The port first: its holder is this board's child (slow), or another program's (a start would die on it). A holder the listing does
+  // not know (a child that restarted between the two looks) beside a keeper of this board is that keeper's: never foreign.
+  if (holder !== null) {
+    const process = processes.find(one => one.pid === holder)
+    if (process && isBoardOf(process.commandLine, dir, port, { isDemo })) return { runs: true, why: `process ${holder} of this folder holds the port but ${silent}` }
+    if (!process && keeper !== undefined) return { runs: true, why: `${keeperWords}; the port's holder ${holder} changed while looking: ${silent}` }
+    return { runs: false, foreign: { pid: holder, commandLine: process?.commandLine ?? '' } }
+  }
+  // A free port: a keeper of this board (not a demo's or another port's) is starting its child.
+  if (keeper !== undefined) return { runs: true, why: `${keeperWords} but ${silent}` }
+  return { runs: false }
 }
 
 /** Ends a keeper and its children (`{ pid, children }`), each with a plain kill; never throws. */
