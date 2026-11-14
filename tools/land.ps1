@@ -699,7 +699,8 @@ function Read-NewText([string]$File, [ref]$From) {
       $stream.Position = $From.Value
       $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::UTF8)
       $text = $reader.ReadToEnd()
-      $From.Value = $stream.Length
+      # The reader's own position, not the length: bytes that came between the read and a length query would be skipped.
+      $From.Value = $stream.Position
       return $text
     } finally { $stream.Dispose() }
   } catch { return '' }
