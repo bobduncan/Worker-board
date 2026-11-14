@@ -2575,6 +2575,9 @@ chat being replaced and never handed the words to the new one. Now (`src/stopped
    `withdrawStale` close those whose purpose is gone, as any waiting word.
 4. Rule 8 names a stopped chat once per stop ("Worker 5 was stopped at 21:42: 2 words wait for it"), with whether the
    main chat was asked to wake it, not word by word; a word that went again is named by the word that stands for it.
+   B1170 (X173): its finding's `since` is the stop, never before its oldest word (a word keeps its own time through every
+   retry): an incident closed after those words came, then a later stop of the same chat, is a new case and comes
+   back, where the oldest word's time made it "old case still standing" and showed nothing.
 5. roles/main.md: a worker the main chat stops or replaces is named to the board in the same move (a work note, "Stopped
    <name> at HH:MM: <why>"), and a stopped worker it keeps is woken at once.
 
@@ -3823,6 +3826,7 @@ stuck that day was found by the person. They are now one list in the board, each
 | `refine-again` | (T9.4) a step still new whose refine word the Advisor took (arrived) 30 min ago or more, with no block written since, none waiting for the person's answers, the board not stopped on it (`refineStop`), not a fix | the Advisor woken with the same word, every 30 min, three times (Woke); then one note to the person (Sent) |
 | `incident-again` | (T9.4; signals change 6, B915) an incident "with the supervisor" for 2 h or more (the pause not counted), with no fix named and not closed | one note to the person (Sent), once; no asks again since change 6 |
 | `worktrees` | a worktree of a repository the board knows, or an empty folder one left in the project folder (2026-10-24) | removed by the board when safe (Cleaned); else listed with why (Left), no chat told: "Worktree clean-up" below |
+| `browsers` | a headless or remote-driven Edge main process with its profile in the temp folder, more than one thread and its starter gone, over 30 min old or its tree over 2 cores for 5 min in a row (2026-11-13) | its tree closed once (each process while its creation time holds; not while a landing runs or a live process is connected to its DevTools port) and the tool's own folder removed (Cleaned, the row naming the profile's prefix and the tree's CPU); one that could not be, or was tried before, Left with why; the PC's first board alone; no chat told: "Leaked headless browsers" below |
 
 - **At its take** (B542, X10): a step's `Blocked by` loses the steps done, dropped or in review, and a `Waits for` whose
   every step is goes, each with a History line naming the blocker, so no step in progress still shows a wait. The
@@ -3971,6 +3975,79 @@ confirmed that a step's branch was gone, never its worktree or its folder. Three
 - Tests: `test/work/worktrees.test.mjs` (temporary git repositories: merged and unmerged worktrees, changes, held
   ones, an empty leftover folder, a junction made with `mklink /J`, skipped with its reason where none can be made),
   `test/work/check.test.mjs`, `test/work/resultCheck.test.mjs`, `test/supervisor/selfCheck.test.mjs`, `test/outOfSync.test.mjs`.
+
+## Leaked headless browsers (2026-11-13)
+
+The person's PC lagged (2026-11-13, 21:00): one headless Edge (`--use-angle=swiftshader`, profile `%TEMP%\edge-cdp-b1126-*`)
+started the day before at 07:42, its starter process gone, was rendering the game on the CPU at about 55% of the PC (13 of 24
+cores); three more had leaked that evening. The cause was a worker's scratch CDP helper on a fixed port (a killed run's Edge
+stayed and every later run connected to it); the helper was fixed, and the board catches any tool that leaks a browser:
+
+- **The rule `browsers`** (src/supervisor/browsers.mjs, rules/repair.mjs, shaped like `worktrees`; a repair, no AI, no
+  tokens, no chat told): each loop (every 3 minutes), from one listing of the PC's processes (cpu.mjs `LIST_SCRIPT`, which
+  now carries each process's `threads` and `cpuMs`), every `msedge.exe` MAIN process with `--headless` or
+  `--remote-debugging-port` and no `--type=` (the person's own Edge has neither flag and is never touched) whose profile
+  (`--user-data-dir`, the last one, as Chromium reads it) stands in the temp folder (guard 1: a profile anywhere else is
+  somebody's own, never closed), that has more than one thread (a killed main process lingers as a 1-thread zombie for a
+  while; the game's `browserTree.mjs` counts the same), whose starter is gone (its parent not listed, or listed but created
+  after it: a process number given out again), and that has run over `LEAKED_AFTER_MS` (30 minutes) OR whose TREE (the
+  gpu and renderer children, where the rendering sits) used over `BUSY_CORES` (2) cores for `BUSY_MS` (5 minutes) in a
+  row (guard 2: a worker may detach a CDP helper on purpose and keep using it; the runner keeps the CPU samples per
+  browser between runs, stamped with the listing's moment, `watchBrowsers`, `isBusy`: the leak of 13 cores closes at the
+  third sample, two steps of 3 minutes, a quiet helper only after half an hour). Chat 1's review: Edge relaunched through
+  its compat layer has a dead stub for a parent, so the board's own tools pass `--edge-skip-compat-layer-relaunch`
+  (tools/evidence.mjs) and, right before any close, the board checks that no live process holds an established connection
+  to the browser's DevTools port (`inUseNow`: the command line's port, else the profile's DevToolsActivePort file; a tool
+  still driving it is left alone, nothing counted).
+- **The fix** (`closeLeaked`, the loop's `close`): the landing lock read right before the kill (a landing runs: skipped,
+  nothing counted); then the main process and the tree below it (children that started after their parent) killed in one
+  PowerShell call, each only while its Win32_Process creation time is still the listing's (`killVerified`, no `taskkill /T`:
+  a number Windows gave out again since the listing is another process); then the TOOL's own folder removed and nothing
+  else (`toolFolderOf`, guard 1 as chat 1's review sharpened it: the profile itself when it is `edge-cdp-<name>-<tail>` or
+  `lava-shot-<pid>-<tail>` right below %TEMP%, the evidence tool's `board-evidence-<tail>` folder when the profile is its
+  `profile`; a worker's scratchpad profile, %TEMP%\claude\..., is left: "left: not the tool's own folder"). One Cleaned row,
+  "<prefix>: a headless Edge (process N, started HH:MM, 13 h 20, 12.8 cores) with its starter gone, ran over 30 min: closed,
+  its profile removed", the prefix the tool's own (`prefixOf`), so a tool that keeps leaking is visible on the board
+  (guard 3). One close per browser, tried once whatever its outcome (guard 4): the runner remembers the attempt
+  (`browserMemory`, "closed at HH:MM, still listed" or "close failed at HH:MM, not tried again"), and the day's repairs
+  (the supervisor's memory, which survives a board restart) say the same by the finding's key `browser <pid:created>`.
+  A listing that fails is one Left row ("leaked browsers: not looked at"), not the end of the run.
+- **One board** (chat 1's review: three boards on this PC, 4310, the Test board and the trial copy, would each close the
+  same browser, split a tool's leak count and read their own landing lock): the rule's ports go to the PC's first board on
+  ~/.worker-board/boards.json alone (the main project's, registered first; `closesBrowsers` in server.mjs), unless
+  config.json's `browsersRule` (true or false) says otherwise; never to a copy that only shows.
+- **The incident** (guard 3; the watch rule `browser-leaks`, watch.mjs): one tool's browsers closed `LEAKS_PER_DAY` (3)
+  times or more in a day files an incident naming the tool ("The tool "edge-cdp-b1126" leaked 3 headless browsers in a
+  day ...: its browser handling wants a fix"), so the fix becomes a step of its own; the closes are no repair-repeats
+  (`BOUNDED_RULES`). Tested end to end through the runner (three closes of one prefix, two of another: one incident).
+- **Ports** (server.mjs, Windows only, the first board): `processes()` (cpu.mjs `windowsProcesses.list`) and `closeBrowser(one)`
+  (with the landing lock); without them (another platform, another board, a test runner) the rule finds nothing.
+- Tests: `test/supervisor/browsers.test.mjs` (every exclusion on a listing shaped like the real one: the person's Edge, a
+  profile outside the temp folder, a starter alive, under 30 minutes and quiet, the zombie, a reused parent number; the
+  tree's CPU and the busy case at the third sample; the tool folders and the scratchpad profile left; the close with fakes:
+  the landing, in use, the verified kill, the folder), `test/supervisor/selfCheck.test.mjs` (the loop's Cleaned and Left
+  rows, the busy close, one close per browser also after a failed one and across the day's repairs, the landing, the
+  failed listing; guard 3 end to end: three closes of one tool make the incident, two of another do not),
+  `test/supervisor/watch.test.mjs` (browser-leaks), `test/cpu.test.mjs` (`threads` and `cpuMs` in the listing),
+  `test/config.test.mjs` (`browsersRule`).
+
+Chat 1's verifier of the rework (2026-11-14, `.claude/plans/2026-11-14-f8-verifier.md`: 2 blockers, 2 should-fixes), as built:
+
+- **The rule's switch is read where its facts exist** (blocker 1): `closesBrowsers` stood above `const historyFrom` and `const isShowOnly`
+  in `main`, so on Windows every start threw in their temporal dead zone; it now follows `isShowOnly`. A source-order test in
+  `browsers.test.mjs` holds that order, and `test/startBoard.test.mjs` starts a board.
+- **The creation time goes in exact** (blocker 2): the listing carries `createdText` (the FILETIME as a string) beside the number, which
+  loses its last digits through JSON (a double steps by 16 at 1.3e17, so an exact compare missed most processes and the folder was
+  removed under a live Edge); `killVerified` names each process by that text and compares with a tolerance of 20 ticks, reports per
+  pid (killed, gone, mismatch, alive, error) after reading the processes again, and `ok` follows the main alone; `closeLeaked` removes
+  the folder and counts the close only when the kill says the main was killed, gone, or its number another process's.
+- **Each Stop-Process stands alone** (5, 6): `-ErrorAction SilentlyContinue` with its error read per process; a child gone with its main
+  is no failure. Chat 1's check of the round: each WMI read runs under try/catch with `-ErrorAction Stop`, so a failed read (a quota,
+  a timeout) is an error line, never "gone" (the folder stays, the close is not done); a process found without a creation time is an
+  error too.
+- **A tried close survives a restart** (7): the supervisor's memory keeps `browsers` (`{ key: { at, ok } }`, every close tried, failed
+  ones too), seeded into the runner's map at each run and pruned to the browsers still listed, so a restarted board tries no browser
+  again; the guard-3 test covers the failed close across a restart.
 
 ## The Workers mod hotfix 0.31.1 (2026-11-13): chats losing the mod (F4)
 
@@ -5850,6 +5927,33 @@ and free workers sat idle. Never a way around the refusal (no permission or mode
 - Tests: `test/work/setRefused.test.mjs` and `setRefusedReview.test.mjs` (the refusal's real words; B1160 sent again without a take-back; no set word while refused; an
   old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off
   sonnet steps; the plain row words). The owed set through a model turn of Main (decision 4) is the second landing.
+
+- Part 2 (F5, chat 1's decisions 4 and 5, B1164): while the refusal stands the owed set goes to a model turn of Main. The hand-over
+  writes one set word to Main marked `forModel` (no hand ever claims it: hands.mjs `isHandWord`; Main's own take carries it at once),
+  asked once per hand-over while the worker is free; the envelope (set null, `asked`) waits for it (`isWaitDone`: typed into Main is
+  not done) until the worker runs at that setting (released, `setByMain`) or MAIN_SET_WAIT_MS (5 min, Main busy: released, `asked`
+  kept for the step's line). While refused no hand claims any set job but the probe (server `isHand`, `setsRefusedOf`). Rule 8 leaves
+  a `forModel` word out while it is with Main (MAIN_MODEL_SET_MS, 10 min), then names it while the worker still does not run at it.
+  handover-held stays as it is: a refused set holds nobody. Tests: `test/work/setMain.test.mjs`.
+- A ready step whose Touches overlap a step given or under way (the live G95 case: nine unit steps behind B1149) is not ready: it
+  stands in the ready list's `held` as "waits: same files as B1149, under way" (`overlap`). The rule overlap-idle names free workers
+  idling over 30 min while every waiting step is so held, once for the board (key `overlap-idle board`).
+
+- Round 3 (chat 1's final check of F2): while refused, a partner-effort word is Main's model's too (`forModel`, from the Focus switch,
+  Go and the evaluation's switch); a partner word closed as refused counts as missed, so the switch follows what the partner runs on
+  and Go sends no "usual" word; the plain line shows only once no try is left. The state's own hand-over decisions get the refusal
+  and its next check from the whole outbox, so a free worker's status says "next check …". The probe is a hand's alone: never in
+  Main's take, no wake word, never retried, only for a lane a hand may set (no Fable); one no hand carried within its minute, or that
+  failed for another reason, is closed in plain words (the next comes a day later). Tests: `test/work/setRound3.test.mjs`.
+
+- F5 review (chat 1, 2026-11-14): rule 8 never names a partner word Main carried out, and names a worker's Main word only while its step
+  is still that worker's and within UNDELIVERED_LOOK_MS. A Main word not taken yet is closed when its hand-over goes on (the pass's
+  release, or the sweep once its envelope no longer waits for it), so Main never sets a worker mid-step or twice; a release by the
+  worker's own setting rewrites the envelope's words. A next check already past reads "next check when a worker is free". A step held by
+  an overlap with a step at work is no none-ready cause and no review-held lateness. A partner word with a retry still to come shows
+  settling; a probe a hand gave back in doubt stays open DOUBT_MS; the probe never picks a worker whose hand-over waits or that got a set
+  word lately. Overlap words say where the step stands ("which waits for you"); overlap-idle names the board's span, not each worker's.
+  Tests: `test/work/setF5Review.test.mjs`.
 
 ### The envelope's contract for the Workers mod
 

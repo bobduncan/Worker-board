@@ -228,7 +228,8 @@ test('the wakes of one wait, run by the runner: three words, then the note; the 
   const repeats = WATCH_RULES.find(rule => rule.id === 'repair-repeats').check(view, { seen: new Map(), observed: [] })
   assert.deepEqual(repeats.map(one => one.subject), ['B712'])
   assert.match(repeats[0].text, /unchecked for B712/)
-  assert.deepEqual([...BOUNDED_RULES].sort(), ['incident-again', 'refine-again'])
+  // Leaked headless browsers (2026-11-13): the closes are their own incident (browser-leaks), no repeat.
+  assert.deepEqual([...BOUNDED_RULES].sort(), ['browsers', 'incident-again', 'refine-again'])
 })
 
 test('refine-again: the time the person paused does not count, and nothing is said while they pause', () => {

@@ -296,7 +296,7 @@ const dayClock = (at, now) => {
   return Number.isFinite(now) && new Date(now).toDateString() === day.toDateString() ? clockOf : `${day.getDate()} ${MONTHS[day.getMonth()]} ${clockOf}`
 }
 /** The words, with when the board next checks whether the app lets it set again (verifier 3, the probe: effort.mjs `probeOf`). */
-export const refusedWords = (worker, nextCheckAt = null, now = null) => `on ${runName(worker) || 'its own model'} (${REFUSED_MARK}${Number.isFinite(nextCheckAt) ? `; next check ${dayClock(nextCheckAt, now)}` : ''})`
+export const refusedWords = (worker, nextCheckAt = null, now = null) => `on ${runName(worker) || 'its own model'} (${REFUSED_MARK}${!Number.isFinite(nextCheckAt) ? '' : Number.isFinite(now) && nextCheckAt <= now ? '; next check when a worker is free' : `; next check ${dayClock(nextCheckAt, now)}`})`
 
 /** The words a lane's why carries while a ban stands (laneWords reads them; a test pins them). */
 export const BAN_WHY_MARK = ' steps: its set failed at '
