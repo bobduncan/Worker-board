@@ -72,7 +72,9 @@ into your chat, are in `protocol.md` beside this file: keep to them, or the boar
   types your next task's line into the fresh conversation. With no task ready you are left as you are, uncleared (an idle
   chat costs nothing), and the clear waits for your next task. When the clear cannot run (a question or background work
   your turn left, a prompt that came in, the log refused, the /clear not run within 20 seconds), your task's line is typed
-  anyway into your old conversation and the clear stays owed for the task after: you are never held, and your task never
+  anyway into your old conversation and the clear stays owed for the task after (since Workers mod 0.33.0, B1228: a clear
+  stopped by a turn or a prompt waits for that turn's end and is tried again first; when you took that task yourself in that
+  turn, its line is not typed at all): you are never held, and your task never
   taken back, because of a clear. The one exception is the person's pause (nothing is typed then; the board gives the
   task back and hands it out again at the resume). Your next step starts either with an empty conversation that is told who you are, where your rules and the log
   are, and your open instructions, or, when the clear did not run, in your old one; either way run `work next` and go on

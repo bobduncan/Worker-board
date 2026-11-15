@@ -76,7 +76,8 @@ tool answers with the record: work from it, not from a message.
   line. A step not taken in the turn its line started goes back at once (History "queued → refined (taken back from
   <worker>: did not take it in its turn)") and is not offered to that worker again until it takes another; a hand-over
   whose set, restart or line failed gives it back at once and holds the worker with the why (a clear that did not run does not:
-  the line is typed anyway into the old conversation, the clear stays owed and rides the next task); one the worker did not answer
+  the line is typed anyway into the old conversation, the clear stays owed and rides the next task; since Workers mod 0.33.0 a
+  clear refused for a turn or a prompt first waits for that turn's end and is tried again, B1228); one the worker did not answer
   in 10 minutes of the board's running time gives it back once ("did not answer its hand-over"). A step given to a
   worker not on the sequence (the setting "timers", an older Workers mod) goes back at once, and one given to a chat
   missing from the list 10 minutes after the give. A give the work API refuses moves to the next task in the same
@@ -262,7 +263,10 @@ types the next task's line. Since the lazy clear (Workers mod 0.31.0, DESIGN.md 
 worker with no task ready stays uncleared and the clear it owes rides its next task's envelope; a clear that cannot run (or
 is not run within 20 s: the clear is then dropped for good, so a late /clear never clears mid-task) does not hold the worker:
 its line is typed anyway into the old conversation, the outcome says `cleared: false` with `clearWhy`, and every stage of the
-clear (`log-saved`, `clear-queued`, `cleared`, `clear-refused`) is told to the board the moment it happens; only the person's
+clear (`log-saved`, `clear-queued`, `cleared`, `clear-refused`, `line-waiting`) is told to the board the moment it happens. Since
+Workers mod 0.33.0 (B1228, X201) a clear refused because a turn ran or a prompt came in types no line at once: the line waits in
+the mod until that turn has ended, its clear is tried again first, then the line; a waiting line whose step the worker took
+meanwhile is not typed ("its step was taken already", no failure), and the board's net holds while that turn runs. Only the person's
 pause stops the line, and a set, restart or line that failed still holds the worker with the why (the rule handover-held); three
 hand-overs in a row whose clear did not run open the rule clear-owed-repeat. Before that the mod decided it itself (a mod older than 0.27.0 still does, and is handed no task): first `save-log`
 (`stepId`, the mod's own work call, never the model's: the board refuses it for the main chat, the partner, its helper

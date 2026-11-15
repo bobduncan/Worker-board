@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, restoredDropped, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
+import { TAKEN_ALREADY_WHY, TURN_OR_PROMPT_WHYS, heldLineVerdict, isTurnOrPromptWhy, LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, restoredDropped, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -609,7 +609,7 @@ describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
     // 0.27.3: the work tool says "goal definition" and takes definition-draft (this branch carried 0.27.1, the main branch is at 0.27.2).
-    expect(MOD_VERSION).toBe('0.32.0')
+    expect(MOD_VERSION).toBe('0.33.0')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {
@@ -670,5 +670,23 @@ describe("Your words: the main chat puts the person's words on a step (the perso
   test('words is an action of the tool and where one of its fields', () => {
     expect(WORK_ACTIONS.includes('words')).toBe(true)
     expect(WORK_FIELDS.includes('where')).toBe(true)
+  })
+})
+
+describe('B1228 (X201): a clear refused for a turn or a prompt holds its line until the chat is idle', () => {
+  test('the whys that hold the line are the four of a turn or a prompt; every other refusal types it at once', () => {
+    expect([...TURN_OR_PROMPT_WHYS]).toEqual(['a turn is running', 'a new prompt came in before the clear', 'a new prompt came in before the clear ran', 'a new turn started before the clear ran'])
+    for (const why of TURN_OR_PROMPT_WHYS) expect(isTurnOrPromptWhy(why)).toBe(true)
+    for (const why of ['the person pauses the chats', 'a subagent it started still runs (1)', 'not run in 20 s', 'the board did not answer in 5 s', 'a clear is already on its way']) expect(isTurnOrPromptWhy(why)).toBe(false)
+    expect(TAKEN_ALREADY_WHY).toBe('its step was taken already')
+  })
+
+  test('a waiting line is stale only when its own step was taken after its envelope was carried', () => {
+    const takes = new Map([['B13', 3], ['B9', 1]])
+    expect(heldLineVerdict('B13', 2, takes)).toBe('stale')
+    // Taken before the envelope came (an earlier hand-over of the same step): not this line's.
+    expect(heldLineVerdict('B13', 3, takes)).toBe('retry')
+    expect(heldLineVerdict('B14', 0, takes)).toBe('retry')
+    expect(heldLineVerdict(null, 0, takes)).toBe('retry')
   })
 })

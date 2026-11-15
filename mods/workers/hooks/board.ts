@@ -237,7 +237,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.32.0'
+export const MOD_VERSION = '0.33.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -501,9 +501,33 @@ export type Outcome = {
  * happens (`typed` with `handover` and a top-level `stages`), dated by the mod's clock then. `ticket` is the clear's
  * key (`clearTicket`), `session` the new session's id after a clear, `log` the log's path, `why` a refusal's words.
  */
-export type ClearStage = { stage: 'log-saved' | 'clear-queued' | 'cleared' | 'clear-refused'; at: number; why?: string; log?: string; ticket?: string; session?: string }
+export type ClearStage = { stage: 'log-saved' | 'clear-queued' | 'cleared' | 'clear-refused' | 'line-waiting'; at: number; why?: string; log?: string; ticket?: string; session?: string }
 /** The board takes at most this many stages in one post. */
 export const MOST_STAGES = 8
+
+/**
+ * B1228 (X201: Worker 5, 2026-11-14 18:19-18:22, three clears in a row refused): the words of a clear refused because a turn ran
+ * or a prompt came in before it. Typed at once, such a clear's line waited behind that turn in the app's queue, entered first at
+ * its end and refused the next clear too, and the worker had taken its step in that turn already, so the late line made it take
+ * the next one: the chain fed itself. The line of such a clear waits in the mod instead (stage `line-waiting`) until the chat's
+ * turn has ended; there the clear is tried again first, with every guard, then the line (`heldLineVerdict`).
+ */
+export const TURN_OR_PROMPT_WHYS: readonly string[] = Object.freeze([
+  'a turn is running', 'a new prompt came in before the clear', 'a new prompt came in before the clear ran', 'a new turn started before the clear ran',
+])
+export const isTurnOrPromptWhy = (why: string): boolean => TURN_OR_PROMPT_WHYS.includes(why)
+/** B1228: the why of a waiting line that is not typed, as its chat took its step meanwhile (the board reads exactly these words). */
+export const TAKEN_ALREADY_WHY = 'its step was taken already'
+/**
+ * B1228: what becomes of a waiting line once its chat is idle: 'stale' when the chat took the line's step since its envelope was
+ * carried (`carriedAt` and `takes` count the chat's takes in this process: the take's number per step), so the line is not typed;
+ * else 'retry': its clear is tried again first, then the line.
+ */
+export function heldLineVerdict(step: string | null, carriedAt: number, takes: ReadonlyMap<string, number>): 'stale' | 'retry' {
+  if (step === null) return 'retry'
+  const took = takes.get(step)
+  return took !== undefined && took > carriedAt ? 'stale' : 'retry'
+}
 
 const STEP_ID = /^[A-Z]\d{1,6}$/
 const ENVELOPE_ID = /^[A-Za-z0-9_-]{1,64}$/
