@@ -4329,7 +4329,7 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
   const GAVE_WAY = 'another hand-over or a take came first'
   const untypedOf = (w: World): Record<string, unknown>[] => untimed(outcomes(w)).filter(one => one.handover === ID).map(one => one.outcome as Record<string, unknown>)
 
-  test('B1228, review lens 1 (1): a pause read while the line waits (the board took its task back then): at the turn\'s end, after the resume, no clear and no line; settled with the pause\'s words (mutant: the retry clearing and typing a step no longer queued)', async ($, on) => {
+  test('B1228, review lens 1 (1): a pause read while the line waits (the board took its task back then): at the turn\'s end, after the resume, no clear and no line; it gives way (the verifier, C: the pause\'s words after the resume would hold the worker) (mutant: the retry clearing and typing a step no longer queued)', async ($, on) => {
     const { w, clock } = await holding($, on)
     w.pauseAnswer = { ...RUNNING, state: 'pausing', since: 1 }
     // A prompt in the pause reads it (as a batch of tool calls would).
@@ -4343,7 +4343,42 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     for (let i = 0; i < 20; i++) await settle()
     expect(steps(w).filter(one => one === 'save-log' || one === '/clear')).toEqual([])
     expect(w.typedIn).toEqual([])
+    expect(untypedOf(w)).toEqual([{ ...DONE, cleared: false, clearWhy: 'a new turn started before the clear ran', why: GAVE_WAY }])
+  })
+
+  test('B1228: the pause still stands at the turn\'s end: no clear, no line, settled with the pause\'s exact words (the board releases them by its own pause record)', async ($, on) => {
+    const { w } = await holding($, on)
+    const pausing = { ...RUNNING, state: 'pausing', since: 1 }
+    w.pauseAnswer = pausing
+    w.byAction['turn-ended'] = ok({ text: 'No instruction was left open.', missed: [], open: [], role: 'worker', pause: pausing, handover: handover(null, 'suspended') })
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await wait(50)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(steps(w).filter(one => one === 'save-log' || one === '/clear')).toEqual([])
+    expect(w.typedIn).toEqual([])
     expect(untypedOf(w)).toEqual([{ ...DONE, cleared: false, clearWhy: 'the person pauses the chats' }])
+  })
+
+  test('B1228, the verifier (A): a newer envelope that a take brings while the line waits: the waiting line gives way untyped at once, and only the newer line is typed (mutant: the old line retried or typed later)', async ($, on) => {
+    const { w, clock } = await holding($, on)
+    const SECOND = 'fedcba9876543210'
+    const LINE2 = 'work: B14 is yours; run work next'
+    await take(clock, w, { handover: envelope({ id: SECOND, step: 'B14', clear: null, line: LINE2 }) })
+    expect(untypedOf(w)).toEqual([{ ...DONE, cleared: false, clearWhy: 'a new turn started before the clear ran', why: GAVE_WAY }])
+    expect(w.typedIn).toEqual([`plugin:as the person:${LINE2}`])
+  })
+
+  test('B1228: in the waiting turn the chat takes the line\'s own step and still holds it at the turn\'s end: no clear, the line not typed, "its step was taken already" (mutant: the stale check removed gives way instead)', async ($, on) => {
+    const { w } = await holding($, on)
+    w.byAction.take = ok({ id: 'B13', title: 'Task B13', text: 'B13 is yours.' })
+    await $.tool.call({ tool: WORK, action: 'take', id: 'B13', branch: 'b13', minutes: 5 } as never)
+    w.byAction['turn-ended'] = ok({ text: 'No instruction was left open.', missed: [], open: [], role: 'worker', pause: RUNNING, handover: handover(null, 'working') })
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await wait(50)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(steps(w).filter(one => one === 'save-log' || one === '/clear')).toEqual([])
+    expect(w.typedIn).toEqual([])
+    expect(untypedOf(w)).toEqual([{ ...DONE, cleared: false, clearWhy: 'a new turn started before the clear ran', why: 'its step was taken already' }])
   })
 
   test('B1228, review lens 2 (1): the turn\'s end brings a newer envelope (the board let go of the waiting one): the waiting line gives way untyped, and the newer clear runs (mutant: the old line typed or its clear retried first)', async ($, on) => {

@@ -266,7 +266,10 @@ its line is typed anyway into the old conversation, the outcome says `cleared: f
 clear (`log-saved`, `clear-queued`, `cleared`, `clear-refused`, `line-waiting`) is told to the board the moment it happens. Since
 Workers mod 0.33.0 (B1228, X201) a clear refused because a turn ran or a prompt came in types no line at once: the line waits in
 the mod until that turn has ended, its clear is tried again first, then the line; a waiting line whose step the worker took
-meanwhile is not typed ("its step was taken already", no failure), and the board's net holds while that turn runs. Only the person's
+meanwhile is not typed ("its step was taken already", no failure), nor one that gives way ("another hand-over or a take came
+first": a newer envelope, the person's stop, a take of another step, a pause read while it waited; also no failure); with no
+turn's context known, or after the person's own /clear, the line goes alone without the clear; the board's net holds while that
+turn runs. Only the person's
 pause stops the line, and a set, restart or line that failed still holds the worker with the why (the rule handover-held); three
 hand-overs in a row whose clear did not run open the rule clear-owed-repeat. Before that the mod decided it itself (a mod older than 0.27.0 still does, and is handed no task): first `save-log`
 (`stepId`, the mod's own work call, never the model's: the board refuses it for the main chat, the partner, its helper

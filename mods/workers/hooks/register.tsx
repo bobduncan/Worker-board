@@ -2024,6 +2024,12 @@ async function carryEnvelope($: EngineInterface, envelope: Envelope, at: Envelop
   // B1228: the takes so far: a take of its step after this makes its line stale, should the line have to wait.
   envelopeTakes.set(envelope.id, takeCount)
   while (envelopeTakes.size > TAKES_KEEP) envelopeTakes.delete(envelopeTakes.keys().next().value as string)
+  // The verifier (A): a newer envelope (also one a take brings at a ping) means the board let go of the waiting one: it gives way.
+  if (heldLine !== null && heldLine.envelope.id !== envelope.id) {
+    const gone = heldLine
+    heldLine = null
+    await letHeldGo($, gone).catch(() => null)
+  }
   const outcome: Outcome = { ...NO_OUTCOME }
   if (envelope.restart) return restartEnvelope($, envelope, outcome, at.step ?? envelope.clear?.step ?? null)
   if (envelope.clear !== null) return clearEnvelope($, envelope, outcome, at)
@@ -2291,7 +2297,8 @@ async function letHeldGo($: EngineInterface, held: HeldLine): Promise<void> {
 /**
  * B1228 (X201): the waiting line once the chat's turn has ended (`at`: that turn's answer, its message to another chat, the board's
  * answer to its end, its counts), in this order: its step taken meanwhile: not typed (TAKEN_ALREADY_WHY); a pause read while it
- * waited (the board took the task back then): not typed, the pause's words; the person's stop or remove: not typed
+ * waited (the board took the task back then): not typed, the pause's words while it stands, else GAVE_WAY_WHY (a pause and its
+ * resume with no reading between is not seen: the line then names a step no longer queued, and its take is refused); the person's stop or remove: not typed
  * (GAVE_WAY_WHY); no turn's context known (`at` null) or a /clear of the person's since (another session): the line alone, into the
  * conversation as it is; else its clear is tried again with every guard of the clear after a step (`clearEnvelope`, the pause read
  * anew), with a fresh outcome (the earlier refusal stays in the stages), and the line follows the clear, or goes without it when the
@@ -2302,7 +2309,10 @@ async function retryHeldLine($: EngineInterface, at: EnvelopeAt | null): Promise
   if (held === null || clearing !== null || movingAfterClear !== null || isDecidingClear) return
   heldLine = null
   if (isHeldStale(held)) return settleUntyped($, held, TAKEN_ALREADY_WHY)
-  if (held.isPauseSeen || isPaused(pauseRead?.pause ?? null)) return settleEnvelope($, held.envelope.id, { ...held.outcome, typed: null, clearWhy: PAUSED_CLEAR_WHY })
+  // The verifier (C): the pause's words only while it still stands (the board releases them by its own pause record); one that
+  // ended since gives way, as the board took the task back then and reads GAVE_WAY_WHY as no failure.
+  if (isPaused(pauseRead?.pause ?? null)) return settleEnvelope($, held.envelope.id, { ...held.outcome, typed: null, clearWhy: PAUSED_CLEAR_WHY })
+  if (held.isPauseSeen) return settleUntyped($, held, GAVE_WAY_WHY)
   // Lens 2 (1): a take of another step since (the chat may hold it now): no clear, and the line gives way.
   if (stopAsked !== null || takeCount > carriedAt(held)) return settleUntyped($, held, GAVE_WAY_WHY)
   const session = await Promise.resolve($.session.id()).catch(() => null)
