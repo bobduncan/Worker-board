@@ -5069,8 +5069,13 @@ a clear alone, a clear that holds the worker and "the line is never typed before
   (`decide`) the net does not fire on a waiting line (`isLineWaiting`) while the chat runs and its report says busy or
   asking; once idle (or not running) it counts from the report's `since`, so a line lost with its process (it is kept in
   memory only) still ends in UNKNOWN and one take-back. The real case replayed: at most the first clear is refused, the
-  second runs, `clear-owed-repeat` stays quiet. Landing order: the board first (an older board reads "taken already" as a
-  failed line: HELD), then the mod; workers restart onto 0.33.0 through their RESTARTING envelope. Tests:
+  second runs, `clear-owed-repeat` stays quiet. The two reviews added: a waiting line **gives way untyped** (`GAVE_WAY_WHY`,
+  "another hand-over or a take came first", also no failure) when the turn's end brings a newer envelope (the board let go of
+  this one), when the person stopped or removed the worker, or when the chat took another step since (it may hold it, so no
+  clear may run); a pause read while it waited settles it with the pause's words (the board took the task back then); a take
+  whose answer was cut counts by the board's fresh status of the chat (`held`); with no turn's context known at a ping, or a
+  /clear of the person's since, the line goes alone, without the clear. Landing order: the board first (an older board reads
+  "taken already" as a clear that did not run, and holds the worker once its step is reported), then the mod; workers restart onto 0.33.0 through their RESTARTING envelope. Tests:
   `test/work/heldLine.test.mjs` (the real ids and times), the mod's `chatlist.test.ts` (the real case, R5, the clearrun
   refusal, the ping) and `board.test.ts`.
 - **The 20-second net** (D2, D9; `CLEAR_NET_MS`, `register.tsx`). An envelope's /clear queued and neither run nor

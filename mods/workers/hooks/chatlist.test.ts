@@ -4315,6 +4315,78 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     expect(untimed(outcomes(w)).at(-1)).toEqual({ chat: 'Units', session: 'units-2', handover: SECOND, outcome: { ...DONE, cleared: true, typed: true } })
   })
 
+  /** B1228 (the reviews): a worker whose envelope's /clear was dropped by a turn that started first: its line waits in that turn. */
+  async function holding($: Engine, on: On): Promise<{ w: World; clock: ReturnType<typeof mock.clock> }> {
+    const made = await worker($, on, handover(envelope()))
+    await $.turn.complete({ ...ENDED, turnId: 't1' })
+    await wait(50)
+    await $.turn.start({ text: 'one more thing', turnId: 't2' })
+    for (let i = 0; i < 20; i++) await settle()
+    expect(stagesAlone(made.w).at(-1)?.stage).toBe('line-waiting')
+    made.w.order = []
+    return made
+  }
+  const GAVE_WAY = 'another hand-over or a take came first'
+  const untypedOf = (w: World): Record<string, unknown>[] => untimed(outcomes(w)).filter(one => one.handover === ID).map(one => one.outcome as Record<string, unknown>)
+
+  test('B1228, review lens 1 (1): a pause read while the line waits (the board took its task back then): at the turn\'s end, after the resume, no clear and no line; settled with the pause\'s words (mutant: the retry clearing and typing a step no longer queued)', async ($, on) => {
+    const { w, clock } = await holding($, on)
+    w.pauseAnswer = { ...RUNNING, state: 'pausing', since: 1 }
+    // A prompt in the pause reads it (as a batch of tool calls would).
+    await $.prompt.submit({ text: 'pausing now', origin: { kind: 'composer' } } as never)
+    w.pauseAnswer = RUNNING
+    w.typedIn = []
+    await clock.advance(5000)
+    for (let i = 0; i < 20; i++) await settle()
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await wait(50)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(steps(w).filter(one => one === 'save-log' || one === '/clear')).toEqual([])
+    expect(w.typedIn).toEqual([])
+    expect(untypedOf(w)).toEqual([{ ...DONE, cleared: false, clearWhy: 'the person pauses the chats' }])
+  })
+
+  test('B1228, review lens 2 (1): the turn\'s end brings a newer envelope (the board let go of the waiting one): the waiting line gives way untyped, and the newer clear runs (mutant: the old line typed or its clear retried first)', async ($, on) => {
+    const { w, clock } = await holding($, on)
+    const SECOND = 'fedcba9876543210'
+    const LINE2 = 'work: B14 is yours; run work next'
+    w.byAction['turn-ended'] = ok({ text: 'No instruction was left open.', missed: [], open: [], role: 'worker', pause: RUNNING, handover: handover(envelope({ id: SECOND, step: 'B14', line: LINE2 })) })
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await wait(50)
+    expect(untypedOf(w)).toEqual([{ ...DONE, cleared: false, clearWhy: 'a new turn started before the clear ran', why: GAVE_WAY }])
+    expect(steps(w).filter(one => one !== 'typed')).toEqual(['save-log', '/clear'])
+    expect(w.typedIn).toEqual([])
+    await cleared($, w, clock)
+    expect(w.typedIn.length).toBe(1)
+    expect(w.typedIn[0]?.endsWith(`\n\n${LINE2}`)).toBe(true)
+  })
+
+  test('B1228, review lens 2 (1): in the waiting turn the chat takes another step: at its end no clear (it may hold that step), the line gives way untyped (mutant: the clear after B12 run while it holds B99)', async ($, on) => {
+    const { w } = await holding($, on)
+    w.byAction.take = ok({ id: 'B99', title: 'Task B99', text: 'B99 is yours.' })
+    await $.tool.call({ tool: WORK, action: 'take', id: 'B99', branch: 'b99', minutes: 5 } as never)
+    w.byAction['turn-ended'] = ok({ text: 'No instruction was left open.', missed: [], open: [], role: 'worker', pause: RUNNING, handover: handover(null, 'working') })
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await wait(50)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(steps(w).filter(one => one !== 'typed')).toEqual([])
+    expect(w.commanded.filter(one => one.startsWith('/clear')).length).toBe(1)
+    expect(w.typedIn).toEqual([])
+    expect(untypedOf(w)).toEqual([{ ...DONE, cleared: false, clearWhy: 'a new turn started before the clear ran', why: GAVE_WAY }])
+  })
+
+  test('B1228, review lens 1 (2): a take whose answer was cut: the board\'s fresh status names the line\'s step held: at the turn\'s end no clear, the line not typed ("its step was taken already")', async ($, on) => {
+    const { w, clock } = await holding($, on)
+    await take(clock, w, { statuses: [{ name: 'Units', status: 'Working', why: null, tone: 'quiet', since: null, reportAt: null, held: { id: 'B13', title: 'Task B13', time: null } }] })
+    w.byAction['turn-ended'] = ok({ text: 'No instruction was left open.', missed: [], open: [], role: 'worker', pause: RUNNING, handover: handover(null, 'working') })
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await wait(50)
+    for (let i = 0; i < 20; i++) await settle()
+    expect(steps(w).filter(one => one !== 'typed')).toEqual([])
+    expect(w.typedIn).toEqual([])
+    expect(untypedOf(w)).toEqual([{ ...DONE, cleared: false, clearWhy: 'a new turn started before the clear ran', why: 'its step was taken already' }])
+  })
+
   test('the lazy clear, D5: a worker on the sequence whose report\'s turn\'s end the board does not answer is not cleared by the mod alone (mutant: the no-answer fallback clear)', async ($, on) => {
     const { w } = await worker($, on, handover(null, 'free'))
     // An earlier turn's end put it on the sequence.
@@ -4526,7 +4598,7 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     expect(untimed(outcomes(w))).toEqual([{ chat: 'Units', session: 'units-2', handover: ID, outcome: { ...DONE, cleared: true, typed: true } }])
   })
 
-  test('B1228: a waiting line no turn\'s end tried (the turn\'s end hook went late) is tried at a ping once the chat has been idle 15 s', async ($, on) => {
+  test('B1228: a waiting line no turn\'s end tried (the turn\'s end hook went late) is tried at a ping once the chat has been idle 15 s: with no turn\'s context known, the line alone without the clear', async ($, on) => {
     const { w, clock } = await worker($, on, handover(envelope()))
     await $.turn.complete({ ...ENDED, turnId: 't1' })
     await wait(50)
@@ -4539,13 +4611,13 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     expect(steps(w)).toEqual([])
     expect(w.typedIn).toEqual(['composer:framed:one more thing'])
     await clock.advance(15_000)
-    for (let i = 0; i < 20; i++) await settle()
-    await wait(50)
-    expect(steps(w)).toEqual(['save-log', '/clear'])
-    w.typedIn = []
-    await cleared($, w, clock)
-    expect(w.typedIn.length).toBe(1)
-    expect(untimed(outcomes(w)).map(one => one.outcome)).toEqual([{ ...DONE, cleared: true, typed: true }])
+    for (let i = 0; i < 50 && outcomes(w).length === 0; i++) await settle()
+    // The review (lens 1, 3): no turn's context is known (the prompt came after the last turn's end), so the clear's guards could
+    // not see its answer: the line goes alone, into the old conversation, the clear still owed.
+    expect(steps(w)).toEqual(['prompt', 'typed'])
+    expect(w.commanded.filter(one => one.startsWith('/clear')).length).toBe(1)
+    expect(w.typedIn).toEqual(['composer:framed:one more thing', `plugin:as the person:${LINE}`])
+    expect(untimed(outcomes(w)).map(one => one.outcome)).toEqual([{ ...DONE, cleared: false, typed: true, clearWhy: 'a new prompt came in before the clear ran' }])
   })
 
   // B944 (X134, X135): the clear-only envelope of an idle worker ("free"), as Worker 3 and Worker 4 got it on 2026-11-02.

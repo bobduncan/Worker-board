@@ -109,8 +109,8 @@ export function isClearOwedOnly(envelope, outcome = envelope?.outcome ?? null) {
   if (envelope.restart === true || outcome.cleared !== false || outcome.set === false || outcome.restarted === false) return false
   const isWaived = typeof envelope.line !== 'string' && typeof envelope.step === 'string'
   // B1228 (X201): a line that waited in the mod for the chat's turn to end, and was not typed as the chat took its step in that
-  // turn (Workers mod 0.33.0): nothing failed; the worker works on that step, the clear stays owed.
-  const isTakenAlready = outcome.typed === null && outcome.why === TAKEN_ALREADY_WHY && typeof envelope.step === 'string'
+  // turn, or gave way (a newer envelope, a stop, a take of another step) (Workers mod 0.33.0): nothing failed; the clear stays owed.
+  const isTakenAlready = outcome.typed === null && (outcome.why === TAKEN_ALREADY_WHY || outcome.why === GAVE_WAY_WHY) && typeof envelope.step === 'string'
   return outcome.typed === true || isWaived || isTakenAlready
 }
 
@@ -121,6 +121,8 @@ export function isClearOwedOnly(envelope, outcome = envelope?.outcome ?? null) {
  * tried again first; typed at once, the line waited behind that turn, entered first at its end and refused the next clear too.
  */
 export const TAKEN_ALREADY_WHY = 'its step was taken already'
+/** B1228 (the reviews): a waiting line that gave way untyped: a newer envelope came, the person's stop, or a take of another step (board.ts GAVE_WAY_WHY). */
+export const GAVE_WAY_WHY = 'another hand-over or a take came first'
 /** B1228: an envelope in flight whose line waits in the mod for the chat's turn to end: the stage `line-waiting`, no outcome yet. */
 export const isLineWaiting = envelope => (envelope?.outcome ?? null) === null && Array.isArray(envelope?.stages) && envelope.stages.some(one => one?.stage === 'line-waiting')
 

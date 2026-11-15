@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { TAKEN_ALREADY_WHY, TURN_OR_PROMPT_WHYS, heldLineVerdict, isTurnOrPromptWhy, LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, restoredDropped, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
+import { GAVE_WAY_WHY, TAKEN_ALREADY_WHY, TURN_OR_PROMPT_WHYS, heldLineVerdict, isTurnOrPromptWhy, LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, restoredDropped, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -679,6 +679,7 @@ describe('B1228 (X201): a clear refused for a turn or a prompt holds its line un
     for (const why of TURN_OR_PROMPT_WHYS) expect(isTurnOrPromptWhy(why)).toBe(true)
     for (const why of ['the person pauses the chats', 'a subagent it started still runs (1)', 'not run in 20 s', 'the board did not answer in 5 s', 'a clear is already on its way']) expect(isTurnOrPromptWhy(why)).toBe(false)
     expect(TAKEN_ALREADY_WHY).toBe('its step was taken already')
+    expect(GAVE_WAY_WHY).toBe('another hand-over or a take came first')
   })
 
   test('a waiting line is stale only when its own step was taken after its envelope was carried', () => {

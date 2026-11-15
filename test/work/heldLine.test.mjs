@@ -14,7 +14,7 @@ import test from 'node:test'
 import { clearOwed } from '../../src/clearOwed.mjs'
 import { buildView } from '../../src/supervisor/view.mjs'
 import { WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
-import { HANDOVER_COMMAND, NET_MS, STATES, TAKEN_ALREADY_WHY, decide, failedOf, isClearOwedOnly, isLineWaiting, outcomeOf, stagesOf } from '../../src/work/handover.mjs'
+import { GAVE_WAY_WHY, HANDOVER_COMMAND, NET_MS, STATES, TAKEN_ALREADY_WHY, decide, failedOf, isClearOwedOnly, isLineWaiting, outcomeOf, stagesOf } from '../../src/work/handover.mjs'
 import { settle } from '../../src/work/handoverBoard.mjs'
 import { parseItem } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
@@ -79,6 +79,11 @@ test('B1228, the real case: the line not typed as its step was taken already is 
   const outbox = { outbox: () => lines, update: async (id, fields) => { const at = lines.findIndex(one => one.id === id); lines[at] = { ...lines[at], ...fields } } }
   assert.equal(await settle(outbox, NAME, '3f977e5764320d40', STALE, A_AT + 59_000), true)
   assert.deepEqual([lines[0].state, lines[0].why], ['delivered', undefined])
+  // The reviews: a line that gave way untyped (a newer envelope, a stop, a take of another step) is no failure either.
+  assert.equal(failedOf({ ...envelopeA(), outcome: { ...STALE, why: GAVE_WAY_WHY } }), false)
+  assert.equal(GAVE_WAY_WHY, 'another hand-over or a take came first')
+  // Any other words with no line typed still fail (the old reading).
+  assert.equal(failedOf({ ...envelopeA(), outcome: { ...STALE, why: 'something else' } }), true)
   // Only for a task's line: a typed false still fails; the words alone on a lone clear do not count.
   assert.equal(failedOf({ ...envelopeA(), outcome: { ...STALE, typed: false } }), true)
   assert.equal(isClearOwedOnly({ ...envelopeA(), step: null }, STALE), false)

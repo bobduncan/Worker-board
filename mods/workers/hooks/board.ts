@@ -519,6 +519,11 @@ export const isTurnOrPromptWhy = (why: string): boolean => TURN_OR_PROMPT_WHYS.i
 /** B1228: the why of a waiting line that is not typed, as its chat took its step meanwhile (the board reads exactly these words). */
 export const TAKEN_ALREADY_WHY = 'its step was taken already'
 /**
+ * B1228 (the reviews): the why of a waiting line that gives way untyped: a newer envelope came (the board let go of this one), the
+ * person stopped or removed the worker, or the chat took another step since (it may hold it: no clear may run then).
+ */
+export const GAVE_WAY_WHY = 'another hand-over or a take came first'
+/**
  * B1228: what becomes of a waiting line once its chat is idle: 'stale' when the chat took the line's step since its envelope was
  * carried (`carriedAt` and `takes` count the chat's takes in this process: the take's number per step), so the line is not typed;
  * else 'retry': its clear is tried again first, then the line.
