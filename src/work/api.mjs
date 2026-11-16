@@ -566,7 +566,8 @@ function qaWords(item, items, w = { store: { items } }) {
  */
 function rowWordsBlock(item, w, limits = {}) {
   if (item === undefined || kindOf(item) !== 'step' || isQaTask(item)) return ''
-  const text = rowWordsText(rowWordsOf(valueOf(item, 'Id'), w.store.items, w.recapRows ?? []), limits)
+  // T5.2 P3: the store's path in the words is the one the chat reaches it by (`w.workPrefix`, relative to the chats' home).
+  const text = rowWordsText(rowWordsOf(valueOf(item, 'Id'), w.store.items, w.recapRows ?? []), { ...limits, ...(typeof w.workPrefix === 'string' ? { workPrefix: w.workPrefix } : {}) })
   return text === '' ? '' : `\n\n${text}`
 }
 

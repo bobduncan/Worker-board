@@ -45,7 +45,7 @@ import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
-import { assetsOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf } from './src/projectPaths.mjs'
+import { assetsOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, wordsPath } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -1251,7 +1251,7 @@ async function main(args) {
       const found = newest === undefined ? null : rowWordsOf(newest, store, state.recapRows ?? [], { includeOwn: true })
       // The words just given stand on the held steps too: they are no "earlier" words. The Workers mod refuses a line over maxMessageChars, so the
       // earlier words get what the rest of the evaluate word leaves (the older ones are named by file, rowWordsText).
-      const earlier = found === null ? '' : rowWordsText({ ...found, words: found.words.filter(one => !(one.at === minute && String(one.words).replace(/\s+/g, ' ').trim() === text)) }, { budget: Math.max(300, config.maxMessageChars - 1500 - text.length), chars: 400 })
+      const earlier = found === null ? '' : rowWordsText({ ...found, words: found.words.filter(one => !(one.at === minute && String(one.words).replace(/\s+/g, ' ').trim() === text)) }, { workPrefix: `${wordsPath(config, workFolder(config))}/`, budget: Math.max(300, config.maxMessageChars - 1500 - text.length), chars: 400 })
       const started = await startEvaluation(id, {
         canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
         partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items: async () => [...(await readStore(workDir)).items.values()],
@@ -3300,7 +3300,7 @@ async function main(args) {
     bugs: body => bugsTurn(async () => {
       const done = await fileBug(body, {
         ctx: { ...bugsCan, pictures: config.pictureRoots[0], game: config.name },
-        read: () => readStore(workDir), make: call => workAction(call, 'person'), abs: path => inProject(config.project, path),
+        read: () => readStore(workDir), make: call => workAction(call, 'person'), abs: path => inProject(config.project, path), workPrefix: `${wordsPath(config, workFolder(config))}/`,
         files: { stat, mkdir, rename, copyFile, rm },
       })
       if (done.ok || done.status === 500) readState.reset()

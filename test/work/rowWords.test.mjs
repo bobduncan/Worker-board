@@ -117,6 +117,8 @@ test('rowWordsText: the header, newest first, the cut at chars, the older line w
   const few = rowWordsText(found, { budget: 10 }).split('\n')
   assert.equal(few.length, 3)
   assert.equal(few[2], '(3 older words in .claude/work/B1020.md and art-inbox/g60/recap/feedback.json)')
+  // T5.2 P3: the store's path as the chat reaches it, once the data moves.
+  assert.equal(rowWordsText(found, { budget: 10, workPrefix: 'game/.workerboard/.claude/work/' }).split('\n')[2], '(3 older words in game/.workerboard/.claude/work/B1020.md and art-inbox/g60/recap/feedback.json)')
   // No row: its earlier tries. Nothing: ''.
   assert.match(rowWordsText({ rows: [], words: [{ at: 'x', where: 'B1, a note', words: 'w', file: 'B1' }] }), /^The person's earlier words on this part \(its earlier tries; 1 in all/)
   assert.equal(rowWordsText(null), '')

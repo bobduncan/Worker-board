@@ -195,7 +195,7 @@ test('the Focus page gets each part\'s standards from its steps, each once, none
 test('the partner\'s rounds name the kinds of work with their definitions of done and reference folders', async () => {
   const { recheckText } = await import('../src/rounds.mjs')
   const config = parseConfig(JSON.stringify({ project: 'D:/Work/garden', kinds: KINDS.slice(0, 2) }), {})
-  assert.ok(recheckText({ board: 'D:/Work/board', config }).split('\n').includes('Kinds of work, paths in the project: creature (done: docs/done/creature.md; references: art/creatures); level (done: docs/done/level.md; references: art/levels)'))
+  assert.ok(recheckText({ board: 'D:/Work/board', config }).split('\n').includes('Kinds of work, paths from your folder: creature (done: docs/done/creature.md; references: art/creatures); level (done: docs/done/level.md; references: art/levels)'))
   assert.ok(!recheckText({ board: 'D:/Work/board', config: parseConfig('{}', {}) }).includes('Kinds of work'))
 })
 
