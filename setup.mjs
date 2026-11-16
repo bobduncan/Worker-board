@@ -17,6 +17,7 @@ import { homedir, userInfo } from 'node:os'
 
 import { loadConfig, workFolder } from './src/config.mjs'
 import { courierLines } from './src/courierSetup.mjs'
+import { chatHomeOf } from './src/projectPaths.mjs'
 import { describeFlow, setupFlow } from './src/flowSetup.mjs'
 import { findClaude, runSetup } from './src/setup.mjs'
 import { setupWatcher } from './src/watcherSetup.mjs'
@@ -105,7 +106,8 @@ if (process.platform === 'win32') {
 // F17: the wake courier, a scheduled task only a model can make: what to ask for on this PC (with or without --check).
 let courierProject = null
 try {
-  courierProject = (await loadConfig(join(here, 'config.json'))).project
+  // T5.2 P2: the board file lives in the CHATS' home (chatHome, else the project).
+  courierProject = chatHomeOf(await loadConfig(join(here, 'config.json')))
 } catch {
   // No config: the lines name the placeholder only.
 }

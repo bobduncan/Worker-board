@@ -8,6 +8,7 @@ import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mj
 import { readAsks } from './asks.mjs'
 import { allWords, forYou, queue } from './backlog.mjs'
 import { projectFile } from './config.mjs'
+import { chatHomeOf } from './projectPaths.mjs'
 import { readHead } from './files.mjs'
 import { listPictures, mentionedPaths } from './pictures.mjs'
 import { movedTo, ownCard, ownCardKey } from './planLines.mjs'
@@ -191,7 +192,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
 
   const found = boardChats(
     appChatTexts.map(parseAppChat).filter(chat => chat !== null),
-    { project: config.project, ...parseList(listText ?? '') },
+    { project: chatHomeOf(config), ...parseList(listText ?? '') },
   ).filter(chat => !chat.isLeftover && SAFE_ID.test(chat.cliSessionId))
   // Clear after each step: a chat the Workers mod cleared goes on under a new session id, which its old card names
   // (`movedTo`). The app may still name the old one: the board follows the card, so the lane, its card and its
