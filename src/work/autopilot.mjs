@@ -44,11 +44,12 @@
 
 import { askFiledMs, sinceMs, valueOf } from './item.mjs'
 import { isHoldLine } from './askHold.mjs'
-import { chainWaitOf, checkedOf, fixRootsOf, fixesOf } from './resultCheck.mjs'
+import { chainWaitOf, checkedOf, fixRootsOf, fixesOf, gitCheckPassed, reportCheckFailedOf, reviewWaitOf } from './resultCheck.mjs'
 import { HANDED_KEPT_WORDS, HANDED_ON_WHO, KEPT_LOOK_WORDS, handedOnKeptWords, isKeptLook } from './keptLook.mjs'
 import { LANDING_ROUTE_WHY, landingAskOfItem } from './landingAsk.mjs'
 import { DROP_ROUTE_WHY, dropAskOfItem } from './dropAsk.mjs'
 import { standardOf } from './standard.mjs'
+import { RECAP_AT_WORK } from './waitsOn.mjs'
 
 // A look the partner handed over, or a worker's look with pictures or a Play link, that Autopilot keeps for the recap (src/work/keptLook.mjs): its
 // Route lines and its test.
@@ -759,7 +760,7 @@ export function isByChecker(item, items, prefix = '') {
  * decided for them: a decide or look with advice takes it (`advice`; the Product owner's only under a step: it answers for the
  * goal, as before), anything else goes to the partner, which decides it or hands it on.
  */
-export function autopilotRoute(item, { roleOf = () => null, items = new Map(), focusGoal = null, focusHasDemo = false, recapSteps = [], prefix = '', again = false, handedWhy = null, handedBy = null, now = Number.NaN } = {}) {
+export function autopilotRoute(item, { roleOf = () => null, items = new Map(), focusGoal = null, focusHasDemo = false, recapSteps = [], focusSteps = null, prefix = '', again = false, handedWhy = null, handedBy = null, now = Number.NaN } = {}) {
   const owner = valueOf(item, 'Owner')
   const role = owner === null || plain(owner) === 'server' ? 'board' : roleOf(owner) ?? 'worker'
   const kind = valueOf(item, 'Asks') ?? 'decide'
@@ -804,6 +805,13 @@ export function autopilotRoute(item, { roleOf = () => null, items = new Map(), f
   // A verdict of a step of the focus goal waits for its recap (rule 1: the goal's recap and its verdicts reach the person there).
   const recapOr = (why, otherwise = decided) => {
     if (step === undefined || focusGoal === null || valueOf(step, 'Goal') !== focusGoal) return otherwise(`${why}, and its step is of no focus goal`)
+    // B1240 (F31, the person's "1. yes", 2026-11-16; the live B1149 parked 44 h on Q789): only finished work waits for the recap. The
+    // recap counts a step toward the goal demo only in review (`recapWaitOf`), so an ask of a step at work routed there waited forever:
+    // it goes where it would go without the recap (a verdict to the partner, a goal-recap word to the person, the rest as decided()).
+    const state = valueOf(step, 'State')
+    if (RECAP_AT_WORK.includes(state)) return otherwise(`${why}, and its step is still at work (${state})`)
+    // Chat 1's review (2026-11-16, the live Q817 on B1205): a step in no work block of the goal is in no recap: no recap would judge it.
+    if (isInNoBlock(of, items, focusSteps)) return otherwise(`${why}, and its step is in no work block of ${focusGoal}`)
     // 2026-11-05: also a fix up whose chain a recap step stands (B1048 → B1018 → B991): the row waits for its new try.
     const isNamed = id => (recapSteps ?? []).some(one => one.step === id && (one.goal ?? focusGoal) === focusGoal)
     const named = isNamed(of) || fixRootsOf(of, items).some(isNamed)
@@ -941,6 +949,20 @@ const FIX_UNDER_WAY = ['new', 'refined', 'queued', 'taken', 'in progress', 'wait
  * fix B821, which waits for the recap, waits for the recap too.
  */
 export function recapWaitOf(step, items) {
+  const settled = settledInReviewOf(step, items)
+  if (settled === null) return null
+  const { id, links, linkOf } = settled
+  if (recapWaitIds(linkOf(links.at(-1)), items).length === 0) return null
+  const rows = links.map(one => ({ step: one, asks: recapWaitIds(linkOf(one), items) })).filter(one => one.asks.length > 0)
+  const waiting = new Set(rows.flatMap(one => one.asks))
+  const others = [...(items?.values?.() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'State') === 'open' && links.includes(valueOf(one, 'Of')) && !isKeptLook(one) && !waiting.has(valueOf(one, 'Id')))
+  return others.length > 0 ? null : rows
+}
+/**
+ * A step in review with nothing of it still to build or check (`recapWaitOf`'s rules): `{ id, links, linkOf }` (itself and its chain of
+ * open fixes, all in review), or null.
+ */
+function settledInReviewOf(step, items) {
   if (valueOf(step, 'State') !== 'review') return null
   const id = valueOf(step, 'Id')
   const chain = chainWaitOf(id, items)?.chain ?? []
@@ -950,15 +972,41 @@ export function recapWaitOf(step, items) {
   const checks = [...(items?.values?.() ?? [])].filter(one => valueOf(one, 'Kind') === 'step' && links.includes(valueOf(one, 'Checks')))
   if (checks.some(one => !['done', 'closed', 'dropped'].includes(valueOf(one, 'State')))) return null
   if (chain.some(one => valueOf(items.get(one), 'State') !== 'review')) return null
-  const linkOf = one => (one === id ? step : items.get(one))
-  if (recapWaitIds(linkOf(links.at(-1)), items).length === 0) return null
-  const rows = links.map(one => ({ step: one, asks: recapWaitIds(linkOf(one), items) })).filter(one => one.asks.length > 0)
-  const waiting = new Set(rows.flatMap(one => one.asks))
-  const others = [...(items?.values?.() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'State') === 'open' && links.includes(valueOf(one, 'Of')) && !isKeptLook(one) && !waiting.has(valueOf(one, 'Id')))
-  return others.length > 0 ? null : rows
+  return { id, links, linkOf: one => (one === id ? step : items.get(one)) }
 }
+
+/**
+ * B1240 (F31, chat 1's other door, 2026-11-16): a step in review, nothing of it still to build (`settledInReviewOf`) and its checks
+ * standing (below), whose open
+ * asks (of it and its chain) are all kept looks, at least one (a checker's ask point may name one, B1103): it waits for the goal's recap
+ * as surely as a `Recap verdict: waits` step, so it counts as done for asking the goal demo (state.mjs `forDemo`), with no row of its own
+ * (the recap card shows a kept look as its own tile). Without this the demo would wait for the look, and the look for the recap.
+ */
+export function waitsForKeptLooksOnly(step, items) {
+  const settled = settledInReviewOf(step, items)
+  if (settled === null) return false
+  // Chat 1's review (2026-11-16): only once its checks stand. The board's own check passed and no result check is still owed (passed,
+  // or none needed), or the result check waits for nothing but the person's answer on the kept look (B1103, kind 'answer'). Never a
+  // step just reported, whose check is pending, failed (kind 'report', back with its worker) or still to run (kind 'check').
+  const wait = reviewWaitOf(step, items)
+  const checked = wait === null ? gitCheckPassed(step) && reportCheckFailedOf(step) === null : wait.kind === 'answer'
+  if (!checked) return false
+  const open = [...(items?.values?.() ?? [])].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'State') === 'open' && settled.links.includes(valueOf(one, 'Of')))
+  return open.length > 0 && open.every(isKeptLook)
+}
+
 /** Whether a step in review waits for the goal's recap only (`recapWaitOf`): it counts as done for asking the goal demo. */
 export const waitsForRecap = (step, items) => recapWaitOf(step, items) !== null
+/**
+ * B1240 (chat 1's review, 2026-11-16, the live Q817: B1205 is in no G95 work block): whether the step `of` is in no work block of the
+ * focus goal, `focusSteps` the steps its blocks list (server.mjs, from the focus state's parts); a fix counts by its chain's root.
+ * False when the blocks are not known (`focusSteps` null or empty): nothing is judged then.
+ */
+export function isInNoBlock(of, items, focusSteps) {
+  if (!Array.isArray(focusSteps) || focusSteps.length === 0 || typeof of !== 'string') return false
+  return !focusSteps.includes(of) && !fixRootsOf(of, items).some(root => focusSteps.includes(root))
+}
+
 /** The History line of a blocking ask routed to the recap: its worker goes on. */
 export const RECAP_GOES_ON = 'autopilot: the step goes on; judged at the goal\'s recap'
 /** When the board sent the step's refine back to the Advisor (ms), or NaN. */

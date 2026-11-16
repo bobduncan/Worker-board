@@ -8,6 +8,7 @@
 // and still no give-back. Separate from `Waits for` (B306: rethink holds, main/person-only) and from `Blocked by` (steps).
 
 import { isHeld } from './askHold.mjs'
+import { isKeptLook } from './keptLook.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 import { stamp } from './migrate.mjs'
 
@@ -90,7 +91,7 @@ export const waitSuspension = wait => (wait === null ? null : { by: 'parked', ki
 export const isChatWait = held => held?.by === 'parked' && held.kind === 'chat'
 
 /** The states in which a step is at work (stepStatus.mjs `AT_WORK`): only such a step can wait for the goal's recap. */
-const RECAP_AT_WORK = ['taken', 'in progress', 'waiting on you']
+export const RECAP_AT_WORK = ['taken', 'in progress', 'waiting on you']
 /** "your recap of G60 (Q715)": what a step waits for while its open asks all wait for the goal's recap. */
 const recapWhat = (goal, ids) => `your recap of ${goal ?? 'the goal'} (${ids.join(', ')})`
 /** The words of a step that waits for the goal's recap (the person's "1 yes", 2026-11-11, the live B1094 and Q715): quiet, never a stopped worker. */
@@ -103,7 +104,10 @@ export const recapWaitWords = (goal, ids) => `waits for ${recapWhat(goal, ids)}`
  */
 export function keptRecapWaitOf(step, asks) {
   if (!RECAP_AT_WORK.includes(valueOf(step, 'State'))) return null
-  const open = (asks ?? []).filter(ask => valueOf(ask, 'Kind') === 'ask' && valueOf(ask, 'State') === 'open' && !isHeld(ask))
+  // B1240 (F31; chat 1, 2026-11-16): a kept look holds no worker (keptLook.mjs), so it never parks a lane either: a step at work whose
+  // only open asks are kept looks reads working. An ask of a step at work is no longer routed to the recap (autopilot.mjs `recapOr`), and
+  // one routed there before is routed anew at the next pass (api.mjs `autopilot`), so this park lasts until that pass at most.
+  const open = (asks ?? []).filter(ask => valueOf(ask, 'Kind') === 'ask' && valueOf(ask, 'State') === 'open' && !isHeld(ask) && !isKeptLook(ask))
   if (open.length === 0 || !open.every(ask => valueOf(ask, 'Route') === 'recap')) return null
   const goal = [valueOf(step, 'Goal'), ...open.map(ask => valueOf(ask, 'Goal'))].find(one => /^G\d+$/.test(one ?? '')) ?? null
   const ids = open.map(ask => valueOf(ask, 'Id'))

@@ -46,11 +46,11 @@ import { KEPT_WORDS, MOVED_WORDS, NON_BLOCKING_WORDS, REOPENED_WORDS, SHOWN_MS, 
 import { checkWords, isLate, obsoletePointsOf, openItemsOf } from './obsolete.mjs'
 import { NOTE_LINE, PARTNER_ANSWER_MS, isDecidedForYou, isRoutedToPartner, routesToPartner, takenBackWords } from './partnerAnswers.mjs'
 import { noteCameDownWords, stillTrueLeaves, stillTrueStep } from './stillTrueRules.mjs'
-import { ASKS_NOTHING_WHY, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, asksNothingOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
+import { ASKS_NOTHING_WHY, isInNoBlock, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLACED_BY_LINK, RECAP_GOES_ON, REFINE_BACK_WORDS, SENT_BACK, TOOK_ADVICE, adviceAnswerOf, asksNothingOf, autopilotRoute, dropsStep, earlierCardWords, handOverOf, handedOnKeptWords, isRecapVerdictAsk, isTakenBack, refineStaysPersonsOf, earlierOfCard, focusRecapPathOf, isAutopilotRouted, isBoardRoutedPerson, isExplicitPerson, isKeptLook, isOfRecapGoal, linksRecap, recapClosesAsk, recapGoneWords, recapRowNumberOf, recapVerdictWords, refineAdviceOf, routedAt, routedWords, rowNumberOfTitle, shortAnswer } from './autopilot.mjs'
 import { HELD, afterPause, checkpointLine, isHolding, pauseAnswer, pauseFacts, stampSecond } from './pause.mjs'
 import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
 import { BOOKKEEPING_DROP_WORDS } from './dropAsk.mjs'
-import { WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, waitWhatOf, waitWhoOf, waitWhoProblem, waitsOnLine, waitsOnOf } from './waitsOn.mjs'
+import { RECAP_AT_WORK, WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, waitWhatOf, waitWhoOf, waitWhoProblem, waitsOnLine, waitsOnOf } from './waitsOn.mjs'
 import { estimateAtOf, nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { askedForOf, takenAtOf, takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
@@ -1358,7 +1358,7 @@ async function closeAsksNothing(item, w) {
 }
 
 /** Autopilot: what the routing reads of the board: each chat's role, the store's items, the focus goal, the chats' title start. */
-const routeCtx = w => ({ roleOf: name => w.roleOf?.(name) ?? null, items: w.store.items, focusGoal: w.focusGoal ?? null, focusHasDemo: w.focusHasDemo === true, recapSteps: w.recaps ?? [], prefix: w.prefix ?? '', now: w.now })
+const routeCtx = w => ({ roleOf: name => w.roleOf?.(name) ?? null, items: w.store.items, focusGoal: w.focusGoal ?? null, focusHasDemo: w.focusHasDemo === true, recapSteps: w.recaps ?? [], focusSteps: w.focusSteps ?? null, prefix: w.prefix ?? '', now: w.now })
 
 /** Autopilot: what the asking chat is told of an ask routed away from the person at once. */
 function autopilotFiledWords(id, route) {
@@ -2118,6 +2118,30 @@ async function routeAsk(id, to, w, card = null, step = null, { said = null, plac
   return done.ok ? { ok: true, item, wake: owner === null ? null : { to: owner, id, kind: 'recap-kept', line: `${id} waits for the goal's recap: go on` } } : done
 }
 
+/** B1240: the History line of a recap wait routed anew because its step is still at work (`rerouteAtWork`). */
+export const reroutedAtWorkWords = state => `autopilot: re-routed: its step is still at work (${state}); only finished work waits for the recap`
+/** B1240 (chat 1's review): the History line of a recap wait routed anew because its step is in no work block of the goal. */
+export const reroutedNoBlockWords = goal => `autopilot: re-routed: its step is in no work block of ${goal}, so no recap judges it`
+
+/**
+ * B1240 (F31): a recap wait (`Route: recap`, no kept look) whose step `step` is still at work, routed anew: with Autopilot on (`on`) where
+ * `autopilotRoute` sends it now (its step at work, `recapOr` no longer gives the recap: a verdict to the partner, the rest by its rules;
+ * a worker's look with pictures becomes a kept look, its step goes on), else to the person. `{ id, to, wake }`, or null when it could not
+ * be written (the next pass tries again).
+ */
+async function rerouteAtWork(item, step, on, w, words = reroutedAtWorkWords(valueOf(step, 'State'))) {
+  const id = valueOf(item, 'Id')
+  const said = { by: 'server', words }
+  const decided = on ? autopilotRoute(item, routeCtx(w)) : { to: 'person' }
+  const isKept = decided.to === 'recap' && decided.kept === true
+  // Nothing else may send it back to the recap while its step is at work: the person's, to be safe.
+  const to = decided.to === 'recap' && !isKept ? 'person' : decided.to
+  const done = isKept
+    ? await routeAsk(id, 'recap', w, KEPT_LOOK_WORDS, decided.step ?? null, { said, placed: PLACED_BY_PICTURE, freesStep: true })
+    : await routeAsk(id, to, w, decided.earlier === undefined ? null : earlierCardWords(decided.earlier), null, { said })
+  return done.ok ? { id, to, wake: done.wake ?? null } : null
+}
+
 /**
  * Autopilot (2026-10-31): the board's pass at each refresh (`on`: the setting). While on, every open ask without a route (or
  * with the default `Route: person`, never one handed on) is routed once (autopilot.mjs `autopilotRoute`). Whatever the setting,
@@ -2270,6 +2294,18 @@ async function autopilot(body, w) {
     // A recap wait whose step is gone, or of no focus goal now: its recap will not come; it is the person's. So is one whose
     // goal demo came without a row for its step (nothing would close it).
     const step = now.store.items.get(valueOf(item, 'Of') ?? '')
+    // B1240 (F31, the person's "1. yes", 2026-11-16; the live B1149 parked 44 h on Q789): only finished work waits for the recap. A recap
+    // wait whose step is still at work (never a kept look: it holds no worker) is routed anew, as it would be filed now (autopilot.mjs
+    // `recapOr`): with Autopilot on by its rules, else to the person. One History line says why.
+    // Chat 1's review (the live Q817 on B1205): likewise one of a focus-goal step in no work block of the goal: no recap judges it.
+    const noBlock = step !== undefined && (now.focusGoal ?? null) !== null && valueOf(step, 'Goal') === now.focusGoal && isInNoBlock(valueOf(step, 'Id'), now.store.items, now.focusSteps ?? null)
+    if (step !== undefined && (RECAP_AT_WORK.includes(valueOf(step, 'State')) || noBlock) && !isKeptLook(item)) {
+      const done = await rerouteAtWork(item, step, on, now, RECAP_AT_WORK.includes(valueOf(step, 'State')) ? reroutedAtWorkWords(valueOf(step, 'State')) : reroutedNoBlockWords(now.focusGoal))
+      if (done !== null) routed.push({ id: done.id, to: done.to })
+      if (done !== null && done.wake !== null) wakes.push(done.wake)
+      now = await freshOf(w)
+      continue
+    }
     const isFocus = step !== undefined && (now.focusGoal ?? null) !== null && valueOf(step, 'Goal') === now.focusGoal
     const isNamed = (now.recaps ?? []).some(one => one.step === valueOf(item, 'Of'))
     // A look the partner handed over stays on the recap even when no row names it (the person's "A", 2026-11-02): it is answered in its

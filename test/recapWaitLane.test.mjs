@@ -3,6 +3,9 @@
 // chat does nothing while it waits): its lane is parked, P1's shape, kind recap, and reads quiet "Paused · waits for your recap of G60
 // (Q715)", linked to the goal's recap; Resume all leaves it. Trimmed from the live records, made-up paths only. No hand-over, wake or
 // timer logic is touched.
+// B1240 (F31, the person's "1. yes", 2026-11-16; chat 1's ruling): only finished work waits for the recap, and a kept look holds no
+// worker, so it parks no lane either: a step at work with only a kept look reads working (or stopped, and the board's "go on" comes).
+// What still parks is a recap wait the board has not routed anew yet (the old blocking shape): the next pass does (autopilotRecapAtWork).
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -54,8 +57,8 @@ function build(items, { state = 'idle', lines = [] } = {}) {
 const laneOf = (state, name = 'Worker 1') => state.chats.find(one => one.name === name)
 const storeOf = items => new Map(items.map(one => [one.head.get('Id'), one]))
 
-test('B1094 and Q715: the worker is parked for the recap, Paused · "waits for your recap of G60 (Q715)", quiet, never Working nor Stopped', () => {
-  for (const blocking of ['no', 'yes']) {
+test('B1094 and Q715 not yet routed anew (blocking, so no kept look): the worker is parked for the recap, Paused · "waits for your recap of G60 (Q715)", quiet', () => {
+  for (const blocking of ['yes']) {
     const lane = laneOf(build([B1094(), Q715({ Blocking: blocking })]))
     assert.equal(lane.status, 'Paused', `Blocking ${blocking}`)
     assert.equal(lane.why, WORDS)
@@ -66,26 +69,41 @@ test('B1094 and Q715: the worker is parked for the recap, Paused · "waits for y
     assert.deepEqual(shape, { by: 'parked', kind: 'recap', on: ['the person'], what: 'your recap of G60 (Q715)', limit: null, link: '#advice/goals/G60', until: null, isBack: false })
     assert.equal(Math.floor(since / MIN), Math.floor(ago(20) / MIN))
   }
-  const state = build([B1094(), Q715()])
+  const state = build([B1094(), Q715({ Blocking: 'yes' })])
   const status = state.stepStatus.B1094
   assert.deepEqual([status.kind, status.tone, status.words, status.link], ['recap', 'quiet', WORDS, '#advice/goals/G60'])
   // The day bar draws the lane's state as the history records it: the quiet suspended colour, never interrupted or working.
   const spans = today(changes(new Map(), state.chats, ago(10)), { from: ago(60), to: NOW, names: ['Worker 1'] })[0].spans
   assert.deepEqual(spans.map(one => one.state), ['suspended'])
   // No holder timer: no "go on" line and no give-back for a parked lane.
-  assert.equal(holderTimers({ worker: laneOf(state), holding: B1094(), items: storeOf([B1094(), Q715()]), prefix: PREFIX, runningMs: () => 600 * MIN }), null)
+  assert.equal(holderTimers({ worker: laneOf(state), holding: B1094(), items: storeOf([B1094(), Q715({ Blocking: 'yes' })]), prefix: PREFIX, runningMs: () => 600 * MIN }), null)
+})
+
+test('B1240: a kept look (Q715 as it stood, not blocking) parks no lane: the step at work reads Working while its chat works, else Stopped with the board\'s go-on, never Paused for the recap', () => {
+  assert.equal(keptRecapWaitOf(B1094(), [Q715()]), null)
+  const busy = laneOf(build([B1094(), Q715()], { state: 'busy' }))
+  assert.equal(busy.status, 'Working')
+  assert.equal(busy.suspended, null)
+  const idle = build([B1094(), Q715()])
+  assert.equal(laneOf(idle).status, 'Stopped')
+  assert.equal(laneOf(idle).suspended, null)
+  assert.notEqual(idle.stepStatus.B1094?.kind, 'recap')
+  // A kept look beside a recap wait not yet routed anew: only the wait counts, the lane parks for it until the next pass.
+  const Q717 = file({ Id: 'Q717', Kind: 'ask', Title: 'Keep the rim?', State: 'open', Owner: 'Worker 1', Since: stamp(ago(5)), Asks: 'decide', Blocking: 'no', Of: 'B1094', Route: 'recap' }, { Text: ['Keep the rim?'] })
+  assert.deepEqual(keptRecapWaitOf(B1094(), [Q715(), Q717])?.ids, ['Q717'])
 })
 
 test('Resume all does not wake it: neither the resume\'s waiting list nor the main chat\'s resume list names it; the other holder is', () => {
-  const items = [B1094(), Q715(), B1095()]
+  const items = [B1094(), Q715({ Blocking: 'yes' }), B1095()]
   const state = build(items)
   const pause = { state: 'resuming', since: ago(1), pausedSince: ago(40) }
   const facts = pauseFacts({ pause, items: storeOf(items), lanes: state.chats, prefix: PREFIX })
   assert.deepEqual(facts.waiting.map(one => one.chat), ['Worker 2'])
   const list = pauseAnswer({ pause, items: storeOf(items), lanes: state.chats, prefix: PREFIX, chat: 'Lead', role: 'main' }).resumeList
   assert.deepEqual(list.map(one => one.step), ['B1095'])
-  // Without the recap ask it is resumed as every holder.
+  // Without the recap ask it is resumed as every holder; with only a kept look too (B1240: it holds no worker).
   assert.deepEqual(pauseFacts({ pause, items: storeOf([B1094(), B1095()]), lanes: state.chats, prefix: PREFIX }).waiting.map(one => one.chat), ['Worker 1', 'Worker 2'])
+  assert.deepEqual(pauseFacts({ pause, items: storeOf([B1094(), Q715(), B1095()]), lanes: build([B1094(), Q715(), B1095()]).chats, prefix: PREFIX }).waiting.map(one => one.chat), ['Worker 1', 'Worker 2'])
 })
 
 test('an ordinary open blocking ask to the person still reads "Waiting for you"', () => {
@@ -108,12 +126,12 @@ test('a worker really interrupted, with no such ask, still reads Stopped', () =>
   // An answered recap ask waits for nothing.
   assert.equal(laneOf(build([B1094(), Q715({ State: 'answered' })])).status, 'Stopped')
   // A chat that is busy now is Working: the recap wait parks only a stopped chat.
-  assert.equal(laneOf(build([B1094(), Q715()], { state: 'busy' })).status, 'Working')
+  assert.equal(laneOf(build([B1094(), Q715({ Blocking: 'yes' })], { state: 'busy' })).status, 'Working')
 })
 
 test('the page: the pill reads Paused, its why links the recap, the row says it quiet, the day bar draws no warn colour', async () => {
-  const first = build([B1094(), Q715()])
-  const built = build([B1094(), Q715()], { lines: changes(new Map(), first.chats, ago(10)) })
+  const first = build([B1094(), Q715({ Blocking: 'yes' })])
+  const built = build([B1094(), Q715({ Blocking: 'yes' })], { lines: changes(new Map(), first.chats, ago(10)) })
   const state = JSON.parse(JSON.stringify(built))
   const page = await openPage({ state, now: NOW })
   try {

@@ -39,7 +39,7 @@ import { dailyNote, isDailyNote } from './work/dailyNote.mjs'
 import { SYNC_BOARD, syncChecks } from './sync.mjs'
 import { decidedTodayOf, boardCallPopups, heldAsksOf, informationOf, instructionsOf, nameFinder, notesToMain, partnerDecidedOf, routedAwayOf, storeNeeds, storeWaits, withPartnerOf } from './work/lists.mjs'
 import { recapsShowOf } from './boardSettings.mjs'
-import { recapWaitOf } from './work/autopilot.mjs'
+import { recapWaitOf, waitsForKeptLooksOnly } from './work/autopilot.mjs'
 import { NOTE_LINE, isDecidedForYou, isPartnerAskWord, stepWaitsForPartner } from './work/partnerAnswers.mjs'
 import { advisorNextOf, advisorWorkOf, leaveOut } from './work/advisorWork.mjs'
 import { openQaTaskOf, qaStandOf } from './work/qaTask.mjs'
@@ -1705,7 +1705,9 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
   // while nothing else of it is open (autopilot.mjs `recapWaitOf`).
   const waits = [...new Set(node.parts.flatMap(part => part.steps))].map(id => steps.get(id)).filter(one => one !== undefined)
     .map(one => [one.head.get('Id'), recapWaitOf(one, all)]).filter(([, rows]) => rows !== null)
-  const waiting = new Set(waits.map(([id]) => id))
+  // B1240 (F31, chat 1's other door): a step in review whose only open asks are kept looks counts too, with no row of its own.
+  const keptOnly = [...new Set(node.parts.flatMap(part => part.steps))].map(id => steps.get(id)).filter(one => one !== undefined && waitsForKeptLooksOnly(one, all)).map(one => one.head.get('Id'))
+  const waiting = new Set([...waits.map(([id]) => id), ...keptOnly])
   const recapRows = [...new Map(waits.flatMap(([, rows]) => rows).map(row => [row.step, row])).values()]
   const forDemo = parts.filter((part, index) => {
     if (part.state === 'done') return true
@@ -1769,7 +1771,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     partnerDecides: node.partnerDecides,
     youDecide: node.youDecide,
     howAgreed: node.howAgreed,
-    progress: { done: whole.filter(part => part.state === 'done').length, total: whole.length, ...(stopped > 0 ? { stopped } : {}), minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0), ...(timeUnknown && left.length > 0 ? { timeUnknown: true } : {}), ...(recapRows.length > 0 ? { forDemo } : {}) },
+    progress: { done: whole.filter(part => part.state === 'done').length, total: whole.length, ...(stopped > 0 ? { stopped } : {}), minutesLeft: left.length === 0 ? null : left.reduce((sum, one) => sum + one, 0), ...(timeUnknown && left.length > 0 ? { timeUnknown: true } : {}), ...(recapRows.length > 0 || keptOnly.length > 0 ? { forDemo } : {}) },
     // Autopilot: the steps that wait for the goal's recap, each with its asks, for the goal demo's words.
     ...(recapRows.length > 0 ? { recapRows } : {}),
     // Work blocks (2026-10-31): the round of its work (null before Go), and the blocks open in it, by their place in `parts`.
