@@ -35,6 +35,7 @@ import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyp
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
 import { landedLines, runningLanding } from './src/landing.mjs'
+import { landedWaitOf } from './src/work/landedWait.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { backgroundOf } from './src/chatReport.mjs'
 import { findCodex, makePicture } from './src/codex.mjs'
@@ -4447,6 +4448,22 @@ async function main(args) {
             if (!fixed.ok) throw new Error(fixed.why ?? 'incidents-fixed was refused')
           })
         }
+        // F33 (B1256): a landing of a step's own branch ends its recorded wait for the landing, and its owner is told once to report it
+        // (src/work/landedWait.mjs). On its own, so a failure stops no delivery.
+        await loops.run('landed-waits', async () => {
+          if (isShowOnly || workDir === null) return
+          const landings = landedLines({ dir: join(HERE, 'data') })
+          // The kept work read first: a work call reads the whole store, so it runs only when a step's wait matches a landing.
+          const stored = await work()
+          if (stored?.ok !== true || stored.exists !== true || ![...stored.items.values()].some(item => landedWaitOf(item, landings) !== null)) return
+          const landed = await workAction({ action: 'landed-waits', landings }, 'server')
+          if (!landed.ok) throw new Error(landed.why ?? 'landed-waits was refused')
+          for (const wake of landed.result.wakes ?? []) await sendWakes({ ok: true, result: { wake } })
+          if (landed.result.changed === true) {
+            work.reset?.()
+            readState.reset()
+          }
+        })
         // Autopilot (2026-10-31): the board routes the open asks, takes the advice, wakes the main chat for its asks and hands on
         // what waited too long (src/work/autopilot.mjs); on its own, so a failure stops no delivery.
         await loops.run('autopilot', () => autopilotNow(state))

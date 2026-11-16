@@ -7535,6 +7535,20 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
   HH:MM (its go to land): work unblock B<n> once it gave its answer." Chat 1's go messages say "unblock first" (roles/main.md).
 - **Resume all** leaves a step with a standing wait out of its resume list (pause.mjs `isResumed`): a resume would only wake the
   chat to wait again; the chat is woken by the answer it waits for.
+- **A landing ends its wait** (F33, B1256, the person's "Yes, build F33", 2026-11-16; the B1236 case: Worker 1 waited on chat 1's go
+  to land from 10:29, chat 1 landed `b1236-x202-fix` at 10:42 and sent no word, 112 minutes and an amber Waits late; B1207 40 hours).
+  `src/work/landedWait.mjs` `landedWaitOf(step, lines)` is pure: the step open (taken, in progress, review), its `Waits on` words
+  naming the landing (`LANDING_WHAT`: "go to land", "to land", "landing"; "its review" or "its answer" are not), a line of
+  `data/landings.jsonl` (src/landing.mjs `landedLines`, which now also carries `by`, `head`, `boards` and the landed branch's
+  `remote`) for the step's own Branch (none recorded: a branch `b<n>-...` of its id), result `landed`, at or after the wait's
+  minute, and no later `rolled-back` or `rollback-failed` line for that branch. The reconcile pass (server.mjs, loop
+  `landed-waits`) checks the kept work read first and calls the work API's server action `landed-waits` only on a match; it
+  clears the `Waits on` with one History line "landed <hash8> by <chat> at HH:MM: no longer waits on <who> (<what>, since ...)" and
+  words the owner once (a `work` line, kind `landed`: "B1236 landed (4ba4f404, both boards): report it (merged 4ba4f404); its branch
+  is gone from origin", or "kept: <why>" from the line's `branches.landed.remote`), none when the owner landed it itself. Once per
+  landing by construction: the cleared wait no longer matches, so a restart re-reading the log clears nothing and words nobody
+  twice. The word waits for a chat that does not run (no wake of its own) and is withdrawn once the step left taken or in progress
+  (workLines.mjs). No start, wake or hand-over code changed. Tests: `test/landedWait.test.mjs`, `test/landedWaitBoard.test.mjs`.
 - **The double hold guard**: the hand-over's decision gives no step back whose branch a landing is running for now (`landing`:
   src/landing.mjs `runningLanding`, the landing lock's branch while the lock is younger than its stale limit, else the newest gate log
   `data/landings/<stamp>-<branch>.log` younger than 90 minutes that no landings line names yet, since the script takes the lock only

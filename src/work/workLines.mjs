@@ -158,5 +158,7 @@ export function workLineWhy(message, items, { prefix = '', now = Date.now(), ass
   const owner = value(item, 'Owner')
   if (owner === null || plain(owner, prefix) !== plain(message.to, prefix)) return owner === null ? `${id} has no owner now` : `${id} is ${owner}'s now`
   if (message.kind === 'check') return state === 'review' ? null : `${id} left review`
+  // F33 (B1256): the word that the step landed (report it) holds until its owner reported it.
+  if (message.kind === 'landed') return ['taken', 'in progress'].includes(state) ? null : `${id} is ${state}: reported already`
   return ['done', 'dropped'].includes(state) ? `${id} is ${state}` : null
 }

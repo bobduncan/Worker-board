@@ -123,7 +123,8 @@ export const logBranchName = branch => String(branch ?? '').trim().replace(/[^A-
 const LOG_NAME = /^\d{8}-\d{6}-(.+)\.log$/
 
 /**
- * The landed lines of `<dir>/landings.jsonl`, oldest first: `[{ branch, at (ms), result, gateLog }]`; a line that cannot be read is
+ * The landed lines of `<dir>/landings.jsonl`, oldest first: `[{ branch, at (ms), result, gateLog, by, head, boards (how many), remote
+ * (the landed branch on the remote: "removed", "kept: <why>" or null) }]`; a line that cannot be read is
  * left out; no file, none. P1 of the one wait system (2026-11-09): a landed line for a step's branch is its holder's progress
  * (holderTimers.mjs), so no give-back fires right after the release.
  */
@@ -137,7 +138,13 @@ export function landedLines({ dir }) {
       const read = JSON.parse(line)
       const at = Date.parse(read?.at)
       if (!Number.isFinite(at) || typeof read.branch !== 'string') continue
-      lines.push({ branch: read.branch, at, result: typeof read.result === 'string' ? read.result : 'unknown', gateLog: typeof read.gateLog === 'string' ? basename(read.gateLog) : null })
+      // F33 (B1256): and who landed it, its head, how many boards came back on it and what became of the branch (src/work/landedWait.mjs).
+      const landed = read.branches?.landed ?? null
+      lines.push({
+        branch: read.branch, at, result: typeof read.result === 'string' ? read.result : 'unknown', gateLog: typeof read.gateLog === 'string' ? basename(read.gateLog) : null,
+        by: typeof read.by === 'string' ? read.by : null, head: typeof read.head === 'string' ? read.head : null, boards: Array.isArray(read.boards) ? read.boards.length : 0,
+        remote: typeof landed?.remote === 'string' ? landed.remote : null,
+      })
     } catch {
       // a torn line: left out
     }

@@ -50,6 +50,7 @@ import { ASKS_NOTHING_WHY, isInNoBlock, HANDED_KEPT_WORDS, KEPT_LOOK_WORDS, PLAC
 import { HELD, afterPause, checkpointLine, isHolding, pauseAnswer, pauseFacts, stampSecond } from './pause.mjs'
 import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
 import { BOOKKEEPING_DROP_WORDS } from './dropAsk.mjs'
+import { LANDED_KIND, landedByOwner, landedHistoryLine, landedWaitOf, landedWord } from './landedWait.mjs'
 import { RECAP_AT_WORK, WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, waitWhatOf, waitWhoOf, waitWhoProblem, waitsOnLine, waitsOnOf } from './waitsOn.mjs'
 import { estimateAtOf, nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { askedForOf, takenAtOf, takenForLine } from './held.mjs'
@@ -71,7 +72,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'notes-came-down', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'rethink-hold', 'rethink-free', 'accept-cards', 'popup-asks', 'autopilot', 'autopilot-undo', 'recap-answered', 'holds-ended', 'asset'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'notes-came-down', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'rethink-hold', 'rethink-free', 'accept-cards', 'popup-asks', 'landed-waits', 'autopilot', 'autopilot-undo', 'recap-answered', 'holds-ended', 'asset'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -84,7 +85,7 @@ const OFF_VIEW = new Set(['incident', 'incident-fix', 'incident-told', 'incident
 /** What only the person does, on the board's page; and what only the server does. */
 // The Backlog tab's blocks (2026-10-25): the person's "Add to queue" and "Remove" are the page's alone, never a chat's.
 const PERSON = new Set(['answer', 'read', 'tick', 'delete', 'refine-answer', 'refine-accept', 'recheck', 'undo', 'pause-all', 'resume-all', 'end-resume', 'overturn', 'seen', 'partner-answers', 'obsolete-check', 'obsolete-close', 'autopilot-undo', 'add-to-queue', 'remove-from-queue'])
-const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'notes-came-down', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'popup-asks', 'autopilot', 'recap-answered', 'holds-ended'])
+const SERVER = new Set(['incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'notes-came-down', 'incident-told', 'check', 'advance', 'resumed', 'approve-recaps', 'recheck-stuck', 'recheck-base', 'route-confirm', 'quality-job-result', 'retire-queue', 'qa-task', 'qa-end', 'accept-cards', 'popup-asks', 'landed-waits', 'autopilot', 'recap-answered', 'holds-ended'])
 /** Who may do what the flow does not decide (the default flow's table, spec section 5). */
 const ROLES = {
   // refine-stop-tone: the partner, a hold in words on a step nobody holds yet (and its clear), nothing else (blockOn).
@@ -2863,6 +2864,33 @@ async function popupAsks(body, w) {
 }
 
 /**
+ * F33 (B1256): a landing ends its step's wait for the landing (src/work/landedWait.mjs `landedWaitOf`): `body.landings` the landed lines
+ * of data/landings.jsonl (src/landing.mjs `landedLines`). Each step it matches loses its `Waits on` with one History line ("landed
+ * <hash8> by <chat> at HH:MM: ..."), and its owner gets one word to report it (`wakes`, kind landed), none when the owner landed it
+ * itself. Once per landing: the cleared wait no longer matches. The server's, at the refresh.
+ */
+async function landedWaits(body, w) {
+  const lines = Array.isArray(body.landings) ? body.landings : []
+  const cleared = []
+  const wakes = []
+  if (lines.length === 0) return { ok: true, result: { text: 'No landing.', cleared, wakes, changed: false } }
+  for (const step of [...w.store.items.values()].filter(one => kindOf(one) === 'step' && waitsOnOf(one) !== null)) {
+    if (landedWaitOf(step, lines) === null) continue
+    const found = await load(valueOf(step, 'Id'), w, { kind: ['step'] })
+    if (!found.ok) continue
+    // Read again from its file: the match must still hold on what is written now.
+    const match = landedWaitOf(found.item, lines)
+    if (match === null) continue
+    const item = ordered(said(put(copy(found.item), 'Waits on', null), w, landedHistoryLine(match.line, match.wait)))
+    const done = await save(item, found.text, w)
+    if (!done.ok) continue
+    cleared.push(match.id)
+    if (match.owner !== null && !landedByOwner(match.owner, match.line.by, w.prefix)) wakes.push({ to: match.owner, id: match.id, kind: LANDED_KIND, line: landedWord(match.id, match.line) })
+  }
+  return { ok: true, result: { text: cleared.length === 0 ? 'No wait ends with a landing.' : `Landed, wait ended: ${cleared.join(', ')}.`, cleared, wakes, changed: cleared.length > 0 } }
+}
+
+/**
  * B883: the person's answer to a card: Accept marks the step done as theirs (the verdict in its History); Send back needs their
  * note, from which the board makes the step's next try, a fix the partner refines (`acceptAnswer`). Their words stand on the
  * step either way (`answer`). `{ ok, step, reading, note }`, or a refusal before anything is written.
@@ -5543,6 +5571,7 @@ const CHANGE = {
   'approve-recaps': approveRecaps,
   'accept-cards': acceptCards,
   'popup-asks': popupAsks,
+  'landed-waits': landedWaits,
   'holds-ended': holdsEnded,
   'recheck-stuck': recheckStuck,
   'recheck-base': recheckBase,

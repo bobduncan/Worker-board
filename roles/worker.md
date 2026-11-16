@@ -172,7 +172,10 @@ step therefore says what it touches ("Touches: ...").
   board then shows you as waiting on purpose, sends no "go on" line and gives the step to nobody for 90 minutes of its running
   time; past that the user sees it as late, and the step still stays yours. Once the answer came: `work unblock B<n>`, then
   go on (a checkpoint while the wait stands reminds you; your report, a take and a give-back clear it). `on` is a chat of the
-  board or a side chat ("chat 1"); a wait on the user is a blocking ask, a wait on a fix is `on=B<n>`.
+  board or a side chat ("chat 1"); a wait on the user is a blocking ask, a wait on a fix is `on=B<n>`. A wait for the landing
+  (its words name it: "its go to land", "its landing of <branch>") ends by itself when the step's own branch lands (F33, B1256):
+  the board clears it ("landed <hash> by <chat> at HH:MM") and types you once "B<n> landed (<hash>, both boards): report it
+  (merged <hash>); ..."; report it then, with that commit. A refused or rolled-back landing ends nothing.
 - A wait for a picture needs no record (2026-11-11): while a request you made with `work asset` for your step is open (waiting or
   running), the board shows your task as Working with what the provider does ("Codex draws 4 pictures for it · 1 of 4 done", a tick per
   picture), sends no "go on" line, gives the step to nobody and leaves you out of Resume all; past the provider's time limit for a job
