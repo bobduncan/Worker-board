@@ -13,7 +13,7 @@
 // outcome.
 
 import { RESTART_COMMAND, restartWords } from './modRollout.mjs'
-import { EFFORTS, chatEffort, effortOf, effortWords, isSetRefused, modelOf, runSettings, sameModel, setsRefusedOf } from './effort.mjs'
+import { EFFORTS, chatEffort, effortOf, effortWords, isSetRefused, modelOf, runSettings, sameModel, setsRefusedOf, settingOf } from './effort.mjs'
 import { CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, HANDOVER_COMMAND, contractOf, decide, envelopesOf, failedWhy, isClearOwedOnly, mergeStages, onSequence } from './handover.mjs'
 import { giveBackStep } from './giveBack.mjs'
 import { GIVE_BACK_MINUTES, RESUME_MINUTES, continuationOf, standOf } from './holderTimers.mjs'
@@ -280,7 +280,10 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
   // B1160: while the app refuses the board's set words, the envelope goes without its set (the worker runs on its current model).
   const isRefused = envelope.set !== null && setsRefusedOf(outbox.outbox(), now)
   const going = isRefused ? { ...envelope, set: null, asked: envelope.set } : envelope
-  const message = { id, at: now, to: lane.name, ask: null, step: going.step, title: null, version: going.version ?? null, verdict: null, command: HANDOVER_COMMAND, about: lane.name, text: textOf({ ...going, asked: going.asked ?? null }), state: 'waiting', kind: going.kind, clear: going.clear, restart: going.restart, set: going.set, line: going.line, back: going.back ?? null, ...((going.asked ?? null) === null ? {} : { asked: going.asked }), ...(typeof going.resume === "string" ? { resume: going.resume } : {}) }
+  // B1207 (X26 back): the step's whole setting at its hand-over (`wants`), set or not, so a later change of the step's model or effort
+  // is seen as one (effort.mjs `handedSettingOf`): the envelope's own set is null when the worker ran at it already.
+  const wants = going.kind === 'task' && typeof going.step === 'string' ? settingOf(read.items.get(going.step), runSettings(config).models) : null
+  const message = { ...(wants === null ? {} : { wants }), id, at: now, to: lane.name, ask: null, step: going.step, title: null, version: going.version ?? null, verdict: null, command: HANDOVER_COMMAND, about: lane.name, text: textOf({ ...going, asked: going.asked ?? null }), state: 'waiting', kind: going.kind, clear: going.clear, restart: going.restart, set: going.set, line: going.line, back: going.back ?? null, ...((going.asked ?? null) === null ? {} : { asked: going.asked }), ...(typeof going.resume === "string" ? { resume: going.resume } : {}) }
   const main = state.restart?.main ?? null
   if (message.set !== null && main === null) {
     // No chat whose hands could set it: the set failed at once (the task back, held, and no step of that model for it until a later envelope is delivered or BAN_MS passes).

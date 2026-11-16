@@ -208,7 +208,9 @@ function switchWords(switching, now, nextCheckAt = null) {
   if (switching.state === 'refused') return ` (runs on: the app refuses the board's set calls${!Number.isFinite(nextCheckAt) ? '' : nextCheckAt <= now ? '; next check when a worker is free' : `; next check ${dayClockOf(nextCheckAt, now)}`})`
   const asked = switching.state === 'asked' ? `switch asked ${dayClockOf(switching.askedAt, now)}` : ''
   if (!switching.late) return asked === '' ? '' : ` (${asked})`
-  return ` (${asked === '' ? 'no switch asked' : `${asked}, not read back`}, ${lasting(switching.since)} after the take)`
+  // B1207: a step whose setting changed after its hand-over counts from that change.
+  const after = Number.isFinite(switching.changedAt) ? `after its setting changed ${dayClockOf(switching.changedAt, now)}` : 'after the take'
+  return ` (${asked === '' ? 'no switch asked' : `${asked}, not read back`}, ${lasting(switching.since)} ${after})`
 }
 
 /** The Workers mod's last word on a clear or a compaction of the chat, with why it did not clear. */
