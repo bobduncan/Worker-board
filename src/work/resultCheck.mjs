@@ -309,6 +309,23 @@ const TRIED_BEFORE = /\bTried before\b[^:\n]{0,40}:/i
 /** B664: whether a step's what (its What we build, or its refine block) names the ways tried before ("Tried before: ..."). */
 export const hasTriedBefore = item => ['What we build', 'Refined'].some(name => (item?.sections?.get(name) ?? []).some(one => TRIED_BEFORE.test(one)))
 
+/**
+ * B1236 (X202: B1155 → B1196 → B1214 → B1230, a round written with no "Tried before:" was handed out): a fix that is the
+ * newest of a chain with three tries or more and names no "Tried before:" is a patch of the same way. Null when `item` is
+ * no such fix; else the chain's tries (ids in order). `work refined` refuses it and the chain-long rule sees it: both
+ * count alike through this one helper.
+ */
+export function noTriedBefore(item, items) {
+  const id = valueOf(item, 'Id')
+  if (valueOf(item, 'Fix of') === null || id === null) return null
+  const tries = chainTries(id, items)
+  return tries.length < TRIES_BEFORE_ANOTHER_WAY + 1 || tries.at(-1) !== id || hasTriedBefore(item) ? null : tries
+}
+
+/** B1236: the refusal's line: what to add to a fix's what, and where the rule stands. */
+export const triedBeforeWanted = (id, tries) =>
+  `${id} is another way after ${tries.length} tries (${tries.join(' → ')}): start its what with "Tried before: <each way, its score, why it fell short>" (roles/partner.md, Two rounds, then another way).`
+
 /** B667: a History line of a refine round written (as refineGate.mjs reads it): "refined, round 2", "refined is ready". */
 const ROUND_WRITTEN = /:\s+refined(?:, round \d+| is ready)\s*$/
 /**

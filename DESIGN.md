@@ -7256,6 +7256,12 @@ and see what other options we have and present that to me?" It replaces the ask 
    map's turn (`ctx.withdrawAsk`); one whose ask is gone starts on Opus and its line goes.
 5. Tests: `test/goalGuard.test.mjs` (two without progress trip, with progress the third; the word), `test/goalGuardParts.test.mjs`,
    `test/fableAsk.test.mjs` (no ask, no Fable; the asks from before).
+6. The refusal (B1236, X202: B1155 → B1196 → B1214 → B1230, a refine round written with no "Tried before:" was handed out
+   and only the chain-long rule saw it, later): `work refined` refuses (409) a fix that is the newest of a chain with three
+   tries or more (`resultCheck.mjs` `noTriedBefore`, the helper the chain-long rule uses too, so both count alike) whose what
+   names no "Tried before:"; the line says what to add (`triedBeforeWanted`). A first or second link, an older link and a step
+   with no `Fix of` are never gated. The rule stays as the net for a what edited by hand. Test:
+   `test/supervisor/chainAnotherWay.test.mjs` (the real chain, the refusal through `work refined`).
 
 ## Leftover worktrees: what kept them is let go (B751, 2026-10-28)
 
