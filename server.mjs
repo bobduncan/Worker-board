@@ -2239,7 +2239,7 @@ async function main(args) {
   const setupFile = join(HERE, 'data', 'setup.json')
   if (!isDemo && !isShowOnly) {
     // The settings were read already (loadConfig); a file it cannot read now simply names no providers, and the setup starts.
-    // T5.2 P4: whether the merged settings (the project's settings.json over this PC's config.json) name providers (loadConfig), so the
+    // T5.2 P4: whether the merged settings (the project's board-settings.json over this PC's config.json) name providers (loadConfig), so the
     // split never starts the providers setup again.
     await startSetup(setupFile, { hasProvidersKey: config.hasProvidersKey === true }).catch(error => loops.failed('setup', error))
   }
@@ -3154,7 +3154,7 @@ async function main(args) {
       if (!checked.ok) return checked
       if (historyFrom !== undefined) return { ok: false, status: 409, why: SETTINGS_WHY_NOT }
       if (!isDemo) {
-        // T5.2 P4: into the project's settings.json when it has one (this PC's keys still into config.json).
+        // T5.2 P4: into the project's board-settings.json when it has one (this PC's keys still into config.json).
         const file = settingFileFor(config, join(HERE, 'config.json'), checked.key)
         const shown = basename(file)
         // B467: only a file that is not there is "not there"; one it cannot read fails the call.
@@ -3212,7 +3212,7 @@ async function main(args) {
       if (!may.ok) return { ok: false, status: 409, why: may.why }
       const checked = checkSetting({ key: 'providers', value: { kind, provider: name } })
       if (!checked.ok) return checked
-      // T5.2 P4: the providers are the project's: into its settings.json when it has one.
+      // T5.2 P4: the providers are the project's: into its board-settings.json when it has one.
       const file = settingFileFor(config, join(HERE, 'config.json'), checked.key)
       const shown = basename(file)
       // B467: only a file that is not there is "not there"; one it cannot read fails the call.

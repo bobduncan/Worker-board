@@ -2,7 +2,7 @@
 
 import { constants } from 'node:fs'
 import { access, copyFile, readFile, readdir, realpath, stat } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { EFFORTS, MODELS, modelIds } from './work/effort.mjs'
 import { parseRoutingPolicy } from './work/routing/policy.mjs'
 import { ASSET_KINDS, DEFAULT_PROVIDERS, PROVIDERS } from './providers/index.mjs'
@@ -694,20 +694,22 @@ export async function followApp(config, env = process.env, platform = process.pl
 export class BrokenConfig extends Error {}
 
 /**
- * T5.2 P4: the keys that belong to this PC, kept in config.json once the project has a settings.json (paths on this PC, its ports, its
+ * T5.2 P4: the keys that belong to this PC, kept in config.json once the project has a board-settings.json (paths on this PC, its ports, its
  * Codex, its pictures home); every other key is the project's, in settings.json.
  */
 export const PC_KEYS = Object.freeze(['project', 'gameRepo', 'appSessions', 'transcripts', 'usageHistory', 'port', 'gamePort', 'codex', 'soundLibrary', 'chatHome', 'data', 'pc', 'label', 'sync', 'picturesHome'])
 
+/** The project's settings file's name in its data folder: beside the carry tool's `settings/` folder there, never the same name. */
+export const SETTINGS_FILE = 'board-settings.json'
+
 /**
- * The project's settings file: `settings.json` in its data home (`data`, else the game repo's, else the project's `.workerboard`), or
- * null for a board that names no project.
+ * The project's settings file: `board-settings.json` in the data folder this PC's config.json names (`data`, an explicit opt-in; a
+ * relative one from `base`, the config file's folder), or null: no `data`, today's behaviour. Never a guess at a `.workerboard` folder:
+ * one there may be the carry tool's clone (chat 1, 2026-11-16).
  */
-export function settingsFileOf(config) {
+export function settingsFileOf(config, base = '.') {
   const data = typeof config?.data === 'string' && config.data.trim() !== '' ? config.data.trim() : null
-  const home = data ?? [config?.gameRepo, config?.project].find(path => typeof path === 'string' && path !== '')
-  if (typeof home !== 'string' || home === '') return null
-  return data === null ? join(home, '.workerboard', 'settings.json') : join(home, 'settings.json')
+  return data === null ? null : resolve(base, data, SETTINGS_FILE)
 }
 
 /**
@@ -742,9 +744,9 @@ export async function loadConfig(file, env = process.env, platform = process.pla
   } catch {
     // A file that is no JSON was refused above.
   }
-  // T5.2 P4 (the design of 2026-11-16, section 6): the project's own settings travel with its data, in settings.json; config.json keeps
+  // T5.2 P4 (the design of 2026-11-16, section 6): the project's own settings travel with its data, in <data>/board-settings.json (only with data set); config.json keeps
   // only what belongs to this PC (PC_KEYS). With no settings.json nothing changes.
-  const settingsFile = settingsFileOf(parseConfig(text ?? '', env))
+  const settingsFile = settingsFileOf(raw, dirname(file))
   const settingsText = settingsFile === null ? null : await readFile(settingsFile, 'utf8').catch(() => null)
   const settingsProblem = settingsText === null ? null : configProblem(settingsText)
   if (settingsProblem !== null) throw new BrokenConfig(`The project's settings file ${settingsFile} is broken: ${settingsProblem}. Fix it and start the board again.`)

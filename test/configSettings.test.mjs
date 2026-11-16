@@ -8,22 +8,23 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { BrokenConfig, PC_KEYS, loadConfig, mergeSettings, settingFileFor, settingsFileOf } from '../src/config.mjs'
+import { BrokenConfig, PC_KEYS, SETTINGS_FILE, loadConfig, mergeSettings, settingFileFor, settingsFileOf } from '../src/config.mjs'
 
 const ENV = { USERPROFILE: 'C:\\Users\\someone', APPDATA: 'C:\\Users\\someone\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\someone\\AppData\\Local' }
 
-async function world(t, { config, settings = null }) {
+async function world(t, { config, settings = null, data = true }) {
   const dir = await mkdtemp(join(tmpdir(), 'config-settings-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const project = join(dir, 'garden')
   const gameRepo = join(project, 'game')
   const file = join(dir, 'config.json')
-  await writeFile(file, JSON.stringify({ project, gameRepo, appSessions: join(dir, 'app'), usageHistory: join(dir, 'usage.json'), ...config }))
+  const home = join(dir, 'data-clone')
+  await writeFile(file, JSON.stringify({ project, gameRepo, appSessions: join(dir, 'app'), usageHistory: join(dir, 'usage.json'), ...(data ? { data: home } : {}), ...config }))
   if (settings !== null) {
-    await mkdir(join(gameRepo, '.workerboard'), { recursive: true })
-    await writeFile(join(gameRepo, '.workerboard', 'settings.json'), typeof settings === 'string' ? settings : JSON.stringify(settings))
+    await mkdir(home, { recursive: true })
+    await writeFile(join(home, SETTINGS_FILE), typeof settings === 'string' ? settings : JSON.stringify(settings))
   }
-  return { dir, project, gameRepo, file, settingsFile: join(gameRepo, '.workerboard', 'settings.json') }
+  return { dir, project, gameRepo, file, home, settingsFile: join(home, SETTINGS_FILE) }
 }
 
 test('with no settings.json nothing changes: the settings are what config.json alone gives', async t => {
@@ -51,6 +52,28 @@ test('with settings.json: the project\'s keys come from it, this PC\'s from conf
   assert.equal(config.hasProvidersKey, true)
 })
 
+test('no data set: a .workerboard folder with a settings file inside (the carry tool\'s clone) is never read', async t => {
+  const one = await world(t, { config: { name: 'Garden', maxWorkers: 3 }, data: false })
+  const before = await loadConfig(one.file, ENV, 'win32')
+  for (const folder of [join(one.gameRepo, '.workerboard'), join(one.project, '.workerboard')]) {
+    await mkdir(join(folder, 'settings'), { recursive: true })
+    for (const name of ['settings.json', SETTINGS_FILE]) await writeFile(join(folder, name), JSON.stringify({ name: 'Clone', maxWorkers: 1 }))
+  }
+  const after = await loadConfig(one.file, ENV, 'win32')
+  const timeless = ({ appSearchedAt, appMoved, ...rest }) => rest
+  assert.deepEqual(timeless(after), timeless(before))
+  assert.deepEqual([after.name, after.maxWorkers, after.settingsFile], ['Garden', 3, null])
+})
+
+test('the settings file sits beside the carry tool\'s settings folder in the data clone, both kept', async t => {
+  const one = await world(t, { config: {}, settings: { maxWorkers: 2 } })
+  await mkdir(join(one.home, 'settings'), { recursive: true })
+  await writeFile(join(one.home, 'settings', 'config.json'), '{}')
+  const config = await loadConfig(one.file, ENV, 'win32')
+  assert.deepEqual([config.settingsFile, config.maxWorkers], [one.settingsFile, 2])
+  assert.notEqual(SETTINGS_FILE, 'settings')
+})
+
 test('a broken settings.json is refused, naming that file', async t => {
   const one = await world(t, { config: {}, settings: '{ "maxWorkers": 2, ' })
   await assert.rejects(loadConfig(one.file, ENV, 'win32'), error => error instanceof BrokenConfig && error.message.includes(one.settingsFile))
@@ -59,10 +82,10 @@ test('a broken settings.json is refused, naming that file', async t => {
 })
 
 test('the settings file\'s place and the file each write goes to', () => {
-  assert.equal(settingsFileOf({ project: 'P', gameRepo: 'G' }), join('G', '.workerboard', 'settings.json'))
-  assert.equal(settingsFileOf({ project: 'P', gameRepo: '' }), join('P', '.workerboard', 'settings.json'))
-  assert.equal(settingsFileOf({ project: 'P', gameRepo: 'G', data: 'D' }), join('D', 'settings.json'))
-  assert.equal(settingsFileOf({ project: '', gameRepo: '' }), null)
+  assert.equal(settingsFileOf({ project: 'P', gameRepo: 'G' }), null, 'no data: no settings file')
+  assert.equal(settingsFileOf({ project: 'P', gameRepo: 'G', data: '  ' }), null)
+  assert.equal(settingsFileOf({ project: 'P', gameRepo: 'G', data: 'C:\\D' }, 'C:\\B'), join('C:\\D', SETTINGS_FILE))
+  assert.equal(settingsFileOf({ data: 'D' }, 'C:\\B'), join('C:\\B', 'D', SETTINGS_FILE), 'a relative data folder from the config file\'s folder')
   const config = { settingsFile: 'S' }
   assert.equal(settingFileFor(config, 'C', 'maxWorkers'), 'S')
   assert.equal(settingFileFor(config, 'C', 'providers'), 'S')
