@@ -1,6 +1,6 @@
 // T5.2 P2 (2026-11-16): the path table (src/projectPaths.mjs). First, with the two new settings empty, every answer is exactly today's
 // path, so the live board changes nothing when this lands (the test that must pass before P3). Then the fixture
-// (test/fixtures/projectPaths/config.json: `data` set, `chatHome` different from `project`): every picture and asset path lands under
+// (test/fixtures/projectPaths/board-config.json: `data` set, `chatHome` different from `project`): every picture and asset path lands under
 // `<data>/pictures`, the store's and the goal map's under `<data>` with their stored names, the docs under `<data>/docs`, and every
 // chat-keyed path under the chat home. PURE: no file is read but the fixture.
 
@@ -48,7 +48,7 @@ test('with chatHome and data empty every path is exactly today\'s: the project f
 })
 
 test('the fixture (data set, chatHome different from project): pictures and assets under <data>/pictures, the store and the goal map under <data>, docs under <data>/docs, every chat-keyed path under the chat home', () => {
-  const config = parseConfig(readFileSync(join(HERE, 'fixtures', 'projectPaths', 'config.json'), 'utf8'), ENV)
+  const config = parseConfig(readFileSync(join(HERE, 'fixtures', 'projectPaths', 'board-config.json'), 'utf8'), ENV)
   const data = 'D:/wrap/game/.workerboard'
   assert.deepEqual([chatHomeOf(config), dataOf(config)], ['D:/wrap', data])
   assert.equal(picturesOf(config), join(data, 'pictures'))

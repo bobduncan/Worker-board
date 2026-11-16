@@ -8671,7 +8671,7 @@ live, from two PC-only settings in config.json, both '' today:
   backlog paths go through it already; P3 routes the store and every picture reader and writer.
 - `wordsPath(config, fullPath)`: a real path in the words to a chat, relative to the chat home (`.claude/work/B12.md` today).
 - **Tests.** test/projectPaths.test.mjs: with both settings empty every answer is exactly today's path (the test that must stay
-  green before P3 lands), and the fixture test/fixtures/projectPaths/config.json (data set, chatHome different from project) puts
+  green before P3 lands), and the fixture test/fixtures/projectPaths/board-config.json (data set, chatHome different from project) puts
   every picture and asset path under `<data>/pictures`, the store under `<data>`, the docs under `<data>/docs` and every chat-keyed
   path under the chat home. test/pathGuard.test.mjs lists every `join`/`resolve`/`inProject` on `project` and every `.claude`
   literal outside the table, per file with its count: a new one fails, a removed one fails until its count is lowered; P3 empties it.
