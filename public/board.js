@@ -5006,7 +5006,8 @@ function partnerAskWindowOf(ask) {
     step: ask.of == null ? null : [ask.of, ask.ofTitle].filter(Boolean).join(' '),
     // G95 (the person, 2026-11-12: "i dont even see pictures in the recap?"): the ask's pictures, shown large, and its Play link.
     pictures: (ask.pictures ?? []).filter(path => typeof path === 'string' && path !== ''),
-    play: typeof ask.play === 'string' && ask.play !== '' ? ask.play : null,
+    // The person, 2026-11-16 (Q822): the bare setting as href opened "/main&sandbox..." ("Not here."); a `#play=` link, as storeAskParts makes.
+    play: typeof ask.play === 'string' && ask.play !== '' ? `/#play=${ask.play}` : null,
   }
 }
 
