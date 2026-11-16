@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, TYPED_MOST, contextForTake, restoredDropped, takeWordsOf, typedWordsKey, MOST_CHARS, MOST_STAGES, NO_OUTCOME, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, TYPED_MOST, contextForTake, restoredDropped, takeWordsOf, typedWordsKey, MOST_CHARS, MOST_STAGES, NO_OUTCOME, GAVE_WAY_WHY, TAKEN_ALREADY_WHY, heldLineVerdict, isTurnOrPromptWhy, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn } from './board'
 import type { Board, BoardStart, ClearStage, Envelope, Handover, Outcome, PauseState, PauseWhere, PendingClear, StopAsk, TurnContext, TurnReport, TurnWords, TypedWord, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -170,6 +170,27 @@ let handing: Handing | null = null
  * envelope whose clear was dropped inside such a hook (`isCleared` false: no start's words go with it).
  */
 let lineWaiting: (Handing & { isCleared: boolean }) | null = null
+/**
+ * B1228 (X201): the line of an envelope whose clear a turn or a prompt refused (`isTurnOrPromptWhy`): it is not typed at once
+ * (it would wait behind that turn in the app's queue and refuse the next clear too) but waits here until the chat's turn has
+ * ended (`retryHeldLine`): then its clear is tried again first, with every guard, and the line follows; a line whose step the
+ * chat took meanwhile is not typed at all (TAKEN_ALREADY_WHY). Kept in this process only: a new process loses it, and the
+ * board's net, which holds while the chat's turn runs, takes its task back once the chat has been idle that long.
+ */
+type HeldLine = { envelope: Envelope; outcome: Outcome; session: string | null; isPauseSeen: boolean }
+let heldLine: HeldLine | null = null
+/** B1228, lens 1 (3): a turn's end is being told and decided: the ping leaves a waiting line to it. */
+let isEndingTurn = false
+/** B1228, lens 1 (2): how long the board's status of this chat counts as fresh for the stale check. */
+const STATUS_FRESH_MS = 30_000
+/** B1228: the chat's takes in this process, counted (`takeCount`), with the number of each step's newest take. */
+let takeCount = 0
+const stepTakes = new Map<string, number>()
+/** B1228: the take count when each envelope was carried (its line is stale once its step was taken after that). */
+const envelopeTakes = new Map<string, number>()
+const TAKES_KEEP = 50
+/** B1228: how long the chat is idle before a waiting line is tried at a ping, when no turn's end tried it (a hook gone late). */
+const HELD_IDLE_MS = 15_000
 /** The lazy clear (0.31.0, D1): the stages of each envelope's clear this process told the board, by id (its final settle carries them). */
 const envelopeStages = new Map<string, ClearStage[]>()
 const STAGES_KEEP = 20
@@ -1006,6 +1027,7 @@ async function tookEnded($: EngineInterface, ended: Record<string, unknown>): Pr
   // Pause 2: the same answer carries the pause state: the next batch needs no call of its own. B786: one that names
   // none leaves the last reading.
   pauseRead = { pause: parsePause(ended.pause) ?? pauseRead?.pause ?? null, at: await $.clock.now() }
+  notePause(pauseRead.pause)
   const filed = ended.asked
   if (Array.isArray(filed)) blockAsks = filed.filter((id): id is string => typeof id === 'string')
   const left = ended.left
@@ -1120,6 +1142,7 @@ async function pauseNow($: EngineInterface, isFresh = false, { noClock = false }
     if (!isFresh && pauseRead !== null && now - pauseRead.at < PAUSE_MS) return pauseRead.pause
     const pause = parsePause(await workQuietly($, { action: 'pause-state' }))
     pauseRead = { pause: pause ?? pauseRead?.pause ?? null, at: now }
+    notePause(pauseRead.pause)
     return pauseRead.pause
   } catch {
     return pauseRead?.pause ?? null
@@ -1998,6 +2021,15 @@ type EnvelopeAt = { answer: string; asked: boolean; ended: Record<string, unknow
  */
 async function carryEnvelope($: EngineInterface, envelope: Envelope, at: EnvelopeAt): Promise<void> {
   if (!(await claimEnvelope($, envelope.id))) return
+  // B1228: the takes so far: a take of its step after this makes its line stale, should the line have to wait.
+  envelopeTakes.set(envelope.id, takeCount)
+  while (envelopeTakes.size > TAKES_KEEP) envelopeTakes.delete(envelopeTakes.keys().next().value as string)
+  // The verifier (A): a newer envelope (also one a take brings at a ping) means the board let go of the waiting one: it gives way.
+  if (heldLine !== null && heldLine.envelope.id !== envelope.id) {
+    const gone = heldLine
+    heldLine = null
+    await letHeldGo($, gone).catch(() => null)
+  }
   const outcome: Outcome = { ...NO_OUTCOME }
   if (envelope.restart) return restartEnvelope($, envelope, outcome, at.step ?? envelope.clear?.step ?? null)
   if (envelope.clear !== null) return clearEnvelope($, envelope, outcome, at)
@@ -2185,7 +2217,8 @@ function logRefusedWhy(answer: WorkAnswer): string {
  * and its line goes anyway into the old conversation; the outcome says cleared false with its clearWhy (always words). The
  * clear stays owed: the board names it again with the next task, and never holds the worker for it. Under the person's
  * pause no line goes: the outcome says typed null with the pause's words (PAUSED_WHY on the board), and the board takes the
- * task back as at any pause. `atNextPing`: the line waits for the next ping (inside a prompt's or the /clear's own hook the
+ * task back as at any pause. B1228 (X201, 0.33.0): refused for a turn or a prompt (`isTurnOrPromptWhy`), the line is not typed:
+ * it waits for the turn's end (`holdLine`, `retryHeldLine`), where the clear is tried again first. `atNextPing`: the line waits for the next ping (inside a prompt's or the /clear's own hook the
  * app takes no prompt). The mod knows no usage limit: a full limit is the board's (it hands out nothing then).
  */
 async function clearRefused($: EngineInterface, envelope: Envelope, outcome: Outcome, why: string, o: { isBackground?: boolean; isPaused?: boolean; atNextPing?: boolean } = {}): Promise<void> {
@@ -2205,11 +2238,108 @@ async function clearRefused($: EngineInterface, envelope: Envelope, outcome: Out
   outcome.background = o.isBackground === true
   await postStage($, envelope.id, { stage: 'clear-refused', why: words })
   if (isPausing) return settleEnvelope($, envelope.id, outcome)
+  // B1228 (X201): refused for a turn or a prompt: the line waits for the turn's end, where the clear is tried again first.
+  if (envelope.line !== null && isTurnOrPromptWhy(words)) return holdLine($, envelope, outcome, words)
   if (o.atNextPing === true && envelope.line !== null) {
     lineWaiting = { envelope, outcome, ticket: 0, isCleared: false }
     return
   }
   void typeLine($, envelope, outcome).catch(() => null)
+}
+
+/**
+ * B1228 (X201): the line of an envelope whose clear a turn or a prompt refused waits in `heldLine`, told to the board at once as
+ * the stage `line-waiting` (the board's net holds while the chat's turn runs). Nothing is typed now: the turn's end tries the
+ * clear again first (`retryHeldLine`). A line of an earlier envelope still waiting gives way, untyped (`letHeldGo`).
+ */
+async function holdLine($: EngineInterface, envelope: Envelope, outcome: Outcome, why: string): Promise<void> {
+  const earlier = heldLine
+  const session = await Promise.resolve($.session.id()).catch(() => null)
+  heldLine = { envelope, outcome, session, isPauseSeen: false }
+  if (earlier !== null && earlier.envelope.id !== envelope.id) void letHeldGo($, earlier).catch(() => null)
+  await postStage($, envelope.id, { stage: 'line-waiting', why })
+}
+
+/** B1228, lens 1 (1): a pause read while a line waits: the board took its task back then, so the line never goes (`retryHeldLine`). */
+function notePause(pause: PauseState | null): void {
+  // Chat 1's review (1): only 'pausing' takes the board's work back (its pause.mjs HOLDS); the resume window is no pause here.
+  if (heldLine !== null && pause?.state === 'pausing') heldLine.isPauseSeen = true
+}
+
+/**
+ * B1228: true when the waiting line's step was taken by this chat after its envelope was carried (`heldLineVerdict`), or, lens 1
+ * (2): a take whose answer was cut, when the board's fresh status of this chat names that step as held.
+ */
+function isHeldStale(held: HeldLine): boolean {
+  if (heldLineVerdict(held.envelope.step, carriedAt(held), stepTakes) === 'stale') return true
+  const own = myself === null ? undefined : boardStatuses.find(one => one.name === myself?.name)
+  const isFresh = statusesAt !== null && clockSeen !== null && clockSeen - statusesAt < STATUS_FRESH_MS
+  return isFresh && held.envelope.step !== null && own?.held?.id === held.envelope.step
+}
+
+/** B1228: the take count when the waiting line's envelope was carried. */
+function carriedAt(held: HeldLine): number {
+  return envelopeTakes.get(held.envelope.id) ?? takeCount
+}
+
+/** B1228: a waiting line not typed (`why`): its outcome told so (the board settles TAKEN_ALREADY_WHY and GAVE_WAY_WHY delivered). */
+async function settleUntyped($: EngineInterface, held: HeldLine, why: string): Promise<void> {
+  await settleEnvelope($, held.envelope.id, { ...held.outcome, typed: null, why })
+}
+
+/**
+ * B1228, lens 1 (1): a waiting line that gives way to a newer envelope is never typed (the board hands a second task only once it
+ * let go of the first, so its line is stale): settled as taken already when it is, else GAVE_WAY_WHY.
+ */
+async function letHeldGo($: EngineInterface, held: HeldLine): Promise<void> {
+  await settleUntyped($, held, isHeldStale(held) ? TAKEN_ALREADY_WHY : GAVE_WAY_WHY)
+}
+
+/**
+ * B1228 (X201): the waiting line once the chat's turn has ended (`at`: that turn's answer, its message to another chat, the board's
+ * answer to its end, its counts), in this order: its step taken meanwhile: not typed (TAKEN_ALREADY_WHY); a pause read while it
+ * waited (the board took the task back then): not typed, the pause's words while it stands, else GAVE_WAY_WHY (a pause and its
+ * resume with no reading between is not seen: the line then names a step no longer queued, and its take is refused); the person's stop or remove: not typed
+ * (GAVE_WAY_WHY); no turn's context known (`at` null) or a /clear of the person's since (another session): the line alone, into the
+ * conversation as it is; else its clear is tried again with every guard of the clear after a step (`clearEnvelope`, the pause read
+ * anew), with a fresh outcome (the earlier refusal stays in the stages), and the line follows the clear, or goes without it when the
+ * clear may not run. Refused again for a turn or a prompt, it waits again for the next turn's end. Nothing while a clear is on its way.
+ */
+async function retryHeldLine($: EngineInterface, at: EnvelopeAt | null): Promise<void> {
+  const held = heldLine
+  if (held === null || clearing !== null || movingAfterClear !== null || isDecidingClear) return
+  heldLine = null
+  if (isHeldStale(held)) return settleUntyped($, held, TAKEN_ALREADY_WHY)
+  // The verifier (C): the pause's words only while it still stands (the board releases them by its own pause record); one that
+  // ended since gives way, as the board took the task back then and reads GAVE_WAY_WHY as no failure.
+  if (pauseRead?.pause?.state === 'pausing') return settleEnvelope($, held.envelope.id, { ...held.outcome, typed: null, clearWhy: PAUSED_CLEAR_WHY })
+  if (held.isPauseSeen) return settleUntyped($, held, GAVE_WAY_WHY)
+  // Lens 2 (1): a take of another step since (the chat may hold it now): no clear, and the line gives way.
+  if (stopAsked !== null || takeCount > carriedAt(held)) return settleUntyped($, held, GAVE_WAY_WHY)
+  const session = await Promise.resolve($.session.id()).catch(() => null)
+  if (at === null || session === null || session !== held.session) return typeLine($, held.envelope, held.outcome)
+  const { clearWhy: _refused, ...outcome } = held.outcome
+  try {
+    await clearEnvelope($, held.envelope, { ...outcome, cleared: null, background: false }, at)
+  } catch {
+    // Lens 2 (nit): a retry that throws before the clear was queued: the line alone, as a clear that may not run (never lost).
+    if (clearing === null && handing?.envelope.id !== held.envelope.id && !settledEnvelopes.has(held.envelope.id)) await typeLine($, held.envelope, held.outcome)
+  }
+}
+
+/**
+ * B1228: at a ping, a waiting line that no turn's end tried (a prompt with no turn after it): once the chat has been idle
+ * HELD_IDLE_MS and no turn's end is on its way (lens 1, 3: `isEndingTurn`), with the last turn's context while nothing came in
+ * since; without it (the guards would not see that turn's answer) the line alone, without the clear.
+ */
+async function heldLineAtPing($: EngineInterface): Promise<void> {
+  if (heldLine === null || isInTurn || openForms > 0 || turnReport.state !== 'idle') return
+  if (clockSeen === null || clockSeen - turnReport.since < HELD_IDLE_MS) return
+  // A turn's end still being told (a slow board) tries it itself; one stuck past a minute leaves it to the ping.
+  if (isEndingTurn && clockSeen - turnReport.since < 60_000) return
+  const counts = { prompts: promptCount, turn: turnNumber }
+  const isLast = lastTurn !== null && lastTurn.since.prompts === counts.prompts && lastTurn.since.turn === counts.turn
+  await retryHeldLine($, isLast ? lastTurn : null)
 }
 
 /** T8.5: a turn's end the board answered late (not a reported step's clear, which reads it itself): its envelope, when it brings one. */
@@ -2396,6 +2526,7 @@ async function tick($: EngineInterface): Promise<void> {
   await refreshChats($)
   await keepBoards($)
   await backgroundAgain($)
+  await heldLineAtPing($).catch(() => null)
   lineAfterClear($)
   await takeFromBoard($)
 }
@@ -2948,6 +3079,13 @@ async function afterWorkAnswer($: EngineInterface, action: string, input: Record
     return text
   }
   if (action !== 'take' && action !== 'step') return text
+  // B1228: a take the board answered: a line still waiting for this step is stale from now on.
+  if (action === 'take' && answer.ok && typeof input.id === 'string') {
+    takeCount += 1
+    stepTakes.delete(input.id)
+    stepTakes.set(input.id, takeCount)
+    while (stepTakes.size > TAKES_KEEP) stepTakes.delete(stepTakes.keys().next().value as string)
+  }
   const card = {
     id: input.id, title: read.title, names: Array.isArray(input.names) ? input.names : undefined, steps: numberOf(input.steps),
     step: numberOf(input.step), minutes: numberOf(input.minutes), stepMinutes: numberOf(input.stepMinutes),
@@ -3429,6 +3567,7 @@ async function afterOwnTurn($: EngineInterface, e: TurnEndEvent): Promise<void> 
       isCommandTurn = false
     } else {
       isInTurn = false
+      isEndingTurn = true
       // Chat 1's review (1, the blocker): this work may outlive its hook (the deadline) and run beside the NEXT turn's start, so the
       // per-turn state is taken and reset here, before the first await, and only the snapshot is read below: the next turn's start
       // finds it reset, and its own end is told with its own since and asks.
@@ -3493,6 +3632,19 @@ async function afterOwnTurn($: EngineInterface, e: TurnEndEvent): Promise<void> 
       // 0.32.0, point 1: a word the prompt held whose report at the turn's start failed (the board's file unreadable then) is told now.
       const untold = untoldIds.filter(id => !reportedWords.has(id))
       if (untold.length > 0) void reportEntered($, untold).catch(() => null)
+      // B1228 (X201): a line that waited for this turn's end: let go when the chat took its step in it, else its clear is tried
+      // again first; before any envelope the board's answer brings (that answer may carry the clear after the step taken).
+      // Lens 2 (1): a newer envelope in this answer means the board let go of the waiting one: it gives way, untyped.
+      const newer = told.handover?.envelope ?? null
+      if (heldLine !== null && newer !== null && newer.id !== heldLine.envelope.id) {
+        const gone = heldLine
+        heldLine = null
+        await letHeldGo($, gone).catch(() => null)
+      }
+      // Chat 1's review (2): only at an answered turn's end, as every clear (never after the person's Esc or an error); the ping
+      // types it alone later when no answered turn comes.
+      if (heldLine !== null && e.reason === 'answer') await retryHeldLine($, { answer: e.answer, asked, ended: told.ended, step: at.step, since: turnAt }).catch(err => tell($, `The waiting hand-over was not carried out: ${reason(err)}`))
+      isEndingTurn = false
       // Clear after each step: a worker that reported is cleared or compacted now, the main chat and the partners
       // compacted at rest; the line the board put out for a free worker is typed in after that, unless a clear is
       // on its way (then the conversation after it takes it).

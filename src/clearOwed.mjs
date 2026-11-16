@@ -6,6 +6,8 @@
 // T8.5 step 6 that clear is the first field of the worker's hand-over envelope (handover.mjs `decide`): the line of its
 // next step follows the clear in the same envelope. The lazy clear (Workers mod 0.31.0, 2026-11-03): no clear goes alone,
 // and a clear that cannot run never holds the worker: its line goes anyway and the clear stays owed for the next task.
+// B1228 (X201, Workers mod 0.33.0): one refused for a turn or a prompt first waits for that turn's end and is tried again
+// there; a line whose step the worker took meanwhile is not typed, and the clear stays owed all the same.
 // B737 (X86, 2026-10-27): a report whose board check failed counts for none of this:
 // the board hands the step back, its worker rightly stays in its turn to fix it (Worker 3 and B727, 21:02-21:28), so it
 // owes no clear and is given no new step (handedBackOf) until it reports again and that check passes. PURE.

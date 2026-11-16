@@ -108,8 +108,27 @@ export function isClearOwedOnly(envelope, outcome = envelope?.outcome ?? null) {
   if (envelope === null || envelope === undefined || outcome === null || outcome === undefined) return false
   if (envelope.restart === true || outcome.cleared !== false || outcome.set === false || outcome.restarted === false) return false
   const isWaived = typeof envelope.line !== 'string' && typeof envelope.step === 'string'
-  return outcome.typed === true || isWaived
+  // B1228 (X201): a line that waited in the mod for the chat's turn to end, and was not typed as the chat took its step in that
+  // turn, or gave way (a newer envelope, a stop, a take of another step) (Workers mod 0.33.0): nothing failed; the clear stays owed.
+  const isTakenAlready = outcome.typed === null && (outcome.why === TAKEN_ALREADY_WHY || outcome.why === GAVE_WAY_WHY) && typeof envelope.step === 'string'
+  return outcome.typed === true || isWaived || isTakenAlready
 }
+
+/**
+ * B1228 (X201: Worker 5, 2026-11-14 18:19-18:22, three clears in a row refused): the Workers mod's words for a waiting line it did
+ * not type, as its chat took the line's step meanwhile (its board.ts TAKEN_ALREADY_WHY says the same). Since 0.33.0 a clear refused
+ * for a turn or a prompt holds its line in the mod (the stage `line-waiting`) until the chat's turn has ended, where the clear is
+ * tried again first; typed at once, the line waited behind that turn, entered first at its end and refused the next clear too.
+ */
+export const TAKEN_ALREADY_WHY = 'its step was taken already'
+/** B1228 (the reviews): a waiting line that gave way untyped: a newer envelope came, the person's stop, or a take of another step (board.ts GAVE_WAY_WHY). */
+export const GAVE_WAY_WHY = 'another hand-over or a take came first'
+/** B1228, chat 1's review (b): how long the net leaves a waiting line alone while its chat's turn runs, at most. */
+export const LINE_WAIT_MS = 60 * MIN
+/** B1228: when the waiting line's stage was told, or null. */
+const lineWaitingAt = envelope => envelope.stages.find(one => one?.stage === 'line-waiting' && Number.isFinite(one.at))?.at ?? null
+/** B1228: an envelope in flight whose line waits in the mod for the chat's turn to end: the stage `line-waiting`, no outcome yet. */
+export const isLineWaiting = envelope => (envelope?.outcome ?? null) === null && Array.isArray(envelope?.stages) && envelope.stages.some(one => one?.stage === 'line-waiting')
 
 /** Whether an envelope's outcome failed: the clear, the set or the line did not happen (or the message failed as a whole). */
 export function failedOf(envelope) {
@@ -463,9 +482,23 @@ export function decide({ worker, peers = [], setsRefused = false, nextCheckAt = 
     // the moment the line entered the chat (`enteredAt`, else `typedAt`), the envelope's hand-out only for an older mod.
     const isSettledTyped = inFlight.outcome?.typed === true || inFlight.state === 'delivered'
     const lineAt = inFlight.outcome?.enteredAt ?? inFlight.outcome?.typedAt ?? inFlight.at
+    // B1228 (X201): a line that waits in the Workers mod for the chat's turn to end: no net while that turn runs (the chat is
+    // there and busy: its turn's end types the line or settles it); once the chat is idle (or gone) the net counts from then.
+    const isWaitingLine = isLineWaiting(inFlight)
+    // Chat 1's review (b): the exemption lasts LINE_WAIT_MS of running time from the line's stage at most (one long turn may hold
+    // a step queued to this chat that long, never for hours); past it the net fires as for any envelope.
+    const waitedAt = isWaitingLine ? lineWaitingAt(inFlight) : null
+    const isTurnRunning = worker.isRunning === true && (report?.state === 'busy' || report?.state === 'asking') && waitedAt !== null && runningMs(waitedAt) < LINE_WAIT_MS
+    // Chat 1's re-check (N1): a line that waited and then was typed: the net counts from its entry (`lineAt`), not the hand-out, or
+    // a waiting turn of 10 min or more would lose its step the moment its line went in.
+    const hadWaited = Array.isArray(inFlight.stages) && inFlight.stages.some(one => one?.stage === 'line-waiting')
+    const typedFrom = hadWaited && inFlight.outcome?.typed === true && Number.isFinite(lineAt) ? lineAt : -Infinity
+    const netFrom = Math.max(inFlight.at, wokeAt, typedFrom, isWaitingLine && !isTurnRunning && Number.isFinite(report?.since) && (report.state === 'idle' || report.state === 'ended') ? report.since : -Infinity)
     if (isTurnEnd && isCarried && isSettledTyped && turnSince >= lineAt && wake?.firstTurnEnd !== true) {
       takenBack = { id, why: NOT_TAKEN_WHY }
-    } else if (runningMs(Math.max(inFlight.at, wokeAt)) >= NET_MS) {
+    } else if (isWaitingLine && isTurnRunning) {
+      return result(STATES.HANDING, null, { step: id })
+    } else if (runningMs(netFrom) >= NET_MS) {
       return result(STATES.UNKNOWN, `${UNANSWERED_WHY} (${id})`, { step: id, takeBack: { id, why: UNANSWERED_WHY }, net: inFlight.id, close: closeOf(inFlight) })
     } else {
       const isTyped = inFlight.outcome?.typed === true || inFlight.state === 'delivered'
@@ -619,7 +652,7 @@ export function outcomeOf(value) {
 }
 
 /** The lazy clear (D1): the stages of a clear at a hand-over, in the order they happen. */
-export const CLEAR_STAGES = Object.freeze(['log-saved', 'clear-queued', 'cleared', 'clear-refused'])
+export const CLEAR_STAGES = Object.freeze(['log-saved', 'clear-queued', 'cleared', 'clear-refused', 'line-waiting'])
 /** At most this many stages in one post (each name once). */
 const MOST_STAGES = 8
 

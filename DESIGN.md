@@ -5051,6 +5051,38 @@ a clear alone, a clear that holds the worker and "the line is never typed before
   pauses the chats", typed: null }` (exactly the board's `PAUSED_WHY`, whatever refused the clear; the refusal's own words stay
   in its stage), the board's suspended path takes the task back at once, and `isPauseRefusal` releases the hold at the
   resume, only when the board's own pause record covered the settle (`pauseCovered`).
+- **A line waits for the turn's end** (B1228, X201; Workers mod 0.33.0). The real case: Worker 5, 2026-11-14 18:19-18:22.
+  The person's answer entered at B1218's turn end, before its clear; the clear was refused "a new prompt came in before the
+  clear" and its line was typed at once. Typed then, it waited behind that turn in the app's queue and entered first at its
+  end, where it refused the next clear the same way; and the worker had taken B1221 itself in that turn, so the late line
+  was stale and made it take the next step (B1221, B1223, B1224): three refusals in a row, and `clear-owed-repeat` opened
+  X201. So a clear refused for a **turn or a prompt** (`TURN_OR_PROMPT_WHYS`, `board.ts`: "a turn is running", "a new prompt
+  came in before the clear", "a new prompt came in before the clear ran", "a new turn started before the clear ran") types
+  no line: the mod tells the stage `line-waiting` (after `clear-refused`) and keeps the line (`heldLine`, `register.tsx`)
+  until the chat's turn has ended. There (`retryHeldLine`, at the turn's end before any envelope its answer brings; at a ping
+  once the chat has been idle 15 s when no turn's end tried it) a line whose step the chat **took** since its envelope was
+  carried (the mod counts the takes its work tool answered: `heldLineVerdict`) is not typed: the outcome says
+  `{ cleared: false, clearWhy, typed: null, why: "its step was taken already" }` (`TAKEN_ALREADY_WHY`), which
+  `isClearOwedOnly` reads as no failure (delivered: no HELD, no take-back; the clear stays owed and rides the next task's
+  envelope, whose clear now runs in that idle). Any other line has its clear **tried again first**, with every guard of
+  `clearAfter` (the pause read anew), a fresh outcome, and the line follows the clear (or goes at once when the clear may not
+  run for another reason); refused again for a turn or a prompt, it waits for the next turn's end. On the board
+  (`decide`) the net does not fire on a waiting line (`isLineWaiting`) while the chat runs and its report says busy or
+  asking; once idle (or not running) it counts from the report's `since`, so a line lost with its process (it is kept in
+  memory only) still ends in UNKNOWN and one take-back. The real case replayed: at most the first clear is refused, the
+  second runs, `clear-owed-repeat` stays quiet. The two reviews added: a waiting line **gives way untyped** (`GAVE_WAY_WHY`,
+  "another hand-over or a take came first", also no failure) when the turn's end brings a newer envelope (the board let go of
+  this one), when the person stopped or removed the worker, or when the chat took another step since (it may hold it, so no
+  clear may run); a pause read while it waited (state `pausing` only: the resume window is none) settles it with the pause's words while the pause
+  still stands, and gives way once it is over (the board took the task back then; its words after the resume would hold the
+  worker); the retry runs only at an answered turn's end (never after the person's Esc or an error); the net's exemption ends
+  after `LINE_WAIT_MS` (60 min of running time from the stage) also while the turn still runs, and once the waited line is typed
+  its net counts from the line's entry (chat 1's re-check, N1: from the hand-out a 10-min wait lost its step at once); a take
+  whose answer was cut counts by the board's fresh status of the chat (`held`); with no turn's context known at a ping, or a
+  /clear of the person's since, the line goes alone, without the clear. Landing order: the board first (an older board reads
+  "taken already" as a clear that did not run, and holds the worker once its step is reported), then the mod; workers restart onto 0.33.0 through their RESTARTING envelope. Tests:
+  `test/work/heldLine.test.mjs` (the real ids and times), the mod's `chatlist.test.ts` (the real case, R5, the clearrun
+  refusal, the ping) and `board.test.ts`.
 - **The 20-second net** (D2, D9; `CLEAR_NET_MS`, `register.tsx`). An envelope's /clear queued and neither run nor
   refused within 20 s is **dropped completely** before its line goes: the clear on its way (`clearing`, `handing`) is
   emptied, the card's mark taken off, the stored `PendingClear` marked `lineTyped` (written before the line is submitted:
@@ -5890,7 +5922,9 @@ for another, and since step 6 the old rules are gone for every worker:
   skip-repeats (both gone since step 6).
 - `clear-owed-repeat` (0.31.0): a worker whose clear did not run at its last three hand-overs in a row (each settled
   `cleared: false` with a `clearWhy`, its line typed each time, the clear still owed): one finding, key `clear-owed-repeat <worker>`,
-  judged by the Supervisor as any. Nothing holds the worker; the rule says its clear keeps failing ("The lazy clear").
+  judged by the Supervisor as any. Nothing holds the worker; the rule says its clear keeps failing ("The lazy clear"). Since
+  Workers mod 0.33.0 (B1228, X201) a clear refused for a turn or a prompt waits for that turn's end and is tried again, so a
+  chain of such refusals (Worker 5's three of 2026-11-14) no longer feeds itself: at most the first is refused.
 - `handover-unanswered`: the net fired (`netAt` on an envelope of its): one finding per envelope, for a day after the net.
   In place of not-taking. Fix 0.31.0: not for a lone clear that the board's start sweep settled (`dropped` with the
   why "a lone clear from before 0.31.0, never answered" or the older "no clear goes alone since Workers mod 0.31.0: ..."): X141 counted ba127291
