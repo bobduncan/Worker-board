@@ -2,6 +2,7 @@
 // the writes (the carry set's targets only), the practice pause, the times, the pictures, the user settings, the record, the summary.
 // Roots and outside calls come in as in save.mjs.
 
+import * as nodeFs from 'node:fs'
 import { join, dirname } from 'node:path'
 
 import { writeAtomic } from '../write.mjs'
@@ -160,7 +161,7 @@ export async function load(roots, options = {}, deps) {
 async function fromDrive({ roots, pictures, fs, dryRun, log, journal }) {
   if (roots.picturesFolder === null) { log('No Drive folder (--pictures): the pictures were not copied'); return { copied: 0, kept: 0, missing: [] } }
   const record = await fs.readFile(join(roots.dataDir, 'pictures.json'), 'utf8').then(text => JSON.parse(text)).catch(() => [])
-  const got = await pictures.fromDrive({ record, project: roots.project, folder: roots.picturesFolder, name: roots.project.split(/[\\/]/).filter(Boolean).at(-1), dryRun, fs })
+  const got = await pictures.fromDrive({ record, project: roots.project, folder: roots.picturesFolder, name: roots.project.split(/[\\/]/).filter(Boolean).at(-1), dryRun, fs: nodeFs })
   for (const one of got.copiedPaths ?? []) journal(one)
   return { copied: got.copied ?? 0, kept: got.kept ?? 0, missing: got.missing ?? [] }
 }

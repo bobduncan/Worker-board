@@ -15,6 +15,9 @@ import { blobOf, gitRunner, line, lines } from '../src/carry/git.mjs'
 import { save, DATA_BRANCH, PRACTICE_BRANCH } from '../src/carry/save.mjs'
 import { load } from '../src/carry/load.mjs'
 import { recordFileFor, readRecord } from '../src/carry/record.mjs'
+import * as realSet from '../src/carry/set.mjs'
+import * as realPictures from '../src/carry/pictures.mjs'
+import { cp } from 'node:fs/promises'
 
 const fs = { readFile, writeFile, mkdir, rm, stat, readdir, utimes, copyFile, access }
 const slashes = path => String(path).replace(/\\/g, '/')
@@ -106,7 +109,7 @@ async function fillA(a, remote) {
   await writeFile(join(a.project, 'pictures', 'knight.png'), Buffer.from([137, 80, 78, 71, 1, 2, 3]))
   await utimes(join(a.project, 'pictures', 'knight.png'), new Date(1700000001234.5), new Date(1700000001234.5))
   const keepSet = join(a.project, 'keep-set.json')
-  await writeFile(keepSet, JSON.stringify({ made: 1700000000000, files: ['pictures/knight.png'] }))
+  await writeFile(keepSet, JSON.stringify({ made: 1700000000000, items: [{ path: 'pictures/knight.png' }] }))
   return { wt, keepSet }
 }
 
@@ -147,11 +150,12 @@ const setFake = {
 
 /** B3's contract, faked: the keep set's files to and from the Drive folder, whole-millisecond times, never deleting. */
 const picturesFake = {
+  // As B3: the node:fs module comes in (fs.promises for the reads).
   async pictureList({ keepSetFile, project, fs }) {
-    const set = keepSetFile ? JSON.parse(await fs.readFile(keepSetFile, 'utf8')) : { files: [] }
+    const set = keepSetFile ? JSON.parse(await fs.promises.readFile(keepSetFile, 'utf8')) : { items: [] }
     const out = []
-    for (const path of set.files ?? []) {
-      const info = await fs.stat(join(project, ...path.split('/'))).catch(() => null)
+    for (const path of (set.items ?? []).map(one => one.path)) {
+      const info = await fs.promises.stat(join(project, ...path.split('/'))).catch(() => null)
       if (info) out.push({ path, size: info.size, mtimeMs: info.mtimeMs })
     }
     return out
@@ -163,9 +167,9 @@ const picturesFake = {
       const target = join(folder, ...one.path.split('/'))
       const ms = Math.floor(one.mtimeMs)
       if (!dryRun) {
-        await fs.mkdir(dirname(target), { recursive: true })
-        await fs.writeFile(target, await fs.readFile(join(project, ...one.path.split('/'))))
-        await fs.utimes(target, new Date(ms), new Date(ms))
+        await fs.promises.mkdir(dirname(target), { recursive: true })
+        await fs.promises.writeFile(target, await fs.promises.readFile(join(project, ...one.path.split('/'))))
+        await fs.promises.utimes(target, new Date(ms), new Date(ms))
       }
       copied += 1
       record.push({ path: one.path, size: one.size, mtimeMs: ms })
@@ -180,12 +184,12 @@ const picturesFake = {
     for (const one of record) {
       const source = join(folder, ...one.path.split('/'))
       const target = join(project, ...one.path.split('/'))
-      const bytes = await fs.readFile(source).catch(() => null)
+      const bytes = await fs.promises.readFile(source).catch(() => null)
       if (bytes === null) { missing.push(one.path); continue }
       if (!dryRun) {
-        await fs.mkdir(dirname(target), { recursive: true })
-        await fs.writeFile(target, bytes)
-        await fs.utimes(target, new Date(one.mtimeMs), new Date(one.mtimeMs))
+        await fs.promises.mkdir(dirname(target), { recursive: true })
+        await fs.promises.writeFile(target, bytes)
+        await fs.promises.utimes(target, new Date(one.mtimeMs), new Date(one.mtimeMs))
         copiedPaths.push(target)
       }
       copied += 1
@@ -393,4 +397,63 @@ test('two PCs: save on A (the data branch, the step branch, the pictures, the re
   // The data folder stays out of the game checkout's view only once part A's ignore line is there: here, status names it.
   assert.ok(lines(await a.git(a.gameRepo, ['status', '--porcelain'])).some(one => /\.workerboard/.test(one)), 'without part A the game checkout sees the folder (part A ignores it)')
   assert.ok(relative(a.gameRepo, dataA).startsWith('.workerboard'))
+})
+
+test('the real case (chat 2\'s fixture, B2\'s set and B3\'s pictures for real): B1149\'s local-only branch is pushed, the review step only warns, Branch: none is skipped, the board step is listed, pause.json travels as pausing, the held word is kept, the key never travels', LONG, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'carry-real-'))
+  t.after(() => rm(root, { recursive: true, force: true }).catch(() => {}))
+  const a = await pc(root, 'R')
+  const remote = await makeRemote(root, a.git)
+  const fixture = join(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), 'fixtures', 'carry-real')
+  // The fixture's project, board data and memory on this PC, with the game clone where its config says.
+  await cp(join(fixture, 'project'), a.project, { recursive: true })
+  await mkdir(join(a.boardDir, 'data'), { recursive: true })
+  await cp(join(fixture, 'board', 'data'), join(a.boardDir, 'data'), { recursive: true })
+  await cp(join(fixture, 'memory'), a.memoryDir, { recursive: true })
+  await a.ok(a.project, ['clone', '-q', remote, a.gameRepo])
+  const drive = join(root, 'drive')
+  await mkdir(join(drive, 'pictures'), { recursive: true })
+  const configText = (await readFile(join(fixture, 'config.json'), 'utf8')).replaceAll('{project}', slashes(a.project)).replaceAll('{drive}', slashes(drive))
+  await writeFile(join(a.boardDir, 'config.json'), configText)
+  await writeFile(a.userSettingsFile, (await readFile(join(fixture, 'user-settings.json'), 'utf8')).replaceAll('{project}', slashes(a.project)))
+  for (const args of [['init', '-q', '-b', 'main'], ['config', 'user.name', 't'], ['config', 'user.email', 't@t']]) await a.ok(a.boardDir, args)
+  await writeFile(join(a.boardDir, '.gitignore'), 'data/\nconfig.json\n')
+  await writeFile(join(a.boardDir, 'server.mjs'), '// board\n')
+  await a.ok(a.boardDir, ['add', '-A'])
+  await a.ok(a.boardDir, ['commit', '-q', '-m', 'board'])
+  // B1149's branch: local only, two commits, in its worktree (the step is given back: refined, no owner).
+  const wt = join(a.project, 'game-b1149')
+  await a.ok(a.gameRepo, ['worktree', 'add', '-q', '-b', 'b1149', wt])
+  await writeFile(join(wt, 'mage.txt'), 'sheet\n')
+  await a.ok(wt, ['add', '-A'])
+  await a.ok(wt, ['commit', '-q', '-m', 'B1149 sheet'])
+  await writeFile(join(wt, 'mage.txt'), 'sheet 2\n')
+  await a.ok(wt, ['commit', '-q', '-am', 'B1149 sheet 2'])
+  const config = JSON.parse(configText)
+  const roots = { boardDir: a.boardDir, project: a.project, config: { ...config, work: '.claude/work' }, gameRepo: a.gameRepo, workDir: join(a.project, '.claude', 'work'), dataDir: join(a.gameRepo, '.workerboard'), isExplicitData: false, remote, picturesFolder: join(drive, 'pictures'), keepSetFile: null, memoryDir: a.memoryDir, userSettingsFile: a.userSettingsFile }
+  const key = JSON.parse(await readFile(join(a.project, '.claude', 'board.json'), 'utf8')).key
+  const logs = []
+  const deps = {
+    git: a.git, set: realSet, pictures: realPictures, fs, recordFile: recordFileFor({ boardDir: a.boardDir, dataDir: roots.dataDir, isExplicit: false }),
+    boardAnswers: async () => [], keepers: async () => [], lockAgeMs: async () => null, secrets: async () => [{ kind: 'bridge key', value: key }], driveFree: async () => 1e12, lacks: async () => [],
+  }
+  const done = await save(roots, { log: text => logs.push(text), now: 1794840000000 }, deps)
+  assert.equal(done.ok, true, `${JSON.stringify(done.refusals)}\n${logs.join('\n')}`)
+  assert.deepEqual(done.branchesPushed.map(one => one.branch), ['b1149'], 'the given-back step\'s local-only branch is pushed')
+  assert.equal(line(await a.git(a.gameRepo, ['ls-remote', '--heads', remote, 'b1149'])).slice(0, 40), line(await a.git(wt, ['rev-parse', 'HEAD'])))
+  assert.ok(logs.some(one => /^Warning: B1153 is in review/.test(one)), 'the review step whose branch is gone warns')
+  assert.equal(done.refusals.length, 0)
+  assert.ok(!logs.some(one => /B1003/.test(one)), 'the done step with Branch: none is nowhere')
+  assert.deepEqual(done.boardSteps.map(one => one.id), ['B1240'], 'the board step (Priority: fix, in progress) is listed')
+  assert.ok(logs.some(one => /^Board step B1240 \(in progress, b1240-r/.test(one)))
+  const data = roots.dataDir
+  assert.equal(JSON.parse(await readFile(join(data, 'home', '.claude', 'work', 'pause.json'), 'utf8')).state, 'pausing', 'pause.json travels as pausing')
+  assert.deepEqual(JSON.parse(await readFile(join(data, 'held-words.json'), 'utf8')).map(one => [one.chat, one.step]), [['Features', 'B72']], 'the one held line, not the delivered one')
+  assert.equal(existsSync(join(data, 'home', '.claude', 'board.json')), false, 'the bridge key file does not travel')
+  const tracked = lines(await a.git(data, ['ls-files']))
+  for (const path of tracked) assert.equal((await readFile(join(data, ...path.split('/')), 'utf8').catch(() => '')).includes(key), false, `${path} holds no key`)
+  assert.ok(tracked.some(path => /^home\/.claude\/work\/B1149\.md$/.test(path)) && tracked.some(path => /^board\/data\/finished\.json$/.test(path)) && tracked.some(path => /^memory\//.test(path)) && tracked.includes('settings/config.json'), tracked.join(' '))
+  assert.ok(!tracked.some(path => /names\.json|delivered\.json|\.claim$|\.tmp$|broken-/.test(path)), 'runtime files stay out (B2)')
+  assert.ok(logs.some(one => /^Saved /.test(one)), logs.join('\n'))
+  assert.equal(logs.join('\n').includes(key), false, 'the key is never printed')
 })

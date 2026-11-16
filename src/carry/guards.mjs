@@ -120,7 +120,8 @@ export function heldStepsOf(items) {
 }
 
 /** The steps in review, by id. */
-export const reviewStepsOf = items => [...items.values()].filter(item => valueOf(item, 'Kind') === 'step' && valueOf(item, 'State') === 'review').map(item => valueOf(item, 'Id'))
+export const REVIEW_STATES = ['review', 'in review']
+export const reviewStepsOf = items => [...items.values()].filter(item => valueOf(item, 'Kind') === 'step' && REVIEW_STATES.includes(valueOf(item, 'State'))).map(item => valueOf(item, 'Id'))
 
 /** The secret values that must never travel: every string of 16+ characters in the texts given (`.claude/board.json`, Codex's auth.json) and the keys given. */
 export function secretValuesOf({ texts = [], keys = [] }) {

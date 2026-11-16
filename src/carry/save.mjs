@@ -2,10 +2,12 @@
 // print. Every root and every outside call comes in through `roots` and `deps`, so the two-PC test runs it on temp folders with a
 // local bare remote and fakes for the board checks; nothing here reads boards.json or another checkout by itself.
 
-import { join, basename, dirname } from 'node:path'
+import * as nodeFs from 'node:fs'
+import { join, basename, dirname, relative } from 'node:path'
 import { hostname } from 'node:os'
 
 import { readStore } from '../work/store.mjs'
+import { assetsFolderOf } from '../assets.mjs'
 import { parsePause, checkpointOf } from '../work/pause.mjs'
 import { valueOf } from '../work/item.mjs'
 import { aheadOf, blobOf, commitAndPush, ensureDataClone, isAnonymouslyReadable, lines, localBranches, pushBranch, pushIsFastForward, remoteBranch, trackedChanges, commitsNotOnOrigin } from './git.mjs'
@@ -68,10 +70,11 @@ export async function save(roots, options = {}, deps) {
   // ---- the guards' facts
   const dirtySteps = []
   const branchesGone = []
+  const noWorktree = []
   for (const step of held) {
     if (step.branch === null || step.branch === 'none') continue
     const worktree = await worktreeOf(git, [roots.gameRepo, roots.boardDir], step.branch)
-    if (worktree === null) { warnings.push(`${step.id}: its branch ${step.branch} is checked out in no worktree here: uncommitted work on it cannot be checked`); continue }
+    if (worktree === null) { noWorktree.push({ id: step.id, chat: step.chat, branch: step.branch }); warnings.push(`${step.id}: its branch ${step.branch} is checked out in no worktree here: uncommitted work on it cannot be checked`); continue }
     const changed = await trackedChanges(git, worktree).catch(() => [])
     if (changed.length > 0) dirtySteps.push({ id: step.id, chat: step.chat, folder: worktree, files: changed })
   }
@@ -97,7 +100,14 @@ export async function save(roots, options = {}, deps) {
   const keepSet = roots.keepSetFile === null ? null : await fs.readFile(roots.keepSetFile, 'utf8').then(text => JSON.parse(text)).catch(() => null)
   const since = Number.isFinite(keepSet?.made) ? keepSet.made : Number.isFinite(Date.parse(keepSet?.made)) ? Date.parse(keepSet.made) : 0
   const changedTexts = files.filter(one => one.text !== null && one.mtimeMs >= since).map(one => one.text)
-  const list = roots.picturesFolder === null ? [] : await pictures.pictureList({ keepSetFile: roots.keepSetFile, project: roots.project, roots: roots.config.pictureRoots, since, changedTexts, fs })
+  // The picture roots and the asset folder (B3 reads both), relative to the project.
+  const pictureRoots = [...(roots.config.pictureRoots ?? []), slashes(relative(roots.project, assetsFolderOf(roots.workDir)))].filter(root => root !== '' && !root.startsWith('..'))
+  // B3 takes the node:fs module (streams, statfs); no keep set means no pictures, said.
+  const pictureFs = deps.pictureFs ?? nodeFs
+  if (roots.picturesFolder !== null && roots.keepSetFile === null) warnings.push('no keep set (--keep-set <file>): no picture listed; the pictures did not travel')
+  const list = roots.picturesFolder === null || roots.keepSetFile === null ? [] : await pictures.pictureList({ keepSetFile: roots.keepSetFile, project: roots.project, roots: pictureRoots, since, changedTexts, fs: pictureFs })
+  for (const path of list.missing ?? []) warnings.push(`picture ${path}: listed but gone`)
+  for (const one of list.skipped ?? []) warnings.push(`picture ${one.path}: ${one.why}`)
   const need = list.reduce((sum, one) => sum + (one.size ?? 0), 0)
   const free = roots.picturesFolder === null ? null : await deps.driveFree(roots.picturesFolder)
   if (Number.isFinite(free) && free < need) facts.driveShort = { need, free }
@@ -135,7 +145,7 @@ export async function save(roots, options = {}, deps) {
 
   // ---- pictures to the Drive folder
   const copied = roots.picturesFolder === null ? { copied: 0, same: 0, missing: [], bytes: 0, record: [] }
-    : await pictures.toDrive({ list, project: roots.project, folder: roots.picturesFolder, name: basename(roots.project), dryRun, fs })
+    : await pictures.toDrive({ list, project: roots.project, folder: roots.picturesFolder, name: basename(roots.project), dryRun, fs: pictureFs })
   if (roots.picturesFolder === null) warnings.push('no Drive folder (--pictures): the pictures did not travel')
 
   // ---- times, held words, board steps, the save's own record
@@ -156,7 +166,7 @@ export async function save(roots, options = {}, deps) {
   const toPush = pushes.filter(one => one.fastForward && one.rule !== 'already there')
   const saved = {
     pc: hostname(), at: now, kind: practice ? 'practice' : 'final', branch, mains, counts: { files: files.length, written: written.length, removed: removed.length, pictures: list.length },
-    branchesPushed: toPush.map(one => ({ branch: one.branch, repo: basename(one.repo), step: one.step, commit: one.commit })), boardSteps, heldWords: heldWords.length,
+    branchesPushed: toPush.map(one => ({ branch: one.branch, repo: basename(one.repo), step: one.step, commit: one.commit })), boardSteps, heldWords: heldWords.length, noWorktree,
   }
   const own = {
     'saved.json': JSON.stringify(saved, null, 2) + '\n', 'times.json': JSON.stringify({ files: times }, null, 2) + '\n',
@@ -199,6 +209,7 @@ export async function save(roots, options = {}, deps) {
   for (const one of warnings) log(`Warning: ${one}`)
   for (const one of heldWords) log(`Held word for ${one.chat}${one.step ? ` (${one.step})` : ''}, retype it there: ${one.words.split('\n')[0].slice(0, 160)}`)
   for (const one of boardSteps) log(`Board step ${one.id} (${one.state}, ${one.branch}): ${one.why}; it cannot land on the other PC`)
+  for (const one of noWorktree) log(`Held step ${one.id} (${one.chat}): its branch ${one.branch} is in no worktree here; its uncommitted work, if any, stays on this PC`)
   return { ok: true, refusals: [], warnings, files: files.length, written, removed, pictures: copied, heldWords, boardSteps, branchesPushed, pushes, commit: pushed.commit, dryRun, saved }
 }
 
