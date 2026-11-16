@@ -408,7 +408,8 @@ such a `work ask` is refused): a step ready to land is told to chat 1 (board dev
 A worker that waits for another chat records it (`work block id=B<n> on="chat 1" why="..."`, P1 of the one wait system, 2026-11-09): its
 lane says "waits for chat 1 (its go to land) since HH:MM", the board sends it no "go on" line and gives nothing back; past 90 minutes of
 running time the user sees one Late. You, the holder or the user clear it with `work unblock B<n>`; when you give such a chat its go,
-say "unblock first".
+say "unblock first". A wait for the landing ends by itself when its branch lands (F33, B1256): the board clears it with a History line
+and tells the owner once to report it; you need not relay "it's live, report it".
 A step nobody holds yet (new, refined or queued with no owner) that waits on purpose gets a hold in words
 (`work block id=B<n> on="<what it waits for>" why="<why>"`, 2026-11-11): it writes `Waits for`, the board hands it to nobody, its status
 reads "held: waits for <words>" and the Advisor card says it quietly. No step or ask id in the words (for a step: `on=B12`). Clear it
