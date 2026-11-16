@@ -100,6 +100,13 @@ test('rule 1 at filing: an ask of a step at work is never routed to the recap; t
   // Blocks not known (no focusSteps): judged as before.
   assert.equal(route(Q817(), B1205()).to, 'recap')
   assert.deepEqual([isInNoBlock('B1205', new Map(), BLOCK_STEPS), isInNoBlock('B1206', new Map(), BLOCK_STEPS), isInNoBlock('B1205', new Map(), []), isInNoBlock('B1205', new Map(), null)], [true, false, false, false])
+  // Chat 1's re-check (M6): a fix of a block step counts as in its block by its chain's root, so its in-review card keeps the recap.
+  const fix = step('B1241', { Title: 'Fix: the cleave\'s hold', State: 'review', Owner: 'Builder', 'Fix of': 'B1206' })
+  const chain = mapOf([fix, step('B1242', { Title: 'Fix: the cleave again', State: 'review', Owner: 'Builder', 'Fix of': 'B1241' }), B1206()])
+  assert.deepEqual([isInNoBlock('B1241', chain, BLOCK_STEPS), isInNoBlock('B1242', chain, BLOCK_STEPS)], [false, false])
+  assert.equal(routeIn(Q818().replace(/Of: B1206/, 'Of: B1241'), fix).to, 'partner', 'without its root in the store it reads as in no block')
+  const onFix = mapOf([Q818().replace(/Of: B1206/, 'Of: B1241'), fix, B1206()])
+  assert.equal(autopilotRoute(onFix.get('Q818'), { roleOf, items: onFix, focusGoal: 'G95', focusSteps: BLOCK_STEPS }).to, 'recap', 'the fix\'s card keeps the recap')
   // Settled in the refine: the last-action look (a worker's look with pictures of a focus-goal step, at work) still reaches the recap, kept.
   const look = route(keptLook('Q900', 'B1149', { Route: null }), B1149())
   assert.deepEqual([look.to, look.kept], ['recap', true])
