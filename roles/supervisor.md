@@ -141,7 +141,9 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 - A chat runs the model and effort its step asks for (the summary shows both side by side). The board asks the main
   chat to switch it after the take, so a mismatch within 10 min of a take, or with its switch asked ("switch asked
   HH:MM" beside it), is the switch under way: no incident. One that lasts is marked "!" and the rule effort-mismatch
-  names it to the main chat itself.
+  names it to the main chat itself. A step whose model or effort changed after its hand-over (a refine round, the goal
+  guard) gets its own word to the main chat, and its mismatch counts from that change, not from the take: the finding
+  says when it changed and what its hand-over asked (B1207).
 - A worker is cleared after its reported step (or compacted, as the list of chats says); the same reason for not
   clearing it, again and again, is odd.
 
