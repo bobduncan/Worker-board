@@ -489,7 +489,11 @@ export function decide({ worker, peers = [], setsRefused = false, nextCheckAt = 
     // a step queued to this chat that long, never for hours); past it the net fires as for any envelope.
     const waitedAt = isWaitingLine ? lineWaitingAt(inFlight) : null
     const isTurnRunning = worker.isRunning === true && (report?.state === 'busy' || report?.state === 'asking') && waitedAt !== null && runningMs(waitedAt) < LINE_WAIT_MS
-    const netFrom = Math.max(inFlight.at, wokeAt, isWaitingLine && !isTurnRunning && Number.isFinite(report?.since) && (report.state === 'idle' || report.state === 'ended') ? report.since : -Infinity)
+    // Chat 1's re-check (N1): a line that waited and then was typed: the net counts from its entry (`lineAt`), not the hand-out, or
+    // a waiting turn of 10 min or more would lose its step the moment its line went in.
+    const hadWaited = Array.isArray(inFlight.stages) && inFlight.stages.some(one => one?.stage === 'line-waiting')
+    const typedFrom = hadWaited && inFlight.outcome?.typed === true && Number.isFinite(lineAt) ? lineAt : -Infinity
+    const netFrom = Math.max(inFlight.at, wokeAt, typedFrom, isWaitingLine && !isTurnRunning && Number.isFinite(report?.since) && (report.state === 'idle' || report.state === 'ended') ? report.since : -Infinity)
     if (isTurnEnd && isCarried && isSettledTyped && turnSince >= lineAt && wake?.firstTurnEnd !== true) {
       takenBack = { id, why: NOT_TAKEN_WHY }
     } else if (isWaitingLine && isTurnRunning) {

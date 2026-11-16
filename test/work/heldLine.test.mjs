@@ -71,6 +71,14 @@ test('B1228, the real case: while the line waits for the turn the person\'s answ
   const ceiling = at(A_REFUSED + LINE_WAIT_MS, busyAt(A_REFUSED + LINE_WAIT_MS))
   assert.deepEqual([ceiling.state, ceiling.takeBack?.id], [STATES.UNKNOWN, 'B1221'])
   assert.equal(LINE_WAIT_MS, 60 * MIN)
+  // Chat 1's re-check (N1): a 15-min waiting turn, then its line typed at its end: offered, its net counting from the line's entry.
+  const typedAt = A_REFUSED + 15 * MIN
+  const typed = { ...envelopeA(), state: 'delivered', deliveredAt: typedAt + 500, settledAt: typedAt + 500, outcome: outcomeOf({ cleared: true, set: null, typed: true, restarted: null, background: false, typedAt, enteredAt: typedAt + 400 }) }
+  const typedLane = now => lane({ state: 'busy', since: typedAt + 400, background: false, at: now })
+  const offered = decide({ worker: typedLane(typedAt + MIN), items, ready: ready('B1223'), envelopes: [typed], now: typedAt + MIN })
+  assert.deepEqual([offered.state, offered.takeBack], [STATES.OFFERED, null])
+  // Its own net still fires, NET_MS after the entry.
+  assert.equal(decide({ worker: typedLane(typedAt + 400 + NET_MS), items, ready: ready('B1223'), envelopes: [typed], now: typedAt + 400 + NET_MS }).state, STATES.UNKNOWN)
   // Unchanged for an envelope without the stage (a 0.32.0 mod): the net from the envelope, also while busy.
   const old = decide({ worker: lane({ state: 'busy', since: A_REFUSED, background: false, at: A_AT + NET_MS }), items, ready: ready('B1223'), envelopes: [envelopeA(false)], now: A_AT + NET_MS })
   assert.equal(old.state, STATES.UNKNOWN)
