@@ -134,6 +134,8 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
   // Autopilot v2 (on purpose: "Which part first?" of the focus goal now takes its advice): a goal's start stays the person's.
   const part = await asChat('Advisor', { action: 'ask', of: 'G6', kind: 'decide', title: 'Which goal comes next: damage or the bars?', text: 'Damage first or the bars first?', options: ['A damage', 'B bars'], advice: 'A' })
   ok(part, 'the goal\'s')
+  // B1240 (F31): only finished work waits for the recap, so the checker looks at B12 once it is reported (in review), as a checker does.
+  await writeFile(join(work, 'B12.md'), (await readFile(join(work, 'B12.md'), 'utf8')).replace(/^State: .*$/m, 'State: review'))
   const look = await asChat('Checker', { action: 'ask', of: 'B12', kind: 'look', title: 'Approve the hedge as it is?', text: 'It stands a little low.', advice: 'yes' })
   ok(look, 'the checker\'s')
   const [mergeId, namesId, partId, lookId] = [merge, names, part, look].map(idOf)
@@ -169,9 +171,7 @@ test('Autopilot switched on routes the open asks at once, wakes the main chat fo
   assert.equal(await head(mergeId, 'Answered by'), 'main')
 
   // The recap's Send: the part that shows B12 sent back closes the checker's look with the person's words.
-  // T20.1: a row whose step is under way asks nothing; B12 is reported (in review) before the person judges its row, and the board has to see it.
-  assert.equal((await asPerson('/api/demo-feedback', { path: 'pictures/g6/demo.json', round: 1, parts: [{ key: '1. Hedge', verdict: 'sent-back', comment: 'taller, please' }] })).status, 400, 'B12 is taken: its row is being reworked')
-  await writeFile(join(work, 'B12.md'), (await readFile(join(work, 'B12.md'), 'utf8')).replace(/^State: .*$/m, 'State: review'))
+  // T20.1: a row whose step is under way asks nothing; B12 was reported (in review) before the checker's look (B1240), so its row is open.
   const sent = await until(async () => {
     const answered = await asPerson('/api/demo-feedback', { path: 'pictures/g6/demo.json', round: 1, parts: [{ key: '1. Hedge', verdict: 'sent-back', comment: 'taller, please' }] })
     return answered.status === 400 ? null : answered
