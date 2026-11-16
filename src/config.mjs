@@ -6,6 +6,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { EFFORTS, MODELS, modelIds } from './work/effort.mjs'
 import { parseRoutingPolicy } from './work/routing/policy.mjs'
 import { ASSET_KINDS, DEFAULT_PROVIDERS, PROVIDERS } from './providers/index.mjs'
+import { PICTURE_PLACES, isPictures } from './picturesSetup.mjs'
 
 /**
  * B300: the work store's reconciler (src/work/reconcile.mjs). A step held by a chat that is not running is flagged after
@@ -498,6 +499,9 @@ export function parseConfig(text, env) {
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
   if (isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0) config.advisorParts = [...new Set(raw.advisorParts)]
   if (cpuLevelOf(raw.cpuLimit) !== null) config.cpuLimit = cpuLevelOf(raw.cpuLimit)
+  // T5.2 P4: where the project's pictures live (a project key) and this PC's path to that folder (a PC key); left out, none.
+  config.pictures = isPictures(raw.pictures) ? { ...raw.pictures } : null
+  config.picturesHome = typeof raw.picturesHome === 'string' ? raw.picturesHome.trim() : ''
   // Leaked headless browsers (2026-11-13): whether this board runs the PC-wide rule `browsers`; left out, the PC's first board does.
   if (typeof raw.browsersRule === 'boolean') config.browsersRule = raw.browsersRule
   // B354: the kinds that are right, each once.
@@ -582,6 +586,8 @@ export function configProblem(fileText) {
       if (Object.hasOwn(given, key) && !(Number.isFinite(given[key]) && given[key] > 0)) return `"supervisor.${key}" must be a number above 0, not ${JSON.stringify(given[key]).slice(0, 60)}`
     }
   }
+  if (has('pictures') && !isPictures(raw.pictures)) return wrong('pictures', `{ "where": one of ${PICTURE_PLACES.map(one => `"${one}"`).join(', ')}, "folder": a folder name } (no folder for "this PC")`)
+  if (has('picturesHome') && typeof raw.picturesHome !== 'string') return wrong('picturesHome', 'a folder on this PC')
   if (has('providers')) {
     const { problem } = readProviders(raw.providers)
     if (problem !== null) return problem

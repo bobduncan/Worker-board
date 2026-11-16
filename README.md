@@ -153,6 +153,7 @@ and the briefings for the main chat and the workers.
    same folder and whose folder has nothing uncommitted. The live chat is never archived. Each archive is one line in
    `board.log` ("B847: archived the replaced chat ...").
    Setup also brings your project's own `flow.json` up to date with the moves the board's code needs (a new board feature does nothing in an older flow file): it shows what it would add, asks y/n (without a keyboard only `npm run setup -- --flow yes` writes), never changes or removes a move of yours, and keeps the old file as `flow.json.bak-<time>`. `npm run setup -- --check` shows it and writes nothing.
+   Setup also asks once where the project's pictures go: a Google Drive, OneDrive or Dropbox folder it finds, somewhere else, or this PC only (`--pictures <folder>` or `--pictures none` answers without a keyboard). The choice (`pictures`) is the project's; this PC's path to that folder goes into `config.json` (`picturesHome`); on a second PC with the same cloud folder setup finds the path itself.
    **The wake courier** (F17, 2026-11-14): since the Claude app refuses a mod's own sends in Auto mode, a scheduled task wakes the
    sleeping chats: "Worker board wake courier", every 10 minutes, on the cheapest model, in Auto mode, with the prompt in
    `tools/wake-courier.md`. Setup cannot make it (code cannot create a scheduled task); `npm run setup` and `-- --check` print what to
