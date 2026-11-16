@@ -14,7 +14,7 @@ import { healthSummary } from '../../src/supervisor/health.mjs'
 import { WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
 import { refineWhenDue } from '../../src/refineGate.mjs'
 import { workApi } from '../../src/work/api.mjs'
-import { ANOTHER_WAY, chainTries } from '../../src/work/resultCheck.mjs'
+import { ANOTHER_WAY, chainTries, noTriedBefore, triedBeforeWanted } from '../../src/work/resultCheck.mjs'
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
 import { queueFor } from '../queueFor.mjs'
@@ -102,6 +102,12 @@ test('a chain with two tries gets its next fix open for the partner; the first f
   assert.match(third.sections.get('History').join('\n'), /open: 2 tries, the partner refines it another way/)
   // The partner refines it another way; its what starts with Tried before, and it goes to the ready list.
   assert.equal((await as('Partner')({ action: 'refine', id: again.result.fix, summary: 'Cut the islands from a painting.' })).ok, true)
+  // B1236 (X202): without its Tried before line the third try's round is refused, nothing handed out.
+  const bare = await as('Partner')({ action: 'refined', size: '30 min', id: again.result.fix, what: ['islands cut from one painting'] })
+  assert.equal(bare.ok, false)
+  assert.equal(bare.status, 409)
+  assert.equal(bare.why, triedBeforeWanted(again.result.fix, ['B1', first.result.fix, again.result.fix]))
+  assert.equal((await read(again.result.fix)).head.get('State'), 'new')
   const done = await as('Partner')({ action: 'refined', size: '30 min', id: again.result.fix, what: ['Tried before: cell-by-cell outlines, 60 and 71 of 75, the steps stay', 'islands cut from one painting'] })
   assert.equal(done.ok, true, done.why)
   assert.equal((await read(again.result.fix)).head.get('State'), 'refined')
@@ -180,6 +186,22 @@ test('health and the rules agree: the Q408 hold and a fresh QA task are odd to n
     assert.equal(lineOfStep(text, 'B603').startsWith('- ! B603'), odd, `${minutes} min`)
     assert.equal(/- ! in review/.test(text), odd, `${minutes} min`)
   }
+})
+
+test('noTriedBefore (B1236, X202): the Brute chain B1155 → B1196 → B1214 → B1230', () => {
+  const chain = [reviewed('B1155', 900, 'B1196'), reviewed('B1196', 800, 'B1214', { 'Fix of': 'B1155' }), reviewed('B1214', 700, 'B1230', { 'Fix of': 'B1196' })]
+  const bare = fixAt('B1230', 'B1214', 'refined', ['- hit audit: the blow as kept'])
+  const asked = items(...chain, bare)
+  assert.deepEqual(noTriedBefore(bare, asked), ['B1155', 'B1196', 'B1214', 'B1230'])
+  assert.equal(triedBeforeWanted('B1230', ['B1155', 'B1196', 'B1214', 'B1230']), 'B1230 is another way after 4 tries (B1155 → B1196 → B1214 → B1230): start its what with "Tried before: <each way, its score, why it fell short>" (roles/partner.md, Two rounds, then another way).')
+  // With its line, in the point or the refine block: ready.
+  const tried = fixAt('B1230', 'B1214', 'refined', ['- Tried before: whole strip 70, key pose 61, impact frame 64', '- hit audit'])
+  assert.equal(noTriedBefore(tried, items(...chain, tried)), null)
+  // A second link (the chain cut at B1196), an older link of a longer chain, and a step with no Fix of are never gated.
+  const second = fixAt('B1196', 'B1155', 'refined')
+  assert.equal(noTriedBefore(second, items(chain[0], second)), null)
+  assert.equal(noTriedBefore(chain[1], asked), null)
+  assert.equal(noTriedBefore(reviewed('B1155', 900, null), asked), null)
 })
 
 test('chain-long (B1042, X152): "Tried before, <part>:" counts, in a point or the refine block; a copy in the Context does not', () => {

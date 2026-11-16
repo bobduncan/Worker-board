@@ -22,7 +22,7 @@ import { afterPause as afterPauseOf, checkpointOf, heldMs, holdEndOf, isHolding,
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
-import { chainTries, chainWaitOf, hasTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
+import { chainTries, chainWaitOf, noTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
 import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
 import { BAN_WHY_MARK, CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '../../work/handover.mjs'
@@ -916,7 +916,7 @@ function chainLong(view) {
     if (roots.has(root) || ['done', 'dropped'].includes(stateOf(view.items.get(root)))) continue
     roots.add(root)
     const newest = tries.at(-1)
-    if (tries.length < 3 || newest !== idOf(item) || hasTriedBefore(item)) continue
+    if (noTriedBefore(item, view.items) === null) continue
     found.push({
       rule: 'chain-long', key: `chain-long ${root} ${newest}`, subject: root,
       text: `${root}: ${tries.length} tries in one chain of fixes, and its newest fix ${newest} names no "Tried before:": a patch of the same way again`,
