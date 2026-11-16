@@ -8,7 +8,7 @@ import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mj
 import { readAsks } from './asks.mjs'
 import { allWords, forYou, queue } from './backlog.mjs'
 import { projectFile } from './config.mjs'
-import { chatHomeOf } from './projectPaths.mjs'
+import { chatHomeOf, pictureHomeOf } from './projectPaths.mjs'
 import { readHead } from './files.mjs'
 import { listPictures, mentionedPaths } from './pictures.mjs'
 import { movedTo, ownCard, ownCardKey } from './planLines.mjs'
@@ -132,7 +132,7 @@ async function pictureLists(config, work, now) {
     const key = `${config.project}|${path}`
     const before = picturesIn.get(key)
     if (before === undefined || now - before.at >= PICTURES_MS) {
-      picturesIn.set(key, { at: now, files: listPictures(config.project, config.pictureRoots, path) })
+      picturesIn.set(key, { at: now, files: listPictures(pictureHomeOf(config), config.pictureRoots, path) })
     }
     lists[path] = await picturesIn.get(key).files
   }))
@@ -186,7 +186,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     readText(projectFile(config, 'goals')),
     readWork(),
     // B259: the brainstorms' threads.
-    readThreads(config.project, config.brainstorms),
+    readThreads(config.project, projectFile(config, 'brainstorms')),
     productPlan === null ? null : readText(productPlan),
   ])
 

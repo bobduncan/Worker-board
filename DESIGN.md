@@ -8675,3 +8675,28 @@ live, from two PC-only settings in config.json, both '' today:
   every picture and asset path under `<data>/pictures`, the store under `<data>`, the docs under `<data>/docs` and every chat-keyed
   path under the chat home. test/pathGuard.test.mjs lists every `join`/`resolve`/`inProject` on `project` and every `.claude`
   literal outside the table, per file with its count: a new one fails, a removed one fails until its count is lowered; P3 empties it.
+
+## T5.2 P3, first slice: the data home and the resolver (2026-11-16, chat 3, on P2)
+
+Still with `data` empty everything is exactly today's path. With it set:
+- **The store and the goal map** (config.mjs `workFolder`, `projectFile`): under the data home with their stored names
+  (`<data>/.claude/work`, `<data>/.claude/goals.md`, brainstorms, goal-asks, goals.history, design.json); the generated backlog view
+  is a runtime file, `<data>/local/backlog.md`. A whole path of its own (a copy's) stays. sources.mjs reads the threads there.
+- **The runtime files** (`localFile`): sync-loop.json, limit-readings.json, sync.json, supervisor.json, supervisor-sweep.json and
+  board-errors.log go to `<data>/local` (ignored by the data branch), today the project's `.claude`.
+- **The assets** (`assetsOf`): `<data>/pictures/assets`, today `assets` beside the store; server.mjs's `assetsDir` uses it.
+- **Every picture reader and writer** takes a home `{ root, abs }` (`pictureHomeOf(config)`; server.mjs `pictureHome(root)`) in place of
+  the project folder: src/pictures.mjs (findPicture, readDemo, findDemo, pictureTooBig, pictureProblem, adoptPicture, listPictures,
+  the bare-name search), talkPicture.mjs, ideas.mjs `placeReferences`; recaps.mjs, recapCard.mjs and tools/evidence.mjs resolve their
+  folders with `resolveStored`. A plain folder still works (today's call, and the tests'). A root named alone (`pictures`,
+  `.claude/assets`, `.claude/plans`, `logs`) is placed like what lies under it.
+- **The report checks** (src/work/check.mjs): `pathsIn` leaves off every home given (`homes`: the project folder and the chats'
+  home, a worker writes from either); `filesNamed` places a named file with the table's `abs`, and the folders in `outside` (the
+  data home and the pictures, inside the game repo's folder) are work outside git, never "in a repository". server.mjs passes the
+  three; without them the check reads as before.
+- **Tests**: test/projectPaths.test.mjs (today's and the fixture's places for the store, the backlog view, the runtime files and the
+  picture home; a real picture under `<data>/pictures` found through the home and not under the project), test/work/checkPaths.test.mjs
+  (the two homes, the table's placing, outside work). The guard's list shrank from 77 + 75 to 54 + 68 ties (30 files).
+- **Left for the next slice**: the stored prefixes in the words to chats (rowWords `.claude/work/`, rounds' kinds paths), the sweep keep
+  list, the relative paths of api.mjs and deliver.mjs, sound-library against the chat home, the start check for a re-made picture root,
+  plan-writes by relative key, and the `.claude` reads of sources.mjs (the briefings: P5's home files).

@@ -10,8 +10,12 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { configProblem, parseConfig, transcriptsOf, workFolder } from '../src/config.mjs'
-import { assetsOf, assetsPrefixOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, picturesOf, resolveStored, routineFolderOf, wordsPath } from '../src/projectPaths.mjs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+
+import { configProblem, parseConfig, projectFile, transcriptsOf, workFolder } from '../src/config.mjs'
+import { assetsOf, assetsPrefixOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, pictureHomeOf, picturesOf, resolveStored, routineFolderOf, wordsPath } from '../src/projectPaths.mjs'
+import { findPicture, pictureProblem } from '../src/pictures.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ENV = { USERPROFILE: 'C:\\Users\\tester' }
@@ -77,6 +81,11 @@ test('the fixture (data set, chatHome different from project): pictures and asse
   assert.deepEqual(Object.keys(want).sort(), [...STORED].sort(), 'every stored kind of the first test is placed here')
   for (const [stored, path] of Object.entries(want)) assert.equal(resolveStored(config, stored, { boardDir: BOARD }), path, stored)
   assert.equal(resolveStored(config, 'worker-board/roles/worker.md'), join(PROJECT, 'worker-board', 'roles', 'worker.md'), 'without the board folder its name is no prefix')
+  // A folder named alone (the picture readers list a root; the asset and doc folders): placed like what lies under it.
+  assert.equal(resolveStored(config, 'pictures'), join(data, 'pictures', 'pictures'))
+  assert.equal(resolveStored(config, '.claude/assets'), join(data, 'pictures', 'assets'))
+  assert.equal(resolveStored(config, '.claude/plans'), join(data, 'docs', 'plans'))
+  assert.equal(resolveStored(config, 'logs'), join('D:/wrap', 'logs'))
   // Chat-keyed: the chat home, never the project.
   assert.equal(chatFile(config, 'board.json'), join('D:/wrap', '.claude', 'board.json'))
   assert.equal(chatFile(config, 'launch.json'), join('D:/wrap', '.claude', 'launch.json'))
@@ -98,4 +107,49 @@ test('the settings: chatHome and data are text with %ENV% filled; anything else 
   assert.match(configProblem(JSON.stringify({ chatHome: 5 })), /"chatHome" must be text/)
   assert.match(configProblem(JSON.stringify({ data: [] })), /"data" must be text/)
   assert.equal(configProblem(JSON.stringify({ chatHome: '', data: '' })), null)
+})
+
+test('P3: the store, the goal map, the backlog view and the runtime files: today\'s places with data empty; under <data> (local/ for the runtime files) with it set', () => {
+  const today = parseConfig(JSON.stringify({ project: PROJECT }), ENV)
+  assert.equal(workFolder(today), join(PROJECT, '.claude', 'work'))
+  assert.equal(projectFile(today, 'goals'), join(PROJECT, '.claude', 'goals.md'))
+  assert.equal(projectFile(today, 'brainstorms'), join(PROJECT, '.claude', 'brainstorms'))
+  assert.equal(projectFile(today, 'designKinds'), join(PROJECT, '.claude', 'design.json'))
+  assert.equal(projectFile(today, 'backlog'), join(PROJECT, '.claude', 'backlog.md'))
+  assert.equal(localFile(today, 'sync-loop.json'), join(PROJECT, '.claude', 'sync-loop.json'))
+  assert.equal(pictureHomeOf(today).abs('pictures/x.png'), join(PROJECT, 'pictures', 'x.png'))
+  assert.equal(pictureHomeOf(today).root, PROJECT)
+  const moved = parseConfig(readFileSync(join(HERE, 'fixtures', 'projectPaths', 'board-config.json'), 'utf8'), ENV)
+  const data = 'D:/wrap/game/.workerboard'
+  assert.equal(workFolder(moved), join(data, '.claude', 'work'), 'the store keeps its stored name under the data home')
+  assert.equal(projectFile(moved, 'goals'), join(data, '.claude', 'goals.md'))
+  assert.equal(projectFile(moved, 'goalsHistory'), join(data, '.claude', 'goals.history'))
+  assert.equal(projectFile(moved, 'designKinds'), join(data, '.claude', 'design.json'))
+  assert.equal(projectFile(moved, 'backlog'), join(data, 'local', 'backlog.md'), 'the generated view is a runtime file')
+  assert.equal(localFile(moved, 'limit-readings.json'), join(data, 'local', 'limit-readings.json'))
+  assert.equal(workFolder({ ...moved, work: 'E:/own/work' }), 'E:/own/work', 'a whole path of its own stays')
+  assert.equal(pictureHomeOf(moved).abs('pictures/x.png'), join(data, 'pictures', 'pictures', 'x.png'))
+  assert.equal(pictureHomeOf(moved, { boardDir: BOARD }).abs('worker-board/roles/worker.md'), join(BOARD, 'roles', 'worker.md'))
+})
+
+test('P3: the picture readers take the home ({ root, abs }): a picture under <data>/pictures is found and is no problem; given the project folder alone (today\'s call) it is not there', () => {
+  const root = mkdtempSync(join(tmpdir(), 'picture-home-'))
+  try {
+    const project = join(root, 'game')
+    const data = join(project, '.workerboard')
+    mkdirSync(join(data, 'pictures', 'pictures', 'B12'), { recursive: true })
+    mkdirSync(join(project, 'pictures'), { recursive: true })
+    writeFileSync(join(data, 'pictures', 'pictures', 'B12', 'look.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]))
+    const config = parseConfig(JSON.stringify({ project, data, pictureRoots: ['pictures'] }), ENV)
+    return (async () => {
+      const found = await findPicture(pictureHomeOf(config), ['pictures'], 'pictures/B12/look.png')
+      assert.ok(found !== null && found.file.toLowerCase() === join(data, 'pictures', 'pictures', 'B12', 'look.png').toLowerCase(), JSON.stringify(found))
+      assert.equal(await pictureProblem(pictureHomeOf(config), ['pictures'], 'pictures/B12/look.png'), null)
+      assert.equal(await findPicture(project, ['pictures'], 'pictures/B12/look.png'), null, 'under the project folder itself there is no such picture')
+      assert.equal(await pictureProblem(project, ['pictures'], 'pictures/B12/look.png'), 'missing')
+    })().finally(() => rmSync(root, { recursive: true, force: true }))
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true })
+    throw error
+  }
 })

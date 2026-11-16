@@ -352,9 +352,12 @@ const INSIDE = /^(?!.*(?:^|\/)\.\.(?:\/|$))[\w.-]+(?:\/[\w .-]+)*$/
 /** B296: the store's folder: inside the project, written with /, or a whole path. */
 const isWorkPath = value => typeof value === 'string' && (INSIDE.test(value.trim()) || isAbsolute(value.trim()))
 
-/** B296: the work store's folder, as a whole path. */
+/** T5.2 P3: the data home the store's and the goal map's stored paths stand in: `data`, else the project folder (today). */
+const dataHomeOf = config => (typeof config.data === 'string' && config.data !== '' ? config.data : config.project)
+
+/** B296: the work store's folder, as a whole path (T5.2 P3: under the data home, its stored name kept). */
 export function workFolder(config) {
-  return isAbsolute(config.work) ? config.work : join(config.project, ...config.work.split('/'))
+  return isAbsolute(config.work) ? config.work : join(dataHomeOf(config), ...config.work.split('/'))
 }
 
 /**
@@ -363,7 +366,10 @@ export function workFolder(config) {
  */
 export function projectFile(config, key) {
   const value = config[key]
-  return isAbsolute(value) ? value : join(config.project, ...value.split('/'))
+  if (isAbsolute(value)) return value
+  // T5.2 P3: the generated backlog view is a runtime file: `<data>/local/backlog.md` once the data moves; the rest keeps its stored name under the data home.
+  if (key === 'backlog' && dataHomeOf(config) !== config.project) return join(dataHomeOf(config), 'local', 'backlog.md')
+  return join(dataHomeOf(config), ...value.split('/'))
 }
 
 /** B296: whether the store's folder is a whole path outside the project: a copy's own, which it may write. */

@@ -11,6 +11,8 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { workFolder } from './config.mjs'
 
 const parts = path => String(path).split('/').filter(part => part !== '')
+/** Whether `path` is `prefix` itself or lies under it (a folder named alone counts: the picture readers list a root). */
+const under = (path, prefix) => path === prefix || path.startsWith(`${prefix}/`)
 const slashes = path => String(path).replace(/\\/g, '/')
 const isSet = value => typeof value === 'string' && value !== ''
 
@@ -36,6 +38,21 @@ export function assetsOf(config) {
   const data = dataOf(config)
   return data === null ? join(workFolder(config), '..', 'assets') : join(data, 'pictures', 'assets')
 }
+
+/**
+ * A runtime file of the board's (`sync-loop.json`, `limit-readings.json`, `sync.json`, `supervisor*.json`, `board-errors.log`): under
+ * `<data>/local` (ignored by the data branch) once the data moves, else in the project's `.claude` as today.
+ */
+export function localFile(config, name) {
+  const data = dataOf(config)
+  return data === null ? join(config.project, '.claude', name) : join(data, 'local', name)
+}
+
+/**
+ * The picture readers' and writers' home (src/pictures.mjs, talkPicture, ideas, recaps): `{ root, abs }`, `root` the project folder
+ * (the boundary a copied picture must lie in) and `abs(storedPath)` the table's answer, today's `join(project, path)`.
+ */
+export const pictureHomeOf = (config, { boardDir = null } = {}) => ({ root: config.project, abs: path => resolveStored(config, path, { boardDir }) })
 
 /** The asset requests' stored prefix (`.claude/assets/`), from the work setting; null for a work folder of its own. */
 export function assetsPrefixOf(config) {
@@ -75,14 +92,14 @@ export function resolveStored(config, stored, { boardDir = null } = {}) {
   const game = isSet(config.gameRepo) ? config.gameRepo : config.project
   if (isSet(config.project) && path.startsWith(`${basename(resolve(config.project))}/`)) return join(game, ...parts(path).slice(1))
   if (isSet(boardDir) && path.startsWith(`${basename(resolve(boardDir))}/`)) return join(boardDir, ...parts(path).slice(1))
-  for (const root of config.pictureRoots ?? []) if (path.startsWith(`${root}/`)) return join(picturesOf(config), ...parts(path))
+  for (const root of config.pictureRoots ?? []) if (under(path, root)) return join(picturesOf(config), ...parts(path))
   const assets = assetsPrefixOf(config)
-  if (assets !== null && path.startsWith(assets)) return join(assetsOf(config), ...parts(path.slice(assets.length)))
-  for (const name of DOC_FOLDERS) if (path.startsWith(`.claude/${name}/`)) return join(data, 'docs', ...parts(path.slice('.claude/'.length)))
-  if (path.startsWith('logs/')) return join(chatHomeOf(config), ...parts(path))
+  if (assets !== null && under(path, assets.slice(0, -1))) return join(assetsOf(config), ...parts(path.slice(assets.length)))
+  for (const name of DOC_FOLDERS) if (under(path, `.claude/${name}`)) return join(data, 'docs', ...parts(path.slice('.claude/'.length)))
+  if (under(path, 'logs')) return join(chatHomeOf(config), ...parts(path))
   for (const key of STORE_KEYS) {
     const value = config[key]
-    if (isSet(value) && !isAbsolute(value) && (path === value || path.startsWith(`${value}/`))) return join(data, ...parts(path))
+    if (isSet(value) && !isAbsolute(value) && under(path, value)) return join(data, ...parts(path))
   }
   return join(config.project, ...parts(path))
 }

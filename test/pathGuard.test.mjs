@@ -22,9 +22,9 @@ export const TIES = {
 const IN_SCOPE = /^(?:server\.mjs|setup\.mjs|start-board\.mjs|src\/|tools\/.*\.mjs$)/
 const TABLE = 'src/projectPaths.mjs'
 
-/** The ties known at P2 (2026-11-16), per file: `[project joins, .claude literals]`. Only shrinks. */
+/** The ties known after P3's first slice (2026-11-16), per file: `[project joins, .claude literals]`. Only shrinks. */
 export const KNOWN = {
-  'server.mjs': [25, 9],
+  'server.mjs': [18, 2],
   'src/assets.mjs': [0, 4],
   'src/bridge.mjs': [0, 1],
   'src/carry/guards.mjs': [0, 1],
@@ -32,18 +32,16 @@ export const KNOWN = {
   'src/carry/set.mjs': [4, 9],
   'src/chatLogs.mjs': [1, 1],
   'src/codeJobs.mjs': [3, 8],
-  'src/config.mjs': [2, 9],
+  'src/config.mjs': [0, 9],
   'src/cpu.mjs': [0, 1],
   'src/gameFile.mjs': [0, 2],
-  'src/ideas.mjs': [2, 0],
+  'src/ideas.mjs': [1, 0],
   'src/landingSetup.mjs': [1, 3],
   'src/newProject.mjs': [5, 11],
-  'src/pictures.mjs': [6, 0],
+  'src/pictures.mjs': [1, 0],
   'src/planLines.mjs': [0, 2],
   'src/ports.mjs': [1, 3],
   'src/providers/sound-library.mjs': [2, 0],
-  'src/recapCard.mjs': [3, 0],
-  'src/recaps.mjs': [3, 0],
   'src/setup.mjs': [0, 3],
   'src/sources.mjs': [2, 1],
   'src/talkPicture.mjs': [1, 0],
@@ -55,7 +53,6 @@ export const KNOWN = {
   'src/work/worktrees.mjs': [2, 0],
   'start-board.mjs': [1, 0],
   'tools/carry.mjs': [2, 3],
-  'tools/evidence.mjs': [1, 0],
   'tools/spending-count.mjs': [1, 1],
 }
 

@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { hasChanged, isPending, isTriedSince, makingOf, roundsOf, standOf } from './demoFeedback.mjs'
 import { parseGoals } from './goals.mjs'
 import { readDemo, shownFolders, shownRoots } from './pictures.mjs'
+import { pictureHomeOf, resolveStored } from './projectPaths.mjs'
 import { linksRecap, standsForPerson } from './work/autopilot.mjs'
 import { isKeptLook } from './work/keptLook.mjs'
 import { sinceMs, valueOf } from './work/item.mjs'
@@ -57,19 +58,19 @@ export async function focusRecapFile(config, goalsText) {
   if (node === null) return null
   const named = String(node.demo ?? '').split(' · ')[0].trim().replace(/\\/g, '/')
   if (/\.json$/i.test(named)) {
-    const read = await readDemo(config.project, shownRoots(config), named).catch(() => null)
+    const read = await readDemo(pictureHomeOf(config), shownRoots(config), named).catch(() => null)
     if (read !== null && read.why === undefined) return named
   }
-  const names = async folder => (await readdir(join(config.project, ...folder.split('/')), { withFileTypes: true }).catch(() => [])).filter(one => one.isDirectory()).map(one => one.name)
+  const names = async folder => (await readdir(resolveStored(config, folder), { withFileTypes: true }).catch(() => [])).filter(one => one.isDirectory()).map(one => one.name)
   const found = []
   for (const folder of shownFolders(config)) {
     for (const goal of (await names(folder)).filter(name => name.toLowerCase() === node.id.toLowerCase())) {
-      const inside = join(config.project, ...folder.split('/'), goal)
+      const inside = resolveStored(config, `${folder}/${goal}`)
       const own = (await readdir(inside).catch(() => [])).includes('demo.json') ? [`${folder}/${goal}/demo.json`] : []
       const deeper = []
       for (const sub of await names(`${folder}/${goal}`)) if ((await readdir(join(inside, sub)).catch(() => [])).includes('demo.json')) deeper.push(`${folder}/${goal}/${sub}/demo.json`)
       for (const path of [...own, ...deeper]) {
-        const at = await stat(join(config.project, ...path.split('/'))).then(info => info.mtimeMs, () => null)
+        const at = await stat(resolveStored(config, path)).then(info => info.mtimeMs, () => null)
         if (at !== null) found.push({ path, at })
       }
     }
@@ -87,7 +88,7 @@ export async function readGoalRecap(config, goalsText) {
   const path = await focusRecapFile(config, goalsText)
   if (path === null) return null
   const goals = parseGoals(goalsText)
-  const read = await readDemo(config.project, shownRoots(config), path).catch(() => null)
+  const read = await readDemo(pictureHomeOf(config), shownRoots(config), path).catch(() => null)
   const rows = read === null || read.why !== undefined ? [] : read.base.sections.flatMap(section => section.rows)
   return {
     goal: goals.focus, path, pictures: Object.fromEntries(rows.map(row => [row.key, tilePictureOf(row.pictures)]).filter(([, picture]) => picture !== null)),
