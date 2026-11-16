@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*demo-tool* plugin install *)",
+      "mcp__demo__list",
+      "Bash(*demo-tool* plugin update *)"
+    ],
+    "defaultMode": "auto"
+  },
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "Putting a board change live with its landing script is routine local development."
+    ],
+    "environment": [
+      "$defaults",
+      "The project is a personal hobby project; its board is a local development tool."
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -File {project}/keep-awake.ps1 stop",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "superpowers@demo-market": true,
+    "workers@demo-board": true
+  },
+  "extraKnownMarketplaces": {
+    "demo-market": {
+      "source": {
+        "source": "git",
+        "url": "https://example.invalid/market.git"
+      }
+    }
+  }
+}

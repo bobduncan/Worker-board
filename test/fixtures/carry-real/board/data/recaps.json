@@ -1,0 +1,37 @@
+{
+ "2026-11-11": {
+  "points": [
+   {
+    "title": "Written guideline for all units",
+    "text": "A written style guideline now exists that every future unit will follow, with the Knight as its example. Its model sheet is drawn and ready for you to judge.",
+    "ids": [
+     "B1121",
+     "B1127",
+     "B1128"
+    ]
+   },
+   {
+    "title": "Knight's new walk and attack",
+    "text": "The Knight now has a heavier, stylised walk and one attack drawn in 14 frames. Both can be played beside today's Knight so you can compare them.",
+    "ids": [
+     "B1122",
+     "B1129"
+    ]
+   }
+  ],
+  "isGenerated": true,
+  "why": null,
+  "ids": [
+   "B1131",
+   "B1130",
+   "B1122",
+   "B1129",
+   "B1128",
+   "B1121",
+   "B1127"
+  ],
+  "newest": 1794382620000,
+  "at": 1794383735874,
+  "triedAt": 1794383724367
+ }
+}

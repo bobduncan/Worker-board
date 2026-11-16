@@ -1,0 +1,13 @@
+{
+  "goal": "G64",
+  "title": "How we build good units",
+  "intro": "A written guideline every future unit follows, with the Knight as the example that proves it.",
+  "sections": [
+    {
+      "kind": "reached",
+      "rows": [
+        { "title": "1. The unit guideline and the Knight's model sheet", "steps": ["B1121"], "note": "A written guideline every future unit follows.", "pictures": [] }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "id": "A271",
+  "who": "Worker 5",
+  "of": "B1149",
+  "kind": "visual",
+  "provider": "codex",
+  "mode": "auto",
+  "text": "The idea: the RED MAGE's MODEL SHEET, drawn exactly like the Knight's model sheet. Picture 1 is the Knight's model sheet: match its layout (three views side by side on the same dark background #2a2426: FRONT, SIDE in a TRUE PROFILE facing RIGHT, BACK), its size, its pixel fineness, its dark outline ...",
+  "pictures": [
+    "{project}",
+    "{project}",
+    "{project}"
+  ],
+  "follows": null,
+  "state": "ready",
+  "why": "",
+  "files": [
+    "1.png"
+  ],
+  "ask": null,
+  "pick": null,
+  "times": {
+    "asked": 1794437449592,
+    "started": 1794437510601,
+    "ended": 1794437586094
+  },
+  "limit": null,
+  "limitTries": null
+}

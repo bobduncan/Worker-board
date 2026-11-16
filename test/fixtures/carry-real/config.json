@@ -1,0 +1,79 @@
+{
+  "name": "Demo Project",
+  "project": "{project}",
+  "models": {
+    "sonnet": "claude-sonnet-5-5",
+    "opus": "claude-opus-5-5"
+  },
+  "usualModel": "sonnet",
+  "usualEffort": "medium",
+  "supervisorSweepMinutes": 30,
+  "maxWorkers": 5,
+  "weekStopAt": 100,
+  "supervisorCountFrom": "2026-10-25 12:43",
+  "pictureRoots": [
+    "pictures"
+  ],
+  "gameRepo": "{project}/game",
+  "designKinds": ".claude/design.json",
+  "kinds": [
+    {
+      "kind": "unit",
+      "done": "demo-project/docs/visual/unit-definition-of-done.md",
+      "reference": "demo-project/art/source",
+      "look": true
+    },
+    {
+      "kind": "map",
+      "done": "demo-project/docs/process/done/level.md",
+      "reference": "pictures/levels",
+      "look": true
+    }
+  ],
+  "runGame": [
+    "{node}",
+    "{board}/run-game.mjs",
+    "--folder",
+    "{folder}",
+    "--port",
+    "{port}",
+    "--idle",
+    "{idle}",
+    "--grace",
+    "{grace}",
+    "--cache",
+    "{cache}"
+  ],
+  "appSessions": "%LOCALAPPDATA%/demo-app/sessions",
+  "transcripts": "%USERPROFILE%/.claude/projects/demo",
+  "port": 4310,
+  "refreshSeconds": 10,
+  "backlog": ".claude/backlog.md",
+  "gamePlan": "docs/game-plan.md",
+  "advisorDecisions": "docs/advisor/decisions.md",
+  "advisorReadFirst": [
+    "docs/game-vision.md",
+    "docs/game-design.md",
+    "docs/architecture.md",
+    "docs/process/roadmap.md"
+  ],
+  "advisorSuggestions": "Advisor suggestions",
+  "morningRound": "09:00",
+  "weeklyRound": true,
+  "morningSkipPercent": 80,
+  "usageHistory": "%LOCALAPPDATA%/demo-app/usage.json",
+  "approveRebuilds": true,
+  "botherMe": "daily",
+  "routing": {
+    "mode": "observe"
+  },
+  "handover": "sequence",
+  "providers": {
+    "visual": "codex",
+    "sound effect": "elevenlabs",
+    "music": "person-suno"
+  },
+  "autopilot": true,
+  "gamePort": 4311,
+  "picturesHome": "{drive}/pictures"
+}

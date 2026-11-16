@@ -1,0 +1,5 @@
+Use your built-in image generation tool to create the image described below, then save the generated PNG in the current working directory as picture.png. Do not write any code, and do not read, change or run anything else. If you do not have an image generation tool in this session, reply with exactly NO_IMAGE_TOOL.
+
+
+
+The idea: The idea: the RED MAGE's MODEL SHEET, drawn exactly like the Knight's...

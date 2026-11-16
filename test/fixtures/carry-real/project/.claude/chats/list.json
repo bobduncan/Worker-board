@@ -1,0 +1,11 @@
+{
+  "prefix": "Chat - ",
+  "main": "Main",
+  "supervisor": "Supervisor",
+  "owner": "Product owner",
+  "boards": [
+    "board"
+  ],
+  "afterStep": "clear",
+  "compactAbove": 150000
+}
