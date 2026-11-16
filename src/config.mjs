@@ -693,6 +693,38 @@ export async function followApp(config, env = process.env, platform = process.pl
 /** A settings file the board cannot run on: its message is the one line the board says before it stops. */
 export class BrokenConfig extends Error {}
 
+/**
+ * T5.2 P4: the keys that belong to this PC, kept in config.json once the project has a settings.json (paths on this PC, its ports, its
+ * Codex, its pictures home); every other key is the project's, in settings.json.
+ */
+export const PC_KEYS = Object.freeze(['project', 'gameRepo', 'appSessions', 'transcripts', 'usageHistory', 'port', 'gamePort', 'codex', 'soundLibrary', 'chatHome', 'data', 'pc', 'label', 'sync', 'picturesHome'])
+
+/**
+ * The project's settings file: `settings.json` in its data home (`data`, else the game repo's, else the project's `.workerboard`), or
+ * null for a board that names no project.
+ */
+export function settingsFileOf(config) {
+  const data = typeof config?.data === 'string' && config.data.trim() !== '' ? config.data.trim() : null
+  const home = data ?? [config?.gameRepo, config?.project].find(path => typeof path === 'string' && path !== '')
+  if (typeof home !== 'string' || home === '') return null
+  return data === null ? join(home, '.workerboard', 'settings.json') : join(home, 'settings.json')
+}
+
+/**
+ * The settings the board runs on, from the project's settings.json (`settings`) and this PC's config.json (`pc`): the defaults (parseConfig),
+ * then the project's keys, then this PC's keys. A project key left in config.json is ignored (named in `ignored`, for the amber line), so a
+ * change on the settings panel always takes effect; a PC key in settings.json is ignored too. `{ raw, ignored }`.
+ */
+export function mergeSettings(settings, pc) {
+  const project = Object.fromEntries(Object.entries(settings ?? {}).filter(([key]) => !PC_KEYS.includes(key)))
+  const own = Object.fromEntries(Object.entries(pc ?? {}).filter(([key]) => PC_KEYS.includes(key)))
+  const ignored = Object.keys(pc ?? {}).filter(key => !PC_KEYS.includes(key)).sort()
+  return { raw: { ...project, ...own }, ignored }
+}
+
+/** The file a setting is written to: config.json for this PC's keys and for a board without settings.json, else settings.json. */
+export const settingFileFor = (config, configFile, key) => (typeof config?.settingsFile === 'string' && !PC_KEYS.includes(key) ? config.settingsFile : configFile)
+
 /** The settings in `file`. A broken file throws `BrokenConfig`; a missing one leaves the defaults (B127 takes that). */
 export async function loadConfig(file, env = process.env, platform = process.platform) {
   let text = null
@@ -703,7 +735,6 @@ export async function loadConfig(file, env = process.env, platform = process.pla
   }
   const problem = text === null ? null : configProblem(text)
   if (problem !== null) throw new BrokenConfig(`The worker board's settings file ${file} is broken: ${problem}. Fix it and start the board again.`)
-  const config = parseConfig(text ?? '', env)
   // B135: the app's list of chats and its usage file, where the app keeps them on this system, when not set.
   let raw = {}
   try {
@@ -711,6 +742,18 @@ export async function loadConfig(file, env = process.env, platform = process.pla
   } catch {
     // A file that is no JSON was refused above.
   }
+  // T5.2 P4 (the design of 2026-11-16, section 6): the project's own settings travel with its data, in settings.json; config.json keeps
+  // only what belongs to this PC (PC_KEYS). With no settings.json nothing changes.
+  const settingsFile = settingsFileOf(parseConfig(text ?? '', env))
+  const settingsText = settingsFile === null ? null : await readFile(settingsFile, 'utf8').catch(() => null)
+  const settingsProblem = settingsText === null ? null : configProblem(settingsText)
+  if (settingsProblem !== null) throw new BrokenConfig(`The project's settings file ${settingsFile} is broken: ${settingsProblem}. Fix it and start the board again.`)
+  const merged = settingsText === null ? null : mergeSettings(JSON.parse(settingsText.replace(/^\uFEFF/, '')) ?? {}, raw)
+  const config = parseConfig(merged === null ? text ?? '' : JSON.stringify(merged.raw), env)
+  config.settingsFile = merged === null ? null : settingsFile
+  config.settingsIgnored = merged === null ? [] : merged.ignored
+  config.hasProvidersKey = Object.hasOwn(merged === null ? raw : merged.raw, 'providers')
+  if (merged !== null) raw = merged.raw
   const isSet = key => typeof raw[key] === 'string' && raw[key].trim() !== ''
   if (!isSet('appSessions') || !isSet('usageHistory')) {
     const found = await appFolder(env, platform)

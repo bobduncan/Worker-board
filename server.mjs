@@ -43,7 +43,7 @@ import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from '.
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
-import { BrokenConfig, configProblem, readProviders, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
+import { BrokenConfig, configProblem, readProviders, settingFileFor, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -2239,8 +2239,9 @@ async function main(args) {
   const setupFile = join(HERE, 'data', 'setup.json')
   if (!isDemo && !isShowOnly) {
     // The settings were read already (loadConfig); a file it cannot read now simply names no providers, and the setup starts.
-    const rawConfig = JSON.parse((await readFile(join(HERE, 'config.json'), 'utf8').catch(absentAs('{}'))) || '{}')
-    await startSetup(setupFile, { hasProvidersKey: Object.hasOwn(rawConfig ?? {}, 'providers') }).catch(error => loops.failed('setup', error))
+    // T5.2 P4: whether the merged settings (the project's settings.json over this PC's config.json) name providers (loadConfig), so the
+    // split never starts the providers setup again.
+    await startSetup(setupFile, { hasProvidersKey: config.hasProvidersKey === true }).catch(error => loops.failed('setup', error))
   }
   const providerTools = () => ({ project: config.project, codexPath: settings.codex })
   const lookAtProviders = () => loops.run('providers', async () => {
@@ -3153,17 +3154,19 @@ async function main(args) {
       if (!checked.ok) return checked
       if (historyFrom !== undefined) return { ok: false, status: 409, why: SETTINGS_WHY_NOT }
       if (!isDemo) {
-        const file = join(HERE, 'config.json')
+        // T5.2 P4: into the project's settings.json when it has one (this PC's keys still into config.json).
+        const file = settingFileFor(config, join(HERE, 'config.json'), checked.key)
+        const shown = basename(file)
         // B467: only a file that is not there is "not there"; one it cannot read fails the call.
         const text = await readFile(file, 'utf8').catch(absentAs(null))
-        if (text === null) return { ok: false, status: 409, why: 'The settings file config.json is not there.' }
+        if (text === null) return { ok: false, status: 409, why: `The settings file ${shown} is not there.` }
         const changed = settingChanged(text, checked.key, checked.value)
         if (!changed.ok) return changed
         try {
           // B406: beside and in place, tried again while Windows holds the file (a virus scanner).
           await writeAtomic(file, changed.text)
         } catch (error) {
-          return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
+          return { ok: false, status: 500, why: `${shown} not written: ${error instanceof Error ? error.message : 'unknown'}` }
         }
       }
       if (checked.key === 'routingMode') config.routing = parseRoutingPolicy({ ...(config.routing?.policy ?? {}), mode: checked.value })
@@ -3209,16 +3212,18 @@ async function main(args) {
       if (!may.ok) return { ok: false, status: 409, why: may.why }
       const checked = checkSetting({ key: 'providers', value: { kind, provider: name } })
       if (!checked.ok) return checked
-      const file = join(HERE, 'config.json')
+      // T5.2 P4: the providers are the project's: into its settings.json when it has one.
+      const file = settingFileFor(config, join(HERE, 'config.json'), checked.key)
+      const shown = basename(file)
       // B467: only a file that is not there is "not there"; one it cannot read fails the call.
       const text = await readFile(file, 'utf8').catch(absentAs(null))
-      if (text === null) return { ok: false, status: 409, why: 'The settings file config.json is not there.' }
+      if (text === null) return { ok: false, status: 409, why: `The settings file ${shown} is not there.` }
       const changed = settingChanged(text, checked.key, checked.value)
       if (!changed.ok) return changed
       try {
         await writeAtomic(file, changed.text)
       } catch (error) {
-        return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
+        return { ok: false, status: 500, why: `${shown} not written: ${error instanceof Error ? error.message : 'unknown'}` }
       }
       config.providers = readProviders(JSON.parse(changed.text).providers).providers
       await lookAtProviders()

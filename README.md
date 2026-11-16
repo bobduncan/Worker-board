@@ -286,6 +286,14 @@ and the briefings for the main chat and the workers.
 
 ## Settings
 
+**The project's settings file (T5.2).** A project's settings can travel with its data: `settings.json` in its data home
+(`<data>\settings.json`, or `<gameRepo or project>\.workerboard\settings.json` when `data` is not set), tracked with the
+project. When it is there, the board reads the project's keys from it and only this PC's keys from `config.json`:
+`project`, `gameRepo`, `appSessions`, `transcripts`, `usageHistory`, `port`, `gamePort`, `codex`, `soundLibrary`,
+`chatHome`, `data`, `pc`, `label`, `sync` and `picturesHome`. A project key still in `config.json` is ignored then, and
+the board names it. The ⚙ panel and the Providers tab write a project key into `settings.json`. `examples\board-settings.json`
+shows one. With no `settings.json` everything stays in `config.json`, as below.
+
 `config.json`, next to `server.mjs`: `name` (the board's title), `weekStopAt` (the percent of the week from which all work stops, 98), `fiveHourStopAt` and `fiveHourStopMinutes` (the percent of the 5-hour limit from which all work stops, 95, while its reset is more than this many minutes away, 10), `project`, `gameRepo`, `baseBranch` (the branch the
 work is merged into, "main" unless set), `runGame` (the command that starts a working folder's game, a list of
 words with `{folder}`, `{port}`, `{idle}`, `{grace}`, `{cache}`, `{node}` and `{board}` filled in; it prints
