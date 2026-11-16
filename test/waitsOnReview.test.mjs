@@ -128,7 +128,7 @@ test('blocker 2: the periodic pass gives nothing back while a landing runs for t
   // Once its landings line names the log, the landing is over.
   await writeFile(join(data, 'landings.jsonl'), `${JSON.stringify({ at: new Date(at(11, 55)).toISOString(), by: 'Worker 4', branch: BRANCH, result: 'landed', gateLog: `C:\\board\\data\\landings\\20261109-114741-${BRANCH}.log` })}\n`)
   assert.equal(runningLanding({ dir: data, now: at(11, 56) }), null)
-  assert.deepEqual(landedLines({ dir: data }), [{ branch: BRANCH, at: at(11, 55), result: 'landed', gateLog: `20261109-114741-${BRANCH}.log` }])
+  assert.deepEqual(landedLines({ dir: data }), [{ branch: BRANCH, at: at(11, 55), result: 'landed', gateLog: `20261109-114741-${BRANCH}.log`, by: 'Worker 4', head: null, boards: 0, remote: null }])
   // An old log nobody wrote a line for (a cut landing) runs no landing; the lock, while fresh, names its branch first.
   const old = join(data, 'landings', '20261109-090000-old-branch.log')
   await writeFile(old, 'cut\n')
