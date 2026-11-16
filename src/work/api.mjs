@@ -33,7 +33,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn, playProblem } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, NAME_THE_ASK, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, openFixesOf, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, warningLines } from './resultCheck.mjs'
+import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, NAME_THE_ASK, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, noTriedBefore, openFixesOf, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, triedBeforeWanted, warningLines } from './resultCheck.mjs'
 import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
@@ -4676,6 +4676,9 @@ async function refined(call, w) {
   if (effortLine !== null) item.sections.set('Effort', [effortLine])
   item.sections.set('Refined', [`${indent}Refined (${[...inside, 'ready'].join('; ')}):`, ...kept, ...standardLine, ...modelLines, ...effortLines, `${indent}What we build:`, ...what.map(one => `${indent}${one}`)])
   item.sections.set('What we build', what)
+  // B1236 (X202): a fix that is a third try or later is another way: its what names the ways tried before.
+  const patch = noTriedBefore(item, w.store.items)
+  if (patch !== null) return refuse(409, triedBeforeWanted(id, patch))
   item.sections.set('Context', withMark(found.item))
   put(item, 'Refined', 'ready')
   let next = said(ordered(item), w, 'refined is ready')

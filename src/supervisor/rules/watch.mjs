@@ -22,7 +22,7 @@ import { afterPause as afterPauseOf, checkpointOf, heldMs, holdEndOf, isHolding,
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
-import { chainTries, chainWaitOf, hasTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
+import { chainTries, chainWaitOf, noTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
 import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
 import { BAN_WHY_MARK, CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '../../work/handover.mjs'
@@ -916,7 +916,7 @@ function chainLong(view) {
     if (roots.has(root) || ['done', 'dropped'].includes(stateOf(view.items.get(root)))) continue
     roots.add(root)
     const newest = tries.at(-1)
-    if (tries.length < 3 || newest !== idOf(item) || hasTriedBefore(item)) continue
+    if (noTriedBefore(item, view.items) === null) continue
     found.push({
       rule: 'chain-long', key: `chain-long ${root} ${newest}`, subject: root,
       text: `${root}: ${tries.length} tries in one chain of fixes, and its newest fix ${newest} names no "Tried before:": a patch of the same way again`,
@@ -1065,12 +1065,18 @@ export function switchOf(lane, item, view) {
   // B1160 review 8: a run the app's refusal left unset (`refused`, effort.mjs) is known and quiet: the board decided it runs on.
   const state = own?.isSet === true ? 'switched' : own?.refused === true ? 'refused' : own?.asked != null ? 'asked' : 'none'
   const takenAt = takenAtOf(item)
-  const taken = afterPause(view, takenAt)
-  const since = view.now - taken - boardOffMs(view, taken)
+  // B1207 (X26 back: B1196 changed to high at 16:12, 22 min after its take, and the rule fired 1 min later): a step whose setting
+  // changed after its hand-over (`changed`, effort.mjs) counts its minutes from that change, never from the take.
+  const changed = Number.isFinite(own?.changed?.at) ? own.changed : null
+  const began = changed === null || !Number.isFinite(takenAt) ? takenAt : Math.max(takenAt, changed.at)
+  const from = afterPause(view, began)
+  const since = view.now - from - boardOffMs(view, from)
   const late = mismatch && state !== 'switched' && state !== 'refused' && !isPaused(view) && !isFull(view) && Number.isFinite(since) && since > view.settings.switchMinutes * MIN
   return {
     runs: `${family ?? 'a model not known'} · ${effort ?? 'effort not known'}`, wants: `${want.family} · ${want.level}`, mismatch, state,
     askedAt: own?.asked?.at ?? null, askState: own?.asked?.state ?? null, takenAt, since, late,
+    changedAt: changed === null || !Number.isFinite(began) ? null : began, handedAs: changed?.fromWords ?? null,
+    thenAs: changed?.then ?? null, thenAt: changed?.thenAt ?? null,
   }
 }
 
@@ -1089,8 +1095,9 @@ function effortMismatch(view) {
     found.push({
       // Signals change 6 (Addendum 2; X110 'effort-mismatch Worker 4 B810'): the key is the rule and the chat only; the step is in the text.
       rule: 'effort-mismatch', key: `effort-mismatch ${lane.name}`, subject: lane.name,
-      text: `${lane.name} runs ${at.runs} ${minutes(at.since)} min after it took ${id}, which wants ${at.wants}`,
-      evidence: `took ${id} at ${clockOf(at.takenAt)}; ${at.state === 'asked' ? `switch asked ${clockOf(at.askedAt)} (${at.askState ?? 'not known'}), not read back` : 'no switch asked'}; the app's file says ${at.runs}`,
+      text: at.changedAt === null ? `${lane.name} runs ${at.runs} ${minutes(at.since)} min after it took ${id}, which wants ${at.wants}`
+        : `${lane.name} runs ${at.runs} ${minutes(at.since)} min after ${id} changed to ${at.wants} at ${clockOf(at.changedAt)} (its hand-over asked ${at.handedAs ?? 'another setting'}${at.thenAs === null ? '' : `, then ${at.thenAs} at ${clockOf(at.thenAt)}`})`,
+      evidence: `took ${id} at ${clockOf(at.takenAt)}${at.changedAt === null ? '' : `; its setting changed at ${clockOf(at.changedAt)}`}; ${at.state === 'asked' ? `switch asked ${clockOf(at.askedAt)} (${at.askState ?? 'not known'}), not read back` : 'no switch asked'}; the app's file says ${at.runs}`,
     })
   }
   return found
@@ -1577,7 +1584,7 @@ export const WATCH_RULES = [
   { id: 'chain-long', kind: 'watch', says: 'a chain of three tries or more whose newest fix names no "Tried before:" (a patch of the same way again)', check: chainLong },
   { id: 'open-fix', kind: 'watch', says: 'a step in review behind a fix the partner has not refined for over 60 min, its last refine word unanswered for 30 (not while the person\'s pick on a rebuild of its goal is open; then 60 min from the pick)', check: openFix, skips: SKIPS_ON_PAUSE },
   { id: 'stale-checkpoint', kind: 'watch', says: 'a step in progress whose worker works on it for hours with no checkpoint', check: staleCheckpoint, skips: SKIPS_ON_PAUSE_OR_LIMIT },
-  { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take', check: effortMismatch, skips: SKIPS_ON_PAUSE_OR_LIMIT },
+  { id: 'effort-mismatch', kind: 'watch', says: 'a worker that still runs another model or effort than its step wants 10 min after the take, or after its step\'s setting changed', check: effortMismatch, skips: SKIPS_ON_PAUSE_OR_LIMIT },
   { id: 'handover-held', kind: 'watch', says: 'a worker on the hand-over sequence held (its set, restart or line did not run; a 0.30.0 worker: its clear) for over 10 min of running time', check: handoverHeld, skips: SKIPS_ON_PAUSE },
   { id: 'handover-unanswered', kind: 'watch', says: 'a worker on the hand-over sequence that did not answer its hand-over within 10 min (the net fired)', check: handoverUnanswered },
   { id: 'clear-owed-repeat', kind: 'watch', says: 'a worker whose clear did not run at its last three hand-overs in a row (its line went each time; a refusal in the person\'s pause not counted)', check: clearOwedRepeat },

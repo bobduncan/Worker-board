@@ -482,3 +482,22 @@ test('mutant "taken left out": the start sweep counts a taken lone clear with no
   assert.deepEqual([of('w').why, of('k').why], [CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY])
   assert.deepEqual([of('w').state, of('k').state], ['dropped', 'dropped'])
 })
+
+test('B1207 (X26 back): the envelope keeps the step\'s whole setting at its hand-over (`wants`), also when it needs no set; the mod\'s contract leaves it out', async () => {
+  const one = await garden(step('B13', 'refined', {}, undefined, { Model: ['sonnet · a small fix'], Effort: ['high · a board fix'] }))
+  try {
+    const lane = await one.lane('Digger', { effort: 'high' })
+    const first = await one.decide(lane, NOW)
+    assert.deepEqual([first.envelope.set, first.envelope.wants], [null, { model: SONNET, effort: 'high' }])
+    assert.equal(Object.hasOwn(await handOut(one.outbox, 'Digger', NOW, KEEP), 'wants'), false)
+  } finally {
+    await cleanUp(one.dir)
+  }
+  const two = await garden(step('B14', 'refined', {}, undefined, { Model: ['opus · core'], Effort: ['high · core'] }))
+  try {
+    const handed = await two.decide(await two.lane('Mower'), NOW)
+    assert.deepEqual([handed.envelope.set, handed.envelope.wants], [{ model: OPUS, effort: 'high' }, { model: OPUS, effort: 'high' }])
+  } finally {
+    await cleanUp(two.dir)
+  }
+})

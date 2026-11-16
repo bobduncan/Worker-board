@@ -662,7 +662,9 @@ asking the user. Only when the different way fails twice as well, bring it to th
 The board holds you to it (B664): once a chain had two tries (the step and one fix, or more), the fix a failed check
 makes is open, not refined, its first point "Two rounds, then another way: the partner refines it another way (tried:
 B<n>, ...)", and no worker gets it; the board types its `refine step` into your chat first, saying so. Refine it as any
-step (`work refine`, then `work refined` with the what that starts with "Tried before:"). A newest fix of three tries
+step (`work refine`, then `work refined` with the what that starts with "Tried before:"). `work refined` refuses (409) a fix
+that is the newest of a chain with three tries or more and whose what names no "Tried before:" (B1236, X202: B1155 → B1196 →
+B1214 → B1230 handed out a round without it); the refusal says what to add, and nothing is handed out. A newest fix of three tries
 or more at work without that line is an incident (the chain-long rule), which the Supervisor judges; its fix comes to you. An open fix you leave unrefined gets its
 word again after an hour, three words at most, and is an incident past an hour with its last word unanswered for 30 min
 (the open-fix rule, B667): the steps behind it wait in review until you refine it. Not while a `Rebuild G<n>` ask of its goal waits for the person (B985): the board types no refine word for such a fix until they picked.
