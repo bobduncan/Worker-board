@@ -10,7 +10,9 @@
     "demo": "node server.mjs --demo",
     "test": "node tools/one-at-a-time.mjs test -- node tools/test.mjs",
     "setup": "node setup.mjs",
-    "new": "node tools/new-project.mjs"
+    "new": "node tools/new-project.mjs",
+    "save": "node tools/carry.mjs save",
+    "load": "node tools/carry.mjs load"
   },
   "devDependencies": {
     "happy-dom": "^21.0.4"

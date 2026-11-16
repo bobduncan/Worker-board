@@ -8547,3 +8547,59 @@ work between never count. Chat 1's design, built by chat 3 on top of chat 4's br
   `heardAt` (state.mjs), the time it was really heard: the work-going-on reading ends there, so a board restart is no proof of work and
   a dead holder goes back 15 minutes after its last real report whatever the landings. Mutants: asking excluded, the short rest ending
   the spell, heardAt ignored, the latest start again: each fails its test.
+
+## T5: the board's data to another PC, first version (2026-11-16, chat 1's brief, part B1 by chat 3)
+
+The person works on another PC on Wednesday evening; everything the board needs must be there. First version: two commands in the
+board folder, `npm run save` and `npm run load` (tools/carry.mjs, the parts under src/carry/). **save** copies the project's board
+data into a nested clone of the game repo's origin (`<gameRepo>/.workerboard`, its own orphan branch `workerboard-data`, or
+`workerboard-practice` with `--practice`), commits and pushes it, pushes the open steps' branches (final saves only) and copies the
+pictures into the Drive folder; **load** puts it all back. The live board keeps reading its data where it is: nothing it runs changes,
+nothing runs until someone types the command. B1 (this part) owns the command line, every refusal, git, times, the held words, the
+branch pushes, the board steps, the backup and the PC-local record; B2 (chat 2, src/carry/set.mjs) says what travels; B3 (chat 4,
+src/carry/pictures.mjs) moves the pictures. The brief: `.claude/plans/2026-11-16-t5-brief-chat3.md`.
+
+- **Roots** come from the board folder the command runs in: its config.json (read only), the store (`work`), its data, memory at
+  `<USERPROFILE>\.claude\projects\<project key>\memory` (config.mjs `transcriptsOf`), the user's settings; never from boards.json or
+  another checkout. The PC-local record is `data/carry.json` (ignored by the board repo), or `<data folder>.carry.json` beside an
+  explicit `--data`, so a rehearsal on scratch roots never becomes the live defaults; it keeps the Drive folder and the keep set
+  from their last use and the last sync (kind, time, branch, commit, the blob ids written).
+- **Git** (src/carry/git.mjs): one runner (`--no-optional-locks`, `-c gc.auto=0`, no prompts, hidden, 20 s local, 60 s remote,
+  more per 100 KB for a push); the data clone is `clone -c core.autocrlf=false --single-branch --branch`, or an orphan init whose
+  first commit is `.gitattributes` with `* -text` (this PC has autocrlf=true, another may not; the test's side B runs with it on); the
+  one default folder switches branch when the other kind of save lives there. Content is compared by blob id (`blobOf`, git's own
+  sha1, no git call per file). The commit message is fixed ("Board data: save" / "Board data: practice save"), never an id. Nothing is
+  forced: a push whose origin copy is ahead or diverged is refused.
+- **Save's guards** (src/carry/guards.mjs `saveGuards`, pure over facts): not paused ("Pause all first"); a board of the project
+  answers (boards.json's entry for the project and the folder's own data/port.json, asked with `whoseBoard`; never config.port) or a
+  keeper of the folder runs ("quit the Claude app from the tray, then start-board.mjs --stop"); a fresh landing lock; a held step
+  (taken, in progress, waiting on you) with uncommitted tracked changes in its worktree ("<chat> commits B<id>", unless `--anyway`);
+  a non-fast-forward branch push; tracked changes or unpushed commits in the game or board checkout; origin's data branch past this
+  PC's last sync ("load first"); a last load that was a practice; a staged text holding the bridge key, the Codex token or the
+  ElevenLabs key by value (never printed) or over 10 MB; a remote that answers an anonymous read; a Drive folder short of space.
+  Warnings, never refusals: a step in review, a held step with no checkpoint since the pause, a branch gone, merged or `none`, a held
+  branch checked out in no worktree here. With `--practice` every final check is a warning.
+- **Save's order**: copy (each file read with readFile, never copyFile or robocopy, which hold a file the board renames over; files
+  that left the set are removed from the data folder, nothing outside it is ever deleted), `settings/config.json` and
+  `settings/user.json` (B2), pictures (B3, `pictures.json` from its record), `times.json` (each carried file and the two plan docs:
+  path, mtime, blob), `held-words.json` (the outbox folded by id; waiting and not resume), the board steps into `saved.json` (not done
+  or dropped with `Priority: fix`, or a branch of the board repo: they cannot land on the other PC), one commit and push, then the
+  branches (game repo: every local branch with commits not on origin/main that origin lacks at that commit; board repo: the open board
+  steps' branches, to the board origin), the record, the summary with the held words to retype and the board steps.
+- **Load's order**: guards (a board of the TARGET project, a keeper, a fresh lock, practice data without `--practice`); clone or
+  fast-forward only; what this PC changed since its last sync (by blob against the record) refuses unless `--park` (a final load over a
+  practice state parks by itself); the backup of everything replaced under `<board folder>/data/carry-backup/<stamp>/` (outside the
+  game repo), `--undo <stamp>` puts it back; the set's targets written (B2 `targetOf`), config.json from `settingsFromCarry` with
+  writeAtomic; a practice load sets pause.json to `pausing`; times restored where the blob matches (the plan docs get their times
+  only); pictures from the Drive (B3); `--user-settings` merges the carried permission lines after a backup; the record; the summary
+  with the board steps still held for the board PC, the held words, and what this PC lacks (the Python environment, a git identity,
+  Codex).
+- **Tests**: test/carryUnits.test.mjs (the flags, both guard tables, the held words, the board steps, the secrets, the times, the
+  record's place, the blob id against `git hash-object`, the project's-board guard with a fake board on a free port);
+  test/carryTwoPc.test.mjs (two temp PCs, a bare remote, a temp Drive with whole-millisecond times, side B with autocrlf on: save on A,
+  load on B, the same blobs, the restored time, pause carried as pausing, config.json and the user settings written; change on B, save
+  on B, load on A with the backup outside the game repo; the local change refused, parked and undone; the practice save pushing no
+  branch and the final save after a practice load refused; the given-back step's branch pushed, the review step only a warning, the
+  dirty worktree refused unless --anyway, the planted key refused with its value never printed, origin ahead refused, a running board
+  and a fresh lock refused for both). B2 and B3 are fakes of their contracts in these tests until their parts merge.
+- **Not in v1**: the board reading its data from the clone (after Wednesday), hourly saves, a Save button, rclone.

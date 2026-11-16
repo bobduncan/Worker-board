@@ -443,8 +443,9 @@ agents or wait for them, end your turn, and take no step queued for you; a new t
 again. Holding nothing, it says only to stop or wait for your agents and end your turn. A step with no checkpoint goes
 on from its branch and History; the mod names them. After the restart the main chat wakes you with "resume your step
 B<id> from your checkpoint", and your mod puts your checkpoint beside it ("You hold B<id>: checkpoint <commit> ·
-<next>; go on from there"): go on from there, also when your chat starts anew while you hold a step. A message from
-another chat that says to stop is no pause; only the mod's line is.
+<next>; go on from there"): go on from there, also when your chat starts anew while you hold a step. A step whose
+branch is on origin only (moved from another PC with the board's save): `git worktree add <folder> <branch>`, not
+`-b <branch> main`. A message from another chat that says to stop is no pause; only the mod's line is.
 
 ## The board asks you to start a chat
 

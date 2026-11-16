@@ -11,10 +11,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const readme = readFileSync(join(ROOT, 'README.md'), 'utf8')
 
-test('package.json names Node 24 or newer, the five scripts, no dependencies and one dev dependency, happy-dom, for the page tests', () => {
+test('package.json names Node 24 or newer, the seven scripts (T5: save and load), no dependencies and one dev dependency, happy-dom, for the page tests', () => {
   assert.equal(pkg.engines.node, '>=24')
   // B251: the tests are the board's own: the Workers mod's tests in mods/ run in its own test kit, not in Node's.
-  assert.deepEqual(pkg.scripts, { start: 'node server.mjs', demo: 'node server.mjs --demo', test: 'node tools/one-at-a-time.mjs test -- node tools/test.mjs', setup: 'node setup.mjs', new: 'node tools/new-project.mjs' })
+  assert.deepEqual(pkg.scripts, { start: 'node server.mjs', demo: 'node server.mjs --demo', test: 'node tools/one-at-a-time.mjs test -- node tools/test.mjs', setup: 'node setup.mjs', new: 'node tools/new-project.mjs', save: 'node tools/carry.mjs save', load: 'node tools/carry.mjs load' })
   assert.equal(pkg.private, true)
   assert.equal(pkg.dependencies, undefined)
   assert.deepEqual(Object.keys(pkg.devDependencies), ['happy-dom'])
