@@ -1840,6 +1840,8 @@ async function main(args) {
       // needs the focus goal's demo still to come, or a recap that names the step (`recaps` above).
       autopilot: config.autopilot === true,
       focusHasDemo: (state.focus?.demo ?? null) !== null,
+      // B1240 (chat 1's review): the steps the focus goal's work blocks list: a recap ask of a step in none of them is routed as one at work.
+      focusSteps: (state.focus?.parts ?? []).flatMap(part => (part.steps ?? []).map(one => one?.id)).filter(one => typeof one === 'string'),
       // B656: the ready list's held steps, so a step in review whose fix it holds says why in work next and list.
       readyHeld: state.readyList?.held ?? null,
       // B878: the steps the goals' recaps show, so a step whose part waits for the person's verdict says so in work next and list.
