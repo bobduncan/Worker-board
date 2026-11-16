@@ -234,9 +234,10 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-yes { flex: 1; padding: 13px 18px; border: 0; border-radius: 9px; background: var(--working); color: var(--ink); font-size: 16px; font-weight: 700; cursor: pointer; }
 .focus-no { padding: 13px 30px; border: 1px solid #3a4a63; border-radius: 9px; background: transparent; color: var(--text); font-size: 16px; font-weight: 600; cursor: pointer; }
 .focus-part { line-height: 1.45; display: flex; flex-direction: column; gap: 0; margin-top: 12px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); }
-.focus-part-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.focus-part-top b { min-width: 0; font-size: 17px; overflow-wrap: anywhere; }
-.focus-chip { flex: none; padding: 4px 14px; border: 1px solid var(--line); border-radius: 7px; font-size: 14px; font-weight: 600; }
+/* 2026-11-15: a long chip (a rework's "held: waits for ...") wraps under the title; the title never shrinks to one letter per line. */
+.focus-part-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.focus-part-top b { flex: 1 1 14em; min-width: min(12em, 100%); font-size: 17px; overflow-wrap: anywhere; }
+.focus-chip { flex: 0 1 auto; max-width: 100%; overflow-wrap: anywhere; padding: 4px 14px; border: 1px solid var(--line); border-radius: 7px; font-size: 14px; font-weight: 600; }
 .focus-chip.is-done { border-color: #2d6b47; color: var(--working); background: #0f2a1d; }
 .focus-chip.is-now { border-color: var(--free); color: #8fb4ff; background: #13254a; }
 .focus-chip.is-next { border-color: #3a4a63; color: var(--text); }
