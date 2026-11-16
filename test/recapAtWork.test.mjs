@@ -1,0 +1,177 @@
+// B1240 (F31, the person's "1. yes", 2026-11-16, after their screenshot of "recap stuff" they could not see): only finished work waits
+// for the goal's recap. The live case: Worker 3 sat parked 44 h on B1149 (in progress) with Q789 (decide, Route recap): the lane parked
+// for the recap (waitsOn.mjs `keptRecapWaitOf`), while the recap counts a step toward the goal demo only in review (autopilot.mjs
+// `recapWaitOf`), so neither moved. Now an ask of a step at work is routed by the other rules (`recapOr`), one routed to the recap before
+// is routed anew at the next pass with one History line (api.mjs `autopilot`), a kept look parks no lane, and a step in review whose only
+// open asks are kept looks counts for the demo (chat 1's other door). A step in review keeps the recap route (Q817 on B1205, the good
+// case). Trimmed from the live records; made-up paths and chats only.
+
+import assert from 'node:assert/strict'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import test from 'node:test'
+
+import { autopilotRoute, recapWaitOf, waitsForKeptLooksOnly } from '../src/work/autopilot.mjs'
+import { reroutedAtWorkWords, workApi } from '../src/work/api.mjs'
+import { parseGoals } from '../src/goals.mjs'
+import { focusState } from '../src/state.mjs'
+import { parseItem } from '../src/work/item.mjs'
+import { stamp } from '../src/work/migrate.mjs'
+import { readStore, share } from '../src/work/store.mjs'
+import { keptRecapWaitOf } from '../src/work/waitsOn.mjs'
+
+share.ms = 0
+
+const MIN = 60_000
+const NOW = new Date(2026, 10, 16, 10, 30).getTime()
+const at = minutes => stamp(NOW - minutes * MIN)
+const KEPT = "Autopilot keeps this look for the goal's recap"
+
+function text(head, sections = {}) {
+  const lines = Object.entries(head).filter(([, value]) => value !== null && value !== undefined).map(([key, value]) => `${key}: ${value}`)
+  for (const [name, body] of Object.entries(sections)) lines.push('', `## ${name}`, ...body)
+  return `${lines.join('\n')}\n`
+}
+const step = (id, fields, sections = {}) => text({ Id: id, Kind: 'step', Activity: 'Art', Since: at(90), Goal: 'G95', ...fields }, { ...sections, History: [`- ${at(90)} Lead: made`] })
+const ask = (id, fields, sections = {}) => text({ Id: id, Kind: 'ask', State: 'open', Since: at(50), Filed: String(NOW - 50 * MIN), Blocking: 'no', ...fields }, { Text: [fields.Title], ...sections, History: [`- ${at(50)} ${fields.Owner ?? 'server'}: asked (${fields.Asks ?? 'decide'})`, `- ${at(50)} server: autopilot: routed to ${fields.Route ?? 'person'}`] })
+
+/** B1149 as it stood: the Red Mage in progress, its Context marked for the recap. */
+const B1149 = (state = 'in progress') => step('B1149', { Title: 'Redraw the Red Mage to the Knight\'s sheet', State: state, Owner: 'Painter' }, { Context: ['  Redraw the Red Mage.', '  Recap verdict: waits (Q789)'] })
+/** Q789 as it stood open: Worker 3's verdict question, routed to the recap. */
+const Q789 = (more = {}) => ask('Q789', { Title: 'Red Mage scores 62 of 75: redraw or accept?', Owner: 'Painter', Pictures: 'art/G95/B1149/demo-closeup.png', Asks: 'decide', Of: 'B1149', Options: 'A Redraw the model sheet and all sheets | B Merge as it is, fix step later', Advice: 'A', Route: 'recap', ...more })
+/** B1205 as it stands: the Archer in review, its check done, below its bar. */
+const B1205 = () => step('B1205', { Title: 'An own move per ability: the Archer\'s shot', State: 'review', Owner: 'Builder' }, { Context: ['  The shot.', '  Recap verdict: waits (Q817)'] })
+const QA1205 = () => step('B1230', { Title: 'Quality Assurance: B1205', State: 'done', Owner: 'Checker', Checks: 'B1205' })
+/** Q817: the board's Accept card on B1205, routed to the recap. */
+const Q817 = () => ask('Q817', { Title: 'Accept B1205 at 58 of 75, or send it back?', Pictures: 'art/B1205/evidence.png', Asks: 'decide', Of: 'B1205', Options: 'A Accept: done as it is | B Send back: the partner makes another try from your note', Via: 'accept', Route: 'recap' })
+/** A worker's look with a picture of a G95 step, kept for the recap. */
+const keptLook = (id, of, more = {}) => ask(id, { Title: 'Does the mage read at play size?', Owner: 'Painter', Pictures: `art/G95/${of}/demo.png`, Asks: 'look', Of: of, Advice: 'yes', Route: 'recap', ...more }, { Route: [KEPT] })
+
+const ROLES = { Lead: 'main', Partner: 'advisor', Painter: 'worker', Builder: 'worker', Checker: 'worker' }
+const roleOf = chat => ROLES[chat] ?? null
+const ctx = (dir, now, as, more = {}) => ({ dir, now, prefix: '', roleOf, chats: Object.keys(ROLES), focusGoal: 'G95', pictureProblem: async () => null, ...(as === undefined ? {} : { as }), ...more })
+const sweep = (dir, on = true) => workApi({ action: 'autopilot', on }, ctx(dir, NOW, 'server'))
+const read = async dir => (await readStore(dir)).items
+const field = (items, id, key) => items.get(id).head.get(key)
+const history = (items, id) => items.get(id).sections.get('History') ?? []
+const mapOf = texts => new Map(texts.map(one => parseItem(one)).map(one => [one.head.get('Id'), one]))
+
+async function storeWith(files) {
+  const dir = await mkdtemp(join(tmpdir(), 'recap-at-work-'))
+  for (const [id, body] of Object.entries(files)) await writeFile(join(dir, `${id}.md`), body)
+  await writeFile(join(dir, 'activities.json'), `${JSON.stringify({ preamble: [], activities: [{ name: 'Art', steps: Object.keys(files).filter(id => id.startsWith('B')) }] }, null, 1)}\n`)
+  return dir
+}
+
+const GOALS = ['Last id: G95', 'Focus: G95', '', '- [~] G95 One family', '    Done when: every unit drawn by one hand', '    Goal definition: one family', '    Goal definition agreed: 2026-11-11 10:00',
+  '    Part: The Red Mage · about 3 h · steps B1149', '    Part: The Archer · about 3 h · steps B1205', '    How agreed: 2026-11-11 11:00', ''].join('\n')
+
+test('rule 1 at filing: an ask of a step at work is never routed to the recap; the same ask of a step in review is', () => {
+  const route = (askText, stepText) => {
+    const items = mapOf([askText, stepText])
+    return autopilotRoute(items.get(parseItem(askText).head.get('Id')), { roleOf, items, focusGoal: 'G95' })
+  }
+  for (const state of ['taken', 'in progress', 'waiting on you']) {
+    const atWork = route(Q789({ Route: null }), B1149(state))
+    assert.notEqual(atWork.to, 'recap', `B1149 ${state}`)
+    assert.equal(atWork.to, 'partner', 'a verdict with pictures and options: the partner decides it')
+    assert.match(atWork.why, new RegExp(`its step is still at work \\(${state}\\)`))
+  }
+  assert.equal(route(Q789({ Route: null }), B1149('review')).to, 'recap', 'finished work waits for the recap as before')
+  // The board's Accept card: in review it waits for the recap (Q817); were its step at work, the partner's.
+  assert.equal(route(Q817(), B1205()).to, 'recap')
+  assert.equal(route(Q817(), B1205().replace('State: review', 'State: in progress')).to, 'partner')
+  // Settled in the refine: the last-action look (a worker's look with pictures of a focus-goal step, at work) still reaches the recap, kept.
+  const look = route(keptLook('Q900', 'B1149', { Route: null }), B1149())
+  assert.deepEqual([look.to, look.kept], ['recap', true])
+})
+
+test('rule 2, the repair: B1149 in progress + Q789 on the recap is routed anew to the partner with one History line; B1205 + Q817 stays and counts for the demo', async t => {
+  const dir = await storeWith({ B1149: B1149(), Q789: Q789(), B1205: B1205(), B1230: QA1205(), Q817: Q817() })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  let items = await read(dir)
+  // Before the pass: the lane parks (the live 44 hours).
+  assert.deepEqual(keptRecapWaitOf(items.get('B1149'), [items.get('Q789')])?.ids, ['Q789'])
+  const done = await sweep(dir)
+  assert.equal(done.ok, true, done.why)
+  assert.deepEqual(done.result.routed, [{ id: 'Q789', to: 'partner' }])
+  items = await read(dir)
+  assert.equal(field(items, 'Q789', 'Route'), 'partner')
+  const lines = history(items, 'Q789')
+  assert.equal(lines.filter(line => line.endsWith(reroutedAtWorkWords('in progress'))).length, 1)
+  assert.ok(lines.at(-1).endsWith('autopilot: routed to partner'), lines.at(-1))
+  assert.equal(reroutedAtWorkWords('in progress'), 'autopilot: re-routed: its step is still at work (in progress); only finished work waits for the recap')
+  // The lane no longer parks for the recap.
+  assert.equal(keptRecapWaitOf(items.get('B1149'), [items.get('Q789')]), null)
+  // B1205 in review keeps its card on the recap, and counts for asking the goal demo.
+  assert.equal(field(items, 'Q817', 'Route'), 'recap')
+  assert.equal(history(items, 'Q817').some(line => line.includes('re-routed')), false)
+  assert.deepEqual(recapWaitOf(items.get('B1205'), items), [{ step: 'B1205', asks: ['Q817'] }])
+  const focus = focusState(parseGoals(GOALS), [...items.values()], [], '', 'Partner', NOW)
+  assert.deepEqual([focus.progress.done, focus.progress.forDemo, focus.progress.total], [0, 1, 2])
+  // A second pass changes nothing more.
+  assert.deepEqual((await sweep(dir)).result.routed, [])
+})
+
+test('the repair with Autopilot off gives the ask to the person; a blocking look not yet kept becomes a kept look and frees its step', async t => {
+  const dir = await storeWith({ B1149: B1149(), Q789: Q789(), B1150: step('B1150', { Title: 'Redraw the Archer', State: 'waiting on you', Owner: 'Builder' }), Q901: keptLook('Q901', 'B1150', { Owner: 'Builder', Blocking: 'yes' }) })
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  assert.deepEqual((await sweep(dir, false)).result.routed.find(one => one.id === 'Q789'), { id: 'Q789', to: 'person' })
+  let items = await read(dir)
+  assert.equal(field(items, 'Q789', 'Route'), 'person')
+  assert.equal(history(items, 'Q789').filter(line => line.includes('re-routed: its step is still at work')).length, 1)
+  // Off, the blocking look went to the person too; on (its next filing shape), a fresh store keeps it for the recap and frees B1150.
+  const on = await storeWith({ B1150: step('B1150', { Title: 'Redraw the Archer', State: 'waiting on you', Owner: 'Builder' }), Q901: keptLook('Q901', 'B1150', { Owner: 'Builder', Blocking: 'yes' }) })
+  t.after(() => rm(on, { recursive: true, force: true }))
+  const done = await sweep(on)
+  assert.deepEqual(done.result.routed, [{ id: 'Q901', to: 'recap' }])
+  items = await read(on)
+  assert.deepEqual([field(items, 'Q901', 'Route'), field(items, 'Q901', 'Blocking')], ['recap', 'no'])
+  assert.deepEqual(items.get('Q901').sections.get('Route'), [KEPT])
+  assert.notEqual(field(items, 'B1150', 'State'), 'waiting on you')
+  assert.equal(keptRecapWaitOf(items.get('B1150'), [items.get('Q901')]), null)
+})
+
+test('rule 3, the words: the ask\'s "Where it stands" and the Focus card say when the recap opens, from the goal\'s count of its blocks', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const vm = await import('node:vm')
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  const pick = start => script.slice(script.indexOf(start), script.indexOf('\n}\n', script.indexOf(start)) + 3)
+  const page = {}
+  vm.runInNewContext(`const clock = at => String(at); const standWords = () => 'elsewhere'\nconst ROUTE_CHIPS = {}\n${['function recapOpensWords(', 'function lookAnswerOf(', 'function partnerAskWindowOf('].map(pick).join('\n')}\nObject.assign(this, { recapOpensWords, partnerAskWindowOf })`, page)
+  const focus = { id: 'G95', progress: { done: 0, total: 6 } }
+  assert.equal(page.recapOpensWords(focus, 'G95'), 'your recap of G95 opens when its 6 work blocks are done, 0 of 6 now')
+  // The demo's count (blocks waiting only for the recap) is the one that opens it.
+  assert.equal(page.recapOpensWords({ id: 'G95', progress: { done: 1, forDemo: 4, total: 6 } }, 'G95'), 'your recap of G95 opens when its 6 work blocks are done, 4 of 6 now')
+  assert.equal(page.recapOpensWords({ id: 'G95', progress: { done: 0, total: 1 } }, 'G95'), 'your recap of G95 opens when its 1 work block is done, 0 of 1 now')
+  // Every block counted (the recap is open or being made), another goal, no blocks: no words, the old line stands.
+  assert.equal(page.recapOpensWords({ id: 'G95', progress: { done: 2, forDemo: 6, total: 6 } }, 'G95'), null)
+  assert.equal(page.recapOpensWords(focus, 'G60'), null)
+  assert.equal(page.recapOpensWords({ id: 'G95', progress: { done: 0, total: 0 } }, 'G95'), null)
+  const Q817card = { id: 'Q817', route: 'recap', asks: 'decide', goal: 'G95', of: 'B1205', title: 'Accept B1205 at 58 of 75, or send it back?' }
+  assert.equal(page.partnerAskWindowOf(Q817card, focus).stand, "waits for the goal's recap: your recap of G95 opens when its 6 work blocks are done, 0 of 6 now")
+  assert.equal(page.partnerAskWindowOf(Q817card, null).stand, "waits for the goal's recap: you judge it there")
+  const kept = { ...Q817card, id: 'Q902', asks: 'look', isKept: true }
+  assert.equal(page.partnerAskWindowOf(kept, focus).stand, "waits for the goal's recap (your recap of G95 opens when its 6 work blocks are done, 0 of 6 now): you can answer it here")
+  // The Focus card's line carries the same words.
+  assert.match(pick('function focusRecapAsksCard('), /Autopilot keeps these for the goal's recap: \$\{opens === null \? 'you judge them there, with the rest of the work' : opens\}/)
+})
+
+test('chat 1\'s other door: a step at work with only a kept look parks no lane; once it is in review (nothing left to check) its part counts for the demo', async () => {
+  const working = mapOf([B1149(), keptLook('Q902', 'B1149')])
+  assert.equal(keptRecapWaitOf(working.get('B1149'), [working.get('Q902')]), null)
+  assert.equal(waitsForKeptLooksOnly(working.get('B1149'), working), false, 'at work it counts for nothing yet')
+  const reviewText = B1149('review').replace('  Recap verdict: waits (Q789)\n', '')
+  const reviewed = mapOf([reviewText, keptLook('Q902', 'B1149'), B1205(), QA1205(), Q817()])
+  assert.equal(recapWaitOf(reviewed.get('B1149'), reviewed), null, 'a kept look gives no row of its own')
+  assert.equal(waitsForKeptLooksOnly(reviewed.get('B1149'), reviewed), true)
+  const focus = focusState(parseGoals(GOALS), [...reviewed.values()], [], '', 'Partner', NOW)
+  assert.deepEqual([focus.progress.done, focus.progress.forDemo, focus.progress.total], [0, 2, 2])
+  assert.deepEqual(focus.recapRows, [{ step: 'B1205', asks: ['Q817'] }])
+  // A check still to run, or another open ask of the person's, keeps it out.
+  const checking = mapOf([reviewText, keptLook('Q902', 'B1149'), step('B1240', { Title: 'Quality Assurance: B1149', State: 'in progress', Owner: 'Checker', Checks: 'B1149' })])
+  assert.equal(waitsForKeptLooksOnly(checking.get('B1149'), checking), false)
+  const asked = mapOf([reviewText, keptLook('Q902', 'B1149'), ask('Q903', { Title: 'Which hat?', Owner: 'Painter', Asks: 'decide', Of: 'B1149', Route: 'person' })])
+  assert.equal(waitsForKeptLooksOnly(asked.get('B1149'), asked), false)
+})

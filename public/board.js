@@ -4991,16 +4991,21 @@ function standWords(stand) {
  * it): its code, title and who asked, where it stands, its context, options and advice, and its step; from the state's
  * `withPartner` entry. Plain data.
  */
-function partnerAskWindowOf(ask) {
+function partnerAskWindowOf(ask, focus = null) {
   // Autopilot (2026-10-31): an ask the board routed to the main chat or to the goal's recap opens here too, its route named.
   const route = ask.route ?? 'partner'
   const answer = lookAnswerOf(ask)
+  // B1240 (F31): when the recap opens, from the goal's own count of its work blocks, in place of "you judge it there" with no time.
+  const opens = route === 'recap' ? recapOpensWords(focus, ask.goal ?? null) : null
+  const recapStand = answer === null
+    ? `waits for the goal's recap: ${opens ?? 'you judge it there'}`
+    : `waits for the goal's recap${opens === null ? '' : ` (${opens})`}: you can answer it here`
   return {
     code: ask.id, title: ask.title ?? '', fullTitle: ask.title ?? '', route,
     chips: [{ text: ROUTE_CHIPS[route] ?? ROUTE_CHIPS.partner, tone: 'kind' }, ...(ask.from == null ? [] : [{ text: `From: ${ask.from}`, tone: 'to' }])],
     at: ask.at ?? null,
     stand: route === 'ref' ? (ask.state == null ? null : `it is ${ask.state}`) : route === 'main' ? `the main chat does it if a chat can${Number.isFinite(ask.toYouAt) ? ` · comes to you at ${clock(ask.toYouAt)}` : ''}`
-      : route === 'recap' ? (answer === null ? "waits for the goal's recap: you judge it there" : "waits for the goal's recap: you can answer it here") : standWords(ask.stand),
+      : route === 'recap' ? recapStand : standWords(ask.stand),
     answer,
     text: String(ask.text ?? ''), options: ask.options ?? [], advice: ask.advice ?? null,
     step: ask.of == null ? null : [ask.of, ask.ofTitle].filter(Boolean).join(' '),
@@ -5023,17 +5028,34 @@ function lookAnswerOf(ask) {
   return { id: ask.id, isDo: ask.asks === 'do', options: options.map(one => ({ label: one.label, isAdvised: one.isRecommended === true })) }
 }
 
+/**
+ * B1240 (F31, the person's "1. yes", 2026-11-16: recap stuff they could not see): when the recap of goal `goal` opens, from the focus
+ * goal's own count of its work blocks (`focus.progress`: `forDemo`, the blocks done or waiting only for the recap, else `done`):
+ * "your recap of G95 opens when its 6 work blocks are done, 0 of 6 now". Null for a goal that is not the focus, one without blocks, or
+ * one whose blocks are all counted (its recap is open or being made).
+ */
+function recapOpensWords(focus, goal) {
+  if (focus === null || focus === undefined || typeof goal !== 'string' || focus.id !== goal) return null
+  const total = focus.progress?.total
+  if (!Number.isInteger(total) || total <= 0) return null
+  const counted = focus.progress.forDemo ?? focus.progress.done
+  const done = Number.isInteger(counted) ? Math.min(counted, total) : 0
+  // Every block counted: the recap is (about to be) open, so "you judge it there" says it as before.
+  if (done >= total) return null
+  return `your recap of ${goal} opens when its ${total} work block${total === 1 ? ' is' : 's are'} done, ${done} of ${total} now`
+}
+
 /** Autopilot (2026-10-31): the chip of an ask's route in its window, and the line under where it stands. */
 const ROUTE_CHIPS = { partner: 'With your partner', main: 'With the main chat (Autopilot)', recap: 'For your recap (Autopilot)', ref: 'An ask of the board' }
 const ROUTE_STANDS = {
   partner: 'Your partner answers it first; one it has not answered in 30 minutes comes to you.',
   main: 'Autopilot: the main chat does it if a chat can, else hands it to you with one line why; one it has not done in 30 minutes comes to you.',
-  recap: 'Autopilot: it waits for the goal\'s recap, where you approve or send back the work; the step stays as it is until then.',
+  recap: 'Autopilot: only finished work waits for the goal\'s recap, where you approve or send back the work; it opens once the goal\'s work blocks are done.',
 }
 
 /** The window of a question with the partner (the details dialog): quiet, with where it stands first. */
 function drawPartnerAskWindow(box, ask, state) {
-  const view = partnerAskWindowOf(ask)
+  const view = partnerAskWindowOf(ask, state?.focus ?? null)
   // The answer form's own state (its note is kept while the window is drawn again; a refusal stands under the buttons).
   const answerUi = view.answer === null ? null : { isSending: sending.has(`look:${view.answer.id}`), problem: problems.get(`look:${view.answer.id}`) ?? null, pick: lookPicks.get(view.answer.id) ?? null }
   const showing = JSON.stringify([detailsOf, view, answerUi])
@@ -19199,9 +19221,11 @@ function recapAsksList(asks) {
 // autopilot:end
 
 /** Autopilot: the run's card "For your recap (n)": what waits for the goal's recap, one line each. */
-function focusRecapAsksCard(asks) {
+function focusRecapAsksCard(asks, focus = null) {
   const card = el('section', 'focus-card focus-recap-wait')
-  card.append(el('h3', '', `For your recap (${asks.length})`), el('p', 'muted', 'Autopilot keeps these for the goal\'s recap: you judge them there, with the rest of the work.'), recapAsksList(asks))
+  // B1240 (F31): when the recap opens, in place of "you judge them there" with no time.
+  const opens = recapOpensWords(focus, focus?.id ?? null)
+  card.append(el('h3', '', `For your recap (${asks.length})`), el('p', 'muted', `Autopilot keeps these for the goal's recap: ${opens === null ? 'you judge them there, with the rest of the work' : opens}.`), recapAsksList(asks))
   return card
 }
 
@@ -19342,7 +19366,7 @@ function drawFocus(state) {
       // 2026-11-01 (the coordinator): while the recap card shows (verdicts wait) "Did we reach the goal?" is not drawn at all: the recap
       // comes first, and the question comes back once no verdict waits.
       if (recapReady === null && view.vibeThere !== null) right.append(focusVibeThereCard(view, can, forRecap, state))
-      else if (forRecap.length > 0) right.append(focusRecapAsksCard(forRecap))
+      else if (forRecap.length > 0) right.append(focusRecapAsksCard(forRecap, state.focus ?? null))
       right.append(focusNoteCard(view, state))
       // B360: with Autopilot on the recaps of finished work gather under the note.
       const gathered = gatheredCards(state)
