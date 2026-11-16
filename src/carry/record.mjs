@@ -4,8 +4,8 @@
 // (practice or final), time, branch, commit and the blob ids written, so the next save knows whether origin moved on and the next
 // load knows what this PC changed since.
 
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFile, mkdir } from 'node:fs/promises'
+import { join, dirname } from 'node:path'
 
 import { writeAtomic } from '../write.mjs'
 
@@ -49,6 +49,7 @@ export function parseRecord(raw) {
 /** Writes the record (writeAtomic: never a torn file). A `fs` without the atomic write's calls (rename, open) is a plain one: writeAtomic's own then. */
 export async function writeRecord(file, record, fs = undefined) {
   const text = `${JSON.stringify(record, null, 2)}\n`
+  await (fs?.mkdir ?? mkdir)(dirname(file), { recursive: true })
   if (fs === undefined || typeof fs.rename !== 'function') return writeAtomic(file, text)
   return writeAtomic(file, text, fs)
 }

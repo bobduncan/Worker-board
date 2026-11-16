@@ -11,11 +11,11 @@ import { join } from 'node:path'
 
 import { createServer } from 'node:http'
 
-import { boardsAnswering, parseArgs } from '../tools/carry.mjs'
+import { boardsAnswering, optionsOf, parseArgs } from '../tools/carry.mjs'
 import { blobOf } from '../src/carry/git.mjs'
 import { boardStepsOf, heldStepsOf, heldWordsOf, loadGuards, reviewStepsOf, saveGuards, secretValuesOf, secretsIn, LOCK_FRESH_MS } from '../src/carry/guards.mjs'
 import { parseTimes, restoreTimes, timesOf } from '../src/carry/times.mjs'
-import { parseRecord, recordFileFor } from '../src/carry/record.mjs'
+import { parseRecord, readRecord, recordFileFor, writeRecord } from '../src/carry/record.mjs'
 import { parseItem } from '../src/work/item.mjs'
 
 const MIN = 60_000
@@ -27,6 +27,11 @@ test('the flags: a command, values, switches and repeated --anyway; an unknown w
   assert.deepEqual(read, { command: 'save', flags: { 'dry-run': true, practice: true, data: 'D:/x/.wb', journal: 'j.txt', 'no-branches': true }, anyway: ['B12', 'B13'] })
   assert.deepEqual(parseArgs(['load', '--park', '--undo', '20261116-1200', '--user-settings', '--pictures-only']).flags, { park: true, undo: '20261116-1200', 'user-settings': true, 'pictures-only': true })
   assert.throws(() => parseArgs(['save', 'extra']), /unknown word: extra/)
+  // The runbook's evening line is a FULL load that also copies the pictures; the pictures step alone needs --pictures-only.
+  assert.deepEqual(optionsOf(parseArgs(['load', '--pictures', 'G:/My Drive/x'])), { practice: false, dryRun: false, park: false, undo: null, userSettings: false, picturesOnly: false })
+  assert.equal(optionsOf(parseArgs(['load', '--pictures-only'])).picturesOnly, true)
+  assert.deepEqual(optionsOf(parseArgs(['load', '--practice', '--dry-run', '--park', '--undo', 's1', '--user-settings'])), { practice: true, dryRun: true, park: true, undo: 's1', userSettings: true, picturesOnly: false })
+  assert.deepEqual(optionsOf(parseArgs(['save', '--practice', '--no-branches', '--anyway', 'B1'])), { practice: true, dryRun: false, noBranches: true, anyway: ['B1'] })
 })
 
 test('save\'s guards: each refusal names who acts; with --practice the final ones are warnings; --anyway lets one dirty step through; the landing lock, load-first, secrets, size, a public remote and a full Drive refuse always', () => {
@@ -132,12 +137,19 @@ test('the times: entries sorted by path with blob ids; restore sets the mtime on
   assert.deepEqual([done.restored, done.kept, done.missing, set], [['home/a.md'], ['home/b.md'], ['home/c.md'], [['D:/t/a.md', 1000]]])
 })
 
-test('the record: data/carry.json for the default data folder, `<folder>.carry.json` beside an explicit one; what it reads', () => {
+test('the record: data/carry.json for the default data folder, `<folder>.carry.json` beside an explicit one; what it reads; its folder is made', async () => {
   assert.equal(recordFileFor({ boardDir: 'D:\\Proj\\board', dataDir: 'D:\\Proj\\game\\.workerboard', isExplicit: false }), join('D:\\Proj\\board', 'data', 'carry.json'))
   assert.equal(recordFileFor({ boardDir: 'D:\\Proj\\board', dataDir: 'D:\\scratch\\wb\\', isExplicit: true }), 'D:\\scratch\\wb.carry.json')
   assert.deepEqual(parseRecord({ picturesHome: 'E:\\Cloud\\board-pictures', synced: { 'workerboard-data': 'def', bad: 1 }, last: { kind: 'practice', command: 'load', at: 5, branch: 'workerboard-practice', commit: 'abc', blobs: { 'home/a': 'aa', bad: 7 } } }),
     { picturesHome: 'E:\\Cloud\\board-pictures', keepSet: null, synced: { 'workerboard-data': 'def' }, last: { kind: 'practice', command: 'load', at: 5, branch: 'workerboard-practice', commit: 'abc', blobs: { 'home/a': 'aa' } } })
   assert.deepEqual(parseRecord(null), { picturesHome: null, keepSet: null, synced: {}, last: null })
+  // The record's folder is made (a first load on a fresh board folder has no data/ yet).
+  const root = mkdtempSync(join(tmpdir(), 'carry-record-'))
+  try {
+    const file = join(root, 'board', 'data', 'carry.json')
+    await writeRecord(file, { picturesHome: 'E:/d', keepSet: null, synced: {}, last: null })
+    assert.equal((await readRecord(file)).picturesHome, 'E:/d')
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test('the blob id is the one git computes (git hash-object), for text and for bytes', () => {

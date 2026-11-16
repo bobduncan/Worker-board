@@ -28,7 +28,9 @@ const LONG = { timeout: 240_000 }
 async function pc(root, name, { autocrlf = false } = {}) {
   const home = join(root, name, 'home')
   await mkdir(home, { recursive: true })
-  await writeFile(join(home, 'gitconfig'), `[user]\n\tname = Tester ${name}\n\temail = ${name}@example.test\n[core]\n\tautocrlf = ${autocrlf}\n[init]\n\tdefaultBranch = main\n`)
+  // As this PC: a global ignore that names a file of the set (the data clone must not follow it).
+  await writeFile(join(home, 'ignore'), '**/.claude/settings.local.json\n')
+  await writeFile(join(home, 'gitconfig'), `[user]\n\tname = Tester ${name}\n\temail = ${name}@example.test\n[core]\n\tautocrlf = ${autocrlf}\n\texcludesFile = ${slashes(join(home, 'ignore'))}\n[init]\n\tdefaultBranch = main\n`)
   const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(home, 'gitconfig'), HOME: home, USERPROFILE: home }
   const git = gitRunner({ env })
   const ok = async (cwd, args) => { const done = await git(cwd, args); assert.equal(done.code, 0, `git ${args.join(' ')} in ${cwd}: ${done.err}`); return done }
@@ -493,6 +495,7 @@ test('the real case (chat 2\'s fixture, B2\'s set and B3\'s pictures for real): 
   const tracked = lines(await a.git(data, ['ls-files']))
   for (const path of tracked) assert.equal((await readFile(join(data, ...path.split('/')), 'utf8').catch(() => '')).includes(key), false, `${path} holds no key`)
   assert.ok(tracked.some(path => /^home\/.claude\/work\/B1149\.md$/.test(path)) && tracked.some(path => /^board\/data\/finished\.json$/.test(path)) && tracked.some(path => /^memory\//.test(path)) && tracked.includes('settings/config.json'), tracked.join(' '))
+  assert.ok(tracked.includes('home/.claude/settings.local.json'), 'the PC\'s global ignore of settings.local.json does not thin the set')
   assert.ok(!tracked.some(path => /names\.json|delivered\.json|\.claim$|\.tmp$|broken-/.test(path)), 'runtime files stay out (B2)')
   assert.ok(logs.some(one => /^Saved /.test(one)), logs.join('\n'))
   assert.equal(logs.join('\n').includes(key), false, 'the key is never printed')

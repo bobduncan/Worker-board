@@ -152,8 +152,16 @@ export function journalTo(file) {
   return path => { appendFile(target, `${path}\n`).catch(() => {}) }
 }
 
+/** The commands' options from the flags read: `load --pictures <folder>` is a FULL load; the pictures step alone is `--pictures-only`. */
+export function optionsOf({ command, flags, anyway }) {
+  const shared = { practice: flags.practice === true, dryRun: flags['dry-run'] === true }
+  if (command === 'save') return { ...shared, noBranches: flags['no-branches'] === true, anyway }
+  return { ...shared, park: flags.park === true, undo: flags.undo ?? null, userSettings: flags['user-settings'] === true, picturesOnly: flags['pictures-only'] === true }
+}
+
 export async function main(argv) {
-  const { command, flags, anyway } = parseArgs(argv)
+  const read = parseArgs(argv)
+  const { command, flags } = read
   if (!['save', 'load'].includes(command)) { console.error('Usage: node tools/carry.mjs save|load [flags] (see the header of this file)'); return 2 }
   const git = gitRunner()
   const roots = await rootsOf({ flags, git })
@@ -170,12 +178,12 @@ export async function main(argv) {
     driveFree: freeBytes,
     lacks: () => lacksOf({ gameRepo: roots.gameRepo, git }),
   }
-  const options = { practice: flags.practice === true, dryRun: flags['dry-run'] === true, log, journal, now: Date.now() }
+  const options = { ...optionsOf(read), log, journal, now: Date.now() }
   if (command === 'save') {
-    const done = await save({ ...roots, config: roots.configGiven }, { ...options, noBranches: flags['no-branches'] === true, anyway }, deps)
+    const done = await save({ ...roots, config: roots.configGiven }, options, deps)
     return done.ok ? 0 : 1
   }
-  const done = await load({ ...roots }, { ...options, park: flags.park === true, undo: flags.undo ?? null, userSettings: flags['user-settings'] === true, picturesOnly: flags['pictures-only'] === true }, deps)
+  const done = await load({ ...roots }, options, deps)
   return done.ok ? 0 : 1
 }
 

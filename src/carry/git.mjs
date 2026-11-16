@@ -88,7 +88,7 @@ export async function ensureDataClone({ git, dir, remote, branch, fs = { access,
   const isRepo = await fs.access(join(dir, '.git')).then(() => true, () => false)
   if (isRepo) {
     const onBranch = line(await git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']))
-    await git(dir, ['config', 'core.autocrlf', 'false'])
+    await ownExcludesOnly(git, dir, fs)
     if (onBranch !== branch) {
       // The other kind of save lives here (a practice save, then the final one, in the one default folder): switch to this kind's branch,
       // from origin when it is there, else as a fresh orphan. The folder is the commands' own: its files are the branch's alone.
@@ -123,15 +123,16 @@ export async function ensureDataClone({ git, dir, remote, branch, fs = { access,
   if (upstream !== null) {
     const cloned = await git(process.cwd(), ['clone', '-c', 'core.autocrlf=false', '--single-branch', '--branch', branch, remote, dir], { timeoutMs: REMOTE_MS * 5 })
     if (cloned.code !== 0) throw new Error(`clone of ${branch} failed: ${cloned.err.trim() || `code ${cloned.code}`}`)
-    await git(dir, ['config', 'core.autocrlf', 'false'])
+    await ownExcludesOnly(git, dir, fs)
     await setIdentity(git, dir, identity)
     return { made: 'cloned', head: upstream }
   }
   await fs.mkdir(dir, { recursive: true })
-  for (const args of [['init', '-q'], ['config', 'core.autocrlf', 'false'], ['remote', 'add', 'origin', remote], ['checkout', '-q', '--orphan', branch]]) {
+  for (const args of [['init', '-q'], ['remote', 'add', 'origin', remote], ['checkout', '-q', '--orphan', branch]]) {
     const done = await git(dir, args)
     if (done.code !== 0) throw new Error(`${args.join(' ')} failed in ${dir}: ${done.err.trim() || `code ${done.code}`}`)
   }
+  await ownExcludesOnly(git, dir, fs)
   await setIdentity(git, dir, identity)
   await firstCommit(git, dir, fs)
   return { made: 'init', head: null }
@@ -146,6 +147,18 @@ export async function peekDataClone({ git, dir, branch, fs = { access } }) {
   if (!isRepo) return { made: 'none', exists: false, onBranch: false, head: null }
   const onBranch = line(await git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])) === branch
   return { made: 'peeked', exists: true, onBranch, head: onBranch ? line(await git(dir, ['rev-parse', '--verify', '--quiet', 'HEAD'])) || null : null }
+}
+
+/**
+ * The data clone's own config: `core.autocrlf=false`, and `core.excludesFile` pointed at its own `.git/info/exclude` (made empty when
+ * missing), so the USER'S global ignore (`~/.config/git/ignore`, which on this PC lists `**\/.claude/settings.local.json`) does not
+ * thin the set: `git add -A` by folder follows every exclude, and only the clone's own may apply.
+ */
+async function ownExcludesOnly(git, dir, fs) {
+  const own = join(dir, '.git', 'info', 'exclude')
+  if (!await fs.access(own).then(() => true, () => false)) { await fs.mkdir(join(dir, '.git', 'info'), { recursive: true }); await fs.writeFile(own, '') }
+  await git(dir, ['config', 'core.autocrlf', 'false'])
+  await git(dir, ['config', 'core.excludesFile', own])
 }
 
 /** The orphan branch's first commit: `.gitattributes` with `* -text` and the README. */

@@ -19,7 +19,9 @@ const MANY = 5200
 async function world(root) {
   const home = join(root, 'home')
   await mkdir(home, { recursive: true })
-  await writeFile(join(home, 'gitconfig'), '[user]\n\tname = Tester\n\temail = t@example.test\n[init]\n\tdefaultBranch = main\n')
+  // As this PC: a global ignore that names a file of the set (the data clone must not follow it).
+  await writeFile(join(home, 'ignore'), '**/.claude/settings.local.json\n')
+  await writeFile(join(home, 'gitconfig'), `[user]\n\tname = Tester\n\temail = t@example.test\n[init]\n\tdefaultBranch = main\n[core]\n\texcludesFile = ${join(home, 'ignore').replace(/\\/g, '/')}\n`)
   const git = gitRunner({ env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(home, 'gitconfig'), HOME: home, USERPROFILE: home } })
   const remote = join(root, 'remote.git')
   assert.equal((await git(root, ['init', '-q', '--bare', remote])).code, 0)
@@ -40,12 +42,15 @@ test('a set of 5,200 files (about 160 KB of paths) is staged, committed and push
     await mkdir(join(dir, 'home', '.claude', 'work'), { recursive: true })
     await writeFile(join(dir, ...to.split('/')), `Id: B${1000 + n}\n`)
   }
+  paths.push('home/.claude/settings.local.json')
+  await writeFile(join(dir, 'home', '.claude', 'settings.local.json'), '{}\n')
   assert.ok(paths.join(' ').length > 150_000, 'path by path this is far past a Windows command line')
   assert.deepEqual(rootsOfPaths([...paths, 'saved.json', 'settings/config.json', 'board/data/finished.json']), ['board', 'home', 'saved.json', 'settings'])
   const pushed = await commitAndPush({ git, dir, branch: DATA_BRANCH, paths, message: 'Board data: save', bytes: 60_000 })
-  assert.deepEqual([pushed.committed, pushed.pushed, pushed.staged.length], [true, true, MANY])
+  assert.deepEqual([pushed.committed, pushed.pushed, pushed.staged.length], [true, true, MANY + 1])
+  assert.ok(pushed.staged.includes('home/.claude/settings.local.json'), 'the user\'s global ignore does not thin the set')
   assert.equal(lines(await git(dir, ['status', '--porcelain'])).length, 0, 'nothing left unstaged')
-  assert.equal(lines(await git(dir, ['ls-files', '--', 'home'])).length, MANY)
+  assert.equal(lines(await git(dir, ['ls-files', '--', 'home'])).length, MANY + 1)
   assert.equal(line(await git(dir, ['ls-remote', '--heads', remote, DATA_BRANCH])).slice(0, 40), pushed.commit, 'origin holds the commit')
   // Every file leaves the set: removed from disk, then `rm --cached` over stdin.
   for (const to of paths) await rm(join(dir, ...to.split('/')))
