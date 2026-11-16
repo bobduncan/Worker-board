@@ -14,7 +14,7 @@ const CLAUDE_OUT = /^(?:board\.json|launch\.json.*|limit-readings\.json|board-er
 const CLAUDE_FOLDERS = ['plans', 'specs', 'handover', 'hooks']
 /** The board data files that travel, each when it exists. */
 const BOARD_DATA = ['finished.json', 'refine-gate.json', 'task-times.json', 'ideas.json', 'recaps.json', 'rounds.json', 'plan-writes.json']
-/** The demo, feedback and list files of a picture root (`<root>/<goal>/demo/<file>`). */
+/** The demo, feedback and list files of a picture root: exactly these names, up to 3 folders below the root. */
 const DEMO_FILES = ['demo.json', 'feedback.json', 'list.json']
 /** The settings that never travel. */
 const LOCAL_SETTINGS = ['appSessions', 'usageHistory', 'transcripts', 'picturesHome']
@@ -36,12 +36,12 @@ async function list(fs, dir) {
   }
 }
 
-/** Every file below `dir`, absolute, sorted. */
-async function walk(fs, dir) {
+/** Every file below `dir` (down `depth` folders), absolute, sorted. */
+async function walk(fs, dir, depth = Infinity) {
   const out = []
   for (const entry of (await list(fs, dir)).sort((a, b) => (a.name < b.name ? -1 : 1))) {
     const full = join(dir, entry.name)
-    if (entry.isDirectory()) out.push(...(await walk(fs, full)))
+    if (entry.isDirectory()) { if (depth > 0) out.push(...(await walk(fs, full, depth - 1))) }
     else if (entry.isFile()) out.push(full)
   }
   return out
@@ -131,9 +131,8 @@ export async function carrySet({ config, project = config.project, boardDir, mem
   for (const root of config.pictureRoots ?? ['pictures']) {
     const rootDir = placed('pictureRoots', root)
     if (!rootDir) continue
-    for (const goal of await list(fs, rootDir)) {
-      if (!goal.isDirectory()) continue
-      for (const name of DEMO_FILES) await addHome(join(rootDir, goal.name, 'demo', name), 'record')
+    for (const file of await walk(fs, rootDir, 3)) {
+      if (DEMO_FILES.includes(slash(file).split('/').pop())) await addHome(file, 'record')
     }
   }
   return { files, skipped }

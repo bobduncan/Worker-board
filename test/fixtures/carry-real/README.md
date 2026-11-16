@@ -18,7 +18,7 @@ The 64-hex key in `project/.claude/board.json` is fake. Nothing here is read by 
 - `assets/A271/request.json` and `1.prompt.txt` (the prompt file is named `1.prompt.txt`, never a bare `prompt.txt`).
 - `chats/list.json`; `plans/`, `specs/`, `handover/`, `hooks/` whole; `.claude` top-level files (briefings, `settings.local.json`, `start.json`, `worker-board-check.md`).
 - `CLAUDE.md`, `AGENTS.md`, `demo-board.md` (the project's top-level files); `.codex/`.
-- `pictures/G64/demo/{demo,feedback,list}.json` (the picture root's three json files).
+- `pictures/G64/demo/` and `pictures/G60/recap/`: demo, feedback and list .json (`recap/list.before-row1-*.json` stays out).
 - `board/data/{finished,recaps,rounds,refine-gate,task-times,ideas}.json` (`recaps.json` holds a day's rows; `plan-writes.json` is absent on purpose).
 - `memory/` two notes. `config.json` (with appSessions, usageHistory, transcripts and picturesHome set), `user-settings.json` (permissions, autoMode, hooks, enabledPlugins, marketplaces).
 

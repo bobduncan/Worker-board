@@ -63,7 +63,12 @@ test('records: every request.json and every *.prompt.txt (a request with no prom
     'home/pictures/G64/demo/demo.json',
     'home/pictures/G64/demo/feedback.json',
     'home/pictures/G64/demo/list.json',
-  ])
+    'home/pictures/G60/recap/demo.json',
+    'home/pictures/G60/recap/feedback.json',
+    'home/pictures/G60/recap/list.json',
+  ].sort())
+  assert.ok(!(await run()).files.some(file => file.to.includes('.before-')), 'a before-copy stays out')
+  assert.ok(!(await run()).files.some(file => file.to.endsWith('notes.json')), 'another json in a picture folder stays out')
 })
 
 test('memory: every file of the memory folder', async () => {
