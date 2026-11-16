@@ -4359,6 +4359,43 @@ describe('T8.5: the board\'s hand-over as one envelope (Workers mod 0.27.0)', ()
     expect(untypedOf(w)).toEqual([{ ...DONE, cleared: false, clearWhy: 'the person pauses the chats' }])
   })
 
+  test('B1228, chat 1\'s review (1): the resume window is no pause: a line that waits through "resuming" has its clear tried again at the turn\'s end and run (mutant: isPaused, which counts resuming, settling it untyped)', async ($, on) => {
+    const { w, clock } = await holding($, on)
+    const resuming = { ...RUNNING, state: 'resuming', since: 1 }
+    w.pauseAnswer = resuming
+    await $.prompt.submit({ text: 'resuming now', origin: { kind: 'composer' } } as never)
+    w.typedIn = []
+    w.byAction['turn-ended'] = ok({ text: 'No instruction was left open.', missed: [], open: [], role: 'worker', pause: resuming, handover: handover(null, 'handing') })
+    w.order = []
+    await $.turn.complete({ ...ENDED, turnId: 't2' })
+    await wait(50)
+    expect(steps(w)).toEqual(['save-log', '/clear'])
+    await cleared($, w, clock)
+    expect(w.typedIn.length).toBe(1)
+    expect(w.typedIn[0]?.endsWith(`\n\n${LINE}`)).toBe(true)
+    expect(untimed(outcomes(w)).map(one => one.outcome)).toEqual([{ ...DONE, cleared: true, typed: true }])
+  })
+
+  test('B1228, chat 1\'s review (2): a turn the person cut short (Esc) or an error ended: no retry, no clear, nothing typed; the line still waits (mutant: the retry at every turn\'s end)', async ($, on) => {
+    const { w, clock } = await holding($, on)
+    for (const [n, why] of [['t2', 'aborted'], ['t3', 'error']] as const) {
+      if (n === 't3') await $.turn.start({ text: 'again', turnId: n })
+      await $.turn.complete({ ...ENDED, reason: why, isAborted: why === 'aborted', turnId: n } as never)
+      await wait(50)
+      for (let i = 0; i < 20; i++) await settle()
+      expect(steps(w).filter(one => one === 'save-log' || one === '/clear')).toEqual([])
+      expect(w.typedIn).toEqual([])
+      expect(outcomes(w)).toEqual([])
+    }
+    // The next answered turn's end tries it again.
+    await $.turn.start({ text: 'go on', turnId: 't4' })
+    await $.turn.complete({ ...ENDED, turnId: 't4' })
+    await wait(50)
+    expect(steps(w)).toEqual(['save-log', '/clear'])
+    await cleared($, w, clock)
+    expect(untimed(outcomes(w)).map(one => one.outcome)).toEqual([{ ...DONE, cleared: true, typed: true }])
+  })
+
   test('B1228, the verifier (A): a newer envelope that a take brings while the line waits: the waiting line gives way untyped at once, and only the newer line is typed (mutant: the old line retried or typed later)', async ($, on) => {
     const { w, clock } = await holding($, on)
     const SECOND = 'fedcba9876543210'

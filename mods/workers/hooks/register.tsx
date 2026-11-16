@@ -2262,7 +2262,8 @@ async function holdLine($: EngineInterface, envelope: Envelope, outcome: Outcome
 
 /** B1228, lens 1 (1): a pause read while a line waits: the board took its task back then, so the line never goes (`retryHeldLine`). */
 function notePause(pause: PauseState | null): void {
-  if (heldLine !== null && isPaused(pause)) heldLine.isPauseSeen = true
+  // Chat 1's review (1): only 'pausing' takes the board's work back (its pause.mjs HOLDS); the resume window is no pause here.
+  if (heldLine !== null && pause?.state === 'pausing') heldLine.isPauseSeen = true
 }
 
 /**
@@ -2311,7 +2312,7 @@ async function retryHeldLine($: EngineInterface, at: EnvelopeAt | null): Promise
   if (isHeldStale(held)) return settleUntyped($, held, TAKEN_ALREADY_WHY)
   // The verifier (C): the pause's words only while it still stands (the board releases them by its own pause record); one that
   // ended since gives way, as the board took the task back then and reads GAVE_WAY_WHY as no failure.
-  if (isPaused(pauseRead?.pause ?? null)) return settleEnvelope($, held.envelope.id, { ...held.outcome, typed: null, clearWhy: PAUSED_CLEAR_WHY })
+  if (pauseRead?.pause?.state === 'pausing') return settleEnvelope($, held.envelope.id, { ...held.outcome, typed: null, clearWhy: PAUSED_CLEAR_WHY })
   if (held.isPauseSeen) return settleUntyped($, held, GAVE_WAY_WHY)
   // Lens 2 (1): a take of another step since (the chat may hold it now): no clear, and the line gives way.
   if (stopAsked !== null || takeCount > carriedAt(held)) return settleUntyped($, held, GAVE_WAY_WHY)
@@ -3640,7 +3641,9 @@ async function afterOwnTurn($: EngineInterface, e: TurnEndEvent): Promise<void> 
         heldLine = null
         await letHeldGo($, gone).catch(() => null)
       }
-      if (heldLine !== null) await retryHeldLine($, { answer: e.answer, asked, ended: told.ended, step: at.step, since: turnAt }).catch(err => tell($, `The waiting hand-over was not carried out: ${reason(err)}`))
+      // Chat 1's review (2): only at an answered turn's end, as every clear (never after the person's Esc or an error); the ping
+      // types it alone later when no answered turn comes.
+      if (heldLine !== null && e.reason === 'answer') await retryHeldLine($, { answer: e.answer, asked, ended: told.ended, step: at.step, since: turnAt }).catch(err => tell($, `The waiting hand-over was not carried out: ${reason(err)}`))
       isEndingTurn = false
       // Clear after each step: a worker that reported is cleared or compacted now, the main chat and the partners
       // compacted at rest; the line the board put out for a free worker is typed in after that, unless a clear is

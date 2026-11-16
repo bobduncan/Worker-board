@@ -123,6 +123,10 @@ export function isClearOwedOnly(envelope, outcome = envelope?.outcome ?? null) {
 export const TAKEN_ALREADY_WHY = 'its step was taken already'
 /** B1228 (the reviews): a waiting line that gave way untyped: a newer envelope came, the person's stop, or a take of another step (board.ts GAVE_WAY_WHY). */
 export const GAVE_WAY_WHY = 'another hand-over or a take came first'
+/** B1228, chat 1's review (b): how long the net leaves a waiting line alone while its chat's turn runs, at most. */
+export const LINE_WAIT_MS = 60 * MIN
+/** B1228: when the waiting line's stage was told, or null. */
+const lineWaitingAt = envelope => envelope.stages.find(one => one?.stage === 'line-waiting' && Number.isFinite(one.at))?.at ?? null
 /** B1228: an envelope in flight whose line waits in the mod for the chat's turn to end: the stage `line-waiting`, no outcome yet. */
 export const isLineWaiting = envelope => (envelope?.outcome ?? null) === null && Array.isArray(envelope?.stages) && envelope.stages.some(one => one?.stage === 'line-waiting')
 
@@ -481,8 +485,11 @@ export function decide({ worker, peers = [], setsRefused = false, nextCheckAt = 
     // B1228 (X201): a line that waits in the Workers mod for the chat's turn to end: no net while that turn runs (the chat is
     // there and busy: its turn's end types the line or settles it); once the chat is idle (or gone) the net counts from then.
     const isWaitingLine = isLineWaiting(inFlight)
-    const isTurnRunning = worker.isRunning === true && (report?.state === 'busy' || report?.state === 'asking')
-    const netFrom = Math.max(inFlight.at, wokeAt, isWaitingLine && Number.isFinite(report?.since) ? report.since : -Infinity)
+    // Chat 1's review (b): the exemption lasts LINE_WAIT_MS of running time from the line's stage at most (one long turn may hold
+    // a step queued to this chat that long, never for hours); past it the net fires as for any envelope.
+    const waitedAt = isWaitingLine ? lineWaitingAt(inFlight) : null
+    const isTurnRunning = worker.isRunning === true && (report?.state === 'busy' || report?.state === 'asking') && waitedAt !== null && runningMs(waitedAt) < LINE_WAIT_MS
+    const netFrom = Math.max(inFlight.at, wokeAt, isWaitingLine && !isTurnRunning && Number.isFinite(report?.since) && (report.state === 'idle' || report.state === 'ended') ? report.since : -Infinity)
     if (isTurnEnd && isCarried && isSettledTyped && turnSince >= lineAt && wake?.firstTurnEnd !== true) {
       takenBack = { id, why: NOT_TAKEN_WHY }
     } else if (isWaitingLine && isTurnRunning) {

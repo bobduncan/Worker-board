@@ -5072,7 +5072,10 @@ a clear alone, a clear that holds the worker and "the line is never typed before
   second runs, `clear-owed-repeat` stays quiet. The two reviews added: a waiting line **gives way untyped** (`GAVE_WAY_WHY`,
   "another hand-over or a take came first", also no failure) when the turn's end brings a newer envelope (the board let go of
   this one), when the person stopped or removed the worker, or when the chat took another step since (it may hold it, so no
-  clear may run); a pause read while it waited settles it with the pause's words (the board took the task back then); a take
+  clear may run); a pause read while it waited (state `pausing` only: the resume window is none) settles it with the pause's words while the pause
+  still stands, and gives way once it is over (the board took the task back then; its words after the resume would hold the
+  worker); the retry runs only at an answered turn's end (never after the person's Esc or an error); the net's exemption ends
+  after `LINE_WAIT_MS` (60 min of running time from the stage) also while the turn still runs; a take
   whose answer was cut counts by the board's fresh status of the chat (`held`); with no turn's context known at a ping, or a
   /clear of the person's since, the line goes alone, without the clear. Landing order: the board first (an older board reads
   "taken already" as a clear that did not run, and holds the worker once its step is reported), then the mod; workers restart onto 0.33.0 through their RESTARTING envelope. Tests:

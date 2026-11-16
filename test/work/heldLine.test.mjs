@@ -14,7 +14,7 @@ import test from 'node:test'
 import { clearOwed } from '../../src/clearOwed.mjs'
 import { buildView } from '../../src/supervisor/view.mjs'
 import { WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
-import { GAVE_WAY_WHY, HANDOVER_COMMAND, NET_MS, STATES, TAKEN_ALREADY_WHY, decide, failedOf, isClearOwedOnly, isLineWaiting, outcomeOf, stagesOf } from '../../src/work/handover.mjs'
+import { GAVE_WAY_WHY, HANDOVER_COMMAND, LINE_WAIT_MS, NET_MS, STATES, TAKEN_ALREADY_WHY, decide, failedOf, isClearOwedOnly, isLineWaiting, outcomeOf, stagesOf } from '../../src/work/handover.mjs'
 import { settle } from '../../src/work/handoverBoard.mjs'
 import { parseItem } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
@@ -65,6 +65,12 @@ test('B1228, the real case: while the line waits for the turn the person\'s answ
   assert.deepEqual([late.state, late.takeBack?.id, late.net], [STATES.UNKNOWN, 'B1221', '3f977e5764320d40'])
   // A chat that does not run: the net as before, from the idle it left.
   assert.equal(decide({ worker: { ...lane({ state: 'busy', since: A_REFUSED, background: false, at: A_REFUSED }), isRunning: false }, items, ready: ready('B1223'), envelopes: [envelopeA()], now: A_REFUSED + NET_MS }).state, STATES.UNKNOWN)
+  // Chat 1's review (b): the exemption ends LINE_WAIT_MS after the stage, also while the turn still runs.
+  const busyAt = now => ({ state: 'busy', since: A_REFUSED, background: false, at: now })
+  assert.equal(at(A_REFUSED + LINE_WAIT_MS - MIN, busyAt(A_REFUSED + LINE_WAIT_MS - MIN)).state, STATES.HANDING)
+  const ceiling = at(A_REFUSED + LINE_WAIT_MS, busyAt(A_REFUSED + LINE_WAIT_MS))
+  assert.deepEqual([ceiling.state, ceiling.takeBack?.id], [STATES.UNKNOWN, 'B1221'])
+  assert.equal(LINE_WAIT_MS, 60 * MIN)
   // Unchanged for an envelope without the stage (a 0.32.0 mod): the net from the envelope, also while busy.
   const old = decide({ worker: lane({ state: 'busy', since: A_REFUSED, background: false, at: A_AT + NET_MS }), items, ready: ready('B1223'), envelopes: [envelopeA(false)], now: A_AT + NET_MS })
   assert.equal(old.state, STATES.UNKNOWN)
@@ -99,7 +105,9 @@ test('B1228, the real case: the line not typed as its step was taken already is 
   assert.deepEqual([works.state, works.takeBack], [STATES.WORKING, null])
 })
 
-test('B1228, the real case replayed for clear-owed-repeat: the three refusals of 18:20-18:22 open it; with the 0.33.0 order (the first refused, its line not typed, the second clear run) it stays quiet', () => {
+// A guard, not a bite (chat 1's review, a): clear-owed-repeat is unchanged by B1228; this pins that the 0.33.0 order (the mod's
+// real-case test makes it) reads quiet, and that the real three of 18:20-18:22 still open it.
+test('B1228, the real case replayed for clear-owed-repeat (a guard): the three refusals of 18:20-18:22 open it; with the 0.33.0 order (the first refused, its line not typed, the second clear run) it stays quiet', () => {
   const NOW = 1794677480344
   const view = outbox => buildView({
     state: { chats: [{ name: 'Main', isMain: true, isLeftover: false, state: 'working', isRunning: true }, { name: NAME, isMain: false, isLeftover: false, state: 'working', isRunning: true, onSequence: true, mod: '0.33.0', report: { state: 'busy', since: NOW - MIN, background: false, at: NOW }, handover: { state: 'working', why: null, step: 'B1217' }, clearOwed: { step: 'B1224', reportedAt: 1794676920000 } }], today: [], limits: {}, pause: null, chatPrefix: '', readyList: null, gaps: [], wakes: {} },
