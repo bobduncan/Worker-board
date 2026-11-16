@@ -8162,9 +8162,14 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    work waits for the recap". The last-action look (a worker's or the main chat's look with pictures or a Play link of a focus-goal
    step, asked just before the report) stays a kept look at work (decided(), `keptLook`): it reaches the recap without flashing in
    Needs your attention. A kept look parks no lane (`keptRecapWaitOf` counts none): a step at work with only kept looks reads
-   working (or Stopped with the holder timers' go-on), and Resume all wakes it. A step in review with nothing of it to build or check
-   whose only open asks are kept looks (a checker's ask point may name one, B1103) counts as done for asking the goal demo
-   (autopilot.mjs `waitsForKeptLooksOnly`, state.mjs `forDemo`), with no row of its own. The ask's window ("Where it stands") and
+   working (or Stopped with the holder timers' go-on), and Resume all wakes it. A step in review with nothing of it to build, whose
+   only open asks are kept looks, counts as done for asking the goal demo (autopilot.mjs `waitsForKeptLooksOnly`, state.mjs
+   `forDemo`), with no row of its own, but only once its checks stand (chat 1's review): the board's own check passed and its result
+   check passed or is not needed, or the result check waits for nothing but the person's answer on the kept look (resultCheck.mjs
+   `reviewWaitOf` kind 'answer', B1103). Never a step just reported, with its check pending, failed (kind 'report') or still to run.
+   An ask of a focus-goal step in no work block of the goal (server.mjs `focusSteps`, autopilot.mjs `isInNoBlock`; a fix counts by its
+   chain's root) is routed as one at work too, since no recap judges it (the live Q817 on B1205), and the repair re-routes one already
+   there ("autopilot: re-routed: its step is in no work block of G<n>, so no recap judges it"). The ask's window ("Where it stands") and
    the Focus page's "For your recap" card say when the recap opens, from the focus goal's count of its work blocks (board.js
    `recapOpensWords`: "your recap of G95 opens when its 6 work blocks are done, 0 of 6 now"; once all are counted, "you judge it
    there" as before). Incidents that would show it failing: a lane on a step at work that waits for your recap of G<n>; a goal demo

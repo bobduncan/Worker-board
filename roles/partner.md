@@ -1018,9 +1018,10 @@ reach them as before. Everything else you decide: take the worker's advice, or d
 A refine question with advice is answered with it by the board, as "Take the advice" does, and you get the refine word as
 after the user's answers; one without advice comes back once as feedback "autopilot is on: decide it yourself and refine":
 refine again and decide it, or ask it with your advice. A look of a step below its target (and the board's Accept or send
-back card) of a step of the focus goal waits for the goal's recap once its step is in review (only finished work waits for the
+back card) of a step in a work block of the focus goal waits for the goal's recap once its step is in review (only finished work waits for the
 recap, the user's "1. yes", 2026-11-16: an ask of a step still at work comes to you or the user by the other rules, and one the
-board had kept for the recap before is routed anew, "autopilot: re-routed: its step is still at work"): its step reads `Recap verdict: waits (Q<n>)`, the board
+board had kept for the recap before is routed anew, "autopilot: re-routed: its step is still at work"; so is one of a step in no work
+block of the goal, which no recap judges): its step reads `Recap verdict: waits (Q<n>)`, the board
 asks you for the goal demo with that step still in review, and its words name it under "Own rows": give each such step a row
 of its own with its id in "steps". The user's approve or send back of that row answers the ask and closes the step's review as
 accepted or sent back. A new look of a step of the focus goal that you hand over with `work escalate` (the user, 2026-11-02,
