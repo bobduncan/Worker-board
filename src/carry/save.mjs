@@ -74,7 +74,7 @@ export async function save(roots, options = {}, deps) {
   for (const step of held) {
     if (step.branch === null || step.branch === 'none') continue
     const worktree = await worktreeOf(git, [roots.gameRepo, roots.boardDir], step.branch)
-    if (worktree === null) { noWorktree.push({ id: step.id, chat: step.chat, branch: step.branch }); warnings.push(`${step.id}: its branch ${step.branch} is checked out in no worktree here: uncommitted work on it cannot be checked`); continue }
+    if (worktree === null) { noWorktree.push({ id: step.id, chat: step.chat, branch: step.branch }); warnings.push(`${step.id}: its branch ${step.branch} is checked out in no worktree here: uncommitted work there cannot be checked`); continue }
     const changed = await trackedChanges(git, worktree).catch(() => [])
     if (changed.length > 0) dirtySteps.push({ id: step.id, chat: step.chat, folder: worktree, files: changed })
   }
