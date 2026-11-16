@@ -255,3 +255,38 @@ test('chat 1\'s re-check: the sweep keeps the moot mark on the word it closes', 
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+// B1245 (the result check of B1207): the words themselves, through the real rule and the real health summary, so undoing the
+// finding's text ("min after it took") or the health line's "after its setting changed" turns a test red.
+test('X26 real case, the words: at 16:23 the finding and the health line both say the step changed, never "after it took" or "after the take"', async () => {
+  const { buildView } = await import('../../src/supervisor/view.mjs')
+  const { healthSummary } = await import('../../src/supervisor/health.mjs')
+  const { WATCH_RULES } = await import('../../src/supervisor/rules/watch.mjs')
+  const step = b1196()
+  const sent = [...CASE, { id: 'w2', at: at(16, 12, 30), ...effortWords(plan(step, at(16, 12, 30)).words[0]), state: 'delivered', deliveredAt: at(16, 12, 40) }]
+  const boardAt = now => buildView({
+    state: {
+      chats: [
+        { name: 'Lead', isMain: true, isLeftover: false, state: 'working', isRunning: true, queue: [], compaction: null, task: null, model: OPUS, effort: 'high' },
+        { ...lane(), isMain: false, isLeftover: false, state: 'working', isRunning: true, queue: [], compaction: null, task: null, effortRun: { step: 'B1196', ...plan(step, now, sent).runs.get('Worker 5') } },
+      ],
+      chatPrefix: '', pause: null, today: [], limits: {},
+    },
+    items: items(step), settings: {}, now,
+  })
+  const check = board => WATCH_RULES.find(one => one.id === 'effort-mismatch').check(board, { seen: new Map(), observed: [] })
+  const chatLine = (board, now) => healthSummary(board, now).split('\n').find(one => one.includes('Worker 5 (worker)')) ?? ''
+  // 16:13: quiet in both.
+  assert.deepEqual(check(boardAt(at(16, 13))), [])
+  assert.doesNotMatch(chatLine(boardAt(at(16, 13)), at(16, 13)), /^- !/)
+  // 16:23, not read back: one finding, its words counted from the change.
+  const late = boardAt(at(16, 23))
+  const found = check(late)
+  assert.equal(found.length, 1)
+  assert.equal(found[0].text, 'Worker 5 runs sonnet · medium 10 min after B1196 changed to sonnet · high at 16:12 (its hand-over asked sonnet · medium)')
+  assert.doesNotMatch(found[0].text, /after it took/)
+  assert.match(found[0].evidence, /^took B1196 at 15:51; its setting changed at 16:12; switch asked 16:12 \(delivered\), not read back; the app's file says sonnet · medium$/)
+  const line = chatLine(late, at(16, 23))
+  assert.match(line, /^- ! Worker 5 \(worker\): .*runs sonnet · medium; its step B1196 wants sonnet · high \(switch asked 16:12, not read back, 10 min after its setting changed 16:12\)/)
+  assert.doesNotMatch(line, /after the take/)
+})

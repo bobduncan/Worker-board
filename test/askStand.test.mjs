@@ -320,6 +320,14 @@ test('the ask\'s window: its question, options, advice and step, and where it st
   assert.ok(!words(bare).includes('Advisor'))
 })
 
+test('the ask\'s window: its Play link opens the game through #play=, never the bare setting as a path (Q822)', () => {
+  const ask = { ...asks[0], play: 'main&sandbox&unit=skeleton_overlord,knight&side=enemy' }
+  assert.equal(plain(page.partnerAskWindowOf(ask)).play, '/#play=main&sandbox&unit=skeleton_overlord,knight&side=enemy')
+  assert.equal(plain(page.partnerAskWindowOf({ ...ask, play: '' })).play, null)
+  // The window's link takes that href as it is.
+  assert.match(source('drawPartnerAskWindow'), /'▶  Play it'\), \{ href: view\.play,/)
+})
+
 test('the link opens the window: #details=Q1 and an ask-link find a question that is with the partner', () => {
   const open = source('openStepWindow')
   assert.match(open, /state\.withPartner/)
