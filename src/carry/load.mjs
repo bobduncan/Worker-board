@@ -6,6 +6,7 @@ import * as nodeFs from 'node:fs'
 import { join, dirname } from 'node:path'
 
 import { writeAtomic } from '../write.mjs'
+import { FOCUS_LINE } from '../goals.mjs'
 import { blobOf, blobOfFile, ensureDataClone, fastForward, hasIdentity, lines } from './git.mjs'
 import { loadGuards } from './guards.mjs'
 import { parseTimes, restoreTimes } from './times.mjs'
@@ -30,12 +31,11 @@ export async function load(roots, options = {}, deps) {
   const backupRoot = join(roots.boardDir, 'data', 'carry-backup')
   const warnings = []
 
-  if (options.undo) return undo({ roots, stamp: options.undo, fs, log, journal, backupRoot })
-
-  // ---- guards that need no data
-  const facts = { boardAnswers: await deps.boardAnswers(), keepers: await deps.keepers(), lockAgeMs: await deps.lockAgeMs(), changed: [], fromPractice: false, practiceData: false }
+  // ---- guards that need no data (--undo and --pictures-only pass them too)
+  const facts = { boardAnswers: await deps.boardAnswers(), keepers: await deps.keepers(), lockAgeMs: await deps.lockAgeMs(), changed: [], fromPractice: false, practiceData: false, noLoadYet: options.picturesOnly === true && record.last === null }
   const early = loadGuards(facts, { park })
   if (early.refusals.length > 0) return refused(early, log)
+  if (options.undo) return undo({ roots, stamp: options.undo, fs, log, journal, backupRoot })
 
   // ---- fetch
   const clone = await ensureDataClone({ git, dir: roots.dataDir, remote: roots.remote, branch, fs })
@@ -46,8 +46,11 @@ export async function load(roots, options = {}, deps) {
   facts.practiceData = saved.kind === 'practice' && !practice
   const targetsOf = { project: roots.project, boardDir: roots.boardDir, memoryDir: roots.memoryDir }
 
+  // ---- --pictures-only: the pictures step again, after a full load (the record keeps the Drive folder given)
   if (options.picturesOnly) {
     const got = await fromDrive({ roots, pictures, fs, dryRun, log, journal })
+    if (!dryRun && roots.picturesFolder !== null && roots.picturesFolder !== record.picturesHome) { await writeRecord(deps.recordFile, { ...record, picturesHome: roots.picturesFolder }, fs); journal(deps.recordFile) }
+    log(`${dryRun ? 'Dry run' : 'Pictures'} ${clockOf(now)}: ${got.copied} pictures copied (${got.kept} kept, ${got.missing.length} missing)`)
     return { ok: true, refusals: [], warnings, pictures: got }
   }
 
@@ -103,7 +106,8 @@ export async function load(roots, options = {}, deps) {
   // ---- settings
   const carriedText = await fs.readFile(join(roots.dataDir, 'settings', 'config.json'), 'utf8').catch(() => null)
   if (carriedText !== null) {
-    const next = set.settingsFromCarry(JSON.parse(carriedText), { project: roots.project, boardDir: roots.boardDir, current: roots.config })
+    // A first load has no config.json here (roots.config null): nothing of this PC's to keep.
+    const next = set.settingsFromCarry(JSON.parse(carriedText), { project: roots.project, boardDir: roots.boardDir, current: roots.config ?? {} })
     if (!dryRun) { await writeAtomic(join(roots.boardDir, 'config.json'), `${JSON.stringify(next, null, 2)}\n`); journal(join(roots.boardDir, 'config.json')) }
   }
   // ---- a practice load starts paused
@@ -115,7 +119,7 @@ export async function load(roots, options = {}, deps) {
   // ---- times
   const times = parseTimes(await fs.readFile(join(roots.dataDir, 'times.json'), 'utf8').catch(() => ''))
   const timed = dryRun ? { restored: [], kept: [], missing: [] } : await restoreTimes(times, {
-    targetOf: path => (path.startsWith('project/') ? join(roots.project, ...path.slice('project/'.length).split('/')) : set.targetOf(path, targetsOf)),
+    targetOf: path => (path.startsWith('game/') ? join(roots.gameRepo || roots.project, ...path.slice('game/'.length).split('/')) : set.targetOf(path, targetsOf)),
     blobOfFile: file => blobOfFile(file, fs), fs, journal,
   })
   // ---- pictures
@@ -141,6 +145,7 @@ export async function load(roots, options = {}, deps) {
   if (!dryRun) {
     await writeRecord(deps.recordFile, {
       picturesHome: roots.picturesFolder ?? record.picturesHome, keepSet: record.keepSet,
+      synced: { ...record.synced, [branch]: moved.after },
       last: { kind: practice ? 'practice' : 'final', command: 'load', at: now, branch, commit: moved.after, blobs },
     }, fs)
     journal(deps.recordFile)
@@ -177,7 +182,7 @@ async function undo({ roots, stamp, fs, log, journal, backupRoot }) {
     const bytes = await fs.readFile(kept).catch(() => null)
     if (bytes === null) continue
     await fs.mkdir(dirname(one.target), { recursive: true })
-    await fs.writeFile(one.target, bytes)
+    await writeAtomic(one.target, bytes)
     journal(one.target)
     restored += 1
   }
@@ -191,12 +196,16 @@ const refused = (guarded, log, warnings = []) => {
   return { ok: false, refusals: guarded.refusals, warnings: [...warnings, ...guarded.warnings] }
 }
 
-/** The focus goal the loaded goal map names (`home/.claude/goals/focus.json` or a text with "focus": "G.."), or null. */
+/** The focus goal: the goal map's `Focus:` line (home/.claude/goals.md, as src/goals.mjs reads it), else goals/focus.json's "focus"; null for neither. */
 function focusOf(plan) {
-  for (const one of plan) {
-    if (!/focus/i.test(one.to)) continue
-    const found = /"focus"\s*:\s*"(G\d+)"/.exec(one.bytes.toString('utf8')) ?? /\b(G\d+)\b/.exec(one.bytes.toString('utf8'))
-    if (found) return found[1]
+  const goals = plan.find(one => one.to === 'home/.claude/goals.md')
+  if (goals !== undefined) {
+    for (const row of goals.bytes.toString('utf8').split(/\r?\n/)) {
+      const found = FOCUS_LINE.exec(row)
+      if (found) return found[1] ?? null
+    }
   }
-  return null
+  const file = plan.find(one => one.to === 'home/.claude/goals/focus.json')
+  const found = file === undefined ? null : /"focus"\s*:\s*"(G\d+)"/.exec(file.bytes.toString('utf8'))
+  return found ? found[1] : null
 }

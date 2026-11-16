@@ -10,7 +10,7 @@ import { readStore } from '../work/store.mjs'
 import { assetsFolderOf } from '../assets.mjs'
 import { parsePause, checkpointOf } from '../work/pause.mjs'
 import { valueOf } from '../work/item.mjs'
-import { aheadOf, blobOf, commitAndPush, ensureDataClone, isAnonymouslyReadable, lines, localBranches, pushBranch, pushIsFastForward, remoteBranch, trackedChanges, commitsNotOnOrigin } from './git.mjs'
+import { aheadOf, blobOf, commitAndPush, ensureDataClone, isAnonymouslyReadable, lines, localBranches, peekDataClone, pushBranch, pushIsFastForward, remoteBranch, trackedChanges, commitsNotOnOrigin } from './git.mjs'
 import { boardStepsOf, heldStepsOf, heldWordsOf, reviewStepsOf, saveGuards, secretsIn, TEXT_MOST_BYTES } from './guards.mjs'
 import { timesOf } from './times.mjs'
 import { readRecord, writeRecord } from './record.mjs'
@@ -50,11 +50,12 @@ export async function save(roots, options = {}, deps) {
   const held = heldStepsOf(items)
   const boardBranches = (await localBranches(git, roots.boardDir)).map(one => one.branch)
 
-  // ---- the data clone (needed for the origin-ahead reading; made now, written later)
-  const clone = await ensureDataClone({ git, dir: roots.dataDir, remote: roots.remote, branch, fs })
-  const originHead = await remoteBranch(git, roots.dataDir, 'origin', branch)
-  const originAhead = originHead !== null && record.last !== null && record.last.branch === branch && record.last.commit !== null && record.last.commit !== originHead
-    ? { branch, origin: originHead, last: record.last.commit } : null
+  // ---- the data clone (made now, written later). A dry run makes and switches nothing: it looks. Origin is asked by its URL.
+  const clone = dryRun ? await peekDataClone({ git, dir: roots.dataDir, branch, fs }) : await ensureDataClone({ git, dir: roots.dataDir, remote: roots.remote, branch, fs })
+  const originHead = await remoteBranch(git, roots.boardDir, roots.remote, branch)
+  // What this PC last synced on this branch (null: never): origin past it means load first.
+  const lastHere = record.synced[branch] ?? null
+  const originAhead = originHead !== null && lastHere !== originHead ? { branch, origin: originHead, last: lastHere } : null
 
   // ---- the files that travel
   const carried = await set.carrySet({ config: roots.config, project: roots.project, boardDir: roots.boardDir, memoryDir: roots.memoryDir, userSettingsFile: roots.userSettingsFile, fs })
@@ -91,7 +92,7 @@ export async function save(roots, options = {}, deps) {
     pause, boardAnswers: await deps.boardAnswers(), keepers: await deps.keepers(), lockAgeMs: await deps.lockAgeMs(),
     dirtySteps, notFastForward, mainsDirty, originAhead, lastLoadWasPractice: record.last?.command === 'load' && record.last.kind === 'practice',
     secrets: secretsIn(files, secrets),
-    oversized, remotePublic: await isAnonymouslyReadable(git, roots.dataDir, roots.remote), driveShort: null,
+    oversized, remotePublic: await isAnonymouslyReadable(git, roots.boardDir, roots.remote), driveShort: null,
     reviewSteps: reviewStepsOf(items),
     noCheckpointSince: held.filter(step => pause?.state === 'pausing' && !(Number.isFinite(checkpointOf(items.get(step.id))?.at) && checkpointOf(items.get(step.id)).at >= pause.since)).map(step => ({ id: step.id, chat: step.chat })),
     branchesGone,
@@ -112,12 +113,24 @@ export async function save(roots, options = {}, deps) {
   const free = roots.picturesFolder === null ? null : await deps.driveFree(roots.picturesFolder)
   if (Number.isFinite(free) && free < need) facts.driveShort = { need, free }
 
-  const guarded = saveGuards(facts, { practice, anyway })
+  // ---- the lists the switch needs (printed on a refusal too: the dry run at step 4 runs with the chats still open)
+  const heldWords = heldWordsOf(await fs.readFile(join(roots.boardDir, 'data', 'outbox.jsonl'), 'utf8').catch(() => ''))
+  const boardSteps = boardStepsOf(items, boardBranches)
+  const toPush = pushes.filter(one => one.fastForward && one.rule !== 'already there')
+  const tell = () => {
+    for (const one of warnings) log(`Warning: ${one}`)
+    if (dryRun) for (const one of toPush) log(`Would push ${one.branch} (${basename(one.repo)}): ${one.rule}${one.step ? `, step ${one.step}` : ''}`)
+    for (const one of heldWords) log(`Held word for ${one.chat}${one.step ? ` (${one.step})` : ''}, retype it there: ${one.words.split('\n')[0].slice(0, 160)}`)
+    for (const one of boardSteps) log(`Board step ${one.id} (${one.state}, ${one.branch}): ${one.why}; it cannot land on the other PC`)
+    for (const one of noWorktree) log(`Held step ${one.id} (${one.chat}): its branch ${one.branch} is in no worktree here; its uncommitted work, if any, stays on this PC`)
+  }
+
+  const guarded = saveGuards(facts, { practice, anyway, dryRun })
   warnings.push(...guarded.warnings)
   if (guarded.refusals.length > 0) {
     for (const one of guarded.refusals) log(`Refused: ${one.text}`)
-    for (const one of warnings) log(`Warning: ${one}`)
-    return { ok: false, refusals: guarded.refusals, warnings, dryRun }
+    tell()
+    return { ok: false, refusals: guarded.refusals, warnings, dryRun, heldWords, boardSteps }
   }
 
   // ---- copy into the data folder, prune what left the set
@@ -135,7 +148,10 @@ export async function save(roots, options = {}, deps) {
     }
     written.push(one.to)
   }
-  const tracked = lines(await git(roots.dataDir, ['ls-files', '--', ...SET_ROOTS.map(root => root.replace(/\/$/, ''))])).map(slashes)
+  // A dry run on a folder not on this branch (none yet, or the other kind's) counts nothing as gone, and says so.
+  const dataOnBranch = !dryRun || clone.onBranch === true
+  if (!dataOnBranch) warnings.push(`the data folder ${clone.exists ? 'is on the other kind\'s branch' : 'does not exist yet'}: what left the set is not counted in this dry run`)
+  const tracked = dataOnBranch ? lines(await git(roots.dataDir, ['ls-files', '--', ...SET_ROOTS.map(root => root.replace(/\/$/, ''))])).map(slashes) : []
   const inSet = new Set(files.map(one => one.to))
   const removed = tracked.filter(path => !inSet.has(path))
   if (!dryRun) for (const path of removed) { await fs.rm(join(roots.dataDir, ...path.split('/')), { force: true }); journal(join(roots.dataDir, ...path.split('/'))) }
@@ -149,21 +165,20 @@ export async function save(roots, options = {}, deps) {
   if (roots.picturesFolder === null) warnings.push('no Drive folder (--pictures): the pictures did not travel')
 
   // ---- times, held words, board steps, the save's own record
+  // The two plan docs live where the board reads them (sources.mjs: the game repo, or the project without one), as `game/<rel>`.
   const plans = []
+  const planHome = roots.gameRepo || roots.project
   for (const key of ['gamePlan', 'productPlan']) {
     const rel = roots.config[key]
     if (typeof rel !== 'string' || rel === '') continue
-    const file = join(roots.project, ...rel.split('/'))
+    const file = join(planHome, ...rel.split('/'))
     const bytes = await fs.readFile(file).catch(() => null)
     const stat = await fs.stat(file).catch(() => null)
-    if (bytes !== null && stat !== null) plans.push({ to: `project/${slashes(rel)}`, mtimeMs: stat.mtimeMs, blob: blobOf(bytes) })
+    if (bytes !== null && stat !== null) plans.push({ to: `game/${slashes(rel)}`, mtimeMs: stat.mtimeMs, blob: blobOf(bytes) })
   }
   const times = timesOf([...files, ...plans])
-  const heldWords = heldWordsOf(await fs.readFile(join(roots.boardDir, 'data', 'outbox.jsonl'), 'utf8').catch(() => ''))
-  const boardSteps = boardStepsOf(items, boardBranches)
   const mains = {}
   for (const [name, repo] of [['game', roots.gameRepo], ['board', roots.boardDir]]) mains[name] = (await git(repo, ['rev-parse', 'HEAD'])).out.trim() || null
-  const toPush = pushes.filter(one => one.fastForward && one.rule !== 'already there')
   const saved = {
     pc: hostname(), at: now, kind: practice ? 'practice' : 'final', branch, mains, counts: { files: files.length, written: written.length, removed: removed.length, pictures: list.length },
     branchesPushed: toPush.map(one => ({ branch: one.branch, repo: basename(one.repo), step: one.step, commit: one.commit })), boardSteps, heldWords: heldWords.length, noWorktree,
@@ -190,7 +205,7 @@ export async function save(roots, options = {}, deps) {
   // ---- the step branches (final only)
   const branchesPushed = []
   for (const one of toPush) {
-    if (dryRun) { log(`Would push ${one.branch} (${basename(one.repo)}): ${one.rule}${one.step ? `, step ${one.step}` : ''}`); continue }
+    if (dryRun) continue
     const commit = await pushBranch(git, one.repo, one.branch)
     branchesPushed.push({ ...one, commit })
     log(`Pushed ${one.branch} (${basename(one.repo)}): ${one.rule}${one.step ? `, step ${one.step}` : ''}`)
@@ -201,15 +216,13 @@ export async function save(roots, options = {}, deps) {
   if (!dryRun) {
     await writeRecord(deps.recordFile, {
       picturesHome: roots.picturesFolder ?? record.picturesHome, keepSet: roots.keepSetFile ?? record.keepSet,
+      synced: { ...record.synced, ...(pushed.commit ? { [branch]: pushed.commit } : {}) },
       last: { kind: practice ? 'practice' : 'final', command: 'save', at: now, branch, commit: pushed.commit, blobs: keptBlobs },
     }, fs)
     journal(deps.recordFile)
   }
   log(`${dryRun ? 'Dry run' : 'Saved'} ${clockOf(now)}: ${files.length} files (${written.length} new or changed, ${removed.length} gone), ${list.length} pictures (${copied.copied} copied, ${copied.same} the same, ${copied.missing?.length ?? 0} missing), ${heldWords.length} held words, ${boardSteps.length} board steps${pushed.pushed ? `, data at ${String(pushed.commit).slice(0, 7)}` : pushed.committed === false && !dryRun ? ', nothing new to commit' : ''}`)
-  for (const one of warnings) log(`Warning: ${one}`)
-  for (const one of heldWords) log(`Held word for ${one.chat}${one.step ? ` (${one.step})` : ''}, retype it there: ${one.words.split('\n')[0].slice(0, 160)}`)
-  for (const one of boardSteps) log(`Board step ${one.id} (${one.state}, ${one.branch}): ${one.why}; it cannot land on the other PC`)
-  for (const one of noWorktree) log(`Held step ${one.id} (${one.chat}): its branch ${one.branch} is in no worktree here; its uncommitted work, if any, stays on this PC`)
+  tell()
   return { ok: true, refusals: [], warnings, files: files.length, written, removed, pictures: copied, heldWords, boardSteps, branchesPushed, pushes, commit: pushed.commit, dryRun, saved }
 }
 

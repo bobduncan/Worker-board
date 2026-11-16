@@ -139,7 +139,7 @@ const setFake = {
     return null
   },
   carriedSettings: (config, { project }) => ({ port: config.port ?? 4310, projectName: basename(project) }),
-  settingsFromCarry: (carried, { project, boardDir, current }) => ({ ...(current ?? {}), project, gameRepo: join(project, 'game'), port: carried.port, carried: true }),
+  settingsFromCarry: (carried, { project, boardDir, current = {} }) => ({ ...Object.fromEntries(Object.entries(current)), project, gameRepo: join(project, 'game'), port: carried.port, carried: true }),
   carriedUserSettings: user => ({ allow: user?.permissions?.allow ?? [] }),
   mergeUserSettings: (theirs, carried) => {
     const have = new Set(theirs?.permissions?.allow ?? [])
@@ -201,7 +201,7 @@ const picturesFake = {
 /** The roots and deps of one side, with the board checks as the test sets them (`state`). */
 function sideOf(side, { remote, dataDir, picturesFolder, keepSetFile = null, state }) {
   const config = JSON.parse(readFileSync(join(side.boardDir, 'config.json'), 'utf8'))
-  const roots = { boardDir: side.boardDir, project: side.project, config: { ...config, work: '.claude/work', pictureRoots: ['pictures'], gamePlan: 'game/docs/game-plan.md', productPlan: 'docs/none.md' }, gameRepo: side.gameRepo, workDir: join(side.project, '.claude', 'work'), dataDir, isExplicitData: false, remote, picturesFolder, keepSetFile, memoryDir: side.memoryDir, userSettingsFile: side.userSettingsFile }
+  const roots = { boardDir: side.boardDir, project: side.project, config: { ...config, work: '.claude/work', pictureRoots: ['pictures'], gamePlan: 'docs/game-plan.md', productPlan: 'docs/none.md' }, gameRepo: side.gameRepo, workDir: join(side.project, '.claude', 'work'), dataDir, isExplicitData: false, remote, picturesFolder, keepSetFile, memoryDir: side.memoryDir, userSettingsFile: side.userSettingsFile }
   const logs = []
   const journal = []
   const deps = {
@@ -226,19 +226,26 @@ test('two PCs: save on A (the data branch, the step branch, the pictures, the re
   const dataA = join(a.gameRepo, '.workerboard')
   const A = () => sideOf(a, { remote, dataDir: dataA, picturesFolder: drive, keepSetFile: keepSet, state })
 
-  // A dry run writes and pushes nothing.
+  // A dry run writes and pushes nothing, and makes no data folder (the plan's Tuesday dry run comes before the first practice save).
   let s = A()
   let done = await save(s.roots, { ...s.options, dryRun: true }, s.deps)
   assert.equal(done.ok, true, JSON.stringify(done.refusals))
-  assert.equal(existsSync(join(dataA, 'saved.json')), false, 'a dry run writes no saved.json')
+  assert.equal(existsSync(dataA), false, 'a dry run makes no data folder')
+  assert.ok(s.logs.some(one => /^Warning: the data folder does not exist yet: what left the set is not counted in this dry run$/.test(one)), s.logs.join('\n'))
   assert.equal(line(await a.git(a.gameRepo, ['ls-remote', '--heads', remote, 'b1149'])), '', 'a dry run pushes no branch')
   assert.ok(s.logs.some(one => /^Would push b1149 \(game\): 2 commit\(s\) not on origin\/main, not on origin, step B1149$/.test(one)), s.logs.join('\n'))
 
-  // The board answers: refused, naming the way out. A dirty step worktree: refused, naming the chat; --anyway lets it through.
+  // The board answers: refused, naming the way out, and the lists are still printed; a dry run goes on with a warning (the switch's
+  // steps 3-4 run with the app up). A dirty step worktree: refused, naming the chat; --anyway lets it through.
   state.boards = [{ port: 4399, project: a.project }]
   s = A()
   done = await save(s.roots, s.options, s.deps)
   assert.deepEqual([done.ok, done.refusals.map(one => one.code)], [false, ['board-runs']])
+  assert.ok(s.logs.some(one => /^Held word for Worker 4 \(B40\)/.test(one)) && s.logs.some(one => /^Board step B40 /.test(one)), `the lists print on a refusal too:\n${s.logs.join('\n')}`)
+  s = A()
+  done = await save(s.roots, { ...s.options, dryRun: true }, s.deps)
+  assert.equal(done.ok, true, JSON.stringify(done.refusals))
+  assert.ok(s.logs.some(one => /^Warning: a board of this project answers on port 4399: .* \(a dry run goes on\)$/.test(one)) && s.logs.some(one => /^Would push b1149 /.test(one)), s.logs.join('\n'))
   state.boards = []
   await writeFile(join(a.project, '.claude', 'work', 'B1149.md'), (await readFile(join(a.project, '.claude', 'work', 'B1149.md'), 'utf8')).replace('State: ready\nOwner: -', 'State: in progress\nOwner: Worker 2'))
   await writeFile(join(wt, 'knight.txt'), 'uncommitted\n')
@@ -275,7 +282,7 @@ test('two PCs: save on A (the data branch, the step branch, the pictures, the re
   assert.deepEqual(JSON.parse(await readFile(join(dataA, 'held-words.json'), 'utf8')).map(one => [one.chat, one.step]), [['Worker 4', 'B40']])
   assert.equal(await readFile(join(dataA, '.gitattributes'), 'utf8'), '* -text\n')
   const times = JSON.parse(await readFile(join(dataA, 'times.json'), 'utf8')).files
-  assert.ok(times.some(one => one.path === 'home/.claude/goals/focus.json' && one.mtimeMs === 1700000000000) && times.some(one => one.path === 'project/game/docs/game-plan.md'), JSON.stringify(times))
+  assert.ok(times.some(one => one.path === 'home/.claude/goals/focus.json' && one.mtimeMs === 1700000000000) && times.some(one => one.path === 'game/docs/game-plan.md'), JSON.stringify(times))
   assert.deepEqual(JSON.parse(await readFile(join(dataA, 'pictures.json'), 'utf8')), [{ path: 'pictures/knight.png', size: 7, mtimeMs: 1700000001234 }])
   assert.equal((await stat(join(drive, 'pictures', 'knight.png'))).mtimeMs, 1700000001234, 'the Drive copy has a whole-millisecond time')
   assert.ok(s.logs.some(one => /B20 is in review/.test(one)), 'a review step warns')
@@ -345,7 +352,19 @@ test('two PCs: save on A (the data branch, the step branch, the pictures, the re
   done = await save(l.roots, l.options, l.deps)
   assert.equal(done.ok, true, `${JSON.stringify(done.refusals)}\n${l.logs.join('\n')}`)
   assert.deepEqual(done.written, ['home/.claude/goals/focus.json'], 'only the changed file is written anew')
+  // A with no record (never loaded, as far as the tool knows) must not save over B's newer data.
   state.now = 1794833000000
+  s = A()
+  const recordFileA = s.deps.recordFile
+  const recordTextA = await readFile(recordFileA, 'utf8')
+  await rm(recordFileA)
+  done = await save(s.roots, s.options, s.deps)
+  assert.deepEqual([done.ok, done.refusals.map(one => one.code)], [false, ['load-first']])
+  assert.match(done.refusals[0].text, /never loaded/)
+  await writeFile(recordFileA, recordTextA)
+  s = A()
+  done = await save(s.roots, s.options, s.deps)
+  assert.deepEqual([done.ok, done.refusals.map(one => one.code)], [false, ['load-first']], 'with its record: origin is past this PC\'s last sync')
   s = A()
   done = await load(s.roots, s.options, s.deps)
   assert.equal(done.ok, true, `${JSON.stringify(done.refusals)}\n${s.logs.join('\n')}`)
@@ -364,6 +383,10 @@ test('two PCs: save on A (the data branch, the step branch, the pictures, the re
   assert.equal(done.ok, true)
   assert.equal(JSON.parse(await readFile(join(a.project, '.claude', 'goals', 'focus.json'), 'utf8')).focus, 'G96')
   const parkStamp = done.stamp
+  state.boards = [{ port: 4399, project: a.project }]
+  s = A()
+  assert.deepEqual((await load(s.roots, { ...s.options, undo: parkStamp }, s.deps)).refusals.map(one => one.code), ['board-runs'], '--undo passes the same guards')
+  state.boards = []
   s = A()
   done = await load(s.roots, { ...s.options, undo: parkStamp }, s.deps)
   assert.deepEqual([done.ok, done.restored], [true, 2], 'the parked file and the board\'s config.json (backed up with every load) are put back')
@@ -387,7 +410,24 @@ test('two PCs: save on A (the data branch, the step branch, the pictures, the re
   assert.equal(JSON.parse(await readFile(join(b.project, '.claude', 'work', 'pause.json'), 'utf8')).by, 'carry load --practice', 'a practice load starts paused')
   l = sideOf(b, { remote, dataDir: practiceB, picturesFolder: drive, state: stateB })
   done = await save(l.roots, l.options, l.deps)
-  assert.deepEqual([done.ok, done.refusals.map(one => one.code)], [false, ['practice-loaded']])
+  assert.deepEqual([done.ok, done.refusals.map(one => one.code)], [false, ['practice-loaded']], 'B\'s own final sync stands (the record keeps one per branch): only the practice load refuses')
+  // The plan's order in the ONE default folder: a final dry run (no folder), a practice save (the practice orphan), a final save
+  // (the final orphan), a practice save again (the local practice branch, switched to, not made again), a final load.
+  const dataC = join(root, 'C-data')
+  s = sideOf(a, { remote, dataDir: dataC, picturesFolder: drive, keepSetFile: keepSet, state })
+  assert.equal((await save(s.roots, { ...s.options, dryRun: true }, s.deps)).ok, true)
+  assert.equal(existsSync(dataC), false)
+  s = sideOf(a, { remote, dataDir: dataC, picturesFolder: drive, keepSetFile: keepSet, state })
+  done = await save(s.roots, { ...s.options, practice: true }, s.deps)
+  assert.equal(done.ok, true, `${JSON.stringify(done.refusals)}\n${s.logs.join('\n')}`)
+  s = sideOf(a, { remote, dataDir: dataC, picturesFolder: drive, keepSetFile: keepSet, state })
+  done = await save(s.roots, s.options, s.deps)
+  assert.equal(done.ok, true, `${JSON.stringify(done.refusals)}\n${s.logs.join('\n')}`)
+  assert.equal(line(await a.git(dataC, ['rev-parse', '--abbrev-ref', 'HEAD'])), DATA_BRANCH)
+  s = sideOf(a, { remote, dataDir: dataC, picturesFolder: drive, keepSetFile: keepSet, state })
+  done = await save(s.roots, { ...s.options, practice: true }, s.deps)
+  assert.equal(done.ok, true, `${JSON.stringify(done.refusals)}\n${s.logs.join('\n')}`)
+  assert.equal(line(await a.git(dataC, ['rev-parse', '--abbrev-ref', 'HEAD'])), PRACTICE_BRANCH)
   // A fresh landing lock refuses both.
   state.lockAgeMs = 60_000
   s = A()
@@ -456,4 +496,24 @@ test('the real case (chat 2\'s fixture, B2\'s set and B3\'s pictures for real): 
   assert.ok(!tracked.some(path => /names\.json|delivered\.json|\.claim$|\.tmp$|broken-/.test(path)), 'runtime files stay out (B2)')
   assert.ok(logs.some(one => /^Saved /.test(one)), logs.join('\n'))
   assert.equal(logs.join('\n').includes(key), false, 'the key is never printed')
+
+  // The other PC, fresh: a board folder with no config.json (roots.config null, as a first load with --project/--game has it).
+  const b = await pc(root, 'S')
+  await b.ok(b.project, ['clone', '-q', remote, b.gameRepo])
+  await mkdir(join(b.boardDir, 'data'), { recursive: true })
+  const rootsB = { boardDir: b.boardDir, project: b.project, config: null, gameRepo: b.gameRepo, workDir: join(b.project, '.claude', 'work'), dataDir: join(b.gameRepo, '.workerboard'), isExplicitData: false, remote, picturesFolder: join(drive, 'pictures'), keepSetFile: null, memoryDir: b.memoryDir, userSettingsFile: b.userSettingsFile }
+  const logsB = []
+  const depsB = { ...deps, git: b.git, recordFile: recordFileFor({ boardDir: b.boardDir, dataDir: rootsB.dataDir, isExplicit: false }) }
+  const optionsB = { log: text => logsB.push(text), now: 1794841000000 }
+  let got = await load(rootsB, { ...optionsB, picturesOnly: true }, depsB)
+  assert.deepEqual([got.ok, got.refusals.map(one => one.code)], [false, ['load-first']], '--pictures-only before any load is refused')
+  got = await load(rootsB, optionsB, depsB)
+  assert.equal(got.ok, true, `${JSON.stringify(got.refusals)}\n${logsB.join('\n')}`)
+  const configB = JSON.parse(await readFile(join(b.boardDir, 'config.json'), 'utf8'))
+  assert.equal(slashes(configB.project), slashes(b.project), 'config.json is written on a first load, for this PC')
+  assert.ok(existsSync(join(b.project, '.claude', 'work', 'B1149.md')) && existsSync(join(b.memoryDir, 'MEMORY.md')), 'the store and the memory are here')
+  assert.ok(logsB.some(one => /^Loaded \d\d:\d\d: \d+ items \(\d+ written, 0 backed up\), focus G64, 0 pictures/.test(one)), `the focus comes from goals.md's Focus line:\n${logsB.join('\n')}`)
+  got = await load(rootsB, { ...optionsB, picturesOnly: true }, depsB)
+  assert.equal(got.ok, true, JSON.stringify(got.refusals))
+  assert.ok(logsB.some(one => /^Pictures \d\d:\d\d: 0 pictures copied/.test(one)), logsB.join('\n'))
 })

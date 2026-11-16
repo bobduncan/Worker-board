@@ -1,6 +1,7 @@
 # Goals
 Last ask: A1
 Last id: G105
+Focus: G64
 
   - [ ] G9 M2 · Every aspect of World 1 at its bar
     - [x] G64 How we build good units

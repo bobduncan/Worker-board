@@ -12,6 +12,8 @@ export const LOCAL_MS = 20_000
 export const REMOTE_MS = 60_000
 /** A push gets a second more per 100 KB (a 20 MB push: 200 s more). */
 export const PUSH_MS_PER_100KB = 1000
+/** The first `git add` of a set writes one object per file, about 5 ms each on this PC (5,200 files: 25 s): 20 ms of room per path. */
+export const ADD_MS_PER_PATH = 20
 
 /** The blob id git gives `bytes` (`git hash-object`): sha1 of "blob <length>\0" and the bytes. */
 export function blobOf(bytes) {
@@ -100,6 +102,12 @@ export async function ensureDataClone({ git, dir, remote, branch, fs = { access,
         if (switched.code !== 0) throw new Error(`checkout of ${branch} failed: ${switched.err.trim()}`)
         return { made: 'switched', head: upstream }
       }
+      // A local branch of this kind is here already (an earlier save of this kind, not pushed yet): switch to it; else a fresh orphan.
+      if ((await git(dir, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])).code === 0) {
+        const switched = await git(dir, ['checkout', '-q', branch])
+        if (switched.code !== 0) throw new Error(`checkout of ${branch} failed: ${switched.err.trim()}`)
+        return { made: 'switched', head: line(await git(dir, ['rev-parse', '--verify', '--quiet', 'HEAD'])) || null }
+      }
       for (const args of [['checkout', '-q', '--orphan', branch], ['rm', '-rfq', '--cached', '.']]) {
         const done = await git(dir, args)
         if (done.code !== 0) throw new Error(`${args.join(' ')} failed in ${dir}: ${done.err.trim() || `code ${done.code}`}`)
@@ -127,6 +135,17 @@ export async function ensureDataClone({ git, dir, remote, branch, fs = { access,
   await setIdentity(git, dir, identity)
   await firstCommit(git, dir, fs)
   return { made: 'init', head: null }
+}
+
+/**
+ * A look at the data folder without a write (a dry run): `{ made: 'none' | 'peeked', exists, onBranch, head }`; `head` only when the
+ * folder is on `branch`.
+ */
+export async function peekDataClone({ git, dir, branch, fs = { access } }) {
+  const isRepo = await fs.access(join(dir, '.git')).then(() => true, () => false)
+  if (!isRepo) return { made: 'none', exists: false, onBranch: false, head: null }
+  const onBranch = line(await git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])) === branch
+  return { made: 'peeked', exists: true, onBranch, head: onBranch ? line(await git(dir, ['rev-parse', '--verify', '--quiet', 'HEAD'])) || null : null }
 }
 
 /** The orphan branch's first commit: `.gitattributes` with `* -text` and the README. */
@@ -166,17 +185,22 @@ export async function hasIdentity(git, cwd) {
 }
 
 /**
- * Stages `paths` (and only those) in the data clone, commits with the FIXED message and pushes the branch, never forced. Answers
+ * The top-level folders and files of `paths` (home, board, memory, settings, saved.json, ...): what `git add -A` is pointed at. The live
+ * set is 5,600+ paths, about 160 KB: too long for a Windows command line (32 KB), and 5,000 literal pathspecs over stdin take git
+ * past 20 s; a handful of folder pathspecs is instant.
+ */
+export const rootsOfPaths = paths => [...new Set(paths.map(path => String(path).split('/')[0]).filter(root => root !== '' && root !== '.' && root !== '..'))].sort()
+
+/**
+ * Stages the set's roots in the data clone (`git add -A -- <roots>`: every file under them as it is on disk, the files save removed
+ * as deletions; the folder is the commands' own), commits with the FIXED message and pushes the branch, never forced. Answers
  * `{ committed, pushed, commit }`; nothing to commit is `committed: false` with the head as `commit`.
  */
 export async function commitAndPush({ git, dir, branch, paths, removed = [], message, bytes = 0, dryRun = false }) {
-  if (paths.length > 0) {
-    const added = await git(dir, ['add', '--', ...paths])
+  const roots = rootsOfPaths([...paths, ...removed])
+  if (roots.length > 0) {
+    const added = await git(dir, ['add', '-A', '--', ...roots], { timeoutMs: LOCAL_MS + (paths.length + removed.length) * ADD_MS_PER_PATH })
     if (added.code !== 0) throw new Error(`git add failed: ${added.err.trim()}`)
-  }
-  if (removed.length > 0) {
-    const gone = await git(dir, ['rm', '-q', '--cached', '--ignore-unmatch', '--', ...removed])
-    if (gone.code !== 0) throw new Error(`git rm failed: ${gone.err.trim()}`)
   }
   const staged = lines(await git(dir, ['diff', '--cached', '--name-only']))
   const head = line(await git(dir, ['rev-parse', '--verify', '--quiet', 'HEAD'])) || null

@@ -3,11 +3,12 @@
 //   node tools/carry.mjs save [--dry-run] [--practice] [--data <folder>] [--remote <url>] [--pictures <folder>] [--keep-set <file>]
 //                             [--journal <file>] [--no-branches] [--anyway B<id>]...
 //   node tools/carry.mjs load [--dry-run] [--practice] [--data <folder>] [--remote <url>] [--pictures <folder>] [--journal <file>]
-//                             [--park] [--undo <stamp>] [--user-settings] [--project <folder>] [--game <folder>]
+//                             [--park] [--undo <stamp>] [--user-settings] [--pictures-only] [--project <folder>] [--game <folder>]
 //
 // save copies the project's board data into the data folder (default `<gameRepo>/.workerboard`, a nested clone of the game repo's
 // origin, branch `workerboard-data`, or `workerboard-practice` with --practice), commits and pushes it, pushes the open steps'
-// branches (final saves only), and copies the pictures into the Drive folder. load puts it all back on the other PC. Every root comes
+// branches (final saves only), and copies the pictures into the Drive folder. load puts it all back on the other PC (`load --pictures
+// <folder>` is a full load that also copies the pictures; `--pictures-only` runs the pictures step again after a load). Every root comes
 // from the board folder this file lives in (its config.json, read only), never from boards.json or another checkout. The live board
 // keeps reading its data where it is: nothing it runs changes. The PC-local record is data/carry.json (or `<data folder>.carry.json`
 // beside an explicit --data). The parts: src/carry/* (B1: this command line, the guards, git, times, the record; B2: set.mjs, what
@@ -174,7 +175,7 @@ export async function main(argv) {
     const done = await save({ ...roots, config: roots.configGiven }, { ...options, noBranches: flags['no-branches'] === true, anyway }, deps)
     return done.ok ? 0 : 1
   }
-  const done = await load({ ...roots }, { ...options, park: flags.park === true, undo: flags.undo ?? null, userSettings: flags['user-settings'] === true, picturesOnly: Boolean(flags.pictures) && !flags.practice && !flags.park && argv.length === 3 }, deps)
+  const done = await load({ ...roots }, { ...options, park: flags.park === true, undo: flags.undo ?? null, userSettings: flags['user-settings'] === true, picturesOnly: flags['pictures-only'] === true }, deps)
   return done.ok ? 0 : 1
 }
 

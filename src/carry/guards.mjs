@@ -19,15 +19,17 @@ const refusal = (code, text, who) => ({ code, text, who })
  * - `originAhead` (origin's data branch is past this PC's last sync: { origin, last }), `lastLoadWasPractice`;
  * - `secrets` ([{ path, kind }]), `oversized` ([{ path, bytes }]), `remotePublic`, `driveShort` ({ need, free } or null);
  * - warnings: `reviewSteps` ([ids]), `noCheckpointSince` ([{ id, chat }]), `branchesGone` ([{ id, branch, why }]).
- * `options`: `{ practice, anyway: [ids] }`. Answers `{ refusals: [{ code, text, who }], warnings: [text] }`.
+ * `options`: `{ practice, anyway: [ids], dryRun }`. Answers `{ refusals: [{ code, text, who }], warnings: [text] }`. A dry run runs with the
+ * app and the board up (the switch's steps 3 and 4): a board or a keeper is a warning then, and the lists are still printed.
  */
-export function saveGuards(facts, { practice = false, anyway = [] } = {}) {
+export function saveGuards(facts, { practice = false, anyway = [], dryRun = false } = {}) {
   const refusals = []
   const warnings = []
   const final = (code, text, who) => (practice ? warnings.push(`${text} (a practice save goes on)`) : refusals.push(refusal(code, text, who)))
+  const unlessDry = (code, text, who) => (dryRun ? warnings.push(`${text} (a dry run goes on)`) : final(code, text, who))
   if (facts.pause?.state !== 'pausing') final('not-paused', 'the board is not paused: press Pause all first, so every chat commits and stops', 'you')
-  for (const board of facts.boardAnswers ?? []) final('board-runs', `a board of this project answers on port ${board.port}: quit the Claude app from the tray, then \`node start-board.mjs --stop\``, 'you')
-  for (const keeper of facts.keepers ?? []) final('keeper-runs', `a keeper of this board folder runs (process ${keeper.pid}): \`node start-board.mjs --stop\``, 'you')
+  for (const board of facts.boardAnswers ?? []) unlessDry('board-runs', `a board of this project answers on port ${board.port}: quit the Claude app from the tray, then \`node start-board.mjs --stop\``, 'you')
+  for (const keeper of facts.keepers ?? []) unlessDry('keeper-runs', `a keeper of this board folder runs (process ${keeper.pid}): \`node start-board.mjs --stop\``, 'you')
   if (Number.isFinite(facts.lockAgeMs) && facts.lockAgeMs < LOCK_FRESH_MS) refusals.push(refusal('landing', `a landing runs (data/landing.lock, ${Math.round(facts.lockAgeMs / 60_000)} min old): wait for it`, 'the landing'))
   for (const step of facts.dirtySteps ?? []) {
     if (anyway.includes(step.id)) warnings.push(`${step.id}: uncommitted work in ${step.folder} stays on this PC (--anyway)`)
@@ -38,7 +40,13 @@ export function saveGuards(facts, { practice = false, anyway = [] } = {}) {
     if (one.files.length > 0) final('main-dirty', `${one.repo} has tracked changes (${one.files.slice(0, 3).join(', ')}${one.files.length > 3 ? ', ...' : ''}): commit or put them back`, 'you')
     if (one.ahead > 0) final('main-ahead', `${one.repo} has ${one.ahead} commit(s) not on origin: push them`, 'you')
   }
-  if (facts.originAhead) refusals.push(refusal('load-first', `origin's ${facts.originAhead.branch} is past this PC's last sync (${facts.originAhead.origin.slice(0, 7)} vs ${String(facts.originAhead.last ?? 'none').slice(0, 7)}): load first, or you overwrite another PC's save`, 'you'))
+  if (facts.originAhead) {
+    // Known stale (this PC synced this branch at another commit): always refused. Never synced here (no record, or the other kind's):
+    // refused too, a warning only for a practice save (its own practice branch from before a final load, mostly).
+    const { branch, origin, last } = facts.originAhead
+    if (last !== null) refusals.push(refusal('load-first', `origin's ${branch} is past this PC's last sync (${origin.slice(0, 7)} vs ${String(last).slice(0, 7)}): load first, or you overwrite another PC's save`, 'you'))
+    else final('load-first', `origin's ${branch} holds data this PC never loaded (${origin.slice(0, 7)}): load first, or you overwrite another PC's save`, 'you')
+  }
   if (facts.lastLoadWasPractice) final('practice-loaded', 'this PC\'s last load was a practice load: a final save would send practice data as the real thing; load the final data first', 'you')
   for (const one of facts.secrets ?? []) refusals.push(refusal('secret', `${one.path} holds the ${one.kind} by value: it never travels; take it out`, 'you'))
   for (const one of facts.oversized ?? []) refusals.push(refusal('too-big', `${one.path} is ${Math.round(one.bytes / 1048576)} MB: over 10 MB, it does not travel in git`, 'you'))
@@ -53,11 +61,13 @@ export function saveGuards(facts, { practice = false, anyway = [] } = {}) {
 /**
  * Load's guards. `facts`: `boardAnswers` (boards of the TARGET project that answer), `keepers` (of this board folder), `lockAgeMs`,
  * `changed` ([{ path, target }] this PC changed since its last sync), `fromPractice` (the state here came from a practice load and this
- * is a final load), `practiceData` (the data loaded is a practice save while no --practice was given). `options`: `{ park }`.
+ * is a final load), `practiceData` (the data loaded is a practice save while no --practice was given), `noLoadYet` (--pictures-only on a PC
+ * that never loaded). `options`: `{ park }`.
  */
 export function loadGuards(facts, { park = false } = {}) {
   const refusals = []
   const warnings = []
+  if (facts.noLoadYet) refusals.push(refusal('load-first', 'this PC has not loaded yet: a full `npm run load` first; --pictures-only runs the pictures step again after it', 'you'))
   for (const board of facts.boardAnswers ?? []) refusals.push(refusal('board-runs', `a board of the target project answers on port ${board.port}: quit the Claude app from the tray, then \`node start-board.mjs --stop\``, 'you'))
   for (const keeper of facts.keepers ?? []) refusals.push(refusal('keeper-runs', `a keeper of this board folder runs (process ${keeper.pid}): \`node start-board.mjs --stop\``, 'you'))
   if (Number.isFinite(facts.lockAgeMs) && facts.lockAgeMs < LOCK_FRESH_MS) refusals.push(refusal('landing', `a landing runs (data/landing.lock, ${Math.round(facts.lockAgeMs / 60_000)} min old): wait for it`, 'the landing'))

@@ -8589,35 +8589,44 @@ src/carry/pictures.mjs) moves the pictures. The brief: `.claude/plans/2026-11-16
 - **Git** (src/carry/git.mjs): one runner (`--no-optional-locks`, `-c gc.auto=0`, no prompts, hidden, 20 s local, 60 s remote,
   more per 100 KB for a push); the data clone is `clone -c core.autocrlf=false --single-branch --branch`, or an orphan init whose
   first commit is `.gitattributes` with `* -text` (this PC has autocrlf=true, another may not; the test's side B runs with it on); the
-  one default folder switches branch when the other kind of save lives there. Content is compared by blob id (`blobOf`, git's own
-  sha1, no git call per file). The commit message is fixed ("Board data: save" / "Board data: practice save"), never an id. Nothing is
-  forced: a push whose origin copy is ahead or diverged is refused.
+  one default folder switches branch when the other kind of save lives there (to origin's copy, else to the local branch of that
+  kind, else a fresh orphan: the plan's order, a final dry run, a practice save, then the final save, never makes a branch twice). A
+  dry run looks at the folder and makes nothing (`peekDataClone`). Staging is by the set's roots (`git add -A -- home board memory
+  settings ...`): the live set is 5,600+ paths, past Windows' 32 KB command line, and 5,000 literal pathspecs over stdin took git past
+  20 s; the first add writes an object per file (about 5 ms each here), so its time limit grows with the count. Content is compared by
+  blob id (`blobOf`, git's own sha1, no git call per file). The commit message is fixed ("Board data: save" / "Board data: practice
+  save"), never an id. Nothing is forced: a push whose origin copy is ahead or diverged is refused.
 - **Save's guards** (src/carry/guards.mjs `saveGuards`, pure over facts): not paused ("Pause all first"); a board of the project
   answers (boards.json's entry for the project and the folder's own data/port.json, asked with `whoseBoard`; never config.port) or a
   keeper of the folder runs ("quit the Claude app from the tray, then start-board.mjs --stop"); a fresh landing lock; a held step
   (taken, in progress, waiting on you) with uncommitted tracked changes in its worktree ("<chat> commits B<id>", unless `--anyway`);
   a non-fast-forward branch push; tracked changes or unpushed commits in the game or board checkout; origin's data branch past this
-  PC's last sync ("load first"); a last load that was a practice; a staged text holding the bridge key, the Codex token or the
+  PC's last sync of that branch, or never synced here at all ("load first"; the record keeps the last commit seen PER branch, so a
+  practice save after a final load forgets nothing); a last load that was a practice; a staged text holding the bridge key, the Codex token or the
   ElevenLabs key by value (never printed) or over 10 MB; a remote that answers an anonymous read; a Drive folder short of space.
   Warnings, never refusals: a step in review, a held step with no checkpoint since the pause, a branch gone, merged or `none`, a held
-  branch checked out in no worktree here. With `--practice` every final check is a warning.
+  branch checked out in no worktree here. With `--practice` every final check is a warning. In a dry run a board or a keeper is a
+  warning too (the switch's steps 3 and 4 run with the app up), and the held words, the board steps and the "Would push" list are
+  printed on a refusal as well.
 - **Save's order**: copy (each file read with readFile, never copyFile or robocopy, which hold a file the board renames over; files
   that left the set are removed from the data folder, nothing outside it is ever deleted), `settings/config.json` and
-  `settings/user.json` (B2), pictures (B3, `pictures.json` from its record), `times.json` (each carried file and the two plan docs:
-  path, mtime, blob), `held-words.json` (the outbox folded by id; waiting and not resume), the board steps into `saved.json` (not done
+  `settings/user.json` (B2), pictures (B3, `pictures.json` from its record), `times.json` (each carried file and the two plan docs,
+  read where the board reads them, the game repo, as `game/<rel>`: path, mtime, blob), `held-words.json` (the outbox folded by id; waiting and not resume), the board steps into `saved.json` (not done
   or dropped with `Priority: fix`, or a branch of the board repo: they cannot land on the other PC), one commit and push, then the
   branches (game repo: every local branch with commits not on origin/main that origin lacks at that commit; board repo: the open board
   steps' branches, to the board origin), the record, the summary with the held words to retype and the board steps.
 - **Load's order**: guards (a board of the TARGET project, a keeper, a fresh lock, practice data without `--practice`); clone or
   fast-forward only; what this PC changed since its last sync (by blob against the record) refuses unless `--park` (a final load over a
   practice state parks by itself); the backup of everything replaced under `<board folder>/data/carry-backup/<stamp>/` (outside the
-  game repo), `--undo <stamp>` puts it back; the set's targets written (B2 `targetOf`), config.json from `settingsFromCarry` with
-  writeAtomic; a practice load sets pause.json to `pausing`; times restored where the blob matches (the plan docs get their times
+  game repo), `--undo <stamp>` puts it back (after the same guards, with writeAtomic); the set's targets written (B2 `targetOf`),
+  config.json from `settingsFromCarry` with writeAtomic (a first load has none here: nothing of this PC's to keep); a practice load sets pause.json to `pausing`; times restored where the blob matches (the plan docs get their times
   only); pictures from the Drive (B3); `--user-settings` merges the carried permission lines after a backup; the record; the summary
-  with the board steps still held for the board PC, the held words, and what this PC lacks (the Python environment, a git identity,
-  Codex).
+  with the focus (goals.md's `Focus:` line, as the board reads it), the board steps still held for the board PC, the held words, and
+  what this PC lacks (the Python environment, a git identity, Codex). `load --pictures <folder>` is a full load that also copies the
+  pictures; `--pictures-only` runs the pictures step again, after a load (refused before one).
 - **Tests**: test/carryUnits.test.mjs (the flags, both guard tables, the held words, the board steps, the secrets, the times, the
   record's place, the blob id against `git hash-object`, the project's-board guard with a fake board on a free port);
+  test/carryGit.test.mjs (a set of 5,200 files staged, pushed and removed; the plan's order of kinds in the one folder);
   test/carryTwoPc.test.mjs (two temp PCs, a bare remote, a temp Drive with whole-millisecond times, side B with autocrlf on: save on A,
   load on B, the same blobs, the restored time, pause carried as pausing, config.json and the user settings written; change on B, save
   on B, load on A with the backup outside the game repo; the local change refused, parked and undone; the practice save pushing no

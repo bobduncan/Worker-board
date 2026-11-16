@@ -25,7 +25,7 @@ const step = (id, state, more = '') => item(`Id: ${id}\nKind: step\nTitle: a ste
 test('the flags: a command, values, switches and repeated --anyway; an unknown word is refused', () => {
   const read = parseArgs(['save', '--dry-run', '--practice', '--data', 'D:/x/.wb', '--anyway', 'B12', '--anyway', 'B13', '--journal', 'j.txt', '--no-branches'])
   assert.deepEqual(read, { command: 'save', flags: { 'dry-run': true, practice: true, data: 'D:/x/.wb', journal: 'j.txt', 'no-branches': true }, anyway: ['B12', 'B13'] })
-  assert.deepEqual(parseArgs(['load', '--park', '--undo', '20261116-1200', '--user-settings']).flags, { park: true, undo: '20261116-1200', 'user-settings': true })
+  assert.deepEqual(parseArgs(['load', '--park', '--undo', '20261116-1200', '--user-settings', '--pictures-only']).flags, { park: true, undo: '20261116-1200', 'user-settings': true, 'pictures-only': true })
   assert.throws(() => parseArgs(['save', 'extra']), /unknown word: extra/)
 })
 
@@ -50,6 +50,16 @@ test('save\'s guards: each refusal names who acts; with --practice the final one
   const practice = saveGuards(facts, { practice: true, anyway: ['B13'] })
   assert.deepEqual(practice.refusals.map(one => one.code), ['landing', 'load-first', 'secret', 'too-big', 'public-remote', 'drive-full'])
   assert.ok(practice.warnings.filter(one => /\(a practice save goes on\)$/.test(one)).length >= 8)
+  // A dry run with the app up: the board and the keeper are warnings; everything else stands.
+  const dry = saveGuards(facts, { dryRun: true, anyway: ['B13'] })
+  assert.deepEqual(dry.refusals.map(one => one.code), ['not-paused', 'landing', 'dirty-step', 'not-ff', 'main-dirty', 'main-ahead', 'load-first', 'practice-loaded', 'secret', 'too-big', 'public-remote', 'drive-full'])
+  assert.equal(dry.warnings.filter(one => /\(a dry run goes on\)$/.test(one)).length, 2)
+  // Origin holds data this PC never synced (no record, or the other kind's): refused; a warning for a practice save only.
+  const never = saveGuards({ pause: { state: 'pausing' }, originAhead: { branch: 'workerboard-data', origin: 'abcdef1234', last: null } })
+  assert.deepEqual(never.refusals.map(one => one.code), ['load-first'])
+  assert.match(never.refusals[0].text, /^origin's workerboard-data holds data this PC never loaded \(abcdef1\): load first/)
+  assert.deepEqual(saveGuards({ pause: { state: 'pausing' }, originAhead: { branch: 'workerboard-practice', origin: 'abcdef1234', last: null } }, { practice: true }).refusals, [])
+  assert.deepEqual(saveGuards({ pause: { state: 'pausing' }, originAhead: { branch: 'workerboard-practice', origin: 'abcdef1234', last: '0123456789' } }, { practice: true }).refusals.map(one => one.code), ['load-first'], 'known stale: refused for a practice save too')
   // Clean facts: nothing.
   assert.deepEqual(saveGuards({ pause: { state: 'pausing' } }), { refusals: [], warnings: [] })
   assert.equal(LOCK_FRESH_MS, 15 * MIN)
@@ -67,6 +77,7 @@ test('load\'s guards: a board of the target project, a keeper, a fresh lock, pra
   assert.deepEqual(fromPractice.refusals, [])
   assert.match(fromPractice.warnings[0], /a final load over a practice state parks it by itself/)
   assert.deepEqual(loadGuards({}), { refusals: [], warnings: [] })
+  assert.match(loadGuards({ noLoadYet: true }).refusals[0].text, /^this PC has not loaded yet: a full `npm run load` first/)
 })
 
 test('the held words: the outbox folded by id (the newest line wins); held means waiting and no resume; a torn line is skipped', () => {
@@ -124,9 +135,9 @@ test('the times: entries sorted by path with blob ids; restore sets the mtime on
 test('the record: data/carry.json for the default data folder, `<folder>.carry.json` beside an explicit one; what it reads', () => {
   assert.equal(recordFileFor({ boardDir: 'D:\\Proj\\board', dataDir: 'D:\\Proj\\game\\.workerboard', isExplicit: false }), join('D:\\Proj\\board', 'data', 'carry.json'))
   assert.equal(recordFileFor({ boardDir: 'D:\\Proj\\board', dataDir: 'D:\\scratch\\wb\\', isExplicit: true }), 'D:\\scratch\\wb.carry.json')
-  assert.deepEqual(parseRecord({ picturesHome: 'E:\\Cloud\\board-pictures', last: { kind: 'practice', command: 'load', at: 5, branch: 'workerboard-practice', commit: 'abc', blobs: { 'home/a': 'aa', bad: 7 } } }),
-    { picturesHome: 'E:\\Cloud\\board-pictures', keepSet: null, last: { kind: 'practice', command: 'load', at: 5, branch: 'workerboard-practice', commit: 'abc', blobs: { 'home/a': 'aa' } } })
-  assert.deepEqual(parseRecord(null), { picturesHome: null, keepSet: null, last: null })
+  assert.deepEqual(parseRecord({ picturesHome: 'E:\\Cloud\\board-pictures', synced: { 'workerboard-data': 'def', bad: 1 }, last: { kind: 'practice', command: 'load', at: 5, branch: 'workerboard-practice', commit: 'abc', blobs: { 'home/a': 'aa', bad: 7 } } }),
+    { picturesHome: 'E:\\Cloud\\board-pictures', keepSet: null, synced: { 'workerboard-data': 'def' }, last: { kind: 'practice', command: 'load', at: 5, branch: 'workerboard-practice', commit: 'abc', blobs: { 'home/a': 'aa' } } })
+  assert.deepEqual(parseRecord(null), { picturesHome: null, keepSet: null, synced: {}, last: null })
 })
 
 test('the blob id is the one git computes (git hash-object), for text and for bytes', () => {

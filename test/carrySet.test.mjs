@@ -49,7 +49,7 @@ test('home files: top-level files, the .claude files and folders by rule; runtim
     assert.ok(to.includes(`home/${wanted}`), `${wanted} travels`)
   }
   const all = (await run()).files.map(file => file.to)
-  for (const out of ['board.json', 'launch.json', 'launch.json.before-start-board', 'sync.json', 'sync-loop.json', 'supervisor.json', 'supervisor-sweep.json', 'limit-readings.json', 'backlog.md', 'backlog.before-store.md', 'board-errors.log', 'scheduled_tasks.lock', 'scratch-b1125.py', 'scratch-b1125-charge.txt', 'settings.local.json.before-board-rules', 'chats/00345699-fe77-44a8-b0b0-0eface68a08c.json']) {
+  for (const out of ['board.json', 'launch.json', 'launch.json.before-start-board', 'sync.json', 'sync-loop.json', 'supervisor.json', 'supervisor-sweep.json', 'limit-readings.json', 'backlog.md', 'backlog.before-store.md', 'board-errors.log', 'scheduled_tasks.lock', 'scratch-b1125.py', 'scratch-b1125-charge.txt', 'settings.local.json.before-board-rules', 'chats/00000000-0000-4000-8000-00000000b0b0.json']) {
     assert.ok(!all.includes(`home/.claude/${out}`), `${out} stays out`)
   }
   assert.ok(!all.some(path => path.includes('bridge') || path.endsWith('carry.json')))

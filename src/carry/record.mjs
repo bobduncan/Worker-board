@@ -14,7 +14,11 @@ export function recordFileFor({ boardDir, dataDir, isExplicit }) {
   return isExplicit ? `${dataDir.replace(/[\\/]+$/, '')}.carry.json` : join(boardDir, 'data', 'carry.json')
 }
 
-/** The record read: `{ picturesHome, keepSet, last }`, each null when not there; an unreadable file is an empty record. */
+/**
+ * The record read: `{ picturesHome, keepSet, last, synced }`, each null (synced: `{}`) when not there; an unreadable file is an empty
+ * record. `synced` is the commit this PC last saw on each data branch (`{ 'workerboard-data': <sha>, ... }`): a practice save after a
+ * final load must not forget the final branch's sync.
+ */
 export async function readRecord(file, fs = { readFile }) {
   try {
     const raw = JSON.parse(await fs.readFile(file, 'utf8'))
@@ -30,6 +34,7 @@ export function parseRecord(raw) {
   return {
     picturesHome: text(raw?.picturesHome),
     keepSet: text(raw?.keepSet),
+    synced: raw?.synced !== null && typeof raw?.synced === 'object' ? Object.fromEntries(Object.entries(raw.synced).filter(([, id]) => typeof id === 'string')) : {},
     last: last === null ? null : {
       kind: last.kind === 'practice' ? 'practice' : 'final',
       command: last.command === 'load' ? 'load' : 'save',
