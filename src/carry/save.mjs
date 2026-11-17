@@ -155,7 +155,12 @@ export async function save(roots, options = {}, deps) {
   const inSet = new Set(files.map(one => one.to))
   const removed = tracked.filter(path => !inSet.has(path))
   if (!dryRun) for (const path of removed) { await fs.rm(join(roots.dataDir, ...path.split('/')), { force: true }); journal(join(roots.dataDir, ...path.split('/'))) }
-  const settings = { 'settings/config.json': JSON.stringify(set.carriedSettings(roots.config, { project: roots.project, boardDir: roots.boardDir }), null, 2) + '\n' }
+  // The rehearsal of 2026-11-17: config.json's OWN JSON travels, never the parsed config (its defaults, routing and weekStopAt among
+  // them, landed as values on the other PC). The two folder paths are the parsed ones (%ENV% filled) for B2 to write relative.
+  const configText = await fs.readFile(join(roots.boardDir, 'config.json'), 'utf8').catch(() => null)
+  const configRaw = configText === null ? null : JSON.parse(configText)
+  const ownConfig = configRaw === null ? roots.config : { ...configRaw, ...(typeof configRaw.project === 'string' ? { project: roots.config.project } : {}), ...(typeof configRaw.gameRepo === 'string' ? { gameRepo: roots.config.gameRepo } : {}) }
+  const settings = { 'settings/config.json': JSON.stringify(set.carriedSettings(ownConfig, { project: roots.project, boardDir: roots.boardDir }), null, 2) + '\n' }
   const userSettings = await fs.readFile(roots.userSettingsFile, 'utf8').then(text => JSON.parse(text)).catch(() => ({}))
   settings['settings/user.json'] = JSON.stringify(set.carriedUserSettings(userSettings), null, 2) + '\n'
 

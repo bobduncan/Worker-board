@@ -499,6 +499,11 @@ test('the real case (chat 2\'s fixture, B2\'s set and B3\'s pictures for real): 
   assert.ok(!tracked.some(path => /names\.json|delivered\.json|\.claim$|\.tmp$|broken-/.test(path)), 'runtime files stay out (B2)')
   assert.ok(logs.some(one => /^Saved /.test(one)), logs.join('\n'))
   assert.equal(logs.join('\n').includes(key), false, 'the key is never printed')
+  // The rehearsal of 2026-11-17: only what config.json itself says travels; the parsed config's defaults (routing, maxMessageChars, ...) do not.
+  const carriedKeys = Object.keys(JSON.parse(await readFile(join(data, 'settings', 'config.json'), 'utf8')))
+  const ownKeys = Object.keys(JSON.parse(configText))
+  assert.ok(carriedKeys.every(key => ownKeys.includes(key)), `carried keys not in the file: ${carriedKeys.filter(key => !ownKeys.includes(key)).join(', ')}`)
+  assert.deepEqual(JSON.parse(await readFile(join(data, 'settings', 'config.json'), 'utf8')).routing, JSON.parse(configText).routing, 'routing travels as the file says it, not as parsed')
 
   // The other PC, fresh: a board folder with no config.json (roots.config null, as a first load with --project/--game has it).
   const b = await pc(root, 'S')
@@ -519,4 +524,26 @@ test('the real case (chat 2\'s fixture, B2\'s set and B3\'s pictures for real): 
   got = await load(rootsB, { ...optionsB, picturesOnly: true }, depsB)
   assert.equal(got.ok, true, JSON.stringify(got.refusals))
   assert.ok(logsB.some(one => /^Pictures \d\d:\d\d: 0 pictures copied/.test(one)), logsB.join('\n'))
+})
+
+test('a load whose branch origin lacks (no save of that kind yet) touches nothing: no data folder, no local branch, a plain line', LONG, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'carry-empty-'))
+  t.after(() => rm(root, { recursive: true, force: true }).catch(() => {}))
+  const e = await pc(root, 'E')
+  const remote = await makeRemote(root, e.git)
+  await e.ok(e.project, ['clone', '-q', remote, e.gameRepo])
+  await mkdir(join(e.boardDir, 'data'), { recursive: true })
+  await writeFile(join(e.boardDir, 'config.json'), JSON.stringify({ project: e.project, gameRepo: e.gameRepo, port: 4397 }))
+  const dataDir = join(e.gameRepo, '.workerboard')
+  const s = sideOf(e, { remote, dataDir, picturesFolder: null, state: { now: 1794850000000 } })
+  const done = await load(s.roots, { ...s.options, userSettings: true }, s.deps)
+  assert.deepEqual([done.ok, done.refusals.map(one => one.code)], [false, ['empty']])
+  assert.ok(s.logs.some(one => /^Nothing to load: origin has no workerboard-data yet \(no final save from another PC\); nothing here was changed$/.test(one)), s.logs.join('\n'))
+  assert.equal(existsSync(dataDir), false, 'no data folder was made')
+  assert.equal(existsSync(join(e.boardDir, 'data', 'carry.json')), false, 'no record was written')
+  assert.equal(lines(await e.git(e.gameRepo, ['branch', '--list', 'workerboard-*'])).length, 0, 'no local data branch in the game checkout')
+  // The practice branch is asked for by name.
+  const p = sideOf(e, { remote, dataDir, picturesFolder: null, state: { now: 1794850000000 } })
+  assert.deepEqual((await load(p.roots, { ...p.options, practice: true }, p.deps)).refusals.map(one => one.code), ['empty'])
+  assert.ok(p.logs.some(one => /origin has no workerboard-practice yet \(no practice save/.test(one)))
 })
