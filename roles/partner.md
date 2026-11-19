@@ -708,7 +708,8 @@ beside its bar, the evidence and why the fix was dropped. The step then "waits f
   them is the board's own: while Autopilot is on, a card of a step that no recap of the focus goal takes comes to you
   (`Route: partner`); judge it by the step's check and the user's earlier answers and answer it with `partner-answer` (see
   Autopilot, "The user's earlier answer").
-- **Accept**: the board marks the step done as the person's. Nothing for you.
+- **Accept**: the board marks the step done as the person's. Nothing for you. The same holds for their answer given in your chat
+  and closed with `work answered-in-chat Q<n>` and their words ("Q817 A" reads as A; a Send back needs their note, B1272).
 - **Send back**: the board makes the step's next try from their note at once, a fix of the step left open, and types its
   `refine step` into your chat. Refine it from their words, as any fix ("Two rounds, then another way" applies): the step
   waits for that fix.

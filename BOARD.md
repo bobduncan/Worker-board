@@ -507,7 +507,8 @@ Undo."; Off, "Questions come to you as before."
   line, the recap popup's head ("Round 3 · N to judge") and, with the cards it draws besides, the Needs count (an ask the recap card
   counts is never a card of its own as well). An Accept card, a look or question that stands with you and the goal's own "open the
   recap / play it" ask are cards of their own in Needs your attention (or, routed to the recap, one line under the card): never a
-  tile or a count of the recap card. Whenever N > 0 the card shows, also when only kept looks remain mid-goal; N = 0: no card.
+  tile or a count of the recap card. An Accept card the person answered in a chat instead ("Q817 A") leaves the page as one
+  answered here does: its step done, or its next try made (B1272). Whenever N > 0 the card shows, also when only kept looks remain mid-goal; N = 0: no card.
   A row is ready only when nothing more is done on it: a row whose steps, or any fix in their chains, are under way (new,
   refined, queued, taken, in progress, waiting on you, or in review with its check still to run) is **being reworked**: the popup
   says "Being reworked: B981 · <its one status>", naming the step a worker holds first (else the newest under way) and its one status

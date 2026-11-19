@@ -1909,6 +1909,9 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   Owner, or "-": one carried over from the old backlog, which kept its B id) is closed with `answered-in-chat` by the
   main chat or the Advisor, in whose chat the person answered it; the person's words are required, and History says
   "<chat>: answered in its chat by the person: <words>"; a step that waited on it goes on as with the board's answer.
+  B1272 (F35): an Accept card (B883) closed this way does what its board answer does: read first (`acceptPlan`; "Q817 A", "1 A"
+  read past the ask id or item number), so a Send back without its note is refused; Accept ticks the step done, Send back makes
+  its open fix (`acceptAnswer`), and a card held for the recap writes the step's `Recap verdict` (`recapEarlyVerdict`).
   Only the main chat withdraws such an ask, with a why. A worker closes only its own asks; an ask with an asking chat
   stays that chat's.
   B305: what a step's `Blocked by` names no longer holds it once it is done or dropped (a step) or answered or withdrawn
@@ -7051,10 +7054,20 @@ note), or a check that made no fix, with no new fix, check, block or recap verdi
    refines it; the step waits for that fix (the rule open-fix watches it). Their words stand on the step either way.
 4. A card whose step went on (a new fix, a check, a block, done or dropped) is withdrawn by the same pass. A card answered
    Accept that did not close the step, or withdrawn, is not filed again: the rule dropped-fix raises that.
+5. B1272 (F35, the live Q817: the person's "Q817 A (accept B1205 at 58 of 75)" in the main chat read as a Send back and left
+   B1205 in review): the answer in a chat counts as the one on the board. `answered-in-chat` on a card runs the same plan
+   (above, B305), and every reading (`acceptReading`, `answerReading`) starts past a leading ask id or item number ("Q817 A",
+   "Q817: A", "1 A", "1. yes"; resultCheck.mjs `pastAskId`). A Send back given in a chat keeps a note on its B line ("Q817 B:
+   the cape swings wider"); "Q817 B" alone is refused. The same pass applies a card closed in a chat before this (`chatAcceptsApplied`):
+   one answered in a chat whose answer reads accept, its step's newest card, while the step sits in review with no "accepted ...
+   in Q<n>" line, is accepted now as its answer would have been, with the step's `Recap verdict` for a card held for the recap and
+   one History line on the card and the step, "applied the chat answer of <time> (B1272)". A card that reads back, one answered on
+   the board, a step not in review or already accepted, or a card applied before stays as it is.
 
 Tests: test/acceptCard.test.mjs (B851's case: the card, its words and picture, no incident however long; Accept closes it;
 Send back without a note is refused, with one makes the open fix; a card whose step went on is withdrawn; a blocked step gets
-none; how an answer reads).
+none; how an answer reads). test/acceptChat.test.mjs (Q817 on B1205: the readings past an ask id, Accept and Send back
+answered in the main chat, the card closed before the fix applied once, and what the repair leaves alone).
 
 ## A part with only dropped steps is Stopped (B680)
 

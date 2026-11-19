@@ -145,6 +145,8 @@ test('the repair leaves alone a card that reads back, one answered on the board,
     'reads back': { B1205: B1205(), Q817: Q817_ANSWERED('Q817 B: the cape swings wider') },
     'answered on the board': { B1205: B1205(), Q817: Q817_ANSWERED('A Accept: done as it is', 'person: answered') },
     'step done': { B1205: B1205({ State: 'done' }), Q817: Q817_ANSWERED() },
+    'step not in review': { B1205: B1205({ State: 'in progress' }), Q817: Q817_ANSWERED() },
+    'applied before': { B1205: B1205(), Q817: Q817_ANSWERED().replace('\n\n## Answer', `\n- ${at(-1)} server: ${CHAT_ACCEPT_APPLIED} ${at(0)} (B1272)\n\n## Answer`) },
     'accepted already': { B1205: B1205({}, [`- ${at(0)} person: accepted by you in Q817 at 58 of 75: A`]), Q817: Q817_ANSWERED() },
   }
   for (const [name, files] of Object.entries(cases)) {
@@ -156,7 +158,7 @@ test('the repair leaves alone a card that reads back, one answered on the board,
       const items = await read(dir)
       assert.equal(items.get('B1205').head.get('State'), before.get('B1205').head.get('State'), name)
       assert.doesNotMatch(history(items.get('B1205')), new RegExp(CHAT_ACCEPT_APPLIED), name)
-      assert.doesNotMatch(history(items.get('Q817')), new RegExp(CHAT_ACCEPT_APPLIED), name)
+      assert.equal(history(items.get('Q817')), history(before.get('Q817')), name)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
