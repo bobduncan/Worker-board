@@ -1459,6 +1459,28 @@ function wakeFailed(view) {
   })
 }
 
+/** B1271: a start word waiting this long for its chat while that chat is idle is a finding. */
+export const START_UNTAKEN_MS = 10 * MIN
+
+/**
+ * B1271 (X203, 2026-11-19 20:35): a start word to a chat that runs idle, untaken START_UNTAKEN_MS: the hands that may send did not take it
+ * (refused, or none claims) and its chat's model is never given it. One finding per word, with its chat and what waits; the paused board says nothing.
+ */
+function startUntaken(view) {
+  if (isPaused(view)) return []
+  const laneOf = name => [...(view.lanes ?? []), view.partner, view.helper, view.supervisor, view.owner].find(lane => lane?.name === name) ?? null
+  return (view.outbox ?? []).filter(word => word?.command === 'start' && word.state === 'waiting' && typeof word.about === 'string' && Number.isFinite(word.at)
+    && view.now - word.at >= START_UNTAKEN_MS).flatMap(word => {
+    const to = laneOf(word.to)
+    if (to?.isRunning !== true || to.report?.state !== 'idle') return []
+    return [{
+      rule: 'start-untaken', key: `start-untaken ${word.about} ${word.id}`, subject: word.about, since: word.at,
+      text: `the start word for ${word.about} waits untaken for ${minutes(view.now - word.at)} min while ${word.to} is idle`,
+      evidence: `start word ${word.id} to ${word.to} at ${clockOf(word.at)}, still waiting; ${word.to} reports idle; ${word.about} ${laneOf(word.about)?.isRunning === false ? 'does not run' : 'is not known to be off'}`,
+    }]
+  })
+}
+
 /**
  * Signals change 4, B908 (decision 7): nobody answers the board's wake-ups: every chat that needs a wake failed on every
  * path, and the board-wide spell's launch failed too. One finding per day (the board's local date).
@@ -1589,6 +1611,7 @@ export const WATCH_RULES = [
   { id: 'handover-unanswered', kind: 'watch', says: 'a worker on the hand-over sequence that did not answer its hand-over within 10 min (the net fired)', check: handoverUnanswered },
   { id: 'clear-owed-repeat', kind: 'watch', says: 'a worker whose clear did not run at its last three hand-overs in a row (its line went each time; a refusal in the person\'s pause not counted)', check: clearOwedRepeat },
   { id: 'wake-failed', kind: 'watch', says: 'a chat the board could not wake: the app did not start it on a launch, and no message reached it; or (B986) the chat its reports name is not in the app list', check: wakeFailed },
+  { id: 'start-untaken', kind: 'watch', says: 'a start word the idle chat it waits with has not taken for 10 minutes: no hand that may send took it', check: startUntaken },
   { id: 'nobody-answers-wakes', kind: 'watch', says: 'nobody answers the board\'s wake-ups: every chat with work could not be woken, and the launch when nobody ran failed', check: nobodyAnswersWakes },
   { id: 'check-unreachable', kind: 'watch', says: 'chats the start-up check could not reach, one incident per cause (the other Claude account, a restart of the app to do, no chat in the app) naming the chats; the per-chat wake rules stand down for them', check: checkUnreachable },
   { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading, skips: SKIPS_ON_PAUSE },

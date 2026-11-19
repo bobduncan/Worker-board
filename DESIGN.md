@@ -6347,7 +6347,7 @@ code calls it. Have Claude make the call."). Only a model turn may send to anoth
 - **The refusal** (`src/wakeCarry.mjs` `sendsRefusedOf`): the wake record's own fact `sendsRefusedSince` (kept apart from the spells it
   prunes, saved in data/wakes.json), set by every refused hand send (`failedToSend` keeps the attempt `refused`, in plain words: "the
   app no longer lets the board's code send to a chat", never the raw hook text), or a start or wake word that failed on it. No clock
-  lifts it. While it stands no hand gets a message job. Once a day (`probeDue`, PROBE_MS) ONE hand that may send gets a probe job
+  lifts it (B1271: after a lift, a refusal is first its hand's; below). While it stands no hand gets a message job. Once a day (`probeDue`, PROBE_MS) ONE hand that may send gets a probe job
   (`send-probe:<time>`, PROBE_LINE) to a free chat other than itself, never a real wake: its send lifts the refusal
   (`sendsLiftedAt`), a refusal renews it.
 - **A, the main route** (`wake.mjs` `carryPlan`, server.mjs `carryPass` in the wake pass): every need whose next path is the message
@@ -6378,6 +6378,25 @@ Tests: `test/wakeCarry.test.mjs` (the live refusal and its fact, the probe, the 
 windows, the courier's list, the closes, Send again, the file), `test/wakeCarryBoard.test.mjs` (on a running board copy: the hands
 gate, a carried wake word, the courier's routes, a target that woke, a busy carrier's take and its turn start, the real case with
 and without the refusal, the daily probe), `test/hands.test.mjs`.
+
+**The refusal is a hand's (B1271, X203, 2026-11-19).** The case: 20:16 the probe lifted the refusal; Main's hands sent at 20:17 and
+20:20; at 20:29 Worker 3's hands (a chat in auto mode) were refused on Worker 4's wake. That one refusal set the board's refusal again
+(every hand stopped until the next day's probe) and spent the spell's one message try, so the launch went next, which the app no
+longer started after its account switch (launches failed from 19:54); A was off and the courier not calling, so the start word to an
+idle Main waited untaken (X203, three times by 20:40). Now:
+- A refused send marks its own hand (`noteHandRefused`, the record's `refusedHands`, saved in data/wakes.json): that hand gets no
+  message, start or wake job until its own send went (`noteHandSent`, any send of it the hands' answer reports, or its own daily
+  probe, `probeDue(..., hand)`, `probeBy`). The board's refusal (`sendsRefusedSince`) follows only when no hand's send went since the
+  last lift (`handSentAt`; the probe's own send counts); after a lift an attempt or an outbox line no longer revives it by itself.
+- A refused send spends no message try (`nextPath` counts only the attempts that were not refused): the next hand that may send takes
+  the message at once, never the hand that tried it in the spell (`handTried`); when every hand that claims is refused, the wake pass
+  writes carry words as while refused (A when on, B while the courier calls), and the launch waits only for a hand that may send.
+  A launch the app did not start is not tried again in the spell, as before; every try stands in the record with its why.
+- The rule `start-untaken` (src/supervisor/rules/watch.mjs): a start word that waits 10 minutes while the chat it waits with runs
+  idle is one finding per word. `wake-failed` names the refused hand in what was tried ("20:29 by Worker 3: the app no longer lets the
+  board's code send to a chat").
+Test: `test/wakeRefusedHand.test.mjs` (X203's record as it was, the per-hand mark, the message again by Main's hands, the launch only
+without a hand that may send, the carry word when every claiming hand is refused, the probe per hand, the file, the rule).
 
 ## A lane's own chat, and one way back for a held step (B986, X140, 2026-11-04)
 

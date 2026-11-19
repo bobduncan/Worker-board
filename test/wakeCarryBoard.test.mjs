@@ -68,7 +68,7 @@ const SPELL = NOW - 40 * MIN
  * A board over a made-up project: Main and Worker 1 report idle (they run), Worker 2 never reported (asleep). `refused`: the wake record
  * holds the live refusal of a hand's send (08:16's, at today's time). `lines` the outbox; `attempts` more attempts of Worker 2's spell.
  */
-async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NOW - 30 * MIN, byModel = false, pause = null, files = {} }) {
+async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NOW - 30 * MIN, byModel = false, pause = null, files = {}, facts = {} }) {
   const dir = await mkdtemp(join(tmpdir(), 'board-carry-'))
   const started = []
   t.after(async () => {
@@ -84,7 +84,7 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   await put(join(board, 'data', 'outbox.jsonl'), lines.length === 0 ? '' : `${lines.map(line => JSON.stringify(line)).join('\n')}\n`)
   const old = { path: 'message', at: refusedAt, by: 'Worker 1', jobId: `wake:${refusedAt - MIN}:Old`, sentAt: null, runBefore: null, verdict: 'failed', verdictAt: refusedAt, why: REFUSAL, step: null }
   const wakes = { wakes: { ...(refused ? { Old: [{ spell: refusedAt - MIN, attempts: [old], turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}), ...(attempts.length > 0 ? { 'Worker 2': [{ spell: SPELL, attempts, turnEndedAt: null, told: { failed: false, nobody: false } }] } : {}) } }
-  await put(join(board, 'data', 'wakes.json'), `${JSON.stringify(wakes)}\n`)
+  await put(join(board, 'data', 'wakes.json'), `${JSON.stringify({ ...wakes, ...facts })}\n`)
   if (pause !== null) await put(join(project, '.claude', 'work', 'pause.json'), JSON.stringify(pause))
   for (const [id, text] of Object.entries(files)) await put(join(project, '.claude', 'work', `${id}.md`), text)
   if (Object.keys(files).length > 0) await put(join(project, '.claude', 'work', 'activities.json'), `${JSON.stringify({ preamble: [], activities: [{ name: 'Art', steps: Object.keys(files) }] }, null, 1)}\n`)
@@ -115,7 +115,7 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   for (const [chat, session] of [['Main', 'main-id'], ['Worker 1', 'w1-id']]) await json('/api/bridge/report', { chat, session, report: { state: 'idle', since: NOW - 2 * MIN, seq: 1, run: 1 } })
   // Worker 2's session ended at SPELL: it does not run (its spell).
   await json('/api/bridge/report', { chat: 'Worker 2', session: 'w2-id', report: { state: 'ended', since: SPELL, seq: 1, run: 1 } })
-  const claim = async () => (await json('/api/bridge/hands', { chat: 'Worker 1', session: 'w1-id', mod: '0.27.1', can: ['send'] })).jobs ?? []
+  const claim = async (chat = 'Worker 1') => (await json('/api/bridge/hands', { chat, session: chat === 'Main' ? 'main-id' : 'w1-id', mod: '0.27.1', can: ['send'] })).jobs ?? []
   const words = async () => foldOutbox(await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8'))
   const record = async () => JSON.parse(await readFile(join(board, 'data', 'wakes.json'), 'utf8'))
   return { out, call, json, claim, words, record }
@@ -358,4 +358,29 @@ test('chat 1\'s re-check 2: a carried wake word that keeps waiting (B577: Worker
   for (const one of ofs) per.set(one.of, (per.get(one.of) ?? 0) + 1)
   assert.deepEqual([...per.values()].filter(n => n > 1), [], 'never a second carry word for the same wake word')
   assert.ok(ofs.filter(one => ['waiting', 'taken'].includes(one.state)).length <= 1, 'one open at a time (also two wake words of one chat in one pass)')
+})
+
+test('B1271 (X203) on the board: after a lift, the hand the app refused gets no message job; the next hand that may send takes the message at once', { timeout: 240_000 }, async t => {
+  const answerWord = { id: 'answer000000003', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
+  // 20:16 the probe lifted it; 20:20 a hand's send went; 20:29 Worker 1's hands refused on Worker 2's wake (its message try not spent).
+  const refusedAttempt = { path: 'message', at: NOW - 5 * MIN, by: 'Worker 1', jobId: `wake:${SPELL}:Worker 2`, sentAt: null, runBefore: 1, verdict: 'failed', verdictAt: NOW - 5 * MIN, why: REFUSAL, step: null }
+  const facts = { sendsLiftedAt: NOW - 20 * MIN, probeAt: NOW - 20 * MIN, handSentAt: NOW - 15 * MIN, refusedHands: { 'Worker 1': NOW - 5 * MIN } }
+  const { claim, words, record } = await boardWith(t, { refused: false, lines: [answerWord], attempts: [refusedAttempt], facts })
+  for (let at = 0; at < 3; at += 1) {
+    assert.deepEqual((await claim('Worker 1')).filter(job => job.chat === 'Worker 2'), [], `the refused hand, claim ${at}`)
+    await new Promise(done => setTimeout(done, 300))
+  }
+  let jobs = []
+  await until(async () => {
+    jobs = (await claim('Main')).filter(job => job.chat === 'Worker 2')
+    return jobs.length > 0
+  }, 'Main\'s hands take the message')
+  assert.equal(jobs[0].to, 'local_w2')
+  // The record is written a second after a change.
+  await until(async () => (await record()).wakes['Worker 2'].at(-1).attempts.length === 2, 'Main\'s attempt saved')
+  const kept = await record()
+  assert.equal(kept.sendsRefusedSince ?? null, null, 'not the board\'s refusal')
+  assert.deepEqual(kept.refusedHands, { 'Worker 1': NOW - 5 * MIN })
+  assert.deepEqual(kept.wakes['Worker 2'].at(-1).attempts.map(one => [one.by, one.verdict]), [['Worker 1', 'failed'], ['Main', null]], 'no launch: the message again, by another hand')
+  assert.deepEqual((await words()).filter(one => one.command === 'wake-carry'), [], 'a hand may send: no carry word')
 })

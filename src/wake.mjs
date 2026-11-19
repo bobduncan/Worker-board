@@ -24,7 +24,7 @@ import { NOT_LISTED_WHY, NOT_SHOWN_WHY, OTHER_ACCOUNT_WHY, RESTART_WHY, cannotWa
 import { boardLanes, isWakeWord, wakeWordOf, wakerOrder } from './say.mjs'
 import { envelopesOf } from './work/handover.mjs'
 import { isHolding } from './work/pause.mjs'
-import { CARRY_SEND_MS, CARRY_VERDICT_MS, COURIER, COURIER_WAIT_MS, carriedChats, carrierOf, carryWord, isSendRefusal, noteSendRefused, plainWhy } from './wakeCarry.mjs'
+import { CARRY_SEND_MS, CARRY_VERDICT_MS, COURIER, COURIER_WAIT_MS, carriedChats, carrierOf, carryWord, isSendRefusal, noteHandRefused, plainWhy } from './wakeCarry.mjs'
 import { moveInPlace, readKept, stampOf, writeUnflushed } from './write.mjs'
 
 /** A wake attempt sent this long ago without the woken chat's report is failed. */
@@ -197,7 +197,8 @@ export function nextPath(record, { chat, spell, senderClaims, senderSince = -Inf
   if (attempts.some(one => isPending(one) || one.verdict === 'woke')) return null
   // B986: the app answered that it has no such session (not found): no launch, no other try in this spell.
   if (attempts.some(one => one.unlisted === true)) return null
-  const messages = attempts.filter(one => one.path === 'message')
+  // B1271 (X203): a send the app refused (its hand's code call) spends no message try: another hand that may send takes it, or a carry word.
+  const messages = attempts.filter(one => one.path === 'message' && one.refused !== true)
   const launches = attempts.filter(one => one.path === 'launch')
   const mayMessage = senderClaims === true && paths.includes('message')
   if (mayMessage && messages.length === 0) return 'message'
@@ -206,6 +207,11 @@ export function nextPath(record, { chat, spell, senderClaims, senderSince = -Inf
   const lastMessage = messages.at(-1)
   if (mayMessage && messages.length === 1 && lastMessage.verdict === 'failed' && isTime(lastMessage.verdictAt) && senderSince > lastMessage.verdictAt) return 'message'
   return null
+}
+
+/** B1271 (X203): whether `hand` already tried this chat's message in the spell: it never gets that message again (the same way twice). */
+export function handTried(record, { chat, spell, hand }) {
+  return countedOf(entryOf(record, chat, spell)).some(one => one.path === 'message' && one.by === hand)
 }
 
 /**
@@ -282,7 +288,8 @@ export function failedToSend(record, chat, jobId, why, now) {
   // F17: the app's refusal of a code send is kept in plain words, marked (wakeCarry.mjs `sendsRefusedOf`), never its raw hook text.
   if (isSendRefusal(why)) {
     attempt.refused = true
-    noteSendRefused(record, now)
+    // B1271: the refusal is its hand's (the board's only when no hand's send went since the last lift).
+    noteHandRefused(record, attempt.by, now)
   }
   attempt.why = String(plainWhy(why) ?? 'not sent').replace(/\s+/g, ' ').trim().slice(0, 200) || 'not sent'
   // B986 (B984 at 11:31: "Session local_82c0c4cd... not found"): the app has no such session; the spell tries nothing more.
@@ -772,9 +779,13 @@ export function savedSpell(value) {
 
 /** The record as the file holds it: `{ "wakes": { "<chat>": [spellEntry, ...] } }`. */
 /** F17: the record's facts of the refusal of the hands' sends (src/wakeCarry.mjs). */
-const SEND_FACTS = ['sendsRefusedSince', 'sendsLiftedAt', 'probeAt']
+const SEND_FACTS = ['sendsRefusedSince', 'sendsLiftedAt', 'probeAt', 'handSentAt']
+/** B1271: the per-hand facts: the hands the app refused (`refusedHands`) and each one's last probe (`probeBy`), `{ <chat>: <ms> }`. */
+const HAND_FACTS = ['refusedHands', 'probeBy']
+const handFactOf = value => (value === null || typeof value !== 'object' || Array.isArray(value) ? {}
+  : Object.fromEntries(Object.entries(value).filter(([hand, at]) => hand !== '' && hand.length <= 200 && isTime(at)).slice(0, 50)))
 
-export const textOfWakes = record => `${JSON.stringify({ wakes: Object.fromEntries(record.wakes), ...(isTime(record.heardRunAt) ? { heardRunAt: record.heardRunAt } : {}), ...Object.fromEntries(SEND_FACTS.filter(key => isTime(record[key])).map(key => [key, record[key]])) })}\n`
+export const textOfWakes = record => `${JSON.stringify({ wakes: Object.fromEntries(record.wakes), ...(isTime(record.heardRunAt) ? { heardRunAt: record.heardRunAt } : {}), ...Object.fromEntries(SEND_FACTS.filter(key => isTime(record[key])).map(key => [key, record[key]])), ...Object.fromEntries(HAND_FACTS.map(key => [key, handFactOf(record[key])]).filter(([, value]) => Object.keys(value).length > 0)) })}\n`
 
 /** The record a parsed file holds, left out the entries that are no spell; null when the file is not that shape. */
 export function wakesOfFile(value) {
@@ -783,6 +794,10 @@ export function wakesOfFile(value) {
   if (isTime(value.heardRunAt)) record.heardRunAt = value.heardRunAt
   // F17 review 10: the refusal of the hands' sends, its lift and the last probe are the record's own facts, kept apart from the spells.
   for (const key of SEND_FACTS) if (isTime(value[key])) record[key] = value[key]
+  for (const key of HAND_FACTS) {
+    const fact = handFactOf(value[key])
+    if (Object.keys(fact).length > 0) record[key] = fact
+  }
   for (const [chat, entries] of Object.entries(value.wakes)) {
     if (chat === '' || !Array.isArray(entries)) continue
     const kept = entries.map(savedSpell).filter(one => one !== null).slice(-WAKE_SPELLS_KEPT)
