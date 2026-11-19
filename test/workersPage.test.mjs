@@ -105,10 +105,10 @@ test('B131, B137: without a list of chats the row says what the board looks for,
   assert.equal(lanes.lines[0].text, 'No backlog yet: the board reads C:\p\.claude\backlog.md.')
 })
 
-test('B213: without the Workers mod the row says plainly what the board cannot do or know', () => {
+test('B213, B1274: without the Workers mod the row says in one grey line what to do (the copy-paste mode is gone)', () => {
   const lines = view({ main: 'Lead', mainTitle: 'Team - Lead', project: 'C:\p', count: 1, ask: null, lookFor: [], withoutMod: true }).lines
   assert.equal(lines[0].tone, 'note')
-  assert.match(lines[0].text, /^No Workers mod answers this board: what you send is copied for you to paste into the chat, the board cannot tell whether a chat runs, and a large worker is not compacted after its report\.$/)
+  assert.equal(lines[0].text, "The Workers mod isn't running here: run setup (npm.cmd run setup) and restart the app.")
   assert.ok(!view({ main: 'Lead', mainTitle: 'Team - Lead', project: 'C:\p', count: 1, ask: null, lookFor: [], withoutMod: false }).lines.some(line => /Workers mod/.test(line.text)))
 })
 
