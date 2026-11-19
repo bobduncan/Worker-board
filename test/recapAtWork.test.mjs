@@ -168,7 +168,7 @@ test('rule 3, the words: the ask\'s "Where it stands" and the Focus card say whe
   const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
   const pick = start => script.slice(script.indexOf(start), script.indexOf('\n}\n', script.indexOf(start)) + 3)
   const page = {}
-  vm.runInNewContext(`const clock = at => String(at); const standWords = () => 'elsewhere'\nconst ROUTE_CHIPS = {}\n${['function recapOpensWords(', 'function lookAnswerOf(', 'function partnerAskWindowOf('].map(pick).join('\n')}\nObject.assign(this, { recapOpensWords, partnerAskWindowOf })`, page)
+  vm.runInNewContext(`const clock = at => String(at); const standWords = () => 'elsewhere'\nconst ROUTE_CHIPS = {}\n${['function recapOpensWords(', 'function lookAnswerOf(', 'function verdictOptionsOf(', 'function partnerAskWindowOf('].map(pick).join('\n')}\nObject.assign(this, { recapOpensWords, partnerAskWindowOf })`, page)
   const focus = { id: 'G95', progress: { done: 0, total: 6 } }
   assert.equal(page.recapOpensWords(focus, 'G95'), 'your recap of G95 opens when its 6 work blocks are done, 0 of 6 now')
   // The demo's count (blocks waiting only for the recap) is the one that opens it.
@@ -179,10 +179,15 @@ test('rule 3, the words: the ask\'s "Where it stands" and the Focus card say whe
   assert.equal(page.recapOpensWords(focus, 'G60'), null)
   assert.equal(page.recapOpensWords({ id: 'G95', progress: { done: 0, total: 0 } }, 'G95'), null)
   const Q817card = { id: 'Q817', route: 'recap', asks: 'decide', goal: 'G95', of: 'B1205', title: 'Accept B1205 at 58 of 75, or send it back?' }
-  assert.equal(page.partnerAskWindowOf(Q817card, focus).stand, "waits for the goal's recap: your recap of G95 opens when its 6 work blocks are done, 0 of 6 now")
-  assert.equal(page.partnerAskWindowOf(Q817card, null).stand, "waits for the goal's recap: you judge it there")
+  // B1270 (F34): an ask held for the recap under a step is answered here now, before the recap opens.
+  assert.equal(page.partnerAskWindowOf(Q817card, focus).stand, "waits for the goal's recap (your recap of G95 opens when its 6 work blocks are done, 0 of 6 now): you can answer it here now")
+  assert.equal(page.partnerAskWindowOf(Q817card, null).stand, "waits for the goal's recap: you can answer it here now")
+  // The goal's own recap ask (no step) has no answer form: the recap is what it asks.
+  const own = { ...Q817card, id: 'Q903', of: null }
+  assert.equal(page.partnerAskWindowOf(own, focus).stand, "waits for the goal's recap: your recap of G95 opens when its 6 work blocks are done, 0 of 6 now")
+  assert.equal(page.partnerAskWindowOf(own, null).stand, "waits for the goal's recap: you judge it there")
   const kept = { ...Q817card, id: 'Q902', asks: 'look', isKept: true }
-  assert.equal(page.partnerAskWindowOf(kept, focus).stand, "waits for the goal's recap (your recap of G95 opens when its 6 work blocks are done, 0 of 6 now): you can answer it here")
+  assert.equal(page.partnerAskWindowOf(kept, focus).stand, "waits for the goal's recap (your recap of G95 opens when its 6 work blocks are done, 0 of 6 now): you can answer it here now")
   // The Focus card's line carries the same words.
   assert.match(pick('function focusRecapAsksCard('), /Autopilot keeps these for the goal's recap: \$\{opens === null \? 'you judge them there, with the rest of the work' : opens\}/)
 })
