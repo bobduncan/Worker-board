@@ -119,7 +119,7 @@ export const pastAskId = words => String(words ?? '').replace(ASK_ID_FIRST, '')
 export function answerReading(text) {
   const words = pastAskId(String(Array.isArray(text) ? text.join(' ') : text ?? '').trim())
   if (/^(?:rejected|reject|no|nope|redo|not good)\b/i.test(words)) return 'no'
-  if (/^(?:approved|done|yes|yep|ok|okay|keep(?: it)?|accepted|accept|agreed|good|fine)\b/i.test(words)) return /\b(?:but|however|except|although)\b/i.test(words) ? null : 'yes'
+  if (/^(?:approved?|done|yes|yep|ok|okay|keep(?: it)?|accepted|accept|agreed|good|fine)\b/i.test(words)) return /\b(?:but|however|except|although)\b/i.test(words) ? null : 'yes'
   return null
 }
 
@@ -713,14 +713,23 @@ export const ACCEPT_GRACE_MS = 10 * 60_000
 export const ACCEPT_OPTIONS = ['A Accept: done as it is', 'B Send back: the partner makes another try from your note']
 
 /**
+ * B1272, chat 1's review: the person's choice on a card as a chat records it, past a leading ask id or item number: 'accept' (A, Accept,
+ * a plain yes), 'back' (B, Send back), or null when the words do not start with either ("approve" is a yes; "looks good, keep it", a date
+ * or "The person: A" first, a quoted "Q817 A" read as neither), so answered-in-chat refuses them instead of reading a Send back.
+ */
+export function acceptChoiceOf(text) {
+  const words = pastAskId(String(Array.isArray(text) ? text.join('\n') : text ?? '').trim())
+  if (/^(?:A\b|Accept)/i.test(words)) return 'accept'
+  if (/^(?:B\b|Send back)/i.test(words)) return 'back'
+  return answerReading(words) === 'yes' ? 'accept' : null
+}
+
+/**
  * B883: how the person's answer to a card reads: 'accept' (A, Accept, yes ...) or 'back' (B, Send back, or any other words). B1272: past a
  * leading ask id or item number ("Q817 A (accept ...)" accepts).
  */
 export function acceptReading(text) {
-  const words = pastAskId(String(Array.isArray(text) ? text.join('\n') : text ?? '').trim())
-  if (/^(?:A\b|Accept)/i.test(words)) return 'accept'
-  if (/^(?:B\b|Send back)/i.test(words)) return 'back'
-  return answerReading(words) === 'yes' ? 'accept' : 'back'
+  return acceptChoiceOf(text) ?? 'back'
 }
 
 /**

@@ -1910,7 +1910,9 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   main chat or the Advisor, in whose chat the person answered it; the person's words are required, and History says
   "<chat>: answered in its chat by the person: <words>"; a step that waited on it goes on as with the board's answer.
   B1272 (F35): an Accept card (B883) closed this way does what its board answer does: read first (`acceptPlan`; "Q817 A", "1 A"
-  read past the ask id or item number), so a Send back without its note is refused; Accept ticks the step done, Send back makes
+  read past the ask id or item number), so a Send back without its note is refused, and words that start with neither the A
+  (Accept, a plain yes, "approve") nor the B (Send back) are refused (409, `acceptChoiceOf`), never read as a Send back (a date
+  or "The person: A" first, "looks good, keep it"); Accept ticks the step done, Send back makes
   its open fix (`acceptAnswer`), and a card held for the recap writes the step's `Recap verdict` (`recapEarlyVerdict`).
   Only the main chat withdraws such an ask, with a why. A worker closes only its own asks; an ask with an asking chat
   stays that chat's.
@@ -7058,11 +7060,13 @@ note), or a check that made no fix, with no new fix, check, block or recap verdi
    B1205 in review): the answer in a chat counts as the one on the board. `answered-in-chat` on a card runs the same plan
    (above, B305), and every reading (`acceptReading`, `answerReading`) starts past a leading ask id or item number ("Q817 A",
    "Q817: A", "1 A", "1. yes"; resultCheck.mjs `pastAskId`). A Send back given in a chat keeps a note on its B line ("Q817 B:
-   the cape swings wider"); "Q817 B" alone is refused. The same pass applies a card closed in a chat before this (`chatAcceptsApplied`):
+   the cape swings wider"); "Q817 B" alone is refused, and so are words that start with neither A nor B; a leading number is
+   read past in a note only before its B ("12 frames are too few" keeps its 12). The same pass applies a card closed in a chat before this (`chatAcceptsApplied`):
    one answered in a chat whose answer reads accept, its step's newest card, while the step sits in review with no "accepted ...
    in Q<n>" line, is accepted now as its answer would have been, with the step's `Recap verdict` for a card held for the recap and
    one History line on the card and the step, "applied the chat answer of <time> (B1272)". A card that reads back, one answered on
-   the board, a step not in review or already accepted, or a card applied before stays as it is.
+   the board, a step not in review or already accepted, a card not the step's newest, a step with a fix still open or one made
+   after the answer, or a card applied before stays as it is.
 
 Tests: test/acceptCard.test.mjs (B851's case: the card, its words and picture, no incident however long; Accept closes it;
 Send back without a note is refused, with one makes the open fix; a card whose step went on is withdrawn; a blocked step gets

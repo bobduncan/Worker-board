@@ -33,7 +33,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn, playProblem } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, acceptStandOf, NAME_THE_ASK, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, pastAskId, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, noTriedBefore, openFixesOf, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, triedBeforeWanted, warningLines } from './resultCheck.mjs'
+import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, acceptStandOf, acceptChoiceOf, NAME_THE_ASK, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, noTriedBefore, openFixesOf, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, triedBeforeWanted, warningLines } from './resultCheck.mjs'
 import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
@@ -1534,8 +1534,11 @@ async function answeredInChat(body, w) {
   if (isOrphan && text.length === 0) return refuse(400, `Give the person's words in "text" (with the date): ${id} has no asking chat.`)
   // B1272 (F35: the person's "Q817 A" in the main chat closed the card, and its step stayed in review): an Accept card answered in a
   // chat does what its answer on the board does (`answer`): read first, so a Send back without its note is refused before anything is
-  // written; then Accept ticks the step done, Send back makes its next try (`acceptAnswer`).
-  const card = valueOf(found.item, 'Via') === ACCEPT_VIA && text.length > 0 ? acceptPlan(found.item, text) : null
+  // written; then Accept ticks the step done, Send back makes its next try (`acceptAnswer`). Chat 1's review: words that start with
+  // neither the A nor the B (a date first, "The person: A", "looks good, keep it") are refused, never read as a Send back.
+  const isCard = valueOf(found.item, 'Via') === ACCEPT_VIA
+  if (isCard && acceptChoiceOf(text) === null) return refuse(409, `${id} is an Accept card: start the text with the person's A (accept) or B (send back) and their note, e.g. "A" or "B: <what the next try must change>" (the date may follow).`)
+  const card = isCard ? acceptPlan(found.item, text) : null
   if (card !== null && !card.ok) return card
   const short = line(text.join(' '), 200)
   let item = put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now))
@@ -2869,6 +2872,10 @@ async function chatAcceptsApplied(w) {
     const stepId = valueOf(card, 'Of') ?? ''
     const step = w.store.items.get(stepId)
     if (step === undefined || stateOf(step) !== 'review' || acceptStandOf(stepId, w.store.items)?.id !== id) continue
+    // Chat 1's review: only an answer that came after the step's latest fix; a fix still open, or one made after the answer, holds it.
+    const answeredAt = sinceMs(valueOf(card, 'Since'))
+    const madeAt = fix => sinceMs(HISTORY_STAMP.exec(String((fix.sections.get('History') ?? [])[0] ?? '').trim())?.[1] ?? valueOf(fix, 'Since'))
+    if (!Number.isFinite(answeredAt) || fixesOf(stepId, w.store.items).some(fix => !['done', 'dropped'].includes(stateOf(fix)) || !(madeAt(fix) < answeredAt))) continue
     if (historyWords(step).some(one => new RegExp(`^accepted\\b.* in ${id}\\b`).test(one))) continue
     const done = await acceptAnswer(card, { ok: true, step: stepId, reading: 'accept' }, line(answer.join(' '), 200), w)
     if (done.accepted !== stepId) continue
@@ -2945,14 +2952,16 @@ async function landedWaits(body, w) {
  * note, from which the board makes the step's next try, a fix the partner refines (`acceptAnswer`). Their words stand on the
  * step either way (`answer`). `{ ok, step, reading, note }`, or a refusal before anything is written.
  */
+const CHOICE_ID_FIRST = /^(?:Q\d+\s*[.:)]?\s+|\d{1,2}\s*[.:)]?\s+(?=(?:A|B)\b|Accept|Send back))/i
 const BACK_OPTION_LINE = new RegExp(`^${ACCEPT_OPTIONS[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^\\n]*`, 'i')
 function acceptPlan(ask, text) {
   const step = valueOf(ask, 'Of')
   const reading = acceptReading(text)
   if (reading === 'accept') return { ok: true, step, reading }
   // B1272: an answer given in a chat reads past its ask id ("Q817 B" alone is no note), and keeps a note on the B line itself ("Q817 B:
-  // the cape swings wider"); the card's own B option line, as the board sends it, is no note.
-  const note = pastAskId(text.join('\n').trim()).replace(BACK_OPTION_LINE, '').replace(/^B\b[\s:.)-]*/i, '').replace(/^Send back\b[\s:.)-]*/i, '').trim()
+  // the cape swings wider"); the card's own B option line, as the board sends it, is no note. Chat 1's review: a leading number is read
+  // past only before the B or Send back ("1 B: ..."), never one of the note's own words ("12 frames are too few, add 4").
+  const note = text.join('\n').trim().replace(CHOICE_ID_FIRST, '').replace(BACK_OPTION_LINE, '').replace(/^B\b[\s:.,)-]*/i, '').replace(/^Send back\b[\s:.,)-]*/i, '').trim()
   if (note === '') return refuse(400, 'Say in the note what the next try must change: your partner makes it from your words.')
   return { ok: true, step, reading, note }
 }

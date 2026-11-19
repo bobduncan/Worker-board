@@ -12,7 +12,7 @@ import test from 'node:test'
 
 import { CHAT_ACCEPT_APPLIED, workApi } from '../src/work/api.mjs'
 import { stamp } from '../src/work/migrate.mjs'
-import { acceptReading, acceptStandOf, answerReading, reviewWaitOf } from '../src/work/resultCheck.mjs'
+import { acceptChoiceOf, acceptReading, acceptStandOf, answerReading, reviewWaitOf } from '../src/work/resultCheck.mjs'
 import { readStore, share } from '../src/work/store.mjs'
 
 share.ms = 0
@@ -68,6 +68,41 @@ test('how a chat answer reads: past a leading ask id or item number; other words
   assert.equal(answerReading('Q12: no, redo it'), 'no')
   assert.equal(answerReading('3 more frames'), null)
   assert.equal(answerReading('1'), null)
+  assert.equal(answerReading('approve'), 'yes')
+})
+
+test('chat 1\'s review: words that start with neither A nor B are refused on a card in the chat, never read as a Send back', async () => {
+  const dir = await storeWith({ B1205: B1205(), B1226: B1226(), Q817: Q817() })
+  try {
+    for (const words of ['looks good, keep it', 'ship it', '2026-11-19 20:30: Q817 A', 'The person, 2026-11-19: A', '"Q817 A"']) {
+      assert.equal(acceptChoiceOf(words), null, words)
+      const refused = await lead(dir, { action: 'answered-in-chat', id: 'Q817', text: words })
+      assert.deepEqual([refused.ok, refused.status], [false, 409], words)
+      assert.match(refused.why, /start the text with the person's A \(accept\) or B \(send back\)/)
+    }
+    const items = await read(dir)
+    assert.deepEqual([items.get('Q817').head.get('State'), items.get('B1205').head.get('State')], ['open', 'review'])
+    assert.equal([...items.values()].filter(one => one.head.get('Fix of') === 'B1205').length, 1)
+    // "approve" is a yes: it accepts.
+    const approved = await lead(dir, { action: 'answered-in-chat', id: 'Q817', text: 'approve (the person, 2026-11-19 20:30)' })
+    assert.equal(approved.ok, true, approved.why)
+    assert.equal((await read(dir)).get('B1205').head.get('State'), 'done')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('chat 1\'s review: a Send back\'s note keeps its own leading number, and "Send back," drops the comma', async () => {
+  for (const [words, title] of [['12 frames are too few, add 4', 'Fix: 12 frames are too few, add 4'], ['Send back, the cape swings wider', 'Fix: the cape swings wider'], ['1 B: 3 more frames on the draw', 'Fix: 3 more frames on the draw']]) {
+    const dir = await storeWith({ B1205: B1205(), B1226: B1226(), Q817: Q817() })
+    try {
+      const sent = await workApi({ action: 'answer', id: 'Q817', text: words }, ctx(dir, NOW + MIN, 'person'))
+      assert.equal(sent.ok, true, sent.why)
+      assert.equal((await read(dir)).get(sent.result.fix).head.get('Title'), title, words)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
 })
 
 test('Q817 A answered in the main chat: B1205 is done as the person accepted it, with its Recap verdict, and its card reads accept', async () => {
@@ -146,6 +181,9 @@ test('the repair leaves alone a card that reads back, one answered on the board,
     'answered on the board': { B1205: B1205(), Q817: Q817_ANSWERED('A Accept: done as it is', 'person: answered') },
     'step done': { B1205: B1205({ State: 'done' }), Q817: Q817_ANSWERED() },
     'step not in review': { B1205: B1205({ State: 'in progress' }), Q817: Q817_ANSWERED() },
+    'a newer card of the step': { B1205: B1205(), Q817: Q817_ANSWERED(), Q900: Q817().replace('Id: Q817', 'Id: Q900').replace(/^Filed: .*$/m, `Filed: ${NOW - MIN}`) },
+    'a fix still open': { B1205: B1205(), Q817: Q817_ANSWERED(), B1300: B1226().replace('Id: B1226', 'Id: B1300').replace('State: dropped', 'State: in progress') },
+    'a fix made after the answer': { B1205: B1205(), Q817: Q817_ANSWERED(), B1300: B1226().replace('Id: B1226', 'Id: B1300').replace(/- \S+ \S+ Checker: made/, `- ${at(-1)} Checker: made`) },
     'applied before': { B1205: B1205(), Q817: Q817_ANSWERED().replace('\n\n## Answer', `\n- ${at(-1)} server: ${CHAT_ACCEPT_APPLIED} ${at(0)} (B1272)\n\n## Answer`) },
     'accepted already': { B1205: B1205({}, [`- ${at(0)} person: accepted by you in Q817 at 58 of 75: A`]), Q817: Q817_ANSWERED() },
   }
