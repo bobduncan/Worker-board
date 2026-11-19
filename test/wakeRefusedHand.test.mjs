@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { claim, emptyWakes, failedToSend, handTried, launchPlan, nextPath, sent, textOfWakes, wakeOf, wakesOfFile, carryPlan, triedWords } from '../src/wake.mjs'
+import { claim, emptyWakes, failedToSend, handTried, pass, launchPlan, nextPath, sent, textOfWakes, wakeOf, wakesOfFile, carryPlan, triedWords } from '../src/wake.mjs'
 import { SEND_REFUSED_WHY, handRefused, noteHandRefused, noteHandSent, noteSendLifted, probeDue, sendsRefusedOf } from '../src/wakeCarry.mjs'
 import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
 import { PROBE_MS } from '../src/work/effort.mjs'
@@ -50,8 +50,9 @@ test('X203: the refused send spends no message try: the message goes again (by a
   const record = x203()
   assert.equal(nextPath(record, { ...W4, senderClaims: true }), 'message', 'Main\'s hands may send: the message, not the launch')
   assert.equal(launchPlan(record, { needs: [{ ...W4, session: 'cli-w4' }], senderClaims: true }), null, 'no launch while a hand that may send claims')
-  // Never the same way twice: Worker 3's hands tried it; Main's did not.
-  assert.equal(handTried(record, { chat: 'Worker 4', spell: SPELL, hand: 'Worker 3' }), true)
+  // Never the same way twice: the refused Worker 3 is held off by its own mark (its own send lifts it), not shut out of the spell for good.
+  assert.equal(handTried(record, { chat: 'Worker 4', spell: SPELL, hand: 'Worker 3' }), false)
+  assert.equal(handRefused(record, 'Worker 3'), true)
   assert.equal(handTried(record, { chat: 'Worker 4', spell: SPELL, hand: 'Main' }), false)
   // Main's hands take it at the next claim, and it goes.
   const job = `wake:${SPELL}:Worker 4`
@@ -59,6 +60,9 @@ test('X203: the refused send spends no message try: the message goes again (by a
   assert.equal(second.by, 'Main')
   sent(record, 'Worker 4', job, at(20, 29, 31))
   assert.equal(wakeOf(record, W4, { senderClaims: true }).state, 'sent')
+  // A try that went but brought no report (not refused) is that hand's for the spell: never again by it, also as a "new sender".
+  pass(record, at(20, 32))
+  assert.equal(handTried(record, { chat: 'Worker 4', spell: SPELL, hand: 'Main' }), true)
 })
 
 test('X203: no hand that may send claims (only the refused one): the launch goes, and after it failed the wake is final, said once', () => {
@@ -117,20 +121,36 @@ test('the hands\' marks survive the board\'s restart', () => {
   assert.equal(nextPath(back, { ...W4, senderClaims: true }), 'message')
 })
 
-test('rule start-untaken: a start word the idle main chat has not taken for 10 minutes is one finding per word', () => {
+test('rule start-untaken: the live chain (a new start word every 10 minutes, the old one dropped): one finding for the whole untaken start', () => {
   const rule = WATCH_RULES.find(one => one.id === 'start-untaken')
   assert.ok(rule)
-  const now = at(20, 46)
-  const word = { id: 'a2714cbdf10a7a5b', command: 'start', to: 'Main', about: 'Worker 4', state: 'waiting', at: at(20, 35, 21) }
-  const main = { name: 'Main', isMain: true, isLeftover: false, isRunning: true, state: 'free', report: { state: 'idle', at: now - 5000 } }
-  const view = { now, lanes: [main], outbox: [word], pause: null, items: new Map(), restart: { main: 'Main' } }
-  const found = rule.check(view, { observed: [], seen: new Map() })
-  assert.equal(found.length, 1)
-  assert.equal(found[0].key, 'start-untaken Worker 4 a2714cbdf10a7a5b')
-  assert.match(found[0].text, /Worker 4/)
-  assert.match(found[0].evidence, /20:35/)
-  // Not yet 10 minutes, a busy main chat, or a word taken: nothing.
-  assert.equal(rule.check({ ...view, now: at(20, 44) }, { observed: [], seen: new Map() }).length, 0)
-  assert.equal(rule.check({ ...view, lanes: [{ ...main, report: { state: 'busy', at: now } }] }, { observed: [], seen: new Map() }).length, 0)
-  assert.equal(rule.check({ ...view, outbox: [{ ...word, state: 'taken' }] }, { observed: [], seen: new Map() }).length, 0)
+  // The live outbox (chat 1's review 3), all to Main about Worker 4; Main idle the whole time.
+  const chain = [
+    ['a2714cbdf10a7a5b', at(20, 35, 21), at(20, 45, 30)], ['3d5821365980c3a5', at(20, 45, 28), at(20, 50, 5)], ['cdb4ff1a00000000', at(20, 50, 3), at(21, 0, 8)],
+    ['406a1bf100000000', at(21, 0, 6), at(21, 10, 6)], ['418ce82b00000000', at(21, 10, 3), at(21, 20, 6)], ['13f9f5cc00000000', at(21, 20, 4), at(21, 30, 12)],
+    ['747d666d00000000', at(21, 30, 10), at(21, 40, 6)], ['8e4fe52100000000', at(21, 40, 4), null],
+  ]
+  const outboxAt = now => chain.filter(([, made]) => made <= now).map(([id, made, dropped]) => ({ id, command: 'start', to: 'Main', about: 'Worker 4', at: made, state: dropped !== null && dropped <= now ? 'dropped' : 'waiting' }))
+  const main = { name: 'Main', isMain: true, isLeftover: false, isRunning: true, state: 'free', report: { state: 'idle', at: at(21, 38) } }
+  const worker4 = { name: 'Worker 4', isMain: false, isLeftover: false, isRunning: false, wake: { spell: SPELL } }
+  const viewAt = (now, more = {}) => ({ now, lanes: [main, worker4], outbox: outboxAt(now), pause: null, items: new Map(), ...more })
+  const ctx = () => ({ observed: [], seen: new Map() })
+  // Every supervisor run from 20:46 on (each 3 minutes) finds it, under ONE key: no single word was ever 10 minutes old and waiting.
+  const keys = new Set()
+  for (let now = at(20, 46); now <= at(21, 42); now += 3 * MIN) {
+    const found = rule.check(viewAt(now), ctx())
+    assert.equal(found.length, 1, time(now))
+    keys.add(found[0].key)
+  }
+  assert.deepEqual([...keys], ['start-untaken Worker 4 a2714cbdf10a7a5b'])
+  const late = rule.check(viewAt(at(21, 42)), ctx())[0]
+  assert.match(late.text, /the start of Worker 4 waits untaken for 66 min while Main is idle/)
+  assert.match(late.evidence, /8 start words for Worker 4 since 20:35 \(a2714cbdf10a7a5b first, 8e4fe52100000000 waiting now, to Main\)/)
+  // Not yet 10 minutes, a busy Main, a start that was taken (a new chain begins after it), or a sleep that began after the words: nothing.
+  assert.equal(rule.check(viewAt(at(20, 44)), ctx()).length, 0)
+  assert.equal(rule.check(viewAt(at(21, 42), { lanes: [{ ...main, report: { state: 'busy', at: at(21, 41) } }, worker4] }), ctx()).length, 0)
+  const taken = viewAt(at(21, 42))
+  taken.outbox = taken.outbox.map(one => (one.id === '747d666d00000000' ? { ...one, state: 'taken' } : one))
+  assert.equal(rule.check(taken, ctx()).length, 0, 'the chain after a taken word is 2 minutes old')
+  assert.equal(rule.check(viewAt(at(21, 42), { lanes: [main, { ...worker4, wake: { spell: at(21, 35) } }] }), ctx()).length, 0)
 })

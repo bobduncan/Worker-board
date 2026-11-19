@@ -118,7 +118,10 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   const claim = async (chat = 'Worker 1') => (await json('/api/bridge/hands', { chat, session: chat === 'Main' ? 'main-id' : 'w1-id', mod: '0.27.1', can: ['send'] })).jobs ?? []
   const words = async () => foldOutbox(await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8'))
   const record = async () => JSON.parse(await readFile(join(board, 'data', 'wakes.json'), 'utf8'))
-  return { out, call, json, claim, words, record }
+  // B1271: the state as the page reads it (the wake facts the lanes, the notice and the rules read).
+  const token = /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
+  const state = () => fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
+  return { out, call, json, claim, words, record, state }
 }
 
 /** The page's word to wake Worker 2 (a B577 wake word): a hand's job, but only while the app runs the hands' sends. */
@@ -383,4 +386,29 @@ test('B1271 (X203) on the board: after a lift, the hand the app refused gets no 
   assert.deepEqual(kept.refusedHands, { 'Worker 1': NOW - 5 * MIN })
   assert.deepEqual(kept.wakes['Worker 2'].at(-1).attempts.map(one => [one.by, one.verdict]), [['Worker 1', 'failed'], ['Main', null]], 'no launch: the message again, by another hand')
   assert.deepEqual((await words()).filter(one => one.command === 'wake-carry'), [], 'a hand may send: no carry word')
+})
+
+test('B1271 (chat 1\'s review 1): every hand that claims is refused, the launch spent: past the start-up grace the wake is final, "could not wake" once', { timeout: 240_000 }, async t => {
+  const answerWord = { id: 'answer000000004', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
+  // X203's spell: Worker 1's hands refused, then the launch the app did not start. As live (the 20:33 verdict came after the 20:16 run the
+  // board heard), the verdicts are newer than the runs this board hears at its start, so G1 does not re-open the spell.
+  const LATER = Date.now() + 30 * MIN
+  const refusedAttempt = { path: 'message', at: LATER - 6 * MIN, by: 'Worker 1', jobId: `wake:${SPELL}:Worker 2`, sentAt: null, runBefore: 1, verdict: 'failed', verdictAt: LATER - 6 * MIN, why: REFUSAL, step: null }
+  const launch = { path: 'launch', at: LATER - 5 * MIN, by: 'board', jobId: `launch:${LATER - 5 * MIN}:Worker 2`, sentAt: LATER - 5 * MIN, runBefore: 1, verdict: 'failed', verdictAt: LATER - 2 * MIN, why: 'the app did not start it', step: null }
+  const facts = { sendsLiftedAt: NOW - 20 * MIN, probeAt: NOW - 20 * MIN, handSentAt: NOW - 15 * MIN, refusedHands: { 'Worker 1': LATER - 6 * MIN } }
+  const started = Date.now()
+  const { claim, state } = await boardWith(t, { refused: false, lines: [answerWord], attempts: [refusedAttempt, launch], facts })
+  const worker2 = async () => (await state()).chats.find(lane => lane.name === 'Worker 2')
+  // Only Worker 1's hands claim (refused). Inside the grace another hand may be seconds away: not final yet.
+  assert.deepEqual((await claim('Worker 1')).filter(job => job.chat === 'Worker 2'), [])
+  if (Date.now() - started < 50_000) assert.equal((await worker2()).wake.final, false, 'inside the start-up grace')
+  let lane = null
+  for (const end = Date.now() + 150_000; Date.now() < end;) {
+    await claim('Worker 1')
+    lane = await worker2()
+    if (lane.wake.final === true) break
+    await new Promise(done => setTimeout(done, 2000))
+  }
+  assert.deepEqual([lane.wake.state, lane.wake.final], ['failed', true], JSON.stringify(lane.wake))
+  assert.match(JSON.stringify(await state()), /could not wake Worker 2: the message did not go \([^)]*by Worker 1: the app no longer lets the board's code send to a chat\); the app did not start it/)
 })

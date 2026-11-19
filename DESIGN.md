@@ -6389,12 +6389,19 @@ idle Main waited untaken (X203, three times by 20:40). Now:
   probe, `probeDue(..., hand)`, `probeBy`). The board's refusal (`sendsRefusedSince`) follows only when no hand's send went since the
   last lift (`handSentAt`; the probe's own send counts); after a lift an attempt or an outbox line no longer revives it by itself.
 - A refused send spends no message try (`nextPath` counts only the attempts that were not refused): the next hand that may send takes
-  the message at once, never the hand that tried it in the spell (`handTried`); when every hand that claims is refused, the wake pass
-  writes carry words as while refused (A when on, B while the courier calls), and the launch waits only for a hand that may send.
-  A launch the app did not start is not tried again in the spell, as before; every try stands in the record with its why.
-- The rule `start-untaken` (src/supervisor/rules/watch.mjs): a start word that waits 10 minutes while the chat it waits with runs
-  idle is one finding per word. `wake-failed` names the refused hand in what was tried ("20:29 by Worker 3: the app no longer lets the
-  board's code send to a chat").
+  the message at once; a refused hand is held off by its own mark (once its own send went it may try again), a hand whose try went
+  without a report never gets that message again in the spell (`handTried`). A refused hand alone is no sender (server.mjs `handsNow`,
+  past the start-up grace of HANDS_GONE_MS): not for the launch's wait, and not for the wake facts the lanes, the notice, the hand-over
+  and `wake-failed` read (`wakeFacts`), so a spell only refused hands could send ends final ("could not wake ...", one finding), as
+  before B1271 (chat 1's review 1). When every hand that claims is refused, the wake pass writes carry words as while refused (A when
+  on, B while the courier calls), and Send again is a carry word too (`carryingNow`); a start or wake word a carry word carries is no
+  hand's job beside it; the board's probe goes to a hand that is not refused when one claims. A launch the app did not start is not
+  tried again in the spell, as before; every try stands in the record with its why.
+- The rule `start-untaken` (src/supervisor/rules/watch.mjs): a chat's start untaken 10 minutes while the chat its word waits with runs
+  idle. The reconciler renews the start word every 10 minutes and the sweep drops the old one, so the age is the chain's (from the
+  oldest start word of the chat since its last taken or delivered one, within its sleep), one finding per chain, keyed by its first
+  word (chat 1's review 3: the live chain 20:35-21:40). `wake-failed` names the refused hand in what was tried ("20:29 by Worker 3:
+  the app no longer lets the board's code send to a chat").
 Test: `test/wakeRefusedHand.test.mjs` (X203's record as it was, the per-hand mark, the message again by Main's hands, the launch only
 without a hand that may send, the carry word when every claiming hand is refused, the probe per hand, the file, the rule).
 

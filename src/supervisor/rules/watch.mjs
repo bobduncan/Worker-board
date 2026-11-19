@@ -1463,20 +1463,30 @@ function wakeFailed(view) {
 export const START_UNTAKEN_MS = 10 * MIN
 
 /**
- * B1271 (X203, 2026-11-19 20:35): a start word to a chat that runs idle, untaken START_UNTAKEN_MS: the hands that may send did not take it
- * (refused, or none claims) and its chat's model is never given it. One finding per word, with its chat and what waits; the paused board says nothing.
+ * B1271 (X203, 2026-11-19 20:35-21:40): a chat's start is untaken START_UNTAKEN_MS while the chat its word waits with runs idle: the hands
+ * that may send did not take it (refused, or none claims) and that chat's model is never given it. The reconciler renews the start word in
+ * every 10-minute window and the sweep drops the old one (chat 1's review 3: no single word waits 10 minutes), so the age is the chain's:
+ * from the oldest start word of the chat since its last one that was taken or delivered, and since its sleep began. One finding per chain,
+ * keyed by its first word; the paused board says nothing.
  */
 function startUntaken(view) {
   if (isPaused(view)) return []
   const laneOf = name => [...(view.lanes ?? []), view.partner, view.helper, view.supervisor, view.owner].find(lane => lane?.name === name) ?? null
-  return (view.outbox ?? []).filter(word => word?.command === 'start' && word.state === 'waiting' && typeof word.about === 'string' && Number.isFinite(word.at)
-    && view.now - word.at >= START_UNTAKEN_MS).flatMap(word => {
-    const to = laneOf(word.to)
-    if (to?.isRunning !== true || to.report?.state !== 'idle') return []
+  const starts = (view.outbox ?? []).filter(word => word?.command === 'start' && typeof word.about === 'string' && Number.isFinite(word.at)).sort((a, b) => a.at - b.at)
+  const waiting = [...new Set(starts.filter(word => word.state === 'waiting').map(word => word.about))]
+  return waiting.flatMap(about => {
+    const target = laneOf(about)
+    const sleep = Number.isFinite(target?.wake?.spell) ? target.wake.spell : -Infinity
+    const own = starts.filter(word => word.about === about && word.at >= sleep)
+    const lastTaken = own.findLastIndex(word => ['taken', 'delivered'].includes(word.state))
+    const chain = own.slice(lastTaken + 1)
+    const word = chain.findLast(one => one.state === 'waiting')
+    const to = laneOf(word?.to)
+    if (word === undefined || chain.length === 0 || view.now - chain[0].at < START_UNTAKEN_MS || to?.isRunning !== true || to.report?.state !== 'idle') return []
     return [{
-      rule: 'start-untaken', key: `start-untaken ${word.about} ${word.id}`, subject: word.about, since: word.at,
-      text: `the start word for ${word.about} waits untaken for ${minutes(view.now - word.at)} min while ${word.to} is idle`,
-      evidence: `start word ${word.id} to ${word.to} at ${clockOf(word.at)}, still waiting; ${word.to} reports idle; ${word.about} ${laneOf(word.about)?.isRunning === false ? 'does not run' : 'is not known to be off'}`,
+      rule: 'start-untaken', key: `start-untaken ${about} ${chain[0].id}`, subject: about, since: chain[0].at,
+      text: `the start of ${about} waits untaken for ${minutes(view.now - chain[0].at)} min while ${word.to} is idle`,
+      evidence: `${chain.length} start word${chain.length === 1 ? '' : 's'} for ${about} since ${clockOf(chain[0].at)} (${chain[0].id} first, ${word.id} waiting now, to ${word.to}); none taken; ${word.to} reports idle; ${about} ${target?.isRunning === false ? 'does not run' : 'is not known to be off'}`,
     }]
   })
 }

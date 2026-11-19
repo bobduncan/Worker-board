@@ -209,9 +209,12 @@ export function nextPath(record, { chat, spell, senderClaims, senderSince = -Inf
   return null
 }
 
-/** B1271 (X203): whether `hand` already tried this chat's message in the spell: it never gets that message again (the same way twice). */
+/**
+ * B1271 (X203): whether `hand` already tried this chat's message in the spell and it did not go: it never gets that message again (the
+ * same way twice). A refused try is held off by the hand's own mark instead (`handRefused`), so once its own send went it may try again.
+ */
 export function handTried(record, { chat, spell, hand }) {
-  return countedOf(entryOf(record, chat, spell)).some(one => one.path === 'message' && one.by === hand)
+  return countedOf(entryOf(record, chat, spell)).some(one => one.path === 'message' && one.by === hand && one.refused !== true)
 }
 
 /**
