@@ -4755,8 +4755,10 @@ async function answer(body, w) {
   const asker = valueOf(found.item, 'Owner')
   const done = await answerStep(w, item, found.text, of, step => {
     // A look the partner handed over that Autopilot kept for the recap (the person's "A", 2026-11-02): the step's `Recap verdict` line
-    // reads approved or sent back, as the recap's own answer writes it (`recapAnswered`).
-    const verdictLine = isKeptLook(found.item) && ['approve', 'reject', 'done'].includes(body.verdict) ? [recapVerdictWords(body.verdict === 'reject' ? 'sent back' : 'approved', id)] : []
+    // reads approved or sent back, as the recap's own answer writes it (`recapAnswered`). B1270 (F34, the person, 2026-11-19: "i need a
+    // agree or disagree button if u want my verdict"): so does every ask held for the recap under a step, answered before the recap opens.
+    const early = recapEarlyVerdict(found.item, body.verdict, text)
+    const verdictLine = early === null ? [] : [recapVerdictWords(early, id)]
     let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`, ...verdictLine]), w, `${id} answered`)
     // Your words: the answer, rejection or approval lands on the step with the question it answered.
     mine = withYourWords(mine, askPoint(found.item, { at: stamp(w.now), how: `answer to ${id}`, by: asker === null ? '' : bare(asker, w.prefix), answer: text }))
@@ -4782,6 +4784,20 @@ async function answer(body, w) {
   const refiled = done.ok && of !== null && /^B\d+$/.test(of) ? await refileCheck(of, w) : {}
   if (done.ok && card !== null) return { ok: true, result: { ...done.result, ...(await acceptAnswer(found.item, card, short, w)), wakeOwner, ...refiled } }
   return done.ok ? { ok: true, result: { ...done.result, wake, wakeOwner, ...refiled } } : done
+}
+
+/**
+ * B1270 (F34): the `Recap verdict` an answer given before the goal's recap writes on the step, as the recap's own answer would
+ * (`recapAnswered`): 'approved' or 'sent back' for an open ask routed to the recap under a step (a kept look, a look, a do, a decide or an
+ * Accept card); null for any other ask (the goal's own recap ask has no step). A verdict given reads as it says (reject: sent back); a
+ * decide answered with words reads as its card or its words read (an Accept card's B or Send back, a "no": sent back).
+ */
+export function recapEarlyVerdict(ask, verdict, text) {
+  if (valueOf(ask, 'Route') !== 'recap' || !STEP_ID.test(valueOf(ask, 'Of') ?? '')) return null
+  if (verdict === 'reject') return 'sent back'
+  if (verdict === 'approve' || verdict === 'done') return 'approved'
+  if (valueOf(ask, 'Via') === ACCEPT_VIA) return acceptReading(text) === 'accept' ? 'approved' : 'sent back'
+  return answerReading(text) === 'no' ? 'sent back' : 'approved'
 }
 
 /**

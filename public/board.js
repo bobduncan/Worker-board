@@ -4999,7 +4999,7 @@ function partnerAskWindowOf(ask, focus = null) {
   const opens = route === 'recap' ? recapOpensWords(focus, ask.goal ?? null) : null
   const recapStand = answer === null
     ? `waits for the goal's recap: ${opens ?? 'you judge it there'}`
-    : `waits for the goal's recap${opens === null ? '' : ` (${opens})`}: you can answer it here`
+    : `waits for the goal's recap${opens === null ? '' : ` (${opens})`}: you can answer it here now`
   return {
     code: ask.id, title: ask.title ?? '', fullTitle: ask.title ?? '', route,
     chips: [{ text: ROUTE_CHIPS[route] ?? ROUTE_CHIPS.partner, tone: 'kind' }, ...(ask.from == null ? [] : [{ text: `From: ${ask.from}`, tone: 'to' }])],
@@ -5023,10 +5023,32 @@ function partnerAskWindowOf(ask, focus = null) {
  * same way and answered "Done" (`isDo`). `{ id, isDo }`, or null for every other ask (it is judged in the recap, or it is not the person's yet).
  */
 function lookAnswerOf(ask) {
-  if (!(ask?.route === 'recap' && ['look', 'do'].includes(ask.asks) && ask.isKept === true)) return null
-  // G95's Q740 (A, B or C): a kept look with options is answered with a pick, which goes with the verdict.
-  const options = ask.asks === 'look' ? (ask.options ?? []).filter(one => typeof one?.label === 'string' && one.label.trim() !== '') : []
-  return { id: ask.id, isDo: ask.asks === 'do', options: options.map(one => ({ label: one.label, isAdvised: one.isRecommended === true })) }
+  if (ask?.route !== 'recap') return null
+  const isKept = ['look', 'do'].includes(ask.asks) && ask.isKept === true
+  // B1270 (F34, the person, 2026-11-19: "i need a agree or disagree button if u want my verdict, where am i supposed to do anything?"):
+  // every ask held for the recap under a step is answered here too, before the recap opens. Not the goal's own recap ask (no step: the
+  // recap is what it asks), nor one of the app's form or a refine question (answered elsewhere).
+  const isHeld = /^B\d+$/.test(ask.of ?? '') && ['look', 'do', 'decide'].includes(ask.asks) && !['form', 'refine'].includes(ask.via ?? '')
+  if (!isKept && !isHeld) return null
+  const labels = (ask.options ?? []).filter(one => typeof one?.label === 'string' && one.label.trim() !== '').map(one => ({ label: one.label, isAdvised: one.isRecommended === true }))
+  // Options that are the verdict themselves (an Accept card's, Q829's "A Good enough | B Under target, send back") are the two buttons.
+  const verdict = verdictOptionsOf(labels.map(one => one.label))
+  const kind = ask.via === 'accept' ? 'accept' : ask.asks === 'do' ? 'do' : ask.asks === 'decide' && verdict === null && labels.length > 0 ? 'decide' : 'look'
+  return {
+    id: ask.id, kind, isDo: kind === 'do', verdict,
+    // G95's Q740 (A, B or C): a look with options is answered with a pick, which goes with the verdict.
+    options: kind === 'look' && verdict === null ? labels : [],
+    // A decide whose options are no verdict: one button per option.
+    choices: kind === 'decide' ? labels : [],
+  }
+}
+
+/** B1270: a pair of options that is a verdict (one approves or keeps, the other sends back): `{ approve, back }`, the labels; else null. */
+function verdictOptionsOf(labels) {
+  if (labels.length !== 2) return null
+  const isBack = label => /\bsen[dt]\b[^|]*\bback\b|\breject\b|\bredo\b/i.test(label)
+  const back = labels.filter(isBack)
+  return back.length === 1 ? { approve: labels.find(label => !isBack(label)), back: back[0] } : null
 }
 
 /**
@@ -5046,12 +5068,21 @@ function recapOpensWords(focus, goal) {
   return `your recap of ${goal} opens when its ${total} work block${total === 1 ? ' is' : 's are'} done, ${done} of ${total} now`
 }
 
+/** B1270 (F34): recapOpensWords for a block's chip: "opens when 6 blocks are done, 4 now", or null once every block counts (the recap is open). */
+function recapOpensShort(focus) {
+  const total = focus?.progress?.total
+  if (!Number.isInteger(total) || total <= 0) return null
+  const counted = focus.progress.forDemo ?? focus.progress.done
+  const done = Number.isInteger(counted) ? Math.min(counted, total) : 0
+  return done >= total ? null : `opens when ${total} block${total === 1 ? ' is' : 's are'} done, ${done} now`
+}
+
 /** Autopilot (2026-10-31): the chip of an ask's route in its window, and the line under where it stands. */
 const ROUTE_CHIPS = { partner: 'With your partner', main: 'With the main chat (Autopilot)', recap: 'For your recap (Autopilot)', ref: 'An ask of the board' }
 const ROUTE_STANDS = {
   partner: 'Your partner answers it first; one it has not answered in 30 minutes comes to you.',
   main: 'Autopilot: the main chat does it if a chat can, else hands it to you with one line why; one it has not done in 30 minutes comes to you.',
-  recap: 'Autopilot: only finished work waits for the goal\'s recap, where you approve or send back the work; it opens once the goal\'s work blocks are done.',
+  recap: 'Autopilot: only finished work waits for the goal\'s recap, where you approve or send back the work; it opens once the goal\'s work blocks are done. An ask of a step you can answer here before then.',
 }
 
 /** The window of a question with the partner (the details dialog): quiet, with where it stands first. */
@@ -5078,7 +5109,9 @@ function drawPartnerAskWindow(box, ask, state) {
     if (shown.length > 0 || play.length > 0) parts.push(section(shown.length === 1 ? 'The picture' : shown.length > 1 ? 'The pictures' : 'Play it', [...(shown.length > 0 ? drawReferences(shown) : []), ...play]))
   }
   // A kept look with options takes its pick in its answer: the options stand there, once.
-  const optionsInAnswer = view.answer !== null && view.answer.options.length > 0
+  // B1270: so do options that are its buttons (an Accept card's, a verdict pair, a decide's own options): only the advice stays above them.
+  const optionsInAnswer = view.answer !== null && (view.answer.options.length > 0 || view.answer.choices.length > 0 || view.answer.verdict !== null)
+  if (optionsInAnswer && view.answer.options.length === 0 && view.advice !== null) parts.push(section('Options', [el('p', 'muted', `Advice: ${view.advice}`)]))
   if (!optionsInAnswer && (view.options.length > 0 || view.advice !== null)) {
     const list = el('ul', 'partner-ask-options')
     for (const option of view.options) list.append(el('li', '', `${option.label}${option.isRecommended ? ' (recommended)' : ''}`))
@@ -5132,21 +5165,28 @@ function drawLookAnswer(answer, ui, advice = null) {
   note.value = drafts.get(`look:${answer.id}`) ?? ''
   note.dataset.lookOf = answer.id
   note.setAttribute('aria-label', `Your note on ${answer.id}`)
-  const button = (label, className, verdict, title) => {
+  const button = (label, className, verdict, title, choice = null) => {
     const node = el('button', `button ${className}`, ui.isSending ? 'Sending…' : label)
     node.type = 'button'
     node.dataset.lookAnswer = verdict
     node.dataset.lookOf = answer.id
+    if (choice !== null) node.dataset.lookChoice = choice
     node.disabled = ui.isSending
     node.title = title
     return node
   }
   const buttons = el('div', 'buttons is-split')
-  buttons.append(
-    button('↺  Send back', 'is-reject', 'reject', 'Sends it back to the chat that asked, with your note'),
-    answer.isDo === true ? button('✓  Done', 'is-seen', 'done', 'Marks it done; the chat that asked is told') : button('✓  Looks right', 'is-seen', 'approve', 'Approves it; the chat that asked is told'),
-  )
+  // B1270: a decide whose options are no verdict is answered by its options, one button each; every other ask Send back and its yes.
+  if ((answer.choices ?? []).length > 0) buttons.append(...answer.choices.map(one => button(`${one.label}${one.isAdvised ? ' (advised)' : ''}`, 'is-seen', 'choice', 'Answers it with this option and your note; the chat that asked is told', one.label)))
+  else buttons.append(button('↺  Send back', 'is-reject', 'reject', 'Sends it back to the chat that asked, with your note'), yesButton(answer, button))
   return section('Your answer', [...picks, note, buttons, ...(ui.problem === null ? [] : [el('p', 'problem', ui.problem)])])
+}
+
+/** B1270: the yes of an answer form: Accept for an Accept card, Done for a do, Looks right for a look (`make` draws the button). */
+function yesButton(answer, make) {
+  if (answer.kind === 'accept') return make('✓  Accept', 'is-seen', 'approve', 'Accepts the work as it is: its step is done')
+  if (answer.isDo === true) return make('✓  Done', 'is-seen', 'done', 'Marks it done; the chat that asked is told')
+  return make('✓  Looks right', 'is-seen', 'approve', 'Approves it; the chat that asked is told')
 }
 
 /** G95: the option picked in a kept look's window, per ask, until it is sent; it stays in this page only. */
@@ -5160,7 +5200,13 @@ function lookAnswerBody(answer, verdict, pick, note) {
   const words = String(note ?? '').trim()
   if (verdict === 'reject' && words === '') return { problem: 'Say what is wrong: the worker needs to know what to change.' }
   if (verdict === 'approve' && (answer?.options ?? []).length > 0 && pick === null) return { problem: 'Pick one of the options first.' }
-  return { verdict, text: [pick, words].filter(one => one !== null && one !== '').join('\n') }
+  const join = first => [first, words].filter(one => one !== null && one !== undefined && one !== '').join('\n')
+  // B1270: a decide is answered with the option the person clicked; an Accept card with its own A or B line (the board reads it,
+  // api.mjs `acceptPlan`, and makes the next try from the note); options that are the verdict go with it as the option's words.
+  if (verdict === 'choice') return pick === null ? { problem: 'Pick one of the options first.' } : { text: join(pick) }
+  const option = answer?.verdict === null || answer?.verdict === undefined ? pick : verdict === 'reject' ? answer.verdict.back : answer.verdict.approve
+  if (answer?.kind === 'accept') return { text: join(option ?? (verdict === 'reject' ? 'B Send back' : 'A Accept')) }
+  return { verdict, text: join(option) }
 }
 
 $('details').addEventListener('input', event => {
@@ -5181,12 +5227,12 @@ $('details').addEventListener('click', event => {
   const verdict = button.dataset.lookAnswer
   const note = $('details').querySelector('.look-answer-note')?.value ?? ''
   const ask = [...(board.withPartner ?? []), ...(board.routedAway ?? [])].find(one => one.id === id)
-  const body = lookAnswerBody(lookAnswerOf(ask), verdict, lookPicks.get(id) ?? null, note)
+  const body = lookAnswerBody(lookAnswerOf(ask), verdict, verdict === 'choice' ? button.dataset.lookChoice ?? null : lookPicks.get(id) ?? null, note)
   if (body.problem !== undefined) {
     problems.set(key, body.problem)
     return redrawNeeds()
   }
-  return sendWork({ action: 'answer', id, verdict: body.verdict, text: body.text }, key)
+  return sendWork({ action: 'answer', id, ...(body.verdict === undefined ? {} : { verdict: body.verdict }), text: body.text }, key)
 })
 
 // partner-answers:start
@@ -16148,13 +16194,18 @@ function clearedLineView(cleared, now) {
  *    verdict →", and every other block its state's chip (a block in progress names the worker on it).
  * `card` is the recap card, for where a verdict with no row of its own opens. `open` is the block as `openNow` has it, or null.
  */
-function blockChipOf(part, open, card = null, namesWorker = false) {
+function blockChipOf(part, open, card = null, namesWorker = false, focus = null) {
   if (part.state === 'done') return { chip: null, tone: part.state, link: null, isVerdict: false, isRework: false }
   if ((part.toJudge ?? 0) > 0 && !['stopped', 'dropped'].includes(part.state)) {
     const link = part.recapAt ?? card?.open ?? null
     return { chip: 'Waits for your verdict in the recap →', tone: 'verdict', link, isVerdict: true, isRework: false }
   }
   if (part.state !== 'verdict' && open?.kind === 'rework' && open.rework != null) return { chip: `Being reworked: ${open.rework.words}`, tone: 'rework', link: null, isVerdict: false, isRework: true }
+  // B1270 (F34, the board rule: amber means attention): a block whose verdicts the goal's recap holds while the recap is not open yet is calm,
+  // "2 for your recap · opens when 6 blocks are done, 4 now · or answer now →"; amber again once the recap opens.
+  const held = part.state === 'verdict' ? part.recapHeld ?? [] : []
+  const opens = held.length > 0 ? recapOpensShort(focus) : null
+  if (opens !== null) return { chip: `${held.length} for your recap · ${opens} · or answer now →`, tone: 'recap-held', link: held.length === 1 ? { ask: held[0] } : { recapAsks: true }, isVerdict: true, isRework: false }
   if (part.state === 'verdict') {
     const link = verdictLinkOf(part.verdictAt, card)
     return { chip: typeof link?.path === 'string' ? 'Waits for your verdict in the recap →' : FOCUS_CHIPS.verdict, tone: 'verdict', link, isVerdict: true, isRework: false }
@@ -16208,7 +16259,7 @@ function focusOpenNowView(focus, card = null) {
     const isDone = part.state === 'done'
     const line = blockLineOf(part)
     const label = one.kind === 'rework' ? 'Rework' : 'New'
-    const shown = blockChipOf(part, one, card, true)
+    const shown = blockChipOf(part, one, card, true, focus)
     // 2026-11-01: a block that waits for the person's verdict has its chip open the recap (at its row where the state knows it).
     // Stop and rethink: the block the person's rethink holds is "Being rethought", never ticked.
     const isRethought = focus.rethink != null && part.title === (focus.rethink.partTitle ?? focus.rethink.part)
@@ -16364,7 +16415,7 @@ function focusView(focus, goals, can = null, ui = {}) {
     const isNewNow = index => (focus.round?.n ?? 1) > 1 && (focus.openNow ?? []).some(one => one.index === index && one.kind === 'new')
     // T20.1: the block as this round opens it (its kind, and the step under way when it is being reworked), null when the round does not open it.
     const openOf = index => (focus.openNow ?? []).find(one => one.index === index) ?? null
-    const shownChip = (part, index) => blockChipOf(part, openOf(index), ui.recapCard ?? null)
+    const shownChip = (part, index) => blockChipOf(part, openOf(index), ui.recapCard ?? null, false, focus)
     view.run = {
       title: 'All work blocks',
       page: focus.page ?? null,
@@ -16376,7 +16427,7 @@ function focusView(focus, goals, can = null, ui = {}) {
         chip: part.state === 'dropped' ? `Dropped: ${part.why ?? ''}`.trim() : (shownChip(part, index).chip ?? chips[part.state]),
         tone: part.state,
         // T20.1: a block being reworked has a quiet chip of its own, one that waits for a verdict the attention colour (the row keeps its state's look).
-        ...(['rework', 'verdict'].includes(shownChip(part, index).tone) ? { chipTone: shownChip(part, index).tone } : {}),
+        ...(['rework', 'verdict', 'recap-held'].includes(shownChip(part, index).tone) ? { chipTone: shownChip(part, index).tone } : {}),
         percent: part.state === 'done' ? 100 : part.state === 'stopped' || part.state === 'dropped' || part.total === 0 ? 0 : Math.round((part.done / part.total) * 100),
         // B680: under a Stopped part the person may drop it, with a reason; a dropped one has its Undo.
         ...(part.state === 'stopped' ? { drop: { label: 'Drop this work block', act: 'part-drop', isEnabled: allowed, title: allowed ? 'You stop this work block: say why in one line. It then counts out of the whole. Your partner can instead try another way.' : why } } : {}),
@@ -17453,11 +17504,31 @@ function demoLink(path, part, className, text = '') {
  */
 function focusChipEl(text, tone, verdict = null, extra = '') {
   const classes = `focus-chip${extra === '' ? '' : ` ${extra}`} is-${tone}`
+  // B1270 (F34): asks the recap holds, answerable now: a calm link to the one ask's window, or to the "For your recap" card.
+  if (tone === 'recap-held') return verdict === null ? el('span', classes, text.replace(/\s*→$/, '')) : recapHeldLink(verdict, classes, text)
   // Never a dead arrow: a verdict chip with nowhere to go says the words without it.
   if (tone !== 'verdict') return el('span', classes, text)
   if (verdict === null) return el('span', classes, text.replace(/\s*→$/, ''))
   const link = targetLink(verdict, classes, text)
   link.title = verdict.path !== undefined ? 'Open the recap: approve this part, or send it back with a note' : `Open ${verdict.step ?? verdict.ask}: the card or question that waits for you stands there`
+  return link
+}
+
+/**
+ * B1270 (F34): the calm chip's link of a block whose verdicts the recap holds: `{ ask }` opens that ask's window (`#details=`), where its
+ * buttons are; `{ recapAsks: true }` scrolls to the "For your recap" card, where each has its buttons.
+ */
+function recapHeldLink(target, className, text) {
+  if (typeof target?.ask === 'string' && target.ask !== '') {
+    const link = el('a', className, text)
+    link.href = `#details=${target.ask}`
+    link.title = `Open ${target.ask}: answer it now, or leave it for the goal's recap`
+    return link
+  }
+  const link = el('button', className, text)
+  link.type = 'button'
+  link.title = 'Show the asks kept for your recap: answer each now, or leave them for the recap'
+  link.addEventListener('click', () => document.getElementById('focus-recap-wait')?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
   return link
 }
 
@@ -19215,18 +19286,71 @@ function recapAsksList(asks) {
       item.append(' ', see)
     }
     if (ask.of !== null && ask.of !== undefined) item.append(el('small', 'muted', ` ${[ask.of, ask.ofTitle].filter(Boolean).join(' ')}`))
+    const row = recapRowAnswer(lookAnswerOf(ask), { isSending: sending.has(`look:${ask.id}`), problem: problems.get(`look:${ask.id}`) ?? null })
+    if (row !== null) item.append(row)
     list.append(item)
   }
   return list
 }
+
+/**
+ * B1270 (F34, the person, 2026-11-19: "i need a agree or disagree button if u want my verdict"): the buttons on an ask's row in "For your
+ * recap": its yes at once (Accept, Looks right, Done) or its options for a decide; Send back, and a look that needs a pick, open its window
+ * (the note is needed there). Null for an ask with no answer form (the goal's own recap ask). `ui`: sending, and a refusal under them.
+ */
+function recapRowAnswer(answer, ui) {
+  if (answer === null || answer === undefined) return null
+  const box = el('span', 'focus-recap-answer')
+  const send = (label, verdict, title, choice = null) => {
+    const node = el('button', 'quiet-button', ui.isSending ? 'Sending…' : label)
+    node.type = 'button'
+    node.dataset.recapAnswer = verdict
+    node.dataset.recapOf = answer.id
+    if (choice !== null) node.dataset.recapChoice = choice
+    node.disabled = ui.isSending
+    node.title = title
+    return node
+  }
+  // The ask's window, as the row's own title opens it (`#details=`).
+  const open = (label, title) => {
+    const node = el('a', 'quiet-button', label)
+    node.href = `#details=${answer.id}`
+    node.title = title
+    return node
+  }
+  if (answer.choices.length > 0) box.append(...answer.choices.map(one => send(one.label, 'choice', 'Answers it with this option; the chat that asked is told', one.label)))
+  else if (answer.options.length > 0) box.append(open('Answer →', 'Opens it: pick an option, then Looks right or Send back'))
+  else box.append(yesButton(answer, (label, className, verdict, title) => send(label, verdict, title)), open('↺  Send back →', 'Opens it: say in a note what is wrong, then Send back'))
+  if (ui.problem !== null) box.append(el('span', 'problem', ui.problem))
+  return box
+}
+
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-recap-answer]')
+  if (button === null || board === null) return
+  const id = button.dataset.recapOf
+  const key = `look:${id}`
+  if (sending.has(key)) return
+  const verdict = button.dataset.recapAnswer
+  const answer = lookAnswerOf((board.routedAway ?? []).find(one => one.id === id))
+  const body = lookAnswerBody(answer, verdict, verdict === 'choice' ? button.dataset.recapChoice ?? null : null, '')
+  if (body.problem !== undefined) {
+    problems.set(key, body.problem)
+    return redrawFocus()
+  }
+  return sendWork({ action: 'answer', id, ...(body.verdict === undefined ? {} : { verdict: body.verdict }), text: body.text }, key)
+})
 // autopilot:end
 
 /** Autopilot: the run's card "For your recap (n)": what waits for the goal's recap, one line each. */
 function focusRecapAsksCard(asks, focus = null) {
   const card = el('section', 'focus-card focus-recap-wait')
+  card.id = 'focus-recap-wait'
   // B1240 (F31): when the recap opens, in place of "you judge them there" with no time.
   const opens = recapOpensWords(focus, focus?.id ?? null)
-  card.append(el('h3', '', `For your recap (${asks.length})`), el('p', 'muted', `Autopilot keeps these for the goal's recap: ${opens === null ? 'you judge them there, with the rest of the work' : opens}.`), recapAsksList(asks))
+  // B1270 (F34): what has buttons can be answered now; the recap does not ask it again.
+  const now = asks.some(one => lookAnswerOf(one) !== null) ? ' You can answer each with buttons now.' : ''
+  card.append(el('h3', '', `For your recap (${asks.length})`), el('p', 'muted', `Autopilot keeps these for the goal's recap: ${opens === null ? 'you judge them there, with the rest of the work' : opens}.${now}`), recapAsksList(asks))
   return card
 }
 

@@ -63,7 +63,7 @@ import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, store
 import { withLinks } from './work/links.mjs'
 import { clearOwed, clearedStageOf, modAtLeast } from './clearOwed.mjs'
 import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, nothingWaitsFor, owedChatsOf, pathsOf, spellOf, failedAtOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
-import { chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
+import { ACCEPT_VIA, chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, recapWaitingOf, standingAsksOf } from './recapCard.mjs'
 import { recapRoundOf, reworkOf } from './recapRound.mjs'
@@ -1455,6 +1455,8 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
   // Where its arrow goes: the recap when it names the carrier's part and that part waits, else the carrier's own window.
   const recapPart = !forVerdict ? null : ownRecap?.kind === 'recap' && verdictChain === null && ownRecap.path ? { path: ownRecap.path, key: ownRecap.part } : recapPartOf(recaps, carrier)?.verdict === null ? recapPartOf(recaps, carrier) : null
   const verdictAt = !forVerdict ? null : recapPart?.path ? { path: recapPart.path, key: recapPart.key ?? null } : { step: carrier }
+  // B1270 (F34): the asks the goal's recap holds that are all this verdict waits for (no recap part to judge yet): the person can answer them now.
+  const recapHeld = forVerdict && !inMaking && recapPart === null ? recapHeldOf(carrier, all, formKind, verdictAsks) : []
   // B695: a step in review whose failed check has only a dropped fix is stopped, not being checked.
   const fixStopped = !forAccept && !forVerdict && (chainStopped || (state === 'review' && fix !== null && !fix.isOpen && !fix.isFixed && fix.passed === null && fix.total === null))
   const tone = fixStopped ? 'stop' : fixWaits || forAccept || forVerdict ? 'wait' : stepToneOf(state)
@@ -1481,7 +1483,23 @@ function partStepOf(item, steps, prefix, all = steps, lanes = null, now = null, 
     // 2026-11-01: whether it waits for the person's verdict in the recap, and the recap part it waits in (`{ path, key }`, null where unknown).
     waitsForVerdict: forVerdict && !inMaking,
     verdictAt: inMaking ? null : verdictAt,
+    ...(recapHeld.length === 0 ? {} : { recapHeld }),
   }
+}
+
+/**
+ * B1270 (F34, the person, 2026-11-19: "i need a agree or disagree button if u want my verdict, where am i supposed to do anything?"): the
+ * ids of the open asks routed to the goal's recap under the step `carrier` when they are all its verdict waits for: no recap part waits
+ * (`formKind` 'recap'), no ask of it stands with the person by another route, and an Accept card that makes it wait is one of them. Each
+ * is answered in its window before the recap opens (public/board.js `lookAnswerOf`); [] when anything else waits.
+ */
+export function recapHeldOf(carrier, all, formKind, verdictAsks) {
+  if (formKind === 'recap') return []
+  if ((verdictAsks.asked.get(carrier) ?? []).some(one => one.route !== 'recap')) return []
+  const held = [...all.values()].filter(one => valueOf(one, 'Kind') === 'ask' && valueOf(one, 'State') === 'open' && valueOf(one, 'Route') === 'recap'
+    && valueOf(one, 'Of') === carrier && !['form', 'refine'].includes(valueOf(one, 'Via')))
+  if (formKind === 'accept' && !held.some(one => valueOf(one, 'Via') === ACCEPT_VIA)) return []
+  return held.map(one => valueOf(one, 'Id')).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
 }
 
 /**
@@ -1672,6 +1690,9 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     // 2026-11-01: a block whose open step waits for the person's verdict in the goal's recap (and nothing else of it is at work, queued or
     // waiting to be given) is `verdict`, which the page words "Waits for your verdict"; "waiting" stays for work that waits for another task.
     const verdictStep = open.find(one => one.waitsForVerdict)
+    // B1270 (F34): every verdict of the block is held by the goal's recap and can be answered now: the page words it calm (blockChipOf).
+    const verdictSteps = open.filter(one => one.waitsForVerdict)
+    const recapHeld = verdictSteps.length > 0 && verdictSteps.every(one => (one.recapHeld ?? []).length > 0) ? [...new Set(verdictSteps.flatMap(one => one.recapHeld))] : []
     // B680: a part whose steps are all dropped, none done, reached nothing: Stopped, never Done. The person's word ("Part
     // dropped:" under the goal) takes it out of the whole.
     const reached = known.some(one => ['done', 'closed'].includes(one.head.get('State')))
@@ -1693,7 +1714,7 @@ export function focusState(goalMap, items, threads, prefix, partner = null, now 
     if (kind !== null) openNow.push({ index, title: part.title, kind, ...(rework === null ? {} : { rework }) })
     // Work blocks: the block's done-when line, only where it has one.
     const line = typeof part.doneWhen === 'string' && part.doneWhen.trim() !== '' ? { doneWhen: part.doneWhen.trim() } : {}
-    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...line, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }), ...(state === 'verdict' ? { verdictAt: verdictStep.verdictAt } : {}), ...(chipOf(state) === null ? {} : { chip: chipOf(state) }) }
+    return { title: part.title, size: part.size, state, owner, done, total: known.length, standards, steps: list, ...partStepCounts(list), ...line, ...(gone === undefined ? {} : { why: gone.why }), ...(fix === null ? {} : { fixFirst: fix }), ...(state === 'verdict' ? { verdictAt: verdictStep.verdictAt } : {}), ...(state === 'verdict' && recapHeld.length > 0 ? { recapHeld } : {}), ...(chipOf(state) === null ? {} : { chip: chipOf(state) }) }
   })
   // B680: a Stopped part counts neither done nor open, a dropped one is out of the whole.
   const whole = parts.filter(part => part.state !== 'dropped')
