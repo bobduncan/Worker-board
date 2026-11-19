@@ -63,7 +63,7 @@ import { firstLook, refineQueue, refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { withLinks } from './work/links.mjs'
 import { clearOwed, clearedStageOf, modAtLeast } from './clearOwed.mjs'
-import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, nothingWaitsFor, owedChatsOf, pathsOf, spellOf, failedAtOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
+import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, nothingWaitsFor, owedChatsOf, pathsOf, spellOf, failedAtOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords, wakeableOf } from './wake.mjs'
 import { ACCEPT_VIA, chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, recapWaitingOf, standingAsksOf } from './recapCard.mjs'
@@ -2620,6 +2620,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     focus: goalMap?.focus ?? null, focusGoals: goalsUnder(goalMap, goalMap?.focus ?? null), routingHeld, sent,
     settings: { maxWorkers: config.maxWorkers, followUpMinutes: config.followUpMinutes, handOutBeyondFocus: config.handOutBeyondFocus === true, offAfterMinutes: config.offAfterMinutes, handover: config.handover ?? 'sequence' },
     limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
+    // B1279 (X205): with the wake record, the hand-out starts a worker through the one wake procedure, and only one it can wake.
+    wakeable: (wakes?.record ?? null) === null ? null : wakeableOf(chats, wakes),
   })
   // B468: what each worker runs at for its step, and the words that have the main chat set it (none without the Workers
   // mod). Model per step: its model too, by the settings' model ids, and the usual setting between steps from the settings.

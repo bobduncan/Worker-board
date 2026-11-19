@@ -19,7 +19,7 @@
 // The functions that change the record (`claim`, `sent`, ...) change it in place, synchronously, so the server claims an
 // attempt in the same tick it makes the job (the code check's "two carriers" risk).
 
-import { ASLEEP_LINE, isAppId } from './hands.mjs'
+import { ASLEEP_LINE, HAND_LINE, isAppId } from './hands.mjs'
 import { NOT_LISTED_WHY, NOT_SHOWN_WHY, OTHER_ACCOUNT_WHY, RESTART_WHY, cannotWakeWhy, isNotListedAnswer, wakeIdsOf } from './ownChat.mjs'
 import { boardLanes, isWakeWord, wakeWordOf, wakerOrder } from './say.mjs'
 import { envelopesOf } from './work/handover.mjs'
@@ -720,7 +720,33 @@ function needOf(lane, { state, waiting, prefix, resumeList, ownerName }) {
   if (waiting.some(message => message.to === lane.name && message.command !== 'handover' && (lane.name === ownerName || isWakeWord(wakeWordOf(message), state)))) return { why: 'words', text: WORDS_LINE, step: null }
   const queued = (lane.queue ?? [])[0] ?? null
   if (queued !== null && lane.onSequence !== true && typeof queued.id === 'string') return { why: 'queue', text: takeLine(queued.id), step: queued.id }
+  // B1279 (X205): the hand-out asks for this worker (reconcile.mjs `start`, handOut.mjs `workerStart`): the one wake procedure starts it
+  // (message, carry, launch, one try per path per spell, a verdict and the one notice), in place of a start word only a hand could carry.
+  const start = state.reconciled?.start ?? null
+  if (start?.byWake === true && typeof start.start === 'string' && start.start === lane.name) return { why: 'start', text: HAND_LINE, step: null }
   return null
+}
+
+/**
+ * B1279 (X205): which off chats the hand-out may start now, out of the wake record. `unwakeable`: a chat whose wake failed on every path it
+ * could take in its spell (`wakeOf` final: the message and the launch tried and failed, or no id to reach it), until it runs again or the
+ * app's return re-opens the spell (G1); `waking`: one whose wake is on its way (a message held or sent, a launch waiting for its verdict).
+ * `lanes` the board's chats; `facts` the server's `{ record, senderClaims, canLaunch }`. Two Sets of names; empty without a record.
+ */
+export function wakeableOf(lanes, facts) {
+  const unwakeable = new Set()
+  const waking = new Set()
+  const record = facts?.record ?? null
+  if (record === null) return { unwakeable, waking }
+  for (const lane of lanes ?? []) {
+    if (lane === null || lane === undefined || lane.isLeftover === true || typeof lane.name !== 'string') continue
+    const spell = spellOf(lane)
+    if (spell === null) continue
+    const wake = wakeOf(record, { chat: lane.name, spell, paths: pathsOf(lane, facts.canLaunch === true), cannot: cannotWakeWhy(lane) }, { senderClaims: facts.senderClaims === true })
+    if (wake.final === true && !ranSince(record, lane.name, spell, lane.report ?? null)) unwakeable.add(lane.name)
+    else if (['on-its-way', 'sent', 'launched'].includes(wake.state)) waking.add(lane.name)
+  }
+  return { unwakeable, waking }
 }
 
 /**

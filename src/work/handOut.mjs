@@ -372,8 +372,17 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
  * `offAfterMs` by its last report, has that worker started first (`{ start: name, pinned: id }`: a start word, never a
  * spawn; also while another worker is idle), once per START_WAIT_MS, and counted toward `maxWorkers` as any start.
  */
-export function workerStart({ ready = [], gives = [], idle = [], lanes = [], maxWorkers = HAND_OUT_DEFAULTS.maxWorkers, isHeld = false, items = new Map(), sent = [], now = Date.now(), prefix = '', refused = [], offAfterMs = Infinity }) {
+export function workerStart({ ready = [], gives = [], idle = [], lanes = [], maxWorkers = HAND_OUT_DEFAULTS.maxWorkers, isHeld = false, items = new Map(), sent = [], now = Date.now(), prefix = '', refused = [], offAfterMs = Infinity, wakeable = null }) {
   if (!Number.isFinite(maxWorkers) || isHeld) return null
+  // B1279 (X205): with the wake record (`wakeable`, wake.mjs `wakeableOf`) the one wake procedure starts the worker (`byWake`), and the
+  // hand-out never asks for one it cannot wake (every path failed in its spell) nor counts one it is waking as off (it is on its way).
+  const start = wakeable === null ? startFor : args => withWake(startFor(args))
+  return start({ ready, gives, idle, lanes, maxWorkers, items, sent, now, prefix, refused, offAfterMs, unwakeable: wakeable?.unwakeable ?? new Set(), waking: wakeable?.waking ?? new Set() })
+}
+
+const withWake = start => (start !== null && typeof start.start === 'string' ? { ...start, byWake: true } : start)
+
+function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, prefix, refused, offAfterMs, unwakeable, waking }) {
   const handed = new Set(gives.map(one => one.id))
   const scratch = new Map(items)
   for (const one of gives) {
@@ -383,9 +392,11 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
   // The recheck: a task the work API refused lately waits for that refusal, not for a worker: it counts for none.
   const refusedIds = new Set(refused.map(one => one.id))
   const workers = lanes.filter(isWorkerLane)
-  const pending = startsPending({ workers, sent, now, prefix })
   // T13 part 3: an asleep worker is no closed one: it counts toward `maxWorkers`, and its task's line or its resume word wakes it.
   const isOff = lane => (lane.state === 'off' || lane.isRunning === false) && lane.asleep !== true
+  // B1279: an off worker the wake procedure is waking is on its way, as a start word not yet answered.
+  const pending = startsPending({ workers, sent, now, prefix }) + workers.filter(lane => isOff(lane) && waking.has(lane.name)).length
+  const mayStart = lane => !unwakeable.has(lane.name) && !waking.has(lane.name)
   // The person, 2026-10-25: "ensure the board can't make more than the allowed limit": the workers on their way count
   // toward `maxWorkers` too, so a start word sent before the last one reported never makes one too many. A worker on
   // its way may already show as a lane with no report yet: those and the pending starts are the same chats, counted once.
@@ -394,7 +405,7 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
     const reporting = running.filter(lane => lane.report != null).length
     return reporting + Math.max(running.length - reporting, pending) >= maxWorkers
   }
-  const pinnedTo = pinnedStart({ ready, handed, refusedIds, workers, scratch, items, sent, now, prefix, offAfterMs, isOff })
+  const pinnedTo = pinnedStart({ ready, handed, refusedIds, workers: workers.filter(mayStart), scratch, items, sent, now, prefix, offAfterMs, isOff })
   if (pinnedTo !== null) return isFull(workers.filter(lane => lane !== pinnedTo.lane)) ? null : { start: pinnedTo.lane.name, pinned: pinnedTo.id }
   const given = new Set(gives.map(one => one.chat))
   // T9.1.1: an idle worker that may take none of the tasks still waiting (it built the step of every QA task left) holds no
@@ -411,7 +422,10 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
   }
   if (givable - pending <= 0) return null
   if (isFull()) return null
-  const off = workers.filter(isOff).sort((a, b) => (a.offSince ?? 0) - (b.offSince ?? 0) || byId(a.name, b.name))[0]
+  const offs = workers.filter(isOff)
+  const off = offs.filter(mayStart).sort((a, b) => (a.offSince ?? 0) - (b.offSince ?? 0) || byId(a.name, b.name))[0]
+  // B1279: off workers that cannot be woken now: none is asked for (the wake notice says "could not wake ...; open its chat").
+  if (off === undefined && offs.some(lane => unwakeable.has(lane.name))) return null
   return off === undefined ? { spawn: 1 } : { start: off.name }
 }
 
