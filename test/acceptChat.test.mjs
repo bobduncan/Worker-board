@@ -11,6 +11,9 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { CHAT_ACCEPT_APPLIED, workApi } from '../src/work/api.mjs'
+import { findStuck } from '../src/supervisor/rules/repair.mjs'
+import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
+import { buildView } from '../src/supervisor/view.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { acceptChoiceOf, acceptReading, acceptStandOf, answerReading, reviewWaitOf } from '../src/work/resultCheck.mjs'
 import { readStore, share } from '../src/work/store.mjs'
@@ -200,5 +203,30 @@ test('the repair leaves alone a card that reads back, one answered on the board,
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  }
+})
+
+// B1276 (X204): the same case seen by the Supervisor's rules. B1205 in review, its fix B1226 dropped, its card Q817 answered in the chat
+// "Q817 A (accept ...)": before B1272 the card read as sent back, so dropped-fix and the repair fix-dropped raised it for 3 hours.
+const LEAD = { name: 'Lead', isMain: true, isLeftover: false, state: 'working', isRunning: true }
+const view = (items, now) => buildView({ state: { chats: [LEAD], today: [], limits: {}, pause: null, chatPrefix: '', recapWaits: [] }, items, outbox: [], settings: {}, now })
+const dropRaises = (items, now) => WATCH_RULES.find(one => one.id === 'dropped-fix').check(view(items, now), { seen: new Map(), observed: [] })
+const repairRaises = (items, now) => findStuck({ items, lanes: [LEAD], partner: { name: 'Partner', state: 'working', isRunning: true }, now }).filter(one => one.check === 'fix-dropped')
+
+test('X204: B1205 accepted in the chat raises no dropped-fix incident once the sweep applies it', async () => {
+  const dir = await storeWith({ B1205: B1205({}, [`- ${at(0)} Lead: Q817 answered`]), B1226: B1226(), Q817: Q817_ANSWERED() })
+  try {
+    const later = NOW + 200 * MIN
+    // Before the sweep the card reads accept (it did not before B1272: "Q817 A" read as a send-back).
+    const before = await read(dir)
+    assert.equal(acceptStandOf('B1205', before).state, 'accept')
+    // After the sweep: B1205 is done and the rules have nothing to say.
+    await server(dir)
+    const after = await read(dir)
+    assert.equal(after.get('B1205').head.get('State'), 'done')
+    assert.deepEqual(dropRaises(after, later), [])
+    assert.deepEqual(repairRaises(after, later), [])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
   }
 })
