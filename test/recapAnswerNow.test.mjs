@@ -119,14 +119,16 @@ test('Q829 (a look held for the recap) answered now with Looks right: closed, it
   assert.ok(contextOf(await read(back), 'B1255').includes('Recap verdict: sent back (Q829)'))
 })
 
-test('a decide held for the recap is answered by its options: closed, its step reads the verdict its words give', async t => {
+test('a decide held for the recap is answered by its options: closed, its answer on the step, and no Recap verdict line (an option is no verdict)', async t => {
   const dir = await storeWith({ B1149: B1149(), Q789: Q789() })
   t.after(() => rm(dir, { recursive: true, force: true }))
   const done = await person(dir, { action: 'answer', id: 'Q789', text: 'A Redraw the model sheet and all sheets' })
   assert.equal(done.ok, true, done.why)
   const items = await read(dir)
   assert.equal(items.get('Q789').head.get('State'), 'answered')
-  assert.ok(contextOf(items, 'B1149').includes('Recap verdict: approved (Q789)'))
+  // Chat 1's review: "A Redraw the model sheet" is neither approved nor sent back, so the step says neither.
+  assert.equal(contextOf(items, 'B1149').some(line => /^Recap verdict: (?:approved|sent back)/.test(line)), false, contextOf(items, 'B1149').join('\n'))
+  assert.ok(contextOf(items, 'B1149').some(line => line.startsWith('Q789 answered by you on ') && line.endsWith('A Redraw the model sheet and all sheets')))
   assert.deepEqual(recapWaitIds(items.get('B1149'), items), [])
 })
 
@@ -137,7 +139,9 @@ test('which answers write a Recap verdict: only an ask routed to the recap under
   assert.equal(recapEarlyVerdict(held, 'done', ['Done.']), 'approved')
   assert.equal(recapEarlyVerdict(parseItem(Q817()), undefined, ['A Accept: done as it is']), 'approved')
   assert.equal(recapEarlyVerdict(parseItem(Q817()), undefined, ['B Send back: x', 'a note']), 'sent back')
-  assert.equal(recapEarlyVerdict(parseItem(Q789()), undefined, ['no, merge it later']), 'sent back')
+  // A decide's option is no verdict, whatever its words.
+  assert.equal(recapEarlyVerdict(parseItem(Q789()), undefined, ['A Redraw the model sheet and all sheets']), null)
+  assert.equal(recapEarlyVerdict(parseItem(Q789()), undefined, ['no, merge it later']), null)
   // The goal's own recap ask has no step; an ask routed elsewhere writes none.
   assert.equal(recapEarlyVerdict(parseItem(Q900()), 'approve', ['Approved.']), null)
   assert.equal(recapEarlyVerdict(parseItem(Q829().replace('Route: recap', 'Route: person')), 'approve', ['Approved.']), null)
@@ -205,9 +209,25 @@ test('the page: every ask held for the recap under a step has its answer form; t
   assert.equal(lookAnswerOf({ ...Q829card, route: 'main' }), null)
   // One a row of the open recap names is judged there: its window stays read-only.
   assert.equal(lookAnswerOf({ ...Q829card, inRecap: true }), null)
+  // Chat 1's review (Q257's shape): a plan decide whose other way is no yes keeps its own options as buttons, labels and all; a
+  // decide whose yes keeps or accepts is a verdict pair.
+  const plan = lookAnswerOf({ ...Q789card, id: 'Q257', options: [option('A Paint the guide first, then the map'), option('B Send back the layout and paint later')] })
+  assert.deepEqual([plan.kind, plan.verdict, plan.choices.map(one => one.label)], ['decide', null, ['A Paint the guide first, then the map', 'B Send back the layout and paint later']])
+  const keep = lookAnswerOf({ ...Q789card, options: [option('A Keep it as it is'), option('B Send it back')] })
+  assert.deepEqual([keep.kind, keep.verdict?.approve, keep.verdict?.back], ['look', 'A Keep it as it is', 'B Send it back'])
   // A kept look keeps its picks (G95's Q740).
   const kept = lookAnswerOf({ id: 'Q740', route: 'recap', asks: 'look', isKept: true, of: null, options: [option('A Thin'), option('B Wide'), option('C Both')] })
   assert.deepEqual([kept.kind, kept.options.map(one => one.label)], ['look', ['A Thin', 'B Wide', 'C Both']])
+})
+
+test('the page: a verdict pair\'s labels stay listed in the window (Q829: "A Good enough", "B Under target, send back", advice A), only a decide\'s own buttons replace its list', async () => {
+  const script = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
+  const window = script.slice(script.indexOf('function drawPartnerAskWindow('), script.indexOf('function drawLookAnswer('))
+  const line = window.match(/const optionsInAnswer = ([^\n]+)/)?.[1] ?? ''
+  assert.equal(line, 'view.answer !== null && (view.answer.options.length > 0 || view.answer.choices.length > 0)', 'the list hides only for picks or a decide\'s buttons')
+  const { lookAnswerOf } = await page()
+  const look = lookAnswerOf(Q829card)
+  assert.deepEqual([look.options.length, look.choices.length], [0, 0], 'so Q829 keeps its labelled list')
 })
 
 test('the page: what the buttons send closes it on the server as above', async () => {

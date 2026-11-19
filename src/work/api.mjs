@@ -4789,15 +4789,16 @@ async function answer(body, w) {
 /**
  * B1270 (F34): the `Recap verdict` an answer given before the goal's recap writes on the step, as the recap's own answer would
  * (`recapAnswered`): 'approved' or 'sent back' for an open ask routed to the recap under a step (a kept look, a look, a do, a decide or an
- * Accept card); null for any other ask (the goal's own recap ask has no step). A verdict given reads as it says (reject: sent back); a
- * decide answered with words reads as its card or its words read (an Accept card's B or Send back, a "no": sent back).
+ * Accept card); null for any other ask (the goal's own recap ask has no step). A verdict given reads as it says (reject: sent back); an
+ * Accept card answered with its A or B line as its card reads. A decide answered with one of its options is no verdict (chat 1's review:
+ * "A Redraw the model sheet" is neither): null, so no line says approved for it; its answer stands on the step as any answer does.
  */
 export function recapEarlyVerdict(ask, verdict, text) {
   if (valueOf(ask, 'Route') !== 'recap' || !STEP_ID.test(valueOf(ask, 'Of') ?? '')) return null
   if (verdict === 'reject') return 'sent back'
   if (verdict === 'approve' || verdict === 'done') return 'approved'
   if (valueOf(ask, 'Via') === ACCEPT_VIA) return acceptReading(text) === 'accept' ? 'approved' : 'sent back'
-  return answerReading(text) === 'no' ? 'sent back' : 'approved'
+  return null
 }
 
 /**

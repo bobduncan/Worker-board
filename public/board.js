@@ -5033,7 +5033,7 @@ function lookAnswerOf(ask) {
   if (!isKept && !isHeld) return null
   const labels = (ask.options ?? []).filter(one => typeof one?.label === 'string' && one.label.trim() !== '').map(one => ({ label: one.label, isAdvised: one.isRecommended === true }))
   // Options that are the verdict themselves (an Accept card's, Q829's "A Good enough | B Under target, send back") are the two buttons.
-  const verdict = verdictOptionsOf(labels.map(one => one.label))
+  const verdict = verdictOptionsOf(labels.map(one => one.label), ask.asks === 'look' || ask.via === 'accept')
   const kind = ask.via === 'accept' ? 'accept' : ask.asks === 'do' ? 'do' : ask.asks === 'decide' && verdict === null && labels.length > 0 ? 'decide' : 'look'
   return {
     id: ask.id, kind, isDo: kind === 'do', verdict,
@@ -5044,12 +5044,18 @@ function lookAnswerOf(ask) {
   }
 }
 
-/** B1270: a pair of options that is a verdict (one approves or keeps, the other sends back): `{ approve, back }`, the labels; else null. */
-function verdictOptionsOf(labels) {
+/**
+ * B1270: a pair of options that is a verdict, as src/recapCard.mjs `isVerdictAsk` reads one: one sends back or rejects, and the other
+ * approves, accepts or keeps (`isVerdict`: a look or an Accept card is a verdict whatever its yes says, Q829's "A Good enough"). `{ approve,
+ * back }`, the labels; else null, and a plan decide (two ways, one "redo") keeps its own options.
+ */
+function verdictOptionsOf(labels, isVerdict = false) {
   if (labels.length !== 2) return null
-  const isBack = label => /\bsen[dt]\b[^|]*\bback\b|\breject\b|\bredo\b/i.test(label)
+  const isBack = label => /\bsen[dt]\b[^|]*\bback\b|\breject\b/i.test(label)
   const back = labels.filter(isBack)
-  return back.length === 1 ? { approve: labels.find(label => !isBack(label)), back: back[0] } : null
+  if (back.length !== 1) return null
+  const approve = labels.find(label => !isBack(label))
+  return isVerdict || /\b(?:approve|accept|keep)\b/i.test(approve) ? { approve, back: back[0] } : null
 }
 
 /**
@@ -5110,8 +5116,9 @@ function drawPartnerAskWindow(box, ask, state) {
     if (shown.length > 0 || play.length > 0) parts.push(section(shown.length === 1 ? 'The picture' : shown.length > 1 ? 'The pictures' : 'Play it', [...(shown.length > 0 ? drawReferences(shown) : []), ...play]))
   }
   // A kept look with options takes its pick in its answer: the options stand there, once.
-  // B1270: so do options that are its buttons (an Accept card's, a verdict pair, a decide's own options): only the advice stays above them.
-  const optionsInAnswer = view.answer !== null && (view.answer.options.length > 0 || view.answer.choices.length > 0 || view.answer.verdict !== null)
+  // B1270: so do a decide's own options, its buttons (each says its label); a verdict pair (Q829's "A Good enough | B Under target, send
+  // back") stays listed with its advice, so Looks right and Send back say which option each is.
+  const optionsInAnswer = view.answer !== null && (view.answer.options.length > 0 || view.answer.choices.length > 0)
   if (optionsInAnswer && view.answer.options.length === 0 && view.advice !== null) parts.push(section('Options', [el('p', 'muted', `Advice: ${view.advice}`)]))
   if (!optionsInAnswer && (view.options.length > 0 || view.advice !== null)) {
     const list = el('ul', 'partner-ask-options')
