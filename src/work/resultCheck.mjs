@@ -104,12 +104,20 @@ export function resultCheckAtMs(item) {
 }
 
 /**
+ * B1272 (F35: the person's "Q817 A (accept B1205 at 58 of 75)" in the main chat read as a Send back): an answer given in a chat often
+ * starts with the ask's id or the "For you" item's number ("Q817 A", "Q817: A", "1 A", "1. yes"); the reading starts after it. Only
+ * when words follow it: a lone "1" or "Q817" stays as it is.
+ */
+const ASK_ID_FIRST = /^(?:Q\d+|\d{1,2})\s*[.:)]?\s+(?=\S)/i
+export const pastAskId = words => String(words ?? '').replace(ASK_ID_FIRST, '')
+
+/**
  * B449: how the person's answer to a check's ask point reads: 'yes' (Approved, Done, yes, keep it ...), 'no' (Rejected,
  * no, redo ...), or null when the board cannot tell: their own words, or a yes with a "but" in it. `text` is the
- * answer's lines as the store keeps them ("Approved. words", or the words alone).
+ * answer's lines as the store keeps them ("Approved. words", or the words alone). B1272: past a leading ask id or item number.
  */
 export function answerReading(text) {
-  const words = String(Array.isArray(text) ? text.join(' ') : text ?? '').trim()
+  const words = pastAskId(String(Array.isArray(text) ? text.join(' ') : text ?? '').trim())
   if (/^(?:rejected|reject|no|nope|redo|not good)\b/i.test(words)) return 'no'
   if (/^(?:approved|done|yes|yep|ok|okay|keep(?: it)?|accepted|accept|agreed|good|fine)\b/i.test(words)) return /\b(?:but|however|except|although)\b/i.test(words) ? null : 'yes'
   return null
@@ -704,9 +712,12 @@ export const ACCEPT_GRACE_MS = 10 * 60_000
 /** B883: the options of the card, as the store keeps them; the first is the Accept. */
 export const ACCEPT_OPTIONS = ['A Accept: done as it is', 'B Send back: the partner makes another try from your note']
 
-/** B883: how the person's answer to a card reads: 'accept' (A, Accept, yes ...) or 'back' (B, Send back, or any other words). */
+/**
+ * B883: how the person's answer to a card reads: 'accept' (A, Accept, yes ...) or 'back' (B, Send back, or any other words). B1272: past a
+ * leading ask id or item number ("Q817 A (accept ...)" accepts).
+ */
 export function acceptReading(text) {
-  const words = String(Array.isArray(text) ? text.join('\n') : text ?? '').trim()
+  const words = pastAskId(String(Array.isArray(text) ? text.join('\n') : text ?? '').trim())
   if (/^(?:A\b|Accept)/i.test(words)) return 'accept'
   if (/^(?:B\b|Send back)/i.test(words)) return 'back'
   return answerReading(words) === 'yes' ? 'accept' : 'back'
