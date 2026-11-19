@@ -17,6 +17,11 @@
 // The refusal is a fact the wake record keeps (`sendsRefusedSince`), lifted only by the daily probe's success: one hand send to a free
 // chat, never a real wake.
 //
+// B1271 (X203, 2026-11-19): the app refuses the hands of a chat in auto mode, not every hand. A refused send marks its own hand
+// (`refusedHands`, `noteHandRefused`), which gets no send job until its own send went; it is the board's refusal only when no hand's send
+// went since the last lift. A refused send spends no message try of the spell (src/wake.mjs `nextPath`): another hand that may send takes
+// it, else a carry word (when every hand that claims is refused), and the launch only when none can. The refusal is never worked around.
+//
 // PURE: the server wires it (server.mjs `wakePass`, the take, the report, the hands route, the two bridge routes, Send again).
 
 import { isAppId } from './hands.mjs'
@@ -61,6 +66,9 @@ export const plainWhy = why => (isSendRefusal(why) ? SEND_REFUSED_WHY : why)
  * outbox's start and wake words show; it stands until the probe's send went (`sendsLiftedAt` after it). No clock lifts it (review 16).
  */
 export function sendsRefusedOf(record, outbox = []) {
+  // B1271 (X203): once a probe lifted the refusal, the record's own fact is the only truth: a later refusal is one hand's (`noteHandRefused`
+  // decides whether it is the whole board's), never revived from an attempt or an outbox line.
+  if (isTime(record?.sendsLiftedAt)) return isTime(record?.sendsRefusedSince) && record.sendsRefusedSince > record.sendsLiftedAt ? { since: record.sendsRefusedSince } : null
   const attempts = [...(record?.wakes?.values?.() ?? [])].flatMap(entries => entries.flatMap(entry => entry.attempts ?? [])).filter(one => one.path === 'message')
   const refusedAt = [
     record?.sendsRefusedSince,
@@ -85,14 +93,62 @@ export function noteSendLifted(record, at) {
   if (!isTime(at)) return false
   record.sendsLiftedAt = at
   record.sendsRefusedSince = null
+  // B1271: the probe's send is a hand's send that went.
+  if (!(isTime(record.handSentAt) && record.handSentAt >= at)) record.handSentAt = at
   return true
 }
 
-/** Whether the daily probe is due: the refusal stands and PROBE_MS passed since it, and since the last probe. */
-export function probeDue(record, outbox, now) {
+/**
+ * B1271 (X203, 2026-11-19): the refusal is a hand's, not the board's. At 20:16 the probe lifted it and Main's hands sent at 20:17 and 20:20;
+ * at 20:29 Worker 3's hands (a chat in auto mode) were refused, and that one refusal stopped every hand again until the next day's probe.
+ * Now a refused send marks its hand (`refusedHands`): that hand gets no message, start or wake job until its own send went (its probe,
+ * once a day). The board-wide refusal (F17's carry words) follows only when no hand's send went since the last lift (`handSentAt`): the
+ * first refusal after the app's update of 2026-11-14 08:10 stays the whole board's. True when the record changed.
+ */
+export function noteHandRefused(record, hand, at) {
+  if (!isTime(at)) return false
+  let changed = false
+  if (typeof hand === 'string' && hand !== '' && hand !== COURIER) {
+    const marks = record.refusedHands ?? {}
+    if (!(isTime(marks[hand]) && marks[hand] >= at)) {
+      record.refusedHands = { ...marks, [hand]: at }
+      changed = true
+    }
+  }
+  const otherWent = isTime(record.sendsLiftedAt) && isTime(record.handSentAt) && record.handSentAt >= record.sendsLiftedAt
+  return (!otherWent && noteSendRefused(record, at)) || changed
+}
+
+/** B1271: a hand's send went (`hand`, at `at`): its own refusal is lifted, and the record knows a hand may send. True when it changed. */
+export function noteHandSent(record, hand, at) {
+  if (!isTime(at)) return false
+  let changed = false
+  if (!(isTime(record.handSentAt) && record.handSentAt >= at)) {
+    record.handSentAt = at
+    changed = true
+  }
+  if (typeof hand === 'string' && isTime(record.refusedHands?.[hand])) {
+    const { [hand]: _gone, ...rest } = record.refusedHands
+    record.refusedHands = rest
+    changed = true
+  }
+  return changed
+}
+
+/** B1271: whether the app refused this hand's sends and none of its own went since. */
+export const handRefused = (record, hand) => typeof hand === 'string' && isTime(record?.refusedHands?.[hand])
+
+/**
+ * Whether the daily probe is due: the refusal stands and PROBE_MS passed since it, and since the last probe. B1271: with `hand`, also for
+ * that hand alone while only its own refusal stands (PROBE_MS since its mark, and since its last probe, `probeBy`).
+ */
+export function probeDue(record, outbox, now, hand = null) {
+  if (!isTime(now)) return false
   const refused = sendsRefusedOf(record, outbox)
-  if (refused === null || !isTime(now)) return false
-  return now - Math.max(refused.since, isTime(record?.probeAt) ? record.probeAt : -Infinity) >= PROBE_MS
+  if (refused !== null) return now - Math.max(refused.since, isTime(record?.probeAt) ? record.probeAt : -Infinity) >= PROBE_MS
+  if (!handRefused(record, hand)) return false
+  const probed = record.probeBy?.[hand]
+  return now - Math.max(record.refusedHands[hand], isTime(probed) ? probed : -Infinity) >= PROBE_MS
 }
 
 /**
