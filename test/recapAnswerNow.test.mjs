@@ -203,6 +203,8 @@ test('the page: every ask held for the recap under a step has its answer form; t
   assert.equal(lookAnswerOf({ id: 'Q900', route: 'recap', asks: 'look', of: null, title: 'Open the recap and try it' }), null)
   assert.equal(lookAnswerOf({ ...Q829card, via: 'form' }), null)
   assert.equal(lookAnswerOf({ ...Q829card, route: 'main' }), null)
+  // One a row of the open recap names is judged there: its window stays read-only.
+  assert.equal(lookAnswerOf({ ...Q829card, inRecap: true }), null)
   // A kept look keeps its picks (G95's Q740).
   const kept = lookAnswerOf({ id: 'Q740', route: 'recap', asks: 'look', isKept: true, of: null, options: [option('A Thin'), option('B Wide'), option('C Both')] })
   assert.deepEqual([kept.kind, kept.options.map(one => one.label)], ['look', ['A Thin', 'B Wide', 'C Both']])

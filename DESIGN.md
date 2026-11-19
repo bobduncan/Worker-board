@@ -8225,7 +8225,8 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    **Answer it now** (B1270, F34, the person, 2026-11-19: "i need a agree or disagree button if u want my verdict, where am i supposed
    to do anything?"; the live G95 held Q817, the Accept card on B1205, and Q829, Worker 4's look on B1255, as links with no buttons
    while 4 of its 6 blocks were done, and the blocks' amber "Waits for your verdict" led there). Every open ask routed to the recap
-   under a step (not the goal's own recap ask, which has no step; not one of the app's form or a refine question) has its answer form
+   under a step (not the goal's own recap ask, which has no step; not one of the app's form or a refine question; not one whose step a
+   row of the open recap names and waits to judge, the state's `inRecap`: the row's verdict answers it) has its answer form
    in its window and its buttons on its row in "For your recap" (board.js `lookAnswerOf`, `recapRowAnswer`): an Accept card Accept /
    Send back (its own A or B line, `acceptPlan`), a look Looks right / Send back, a do Done, a decide its options, one button each;
    options that are the verdict themselves (a pair whose one sends back, `verdictOptionsOf`) are the two buttons, never picks beside

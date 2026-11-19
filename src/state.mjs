@@ -2789,7 +2789,10 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     return { ...told2, flags: [...flagsOf(lane.name), ...waits, ...told, ...back], effortRun: run, modRun, handover, heldAsk: heldAskOfLane(lane), ...statusFor(told2, { handover, modRun }) }
   })
   // Autopilot (2026-10-31): the open asks routed to the main chat or to a goal's recap (the recap card counts the second).
-  const routedAway = !workOk ? [] : routedAwayOf(raw.work, { names: chatNames, prefix })
+  // B1270 (F34): `inRecap` marks one whose step a row of the goal's recap names, waiting for its verdict: it is judged there, so its
+  // window keeps no answer form.
+  const recapRowSteps = new Set((recapWaits ?? []).filter(one => one?.verdict === null && typeof one.step === 'string').map(one => one.step))
+  const routedAway = !workOk ? [] : routedAwayOf(raw.work, { names: chatNames, prefix }).map(one => (recapRowSteps.has(one.of) ? { ...one, inRecap: true } : one))
   // 2026-11-01: the open asks that stand with the person, for the recap card (src/recapCard.mjs).
   const standingNow = standingAsksOf(new Map(itemsOf(raw.work).map(one => [one.head.get('Id'), one])), { autopilot: config.autopilot === true, now })
   // T17.1: the focus goal's recap while its next round is being made (src/recapCard.mjs `recapMakingOf`).

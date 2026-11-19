@@ -5027,8 +5027,9 @@ function lookAnswerOf(ask) {
   const isKept = ['look', 'do'].includes(ask.asks) && ask.isKept === true
   // B1270 (F34, the person, 2026-11-19: "i need a agree or disagree button if u want my verdict, where am i supposed to do anything?"):
   // every ask held for the recap under a step is answered here too, before the recap opens. Not the goal's own recap ask (no step: the
-  // recap is what it asks), nor one of the app's form or a refine question (answered elsewhere).
-  const isHeld = /^B\d+$/.test(ask.of ?? '') && ['look', 'do', 'decide'].includes(ask.asks) && !['form', 'refine'].includes(ask.via ?? '')
+  // recap is what it asks), nor one of the app's form or a refine question (answered elsewhere), nor one a row of the recap already
+  // names (`inRecap`: the recap is open for it, and its row's verdict answers it).
+  const isHeld = /^B\d+$/.test(ask.of ?? '') && ['look', 'do', 'decide'].includes(ask.asks) && !['form', 'refine'].includes(ask.via ?? '') && ask.inRecap !== true
   if (!isKept && !isHeld) return null
   const labels = (ask.options ?? []).filter(one => typeof one?.label === 'string' && one.label.trim() !== '').map(one => ({ label: one.label, isAdvised: one.isRecommended === true }))
   // Options that are the verdict themselves (an Accept card's, Q829's "A Good enough | B Under target, send back") are the two buttons.
@@ -17515,13 +17516,13 @@ function focusChipEl(text, tone, verdict = null, extra = '') {
 }
 
 /**
- * B1270 (F34): the calm chip's link of a block whose verdicts the recap holds: `{ ask }` opens that ask's window (`#details=`), where its
+ * B1270 (F34): the calm chip's link of a block whose verdicts the recap holds: `{ ask }` opens that ask's window (the ask-link), where its
  * buttons are; `{ recapAsks: true }` scrolls to the "For your recap" card, where each has its buttons.
  */
 function recapHeldLink(target, className, text) {
   if (typeof target?.ask === 'string' && target.ask !== '') {
-    const link = el('a', className, text)
-    link.href = `#details=${target.ask}`
+    // The board's one ask-link (targetLink), as every other id of the Focus page opens.
+    const link = targetLink(target, className, text)
     link.title = `Open ${target.ask}: answer it now, or leave it for the goal's recap`
     return link
   }
