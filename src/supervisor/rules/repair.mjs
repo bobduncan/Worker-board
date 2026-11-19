@@ -358,6 +358,9 @@ export const CLOSED_WAKE_MS = AGAIN_MS
  * what that path cannot: the closed worker closed longest (lanes with an off time first, then by name) was asked to
  * start CLOSED_WAKE_MS ago and still does not run: "B<n> waits; Worker <n> is closed and does not wake", for the main
  * chat, once. A worker paused for the limit (`suspended`) is `limit-back`'s, one holding a step `holder-not-running`'s.
+ * B1279 (X205): with the wake record the hand-out starts the worker through the one wake procedure (src/wake.mjs `wakeNeeds`,
+ * `byWake`) and sends no start word, so this rule finds none asked and files nothing: a worker the wake could not start is the
+ * wake notice's ("could not wake Worker 4: ...; open its chat"), the person's one line, and the hand-out passes it over.
  */
 function closedWorker(view) {
   const { items = new Map(), prefix = '', now, outbox = [], ready = [] } = view
