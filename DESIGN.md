@@ -8665,3 +8665,41 @@ src/carry/pictures.mjs) moves the pictures. The brief: `.claude/plans/2026-11-16
   dirty worktree refused unless --anyway, the planted key refused with its value never printed, origin ahead refused, a running board
   and a fresh lock refused for both). B2 and B3 are fakes of their contracts in these tests until their parts merge.
 - **Not in v1**: the board reading its data from the clone (after Wednesday), hourly saves, a Save button, rclone.
+
+## B1273 (F36a): an account switch costs nothing (2026-11-19, chat 3)
+
+The person: "I want to be able to switch accounts often". The Claude app keeps one chat list per account
+(`<app folder>\claude-code-sessions\<account>\<organisation>\local_*.json`); on the other account the board could not see or
+start its chats (11-05: every worker "Not running", wakes failed for good, a reimport kept a launch stub and archived Worker 2's
+real chat; 11-19: the app was on the other account until ~19:11 and the Advisor had to ask the person).
+
+- **The signal** (src/appAccount.mjs): the app writes the account it is signed in with to its own `config.json`,
+  `lastKnownAccountUuid` (11-19: the file's time matched the switch back, 19:12:04; the reimport-chats skill reads the same key).
+  Read at most every 5 s, before every store read. No file or no key: the board goes on as before (nothing is guessed).
+- **The board's account**: config.json's `appAccount` when set (to move the board to another account for good); else
+  `data/app-account.json`; else, the first time, the account whose folder holds the main chat's real file (no launch stub, not
+  archived, in the project folder) with the newest activity, recorded from then on. The board reads its chats in that account's
+  folders (appChats.mjs `readAppChats`, `listedWhere`: 'here' is that account), never in the newest folder while the app is away.
+- **The hold** (work/pause.mjs `awayOver`, `withAway`): while the app's account is not the board's, and for 60 s after it came
+  back (the app reads its list first), the store's pause reads `{ state: 'away' }`. `isHolding` holds for it as for a pause: no
+  hand-out (reconcile's `handOutHeld`, the hand-over pass by `heldPause`), no wake (`wakeNeeds`), no incident, no ask (every
+  `isHolding`). It is never written to pause.json and is no pause of the person's: the pause banner, safe-to-restart and the
+  resume go by 'pausing'/'resuming'; the person's own pause wins. The page shows one muted line, "The Claude app is on another
+  account: the board's chats wait; switch back and they go on."; the start-up check says only that line and fixes nothing.
+- **Finding the chats again**: while away, a board chat's real file that only the app's account holds (a chat the person made
+  there) is copied into the board's account's folder (`toImport`, `importMissing`, at most every minute): a new file only (flag
+  'wx'), never one written over, never an archived state changed, never a launch stub, nothing archived. The app reads that
+  account's list when the person switches back. `boardChats` keeps the real chat of a transcript over a newer launch stub (the
+  11-05 case: the stub had hidden the real chat). Back on the board's account the hold lifts and the wake loop wakes each chat
+  that holds a step or words, once, with its usual line; no wake was tried while away, so none failed for good.
+- **Moving the board for good** (chat 1's review): the away line has one button, "Run the board on this account": the app's
+  account becomes the board's, recorded in data/app-account.json as the person's (`by: 'person'`) and kept in memory at once; the
+  hold ends without the settle. A read of the app's config.json that finds no account while away (cut short, gone a moment) keeps
+  the last account known, and only a whole chat file is copied.
+- **Not verified live**: that the app shows a chat copied into an inactive account's folder at the next switch (the skill's own
+  copies needed an app restart because it wrote the ACTIVE account's folder). A copy that does not show costs nothing: the next
+  start-up check lists the chat as before.
+- **Tests**: test/appAccount.test.mjs (the signal, the board's account, the picture and its settle, the hold and the wake loop,
+  the 11-05 stub case, the 11-19 newest-folder case with the start-up check, the copy rules and the watch end to end);
+  test/appAccountBoard.test.mjs (the whole board on a made-up project with the app on the other account: one calm line, the
+  board's own chats, B738 handed to nobody; back on its account, B738 goes to Worker 4).

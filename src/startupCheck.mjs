@@ -7,6 +7,7 @@
 // `listedWhere`), the H1 texts (src/ownChat.mjs) and the C rule's bans (src/work/handover.mjs `bansOf`); nothing twice.
 
 import { listedWhere } from './appChats.mjs'
+import { AWAY_LINE } from './appAccount.mjs'
 import { OTHER_ACCOUNT_TAIL, RESTART_WHY, unjoinedOf, wakeIdsOf } from './ownChat.mjs'
 import { noteRun, noticeOf, pathsOf, ranSince, reopenSpells, wakeOf } from './wake.mjs'
 import { sameModel } from './work/effort.mjs'
@@ -98,7 +99,7 @@ function wakeOfChat(record, chat, paths = BOTH_PATHS) {
  *
  * `{ now, accounts, signedIn, lanes, newestRun, wakes, pause, ready, bans, incidents }`.
  */
-export function pictureOf({ now, trigger = 'start', triggerAt = null, tooSlow = false, folders = [], lanes = [], reports = {}, wakes = null, pause = null, ready = [], envelopes = {}, incidents = [], asks = [] }) {
+export function pictureOf({ now, trigger = 'start', triggerAt = null, tooSlow = false, folders = [], lanes = [], reports = {}, wakes = null, pause = null, ready = [], envelopes = {}, incidents = [], asks = [], account = null }) {
   const newest = Math.max(0, ...folders.map(folder => folder.at))
   const withReport = lanes.map(lane => {
     const report = reports?.[lane.name] ?? null
@@ -114,7 +115,8 @@ export function pictureOf({ now, trigger = 'start', triggerAt = null, tooSlow = 
         others: lanes.filter(other => other.name !== lane.name).flatMap(other => [other.cliSession, ...(other.cliSessions ?? []), reports?.[other.name]?.session]).filter(Boolean),
       }),
       // Review 1 (3): a read that took too long knows nothing of the listing.
-      listedWhere: tooSlow === true ? 'unknown' : listedWhere(lane.appSession, folders),
+      // B1273: 'here' is the board's Claude account when known (src/appAccount.mjs), else the newest folder.
+      listedWhere: tooSlow === true ? 'unknown' : listedWhere(lane.appSession, folders, { account: account?.board ?? null }),
       // When its file in the folder in use was last active (the app writes it): older than a wake's "not found" means the app has not read it yet.
       fileAt: folders.find(folder => folder.at === newest && folder.chats.has(lane.appSession))?.chats.get(lane.appSession).lastActivityAt ?? null,
     }
@@ -131,9 +133,10 @@ export function pictureOf({ now, trigger = 'start', triggerAt = null, tooSlow = 
     trigger,
     triggerAt: isTime(triggerAt) ? triggerAt : null,
     tooSlow: tooSlow === true,
-    accounts: folders.map(folder => ({ account: folder.account, org: folder.org ?? null, at: folder.at, ids: [...folder.ids], isSignedIn: folder.at === newest })),
+    // B1273: the account the app is signed in with is known from its config.json (src/appAccount.mjs); else the newest folder.
+    accounts: folders.map(folder => ({ account: folder.account, org: folder.org ?? null, at: folder.at, ids: [...folder.ids], isSignedIn: typeof account?.app === 'string' ? folder.account.toLowerCase() === account.app : folder.at === newest })),
     // The app does not mark the account in use: the folder with the newest activity counts, said as such in the line.
-    signedIn: folders.filter(folder => folder.at === newest).map(folder => folder.account),
+    signedIn: typeof account?.app === 'string' ? [account.app] : folders.filter(folder => folder.at === newest).map(folder => folder.account),
     lanes: withReport,
     newestRun,
     proofAt: proofs.length === 0 ? null : Math.max(...proofs),
@@ -175,6 +178,13 @@ export function namesOf(names, possessive = false) {
  */
 export function judge(picture) {
   const { now } = picture
+  // B1273: while the Claude app is on another account the board holds by itself: nothing here is a finding, nothing is fixed.
+  if (picture.pause?.state === 'away') {
+    return {
+      at: now, trigger: picture.trigger ?? 'start', total: picture.lanes.length, reachable: null, line: AWAY_LINE, tone: 'quiet', fixed: [], elsewhere: [], restartNeeded: [], notJoined: [], nowhere: [], tooSlow: false,
+      actions: { noteRun: null, reopen: [], noticeClears: [], banDrops: [], withdrawAsks: [], closeIncidents: [] },
+    }
+  }
   const elsewhere = []
   const nowhere = []
   const restartNeeded = []

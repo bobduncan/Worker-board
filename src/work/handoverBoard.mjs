@@ -85,6 +85,12 @@ const stopsOf = (sent, name) => (sent ?? []).filter(one => (one?.command === 'st
  * The facts of one worker's decision, out of the state, a fresh read of the store and the outbox. Signals change 4: `wakes`
  * the server's wake facts (`{ record, senderClaims, canLaunch }`, src/wake.mjs), or null where none is kept.
  */
+/**
+ * B1273: the pause the hand-over goes by: the store's (pause.json), or the board's own hold while the Claude app is on another
+ * account, which the state carries (`state.pause.state === 'away'`, pause.mjs `awayOver`): this pass reads the store itself.
+ */
+export const heldPause = (read, state) => (state?.pause?.state === 'away' ? state.pause : read?.pause ?? null)
+
 export function factsOf({ lane, state, items, pause, sent, config, installed = null, now, event, localOnly = new Set(), wakes = null, landing = null, landings = [] }) {
   const prefix = state.chatPrefix ?? ''
   return {
@@ -249,7 +255,7 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
   } catch {
     landings = []
   }
-  const facts = factsOf({ lane, state, items: read.items, pause: read.pause ?? null, sent, config, installed, now, event, localOnly, wakes, landing, landings })
+  const facts = factsOf({ lane, state, items: read.items, pause: heldPause(read, state), sent, config, installed, now, event, localOnly, wakes, landing, landings })
   let decision = decide(facts)
   // Signals change 3: the give-back of a holder that did not go on (giveBack.mjs, the work API's give-back path). Its
   // waiting "go on" line is closed only once the step went back: a refused give-back changes nothing.
@@ -270,7 +276,7 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
     refused.add(decision.give)
     // Decided again without it: the take-back above is done, so it is not taken back twice.
     const again = await readStore(dir, fs)
-    decision = { ...decide({ ...factsOf({ lane, state, items: again.items, pause: again.pause ?? null, sent: outbox.outbox(), config, installed, now, event, localOnly, wakes }), ready: facts.ready.filter(one => !refused.has(one.id)) }), takeBack: decision.takeBack }
+    decision = { ...decide({ ...factsOf({ lane, state, items: again.items, pause: heldPause(again, state), sent: outbox.outbox(), config, installed, now, event, localOnly, wakes }), ready: facts.ready.filter(one => !refused.has(one.id)) }), takeBack: decision.takeBack }
     if (decision.give === null) break
   }
   if (decision.give !== null && refused.has(decision.give)) decision = { ...decision, give: null, envelope: null }

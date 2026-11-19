@@ -290,7 +290,8 @@ and the briefings for the main chat and the workers.
 work is merged into, "main" unless set), `runGame` (the command that starts a working folder's game, a list of
 words with `{folder}`, `{port}`, `{idle}`, `{grace}`, `{cache}`, `{node}` and `{board}` filled in; it prints
 `ready <port>` once the game is served and ends by itself when nobody looks; `examples\config.json` has the one for
-a Vite game, `run-game.mjs`; none unless set), `appSessions` (the app's list of chats), `transcripts`,
+a Vite game, `run-game.mjs`; none unless set), `appSessions` (the app's list of chats), `appAccount` (B1273: the Claude
+account the board's chats live in, the id of its folder there; found by the main chat and recorded unless set), `transcripts`,
 `port` (4310 unless set), `refreshSeconds`, `advisor` (the name of the advisor chat, "Advisor" unless set),
 `pictureRoots` (the folders of `<project>` whose pictures the board shows, `["pictures"]` unless set; the first is
 the project's own picture folder, where the board keeps the pictures pasted into Talk to Main, under `talk`) and the times

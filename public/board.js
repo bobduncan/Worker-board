@@ -2544,6 +2544,9 @@ function pauseRing(pause) {
  */
 function pauseLines(pause) {
   if (pause === null || pause === undefined || pause.state === 'pausing') return []
+  // B1273: the Claude app is on another account: one calm line, nothing for the person but switching back.
+  // The review: with one button, for a deliberate move of the board to this account (the app's account becomes the board's).
+  if (pause.state === 'away') return [{ tone: 'muted', text: pause.line ?? 'The Claude app is on another account: the board\'s chats wait; switch back and they go on.', button: { label: pause.take ?? 'Run the board on this account', action: 'take-account' } }]
   if (pause.state === 'running') return (pause.notStarted ?? []).map(one => ({ tone: 'muted', text: `${one.chat} did not start after the resume: ${one.ids.join(', ')}.` }))
   const until = Number.isFinite(pause.until) ? ` The board goes on without waiting at ${clock(pause.until)}.` : ''
   const lines = [{ tone: '', text: pause.waiting.length === 0 ? `Resuming since ${clock(pause.since)}: every chat that holds a step has started again.` : `Resuming since ${clock(pause.since)}: not started yet: ${pause.waiting.map(one => `${one.chat} (${one.ids.join(', ')})`).join(', ')}.${until}` }]
@@ -2614,7 +2617,8 @@ function drawRestart(state) {
   }
   // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
   const down = restart.notRunning ?? []
-  const isAtHand = restart.off !== null || restart.interrupted.length > 0 || (pause !== null && pause.state !== 'running')
+  // B1273: while the app is on another account nothing here is at hand: its one line says all.
+  const isAtHand = pause?.state !== 'away' && (restart.off !== null || restart.interrupted.length > 0 || (pause !== null && pause.state !== 'running'))
   if (isAtHand && down.includes(restart.main)) parts.push(line('alert', `${restart.main} is not running: open its chat first, the buttons here type into it.`))
   // B364: while pausing the ring names who does not run; this line is for a restart and a resume.
   if (isAtHand && pause?.state !== 'pausing' && down.some(name => name !== restart.main)) {
@@ -2636,6 +2640,13 @@ function drawRestart(state) {
   }
   // Pause and resume: the pause's own lines, with Resume all while pausing.
   for (const one of pauseLines(pause)) {
+    // B1273: a line with a button of its own (the away line's "Run the board on this account").
+    if (one.button !== undefined) {
+      const row = el('div', 'restart-ask')
+      row.append(line(one.tone, one.text), button(one.button.label, 'is-quiet', one.button.action))
+      parts.push(row)
+      continue
+    }
     if (one.link === undefined) {
       parts.push(line(one.tone, one.text))
       continue
@@ -3311,6 +3322,7 @@ function lastNotHandedOut(detail, state) {
   const one = ids.length === 1
   const reason = state.pause?.state === 'pausing' ? `the pause holds ${one ? 'it' : 'them'}; ${one ? 'it goes' : 'they go'} out after Resume all`
     : state.pause?.state === 'resuming' ? 'the hand-out is held while the resume goes on'
+      : state.pause?.state === 'away' ? 'the Claude app is on another account; it goes out when you switch back'
       : 'the hand-out is held while a usage limit is full'
   return `${ids.join(', ')} ${one ? 'is' : 'are'} not handed out yet: ${reason}.`
 }
@@ -7257,6 +7269,8 @@ $('restart').addEventListener('click', event => {
   if (button.dataset.restart === 'pause-all') return sendWork({ action: 'pause-all' }, 'restart')
   if (button.dataset.restart === 'resume') return sendWork({ action: 'resume-all' }, 'restart')
   if (button.dataset.restart === 'end-resume') return sendWork({ action: 'end-resume' }, 'restart')
+  // B1273: the away line's button: the board runs on the app's account from now on.
+  if (button.dataset.restart === 'take-account') return sendWork({ action: 'take-account' }, 'restart')
   // B315: the word that was only copied, on the clipboard again.
   if (button.dataset.restart === 'copy') {
     const words = board.restart.copied?.text ?? ''
