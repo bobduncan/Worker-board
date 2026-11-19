@@ -8717,6 +8717,13 @@ words as 'copied', put them on the clipboard with a bar on top ("paste with Ctrl
 - `bridge.isMissing` stays as the board's knowledge: the grey line, the supervisor's "no Workers mod takes the board's words" and the
   wake spell (wake.mjs) read it. test/copyModeGone.test.mjs keeps the mode gone (no word written as copied, no paste text, no paste
   bar or paste answer).
+- **The probe (Workers mod 0.34.0)**, on chat 1's conditions (observe only; never retried; never changed to get past the guard;
+  no guard setting touched; prompt.submit stays as it is until it answers): once per process the mod tells the board, on
+  `POST /api/bridge/probe`, that its prompt.submit, turn.start and session.append hooks ran, and for the person's prompt row
+  (`door: 'prompt'`, origin `composer`) whether its one comment beside the prompt (`PROBE_MARK`, an HTML comment) stood in the row as
+  stored ('stood', 'undone', or 'refused' when the call threw). The board keeps the records in data/mod-probe.json (the last 100),
+  with the Claude account the app is on (B1273). Chat 1 asks the person for one prompt on the work login once B1273 and 0.34.0 are
+  live; a missing record there means the guard skipped that hook.
 - **Second part, not built yet**: moving prompt.submit's job (B298's filing of the person's words and the one-shot words beside the
   prompt) to an event the company guard leaves alone. The engine describes the guard as keeping "prompt content" out of a person's
   mods; whether a session.append hook may rewrite a prompt row on the work login can only be seen there (a probe and one prompt).

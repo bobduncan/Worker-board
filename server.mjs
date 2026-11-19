@@ -122,6 +122,7 @@ import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { parseList, readAccountFolders } from './src/appChats.mjs'
 import { accountWatch } from './src/appAccount.mjs'
+import { keptProbes, probeEntry } from './src/modProbe.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
 import { stillTruePass } from './src/stillTrue.mjs'
@@ -300,6 +301,7 @@ export const POST_ROUTES = Object.freeze({
   '/api/bridge/typed': { kind: 'bridge', guard: 'lock' },
   '/api/bridge/report': { kind: 'bridge', guard: 'free', why: 'the chat\'s turn state, kept in memory only; the hand-out it wakes runs on the holder only' },
   '/api/bridge/whoami': { kind: 'bridge', guard: 'free', why: 'only reads: the name the board shows a session under and where its card is filed; it writes nothing' },
+  '/api/bridge/probe': { kind: 'bridge', guard: 'free', why: 'B1274: the Workers mod\'s probe, observe only: which of its hooks ran, kept in data/mod-probe.json alone' },
   '/api/design/reference': { kind: 'picture', guard: 'lock' },
   // B856: the Bugs tab: a screenshot waits in the picture folder's bugs/_new, and a report files a step with it.
   '/api/bugs/picture': { kind: 'picture', guard: 'lock' },
@@ -360,6 +362,7 @@ export function createBoard({
   bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   report = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   whoami = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  probe = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   hands = async () => ({ ok: false, status: 404, why: 'Not here.' }), handsDone = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   wakesDue = async () => ({ ok: false, status: 404, why: 'Not here.' }), wakesSent = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   design =async () => ({ ok: false, status: 404, why: 'Not here.' }), reference = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -451,7 +454,7 @@ export function createBoard({
       // The supervisor's Part 2: the Workers mod says its version in its header (X-Workers-Mod, since 0.16.0); null for
       // an older one. A body's own is not taken. Fix 0.31.0: on every route, the typed one too (bridge.mjs `withModHeader`).
       parsed = withModHeader(parsed, req.headers['x-workers-mod'])
-      const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : pathname === '/api/bridge/report' ? report : pathname === '/api/bridge/whoami' ? whoami
+      const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : pathname === '/api/bridge/report' ? report : pathname === '/api/bridge/whoami' ? whoami : pathname === '/api/bridge/probe' ? probe
         : pathname === '/api/bridge/hands' ? hands : pathname === '/api/bridge/hands-done' ? handsDone
           : pathname === '/api/bridge/wakes-due' ? wakesDue : pathname === '/api/bridge/wakes-sent' ? wakesSent : typed)(parsed)
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
@@ -4024,6 +4027,22 @@ async function main(args) {
     // id who it is: the name and role the board shows it under (the app's chat list, as a refused take names it), and the
     // session its card is filed under when that is another (a chat cleared in a new process). It reads and writes nothing;
     // it counts as a call of the mod (`seen`, its version), also for a session the board shows under no name.
+    // B1274: the Workers mod's probe (0.34.0), observe only: which of its hooks ran on the login in use and whether its one rewrite of
+    // a prompt row stood, kept in data/mod-probe.json (the last 100) with the Claude account the app is on (B1273) for chat 1's check.
+    probe: counted(async body => {
+      const entry = probeEntry(body, { at: clock(), account: account?.now()?.app ?? null })
+      if (entry === null) return { ok: false, status: 400, why: 'No probe record.' }
+      const file = join(HERE, 'data', 'mod-probe.json')
+      const text = await readFile(file, 'utf8').catch(absentAs('[]'))
+      let kept = []
+      try {
+        kept = JSON.parse(text)
+      } catch (error) {
+        loops.failed('mod-probe', error)
+      }
+      await writeAtomic(file, `${JSON.stringify(keptProbes(kept, entry), null, 2)}\n`)
+      return { ok: true, result: { kept: true } }
+    }),
     whoami: counted(async body => {
       const session = whoamiSession(body)
       let state = readState.last() ?? await readState()

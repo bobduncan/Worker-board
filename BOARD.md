@@ -24,7 +24,8 @@ by the Workers mod; without it the words wait, and one grey line says to run set
   `POST /api/game` (start or stop a game), `POST /api/design` and `/api/design/reference` (the Design tab), `POST /api/bugs` and `/api/bugs/picture` (the Bugs tab, B856),
   `POST /api/talk/picture` (a pasted picture), `POST /api/restart` (a new version), `POST /api/work` (the store;
   also `pause-all` and `resume-all`, which write `pause.json`), and for the Workers mod `POST /api/bridge/take`,
-  `/api/bridge/typed`, `/api/bridge/report`, `/api/bridge/whoami` (a chat's name, role and card by its session id) and
+  `/api/bridge/typed`, `/api/bridge/report`, `/api/bridge/whoami` (a chat's name, role and card by its session id),
+  `/api/bridge/probe` (B1274: which of the mod's hooks ran, observe only, data/mod-probe.json) and
   `/api/bridge/work` (the work tool; `pause-state` reads the pause). Every POST of the page
   needs its token and its own origin; the mod's need the bridge's key.
 - **The page** is `public/index.html`, `public/board.css` and `public/board.js` (no framework). It draws the state
