@@ -2624,14 +2624,6 @@ function drawRestart(state) {
   if (isAtHand && pause?.state !== 'pausing' && down.some(name => name !== restart.main)) {
     parts.push(line('', `Not running yet: ${down.filter(name => name !== restart.main).join(', ')}. "Resume all" tells ${restart.main} to start them; one that stays "not running" has to be opened by you.`))
   }
-  // B315: a word to the main chat that was only copied, because no chat ran to take it: said plainly, with the way to
-  // paste it, until the main chat has it.
-  const copied = restart.copied ?? null
-  if (copied !== null) {
-    const row = el('div', 'restart-ask')
-    row.append(line('alert', copiedLine(copied, { main: restart.main, isModThere: state.mod?.installed !== null })), button('Copy again', 'is-quiet', 'copy'), button('Dismiss', 'is-quiet', 'dismiss'))
-    parts.push(row)
-  }
 
   if (isAskingPause) {
     const ask = el('div', 'restart-ask')
@@ -2724,19 +2716,6 @@ function drawPauseRing(ring) {
   return box
 }
 
-// copied:start
-/**
- * B315: what the restart banner says of a word to the main chat that was only copied (`restart.copied`): that its chat
- * is not running yet, where to open it, that the word is on the clipboard, and the app's id for the chat when known.
- * `isModThere` false: no Workers mod is installed, so nothing would type it in even with the chat open.
- */
-function copiedLine(copied, { main, isModThere }) {
-  const id = typeof copied.session === 'string' && copied.session !== '' ? ` Its session id: ${copied.session}.` : ''
-  if (!isModThere) return `No Workers mod types it in for you: open ${copied.chat} in the app (or click it in the sidebar) and paste with Ctrl+V; the word is on your clipboard.${id}`
-  if (copied.isMainRunning === true) return `${main}'s chat runs now, but the word was only copied: paste it into ${copied.chat} with Ctrl+V; the word is on your clipboard.${id}`
-  return `${main}'s chat is not running yet: open ${copied.chat} in the app (or click it in the sidebar) and paste with Ctrl+V; the word is on your clipboard.${id}`
-}
-// copied:end
 
 // The lanes
 
@@ -3917,7 +3896,8 @@ document.addEventListener('click', event => {
 
 const COUNT_WORDS = { 2: 'two', 3: 'three' }
 /** B213: what changes when no Workers mod takes the board's words. */
-const WITHOUT_MOD = 'No Workers mod answers this board: what you send is copied for you to paste into the chat, the board cannot tell whether a chat runs, and a large worker is not compacted after its report.'
+// B1274: the copy-paste mode is gone: without the Workers mod the board's words wait, and this one grey line says what to do.
+const WITHOUT_MOD = "The Workers mod isn't running here: run setup (npm.cmd run setup) and restart the app."
 /** "one more worker", "three workers". */
 const workersWord = count => (count === 1 ? 'one more worker' : `${COUNT_WORDS[count] ?? count} workers`)
 
@@ -4635,8 +4615,6 @@ function syncLineOf(check, main) {
   if (check.answer !== null && check.answer !== undefined) return { tone: 'answer', text: `Sync check, ${clock(check.answer.at)}: ${check.answer.text}` }
   if (check.state === 'expired' || check.state === 'failed') return { tone: 'problem', text: `The sync check of ${clock(check.at)} did not reach ${main}: open its chat, then ask again.` }
   if (check.isOpen && (check.state === 'waiting' || check.state === 'taken')) return { tone: 'asked', text: `Check now, ${clock(check.at)}: on its way to ${main}.` }
-  // The review: no Workers mod took the word; it was put on the clipboard for the person to paste.
-  if (check.isOpen && check.state === 'copied') return { tone: 'asked', text: `Check now, ${clock(check.at)}: paste it into ${main}'s chat; then it checks and answers here.` }
   if (check.isOpen) return { tone: 'asked', text: `Check now, ${clock(check.at)}: ${main} checks it and answers here.` }
   return { tone: 'problem', text: `Check now, ${clock(check.at)}: no answer from ${main} yet; you can ask again.` }
 }
@@ -7271,17 +7249,6 @@ $('restart').addEventListener('click', event => {
   if (button.dataset.restart === 'end-resume') return sendWork({ action: 'end-resume' }, 'restart')
   // B1273: the away line's button: the board runs on the app's account from now on.
   if (button.dataset.restart === 'take-account') return sendWork({ action: 'take-account' }, 'restart')
-  // B315: the word that was only copied, on the clipboard again.
-  if (button.dataset.restart === 'copy') {
-    const words = board.restart.copied?.text ?? ''
-    navigator.clipboard.writeText(words).then(() => { button.textContent = 'Copied' }, () => { button.textContent = 'Not copied' })
-    return
-  }
-  // The copied word no longer needs pasting: the board keeps it dismissed.
-  if (button.dataset.restart === 'dismiss') {
-    if (board.restart.copied != null) send({ command: 'dismiss copied', id: board.restart.copied.id }, 'restart')
-    return
-  }
   send({ to: board.restart.main, command: button.dataset.restart }, 'restart')
 })
 // "Ask the main chat to start it", wherever it stands: on a card, in the details, on the advisor's tab.
@@ -13808,9 +13775,7 @@ async function goalsLink(target) {
 
 /** B358: what a tick on the Goals part did when it did not tick at once: the partner's re-check asked, or an overturn. */
 function goalTickSaid(result) {
-  // The review: without the Workers mod the word is put on the clipboard to paste, as every word to the partner.
-  showPaste(result?.paste ?? null)
-  const copied = result?.paste ? ' Copied: paste it into your partner’s chat.' : ''
+  const copied = ''
   // P4b: the re-check's wait is the word's own line (under the goal): no "Sent..." note; only what the person must do, and the paste.
   if (result?.recheck === 'asked') { if (copied !== '') goalsSay(copied.trim(), 'ok') }
   else if (result?.recheck === 'asked again') goalsSay(`Click again to tick it without the re-check.${copied}`, 'ok')
@@ -15673,14 +15638,7 @@ $('goals-frame').addEventListener('click', event => {
   if (tool === 'brainstorm') return openBrainstorm(focus)
   if (tool === 'change') return openChangeGoal(focus)
   // B354: the partner is asked to write the goal's Done when; the map itself is not changed.
-  // The review: without the Workers mod the word is put on the clipboard to paste, as every word to the partner.
-  if (tool === 'done-when') {
-    return sendGoals({ command: 'done-when', id: focus }).then(done => {
-      if (done === null) return
-      showPaste(done.paste ?? null)
-      if (done.paste) goalsSay('Copied: paste it into your partner\'s chat.', 'ok')
-    })
-  }
+  if (tool === 'done-when') return sendGoals({ command: 'done-when', id: focus }).then(() => {})
   const node = board?.goals ? goalById(board.goals, focus) : null
   if (tool === 'delete' || tool === 'dissolve') {
     if (!isConfirmed(tool, focus)) {
@@ -18961,7 +18919,6 @@ async function visionSend(url, body, done) {
       const given = await answer.json().catch(() => null)
       const note = typeof given?.note === 'string' ? given.note : done
       visionUi.note = note === '' ? null : { isProblem: false, text: note }
-      showPaste(given?.paste ?? null)
     } else visionUi.note = { isProblem: true, text: `Not done: ${(await answer.text()).trim() || `refused (${answer.status})`}` }
   } catch {
     visionUi.note = { isProblem: true, text: 'Not done: the board\'s server does not answer.' }
@@ -19586,7 +19543,6 @@ async function sendFocus(body, done) {
       result = await answer.json()
       // P4b: a word's wait line is its one status: a click that sends a word passes no "Sent..." note.
       focusUi.note = result.unchanged === true ? { isProblem: false, text: 'That was done already.' } : done === '' ? null : { isProblem: false, text: done }
-      showPaste(result.paste ?? null)
     } else focusUi.note = { isProblem: true, text: `Not done: ${(await answer.text()).trim() || `refused (${answer.status})`}` }
   } catch {
     focusUi.note = { isProblem: true, text: 'Not done: the board\'s server does not answer.' }
@@ -19700,7 +19656,6 @@ async function focusAnswerAsk(id, label) {
     const answer = await fetch('/api/work', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ action: 'answer', id, text: label }) })
     if (answer.ok) {
       focusUi.note = { isProblem: false, text: `Answered: ${label}. Your partner is told.` }
-      showPaste((await answer.json().catch(() => null))?.paste ?? null)
     } else focusUi.note = { isProblem: true, text: `Not answered: ${(await answer.text()).trim() || `refused (${answer.status})`}` }
   } catch {
     focusUi.note = { isProblem: true, text: 'Not answered: the board\'s server does not answer.' }
@@ -23741,7 +23696,6 @@ async function clickCall(route, body, key, again = false) {
       return answer.status === 409 && isClash(why) && !again ? clickCall(route, body, key, true) : { result: null, problem: why }
     }
     const result = await answer.json()
-    showPaste(result?.paste ?? null)
     return { result, problem: null }
   } catch {
     return { result: null, problem: 'the board\'s server does not answer.' }
@@ -23772,8 +23726,6 @@ async function retryClickOf(click, route) {
   try {
     const answer = await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(route === '/api/backlog' ? { action: 'click-retry', click } : { command: 'click-retry', click }) })
     done = answer.ok ? { ok: true, status: answer.status, result: await answer.json().catch(() => null), text: '' } : { ok: false, status: answer.status, result: null, text: (await answer.text()).trim() }
-    // B212: without a Workers mod the retried word is on the clipboard, as the first send's is.
-    if (done.ok) showPaste(done.result?.paste ?? null)
   } catch {
     // The record stands with its Retry: the next read draws it.
   }
@@ -23810,8 +23762,6 @@ async function send(message, id, via = null, isRetried = false) {
       // The same click id with another input: sent once more under a new id.
       if (answer.status === 409 && isClash(problem) && via !== null && !isRetried) return send(message, id, via, true)
     }
-    // B212: no Workers mod takes the board's words: they are on the clipboard, to be pasted into the chat.
-    else showPaste((await answer.json().catch(() => null))?.paste ?? null)
   } catch {
     problem = 'the board\'s server does not answer'
   }
@@ -23860,7 +23810,6 @@ async function sendWork(body, key, { reread = true } = {}) {
       signal: stop.signal,
     })
     if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
-    else showPaste((await answer.json().catch(() => null))?.paste ?? null)
   } catch (error) {
     problem = stop.signal.aborted ? `the board did not answer within ${WORK_WAIT_MS / 1000} s (it may be restarting); try again`
       : error instanceof TypeError && /fetch/i.test(error.message) ? 'the board\'s server does not answer'
@@ -23879,49 +23828,6 @@ async function sendWork(body, key, { reread = true } = {}) {
   return problem
 }
 // sendwork:end
-
-// paste:start
-/** B212: the line on top that says the words were copied, and into which chat to paste them. */
-function pasteLine(paste, isCopied, isModThere = false) {
-  // B315: with the Workers mod installed, words are only copied while no chat runs to take them.
-  const why = isModThere ? 'Its chat is not running yet, so nothing types it in for you.' : 'No Workers mod types it in for you.'
-  return isCopied
-    ? `Copied for you: open the chat "${paste.chat}" in the Claude app and paste it there (Ctrl+V). ${why}`
-    : `Not copied by itself: click Copy, then open the chat "${paste.chat}" in the Claude app and paste it there.`
-}
-// paste:end
-
-let pasting = null
-
-async function copyPaste() {
-  try {
-    await navigator.clipboard.writeText(pasting.text)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** B212: puts the words on the clipboard and says so in a bar on top, with Copy (again) and close. */
-async function showPaste(paste) {
-  if (paste === null || typeof paste?.text !== 'string') return
-  pasting = paste
-  let bar = document.querySelector('.paste-note')
-  if (bar === null) {
-    bar = el('div', 'paste-note')
-    bar.setAttribute('role', 'status')
-    document.body.append(bar)
-  }
-  const isCopied = await copyPaste()
-  const copy = el('button', 'paste-copy', 'Copy')
-  copy.type = 'button'
-  copy.addEventListener('click', async () => { copy.textContent = (await copyPaste()) ? 'Copied' : 'Copy failed' })
-  const close = el('button', 'paste-close', '×')
-  close.type = 'button'
-  close.setAttribute('aria-label', 'Close')
-  close.addEventListener('click', () => bar.remove())
-  bar.replaceChildren(el('span', '', pasteLine(paste, isCopied, typeof board?.mod?.installed === 'string')), copy, close)
-}
 
 /**
  * Starts the game of a request's branch and shows it in a new tab, or stops it. The tab is opened with the click

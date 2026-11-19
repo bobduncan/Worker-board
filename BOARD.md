@@ -10,7 +10,7 @@ shares with the chats are in `roles/protocol.md` and are not repeated here. The 
 One page on the person's own PC for a project in which several Claude chats work together: one main chat hands out
 the tasks, worker chats do them, an Advisor chat advises. The page shows who works on what, what waits for the
 person, and lets the person answer, talk to the main chat, and plan. Every answer is typed into the chat it is for
-(by the Workers mod) or copied for the person to paste (without it).
+by the Workers mod; without it the words wait, and one grey line says to run setup and restart the app (B1274).
 
 ## How it is built
 
@@ -96,8 +96,8 @@ routines for Worker 4, 5" while some are missing); while one of them could help,
 version and since when, and a refresh button. The line at the top says Running, Slow, Off since or Restarting from the board's own clock (DESIGN.md, "The board's own banner"). When the board's folder holds a newer version, a
 yellow note on top says so; a click starts the new version. When a data file of the board was torn (by a restart or a
 power cut) and could not be read at its start, a red note on top names it and the copy it was kept aside as
-(`<name>.broken-<time>`, B406): the board started without it. Without the Workers mod a bar on top says that what the
-person sent was copied, and into which chat to paste it. At the far right a round **?** opens the help tour (below).
+(`<name>.broken-<time>`, B406): the board started without it. Without the Workers mod one grey line under the lanes
+says "The Workers mod isn't running here: run setup (npm.cmd run setup) and restart the app." At the far right a round **?** opens the help tour (below).
 
 ## The help tour (B348)
 

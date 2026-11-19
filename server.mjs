@@ -1070,8 +1070,8 @@ async function main(args) {
    * Focus 2 (spec 2026-10-18, sections 3 and 6): a move of the Focus page, or a draft of the partner's (the page's route,
    * or the work tool's definition-draft and how-draft through the work API), written into the
    * goal map (src/focus.mjs); the person's word to the partner goes into the outbox as every other board word, the
-   * partner woken through the main chat when its chat is not running (Review Focus 5). Without the Workers mod it is
-   * kept as copied and the page puts it on the clipboard.
+   * partner woken through the main chat when its chat is not running (Review Focus 5). B1274: without the Workers mod it
+   * waits, as a word to a chat that is not running (the copy-paste mode is gone).
    */
   /**
    * 2026-10-24: a move of the Vision tab, a word to the partner on the plan's own way: checked (src/planMoves.mjs) and
@@ -1129,23 +1129,21 @@ async function main(args) {
     const main = state.restart?.main ?? null
     if (back !== null && main !== null) {
       const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: 'usual', why: back, forModel: setsRefusedOf(store.outbox(), clock()) })
-      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' }
-      // Review: copied, it keeps its words as pasted, with the board's mark, as every copied word (the restart banner).
-      await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
+      // B1274: it waits, also without the Workers mod (the copy-paste mode is gone).
+      await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...words, state: 'waiting' })
     }
     return toPartner(done.words, done.result, state)
   }
   /**
-   * B352, B359: a word to the main chat to set the partner's mode, unless it runs on that mode already: copied without the
-   * Workers mod, as every board word. 2026-10-24: mode fable only with `yes`, the guard's ask the person answered A
+   * B352, B359: a word to the main chat to set the partner's mode, unless it runs on that mode already: it waits as every
+   * board word. 2026-10-24: mode fable only with `yes`, the guard's ask the person answered A
    * (partnerEffortWords refuses it otherwise).
    */
   const partnerMode = async (state, mode, why, yes = null) => {
     const main = state.restart?.main ?? null
     if (main === null || (state.advisor ?? null) === null || (state.advisor.effort?.mode ?? 'usual') === mode) return
     const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode, why, yes, forModel: setsRefusedOf(store.outbox(), clock()) })
-    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' }
-    await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
+    await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...words, state: 'waiting' })
   }
   /**
    * 2026-10-24: the partner's mode while the guard's evaluations run (src/focus.mjs `evaluationsMode`): Fable only when
@@ -1573,13 +1571,11 @@ async function main(args) {
     demoTurn = turn.then(() => undefined, error => { console.error(`The goal demo's feedback failed: ${error?.message ?? error}`) })
     return turn
   }
-  /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
+  /** Focus 2: the person's word to the partner into the outbox (B1274: it waits, also without the Workers mod); a partner not running is woken. */
   const toPartner = async (words, result, state) => {
-    const isCopied = state.bridge?.isMissing === true
-    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
+    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: 'waiting' }
     await store.say(message)
     readState.reset()
-    if (isCopied) return { ok: true, result: { ...result, said: message.id, paste: { text: messageText(message, timeOf), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
     // Signals change 4: a partner that does not run is woken by the wake procedure (src/wake.mjs), no start word.
     return { ok: true, result: { ...result, said: message.id } }
   }
@@ -1749,14 +1745,13 @@ async function main(args) {
    * B299: the chats an action on the store wakes (`wake`, `wakeOwner`): the chat that asked, with the answer to its ask
    * (bridge.mjs, as the person's answer reads), and the owner of the step the answer frees. Partner answers (2026-10-19):
    * also from the work tool (the partner's answer), and a line of its own (`line`: the person took a partner's answer
-   * back). Only to a chat the board shows; copied without the Workers mod. What to paste, or null.
+   * back). Only to a chat the board shows (B1274: the words wait, also without the Workers mod). Whether a word went.
    */
-  const sendWakes = async done => (await sendWakesWith(done)).paste
+  const sendWakes = async done => (await sendWakesWith(done)).said
   /** The same, with whether a word went (`said`): the asset queue's `tell` tells again at its next pass when none did (the A245 case). */
   const sendWakesWith = async done => {
     // Rule 15: and `wakes`, a word to each asking chat whose ask the person's words held (work `words`), or whose hold ended.
     const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null, ...(done.result.wakes ?? [])].filter(one => one !== null) : []
-    let paste = null
     // The state is read once per call and reset once after the last word (the person's words on a goal wake several chats at once: a
     // read and a reset per word made each of them wait for a whole new reading of the board).
     const state = wakes.length === 0 || isShowOnly ? null : await readState()
@@ -1764,15 +1759,12 @@ async function main(args) {
     for (const wake of state === null ? [] : wakes) {
       const shown = shownChats(state).some(chat => chat.name === wake.to)
       if (!shown) continue
-      const isCopied = state.bridge?.isMissing === true
       const words = typeof wake.line === 'string' ? { ...workWords(wake.to, wake.id, wake.line), kind: wake.kind ?? 'taken-back' } : answerWords(wake)
-      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
-      await store.say(message)
+      await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...words, state: 'waiting' })
       said = true
-      if (isCopied) paste ??= { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
     }
     if (said) readState.reset()
-    return { paste, said }
+    return { said }
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
   // B736 (X89): `kept`, the state the board has however old, for a read that must answer at once (work health).
@@ -3372,12 +3364,12 @@ async function main(args) {
         return clicks.once(click, async () => {
           const before = await clicks.get(click)
           if (before !== null && typeof before.hash === 'string' && before.hash !== bodyHash(body)) return CLASH
-          if (before !== null && typeof before.word === 'string') return { ok: true, message: { id: before.word, again: true, ...(before.paste === undefined ? {} : { paste: before.paste }) } }
+          if (before !== null && typeof before.word === 'string') return { ok: true, message: { id: before.word, again: true } }
           const via = ['talk-send', 'main-talk-send', 'recheck', 'nudge', 'ask-pictures', 'recommend'].includes(body.via) ? body.via : 'say'
           // Reactive board, brief P4c: a free message of the person (no command) keeps its kind on its word, so its line is drawn where its button was.
           const done = await sayNow({ ...body, click: undefined, via: undefined, free: FREE_OF_VIA[body.via], freeAbout: typeof body.freeAbout === 'string' ? body.freeAbout.slice(0, 120) : undefined })
           if (done.ok && typeof done.message?.id === 'string') {
-            await clicks.put({ click, via, key: null, route: null, hash: bodyHash(body), at: clock(), word: done.message.id, ...(done.message.paste === undefined ? {} : { paste: done.message.paste }) })
+            await clicks.put({ click, via, key: null, route: null, hash: bodyHash(body), at: clock(), word: done.message.id })
             if (logClick !== null) await logClick({ via, action: 'say', id: null, click })
           }
           return done
@@ -3419,9 +3411,7 @@ async function main(args) {
       for (const path of checked.message.pictures ?? []) {
         if (!(await stat(inProject(config.project, path)).then(file => file.isFile(), () => false))) return { ok: false, status: 409, why: 'A picture of the ask is not there any more: paste it again.' }
       }
-      // B212: without a Workers mod nothing takes the board's words: they are kept as copied, and the page puts them on
-      // the clipboard for the person to paste into the chat, marked as typed on the board.
-      const isCopied = state.bridge?.isMissing === true
+      // B1274: without a Workers mod the words wait, as for a chat that is not running (the copy-paste mode of B212 is gone).
       // B285: a queue ask for a step that is not refined yet waits on the board until it is (refineGate.mjs).
       // B288: the words of a re-check of the goals name the board's folder and the project's settings. A second ask
       // made before the first was written down (a double click) finds the first in the store and is refused.
@@ -3429,7 +3419,7 @@ async function main(args) {
       if (checked.message.command === 'recheck' && store.outbox().some(isRound)) return { ok: false, status: 409, why: 'A round runs: wait until the Advisor has finished it.' }
       const words = checked.message.command === 'recheck' ? { text: recheckText({ board: HERE, config }) } : {}
       const isFree = (checked.message.command ?? null) === null && (checked.message.ask ?? null) === null && FREE_KINDS.includes(body.free)
-      let message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, ...words, ...(isFree ? { free: body.free, ...(typeof body.freeAbout === 'string' && body.freeAbout !== '' ? { freeAbout: body.freeAbout } : {}) } : {}), state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
+      let message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, ...words, ...(isFree ? { free: body.free, ...(typeof body.freeAbout === 'string' && body.freeAbout !== '' ? { freeAbout: body.freeAbout } : {}) } : {}), state: checked.message.held === true ? 'held' : 'waiting' }
       // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
       const ticked = await settle(message, state)
       if (ticked !== null) {
@@ -3446,15 +3436,7 @@ async function main(args) {
         const isOff = message.command === 'remove' && (state.chats ?? []).some(lane => lane.name === message.about && lane.isRunning === false)
         if (isNew || isOff) message = { ...message, byCode: true }
       }
-      // B315: the words as they were copied are kept with them, so the restart banner can copy them again and tell when
-      // the main chat has them.
-      if (isCopied) message = { ...message, pasteText: messageText(message, timeOf, path => inProject(config.project, path)) }
       await store.say(message)
-      if (isCopied) {
-        readState.reset()
-        const paste = { text: message.pasteText, chat: `${state.chatPrefix ?? ''}${message.to}` }
-        return { ok: true, message: { ...message, paste } }
-      }
       // Sent to a chat that is not running: signals change 4, the wake procedure wakes it (src/wake.mjs), no start word.
       // What was sent shows at once.
       readState.reset()
@@ -3658,8 +3640,7 @@ async function main(args) {
         return { ok: true, result: { ...done.result, typed: typed?.ok === true } }
       }
       // Focus 3, the review: and the owner of the step the answer frees, when another chat asked (`wakeOwner`).
-      const paste = await sendWakes(done)
-      if (paste !== null) return { ok: true, result: { ...done.result, paste } }
+      await sendWakes(done)
       return done
     },
     // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
@@ -4664,12 +4645,11 @@ async function main(args) {
         // supervisor's chat, an incident's word to the partner); the main chat is asked to start a chat that does not run.
         tell: async words => {
           const state = await readState()
-          const isCopied = state.bridge?.isMissing === true
-          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
-          await store.say(isCopied ? { ...message, pasteText: messageText(message, timeOf) } : message)
+          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: 'waiting' }
+          await store.say(message)
           readState.reset()
           // Signals change 4: a chat that does not run is woken by the wake procedure (src/wake.mjs), no start word.
-          return { ok: true, id: message.id, started: false, copied: isCopied }
+          return { ok: true, id: message.id, started: false, copied: false }
         },
         // Signals change 6 (B915 4b.1): the judge word's record says when the Supervisor's turn after it ended (`endedAt`).
         markWord: (id, fields) => store.update(id, fields),
