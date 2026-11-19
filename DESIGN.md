@@ -8222,6 +8222,22 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    `recapOpensWords`: "your recap of G95 opens when its 6 work blocks are done, 0 of 6 now"; once all are counted, "you judge it
    there" as before). Incidents that would show it failing: a lane on a step at work that waits for your recap of G<n>; a goal demo
    never asked while a part's last step sits at work with a recap ask.
+   **Answer it now** (B1270, F34, the person, 2026-11-19: "i need a agree or disagree button if u want my verdict, where am i supposed
+   to do anything?"; the live G95 held Q817, the Accept card on B1205, and Q829, Worker 4's look on B1255, as links with no buttons
+   while 4 of its 6 blocks were done, and the blocks' amber "Waits for your verdict" led there). Every open ask routed to the recap
+   under a step (not the goal's own recap ask, which has no step; not one of the app's form or a refine question) has its answer form
+   in its window and its buttons on its row in "For your recap" (board.js `lookAnswerOf`, `recapRowAnswer`): an Accept card Accept /
+   Send back (its own A or B line, `acceptPlan`), a look Looks right / Send back, a do Done, a decide its options, one button each;
+   options that are the verdict themselves (a pair whose one sends back, `verdictOptionsOf`) are the two buttons, never picks beside
+   them; Send back needs the note, so on the row it opens the window. The answer is the work action `answer`, which closes the ask as
+   the recap's answer would: the step's `Recap verdict: approved|sent back (Q<n>)` for every such ask, not only a kept look (api.mjs
+   `recapEarlyVerdict`: a verdict as given, a decide by its words or its card's reading), an Accept card's done or next try (B883),
+   the chat that asked woken; the recap then does not ask it again (`recapWaitIds` reads open asks only). A block whose verdicts are
+   all such asks (state.mjs `recapHeldOf`, the part's `recapHeld`: no recap part waits, nothing of its step stands with the person by
+   another route, its Accept card among them) is calm while the recap is not open: "2 for your recap · opens when 6 blocks are done, 4
+   now · or answer now →" (board.js `blockChipOf`, tone `recap-held`, the one ask's window or the "For your recap" card); amber again
+   once every block counts. Incidents that would show it failing: the person asking where to answer a held ask; an amber block chip
+   while only held asks wait and the recap is not open; a held ask answered early that the recap asks again.
 6. **Refine questions**: while on, a step's open refine questions with advice get it as their answer in the refine block
    (`answerRefine`, as "Take the advice"; History "autopilot: took the advice") and the board types the refine word; one
    without advice sends the refine back with the feedback "autopilot is on: decide it yourself and refine", once per step

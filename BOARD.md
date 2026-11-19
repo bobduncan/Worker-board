@@ -556,7 +556,11 @@ Undo."; Off, "Questions come to you as before."
   cards, one line each (its question, its picture, its step). Their steps read "Recap verdict: waits (Q<n>)" and count as
   done for asking the goal demo, whose words ask a row of their own for them; "Did we reach the goal?" then shows, lists
   them first, and its Yes waits until the recap's approve or send back of those rows answered them. With Autopilot off
-  they stand in Needs your attention again.
+  they stand in Needs your attention again. You need not wait for the recap (B1270, your words of 2026-11-19: "i need a agree or
+  disagree button"): each line has its buttons (Accept, Looks right or Done at once; a decide's own options; Send back opens its
+  window for your note), and its window has the same form. Answered there, it closes as the recap's answer would and the recap does
+  not ask it again. A work block whose verdicts are only such asks reads calm, "2 for your recap · opens when 6 blocks are done, 4
+  now · or answer now →", and turns the attention colour once the recap is open.
 - **Always yours** (Autopilot v2, the person's "B", 2026-11-02: "everything except the goal recap/verdict"): the goal's recap
   and its verdicts (a recap row's verdict and the focus goal's own re-check too), a goal's start (its goal definition, work
   blocks and Go; anything of a goal that is not the focus) and a switch of focus, under a step too, a goal's rebuild (your
@@ -573,5 +577,6 @@ Undo."; Off, "Questions come to you as before."
   Accept puts its step back in review and the card back with you (a project's own flow.json needs the move done → review by
   the person for it; without it the Undo says so and changes nothing).
 - **The task window** of an ask with the main chat or waiting for the recap names its route ("With the main chat
-  (Autopilot)", "For your recap (Autopilot)") and where it stands.
+  (Autopilot)", "For your recap (Autopilot)") and where it stands; one waiting for the recap under a step adds "you can answer it
+  here now" and its answer buttons (B1270).
 - The Focus page's switch "Your partner answers detail questions" reads "covered by Autopilot" while it is on.
