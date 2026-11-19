@@ -8746,3 +8746,27 @@ real chat; 11-19: the app was on the other account until ~19:11 and the Advisor 
   the 11-05 stub case, the 11-19 newest-folder case with the start-up check, the copy rules and the watch end to end);
   test/appAccountBoard.test.mjs (the whole board on a made-up project with the app on the other account: one calm line, the
   board's own chats, B738 handed to nobody; back on its account, B738 goes to Worker 4).
+
+## B1274 (F36b), first part: the copy-paste mode is gone (2026-11-19, chat 3)
+
+Without the Workers mod (`state.bridge.isMissing`: no mod has called the board since it started) the board used to write its
+words as 'copied', put them on the clipboard with a bar on top ("paste with Ctrl+V") and keep a banner row to copy them again
+(B212, B315). That second path is gone, on the person's yes in chat 1 ("yes, build F36 with the clean-up"):
+- every word is written 'waiting', also without the mod: it waits as for a chat that is not running, and goes out once a mod takes it;
+- the page has no paste bar, no "Copy again"/"Dismiss" row and no "paste it into ..." lines; under the lanes one grey line (tone
+  note, never amber) says "The Workers mod isn't running here: run setup (npm.cmd run setup) and restart the app.";
+- old outbox lines in the 'copied' state are still read as history (the readers in state.mjs, store.mjs, the supervisor and the
+  waits stay), and the server still takes "dismiss copied" for such a line; none is made any more;
+- `bridge.isMissing` stays as the board's knowledge: the grey line, the supervisor's "no Workers mod takes the board's words" and the
+  wake spell (wake.mjs) read it. test/copyModeGone.test.mjs keeps the mode gone (no word written as copied, no paste text, no paste
+  bar or paste answer).
+- **The probe (Workers mod 0.34.0)**, on chat 1's conditions (observe only; never retried; never changed to get past the guard;
+  no guard setting touched; prompt.submit stays as it is until it answers): once per process the mod tells the board, on
+  `POST /api/bridge/probe`, that its prompt.submit, turn.start and session.append hooks ran, and for the person's prompt row
+  (`door: 'prompt'`, origin `composer`) whether its one comment beside the prompt (`PROBE_MARK`, an HTML comment) stood in the row as
+  stored ('stood', 'undone', or 'refused' when the call threw). The board keeps the records in data/mod-probe.json (the last 100),
+  with the Claude account the app is on (B1273). Chat 1 asks the person for one prompt on the work login once B1273 and 0.34.0 are
+  live; a missing record there means the guard skipped that hook.
+- **Second part, not built yet**: moving prompt.submit's job (B298's filing of the person's words and the one-shot words beside the
+  prompt) to an event the company guard leaves alone. The engine describes the guard as keeping "prompt content" out of a person's
+  mods; whether a session.append hook may rewrite a prompt row on the work login can only be seen there (a probe and one prompt).

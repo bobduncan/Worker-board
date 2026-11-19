@@ -6,7 +6,6 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import vm from 'node:vm'
 
 import { parseConfig } from '../src/config.mjs'
 import { buildState } from './withStore.mjs'
@@ -36,10 +35,3 @@ test('copied words stay known: an answer keeps its request closed, a plain line 
   assert.deepEqual(outboxNow([answer, line, old], NOW, 10 * MIN).map(one => [one.id, one.state]), [['a', 'copied'], ['b', 'copied']])
 })
 
-test('the line on top says where to paste, and what to do when the browser did not copy', async () => {
-  const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
-  const page = {}
-  vm.runInNewContext(`${script.slice(script.indexOf('// paste:start'), script.indexOf('// paste:end'))}\nObject.assign(this, { pasteLine })`, page)
-  assert.match(page.pasteLine({ chat: 'Team - Lead' }, true), /^Copied for you: open the chat "Team - Lead" in the Claude app and paste it there \(Ctrl\+V\)\./)
-  assert.match(page.pasteLine({ chat: 'Team - Lead' }, false), /^Not copied by itself: click Copy, then open the chat "Team - Lead"/)
-})

@@ -34,7 +34,7 @@ function post(port, path, { type = 'application/json', body = '{}' } = {}) {
 async function board(why) {
   const did = []
   const answer = name => async () => { did.push(name); return { ok: true, result: {} } }
-  const names = ['take', 'typed', 'report', 'whoami', 'bridgeWork', 'reference', 'talkPicture', 'design', 'bugs', 'bugPicture', 'backlog', 'goals', 'plan', 'brainstorm', 'work', 'settings', 'game', 'cpu', 'newProject']
+  const names = ['take', 'typed', 'report', 'whoami', 'probe', 'bridgeWork', 'reference', 'talkPicture', 'design', 'bugs', 'bugPicture', 'backlog', 'goals', 'plan', 'brainstorm', 'work', 'settings', 'game', 'cpu', 'newProject']
   const server = createBoard({
     token: TOKEN, bridgeKey: KEY, getState: async () => ({}),
     say: async () => { did.push('say'); return { ok: true, message: {} } },
@@ -92,7 +92,7 @@ test('B539: on a board process without the loops every guarded route is refused 
     for (const path of Object.keys(POST_ROUTES).filter(path => POST_ROUTES[path].guard === 'free')) {
       assert.equal((await post(port, path, sendAs(path))).status, 200, path)
     }
-    assert.deepEqual(did.sort(), ['cpu', 'game', 'newProject', 'report', 'restart', 'whoami'])
+    assert.deepEqual(did.sort(), ['cpu', 'game', 'newProject', 'probe', 'report', 'restart', 'whoami'])
     // Once it holds the lock, a chat's work call is taken.
     why = null
     assert.equal((await post(port, '/api/bridge/work', { body: '{"action":"next"}' })).status, 200)
