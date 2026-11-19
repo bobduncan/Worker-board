@@ -75,6 +75,8 @@ export const DEFAULTS = {
   /** B194: the branch the project's work is merged into: its game, the one the Run game button starts. */
   baseBranch: 'main',
   gameRepo: '',
+  /** B1273: the Claude account the board's chats live in (its id, as the app names its folders); '' = found by the main chat and recorded. */
+  appAccount: '',
   appSessions: '',
   transcripts: '',
   port: 4310,
@@ -339,6 +341,8 @@ const isAdvisorParts = value => Array.isArray(value) && value.every(one => ADVIS
 /** B311, B735: the levels of "CPU for Claude", and what the older names read as. */
 const CPU_LEVELS = { full: 'full', low: 'low', off: 'full', gentle: 'full', strong: 'low' }
 const cpuLevelOf = value => (typeof value === 'string' ? CPU_LEVELS[value.trim().toLowerCase()] ?? null : null)
+/** B1273: an account's id as the Claude app names its account folders (src/appAccount.mjs `ACCOUNT_ID`). */
+const ACCOUNT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** A branch's name as git allows it, plainly: letters, digits, "_", ".", "/" and "-", and no "..". */
 const BRANCH = /^(?!.*\.\.)[\w][\w./-]{0,120}$/
 
@@ -478,6 +482,8 @@ export function parseConfig(text, env) {
   // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.
   config.maxMessageChars = Math.min(config.maxMessageChars, 2500)
   if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()
+  // B1273: the board's Claude account, an id as the app names its account folders (src/appAccount.mjs).
+  if (typeof raw.appAccount === 'string' && ACCOUNT.test(raw.appAccount.trim())) config.appAccount = raw.appAccount.trim().toLowerCase()
   if (typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim())) config.baseBranch = raw.baseBranch.trim()
   config.name = typeof raw.name === 'string' && raw.name.trim() !== '' ? raw.name.trim() : config.project.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
   // A shown folder is one plain folder name in the project: never a path that could lead out of it.
@@ -565,6 +571,7 @@ export function configProblem(fileText) {
   if (has('runGame') && !(Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== ''))) return wrong('runGame', 'a list of words, the program first')
   if (has('advisorParts') && !(isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0)) return wrong('advisorParts', `a list of one or more of the Focus tab's parts: ${ADVISOR_PARTS.join(', ')}`)
   if (has('cpuLimit') && cpuLevelOf(raw.cpuLimit) === null) return wrong('cpuLimit', '"full" or "low"')
+  if (has('appAccount') && !(typeof raw.appAccount === 'string' && (raw.appAccount.trim() === '' || ACCOUNT.test(raw.appAccount.trim())))) return wrong('appAccount', 'the id of a Claude account folder (8-4-4-4-12 letters and digits), or ""')
   if (has('browsersRule') && typeof raw.browsersRule !== 'boolean') return wrong('browsersRule', 'true or false')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))

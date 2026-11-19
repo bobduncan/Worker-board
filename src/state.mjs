@@ -49,6 +49,7 @@ import { refineAsk, removalAsk } from './work/askOpen.mjs'
 export { refineAsk } from './work/askOpen.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
+import { AWAY_LINE, TAKE_LABEL } from './appAccount.mjs'
 import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
 import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, backgroundNoNewsOf, lateAssetsOf } from './work/assetWait.mjs'
 import { reconcile } from './work/reconcile.mjs'
@@ -2575,7 +2576,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // Pause and resume (spec 2026-10-18): what the pause banner says, from pause.json and the lanes' facts alone; with the
   // main chat (its title from the list, the app's id for it, whether it runs) for the link that opens it, and when the
   // board typed "resume" into it since the resume.
-  const pause = pauseRecord === null ? null : {
+  // B1273: while the Claude app is on another account the pause is the board's own hold: one calm line, no pause facts.
+  const pause = pauseRecord === null ? null : pauseRecord.state === 'away' ? { state: 'away', since: pauseRecord.since ?? null, line: AWAY_LINE, take: TAKE_LABEL } : {
     // The review of Pause 2: a line handed to a chat and not typed yet starts a turn: no Safe while one is on its way.
     ...pauseFacts({
       assets: assetRecords,
@@ -2997,7 +2999,9 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     workCalls: workCalls !== null && typeof workCalls === 'object' ? workCalls : null,
     restart,
     // Review 4: a step in review is named with what it waits on only where the board knows it (reviewWaitOf's kind).
-    pause: pause === null ? null : withReviewWaits(pause, raw.work.items, reconciled?.ready?.held ?? null, now, recapWaits),
+    pause: pause === null ? null : pause.state === 'away' ? pause : withReviewWaits(pause, raw.work.items, reconciled?.ready?.held ?? null, now, recapWaits),
+    // B1273: which Claude account the app is on and the board's (src/appAccount.mjs `accountPicture`), null where not read.
+    account: raw.account ?? null,
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many
     // workers there are, and the newest ask for workers.
     workers: (() => {

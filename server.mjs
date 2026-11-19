@@ -107,7 +107,7 @@ import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, keepPersonAction, workApi } from './src/work/api.mjs'
 import { effortOf, setsRefusedOf } from './src/work/effort.mjs'
-import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
+import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
@@ -120,7 +120,8 @@ import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTal
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { readAccountFolders } from './src/appChats.mjs'
+import { parseList, readAccountFolders } from './src/appChats.mjs'
+import { accountWatch } from './src/appAccount.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
 import { stillTruePass } from './src/stillTrue.mjs'
@@ -1018,7 +1019,34 @@ async function main(args) {
 
   // B296, B301: the work store, the one source of the work. Every board reads it; a store that is not there or cannot be
   // read is said on top of the page (work/read.mjs, `storeFault`), and nothing is drawn from the backlog file instead.
-  const work = isDemo || config.project === '' ? async () => undefined : storeKeeper({ dir: workFolder(config), clock })
+  // B1273 (F36a): which Claude account the app is on (src/appAccount.mjs). While it is not the board's, the store's pause reads
+  // as the board's own hold ('away', pause.mjs `withAway`), so every reader holds: the state, the hand-out, the work API.
+  const account = isDemo || config.project === '' ? null : accountWatch({
+    appSessions: () => config.appSessions, setting: config.appAccount || null,
+    record: join(HERE, 'data', 'app-account.json'), chatHome: resolve(HERE, config.project), clock, log: line => console.log(line),
+    // The tests' boards run fast (as WORKER_BOARD_TICK_MS); the board itself waits the minute after the app came back.
+    ...(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS !== undefined && Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS) >= 0 ? { settleMs: Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS), everyMs: 500 } : {}),
+    folders: () => readAccountFolders(config.appSessions),
+    list: async () => parseList(await readFile(join(resolve(HERE, config.project), '.claude', 'chats', 'list.json'), 'utf8').catch(absentAs(''))),
+  })
+  const storeWork = isDemo || config.project === '' ? null : storeKeeper({ dir: workFolder(config), clock })
+  // Every store read asks the account first (cached a few seconds): a loop that reads the store before the first state read (the
+  // hand-over's sequence at start) holds too. A failed read holds nothing (the board goes on as before).
+  const accountNow = async () => {
+    if (account === null) return null
+    try {
+      return await account.read()
+    } catch (error) {
+      loops.failed('app-account', error)
+      return account.now()
+    }
+  }
+  const work = storeWork === null ? async () => undefined : async () => withAway(await storeWork(), await accountNow())
+  // The keeper's own calls stay (a write resets the kept read; the health summary reads the last one without waiting).
+  if (storeWork !== null) {
+    work.reset = () => storeWork.reset()
+    work.last = () => withAway(storeWork.last(), account?.now() ?? null)
+  }
   // B297: the work store's API (work/api.mjs): the page's actions as the person, the work tool's as its chat. Each
   // change writes backlog.md anew as the store's view: the board that delivers writes the project's file; a copy with a
   // store of its own (outside the project) writes the view into that folder, never the project's backlog. A copy
@@ -2033,7 +2061,11 @@ async function main(args) {
       // B273: the app may move its folder while the board runs: the board follows it.
       // B467: as a loop: a failed search shows and is logged; the board reads where it read before.
       await loops.run('app-folder', () => followApp(config, process.env, process.platform))
-      return readSources(config, folders, undefined, branches, work)
+      // B1273: the app's account first (the store read below holds while it is another), then, while away, the board's chats the
+      // app's account alone lists are copied into the board's (at most every minute; never on a copy that only shows).
+      const accountNow = account === null ? null : await loops.run('app-account', () => account.read())
+      if (accountNow?.away === true && !isShowOnly) await loops.run('app-account-import', () => account.importMissing())
+      return readSources(config, folders, undefined, branches, work, () => account?.now() ?? null)
     }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start === 'keeper' ? 'keeper' : startedBy ?? handed.start })
@@ -2893,7 +2925,7 @@ async function main(args) {
       const incidents = [...stored.items.values()].filter(item => item.head.get('Kind') === 'incident')
         .map(item => ({ id: item.head.get('Id'), key: item.head.get('Key'), source: item.head.get('Source'), subject: item.head.get('Subject'), state: item.head.get('State'), since: item.head.get('Since') }))
       return {
-        lanes, reports: reportsNow, wakes, pause: state.pause ?? null, ready: (state.readyList?.ready ?? []).map(one => one.id),
+        lanes, reports: reportsNow, wakes, pause: state.pause ?? null, account: state.account ?? null, ready: (state.readyList?.ready ?? []).map(one => one.id),
         envelopes: Object.fromEntries(lanes.map(lane => [lane.name, envelopesOf(outbox, lane.name, prefix)])), incidents,
         // MUST 2: the open asks routed to the person, with the state of the step each is about.
         asks: asksOf(stored.items),
@@ -3614,6 +3646,13 @@ async function main(args) {
     bridgeKey,
     // B297: the page's actions on the work store, as the person. B299: an answer to an ask wakes the chat that asked.
     work: async body => {
+      // B1273, the review: "Run the board on this account" on the away line: the app's account becomes the board's (a deliberate move).
+      if (body?.action === 'take-account') {
+        if (account === null) return { ok: false, status: 409, why: 'This board reads no Claude account.' }
+        const taken = await account.take()
+        readState.reset()
+        return taken
+      }
       // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
       if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
       // B775: the check's start types a word to the partner after the store has written it.

@@ -112,9 +112,14 @@ export function boardChats(appChats, { project, prefix, main }) {
     .filter(chat => !chat.isArchived && isInside(chat.cwd, project) && chat.title.startsWith(prefix))
     .sort(newestFirst)
 
-  // An app file can outlive its chat's new title; the newest file for a transcript is the true one.
+  // An app file can outlive its chat's new title; the newest file for a transcript is the true one. B1273: but never a launch
+  // stub over the real chat of the same transcript (11-05: the board's failed wake made local_8f2378dd for Worker 2's transcript,
+  // newer than the real local_f86ba0e4; the stub, a leftover, then hid the real chat and the worker read "Not running").
   const byTranscript = new Map()
-  for (const chat of mine) if (!byTranscript.has(chat.cliSessionId)) byTranscript.set(chat.cliSessionId, chat)
+  for (const chat of mine) {
+    const kept = byTranscript.get(chat.cliSessionId)
+    if (kept === undefined || (kept.isStub === true && chat.isStub !== true)) byTranscript.set(chat.cliSessionId, chat)
+  }
 
   const named = [...byTranscript.values()].map(chat => ({
     name: chat.title.slice(prefix.length).trim(),
@@ -177,11 +182,13 @@ function activeAt(text) {
  * H1 (2026-11-05, the person's account switch): `elsewhere`, when given (a Map), gets the app id of every chat file in the
  * folders NOT read, with the account folder's name: a chat that is only there lives in the person's other Claude account.
  */
-export async function readAppChats(dir, files = null, elsewhere = null) {
+export async function readAppChats(dir, files = null, elsewhere = null, { account = null } = {}) {
   const folders = await readAccountFolders(dir)
-  // Two folders as recent as each other cannot be told apart: both are read.
+  // B1273: the board's account (src/appAccount.mjs) when it is known and has a folder: its chats stay the board's while the app is
+  // on another account. Else the newest, as before. Two folders as recent as each other cannot be told apart: both are read.
+  const own = typeof account === 'string' ? folders.filter(folder => folder.account.toLowerCase() === account.toLowerCase()) : []
   const newest = Math.max(0, ...folders.map(folder => folder.at))
-  const read = folders.filter(folder => folder.at === newest)
+  const read = own.length > 0 ? own : folders.filter(folder => folder.at === newest)
   if (files instanceof Set) for (const folder of read) for (const id of folder.ids) files.add(id)
   if (elsewhere instanceof Map) {
     const seen = new Set(read.flatMap(folder => folder.ids))
@@ -229,14 +236,17 @@ export async function readAccountFolders(dir) {
  * a file only in another account's folder), 'unknown' (listed but not readable whole just now) or 'nowhere'. A launch stub (H2, `isStub`) and an archived file are no chat's file.
  * `appSession` the app id (`local_<id>`).
  */
-export function listedWhere(appSession, folders) {
+export function listedWhere(appSession, folders, { account = null } = {}) {
   if (typeof appSession !== 'string') return 'nowhere'
   const newest = Math.max(0, ...(folders ?? []).map(folder => folder.at))
+  // B1273: 'here' is the board's account when it is known and has a folder, else the newest folder, as before.
+  const own = typeof account === 'string' ? (folders ?? []).filter(folder => folder.account.toLowerCase() === account.toLowerCase()) : []
+  const isHere = folder => (own.length > 0 ? own.includes(folder) : folder.at === newest)
   const has = folder => {
     const chat = folder.chats.get(appSession)
     return chat !== undefined && chat.isArchived !== true && chat.isStub !== true
   }
-  if ((folders ?? []).some(folder => folder.at === newest && has(folder))) return 'here'
+  if ((folders ?? []).some(folder => isHere(folder) && has(folder))) return 'here'
   if ((folders ?? []).some(has)) return 'elsewhere'
   // Review 1 (4): a file the app is rewriting (listed, not read whole) is not known, never "no chat".
   return (folders ?? []).some(folder => folder.ids.includes(appSession) && !folder.chats.has(appSession)) ? 'unknown' : 'nowhere'
