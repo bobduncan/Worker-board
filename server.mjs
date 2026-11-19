@@ -112,10 +112,10 @@ import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/code
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, carrierWords, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
-import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, noteHandRefused, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
@@ -1626,7 +1626,8 @@ async function main(args) {
     const now = clock()
     // F17 review 4, 15: while the app refuses the hands' sends, Send again is one carry word (a free chat's model, else the courier while it
     // calls), as its own attempt; with neither, the launch way below.
-    const refused = sendsRefusedOf(wakes, store.outbox())
+    // B1271 (chat 1's review 2): also while every hand that claims is refused: an AGAIN_BY message no refused hand may take would fail.
+    const refused = carryingNow(now)
     if (refused !== null && paths.includes('message')) {
       const carrier = carrierOf(carriersOf(state), { target: chat, main: state.restart?.main ?? null, now, outbox: store.outbox() })
       if (carrier !== null || courierAlive(lastCourierAt, now)) {
@@ -2170,11 +2171,22 @@ async function main(args) {
   /** The review of 2026-11-02 (4a): the launch path counts only while the board can launch, so a blocked launch is no silent hold. */
   const canLaunchNow = () => canOpen && openBlocked === null
   /** Change 4: the facts the state reads the wake record with: whether a sender claims, and whether the board can launch. */
-  const wakeFacts = () => {
-    const now = clock()
+  const wakeFacts = () => ({ record: wakes, senderClaims: handsNow(clock()).senders, canLaunch: canLaunchNow() })
+  /**
+   * B1271 (X203; chat 1's review 1, 2): the hands now. `gone` (`handsGone`); `able`: a hand that may send by code (`maySend`) claims and
+   * the app did not refuse it (`handRefused`); `allRefused`: hands that may send claim, every one refused, past the board's start-up
+   * grace (HANDS_GONE_MS: another hand may be seconds away); `senders`: a sender claims for the wake's order (decision 8) and the state's
+   * wake facts: never a refused hand alone, so a spell only refused hands could send ends final ("could not wake", wake-failed).
+   */
+  const handsNow = now => {
     const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
-    return { record: wakes, senderClaims: !gone, canLaunch: canLaunchNow() }
+    const fresh = [...codeClaims].filter(([, claim]) => Number.isFinite(claim?.at) && now - claim.at < HANDS_GONE_MS && maySend(claim))
+    const able = fresh.some(([chat]) => !handRefused(wakes, chat))
+    const inGrace = now - startedAt < HANDS_GONE_MS
+    return { gone, able, allRefused: fresh.length > 0 && !able && !inGrace, senders: !gone && (able || fresh.length === 0 || inGrace) }
   }
+  /** B1271: the refusal the wake pass carries words for: the board's (`sendsRefusedOf`), or every hand that claims refused (not saved). */
+  const carryingNow = now => sendsRefusedOf(wakes, store.outbox()) ?? (handsNow(now).allRefused ? { since: now } : null)
   // B736 (X73, X87, X89): when the board heard no chat at all, and the work calls it answered after the chat's mod gave up.
   const hearing = bridgeKey === null ? null : hearingLog({ startedAt, quietMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000 })
   /**
@@ -2816,8 +2828,11 @@ async function main(args) {
     const refused = sendsRefusedOf(wakes, store.outbox())
     // Verifier 7, 11: the refusal the record's attempts or the outbox show becomes the record's own fact, so pruned spells never lift it.
     if (refused !== null && noteSendRefused(wakes, refused.since)) changed = true
+    // B1271 (X203): every hand that claims now is one the app refused: the message goes as carry words too (never written as the board's
+    // refusal: a hand that may send claims again, and its next pass sends by code).
+    const carrying = refused ?? carryingNow(now)
     // F17 check 3: also while Resume all runs (its list is a need): held only while the person pauses.
-    if (refused !== null && !isHolding(state.pause)) {
+    if (carrying !== null && !isHolding(state.pause)) {
       const outbox = store.outbox().filter(message => !isLate(message, now, keep))
       const carriers = carriersOf(state)
       const main = state.restart?.main ?? null
@@ -2849,7 +2864,7 @@ async function main(args) {
       for (const word of words) console.log(`Wake: the app refuses the hands' sends: the message to ${word.about} goes through ${carrierWords(word.to)} at ${timeOf(now)}.`)
     }
     if (changed) wakesChanged()
-    return refused
+    return carrying
   }
   const wakePass = async (given = null) => {
     if (isClosing || isOpening || bridgeKey === null || isShowOnly) return
@@ -2888,7 +2903,8 @@ async function main(args) {
     // One launch per check (src/wake.mjs `launchPlan`): the next waits for the next minute's look.
     // F17: a carried message is a sender too (a model's turn, or the courier): the launch waits for its verdict, as for a hand's.
     // Review 7, 18: while refused, the message way has a sender only through a free carrier or a courier that calls; else the launch goes at once.
-    const senders = refused === null ? !gone : courierAlive(lastCourierAt, now) || (CARRY_BY_MODEL && carriersOf(state).some(lane => canCarry(lane, null, now, store.outbox())))
+    // B1271: a refused hand alone is no sender (`handsNow`); while every claiming hand is refused the carry branch below decides.
+    const senders = refused === null ? handsNow(now).senders : courierAlive(lastCourierAt, now) || (CARRY_BY_MODEL && carriersOf(state).some(lane => canCarry(lane, null, now, store.outbox())))
     const plan = launchPlan(wakes, { needs, nobody: senders ? null : nobodyRunsSpell(state, outbox), senderClaims: senders, target: chatToOpen(state, outbox) })
     if (plan !== null) await launchFor({ target: { chat: plan.chat, session: plan.session }, key: plan.key, spell: plan.spell, now })
   }
@@ -3771,9 +3787,13 @@ async function main(args) {
       // F17: while the app refuses the hands' sends no hand gets a message job (the carry pass's words go to a model instead); the
       // claim's own facts (the board-wide launch's verdict below) still count it as a sender.
       const mayCode = maySend(claim)
-      const canSend = mayCode && sendsRefusedOf(wakes, store.outbox()) === null
+      // B1271 (X203): nor a hand the app refused (its own mark, wakeCarry.mjs `noteHandRefused`): no message, start or wake job until its own send went.
+      const canSend = mayCode && sendsRefusedOf(wakes, store.outbox()) === null && !handRefused(wakes, checked.chat)
       // F17 review 16: while refused, once a day ONE send by a hand that may send, to a free chat (never a real wake): its answer lifts or renews it.
-      const probeTo = !canSend && mayCode && !isHolding(state.pause) && probeDue(wakes, store.outbox(), clock()) ? freeChatOf(carriersOf(state), { target: checked.chat, now: clock(), outbox: store.outbox() }) : null
+      // B1271: and once a day for a hand refused alone, so its own send can lift its mark.
+      // Chat 1's review (minor): the board's probe goes to a hand not refused when one claims, never to the refused hand that would renew it.
+      const probeHand = !(sendsRefusedOf(wakes, store.outbox()) !== null && handRefused(wakes, checked.chat) && handsNow(clock()).able)
+      const probeTo = !canSend && mayCode && probeHand && !isHolding(state.pause) && probeDue(wakes, store.outbox(), clock(), checked.chat) ? freeChatOf(carriersOf(state), { target: checked.chat, now: clock(), outbox: store.outbox() }) : null
       // Change 4 (C.3): a hand that may send claims after the board-wide launch: that launch woke a chat.
       if (mayCode) {
         const board = wakeHeardClaim(wakes, claim.at, clock())
@@ -3799,7 +3819,9 @@ async function main(args) {
       }
       // B1160 part 2 (B1164): while the app refuses the board's set calls no hand claims a set job, but the daily probe (effort.mjs `probeOf`).
       const setsRefusedNow = setsRefusedOf(store.outbox(), clock())
-      const isHand = message => !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
+      // B1271 (chat 1's review, minor): a start or wake word a carry word carries is never a hand's too (the carry may switch on and off).
+      const carried = new Set(store.outbox().filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state) && typeof one.of === 'string').map(one => one.of))
+      const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
@@ -3845,6 +3867,8 @@ async function main(args) {
         for (const need of wakeNeeds(state, outboxNow, { resumeList, canLaunch: canLaunchNow() })) {
           if (need.chat === checked.chat || !need.paths.includes('message') || !Number.isFinite(need.spell)) continue
           if (wakeNextPath(wakes, { chat: need.chat, spell: need.spell, senderClaims: true, senderSince: claim.since, paths: need.paths }) !== 'message') continue
+          // B1271 (X203): a hand that tried this message in the spell (refused, or no report) never gets it again: another way goes next.
+          if (handTried(wakes, { chat: need.chat, spell: need.spell, hand: checked.chat })) continue
           const id = wakeJobId(need.spell, need.chat)
           // X107/X3 (2026-11-02): the step whose take line the message carries, so the envelope's own line is not typed a second time.
           const carries = typeof need.step === 'string' && need.text === takeLine(need.step) ? need.step : null
@@ -3873,7 +3897,9 @@ async function main(args) {
         }
       }
       if (probeTo !== null) {
-        wakes.probeAt = clock()
+        // B1271: a hand refused alone keeps its own probe time; the board's refusal the board's.
+        if (sendsRefusedOf(wakes, store.outbox()) === null) wakes.probeBy = { ...(wakes.probeBy ?? {}), [checked.chat]: clock() }
+        else wakes.probeAt = clock()
         jobs.push({ id: `send-probe:${clock()}`, to: probeTo.appSession, chat: probeTo.name, text: PROBE_LINE })
         wakeClaimed = true
         console.log(`Wake: the daily check whether the hands may send again goes to ${checked.chat}'s hands at ${timeOf(clock())} (to ${probeTo.name}).`)
@@ -3976,12 +4002,16 @@ async function main(args) {
       for (const id of [...sent, ...failed, ...back]) {
         // F17 review 16: the probe's answer: sent lifts the refusal, refused renews it; given back changes nothing.
         if (PROBE_JOB.test(id)) {
-          if (sent.includes(id) && !doubt.includes(id)) woke = noteSendLifted(wakes, clock()) || woke
-          else if (failed.includes(id) && isSendRefusal(why[id])) woke = noteSendRefused(wakes, clock()) || woke
+          if (sent.includes(id) && !doubt.includes(id)) woke = [noteHandSent(wakes, checked.chat, clock()), noteSendLifted(wakes, clock())].includes(true) || woke
+          else if (failed.includes(id) && isSendRefusal(why[id])) woke = noteHandRefused(wakes, checked.chat, clock()) || woke
           continue
         }
         const chat = wakeChatOf(id)
         if (chat === null) continue
+        // B1271 (X203): a send of this hand that went lifts its own mark; one the app refused marks it (the board's only when no hand's send
+        // went since the last lift), also for a start or wake word of a chat that runs (no attempt in the record).
+        if (sent.includes(id) && !doubt.includes(id) && noteHandSent(wakes, checked.chat, clock())) woke = true
+        if (failed.includes(id) && isSendRefusal(why[id]) && noteHandRefused(wakes, checked.chat, clock())) woke = true
         const done = sent.includes(id) || doubt.includes(id) ? wakeSent(wakes, chat, id, clock())
           : failed.includes(id) ? wakeFailedToSend(wakes, chat, id, why[id], clock()) : (wakeGivenBack(wakes, chat, id) ? true : null)
         if (done === null) continue

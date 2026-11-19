@@ -1459,6 +1459,38 @@ function wakeFailed(view) {
   })
 }
 
+/** B1271: a start word waiting this long for its chat while that chat is idle is a finding. */
+export const START_UNTAKEN_MS = 10 * MIN
+
+/**
+ * B1271 (X203, 2026-11-19 20:35-21:40): a chat's start is untaken START_UNTAKEN_MS while the chat its word waits with runs idle: the hands
+ * that may send did not take it (refused, or none claims) and that chat's model is never given it. The reconciler renews the start word in
+ * every 10-minute window and the sweep drops the old one (chat 1's review 3: no single word waits 10 minutes), so the age is the chain's:
+ * from the oldest start word of the chat since its last one that was taken or delivered, and since its sleep began. One finding per chain,
+ * keyed by its first word; the paused board says nothing.
+ */
+function startUntaken(view) {
+  if (isPaused(view)) return []
+  const laneOf = name => [...(view.lanes ?? []), view.partner, view.helper, view.supervisor, view.owner].find(lane => lane?.name === name) ?? null
+  const starts = (view.outbox ?? []).filter(word => word?.command === 'start' && typeof word.about === 'string' && Number.isFinite(word.at)).sort((a, b) => a.at - b.at)
+  const waiting = [...new Set(starts.filter(word => word.state === 'waiting').map(word => word.about))]
+  return waiting.flatMap(about => {
+    const target = laneOf(about)
+    const sleep = Number.isFinite(target?.wake?.spell) ? target.wake.spell : -Infinity
+    const own = starts.filter(word => word.about === about && word.at >= sleep)
+    const lastTaken = own.findLastIndex(word => ['taken', 'delivered'].includes(word.state))
+    const chain = own.slice(lastTaken + 1)
+    const word = chain.findLast(one => one.state === 'waiting')
+    const to = laneOf(word?.to)
+    if (word === undefined || chain.length === 0 || view.now - chain[0].at < START_UNTAKEN_MS || to?.isRunning !== true || to.report?.state !== 'idle') return []
+    return [{
+      rule: 'start-untaken', key: `start-untaken ${about} ${chain[0].id}`, subject: about, since: chain[0].at,
+      text: `the start of ${about} waits untaken for ${minutes(view.now - chain[0].at)} min while ${word.to} is idle`,
+      evidence: `${chain.length} start word${chain.length === 1 ? '' : 's'} for ${about} since ${clockOf(chain[0].at)} (${chain[0].id} first, ${word.id} waiting now, to ${word.to}); none taken; ${word.to} reports idle; ${about} ${target?.isRunning === false ? 'does not run' : 'is not known to be off'}`,
+    }]
+  })
+}
+
 /**
  * Signals change 4, B908 (decision 7): nobody answers the board's wake-ups: every chat that needs a wake failed on every
  * path, and the board-wide spell's launch failed too. One finding per day (the board's local date).
@@ -1589,6 +1621,7 @@ export const WATCH_RULES = [
   { id: 'handover-unanswered', kind: 'watch', says: 'a worker on the hand-over sequence that did not answer its hand-over within 10 min (the net fired)', check: handoverUnanswered },
   { id: 'clear-owed-repeat', kind: 'watch', says: 'a worker whose clear did not run at its last three hand-overs in a row (its line went each time; a refusal in the person\'s pause not counted)', check: clearOwedRepeat },
   { id: 'wake-failed', kind: 'watch', says: 'a chat the board could not wake: the app did not start it on a launch, and no message reached it; or (B986) the chat its reports name is not in the app list', check: wakeFailed },
+  { id: 'start-untaken', kind: 'watch', says: 'a start word the idle chat it waits with has not taken for 10 minutes: no hand that may send took it', check: startUntaken },
   { id: 'nobody-answers-wakes', kind: 'watch', says: 'nobody answers the board\'s wake-ups: every chat with work could not be woken, and the launch when nobody ran failed', check: nobodyAnswersWakes },
   { id: 'check-unreachable', kind: 'watch', says: 'chats the start-up check could not reach, one incident per cause (the other Claude account, a restart of the app to do, no chat in the app) naming the chats; the per-chat wake rules stand down for them', check: checkUnreachable },
   { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading, skips: SKIPS_ON_PAUSE },
