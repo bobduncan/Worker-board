@@ -27,7 +27,7 @@ const AT = new Date(2026, 9, 14, 9, 12).getTime()
 const NOW = AT + 3 * MIN
 const base = { main: 'Lead', mainTitle: 'Studio · Lead', project: 'D:\\Work\\new-game', count: 2, ask: null }
 const ask = more => ({ at: AT, count: 1, why: 'button', state: 'delivered', arrived: 0, isOpen: true, ...more })
-const view = workers => plain(page.workersView(workers, NOW))
+const view = (workers, mod = null) => plain(page.workersView(workers, NOW, mod))
 
 test('without a main chat the page says how to make one, with the folder and the name the list of chats gives it', () => {
   assert.deepEqual(view({ ...base, main: null, count: 0 }), {
@@ -109,6 +109,12 @@ test('B213, B1274: without the Workers mod the row says in one grey line what to
   const lines = view({ main: 'Lead', mainTitle: 'Team - Lead', project: 'C:\p', count: 1, ask: null, lookFor: [], withoutMod: true }).lines
   assert.equal(lines[0].tone, 'note')
   assert.equal(lines[0].text, "The Workers mod isn't running here: run setup (npm.cmd run setup) and restart the app.")
+  // Chat 1's review: by what the PC has. Installed and no chat has called yet (a reboot): only to open one; not installed: nothing
+  // here (the red mod note on top gives the setup advice).
+  const row = { main: 'Lead', mainTitle: 'Team - Lead', project: 'C:\p', count: 1, ask: null, lookFor: [], withoutMod: true }
+  assert.deepEqual([view(row, { carried: '0.34.0', installed: '0.34.0' }).lines[0].tone, view(row, { carried: '0.34.0', installed: '0.34.0' }).lines[0].text], ['note', 'No chat runs yet: open one, or the board opens one when a word waits.'])
+  assert.ok(!view(row, { carried: '0.34.0', installed: null }).lines.some(line => /Workers mod|No chat runs/.test(line.text)), 'not installed: the mod note says it')
+  assert.equal(view(row).lines[0].text, "The Workers mod isn't running here: run setup (npm.cmd run setup) and restart the app.", 'not known: the setup line')
   assert.ok(!view({ main: 'Lead', mainTitle: 'Team - Lead', project: 'C:\p', count: 1, ask: null, lookFor: [], withoutMod: false }).lines.some(line => /Workers mod/.test(line.text)))
 })
 

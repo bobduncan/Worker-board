@@ -3898,6 +3898,13 @@ const COUNT_WORDS = { 2: 'two', 3: 'three' }
 /** B213: what changes when no Workers mod takes the board's words. */
 // B1274: the copy-paste mode is gone: without the Workers mod the board's words wait, and this one grey line says what to do.
 const WITHOUT_MOD = "The Workers mod isn't running here: run setup (npm.cmd run setup) and restart the app."
+/** Chat 1's review: the mod is installed and no chat has called the board yet (a reboot): nothing to set up, only to open. */
+const NO_CHAT_YET = 'No chat runs yet: open one, or the board opens one when a word waits.'
+/**
+ * The grey line without a mod's call (`withoutMod`), by what the PC has (`mod.installed`, state.mod): installed, no chat runs yet;
+ * not installed, nothing here (the red mod note on top gives the setup advice); not known, the setup line.
+ */
+const withoutModLine = mod => (typeof mod?.installed === 'string' ? NO_CHAT_YET : mod?.installed === null ? null : WITHOUT_MOD)
 /** "one more worker", "three workers". */
 const workersWord = count => (count === 1 ? 'one more worker' : `${COUNT_WORDS[count] ?? count} workers`)
 
@@ -3907,13 +3914,13 @@ const workersWord = count => (count === 1 ? 'one more worker' : `${COUNT_WORDS[c
  * `tone` ('', asked, note, problem); `button` with its label and whether it waits for an open ask. Null when the
  * server says nothing about workers.
  */
-function workersView(workers, now) {
+function workersView(workers, now, mod = null) {
   if (workers === null || workers === undefined) return null
   // B131, B137: what the board looks for and did not find, with where (the paths from the settings).
   const lookFor = [
     ...(workers.lookFor ?? []).map(text => ({ tone: 'problem', text })),
     // B213: what the board cannot do or know without the Workers mod, in one plain line.
-    ...(workers.withoutMod === true ? [{ tone: 'note', text: WITHOUT_MOD }] : []),
+    ...(workers.withoutMod === true && withoutModLine(mod) !== null ? [{ tone: 'note', text: withoutModLine(mod) }] : []),
   ]
   if (workers.main === null) {
     // Without a list of chats there is no main chat's name to give: the lines say what to make first.
@@ -3961,7 +3968,7 @@ function workersView(workers, now) {
 
 /** B124: the row under the lanes (see `workersView`), or null. */
 function drawWorkers(state) {
-  const shown = workersView(state.workers, state.readAt)
+  const shown = workersView(state.workers, state.readAt, state.mod ?? null)
   fill($('workers-add'), [])
   if (shown === null) return null
   const isRow = shown.kind === 'more'

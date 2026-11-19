@@ -49,5 +49,5 @@ test('the guard finds each form of the mode, and leaves the readers of old copie
 test('without the Workers mod the page says one grey line of what to do', () => {
   const page = readFileSync(join(ROOT, 'public', 'board.js'), 'utf8')
   assert.match(page, /const WITHOUT_MOD = "The Workers mod isn't running here: run setup \(npm\.cmd run setup\) and restart the app\."/)
-  assert.match(page, /workers\.withoutMod === true \? \[\{ tone: 'note', text: WITHOUT_MOD \}\]/)
+  assert.match(page, /const withoutModLine = mod => \(typeof mod\?\.installed === 'string' \? NO_CHAT_YET : mod\?\.installed === null \? null : WITHOUT_MOD\)/)
 })
