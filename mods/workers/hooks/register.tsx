@@ -16,8 +16,6 @@ import {
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
 import { clearRun } from './clearrun'
-import { PROBE_PATH, hasProbeMark, withProbeMark } from './probe'
-import type { ProbeRecord } from './probe'
 import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
 import { STUCK_SHOWN_MS, isShownForTime, popupText } from './popup'
 import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, NO_SESSION_MS, NO_SESSION_WHY, NOT_TRIED_WHY, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
@@ -761,23 +759,6 @@ async function setReport($: EngineInterface, state: TurnReport['state'], backgro
   if (turnReport.state === state && turnReport.background === isBackground) return
   turnReport = { state, since: await $.clock.now(), background: isBackground }
   void reportToBoard($)
-}
-
-/**
- * B1274 (0.34.0): the probe, observe only: once per process per event, the board is told that this hook ran (and, for the prompt
- * row, whether the one rewrite stood). Never retried, never changed to get past a guard. It never throws.
- */
-const probed = new Set<string>()
-async function sendProbe($: EngineInterface, record: ProbeRecord): Promise<void> {
-  if (probed.has(`sent:${record.event}`) || myself === null || chatsDir === null) return
-  probed.add(`sent:${record.event}`)
-  try {
-    const project = chatsDir.slice(0, chatsDir.length - CHATS_DIR.length - 1)
-    const board = parseBoard(await $.fs.read(inFolder(project, BOARD_FILE)))
-    if (board !== null) await askBoard($, board, PROBE_PATH, { probe: record })
-  } catch {
-    // the probe tells what it can; a board not reached is no fault of the chat's
-  }
 }
 
 /** Redesign Part 1: tells the board this chat's turn state now (`REPORT_PATH`), as this chat. It never throws. */
@@ -3791,8 +3772,6 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    // B1274 (0.34.0): the probe: this hook ran here (on a work login the guard may skip it; nothing else changes).
-    void sendProbe($, { event: 'prompt.submit', ran: true })
     // B298: the person's words are filed on the worker board before the turn sees them, also while a turn runs (the app
     // holds them until then): nothing they say is lost. Beside the prompt, for the model only, its id and the person's
     // instructions still open (review: never in the system prompt, which stays the same words and stays cached).
@@ -3832,27 +3811,9 @@ export const register: Register = on => {
       isCommandTurn = true
       return next(e)
     }
-    void sendProbe($, { event: 'turn.start', ran: true })
     await withinHook($, ownTurnStarts($, e), () => undefined, next)
 
     return next(e)
-  })
-
-  // B1274 (0.34.0): the probe on the person's prompt row, once per process and observe only (chat 1's conditions): whether this
-  // hook runs on the login in use, and whether one rewrite (a comment beside the prompt) stands in the row as stored. What moves
-  // prompt.submit's job here waits for the answer from a work login; prompt.submit stays as it is until then.
-  on('session.append', { door: 'prompt' }, async ($, e, next) => {
-    if (probed.has('append') || e.agentId !== undefined || (e.origin as { kind?: string })?.kind !== 'composer') return next(e)
-    probed.add('append')
-    let out
-    try {
-      out = await next({ ...e, message: { ...e.message, content: withProbeMark(e.message.content) as typeof e.message.content } })
-    } catch (err) {
-      void sendProbe($, { event: 'session.append', ran: true, door: String(e.door), rewrite: 'refused' })
-      throw err
-    }
-    void sendProbe($, { event: 'session.append', ran: true, door: String(e.door), rewrite: hasProbeMark(out?.message?.content) ? 'stood' : 'undone' })
-    return out
   })
 
   on('turn.complete', async ($, e, next) => {
