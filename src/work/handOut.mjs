@@ -424,8 +424,9 @@ function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, pre
   if (isFull()) return null
   const offs = workers.filter(isOff)
   const off = offs.filter(mayStart).sort((a, b) => (a.offSince ?? 0) - (b.offSince ?? 0) || byId(a.name, b.name))[0]
-  // B1279: off workers that cannot be woken now: none is asked for (the wake notice says "could not wake ...; open its chat").
-  if (off === undefined && offs.some(lane => unwakeable.has(lane.name))) return null
+  // B1279: off workers that cannot be woken now: none is asked for, and they are named (`passedOver`), so the board's notice
+  // "could not wake ...; open its chat" stands for them for as long as the ready work waits (never "nothing waits for it").
+  if (off === undefined && offs.some(lane => unwakeable.has(lane.name))) return { passedOver: offs.filter(lane => unwakeable.has(lane.name)).map(lane => lane.name) }
   return off === undefined ? { spawn: 1 } : { start: off.name }
 }
 

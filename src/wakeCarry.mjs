@@ -138,6 +138,17 @@ export function handWentAt(record) {
   return newest
 }
 
+/**
+ * B1279 (chat 1's review, minor): the proof `handWentAt` reads from the attempts is kept as the record's own fact (`handSentAt`), as the
+ * record prunes the attempts (6 spells a chat), so the board-wide refusal never comes back once they are gone. True when it changed.
+ */
+export function keepHandWent(record) {
+  const went = handWentAt(record)
+  if (went === null || (isTime(record?.handSentAt) && record.handSentAt >= went)) return false
+  record.handSentAt = went
+  return true
+}
+
 /** B1279: whether a hand's own send went since the last lift: then a refusal after it is that hand's alone (B1271), never the board's. */
 const handWentSinceLift = record => {
   const went = handWentAt(record)

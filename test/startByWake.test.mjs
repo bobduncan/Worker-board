@@ -10,7 +10,7 @@ import test from 'node:test'
 
 import { HAND_LINE } from '../src/hands.mjs'
 import { carryAfterSilent, carryPlan, claim, emptyWakes, failedToSend, nextPath, noticeOf, pass, sent, wakeNeeds, wakeableOf } from '../src/wake.mjs'
-import { handRefused, noteHandRefused, noteSendLifted, sendsRefusedOf } from '../src/wakeCarry.mjs'
+import { handRefused, handWentAt, keepHandWent, noteHandRefused, noteSendLifted, sendsRefusedOf } from '../src/wakeCarry.mjs'
 import { workerStart } from '../src/work/handOut.mjs'
 import { START_BY_WAKE_WHY, whyClosed } from '../src/work/outboxSweep.mjs'
 
@@ -81,7 +81,7 @@ test('X205: the hand-out starts a worker through the wake procedure, never one i
   // Worker 4 failed every way in its spell: the next off worker that can be woken.
   assert.deepEqual(workerStart({ ...base, lanes, wakeable: { unwakeable: new Set(['Worker 4']), waking: new Set() } }), { start: 'Worker 1', byWake: true })
   // Every off worker failed every way: none (the notice tells the person), never a new one beside them.
-  assert.equal(workerStart({ ...base, lanes, wakeable: { unwakeable: new Set(['Worker 4', 'Worker 1']), waking: new Set() } }), null)
+  assert.deepEqual(workerStart({ ...base, lanes, wakeable: { unwakeable: new Set(['Worker 4', 'Worker 1']), waking: new Set() } }), { passedOver: ['Worker 4', 'Worker 1'] })
   // Worker 4 is being woken for the one ready task: it is on its way, no second worker is asked for.
   assert.equal(workerStart({ ...base, lanes, wakeable: { unwakeable: new Set(), waking: new Set(['Worker 4']) } }), null)
   // Two ready tasks: Worker 4 on its way, Worker 1 for the second.
@@ -183,4 +183,16 @@ test("X205: a hand's send that went and brought no report is followed by ONE car
   claim(refused, { chat: 'Worker 4', spell, path: 'message', by: 'Worker 3', jobId: 'wake:r', now: at(22, 15), paths: PATHS })
   Object.assign(refused.wakes.get('Worker 4').at(-1).attempts[0], { verdict: 'failed', verdictAt: at(22, 15), refused: true })
   assert.equal(carryAfterSilent(refused, need), false)
+})
+
+test("X205 (review, minor): the hand's send the attempts prove is kept as handSentAt, so pruning the attempts never revives the board's refusal", () => {
+  const record = x205()
+  assert.equal(record.handSentAt, undefined)
+  assert.equal(handWentAt(record), at(20, 20, 17))
+  assert.equal(keepHandWent(record), true)
+  assert.equal(record.handSentAt, at(20, 20, 17))
+  assert.equal(keepHandWent(record), false, 'once is enough')
+  // The record pruned the spells that proved it: the refusal is still one hand's.
+  record.wakes.clear()
+  assert.equal(sendsRefusedOf(record), null)
 })

@@ -2861,7 +2861,10 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
     // B1160: whether the app refuses the board's set calls, and when the board next checks (the row and the health line say it).
     setsRefused: efforts === null || !setsRefused ? null : { nextCheckAt: probe.dueAt },
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true,
+      // B1279 (X205): the outbox sweep closes a waiting start word of the hand-out once the wake procedure starts workers; the notice
+      // keeps "could not wake ...; open its chat" for a worker the hand-out passed over while ready work waits.
+      startsByWake: reconciled.startsByWake === true, passedOver: reconciled.passedOver ?? [] },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
@@ -3232,10 +3235,14 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
   // The review of 2026-11-02 (3): the wake of every chat that does not run, from its own spell and paths, need or not, so
   // "could not wake X" stands for the whole spell (a take-back ends the need; a cut-off chat turns off "woken"). A chat
   // without a need and without a try in its spell has nothing to say.
+  // B1279 (X205): a worker the hand-out passed over (it cannot be woken now) while ready work waits: the wake is needed, so its
+  // "could not wake ...; open its chat" stays the attention line, also with no try in its spell (no id: the board cannot reach it).
+  const passedOver = new Set(built.reconciled?.passedOver ?? [])
   const targetOf = lane => {
     const need = byChat.get(lane.name)
     if (need !== undefined) return { ...need, need: true }
     if (lane.isRunning !== false) return null
+    if (passedOver.has(lane.name)) return { chat: lane.name, spell: spellOf(lane), paths: pathsOf(lane, wakes.canLaunch === true), cannot: cannotWakeWhy(lane), need: true }
     const target = { chat: lane.name, spell: spellOf(lane), paths: pathsOf(lane, wakes.canLaunch === true), cannot: cannotWakeWhy(lane), need: false }
     const kept = wakeStatusOf(record, lane.name, target.spell)
     return kept.spell === target.spell && kept.attempts.length > 0 ? target : null

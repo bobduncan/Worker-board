@@ -331,10 +331,13 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const stranded = handOutHeld || !handsOut ? [] : strandedGives({ items, lanes: live, now, waitMs: NET_MS, prefix, sent }).filter(one => !retiredIds.has(one.id))
   // A free worker counts as free for the start of one more worker (its task comes by the hand-over).
   const idle = idleWorkers(live, { items, prefix, restFree, stuck: handedBack })
-  const start = !handsOut || !isHandoverOn ? null : workerStart({ ready: ready.ready, idle, lanes: live, maxWorkers: settings.maxWorkers, isHeld: handOutHeld, items, sent, now, prefix,
+  const asked = !handsOut || !isHandoverOn ? null : workerStart({ ready: ready.ready, idle, lanes: live, maxWorkers: settings.maxWorkers, isHeld: handOutHeld, items, sent, now, prefix,
     // Gap 2: a pinned task's worker unknown this long counts as off.
     offAfterMs: Number.isFinite(settings.offAfterMinutes) ? settings.offAfterMinutes * MIN : Infinity,
     // B1279 (X205): who the wake procedure can start now; with it, the start is a wake need, never a start word.
     wakeable })
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, start, retired, stranded, handOutHeld, startsByWake: wakeable !== null }
+  // B1279: the off workers the hand-out passed over (none of them can be woken now) while ready work waits: no start, but the notice.
+  const start = Array.isArray(asked?.passedOver) ? null : asked
+  const passedOver = Array.isArray(asked?.passedOver) ? asked.passedOver : []
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, start, retired, stranded, handOutHeld, startsByWake: wakeable !== null, passedOver }
 }
