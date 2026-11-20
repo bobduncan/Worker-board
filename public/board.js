@@ -748,6 +748,22 @@ function storeNote(store, workFlags = []) {
 }
 // store:end
 
+// settingsIgnored:start
+/**
+ * T5.2 A7: the note on top while the project's settings file is in use (`state.settingsIgnored`: `{ file, keys }`) and config.json
+ * still holds project keys: the board ignores them there. Null: none (no settings file, or nothing left in config.json).
+ */
+function settingsIgnoredNote(ignored) {
+  const keys = Array.isArray(ignored?.keys) ? ignored.keys.filter(key => typeof key === 'string' && key !== '') : []
+  if (keys.length === 0) return null
+  const file = typeof ignored.file === 'string' && ignored.file !== '' ? ignored.file : 'the project\'s settings file'
+  const named = keys.map(key => `"${key}"`)
+  const listed = named.length < 2 ? named.join('') : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`
+  const one = keys.length === 1
+  return `config.json still holds ${listed}: the board ignores ${one ? 'it' : 'them'} there and reads the project's settings from ${file}. Move ${one ? 'it' : 'them'} into ${file} (or delete ${one ? 'it' : 'them'} from config.json).`
+}
+// settingsIgnored:end
+
 // setAside:start
 /**
  * B406: the note on top when the board set data files aside at its start (`state.setAside`: `{ file, aside }`): each
@@ -1789,6 +1805,14 @@ function openSupervisor() {
   if ($('view-overview').dataset.mode === 'simple') document.querySelector('#overview-mode [data-overview-mode="details"]')?.click()
   setSupervisorOpen(true)
   $('supervisor').scrollIntoView({ block: 'nearest' })
+}
+
+/** T5.2 A7: the note on top about project keys left in config.json (see `settingsIgnoredNote`). */
+function drawSettingsIgnoredNote(state) {
+  const text = settingsIgnoredNote(state.settingsIgnored)
+  const note = $('settings-ignored-note')
+  note.hidden = text === null
+  if (text !== null) note.textContent = text
 }
 
 /** B406: the note on top about the data files set aside at the start (see `setAsideNote`). */
@@ -23423,6 +23447,7 @@ function draw(state) {
   drawModNote(state)
   drawStoreNote(state)
   drawSetAsideNote(state)
+  drawSettingsIgnoredNote(state)
   drawLoopsNote(state)
   drawCpu(state)
   drawMainGame(state)
