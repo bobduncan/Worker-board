@@ -2070,6 +2070,9 @@ async function main(args) {
       // B1273: the app's account first (the store read below holds while it is another), then, while away, the board's chats the
       // app's account alone lists are copied into the board's (at most every minute; never on a copy that only shows).
       const accountNow = account === null ? null : await loops.run('app-account', () => account.read())
+      // B1283, chat 1's review (the deadlock): the ask is filed and kept AFTER the read, not awaited: it writes through the work API,
+      // whose write waits for a state read, which is this read.
+      if (account !== null && !isShowOnly) void loops.run('app-account-ask', () => account.tend())
       if (accountNow?.away === true && !isShowOnly) await loops.run('app-account-import', () => account.importMissing())
       return readSources(config, folders, undefined, branches, work, () => account?.now() ?? null)
     }

@@ -252,7 +252,11 @@ test('B1283 (F37): one ask per switch away, filed once the away lasted the settl
   }
   let now = at(20, 0, 30)
   const logs = []
-  const make = () => accountWatch({ appSessions: () => dir, record, chatHome: HOME, ask: adapter, folders: () => readAccountFolders(dir), list: async () => ({ prefix: PREFIX, main: 'Main' }), clock: () => now, log: line => logs.push(line) })
+  const make = () => {
+    const raw = accountWatch({ appSessions: () => dir, record, chatHome: HOME, ask: adapter, folders: () => readAccountFolders(dir), list: async () => ({ prefix: PREFIX, main: 'Main' }), clock: () => now, log: line => logs.push(line) })
+    // As the server: the ask is kept after each read, never inside it.
+    return { ...raw, read: async () => { await raw.read(); await raw.tend(); return raw.now() } }
+  }
   let watch = make()
   // Away begins: nothing filed inside the settle (a quick flip back files nothing).
   assert.deepEqual([(await watch.read()).away, (await watch.read()).ask, filed], [true, null, 0])
@@ -315,8 +319,72 @@ test('B1283 (F37): one ask per switch away, filed once the away lasted the settl
   // Without an ask adapter (a copy that only shows): nothing is filed.
   await writeFile(config, JSON.stringify({ lastKnownAccountUuid: BOARD }))
   const quiet = accountWatch({ appSessions: () => dir, record, chatHome: HOME, folders: () => readAccountFolders(dir), list: async () => ({ prefix: PREFIX, main: 'Main' }), clock: () => now })
-  now += 10_000; await quiet.read(); now += RETURN_SETTLE_MS
-  assert.deepEqual([(await quiet.read()).away, (await quiet.read()).ask ?? null, filed], [true, null, 3])
+  now += 10_000; await quiet.read(); await quiet.tend(); now += RETURN_SETTLE_MS
+  await quiet.read(); await quiet.tend()
+  assert.deepEqual([quiet.now().away, quiet.now().ask ?? null, filed], [true, null, 3])
+})
+
+test('B1283, chat 1\'s review: the ask is kept outside the read (no deadlock when filing waits for a read); a failed store read keeps the ask; a stale A moves nothing; A and B by letter or words; an ask withdrawn by someone else is not filed again', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'app-account-ask2-'))
+  t.after(() => rm(root, { recursive: true, force: true }).catch(() => {}))
+  const dir = await appTree(root, [[BOARD, ORG, 'local_080d897d', chatFile({ title: 'Game - Main', cli: '080d897d-0000-4000-8000-000000000001', activity: at(20, 0, 0) })]])
+  const config = join(root, 'config.json')
+  await writeFile(config, JSON.stringify({ lastKnownAccountUuid: OTHER }))
+  const record = join(root, 'board', 'data', 'app-account.json')
+  let now = at(21, 0, 0)
+  const asks = new Map()
+  let filed = 0
+  let failReads = 0
+  let watch
+  // The deadlock's shape: filing the ask waits for a state read, which reads the account (the server's work API does). With the
+  // ask kept inside the read this never resolves; outside it, the read answers and the ask is filed.
+  const adapter = {
+    file: async body => { await watch.read(); filed += 1; const id = `Q${950 + filed}`; asks.set(id, { ...body, state: 'open', answer: [] }); return id },
+    close: async (id, why) => { asks.get(id).state = 'withdrawn'; asks.get(id).why = why },
+    stateOf: async id => { if (failReads > 0) { failReads -= 1; throw new Error('the store could not be read') } return asks.has(id) ? { state: asks.get(id).state, answer: asks.get(id).answer } : null },
+  }
+  watch = accountWatch({ appSessions: () => dir, record, chatHome: HOME, ask: adapter, folders: () => readAccountFolders(dir), list: async () => ({ prefix: PREFIX, main: 'Main' }), clock: () => now })
+  const within = (promise, ms, what) => Promise.race([promise, new Promise((_, no) => setTimeout(() => no(new Error(`${what}: not within ${ms} ms`)), ms))])
+  await within(watch.read(), 5_000, 'the first read')
+  now += RETURN_SETTLE_MS + 6_000
+  await within(watch.read(), 5_000, 'the read past the settle (kept inside the read, this never answers)')
+  await within(watch.tend(), 5_000, 'the ask filed while its filing reads the account')
+  assert.deepEqual([filed, watch.now().ask], [1, 'Q951'])
+  // A failed store read: the ask is kept as it is (unknown), not dropped and re-filed.
+  failReads = 1
+  now += 6_000; await watch.read(); await watch.tend()
+  assert.deepEqual([filed, watch.now().ask], [1, 'Q951'], 'kept through a failed read')
+  // A stale A: answered A, but the app moved on to a third account meanwhile: nothing is taken, the hold stays.
+  const THIRD = 'c3c3c3c3-0000-4000-8000-0000000000c3'
+  asks.get('Q951').state = 'answered'
+  asks.get('Q951').answer = ['A Run the board on this account']
+  await writeFile(config, JSON.stringify({ lastKnownAccountUuid: THIRD }))
+  now += 6_000; await watch.read(); await watch.tend()
+  assert.deepEqual([watch.now().away, watch.now().board, watch.now().ask], [true, BOARD, null], 'a stale A moves nothing')
+  // On the third account the question comes once more; its A by its words takes it.
+  now += RETURN_SETTLE_MS + 6_000; await watch.read(); await watch.tend()
+  assert.deepEqual([filed, watch.now().ask], [2, 'Q952'])
+  asks.get('Q952').state = 'answered'
+  asks.get('Q952').answer = ['Run the board on this account']
+  now += 6_000; await watch.read(); await watch.tend()
+  assert.deepEqual([watch.now().away, watch.now().board], [false, THIRD], 'A by its words')
+  // Away again: withdrawn by someone else (the person on the board): not filed again in the same away; B by its words holds.
+  await writeFile(config, JSON.stringify({ lastKnownAccountUuid: OTHER }))
+  now += 6_000; await watch.read(); now += RETURN_SETTLE_MS + 6_000; await watch.read(); await watch.tend()
+  assert.deepEqual([filed, watch.now().ask], [3, 'Q953'])
+  asks.get('Q953').state = 'withdrawn'
+  now += 6_000; await watch.read(); await watch.tend()
+  for (let n = 0; n < 5; n++) { now += 60_000; await watch.read(); await watch.tend() }
+  assert.deepEqual([filed, watch.now().ask, watch.now().away], [3, null, true], 'withdrawn by someone else: no second ask this away')
+  await writeFile(config, JSON.stringify({ lastKnownAccountUuid: THIRD }))
+  now += 6_000; await watch.read(); now += RETURN_SETTLE_MS + 6_000; await watch.read(); await watch.tend()
+  await writeFile(config, JSON.stringify({ lastKnownAccountUuid: OTHER }))
+  now += 6_000; await watch.read(); now += RETURN_SETTLE_MS + 6_000; await watch.read(); await watch.tend()
+  assert.deepEqual([filed, watch.now().ask], [4, 'Q954'])
+  asks.get('Q954').state = 'answered'
+  asks.get('Q954').answer = ['Keep waiting until I switch back']
+  now += 6_000; await watch.read(); await watch.tend()
+  assert.deepEqual([watch.now().away, watch.now().ask, JSON.parse(await readFile(record, 'utf8')).declined], [true, null, OTHER], 'B by its words')
 })
 
 test('the away line links to its ask, and the pause record carries it; the page has no account button and the server no take-account action', async () => {
@@ -331,4 +399,8 @@ test('the away line links to its ask, and the pause record carries it; the page 
   assert.doesNotMatch(server, /take-account/)
   assert.match(server, /ask: isShowOnly \? null : \{[^]*?action: 'ask', kind: 'decide', title, text: text\.join\('\\n'\), options, advice \}, 'server'/)
   assert.match(server, /action: 'withdraw', id, why \}, 'server'\)/)
+  // The review's deadlock: kept after the read, never awaited by it.
+  assert.match(server, /const accountNow = account === null \? null : await loops\.run\('app-account', \(\) => account\.read\(\)\)\n[^]*?void loops\.run\('app-account-ask', \(\) => account\.tend\(\)\)/)
+  const watchCode = await readFile(new URL('../src/appAccount.mjs', import.meta.url), 'utf8')
+  assert.doesNotMatch(watchCode.slice(watchCode.indexOf('const readNow = async'), watchCode.indexOf('const takeNow')), /tendAsk/, 'the read keeps no ask')
 })

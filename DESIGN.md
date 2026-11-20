@@ -8745,7 +8745,12 @@ real chat; 11-19: the app was on the other account until ~19:11 and the Advisor 
   data/app-account.json, so a restart while away files no second one and reads the answer of the first. When the app comes home
   the open ask is withdrawn by the board with "the Claude app came back to <8 chars>; nothing to decide" and the B is forgotten. The
   muted line stays and links to the ask (`Decide (Q<n>)`); the page has no account button any more. A copy that only shows files
-  nothing. Accounts are named by their first 8 characters: the board cannot tell personal from work reliably. A read of the app's
+  nothing. Accounts are named by their first 8 characters: the board cannot tell personal from work reliably.
+  Chat 1's review (2026-11-20): the ask is kept AFTER the account read, single-flight and never awaited by it (the board files it
+  through the work API, whose write waits for a state read, which waits for the account read: kept inside the read it deadlocked the
+  board under writes); a failed store read leaves the ask as it is; A counts only while the app is still on the account it was asked
+  for (a stale A moves nothing); A and B are read by their letter or their words; an ask withdrawn by someone else is not filed again
+  in the same away. A read of the app's
   config.json that finds no account while away keeps the last account known, and only a whole chat file is copied.
 - **Not verified live**: that the app shows a chat copied into an inactive account's folder at the next switch (the skill's own
   copies needed an app restart because it wrote the ACTIVE account's folder). A copy that does not show costs nothing: the next

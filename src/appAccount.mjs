@@ -173,7 +173,6 @@ export function accountWatch({ appSessions, setting = null, record, chatHome, fo
     picture = accountPicture({ app, board: app === null ? board : await boardNow(), before, now: clock(), settleMs })
     if (picture.away && before?.away !== true) log(`The Claude app is on another account (${String(app).slice(0, 8)}): the board holds until it is back on ${String(picture.board).slice(0, 8)}.`)
     if (!picture.away && before?.away === true) log('The Claude app is back on the board\'s account: the board goes on.')
-    await tendAsk()
     picture = { ...picture, ask: asked?.id ?? null }
     readAt = clock()
     return picture
@@ -192,20 +191,50 @@ export function accountWatch({ appSessions, setting = null, record, chatHome, fo
    * this account yet: filed. Open: its answer is read; A takes the account, B declines it until the next switch away. Back home (or on
    * the account taken): an open ask is closed with its one line, and a B is forgotten. Nothing without an `ask` adapter.
    */
+  /** The answer's option: 'A' or 'B' by its letter or its words; null for anything else (the ask stays as answered, nothing is done). */
+  const optionOf = answer => {
+    const first = String(answer?.[0] ?? '').trim()
+    if (/^A(?![\w])/i.test(first) || /run the board on this account/i.test(first)) return 'A'
+    if (/^B(?![\w])/i.test(first) || /keep waiting/i.test(first)) return 'B'
+    return null
+  }
+  /**
+   * B1283: the one ask per switch away. Chat 1's review (the deadlock): it runs OUTSIDE the account read (`tend`, single-flight, not
+   * awaited by the read: the board files the ask through the work API, whose write waits for a state read, which waits for the
+   * account read). Away past the settle, no ask of this episode and no B for this account yet: filed. Open: its answer is read; A (by
+   * letter or words, and only while the app is still on the account it was asked for) takes the account, B declines it until the next
+   * switch away; an ask withdrawn by someone else counts as B. A store read that fails leaves the ask as it is (unknown, kept). Back
+   * home (or on the account taken): an open ask is closed with its one line, and a B is forgotten. Nothing without an `ask` adapter.
+   */
   const tendAsk = async () => {
-    if (ask === null) return
+    if (ask === null || picture === null) return
     await loadRecord()
     if (picture.away && picture.backAt === null) {
       if (asked !== null) {
-        const state = await ask.stateOf(asked.id).catch(() => null)
-        if (state === null || !['open', 'answered'].includes(state.state)) { asked = null; await saveRecord({ ask: null }); return }
+        const state = await ask.stateOf(asked.id).catch(() => undefined)
+        if (state === undefined) return
+        if (state === null || !['open', 'answered'].includes(state.state)) {
+          // Gone, or withdrawn by the person or the partner: one ask per switch away, so none is filed again for this account.
+          asked = null
+          declined = picture.app
+          await saveRecord({ ask: null, declined })
+          return
+        }
         if (state.state === 'answered') {
-          const letter = String(state.answer?.[0] ?? '').trim().charAt(0).toUpperCase()
-          if (letter === 'A') { await takeNow(picture.app); return }
+          const option = optionOf(state.answer)
+          const isSame = asked.app !== null && asked.app === picture.app
+          if (option === 'A' && isSame) { await takeNow(picture.app); return }
+          if (option === 'A') {
+            // A stale A (the app moved on to a third account meanwhile): the old ask is done with, nothing moves, this account is asked anew.
+            log(`The answer to ${asked.id} was for the account ${String(asked.app).slice(0, 8)}, and the app is on ${picture.app.slice(0, 8)} now: the board keeps waiting.`)
+            asked = null
+            await saveRecord({ ask: null })
+            return
+          }
           declined = picture.app
           asked = null
           await saveRecord({ ask: null, declined })
-          log('The person keeps the board waiting (B): no new ask until the next switch away.')
+          if (option === 'B') log('The person keeps the board waiting (B): no new ask until the next switch away.')
         }
         return
       }
@@ -219,15 +248,22 @@ export function accountWatch({ appSessions, setting = null, record, chatHome, fo
     }
     if (!picture.away) {
       if (asked !== null) {
-        const state = await ask.stateOf(asked.id).catch(() => null)
+        const state = await ask.stateOf(asked.id).catch(() => undefined)
+        if (state === undefined) return
         if (state?.state === 'open') await ask.close(asked.id, askClosedWhy(picture.board)).catch(() => {})
         asked = null
       }
       if (asked === null && (declined !== null || recorded?.ask)) { declined = null; await saveRecord({ ask: null, declined: null }) }
     }
   }
+  let tending = null
   return {
     now: () => picture,
+    /** The ask's keeping, once per call, single-flight: run after a read has resolved, never awaited by one. */
+    tend: () => {
+      tending ??= tendAsk().catch(error => log(`The account ask could not be kept: ${error?.message ?? error}`)).finally(() => { tending = null; if (picture !== null) picture = { ...picture, ask: asked?.id ?? null } })
+      return tending
+    },
     read: async () => {
       if (clock() - readAt < everyMs && picture !== null) return picture
       reading ??= readNow().finally(() => { reading = null })
