@@ -32,12 +32,16 @@ export function shownFolders(config) {
  * A real path inside the project's shown folder it claims to be in, also after links are followed. Or null. B354: a
  * shown folder may be deeper than the project's top (a kind's reference folder); the path stays inside the deepest one.
  */
+/** T5.2 P3: `project` is the project folder (every stored path under it, today) or a home `{ root, abs }` whose `abs` places a stored path. */
+const absOf = project => (typeof project === 'string' ? path => join(project, ...String(path).split('/')) : project.abs)
+const rootOf = project => (typeof project === 'string' ? project : project.root)
+
 async function inside(project, roots, path) {
   const shown = roots.filter(root => path === root || path.startsWith(`${root}/`)).sort((a, b) => b.length - a.length)[0]
   if (shown === undefined) return null
   try {
-    const root = await realpath(join(project, ...shown.split('/')))
-    const real = await realpath(join(project, path))
+    const root = await realpath(absOf(project)(shown))
+    const real = await realpath(absOf(project)(path))
     return real === root || real.toLowerCase().startsWith(`${root.toLowerCase()}${sep}`) ? real : null
   } catch {
     return null
@@ -57,7 +61,7 @@ async function pathOfName(project, roots, name) {
     if (found.size > 1 || depth > 4) return
     let entries
     try {
-      entries = await readdir(join(project, ...folder.split('/')), { withFileTypes: true })
+      entries = await readdir(absOf(project)(folder), { withFileTypes: true })
     } catch {
       return
     }
@@ -184,14 +188,14 @@ export async function adoptPicture(project, folder, subject, value) {
   const path = picturePath(value)
   if (path === null || typeof folder !== 'string' || !/^[\w.-]+$/.test(subject)) return null
   try {
-    const top = await realpath(project)
-    const real = await realpath(join(project, path))
+    const top = await realpath(rootOf(project))
+    const real = await realpath(absOf(project)(path))
     if (!real.toLowerCase().startsWith(`${top.toLowerCase()}${sep}`)) return null
     const info = await stat(real)
     if (!info.isFile() || info.size > PICTURE_BYTES) return null
     const to = `${folder}/${subject}/${path.split('/').pop()}`
-    await mkdir(join(project, ...folder.split('/'), subject), { recursive: true })
-    await copyFile(real, join(project, ...to.split('/')))
+    await mkdir(absOf(project)(`${folder}/${subject}`), { recursive: true })
+    await copyFile(real, absOf(project)(to))
     return to
   } catch {
     return null

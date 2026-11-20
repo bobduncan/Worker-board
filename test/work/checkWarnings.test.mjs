@@ -231,7 +231,9 @@ test('the server carries the cut and the warnings from the API to the check and 
   assert.match(server, /const \{ id, branch, result, merged, touches, cut \} = done\.result\.check/)
   assert.match(server, /void runCheck\(\{ id, branch, result, merged, touches, cut, repos: knownRepos\(\) \}\)/)
   assert.match(server, /function runCheck\(\{ id, branch, result, merged, touches, cut = null, repos = knownRepos\(\) \}\)/)
-  assert.match(server, /patientReportCheck\(\{ id, branch, result, merged, repos, run: gitRunner\(\), project: config\.project, touches, exists, fs: WORKTREE_FILES, cut \}\)/)
+  // T5.2 P2: the task worktrees stand in the CHATS' home (chatHomeOf: the project when chatHome is empty).
+  // T5.2 P3: and the table's `abs`, the two homes whose paths a report may write from, and the folders that are work outside git.
+  assert.match(server, /patientReportCheck\(\{ id, branch, result, merged, repos, run: gitRunner\(\), project: chatHomeOf\(config\), touches, exists, fs: WORKTREE_FILES, cut, abs: path => inProject\(config\.project, path\), homes: \[config\.project, chatHomeOf\(config\)\], outside: /)
   // The check's outcome, warnings and all, is what the work API's `check` is given.
   assert.match(server, /workApi\(\{ action: 'check', id, \.\.\.outcome \}/)
 })

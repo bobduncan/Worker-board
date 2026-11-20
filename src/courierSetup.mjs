@@ -7,10 +7,10 @@ export const COURIER_TASK = 'Worker board wake courier'
 /** Its prompt file, in the board's folder. */
 export const COURIER_PROMPT = 'tools/wake-courier.md'
 
-/** The board file the courier reads, for the project folder of this PC's config (`project`): the path to put in its prompt. */
+/** The board file the courier reads, in the chats' home of this PC's config (chatHome, else project): the path to put in its prompt. */
 export const courierBoardFile = project => `${String(project).replace(/[\\/]+$/, '')}\\.claude\\board.json`
 
-/** The lines setup prints about the courier task; `project` this PC's project folder (config.json), or null. */
+/** The lines setup prints about the courier task; `project` this PC's chats' home (config.json's chatHome, else project), or null. */
 export function courierLines(project = null) {
   return [
     `The wake courier (scheduled task "${COURIER_TASK}"): while the Claude app refuses the board's own sends, it wakes the sleeping chats.`,

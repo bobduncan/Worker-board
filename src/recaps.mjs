@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { hasChanged, isPending, isTriedSince, makingOf, roundsOf, standOf } from './demoFeedback.mjs'
 import { parseGoals } from './goals.mjs'
 import { readDemo, shownFolders, shownRoots } from './pictures.mjs'
+import { pictureHomeOf, resolveStored } from './projectPaths.mjs'
 import { sinceMs } from './work/item.mjs'
 
 /** The demo.json files of the open goals in the goal map's text: paths in the shown folders, each once. */
@@ -19,13 +20,13 @@ export async function recapFiles(config, goalsText) {
   if (typeof goalsText !== 'string' || typeof config?.project !== 'string') return []
   const open = parseGoals(goalsText).nodes.filter(node => node.state !== 'done')
   const ids = new Set(open.map(node => node.id.toLowerCase()))
-  const names = async folder => (await readdir(join(config.project, ...folder.split('/')), { withFileTypes: true }).catch(() => [])).filter(one => one.isDirectory()).map(one => one.name)
+  const names = async folder => (await readdir(resolveStored(config, folder), { withFileTypes: true }).catch(() => [])).filter(one => one.isDirectory()).map(one => one.name)
   const found = open.map(node => String(node.demo ?? '').split(' · ')[0].trim().replace(/\\/g, '/')).filter(path => /\.json$/i.test(path))
   for (const folder of shownFolders(config)) {
     for (const goal of (await names(folder)).filter(name => ids.has(name.toLowerCase()))) {
-      if ((await readdir(join(config.project, ...folder.split('/'), goal)).catch(() => [])).includes('demo.json')) found.push(`${folder}/${goal}/demo.json`)
+      if ((await readdir(resolveStored(config, `${folder}/${goal}`)).catch(() => [])).includes('demo.json')) found.push(`${folder}/${goal}/demo.json`)
       for (const sub of await names(`${folder}/${goal}`)) {
-        const entries = await readdir(join(config.project, ...folder.split('/'), goal, sub)).catch(() => [])
+        const entries = await readdir(resolveStored(config, `${folder}/${goal}/${sub}`)).catch(() => [])
         if (entries.includes('demo.json')) found.push(`${folder}/${goal}/${sub}/demo.json`)
       }
     }
@@ -42,7 +43,7 @@ export async function recapFiles(config, goalsText) {
 export async function readRecaps(config, goalsText) {
   const recaps = []
   for (const path of await recapFiles(config, goalsText)) {
-    const found = await readDemo(config.project, shownRoots(config), path)
+    const found = await readDemo(pictureHomeOf(config), shownRoots(config), path)
     if (found === null || found.why !== undefined) continue
     const every = found.base.sections.flatMap(section => section.rows)
     const parts = every.filter(row => row.steps.length > 0).map(row => ({ key: row.key, title: row.title, steps: row.steps, pending: isPending(row), changed: hasChanged(row), shows: row.shows ?? null }))

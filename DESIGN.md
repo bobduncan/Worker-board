@@ -8710,6 +8710,60 @@ src/carry/pictures.mjs) moves the pictures. The brief: `.claude/plans/2026-11-16
   and a fresh lock refused for both). B2 and B3 are fakes of their contracts in these tests until their parts merge.
 - **Not in v1**: the board reading its data from the clone (after Wednesday), hourly saves, a Save button, rclone.
 
+## T5.2 P2: the chats' home and the path table (2026-11-16, the design `.claude/plans/2026-11-16-workerboard-design.md` §3-4, chat 3)
+
+The board's data will move into `<game repo>/.workerboard` (P3 and later); the chats stay where they are, in the wrapper folder,
+because memory is keyed by git repo, the settings have no parent fallback, the routines are named after the folder and the port is
+keyed by it. P2 lays the ground without moving anything: `src/projectPaths.mjs` is the ONE place that says where the project's things
+live, from two PC-only settings in config.json, both '' today:
+
+- `chatHome`: the folder the chats run in. `chatHomeOf(config)` (chatHome, else project) now keys the port and the PC's list of
+  boards (server.mjs `home`), the launch entry and the Workers mod's board file (`chatFile(config, 'launch.json' | 'board.json')`),
+  the chats' cards (`chatsFolderOf`: the lanes, the spending collector, the chat filter in sources.mjs and state.mjs, the list of
+  chats), the chat logs' folder, the folder a chat is opened in, the routines' names (`routineFolderOf`: `basename(chatHome)`, so
+  the ids stay the same), the settings.local.json the routine jobs are allowed in, the task-worktree leftover scan and the
+  wake courier's board file (setup prints it). The transcripts are derived from the chats' home (config.mjs), as the app keys them.
+- `data`: the board's data home. `dataOf` (null = today's layout), `picturesOf` (`<data>/pictures`, else the project folder),
+  `assetsOf` (`<data>/pictures/assets`, else `assets` beside the work store) and `resolveStored(config, storedPath, { boardDir })`,
+  the table of §4 Links: with `data` empty it is `join(project, path)` for every stored path, today's `inProject`; with `data` set a
+  picture root or `.claude/assets/` goes under `<data>/pictures`, the store's and the goal map's paths under `<data>` with their stored
+  names (`brainstorms` stays `.claude/brainstorms`), `.claude/plans|specs|handover` under `<data>/docs`, `logs/` under the chat home,
+  `<project folder name>/...` into the game repo and `<board folder name>/...` into the board folder. server.mjs's `inProject` and the
+  backlog paths go through it already; P3 routes the store and every picture reader and writer.
+- `wordsPath(config, fullPath)`: a real path in the words to a chat, relative to the chat home (`.claude/work/B12.md` today).
+- **Tests.** test/projectPaths.test.mjs: with both settings empty every answer is exactly today's path (the test that must stay
+  green before P3 lands), and the fixture test/fixtures/projectPaths/board-config.json (data set, chatHome different from project) puts
+  every picture and asset path under `<data>/pictures`, the store under `<data>`, the docs under `<data>/docs` and every chat-keyed
+  path under the chat home. test/pathGuard.test.mjs lists every `join`/`resolve`/`inProject` on `project` and every `.claude`
+  literal outside the table, per file with its count: a new one fails, a removed one fails until its count is lowered; P3 empties it.
+
+## T5.2 P3, first slice: the data home and the resolver (2026-11-16, chat 3, on P2)
+
+Still with `data` empty everything is exactly today's path. With it set:
+- **The store and the goal map** (config.mjs `workFolder`, `projectFile`): under the data home with their stored names
+  (`<data>/.claude/work`, `<data>/.claude/goals.md`, brainstorms, goal-asks, goals.history, design.json); the generated backlog view
+  is a runtime file, `<data>/local/backlog.md`. A whole path of its own (a copy's) stays. sources.mjs reads the threads there.
+- **The runtime files** (`localFile`): sync-loop.json, limit-readings.json, sync.json, supervisor.json, supervisor-sweep.json and
+  board-errors.log go to `<data>/local` (ignored by the data branch), today the project's `.claude`.
+- **The assets** (`assetsOf`): `<data>/pictures/assets`, today `assets` beside the store; server.mjs's `assetsDir` uses it.
+- **Every picture reader and writer** takes a home `{ root, abs }` (`pictureHomeOf(config)`; server.mjs `pictureHome(root)`) in place of
+  the project folder: src/pictures.mjs (findPicture, readDemo, findDemo, pictureTooBig, pictureProblem, adoptPicture, listPictures,
+  the bare-name search), talkPicture.mjs, ideas.mjs `placeReferences`; recaps.mjs, recapCard.mjs and tools/evidence.mjs resolve their
+  folders with `resolveStored`. A plain folder still works (today's call, and the tests'). A root named alone (`pictures`,
+  `.claude/assets`, `.claude/plans`, `logs`) is placed like what lies under it.
+- **The report checks** (src/work/check.mjs): `pathsIn` leaves off every home given (`homes`: the project folder and the chats'
+  home, a worker writes from either); `filesNamed` places a named file with the table's `abs`, and the folders in `outside` (the
+  data home and the pictures, inside the game repo's folder) are work outside git, never "in a repository". server.mjs passes the
+  three; without them the check reads as before.
+- **Tests**: test/projectPaths.test.mjs (today's and the fixture's places for the store, the backlog view, the runtime files and the
+  picture home; a real picture under `<data>/pictures` found through the home and not under the project), test/work/checkPaths.test.mjs
+  (the two homes, the table's placing, outside work). The guard's list shrank from 77 + 75 to 54 + 68 ties (30 files).
+- **Left for the next slice**: the stored prefixes in the words to chats (rowWords `.claude/work/`, rounds' kinds paths), the sweep keep
+  list, the relative paths of api.mjs and deliver.mjs, sound-library against the chat home, the start check for a re-made picture root,
+  plan-writes by relative key, and the `.claude` reads of sources.mjs (the briefings: P5's home files).
+  literal outside the table, per file as the LINES that hold them (test/fixtures/pathGuard-known.json; chat 1's review of 2026-11-20: a
+  count per file hid a new tie beside a removed one): a new line fails naming it, a line that is gone fails until it is taken out; P3
+  and the switch-on round empty it.
 ## B1273 (F36a): an account switch costs nothing (2026-11-19, chat 3)
 
 The person: "I want to be able to switch accounts often". The Claude app keeps one chat list per account

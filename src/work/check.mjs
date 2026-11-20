@@ -187,7 +187,7 @@ export const KINDS = [
  * evidence is looked at only as far as the rows ask (`once`). `args` as `reportCheck`.
  */
 export async function finishedKind(args) {
-  const { id, branch, result, merged, repos, run, project = '', touches = [], exists = null } = args
+  const { id, branch, result, merged, repos, run, project = '', touches = [], exists = null, abs = null, homes = null, outside = [] } = args
   const own = ownBranchOf(branch, repos)
   // Per repository, whether it has or had the step's own branch: true, false, or null where git did not answer.
   const branchIn = once(async () => {
@@ -211,7 +211,7 @@ export async function finishedKind(args) {
     nowhere: once(async () => (await branchIn()).every(one => one.had === false)),
     ownUnmerged: once(async () => ownUnmerged(own, await e.traced(), run)),
     // B363: work outside git is checked by its files, when the board can look (`exists` and the project's folder).
-    files: once(async () => (exists === null || project === '' ? null : filesNamed({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists }))),
+    files: once(async () => (exists === null || project === '' ? null : filesNamed({ result, touches, project, repoDirs: repos.map(repo => repo.dir), exists, abs, homes, outside }))),
     noChange: noChangeOf(result),
     unmerged: once(() => findUnmerged(args)),
   }
@@ -268,10 +268,10 @@ async function ownUnmerged(own, repo, run) {
  * a word; a branch that adds a file the result or Touches names (a path with a file's ending). `{ branch, commits, base,
  * repo }` (`commits`: those the base lacks), else null. A step whose own branch exists and is merged is not searched on.
  */
-export async function findUnmerged({ id, branch, result, touches = [], project = '', repos, run }) {
+export async function findUnmerged({ id, branch, result, touches = [], project = '', repos, run, homes = null }) {
   const own = typeof branch === 'string' ? branch.trim() : ''
   const named = new RegExp(`(?<![\\w-])${escape(id)}(?![\\w-])`)
-  const files = [...pathsIn(result, project), ...pathsIn((Array.isArray(touches) ? touches : [touches]).join('\n'), project)].filter(one => one.isCertain && !one.path.endsWith('/')).map(one => one.path.toLowerCase())
+  const files = [...pathsIn(result, homes ?? project), ...pathsIn((Array.isArray(touches) ? touches : [touches]).join('\n'), homes ?? project)].filter(one => one.isCertain && !one.path.endsWith('/')).map(one => one.path.toLowerCase())
   const isFile = added => files.some(path => added === path || added.endsWith(`/${path}`) || path.endsWith(`/${added}`))
   for (const { dir, base } of repos) {
     const [unmerged, heads] = await Promise.all([
@@ -524,10 +524,11 @@ const plainPath = path => String(path).replace(/\\/g, '/').replace(/\/+$/, '')
  * end marks left off. `isCertain`: it reads as a file or folder for certain (a file's ending, or a "/" at its end), so
  * it must be there; another ("and/or", "B1/B2/B3", "a/b") counts only when it is there.
  */
-function pathsIn(words, project) {
-  const home = plainPath(project)
+export function pathsIn(words, project) {
+  // T5.2 P3: the project's whole path and the chats' home's (`homes`, a list) are both left off: a worker writes from either.
+  const homes = (Array.isArray(project) ? project : [project]).map(plainPath).filter(home => home !== '')
   let text = String(words ?? '').replace(/\\/g, '/')
-  if (home !== '') text = text.replace(new RegExp(`${escape(home)}/`, 'gi'), '')
+  for (const home of [...new Set(homes)].sort((a, b) => b.length - a.length)) text = text.replace(new RegExp(`${escape(home)}/`, 'gi'), '')
   const found = []
   for (const [whole] of text.matchAll(/(?<![\w:/.@-])(?:[\w.@-]+\/)+[\w.@-]*/g)) {
     const raw = whole.replace(/[.,;:]+$/, '')
@@ -554,15 +555,19 @@ export const NOTHING_BUILT_LINE = 'nothing built because it already exists? Repo
  * of either that is not there only warns once a file is there; one in a repository in Touches alone (a wide plan) warns
  * too. `exists(path)` answers whether a path is there.
  */
-async function filesNamed({ result, touches, project, repoDirs, exists }) {
+export async function filesNamed({ result, touches, project, repoDirs, exists, abs = null, homes = null, outside = [] }) {
   const repos = repoDirs.map(dir => plainPath(dir).toLowerCase())
-  const isInRepo = where => repos.some(dir => where.toLowerCase() === dir || where.toLowerCase().startsWith(`${dir}/`))
+  // T5.2 P3: the data home and the pictures (`outside`) lie inside the game repo's folder, yet they are work outside git for the check.
+  const apart = outside.map(dir => plainPath(dir).toLowerCase())
+  const isApart = where => apart.some(dir => where.toLowerCase() === dir || where.toLowerCase().startsWith(`${dir}/`))
+  const isInRepo = where => !isApart(where) && repos.some(dir => where.toLowerCase() === dir || where.toLowerCase().startsWith(`${dir}/`))
+  const place = typeof abs === 'function' ? abs : path => join(project, ...path.split('/'))
   const weigh = async named => {
     const found = []
     const missing = []
     const inGit = []
     for (const one of named) {
-      const where = join(project, ...one.path.split('/'))
+      const where = place(one.path)
       if (isInRepo(plainPath(where))) {
         if (one.isCertain) inGit.push(one.path)
       } else if (await exists(where)) found.push(one.path)
@@ -570,8 +575,8 @@ async function filesNamed({ result, touches, project, repoDirs, exists }) {
     }
     return { found, missing, inGit }
   }
-  const planned = await weigh(pathsIn((Array.isArray(touches) ? touches : [touches]).join('\n'), project))
-  const said = await weigh(pathsIn(result, project))
+  const planned = await weigh(pathsIn((Array.isArray(touches) ? touches : [touches]).join('\n'), homes ?? project))
+  const said = await weigh(pathsIn(result, homes ?? project))
   const once = all => [...new Set(all)]
   const found = once([...planned.found, ...said.found])
   // A repository file the result names is work in git; one only Touches names is a plan, a fact only when nothing else is there.

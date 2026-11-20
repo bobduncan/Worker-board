@@ -17,7 +17,9 @@ import { homedir, userInfo } from 'node:os'
 
 import { loadConfig, workFolder } from './src/config.mjs'
 import { courierLines } from './src/courierSetup.mjs'
+import { chatHomeOf } from './src/projectPaths.mjs'
 import { describeFlow, setupFlow } from './src/flowSetup.mjs'
+import { picturesPart } from './src/picturesPart.mjs'
 import { findClaude, runSetup } from './src/setup.mjs'
 import { setupWatcher } from './src/watcherSetup.mjs'
 
@@ -74,6 +76,14 @@ if (file !== null) {
     else console.log(`Added ${done.added.length} move${done.added.length === 1 ? '' : 's'}${done.states.length === 0 ? '' : ` and ${done.states.length} state${done.states.length === 1 ? '' : 's'}`} to ${done.file}; the old file is kept as ${done.backup}`)
   }
 }
+// T5.2 P4: the pictures part (src/picturesPart.mjs): where the project's pictures live; it never makes config.json.
+{
+  const asking = process.stdin.isTTY ? createInterface({ input: process.stdin, output: process.stdout }) : null
+  const pictures = await picturesPart({ boardDir: here, flag: given('pictures'), isTty: Boolean(process.stdin.isTTY), isCheck, ask: question => asking.question(question) })
+  asking?.close()
+  for (const line of pictures.lines) console.log(line)
+  if (!pictures.ok) good = false
+}
 // F10: the watcher part (Windows only): the scheduled task that brings a dead board back.
 if (process.platform === 'win32') {
   const runProgram = (program, programArgs) => new Promise(resolve => {
@@ -105,7 +115,8 @@ if (process.platform === 'win32') {
 // F17: the wake courier, a scheduled task only a model can make: what to ask for on this PC (with or without --check).
 let courierProject = null
 try {
-  courierProject = (await loadConfig(join(here, 'config.json'))).project
+  // T5.2 P2: the board file lives in the CHATS' home (chatHome, else the project).
+  courierProject = chatHomeOf(await loadConfig(join(here, 'config.json')))
 } catch {
   // No config: the lines name the placeholder only.
 }

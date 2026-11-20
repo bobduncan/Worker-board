@@ -128,13 +128,15 @@ export function ideasOver(ideas, write = async () => {}, { pictures = null } = {
  * cannot be moved stays where it was.
  */
 export async function placeReferences(project, paths, folder) {
+  // T5.2 P3: `project` is the project folder, or a home `{ root, abs }` whose `abs` places a stored path.
+  const abs = typeof project === 'string' ? path => join(project, ...path.split('/')) : project.abs
   const placed = []
   for (const [n, path] of paths.entries()) {
     const to = `${folder}/reference-${n + 1}${path.slice(path.lastIndexOf('.'))}`
-    const target = join(project, ...to.split('/'))
+    const target = abs(to)
     try {
       await mkdir(dirname(target), { recursive: true })
-      await moveInPlace(join(project, ...path.split('/')), target)
+      await moveInPlace(abs(path), target)
       placed.push(to)
     } catch {
       placed.push(path)
