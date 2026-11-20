@@ -78,11 +78,16 @@ const isUntaken = (message, now, keep) => message !== undefined && ((message.sta
 /**
  * Whether the plan's set word `one` is held this refresh: no main chat, or the newest word for the chat (`last`; `mine()` all of its words)
  * is one for the same setting of the last half hour (B468), unless it failed for a passing reason (B813), the app refused it for a changed
- * setting (B1207 review 5) or it was moot. B1282 (X207): a lost setting's word goes past the word that set it (read back since: effort.mjs
- * `readBackOf`); a second one for the same loss is held as any word, should two refreshes plan it before the state shows the first.
+ * setting (B1207 review 5) or it was moot. B1282 (X207): a lost setting's word is the effort plan's to time (effort.mjs `readBackOf`, its
+ * half hour after a word that never reached Main): held here only behind a lost word for the same step and setting still on its way (not
+ * lost, not met, not read back), should two refreshes plan it before the state shows the first (chat 1's review 2: a second loss after
+ * the first word was read back or met goes at once).
  */
-export const isEffortWordHeld = (one, last, mine, now) => one.to === null || (last !== undefined && sameTarget(last, one.level, one.model ?? null) && now - last.at < AGAIN_MS
-  && !goesAgain(last, mine(), now) && !(one.changed === true && isSetRefused(last)) && !isMootChanged(last) && !(one.lost === true && last.lost !== true))
+const isLostOnItsWay = (one, last) => last?.lost === true && last.forStep === one.step && sameTarget(last, one.level, one.model ?? null)
+  && !['expired', 'failed', 'dropped'].includes(last.state) && !Number.isFinite(last.readBackAt)
+export const isEffortWordHeld = (one, last, mine, now) => one.to === null || (one.lost === true ? isLostOnItsWay(one, last)
+  : last !== undefined && sameTarget(last, one.level, one.model ?? null) && now - last.at < AGAIN_MS
+  && !goesAgain(last, mine(), now) && !(one.changed === true && isSetRefused(last)) && !isMootChanged(last))
 
 export function sendOnce({ dir, key, words, outbox, state, now, maxChars, newId, fs, keep }) {
   return oneAtATime(dir, async () => {

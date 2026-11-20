@@ -6,13 +6,20 @@
 // case's own times and ids; no word names a project.
 
 import assert from 'node:assert/strict'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
+import { memoryStore } from '../../src/store.mjs'
 import { WATCH_RULES, switchOf } from '../../src/supervisor/rules/watch.mjs'
+import { workApi } from '../../src/work/api.mjs'
 import { isEffortWordHeld } from '../../src/work/deliver.mjs'
 import { effortPlan, effortWords, planWordsFor, readBackMarkOf, readBackOf } from '../../src/work/effort.mjs'
+import { handoverPass } from '../../src/work/handoverBoard.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 import { whyClosed } from '../../src/work/outboxSweep.mjs'
+import { writeStore } from '../../src/work/store.mjs'
 
 const MIN = 60_000
 const at = (d, h, m, s = 0) => new Date(2026, 10, d, h, m, s).getTime()
@@ -47,7 +54,7 @@ const lostWordOf = (now, state = 'waiting', more = {}) => ({ id: 'lw', at: now, 
 
 test('X207 real case: the read-back is the envelope Main set, at its take (23:50:57)', () => {
   assert.deepEqual(readBackOf({ envelope, handed: envelope.wants, words: CASE, step: 'B1279', level: 'high', model: OPUS }), { at: at(19, 23, 50, 57), how: 'its hand-over' })
-  assert.equal(readBackOf({ envelope: { ...envelope, setByMain: undefined }, handed: envelope.wants, words: CASE, step: 'B1279', level: 'high', model: OPUS }), null, 'a delivered word alone is no read-back')
+  assert.equal(readBackOf({ envelope: { ...envelope, setByMain: undefined, asked: { model: OPUS, effort: 'high' } }, handed: envelope.wants, words: CASE, step: 'B1279', level: 'high', model: OPUS }), null, 'a delivered word alone is no read-back')
 })
 
 test('X207 real case: while it runs Opus · high, no word and no loss', () => {
@@ -152,3 +159,90 @@ test('a lost word waiting is moot once its step wants another setting or is no l
   // Met once the app's file shows it.
   assert.equal(whyClosed(waiting, { ...ctx, lanes: [lane({ model: OPUS, effort: 'high' })] }).met, true)
 })
+
+// Chat 1's review of 5208ac34.
+
+test('review 1, X207\'s own timeline: Main takes nothing from 00:00 to 00:19:50; the lost word of 00:08 expires at 00:18, and one goes again after the half hour', () => {
+  const seen = at(20, 0, 8)
+  const word = lostWordOf(seen)
+  const expired = { ...word, state: 'expired', closedAt: at(20, 0, 18, 1) }
+  // Kept 10 min, then expired: nothing on its way, under the half hour: no word yet, and the rule speaks, counted from the loss.
+  const sent = [...CASE, expired]
+  assert.deepEqual(plan(b1279(), at(20, 0, 19, 30), sent).words, [])
+  const found = ruleAt(b1279(), at(20, 0, 19), sent)
+  assert.deepEqual([found.state, found.late, found.lostAt, Math.round(found.since / MIN)], ['lost', true, seen, 11])
+  // Half an hour after the first: a new word for Main's model, which the delivery lets through behind the expired one.
+  const again = plan(b1279(), at(20, 0, 38, 30), sent)
+  assert.deepEqual(again.words.map(one => [one.lost, one.forModel, one.level]), [[true, true, 'high']])
+  assert.equal(isEffortWordHeld(again.words[0], expired, () => sent, at(20, 0, 38, 30)), false)
+  // The loss still counts from 00:08.
+  assert.equal(again.runs.get('Worker 3').lost.at, seen)
+  // A word its link drop closed ("a fresh word comes") is none on its way either.
+  assert.deepEqual(plan(b1279(), at(20, 0, 38, 30), [...CASE, { ...word, state: 'dropped', closedAt: at(20, 0, 19) }]).words.map(one => one.lost), [true])
+})
+
+test('review 1: a lost word the app refused (a hand\'s) asks again at once, for Main\'s model', () => {
+  const hands = [setWord, envelope]
+  const first = plan(b1279(), at(20, 0, 1), hands).words[0]
+  assert.equal(first.forModel, undefined, 'no refusal known: for the hands')
+  const refusedWord = { id: 'lw', at: at(20, 0, 1), ...effortWords(first), state: 'dropped', refused: true, failedAt: at(20, 0, 1, 20), why: REFUSAL, closedAt: at(20, 0, 1, 30) }
+  const again = plan(b1279(), at(20, 0, 2), [...hands, refusedWord])
+  assert.deepEqual(again.words.map(one => [one.lost, one.forModel]), [[true, true]])
+  assert.equal(isEffortWordHeld(again.words[0], refusedWord, () => [...hands, refusedWord], at(20, 0, 2)), false)
+})
+
+test('review 2: a second loss after the first word was read back or met goes at once, through the delivery too', () => {
+  const first = { ...lostWordOf(at(20, 0, 0, 30)), state: 'delivered', deliveredAt: at(20, 0, 0, 40) }
+  for (const done of [{ readBackAt: at(20, 0, 1) }, { state: 'dropped', met: true, closedAt: at(20, 0, 2) }]) {
+    const sent = [...CASE, { ...first, ...done }]
+    const { words, runs } = plan(b1279(), at(20, 0, 5), sent)
+    assert.deepEqual(words.map(one => one.lost), [true])
+    assert.equal(isEffortWordHeld(words[0], { ...first, ...done }, () => sent, at(20, 0, 5)), false)
+    assert.equal(runs.get('Worker 3').lost.setAt, done.readBackAt ?? done.closedAt)
+  }
+  // Still on its way (not read back): held, as two refreshes might plan it.
+  assert.equal(isEffortWordHeld(plan(b1279(), at(20, 0, 5), CASE).words[0], first, () => [...CASE, first], at(20, 0, 5)), true)
+})
+
+test('review 3: a hand-over that needed no set (the worker ran the step\'s setting) is read back at its take; lost later, one word', () => {
+  const noSet = { wants: { model: OPUS, effort: 'high' }, id: 'db5d830b31e3dbe4', at: at(19, 22, 30, 12), to: 'Worker 3', command: 'handover', kind: 'task', step: 'B1279', set: null, state: 'delivered', takenAt: at(19, 22, 30, 20), deliveredAt: at(19, 22, 30, 30) }
+  const sent = [refused, noSet]
+  assert.deepEqual(readBackOf({ envelope: noSet, handed: noSet.wants, words: sent, step: 'B1279', level: 'high', model: OPUS }), { at: at(19, 22, 30, 20), how: 'its hand-over' })
+  const { words } = plan(b1279(), at(20, 0, 1), sent)
+  assert.deepEqual(words.map(one => [one.lost, one.forModel]), [[true, true]])
+  assert.match(words[0].why, /at 22:30 \(read back\)/)
+  // One the refusal left unset (asked kept) is no read-back: the quiet gap as before.
+  assert.equal(readBackOf({ envelope: { ...noSet, asked: { model: OPUS, effort: 'high' } }, handed: noSet.wants, words: sent, step: 'B1279', level: 'high', model: OPUS }), null)
+})
+
+test('minor: a step changed after its hand-over (B1207), read back at its new setting and lost, gets its lost word and the rule\'s words', () => {
+  const medium = b1279({ effort: 'medium' })
+  const changedWord = { id: 'cw', at: at(20, 0, 20), to: 'Lead', command: 'worker-effort', about: 'Worker 3', effort: 'medium', model: OPUS, forStep: 'B1279', session: SESSION, changed: true, forModel: true, state: 'delivered', deliveredAt: at(20, 0, 20, 5), readBackAt: at(20, 0, 21) }
+  const sent = [...CASE, changedWord]
+  assert.deepEqual(plan(medium, at(20, 0, 25), sent, { lane: { model: OPUS, effort: 'medium' } }).words, [], 'set: nothing')
+  const { words } = plan(medium, at(20, 0, 30), sent, { lane: { model: OPUS, effort: 'high' } })
+  assert.deepEqual(words.map(one => [one.lost, one.changed, one.level]), [[true, undefined, 'medium']])
+  assert.match(words[0].why, /at 00:21 \(read back\)/)
+})
+
+test('minor: the hand-over pass marks the lost word Main took once the app\'s file shows its setting (readBackAt), once', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'effort-lost-'))
+  try {
+    const items = items0()
+    await writeStore(dir, { items, activities: [{ name: 'Board', isFocus: false, steps: [...items.keys()], notes: [], loose: [] }] }, undefined, { now: at(19, 23, 0) })
+    const outbox = memoryStore()
+    const taken = { ...lostWordOf(at(20, 0, 0, 30)), state: 'delivered', deliveredAt: at(20, 0, 0, 40) }
+    for (const one of [...CASE, taken]) await outbox.say(one)
+    const pass = async (now, more) => {
+      const worker = { ...lane(more), isMain: false, isLeftover: false, isRunning: true, state: 'working', mod: '0.35.0', report: { state: 'working', since: at(19, 23, 51), background: false, at: now }, held: null }
+      const state = { chats: [worker], chatPrefix: '', readyList: { ready: [] }, limits: {}, gaps: [], restart: { main: 'Lead' } }
+      const ctx = { dir, now, prefix: '', roleOf: chat => (chat === 'Lead' ? 'main' : 'worker'), chats: ['Lead', 'Worker 3'], as: 'server' }
+      await handoverPass({ state, dir, outbox, apply: body => workApi(body, ctx), config: { handover: 'sequence', models: MODELS }, now, newId: () => `n${now}` })
+      return outbox.outbox().find(one => one.id === 'lw').readBackAt
+    }
+    assert.equal(await pass(at(20, 0, 1)), undefined, 'still sonnet · medium')
+    assert.equal(await pass(at(20, 0, 2), { model: OPUS, effort: 'high' }), at(20, 0, 2))
+    assert.equal(await pass(at(20, 0, 3), { model: OPUS, effort: 'high' }), at(20, 0, 2), 'once')
+  } finally { await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
+})
+const items0 = () => items(b1279())
