@@ -43,7 +43,19 @@ const isResumed = (items, holder, assets = [], prefix = '') => {
  * only: while resuming everything goes as when running. Resuming is there to get chats started; holding the person's
  * answer to a chat that had not started kept the resume from ending (seen live that day).
  */
-export const HOLDS = ['pausing']
+export const HOLDS = ['pausing', 'away']
+/**
+ * B1273: the hold while the Claude app is on another account (src/appAccount.mjs): computed, never written to pause.json. It
+ * holds as a pause does (hand-outs, wakes, incidents, asks: every `isHolding`), and is no pause of the person's: the pause's
+ * banner, safe-to-restart and resume words go by `state === 'pausing'` / `'resuming'` and stay out of it. The person's own
+ * pause wins (it stays 'pausing', with its banner). `account` the picture `{ away, since }`; `under` the record it covers.
+ */
+export function awayOver(pause, account) {
+  if (account?.away !== true || pause?.state === 'pausing') return pause ?? null
+  return { state: 'away', since: Number.isFinite(account.since) ? account.since : null, by: 'the Claude app\'s account', under: pause ?? null }
+}
+/** B1273: a work store as the board reads it, with the away hold over its pause (`awayOver`). */
+export const withAway = (store, account) => (store?.ok === true && account?.away === true ? { ...store, pause: awayOver(store.pause ?? null, account) } : store)
 /** Whether a pause record (pause.json, or the state's `pause`) holds what would start a turn. */
 export const isHolding = pause => HOLDS.includes(pause?.state)
 /** When the last pause ended (the record, running again since then); -Infinity for none. */

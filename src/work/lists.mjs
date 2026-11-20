@@ -372,7 +372,8 @@ export function routedAwayOf(work, { names = [], prefix = '', limitMs = PARTNER_
     const at = askFiledMs(item)
     const routed = routedAt(item, route)
     return {
-      id, route, asks: valueOf(item, 'Asks') ?? 'decide', isKept: isKeptLook(item), from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), title: askPartsOf(item).title, of,
+      // B1270 (F34): `via`, so the page knows an Accept card (Accept / Send back) and an ask of the app's form (answered in its chat).
+      id, route, asks: valueOf(item, 'Asks') ?? 'decide', via: valueOf(item, 'Via'), isKept: isKeptLook(item), from: valueOf(item, 'Owner') === null ? null : nameOf(valueOf(item, 'Owner')), title: askPartsOf(item).title, of,
       ofTitle: step === undefined ? null : valueOf(step, 'Title'), goal: step === undefined ? null : valueOf(step, 'Goal'),
       text: askPartsOf(item).context.join('\n'), advice,
       options: (valueOf(item, 'Options') ?? '').split(' | ').filter(one => one.trim() !== '').map(label => ({ label, isRecommended: isAdvised(label, advice) })),

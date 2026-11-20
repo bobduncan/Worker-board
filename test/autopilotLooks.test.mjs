@@ -429,11 +429,16 @@ test('the person answers the look in its window as any ask: it closes with their
   const back = await read(second)
   assert.deepEqual(back.get('Q1').sections.get('Answer'), ['Rejected. The top row is still cut.'])
   assert.ok(back.get('B55').sections.get('Context').some(line => line.trim() === 'Recap verdict: sent back (Q1)'))
-  // A look that is no kept one (a checker's) writes no such line.
+  // B1270 (F34): a look held for the recap that is no kept one (a checker's) writes the same line, answered before the recap opens; one
+  // routed to the person writes none.
   const plain = await storeWith({ ...steps(), Q1: look('Q1', { Route: 'recap', Of: 'B55' }) })
   t.after(() => rm(plain, { recursive: true, force: true }))
   assert.equal((await person(plain, { action: 'answer', id: 'Q1', verdict: 'approve', text: '' }, NOW + MIN)).ok, true)
-  assert.equal((await read(plain)).get('B55').sections.get('Context')?.some(line => /Recap verdict/.test(line)) ?? false, false)
+  assert.ok((await read(plain)).get('B55').sections.get('Context').some(line => line.trim() === 'Recap verdict: approved (Q1)'))
+  const theirs = await storeWith({ ...steps(), Q1: look('Q1', { Route: 'person', Of: 'B55' }) })
+  t.after(() => rm(theirs, { recursive: true, force: true }))
+  assert.equal((await person(theirs, { action: 'answer', id: 'Q1', verdict: 'approve', text: '' }, NOW + MIN)).ok, true)
+  assert.equal((await read(theirs)).get('B55').sections.get('Context')?.some(line => /Recap verdict/.test(line)) ?? false, false)
 })
 
 test('every pass that moves a hand-over to the recap keeps it for the Undo ("kept for your recap"), not only the switch-on; the Undo gives it back', async t => {

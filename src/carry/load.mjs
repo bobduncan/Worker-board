@@ -7,7 +7,7 @@ import { join, dirname } from 'node:path'
 
 import { writeAtomic } from '../write.mjs'
 import { FOCUS_LINE } from '../goals.mjs'
-import { blobOf, blobOfFile, ensureDataClone, fastForward, hasIdentity, lines } from './git.mjs'
+import { blobOf, blobOfFile, ensureDataClone, fastForward, hasIdentity, lines, remoteBranch } from './git.mjs'
 import { loadGuards } from './guards.mjs'
 import { parseTimes, restoreTimes } from './times.mjs'
 import { readRecord, writeRecord } from './record.mjs'
@@ -37,7 +37,13 @@ export async function load(roots, options = {}, deps) {
   if (early.refusals.length > 0) return refused(early, log)
   if (options.undo) return undo({ roots, stamp: options.undo, fs, log, journal, backupRoot })
 
-  // ---- fetch
+  // ---- fetch. The rehearsal of 2026-11-17: a load whose branch origin lacks (no save of this kind from another PC yet) touches
+  // nothing: the clone-or-init of before made an empty local branch, and the real load then refused "unrelated histories".
+  const upstream = await remoteBranch(git, roots.boardDir, roots.remote, branch)
+  if (upstream === null) {
+    log(`Nothing to load: origin has no ${branch} yet (no ${practice ? 'practice' : 'final'} save from another PC); nothing here was changed`)
+    return { ok: false, refusals: [{ code: 'empty', text: `origin has no ${branch} yet`, who: 'the other PC' }], warnings }
+  }
   const clone = await ensureDataClone({ git, dir: roots.dataDir, remote: roots.remote, branch, fs })
   const moved = clone.made === 'kept' ? await fastForward({ git, dir: roots.dataDir, branch }) : { before: null, after: clone.head }
   const savedText = await fs.readFile(join(roots.dataDir, 'saved.json'), 'utf8').catch(() => null)

@@ -72,7 +72,8 @@ test('review 10, 16: the refusal is the record\'s own fact: it outlives the prun
   noteSendLifted(back, NOW + PROBE_MS + 2 * MIN)
   assert.equal(sendsRefusedOf(back, []), null)
   assert.equal(wakesOfFile(JSON.parse(textOfWakes(back))).sendsLiftedAt, NOW + PROBE_MS + 2 * MIN)
-  assert.equal(sendsRefusedOf(back, [{ ...word, failedAt: NOW + PROBE_MS + 3 * MIN }]).since, NOW + PROBE_MS + 3 * MIN)
+  // B1271 (X203): after a lift an outbox line no longer revives the board's refusal: a refusal then is its hand's (`noteHandRefused`).
+  assert.equal(sendsRefusedOf(back, [{ ...word, failedAt: NOW + PROBE_MS + 3 * MIN }]), null)
 })
 
 test('the carrier: a free chat whose mod reported idle within the minute, the main chat first; never the target, nor a busy, asking, interrupted, stopped or unlinked chat', () => {

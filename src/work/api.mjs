@@ -33,7 +33,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn, playProblem } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, NAME_THE_ASK, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, noTriedBefore, openFixesOf, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, triedBeforeWanted, warningLines } from './resultCheck.mjs'
+import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, acceptStandOf, acceptChoiceOf, NAME_THE_ASK, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, noTriedBefore, openFixesOf, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, triedBeforeWanted, warningLines } from './resultCheck.mjs'
 import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
@@ -1532,6 +1532,14 @@ async function answeredInChat(body, w) {
   if (stateOf(found.item) !== 'open') return { ok: true, result: { id, text: `${id} is ${stateOf(found.item)} already.`, changed: false } }
   const text = lines(body.text)
   if (isOrphan && text.length === 0) return refuse(400, `Give the person's words in "text" (with the date): ${id} has no asking chat.`)
+  // B1272 (F35: the person's "Q817 A" in the main chat closed the card, and its step stayed in review): an Accept card answered in a
+  // chat does what its answer on the board does (`answer`): read first, so a Send back without its note is refused before anything is
+  // written; then Accept ticks the step done, Send back makes its next try (`acceptAnswer`). Chat 1's review: words that start with
+  // neither the A nor the B (a date first, "The person: A", "looks good, keep it") are refused, never read as a Send back.
+  const isCard = valueOf(found.item, 'Via') === ACCEPT_VIA
+  if (isCard && acceptChoiceOf(text) === null) return refuse(409, `${id} is an Accept card: start the text with the person's A (accept) or B (send back) and their note, e.g. "A" or "B: <what the next try must change>" (the date may follow).`)
+  const card = isCard ? acceptPlan(found.item, text) : null
+  if (card !== null && !card.ok) return card
   const short = line(text.join(' '), 200)
   let item = put(put(copy(found.item), 'State', 'answered'), 'Since', stamp(w.now))
   if (text.length > 0) item.sections.set('Answer', text)
@@ -1543,11 +1551,15 @@ async function answeredInChat(body, w) {
   const isWords = isPersonsWords(text) && !isPopupAsk(found.item)
   const asker = valueOf(found.item, 'Owner')
   const done = await answerStep(w, item, found.text, of, step => {
-    let mine = said(underStep(step, [`${id} answered in ${w.who}'s chat${isOrphan ? ' by the person' : ''} on ${at(w.now)}${short === '' ? '' : `: ${short}`}`]), w, `${id} answered`)
+    // B1272: an Accept card held for the recap writes its step's `Recap verdict` as its board answer does (B1270, `recapEarlyVerdict`).
+    const early = card === null ? null : recapEarlyVerdict(found.item, undefined, text)
+    let mine = said(underStep(step, [`${id} answered in ${w.who}'s chat${isOrphan ? ' by the person' : ''} on ${at(w.now)}${short === '' ? '' : `: ${short}`}`, ...(early === null ? [] : [recapVerdictWords(early, id)])]), w, `${id} answered`)
     if (isWords) mine = withYourWords(mine, askPoint(found.item, { at: stamp(w.now), how: `answer to ${id}, in ${bare(w.who, w.prefix)}'s chat`, by: asker === null ? '' : bare(asker, w.prefix), answer: text }))
     return stateOf(mine) === 'waiting on you' ? goOnOrPark(mine, w, flowCtx(w, [item, mine]), ` (${id} answered)`).item : mine
   })
-  return done.ok ? { ok: true, result: { ...done.result, text: `${id} answered in the chat.` } } : done
+  if (!done.ok) return done
+  const carded = card === null ? {} : await acceptAnswer(found.item, card, short, w)
+  return { ok: true, result: { ...done.result, ...carded, text: `${id} answered in the chat.` } }
 }
 
 /**
@@ -2786,9 +2798,10 @@ async function evidenceOf(check, w) {
 async function acceptCards(_body, w) {
   const filed = []
   const gone = []
+  const applied = await chatAcceptsApplied(w)
   const steps = [...w.store.items.values()].filter(one => kindOf(one) === 'step')
   for (const item of steps.filter(one => stateOf(one) === 'review')) {
-    if (!acceptCardDue(item, w.store.items, w.now, w.recaps ?? null)) continue
+    if (applied.includes(valueOf(item, 'Id')) || !acceptCardDue(item, w.store.items, w.now, w.recaps ?? null)) continue
     const id = valueOf(item, 'Id')
     const wait = reviewWaitOf(item, w.store.items, null, w.now, w.recaps ?? null)
     const check = checkedOf(item)
@@ -2829,8 +2842,52 @@ async function acceptCards(_body, w) {
     const done = await withdraw({ id: valueOf(card, 'Id'), why }, { ...w, role: 'person' })
     if (done.ok) gone.push(valueOf(card, 'Id'))
   }
-  const all = [...filed, ...gone]
-  return { ok: true, result: { text: all.length === 0 ? 'No step waits for your Accept.' : `Filed: ${filed.join(', ') || 'none'}; withdrawn: ${gone.join(', ') || 'none'}.`, filed, withdrawn: gone, changed: all.length > 0 } }
+  const all = [...filed, ...gone, ...applied]
+  const summary = all.length === 0 ? 'No step waits for your Accept.' : `Filed: ${filed.join(', ') || 'none'}; withdrawn: ${gone.join(', ') || 'none'}${applied.length === 0 ? '' : `; chat Accept applied: ${applied.join(', ')}`}.`
+  return { ok: true, result: { text: summary, filed, withdrawn: gone, applied, changed: all.length > 0 } }
+}
+
+/** B1272: the History line of a card, and of its step, whose Accept given in a chat the board applied later (`chatAcceptsApplied`). */
+export const CHAT_ACCEPT_APPLIED = 'applied the chat answer of'
+const ANSWERED_IN_CHAT = /^answered in (?:its|the) chat\b/
+/** B1272: the words of each History line, after its time and who wrote it. */
+const historyWords = item => (item.sections.get('History') ?? []).map(one => String(one).replace(/^-\s+\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s+[^:]+:\s*/, '').trim())
+
+/**
+ * B1272 (F35, the live Q817: the person's "Q817 A (accept B1205 at 58 of 75)", closed in the main chat at 20:30 before answered-in-chat ran
+ * a card's plan and before "Q817 A" read as A; B1205 sat in review, its card read as sent back, so G95's recap could not open): an Accept
+ * card answered in a chat whose answer reads accept, while its step still sits in review with no "accepted ... in Q<n>" line, is applied
+ * now as its answer would have been (`acceptAnswer`: the step done, "accepted by you in Q<n> at <score>"), with the step's `Recap verdict`
+ * for a card held for the recap and one History line on the card and on its step. Only the step's newest card; a card that reads back, a
+ * step not in review or already accepted, a card applied before, or one answered on the board stays as it is. The step ids it applied.
+ */
+async function chatAcceptsApplied(w) {
+  const applied = []
+  for (const card of [...w.store.items.values()].filter(one => kindOf(one) === 'ask' && valueOf(one, 'Via') === ACCEPT_VIA && stateOf(one) === 'answered')) {
+    const id = valueOf(card, 'Id')
+    const history = historyWords(card)
+    if (!history.some(one => ANSWERED_IN_CHAT.test(one)) || history.some(one => one.startsWith(CHAT_ACCEPT_APPLIED))) continue
+    const answer = card.sections.get('Answer') ?? []
+    if (acceptReading(answer) !== 'accept') continue
+    const stepId = valueOf(card, 'Of') ?? ''
+    const step = w.store.items.get(stepId)
+    if (step === undefined || stateOf(step) !== 'review' || acceptStandOf(stepId, w.store.items)?.id !== id) continue
+    // Chat 1's review: only an answer that came after the step's latest fix; a fix still open, or one made after the answer, holds it.
+    const answeredAt = sinceMs(valueOf(card, 'Since'))
+    const madeAt = fix => sinceMs(HISTORY_STAMP.exec(String((fix.sections.get('History') ?? [])[0] ?? '').trim())?.[1] ?? valueOf(fix, 'Since'))
+    if (!Number.isFinite(answeredAt) || fixesOf(stepId, w.store.items).some(fix => !['done', 'dropped'].includes(stateOf(fix)) || !(madeAt(fix) < answeredAt))) continue
+    if (historyWords(step).some(one => new RegExp(`^accepted\\b.* in ${id}\\b`).test(one))) continue
+    const done = await acceptAnswer(card, { ok: true, step: stepId, reading: 'accept' }, line(answer.join(' '), 200), w)
+    if (done.accepted !== stepId) continue
+    applied.push(stepId)
+    const mark = `${CHAT_ACCEPT_APPLIED} ${valueOf(card, 'Since') ?? 'its answer'} (B1272)`
+    const early = recapEarlyVerdict(card, undefined, answer)
+    const ticked = await load(stepId, w, { kind: ['step'] })
+    if (ticked.ok) await save(said(early === null ? ticked.item : underStep(ticked.item, [recapVerdictWords(early, id)]), w, mark), ticked.text, w)
+    const asked = await load(id, w, { kind: ['ask'] })
+    if (asked.ok) await save(said(asked.item, w, mark), asked.text, w)
+  }
+  return applied
 }
 
 /**
@@ -2895,11 +2952,16 @@ async function landedWaits(body, w) {
  * note, from which the board makes the step's next try, a fix the partner refines (`acceptAnswer`). Their words stand on the
  * step either way (`answer`). `{ ok, step, reading, note }`, or a refusal before anything is written.
  */
+const CHOICE_ID_FIRST = /^(?:Q\d+\s*[.:)]?\s+|\d{1,2}\s*[.:)]?\s+(?=(?:A|B)\b|Accept|Send back))/i
+const BACK_OPTION_LINE = new RegExp(`^${ACCEPT_OPTIONS[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^\\n]*`, 'i')
 function acceptPlan(ask, text) {
   const step = valueOf(ask, 'Of')
   const reading = acceptReading(text)
   if (reading === 'accept') return { ok: true, step, reading }
-  const note = text.join('\n').replace(/^(?:B\b|Send back)[^\n]*\n?/i, '').trim()
+  // B1272: an answer given in a chat reads past its ask id ("Q817 B" alone is no note), and keeps a note on the B line itself ("Q817 B:
+  // the cape swings wider"); the card's own B option line, as the board sends it, is no note. Chat 1's review: a leading number is read
+  // past only before the B or Send back ("1 B: ..."), never one of the note's own words ("12 frames are too few, add 4").
+  const note = text.join('\n').trim().replace(CHOICE_ID_FIRST, '').replace(BACK_OPTION_LINE, '').replace(/^B\b[\s:.,)-]*/i, '').replace(/^Send back\b[\s:.,)-]*/i, '').trim()
   if (note === '') return refuse(400, 'Say in the note what the next try must change: your partner makes it from your words.')
   return { ok: true, step, reading, note }
 }
@@ -4755,8 +4817,10 @@ async function answer(body, w) {
   const asker = valueOf(found.item, 'Owner')
   const done = await answerStep(w, item, found.text, of, step => {
     // A look the partner handed over that Autopilot kept for the recap (the person's "A", 2026-11-02): the step's `Recap verdict` line
-    // reads approved or sent back, as the recap's own answer writes it (`recapAnswered`).
-    const verdictLine = isKeptLook(found.item) && ['approve', 'reject', 'done'].includes(body.verdict) ? [recapVerdictWords(body.verdict === 'reject' ? 'sent back' : 'approved', id)] : []
+    // reads approved or sent back, as the recap's own answer writes it (`recapAnswered`). B1270 (F34, the person, 2026-11-19: "i need a
+    // agree or disagree button if u want my verdict"): so does every ask held for the recap under a step, answered before the recap opens.
+    const early = recapEarlyVerdict(found.item, body.verdict, text)
+    const verdictLine = early === null ? [] : [recapVerdictWords(early, id)]
     let mine = said(underStep(step, [`${id} answered by you on ${at(w.now)}: ${short}`, ...verdictLine]), w, `${id} answered`)
     // Your words: the answer, rejection or approval lands on the step with the question it answered.
     mine = withYourWords(mine, askPoint(found.item, { at: stamp(w.now), how: `answer to ${id}`, by: asker === null ? '' : bare(asker, w.prefix), answer: text }))
@@ -4782,6 +4846,21 @@ async function answer(body, w) {
   const refiled = done.ok && of !== null && /^B\d+$/.test(of) ? await refileCheck(of, w) : {}
   if (done.ok && card !== null) return { ok: true, result: { ...done.result, ...(await acceptAnswer(found.item, card, short, w)), wakeOwner, ...refiled } }
   return done.ok ? { ok: true, result: { ...done.result, wake, wakeOwner, ...refiled } } : done
+}
+
+/**
+ * B1270 (F34): the `Recap verdict` an answer given before the goal's recap writes on the step, as the recap's own answer would
+ * (`recapAnswered`): 'approved' or 'sent back' for an open ask routed to the recap under a step (a kept look, a look, a do, a decide or an
+ * Accept card); null for any other ask (the goal's own recap ask has no step). A verdict given reads as it says (reject: sent back); an
+ * Accept card answered with its A or B line as its card reads. A decide answered with one of its options is no verdict (chat 1's review:
+ * "A Redraw the model sheet" is neither): null, so no line says approved for it; its answer stands on the step as any answer does.
+ */
+export function recapEarlyVerdict(ask, verdict, text) {
+  if (valueOf(ask, 'Route') !== 'recap' || !STEP_ID.test(valueOf(ask, 'Of') ?? '')) return null
+  if (verdict === 'reject') return 'sent back'
+  if (verdict === 'approve' || verdict === 'done') return 'approved'
+  if (valueOf(ask, 'Via') === ACCEPT_VIA) return acceptReading(text) === 'accept' ? 'approved' : 'sent back'
+  return null
 }
 
 /**

@@ -1909,6 +1909,11 @@ as a shadow of the backlog; B301 removed the shadow (below): the store is the on
   Owner, or "-": one carried over from the old backlog, which kept its B id) is closed with `answered-in-chat` by the
   main chat or the Advisor, in whose chat the person answered it; the person's words are required, and History says
   "<chat>: answered in its chat by the person: <words>"; a step that waited on it goes on as with the board's answer.
+  B1272 (F35): an Accept card (B883) closed this way does what its board answer does: read first (`acceptPlan`; "Q817 A", "1 A"
+  read past the ask id or item number), so a Send back without its note is refused, and words that start with neither the A
+  (Accept, a plain yes, "approve") nor the B (Send back) are refused (409, `acceptChoiceOf`), never read as a Send back (a date
+  or "The person: A" first, "looks good, keep it"); Accept ticks the step done, Send back makes
+  its open fix (`acceptAnswer`), and a card held for the recap writes the step's `Recap verdict` (`recapEarlyVerdict`).
   Only the main chat withdraws such an ask, with a why. A worker closes only its own asks; an ask with an asking chat
   stays that chat's.
   B305: what a step's `Blocked by` names no longer holds it once it is done or dropped (a step) or answered or withdrawn
@@ -6347,7 +6352,7 @@ code calls it. Have Claude make the call."). Only a model turn may send to anoth
 - **The refusal** (`src/wakeCarry.mjs` `sendsRefusedOf`): the wake record's own fact `sendsRefusedSince` (kept apart from the spells it
   prunes, saved in data/wakes.json), set by every refused hand send (`failedToSend` keeps the attempt `refused`, in plain words: "the
   app no longer lets the board's code send to a chat", never the raw hook text), or a start or wake word that failed on it. No clock
-  lifts it. While it stands no hand gets a message job. Once a day (`probeDue`, PROBE_MS) ONE hand that may send gets a probe job
+  lifts it (B1271: after a lift, a refusal is first its hand's; below). While it stands no hand gets a message job. Once a day (`probeDue`, PROBE_MS) ONE hand that may send gets a probe job
   (`send-probe:<time>`, PROBE_LINE) to a free chat other than itself, never a real wake: its send lifts the refusal
   (`sendsLiftedAt`), a refusal renews it.
 - **A, the main route** (`wake.mjs` `carryPlan`, server.mjs `carryPass` in the wake pass): every need whose next path is the message
@@ -6378,6 +6383,32 @@ Tests: `test/wakeCarry.test.mjs` (the live refusal and its fact, the probe, the 
 windows, the courier's list, the closes, Send again, the file), `test/wakeCarryBoard.test.mjs` (on a running board copy: the hands
 gate, a carried wake word, the courier's routes, a target that woke, a busy carrier's take and its turn start, the real case with
 and without the refusal, the daily probe), `test/hands.test.mjs`.
+
+**The refusal is a hand's (B1271, X203, 2026-11-19).** The case: 20:16 the probe lifted the refusal; Main's hands sent at 20:17 and
+20:20; at 20:29 Worker 3's hands (a chat in auto mode) were refused on Worker 4's wake. That one refusal set the board's refusal again
+(every hand stopped until the next day's probe) and spent the spell's one message try, so the launch went next, which the app no
+longer started after its account switch (launches failed from 19:54); A was off and the courier not calling, so the start word to an
+idle Main waited untaken (X203, three times by 20:40). Now:
+- A refused send marks its own hand (`noteHandRefused`, the record's `refusedHands`, saved in data/wakes.json): that hand gets no
+  message, start or wake job until its own send went (`noteHandSent`, any send of it the hands' answer reports, or its own daily
+  probe, `probeDue(..., hand)`, `probeBy`). The board's refusal (`sendsRefusedSince`) follows only when no hand's send went since the
+  last lift (`handSentAt`; the probe's own send counts); after a lift an attempt or an outbox line no longer revives it by itself.
+- A refused send spends no message try (`nextPath` counts only the attempts that were not refused): the next hand that may send takes
+  the message at once; a refused hand is held off by its own mark (once its own send went it may try again), a hand whose try went
+  without a report never gets that message again in the spell (`handTried`). A refused hand alone is no sender (server.mjs `handsNow`,
+  past the start-up grace of HANDS_GONE_MS): not for the launch's wait, and not for the wake facts the lanes, the notice, the hand-over
+  and `wake-failed` read (`wakeFacts`), so a spell only refused hands could send ends final ("could not wake ...", one finding), as
+  before B1271 (chat 1's review 1). When every hand that claims is refused, the wake pass writes carry words as while refused (A when
+  on, B while the courier calls), and Send again is a carry word too (`carryingNow`); a start or wake word a carry word carries is no
+  hand's job beside it; the board's probe goes to a hand that is not refused when one claims. A launch the app did not start is not
+  tried again in the spell, as before; every try stands in the record with its why.
+- The rule `start-untaken` (src/supervisor/rules/watch.mjs): a chat's start untaken 10 minutes while the chat its word waits with runs
+  idle. The reconciler renews the start word every 10 minutes and the sweep drops the old one, so the age is the chain's (from the
+  oldest start word of the chat since its last taken or delivered one, within its sleep), one finding per chain, keyed by its first
+  word (chat 1's review 3: the live chain 20:35-21:40). `wake-failed` names the refused hand in what was tried ("20:29 by Worker 3:
+  the app no longer lets the board's code send to a chat").
+Test: `test/wakeRefusedHand.test.mjs` (X203's record as it was, the per-hand mark, the message again by Main's hands, the launch only
+without a hand that may send, the carry word when every claiming hand is refused, the probe per hand, the file, the rule).
 
 ## A lane's own chat, and one way back for a held step (B986, X140, 2026-11-04)
 
@@ -7025,10 +7056,22 @@ note), or a check that made no fix, with no new fix, check, block or recap verdi
    refines it; the step waits for that fix (the rule open-fix watches it). Their words stand on the step either way.
 4. A card whose step went on (a new fix, a check, a block, done or dropped) is withdrawn by the same pass. A card answered
    Accept that did not close the step, or withdrawn, is not filed again: the rule dropped-fix raises that.
+5. B1272 (F35, the live Q817: the person's "Q817 A (accept B1205 at 58 of 75)" in the main chat read as a Send back and left
+   B1205 in review): the answer in a chat counts as the one on the board. `answered-in-chat` on a card runs the same plan
+   (above, B305), and every reading (`acceptReading`, `answerReading`) starts past a leading ask id or item number ("Q817 A",
+   "Q817: A", "1 A", "1. yes"; resultCheck.mjs `pastAskId`). A Send back given in a chat keeps a note on its B line ("Q817 B:
+   the cape swings wider"); "Q817 B" alone is refused, and so are words that start with neither A nor B; a leading number is
+   read past in a note only before its B ("12 frames are too few" keeps its 12). The same pass applies a card closed in a chat before this (`chatAcceptsApplied`):
+   one answered in a chat whose answer reads accept, its step's newest card, while the step sits in review with no "accepted ...
+   in Q<n>" line, is accepted now as its answer would have been, with the step's `Recap verdict` for a card held for the recap and
+   one History line on the card and the step, "applied the chat answer of <time> (B1272)". A card that reads back, one answered on
+   the board, a step not in review or already accepted, a card not the step's newest, a step with a fix still open or one made
+   after the answer, or a card applied before stays as it is.
 
 Tests: test/acceptCard.test.mjs (B851's case: the card, its words and picture, no incident however long; Accept closes it;
 Send back without a note is refused, with one makes the open fix; a card whose step went on is withdrawn; a blocked step gets
-none; how an answer reads).
+none; how an answer reads). test/acceptChat.test.mjs (Q817 on B1205: the readings past an ask id, Accept and Send back
+answered in the main chat, the card closed before the fix applied once, and what the repair leaves alone).
 
 ## A part with only dropped steps is Stopped (B680)
 
@@ -8222,6 +8265,23 @@ goal's recap). It extends Partner answers (2026-10-19), still with no blanket ap
    `recapOpensWords`: "your recap of G95 opens when its 6 work blocks are done, 0 of 6 now"; once all are counted, "you judge it
    there" as before). Incidents that would show it failing: a lane on a step at work that waits for your recap of G<n>; a goal demo
    never asked while a part's last step sits at work with a recap ask.
+   **Answer it now** (B1270, F34, the person, 2026-11-19: "i need a agree or disagree button if u want my verdict, where am i supposed
+   to do anything?"; the live G95 held Q817, the Accept card on B1205, and Q829, Worker 4's look on B1255, as links with no buttons
+   while 4 of its 6 blocks were done, and the blocks' amber "Waits for your verdict" led there). Every open ask routed to the recap
+   under a step (not the goal's own recap ask, which has no step; not one of the app's form or a refine question; not one whose step a
+   row of the open recap names and waits to judge, the state's `inRecap`: the row's verdict answers it) has its answer form
+   in its window and its buttons on its row in "For your recap" (board.js `lookAnswerOf`, `recapRowAnswer`): an Accept card Accept /
+   Send back (its own A or B line, `acceptPlan`), a look Looks right / Send back, a do Done, a decide its options, one button each;
+   options that are the verdict themselves (a pair whose one sends back, `verdictOptionsOf`) are the two buttons, never picks beside
+   them; Send back needs the note, so on the row it opens the window. The answer is the work action `answer`, which closes the ask as
+   the recap's answer would: the step's `Recap verdict: approved|sent back (Q<n>)` for every such ask, not only a kept look (api.mjs
+   `recapEarlyVerdict`: a verdict as given, a decide by its words or its card's reading), an Accept card's done or next try (B883),
+   the chat that asked woken; the recap then does not ask it again (`recapWaitIds` reads open asks only). A block whose verdicts are
+   all such asks (state.mjs `recapHeldOf`, the part's `recapHeld`: no recap part waits, nothing of its step stands with the person by
+   another route, its Accept card among them) is calm while the recap is not open: "2 for your recap · opens when 6 blocks are done, 4
+   now · or answer now →" (board.js `blockChipOf`, tone `recap-held`, the one ask's window or the "For your recap" card); amber again
+   once every block counts. Incidents that would show it failing: the person asking where to answer a held ask; an amber block chip
+   while only held asks wait and the recap is not open; a held ask answered early that the recap asks again.
 6. **Refine questions**: while on, a step's open refine questions with advice get it as their answer in the refine block
    (`answerRefine`, as "Take the advice"; History "autopilot: took the advice") and the board types the refine word; one
    without advice sends the refine back with the feedback "autopilot is on: decide it yourself and refine", once per step
@@ -8674,4 +8734,63 @@ live, from two PC-only settings in config.json, both '' today:
   green before P3 lands), and the fixture test/fixtures/projectPaths/board-config.json (data set, chatHome different from project) puts
   every picture and asset path under `<data>/pictures`, the store under `<data>`, the docs under `<data>/docs` and every chat-keyed
   path under the chat home. test/pathGuard.test.mjs lists every `join`/`resolve`/`inProject` on `project` and every `.claude`
-  literal outside the table, per file with its count: a new one fails, a removed one fails until its count is lowered; P3 empties it.
+  literal outside the table, per file as the LINES that hold them (test/fixtures/pathGuard-known.json; chat 1's review of 2026-11-20: a
+  count per file hid a new tie beside a removed one): a new line fails naming it, a line that is gone fails until it is taken out; P3
+  and the switch-on round empty it.
+## B1273 (F36a): an account switch costs nothing (2026-11-19, chat 3)
+
+The person: "I want to be able to switch accounts often". The Claude app keeps one chat list per account
+(`<app folder>\claude-code-sessions\<account>\<organisation>\local_*.json`); on the other account the board could not see or
+start its chats (11-05: every worker "Not running", wakes failed for good, a reimport kept a launch stub and archived Worker 2's
+real chat; 11-19: the app was on the other account until ~19:11 and the Advisor had to ask the person).
+
+- **The signal** (src/appAccount.mjs): the app writes the account it is signed in with to its own `config.json`,
+  `lastKnownAccountUuid` (11-19: the file's time matched the switch back, 19:12:04; the reimport-chats skill reads the same key).
+  Read at most every 5 s, before every store read. No file or no key: the board goes on as before (nothing is guessed).
+- **The board's account**: config.json's `appAccount` when set (to move the board to another account for good); else
+  `data/app-account.json`; else, the first time, the account whose folder holds the main chat's real file (no launch stub, not
+  archived, in the project folder) with the newest activity, recorded from then on. The board reads its chats in that account's
+  folders (appChats.mjs `readAppChats`, `listedWhere`: 'here' is that account), never in the newest folder while the app is away.
+- **The hold** (work/pause.mjs `awayOver`, `withAway`): while the app's account is not the board's, and for 60 s after it came
+  back (the app reads its list first), the store's pause reads `{ state: 'away' }`. `isHolding` holds for it as for a pause: no
+  hand-out (reconcile's `handOutHeld`, the hand-over pass by `heldPause`), no wake (`wakeNeeds`), no incident, no ask (every
+  `isHolding`). It is never written to pause.json and is no pause of the person's: the pause banner, safe-to-restart and the
+  resume go by 'pausing'/'resuming'; the person's own pause wins. The page shows one muted line, "The Claude app is on another
+  account: the board's chats wait; switch back and they go on."; the start-up check says only that line and fixes nothing.
+- **Finding the chats again**: while away, a board chat's real file that only the app's account holds (a chat the person made
+  there) is copied into the board's account's folder (`toImport`, `importMissing`, at most every minute): a new file only (flag
+  'wx'), never one written over, never an archived state changed, never a launch stub, nothing archived. The app reads that
+  account's list when the person switches back. `boardChats` keeps the real chat of a transcript over a newer launch stub (the
+  11-05 case: the stub had hidden the real chat). Back on the board's account the hold lifts and the wake loop wakes each chat
+  that holds a step or words, once, with its usual line; no wake was tried while away, so none failed for good.
+- **Moving the board for good** (chat 1's review): the away line has one button, "Run the board on this account": the app's
+  account becomes the board's, recorded in data/app-account.json as the person's (`by: 'person'`) and kept in memory at once; the
+  hold ends without the settle. A read of the app's config.json that finds no account while away (cut short, gone a moment) keeps
+  the last account known, and only a whole chat file is copied.
+- **Not verified live**: that the app shows a chat copied into an inactive account's folder at the next switch (the skill's own
+  copies needed an app restart because it wrote the ACTIVE account's folder). A copy that does not show costs nothing: the next
+  start-up check lists the chat as before.
+- **Tests**: test/appAccount.test.mjs (the signal, the board's account, the picture and its settle, the hold and the wake loop,
+  the 11-05 stub case, the 11-19 newest-folder case with the start-up check, the copy rules and the watch end to end);
+  test/appAccountBoard.test.mjs (the whole board on a made-up project with the app on the other account: one calm line, the
+  board's own chats, B738 handed to nobody; back on its account, B738 goes to Worker 4).
+
+## B1274 (F36b), first part: the copy-paste mode is gone (2026-11-19, chat 3)
+
+Without the Workers mod (`state.bridge.isMissing`: no mod has called the board since it started) the board used to write its
+words as 'copied', put them on the clipboard with a bar on top ("paste with Ctrl+V") and keep a banner row to copy them again
+(B212, B315). That second path is gone, on the person's yes in chat 1 ("yes, build F36 with the clean-up"):
+- every word is written 'waiting', also without the mod: it waits as for a chat that is not running, and goes out once a mod takes it;
+- the page has no paste bar, no "Copy again"/"Dismiss" row and no "paste it into ..." lines; under the lanes one grey line (tone
+  note, never amber) says "The Workers mod isn't running here: run setup (npm.cmd run setup) and restart the app.";
+- old outbox lines in the 'copied' state are still read as history (the readers in state.mjs, store.mjs, the supervisor and the
+  waits stay), and the server still takes "dismiss copied" for such a line; none is made any more;
+- `bridge.isMissing` stays as the board's knowledge: the grey line, the supervisor's "no Workers mod takes the board's words" and the
+  wake spell (wake.mjs) read it. test/copyModeGone.test.mjs keeps the mode gone (no word written as copied, no paste text, no paste
+  bar or paste answer).
+- **The probe and its answer** (Workers mod 0.34.0, gone in 0.35.0). On chat 1's conditions (observe only) the mod told the board once
+  per process which of its hooks ran. The result, 2026-11-20 (the accounts the other way round from what everyone thought: 26b81206
+  is the work login, 7b36a87b the personal one): on the work login prompt.submit and turn.start ran (Main's and Worker 3's records,
+  23:18-23:20), and a mod's words beside a prompt stood on the personal one. So the guard does not stop the person's-words filing
+  (B298) here: prompt.submit's job stays where it is, the move is not needed, and 0.35.0 takes the probe out (the mark beside a
+  prompt, the route, data/mod-probe.json's writer). The second part of B1274 ends there.

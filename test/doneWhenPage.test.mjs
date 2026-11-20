@@ -79,7 +79,7 @@ test('"Did we reach the goal?" without a Done when: Yes is off, and the button a
 test('the page sends the button\'s word, says a new goal waits for its Done when, and the Goals part offers the button too', () => {
   assert.match(script, /sendFocus\(\{ command: 'done-when', id \}, ''\)/)
   assert.match(script, /goalButton\('goals-tool is-ask', 'Ask your partner for a Done when', \{ goalTool: 'done-when' \}\)/)
-  assert.match(script, /if \(tool === 'done-when'\) \{\n    return sendGoals\(\{ command: 'done-when', id: focus \}\)\.then\(done => \{\n      if \(done === null\) return\n      showPaste\(done\.paste \?\? null\)/)
+  assert.match(script, /if \(tool === 'done-when'\) return sendGoals\(\{ command: 'done-when', id: focus \}\)\.then\(\(\) => \{\}\)/)
   // The review: each goal once in the page's list of goals asked for.
   // P4b: whether it was asked is never page memory: no `focusUi.asked`, and no "Sent..." note after the click (the word's line is the status).
   assert.doesNotMatch(script, /focusUi\.asked|isAsked: asked|Your partner is asked to write its Done when|Your partner writes its Done when/)
