@@ -249,6 +249,9 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-chip.is-stopped, .focus-chip.is-dropped { border-color: #3a4a63; color: var(--muted); background: transparent; }
 /* T20.1: a block being reworked says so in the quiet cool tone of the recap popup's "Being reworked"; nothing here is amber. */
 .focus-chip.is-rework { border-color: #3b5a85; color: #8ab4ff; background: transparent; }
+/* B1270 (F34): verdicts the goal's recap holds while it is not open: a calm link (nothing to do yet but an early answer), never amber. */
+.focus-chip.is-recap-held { border-color: #3b5a85; color: #8ab4ff; background: transparent; text-decoration: none; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; }
+.focus-chip.is-recap-held:hover { background: #13254a; }
 .focus-part.is-stopped .focus-bar span, .focus-part.is-dropped .focus-bar span { width: 0 !important; }
 .focus-drop { align-self: flex-start; padding: 3px 10px; border: 1px solid #3a4a63; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
 .focus-drop:hover:not(:disabled) { color: var(--text); }
@@ -373,6 +376,10 @@ button, textarea, select { font: inherit; color: inherit; }
 .focus-recap-head { margin: 4px 0 6px; font-size: 14px; }
 .focus-recap-asks { margin: 0 0 12px 18px; padding: 0; font-size: 13.5px; }
 .focus-recap-asks li { margin: 3px 0; }
+/* B1270 (F34): an ask's own answer buttons on its row in "For your recap". */
+.focus-recap-answer { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 10px; vertical-align: middle; }
+.focus-recap-answer .quiet-button { padding: 2px 10px; font-size: 12.5px; text-decoration: none; }
+.focus-recap-answer .problem { flex-basis: 100%; }
 .focus-recap-picture { padding: 0 6px; font-size: 12px; }
 /* 2026-11-01 (the person: "I expected a button where is clearly visually i need to give a recap?", the agreed mock
    focus-mocks/recap-card): the recap card above the work blocks. Amber (the attention colour) only here and on the chip

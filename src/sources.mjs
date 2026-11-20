@@ -165,7 +165,9 @@ export function productPlanFile(config) {
  * `readFolders()` answers the working folders (see folders.mjs). B296, B301: `readWork()` answers the work store (see
  * work/read.mjs, `storeKeeper`); undefined where the board has none. The backlog file is not read: it is the store's view.
  */
-export async function readSources(config, readFolders, now = Date.now(), readBranches = async () => null, readWork = async () => undefined) {
+export async function readSources(config, readFolders, now = Date.now(), readBranches = async () => null, readWork = async () => undefined, readAccount = async () => null) {
+  // B1273: the Claude app's account and the board's (src/appAccount.mjs): the board's chats are read in the board's account.
+  const account = await Promise.resolve(readAccount()).catch(() => null)
   const claude = join(config.project, '.claude')
   // B173: the Advice & Chat tab shows the game plan, which the Advisor keeps in the game's repository. The trial's gap 2
   // (2026-10-24): a fresh project has no game folder yet, so its plans stand in the project's own folder, where the
@@ -180,7 +182,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const [listText, appChatTexts, adviceText, folders, askTexts, goalsText, work, threadTexts, productPlanText] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     // B986: and the app id of every chat file read, for a lane's own chat (ownChat.mjs).
-    readAppChats(config.appSessions, appFiles, appElsewhere),
+    readAppChats(config.appSessions, appFiles, appElsewhere, { account: account?.board ?? null }),
     plan === null ? null : readText(plan),
     readFolders().catch(() => null),
     readAsks(join(claude, 'asks')),
@@ -245,7 +247,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const recaps = (await readRecaps(config, goalsText).catch(() => [])).filter(one => goalRecap === null || one.goal !== goalRecap.goal || one.path === goalRecap.path)
 
   return {
-    listText, appChatTexts, appFiles: [...appFiles], appElsewhere: Object.fromEntries(appElsewhere), moved, planLineTexts, planLineAt, tails, conversationAt: conversationAts, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
+    account, listText, appChatTexts, appFiles: [...appFiles], appElsewhere: Object.fromEntries(appElsewhere), moved, planLineTexts, planLineAt, tails, conversationAt: conversationAts, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
     pictureLists: await pictureLists(config, work, now),
     recaps,
     // 2026-11-01: the focus goal's recap file and the picture of each of its rows, for the recap card on the Focus page (src/recapCard.mjs).

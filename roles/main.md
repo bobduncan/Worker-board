@@ -166,7 +166,9 @@ profile.
   "Drop B1011, B978 and B934 now?" was taken by Autopilot within a second).
 - Dropping a fix sends its step to the user (B883): a step in review whose fix you drop, with no new fix, check or block
   after it, gets the user's card ten minutes later, "Accept B<n> at <score>, or send it back?". Their Accept closes it,
-  their Send back makes its next try. Never tick such a step yourself, and never drop it to make it go away.
+  their Send back makes its next try. Never tick such a step yourself, and never drop it to make it go away. When the user
+  answers the card in your chat ("Q817 A"), close it with `work answered-in-chat Q<n>` and their words, starting with their A or B: the board does exactly
+  what their answer on the board does (Accept closes the step; a Send back needs their note, B1272).
 - A step's title: 5 to 10 words of your own, starting with a verb, saying what the user gets; never the user's
   request read back. Their words go under it (description, "Context:").
 - What only the user can do is an ask under its step: `work ask` with `kind` decide, look, provide or do; it names
@@ -353,7 +355,9 @@ list does not know. Do it now, in this turn:
 - Fix at once what you can: a step held by a step that is finished or dropped: `work unblock B<id>` (with `on`, or
   without it for an `after` of words); a worker paused for the limit while the limit is back, or one that holds a step
   and is not working on it: wake it ("resume your step B<id> from your checkpoint") by the session id the board names,
-  never by the chat's title (B986, X140: after an account switch an old chat of the same name may be open); a held step
+  never by the chat's title (B986, X140: after an account switch an old chat of the same name may be open); while the Claude
+  app is on another account the board holds by itself (B1273: "The Claude app is on another account ..."): wake nobody,
+  ask the person nothing, it goes on when they switch back; a held step
   whose chat is not in the app's list needs nothing from you: the board gives it back by itself 20 minutes after the chat
   stopped (go on after 5, back 15 after), from its checkpoint; a task given to a worker that is
   gone or not on the hand-over the board takes back itself, and a pin to a chat gone for half an hour it takes

@@ -708,7 +708,8 @@ beside its bar, the evidence and why the fix was dropped. The step then "waits f
   them is the board's own: while Autopilot is on, a card of a step that no recap of the focus goal takes comes to you
   (`Route: partner`); judge it by the step's check and the user's earlier answers and answer it with `partner-answer` (see
   Autopilot, "The user's earlier answer").
-- **Accept**: the board marks the step done as the person's. Nothing for you.
+- **Accept**: the board marks the step done as the person's. Nothing for you. The same holds for their answer given in your chat
+  and closed with `work answered-in-chat Q<n>` and their words ("Q817 A" reads as A; a Send back needs their note, B1272).
 - **Send back**: the board makes the step's next try from their note at once, a fix of the step left open, and types its
   `refine step` into your chat. Refine it from their words, as any fix ("Two rounds, then another way" applies): the step
   waits for that fix.
@@ -1024,7 +1025,8 @@ board had kept for the recap before is routed anew, "autopilot: re-routed: its s
 block of the goal, which no recap judges): its step reads `Recap verdict: waits (Q<n>)`, the board
 asks you for the goal demo with that step still in review, and its words name it under "Own rows": give each such step a row
 of its own with its id in "steps". The user's approve or send back of that row answers the ask and closes the step's review as
-accepted or sent back. A new look of a step of the focus goal that you hand over with `work escalate` (the user, 2026-11-02,
+accepted or sent back. The user may also answer such an ask before the recap, with its buttons (B1270, 2026-11-19): it closes the
+same way (the step's `Recap verdict: approved|sent back`), and its step then needs no row of its own. A new look of a step of the focus goal that you hand over with `work escalate` (the user, 2026-11-02,
 on one you had handed over: "Why is he asking me for it. this is autopilot is turned on correct?") is kept by the board for
 the goal's recap while Autopilot is on, instead of standing under Needs your attention: the recap card lists it and the user
 answers it in its window, unless its words or your why name what only their hands can do.

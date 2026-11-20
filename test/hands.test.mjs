@@ -293,7 +293,8 @@ test('T14: the server keeps the claim\'s mod and gives the send jobs by it', asy
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /const claim = \{ can: \[\.\.\.can\]\.slice\(0, 10\), at: clock\(\), mod: typeof body\?\.mod === 'string' \? body\.mod : null, since: claimSince \}/)
   // F17: and no send job while the app refuses the hands' sends (src/wakeCarry.mjs `sendsRefusedOf`).
-  assert.match(server, /const mayCode = maySend\(claim\)\n\s+const canSend = mayCode && sendsRefusedOf\(wakes, store\.outbox\(\)\) === null/)
+  // B1271 (X203): nor to a hand the app refused (its own mark).
+  assert.match(server, /const mayCode = maySend\(claim\)\n(\s+\/\/.*\n)*\s+const canSend = mayCode && sendsRefusedOf\(wakes, store\.outbox\(\)\) === null && !handRefused\(wakes, checked\.chat\)/)
   // The Product owner (2026-10-31): and its jobs first, the wake job too.
   assert.match(server, /canSend, first: state\.productOwner\?\.name \?\? null \}\)/)
   assert.match(server, /return \{ ok: true, result: \{ jobs: ownerFirst\(jobs, state\.productOwner\?\.name \?\? null\) \} \}/)

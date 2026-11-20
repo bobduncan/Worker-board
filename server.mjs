@@ -43,7 +43,7 @@ import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from '.
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
-import { BrokenConfig, configProblem, readProviders, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
+import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
 import { assetsOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, wordsPath } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
@@ -109,20 +109,21 @@ import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, keepPersonAction, workApi } from './src/work/api.mjs'
 import { effortOf, setsRefusedOf } from './src/work/effort.mjs'
-import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo } from './src/work/pause.mjs'
+import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, carrierWords, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
-import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, noteHandRefused, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { readAccountFolders } from './src/appChats.mjs'
+import { parseList, readAccountFolders } from './src/appChats.mjs'
+import { accountWatch } from './src/appAccount.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
 import { stillTruePass } from './src/stillTrue.mjs'
@@ -1021,7 +1022,34 @@ async function main(args) {
 
   // B296, B301: the work store, the one source of the work. Every board reads it; a store that is not there or cannot be
   // read is said on top of the page (work/read.mjs, `storeFault`), and nothing is drawn from the backlog file instead.
-  const work = isDemo || config.project === '' ? async () => undefined : storeKeeper({ dir: workFolder(config), clock })
+  // B1273 (F36a): which Claude account the app is on (src/appAccount.mjs). While it is not the board's, the store's pause reads
+  // as the board's own hold ('away', pause.mjs `withAway`), so every reader holds: the state, the hand-out, the work API.
+  const account = isDemo || config.project === '' ? null : accountWatch({
+    appSessions: () => config.appSessions, setting: config.appAccount || null,
+    record: join(HERE, 'data', 'app-account.json'), chatHome: resolve(HERE, chatHomeOf(config)), clock, log: line => console.log(line),
+    // The tests' boards run fast (as WORKER_BOARD_TICK_MS); the board itself waits the minute after the app came back.
+    ...(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS !== undefined && Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS) >= 0 ? { settleMs: Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS), everyMs: 500 } : {}),
+    folders: () => readAccountFolders(config.appSessions),
+    list: async () => parseList(await readFile(chatFile(config, 'chats', 'list.json'), 'utf8').catch(absentAs(''))),
+  })
+  const storeWork = isDemo || config.project === '' ? null : storeKeeper({ dir: workFolder(config), clock })
+  // Every store read asks the account first (cached a few seconds): a loop that reads the store before the first state read (the
+  // hand-over's sequence at start) holds too. A failed read holds nothing (the board goes on as before).
+  const accountNow = async () => {
+    if (account === null) return null
+    try {
+      return await account.read()
+    } catch (error) {
+      loops.failed('app-account', error)
+      return account.now()
+    }
+  }
+  const work = storeWork === null ? async () => undefined : async () => withAway(await storeWork(), await accountNow())
+  // The keeper's own calls stay (a write resets the kept read; the health summary reads the last one without waiting).
+  if (storeWork !== null) {
+    work.reset = () => storeWork.reset()
+    work.last = () => withAway(storeWork.last(), account?.now() ?? null)
+  }
   // B297: the work store's API (work/api.mjs): the page's actions as the person, the work tool's as its chat. Each
   // change writes backlog.md anew as the store's view: the board that delivers writes the project's file; a copy with a
   // store of its own (outside the project) writes the view into that folder, never the project's backlog. A copy
@@ -1046,8 +1074,8 @@ async function main(args) {
    * Focus 2 (spec 2026-10-18, sections 3 and 6): a move of the Focus page, or a draft of the partner's (the page's route,
    * or the work tool's definition-draft and how-draft through the work API), written into the
    * goal map (src/focus.mjs); the person's word to the partner goes into the outbox as every other board word, the
-   * partner woken through the main chat when its chat is not running (Review Focus 5). Without the Workers mod it is
-   * kept as copied and the page puts it on the clipboard.
+   * partner woken through the main chat when its chat is not running (Review Focus 5). B1274: without the Workers mod it
+   * waits, as a word to a chat that is not running (the copy-paste mode is gone).
    */
   /**
    * 2026-10-24: a move of the Vision tab, a word to the partner on the plan's own way: checked (src/planMoves.mjs) and
@@ -1105,23 +1133,21 @@ async function main(args) {
     const main = state.restart?.main ?? null
     if (back !== null && main !== null) {
       const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode: 'usual', why: back, forModel: setsRefusedOf(store.outbox(), clock()) })
-      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' }
-      // Review: copied, it keeps its words as pasted, with the board's mark, as every copied word (the restart banner).
-      await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
+      // B1274: it waits, also without the Workers mod (the copy-paste mode is gone).
+      await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...words, state: 'waiting' })
     }
     return toPartner(done.words, done.result, state)
   }
   /**
-   * B352, B359: a word to the main chat to set the partner's mode, unless it runs on that mode already: copied without the
-   * Workers mod, as every board word. 2026-10-24: mode fable only with `yes`, the guard's ask the person answered A
+   * B352, B359: a word to the main chat to set the partner's mode, unless it runs on that mode already: it waits as every
+   * board word. 2026-10-24: mode fable only with `yes`, the guard's ask the person answered A
    * (partnerEffortWords refuses it otherwise).
    */
   const partnerMode = async (state, mode, why, yes = null) => {
     const main = state.restart?.main ?? null
     if (main === null || (state.advisor ?? null) === null || (state.advisor.effort?.mode ?? 'usual') === mode) return
     const words = partnerEffortWords({ to: main, partner: state.advisor.name, session: state.advisor.appSession ?? null, mode, why, yes, forModel: setsRefusedOf(store.outbox(), clock()) })
-    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: state.bridge?.isMissing === true ? 'copied' : 'waiting' }
-    await store.say(message.state === 'copied' ? { ...message, pasteText: messageText(message, timeOf) } : message)
+    await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...words, state: 'waiting' })
   }
   /**
    * 2026-10-24: the partner's mode while the guard's evaluations run (src/focus.mjs `evaluationsMode`): Fable only when
@@ -1549,13 +1575,11 @@ async function main(args) {
     demoTurn = turn.then(() => undefined, error => { console.error(`The goal demo's feedback failed: ${error?.message ?? error}`) })
     return turn
   }
-  /** Focus 2: the person's word to the partner into the outbox (copied without the Workers mod); a partner not running is woken. */
+  /** Focus 2: the person's word to the partner into the outbox (B1274: it waits, also without the Workers mod); a partner not running is woken. */
   const toPartner = async (words, result, state) => {
-    const isCopied = state.bridge?.isMissing === true
-    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
+    const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: 'waiting' }
     await store.say(message)
     readState.reset()
-    if (isCopied) return { ok: true, result: { ...result, said: message.id, paste: { text: messageText(message, timeOf), chat: `${state.chatPrefix ?? ''}${message.to}` } } }
     // Signals change 4: a partner that does not run is woken by the wake procedure (src/wake.mjs), no start word.
     return { ok: true, result: { ...result, said: message.id } }
   }
@@ -1602,7 +1626,8 @@ async function main(args) {
     const now = clock()
     // F17 review 4, 15: while the app refuses the hands' sends, Send again is one carry word (a free chat's model, else the courier while it
     // calls), as its own attempt; with neither, the launch way below.
-    const refused = sendsRefusedOf(wakes, store.outbox())
+    // B1271 (chat 1's review 2): also while every hand that claims is refused: an AGAIN_BY message no refused hand may take would fail.
+    const refused = carryingNow(now)
     if (refused !== null && paths.includes('message')) {
       const carrier = carrierOf(carriersOf(state), { target: chat, main: state.restart?.main ?? null, now, outbox: store.outbox() })
       if (carrier !== null || courierAlive(lastCourierAt, now)) {
@@ -1725,14 +1750,13 @@ async function main(args) {
    * B299: the chats an action on the store wakes (`wake`, `wakeOwner`): the chat that asked, with the answer to its ask
    * (bridge.mjs, as the person's answer reads), and the owner of the step the answer frees. Partner answers (2026-10-19):
    * also from the work tool (the partner's answer), and a line of its own (`line`: the person took a partner's answer
-   * back). Only to a chat the board shows; copied without the Workers mod. What to paste, or null.
+   * back). Only to a chat the board shows (B1274: the words wait, also without the Workers mod). Whether a word went.
    */
-  const sendWakes = async done => (await sendWakesWith(done)).paste
+  const sendWakes = async done => (await sendWakesWith(done)).said
   /** The same, with whether a word went (`said`): the asset queue's `tell` tells again at its next pass when none did (the A245 case). */
   const sendWakesWith = async done => {
     // Rule 15: and `wakes`, a word to each asking chat whose ask the person's words held (work `words`), or whose hold ended.
     const wakes = done?.ok === true ? [done.result.wake ?? null, done.result.wakeOwner ?? null, ...(done.result.wakes ?? [])].filter(one => one !== null) : []
-    let paste = null
     // The state is read once per call and reset once after the last word (the person's words on a goal wake several chats at once: a
     // read and a reset per word made each of them wait for a whole new reading of the board).
     const state = wakes.length === 0 || isShowOnly ? null : await readState()
@@ -1740,15 +1764,12 @@ async function main(args) {
     for (const wake of state === null ? [] : wakes) {
       const shown = shownChats(state).some(chat => chat.name === wake.to)
       if (!shown) continue
-      const isCopied = state.bridge?.isMissing === true
       const words = typeof wake.line === 'string' ? { ...workWords(wake.to, wake.id, wake.line), kind: wake.kind ?? 'taken-back' } : answerWords(wake)
-      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
-      await store.say(message)
+      await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...words, state: 'waiting' })
       said = true
-      if (isCopied) paste ??= { text: messageText(message, timeOf, path => inProject(config.project, path)), chat: `${state.chatPrefix ?? ''}${message.to}` }
     }
     if (said) readState.reset()
-    return { paste, said }
+    return { said }
   }
   /** What the API goes by: who is who in the list of chats, who is free, where the view goes. */
   // B736 (X89): `kept`, the state the board has however old, for a read that must answer at once (work health).
@@ -2036,7 +2057,11 @@ async function main(args) {
       // B273: the app may move its folder while the board runs: the board follows it.
       // B467: as a loop: a failed search shows and is logged; the board reads where it read before.
       await loops.run('app-folder', () => followApp(config, process.env, process.platform))
-      return readSources(config, folders, undefined, branches, work)
+      // B1273: the app's account first (the store read below holds while it is another), then, while away, the board's chats the
+      // app's account alone lists are copied into the board's (at most every minute; never on a copy that only shows).
+      const accountNow = account === null ? null : await loops.run('app-account', () => account.read())
+      if (accountNow?.away === true && !isShowOnly) await loops.run('app-account-import', () => account.importMissing())
+      return readSources(config, folders, undefined, branches, work, () => account?.now() ?? null)
     }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start === 'keeper' ? 'keeper' : startedBy ?? handed.start })
@@ -2142,11 +2167,22 @@ async function main(args) {
   /** The review of 2026-11-02 (4a): the launch path counts only while the board can launch, so a blocked launch is no silent hold. */
   const canLaunchNow = () => canOpen && openBlocked === null
   /** Change 4: the facts the state reads the wake record with: whether a sender claims, and whether the board can launch. */
-  const wakeFacts = () => {
-    const now = clock()
+  const wakeFacts = () => ({ record: wakes, senderClaims: handsNow(clock()).senders, canLaunch: canLaunchNow() })
+  /**
+   * B1271 (X203; chat 1's review 1, 2): the hands now. `gone` (`handsGone`); `able`: a hand that may send by code (`maySend`) claims and
+   * the app did not refuse it (`handRefused`); `allRefused`: hands that may send claim, every one refused, past the board's start-up
+   * grace (HANDS_GONE_MS: another hand may be seconds away); `senders`: a sender claims for the wake's order (decision 8) and the state's
+   * wake facts: never a refused hand alone, so a spell only refused hands could send ends final ("could not wake", wake-failed).
+   */
+  const handsNow = now => {
     const gone = handsGone({ claims: codeClaims, now, startedAt, calls: seen?.shown ?? {} })
-    return { record: wakes, senderClaims: !gone, canLaunch: canLaunchNow() }
+    const fresh = [...codeClaims].filter(([, claim]) => Number.isFinite(claim?.at) && now - claim.at < HANDS_GONE_MS && maySend(claim))
+    const able = fresh.some(([chat]) => !handRefused(wakes, chat))
+    const inGrace = now - startedAt < HANDS_GONE_MS
+    return { gone, able, allRefused: fresh.length > 0 && !able && !inGrace, senders: !gone && (able || fresh.length === 0 || inGrace) }
   }
+  /** B1271: the refusal the wake pass carries words for: the board's (`sendsRefusedOf`), or every hand that claims refused (not saved). */
+  const carryingNow = now => sendsRefusedOf(wakes, store.outbox()) ?? (handsNow(now).allRefused ? { since: now } : null)
   // B736 (X73, X87, X89): when the board heard no chat at all, and the work calls it answered after the chat's mod gave up.
   const hearing = bridgeKey === null ? null : hearingLog({ startedAt, quietMs: (Number.isFinite(config.unknownAfterSeconds) ? config.unknownAfterSeconds : 30) * 1000 })
   /**
@@ -2243,8 +2279,9 @@ async function main(args) {
   const setupFile = join(HERE, 'data', 'setup.json')
   if (!isDemo && !isShowOnly) {
     // The settings were read already (loadConfig); a file it cannot read now simply names no providers, and the setup starts.
-    const rawConfig = JSON.parse((await readFile(join(HERE, 'config.json'), 'utf8').catch(absentAs('{}'))) || '{}')
-    await startSetup(setupFile, { hasProvidersKey: Object.hasOwn(rawConfig ?? {}, 'providers') }).catch(error => loops.failed('setup', error))
+    // T5.2 P4: whether the merged settings (the project's board-settings.json over this PC's config.json) name providers (loadConfig), so the
+    // split never starts the providers setup again.
+    await startSetup(setupFile, { hasProvidersKey: config.hasProvidersKey === true }).catch(error => loops.failed('setup', error))
   }
   const providerTools = () => ({ project: config.project, codexPath: settings.codex })
   const lookAtProviders = () => loops.run('providers', async () => {
@@ -2791,8 +2828,11 @@ async function main(args) {
     const refused = sendsRefusedOf(wakes, store.outbox())
     // Verifier 7, 11: the refusal the record's attempts or the outbox show becomes the record's own fact, so pruned spells never lift it.
     if (refused !== null && noteSendRefused(wakes, refused.since)) changed = true
+    // B1271 (X203): every hand that claims now is one the app refused: the message goes as carry words too (never written as the board's
+    // refusal: a hand that may send claims again, and its next pass sends by code).
+    const carrying = refused ?? carryingNow(now)
     // F17 check 3: also while Resume all runs (its list is a need): held only while the person pauses.
-    if (refused !== null && !isHolding(state.pause)) {
+    if (carrying !== null && !isHolding(state.pause)) {
       const outbox = store.outbox().filter(message => !isLate(message, now, keep))
       const carriers = carriersOf(state)
       const main = state.restart?.main ?? null
@@ -2824,7 +2864,7 @@ async function main(args) {
       for (const word of words) console.log(`Wake: the app refuses the hands' sends: the message to ${word.about} goes through ${carrierWords(word.to)} at ${timeOf(now)}.`)
     }
     if (changed) wakesChanged()
-    return refused
+    return carrying
   }
   const wakePass = async (given = null) => {
     if (isClosing || isOpening || bridgeKey === null || isShowOnly) return
@@ -2863,7 +2903,8 @@ async function main(args) {
     // One launch per check (src/wake.mjs `launchPlan`): the next waits for the next minute's look.
     // F17: a carried message is a sender too (a model's turn, or the courier): the launch waits for its verdict, as for a hand's.
     // Review 7, 18: while refused, the message way has a sender only through a free carrier or a courier that calls; else the launch goes at once.
-    const senders = refused === null ? !gone : courierAlive(lastCourierAt, now) || (CARRY_BY_MODEL && carriersOf(state).some(lane => canCarry(lane, null, now, store.outbox())))
+    // B1271: a refused hand alone is no sender (`handsNow`); while every claiming hand is refused the carry branch below decides.
+    const senders = refused === null ? handsNow(now).senders : courierAlive(lastCourierAt, now) || (CARRY_BY_MODEL && carriersOf(state).some(lane => canCarry(lane, null, now, store.outbox())))
     const plan = launchPlan(wakes, { needs, nobody: senders ? null : nobodyRunsSpell(state, outbox), senderClaims: senders, target: chatToOpen(state, outbox) })
     if (plan !== null) await launchFor({ target: { chat: plan.chat, session: plan.session }, key: plan.key, spell: plan.spell, now })
   }
@@ -2884,7 +2925,7 @@ async function main(args) {
       const incidents = [...stored.items.values()].filter(item => item.head.get('Kind') === 'incident')
         .map(item => ({ id: item.head.get('Id'), key: item.head.get('Key'), source: item.head.get('Source'), subject: item.head.get('Subject'), state: item.head.get('State'), since: item.head.get('Since') }))
       return {
-        lanes, reports: reportsNow, wakes, pause: state.pause ?? null, ready: (state.readyList?.ready ?? []).map(one => one.id),
+        lanes, reports: reportsNow, wakes, pause: state.pause ?? null, account: state.account ?? null, ready: (state.readyList?.ready ?? []).map(one => one.id),
         envelopes: Object.fromEntries(lanes.map(lane => [lane.name, envelopesOf(outbox, lane.name, prefix)])), incidents,
         // MUST 2: the open asks routed to the person, with the state of the step each is about.
         asks: asksOf(stored.items),
@@ -3016,6 +3057,10 @@ async function main(args) {
     // B467: one Windows holds is not "not there": its own words, and the board keeps running.
     const settings = await readFile(join(HERE, 'config.json'), 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? 'it is not there' : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
     if (settings !== null) return { ok: false, status: 409, why: `The settings file config.json is broken: ${settings}. Fix it first; this board keeps running.` }
+    // T5.2 P4: the project's settings file too (only with `data` set), which loadConfig refuses as well when it is broken.
+    const projectSettings = settingsFileOf(JSON.parse((await readFile(join(HERE, 'config.json'), 'utf8')).replace(/^\uFEFF/, '')) ?? {}, HERE, process.env)
+    const projectProblem = projectSettings === null ? null : await readFile(projectSettings, 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? null : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
+    if (projectProblem !== null) return { ok: false, status: 409, why: `The project's settings file ${basename(projectSettings)} is broken: ${projectProblem}. Fix it first; this board keeps running.` }
     const check = await loads(join(HERE, 'server.mjs'))
     if (!check.ok) return { ok: false, status: 500, why: `The new version does not start: ${check.why}` }
     // B404: the board stops taking work and waits up to 10 s for the reconciler's pass and the running checks.
@@ -3160,17 +3205,19 @@ async function main(args) {
       if (!checked.ok) return checked
       if (historyFrom !== undefined) return { ok: false, status: 409, why: SETTINGS_WHY_NOT }
       if (!isDemo) {
-        const file = join(HERE, 'config.json')
+        // T5.2 P4: into the project's board-settings.json when it has one (this PC's keys still into config.json).
+        const file = settingFileFor(config, join(HERE, 'config.json'), checked.key)
+        const shown = basename(file)
         // B467: only a file that is not there is "not there"; one it cannot read fails the call.
         const text = await readFile(file, 'utf8').catch(absentAs(null))
-        if (text === null) return { ok: false, status: 409, why: 'The settings file config.json is not there.' }
+        if (text === null) return { ok: false, status: 409, why: `The settings file ${shown} is not there.` }
         const changed = settingChanged(text, checked.key, checked.value)
         if (!changed.ok) return changed
         try {
           // B406: beside and in place, tried again while Windows holds the file (a virus scanner).
           await writeAtomic(file, changed.text)
         } catch (error) {
-          return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
+          return { ok: false, status: 500, why: `${shown} not written: ${error instanceof Error ? error.message : 'unknown'}` }
         }
       }
       if (checked.key === 'routingMode') config.routing = parseRoutingPolicy({ ...(config.routing?.policy ?? {}), mode: checked.value })
@@ -3216,16 +3263,18 @@ async function main(args) {
       if (!may.ok) return { ok: false, status: 409, why: may.why }
       const checked = checkSetting({ key: 'providers', value: { kind, provider: name } })
       if (!checked.ok) return checked
-      const file = join(HERE, 'config.json')
+      // T5.2 P4: the providers are the project's: into its board-settings.json when it has one.
+      const file = settingFileFor(config, join(HERE, 'config.json'), checked.key)
+      const shown = basename(file)
       // B467: only a file that is not there is "not there"; one it cannot read fails the call.
       const text = await readFile(file, 'utf8').catch(absentAs(null))
-      if (text === null) return { ok: false, status: 409, why: 'The settings file config.json is not there.' }
+      if (text === null) return { ok: false, status: 409, why: `The settings file ${shown} is not there.` }
       const changed = settingChanged(text, checked.key, checked.value)
       if (!changed.ok) return changed
       try {
         await writeAtomic(file, changed.text)
       } catch (error) {
-        return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
+        return { ok: false, status: 500, why: `${shown} not written: ${error instanceof Error ? error.message : 'unknown'}` }
       }
       config.providers = readProviders(JSON.parse(changed.text).providers).providers
       await lookAtProviders()
@@ -3347,12 +3396,12 @@ async function main(args) {
         return clicks.once(click, async () => {
           const before = await clicks.get(click)
           if (before !== null && typeof before.hash === 'string' && before.hash !== bodyHash(body)) return CLASH
-          if (before !== null && typeof before.word === 'string') return { ok: true, message: { id: before.word, again: true, ...(before.paste === undefined ? {} : { paste: before.paste }) } }
+          if (before !== null && typeof before.word === 'string') return { ok: true, message: { id: before.word, again: true } }
           const via = ['talk-send', 'main-talk-send', 'recheck', 'nudge', 'ask-pictures', 'recommend'].includes(body.via) ? body.via : 'say'
           // Reactive board, brief P4c: a free message of the person (no command) keeps its kind on its word, so its line is drawn where its button was.
           const done = await sayNow({ ...body, click: undefined, via: undefined, free: FREE_OF_VIA[body.via], freeAbout: typeof body.freeAbout === 'string' ? body.freeAbout.slice(0, 120) : undefined })
           if (done.ok && typeof done.message?.id === 'string') {
-            await clicks.put({ click, via, key: null, route: null, hash: bodyHash(body), at: clock(), word: done.message.id, ...(done.message.paste === undefined ? {} : { paste: done.message.paste }) })
+            await clicks.put({ click, via, key: null, route: null, hash: bodyHash(body), at: clock(), word: done.message.id })
             if (logClick !== null) await logClick({ via, action: 'say', id: null, click })
           }
           return done
@@ -3394,9 +3443,7 @@ async function main(args) {
       for (const path of checked.message.pictures ?? []) {
         if (!(await stat(inProject(config.project, path)).then(file => file.isFile(), () => false))) return { ok: false, status: 409, why: 'A picture of the ask is not there any more: paste it again.' }
       }
-      // B212: without a Workers mod nothing takes the board's words: they are kept as copied, and the page puts them on
-      // the clipboard for the person to paste into the chat, marked as typed on the board.
-      const isCopied = state.bridge?.isMissing === true
+      // B1274: without a Workers mod the words wait, as for a chat that is not running (the copy-paste mode of B212 is gone).
       // B285: a queue ask for a step that is not refined yet waits on the board until it is (refineGate.mjs).
       // B288: the words of a re-check of the goals name the board's folder and the project's settings. A second ask
       // made before the first was written down (a double click) finds the first in the store and is refused.
@@ -3404,7 +3451,7 @@ async function main(args) {
       if (checked.message.command === 'recheck' && store.outbox().some(isRound)) return { ok: false, status: 409, why: 'A round runs: wait until the Advisor has finished it.' }
       const words = checked.message.command === 'recheck' ? { text: recheckText({ board: HERE, config }) } : {}
       const isFree = (checked.message.command ?? null) === null && (checked.message.ask ?? null) === null && FREE_KINDS.includes(body.free)
-      let message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, ...words, ...(isFree ? { free: body.free, ...(typeof body.freeAbout === 'string' && body.freeAbout !== '' ? { freeAbout: body.freeAbout } : {}) } : {}), state: isCopied ? 'copied' : checked.message.held === true ? 'held' : 'waiting' }
+      let message = { id: randomBytes(8).toString('hex'), at: clock(), ...checked.message, ...words, ...(isFree ? { free: body.free, ...(typeof body.freeAbout === 'string' && body.freeAbout !== '' ? { freeAbout: body.freeAbout } : {}) } : {}), state: checked.message.held === true ? 'held' : 'waiting' }
       // B110: the approval of a step whose work is merged is the board's own to tick: no chat is woken for it.
       const ticked = await settle(message, state)
       if (ticked !== null) {
@@ -3421,15 +3468,7 @@ async function main(args) {
         const isOff = message.command === 'remove' && (state.chats ?? []).some(lane => lane.name === message.about && lane.isRunning === false)
         if (isNew || isOff) message = { ...message, byCode: true }
       }
-      // B315: the words as they were copied are kept with them, so the restart banner can copy them again and tell when
-      // the main chat has them.
-      if (isCopied) message = { ...message, pasteText: messageText(message, timeOf, path => inProject(config.project, path)) }
       await store.say(message)
-      if (isCopied) {
-        readState.reset()
-        const paste = { text: message.pasteText, chat: `${state.chatPrefix ?? ''}${message.to}` }
-        return { ok: true, message: { ...message, paste } }
-      }
       // Sent to a chat that is not running: signals change 4, the wake procedure wakes it (src/wake.mjs), no start word.
       // What was sent shows at once.
       readState.reset()
@@ -3605,6 +3644,13 @@ async function main(args) {
     bridgeKey,
     // B297: the page's actions on the work store, as the person. B299: an answer to an ask wakes the chat that asked.
     work: async body => {
+      // B1273, the review: "Run the board on this account" on the away line: the app's account becomes the board's (a deliberate move).
+      if (body?.action === 'take-account') {
+        if (account === null) return { ok: false, status: 409, why: 'This board reads no Claude account.' }
+        const taken = await account.take()
+        readState.reset()
+        return taken
+      }
       // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
       if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
       // B775: the check's start types a word to the partner after the store has written it.
@@ -3626,8 +3672,7 @@ async function main(args) {
         return { ok: true, result: { ...done.result, typed: typed?.ok === true } }
       }
       // Focus 3, the review: and the owner of the step the answer frees, when another chat asked (`wakeOwner`).
-      const paste = await sendWakes(done)
-      if (paste !== null) return { ok: true, result: { ...done.result, paste } }
+      await sendWakes(done)
       return done
     },
     // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
@@ -3739,9 +3784,13 @@ async function main(args) {
       // F17: while the app refuses the hands' sends no hand gets a message job (the carry pass's words go to a model instead); the
       // claim's own facts (the board-wide launch's verdict below) still count it as a sender.
       const mayCode = maySend(claim)
-      const canSend = mayCode && sendsRefusedOf(wakes, store.outbox()) === null
+      // B1271 (X203): nor a hand the app refused (its own mark, wakeCarry.mjs `noteHandRefused`): no message, start or wake job until its own send went.
+      const canSend = mayCode && sendsRefusedOf(wakes, store.outbox()) === null && !handRefused(wakes, checked.chat)
       // F17 review 16: while refused, once a day ONE send by a hand that may send, to a free chat (never a real wake): its answer lifts or renews it.
-      const probeTo = !canSend && mayCode && !isHolding(state.pause) && probeDue(wakes, store.outbox(), clock()) ? freeChatOf(carriersOf(state), { target: checked.chat, now: clock(), outbox: store.outbox() }) : null
+      // B1271: and once a day for a hand refused alone, so its own send can lift its mark.
+      // Chat 1's review (minor): the board's probe goes to a hand not refused when one claims, never to the refused hand that would renew it.
+      const probeHand = !(sendsRefusedOf(wakes, store.outbox()) !== null && handRefused(wakes, checked.chat) && handsNow(clock()).able)
+      const probeTo = !canSend && mayCode && probeHand && !isHolding(state.pause) && probeDue(wakes, store.outbox(), clock(), checked.chat) ? freeChatOf(carriersOf(state), { target: checked.chat, now: clock(), outbox: store.outbox() }) : null
       // Change 4 (C.3): a hand that may send claims after the board-wide launch: that launch woke a chat.
       if (mayCode) {
         const board = wakeHeardClaim(wakes, claim.at, clock())
@@ -3767,7 +3816,9 @@ async function main(args) {
       }
       // B1160 part 2 (B1164): while the app refuses the board's set calls no hand claims a set job, but the daily probe (effort.mjs `probeOf`).
       const setsRefusedNow = setsRefusedOf(store.outbox(), clock())
-      const isHand = message => !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
+      // B1271 (chat 1's review, minor): a start or wake word a carry word carries is never a hand's too (the carry may switch on and off).
+      const carried = new Set(store.outbox().filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state) && typeof one.of === 'string').map(one => one.of))
+      const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
@@ -3813,6 +3864,8 @@ async function main(args) {
         for (const need of wakeNeeds(state, outboxNow, { resumeList, canLaunch: canLaunchNow() })) {
           if (need.chat === checked.chat || !need.paths.includes('message') || !Number.isFinite(need.spell)) continue
           if (wakeNextPath(wakes, { chat: need.chat, spell: need.spell, senderClaims: true, senderSince: claim.since, paths: need.paths }) !== 'message') continue
+          // B1271 (X203): a hand that tried this message in the spell (refused, or no report) never gets it again: another way goes next.
+          if (handTried(wakes, { chat: need.chat, spell: need.spell, hand: checked.chat })) continue
           const id = wakeJobId(need.spell, need.chat)
           // X107/X3 (2026-11-02): the step whose take line the message carries, so the envelope's own line is not typed a second time.
           const carries = typeof need.step === 'string' && need.text === takeLine(need.step) ? need.step : null
@@ -3841,7 +3894,9 @@ async function main(args) {
         }
       }
       if (probeTo !== null) {
-        wakes.probeAt = clock()
+        // B1271: a hand refused alone keeps its own probe time; the board's refusal the board's.
+        if (sendsRefusedOf(wakes, store.outbox()) === null) wakes.probeBy = { ...(wakes.probeBy ?? {}), [checked.chat]: clock() }
+        else wakes.probeAt = clock()
         jobs.push({ id: `send-probe:${clock()}`, to: probeTo.appSession, chat: probeTo.name, text: PROBE_LINE })
         wakeClaimed = true
         console.log(`Wake: the daily check whether the hands may send again goes to ${checked.chat}'s hands at ${timeOf(clock())} (to ${probeTo.name}).`)
@@ -3944,12 +3999,16 @@ async function main(args) {
       for (const id of [...sent, ...failed, ...back]) {
         // F17 review 16: the probe's answer: sent lifts the refusal, refused renews it; given back changes nothing.
         if (PROBE_JOB.test(id)) {
-          if (sent.includes(id) && !doubt.includes(id)) woke = noteSendLifted(wakes, clock()) || woke
-          else if (failed.includes(id) && isSendRefusal(why[id])) woke = noteSendRefused(wakes, clock()) || woke
+          if (sent.includes(id) && !doubt.includes(id)) woke = [noteHandSent(wakes, checked.chat, clock()), noteSendLifted(wakes, clock())].includes(true) || woke
+          else if (failed.includes(id) && isSendRefusal(why[id])) woke = noteHandRefused(wakes, checked.chat, clock()) || woke
           continue
         }
         const chat = wakeChatOf(id)
         if (chat === null) continue
+        // B1271 (X203): a send of this hand that went lifts its own mark; one the app refused marks it (the board's only when no hand's send
+        // went since the last lift), also for a start or wake word of a chat that runs (no attempt in the record).
+        if (sent.includes(id) && !doubt.includes(id) && noteHandSent(wakes, checked.chat, clock())) woke = true
+        if (failed.includes(id) && isSendRefusal(why[id]) && noteHandRefused(wakes, checked.chat, clock())) woke = true
         const done = sent.includes(id) || doubt.includes(id) ? wakeSent(wakes, chat, id, clock())
           : failed.includes(id) ? wakeFailedToSend(wakes, chat, id, why[id], clock()) : (wakeGivenBack(wakes, chat, id) ? true : null)
         if (done === null) continue
@@ -4632,12 +4691,11 @@ async function main(args) {
         // supervisor's chat, an incident's word to the partner); the main chat is asked to start a chat that does not run.
         tell: async words => {
           const state = await readState()
-          const isCopied = state.bridge?.isMissing === true
-          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: isCopied ? 'copied' : 'waiting' }
-          await store.say(isCopied ? { ...message, pasteText: messageText(message, timeOf) } : message)
+          const message = { id: randomBytes(8).toString('hex'), at: clock(), ...words, state: 'waiting' }
+          await store.say(message)
           readState.reset()
           // Signals change 4: a chat that does not run is woken by the wake procedure (src/wake.mjs), no start word.
-          return { ok: true, id: message.id, started: false, copied: isCopied }
+          return { ok: true, id: message.id, started: false, copied: false }
         },
         // Signals change 6 (B915 4b.1): the judge word's record says when the Supervisor's turn after it ended (`endedAt`).
         markWord: (id, fields) => store.update(id, fields),

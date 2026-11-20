@@ -147,7 +147,8 @@ test('the page says that the app\'s folder moved, and where the board found it',
     readFile(join(here, '..', 'public', 'board.css'), 'utf8'), readFile(join(here, '..', 'server.mjs'), 'utf8'),
   ])
   // B467: as a loop, so a failed search shows and is logged.
-  assert.match(server, /await loops\.run\('app-folder', \(\) => followApp\(config, process\.env, process\.platform\)\)\n\s+return readSources\(config, folders, undefined, branches, work\)/)
+  // B1273: the account of the Claude app is read between the two (src/appAccount.mjs); the board still follows the app's folder first.
+  assert.match(server, /await loops\.run\('app-folder', \(\) => followApp\(config, process\.env, process\.platform\)\)\n[^]*?return readSources\(config, folders, undefined, branches, work, \(\) => account\?\.now\(\) \?\? null\)/)
   assert.match(server, /appMoved: isDemo \? null : config\.appMoved \?\? null/, 'the demo shows no note about the real app')
   assert.match(html, /<p class="app-note" id="app-note" role="status" hidden><\/p>/)
   const page = {}

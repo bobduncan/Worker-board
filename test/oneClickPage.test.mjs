@@ -267,7 +267,7 @@ test('Goals "Send again": the retry\'s own answer decides: a click the board doe
   } finally { await page.close() }
 })
 
-test('the Retry button handles its answer: the retried word is put on the clipboard without a Workers mod, and the button is enabled again after any answer', async () => {
+test('the Retry button handles its answer: the button is enabled again after any answer, and no paste bar shows (B1274: the copy-paste mode is gone)', async () => {
   const unsent = { click: 'click-gggg-7777', via: 'brainstorm-answer', key: PATH, route: '/api/brainstorm', why: 'locked', at: '09:05' }
   const texts = [[PATH, `${HEAD}${Q1}${A1}`]]
   const page = await brainstormPage(texts, { state: stateOf(texts, { clicksUnsent: [unsent] }), answers: () => reply('refused again', 409) })
@@ -278,7 +278,7 @@ test('the Retry button handles its answer: the retried word is put on the clipbo
   const copied = await brainstormPage(texts, { state: stateOf(texts, { clicksUnsent: [unsent] }), answers: () => reply({ said: 'w9', paste: { text: 'brainstorm answer\nThread: t', chat: 'Garden · Advisor' } }) })
   try {
     await copied.click('#brainstorm-card .click-retry')
-    assert.ok(copied.all('.paste-note').length > 0, 'the paste bar shows the retried word')
+    assert.equal(copied.all('.paste-note').length, 0, 'no paste bar: an answer\'s paste is not read any more')
   } finally { await copied.close() }
 })
 

@@ -10,7 +10,7 @@ shares with the chats are in `roles/protocol.md` and are not repeated here. The 
 One page on the person's own PC for a project in which several Claude chats work together: one main chat hands out
 the tasks, worker chats do them, an Advisor chat advises. The page shows who works on what, what waits for the
 person, and lets the person answer, talk to the main chat, and plan. Every answer is typed into the chat it is for
-(by the Workers mod) or copied for the person to paste (without it).
+by the Workers mod; without it the words wait, and one grey line says to run setup and restart the app (B1274).
 
 ## How it is built
 
@@ -24,7 +24,8 @@ person, and lets the person answer, talk to the main chat, and plan. Every answe
   `POST /api/game` (start or stop a game), `POST /api/design` and `/api/design/reference` (the Design tab), `POST /api/bugs` and `/api/bugs/picture` (the Bugs tab, B856),
   `POST /api/talk/picture` (a pasted picture), `POST /api/restart` (a new version), `POST /api/work` (the store;
   also `pause-all` and `resume-all`, which write `pause.json`), and for the Workers mod `POST /api/bridge/take`,
-  `/api/bridge/typed`, `/api/bridge/report`, `/api/bridge/whoami` (a chat's name, role and card by its session id) and
+  `/api/bridge/typed`, `/api/bridge/report`, `/api/bridge/whoami` (a chat's name, role and card by its session id),
+  and
   `/api/bridge/work` (the work tool; `pause-state` reads the pause). Every POST of the page
   needs its token and its own origin; the mod's need the bridge's key.
 - **The page** is `public/index.html`, `public/board.css` and `public/board.js` (no framework). It draws the state
@@ -96,8 +97,8 @@ routines for Worker 4, 5" while some are missing); while one of them could help,
 version and since when, and a refresh button. The line at the top says Running, Slow, Off since or Restarting from the board's own clock (DESIGN.md, "The board's own banner"). When the board's folder holds a newer version, a
 yellow note on top says so; a click starts the new version. When a data file of the board was torn (by a restart or a
 power cut) and could not be read at its start, a red note on top names it and the copy it was kept aside as
-(`<name>.broken-<time>`, B406): the board started without it. Without the Workers mod a bar on top says that what the
-person sent was copied, and into which chat to paste it. At the far right a round **?** opens the help tour (below).
+(`<name>.broken-<time>`, B406): the board started without it. Without the Workers mod one grey line under the lanes
+says "The Workers mod isn't running here: run setup (npm.cmd run setup) and restart the app." At the far right a round **?** opens the help tour (below).
 
 ## The help tour (B348)
 
@@ -507,7 +508,8 @@ Undo."; Off, "Questions come to you as before."
   line, the recap popup's head ("Round 3 · N to judge") and, with the cards it draws besides, the Needs count (an ask the recap card
   counts is never a card of its own as well). An Accept card, a look or question that stands with you and the goal's own "open the
   recap / play it" ask are cards of their own in Needs your attention (or, routed to the recap, one line under the card): never a
-  tile or a count of the recap card. Whenever N > 0 the card shows, also when only kept looks remain mid-goal; N = 0: no card.
+  tile or a count of the recap card. An Accept card the person answered in a chat instead ("Q817 A") leaves the page as one
+  answered here does: its step done, or its next try made (B1272). Whenever N > 0 the card shows, also when only kept looks remain mid-goal; N = 0: no card.
   A row is ready only when nothing more is done on it: a row whose steps, or any fix in their chains, are under way (new,
   refined, queued, taken, in progress, waiting on you, or in review with its check still to run) is **being reworked**: the popup
   says "Being reworked: B981 · <its one status>", naming the step a worker holds first (else the newest under way) and its one status
@@ -556,7 +558,11 @@ Undo."; Off, "Questions come to you as before."
   cards, one line each (its question, its picture, its step). Their steps read "Recap verdict: waits (Q<n>)" and count as
   done for asking the goal demo, whose words ask a row of their own for them; "Did we reach the goal?" then shows, lists
   them first, and its Yes waits until the recap's approve or send back of those rows answered them. With Autopilot off
-  they stand in Needs your attention again.
+  they stand in Needs your attention again. You need not wait for the recap (B1270, your words of 2026-11-19: "i need a agree or
+  disagree button"): each line has its buttons (Accept, Looks right or Done at once; a decide's own options; Send back opens its
+  window for your note), and its window has the same form. Answered there, it closes as the recap's answer would and the recap does
+  not ask it again. A work block whose verdicts are only such asks reads calm, "2 for your recap · opens when 6 blocks are done, 4
+  now · or answer now →", and turns the attention colour once the recap is open.
 - **Always yours** (Autopilot v2, the person's "B", 2026-11-02: "everything except the goal recap/verdict"): the goal's recap
   and its verdicts (a recap row's verdict and the focus goal's own re-check too), a goal's start (its goal definition, work
   blocks and Go; anything of a goal that is not the focus) and a switch of focus, under a step too, a goal's rebuild (your
@@ -573,5 +579,6 @@ Undo."; Off, "Questions come to you as before."
   Accept puts its step back in review and the card back with you (a project's own flow.json needs the move done → review by
   the person for it; without it the Undo says so and changes nothing).
 - **The task window** of an ask with the main chat or waiting for the recap names its route ("With the main chat
-  (Autopilot)", "For your recap (Autopilot)") and where it stands.
+  (Autopilot)", "For your recap (Autopilot)") and where it stands; one waiting for the recap under a step adds "you can answer it
+  here now" and its answer buttons (B1270).
 - The Focus page's switch "Your partner answers detail questions" reads "covered by Autopilot" while it is on.

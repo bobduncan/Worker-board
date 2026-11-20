@@ -313,7 +313,8 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // only one more worker is asked of the main chat, when ready tasks wait and no worker is free for them.
   const followUpMs = Math.max(0, Number.isFinite(settings.followUpMinutes) ? settings.followUpMinutes : HAND_OUT_DEFAULTS.followUpMinutes) * MIN
   const ready = readyList(items, { now, focus, focusGoals, followUpMs, standardHold, routingHeld, prefix, beyondFocus: settings.handOutBeyondFocus === true })
-  const handOutHeld = ['pausing', 'resuming'].includes(store.pause?.state) || limitsFull === true
+  // B1273: and while the Claude app is on another account (pause.mjs `awayOver`: an `isHolding` state of its own).
+  const handOutHeld = isHolding(store.pause) || store.pause?.state === 'resuming' || limitsFull === true
   const handsOut = flowHandsOut(flow)
   if (!handsOut) {
     flags.push({ kind: 'broken', id: null, chat: null, text: `flow.json lets the board hand out no task: add the move refined → queued by server when "${GIVE_GUARD}" (examples/work/flow.json)`, button: null })

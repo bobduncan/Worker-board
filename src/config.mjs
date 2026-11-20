@@ -2,10 +2,11 @@
 
 import { constants } from 'node:fs'
 import { access, copyFile, readFile, readdir, realpath, stat } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { EFFORTS, MODELS, modelIds } from './work/effort.mjs'
 import { parseRoutingPolicy } from './work/routing/policy.mjs'
 import { ASSET_KINDS, DEFAULT_PROVIDERS, PROVIDERS } from './providers/index.mjs'
+import { PICTURE_PLACES, isPictures } from './picturesSetup.mjs'
 
 /**
  * B300: the work store's reconciler (src/work/reconcile.mjs). A step held by a chat that is not running is flagged after
@@ -79,6 +80,8 @@ export const DEFAULTS = {
   chatHome: '',
   /** T5.2 P2: the board's data home (`<project>/.workerboard` once the data moves); '' = today's layout, everything in the project folder. */
   data: '',
+  /** B1273: the Claude account the board's chats live in (its id, as the app names its folders); '' = found by the main chat and recorded. */
+  appAccount: '',
   appSessions: '',
   transcripts: '',
   port: 4310,
@@ -343,6 +346,8 @@ const isAdvisorParts = value => Array.isArray(value) && value.every(one => ADVIS
 /** B311, B735: the levels of "CPU for Claude", and what the older names read as. */
 const CPU_LEVELS = { full: 'full', low: 'low', off: 'full', gentle: 'full', strong: 'low' }
 const cpuLevelOf = value => (typeof value === 'string' ? CPU_LEVELS[value.trim().toLowerCase()] ?? null : null)
+/** B1273: an account's id as the Claude app names its account folders (src/appAccount.mjs `ACCOUNT_ID`). */
+const ACCOUNT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** A branch's name as git allows it, plainly: letters, digits, "_", ".", "/" and "-", and no "..". */
 const BRANCH = /^(?!.*\.\.)[\w][\w./-]{0,120}$/
 
@@ -490,6 +495,8 @@ export function parseConfig(text, env) {
   // The Workers mod types at most 3000 characters, and an answer also carries the name of its request.
   config.maxMessageChars = Math.min(config.maxMessageChars, 2500)
   if (typeof raw.advisor === 'string' && raw.advisor.trim() !== '') config.advisor = raw.advisor.trim()
+  // B1273: the board's Claude account, an id as the app names its account folders (src/appAccount.mjs).
+  if (typeof raw.appAccount === 'string' && ACCOUNT.test(raw.appAccount.trim())) config.appAccount = raw.appAccount.trim().toLowerCase()
   if (typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim())) config.baseBranch = raw.baseBranch.trim()
   config.name = typeof raw.name === 'string' && raw.name.trim() !== '' ? raw.name.trim() : config.project.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
   // A shown folder is one plain folder name in the project: never a path that could lead out of it.
@@ -510,6 +517,9 @@ export function parseConfig(text, env) {
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
   if (isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0) config.advisorParts = [...new Set(raw.advisorParts)]
   if (cpuLevelOf(raw.cpuLimit) !== null) config.cpuLimit = cpuLevelOf(raw.cpuLimit)
+  // T5.2 P4: where the project's pictures live (a project key) and this PC's path to that folder (a PC key); left out, none.
+  config.pictures = isPictures(raw.pictures) ? { ...raw.pictures } : null
+  config.picturesHome = typeof raw.picturesHome === 'string' ? raw.picturesHome.trim() : ''
   // Leaked headless browsers (2026-11-13): whether this board runs the PC-wide rule `browsers`; left out, the PC's first board does.
   if (typeof raw.browsersRule === 'boolean') config.browsersRule = raw.browsersRule
   // B354: the kinds that are right, each once.
@@ -577,6 +587,7 @@ export function configProblem(fileText) {
   if (has('runGame') && !(Array.isArray(raw.runGame) && raw.runGame.every(word => typeof word === 'string' && word !== ''))) return wrong('runGame', 'a list of words, the program first')
   if (has('advisorParts') && !(isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0)) return wrong('advisorParts', `a list of one or more of the Focus tab's parts: ${ADVISOR_PARTS.join(', ')}`)
   if (has('cpuLimit') && cpuLevelOf(raw.cpuLimit) === null) return wrong('cpuLimit', '"full" or "low"')
+  if (has('appAccount') && !(typeof raw.appAccount === 'string' && (raw.appAccount.trim() === '' || ACCOUNT.test(raw.appAccount.trim())))) return wrong('appAccount', 'the id of a Claude account folder (8-4-4-4-12 letters and digits), or ""')
   if (has('browsersRule') && typeof raw.browsersRule !== 'boolean') return wrong('browsersRule', 'true or false')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))
@@ -594,6 +605,8 @@ export function configProblem(fileText) {
       if (Object.hasOwn(given, key) && !(Number.isFinite(given[key]) && given[key] > 0)) return `"supervisor.${key}" must be a number above 0, not ${JSON.stringify(given[key]).slice(0, 60)}`
     }
   }
+  if (has('pictures') && !isPictures(raw.pictures)) return wrong('pictures', `{ "where": one of ${PICTURE_PLACES.map(one => `"${one}"`).join(', ')}, "folder": a folder name } (no folder for "this PC")`)
+  if (has('picturesHome') && typeof raw.picturesHome !== 'string') return wrong('picturesHome', 'a folder on this PC')
   if (has('providers')) {
     const { problem } = readProviders(raw.providers)
     if (problem !== null) return problem
@@ -705,6 +718,40 @@ export async function followApp(config, env = process.env, platform = process.pl
 /** A settings file the board cannot run on: its message is the one line the board says before it stops. */
 export class BrokenConfig extends Error {}
 
+/**
+ * T5.2 P4: the keys that belong to this PC, kept in config.json once the project has a board-settings.json (paths on this PC, its ports, its
+ * Codex, its pictures home); every other key is the project's, in settings.json.
+ */
+export const PC_KEYS = Object.freeze(['project', 'gameRepo', 'appSessions', 'transcripts', 'usageHistory', 'port', 'gamePort', 'codex', 'soundLibrary', 'chatHome', 'data', 'pc', 'label', 'sync', 'picturesHome', 'appAccount', 'browsersRule'])
+
+/** The project's settings file's name in its data folder: beside the carry tool's `settings/` folder there, never the same name. */
+export const SETTINGS_FILE = 'board-settings.json'
+
+/**
+ * The project's settings file: `board-settings.json` in the data folder this PC's config.json names (`data`, an explicit opt-in; a
+ * relative one from `base`, the config file's folder), or null: no `data`, today's behaviour. Never a guess at a `.workerboard` folder:
+ * one there may be the carry tool's clone (chat 1, 2026-11-16). `%NAME%` in `data` is expanded from `env`, as P2 reads it.
+ */
+export function settingsFileOf(config, base = '.', env = {}) {
+  const data = typeof config?.data === 'string' && config.data.trim() !== '' ? expandEnv(config.data.trim(), env) : null
+  return data === null ? null : resolve(base, data, SETTINGS_FILE)
+}
+
+/**
+ * The settings the board runs on, from the project's settings.json (`settings`) and this PC's config.json (`pc`): the defaults (parseConfig),
+ * then the project's keys, then this PC's keys. A project key left in config.json is ignored (named in `ignored`, for the amber line), so a
+ * change on the settings panel always takes effect; a PC key in settings.json is ignored too. `{ raw, ignored }`.
+ */
+export function mergeSettings(settings, pc) {
+  const project = Object.fromEntries(Object.entries(settings ?? {}).filter(([key]) => !PC_KEYS.includes(key)))
+  const own = Object.fromEntries(Object.entries(pc ?? {}).filter(([key]) => PC_KEYS.includes(key)))
+  const ignored = Object.keys(pc ?? {}).filter(key => !PC_KEYS.includes(key)).sort()
+  return { raw: { ...project, ...own }, ignored }
+}
+
+/** The file a setting is written to: config.json for this PC's keys and for a board without settings.json, else settings.json. */
+export const settingFileFor = (config, configFile, key) => (typeof config?.settingsFile === 'string' && !PC_KEYS.includes(key) ? config.settingsFile : configFile)
+
 /** The settings in `file`. A broken file throws `BrokenConfig`; a missing one leaves the defaults (B127 takes that). */
 export async function loadConfig(file, env = process.env, platform = process.platform) {
   let text = null
@@ -715,7 +762,6 @@ export async function loadConfig(file, env = process.env, platform = process.pla
   }
   const problem = text === null ? null : configProblem(text)
   if (problem !== null) throw new BrokenConfig(`The worker board's settings file ${file} is broken: ${problem}. Fix it and start the board again.`)
-  const config = parseConfig(text ?? '', env)
   // B135: the app's list of chats and its usage file, where the app keeps them on this system, when not set.
   let raw = {}
   try {
@@ -723,6 +769,18 @@ export async function loadConfig(file, env = process.env, platform = process.pla
   } catch {
     // A file that is no JSON was refused above.
   }
+  // T5.2 P4 (the design of 2026-11-16, section 6): the project's own settings travel with its data, in <data>/board-settings.json (only with data set); config.json keeps
+  // only what belongs to this PC (PC_KEYS). With no settings.json nothing changes.
+  const settingsFile = settingsFileOf(raw, dirname(file), env)
+  const settingsText = settingsFile === null ? null : await readFile(settingsFile, 'utf8').catch(() => null)
+  const settingsProblem = settingsText === null ? null : configProblem(settingsText)
+  if (settingsProblem !== null) throw new BrokenConfig(`The project's settings file ${settingsFile} is broken: ${settingsProblem}. Fix it and start the board again.`)
+  const merged = settingsText === null ? null : mergeSettings(JSON.parse(settingsText.replace(/^\uFEFF/, '')) ?? {}, raw)
+  const config = parseConfig(merged === null ? text ?? '' : JSON.stringify(merged.raw), env)
+  config.settingsFile = merged === null ? null : settingsFile
+  config.settingsIgnored = merged === null ? [] : merged.ignored
+  config.hasProvidersKey = Object.hasOwn(merged === null ? raw : merged.raw, 'providers')
+  if (merged !== null) raw = merged.raw
   const isSet = key => typeof raw[key] === 'string' && raw[key].trim() !== ''
   if (!isSet('appSessions') || !isSet('usageHistory')) {
     const found = await appFolder(env, platform)
