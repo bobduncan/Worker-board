@@ -1,0 +1,9 @@
+{
+  "project": "D:/wrap/game",
+  "gameRepo": "D:/wrap/game",
+  "chatHome": "D:/wrap",
+  "data": "D:/wrap/game/.workerboard",
+  "pictureRoots": ["pictures"],
+  "backlog": ".claude/backlog.md",
+  "name": "Fixture"
+}

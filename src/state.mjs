@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
+import { chatFile, chatHomeOf, resolveStored } from './projectPaths.mjs'
 import { allWords, closedForYou, minutesOf, sizeMinutes, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
@@ -1331,7 +1332,7 @@ function doneTimes(work, prefix) {
  * of the page (`store`), not here.
  */
 export function lookingFor({ list, prefix, config, chats }) {
-  const listFile = join(config.project, '.claude', 'chats', 'list.json')
+  const listFile = chatFile(config, 'chats', 'list.json')
   const lines = []
   if (config.project === '') lines.push('The settings name no "project": the board looks for everything in that folder.')
   else if (list.problem === 'missing') lines.push(`No list of chats: the board looks for ${listFile}. Copy examples/list.json there and set "prefix" (how the project's chat titles start) and "main" (the main chat's name).`)
@@ -1910,7 +1911,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // card and shows again. The rest of the list is made without it, so a new chat of its name is no leftover.
   const removedAt = new Map(apps.map(chat => [chat.cliSessionId, leftAt(raw, chat.cliSessionId)]).filter(([, at]) => at !== undefined))
   const isGone = chat => removedAt.has(chat.cliSessionId) && !(removedAt.get(chat.cliSessionId) > now - REMOVED_SHOW_MS)
-  const found = boardChats(apps.filter(chat => !isGone(chat)), { project: config.project, ...list })
+  const found = boardChats(apps.filter(chat => !isGone(chat)), { project: chatHomeOf(config), ...list })
     .map(chat => ({ ...chat, removedAt: removedAt.get(chat.cliSessionId) ?? null }))
   const main = found.find(chat => chat.isMain)
   // What the history last said about each chat, also from before the board was last off.
@@ -1947,7 +1948,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // B296, B301: the backlog from the work store, the one source of the work. `store` is the line about it on the Backlog
   // tab and, when it cannot be read, on top of the page; `raw.work` is missing where the board has no store. Nothing is
   // drawn from the backlog file instead.
-  const shown = storeBacklog(raw.work, { prefix, names }, { backlog: config.project === '' ? null : join(config.project, ...config.backlog.split('/')) })
+  const shown = storeBacklog(raw.work, { prefix, names }, { backlog: config.project === '' ? null : resolveStored(config, config.backlog) })
   const backlog = shown.backlog
   const workOk = shown.store?.ok === true
   // The asset wait (2026-11-11, the B1124 case): the asset requests as the server read them (src/assets.mjs, `raw.assets`): an open one

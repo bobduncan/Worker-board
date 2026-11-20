@@ -31,7 +31,8 @@ export function talkPictureName(at, kind, count = 1) {
  * ever written over. Answers its path ("pictures/talk/2026-10-14-1144.png"), or null when the minute is full.
  */
 export async function keepTalkPicture(project, bytes, kind, at, pictures) {
-  const folder = join(project, ...talkFolder(pictures).split('/'))
+  // T5.2 P3: `project` is the project folder, or a home `{ root, abs }` whose `abs` places the stored path.
+  const folder = typeof project === 'string' ? join(project, ...talkFolder(pictures).split('/')) : project.abs(talkFolder(pictures))
   await mkdir(folder, { recursive: true })
   for (let count = 1; count <= 99; count += 1) {
     const name = talkPictureName(at, kind, count)

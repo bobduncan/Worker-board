@@ -207,7 +207,8 @@ test('the server: the wake\'s minute on its own timer, at the start and after Re
   assert.match(server, /void loops\.run\('opener', \(\) => wakePass\(state\)\)/)
   const launch = server.slice(server.indexOf('const launchFor = async'), server.indexOf('const wakePass = async'))
   assert.ok(launch.indexOf('claimWake(wakes') < launch.indexOf('await openChat('), 'the claim before the await')
-  assert.match(launch, /openChat\(\{ exe: await findClaude\(\), session: target\.session, cwd: resolve\(HERE, config\.project\) \}\)/)
+  // T5.2 P2: a chat is opened in the CHATS' home (chatHomeOf: the project when chatHome is empty).
+  assert.match(launch, /openChat\(\{ exe: await findClaude\(\), session: target\.session, cwd: resolve\(HERE, chatHomeOf\(config\)\) \}\)/)
   assert.match(launch, /Wake: launched \$\{target\.chat\} \(\$\{target\.session\}\) at \$\{timeOf\(now\)\}/)
   assert.doesNotMatch(server, /'started' : done\.why/)
   assert.match(server, /rows: \[\.\.\.view\.rows, wakeRowNow\(\)\]/)

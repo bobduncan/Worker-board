@@ -43,7 +43,9 @@ import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from '.
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
-import { BrokenConfig, configProblem, readProviders, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
+import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
+// T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
+import { assetsOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, wordsPath } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -785,8 +787,9 @@ async function main(args) {
   // side; the demo is no project's and keeps out of it.
   const boards = isDemo || config.project === '' ? null : boardsFile()
   const asked = { port: config.port, gamePort: config.gamePort }
-  // The project as a whole path: the list is the PC's, read from every board's folder.
-  const home = config.project === '' ? null : resolve(HERE, config.project)
+  // The CHATS' home as a whole path (T5.2 P2: the port is keyed by it, so it never drifts when the data moves): the list is the PC's,
+  // read from every board's folder.
+  const home = config.project === '' ? null : resolve(HERE, chatHomeOf(config))
   const chosen = await resolvePort({ here: HERE, given: argAfter(args, '--port'), configured: config.port, run: gitRunner(), project: home, gamePort: config.gamePort, boards })
   // B3: the "only shows" notices send the person to the board that records, on the port the PC's list of boards keeps for it.
   const recordingPort = await recordingBoardPort({ boards, project: home, fallback: homePort })
@@ -803,9 +806,9 @@ async function main(args) {
     if (config.project === '') return console.error('config.json names no project: there is no launch.json to write to.')
     // B319: the port the entry names is kept for the project from now on.
     if (isHome) await register().catch(error => console.error(`The list of boards could not be written: ${error.message}`))
-    const file = join(config.project, '.claude', 'launch.json')
+    const file = chatFile(config, 'launch.json')
     const entry = launchEntry({ folder: HERE, port: config.port, node: process.execPath, main: chosen.main })
-    await mkdir(join(config.project, '.claude'), { recursive: true })
+    await mkdir(chatFile(config), { recursive: true })
     // B406: a launch.json that is there but cannot be read or parsed is never written over: its other entries would be
     // lost.
     const before = await readFile(file, 'utf8').catch(error => error?.code === 'ENOENT' ? '' : null)
@@ -888,7 +891,7 @@ async function main(args) {
     afterQueue = afterQueue.then(() => new Promise(next => setImmediate(next))).then(timed, timed).catch(error => loops.failed('after-answer', error))
     return afterQueue
   }
-  const loops = loopRecord({ now: clock, holders: isDemo ? null : files => fileHolders(files), write: isDemo || config.project === '' ? () => {} : fileLog(join(resolve(HERE, config.project), '.claude', 'board-errors.log')), track: trackJob })
+  const loops = loopRecord({ now: clock, holders: isDemo ? null : files => fileHolders(files), write: isDemo || config.project === '' ? () => {} : fileLog(resolve(HERE, localFile(config, 'board-errors.log'))), track: trackJob })
   /** B404: the checks after a report that run now, by step id; a restart waits for them, the stuck-check pass skips them. */
   const runningChecks = new Map()
   /** B404: set once a restart was asked: the board takes no more work and its loops start nothing new. */
@@ -919,7 +922,7 @@ async function main(args) {
   // wakes, the outbox, the list): the one that holds this lock. A second process on the project (another --port) serves
   // the page and reads what the first wrote. The lock is checked at every run, so the other takes over within one run
   // when the holder ends (src/supervisor/loop.mjs loopOwner, loopGate). A copy that only shows runs its own loops, unlocked.
-  const LOOP_LOCK = isDemo || isShowOnly || config.project === '' ? null : join(config.project, '.claude', 'sync-loop.json')
+  const LOOP_LOCK = isDemo || isShowOnly || config.project === '' ? null : localFile(config, 'sync-loop.json')
   /** Set below, where the stores and the bridge note are: what this process does when it gains the loops. */
   let gainedLoops = async () => {}
   const ownsLoops = LOOP_LOCK === null ? async () => true : loopGate({
@@ -1023,11 +1026,11 @@ async function main(args) {
   // as the board's own hold ('away', pause.mjs `withAway`), so every reader holds: the state, the hand-out, the work API.
   const account = isDemo || config.project === '' ? null : accountWatch({
     appSessions: () => config.appSessions, setting: config.appAccount || null,
-    record: join(HERE, 'data', 'app-account.json'), chatHome: resolve(HERE, config.project), clock, log: line => console.log(line),
+    record: join(HERE, 'data', 'app-account.json'), chatHome: resolve(HERE, chatHomeOf(config)), clock, log: line => console.log(line),
     // The tests' boards run fast (as WORKER_BOARD_TICK_MS); the board itself waits the minute after the app came back.
     ...(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS !== undefined && Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS) >= 0 ? { settleMs: Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS), everyMs: 500 } : {}),
     folders: () => readAccountFolders(config.appSessions),
-    list: async () => parseList(await readFile(join(resolve(HERE, config.project), '.claude', 'chats', 'list.json'), 'utf8').catch(absentAs(''))),
+    list: async () => parseList(await readFile(chatFile(config, 'chats', 'list.json'), 'utf8').catch(absentAs(''))),
     // B1283 (F37): the one ask per switch away, in the board's name (as the asset queue's), read back by its id; a copy that only shows asks nothing.
     ask: isShowOnly ? null : {
       file: async ({ title, text, options, advice }) => {
@@ -1068,7 +1071,8 @@ async function main(args) {
   const workDir = isDemo || config.project === '' ? null : workFolder(config)
   // Part C of the asset providers: where the chats' asset requests are kept (`.claude/assets`, beside the work store); none on a
   // board that only shows.
-  const assetsDir = workDir === null || isShowOnly ? null : resolve(HERE, assetsFolderOf(workDir))
+  // T5.2 P3: `<data>/pictures/assets` once the data moves, else `assets` beside the store (assetsFolderOf), as before.
+  const assetsDir = workDir === null || isShowOnly ? null : resolve(HERE, assetsOf(config))
   /** B949: the asset requests by id, for the judges of the asset words (workLines.mjs); null when there is no folder or it cannot be read: such a word then holds. */
   const assetRequests = async () => {
     if (assetsDir === null) return null
@@ -1078,7 +1082,7 @@ async function main(args) {
       return null
     }
   }
-  const viewFile = workDir === null ? null : !isShowOnly ? join(config.project, ...config.backlog.split('/')) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
+  const viewFile = workDir === null ? null : !isShowOnly ? resolveStored(config, config.backlog) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
   /**
    * Focus 2 (spec 2026-10-18, sections 3 and 6): a move of the Focus page, or a draft of the partner's (the page's route,
@@ -1287,7 +1291,7 @@ async function main(args) {
       const found = newest === undefined ? null : rowWordsOf(newest, store, state.recapRows ?? [], { includeOwn: true })
       // The words just given stand on the held steps too: they are no "earlier" words. The Workers mod refuses a line over maxMessageChars, so the
       // earlier words get what the rest of the evaluate word leaves (the older ones are named by file, rowWordsText).
-      const earlier = found === null ? '' : rowWordsText({ ...found, words: found.words.filter(one => !(one.at === minute && String(one.words).replace(/\s+/g, ' ').trim() === text)) }, { budget: Math.max(300, config.maxMessageChars - 1500 - text.length), chars: 400 })
+      const earlier = found === null ? '' : rowWordsText({ ...found, words: found.words.filter(one => !(one.at === minute && String(one.words).replace(/\s+/g, ' ').trim() === text)) }, { workPrefix: `${wordsPath(config, workFolder(config))}/`, budget: Math.max(300, config.maxMessageChars - 1500 - text.length), chars: 400 })
       const started = await startEvaluation(id, {
         canWrite: writesMap, goalsFile: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock(),
         partner: state.advisor, job: join(HERE, 'roles', 'partner.md'), items: async () => [...(await readStore(workDir)).items.values()],
@@ -1499,7 +1503,7 @@ async function main(args) {
       const why = await demoFeedbackWhyNot()
       if (why !== null) return { ok: false, status: 409, why }
       const state = await readState()
-      const found = await readDemo(state.project, shownRoots(config), body?.path)
+      const found = await readDemo(pictureHome(state.project), shownRoots(config), body?.path)
       if (found === null) return { ok: false, status: 404, why: 'No such goal demo.' }
       if (found.why !== undefined) return { ok: false, status: 422, why: found.why }
       const store = recapStoreOf(state, found.base.goal, body?.path)
@@ -1844,7 +1848,7 @@ async function main(args) {
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
       chats: [...roles.keys()],
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlapsOfStore: true,
-      viewFile, boardUrl: boardAddress(HOST, config), backlogFile: join(config.project, ...config.backlog.split('/')),
+      viewFile, boardUrl: boardAddress(HOST, config), backlogFile: resolveStored(config, config.backlog),
       // Part C of the asset providers: the requests' folder and the provider in use for each kind (the work tool's `asset`).
       ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), providerOf: kind => providerFor(config, kind), tools: () => assetTools() } }),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
@@ -1857,10 +1861,10 @@ async function main(args) {
       // B354: the project's kinds of work: a refined step that names one carries its standard.
       kinds: config.kinds,
       // 2026-10-24: an ask's picture the board cannot show is refused with where to put it (api.mjs ask).
-      pictureProblem: path => pictureProblem(config.project, shownRoots(config), path),
+      pictureProblem: path => pictureProblem(pictureHome(), shownRoots(config), path),
       shownFolders: shownFolders(config),
       // Q311: a picture a chat's For you block names outside them is copied into the picture folder instead.
-      adoptPicture: (path, subject) => adoptPicture(config.project, shownFolders(config)[0], subject, path),
+      adoptPicture: (path, subject) => adoptPicture(pictureHome(), shownFolders(config)[0], subject, path),
       // B814: the port of a worker's own test server, named in its take answer.
       testPort: who => workerPort(config.gamePort, who),
       // The guard (2026-10-21): a step of a kind waits for its standard's confirm and its foundation (the product plan).
@@ -1868,7 +1872,7 @@ async function main(args) {
       // B356: a board without a partner chat makes no result check: its own check closes a step.
       hasPartner: (state.advisor ?? null) !== null,
       // Worktree clean-up (2026-10-24): a result check is filed only once its own check-<id> worktrees are gone.
-      checkWorktrees: id => stepLeftovers({ id, which: 'check', repos: knownRepos(), project: config.project, run: gitRunner(), fs: WORKTREE_FILES }),
+      checkWorktrees: id => stepLeftovers({ id, which: 'check', repos: knownRepos(), project: chatHomeOf(config), run: gitRunner(), fs: WORKTREE_FILES }),
       // Partner answers (2026-10-19): the focus goal, whose daily note lists the partner's answers of the day.
       focusGoal: state.focus?.id ?? null,
       // Autopilot (2026-10-31): whether it is on; an ask a chat files is routed at once (src/work/autopilot.mjs). A recap wait
@@ -1995,7 +1999,7 @@ async function main(args) {
     const exists = path => stat(path).then(() => true, () => false)
     const running = loops.run(`check:${id}`, async () => {
       // Worktree clean-up (2026-10-24): no worktree of the step, nor its folder, is left in the project folder.
-      const outcome = await patientReportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists, fs: WORKTREE_FILES, cut })
+      const outcome = await patientReportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: chatHomeOf(config), touches, exists, fs: WORKTREE_FILES, cut, abs: path => inProject(config.project, path), homes: [config.project, chatHomeOf(config)], outside: dataOf(config) === null ? [] : [dataOf(config), picturesOf(config)] })
       const checked = await workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' })
       if (checked?.ok !== true) throw new Error(`the check of ${id} could not be written: ${checked?.why ?? 'no answer'}`)
       work.reset?.()
@@ -2043,7 +2047,7 @@ async function main(args) {
   const TASK_TIMES_FILE = join(HERE, 'data', 'task-times.json')
   const TASK_LIST_FILE = join(HERE, 'data', 'task-times.md')
   // Spending counts every chat: the cards name the sessions cleared chats left.
-  const spending = createSpendingCollector({ dir: join(HERE, 'data'), transcripts: config.transcripts, chats: config.project ? join(config.project, '.claude', 'chats') : null, appSessions: config.appSessions || null, clock })
+  const spending = createSpendingCollector({ dir: join(HERE, 'data'), transcripts: config.transcripts, chats: config.project ? chatsFolderOf(config) : null, appSessions: config.appSessions || null, clock })
   await spending.load()
   let taskTimes = { scans: {}, tasks: [] }
   // The supervisor's section on the demo: made-up rules, incidents and a check of its own (fixtures/demo.mjs).
@@ -2272,7 +2276,7 @@ async function main(args) {
   // The Design tab: an idea becomes a picture that Codex makes. Only here does the board start a program that
   // makes something: on the person's click, one at a time, with a time limit (see src/codex.mjs).
   // B133: the kinds of idea are the project's own (the setting designKinds); the demo has its made-up ones.
-  const kindsFile = isDemo ? join(HERE, 'fixtures', 'demo-design.json') : config.project === '' ? null : join(config.project, ...config.designKinds.split('/'))
+  const kindsFile = isDemo ? join(HERE, 'fixtures', 'demo-design.json') : config.project === '' ? null : projectFile(config, 'designKinds')
   // B467: no file gives the usual kinds; one it cannot read gives them too, and says so.
   const settings = parseDesignSettings(kindsFile === null ? '' : await readFile(kindsFile, 'utf8').catch(absentAs('')).catch(error => { loops.failed('design-kinds', error); return '' }))
   assetSecondsNow = () => settings.seconds
@@ -2292,8 +2296,9 @@ async function main(args) {
   const setupFile = join(HERE, 'data', 'setup.json')
   if (!isDemo && !isShowOnly) {
     // The settings were read already (loadConfig); a file it cannot read now simply names no providers, and the setup starts.
-    const rawConfig = JSON.parse((await readFile(join(HERE, 'config.json'), 'utf8').catch(absentAs('{}'))) || '{}')
-    await startSetup(setupFile, { hasProvidersKey: Object.hasOwn(rawConfig ?? {}, 'providers') }).catch(error => loops.failed('setup', error))
+    // T5.2 P4: whether the merged settings (the project's board-settings.json over this PC's config.json) name providers (loadConfig), so the
+    // split never starts the providers setup again.
+    await startSetup(setupFile, { hasProvidersKey: config.hasProvidersKey === true }).catch(error => loops.failed('setup', error))
   }
   const providerTools = () => ({ project: config.project, codexPath: settings.codex })
   const lookAtProviders = () => loops.run('providers', async () => {
@@ -2348,7 +2353,10 @@ async function main(args) {
     await assetsQueue.pass()
   })
   if (assetsQueue !== null) setInterval(lookAtAssets, ASSETS_MS)
-  const inProject = (project, path) => join(project, ...path.split('/'))
+  // T5.2 P2: a stored path's place, through the table (today: `join(project, path)`; P3 moves the pictures and the store with it).
+  const inProject = (project, path) => resolveStored({ ...config, project }, path, { boardDir: HERE })
+  /** The picture readers' and writers' home: `root` the boundary, `abs` the table's answer for a stored path (src/pictures.mjs). */
+  const pictureHome = (root = config.project) => ({ root, abs: path => inProject(root, path) })
   /** The picture being made: which idea and version, since when, and how to stop it. */
   let making = null
   /** The reference pictures the settings name that are not there, looked for once a minute. */
@@ -2444,7 +2452,7 @@ async function main(args) {
 
   // B640: the newest limit reading of each window, kept with the project: the supervisor chat looks the limits up and is
   // cleared after its turn, and the board reads only a chat's new transcript, so the lookup would be lost at once.
-  const READINGS_FILE = isDemo || config.project === '' ? null : join(config.project, '.claude', 'limit-readings.json')
+  const READINGS_FILE = isDemo || config.project === '' ? null : localFile(config, 'limit-readings.json')
   const readingsOnDisk = async () => {
     if (READINGS_FILE === null) return []
     try {
@@ -2591,7 +2599,7 @@ async function main(args) {
   const chatSessions = async () => {
     // B467: no folder of cards is none; anything else fails this pass of the CPU loop (shown and logged). A state it
     // cannot read is a loop of its own: the chats of the cards are still limited, and a click on a level still works.
-    const cards = await readdir(join(config.project, '.claude', 'chats')).catch(absentAs([]))
+    const cards = await readdir(chatsFolderOf(config)).catch(absentAs([]))
     const listed = (await loops.run('chat-list', () => readState()))?.chats ?? []
     return [...new Set([...sessionsOfCards(cards), ...listed.filter(chat => !chat.isLeftover && typeof chat.session === 'string').map(chat => chat.session)])]
   }
@@ -2629,7 +2637,7 @@ async function main(args) {
   // A log the board did not finish before it stopped is finished now; B529: by the board process that runs the loops
   // only (at its start, below; or when it gains them), so two never write the same log.
   const chatLogs = isDemo || isShowOnly || config.project === '' ? null : chatLogKeeper({
-    file: join(HERE, 'data', 'chat-logs.json'), project: config.project, transcripts: config.transcripts, clock,
+    file: join(HERE, 'data', 'chat-logs.json'), project: chatHomeOf(config), transcripts: config.transcripts, clock,
     failed: job => console.error(`A chat log was given up: ${job.log} (${job.why ?? 'unknown'}).`),
     track: trackJob,
   })
@@ -2739,7 +2747,7 @@ async function main(args) {
     wakesChanged()
     isOpening = true
     try {
-      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, config.project) })
+      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
       if (!done.launched) {
         // Nothing was launched: no try spent (the ⚙ row says why).
         wakeGivenBack(wakes, key, jobId)
@@ -2902,7 +2910,7 @@ async function main(args) {
     if (!canOpen || isHolding(state.pause)) return
     // The review of 2026-11-02 (4a): a launch the board could not make waits until its program and folder pass again.
     if (openBlocked !== null) {
-      if (isProgram(await findClaude()) && isFolder(resolve(HERE, config.project))) openBlocked = null
+      if (isProgram(await findClaude()) && isFolder(resolve(HERE, chatHomeOf(config)))) openBlocked = null
       else return
     }
     const outbox = store.outbox().filter(message => !isLate(message, now, keep))
@@ -2978,8 +2986,8 @@ async function main(args) {
   const codeJobsNow = async (prefix = '', owner = null) => {
     if (isDemo || config.project === '') return null
     // T12: one routine per worker slot up to `maxWorkers`, so a changed limit is read again at once.
-    const folder = basename(resolve(HERE, config.project))
-    if (clock() - codeRead.at >= 30_000 || codeRead.max !== config.maxWorkers) codeRead = { at: clock(), max: config.maxWorkers, read: await readCodeJobs({ project: resolve(HERE, config.project), folder, maxWorkers: config.maxWorkers }) }
+    const folder = routineFolderOf(config)
+    if (clock() - codeRead.at >= 30_000 || codeRead.max !== config.maxWorkers) codeRead = { at: clock(), max: config.maxWorkers, read: await readCodeJobs({ project: resolve(HERE, chatHomeOf(config)), folder, maxWorkers: config.maxWorkers }) }
     // The Product owner (2026-10-31): once the list names one, its own routine is checked and made the same way.
     const view = codeJobsView({ claims: codeClaims, ...codeRead.read, folder, maxWorkers: config.maxWorkers, spawnFail, now: clock(), owner: typeof owner === 'string' && owner !== '' })
     // T13 part 4: and the board's own opening of a chat when none runs.
@@ -3066,6 +3074,10 @@ async function main(args) {
     // B467: one Windows holds is not "not there": its own words, and the board keeps running.
     const settings = await readFile(join(HERE, 'config.json'), 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? 'it is not there' : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
     if (settings !== null) return { ok: false, status: 409, why: `The settings file config.json is broken: ${settings}. Fix it first; this board keeps running.` }
+    // T5.2 P4: the project's settings file too (only with `data` set), which loadConfig refuses as well when it is broken.
+    const projectSettings = settingsFileOf(JSON.parse((await readFile(join(HERE, 'config.json'), 'utf8')).replace(/^\uFEFF/, '')) ?? {}, HERE, process.env)
+    const projectProblem = projectSettings === null ? null : await readFile(projectSettings, 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? null : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
+    if (projectProblem !== null) return { ok: false, status: 409, why: `The project's settings file ${basename(projectSettings)} is broken: ${projectProblem}. Fix it first; this board keeps running.` }
     const check = await loads(join(HERE, 'server.mjs'))
     if (!check.ok) return { ok: false, status: 500, why: `The new version does not start: ${check.why}` }
     // B404: the board stops taking work and waits up to 10 s for the reconciler's pass and the running checks.
@@ -3210,17 +3222,19 @@ async function main(args) {
       if (!checked.ok) return checked
       if (historyFrom !== undefined) return { ok: false, status: 409, why: SETTINGS_WHY_NOT }
       if (!isDemo) {
-        const file = join(HERE, 'config.json')
+        // T5.2 P4: into the project's board-settings.json when it has one (this PC's keys still into config.json).
+        const file = settingFileFor(config, join(HERE, 'config.json'), checked.key)
+        const shown = basename(file)
         // B467: only a file that is not there is "not there"; one it cannot read fails the call.
         const text = await readFile(file, 'utf8').catch(absentAs(null))
-        if (text === null) return { ok: false, status: 409, why: 'The settings file config.json is not there.' }
+        if (text === null) return { ok: false, status: 409, why: `The settings file ${shown} is not there.` }
         const changed = settingChanged(text, checked.key, checked.value)
         if (!changed.ok) return changed
         try {
           // B406: beside and in place, tried again while Windows holds the file (a virus scanner).
           await writeAtomic(file, changed.text)
         } catch (error) {
-          return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
+          return { ok: false, status: 500, why: `${shown} not written: ${error instanceof Error ? error.message : 'unknown'}` }
         }
       }
       if (checked.key === 'routingMode') config.routing = parseRoutingPolicy({ ...(config.routing?.policy ?? {}), mode: checked.value })
@@ -3266,16 +3280,18 @@ async function main(args) {
       if (!may.ok) return { ok: false, status: 409, why: may.why }
       const checked = checkSetting({ key: 'providers', value: { kind, provider: name } })
       if (!checked.ok) return checked
-      const file = join(HERE, 'config.json')
+      // T5.2 P4: the providers are the project's: into its board-settings.json when it has one.
+      const file = settingFileFor(config, join(HERE, 'config.json'), checked.key)
+      const shown = basename(file)
       // B467: only a file that is not there is "not there"; one it cannot read fails the call.
       const text = await readFile(file, 'utf8').catch(absentAs(null))
-      if (text === null) return { ok: false, status: 409, why: 'The settings file config.json is not there.' }
+      if (text === null) return { ok: false, status: 409, why: `The settings file ${shown} is not there.` }
       const changed = settingChanged(text, checked.key, checked.value)
       if (!changed.ok) return changed
       try {
         await writeAtomic(file, changed.text)
       } catch (error) {
-        return { ok: false, status: 500, why: `config.json not written: ${error instanceof Error ? error.message : 'unknown'}` }
+        return { ok: false, status: 500, why: `${shown} not written: ${error instanceof Error ? error.message : 'unknown'}` }
       }
       config.providers = readProviders(JSON.parse(changed.text).providers).providers
       await lookAtProviders()
@@ -3298,7 +3314,7 @@ async function main(args) {
       codeRead = { at: -Infinity, read: null }
       const read = await readState()
       const view = await codeJobsNow(read.chatPrefix ?? '', read.ownerName ?? null)
-      const done = await allowCodeJobs({ project: resolve(HERE, config.project), tools: view?.missing ?? [] })
+      const done = await allowCodeJobs({ project: resolve(HERE, chatHomeOf(config)), tools: view?.missing ?? [] })
       if (!done.ok) return { ok: false, status: 409, why: done.why }
       codeRead = { at: -Infinity, read: null }
       readState.reset()
@@ -3316,7 +3332,7 @@ async function main(args) {
         const gone = await Promise.all(checked.references.map(path => stat(inProject(config.project, path)).then(file => !file.isFile(), () => true)))
         if (gone.some(Boolean)) return { ok: false, status: 409, why: 'A reference picture is not there any more: take it away and add it again.' }
         // B156: the references move into the idea's own folder, beside its pictures.
-        const place = (paths, folder) => placeReferences(config.project, paths, folder)
+        const place = (paths, folder) => placeReferences(pictureHome(), paths, folder)
         const idea = await ideas.add({ id: `i${randomBytes(6).toString('hex')}`, kind: checked.kind, text: checked.text, references: checked.references, now, taken, place })
         startPicture(idea, idea.versions[0])
         return { ok: true, result: { idea: idea.id } }
@@ -3350,7 +3366,7 @@ async function main(args) {
     bugs: body => bugsTurn(async () => {
       const done = await fileBug(body, {
         ctx: { ...bugsCan, pictures: config.pictureRoots[0], game: config.name },
-        read: () => readStore(workDir), make: call => workAction(call, 'person'), abs: path => inProject(config.project, path),
+        read: () => readStore(workDir), make: call => workAction(call, 'person'), abs: path => inProject(config.project, path), workPrefix: `${wordsPath(config, workFolder(config))}/`,
         files: { stat, mkdir, rename, copyFile, rm },
       })
       if (done.ok || done.status === 500) readState.reset()
@@ -3385,7 +3401,7 @@ async function main(args) {
       if (config.project === '') return { ok: false, status: 409, why: 'This board knows no project folder to keep the picture in.' }
       const kind = pictureKind(bytes)
       if (kind === null) return { ok: false, status: 415, why: 'That is no PNG, JPEG or WebP picture.' }
-      const path = await keepTalkPicture(config.project, bytes, kind, clock(), config.pictureRoots[0])
+      const path = await keepTalkPicture(pictureHome(), bytes, kind, clock(), config.pictureRoots[0])
       return path === null ? { ok: false, status: 409, why: 'Too many pictures in this minute: wait a minute.' } : { ok: true, result: { path } }
     },
     say: sayNow = async body => {
@@ -3479,7 +3495,7 @@ async function main(args) {
     // B860: the page of the round the person answers, with whether they may send feedback (and why not).
     demo: async path => {
       const state = await readState()
-      const found = await findDemo(state.project, shownRoots(config), path, { of: (goal, at) => recapStoreOf(state, goal, at) })
+      const found = await findDemo(pictureHome(state.project), shownRoots(config), path, { of: (goal, at) => recapStoreOf(state, goal, at) })
       if (found?.page === undefined) return found
       const whyNot = await demoFeedbackWhyNot()
       const feedback = found.page.feedback
@@ -3490,9 +3506,9 @@ async function main(args) {
     demoFeedback: async body => demoFeedbackNow(body),
     picture: async path => {
       const { project } = await readState()
-      const found = await findPicture(project, shownRoots(config), path)
+      const found = await findPicture(pictureHome(project), shownRoots(config), path)
       if (found !== null) return { type: found.type, body: await readFile(found.file) }
-      const size = await pictureTooBig(project, shownRoots(config), path)
+      const size = await pictureTooBig(pictureHome(project), shownRoots(config), path)
       return size === null ? null : { tooBig: size }
     },
     // B221: the person closes or deletes a step on the Backlog tab, through the work API (the store, then its view).
@@ -3819,7 +3835,7 @@ async function main(args) {
       const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main', assets: Array.isArray(state.assets) ? state.assets : [] }).resumeList : []
       const prefix = state.chatPrefix ?? ''
       // T12: the new worker's own routine first, the shared start-worker task only as the fallback.
-      const spawn = can.has('spawn') && config.project !== '' ? nextSpawn((state.chats ?? []).map(lane => lane.name), prefix, basename(config.project)) : null
+      const spawn = can.has('spawn') && config.project !== '' ? nextSpawn((state.chats ?? []).map(lane => lane.name), prefix, routineFolderOf(config)) : null
       // B769: the person's stop and remove words carried out by code: a stop is settled once its worker's turn ended; a
       // remove is a job for a chat that may close chats (never the worker itself), once its worker is idle or off.
       const removing = []
@@ -4091,7 +4107,7 @@ async function main(args) {
         if (name !== null) noteMod(body, { ok: true, chat: name })
         noteWhoami(seen, session, name, clock())
       }
-      const card = name === null ? null : await cardFiledUnder(join(config.project, '.claude', 'chats'), { name, session, shown: shownSessions(state) })
+      const card = name === null ? null : await cardFiledUnder(chatsFolderOf(config), { name, session, shown: shownSessions(state) })
       return answerWhoami(state, body, card)
     }),
     typed: counted(async body => {
@@ -4159,7 +4175,7 @@ async function main(args) {
   })
 
   // Where the mod finds the board. The file goes when the board does, so no chat asks a board that is gone.
-  const noteFile = join(config.project, '.claude', 'board.json')
+  const noteFile = chatFile(config, 'board.json')
   process.on('exit', () => {
     try {
       if (bridgeKey !== null && JSON.parse(readFileSync(noteFile, 'utf8')).key === bridgeKey) rmSync(noteFile)
@@ -4203,7 +4219,7 @@ async function main(args) {
         return true
       },
       write: async () => {
-        await mkdir(join(config.project, '.claude'), { recursive: true })
+        await mkdir(chatFile(config), { recursive: true })
         await writeAtomic(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() }))
       },
       onFailed: (error, tries) => {
@@ -4420,7 +4436,7 @@ async function main(args) {
         }
       }
       // The Product owner (2026-10-31, T12): the list names one and no chat of it is on the board: a hand runs its own routine.
-      const ownerStart = bridgeKey === null || config.project === '' ? null : ownerStartWords({ state, outbox: store.outbox(), now: clock(), folder: basename(resolve(HERE, config.project)), isPaused: isHolding(state.pause) })
+      const ownerStart = bridgeKey === null || config.project === '' ? null : ownerStartWords({ state, outbox: store.outbox(), now: clock(), folder: routineFolderOf(config), isPaused: isHolding(state.pause) })
       if (ownerStart !== null) {
         await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...ownerStart, state: 'waiting' })
         readState.reset()
@@ -4611,9 +4627,9 @@ async function main(args) {
     // Not on a copy beside the person's board.
     if (!isShowOnly) {
       // B482, the review: kept with the project, beside the loop's lock, so every board of it reads the same
-      const SYNC_FILE = join(config.project, '.claude', 'sync.json')
+      const SYNC_FILE = localFile(config, 'sync.json')
       // The supervisor's own memory (its watch, the day's repairs, the rules' trips), beside sync.json and apart from it
-      const SUPERVISOR_FILE = join(config.project, '.claude', 'supervisor.json')
+      const SUPERVISOR_FILE = localFile(config, 'supervisor.json')
       supervisor = createSupervisor({
         state: () => readState(),
         items: async () => {
@@ -4716,8 +4732,8 @@ async function main(args) {
             return tail === null ? null : tokensOfTurn(tail.text, tail.isCut, from)
           },
           memory: {
-            load: () => kept(join(config.project, '.claude', 'supervisor-sweep.json')),
-            save: value => writeAtomic(join(config.project, '.claude', 'supervisor-sweep.json'), JSON.stringify(value)),
+            load: () => kept(localFile(config, 'supervisor-sweep.json')),
+            save: value => writeAtomic(localFile(config, 'supervisor-sweep.json'), JSON.stringify(value)),
           },
         },
         now: clock,
