@@ -192,7 +192,7 @@ export function reopenLanesOf(lanes, canLaunch) {
  * null otherwise (one is on its way, the chat woke, or every path is spent). `paths` the ones its ids allow ('message'
  * with an app id, 'launch' with a CLI session id on a board that can launch).
  */
-export function nextPath(record, { chat, spell, senderClaims, senderSince = -Infinity, paths = ['message', 'launch'] }) {
+export function nextPath(record, { chat, spell, senderClaims, senderSince = -Infinity, paths = ['message', 'launch'], carry = false }) {
   const attempts = countedOf(entryOf(record, chat, spell))
   if (attempts.some(one => isPending(one) || one.verdict === 'woke')) return null
   // B986: the app answered that it has no such session (not found): no launch, no other try in this spell.
@@ -202,11 +202,27 @@ export function nextPath(record, { chat, spell, senderClaims, senderSince = -Inf
   const launches = attempts.filter(one => one.path === 'launch')
   const mayMessage = senderClaims === true && paths.includes('message')
   if (mayMessage && messages.length === 0) return 'message'
+  // B1279 (X205): a hand's code send that went and brought no report is followed by ONE carry word (a model's turn, or the courier),
+  // before the launch: on 2026-11-19 the hands' sends of 22:15, 22:21 and 22:49 went and started nothing, one model turn's send at once.
+  if (carry === true && mayMessage && launches.length === 0 && isSilentHandSend(messages)) return 'message'
   if (paths.includes('launch') && launches.length === 0 && (senderClaims !== true || messages.some(one => one.verdict === 'failed'))) return 'launch'
   // "then stop until life, the person, or a new sender": a chat that began to claim after the last message failed.
   const lastMessage = messages.at(-1)
   if (mayMessage && messages.length === 1 && lastMessage.verdict === 'failed' && isTime(lastMessage.verdictAt) && senderSince > lastMessage.verdictAt) return 'message'
   return null
+}
+
+/** B1279: the spell's message tries are a hand's code sends only, each went (`sentAt`) and failed for want of a report. */
+const isSilentHandSend = messages => messages.length > 0 && messages.every(one => one.carry == null && isTime(one.sentAt) && one.verdict === 'failed')
+
+/**
+ * B1279 (X205): whether this chat's spell waits for a carry word after a silent hand send (`nextPath` with `carry`), for the carry pass
+ * while the hands may send.
+ */
+export function carryAfterSilent(record, { chat, spell, paths = ['message', 'launch'] }) {
+  const attempts = countedOf(entryOf(record, chat, spell))
+  if (attempts.some(one => isPending(one) || one.verdict === 'woke' || one.unlisted === true || one.path === 'launch')) return false
+  return paths.includes('message') && isSilentHandSend(attempts.filter(one => one.path === 'message' && one.refused !== true))
 }
 
 /**
@@ -224,7 +240,7 @@ export function handTried(record, { chat, spell, hand }) {
  */
 export function claim(record, { chat, spell, path, by, jobId, now, runBefore = null, senderSince = -Infinity, paths = ['message', 'launch'], step = null, carry = null }) {
   if (!['message', 'launch'].includes(path) || !isTime(spell) || !isTime(now)) return false
-  if (nextPath(record, { chat, spell, senderClaims: path === 'message', senderSince, paths: path === 'message' ? ['message'] : ['launch'] }) !== path) return false
+  if (nextPath(record, { chat, spell, senderClaims: path === 'message', senderSince, paths: path === 'message' ? ['message'] : ['launch'], carry: path === 'message' && ['model', 'courier'].includes(carry) }) !== path) return false
   newSpell(record, chat, spell)
   const entry = entryOf(record, chat, spell)
   if (entry === null) return false
@@ -362,7 +378,7 @@ export function carryPlan(record, { needs = [], lanes = [], main = null, now, ne
   const open = carriedChats(outbox)
   for (const need of needs ?? []) {
     if (!(need.paths ?? []).includes('message') || !isTime(need.spell) || open.has(need.chat)) continue
-    if (nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths }) !== 'message') continue
+    if (nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths, carry: true }) !== 'message') continue
     const carrier = carrierOf(lanes, { target: need.chat, main, now, outbox, ...(byModel === undefined ? {} : { byModel }) })
     // Review 7, 18: no carrier and no courier that called lately: the message try stays unspent; the launch goes as before.
     if (carrier === null && !courierAlive) continue

@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { HAND_LINE } from '../src/hands.mjs'
-import { claim, emptyWakes, failedToSend, noticeOf, pass, sent, wakeNeeds, wakeableOf } from '../src/wake.mjs'
+import { carryAfterSilent, carryPlan, claim, emptyWakes, failedToSend, nextPath, noticeOf, pass, sent, wakeNeeds, wakeableOf } from '../src/wake.mjs'
 import { handRefused, noteHandRefused, noteSendLifted, sendsRefusedOf } from '../src/wakeCarry.mjs'
 import { workerStart } from '../src/work/handOut.mjs'
 import { START_BY_WAKE_WHY, whyClosed } from '../src/work/outboxSweep.mjs'
@@ -142,4 +142,45 @@ test('X205: a start word of the hand-out still waiting is closed once the wake p
   // The page's start of a chat (no `reported`) is not the hand-out's: it stays the hands'.
   const { reported: _gone, ...pageStart } = word
   assert.equal(whyClosed(pageStart, { ...ctx({ startsByWake: true }), all: [pageStart], ready: [{ ...ready[0], pinned: 'Worker 4' }] }), null)
+})
+
+test("X205: a hand's send that went and brought no report is followed by ONE carry word before the launch; never a hand's again", () => {
+  const record = emptyWakes()
+  const spell = at(20, 44)
+  const need = { chat: 'Worker 4', spell, paths: PATHS, appSession: 'local_00000000-0000-4000-8000-000000000004', text: HAND_LINE }
+  // 22:15 Main's hand sends the wake; it goes, and no report comes.
+  claim(record, { chat: 'Worker 4', spell, path: 'message', by: 'Main', jobId: 'wake:w4', now: at(22, 15), paths: PATHS })
+  sent(record, 'Worker 4', 'wake:w4', at(22, 15, 5))
+  assert.equal(carryAfterSilent(record, need), false) // still waiting for its report
+  pass(record, at(22, 18))
+  assert.equal(record.wakes.get('Worker 4').at(-1).attempts[0].verdict, 'failed')
+  assert.equal(carryAfterSilent(record, need), true)
+  assert.equal(nextPath(record, { ...need, senderClaims: true, carry: true }), 'message')
+  assert.equal(nextPath(record, { ...need, senderClaims: true }), 'launch') // what a hand or the launch plan reads
+  // No hand gets the same message again in the spell.
+  assert.equal(claim(record, { chat: 'Worker 4', spell, path: 'message', by: 'Worker 2', jobId: 'wake:w4b', now: at(22, 18), paths: PATHS }), false)
+  // The carry pass: the courier calls, no free chat: one word, claimed in the record; the launch waits for its verdict.
+  const words = carryPlan(record, { needs: [need], lanes: [], now: at(22, 18), newId: () => 'c1', courierAlive: true })
+  assert.equal(words.length, 1)
+  assert.equal(words[0].about, 'Worker 4')
+  assert.equal(record.wakes.get('Worker 4').at(-1).attempts.at(-1).carry, 'courier')
+  assert.equal(nextPath(record, { ...need, senderClaims: true }), null)
+  assert.equal(carryPlan(record, { needs: [need], lanes: [], now: at(22, 19), newId: () => 'c2', courierAlive: true }).length, 0)
+  // Nobody to carry it: the try stays unspent and the launch goes as before.
+  const lone = emptyWakes()
+  claim(lone, { chat: 'Worker 4', spell, path: 'message', by: 'Main', jobId: 'wake:w4', now: at(22, 15), paths: PATHS })
+  sent(lone, 'Worker 4', 'wake:w4', at(22, 15, 5))
+  pass(lone, at(22, 18))
+  assert.deepEqual(carryPlan(lone, { needs: [need], lanes: [], now: at(22, 18), newId: () => 'c3', courierAlive: false }), [])
+  assert.equal(nextPath(lone, { ...need, senderClaims: true }), 'launch')
+  // The carried word brought no report either: the launch is next, never a third message.
+  const carried = record.wakes.get('Worker 4').at(-1).attempts.at(-1)
+  Object.assign(carried, { sentAt: at(22, 20), verdict: 'failed', verdictAt: at(22, 26) })
+  assert.equal(carryAfterSilent(record, need), false)
+  assert.equal(nextPath(record, { ...need, senderClaims: true, carry: true }), 'launch')
+  // A refused hand's try is no silent send: B1271's way (another hand, or a carry word while every hand is refused) stays.
+  const refused = emptyWakes()
+  claim(refused, { chat: 'Worker 4', spell, path: 'message', by: 'Worker 3', jobId: 'wake:r', now: at(22, 15), paths: PATHS })
+  Object.assign(refused.wakes.get('Worker 4').at(-1).attempts[0], { verdict: 'failed', verdictAt: at(22, 15), refused: true })
+  assert.equal(carryAfterSilent(refused, need), false)
 })

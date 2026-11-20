@@ -6393,6 +6393,7 @@ idle Main waited untaken (X203, three times by 20:40). Now:
   message, start or wake job until its own send went (`noteHandSent`, any send of it the hands' answer reports, or its own daily
   probe, `probeDue(..., hand)`, `probeBy`). The board's refusal (`sendsRefusedSince`) follows only when no hand's send went since the
   last lift (`handSentAt`, or else the newest message attempt a hand sent, `handWentAt`, B1279: a record written before B1271 kept no `handSentAt`, and one hand's refusal then stopped every hand's start and wake for a day, X205; the probe's own send counts); after a lift an attempt or an outbox line no longer revives it by itself.
+- A hand's send that went and brought no report (B1279, X205: on 2026-11-19 three such sends started nothing, one model turn's send at once) is followed by ONE carry word for that spell before the launch (`nextPath` with `carry`, `carryAfterSilent`, server.mjs `carryPass` while the hands may send), to a free chat's model or the courier; nobody to carry it: the launch goes as before. A hand never gets that message again in the spell.
 - A refused send spends no message try (`nextPath` counts only the attempts that were not refused): the next hand that may send takes
   the message at once; a refused hand is held off by its own mark (once its own send went it may try again), a hand whose try went
   without a report never gets that message again in the spell (`handTried`). A refused hand alone is no sender (server.mjs `handsNow`,
