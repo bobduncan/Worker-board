@@ -50,7 +50,7 @@ import { refineAsk, removalAsk } from './work/askOpen.mjs'
 export { refineAsk } from './work/askOpen.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
-import { AWAY_LINE } from './appAccount.mjs'
+import { AWAY_LINE, TAKE_LABEL } from './appAccount.mjs'
 import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
 import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, backgroundNoNewsOf, lateAssetsOf } from './work/assetWait.mjs'
 import { reconcile } from './work/reconcile.mjs'
@@ -2578,7 +2578,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // main chat (its title from the list, the app's id for it, whether it runs) for the link that opens it, and when the
   // board typed "resume" into it since the resume.
   // B1273: while the Claude app is on another account the pause is the board's own hold: one calm line, no pause facts.
-  const pause = pauseRecord === null ? null : pauseRecord.state === 'away' ? { state: 'away', since: pauseRecord.since ?? null, line: AWAY_LINE, ask: pauseRecord.ask ?? null } : {
+  const pause = pauseRecord === null ? null : pauseRecord.state === 'away' ? { state: 'away', since: pauseRecord.since ?? null, line: AWAY_LINE, take: TAKE_LABEL } : {
     // The review of Pause 2: a line handed to a chat and not typed yet starts a turn: no Safe while one is on its way.
     ...pauseFacts({
       assets: assetRecords,

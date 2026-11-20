@@ -52,7 +52,7 @@ export const HOLDS = ['pausing', 'away']
  */
 export function awayOver(pause, account) {
   if (account?.away !== true || pause?.state === 'pausing') return pause ?? null
-  return { state: 'away', since: Number.isFinite(account.since) ? account.since : null, by: 'the Claude app\'s account', under: pause ?? null, ask: typeof account.ask === 'string' ? account.ask : null }
+  return { state: 'away', since: Number.isFinite(account.since) ? account.since : null, by: 'the Claude app\'s account', under: pause ?? null }
 }
 /** B1273: a work store as the board reads it, with the away hold over its pause (`awayOver`). */
 export const withAway = (store, account) => (store?.ok === true && account?.away === true ? { ...store, pause: awayOver(store.pause ?? null, account) } : store)
