@@ -2544,6 +2544,9 @@ function pauseRing(pause) {
  */
 function pauseLines(pause) {
   if (pause === null || pause === undefined || pause.state === 'pausing') return []
+  // B1273: the Claude app is on another account: one calm line, nothing for the person but switching back.
+  // The review: with one button, for a deliberate move of the board to this account (the app's account becomes the board's).
+  if (pause.state === 'away') return [{ tone: 'muted', text: pause.line ?? 'The Claude app is on another account: the board\'s chats wait; switch back and they go on.', button: { label: pause.take ?? 'Run the board on this account', action: 'take-account' } }]
   if (pause.state === 'running') return (pause.notStarted ?? []).map(one => ({ tone: 'muted', text: `${one.chat} did not start after the resume: ${one.ids.join(', ')}.` }))
   const until = Number.isFinite(pause.until) ? ` The board goes on without waiting at ${clock(pause.until)}.` : ''
   const lines = [{ tone: '', text: pause.waiting.length === 0 ? `Resuming since ${clock(pause.since)}: every chat that holds a step has started again.` : `Resuming since ${clock(pause.since)}: not started yet: ${pause.waiting.map(one => `${one.chat} (${one.ids.join(', ')})`).join(', ')}.${until}` }]
@@ -2614,19 +2617,12 @@ function drawRestart(state) {
   }
   // Who has to be started before it can carry on: said where a restart is at hand, not all day long.
   const down = restart.notRunning ?? []
-  const isAtHand = restart.off !== null || restart.interrupted.length > 0 || (pause !== null && pause.state !== 'running')
+  // B1273: while the app is on another account nothing here is at hand: its one line says all.
+  const isAtHand = pause?.state !== 'away' && (restart.off !== null || restart.interrupted.length > 0 || (pause !== null && pause.state !== 'running'))
   if (isAtHand && down.includes(restart.main)) parts.push(line('alert', `${restart.main} is not running: open its chat first, the buttons here type into it.`))
   // B364: while pausing the ring names who does not run; this line is for a restart and a resume.
   if (isAtHand && pause?.state !== 'pausing' && down.some(name => name !== restart.main)) {
     parts.push(line('', `Not running yet: ${down.filter(name => name !== restart.main).join(', ')}. "Resume all" tells ${restart.main} to start them; one that stays "not running" has to be opened by you.`))
-  }
-  // B315: a word to the main chat that was only copied, because no chat ran to take it: said plainly, with the way to
-  // paste it, until the main chat has it.
-  const copied = restart.copied ?? null
-  if (copied !== null) {
-    const row = el('div', 'restart-ask')
-    row.append(line('alert', copiedLine(copied, { main: restart.main, isModThere: state.mod?.installed !== null })), button('Copy again', 'is-quiet', 'copy'), button('Dismiss', 'is-quiet', 'dismiss'))
-    parts.push(row)
   }
 
   if (isAskingPause) {
@@ -2636,6 +2632,13 @@ function drawRestart(state) {
   }
   // Pause and resume: the pause's own lines, with Resume all while pausing.
   for (const one of pauseLines(pause)) {
+    // B1273: a line with a button of its own (the away line's "Run the board on this account").
+    if (one.button !== undefined) {
+      const row = el('div', 'restart-ask')
+      row.append(line(one.tone, one.text), button(one.button.label, 'is-quiet', one.button.action))
+      parts.push(row)
+      continue
+    }
     if (one.link === undefined) {
       parts.push(line(one.tone, one.text))
       continue
@@ -2713,19 +2716,6 @@ function drawPauseRing(ring) {
   return box
 }
 
-// copied:start
-/**
- * B315: what the restart banner says of a word to the main chat that was only copied (`restart.copied`): that its chat
- * is not running yet, where to open it, that the word is on the clipboard, and the app's id for the chat when known.
- * `isModThere` false: no Workers mod is installed, so nothing would type it in even with the chat open.
- */
-function copiedLine(copied, { main, isModThere }) {
-  const id = typeof copied.session === 'string' && copied.session !== '' ? ` Its session id: ${copied.session}.` : ''
-  if (!isModThere) return `No Workers mod types it in for you: open ${copied.chat} in the app (or click it in the sidebar) and paste with Ctrl+V; the word is on your clipboard.${id}`
-  if (copied.isMainRunning === true) return `${main}'s chat runs now, but the word was only copied: paste it into ${copied.chat} with Ctrl+V; the word is on your clipboard.${id}`
-  return `${main}'s chat is not running yet: open ${copied.chat} in the app (or click it in the sidebar) and paste with Ctrl+V; the word is on your clipboard.${id}`
-}
-// copied:end
 
 // The lanes
 
@@ -3311,6 +3301,7 @@ function lastNotHandedOut(detail, state) {
   const one = ids.length === 1
   const reason = state.pause?.state === 'pausing' ? `the pause holds ${one ? 'it' : 'them'}; ${one ? 'it goes' : 'they go'} out after Resume all`
     : state.pause?.state === 'resuming' ? 'the hand-out is held while the resume goes on'
+      : state.pause?.state === 'away' ? 'the Claude app is on another account; it goes out when you switch back'
       : 'the hand-out is held while a usage limit is full'
   return `${ids.join(', ')} ${one ? 'is' : 'are'} not handed out yet: ${reason}.`
 }
@@ -3905,7 +3896,15 @@ document.addEventListener('click', event => {
 
 const COUNT_WORDS = { 2: 'two', 3: 'three' }
 /** B213: what changes when no Workers mod takes the board's words. */
-const WITHOUT_MOD = 'No Workers mod answers this board: what you send is copied for you to paste into the chat, the board cannot tell whether a chat runs, and a large worker is not compacted after its report.'
+// B1274: the copy-paste mode is gone: without the Workers mod the board's words wait, and this one grey line says what to do.
+const WITHOUT_MOD = "The Workers mod isn't running here: run setup (npm.cmd run setup) and restart the app."
+/** Chat 1's review: the mod is installed and no chat has called the board yet (a reboot): nothing to set up, only to open. */
+const NO_CHAT_YET = 'No chat runs yet: open one, or the board opens one when a word waits.'
+/**
+ * The grey line without a mod's call (`withoutMod`), by what the PC has (`mod.installed`, state.mod): installed, no chat runs yet;
+ * not installed, nothing here (the red mod note on top gives the setup advice); not known, the setup line.
+ */
+const withoutModLine = mod => (typeof mod?.installed === 'string' ? NO_CHAT_YET : mod?.installed === null ? null : WITHOUT_MOD)
 /** "one more worker", "three workers". */
 const workersWord = count => (count === 1 ? 'one more worker' : `${COUNT_WORDS[count] ?? count} workers`)
 
@@ -3915,13 +3914,13 @@ const workersWord = count => (count === 1 ? 'one more worker' : `${COUNT_WORDS[c
  * `tone` ('', asked, note, problem); `button` with its label and whether it waits for an open ask. Null when the
  * server says nothing about workers.
  */
-function workersView(workers, now) {
+function workersView(workers, now, mod = null) {
   if (workers === null || workers === undefined) return null
   // B131, B137: what the board looks for and did not find, with where (the paths from the settings).
   const lookFor = [
     ...(workers.lookFor ?? []).map(text => ({ tone: 'problem', text })),
     // B213: what the board cannot do or know without the Workers mod, in one plain line.
-    ...(workers.withoutMod === true ? [{ tone: 'note', text: WITHOUT_MOD }] : []),
+    ...(workers.withoutMod === true && withoutModLine(mod) !== null ? [{ tone: 'note', text: withoutModLine(mod) }] : []),
   ]
   if (workers.main === null) {
     // Without a list of chats there is no main chat's name to give: the lines say what to make first.
@@ -3969,7 +3968,7 @@ function workersView(workers, now) {
 
 /** B124: the row under the lanes (see `workersView`), or null. */
 function drawWorkers(state) {
-  const shown = workersView(state.workers, state.readAt)
+  const shown = workersView(state.workers, state.readAt, state.mod ?? null)
   fill($('workers-add'), [])
   if (shown === null) return null
   const isRow = shown.kind === 'more'
@@ -4623,8 +4622,6 @@ function syncLineOf(check, main) {
   if (check.answer !== null && check.answer !== undefined) return { tone: 'answer', text: `Sync check, ${clock(check.answer.at)}: ${check.answer.text}` }
   if (check.state === 'expired' || check.state === 'failed') return { tone: 'problem', text: `The sync check of ${clock(check.at)} did not reach ${main}: open its chat, then ask again.` }
   if (check.isOpen && (check.state === 'waiting' || check.state === 'taken')) return { tone: 'asked', text: `Check now, ${clock(check.at)}: on its way to ${main}.` }
-  // The review: no Workers mod took the word; it was put on the clipboard for the person to paste.
-  if (check.isOpen && check.state === 'copied') return { tone: 'asked', text: `Check now, ${clock(check.at)}: paste it into ${main}'s chat; then it checks and answers here.` }
   if (check.isOpen) return { tone: 'asked', text: `Check now, ${clock(check.at)}: ${main} checks it and answers here.` }
   return { tone: 'problem', text: `Check now, ${clock(check.at)}: no answer from ${main} yet; you can ask again.` }
 }
@@ -4999,7 +4996,7 @@ function partnerAskWindowOf(ask, focus = null) {
   const opens = route === 'recap' ? recapOpensWords(focus, ask.goal ?? null) : null
   const recapStand = answer === null
     ? `waits for the goal's recap: ${opens ?? 'you judge it there'}`
-    : `waits for the goal's recap${opens === null ? '' : ` (${opens})`}: you can answer it here`
+    : `waits for the goal's recap${opens === null ? '' : ` (${opens})`}: you can answer it here now`
   return {
     code: ask.id, title: ask.title ?? '', fullTitle: ask.title ?? '', route,
     chips: [{ text: ROUTE_CHIPS[route] ?? ROUTE_CHIPS.partner, tone: 'kind' }, ...(ask.from == null ? [] : [{ text: `From: ${ask.from}`, tone: 'to' }])],
@@ -5023,10 +5020,39 @@ function partnerAskWindowOf(ask, focus = null) {
  * same way and answered "Done" (`isDo`). `{ id, isDo }`, or null for every other ask (it is judged in the recap, or it is not the person's yet).
  */
 function lookAnswerOf(ask) {
-  if (!(ask?.route === 'recap' && ['look', 'do'].includes(ask.asks) && ask.isKept === true)) return null
-  // G95's Q740 (A, B or C): a kept look with options is answered with a pick, which goes with the verdict.
-  const options = ask.asks === 'look' ? (ask.options ?? []).filter(one => typeof one?.label === 'string' && one.label.trim() !== '') : []
-  return { id: ask.id, isDo: ask.asks === 'do', options: options.map(one => ({ label: one.label, isAdvised: one.isRecommended === true })) }
+  if (ask?.route !== 'recap') return null
+  const isKept = ['look', 'do'].includes(ask.asks) && ask.isKept === true
+  // B1270 (F34, the person, 2026-11-19: "i need a agree or disagree button if u want my verdict, where am i supposed to do anything?"):
+  // every ask held for the recap under a step is answered here too, before the recap opens. Not the goal's own recap ask (no step: the
+  // recap is what it asks), nor one of the app's form or a refine question (answered elsewhere), nor one a row of the recap already
+  // names (`inRecap`: the recap is open for it, and its row's verdict answers it).
+  const isHeld = /^B\d+$/.test(ask.of ?? '') && ['look', 'do', 'decide'].includes(ask.asks) && !['form', 'refine'].includes(ask.via ?? '') && ask.inRecap !== true
+  if (!isKept && !isHeld) return null
+  const labels = (ask.options ?? []).filter(one => typeof one?.label === 'string' && one.label.trim() !== '').map(one => ({ label: one.label, isAdvised: one.isRecommended === true }))
+  // Options that are the verdict themselves (an Accept card's, Q829's "A Good enough | B Under target, send back") are the two buttons.
+  const verdict = verdictOptionsOf(labels.map(one => one.label), ask.asks === 'look' || ask.via === 'accept')
+  const kind = ask.via === 'accept' ? 'accept' : ask.asks === 'do' ? 'do' : ask.asks === 'decide' && verdict === null && labels.length > 0 ? 'decide' : 'look'
+  return {
+    id: ask.id, kind, isDo: kind === 'do', verdict,
+    // G95's Q740 (A, B or C): a look with options is answered with a pick, which goes with the verdict.
+    options: kind === 'look' && verdict === null ? labels : [],
+    // A decide whose options are no verdict: one button per option.
+    choices: kind === 'decide' ? labels : [],
+  }
+}
+
+/**
+ * B1270: a pair of options that is a verdict, as src/recapCard.mjs `isVerdictAsk` reads one: one sends back or rejects, and the other
+ * approves, accepts or keeps (`isVerdict`: a look or an Accept card is a verdict whatever its yes says, Q829's "A Good enough"). `{ approve,
+ * back }`, the labels; else null, and a plan decide (two ways, one "redo") keeps its own options.
+ */
+function verdictOptionsOf(labels, isVerdict = false) {
+  if (labels.length !== 2) return null
+  const isBack = label => /\bsen[dt]\b[^|]*\bback\b|\breject\b/i.test(label)
+  const back = labels.filter(isBack)
+  if (back.length !== 1) return null
+  const approve = labels.find(label => !isBack(label))
+  return isVerdict || /\b(?:approve|accept|keep)\b/i.test(approve) ? { approve, back: back[0] } : null
 }
 
 /**
@@ -5046,12 +5072,21 @@ function recapOpensWords(focus, goal) {
   return `your recap of ${goal} opens when its ${total} work block${total === 1 ? ' is' : 's are'} done, ${done} of ${total} now`
 }
 
+/** B1270 (F34): recapOpensWords for a block's chip: "opens when 6 blocks are done, 4 now", or null once every block counts (the recap is open). */
+function recapOpensShort(focus) {
+  const total = focus?.progress?.total
+  if (!Number.isInteger(total) || total <= 0) return null
+  const counted = focus.progress.forDemo ?? focus.progress.done
+  const done = Number.isInteger(counted) ? Math.min(counted, total) : 0
+  return done >= total ? null : `opens when ${total} block${total === 1 ? ' is' : 's are'} done, ${done} now`
+}
+
 /** Autopilot (2026-10-31): the chip of an ask's route in its window, and the line under where it stands. */
 const ROUTE_CHIPS = { partner: 'With your partner', main: 'With the main chat (Autopilot)', recap: 'For your recap (Autopilot)', ref: 'An ask of the board' }
 const ROUTE_STANDS = {
   partner: 'Your partner answers it first; one it has not answered in 30 minutes comes to you.',
   main: 'Autopilot: the main chat does it if a chat can, else hands it to you with one line why; one it has not done in 30 minutes comes to you.',
-  recap: 'Autopilot: only finished work waits for the goal\'s recap, where you approve or send back the work; it opens once the goal\'s work blocks are done.',
+  recap: 'Autopilot: only finished work waits for the goal\'s recap, where you approve or send back the work; it opens once the goal\'s work blocks are done. An ask of a step you can answer here before then.',
 }
 
 /** The window of a question with the partner (the details dialog): quiet, with where it stands first. */
@@ -5078,7 +5113,10 @@ function drawPartnerAskWindow(box, ask, state) {
     if (shown.length > 0 || play.length > 0) parts.push(section(shown.length === 1 ? 'The picture' : shown.length > 1 ? 'The pictures' : 'Play it', [...(shown.length > 0 ? drawReferences(shown) : []), ...play]))
   }
   // A kept look with options takes its pick in its answer: the options stand there, once.
-  const optionsInAnswer = view.answer !== null && view.answer.options.length > 0
+  // B1270: so do a decide's own options, its buttons (each says its label); a verdict pair (Q829's "A Good enough | B Under target, send
+  // back") stays listed with its advice, so Looks right and Send back say which option each is.
+  const optionsInAnswer = view.answer !== null && (view.answer.options.length > 0 || view.answer.choices.length > 0)
+  if (optionsInAnswer && view.answer.options.length === 0 && view.advice !== null) parts.push(section('Options', [el('p', 'muted', `Advice: ${view.advice}`)]))
   if (!optionsInAnswer && (view.options.length > 0 || view.advice !== null)) {
     const list = el('ul', 'partner-ask-options')
     for (const option of view.options) list.append(el('li', '', `${option.label}${option.isRecommended ? ' (recommended)' : ''}`))
@@ -5132,21 +5170,28 @@ function drawLookAnswer(answer, ui, advice = null) {
   note.value = drafts.get(`look:${answer.id}`) ?? ''
   note.dataset.lookOf = answer.id
   note.setAttribute('aria-label', `Your note on ${answer.id}`)
-  const button = (label, className, verdict, title) => {
+  const button = (label, className, verdict, title, choice = null) => {
     const node = el('button', `button ${className}`, ui.isSending ? 'Sending…' : label)
     node.type = 'button'
     node.dataset.lookAnswer = verdict
     node.dataset.lookOf = answer.id
+    if (choice !== null) node.dataset.lookChoice = choice
     node.disabled = ui.isSending
     node.title = title
     return node
   }
   const buttons = el('div', 'buttons is-split')
-  buttons.append(
-    button('↺  Send back', 'is-reject', 'reject', 'Sends it back to the chat that asked, with your note'),
-    answer.isDo === true ? button('✓  Done', 'is-seen', 'done', 'Marks it done; the chat that asked is told') : button('✓  Looks right', 'is-seen', 'approve', 'Approves it; the chat that asked is told'),
-  )
+  // B1270: a decide whose options are no verdict is answered by its options, one button each; every other ask Send back and its yes.
+  if ((answer.choices ?? []).length > 0) buttons.append(...answer.choices.map(one => button(`${one.label}${one.isAdvised ? ' (advised)' : ''}`, 'is-seen', 'choice', 'Answers it with this option and your note; the chat that asked is told', one.label)))
+  else buttons.append(button('↺  Send back', 'is-reject', 'reject', 'Sends it back to the chat that asked, with your note'), yesButton(answer, button))
   return section('Your answer', [...picks, note, buttons, ...(ui.problem === null ? [] : [el('p', 'problem', ui.problem)])])
+}
+
+/** B1270: the yes of an answer form: Accept for an Accept card, Done for a do, Looks right for a look (`make` draws the button). */
+function yesButton(answer, make) {
+  if (answer.kind === 'accept') return make('✓  Accept', 'is-seen', 'approve', 'Accepts the work as it is: its step is done')
+  if (answer.isDo === true) return make('✓  Done', 'is-seen', 'done', 'Marks it done; the chat that asked is told')
+  return make('✓  Looks right', 'is-seen', 'approve', 'Approves it; the chat that asked is told')
 }
 
 /** G95: the option picked in a kept look's window, per ask, until it is sent; it stays in this page only. */
@@ -5160,7 +5205,13 @@ function lookAnswerBody(answer, verdict, pick, note) {
   const words = String(note ?? '').trim()
   if (verdict === 'reject' && words === '') return { problem: 'Say what is wrong: the worker needs to know what to change.' }
   if (verdict === 'approve' && (answer?.options ?? []).length > 0 && pick === null) return { problem: 'Pick one of the options first.' }
-  return { verdict, text: [pick, words].filter(one => one !== null && one !== '').join('\n') }
+  const join = first => [first, words].filter(one => one !== null && one !== undefined && one !== '').join('\n')
+  // B1270: a decide is answered with the option the person clicked; an Accept card with its own A or B line (the board reads it,
+  // api.mjs `acceptPlan`, and makes the next try from the note); options that are the verdict go with it as the option's words.
+  if (verdict === 'choice') return pick === null ? { problem: 'Pick one of the options first.' } : { text: join(pick) }
+  const option = answer?.verdict === null || answer?.verdict === undefined ? pick : verdict === 'reject' ? answer.verdict.back : answer.verdict.approve
+  if (answer?.kind === 'accept') return { text: join(option ?? (verdict === 'reject' ? 'B Send back' : 'A Accept')) }
+  return { verdict, text: join(option) }
 }
 
 $('details').addEventListener('input', event => {
@@ -5181,12 +5232,12 @@ $('details').addEventListener('click', event => {
   const verdict = button.dataset.lookAnswer
   const note = $('details').querySelector('.look-answer-note')?.value ?? ''
   const ask = [...(board.withPartner ?? []), ...(board.routedAway ?? [])].find(one => one.id === id)
-  const body = lookAnswerBody(lookAnswerOf(ask), verdict, lookPicks.get(id) ?? null, note)
+  const body = lookAnswerBody(lookAnswerOf(ask), verdict, verdict === 'choice' ? button.dataset.lookChoice ?? null : lookPicks.get(id) ?? null, note)
   if (body.problem !== undefined) {
     problems.set(key, body.problem)
     return redrawNeeds()
   }
-  return sendWork({ action: 'answer', id, verdict: body.verdict, text: body.text }, key)
+  return sendWork({ action: 'answer', id, ...(body.verdict === undefined ? {} : { verdict: body.verdict }), text: body.text }, key)
 })
 
 // partner-answers:start
@@ -7203,17 +7254,8 @@ $('restart').addEventListener('click', event => {
   if (button.dataset.restart === 'pause-all') return sendWork({ action: 'pause-all' }, 'restart')
   if (button.dataset.restart === 'resume') return sendWork({ action: 'resume-all' }, 'restart')
   if (button.dataset.restart === 'end-resume') return sendWork({ action: 'end-resume' }, 'restart')
-  // B315: the word that was only copied, on the clipboard again.
-  if (button.dataset.restart === 'copy') {
-    const words = board.restart.copied?.text ?? ''
-    navigator.clipboard.writeText(words).then(() => { button.textContent = 'Copied' }, () => { button.textContent = 'Not copied' })
-    return
-  }
-  // The copied word no longer needs pasting: the board keeps it dismissed.
-  if (button.dataset.restart === 'dismiss') {
-    if (board.restart.copied != null) send({ command: 'dismiss copied', id: board.restart.copied.id }, 'restart')
-    return
-  }
+  // B1273: the away line's button: the board runs on the app's account from now on.
+  if (button.dataset.restart === 'take-account') return sendWork({ action: 'take-account' }, 'restart')
   send({ to: board.restart.main, command: button.dataset.restart }, 'restart')
 })
 // "Ask the main chat to start it", wherever it stands: on a card, in the details, on the advisor's tab.
@@ -13740,9 +13782,7 @@ async function goalsLink(target) {
 
 /** B358: what a tick on the Goals part did when it did not tick at once: the partner's re-check asked, or an overturn. */
 function goalTickSaid(result) {
-  // The review: without the Workers mod the word is put on the clipboard to paste, as every word to the partner.
-  showPaste(result?.paste ?? null)
-  const copied = result?.paste ? ' Copied: paste it into your partner’s chat.' : ''
+  const copied = ''
   // P4b: the re-check's wait is the word's own line (under the goal): no "Sent..." note; only what the person must do, and the paste.
   if (result?.recheck === 'asked') { if (copied !== '') goalsSay(copied.trim(), 'ok') }
   else if (result?.recheck === 'asked again') goalsSay(`Click again to tick it without the re-check.${copied}`, 'ok')
@@ -15605,14 +15645,7 @@ $('goals-frame').addEventListener('click', event => {
   if (tool === 'brainstorm') return openBrainstorm(focus)
   if (tool === 'change') return openChangeGoal(focus)
   // B354: the partner is asked to write the goal's Done when; the map itself is not changed.
-  // The review: without the Workers mod the word is put on the clipboard to paste, as every word to the partner.
-  if (tool === 'done-when') {
-    return sendGoals({ command: 'done-when', id: focus }).then(done => {
-      if (done === null) return
-      showPaste(done.paste ?? null)
-      if (done.paste) goalsSay('Copied: paste it into your partner\'s chat.', 'ok')
-    })
-  }
+  if (tool === 'done-when') return sendGoals({ command: 'done-when', id: focus }).then(() => {})
   const node = board?.goals ? goalById(board.goals, focus) : null
   if (tool === 'delete' || tool === 'dissolve') {
     if (!isConfirmed(tool, focus)) {
@@ -16148,13 +16181,18 @@ function clearedLineView(cleared, now) {
  *    verdict →", and every other block its state's chip (a block in progress names the worker on it).
  * `card` is the recap card, for where a verdict with no row of its own opens. `open` is the block as `openNow` has it, or null.
  */
-function blockChipOf(part, open, card = null, namesWorker = false) {
+function blockChipOf(part, open, card = null, namesWorker = false, focus = null) {
   if (part.state === 'done') return { chip: null, tone: part.state, link: null, isVerdict: false, isRework: false }
   if ((part.toJudge ?? 0) > 0 && !['stopped', 'dropped'].includes(part.state)) {
     const link = part.recapAt ?? card?.open ?? null
     return { chip: 'Waits for your verdict in the recap →', tone: 'verdict', link, isVerdict: true, isRework: false }
   }
   if (part.state !== 'verdict' && open?.kind === 'rework' && open.rework != null) return { chip: `Being reworked: ${open.rework.words}`, tone: 'rework', link: null, isVerdict: false, isRework: true }
+  // B1270 (F34, the board rule: amber means attention): a block whose verdicts the goal's recap holds while the recap is not open yet is calm,
+  // "2 for your recap · opens when 6 blocks are done, 4 now · or answer now →"; amber again once the recap opens.
+  const held = part.state === 'verdict' ? part.recapHeld ?? [] : []
+  const opens = held.length > 0 ? recapOpensShort(focus) : null
+  if (opens !== null) return { chip: `${held.length} for your recap · ${opens} · or answer now →`, tone: 'recap-held', link: held.length === 1 ? { ask: held[0] } : { recapAsks: true }, isVerdict: true, isRework: false }
   if (part.state === 'verdict') {
     const link = verdictLinkOf(part.verdictAt, card)
     return { chip: typeof link?.path === 'string' ? 'Waits for your verdict in the recap →' : FOCUS_CHIPS.verdict, tone: 'verdict', link, isVerdict: true, isRework: false }
@@ -16208,7 +16246,7 @@ function focusOpenNowView(focus, card = null) {
     const isDone = part.state === 'done'
     const line = blockLineOf(part)
     const label = one.kind === 'rework' ? 'Rework' : 'New'
-    const shown = blockChipOf(part, one, card, true)
+    const shown = blockChipOf(part, one, card, true, focus)
     // 2026-11-01: a block that waits for the person's verdict has its chip open the recap (at its row where the state knows it).
     // Stop and rethink: the block the person's rethink holds is "Being rethought", never ticked.
     const isRethought = focus.rethink != null && part.title === (focus.rethink.partTitle ?? focus.rethink.part)
@@ -16364,7 +16402,7 @@ function focusView(focus, goals, can = null, ui = {}) {
     const isNewNow = index => (focus.round?.n ?? 1) > 1 && (focus.openNow ?? []).some(one => one.index === index && one.kind === 'new')
     // T20.1: the block as this round opens it (its kind, and the step under way when it is being reworked), null when the round does not open it.
     const openOf = index => (focus.openNow ?? []).find(one => one.index === index) ?? null
-    const shownChip = (part, index) => blockChipOf(part, openOf(index), ui.recapCard ?? null)
+    const shownChip = (part, index) => blockChipOf(part, openOf(index), ui.recapCard ?? null, false, focus)
     view.run = {
       title: 'All work blocks',
       page: focus.page ?? null,
@@ -16376,7 +16414,7 @@ function focusView(focus, goals, can = null, ui = {}) {
         chip: part.state === 'dropped' ? `Dropped: ${part.why ?? ''}`.trim() : (shownChip(part, index).chip ?? chips[part.state]),
         tone: part.state,
         // T20.1: a block being reworked has a quiet chip of its own, one that waits for a verdict the attention colour (the row keeps its state's look).
-        ...(['rework', 'verdict'].includes(shownChip(part, index).tone) ? { chipTone: shownChip(part, index).tone } : {}),
+        ...(['rework', 'verdict', 'recap-held'].includes(shownChip(part, index).tone) ? { chipTone: shownChip(part, index).tone } : {}),
         percent: part.state === 'done' ? 100 : part.state === 'stopped' || part.state === 'dropped' || part.total === 0 ? 0 : Math.round((part.done / part.total) * 100),
         // B680: under a Stopped part the person may drop it, with a reason; a dropped one has its Undo.
         ...(part.state === 'stopped' ? { drop: { label: 'Drop this work block', act: 'part-drop', isEnabled: allowed, title: allowed ? 'You stop this work block: say why in one line. It then counts out of the whole. Your partner can instead try another way.' : why } } : {}),
@@ -17453,11 +17491,31 @@ function demoLink(path, part, className, text = '') {
  */
 function focusChipEl(text, tone, verdict = null, extra = '') {
   const classes = `focus-chip${extra === '' ? '' : ` ${extra}`} is-${tone}`
+  // B1270 (F34): asks the recap holds, answerable now: a calm link to the one ask's window, or to the "For your recap" card.
+  if (tone === 'recap-held') return verdict === null ? el('span', classes, text.replace(/\s*→$/, '')) : recapHeldLink(verdict, classes, text)
   // Never a dead arrow: a verdict chip with nowhere to go says the words without it.
   if (tone !== 'verdict') return el('span', classes, text)
   if (verdict === null) return el('span', classes, text.replace(/\s*→$/, ''))
   const link = targetLink(verdict, classes, text)
   link.title = verdict.path !== undefined ? 'Open the recap: approve this part, or send it back with a note' : `Open ${verdict.step ?? verdict.ask}: the card or question that waits for you stands there`
+  return link
+}
+
+/**
+ * B1270 (F34): the calm chip's link of a block whose verdicts the recap holds: `{ ask }` opens that ask's window (the ask-link), where its
+ * buttons are; `{ recapAsks: true }` scrolls to the "For your recap" card, where each has its buttons.
+ */
+function recapHeldLink(target, className, text) {
+  if (typeof target?.ask === 'string' && target.ask !== '') {
+    // The board's one ask-link (targetLink), as every other id of the Focus page opens.
+    const link = targetLink(target, className, text)
+    link.title = `Open ${target.ask}: answer it now, or leave it for the goal's recap`
+    return link
+  }
+  const link = el('button', className, text)
+  link.type = 'button'
+  link.title = 'Show the asks kept for your recap: answer each now, or leave them for the recap'
+  link.addEventListener('click', () => document.getElementById('focus-recap-wait')?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
   return link
 }
 
@@ -18868,7 +18926,6 @@ async function visionSend(url, body, done) {
       const given = await answer.json().catch(() => null)
       const note = typeof given?.note === 'string' ? given.note : done
       visionUi.note = note === '' ? null : { isProblem: false, text: note }
-      showPaste(given?.paste ?? null)
     } else visionUi.note = { isProblem: true, text: `Not done: ${(await answer.text()).trim() || `refused (${answer.status})`}` }
   } catch {
     visionUi.note = { isProblem: true, text: 'Not done: the board\'s server does not answer.' }
@@ -19215,18 +19272,71 @@ function recapAsksList(asks) {
       item.append(' ', see)
     }
     if (ask.of !== null && ask.of !== undefined) item.append(el('small', 'muted', ` ${[ask.of, ask.ofTitle].filter(Boolean).join(' ')}`))
+    const row = recapRowAnswer(lookAnswerOf(ask), { isSending: sending.has(`look:${ask.id}`), problem: problems.get(`look:${ask.id}`) ?? null })
+    if (row !== null) item.append(row)
     list.append(item)
   }
   return list
 }
+
+/**
+ * B1270 (F34, the person, 2026-11-19: "i need a agree or disagree button if u want my verdict"): the buttons on an ask's row in "For your
+ * recap": its yes at once (Accept, Looks right, Done) or its options for a decide; Send back, and a look that needs a pick, open its window
+ * (the note is needed there). Null for an ask with no answer form (the goal's own recap ask). `ui`: sending, and a refusal under them.
+ */
+function recapRowAnswer(answer, ui) {
+  if (answer === null || answer === undefined) return null
+  const box = el('span', 'focus-recap-answer')
+  const send = (label, verdict, title, choice = null) => {
+    const node = el('button', 'quiet-button', ui.isSending ? 'Sending…' : label)
+    node.type = 'button'
+    node.dataset.recapAnswer = verdict
+    node.dataset.recapOf = answer.id
+    if (choice !== null) node.dataset.recapChoice = choice
+    node.disabled = ui.isSending
+    node.title = title
+    return node
+  }
+  // The ask's window, as the row's own title opens it (`#details=`).
+  const open = (label, title) => {
+    const node = el('a', 'quiet-button', label)
+    node.href = `#details=${answer.id}`
+    node.title = title
+    return node
+  }
+  if (answer.choices.length > 0) box.append(...answer.choices.map(one => send(one.label, 'choice', 'Answers it with this option; the chat that asked is told', one.label)))
+  else if (answer.options.length > 0) box.append(open('Answer →', 'Opens it: pick an option, then Looks right or Send back'))
+  else box.append(yesButton(answer, (label, className, verdict, title) => send(label, verdict, title)), open('↺  Send back →', 'Opens it: say in a note what is wrong, then Send back'))
+  if (ui.problem !== null) box.append(el('span', 'problem', ui.problem))
+  return box
+}
+
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-recap-answer]')
+  if (button === null || board === null) return
+  const id = button.dataset.recapOf
+  const key = `look:${id}`
+  if (sending.has(key)) return
+  const verdict = button.dataset.recapAnswer
+  const answer = lookAnswerOf((board.routedAway ?? []).find(one => one.id === id))
+  const body = lookAnswerBody(answer, verdict, verdict === 'choice' ? button.dataset.recapChoice ?? null : null, '')
+  if (body.problem !== undefined) {
+    problems.set(key, body.problem)
+    return redrawFocus()
+  }
+  return sendWork({ action: 'answer', id, ...(body.verdict === undefined ? {} : { verdict: body.verdict }), text: body.text }, key)
+})
 // autopilot:end
 
 /** Autopilot: the run's card "For your recap (n)": what waits for the goal's recap, one line each. */
 function focusRecapAsksCard(asks, focus = null) {
   const card = el('section', 'focus-card focus-recap-wait')
+  card.id = 'focus-recap-wait'
   // B1240 (F31): when the recap opens, in place of "you judge them there" with no time.
   const opens = recapOpensWords(focus, focus?.id ?? null)
-  card.append(el('h3', '', `For your recap (${asks.length})`), el('p', 'muted', `Autopilot keeps these for the goal's recap: ${opens === null ? 'you judge them there, with the rest of the work' : opens}.`), recapAsksList(asks))
+  // B1270 (F34): what has buttons can be answered now; the recap does not ask it again.
+  const now = asks.some(one => lookAnswerOf(one) !== null) ? ' You can answer each with buttons now.' : ''
+  card.append(el('h3', '', `For your recap (${asks.length})`), el('p', 'muted', `Autopilot keeps these for the goal's recap: ${opens === null ? 'you judge them there, with the rest of the work' : opens}.${now}`), recapAsksList(asks))
   return card
 }
 
@@ -19440,7 +19550,6 @@ async function sendFocus(body, done) {
       result = await answer.json()
       // P4b: a word's wait line is its one status: a click that sends a word passes no "Sent..." note.
       focusUi.note = result.unchanged === true ? { isProblem: false, text: 'That was done already.' } : done === '' ? null : { isProblem: false, text: done }
-      showPaste(result.paste ?? null)
     } else focusUi.note = { isProblem: true, text: `Not done: ${(await answer.text()).trim() || `refused (${answer.status})`}` }
   } catch {
     focusUi.note = { isProblem: true, text: 'Not done: the board\'s server does not answer.' }
@@ -19554,7 +19663,6 @@ async function focusAnswerAsk(id, label) {
     const answer = await fetch('/api/work', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ action: 'answer', id, text: label }) })
     if (answer.ok) {
       focusUi.note = { isProblem: false, text: `Answered: ${label}. Your partner is told.` }
-      showPaste((await answer.json().catch(() => null))?.paste ?? null)
     } else focusUi.note = { isProblem: true, text: `Not answered: ${(await answer.text()).trim() || `refused (${answer.status})`}` }
   } catch {
     focusUi.note = { isProblem: true, text: 'Not answered: the board\'s server does not answer.' }
@@ -23595,7 +23703,6 @@ async function clickCall(route, body, key, again = false) {
       return answer.status === 409 && isClash(why) && !again ? clickCall(route, body, key, true) : { result: null, problem: why }
     }
     const result = await answer.json()
-    showPaste(result?.paste ?? null)
     return { result, problem: null }
   } catch {
     return { result: null, problem: 'the board\'s server does not answer.' }
@@ -23626,8 +23733,6 @@ async function retryClickOf(click, route) {
   try {
     const answer = await fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify(route === '/api/backlog' ? { action: 'click-retry', click } : { command: 'click-retry', click }) })
     done = answer.ok ? { ok: true, status: answer.status, result: await answer.json().catch(() => null), text: '' } : { ok: false, status: answer.status, result: null, text: (await answer.text()).trim() }
-    // B212: without a Workers mod the retried word is on the clipboard, as the first send's is.
-    if (done.ok) showPaste(done.result?.paste ?? null)
   } catch {
     // The record stands with its Retry: the next read draws it.
   }
@@ -23664,8 +23769,6 @@ async function send(message, id, via = null, isRetried = false) {
       // The same click id with another input: sent once more under a new id.
       if (answer.status === 409 && isClash(problem) && via !== null && !isRetried) return send(message, id, via, true)
     }
-    // B212: no Workers mod takes the board's words: they are on the clipboard, to be pasted into the chat.
-    else showPaste((await answer.json().catch(() => null))?.paste ?? null)
   } catch {
     problem = 'the board\'s server does not answer'
   }
@@ -23714,7 +23817,6 @@ async function sendWork(body, key, { reread = true } = {}) {
       signal: stop.signal,
     })
     if (!answer.ok) problem = (await answer.text()).trim() || `refused (${answer.status})`
-    else showPaste((await answer.json().catch(() => null))?.paste ?? null)
   } catch (error) {
     problem = stop.signal.aborted ? `the board did not answer within ${WORK_WAIT_MS / 1000} s (it may be restarting); try again`
       : error instanceof TypeError && /fetch/i.test(error.message) ? 'the board\'s server does not answer'
@@ -23733,49 +23835,6 @@ async function sendWork(body, key, { reread = true } = {}) {
   return problem
 }
 // sendwork:end
-
-// paste:start
-/** B212: the line on top that says the words were copied, and into which chat to paste them. */
-function pasteLine(paste, isCopied, isModThere = false) {
-  // B315: with the Workers mod installed, words are only copied while no chat runs to take them.
-  const why = isModThere ? 'Its chat is not running yet, so nothing types it in for you.' : 'No Workers mod types it in for you.'
-  return isCopied
-    ? `Copied for you: open the chat "${paste.chat}" in the Claude app and paste it there (Ctrl+V). ${why}`
-    : `Not copied by itself: click Copy, then open the chat "${paste.chat}" in the Claude app and paste it there.`
-}
-// paste:end
-
-let pasting = null
-
-async function copyPaste() {
-  try {
-    await navigator.clipboard.writeText(pasting.text)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** B212: puts the words on the clipboard and says so in a bar on top, with Copy (again) and close. */
-async function showPaste(paste) {
-  if (paste === null || typeof paste?.text !== 'string') return
-  pasting = paste
-  let bar = document.querySelector('.paste-note')
-  if (bar === null) {
-    bar = el('div', 'paste-note')
-    bar.setAttribute('role', 'status')
-    document.body.append(bar)
-  }
-  const isCopied = await copyPaste()
-  const copy = el('button', 'paste-copy', 'Copy')
-  copy.type = 'button'
-  copy.addEventListener('click', async () => { copy.textContent = (await copyPaste()) ? 'Copied' : 'Copy failed' })
-  const close = el('button', 'paste-close', '×')
-  close.type = 'button'
-  close.setAttribute('aria-label', 'Close')
-  close.addEventListener('click', () => bar.remove())
-  bar.replaceChildren(el('span', '', pasteLine(paste, isCopied, typeof board?.mod?.installed === 'string')), copy, close)
-}
 
 /**
  * Starts the game of a request's branch and shows it in a new tab, or stops it. The tab is opened with the click

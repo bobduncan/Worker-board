@@ -172,7 +172,8 @@ You look for what is really wrong, nothing else.
   that stopped is the board's two timers', B986 also after the board's restart and an account switch), limit readings (X47,
   X55, X56), clears and checks. File what the rules do not name, not a second copy of what they do.
 - `check-unreachable` (the start-up check, 2026-11-05): ONE incident per cause (`account-switch`: the chats are in the person's other Claude
-  account; `restart-needed`: reimported, the app must restart; `not-joined`: the chat its report names runs on a session the board does not follow, so it must re-join; `no-chat`), naming every chat the newest check could not reach. The
+  account (since B1273 only when the app is on the board's account: while it is on another the board holds by itself, says one
+  calm line and files nothing); `restart-needed`: reimported, the app must restart; `not-joined`: the chat its report names runs on a session the board does not follow, so it must re-join; `no-chat`), naming every chat the newest check could not reach. The
   per-chat `wake-failed` and `nobody-answers-wakes` say nothing of a chat that check lists. It goes when the next check lists nobody
   under that cause (the gone clock). While a check runs, the newest finished result still stands, so these rules do not file in those seconds. The check itself closes wake incidents whose chat answers again ("gone after the check at HH:MM").
 - `wake-failed` "could not wake Worker N: its chat is not in the app's list" (B986, X140): the chat its reports name is not

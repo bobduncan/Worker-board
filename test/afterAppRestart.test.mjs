@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import vm from 'node:vm'
 
 import { answer, fromChat, step, typed } from '../fixtures/lines.mjs'
 import { parseConfig } from '../src/config.mjs'
@@ -135,22 +134,7 @@ test('any line to the main chat that was only copied shows the same, one to anot
 })
 
 const script = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'board.js'), 'utf8')
-const page = {}
-vm.runInNewContext(`${script.slice(script.indexOf('// copied:start'), script.indexOf('// copied:end'))}\nObject.assign(this, { copiedLine })`, page)
-
-test('the banner says plainly that the main chat is not running, where to paste, and its session id', () => {
-  const copied = { at: NOW, command: 'resume', text: PASTE, chat: 'Game - Main', session: 'local_Main', isMainRunning: null }
-  assert.equal(page.copiedLine(copied, { main: 'Main', isModThere: true }),
-    'Main\'s chat is not running yet: open Game - Main in the app (or click it in the sidebar) and paste with Ctrl+V; the word is on your clipboard. Its session id: local_Main.')
-  assert.equal(page.copiedLine({ ...copied, session: null }, { main: 'Main', isModThere: true }),
-    'Main\'s chat is not running yet: open Game - Main in the app (or click it in the sidebar) and paste with Ctrl+V; the word is on your clipboard.')
-  // Its chat runs by now: the word still waits to be pasted.
-  assert.match(page.copiedLine({ ...copied, isMainRunning: true }, { main: 'Main', isModThere: true }), /^Main's chat runs now, but the word was only copied: paste it into Game - Main with Ctrl\+V/)
-  // Without a Workers mod nothing types it in at all.
-  assert.match(page.copiedLine(copied, { main: 'Main', isModThere: false }), /^No Workers mod types it in for you: open Game - Main in the app/)
-  // The banner has the button to copy the words again.
-  assert.match(script, /button\('Copy again', 'is-quiet', 'copy'\)/)
-})
+// B1274: the copy-paste mode is gone: the banner no longer says to paste a copied word (copyModeGone.test.mjs).
 
 test('the lane says "Not running", never "Working", and its time column says so too', () => {
   assert.match(script, /off: 'Not running'/)
@@ -168,16 +152,6 @@ test('the app\'s last start is read from the lock it holds in its own folder, ab
   await utimes(join(root, 'lockfile'), new Date(APP), new Date(APP))
   assert.equal(Math.round(await appStartedAt(sessions) / 1000), Math.round(APP / 1000))
   assert.equal(await appStartedAt(''), null)
-})
-
-test('the bar on top says why the words were only copied: no chat runs yet, or no Workers mod', async () => {
-  const paste = {}
-  vm.runInNewContext(`${script.slice(script.indexOf('// paste:start'), script.indexOf('// paste:end'))}\nObject.assign(this, { pasteLine })`, paste)
-  assert.match(paste.pasteLine({ chat: 'Game - Main' }, true, true), /paste it there \(Ctrl\+V\)\. Its chat is not running yet, so nothing types it in for you\.$/)
-  assert.match(paste.pasteLine({ chat: 'Game - Main' }, true), /No Workers mod types it in for you\.$/)
-  // The server keeps the words as they were copied with them, for the banner's "Copy again".
-  const server = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'server.mjs'), 'utf8')
-  assert.match(server, /if \(isCopied\) message = \{ \.\.\.message, pasteText: messageText\(message, timeOf/)
 })
 
 // Seen live 2026-10-18: "resume" was copied at 16:32, another chat handed "resume" to the main chat by its session id,
@@ -227,9 +201,8 @@ test('"Dismiss" keeps the copied word dismissed in the outbox; a word not waitin
   assert.equal((await dismissCopied(store, 'nope', NOW)).status, 409)
 })
 
-test('the banner has a "Dismiss" button; the server takes it, and keeps no restart file\'s time with a copied "resume" (Pause 2)', async () => {
-  assert.match(script, /button\('Dismiss', 'is-quiet', 'dismiss'\)/)
-  assert.match(script, /command: 'dismiss copied', id: board\.restart\.copied\.id/)
+test('the server still takes "dismiss copied" for an old copied word, and keeps no restart file\'s time with a copied "resume" (Pause 2); the page has no paste banner (B1274)', async () => {
+  assert.doesNotMatch(script, /button\('Dismiss', 'is-quiet', 'dismiss'\)|button\('Copy again'/)
   const server = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'server.mjs'), 'utf8')
   assert.match(server, /if \(body\?\.command === 'dismiss copied'\) return dismissCopied\(store, body\.id, clock\(\)\)/)
   assert.doesNotMatch(server, /restartAt/)

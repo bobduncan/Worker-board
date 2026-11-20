@@ -45,7 +45,8 @@ test('the page, the server and the state say nothing of "prepare restart", resta
   assert.doesNotMatch(await read('src/say.mjs'), /'prepare restart'/)
   assert.doesNotMatch(await read('src/store.mjs'), /prepare restart|RESTART_KNOWN/)
   // The copied-word banner stays for the other words.
-  assert.match(page, /button\('Copy again', 'is-quiet', 'copy'\)/)
+  // B1274: the copy-paste mode is gone: no Copy again row (copyModeGone.test.mjs).
+  assert.doesNotMatch(page, /button\('Copy again', 'is-quiet', 'copy'\)/)
 })
 
 test('the job texts: no restart.md and no safe-point line; a checkpoint with every commit, and the mod\'s resume list', async () => {
