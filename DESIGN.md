@@ -8709,6 +8709,34 @@ src/carry/pictures.mjs) moves the pictures. The brief: `.claude/plans/2026-11-16
   and a fresh lock refused for both). B2 and B3 are fakes of their contracts in these tests until their parts merge.
 - **Not in v1**: the board reading its data from the clone (after Wednesday), hourly saves, a Save button, rclone.
 
+## T5.2 P2: the chats' home and the path table (2026-11-16, the design `.claude/plans/2026-11-16-workerboard-design.md` §3-4, chat 3)
+
+The board's data will move into `<game repo>/.workerboard` (P3 and later); the chats stay where they are, in the wrapper folder,
+because memory is keyed by git repo, the settings have no parent fallback, the routines are named after the folder and the port is
+keyed by it. P2 lays the ground without moving anything: `src/projectPaths.mjs` is the ONE place that says where the project's things
+live, from two PC-only settings in config.json, both '' today:
+
+- `chatHome`: the folder the chats run in. `chatHomeOf(config)` (chatHome, else project) now keys the port and the PC's list of
+  boards (server.mjs `home`), the launch entry and the Workers mod's board file (`chatFile(config, 'launch.json' | 'board.json')`),
+  the chats' cards (`chatsFolderOf`: the lanes, the spending collector, the chat filter in sources.mjs and state.mjs, the list of
+  chats), the chat logs' folder, the folder a chat is opened in, the routines' names (`routineFolderOf`: `basename(chatHome)`, so
+  the ids stay the same), the settings.local.json the routine jobs are allowed in, the task-worktree leftover scan and the
+  wake courier's board file (setup prints it). The transcripts are derived from the chats' home (config.mjs), as the app keys them.
+- `data`: the board's data home. `dataOf` (null = today's layout), `picturesOf` (`<data>/pictures`, else the project folder),
+  `assetsOf` (`<data>/pictures/assets`, else `assets` beside the work store) and `resolveStored(config, storedPath, { boardDir })`,
+  the table of §4 Links: with `data` empty it is `join(project, path)` for every stored path, today's `inProject`; with `data` set a
+  picture root or `.claude/assets/` goes under `<data>/pictures`, the store's and the goal map's paths under `<data>` with their stored
+  names (`brainstorms` stays `.claude/brainstorms`), `.claude/plans|specs|handover` under `<data>/docs`, `logs/` under the chat home,
+  `<project folder name>/...` into the game repo and `<board folder name>/...` into the board folder. server.mjs's `inProject` and the
+  backlog paths go through it already; P3 routes the store and every picture reader and writer.
+- `wordsPath(config, fullPath)`: a real path in the words to a chat, relative to the chat home (`.claude/work/B12.md` today).
+- **Tests.** test/projectPaths.test.mjs: with both settings empty every answer is exactly today's path (the test that must stay
+  green before P3 lands), and the fixture test/fixtures/projectPaths/board-config.json (data set, chatHome different from project) puts
+  every picture and asset path under `<data>/pictures`, the store under `<data>`, the docs under `<data>/docs` and every chat-keyed
+  path under the chat home. test/pathGuard.test.mjs lists every `join`/`resolve`/`inProject` on `project` and every `.claude`
+  literal outside the table, per file as the LINES that hold them (test/fixtures/pathGuard-known.json; chat 1's review of 2026-11-20: a
+  count per file hid a new tie beside a removed one): a new line fails naming it, a line that is gone fails until it is taken out; P3
+  and the switch-on round empty it.
 ## B1273 (F36a): an account switch costs nothing (2026-11-19, chat 3)
 
 The person: "I want to be able to switch accounts often". The Claude app keeps one chat list per account

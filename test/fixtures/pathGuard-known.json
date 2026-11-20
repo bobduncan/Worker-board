@@ -1,0 +1,208 @@
+{
+  "server.mjs": [
+    "claude: // Part C of the asset providers (spec 2026-11-01, part 4): the chats' asset requests, kept in `.claude/assets` beside the",
+    "claude: // Part C of the asset providers: where the chats' asset requests are kept (`.claude/assets`, beside the work store); none on a",
+    "claude: const LOOP_LOCK = isDemo || isShowOnly || config.project === '' ? null : join(config.project, '.claude', 'sync-loop.json')",
+    "claude: const READINGS_FILE = isDemo || config.project === '' ? null : join(config.project, '.claude', 'limit-readings.json')",
+    "claude: const SUPERVISOR_FILE = join(config.project, '.claude', 'supervisor.json')",
+    "claude: const SYNC_FILE = join(config.project, '.claude', 'sync.json')",
+    "claude: const loops = loopRecord({ now: clock, holders: isDemo ? null : files => fileHolders(files), write: isDemo || config.project === '' ? () => {} : fileLog(join(re",
+    "claude: load: () => kept(join(config.project, '.claude', 'supervisor-sweep.json')),",
+    "claude: save: value => writeAtomic(join(config.project, '.claude', 'supervisor-sweep.json'), JSON.stringify(value)),",
+    "project: ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), providerOf: kind => providerFor(config, kind), tools: () => as",
+    "project: // T5.2 P2: a stored path's place, through the table (today: `join(project, path)`; P3 moves the pictures and the store with it).",
+    "project: const LOOP_LOCK = isDemo || isShowOnly || config.project === '' ? null : join(config.project, '.claude', 'sync-loop.json')",
+    "project: const READINGS_FILE = isDemo || config.project === '' ? null : join(config.project, '.claude', 'limit-readings.json')",
+    "project: const SUPERVISOR_FILE = join(config.project, '.claude', 'supervisor.json')",
+    "project: const SYNC_FILE = join(config.project, '.claude', 'sync.json')",
+    "project: const assetTools = () => ({ ...providerTools(), project: resolve(HERE, config.project), seconds: settings.seconds })",
+    "project: const file = inProject(config.project, path)",
+    "project: const file = inProject(config.project, path)",
+    "project: const found = await Promise.all(paths.map(path => stat(inProject(config.project, path)).then(file => file.isFile(), () => false)))",
+    "project: const gone = await Promise.all(checked.references.map(path => stat(inProject(config.project, path)).then(file => !file.isFile(), () => true)))",
+    "project: const handed = taken.map(message => ({ id: message.id, text: messageText(message, timeOf, path => inProject(config.project, path)) }))",
+    "project: const kindsFile = isDemo ? join(HERE, 'fixtures', 'demo-design.json') : config.project === '' ? null : join(config.project, ...config.designKinds.split('/'))",
+    "project: const loops = loopRecord({ now: clock, holders: isDemo ? null : files => fileHolders(files), write: isDemo || config.project === '' ? () => {} : fileLog(join(re",
+    "project: const taken = await readdir(inProject(config.project, ideasFolder(config.pictureRoots[0]))).catch(absentAs([]))",
+    "project: if (!(await stat(inProject(config.project, path)).then(file => file.isFile(), () => false))) return { ok: false, status: 409, why: 'A picture is not there any m",
+    "project: if (!(await stat(inProject(config.project, path)).then(file => file.isFile(), () => false))) return { ok: false, status: 409, why: 'A picture of the ask is not ",
+    "project: if (typeof checked.message.picture === 'string' && !(await stat(inProject(config.project, checked.message.picture)).then(file => file.isFile(), () => false))) {",
+    "project: images: [...(before === null ? [] : [before]), ...looks].map(path => inProject(config.project, path)),",
+    "project: load: () => kept(join(config.project, '.claude', 'supervisor-sweep.json')),",
+    "project: read: () => readStore(workDir), make: call => workAction(call, 'person'), abs: path => inProject(config.project, path),",
+    "project: save: value => writeAtomic(join(config.project, '.claude', 'supervisor-sweep.json'), JSON.stringify(value)),",
+    "project: to: inProject(config.project, picture),"
+  ],
+  "src/assets.mjs": [
+    "claude: /** The folder of the asset requests: `assets` beside the work store's folder (`.claude/work` → `.claude/assets`). */",
+    "claude: // request in a folder of its own, `.claude/assets/A<n>/` of the project (beside the work store's `.claude/work`):"
+  ],
+  "src/bridge.mjs": [
+    "claude: * called `name` is filed under, when it is not `session`, the one that asks. `rows` are the files of `.claude/chats`"
+  ],
+  "src/carry/guards.mjs": [
+    "claude: /** The secret values that must never travel: every string of 16+ characters in the texts given (`.claude/board.json`, Codex's auth.json) and the keys given. */"
+  ],
+  "src/carry/pictures.mjs": [
+    "project: const from = join(project, item.path)",
+    "project: const stat = await statOf(fs, join(project, path))",
+    "project: const stat = await statOf(fs, join(project, path))",
+    "project: const to = join(project, entry.path)",
+    "project: for (const path of await filesUnder(fs, project, join(project, root))) {",
+    "project: if (inRoots(path) && (await statOf(fs, join(project, path))) !== null) wanted.add(path)"
+  ],
+  "src/carry/set.mjs": [
+    "claude: /** `.claude` folders that travel whole. */",
+    "claude: /** `.claude`'s top-level files that are runtime files of this PC (board.json holds the bridge key). */",
+    "claude: const claudeDir = join(project, '.claude')",
+    "claude: const workDir = placed('work', config.work ?? '.claude/work')",
+    "claude: for (const [key, fallback, folder] of [['goals', '.claude/goals.md', false], ['goalsHistory', '.claude/goals.history', true], ['brainstorms', '.claude/brainstor",
+    "project: const absolute = (project, path) => (isAbsolute(path) ? resolve(path) : resolve(project, ...String(path).split('/')))",
+    "project: const claudeDir = join(project, '.claude')",
+    "project: for (const entry of await list(fs, project)) if (entry.isFile()) await addHome(join(project, entry.name), 'home')",
+    "project: for (const file of await walk(fs, join(project, '.codex'))) await addHome(file, 'home')"
+  ],
+  "src/chatLogs.mjs": [
+    "claude: export const LOGS_FOLDER = '.claude/chat-logs'",
+    "project: const folder = join(project, ...LOGS_FOLDER.split('/'), folderName)"
+  ],
+  "src/codeJobs.mjs": [
+    "claude: /** Allow: adds `tools` to the project's `.claude/settings.local.json`, made when missing: `{ ok, added }` or why not. */",
+    "claude: /** Writes `rules` into the project's `.claude/settings.local.json` under `permissions.<key>`, made when missing: `{ ok, added }` or why not. */",
+    "claude: // `.claude/settings.local.json`, on the person's click (a chat may not change its own permissions: the app refuses it).",
+    "claude: const file = join(project, '.claude', 'settings.local.json')",
+    "claude: const texts = await Promise.all([join(home, '.claude', 'settings.json'), join(project, '.claude', 'settings.json'), join(project, '.claude', 'settings.local.jso",
+    "claude: const there = await Promise.all(ids.map(id => fs.stat(join(home, '.claude', 'scheduled-tasks', id, 'SKILL.md')).then(found => found.isFile(), () => false)))",
+    "project: const file = join(project, '.claude', 'settings.local.json')",
+    "project: const texts = await Promise.all([join(home, '.claude', 'settings.json'), join(project, '.claude', 'settings.json'), join(project, '.claude', 'settings.local.jso"
+  ],
+  "src/config.mjs": [
+    "claude: * B134: where the app keeps the transcripts of a project's chats: the user's `.claude\\projects`, in a folder named",
+    "claude: backlog: '.claude/backlog.md',",
+    "claude: brainstorms: '.claude/brainstorms',",
+    "claude: designKinds: '.claude/design.json',",
+    "claude: goalAsks: '.claude/goal-asks',",
+    "claude: goals: '.claude/goals.md',",
+    "claude: goalsHistory: '.claude/goals.history',",
+    "claude: return home === '' ? '' : join(home, '.claude', 'projects', project.replace(/[^a-zA-Z0-9]/g, '-'))",
+    "claude: work: '.claude/work',",
+    "project: return isAbsolute(config.work) ? config.work : join(config.project, ...config.work.split('/'))",
+    "project: return isAbsolute(value) ? value : join(config.project, ...value.split('/'))"
+  ],
+  "src/cpu.mjs": [
+    "claude: /** The session ids the card files name (`<session>.json` in `.claude/chats`), from the folder's file names. */"
+  ],
+  "src/gameFile.mjs": [
+    "claude: * Clear after each step: a chat's log (`.claude/chat-logs/<chat>/<time> <step>.txt`) may be far larger: its last",
+    "claude: const LOG_FOLDER = '.claude/chat-logs/'"
+  ],
+  "src/ideas.mjs": [
+    "project: await moveInPlace(join(project, ...path.split('/')), target)",
+    "project: const target = join(project, ...to.split('/'))"
+  ],
+  "src/landingSetup.mjs": [
+    "claude: const file = join(home, '.claude', 'settings.json')",
+    "claude: const local = join(project, '.claude', 'settings.local.json')",
+    "claude: const settings = join(home, '.claude', 'settings.json')",
+    "project: const local = join(project, '.claude', 'settings.local.json')"
+  ],
+  "src/newProject.mjs": [
+    "claude: '  `.claude/worker-briefing.md`.',",
+    "claude: '- How every chat answers you: `CLAUDE.md`. The project\\'s own facts for the chats: `.claude/main-briefing.md` and',",
+    "claude: '- The work: `.claude/work`, kept by the board (the chats change it with their work tool).',",
+    "claude: '.claude/chats/list.json': `${JSON.stringify({ prefix, main: 'Main' }, null, 2)}\\n`,",
+    "claude: '.claude/main-briefing.md': briefing(examples.mainBriefing),",
+    "claude: '.claude/work/activities.json': `${JSON.stringify({ preamble: ['# Backlog'], activities: [{ name, isFocus: true, steps: [], notes: [], loose: [] }] }, null, 1)}",
+    "claude: '.claude/work/flow.json': examples.flow,",
+    "claude: '.claude/work/last-ids.json': '{}\\n',",
+    "claude: '.claude/worker-briefing.md': briefing(examples.workerBriefing),",
+    "claude: await writeAtomic(join(project, '.claude', 'launch.json'), withEntry('', entry))",
+    "claude: const MADE = ['.git', BOARD_FOLDER, '.claude', '.gitignore', 'README.md', 'CLAUDE.md']",
+    "project: await mkdir(dirname(join(project, path)), { recursive: true })",
+    "project: await writeAtomic(join(project, '.claude', 'launch.json'), withEntry('', entry))",
+    "project: await writeAtomic(join(project, path), text)",
+    "project: const board = join(project, BOARD_FOLDER)",
+    "project: for (const name of MADE) await rm(join(project, name), { recursive: true, force: true, maxRetries: 3 })"
+  ],
+  "src/pictures.mjs": [
+    "project: await copyFile(real, join(project, ...to.split('/')))",
+    "project: await mkdir(join(project, ...folder.split('/'), subject), { recursive: true })",
+    "project: const real = await realpath(join(project, path))",
+    "project: const real = await realpath(join(project, path))",
+    "project: const root = await realpath(join(project, ...shown.split('/')))",
+    "project: entries = await readdir(join(project, ...folder.split('/')), { withFileTypes: true })"
+  ],
+  "src/planLines.mjs": [
+    "claude: /** A chat log's place in the project's folder as the mod names it (`.claude/chat-logs/...txt`, with /); null for any other. */",
+    "claude: if (typeof value !== 'string' || value.length > 300 || !value.startsWith('.claude/chat-logs/') || !value.endsWith('.txt')) return null"
+  ],
+  "src/ports.mjs": [
+    "claude: * The launch entry of a board folder for `.claude/launch.json`. The project's main board is started by its launcher",
+    "claude: * else the project itself when its own `.claude/board.json` names the port (its board of before /api/board, still",
+    "claude: const note = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))",
+    "project: const note = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))"
+  ],
+  "src/providers/sound-library.mjs": [
+    "project: const path = join(project, ...String(folder).split('/'))",
+    "project: const path = join(project, ...String(folder).split('/'))"
+  ],
+  "src/recapCard.mjs": [
+    "project: const at = await stat(join(config.project, ...path.split('/'))).then(info => info.mtimeMs, () => null)",
+    "project: const inside = join(config.project, ...folder.split('/'), goal)",
+    "project: const names = async folder => (await readdir(join(config.project, ...folder.split('/')), { withFileTypes: true }).catch(() => [])).filter(one => one.isDirectory"
+  ],
+  "src/recaps.mjs": [
+    "project: const entries = await readdir(join(config.project, ...folder.split('/'), goal, sub)).catch(() => [])",
+    "project: const names = async folder => (await readdir(join(config.project, ...folder.split('/')), { withFileTypes: true }).catch(() => [])).filter(one => one.isDirectory",
+    "project: if ((await readdir(join(config.project, ...folder.split('/'), goal)).catch(() => [])).includes('demo.json')) found.push(`${folder}/${goal}/demo.json`)"
+  ],
+  "src/setup.mjs": [
+    "claude: /** B319: the app's list of installed plugins: in the person's `.claude` folder, or where CLAUDE_CONFIG_DIR says. */",
+    "claude: return join(env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'plugins', 'installed_plugins.json')",
+    "claude: return join(env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'plugins', 'known_marketplaces.json')"
+  ],
+  "src/sources.mjs": [
+    "claude: const claude = join(config.project, '.claude')",
+    "project: const claude = join(config.project, '.claude')",
+    "project: const dir = isAbsolute(folder) ? folder : join(project, ...folder.split('/'))"
+  ],
+  "src/talkPicture.mjs": [
+    "project: const folder = join(project, ...talkFolder(pictures).split('/'))"
+  ],
+  "src/work/api.mjs": [
+    "project: const whole = isAbsolute(path) ? path : typeof assets.project === 'string' && assets.project !== '' ? join(assets.project, ...path.split(/[\\\\/]/)) : null"
+  ],
+  "src/work/check.mjs": [
+    "project: const where = join(project, ...one.path.split('/'))"
+  ],
+  "src/work/recapWords.mjs": [
+    "claude: const FOLDERS = new Set(['src', 'test', 'tests', 'docs', 'public', 'tools', 'roles', 'data', 'mods', 'examples', 'fixtures', 'design', 'node_modules', '.claude'"
+  ],
+  "src/work/rename.mjs": [
+    "claude: // `.claude/chats/<session>.json`) and the name the list gives it. At every refresh it holds those against names.json,"
+  ],
+  "src/work/rowWords.mjs": [
+    "claude: const steps = files.filter(one => /^B\\d+$/.test(one)).map((one, at) => `${at === 0 ? '.claude/work/' : ''}${one}.md`)"
+  ],
+  "src/work/worktrees.mjs": [
+    "project: found.push({ path: folder.path, kind: 'folder', repo: null, what: 'a folder named as a worktree\\'s, with files and no git', clean: true, why: null, moveTo: join",
+    "project: return entries === null ? null : entries.filter(entry => entry.isDirectory() && !entry.isSymbolicLink()).map(entry => ({ name: entry.name, path: join(project, e"
+  ],
+  "start-board.mjs": [
+    "project: const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: config.project ? resolve(HERE, config.project) : nul"
+  ],
+  "tools/carry.mjs": [
+    "claude: const bridge = await readFile(join(project, '.claude', 'board.json'), 'utf8').catch(() => null)",
+    "claude: const userSettingsFile = join(homedir(), '.claude', 'settings.json')",
+    "claude: else if (flags.project && flags.game) config = { project: resolve(flags.project), gameRepo: resolve(flags.game), work: '.claude/work', pictureRoots: ['pictures'",
+    "project: const bridge = await readFile(join(project, '.claude', 'board.json'), 'utf8').catch(() => null)",
+    "project: else if (flags.project && flags.game) config = { project: resolve(flags.project), gameRepo: resolve(flags.game), work: '.claude/work', pictureRoots: ['pictures'"
+  ],
+  "tools/evidence.mjs": [
+    "project: return join(config.project, config.pictureRoots[0], step, before === undefined ? 'evidence.png' : 'before-after.png')"
+  ],
+  "tools/spending-count.mjs": [
+    "claude: const claimed = (await movedSubjects(join(project, '.claude', 'chats'), new Map(), titleOf)).filter(one => !own.has(one.session))",
+    "project: const claimed = (await movedSubjects(join(project, '.claude', 'chats'), new Map(), titleOf)).filter(one => !own.has(one.session))"
+  ]
+}

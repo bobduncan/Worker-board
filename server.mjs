@@ -44,6 +44,8 @@ import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
+// T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
+import { chatFile, chatHomeOf, chatsFolderOf, resolveStored, routineFolderOf } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -785,8 +787,9 @@ async function main(args) {
   // side; the demo is no project's and keeps out of it.
   const boards = isDemo || config.project === '' ? null : boardsFile()
   const asked = { port: config.port, gamePort: config.gamePort }
-  // The project as a whole path: the list is the PC's, read from every board's folder.
-  const home = config.project === '' ? null : resolve(HERE, config.project)
+  // The CHATS' home as a whole path (T5.2 P2: the port is keyed by it, so it never drifts when the data moves): the list is the PC's,
+  // read from every board's folder.
+  const home = config.project === '' ? null : resolve(HERE, chatHomeOf(config))
   const chosen = await resolvePort({ here: HERE, given: argAfter(args, '--port'), configured: config.port, run: gitRunner(), project: home, gamePort: config.gamePort, boards })
   // B3: the "only shows" notices send the person to the board that records, on the port the PC's list of boards keeps for it.
   const recordingPort = await recordingBoardPort({ boards, project: home, fallback: homePort })
@@ -803,9 +806,9 @@ async function main(args) {
     if (config.project === '') return console.error('config.json names no project: there is no launch.json to write to.')
     // B319: the port the entry names is kept for the project from now on.
     if (isHome) await register().catch(error => console.error(`The list of boards could not be written: ${error.message}`))
-    const file = join(config.project, '.claude', 'launch.json')
+    const file = chatFile(config, 'launch.json')
     const entry = launchEntry({ folder: HERE, port: config.port, node: process.execPath, main: chosen.main })
-    await mkdir(join(config.project, '.claude'), { recursive: true })
+    await mkdir(chatFile(config), { recursive: true })
     // B406: a launch.json that is there but cannot be read or parsed is never written over: its other entries would be
     // lost.
     const before = await readFile(file, 'utf8').catch(error => error?.code === 'ENOENT' ? '' : null)
@@ -1023,11 +1026,11 @@ async function main(args) {
   // as the board's own hold ('away', pause.mjs `withAway`), so every reader holds: the state, the hand-out, the work API.
   const account = isDemo || config.project === '' ? null : accountWatch({
     appSessions: () => config.appSessions, setting: config.appAccount || null,
-    record: join(HERE, 'data', 'app-account.json'), chatHome: resolve(HERE, config.project), clock, log: line => console.log(line),
+    record: join(HERE, 'data', 'app-account.json'), chatHome: resolve(HERE, chatHomeOf(config)), clock, log: line => console.log(line),
     // The tests' boards run fast (as WORKER_BOARD_TICK_MS); the board itself waits the minute after the app came back.
     ...(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS !== undefined && Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS) >= 0 ? { settleMs: Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS), everyMs: 500 } : {}),
     folders: () => readAccountFolders(config.appSessions),
-    list: async () => parseList(await readFile(join(resolve(HERE, config.project), '.claude', 'chats', 'list.json'), 'utf8').catch(absentAs(''))),
+    list: async () => parseList(await readFile(chatFile(config, 'chats', 'list.json'), 'utf8').catch(absentAs(''))),
   })
   const storeWork = isDemo || config.project === '' ? null : storeKeeper({ dir: workFolder(config), clock })
   // Every store read asks the account first (cached a few seconds): a loop that reads the store before the first state read (the
@@ -1064,7 +1067,7 @@ async function main(args) {
       return null
     }
   }
-  const viewFile = workDir === null ? null : !isShowOnly ? join(config.project, ...config.backlog.split('/')) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
+  const viewFile = workDir === null ? null : !isShowOnly ? resolveStored(config, config.backlog) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
   /**
    * Focus 2 (spec 2026-10-18, sections 3 and 6): a move of the Focus page, or a draft of the partner's (the page's route,
@@ -1830,7 +1833,7 @@ async function main(args) {
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
       chats: [...roles.keys()],
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlapsOfStore: true,
-      viewFile, boardUrl: boardAddress(HOST, config), backlogFile: join(config.project, ...config.backlog.split('/')),
+      viewFile, boardUrl: boardAddress(HOST, config), backlogFile: resolveStored(config, config.backlog),
       // Part C of the asset providers: the requests' folder and the provider in use for each kind (the work tool's `asset`).
       ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), providerOf: kind => providerFor(config, kind), tools: () => assetTools() } }),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
@@ -1854,7 +1857,7 @@ async function main(args) {
       // B356: a board without a partner chat makes no result check: its own check closes a step.
       hasPartner: (state.advisor ?? null) !== null,
       // Worktree clean-up (2026-10-24): a result check is filed only once its own check-<id> worktrees are gone.
-      checkWorktrees: id => stepLeftovers({ id, which: 'check', repos: knownRepos(), project: config.project, run: gitRunner(), fs: WORKTREE_FILES }),
+      checkWorktrees: id => stepLeftovers({ id, which: 'check', repos: knownRepos(), project: chatHomeOf(config), run: gitRunner(), fs: WORKTREE_FILES }),
       // Partner answers (2026-10-19): the focus goal, whose daily note lists the partner's answers of the day.
       focusGoal: state.focus?.id ?? null,
       // Autopilot (2026-10-31): whether it is on; an ask a chat files is routed at once (src/work/autopilot.mjs). A recap wait
@@ -1981,7 +1984,7 @@ async function main(args) {
     const exists = path => stat(path).then(() => true, () => false)
     const running = loops.run(`check:${id}`, async () => {
       // Worktree clean-up (2026-10-24): no worktree of the step, nor its folder, is left in the project folder.
-      const outcome = await patientReportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: config.project, touches, exists, fs: WORKTREE_FILES, cut })
+      const outcome = await patientReportCheck({ id, branch, result, merged, repos, run: gitRunner(), project: chatHomeOf(config), touches, exists, fs: WORKTREE_FILES, cut })
       const checked = await workApi({ action: 'check', id, ...outcome }, { ...(await workCtx()), as: 'server' })
       if (checked?.ok !== true) throw new Error(`the check of ${id} could not be written: ${checked?.why ?? 'no answer'}`)
       work.reset?.()
@@ -2029,7 +2032,7 @@ async function main(args) {
   const TASK_TIMES_FILE = join(HERE, 'data', 'task-times.json')
   const TASK_LIST_FILE = join(HERE, 'data', 'task-times.md')
   // Spending counts every chat: the cards name the sessions cleared chats left.
-  const spending = createSpendingCollector({ dir: join(HERE, 'data'), transcripts: config.transcripts, chats: config.project ? join(config.project, '.claude', 'chats') : null, appSessions: config.appSessions || null, clock })
+  const spending = createSpendingCollector({ dir: join(HERE, 'data'), transcripts: config.transcripts, chats: config.project ? chatsFolderOf(config) : null, appSessions: config.appSessions || null, clock })
   await spending.load()
   let taskTimes = { scans: {}, tasks: [] }
   // The supervisor's section on the demo: made-up rules, incidents and a check of its own (fixtures/demo.mjs).
@@ -2332,7 +2335,8 @@ async function main(args) {
     await assetsQueue.pass()
   })
   if (assetsQueue !== null) setInterval(lookAtAssets, ASSETS_MS)
-  const inProject = (project, path) => join(project, ...path.split('/'))
+  // T5.2 P2: a stored path's place, through the table (today: `join(project, path)`; P3 moves the pictures and the store with it).
+  const inProject = (project, path) => resolveStored({ ...config, project }, path, { boardDir: HERE })
   /** The picture being made: which idea and version, since when, and how to stop it. */
   let making = null
   /** The reference pictures the settings name that are not there, looked for once a minute. */
@@ -2575,7 +2579,7 @@ async function main(args) {
   const chatSessions = async () => {
     // B467: no folder of cards is none; anything else fails this pass of the CPU loop (shown and logged). A state it
     // cannot read is a loop of its own: the chats of the cards are still limited, and a click on a level still works.
-    const cards = await readdir(join(config.project, '.claude', 'chats')).catch(absentAs([]))
+    const cards = await readdir(chatsFolderOf(config)).catch(absentAs([]))
     const listed = (await loops.run('chat-list', () => readState()))?.chats ?? []
     return [...new Set([...sessionsOfCards(cards), ...listed.filter(chat => !chat.isLeftover && typeof chat.session === 'string').map(chat => chat.session)])]
   }
@@ -2613,7 +2617,7 @@ async function main(args) {
   // A log the board did not finish before it stopped is finished now; B529: by the board process that runs the loops
   // only (at its start, below; or when it gains them), so two never write the same log.
   const chatLogs = isDemo || isShowOnly || config.project === '' ? null : chatLogKeeper({
-    file: join(HERE, 'data', 'chat-logs.json'), project: config.project, transcripts: config.transcripts, clock,
+    file: join(HERE, 'data', 'chat-logs.json'), project: chatHomeOf(config), transcripts: config.transcripts, clock,
     failed: job => console.error(`A chat log was given up: ${job.log} (${job.why ?? 'unknown'}).`),
     track: trackJob,
   })
@@ -2723,7 +2727,7 @@ async function main(args) {
     wakesChanged()
     isOpening = true
     try {
-      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, config.project) })
+      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
       if (!done.launched) {
         // Nothing was launched: no try spent (the ⚙ row says why).
         wakeGivenBack(wakes, key, jobId)
@@ -2886,7 +2890,7 @@ async function main(args) {
     if (!canOpen || isHolding(state.pause)) return
     // The review of 2026-11-02 (4a): a launch the board could not make waits until its program and folder pass again.
     if (openBlocked !== null) {
-      if (isProgram(await findClaude()) && isFolder(resolve(HERE, config.project))) openBlocked = null
+      if (isProgram(await findClaude()) && isFolder(resolve(HERE, chatHomeOf(config)))) openBlocked = null
       else return
     }
     const outbox = store.outbox().filter(message => !isLate(message, now, keep))
@@ -2962,8 +2966,8 @@ async function main(args) {
   const codeJobsNow = async (prefix = '', owner = null) => {
     if (isDemo || config.project === '') return null
     // T12: one routine per worker slot up to `maxWorkers`, so a changed limit is read again at once.
-    const folder = basename(resolve(HERE, config.project))
-    if (clock() - codeRead.at >= 30_000 || codeRead.max !== config.maxWorkers) codeRead = { at: clock(), max: config.maxWorkers, read: await readCodeJobs({ project: resolve(HERE, config.project), folder, maxWorkers: config.maxWorkers }) }
+    const folder = routineFolderOf(config)
+    if (clock() - codeRead.at >= 30_000 || codeRead.max !== config.maxWorkers) codeRead = { at: clock(), max: config.maxWorkers, read: await readCodeJobs({ project: resolve(HERE, chatHomeOf(config)), folder, maxWorkers: config.maxWorkers }) }
     // The Product owner (2026-10-31): once the list names one, its own routine is checked and made the same way.
     const view = codeJobsView({ claims: codeClaims, ...codeRead.read, folder, maxWorkers: config.maxWorkers, spawnFail, now: clock(), owner: typeof owner === 'string' && owner !== '' })
     // T13 part 4: and the board's own opening of a chat when none runs.
@@ -3290,7 +3294,7 @@ async function main(args) {
       codeRead = { at: -Infinity, read: null }
       const read = await readState()
       const view = await codeJobsNow(read.chatPrefix ?? '', read.ownerName ?? null)
-      const done = await allowCodeJobs({ project: resolve(HERE, config.project), tools: view?.missing ?? [] })
+      const done = await allowCodeJobs({ project: resolve(HERE, chatHomeOf(config)), tools: view?.missing ?? [] })
       if (!done.ok) return { ok: false, status: 409, why: done.why }
       codeRead = { at: -Infinity, read: null }
       readState.reset()
@@ -3818,7 +3822,7 @@ async function main(args) {
       const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main', assets: Array.isArray(state.assets) ? state.assets : [] }).resumeList : []
       const prefix = state.chatPrefix ?? ''
       // T12: the new worker's own routine first, the shared start-worker task only as the fallback.
-      const spawn = can.has('spawn') && config.project !== '' ? nextSpawn((state.chats ?? []).map(lane => lane.name), prefix, basename(config.project)) : null
+      const spawn = can.has('spawn') && config.project !== '' ? nextSpawn((state.chats ?? []).map(lane => lane.name), prefix, routineFolderOf(config)) : null
       // B769: the person's stop and remove words carried out by code: a stop is settled once its worker's turn ended; a
       // remove is a job for a chat that may close chats (never the worker itself), once its worker is idle or off.
       const removing = []
@@ -4090,7 +4094,7 @@ async function main(args) {
         if (name !== null) noteMod(body, { ok: true, chat: name })
         noteWhoami(seen, session, name, clock())
       }
-      const card = name === null ? null : await cardFiledUnder(join(config.project, '.claude', 'chats'), { name, session, shown: shownSessions(state) })
+      const card = name === null ? null : await cardFiledUnder(chatsFolderOf(config), { name, session, shown: shownSessions(state) })
       return answerWhoami(state, body, card)
     }),
     typed: counted(async body => {
@@ -4158,7 +4162,7 @@ async function main(args) {
   })
 
   // Where the mod finds the board. The file goes when the board does, so no chat asks a board that is gone.
-  const noteFile = join(config.project, '.claude', 'board.json')
+  const noteFile = chatFile(config, 'board.json')
   process.on('exit', () => {
     try {
       if (bridgeKey !== null && JSON.parse(readFileSync(noteFile, 'utf8')).key === bridgeKey) rmSync(noteFile)
@@ -4202,7 +4206,7 @@ async function main(args) {
         return true
       },
       write: async () => {
-        await mkdir(join(config.project, '.claude'), { recursive: true })
+        await mkdir(chatFile(config), { recursive: true })
         await writeAtomic(noteFile, bridgeNote({ port: config.port, key: bridgeKey, at: clock() }))
       },
       onFailed: (error, tries) => {
@@ -4419,7 +4423,7 @@ async function main(args) {
         }
       }
       // The Product owner (2026-10-31, T12): the list names one and no chat of it is on the board: a hand runs its own routine.
-      const ownerStart = bridgeKey === null || config.project === '' ? null : ownerStartWords({ state, outbox: store.outbox(), now: clock(), folder: basename(resolve(HERE, config.project)), isPaused: isHolding(state.pause) })
+      const ownerStart = bridgeKey === null || config.project === '' ? null : ownerStartWords({ state, outbox: store.outbox(), now: clock(), folder: routineFolderOf(config), isPaused: isHolding(state.pause) })
       if (ownerStart !== null) {
         await store.say({ id: randomBytes(8).toString('hex'), at: clock(), ...ownerStart, state: 'waiting' })
         readState.reset()

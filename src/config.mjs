@@ -76,6 +76,10 @@ export const DEFAULTS = {
   /** B194: the branch the project's work is merged into: its game, the one the Run game button starts. */
   baseBranch: 'main',
   gameRepo: '',
+  /** T5.2 P2: the folder the chats run in (memory, trust, routines, the port, the Workers mod's board file, chat logs); '' = the project folder. */
+  chatHome: '',
+  /** T5.2 P2: the board's data home (`<project>/.workerboard` once the data moves); '' = today's layout, everything in the project folder. */
+  data: '',
   /** B1273: the Claude account the board's chats live in (its id, as the app names its folders); '' = found by the main chat and recorded. */
   appAccount: '',
   appSessions: '',
@@ -425,7 +429,7 @@ export async function ownMapNow(config, { main = null } = {}) {
   return !mine.some(path => theirs.some(other => within(path, other) || within(other, path)))
 }
 
-const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
+const PATHS = ['project', 'gameRepo', 'chatHome', 'data', 'appSessions', 'transcripts']
 // The paths inside the project or the game's repository, written with /.
 const PROJECT_PATHS = ['backlog', 'gamePlan', 'productPlan', 'advisorDecisions', 'designKinds']
 // Focus 1: the goal map's paths, inside the project or a whole path of their own (a copy's).
@@ -463,7 +467,9 @@ export function parseConfig(text, env) {
   }
   // B134: the app keeps a project's transcripts in the user's .claude\projects, in a folder named after the project's
   // path; a setting of its own still wins.
-  if (config.transcripts === '' && config.project !== '') config.transcripts = transcriptsOf(config.project, env)
+  // T5.2 P2: the transcripts are the CHATS' folder's (chatHome, else the project), as the app keys them by the chats' cwd.
+  const chatHome = config.chatHome !== '' ? config.chatHome : config.project
+  if (config.transcripts === '' && chatHome !== '') config.transcripts = transcriptsOf(chatHome, env)
   // This one has a place by default: the app's own folder.
   config.usageHistory = expandEnv(typeof raw.usageHistory === 'string' ? raw.usageHistory : DEFAULTS.usageHistory, env)
   for (const key of NUMBERS) {
