@@ -212,9 +212,44 @@ export function handedSettingOf(envelope, sent = []) {
 
 /**
  * T8.5 step 6: the plan's words that go: none for a worker on the hand-over sequence (its envelope's `set` sets it at its hand-over),
- * except (B1207, X26 back) a word for a held step whose setting changed after its hand-over (`changed`): no envelope comes for that.
+ * except (B1207, X26 back) a word for a held step whose setting changed after its hand-over (`changed`): no envelope comes for that;
+ * nor (B1282, X207) for a held step's setting lost after its read-back (`lost`).
  */
-export const planWordsFor = (words, lanes = []) => words.filter(word => word.changed === true || lanes.find(lane => lane.name === word.chat)?.onSequence !== true)
+export const planWordsFor = (words, lanes = []) => words.filter(word => word.changed === true || word.lost === true || lanes.find(lane => lane.name === word.chat)?.onSequence !== true)
+
+/** B1282: whether the app's file of `lane`'s chat shows the setting `word` asked (an effort it says; the model where the word names one). */
+const showsSetting = (lane, word) => chatEffort(lane) !== null && chatEffort(lane) === word.effort && ((word.model ?? null) === null || sameModel(lane.model, word.model))
+
+/**
+ * B1282 (X207: Worker 3 was set to opus · high for B1279 at 23:50 by Main and read back; the account move at 00:00 brought back the other
+ * account's record of it, sonnet · medium, and nothing asked again): the newest time the board saw `step`'s setting (`level`, the model id
+ * `model`) on its worker, `{ at, how }`, or null. Read back: its hand-over envelope set by Main's model (`setByMain`, the hand-over pass saw
+ * the worker run at it: at its take), a set word for the step met by the sweep (`met`, at its close), or one the hand-over pass saw met
+ * after it went (`readBackAt`, readBackMarkOf). A hand's set alone is no read-back (the app's file may not show it yet).
+ */
+export function readBackOf({ envelope, handed, words = [], step, level, model }) {
+  const found = []
+  if (envelope?.setByMain === true && sameSetting(handed, level, model)) found.push({ at: [envelope.takenAt, envelope.deliveredAt, envelope.at].find(Number.isFinite), how: 'its hand-over' })
+  for (const word of words) {
+    if (word?.forStep !== step || !sameTarget(word, level, model) || (Number.isFinite(envelope?.at) && word.at < envelope.at)) continue
+    if (word.state === 'dropped' && word.met === true && Number.isFinite(word.closedAt)) found.push({ at: word.closedAt, how: 'a set word' })
+    if (Number.isFinite(word.readBackAt)) found.push({ at: word.readBackAt, how: 'a set word' })
+  }
+  return found.filter(one => Number.isFinite(one.at)).sort((a, b) => a.at - b.at).at(-1) ?? null
+}
+
+/**
+ * B1282: the hand-over pass's read-back of a word Main took: the id of `lane`'s newest set word when it is for a step (`forStep`), taken
+ * or delivered, not read back yet, for this app session, and the app's file of the chat shows its setting now; else null. The pass marks it
+ * `readBackAt`, so a later loss of that setting is known as one (readBackOf).
+ */
+export function readBackMarkOf(lane, sent = []) {
+  if (lane === undefined || lane === null) return null
+  const newest = sent.filter(one => one?.command === 'worker-effort' && one.about === lane.name && Number.isFinite(one.at)).sort((a, b) => a.at - b.at).at(-1)
+  if (newest === undefined || typeof newest.forStep !== 'string' || Number.isFinite(newest.readBackAt) || !['taken', 'delivered'].includes(newest.state)) return null
+  if (lane.appSession != null && sessionOf(newest) !== null && sessionOf(newest) !== lane.appSession) return null
+  return showsSetting(lane, newest) ? newest.id : null
+}
 
 /**
  * Check 2026-11-14 (chat 1, both lenses; re-check): a changed word the sweep dropped as moot (its step no longer wants it, or is no
@@ -291,7 +326,7 @@ export function runSettings(config = {}) {
  * `why`. Without a model id (the settings name none for the family) it is B468's word, the effort alone. One message
  * of the outbox.
  */
-export function effortWords({ to, chat, session, level, model = null, usual, usualModel = null, step, why, probe = false, changed = false, forModel = false }) {
+export function effortWords({ to, chat, session, level, model = null, usual, usualModel = null, step, why, probe = false, changed = false, lost = false, forModel = false }) {
   const id = typeof session === 'string' && /^[\w-]{1,80}$/.test(session) ? [`Session: ${session}`] : []
   const forStep = step === null ? [] : [`Step: ${step}`]
   const text = model === null
@@ -303,6 +338,8 @@ export function effortWords({ to, chat, session, level, model = null, usual, usu
     ...(probe === true ? { probe: true } : {}),
     // B1207: a step's setting that changed after its hand-over (`changed`); while the app refuses the hands, for Main's model (`forModel`).
     ...(changed === true ? { changed: true } : {}),
+    // B1282: a held step's setting lost after its read-back (`lost`).
+    ...(lost === true ? { lost: true } : {}),
     ...(forModel === true ? { forModel: true } : {}),
     text: text.join('\n'),
   }
@@ -520,14 +557,31 @@ export function effortPlan({ items, lanes = [], sent = [], now, main = null, pre
             : 'the main chat was asked, and the app does not say Opus yet'
       waitsFor = { model: 'opus', since, text: `${step} waits for Opus${since === null ? '' : ` since ${clockOf(since)}`}: ${reason}; it goes once ${lane.name} runs on Opus.` }
     }
+    // B1282 (X207): a held step whose setting the board read back on its worker, which the app's file now shows otherwise (an account
+    // move brought another record of the chat, a setting changed by hand): lost. One set word for it at once, past the half hour's hold of
+    // the word that set it, the sequence and the refusal (then for Main's model), as B1207's changed word; once per loss: none while a lost
+    // word stands since the newest read-back. Only on a definite reading (an effort or a model the file names that differs), never while a
+    // word for another setting is on its way.
+    const readBack = holding === undefined || step === null || isChanged ? null : readBackOf({ envelope: ownEnvelope, handed: handedAs, words: stepMine(), step, level, model: id })
+    const isOtherReading = (current !== null && current !== level) || (id !== null && typeof lane.model === 'string' && lane.model !== '' && !sameModel(lane.model, id))
+    const isLost = readBack !== null && !isSet && against === null && isOtherReading
+    const lostWord = !isLost ? undefined : stepMine().find(word => word.lost === true && word.forStep === step && word.at >= readBack.at && word.at <= now)
+    const canAskLost = isLost && lostWord === undefined && main !== null
+    const runsWords = `${familyOf(lane.model) ?? 'a model not known'} · ${current ?? 'effort not known'}`
     runs.set(lane.name, {
       level, model: hasModels ? family : null, usual: usualEffort, usualModel: hasModels ? usualFamily : null, step, why: effort?.why ?? null, modelWhy: model?.why ?? null, isSet,
-      asked: asked === null ? null : { at: asked.at, state: asked.state }, waitsFor, ...(isQuietGap && !isSet ? { refused: true } : {}),
+      asked: asked === null ? null : { at: asked.at, state: asked.state }, waitsFor, ...(isQuietGap && !isSet && !isLost ? { refused: true } : {}),
       ...(isChanged ? { changed: { from: handedAs, fromWords: handedWords, then: thenWords, thenAt: thenWords === null ? null : beforeAt, handedAt: ownEnvelope.at, at: changedAt } } : {}),
+      // The loss's time: its word's (written at the reading that saw it), now while it is being written, else the read-back's (no main chat).
+      ...(isLost ? { lost: { setAt: readBack.at, at: lostWord?.at ?? (canAskLost ? now : readBack.at), runs: runsWords, asking: canAskLost, word: lostWord === undefined ? null : { at: lostWord.at, state: lostWord.state } } } : {}),
     })
     if (canAsk && isChanged) {
       words.push({ to: main, chat: lane.name, session: lane.appSession ?? null, level, model: id, usual: usualEffort, usualModel: usualId, step, changed: true,
         ...(isRefused ? { forModel: true } : {}), why: `${changedWhy}${isRefused ? "; the app no longer lets the board's code set it, so set it yourself" : ''}` })
+    } else if (canAskLost) {
+      words.push({ to: main, chat: lane.name, session: lane.appSession ?? null, level, model: id, usual: usualEffort, usualModel: usualId, step, lost: true,
+        ...(isRefused ? { forModel: true } : {}),
+        why: `${step} was set to ${id === null ? level : `${family} · ${level}`} at ${clockOf(readBack.at)} (read back) and ${lane.name} runs ${runsWords} again${isRefused ? "; the app no longer lets the board's code set it, so set it yourself" : ''}` })
     } else if (canAsk) words.push({ to: main, chat: lane.name, session: lane.appSession ?? null, level, model: id, usual: usualEffort, usualModel: usualId, step, why })
   }
   return { words, runs }

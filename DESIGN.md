@@ -5999,6 +5999,22 @@ and free workers sat idle. Never a way around the refusal (no permission or mode
   says "after its setting changed HH:MM". Steps handed before B1207 landed carry no `wants`: a change on one whose hand-over set
   nothing stays unseen until its next hand-over. Tests:
   `test/work/effortChanged.test.mjs` (the real case's records), `handoverBoard.test.mjs` (`wants`).
+- A setting lost after its read-back (B1282, X207: Worker 3 got B1279 at opus · high at 23:50, set by Main's model and read back by
+  the hand-over pass; at 00:00 an account move brought back the other account's record of the chat, sonnet · medium, and nothing
+  asked again: the sequence drops the plan's words, the refusal asks none, the half hour's hold kept the word that set it; the rule
+  said "switch asked 23:50, not read back"). Read back (`readBackOf`) is only what the board saw: the envelope set by Main's model
+  (`setByMain`, at its take), a set word for the step the sweep closed `met`, or one Main took that the hand-over pass saw shown by
+  the app's file (`readBackAt`, `readBackMarkOf`: the lane's newest step word, taken or delivered, its own session, an effort the
+  file names); a hand's delivered set alone is none. A held step read back at its setting whose worker the file now shows at another
+  (an effort or a model it names, no word for another setting on its way) is lost: one set word to Main at once (`lost`, why "B12 was
+  set to opus · high at HH:MM (read back) and Worker N runs sonnet · medium again"), through the sequence, past the half hour's hold
+  of the word that set it (deliver.mjs `isEffortWordHeld`) and while the refusal stands, then for Main's model; once per loss (none
+  while a lost word stands since the newest read-back; that word met or read back is a new read-back, so a second loss gets its own).
+  The sweep drops a waiting lost word moot as a changed one. The run carries `lost: { setAt, at, runs, asking, word }`, `at` the
+  loss's word's time (the reading that saw it). effort-mismatch's state `lost` counts from the loss, is quiet while its word is
+  being written or open (waiting, taken), then says "Worker N runs sonnet · medium again since 00:00 (11 min): B12 was switched to
+  opus · high at 23:50 (read back)"; "not read back" stays for a worker never read back. The health summary says "(switched HH:MM,
+  lost HH:MM)". Tests: `test/work/effortLost.test.mjs` (X207's records).
 - Tests: `test/work/setRefused.test.mjs` and `setRefusedReview.test.mjs` (the refusal's real words; B1160 sent again without a take-back; no set word while refused; an
   old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off
   sonnet steps; the plain row words). The owed set through a model turn of Main (decision 4) is the second landing.
