@@ -68,9 +68,13 @@ export const picturesFlag = flag => String(flag).trim().toLowerCase() === 'none'
 /** Whether setup asks: no `pictures` setting yet, no `--pictures` flag, a keyboard, and not `--check`. */
 export const picturesAsked = ({ pictures, flag, isTty, isCheck }) => !isPictures(pictures) && flag === undefined && isTty === true && isCheck !== true
 
-/** `text` (a JSON settings file, or null for none) with `key` set to `value`, keeping its indent and line ends; null when it is no object. */
+/**
+ * `text` (a JSON settings file) with `key` set to `value`, keeping its indent and line ends; null when it is no object, or when there is
+ * no file (`text` null): setup never makes a settings file (config.json's first start copies examples/config.json, B127).
+ */
 export function withSetting(text, key, value) {
-  const body = String(text ?? '{}').replace(/^\uFEFF/, '') || '{}'
+  if (text === null || text === undefined) return null
+  const body = String(text).replace(/^\uFEFF/, '')
   let raw
   try {
     raw = JSON.parse(body)

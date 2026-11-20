@@ -60,15 +60,9 @@ test('the split: pictures is the project\'s key, picturesHome this PC\'s; both r
 
 test('a setting written keeps the file\'s indent, line ends and other keys', () => {
   assert.equal(withSetting('{\r\n    "name": "Garden"\r\n}\r\n', 'picturesHome', 'G:\\x'), '{\r\n    "name": "Garden",\r\n    "picturesHome": "G:\\\\x"\r\n}\r\n')
-  assert.equal(withSetting(null, 'pictures', { where: 'this PC' }), '{\n  "pictures": {\n    "where": "this PC"\n  }\n}\n')
+  assert.equal(withSetting('{}', 'pictures', { where: 'this PC' }), '{\n  "pictures": {\n    "where": "this PC"\n  }\n}\n')
+  assert.equal(withSetting(null, 'pictures', { where: 'this PC' }), null, 'no file: never made')
   assert.equal(withSetting('[1]', 'a', 1), null)
   assert.equal(withSetting('{ broken', 'a', 1), null)
 })
 
-test('setup writes the choice into the project\'s settings and this PC\'s path into config.json', async () => {
-  const setup = await readFile(new URL('../setup.mjs', import.meta.url), 'utf8')
-  assert.match(setup, /await write\(config\.settingsFile \?\? join\(here, 'config\.json'\), 'pictures', answer\.pictures\)/)
-  assert.match(setup, /await write\(join\(here, 'config\.json'\), 'picturesHome', answer\.picturesHome\)/)
-  assert.match(setup, /picturesAsked\(\{ pictures: config\.pictures, flag, isTty: Boolean\(process\.stdin\.isTTY\), isCheck \}\)/)
-  assert.match(setup, /answer !== null && isCheck\) console\.log\('Nothing is written/)
-})

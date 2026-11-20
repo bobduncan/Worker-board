@@ -710,7 +710,7 @@ export class BrokenConfig extends Error {}
  * T5.2 P4: the keys that belong to this PC, kept in config.json once the project has a board-settings.json (paths on this PC, its ports, its
  * Codex, its pictures home); every other key is the project's, in settings.json.
  */
-export const PC_KEYS = Object.freeze(['project', 'gameRepo', 'appSessions', 'transcripts', 'usageHistory', 'port', 'gamePort', 'codex', 'soundLibrary', 'chatHome', 'data', 'pc', 'label', 'sync', 'picturesHome'])
+export const PC_KEYS = Object.freeze(['project', 'gameRepo', 'appSessions', 'transcripts', 'usageHistory', 'port', 'gamePort', 'codex', 'soundLibrary', 'chatHome', 'data', 'pc', 'label', 'sync', 'picturesHome', 'appAccount', 'browsersRule'])
 
 /** The project's settings file's name in its data folder: beside the carry tool's `settings/` folder there, never the same name. */
 export const SETTINGS_FILE = 'board-settings.json'
@@ -718,10 +718,10 @@ export const SETTINGS_FILE = 'board-settings.json'
 /**
  * The project's settings file: `board-settings.json` in the data folder this PC's config.json names (`data`, an explicit opt-in; a
  * relative one from `base`, the config file's folder), or null: no `data`, today's behaviour. Never a guess at a `.workerboard` folder:
- * one there may be the carry tool's clone (chat 1, 2026-11-16).
+ * one there may be the carry tool's clone (chat 1, 2026-11-16). `%NAME%` in `data` is expanded from `env`, as P2 reads it.
  */
-export function settingsFileOf(config, base = '.') {
-  const data = typeof config?.data === 'string' && config.data.trim() !== '' ? config.data.trim() : null
+export function settingsFileOf(config, base = '.', env = {}) {
+  const data = typeof config?.data === 'string' && config.data.trim() !== '' ? expandEnv(config.data.trim(), env) : null
   return data === null ? null : resolve(base, data, SETTINGS_FILE)
 }
 
@@ -759,7 +759,7 @@ export async function loadConfig(file, env = process.env, platform = process.pla
   }
   // T5.2 P4 (the design of 2026-11-16, section 6): the project's own settings travel with its data, in <data>/board-settings.json (only with data set); config.json keeps
   // only what belongs to this PC (PC_KEYS). With no settings.json nothing changes.
-  const settingsFile = settingsFileOf(raw, dirname(file))
+  const settingsFile = settingsFileOf(raw, dirname(file), env)
   const settingsText = settingsFile === null ? null : await readFile(settingsFile, 'utf8').catch(() => null)
   const settingsProblem = settingsText === null ? null : configProblem(settingsText)
   if (settingsProblem !== null) throw new BrokenConfig(`The project's settings file ${settingsFile} is broken: ${settingsProblem}. Fix it and start the board again.`)

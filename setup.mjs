@@ -17,10 +17,8 @@ import { homedir, userInfo } from 'node:os'
 
 import { loadConfig, workFolder } from './src/config.mjs'
 import { courierLines } from './src/courierSetup.mjs'
-import { cloudFolders } from './src/carry/pictures.mjs'
 import { describeFlow, setupFlow } from './src/flowSetup.mjs'
-import { DEFAULT_PICTURES_FOLDER, homeFor, isPictures, picturesAnswer, picturesAsked, picturesChoices, picturesFlag, withSetting } from './src/picturesSetup.mjs'
-import { writeAtomic } from './src/write.mjs'
+import { picturesPart } from './src/picturesPart.mjs'
 import { findClaude, runSetup } from './src/setup.mjs'
 import { setupWatcher } from './src/watcherSetup.mjs'
 
@@ -77,60 +75,14 @@ if (file !== null) {
     else console.log(`Added ${done.added.length} move${done.added.length === 1 ? '' : 's'}${done.states.length === 0 ? '' : ` and ${done.states.length} state${done.states.length === 1 ? '' : 's'}`} to ${done.file}; the old file is kept as ${done.backup}`)
   }
 }
-// T5.2 P4: the pictures part: where the project's pictures live (src/picturesSetup.mjs). Asked once, with a keyboard, when the project
-// has no `pictures` setting; `--pictures <folder>` or `--pictures none` answers without asking. The choice goes into the project's
-// settings (board-settings.json when it has one, else config.json); this PC's path to the folder into config.json (picturesHome).
+// T5.2 P4: the pictures part (src/picturesPart.mjs): where the project's pictures live; it never makes config.json.
 {
-  let config = null
-  try {
-    config = await loadConfig(join(here, 'config.json'))
-  } catch (error) {
-    console.log(`The pictures part is skipped: ${error.message}`)
-  }
-  if (config !== null) {
-    const flag = given('pictures')
-    const clouds = cloudFolders()
-    let answer = null
-    if (isPictures(config.pictures)) {
-      const home = config.picturesHome === '' ? homeFor(config.pictures, clouds) : null
-      console.log(`The project's pictures: ${config.pictures.where}${config.pictures.folder ? `, folder "${config.pictures.folder}"` : ''}${config.picturesHome ? ` (${config.picturesHome})` : ''}.`)
-      if (home !== null) answer = { ok: true, pictures: null, picturesHome: home }
-    } else if (flag !== undefined) answer = picturesFlag(flag)
-    else if (picturesAsked({ pictures: config.pictures, flag, isTty: Boolean(process.stdin.isTTY), isCheck })) {
-      const choices = picturesChoices(clouds)
-      console.log('Where do this project\'s pictures go?')
-      for (const one of choices) console.log(`  ${one.key}. ${one.label}`)
-      const asking = createInterface({ input: process.stdin, output: process.stdout })
-      const typed = (await asking.question(`Pick 1 to ${choices.length} [1]: `)).trim()
-      const picked = choices.find(one => one.key === (typed || '1'))
-      const folder = picked?.path ? (await asking.question(`The folder's name there [${DEFAULT_PICTURES_FOLDER}]: `)).trim() : ''
-      const path = picked?.where === 'elsewhere' ? (await asking.question('The whole folder (C:\\...): ')).trim() : ''
-      asking.close()
-      answer = picturesAnswer(choices, { typed, folder, path })
-    } else console.log(isCheck ? 'The project names no place for its pictures: setup would ask.' : 'The project names no place for its pictures (say --pictures <folder> or --pictures none).')
-    if (answer !== null && !answer.ok) {
-      console.log(`Nothing changed for the pictures: ${answer.why}`)
-      good = false
-    } else if (answer !== null && isCheck) console.log('Nothing is written for the pictures: this is --check.')
-    else if (answer !== null) {
-      const write = async (file, key, value) => {
-        const text = await readFile(file, 'utf8').catch(() => null)
-        const next = withSetting(text, key, value)
-        if (next === null) throw new Error(`${file} holds no settings object`)
-        await writeAtomic(file, next)
-      }
-      try {
-        if (answer.pictures !== null) await write(config.settingsFile ?? join(here, 'config.json'), 'pictures', answer.pictures)
-        await write(join(here, 'config.json'), 'picturesHome', answer.picturesHome)
-        console.log(answer.picturesHome === '' ? 'The pictures stay in the project on this PC.' : `The pictures go to ${answer.picturesHome}.`)
-      } catch (error) {
-        console.log(`The pictures were not written: ${error.message}`)
-        good = false
-      }
-    }
-  }
+  const asking = process.stdin.isTTY ? createInterface({ input: process.stdin, output: process.stdout }) : null
+  const pictures = await picturesPart({ boardDir: here, flag: given('pictures'), isTty: Boolean(process.stdin.isTTY), isCheck, ask: question => asking.question(question) })
+  asking?.close()
+  for (const line of pictures.lines) console.log(line)
+  if (!pictures.ok) good = false
 }
-
 // F10: the watcher part (Windows only): the scheduled task that brings a dead board back.
 if (process.platform === 'win32') {
   const runProgram = (program, programArgs) => new Promise(resolve => {

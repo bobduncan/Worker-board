@@ -74,6 +74,21 @@ test('the settings file sits beside the carry tool\'s settings folder in the dat
   assert.notEqual(SETTINGS_FILE, 'settings')
 })
 
+test('this PC\'s Claude account (B1273) and its browsers rule stay with config.json once the settings file is in use (chat 1\'s probe)', async t => {
+  const id = '7b36a87b-0000-4000-8000-000000000001'
+  const one = await world(t, { config: { appAccount: id, browsersRule: false }, settings: { name: 'Garden' } })
+  const config = await loadConfig(one.file, ENV, 'win32')
+  assert.deepEqual([config.name, config.appAccount, config.browsersRule, config.settingsIgnored], ['Garden', id, false, []])
+})
+
+test('data written with %NAME% finds the settings file loadConfig reads', async t => {
+  const one = await world(t, { config: {}, settings: { name: 'Garden' } })
+  const config = JSON.parse(await readFile(one.file, 'utf8'))
+  await writeFile(one.file, JSON.stringify({ ...config, data: '%CLONEHOME%' }))
+  const loaded = await loadConfig(one.file, { ...ENV, CLONEHOME: one.home }, 'win32')
+  assert.deepEqual([loaded.name, loaded.settingsFile], ['Garden', one.settingsFile])
+})
+
 test('a broken settings.json is refused, naming that file', async t => {
   const one = await world(t, { config: {}, settings: '{ "maxWorkers": 2, ' })
   await assert.rejects(loadConfig(one.file, ENV, 'win32'), error => error instanceof BrokenConfig && error.message.includes(one.settingsFile))
@@ -86,6 +101,7 @@ test('the settings file\'s place and the file each write goes to', () => {
   assert.equal(settingsFileOf({ project: 'P', gameRepo: 'G', data: '  ' }), null)
   assert.equal(settingsFileOf({ project: 'P', gameRepo: 'G', data: 'C:\\D' }, 'C:\\B'), join('C:\\D', SETTINGS_FILE))
   assert.equal(settingsFileOf({ data: 'D' }, 'C:\\B'), join('C:\\B', 'D', SETTINGS_FILE), 'a relative data folder from the config file\'s folder')
+  assert.equal(settingsFileOf({ data: '%Home%\\clone' }, 'C:\\B', { HOME: 'C:\\Users\\someone' }), join('C:\\Users\\someone', 'clone', SETTINGS_FILE), '%NAME% expanded, as P2 reads data')
   const config = { settingsFile: 'S' }
   assert.equal(settingFileFor(config, 'C', 'maxWorkers'), 'S')
   assert.equal(settingFileFor(config, 'C', 'providers'), 'S')
@@ -99,4 +115,9 @@ test('the server writes the settings panel and the providers to the file setting
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.equal(server.match(/const file = settingFileFor\(config, join\(HERE, 'config\.json'\), checked\.key\)/g)?.length, 2)
   assert.match(server, /await startSetup\(setupFile, \{ hasProvidersKey: config\.hasProvidersKey === true \}\)/)
+  // B128: a restart onto a broken project settings file would stop the board: the restart guard reads it as loadConfig does.
+  const guard = server.slice(server.indexOf('const restartNow = async () => {'), server.indexOf('const check = await loads('))
+  assert.match(guard, /settingsFileOf\(JSON\.parse\(\(await readFile\(join\(HERE, 'config\.json'\), 'utf8'\)\)\.replace\(\/\^\\uFEFF\/, ''\)\) \?\? \{\}, HERE, process\.env\)/)
+  assert.match(guard, /then\(configProblem,/)
+  assert.match(guard, /The project's settings file \$\{basename\(projectSettings\)\} is broken/)
 })

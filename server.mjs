@@ -43,7 +43,7 @@ import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from '.
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
-import { BrokenConfig, configProblem, readProviders, settingFileFor, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
+import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -3050,6 +3050,10 @@ async function main(args) {
     // B467: one Windows holds is not "not there": its own words, and the board keeps running.
     const settings = await readFile(join(HERE, 'config.json'), 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? 'it is not there' : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
     if (settings !== null) return { ok: false, status: 409, why: `The settings file config.json is broken: ${settings}. Fix it first; this board keeps running.` }
+    // T5.2 P4: the project's settings file too (only with `data` set), which loadConfig refuses as well when it is broken.
+    const projectSettings = settingsFileOf(JSON.parse((await readFile(join(HERE, 'config.json'), 'utf8')).replace(/^\uFEFF/, '')) ?? {}, HERE, process.env)
+    const projectProblem = projectSettings === null ? null : await readFile(projectSettings, 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? null : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
+    if (projectProblem !== null) return { ok: false, status: 409, why: `The project's settings file ${basename(projectSettings)} is broken: ${projectProblem}. Fix it first; this board keeps running.` }
     const check = await loads(join(HERE, 'server.mjs'))
     if (!check.ok) return { ok: false, status: 500, why: `The new version does not start: ${check.why}` }
     // B404: the board stops taking work and waits up to 10 s for the reconciler's pass and the running checks.
