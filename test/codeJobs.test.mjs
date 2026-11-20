@@ -206,11 +206,13 @@ test('the server keeps each chat\'s claim, shows the check in the state and allo
   // The Product owner (2026-10-31): with the list's name for it, so its routine is checked once the list names one.
   assert.match(server, /codeJobs: await codeJobsNow\(state\.chatPrefix \?\? '', state\.ownerName \?\? null\)/)
   // T12: one routine per worker slot up to the limit: read for it, shown by it, and the pasted line makes the missing ones.
-  assert.match(server, /readCodeJobs\(\{ project: resolve\(HERE, config\.project\), folder, maxWorkers: config\.maxWorkers \}\)/)
+  // T5.2 P2: the routines and the allow rules are the CHATS' home's (chatHomeOf, routineFolderOf), the project's when chatHome is empty.
+  assert.match(server, /const folder = routineFolderOf\(config\)/)
+  assert.match(server, /readCodeJobs\(\{ project: resolve\(HERE, chatHomeOf\(config\)\), folder, maxWorkers: config\.maxWorkers \}\)/)
   assert.match(server, /codeJobsView\(\{ claims: codeClaims, \.\.\.codeRead\.read, folder, maxWorkers: config\.maxWorkers, spawnFail, now: clock\(\), owner: typeof owner === 'string' && owner !== '' \}\)/)
   assert.match(server, /taskWords\(\{ folder, prefix, board: HERE, slots: view\.missingRoutines, owner \}\)/)
   assert.match(server, /'\/api\/code-jobs': \{ kind: 'json', guard: 'lock' \}/)
-  assert.match(server, /allowCodeJobs\(\{ project: resolve\(HERE, config\.project\), tools: view\?\.missing \?\? \[\] \}\)/)
+  assert.match(server, /allowCodeJobs\(\{ project: resolve\(HERE, chatHomeOf\(config\)\), tools: view\?\.missing \?\? \[\] \}\)/)
   const page = await readFile(new URL('../public/board.js', import.meta.url), 'utf8')
   assert.match(page, /allow\.hidden = jobs\.canAllow !== true \|\| \(jobs\.missing \?\? \[\]\)\.length === 0/)
   assert.match(page, /\$\{advisor === null \? 4 : 5\}\. \$\{task\.replace/)

@@ -8,6 +8,7 @@ import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mj
 import { readAsks } from './asks.mjs'
 import { allWords, forYou, queue } from './backlog.mjs'
 import { projectFile } from './config.mjs'
+import { chatHomeOf, pictureHomeOf } from './projectPaths.mjs'
 import { readHead } from './files.mjs'
 import { listPictures, mentionedPaths } from './pictures.mjs'
 import { movedTo, ownCard, ownCardKey } from './planLines.mjs'
@@ -73,11 +74,13 @@ const MOST_THREADS = 50
 
 /**
  * B259: the brainstorms' threads in the folder `folder` (the setting, inside the project), newest first, at most 50:
- * `{ path, text, at }`, the path as the setting names it. A folder that is not there holds none.
+ * `{ path, text, at }`, the path as the setting names it. A folder that is not there holds none. T5.2 P3 (chat 1's review: an absolute
+ * folder made every thread path absolute, and no Brainstorm action matched): `dir`, when given, is where the files are read
+ * (the table's answer, `projectFile`); `folder` stays the stored prefix every thread path keeps.
  */
-export async function readThreads(project, folder) {
+export async function readThreads(project, folder, dir = null) {
   // Focus 1: a whole path of its own (a copy's), else in the project.
-  const dir = isAbsolute(folder) ? folder : join(project, ...folder.split('/'))
+  dir ??= isAbsolute(folder) ? folder : join(project, ...folder.split('/'))
   const names = (await readdir(dir).catch(() => [])).filter(name => /^[a-z0-9][a-z0-9-]*\.md$/.test(name))
   const found = await Promise.all(names.map(async name => ({ name, at: await stat(join(dir, name)).then(file => file.mtimeMs, () => null) })))
   const newest = found.filter(one => one.at !== null).sort((a, b) => b.at - a.at || b.name.localeCompare(a.name)).slice(0, MOST_THREADS)
@@ -131,7 +134,7 @@ async function pictureLists(config, work, now) {
     const key = `${config.project}|${path}`
     const before = picturesIn.get(key)
     if (before === undefined || now - before.at >= PICTURES_MS) {
-      picturesIn.set(key, { at: now, files: listPictures(config.project, config.pictureRoots, path) })
+      picturesIn.set(key, { at: now, files: listPictures(pictureHomeOf(config), config.pictureRoots, path) })
     }
     lists[path] = await picturesIn.get(key).files
   }))
@@ -187,13 +190,13 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     readText(projectFile(config, 'goals')),
     readWork(),
     // B259: the brainstorms' threads.
-    readThreads(config.project, config.brainstorms),
+    readThreads(config.project, config.brainstorms, projectFile(config, 'brainstorms')),
     productPlan === null ? null : readText(productPlan),
   ])
 
   const found = boardChats(
     appChatTexts.map(parseAppChat).filter(chat => chat !== null),
-    { project: config.project, ...parseList(listText ?? '') },
+    { project: chatHomeOf(config), ...parseList(listText ?? '') },
   ).filter(chat => !chat.isLeftover && SAFE_ID.test(chat.cliSessionId))
   // Clear after each step: a chat the Workers mod cleared goes on under a new session id, which its old card names
   // (`movedTo`). The app may still name the old one: the board follows the card, so the lane, its card and its

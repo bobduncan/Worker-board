@@ -85,7 +85,7 @@ const joined = list => (list.length < 2 ? list.join('') : `${list.slice(0, -1).j
  * first, as many lines as fit in `budget` characters (the header not counted; at least one), each cut at `chars`; the rest as one line
  * naming the files that hold them. '' for null.
  */
-export function rowWordsText(found, { budget = 1500, chars = 300 } = {}) {
+export function rowWordsText(found, { budget = 1500, chars = 300, workPrefix = '.claude/work/' } = {}) {
   if (found === null || found === undefined || (found.words ?? []).length === 0) return ''
   const named = found.rows.length === 0 ? 'its earlier tries' : found.rows.map(row => `recap row "${row.title}"`).join(', ')
   const newest = [...found.words].reverse()
@@ -102,8 +102,8 @@ export function rowWordsText(found, { budget = 1500, chars = 300 } = {}) {
   }
   const rest = newest.slice(shown)
   const files = [...new Set(rest.map(one => one.file))]
-  // Step files first (they live in .claude/work/, named once), the recap's feedback files after them.
-  const steps = files.filter(one => /^B\d+$/.test(one)).map((one, at) => `${at === 0 ? '.claude/work/' : ''}${one}.md`)
+  // Step files first (they live in the store, `workPrefix` as the chat reaches it, named once), the recap's feedback files after them.
+  const steps = files.filter(one => /^B\d+$/.test(one)).map((one, at) => `${at === 0 ? workPrefix : ''}${one}.md`)
   const prefixed = [...steps, ...files.filter(one => !/^B\d+$/.test(one))]
   return [
     `The person's earlier words on this part (${named}; ${found.words.length} in all, newest first). Check every one, met or not met, before you ask the person, report or suggest a new way; never ask what they answered there:`,

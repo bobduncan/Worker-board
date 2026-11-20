@@ -2,10 +2,11 @@
 
 import { constants } from 'node:fs'
 import { access, copyFile, readFile, readdir, realpath, stat } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { EFFORTS, MODELS, modelIds } from './work/effort.mjs'
 import { parseRoutingPolicy } from './work/routing/policy.mjs'
 import { ASSET_KINDS, DEFAULT_PROVIDERS, PROVIDERS } from './providers/index.mjs'
+import { PICTURE_PLACES, isPictures } from './picturesSetup.mjs'
 
 /**
  * B300: the work store's reconciler (src/work/reconcile.mjs). A step held by a chat that is not running is flagged after
@@ -75,6 +76,10 @@ export const DEFAULTS = {
   /** B194: the branch the project's work is merged into: its game, the one the Run game button starts. */
   baseBranch: 'main',
   gameRepo: '',
+  /** T5.2 P2: the folder the chats run in (memory, trust, routines, the port, the Workers mod's board file, chat logs); '' = the project folder. */
+  chatHome: '',
+  /** T5.2 P2: the board's data home (`<project>/.workerboard` once the data moves); '' = today's layout, everything in the project folder. */
+  data: '',
   /** B1273: the Claude account the board's chats live in (its id, as the app names its folders); '' = found by the main chat and recorded. */
   appAccount: '',
   appSessions: '',
@@ -352,9 +357,12 @@ const INSIDE = /^(?!.*(?:^|\/)\.\.(?:\/|$))[\w.-]+(?:\/[\w .-]+)*$/
 /** B296: the store's folder: inside the project, written with /, or a whole path. */
 const isWorkPath = value => typeof value === 'string' && (INSIDE.test(value.trim()) || isAbsolute(value.trim()))
 
-/** B296: the work store's folder, as a whole path. */
+/** T5.2 P3: the data home the store's and the goal map's stored paths stand in: `data`, else the project folder (today). */
+const dataHomeOf = config => (typeof config.data === 'string' && config.data !== '' ? config.data : config.project)
+
+/** B296: the work store's folder, as a whole path (T5.2 P3: under the data home, its stored name kept). */
 export function workFolder(config) {
-  return isAbsolute(config.work) ? config.work : join(config.project, ...config.work.split('/'))
+  return isAbsolute(config.work) ? config.work : join(dataHomeOf(config), ...config.work.split('/'))
 }
 
 /**
@@ -363,7 +371,10 @@ export function workFolder(config) {
  */
 export function projectFile(config, key) {
   const value = config[key]
-  return isAbsolute(value) ? value : join(config.project, ...value.split('/'))
+  if (isAbsolute(value)) return value
+  // T5.2 P3: the generated backlog view is a runtime file: `<data>/local/backlog.md` once the data moves; the rest keeps its stored name under the data home.
+  if (key === 'backlog' && dataHomeOf(config) !== config.project) return join(dataHomeOf(config), 'local', 'backlog.md')
+  return join(dataHomeOf(config), ...value.split('/'))
 }
 
 /** B296: whether the store's folder is a whole path outside the project: a copy's own, which it may write. */
@@ -424,7 +435,7 @@ export async function ownMapNow(config, { main = null } = {}) {
   return !mine.some(path => theirs.some(other => within(path, other) || within(other, path)))
 }
 
-const PATHS = ['project', 'gameRepo', 'appSessions', 'transcripts']
+const PATHS = ['project', 'gameRepo', 'chatHome', 'data', 'appSessions', 'transcripts']
 // The paths inside the project or the game's repository, written with /.
 const PROJECT_PATHS = ['backlog', 'gamePlan', 'productPlan', 'advisorDecisions', 'designKinds']
 // Focus 1: the goal map's paths, inside the project or a whole path of their own (a copy's).
@@ -462,7 +473,9 @@ export function parseConfig(text, env) {
   }
   // B134: the app keeps a project's transcripts in the user's .claude\projects, in a folder named after the project's
   // path; a setting of its own still wins.
-  if (config.transcripts === '' && config.project !== '') config.transcripts = transcriptsOf(config.project, env)
+  // T5.2 P2: the transcripts are the CHATS' folder's (chatHome, else the project), as the app keys them by the chats' cwd.
+  const chatHome = config.chatHome !== '' ? config.chatHome : config.project
+  if (config.transcripts === '' && chatHome !== '') config.transcripts = transcriptsOf(chatHome, env)
   // This one has a place by default: the app's own folder.
   config.usageHistory = expandEnv(typeof raw.usageHistory === 'string' ? raw.usageHistory : DEFAULTS.usageHistory, env)
   for (const key of NUMBERS) {
@@ -504,6 +517,9 @@ export function parseConfig(text, env) {
   config.morningSkipPercent = Math.min(config.morningSkipPercent, 100)
   if (isAdvisorParts(raw.advisorParts) && raw.advisorParts.length > 0) config.advisorParts = [...new Set(raw.advisorParts)]
   if (cpuLevelOf(raw.cpuLimit) !== null) config.cpuLimit = cpuLevelOf(raw.cpuLimit)
+  // T5.2 P4: where the project's pictures live (a project key) and this PC's path to that folder (a PC key); left out, none.
+  config.pictures = isPictures(raw.pictures) ? { ...raw.pictures } : null
+  config.picturesHome = typeof raw.picturesHome === 'string' ? raw.picturesHome.trim() : ''
   // Leaked headless browsers (2026-11-13): whether this board runs the PC-wide rule `browsers`; left out, the PC's first board does.
   if (typeof raw.browsersRule === 'boolean') config.browsersRule = raw.browsersRule
   // B354: the kinds that are right, each once.
@@ -589,6 +605,8 @@ export function configProblem(fileText) {
       if (Object.hasOwn(given, key) && !(Number.isFinite(given[key]) && given[key] > 0)) return `"supervisor.${key}" must be a number above 0, not ${JSON.stringify(given[key]).slice(0, 60)}`
     }
   }
+  if (has('pictures') && !isPictures(raw.pictures)) return wrong('pictures', `{ "where": one of ${PICTURE_PLACES.map(one => `"${one}"`).join(', ')}, "folder": a folder name } (no folder for "this PC")`)
+  if (has('picturesHome') && typeof raw.picturesHome !== 'string') return wrong('picturesHome', 'a folder on this PC')
   if (has('providers')) {
     const { problem } = readProviders(raw.providers)
     if (problem !== null) return problem
@@ -700,6 +718,40 @@ export async function followApp(config, env = process.env, platform = process.pl
 /** A settings file the board cannot run on: its message is the one line the board says before it stops. */
 export class BrokenConfig extends Error {}
 
+/**
+ * T5.2 P4: the keys that belong to this PC, kept in config.json once the project has a board-settings.json (paths on this PC, its ports, its
+ * Codex, its pictures home); every other key is the project's, in settings.json.
+ */
+export const PC_KEYS = Object.freeze(['project', 'gameRepo', 'appSessions', 'transcripts', 'usageHistory', 'port', 'gamePort', 'codex', 'soundLibrary', 'chatHome', 'data', 'pc', 'label', 'sync', 'picturesHome', 'appAccount', 'browsersRule'])
+
+/** The project's settings file's name in its data folder: beside the carry tool's `settings/` folder there, never the same name. */
+export const SETTINGS_FILE = 'board-settings.json'
+
+/**
+ * The project's settings file: `board-settings.json` in the data folder this PC's config.json names (`data`, an explicit opt-in; a
+ * relative one from `base`, the config file's folder), or null: no `data`, today's behaviour. Never a guess at a `.workerboard` folder:
+ * one there may be the carry tool's clone (chat 1, 2026-11-16). `%NAME%` in `data` is expanded from `env`, as P2 reads it.
+ */
+export function settingsFileOf(config, base = '.', env = {}) {
+  const data = typeof config?.data === 'string' && config.data.trim() !== '' ? expandEnv(config.data.trim(), env) : null
+  return data === null ? null : resolve(base, data, SETTINGS_FILE)
+}
+
+/**
+ * The settings the board runs on, from the project's settings.json (`settings`) and this PC's config.json (`pc`): the defaults (parseConfig),
+ * then the project's keys, then this PC's keys. A project key left in config.json is ignored (named in `ignored`, for the amber line), so a
+ * change on the settings panel always takes effect; a PC key in settings.json is ignored too. `{ raw, ignored }`.
+ */
+export function mergeSettings(settings, pc) {
+  const project = Object.fromEntries(Object.entries(settings ?? {}).filter(([key]) => !PC_KEYS.includes(key)))
+  const own = Object.fromEntries(Object.entries(pc ?? {}).filter(([key]) => PC_KEYS.includes(key)))
+  const ignored = Object.keys(pc ?? {}).filter(key => !PC_KEYS.includes(key)).sort()
+  return { raw: { ...project, ...own }, ignored }
+}
+
+/** The file a setting is written to: config.json for this PC's keys and for a board without settings.json, else settings.json. */
+export const settingFileFor = (config, configFile, key) => (typeof config?.settingsFile === 'string' && !PC_KEYS.includes(key) ? config.settingsFile : configFile)
+
 /** The settings in `file`. A broken file throws `BrokenConfig`; a missing one leaves the defaults (B127 takes that). */
 export async function loadConfig(file, env = process.env, platform = process.platform) {
   let text = null
@@ -710,7 +762,6 @@ export async function loadConfig(file, env = process.env, platform = process.pla
   }
   const problem = text === null ? null : configProblem(text)
   if (problem !== null) throw new BrokenConfig(`The worker board's settings file ${file} is broken: ${problem}. Fix it and start the board again.`)
-  const config = parseConfig(text ?? '', env)
   // B135: the app's list of chats and its usage file, where the app keeps them on this system, when not set.
   let raw = {}
   try {
@@ -718,6 +769,18 @@ export async function loadConfig(file, env = process.env, platform = process.pla
   } catch {
     // A file that is no JSON was refused above.
   }
+  // T5.2 P4 (the design of 2026-11-16, section 6): the project's own settings travel with its data, in <data>/board-settings.json (only with data set); config.json keeps
+  // only what belongs to this PC (PC_KEYS). With no settings.json nothing changes.
+  const settingsFile = settingsFileOf(raw, dirname(file), env)
+  const settingsText = settingsFile === null ? null : await readFile(settingsFile, 'utf8').catch(() => null)
+  const settingsProblem = settingsText === null ? null : configProblem(settingsText)
+  if (settingsProblem !== null) throw new BrokenConfig(`The project's settings file ${settingsFile} is broken: ${settingsProblem}. Fix it and start the board again.`)
+  const merged = settingsText === null ? null : mergeSettings(JSON.parse(settingsText.replace(/^\uFEFF/, '')) ?? {}, raw)
+  const config = parseConfig(merged === null ? text ?? '' : JSON.stringify(merged.raw), env)
+  config.settingsFile = merged === null ? null : settingsFile
+  config.settingsIgnored = merged === null ? [] : merged.ignored
+  config.hasProvidersKey = Object.hasOwn(merged === null ? raw : merged.raw, 'providers')
+  if (merged !== null) raw = merged.raw
   const isSet = key => typeof raw[key] === 'string' && raw[key].trim() !== ''
   if (!isSet('appSessions') || !isSet('usageHistory')) {
     const found = await appFolder(env, platform)

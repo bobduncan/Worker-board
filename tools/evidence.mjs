@@ -30,6 +30,8 @@ import { tmpdir } from 'node:os'
 import { dirname, extname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { resolveStored } from '../src/projectPaths.mjs'
+
 const BOARD = join(dirname(fileURLToPath(import.meta.url)), '..')
 const VALUED = ['reference', 'result', 'before', 'after', 'points', 'score', 'target', 'step', 'title', 'out', 'height']
 const NUMBERS = ['score', 'target', 'height']
@@ -87,7 +89,7 @@ export async function readPoints(value) {
 export function outPath(config, { step, out, before }) {
   if (out !== undefined) return out
   if (!/^[\w-]+$/.test(step)) throw new Error(`The step "${step}" is no plain id.`)
-  return join(config.project, config.pictureRoots[0], step, before === undefined ? 'evidence.png' : 'before-after.png')
+  return resolveStored(config, `${config.pictureRoots[0]}/${step}/${before === undefined ? 'evidence.png' : 'before-after.png'}`)
 }
 
 /** A PNG's width and height, from its header. */
