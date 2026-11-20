@@ -74,11 +74,13 @@ const MOST_THREADS = 50
 
 /**
  * B259: the brainstorms' threads in the folder `folder` (the setting, inside the project), newest first, at most 50:
- * `{ path, text, at }`, the path as the setting names it. A folder that is not there holds none.
+ * `{ path, text, at }`, the path as the setting names it. A folder that is not there holds none. T5.2 P3 (chat 1's review: an absolute
+ * folder made every thread path absolute, and no Brainstorm action matched): `dir`, when given, is where the files are read
+ * (the table's answer, `projectFile`); `folder` stays the stored prefix every thread path keeps.
  */
-export async function readThreads(project, folder) {
+export async function readThreads(project, folder, dir = null) {
   // Focus 1: a whole path of its own (a copy's), else in the project.
-  const dir = isAbsolute(folder) ? folder : join(project, ...folder.split('/'))
+  dir ??= isAbsolute(folder) ? folder : join(project, ...folder.split('/'))
   const names = (await readdir(dir).catch(() => [])).filter(name => /^[a-z0-9][a-z0-9-]*\.md$/.test(name))
   const found = await Promise.all(names.map(async name => ({ name, at: await stat(join(dir, name)).then(file => file.mtimeMs, () => null) })))
   const newest = found.filter(one => one.at !== null).sort((a, b) => b.at - a.at || b.name.localeCompare(a.name)).slice(0, MOST_THREADS)
@@ -186,7 +188,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
     readText(projectFile(config, 'goals')),
     readWork(),
     // B259: the brainstorms' threads.
-    readThreads(config.project, projectFile(config, 'brainstorms')),
+    readThreads(config.project, config.brainstorms, projectFile(config, 'brainstorms')),
     productPlan === null ? null : readText(productPlan),
   ])
 

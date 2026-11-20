@@ -227,3 +227,25 @@ test("a fresh project with no game folder yet reads its plans from the project's
   assert.equal(raw.adviceText, '# Game plan\n')
   assert.ok(Number.isFinite(raw.productPlanAt))
 })
+
+test('T5.2 P3 (chat 1\'s review): the threads keep their stored path (`.claude/brainstorms/<name>.md`) through the real config, with the data home empty and set', async t => {
+  const root = await mkdtemp(join(DATA, 'threads-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const project = join(root, 'game')
+  await mkdir(join(project, '.claude', 'brainstorms'), { recursive: true })
+  await writeFile(join(project, '.claude', 'brainstorms', 'benches.md'), '# Benches\n')
+  const today = parseConfig(JSON.stringify({ project }), {})
+  const dir = (await import('../src/config.mjs')).projectFile(today, 'brainstorms')
+  assert.deepEqual((await readThreads(today.project, today.brainstorms, dir)).map(one => one.path), ['.claude/brainstorms/benches.md'])
+  // The data home set: the files are read there, the paths stay the stored ones.
+  const data = join(project, '.workerboard')
+  await mkdir(join(data, '.claude', 'brainstorms'), { recursive: true })
+  await writeFile(join(data, '.claude', 'brainstorms', 'moved.md'), '# Moved\n')
+  const moved = parseConfig(JSON.stringify({ project, data }), {})
+  const movedDir = (await import('../src/config.mjs')).projectFile(moved, 'brainstorms')
+  assert.equal(movedDir, join(data, '.claude', 'brainstorms'))
+  assert.deepEqual((await readThreads(moved.project, moved.brainstorms, movedDir)).map(one => one.path), ['.claude/brainstorms/moved.md'], 'read under data, named as stored')
+  // And readSources hands it on that way: no absolute thread path, so the Brainstorm actions match.
+  const raw = await readSources({ ...moved, appSessions: join(root, 'none'), transcripts: join(root, 'none') }, async () => null, NOW)
+  assert.deepEqual(raw.threadTexts.map(one => one.path), ['.claude/brainstorms/moved.md'])
+})
