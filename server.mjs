@@ -1028,6 +1028,20 @@ async function main(args) {
     ...(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS !== undefined && Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS) >= 0 ? { settleMs: Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS), everyMs: 500 } : {}),
     folders: () => readAccountFolders(config.appSessions),
     list: async () => parseList(await readFile(join(resolve(HERE, config.project), '.claude', 'chats', 'list.json'), 'utf8').catch(absentAs(''))),
+    // B1283 (F37): the one ask per switch away, in the board's name (as the asset queue's), read back by its id; a copy that only shows asks nothing.
+    ask: isShowOnly ? null : {
+      file: async ({ title, text, options, advice }) => {
+        const asked = await workAction({ action: 'ask', kind: 'decide', title, text: text.join('\n'), options, advice }, 'server')
+        if (asked.ok) readState.reset()
+        else console.error(`The account ask could not be filed: ${asked.why ?? asked.status}`)
+        return asked.ok ? asked.result.id ?? null : null
+      },
+      close: async (id, why) => { await workAction({ action: 'withdraw', id, why }, 'server'); readState.reset() },
+      stateOf: async id => {
+        const item = (await readStore(workFolder(config))).items.get(id)
+        return item === undefined ? null : { state: item.head.get('State'), answer: item.sections.get('Answer') ?? [] }
+      },
+    },
   })
   const storeWork = isDemo || config.project === '' ? null : storeKeeper({ dir: workFolder(config), clock })
   // Every store read asks the account first (cached a few seconds): a loop that reads the store before the first state read (the
@@ -3628,13 +3642,6 @@ async function main(args) {
     bridgeKey,
     // B297: the page's actions on the work store, as the person. B299: an answer to an ask wakes the chat that asked.
     work: async body => {
-      // B1273, the review: "Run the board on this account" on the away line: the app's account becomes the board's (a deliberate move).
-      if (body?.action === 'take-account') {
-        if (account === null) return { ok: false, status: 409, why: 'This board reads no Claude account.' }
-        const taken = await account.take()
-        readState.reset()
-        return taken
-      }
       // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
       if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
       // B775: the check's start types a word to the partner after the store has written it.
