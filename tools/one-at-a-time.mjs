@@ -36,6 +36,9 @@
 //   moment its work began (land.ps1 starts the gate's clock there, not while the run queues). The word stays with this
 //   helper: the command runs without HEAVY_RUN_FIRST, so the runs the command starts in turn (a test of this helper under
 //   the gate) are ordinary ones (chat 1's check, 2026-11-14: with the word passed on, every gate after F14 refused itself).
+// - B1302 (X211): the board reads the lock, the slot files and the queue folder, read only (src/testQueue.mjs `readTestQueue`, with
+//   this file's lockPath, slotPath, slotCountOf, whyStale and aheadOf), so the watch rule stale-checkpoint knows a worker whose run
+//   waits its turn here is not stuck. A change to the files' shape ({ pid, label, cwd, startedAt }) or names changes that reader too.
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, openSync, closeSync, readFileSync, readdirSync, unlinkSync, writeSync } from 'node:fs'
 import os from 'node:os'

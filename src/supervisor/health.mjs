@@ -17,7 +17,7 @@ import { readingAgeMinutes } from '../limits.mjs'
 import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from '../work/waitsOn.mjs'
 import { assetWaitWords, isAssetWait } from '../work/assetWait.mjs'
 import { envelopesOf, lastClearWhyOf } from '../work/handover.mjs'
-import { boardOffMs, checkpointLate, familyOf, reviewLateOf, switchOf, undeliveredWords, wordMatters } from './rules/watch.mjs'
+import { boardOffMs, checkpointLate, familyOf, reviewLateOf, switchOf, testQueueOf, testQueueWords, undeliveredWords, wordMatters } from './rules/watch.mjs'
 import { workCallsWords } from '../workCalls.mjs'
 
 const MIN = 60_000
@@ -403,6 +403,9 @@ function stepLines(view, now) {
     const checkpointWords = state !== 'in progress' ? ''
       : checkpoint === null ? ' [no checkpoint]'
         : ` [last checkpoint ${Number.isFinite(checkpoint.at) ? `${lasting(now - checkpoint.at - boardOffMs(view, checkpoint.at))} ago` : 'at a time not known'} (${checkpoint.commit ?? 'none'}): ${oneLine(checkpoint.next, 60)}]`
+    // B1302 (X211): a step whose test run waits its turn in the PC's test queue, or runs there, says so (and is no stale checkpoint).
+    const queued = state === 'in progress' ? testQueueOf(item, view).run : null
+    const queueWords = queued === null ? '' : ` (${testQueueWords(queued)})`
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
     const tier = isChats && HELD.includes(state) ? 0 : isChats ? 1 : 2
     // B567: a step its worker holds while it is on another says so, with why it waits; none named is odd.
@@ -418,7 +421,7 @@ function stepLines(view, now) {
     const parkedWords = parked === null ? '' : ` (parked: ${owner} is on ${parked.on}; ${parked.why ?? 'nothing names why it waits'})`
     // Signals change 3: the board's own record of a stopped holder (its "go on" line, a continuation after a give-back): no incident.
     const timerWords = goOnSince(item, since, now) + (back === null ? '' : ` (continues ${back.chat}'s checkpoint: given back at ${dayClockOf(back.at, now)})`)
-    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${off > 0 ? ` (PC off ${lasting(off)})` : ''}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${timerWords}${checkpointWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since, owner: lineOwner }))
+    lines.push(lineOf(`${id} ${state} for ${lasting(age)}${off > 0 ? ` (PC off ${lasting(off)})` : ''}${stays}, ${owner === null ? 'no owner' : owner}${fix}${waits}${parkedWords}${timerWords}${checkpointWords}${queueWords}: ${oneLine(valueOf(item, 'Title'), 80)}`, { tier, odd, at: since, owner: lineOwner }))
   }
   if (review.steps > 0) lines.push(lineOf(`in review: ${review.steps} ${review.steps === 1 ? 'step' : 'steps'} in ${review.chains} ${review.chains === 1 ? 'chain' : 'chains'} of fixes${review.held > 0 ? `, ${review.held} behind a fix the ready list holds` : ''}`, { tier: 1, odd: review.late > 0, owner: 'review-held' }))
   if (backlog.new + backlog.refined > 0) lines.push(lineOf(`backlog, not queued: ${backlog.new} new, ${backlog.refined} refined${refinedWords(view)}`, { tier: 1 }))

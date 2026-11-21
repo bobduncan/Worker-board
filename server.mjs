@@ -121,6 +121,7 @@ import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
+import { readTestQueue } from './src/testQueue.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { parseList, readAccountFolders } from './src/appChats.mjs'
 import { accountWatch } from './src/appAccount.mjs'
@@ -4699,6 +4700,8 @@ async function main(args) {
         // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule
         // base-equal); workAction runs the check that the action answers
         bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),
+        // B1302 (X211): the PC's one-at-a-time test queue, read only (src/testQueue.mjs), so a worker that waits its turn for a test run is no stale checkpoint.
+        testQueue: () => readTestQueue({ now: clock() }),
         recheck: (id, why, more = {}) => workAction({ action: 'recheck-base', id, why, ...more }, 'server'),
         // P2 (T2.11), the rule faults-gone: what stands in each repository now, whether a landing runs (data/landing.lock, a lock not
         // stale), when this board started, and the steps whose check runs now.
