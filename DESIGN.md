@@ -8789,10 +8789,23 @@ real chat; 11-19: the app was on the other account until ~19:11 and the Advisor 
   account's list when the person switches back. `boardChats` keeps the real chat of a transcript over a newer launch stub (the
   11-05 case: the stub had hidden the real chat). Back on the board's account the hold lifts and the wake loop wakes each chat
   that holds a step or words, once, with its usual line; no wake was tried while away, so none failed for good.
-- **Moving the board for good** (chat 1's review): the away line has one button, "Run the board on this account": the app's
-  account becomes the board's, recorded in data/app-account.json as the person's (`by: 'person'`) and kept in memory at once; the
-  hold ends without the settle. A read of the app's config.json that finds no account while away (cut short, gone a moment) keeps
-  the last account known, and only a whole chat file is copied.
+- **Moving the board for good**, B1283 (F37; the person, 2026-11-20: "make this button a needs my attention thing instead ... let it
+  automatically detect, and put it in the attention so i can decide myself"): once the away has lasted the settle (a quick flip back
+  files nothing) the board files ONE ask in Needs your attention, in its own name as the asset queue does (`accountWatch`'s `ask`
+  adapter: work `ask` as 'server', a decide routed to the person, never the partner: its words name the Claude app and an account,
+  the person's hands): "The Claude app is on account <8 chars>: run the board there?", A "Run the board on this account" (the
+  app's account becomes the board's, recorded as the person's, `by: 'person'`; the hold ends at once), B "Keep waiting until I
+  switch back" (the hold stays and no new ask comes while the app stays on that account). The ask's id and the B stand in
+  data/app-account.json, so a restart while away files no second one and reads the answer of the first. When the app comes home
+  the open ask is withdrawn by the board with "the Claude app came back to <8 chars>; nothing to decide" and the B is forgotten. The
+  muted line stays and links to the ask (`Decide (Q<n>)`); the page has no account button any more. A copy that only shows files
+  nothing. Accounts are named by their first 8 characters: the board cannot tell personal from work reliably.
+  Chat 1's review (2026-11-20): the ask is kept AFTER the account read, single-flight and never awaited by it (the board files it
+  through the work API, whose write waits for a state read, which waits for the account read: kept inside the read it deadlocked the
+  board under writes); a failed store read leaves the ask as it is; A counts only while the app is still on the account it was asked
+  for (a stale A moves nothing); A and B are read by their letter or their words; an ask withdrawn by someone else is not filed again
+  in the same away. A read of the app's
+  config.json that finds no account while away keeps the last account known, and only a whole chat file is copied.
 - **Not verified live**: that the app shows a chat copied into an inactive account's folder at the next switch (the skill's own
   copies needed an app restart because it wrote the ACTIVE account's folder). A copy that does not show costs nothing: the next
   start-up check lists the chat as before.
