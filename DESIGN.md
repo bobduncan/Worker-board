@@ -8764,6 +8764,13 @@ Still with `data` empty everything is exactly today's path. With it set:
   literal outside the table, per file as the LINES that hold them (test/fixtures/pathGuard-known.json; chat 1's review of 2026-11-20: a
   count per file hid a new tie beside a removed one): a new line fails naming it, a line that is gone fails until it is taken out; P3
   and the switch-on round empty it.
+### T5.2 A5 (the switch-on round, chat 3, 2026-11-21)
+
+Chat 1's review, findings 8 and 9: the chats' list, cards, moves and legacy asks are read from the CHAT home's `.claude` (sources.mjs
+`chatFile(config)`), where the chats run and the Workers mod writes; start-board.mjs keys its port by the chat home as the server does
+(`chatHomeOf`), so `--stop`, the launch entries and the keeper name the board the server runs. With `chatHome` empty both are the project,
+as before.
+
 ## B1273 (F36a): an account switch costs nothing (2026-11-19, chat 3)
 
 The person: "I want to be able to switch accounts often". The Claude app keeps one chat list per account

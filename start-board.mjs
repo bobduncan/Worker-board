@@ -35,6 +35,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { loadConfig } from './src/config.mjs'
+import { chatHomeOf } from './src/projectPaths.mjs'
 import { gitRunner } from './src/folders.mjs'
 import { LIST_MS, LIST_SCRIPT, endKeeper, keepersOf, netstat, parseProcessList, portHolderOf, powershell, runsAlready, startKeeper } from './src/keeperStart.mjs'
 import { boardsFile, resolvePort } from './src/ports.mjs'
@@ -158,14 +159,18 @@ async function stopBoard(isQuiet, passed) {
   return 0
 }
 
-/** The port the board takes for these words, as the server works it out (a broken settings file is the server's to name). */
+/**
+ * The port the board takes for these words, as the server works it out (a broken settings file is the server's to name). T5.2 A5 (chat 1's
+ * review, finding 9): keyed by the CHATS' home as the server keys it (server.mjs `home`), so this script and the server name one board.
+ */
 async function portOf(passed) {
   const given = passed.includes('--port') ? passed[passed.indexOf('--port') + 1] : undefined
   const config = await loadConfig(join(HERE, 'config.json')).catch(() => ({ port: 4310, gamePort: 5300, project: '' }))
   // B319: with the PC's list of boards, as the server reads it: another project's board may hold the configured port.
   const isDemo = passed.includes('--demo')
   const boards = isDemo || !config.project ? null : boardsFile()
-  const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: config.project ? resolve(HERE, config.project) : null, gamePort: config.gamePort, boards })
+  const home = config.project ? resolve(HERE, chatHomeOf(config)) : null
+  const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: home, gamePort: config.gamePort, boards })
   return port
 }
 

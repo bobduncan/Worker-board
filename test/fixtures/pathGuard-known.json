@@ -20,7 +20,7 @@
     "project: to: inProject(config.project, picture),"
   ],
   "src/assets.mjs": [
-    "claude: /** The folder of the asset requests: `assets` beside the work store's folder (`.claude/work` → `.claude/assets`). */",
+    "claude: /** The folder of the asset requests: `assets` beside the work store's folder (`.claude/work` \u2192 `.claude/assets`). */",
     "claude: // request in a folder of its own, `.claude/assets/A<n>/` of the project (beside the work store's `.claude/work`):"
   ],
   "src/bridge.mjs": [
@@ -130,8 +130,6 @@
     "claude: return join(env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'plugins', 'known_marketplaces.json')"
   ],
   "src/sources.mjs": [
-    "claude: const claude = join(config.project, '.claude')",
-    "project: const claude = join(config.project, '.claude')",
     "project: dir ??= isAbsolute(folder) ? folder : join(project, ...folder.split('/'))"
   ],
   "src/talkPicture.mjs": [
@@ -155,9 +153,6 @@
   "src/work/worktrees.mjs": [
     "project: found.push({ path: folder.path, kind: 'folder', repo: null, what: 'a folder named as a worktree\\'s, with files and no git', clean: true, why: null, moveTo: join",
     "project: return entries === null ? null : entries.filter(entry => entry.isDirectory() && !entry.isSymbolicLink()).map(entry => ({ name: entry.name, path: join(project, e"
-  ],
-  "start-board.mjs": [
-    "project: const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: config.project ? resolve(HERE, config.project) : nul"
   ],
   "tools/carry.mjs": [
     "claude: const bridge = await readFile(join(project, '.claude', 'board.json'), 'utf8').catch(() => null)",
