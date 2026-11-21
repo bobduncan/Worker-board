@@ -19,7 +19,7 @@
 // The functions that change the record (`claim`, `sent`, ...) change it in place, synchronously, so the server claims an
 // attempt in the same tick it makes the job (the code check's "two carriers" risk).
 
-import { ASLEEP_LINE, isAppId } from './hands.mjs'
+import { ASLEEP_LINE, HAND_LINE, isAppId } from './hands.mjs'
 import { NOT_LISTED_WHY, NOT_SHOWN_WHY, OTHER_ACCOUNT_WHY, RESTART_WHY, cannotWakeWhy, isNotListedAnswer, wakeIdsOf } from './ownChat.mjs'
 import { boardLanes, isWakeWord, wakeWordOf, wakerOrder } from './say.mjs'
 import { envelopesOf } from './work/handover.mjs'
@@ -192,7 +192,7 @@ export function reopenLanesOf(lanes, canLaunch) {
  * null otherwise (one is on its way, the chat woke, or every path is spent). `paths` the ones its ids allow ('message'
  * with an app id, 'launch' with a CLI session id on a board that can launch).
  */
-export function nextPath(record, { chat, spell, senderClaims, senderSince = -Infinity, paths = ['message', 'launch'] }) {
+export function nextPath(record, { chat, spell, senderClaims, senderSince = -Infinity, paths = ['message', 'launch'], carry = false }) {
   const attempts = countedOf(entryOf(record, chat, spell))
   if (attempts.some(one => isPending(one) || one.verdict === 'woke')) return null
   // B986: the app answered that it has no such session (not found): no launch, no other try in this spell.
@@ -202,11 +202,27 @@ export function nextPath(record, { chat, spell, senderClaims, senderSince = -Inf
   const launches = attempts.filter(one => one.path === 'launch')
   const mayMessage = senderClaims === true && paths.includes('message')
   if (mayMessage && messages.length === 0) return 'message'
+  // B1279 (X205): a hand's code send that went and brought no report is followed by ONE carry word (a model's turn, or the courier),
+  // before the launch: on 2026-11-19 the hands' sends of 22:15, 22:21 and 22:49 went and started nothing, one model turn's send at once.
+  if (carry === true && mayMessage && launches.length === 0 && isSilentHandSend(messages)) return 'message'
   if (paths.includes('launch') && launches.length === 0 && (senderClaims !== true || messages.some(one => one.verdict === 'failed'))) return 'launch'
   // "then stop until life, the person, or a new sender": a chat that began to claim after the last message failed.
   const lastMessage = messages.at(-1)
   if (mayMessage && messages.length === 1 && lastMessage.verdict === 'failed' && isTime(lastMessage.verdictAt) && senderSince > lastMessage.verdictAt) return 'message'
   return null
+}
+
+/** B1279: the spell's message tries are a hand's code sends only, each went (`sentAt`) and failed for want of a report. */
+const isSilentHandSend = messages => messages.length > 0 && messages.every(one => one.carry == null && isTime(one.sentAt) && one.verdict === 'failed')
+
+/**
+ * B1279 (X205): whether this chat's spell waits for a carry word after a silent hand send (`nextPath` with `carry`), for the carry pass
+ * while the hands may send.
+ */
+export function carryAfterSilent(record, { chat, spell, paths = ['message', 'launch'] }) {
+  const attempts = countedOf(entryOf(record, chat, spell))
+  if (attempts.some(one => isPending(one) || one.verdict === 'woke' || one.unlisted === true || one.path === 'launch')) return false
+  return paths.includes('message') && isSilentHandSend(attempts.filter(one => one.path === 'message' && one.refused !== true))
 }
 
 /**
@@ -224,7 +240,7 @@ export function handTried(record, { chat, spell, hand }) {
  */
 export function claim(record, { chat, spell, path, by, jobId, now, runBefore = null, senderSince = -Infinity, paths = ['message', 'launch'], step = null, carry = null }) {
   if (!['message', 'launch'].includes(path) || !isTime(spell) || !isTime(now)) return false
-  if (nextPath(record, { chat, spell, senderClaims: path === 'message', senderSince, paths: path === 'message' ? ['message'] : ['launch'] }) !== path) return false
+  if (nextPath(record, { chat, spell, senderClaims: path === 'message', senderSince, paths: path === 'message' ? ['message'] : ['launch'], carry: path === 'message' && ['model', 'courier'].includes(carry) }) !== path) return false
   newSpell(record, chat, spell)
   const entry = entryOf(record, chat, spell)
   if (entry === null) return false
@@ -362,7 +378,7 @@ export function carryPlan(record, { needs = [], lanes = [], main = null, now, ne
   const open = carriedChats(outbox)
   for (const need of needs ?? []) {
     if (!(need.paths ?? []).includes('message') || !isTime(need.spell) || open.has(need.chat)) continue
-    if (nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths }) !== 'message') continue
+    if (nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths, carry: true }) !== 'message') continue
     const carrier = carrierOf(lanes, { target: need.chat, main, now, outbox, ...(byModel === undefined ? {} : { byModel }) })
     // Review 7, 18: no carrier and no courier that called lately: the message try stays unspent; the launch goes as before.
     if (carrier === null && !courierAlive) continue
@@ -720,7 +736,33 @@ function needOf(lane, { state, waiting, prefix, resumeList, ownerName }) {
   if (waiting.some(message => message.to === lane.name && message.command !== 'handover' && (lane.name === ownerName || isWakeWord(wakeWordOf(message), state)))) return { why: 'words', text: WORDS_LINE, step: null }
   const queued = (lane.queue ?? [])[0] ?? null
   if (queued !== null && lane.onSequence !== true && typeof queued.id === 'string') return { why: 'queue', text: takeLine(queued.id), step: queued.id }
+  // B1279 (X205): the hand-out asks for this worker (reconcile.mjs `start`, handOut.mjs `workerStart`): the one wake procedure starts it
+  // (message, carry, launch, one try per path per spell, a verdict and the one notice), in place of a start word only a hand could carry.
+  const start = state.reconciled?.start ?? null
+  if (start?.byWake === true && typeof start.start === 'string' && start.start === lane.name) return { why: 'start', text: HAND_LINE, step: null }
   return null
+}
+
+/**
+ * B1279 (X205): which off chats the hand-out may start now, out of the wake record. `unwakeable`: a chat whose wake failed on every path it
+ * could take in its spell (`wakeOf` final: the message and the launch tried and failed, or no id to reach it), until it runs again or the
+ * app's return re-opens the spell (G1); `waking`: one whose wake is on its way (a message held or sent, a launch waiting for its verdict).
+ * `lanes` the board's chats; `facts` the server's `{ record, senderClaims, canLaunch }`. Two Sets of names; empty without a record.
+ */
+export function wakeableOf(lanes, facts) {
+  const unwakeable = new Set()
+  const waking = new Set()
+  const record = facts?.record ?? null
+  if (record === null) return { unwakeable, waking }
+  for (const lane of lanes ?? []) {
+    if (lane === null || lane === undefined || lane.isLeftover === true || typeof lane.name !== 'string') continue
+    const spell = spellOf(lane)
+    if (spell === null) continue
+    const wake = wakeOf(record, { chat: lane.name, spell, paths: pathsOf(lane, facts.canLaunch === true), cannot: cannotWakeWhy(lane) }, { senderClaims: facts.senderClaims === true })
+    if (wake.final === true && !ranSince(record, lane.name, spell, lane.report ?? null)) unwakeable.add(lane.name)
+    else if (['on-its-way', 'sent', 'launched'].includes(wake.state)) waking.add(lane.name)
+  }
+  return { unwakeable, waking }
 }
 
 /**

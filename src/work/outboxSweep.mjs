@@ -176,6 +176,8 @@ function whyClosedNow(message, ctx) {
   } else if (message.command === 'start') {
     // The main chat's word to open a closed chat: not needed once that chat runs, nor when nothing waits for it any more.
     if (ctx.runs.get(message.about) === true) return { state: 'dropped', why: `${message.about} runs now` }
+    // B1279 (X205): the hand-out's own start (it carries `reported`) is the wake procedure's now: a word of it still waiting is closed.
+    if (ctx.startsByWake === true && Number.isFinite(message.reported) && typeof message.about === 'string') return { state: 'dropped', why: START_BY_WAKE_WHY }
     // T9.4 (review of 2026-10-25): a start word waits for the chat that carries it. One that is known not to run can never carry it, so
     // it is closed and the board asks another chat that runs (say.mjs wakesDue). The main chat's waits for it however: it is the board's order to it.
     if (message.to !== ctx.main && ctx.off?.has(message.to) === true) return { state: 'dropped', why: `${message.to} does not run, so it cannot carry the start of ${message.about}` }
@@ -274,6 +276,9 @@ const readyFor = (message, ctx) => {
 
 /** B571: a word that failed and is not tried again: no newer word stands for it. */
 export const isFailedForGood = message => message?.state === 'failed' && message.retriedAs === undefined
+
+/** B1279: why a waiting start word of the hand-out is closed: the wake procedure starts that worker now. */
+export const START_BY_WAKE_WHY = 'the wake procedure starts it now'
 
 const expired = (message, keep) => ({ state: 'expired', why: `waited longer than ${span(keepMs(message, keep))}` })
 
@@ -406,7 +411,7 @@ export async function sweepOutbox({ dir, outbox, state, now, keep, fs, dry = fal
   const off = new Set(shownChats(state ?? {}).filter(chat => chat.isRunning === false).map(chat => chat.name))
   const all = outbox.outbox()
   const closing = new Map()
-  const ctx = { gone: linkGone, all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)), supervisor: state?.supervisorChat ?? null }
+  const ctx = { gone: linkGone, all, items, runs, goals: state?.goals?.nodes ?? [], now, keep, closing, stopped: stoppedChats(all, state), prefix: state?.chatPrefix ?? '', ready: state?.readyList?.ready ?? [], main: state?.restart?.main ?? null, off, handedBack: state?.reconciled?.handedBack ?? [], startsByWake: state?.reconciled?.startsByWake === true, lanes: state?.chats ?? [], onBoard: new Set(shownChats(state ?? {}).map(chat => chat.name)), supervisor: state?.supervisorChat ?? null }
   // The starts last: they depend on what the other words become.
   const ordered = [...waiting.filter(message => message.command !== 'start'), ...waiting.filter(message => message.command === 'start')]
   for (const message of ordered) {
