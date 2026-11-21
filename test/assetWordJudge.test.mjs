@@ -4,7 +4,7 @@
 // request.json. Made-up chats and a made-up evening; the real case is outbox 7e26250b1dbb543f (A17 to Worker 1).
 
 import assert from 'node:assert/strict'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 
@@ -141,4 +141,38 @@ test('B949 no second word: one by hand later, or one in the outbox already, keep
   assert.equal(assetResends([drop, other], items, assets, { prefix: 'Garden · ' }).length, 1)
   assert.equal(assetResends([drop], new Map([['B7', step('B7', 'review', 'Digger')]]), assets).length, 0)
   assert.equal(assetResends([drop], items, undefined).length, 0)
+})
+
+test('T5.2 A2: with `assetsDir` the requests are read there (the data home\'s pictures/assets), the ready word names that folder, and a folder beside the store is not looked at; without it, beside the store as before', async t => {
+  const { dir } = await world(t, [])
+  // The requests live in a folder of their own, as under <data>/pictures/assets; `assets` beside the store holds a decoy that must not count.
+  const own = join(dir, '..', 'pictures', 'assets')
+  for (const [folder, id] of [[own, 'A21'], [join(dir, '..', 'assets'), 'A22']]) {
+    await mkdir(join(folder, id), { recursive: true })
+    await writeFile(join(folder, id, 'request.json'), `${JSON.stringify(request(id), null, 2)}\n`)
+  }
+  const outbox = memoryStore()
+  for (const id of ['A21', 'A22']) {
+    await outbox.say(readyWord(id))
+    await outbox.update(`w-${id}-Digger`, { state: 'dropped', why: `${id} is gone`, closedAt: READY_AT + 600 })
+  }
+  let n = 0
+  const refreshAt = assetsDir => deliverWork({ state: { reconciled: {}, chatPrefix: 'Garden · ', chats: [] }, dir, assetsDir, outbox, apply: async () => ({ ok: true }), now: NOW, maxChars: 2000, newId: () => `o${++n}`, keep: { messageMs: 600_000, answerMs: 48 * 3_600_000 } })
+  const sent = await refreshAt(own)
+  assert.deepEqual(sent.sent.map(one => [one.about, one.text]), [['A21', `asset A21 ready: ${join(own, 'A21')}`]], 'read where assetsDir says; the decoy beside the store is not a request')
+  // A ready word for a request that is not in `assetsDir` is withdrawn as gone (the judge reads the same folder).
+  await outbox.say({ ...readyWord('A22'), id: 'w-A22-again' })
+  await refreshAt(own)
+  assert.equal(outbox.outbox().find(one => one.id === 'w-A22-again').state, 'dropped', 'judged against assetsDir')
+  // Without assetsDir: beside the store, as before (the decoy is the request then).
+  const plain = memoryStore()
+  await plain.say(readyWord('A22'))
+  await plain.update('w-A22-Digger', { state: 'dropped', why: 'A22 is gone', closedAt: READY_AT + 600 })
+  const before = await deliverWork({ state: { reconciled: {}, chatPrefix: 'Garden · ', chats: [] }, dir, outbox: plain, apply: async () => ({ ok: true }), now: NOW, maxChars: 2000, newId: () => `p${++n}`, keep: { messageMs: 600_000, answerMs: 48 * 3_600_000 } })
+  assert.deepEqual(before.sent.map(one => [one.about, one.text]), [['A22', `asset A22 ready: ${join(dir, '..', 'assets', 'A22')}`]])
+  // The server: the wait's reader and the delivery both take the folder the requests are written to.
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /const assetsRead = workDir === null \? null : assetReader\(resolve\(HERE, assetsOf\(config\)\)\)/)
+  assert.match(server, /await deliverWork\(\{\n\s*state, dir: workDir, assetsDir, outbox: store/)
+  assert.doesNotMatch(server, /assetsFolderOf\(/, 'no reader beside the store by itself')
 })
