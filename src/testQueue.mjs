@@ -1,12 +1,13 @@
 // B1302 (the fix of X211): a read-only look at the PC's one-heavy-run-at-a-time queue (tools/one-at-a-time.mjs), so a rule can
 // tell a worker that waits its turn for a test run from one that is stuck. The tool's lock file, its slot files and its
 // `.queue` folder of tickets are read as they are (its own lockPath, slotPath, slotCountOf, whyStale and aheadOf: never a
-// copy of them), and nothing is written or removed here: the runs themselves clean up what is stale.
+// copy of them), and nothing is written or removed here: the runs themselves clean up what is stale. The tool is handed in
+// (`tool`, the module of tools/one-at-a-time.mjs): the server imports it when it reads the queue, so a board folder made
+// without tools/ (the tests' copies) simply has no queue to read.
 
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 
-import { aheadOf, lockPath, pidRuns, slotCountOf, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
 
 /** What a lock or a ticket file says, `{ pid, label, cwd, startedAt, first }` with a live pid, or null (unreadable, not a run, gone). */
 function readRun(file, read) {
@@ -24,9 +25,10 @@ function readRun(file, read) {
  * (`state: 'waiting'`) in the order the tool serves them. `{ cwd, label, state, since, ahead }` each: `since` the time it
  * began (ms; a ticket's is when it came), `ahead` how many runs go before it (the ones running and the tickets served
  * first; 0 for a run that runs). Only runs whose process lives (a lock the tool calls stale is none); an empty list when
- * there is no queue or it cannot be read. `env`, `now`, `runs` (pidRuns), `read` and `list` are the tests' seams.
+ * there is no queue or it cannot be read. `tool` the tool's module; `env`, `now`, `runs` (pidRuns), `read` and `list` are the tests' seams.
  */
-export function readTestQueue({ env = process.env, now = Date.now(), runs = pidRuns, read = readFileSync, list = readdirSync } = {}) {
+export function readTestQueue({ tool, env = process.env, now = Date.now(), runs = tool.pidRuns, read = readFileSync, list = readdirSync }) {
+  const { aheadOf, lockPath, slotCountOf, slotPath, slotsOf, whyStale } = tool
   const file = lockPath(env)
   const found = []
   const running = []

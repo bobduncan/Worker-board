@@ -16,6 +16,7 @@ import { WATCH_RULES, checkpointLate, testQueueOf } from '../../src/supervisor/r
 import { buildView } from '../../src/supervisor/view.mjs'
 import { folderKey, isFolderOf, readTestQueue } from '../../src/testQueue.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
+import * as tool from '../../tools/one-at-a-time.mjs'
 
 const MIN = 60_000
 const at = (hours, minutes) => new Date(2026, 10, 21, hours, minutes).getTime()
@@ -109,7 +110,7 @@ test('readTestQueue: the lock, its slot files and the tickets, live pids only, i
     put('000000000000001-00000066.json', { pid: 66, label: 'test', cwd: 'C:\\Work\\dead-b8', startedAt: iso(at(10, 0)) })
     put('000000000000004-00000077.json', 'not json')
     const alive = pid => pid !== 66
-    const found = readTestQueue({ env: { HEAVY_RUN_LOCK: lock }, now, runs: alive })
+    const found = readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: alive })
     assert.deepEqual(found.map(one => [one.cwd, one.state, one.ahead]), [
       ['C:\\Work\\worker-board-b1300', 'running', 0],
       [FOLDER, 'waiting', 1],
@@ -117,11 +118,11 @@ test('readTestQueue: the lock, its slot files and the tickets, live pids only, i
     ], 'the dead pid\'s ticket and the unreadable one are none; each waiting run counts the one that runs and the tickets before it')
     assert.equal(found[1].since, at(10, 58))
     // a lock whose process is gone, or older than 45 minutes, is stale: not running
-    assert.deepEqual(readTestQueue({ env: { HEAVY_RUN_LOCK: lock }, now: at(13, 30), runs: alive }).filter(one => one.state === 'running'), [])
-    assert.equal(readTestQueue({ env: { HEAVY_RUN_LOCK: lock }, now, runs: pid => pid !== 11 && alive(pid) }).filter(one => one.state === 'running').length, 0)
+    assert.deepEqual(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now: at(13, 30), runs: alive }).filter(one => one.state === 'running'), [])
+    assert.equal(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: pid => pid !== 11 && alive(pid) }).filter(one => one.state === 'running').length, 0)
     // nothing was written or removed (read only): the dead ticket still stands
-    assert.equal(readTestQueue({ env: { HEAVY_RUN_LOCK: path.join(dir, 'none.lock') }, now }).length, 0)
-    assert.deepEqual(readTestQueue({ env: { HEAVY_RUN_LOCK: lock }, now, runs: alive }).length, 3)
+    assert.equal(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: path.join(dir, 'none.lock') }, now }).length, 0)
+    assert.deepEqual(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: alive }).length, 3)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
