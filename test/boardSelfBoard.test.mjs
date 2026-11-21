@@ -5,7 +5,9 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { execFile } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { promisify } from 'node:util'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -142,4 +144,59 @@ test('a running board tells its own clock and loop, says why it was off after a 
   second.disconnect()
   assert.equal(await ended, 0)
   assert.equal(JSON.parse(await readFile(join(board, 'data', 'stop.json'), 'utf8')).why, 'stopped')
+})
+
+const git = (dir, ...args) => promisify(execFile)('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { windowsHide: true })
+
+test('one restart per landing (2026-11-21 00:34): while the board leaves, a second restart is refused with 409, whether land.ps1\'s POST came first and the self-update second, or the self-update first and the POST second', { timeout: 300_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'board-once-'))
+  const started = []
+  t.after(async () => {
+    await Promise.all(started.map(stop))
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+  const [board, project, app, transcripts] = ['board', 'project', 'app', 'transcripts'].map(name => join(dir, name))
+  for (const part of COPIED) await cp(join(ROOT, part), join(board, part), { recursive: true })
+  await mkdir(join(project, '.claude', 'chats'), { recursive: true })
+  await writeFile(join(project, '.claude', 'chats', 'list.json'), '{"prefix":"Studio · ","main":"Lead"}')
+  const port = await freePort()
+  await writeFile(join(board, 'config.json'), JSON.stringify({
+    name: 'orchard', refreshSeconds: 2, project, port, gamePort: 7362, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'),
+  }))
+  // The copy is a git folder of its own, so the board knows the commit it runs and sees a newer one (B454).
+  await git(board, 'init', '-q')
+  await git(board, 'add', 'server.mjs', 'src')
+  await git(board, 'commit', '-q', '-m', 'base')
+  const base = `http://127.0.0.1:${port}`
+  const tokenOf = async () => /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
+  const stateOf = token => fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
+  const restart = token => fetch(`${base}/api/restart`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': token, Origin: base }, body: '{}' })
+
+  // Order 1: land.ps1's POST first. A second ask while the board leaves (the self-update goes through the same door) is refused.
+  const first = await run(started, board)
+  const token = await tokenOf()
+  assert.equal((await restart(token)).status, 200)
+  const again = await restart(token)
+  assert.equal(again.status, 409)
+  assert.match(await again.text(), /restarts already/)
+  assert.equal(await exited(first), START_ANEW, 'one restart: the board left once, for the new version')
+
+  // Order 2: the self-update first. A newer server commit lands in the folder; the board decides to leave by itself; land.ps1's POST then is refused.
+  const second = await run(started, board)
+  const token2 = await tokenOf()
+  assert.equal((await stateOf(token2)).board.restart.state, 'none')
+  await writeFile(join(board, 'src', 'zz-newer.mjs'), 'export const newer = true\n')
+  await git(board, 'add', 'src/zz-newer.mjs')
+  await git(board, 'commit', '-q', '-m', 'newer server')
+  let leaving = null
+  for (let tries = 0; tries < 700 && leaving === null && second.exitCode === null; tries += 1) {
+    const state = await stateOf(token2).catch(() => null)
+    if (state?.board?.restart?.state === 'leaving') leaving = state.board.restart
+    else await new Promise(wait => setTimeout(wait, 100))
+  }
+  assert.ok(leaving !== null, 'the board decided to start the new version by itself')
+  const late = await restart(token2)
+  assert.equal(late.status, 409, 'the landing\'s POST after the self-update is refused')
+  assert.match(await late.text(), /restarts already/)
+  assert.equal(await exited(second), START_ANEW)
 })

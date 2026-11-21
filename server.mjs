@@ -99,7 +99,7 @@ import { readSetup, setupAction, startSetup, FINISHED as SETUP_FINISHED } from '
 import { providerCards, mayUse as mayUseProvider, verifyOne, checkKey } from './src/providers/choose.mjs'
 import { KEY_VARIABLE, keyChecked, saveKey } from './src/providers/elevenlabs-key.mjs'
 import { ASSET_KINDS, PROVIDERS, checkProvidersFull, providerFor } from './src/providers/index.mjs'
-import { assetReader, assetsFolderOf, listAssets } from './src/assets.mjs'
+import { assetReader, listAssets } from './src/assets.mjs'
 import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
 import { titleProblem } from './src/work/askWords.mjs'
 import { recapRoundDue } from './src/recapCard.mjs'
@@ -114,10 +114,10 @@ import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/code
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
-import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, noteHandRefused, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
@@ -744,6 +744,8 @@ function lateStart(port, timeoutMs) {
 
 /** B404: how long a restart waits for the reconciler's pass and the running checks before the board ends. */
 const RESTART_WAIT_MS = 10_000
+/** The restart route's answer while the board leaves already: one restart at a time. */
+export const RESTART_UNDER_WAY = 'The board restarts already: one restart at a time; it comes back by itself.'
 
 const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
 /** Whether `text` is valid JSON (after the byte-order mark a Windows editor may put first). */
@@ -1031,6 +1033,20 @@ async function main(args) {
     ...(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS !== undefined && Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS) >= 0 ? { settleMs: Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS), everyMs: 500 } : {}),
     folders: () => readAccountFolders(config.appSessions),
     list: async () => parseList(await readFile(chatFile(config, 'chats', 'list.json'), 'utf8').catch(absentAs(''))),
+    // B1283 (F37): the one ask per switch away, in the board's name (as the asset queue's), read back by its id; a copy that only shows asks nothing.
+    ask: isShowOnly ? null : {
+      file: async ({ title, text, options, advice }) => {
+        const asked = await workAction({ action: 'ask', kind: 'decide', title, text: text.join('\n'), options, advice }, 'server')
+        if (asked.ok) readState.reset()
+        else console.error(`The account ask could not be filed: ${asked.why ?? asked.status}`)
+        return asked.ok ? asked.result.id ?? null : null
+      },
+      close: async (id, why) => { await workAction({ action: 'withdraw', id, why }, 'server'); readState.reset() },
+      stateOf: async id => {
+        const item = (await readStore(workFolder(config))).items.get(id)
+        return item === undefined ? null : { state: item.head.get('State'), answer: item.sections.get('Answer') ?? [] }
+      },
+    },
   })
   const storeWork = isDemo || config.project === '' ? null : storeKeeper({ dir: workFolder(config), clock })
   // Every store read asks the account first (cached a few seconds): a loop that reads the store before the first state read (the
@@ -2000,8 +2016,10 @@ async function main(args) {
   // The asset wait (2026-11-11, the B1124 case): the asset requests go into the raw (src/work/assetWait.mjs reads the open ones of a
   // holder as its wait), with the provider's time limit for a job (the Design tab's seconds, once read below) for the Late past it.
   let assetSecondsNow = () => null
-  // The trial copy and a branch board show the wait too: the requests are read wherever the work folder is; only the queue is the delivering board's.
-  const assetsRead = workDir === null ? null : assetReader(resolve(HERE, assetsFolderOf(workDir)))
+  // The trial copy and a branch board show the wait too: the requests are read wherever they are kept; only the queue is the delivering board's.
+  // T5.2 A2 (chat 1's review, finding 7): the same folder the requests are written to (`assetsOf`: `<data>/pictures/assets` once the data
+  // moves), never `assets` beside the store by itself.
+  const assetsRead = workDir === null ? null : assetReader(resolve(HERE, assetsOf(config)))
   // B467: a folder of requests that cannot be read is shown as a failed loop, and the state goes on without the requests.
   const withAssets = async sources => ({ ...sources, assets: assetsRead === null ? [] : await assetsRead().catch(error => { loops.failed('asset-requests', error); return [] }), assetSeconds: assetSecondsNow() })
   let readLines = raw => raw.historyLines ?? store.lines()
@@ -2060,6 +2078,9 @@ async function main(args) {
       // B1273: the app's account first (the store read below holds while it is another), then, while away, the board's chats the
       // app's account alone lists are copied into the board's (at most every minute; never on a copy that only shows).
       const accountNow = account === null ? null : await loops.run('app-account', () => account.read())
+      // B1283, chat 1's review (the deadlock): the ask is filed and kept AFTER the read, not awaited: it writes through the work API,
+      // whose write waits for a state read, which is this read.
+      if (account !== null && !isShowOnly) void loops.run('app-account-ask', () => account.tend())
       if (accountNow?.away === true && !isShowOnly) await loops.run('app-account-import', () => account.importMissing())
       return readSources(config, folders, undefined, branches, work, () => account?.now() ?? null)
     }
@@ -2827,6 +2848,8 @@ async function main(args) {
    */
   const carryPass = async (state, now) => {
     let changed = await applyCarryCloses(state, now)
+    // B1279: a hand's send the attempts prove is kept as the record's own fact before the attempts are pruned.
+    if (keepHandWent(wakes)) changed = true
     const refused = sendsRefusedOf(wakes, store.outbox())
     // Verifier 7, 11: the refusal the record's attempts or the outbox show becomes the record's own fact, so pruned spells never lift it.
     if (refused !== null && noteSendRefused(wakes, refused.since)) changed = true
@@ -2864,6 +2887,19 @@ async function main(args) {
         await store.sayAll(words)
       }
       for (const word of words) console.log(`Wake: the app refuses the hands' sends: the message to ${word.about} goes through ${carrierWords(word.to)} at ${timeOf(now)}.`)
+    } else if (carrying === null && !isHolding(state.pause)) {
+      // B1279 (X205): the hands may send, but a hand's send went and brought no report: ONE carry word for that spell before the launch.
+      const outbox = store.outbox().filter(message => !isLate(message, now, keep))
+      const needs = wakeNeedsNow(state, wakeNeeds(state, outbox, { resumeList: await resumeListOf(state), canLaunch: canLaunchNow() }), now)
+        .filter(need => carryAfterSilent(wakes, need))
+      if (needs.length > 0) {
+        const words = carryPlan(wakes, { needs, lanes: carriersOf(state), main: state.restart?.main ?? null, now, newId: () => randomBytes(8).toString('hex'), runOf: chat => reports?.get(chat)?.run ?? null, outbox: store.outbox(), courierAlive: courierAlive(lastCourierAt, now) })
+        if (words.length > 0) {
+          changed = true
+          await store.sayAll(words)
+        }
+        for (const word of words) console.log(`Wake: the hand's message to ${word.about} brought no report: it goes again through ${carrierWords(word.to)} at ${timeOf(now)}.`)
+      }
     }
     if (changed) wakesChanged()
     return carrying
@@ -3055,6 +3091,10 @@ async function main(args) {
   // at a safe moment (src/selfUpdate.mjs).
   const restartNow = async () => {
     if (!canRestart) return { ok: false, status: 409, why: 'This board was started without its keeper: start it once from where it was started.' }
+    // One restart per landing (2026-11-21 00:34, B1283's rollback): land.ps1's POST /api/restart and the B454 self-update both fired
+    // around one fast-forward, two restarts in a row, and the second new board was not up within the landing's 90 s. While this board
+    // leaves, a second ask is refused, whoever asks first (land.ps1 reads the refusal as "it comes back by itself" and waits).
+    if (isClosing) return { ok: false, status: 409, why: RESTART_UNDER_WAY }
     // B128: a new start on a broken settings file would stop the board: this one keeps running instead.
     // B467: one Windows holds is not "not there": its own words, and the board keeps running.
     const settings = await readFile(join(HERE, 'config.json'), 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? 'it is not there' : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
@@ -3646,13 +3686,6 @@ async function main(args) {
     bridgeKey,
     // B297: the page's actions on the work store, as the person. B299: an answer to an ask wakes the chat that asked.
     work: async body => {
-      // B1273, the review: "Run the board on this account" on the away line: the app's account becomes the board's (a deliberate move).
-      if (body?.action === 'take-account') {
-        if (account === null) return { ok: false, status: 409, why: 'This board reads no Claude account.' }
-        const taken = await account.take()
-        readState.reset()
-        return taken
-      }
       // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
       if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
       // B775: the check's start types a word to the partner after the store has written it.
@@ -4294,6 +4327,8 @@ async function main(args) {
       if (!seen.restart) return
       const done = await restartNow()
       if (!done.ok) {
+        // Refused because a restart is under way already (land.ps1's POST came first): no refusal to remember, the board leaves.
+        if (isClosing) return
         selfUpdate.refused(done.why)
         updateShown = selfUpdate.look({ isNewer: true, canRestart, blockers: ['the new version'] }).shown
         return
@@ -4536,7 +4571,7 @@ async function main(args) {
         // what waited too long (src/work/autopilot.mjs); on its own, so a failure stops no delivery.
         await loops.run('autopilot', () => autopilotNow(state))
         const done = await deliverWork({
-          state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
+          state, dir: workDir, assetsDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,
         })
         if (done.moved.length + done.sent.length + done.withdrawn.length + done.closed.length > 0) {
