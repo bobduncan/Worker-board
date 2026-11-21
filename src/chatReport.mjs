@@ -15,6 +15,16 @@ export const REPORT_STATES = ['busy', 'idle', 'asking', 'ended']
 export const REPORT_MOD = '0.19.0'
 
 /**
+ * F38 (B1300): a kept report's own time, when the chat really sent it, or null. T13 moves a report kept from before the
+ * board's start to that start (`at`, state.mjs) and keeps its own time as `heardAt` (F9, F26b); a report the board heard
+ * since has no `heardAt`, its `at` is its own. Whatever stands for the chat's life (the since of its sleep, the wake
+ * spell, "it ran after the failed wake", a carrier's proof of life) reads this; a clock that counts from the start (the
+ * age rules, B736's keep) keeps `at`. Seen live 2026-11-21 00:35-00:55: Worker 4's dead chat got a new wake spell at each
+ * board start (00:36:54, 00:45:05), one failed launch each, so "could not wake" never went final.
+ */
+export const heardTimeOf = report => (Number.isFinite(report?.heardAt) ? report.heardAt : Number.isFinite(report?.at) ? report.at : null)
+
+/**
  * The mod's `report` object as the board keeps it: `{ state, since, background, run, seq }`; `since` a finite time not
  * after `now` (else `now`), `background` true only when the mod says so (background work runs after the turn). The
  * review of chat-reports: `seq` the count that rises with every report of the mod's process, `run` that process (each
@@ -110,12 +120,16 @@ export function laneFromReport(entry, { now, unknownAfterMs, offAfterMs = Infini
  * as routine chats, whose process ends with their turn) the board has heard nothing from it for longer than `offAfterMs`
  * since a report of idle, or of busy on a task it holds (since the report). A chat busy on nothing, or asking, that falls
  * silent is off as before (B736: a chat silent alone). Nothing but a message wakes it again.
+ * F38 (B1300): the since is the report's own time (`heardTimeOf`), never the board's start a kept report was moved to: the
+ * age clock (`now - entry.at`) counts from the start as T13 says, but a board start does not begin the chat's sleep anew
+ * (the wake record's spell, src/wake.mjs `spellOf`).
  */
 function asleepSince(entry, { now, offAfterMs, appRuns, appStartedAt, holdsTask }) {
   if (!Number.isFinite(entry.at)) return null
-  if (appRuns === false) return Number.isFinite(appStartedAt) ? appStartedAt : entry.at
+  const own = heardTimeOf(entry)
+  if (appRuns === false) return Number.isFinite(appStartedAt) ? appStartedAt : own
   const canSleep = entry.state === 'idle' || (entry.state === 'busy' && holdsTask)
-  return canSleep && now - entry.at > offAfterMs ? entry.at : null
+  return canSleep && now - entry.at > offAfterMs ? own : null
 }
 
 /**
