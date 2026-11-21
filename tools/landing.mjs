@@ -3,7 +3,7 @@
 //
 //   node tools/landing.mjs gate-check --kind board|mod --file <gate log> [--exit <code>]
 //   node tools/landing.mjs lock-take --file <lock> --by <chat> --branch <branch> --pid <pid> [--stale-minutes 15] [--check-pid yes]
-//   node tools/landing.mjs lock-refresh --file <lock> --pid <pid> --at <the time lock-take (or the last refresh) gave>
+//   node tools/landing.mjs lock-refresh --file <lock> --pid <pid> --at <the time lock-take (or the last refresh) gave> [--phase land]
 //   node tools/landing.mjs lock-release --file <lock> --pid <pid> --at <the time lock-take (or the last refresh) gave>
 //   node tools/landing.mjs inspect --boards <json> --processes <json> --connections <json>
 //   node tools/landing.mjs log-line --file <data/landings.jsonl> --fields <json>
@@ -74,7 +74,7 @@ export function command(name, args) {
     return took.ok ? 0 : 1
   }
   if (name === 'lock-refresh') {
-    const beat = refreshLock(need(given, 'file'), { pid: Number(need(given, 'pid')), at: need(given, 'at') })
+    const beat = refreshLock(need(given, 'file'), { pid: Number(need(given, 'pid')), at: need(given, 'at') }, Date.now(), given.phase ?? null)
     say(beat.ok ? { ok: true, at: beat.token.at } : { ok: false, why: beat.why })
     return beat.ok ? 0 : 1
   }

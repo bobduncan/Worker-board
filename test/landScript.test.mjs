@@ -385,8 +385,14 @@ test('F39: two landings a minute apart: the second refuses at once, before any g
   assert.equal(second.status, 1)
   assert.equal(lines(second.out).at(-1), `refused: chat 3 lands feat-a since ${hhmm(taken.since)}: land after it`)
   assert.equal(logs().length, 1, 'the second ran no gate')
-  const beaten = await until(() => { try { const now = JSON.parse(readFileSync(lock, 'utf8')); return now.at !== taken.at && now } catch { return false } }, 'a beat during the gate')
+  // Review 11: the beat comes while the gate still runs (its phase still "gate", the first landing not ended), not from the
+  // beats after the gate.
+  let ended = false
+  first.then(() => { ended = true })
+  assert.equal(taken.phase, 'gate')
+  const beaten = await until(() => { try { const now = JSON.parse(readFileSync(lock, 'utf8')); return now.at !== taken.at && now.phase === 'gate' && !ended && now } catch { return false } }, 'a beat during the gate')
   assert.equal(beaten.since, taken.since, 'a beat keeps when it was taken')
+  assert.equal(ended, false, 'seen while the first landing was still in its gate')
   const done = await first
   assert.equal(done.status, 0, done.out)
   assertCleanedUp(world)
@@ -414,18 +420,18 @@ test('F39: a land.ps1 killed mid-gate frees the landing lock at once: the next l
   assert.equal(git(world.main, 'rev-parse', 'HEAD'), head)
 })
 
-test('F39 (a): the new runner\'s output keeps what land.ps1 reads: a stalled run names its open files, and each is run again alone', LONG, async t => {
+test('F39 (a), review blocker 2: the new runner\'s output keeps what land.ps1 reads, and a stalled run is refused without a rerun', LONG, async t => {
   const world = await makeWorld(t)
-  const head = world.branch('feat')
+  world.branch('feat')
   await world.boards()
   world.config({ gateBoard: world.gate('board-stalled'), gateFile: `${world.gate('board-pass')} {file}` })
   const ran = await world.land('feat')
-  assert.equal(ran.status, 0, ran.out)
+  assert.equal(ran.status, 1, ran.out)
+  assert.match(lines(ran.out).at(-1), /^refused: the gate failed on [0-9a-f]{7}: the test run stalled \(stalled: no test output for 15 minutes; files still open: test\/alpha\.test\.mjs \(waits for a page\)\) \(see /)
   const log = readFileSync(world.landings().at(-1).gateLog, 'utf8')
   assert.match(log, /one-at-a-time: test runs now/)
-  assert.match(log, /stalled: no test output for 15 minutes; files still open: test\/alpha\.test\.mjs \(waits for a page\)/)
-  assert.match(log, /===== rerun alone: test\/alpha\.test\.mjs =====/)
-  assert.equal(git(world.main, 'rev-parse', 'HEAD'), head)
+  assert.doesNotMatch(log, /rerun alone/, 'a stall is never rerun alone')
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), world.before)
   assertCleanedUp(world)
 })
 

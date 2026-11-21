@@ -17,7 +17,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
-import { join, relative } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 /** Half the cores, at least one. */
@@ -62,26 +62,46 @@ export function openFiles(text) {
 }
 
 /**
- * F39: the lines a stalled run ends with: what happened and the files still open, then one `test at <file>:1:1` line per file (the
- * form src/landing.mjs failingFiles reads, so land.ps1 runs each of them again alone). Paths from `cwd`, with /.
+ * F39: the line a stalled run ends with: what happened and the files still open (paths from `cwd`, with /). A stalled run is a
+ * refusal (chat 1's review, blocker 2): node --test holds back the output of the files after the earliest unfinished one, so their
+ * failures are lost and a rerun of the open files alone proves nothing; src/landing.mjs gatePassed reads this line as the verdict.
  */
 export function stallLines(open, stallMs, cwd = process.cwd()) {
   const span = stallMs >= 60000 ? `${Math.round(stallMs / 60000)} minutes` : `${Math.round(stallMs / 1000)} seconds`
   const shown = file => relative(cwd, file).replace(/\\/g, '/')
   const named = open.map(one => `${shown(one.file)}${one.tests.length === 0 ? ' (at its top level)' : ` (${one.tests.join('; ')})`}`)
-  return [`stalled: no test output for ${span}; files still open: ${named.length === 0 ? 'none named' : named.join(', ')}`, ...open.map(one => `test at ${shown(one.file)}:1:1`)]
+  return [`stalled: no test output for ${span}; files still open: ${named.length === 0 ? 'none named' : named.join(', ')}`]
+}
+
+/** F39, review 9: the folders of the boards on this PC (boards.json): a run there never sweeps them. */
+export function boardFolders(env = process.env) {
+  try {
+    const read = JSON.parse(readFileSync(join(env.WORKER_BOARD_HOME || join(os.homedir(), '.worker-board'), 'boards.json'), 'utf8').replace(/^\uFEFF/, ''))
+    return (Array.isArray(read?.boards) ? read.boards : []).map(one => one?.folder).filter(one => typeof one === 'string' && one !== '')
+  } catch {
+    return []
+  }
+}
+
+/** F39, review 9: the pattern a command line must match to name `folder`: the folder, then a \\, a quote, a space or the end. */
+export function insidePattern(folder) {
+  const needle = String(folder).replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+  return `${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[\\\\"' ]|$)`
 }
 
 /**
  * F39 (part 6): ends what the run started outside its tree inside `folder` (a board a test started through WMI): every process whose
  * command line names the folder and that was made after `since` (never the chat's own programs there, which are older). Windows only.
  */
-export function stopInside(folder, since, run = spawnSync) {
+export function stopInside(folder, since, run = spawnSync, boards = boardFolders()) {
   if (process.platform !== 'win32') return
-  const needle = String(folder).replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase().replace(/'/g, "''")
+  // Never a board's own folder: a run there would end the board itself, restarted after the run began.
+  const same = one => resolve(one).toLowerCase() === resolve(folder).toLowerCase()
+  if (boards.some(same)) return
+  const pattern = insidePattern(folder).replace(/'/g, "''")
   const script = [
     `$since = [DateTime]::FromFileTimeUtc(${Math.floor(since * 10000 + 116444736000000000)})`,
-    `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne ${process.pid} -and $_.CreationDate -and $_.CreationDate.ToUniversalTime() -ge $since -and ([string]$_.CommandLine).Replace('/', '\\').ToLowerInvariant().Contains('${needle}') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+    `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne ${process.pid} -and $_.ProcessId -ne $PID -and $_.CreationDate -and $_.CreationDate.ToUniversalTime() -ge $since -and ([string]$_.CommandLine).Replace('/', '\\').ToLowerInvariant() -match '${pattern}' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
   ].join('; ')
   try {
     run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore', windowsHide: true, timeout: 60_000 })
@@ -151,13 +171,21 @@ export function runTests({
       stopTree(child)
       stopInside(cwd, began)
     }, watchMs)
+    let ended = false
     const done = (code) => {
+      if (ended) return
+      ended = true
       clearInterval(watch)
-      rmSync(folder, { recursive: true, force: true })
+      try {
+        rmSync(folder, { recursive: true, force: true })
+      } catch {
+        // a file still held: the temporary folder stays
+      }
       resolve(stalled ? 1 : code)
     }
     child.on('error', () => done(1))
-    child.on('exit', (code) => done(code ?? 1))
+    // F39, review 10: on 'close' when the output is piped, so the tail of the run (its summary) is written before it counts.
+    child.on(child.stdout ? 'close' : 'exit', (code) => done(code ?? 1))
   })
 }
 

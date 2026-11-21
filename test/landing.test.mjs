@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 
-import { RESULTS, STALE_LOCK_MS, asciiJson, boardProcesses, failingFiles, gatePassed, gateVerdict, hhmm, inspectorDecision, landingLine, lockHolder, refreshLock, releaseLock, stripAnsi, takeLock } from '../src/landing.mjs'
+import { RESULTS, STALE_LOCK_MS, landingRestarts, asciiJson, boardProcesses, failingFiles, gatePassed, gateVerdict, hhmm, inspectorDecision, landingLine, lockHolder, refreshLock, releaseLock, stripAnsi, takeLock } from '../src/landing.mjs'
 
 const scratch = mkdtempSync(join(tmpdir(), 'landing-test-'))
 after(() => rmSync(scratch, { recursive: true, force: true }))
@@ -80,7 +80,7 @@ test('a free lock is taken: its file says who, which branch, since when and the 
   const took = takeLock(file, { by: 'chat 3', branch: 'land-script', pid: 4242, now: NOW })
   assert.equal(took.ok, true)
   assert.equal(took.broke, null)
-  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { by: 'chat 3', branch: 'land-script', at: '2026-11-04T18:00:00.000Z', since: '2026-11-04T18:00:00.000Z', pid: 4242 })
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { by: 'chat 3', branch: 'land-script', at: '2026-11-04T18:00:00.000Z', since: '2026-11-04T18:00:00.000Z', phase: 'gate', pid: 4242 })
   assert.deepEqual(took.token, { pid: 4242, at: '2026-11-04T18:00:00.000Z' })
 })
 
@@ -143,7 +143,7 @@ test('lockHolder reads who holds the lock and for how long, or null when none', 
   const file = lockFile()
   assert.equal(lockHolder(file, NOW), null)
   takeLock(file, { by: 'chat 1', branch: 'a', pid: 1, now: NOW - 3 * MIN })
-  assert.deepEqual(lockHolder(file, NOW), { by: 'chat 1', branch: 'a', at: '2026-11-04T17:57:00.000Z', since: '2026-11-04T17:57:00.000Z', pid: 1, ageMs: 3 * MIN })
+  assert.deepEqual(lockHolder(file, NOW), { by: 'chat 1', branch: 'a', at: '2026-11-04T17:57:00.000Z', since: '2026-11-04T17:57:00.000Z', phase: 'gate', pid: 1, ageMs: 3 * MIN })
 })
 
 // The debugger check.
@@ -304,7 +304,7 @@ test('the lock\'s heartbeat: a refresh gives the lock a new time, so a live land
   const held = takeLock(file, { by: 'chat 4', branch: 'x', pid: 8, now: NOW + 2 * MIN })
   assert.equal(held.ok, false, 'two minutes after the refresh the lock holds')
   assert.match(held.why, /^chat 3 lands land-script since /)
-  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { by: 'chat 3', branch: 'land-script', at: '2026-11-04T18:00:00.000Z', since: '2026-11-04T17:46:00.000Z', pid: 7 })
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { by: 'chat 3', branch: 'land-script', at: '2026-11-04T18:00:00.000Z', since: '2026-11-04T17:46:00.000Z', phase: 'gate', pid: 7 })
   // The old token no longer gives it back; the new one does.
   assert.equal(releaseLock(file, took.token), false)
   assert.equal(releaseLock(file, refreshed.token), true)
@@ -335,4 +335,25 @@ test('F39: with `runs` (land.ps1 gives it), a lock whose landing process is gone
   const old = lockFile()
   takeLock(old, { by: 'x', branch: 'y', pid: 777, now: NOW - MIN })
   assert.equal(takeLock(old, { by: 'z', branch: 'w', pid: 1, now: NOW }).ok, false)
+})
+
+test('F39 review 7: the lock says its phase: "gate" when taken, "land" once refreshed so; only a land phase whose process runs restarts boards', () => {
+  const file = lockFile()
+  const took = takeLock(file, { by: 'chat 4', branch: 'f39', pid: process.pid, now: NOW - MIN })
+  assert.equal(lockHolder(file, NOW).phase, 'gate')
+  assert.equal(landingRestarts(lockHolder(file, NOW)), false, 'a gate can take an hour: the watcher does not wait for it')
+  const beat = refreshLock(file, took.token, NOW)
+  assert.equal(lockHolder(file, NOW).phase, 'gate', 'a plain beat keeps the phase')
+  const landing = refreshLock(file, beat.token, NOW, 'land')
+  assert.equal(landing.ok, true)
+  const held = lockHolder(file, NOW)
+  assert.deepEqual([held.phase, held.since], ['land', new Date(NOW - MIN).toISOString()])
+  assert.equal(landingRestarts(held), true)
+  assert.equal(landingRestarts(held, { runs: () => false }), false, 'its land.ps1 is gone')
+  assert.equal(landingRestarts({ ...held, ageMs: STALE_LOCK_MS }), false, 'stale')
+  assert.equal(landingRestarts(null), false)
+  // A lock of before F39 (no phase) reads as a landing, as it did.
+  const old = lockFile()
+  writeFileSync(old, JSON.stringify({ by: 'chat 1', branch: 'x', at: new Date(NOW - MIN).toISOString(), pid: process.pid }))
+  assert.equal(lockHolder(old, NOW).phase, 'land')
 })

@@ -25,7 +25,7 @@ if (mode === 'board-pass') board(0)
 else if (mode === 'board-stalled') {
   console.error('one-at-a-time: test runs now (waited 1 s)')
   console.log('✔ a made-up test (0.1ms)')
-  console.log('\nstalled: no test output for 15 minutes; files still open: test/alpha.test.mjs (waits for a page)\ntest at test/alpha.test.mjs:1:1')
+  console.log('\nstalled: no test output for 15 minutes; files still open: test/alpha.test.mjs (waits for a page)')
   process.exitCode = 1
 }
 else if (mode === 'board-slow-pass') setTimeout(() => board(0), Number(process.env.GATE_SLOW_MS ?? 8000))

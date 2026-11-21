@@ -8,8 +8,8 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { join } from 'node:path'
-import { failingFiles } from '../src/landing.mjs'
-import { LOW, STALL_MS, TEST_TIMEOUT_MS, halfTheCores, openFiles, runTests, stallLines } from '../tools/test.mjs'
+import { failingFiles, gateVerdict } from '../src/landing.mjs'
+import { LOW, STALL_MS, TEST_TIMEOUT_MS, halfTheCores, insidePattern, openFiles, runTests, stallLines, stopInside } from '../tools/test.mjs'
 
 test('B351: npm test runs the tests through tools/test.mjs, on half the cores, at least one', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
@@ -129,9 +129,12 @@ test('F39: the files still open, from the reporter\'s lines, and the lines a sta
   assert.deepEqual(open, [{ file: 'C:/b/test/a.test.mjs', tests: ['two'] }, { file: 'C:/b/test/b.test.mjs', tests: [] }])
   assert.deepEqual(stallLines(open, 15 * 60 * 1000, 'C:/b'), [
     'stalled: no test output for 15 minutes; files still open: test/a.test.mjs (two), test/b.test.mjs (at its top level)',
-    'test at test/a.test.mjs:1:1', 'test at test/b.test.mjs:1:1',
   ])
-  assert.deepEqual(failingFiles(stallLines(open, 15 * 60 * 1000, 'C:/b').join('\n')), ['test/a.test.mjs', 'test/b.test.mjs'], 'land.ps1 reruns them alone')
+  // Review, blocker 2: a stalled run is a refusal and names no file to run again alone (the held-back files' failures are lost).
+  const verdict = gateVerdict(['✔ one (1ms)', 'test at test/c.test.mjs:3:1', ...stallLines(open, 15 * 60 * 1000, 'C:/b')].join('\n'), 'board', 1)
+  assert.equal(verdict.ok, false)
+  assert.match(verdict.why, /^the test run stalled \(stalled: no test output for 15 minutes; files still open: test\/a\.test\.mjs/)
+  assert.equal(verdict.files, undefined)
 })
 
 test('F39, the real case: a test that hangs inside itself (taskWindowPage, 2026-11-21) fails at the per-test timeout, naming its file', { timeout: 120_000 }, async t => {
@@ -164,7 +167,7 @@ test('F39: a file that hangs at its top level ends the run at the stall watchdog
   assert.equal(code, 1)
   assert.ok(Date.now() - began < 60_000, 'ended at the watchdog')
   assert.match(seen.text, /stalled: no test output for 3 seconds; files still open: .*hangs-on-top\.test\.mjs \(at its top level\)/)
-  assert.ok(failingFiles(seen.text).some(one => one.endsWith('hangs-on-top.test.mjs')), seen.text)
+  assert.equal(gateVerdict(seen.text, 'board', code).ok, false, 'refused')
   if (process.platform === 'win32') {
     const sleeper = Number(readFileSync(join(folder, 'sleeper.pid'), 'utf8'))
     let alive = true
@@ -175,4 +178,42 @@ test('F39: a file that hangs at its top level ends the run at the stall watchdog
     }
     assert.equal(alive, false, 'the process it left outside its tree is ended too')
   }
+})
+
+test('F39 review 9: the sweep names a folder only on a path boundary, and never sweeps a board\'s own folder', () => {
+  const re = new RegExp(insidePattern('D:/boards/x/worker-board'))
+  assert.equal(re.test('node d:\\boards\\x\\worker-board\\server.mjs'), true)
+  assert.equal(re.test('node "d:\\boards\\x\\worker-board" --demo'), true)
+  assert.equal(re.test('node d:\\boards\\x\\worker-board-t5-a6\\server.mjs'), false, 'another worktree beside it is not inside')
+  const calls = []
+  const run = (...args) => calls.push(args)
+  stopInside('D:/boards/x/worker-board', Date.now(), run, ['D:\\boards\\x\\worker-board'])
+  assert.equal(calls.length, 0, 'a board folder is never swept')
+  if (process.platform === 'win32') {
+    stopInside('D:/temp/run-1', Date.now(), run, ['D:\\boards\\x\\worker-board'])
+    assert.equal(calls.length, 1)
+    assert.match(calls[0][1].at(-1), /\$_\.ProcessId -ne \$PID/, 'never the sweep\'s own powershell')
+  }
+})
+
+test('F39 review 10: with piped output the run counts on close, after the tail of its output', async () => {
+  const { seen, stream } = sink()
+  const start = () => {
+    const child = new EventEmitter()
+    child.pid = 4243
+    child.stdout = new EventEmitter()
+    child.stderr = new EventEmitter()
+    setImmediate(() => {
+      child.emit('exit', 0)
+      // The pipe's tail comes a moment after the process ended.
+      setTimeout(() => {
+        child.stdout.emit('data', 'ℹ fail 0\n')
+        child.emit('close', 0)
+      }, 30)
+    })
+    return child
+  }
+  const code = await runTests({ files: ['x'], cores: 2, start, setPriority: () => {}, out: stream, err: stream })
+  assert.equal(code, 0)
+  assert.match(seen.text, /ℹ fail 0/)
 })

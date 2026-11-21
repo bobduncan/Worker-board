@@ -7983,8 +7983,8 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   for a look, the gate log gets a `teardown:` line and the landings line the reason ("has no happy-dom after the gate (it was
   emptied): run npm ci ..." or "the gate's junction ... could not be removed"); a refusal of the gate itself carries it as
   "; and ...". The next run sweeps the leftover.
-- **One landing at a time**: `data/landing.lock` (`by`, `branch`, `at`, `pid`), made by an exclusive create. Held by another
-  and younger than 15 minutes: refused ("a landing by <by> of <branch> holds the lock since HH:MM"); older: broken with the
+- **One landing at a time**: `data/landing.lock` (`by`, `branch`, `at`, `pid`; since F39 also `since` and `phase`, see "F39" below), made by an exclusive create. Held by another
+  and younger than 15 minutes: refused (since F39 "<by> lands <branch> since HH:MM: land after it", before any gate); older, or its land.ps1 gone (F39): broken with the
   line "broke a stale landing lock of ...", one breaker at a time. Refreshed at every phase (a heartbeat, `lock-refresh`), so a live landing never looks stale; one taken over meanwhile is a refusal
   before main moves. Released in a `finally`, and only by the run that took it.
   Under the lock the checks run once more, because main may have moved during the gate: the branch still contains main and
@@ -8892,3 +8892,25 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
   that hangs at its top level. It ends with "stalled: ...; files still open: ..." and one `test at <file>:1:1` line per file. A
   second reporter (tools/openFilesReporter.mjs) writes which files are taken up and ended, and land.ps1's "run the failing files
   again alone" takes the files from those lines.
+
+**F39, chat 1's review (2026-11-21), the fixes:**
+- **Old and new copies side by side** (blocker 1). Copies of before F39 run in open worktrees and the game until they merge main.
+  A ticket and a lock of this copy say `order: 2`. An unmarked ordinary ticket (an old copy's) is ranked by the old rule, after every
+  first-class ticket, as the old copy ranks itself, so the two copies never both wait for each other. Each beat also moves
+  `startedAt`, which old copies judge a lock by; `since` keeps when the slot was taken.
+- **A stalled run is a refusal** (blocker 2). node --test holds back the results of the files after the earliest unfinished one,
+  so their failures would be lost. `gatePassed` reads the stall line as the verdict ("the test run stalled (...)"), and
+  `gateVerdict` names no files to rerun for it.
+- **The holder's clock.** A live holder whose beat is only old (the PC slept) is freed only after its lock stayed the same for two
+  beats of the waiter's own monotonic clock.
+- **The cap.** A run is stopped after 120 minutes (HEAVY_RUN_MAX_MS, code 124), and its lock is stale past that with a 10-minute
+  margin.
+- **Tickets beat at every look.** A ticket with an old beat (a reused process id) is dropped, and so is an old copy's ticket older
+  than 3 hours.
+- **The landing lock's phase**: "gate" when taken, "land" once main is about to move (`lock-refresh --phase land`).
+  `landingRestarts` (land phase, not stale, its process runs) is what the board watcher, the leaked-browser closer, faults-gone and
+  the carry guards read, so a dead board is not left alone through an hour-long gate.
+- **land.ps1**: the rerun alone defaults to `node tools/test.mjs {file}`, after Stop-FolderProcesses. A lock lost during the gate
+  stops the gate and refuses. The sweep of a cut landing's gate first ends what it left running there.
+- **tools/test.mjs**: the sweep names a folder only on a path boundary, never a board's own folder (boards.json), never its own
+  powershell. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.

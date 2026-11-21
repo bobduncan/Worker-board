@@ -17,6 +17,16 @@ export function pidRuns(pid) {
   }
 }
 
+/**
+ * F39, review 7: whether a landing lock (`lockHolder`) is a landing that restarts the boards itself: in its 'land' phase (not while
+ * its gate runs, which can take an hour), not older than `staleMs`, and its process still runs. The board watcher, the leaked-browser
+ * closer, faults-gone and the carry guards leave a board alone only then.
+ */
+export function landingRestarts(holder, { staleMs = STALE_LOCK_MS, runs = pidRuns } = {}) {
+  if (holder === null || holder === undefined || holder.ageMs >= staleMs || holder.phase === 'gate') return false
+  return !(Number.isInteger(holder.pid) && !runs(holder.pid))
+}
+
 /** A landing lock older than this is a crashed landing's: it is broken. */
 export const STALE_LOCK_MS = 15 * 60_000
 /** What a landings line's `result` says. */
@@ -53,8 +63,9 @@ export function failingFiles(output) {
 
 /** `gatePassed`, and for a run that did not pass the failing test files it names (`files`, only when it names some). */
 export function gateVerdict(output, kind = 'board', exitCode = undefined) {
-  const verdict = gatePassed(output, kind, exitCode)
-  const files = verdict.ok ? [] : failingFiles(output)
+  const { stalled, ...verdict } = gatePassed(output, kind, exitCode)
+  // F39: a stalled run names no files to run again alone: a rerun of the open ones would prove nothing (the refusal stands).
+  const files = verdict.ok || stalled === true ? [] : failingFiles(output)
   return files.length > 0 ? { ...verdict, files } : verdict
 }
 
@@ -69,6 +80,10 @@ export function gatePassed(output, kind = 'board', exitCode = undefined) {
   // F14: a gate land.ps1 stopped at its clock (or at the queue's bound) says so in its log: that line is the verdict, not "no summary".
   const stopped = /^the gate (?:command )?(?:ran|waited) longer than .+? and was stopped\s*$/m.exec(stripAnsi(output))
   if (stopped !== null) return { ok: false, why: stopped[0].trim() }
+  // F39 (chat 1's review, blocker 2): a run tools/test.mjs ended at its stall watchdog is refused, whatever else it printed: node
+  // --test held back the results of the files after the open one, so a failure there would be lost.
+  const stalled = /^stalled: no test output for .+$/m.exec(stripAnsi(output))
+  if (stalled !== null) return { ok: false, why: `the test run stalled (${stalled[0].trim()})`, stalled: true }
   const pattern = kind === 'mod' ? /^\s*(\d+) fail\s*$/ : /^(?:ℹ|#) fail (\d+)\s*$/
   const fails = stripAnsi(output).split(/\r?\n/).map(line => pattern.exec(line)?.[1]).filter(found => found !== undefined).map(Number)
   if (fails.length === 0) return { ok: false, why: `no summary line in the output (a line "${kind === 'mod' ? 'N fail' : 'fail N'}" is missing)` }
@@ -122,10 +137,12 @@ export function lockHolder(file, now = Date.now()) {
     read = null
   }
   const at = typeof read?.at === 'string' && Number.isFinite(Date.parse(read.at)) ? read.at : null
-  if (at === null) return { by: 'unknown', branch: 'unknown', at: new Date(modified).toISOString(), since: new Date(modified).toISOString(), pid: null, ageMs: now - modified }
+  if (at === null) return { by: 'unknown', branch: 'unknown', at: new Date(modified).toISOString(), since: new Date(modified).toISOString(), phase: 'land', pid: null, ageMs: now - modified }
   // F39: `since` is when the landing took the lock (its beats move `at`); a lock of before F39 has none: its `at`.
   const since = typeof read.since === 'string' && Number.isFinite(Date.parse(read.since)) ? read.since : at
-  return { by: typeof read.by === 'string' ? read.by : 'unknown', branch: typeof read.branch === 'string' ? read.branch : 'unknown', at, since, pid: Number.isInteger(read.pid) ? read.pid : null, ageMs: now - Date.parse(at) }
+  // F39, review 7: the phase, 'gate' (the tests run) or 'land' (main moves, the boards restart); a lock of before F39 has none: 'land'.
+  const phase = read.phase === 'gate' ? 'gate' : 'land'
+  return { by: typeof read.by === 'string' ? read.by : 'unknown', branch: typeof read.branch === 'string' ? read.branch : 'unknown', at, since, phase, pid: Number.isInteger(read.pid) ? read.pid : null, ageMs: now - Date.parse(at) }
 }
 
 /** A gate log older than this with no landings line is a cut landing's (the gate takes 10 to 60 minutes): no landing runs for it. */
@@ -195,7 +212,7 @@ export function runningLanding({ dir, now = Date.now(), staleMs = STALE_LOCK_MS,
  * first's fresh lock.
  */
 export function takeLock(file, { by, branch, pid, now = Date.now(), staleMs = STALE_LOCK_MS, runs = null }) {
-  const info = { by, branch, at: new Date(now).toISOString(), since: new Date(now).toISOString(), pid }
+  const info = { by, branch, at: new Date(now).toISOString(), since: new Date(now).toISOString(), phase: 'gate', pid }
   const guard = `${file}.breaking`
   let broke = null
   for (let tries = 0; tries < 40; tries += 1) {
@@ -245,11 +262,11 @@ export function takeLock(file, { by, branch, pid, now = Date.now(), staleMs = ST
  * The lock's heartbeat: gives the lock a new time (`at`) at each phase of a landing, so a live landing never looks stale. Only the
  * holder refreshes: `{ ok: true, token }` with the new token, or `{ ok: false, why }` when the lock is gone or another landing took it.
  */
-export function refreshLock(file, token, now = Date.now()) {
+export function refreshLock(file, token, now = Date.now(), phase = null) {
   const holder = lockHolder(file, now)
   if (holder === null) return { ok: false, why: 'the landing lock is gone' }
   if (holder.pid !== token.pid || holder.at !== token.at) return { ok: false, why: `the landing lock was taken over by ${holder.by} (${holder.branch}, since ${hhmm(holder.at)})` }
-  const next = { by: holder.by, branch: holder.branch, at: new Date(now).toISOString(), since: holder.since, pid: token.pid }
+  const next = { by: holder.by, branch: holder.branch, at: new Date(now).toISOString(), since: holder.since, phase: phase === 'land' || phase === 'gate' ? phase : holder.phase, pid: token.pid }
   const temp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
   writeFileSync(temp, JSON.stringify(next))
   renameSync(temp, file)
