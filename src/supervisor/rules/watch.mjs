@@ -561,9 +561,12 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   // B1071 (X2): a task stop by code waits STOP_HANDS_MS for the board to carry it out, then the main chat may take it: late after both.
   // B1294 (X109): a holder's "go on" line waits for its give-back (holderTimers.mjs), which closes it: late only after that and the limit.
   const limit = isTaskStopWord(message) ? STOP_HANDS_MS + judged.limit : isGoOnWord(message) ? goOnWaitMs(message) + judged.limit : judged.limit
-  if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
+  // B1294 review 1: the give-back counts the board's running time (handoverBoard.mjs `runningMs`), so a go-on line's wait leaves
+  // the board's off time out too (a stop or PC sleep), or it is named before the give-back that closes it.
+  const waited = view.now - since - (isGoOnWord(message) ? boardOffMs(view, since) : 0)
+  if (message.state === 'waiting') return waited > limit && stillWaits(message)
   // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
-  if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)
+  if (message.state === 'taken' && isHandTaken(message)) return waited > limit && stillWaits(message)
   // B1164 (B1160 part 2): a set word for Main's model (the app refuses the hands' set calls) is with Main once taken or typed: left out
   // while Main's model may still do it, counted once MAIN_MODEL_SET_MS passed and the worker still does not run at it (`stillWaits`).
   if (message.forModel === true && ['taken', 'delivered'].includes(message.state)) {
@@ -574,7 +577,7 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
     const isOnIt = step !== undefined && ['queued', 'taken', 'in progress', 'waiting on you'].includes(valueOf(step, 'State')) && plain(valueOf(step, 'Owner'), view.prefix) === plain(message.about, view.prefix)
     return isOnIt && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > MAIN_MODEL_SET_MS && stillWaits(message)
   }
-  return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
+  return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && waited > limit && stillWaits(message)
 }
 
 /**

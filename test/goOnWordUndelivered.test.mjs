@@ -28,12 +28,12 @@ const TASK = Object.freeze({ ...OLD, id: 'task-word', text: 'hand-over\nLine: wo
 
 // Worker 4 at 00:51:08: interrupted, its chat not running, no wake attempt yet in its spell (the spell began anew at 00:45:05).
 const WORKER4 = { name: 'Worker 4', isMain: false, isLeftover: false, isRunning: false, state: 'interrupted', report: { state: 'busy', at: AT - 6 * MIN, since: AT - 6 * MIN } }
-const board = () => ({ restart: { main: 'Main' }, pause: { state: 'running', since: AT - 60 * MIN }, chats: [{ name: 'Main', isMain: true, isLeftover: false, isRunning: true, state: 'working' }, WORKER4] })
+const board = (gaps = []) => ({ gaps, restart: { main: 'Main' }, pause: { state: 'running', since: AT - 60 * MIN }, chats: [{ name: 'Main', isMain: true, isLeftover: false, isRunning: true, state: 'working' }, WORKER4] })
 const item = (id, state, owner) => [id, { head: new Map([['Id', id], ['Kind', 'step'], ['State', state], ['Owner', owner]]) }]
 const held = new Map([item('B1293', 'in progress', 'Worker 4')])
 const givenBack = new Map([item('B1293', 'refined', '-')])
-const view = (outbox, now, items = held) => buildView({ state: board(), items, outbox, keep, settings: {}, now })
-const named = (outbox, now, items) => undeliveredWords(view(outbox, now, items)).map(one => one.id)
+const view = (outbox, now, items = held, gaps = []) => buildView({ state: board(gaps), items, outbox, keep, settings: {}, now })
+const named = (outbox, now, items, gaps) => undeliveredWords(view(outbox, now, items, gaps)).map(one => one.id)
 const rule = WATCH_RULES.find(one => one.id === 'undelivered')
 
 test('a "go on" line is told apart from every other hand-over, and waits its give-back\'s minutes (the default for an older line)', () => {
@@ -75,4 +75,16 @@ test('every other word keeps the plain limit: a step\'s hand-over to a free work
   assert.deepEqual(named([{ ...TASK }], AT + 11 * MIN, tasks), ['task-word'])
   // Beside a waiting go-on line, only the task word is named.
   assert.deepEqual(named([{ ...GO_ON }, { ...TASK }], AT + 11 * MIN, tasks), ['task-word'])
+})
+
+test('review 1: the board off while the line waits (a stop or PC sleep) does not count, as for the give-back (mutant: wall time)', () => {
+  // The verifier's probe: the board off from 3 to 33 min after the line; the give-back comes at 15 min of running time (46 min).
+  const off = [{ from: AT + 3 * MIN, to: AT + 33 * MIN }]
+  assert.deepEqual(named([{ ...GO_ON }], AT + 34 * MIN, held, off), [])
+  assert.deepEqual(named([{ ...GO_ON }], AT + 44 * MIN, held, off), [])
+  assert.deepEqual(named([{ ...GO_ON }], AT + 54 * MIN, held, off), [], '24 min of running time')
+  assert.deepEqual(named([{ ...GO_ON }], AT + 55 * MIN + 1_000, held, off), [GO_ON.id], 'a give-back that never came: 25 min of running time')
+  // Every other word keeps its wall time.
+  const tasks = new Map([...held, item('B1300', 'queued', 'Worker 4')])
+  assert.deepEqual(named([{ ...TASK }], AT + 34 * MIN, tasks, off), ['task-word'])
 })
