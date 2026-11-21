@@ -24,6 +24,13 @@ export const RESUME_KIND = 'resume'
 /** The settings' defaults (config.mjs `resumeAfterMinutes`, `giveBackAfterMinutes`). */
 export const RESUME_MINUTES = 5
 export const GIVE_BACK_MINUTES = 15
+/**
+ * B1294 (X109, 2026-11-21 00:39:56: Worker 4's chat hung, its "go on" line waited, and the give-back at 00:55:01 closed it; rule 8
+ * named it at 00:51, before that cure): whether a word is a "go on" line, and how long it waits for its give-back before it is late
+ * (`giveBackMs`, which the hand-over writes on it from the setting; an older line without it: the default).
+ */
+export const isGoOnWord = message => message?.command === 'handover' && message.kind === RESUME_KIND
+export const goOnWaitMs = message => (Number.isFinite(message?.giveBackMs) && message.giveBackMs > 0 ? message.giveBackMs : GIVE_BACK_MINUTES * MIN)
 /** The lane states of a holder that does not work on its step: Stopped (idle or ended with it), off, or not known. */
 export const STOPPED_LANES = ['interrupted', 'off', 'unknown']
 /** The step states the timers watch: the worker's work now; never one that waits on the person, nor one in review. */

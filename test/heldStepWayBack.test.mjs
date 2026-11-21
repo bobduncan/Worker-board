@@ -178,6 +178,7 @@ test('the go on comes after 5 minutes of the board\'s running time and the give-
   assert.equal(goOns(one.outbox).length, 0, 'not before 5 minutes')
   await one.pass(at(11, 5, 10), at1100)
   assert.equal(goOns(one.outbox).length, 1, 'at 5 minutes')
+  assert.equal(goOns(one.outbox)[0].giveBackMs, GIVE_BACK_MINUTES * MIN, 'B1294: the line carries its give-back\'s minutes for rule 8')
   await one.pass(at(11, 5, 10) + 14 * MIN + 50_000, at1100)
   assert.equal(valueOf(await one.item(), 'State'), 'in progress', 'not before 15 minutes after the line')
   await one.pass(at(11, 5, 10) + 15 * MIN, at1100)

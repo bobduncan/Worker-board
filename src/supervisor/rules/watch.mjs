@@ -14,7 +14,7 @@
 
 import { linkGoneNames, wordLanesOf } from '../../modGone.mjs'
 import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
-import { RETIRED_WATCH_RULES, givenBackFrom } from '../../work/holderTimers.mjs'
+import { RETIRED_WATCH_RULES, givenBackFrom, goOnWaitMs, isGoOnWord } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
@@ -559,7 +559,8 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   const held = message.at + heldMs(message, view.now, view.pause)
   const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
   // B1071 (X2): a task stop by code waits STOP_HANDS_MS for the board to carry it out, then the main chat may take it: late after both.
-  const limit = isTaskStopWord(message) ? STOP_HANDS_MS + judged.limit : judged.limit
+  // B1294 (X109): a holder's "go on" line waits for its give-back (holderTimers.mjs), which closes it: late only after that and the limit.
+  const limit = isTaskStopWord(message) ? STOP_HANDS_MS + judged.limit : isGoOnWord(message) ? goOnWaitMs(message) + judged.limit : judged.limit
   if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
   // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
   if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)

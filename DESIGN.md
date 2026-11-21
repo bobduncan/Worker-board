@@ -6179,14 +6179,20 @@ asks come; only a checkpoint after it, or a busy spell of over 2 minutes after i
 that ended, or a busy report heard for that long), starts the 15 minutes anew.
 
 **The envelope** (outbox command `handover`): `{ kind: "resume", step: null, clear: null, restart: false, set: null,
-line: "go on with ...", back: null, resume: "resume B12 <spell start ms>" }`. Its `step` is null, so the decision's
+line: "go on with ...", back: null, resume: "resume B12 <spell start ms>", giveBackMs }`. Its `step` is null, so the decision's
 in-flight task and the hand-over's own envelope logic never read it (the decision reads only the resume envelopes for
 the timers); its `resume` marker makes it once per spell, as `back` does. The Workers mod 0.27.x reads the unknown kind
 as `task` (board.ts `parseEnvelope`) and, with no clear, set or restart, types the line as the board's word and settles
 it once: no mod change. The outbox sweep keeps it while its worker holds that step taken or in progress and drops it
 once not ("Worker N no longer holds B12"); its next take brings it to a running chat; for an asleep chat the waiting
 envelope is what has the board open it (opener.mjs `asleepWithWork` counts every waiting word by `to`); for a chat that
-is off it is a wake word (say.mjs `isWakeWord`), as RESUME_STEP was.
+is off it is a wake word (say.mjs `isWakeWord`), as RESUME_STEP was. B1294 (X109, 2026-11-21: Worker 4's chat hung at
+00:34, its line of 00:39:56 waited and the give-back at 00:55 closed it, but rule 8 named it at 00:51): the line's own
+cure is the give-back, so it carries `giveBackMs` (the setting `giveBackAfterMinutes` when it was written; an older line
+the default 15) and rule 8 names it only after that and `undeliveredMinutes` (holderTimers.mjs `goOnWaitMs`, watch.mjs
+`isUndelivered`), as a task stop waits STOP_HANDS_MS first. Every other word keeps the plain limit. The sweep does not
+close the line when its worker's lane reads running: a kept report read as working right after a board start (00:45:09)
+would have closed a line that still mattered.
 
 **After `giveBackAfterMinutes` (15) from the line being written, not delivered** (a chat the app will not open must not
 hold its step for ever), with no progress: the decision says `giveBack: { step, chat, askedAt }` and `close` (the line
