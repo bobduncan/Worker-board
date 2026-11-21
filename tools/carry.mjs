@@ -66,7 +66,8 @@ export async function rootsOf({ boardDir = HERE, flags = {}, env = process.env, 
   if (!remote) throw new Error(`no data remote: ${gameRepo} has no origin; say --remote <url>`)
   const recordFile = recordFileFor({ boardDir, dataDir, isExplicit: isExplicitData })
   const record = await readRecord(recordFile, fs)
-  const picturesFolder = flags.pictures ? resolve(flags.pictures) : record.picturesHome
+  // T5.2 A7: the pictures home config.json names for this PC (setup's pictures question), else the record's.
+  const picturesFolder = flags.pictures ? resolve(flags.pictures) : typeof config.picturesHome === 'string' && config.picturesHome !== '' ? config.picturesHome : record.picturesHome
   const keepSetFile = flags['keep-set'] ? resolve(flags['keep-set']) : record.keepSet
   const memoryDir = join(transcriptsOf(project, env), 'memory')
   const userSettingsFile = join(homedir(), '.claude', 'settings.json')

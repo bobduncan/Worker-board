@@ -8772,7 +8772,9 @@ Still with `data` empty everything is exactly today's path. With it set:
   is a runtime file, `<data>/local/backlog.md`. A whole path of its own (a copy's) stays. sources.mjs reads the threads there.
 - **The runtime files** (`localFile`): sync-loop.json, limit-readings.json, sync.json, supervisor.json, supervisor-sweep.json and
   board-errors.log go to `<data>/local` (ignored by the data branch), today the project's `.claude`.
-- **The assets** (`assetsOf`): `<data>/pictures/assets`, today `assets` beside the store; server.mjs's `assetsDir` uses it.
+- **The assets** (`assetsOf`): `<data>/pictures/assets`, today `assets` beside the store; server.mjs's `assetsDir` uses it. T5.2 A2
+  (chat 1's review, finding 7): the readers too: the state's asset wait (`assetsRead`) and the delivery's judge and resends
+  (deliver.mjs `assetsDir`), which read `assets` beside the store before; with `data` empty the two folders are one.
 - **Every picture reader and writer** takes a home `{ root, abs }` (`pictureHomeOf(config)`; server.mjs `pictureHome(root)`) in place of
   the project folder: src/pictures.mjs (findPicture, readDemo, findDemo, pictureTooBig, pictureProblem, adoptPicture, listPictures,
   the bare-name search), talkPicture.mjs, ideas.mjs `placeReferences`; recaps.mjs, recapCard.mjs and tools/evidence.mjs resolve their
@@ -8817,10 +8819,23 @@ real chat; 11-19: the app was on the other account until ~19:11 and the Advisor 
   account's list when the person switches back. `boardChats` keeps the real chat of a transcript over a newer launch stub (the
   11-05 case: the stub had hidden the real chat). Back on the board's account the hold lifts and the wake loop wakes each chat
   that holds a step or words, once, with its usual line; no wake was tried while away, so none failed for good.
-- **Moving the board for good** (chat 1's review): the away line has one button, "Run the board on this account": the app's
-  account becomes the board's, recorded in data/app-account.json as the person's (`by: 'person'`) and kept in memory at once; the
-  hold ends without the settle. A read of the app's config.json that finds no account while away (cut short, gone a moment) keeps
-  the last account known, and only a whole chat file is copied.
+- **Moving the board for good**, B1283 (F37; the person, 2026-11-20: "make this button a needs my attention thing instead ... let it
+  automatically detect, and put it in the attention so i can decide myself"): once the away has lasted the settle (a quick flip back
+  files nothing) the board files ONE ask in Needs your attention, in its own name as the asset queue does (`accountWatch`'s `ask`
+  adapter: work `ask` as 'server', a decide routed to the person, never the partner: its words name the Claude app and an account,
+  the person's hands): "The Claude app is on account <8 chars>: run the board there?", A "Run the board on this account" (the
+  app's account becomes the board's, recorded as the person's, `by: 'person'`; the hold ends at once), B "Keep waiting until I
+  switch back" (the hold stays and no new ask comes while the app stays on that account). The ask's id and the B stand in
+  data/app-account.json, so a restart while away files no second one and reads the answer of the first. When the app comes home
+  the open ask is withdrawn by the board with "the Claude app came back to <8 chars>; nothing to decide" and the B is forgotten. The
+  muted line stays and links to the ask (`Decide (Q<n>)`); the page has no account button any more. A copy that only shows files
+  nothing. Accounts are named by their first 8 characters: the board cannot tell personal from work reliably.
+  Chat 1's review (2026-11-20): the ask is kept AFTER the account read, single-flight and never awaited by it (the board files it
+  through the work API, whose write waits for a state read, which waits for the account read: kept inside the read it deadlocked the
+  board under writes); a failed store read leaves the ask as it is; A counts only while the app is still on the account it was asked
+  for (a stale A moves nothing); A and B are read by their letter or their words; an ask withdrawn by someone else is not filed again
+  in the same away. A read of the app's
+  config.json that finds no account while away keeps the last account known, and only a whole chat file is copied.
 - **Not verified live**: that the app shows a chat copied into an inactive account's folder at the next switch (the skill's own
   copies needed an app restart because it wrote the ACTIVE account's folder). A copy that does not show costs nothing: the next
   start-up check lists the chat as before.
@@ -8848,3 +8863,14 @@ words as 'copied', put them on the clipboard with a bar on top ("paste with Ctrl
   23:18-23:20), and a mod's words beside a prompt stood on the personal one. So the guard does not stop the person's-words filing
   (B298) here: prompt.submit's job stays where it is, the move is not needed, and 0.35.0 takes the probe out (the mark beside a
   prompt, the route, data/mod-probe.json's writer). The second part of B1274 ends there.
+
+## One restart per landing (2026-11-21, chat 3, chat 1's fix A)
+
+B1283's first landing (00:08-00:36) rolled back although both boards came up on the new code: main's fast-forward made the board
+start itself anew (B454, src/selfUpdate.mjs) while land.ps1 also asked it to restart (POST /api/restart), two restarts in a row,
+and the second new board was not up within the landing's 90 s (which stay an honest alarm). `restartNow` now refuses a second ask
+with 409 while the board leaves (`isClosing`), whoever asked first: land.ps1's POST then the self-update (the self-update's look
+returns on `isClosing`, and a look already under way is refused at the same door and remembers no refusal), or the self-update then
+land.ps1's POST (land.ps1 reads the refusal as "waiting for it to come back anyway"). test/boardSelfBoard.test.mjs runs both orders
+on a real copy that is a git folder of its own. Left for a later step: the keeper stamps the board's own log lines with the time
+(the diagnosis had to lean on the start checks' clock words).
