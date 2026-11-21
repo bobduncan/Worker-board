@@ -80,7 +80,7 @@ test('a free lock is taken: its file says who, which branch, since when and the 
   const took = takeLock(file, { by: 'chat 3', branch: 'land-script', pid: 4242, now: NOW })
   assert.equal(took.ok, true)
   assert.equal(took.broke, null)
-  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { by: 'chat 3', branch: 'land-script', at: '2026-11-04T18:00:00.000Z', pid: 4242 })
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { by: 'chat 3', branch: 'land-script', at: '2026-11-04T18:00:00.000Z', since: '2026-11-04T18:00:00.000Z', pid: 4242 })
   assert.deepEqual(took.token, { pid: 4242, at: '2026-11-04T18:00:00.000Z' })
 })
 
@@ -89,7 +89,7 @@ test('a lock another landing holds for 5 minutes is refused, naming who, the bra
   takeLock(file, { by: 'chat 1', branch: 'mod-0.31.0', pid: 1, now: NOW - 5 * MIN })
   const second = takeLock(file, { by: 'chat 3', branch: 'land-script', pid: 2, now: NOW })
   assert.equal(second.ok, false)
-  assert.equal(second.why, `a landing by chat 1 of mod-0.31.0 holds the lock since ${hhmm('2026-11-04T17:55:00.000Z')}`)
+  assert.equal(second.why, `chat 1 lands mod-0.31.0 since ${hhmm('2026-11-04T17:55:00.000Z')}: land after it`)
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).by, 'chat 1', 'the holder\'s lock stands')
 })
 
@@ -114,7 +114,7 @@ test('a lock file nobody can read is judged by the file\'s own age: fresh holds,
   writeFileSync(fresh, '')
   const held = takeLock(fresh, { by: 'chat 3', branch: 'x', pid: 2, now: Date.now() })
   assert.equal(held.ok, false)
-  assert.match(held.why, /holds the lock since/)
+  assert.match(held.why, / lands .* since \d\d:\d\d: land after it$/)
   const old = lockFile()
   writeFileSync(old, '{ torn')
   const long = new Date(Date.now() - 20 * MIN)
@@ -143,7 +143,7 @@ test('lockHolder reads who holds the lock and for how long, or null when none', 
   const file = lockFile()
   assert.equal(lockHolder(file, NOW), null)
   takeLock(file, { by: 'chat 1', branch: 'a', pid: 1, now: NOW - 3 * MIN })
-  assert.deepEqual(lockHolder(file, NOW), { by: 'chat 1', branch: 'a', at: '2026-11-04T17:57:00.000Z', pid: 1, ageMs: 3 * MIN })
+  assert.deepEqual(lockHolder(file, NOW), { by: 'chat 1', branch: 'a', at: '2026-11-04T17:57:00.000Z', since: '2026-11-04T17:57:00.000Z', pid: 1, ageMs: 3 * MIN })
 })
 
 // The debugger check.
@@ -303,8 +303,8 @@ test('the lock\'s heartbeat: a refresh gives the lock a new time, so a live land
   assert.deepEqual(refreshed.token, { pid: 7, at: '2026-11-04T18:00:00.000Z' })
   const held = takeLock(file, { by: 'chat 4', branch: 'x', pid: 8, now: NOW + 2 * MIN })
   assert.equal(held.ok, false, 'two minutes after the refresh the lock holds')
-  assert.match(held.why, /^a landing by chat 3 of land-script holds the lock since /)
-  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { by: 'chat 3', branch: 'land-script', at: '2026-11-04T18:00:00.000Z', pid: 7 })
+  assert.match(held.why, /^chat 3 lands land-script since /)
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { by: 'chat 3', branch: 'land-script', at: '2026-11-04T18:00:00.000Z', since: '2026-11-04T17:46:00.000Z', pid: 7 })
   // The old token no longer gives it back; the new one does.
   assert.equal(releaseLock(file, took.token), false)
   assert.equal(releaseLock(file, refreshed.token), true)
@@ -320,4 +320,19 @@ test('a lock another landing took over, or that is gone, is not refreshed: the l
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).by, 'chat 4', 'the other landing\'s lock is untouched')
   rmSync(file)
   assert.deepEqual(refreshLock(file, mine.token, NOW), { ok: false, why: 'the landing lock is gone' })
+})
+
+test('F39: with `runs` (land.ps1 gives it), a lock whose landing process is gone is broken at once; a living one holds', () => {
+  const file = lockFile()
+  takeLock(file, { by: 'chat 3', branch: 'a1', pid: 777, now: NOW - MIN })
+  const held = takeLock(file, { by: 'chat 4', branch: 'a7', pid: 888, now: NOW, runs: () => true })
+  assert.equal(held.ok, false)
+  const took = takeLock(file, { by: 'chat 4', branch: 'a7', pid: 888, now: NOW, runs: pid => pid !== 777 })
+  assert.equal(took.ok, true)
+  assert.equal(took.broke, `broke a stale landing lock of chat 3 (a1, since ${hhmm(new Date(NOW - MIN).toISOString())}: its landing is gone)`)
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).by, 'chat 4')
+  // Without `runs` (an older caller) only the age counts.
+  const old = lockFile()
+  takeLock(old, { by: 'x', branch: 'y', pid: 777, now: NOW - MIN })
+  assert.equal(takeLock(old, { by: 'z', branch: 'w', pid: 1, now: NOW }).ok, false)
 })

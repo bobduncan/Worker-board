@@ -36,15 +36,29 @@
 //   moment its work began (land.ps1 starts the gate's clock there, not while the run queues). The word stays with this
 //   helper: the command runs without HEAVY_RUN_FIRST, so the runs the command starts in turn (a test of this helper under
 //   the gate) are ordinary ones (chat 1's check, 2026-11-14: with the word passed on, every gate after F14 refused itself).
+// - F39 (2026-11-21, the person's yes): a run at work keeps its slot. The holder beats: it writes a new `beat` time into its slot
+//   file every minute (HEAVY_RUN_BEAT_MS) while its command runs. A lock is stale when its process is gone, it cannot be read, or
+//   its beat is older than 5 minutes (a reused process id). A lock without a beat (an older copy's) keeps the age rule, now 75
+//   minutes, longer than land.ps1's 60-minute gate clock (on 2026-11-21 the 45-minute rule removed a live gate's lock at 12:05
+//   and a second gate started beside it).
+// - F39: fair order (queueOrder, one pure function, so two runs never both think it is their turn): a first-class ticket counts as
+//   if it came 30 minutes earlier than it did. A landing jumps at most 30 minutes ahead; a worker that has waited 30 minutes or
+//   more goes before a landing that came after that (on 2026-11-21 workers sat 50-100 minutes behind four landings).
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, openSync, closeSync, readFileSync, readdirSync, unlinkSync, writeSync } from 'node:fs'
+import { mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
 export const LOCK_NAME = 'one-heavy-run.lock'
-export const MAX_AGE_MS = 45 * 60 * 1000
+/** F39: the age rule for a lock without a beat (an older copy's): above land.ps1's gate clock (gateMinutes, 60). */
+export const MAX_AGE_MS = 75 * 60 * 1000
+/** F39: how often the holder beats, and how old its beat may be before the lock is stale. */
+export const BEAT_MS = 60 * 1000
+export const BEAT_STALE_MS = 5 * 60 * 1000
+/** F39: how much earlier a first-class ticket counts (a landing jumps at most this far ahead). */
+export const FIRST_LEAD_MS = 30 * 60 * 1000
 const POLL_MS = 5000
 const SAY_MS = 60 * 1000
 // A lock that cannot be read may only be the moment between its creation and its content: look once more before
@@ -91,7 +105,10 @@ export function pidRuns(pid) {
 export function whyStale(info, now = Date.now(), runs = pidRuns) {
   if (!info) return 'it cannot be read'
   if (!runs(info.pid)) return 'its process is gone'
-  if (now - Date.parse(info.startedAt) > MAX_AGE_MS) return 'it is older than 45 minutes'
+  // F39: a holder that beats keeps its slot however long it runs; one whose beat stopped (a reused process id) does not.
+  const beat = Date.parse(info.beat)
+  if (Number.isFinite(beat)) return now - beat > BEAT_STALE_MS ? 'its beat is older than 5 minutes' : null
+  if (now - Date.parse(info.startedAt) > MAX_AGE_MS) return 'it is older than 75 minutes and does not beat'
   return null
 }
 
@@ -136,6 +153,19 @@ function removeFile(file) {
     return true
   } catch (error) {
     return error.code === 'ENOENT'
+  }
+}
+
+/** F39: writes `next` into the lock while it still holds `text` (ours): beside it, then over it. True when written. */
+function rewriteLock(file, text, next) {
+  try {
+    if (readFileSync(file, 'utf8') !== text) return false
+    const beside = `${file}.${process.pid}.beat`
+    writeFileSync(beside, next)
+    renameSync(beside, file)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -207,9 +237,23 @@ function queueOf(folder) {
   return live
 }
 
-/** How many tickets go before `ticketName`: for a first-class run the first-class ones that came earlier; for an ordinary run every earlier one and every first-class one. */
+/** When a ticket came, from its name (`<ms, 15 digits>-<pid>.json`). */
+const cameOf = (name) => Number(String(name).slice(0, 15))
+
+/**
+ * F39: the queue's order, one pure function for every run: oldest first, a first-class ticket counted as if it came
+ * FIRST_LEAD_MS (30 minutes) earlier; the same moment goes by the name. Gives back the tickets in that order.
+ */
+export function queueOrder(tickets) {
+  const rank = (one) => cameOf(one.name) - (one.first ? FIRST_LEAD_MS : 0)
+  return [...tickets].sort((a, b) => rank(a) - rank(b) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+}
+
+/** How many tickets go before `ticketName` in the queue's order (`first` is kept for the callers of before F39: the ticket says it). */
 export function aheadOf(order, ticketName, first) {
-  return order.filter((one) => one.name !== ticketName && (first ? one.first && one.name < ticketName : one.name < ticketName || one.first)).length
+  const mine = order.find((one) => one.name === ticketName) ?? { name: ticketName, first: first === true }
+  const all = order.some((one) => one.name === ticketName) ? order : [...order, mine]
+  return queueOrder(all).findIndex((one) => one.name === ticketName)
 }
 
 /**
@@ -254,11 +298,21 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
       const room = Math.min(free.length, slots - holders.length)
       if (room > 0 && ahead < room) {
         for (const slot of free) {
-          const text = JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date().toISOString() })
+          const held = { pid: process.pid, label, cwd, startedAt: new Date().toISOString() }
+          let text = JSON.stringify({ ...held, beat: held.startedAt })
           if (createLock(slot, text)) {
             // F14: the moment the work begins, for a log of the run (land.ps1 starts the gate's clock here).
             say(`one-at-a-time: ${label} runs now (waited ${Math.round((Date.now() - came) / 1000)} s)`)
-            return () => giveBack(slot, text)
+            // F39: the beat, while the command runs: only into the lock that is still ours.
+            const beat = setInterval(() => {
+              const next = JSON.stringify({ ...held, beat: new Date().toISOString() })
+              if (rewriteLock(slot, text, next)) text = next
+            }, timing.beat)
+            beat.unref()
+            return () => {
+              clearInterval(beat)
+              giveBack(slot, text)
+            }
           }
         }
         await nap(50)
@@ -335,7 +389,7 @@ export async function runOneAtATime({
 
   try {
     if (env.HEAVY_RUN_HELD !== '1') {
-      const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS) }
+      const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS), beat: positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS) }
       giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1' })
       if (!giveLockBack || signalled) return signalExit(signalled)
     }

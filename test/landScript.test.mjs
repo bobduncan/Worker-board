@@ -118,7 +118,8 @@ async function makeWorld(t, { live = false } = {}) {
   /** The made-up remote answers a push only after `seconds`, when the ref is already updated (a push that times out on the client). */
   world.slowRemote = seconds => writeFileSync(join(world.remote, 'hooks', 'post-receive'), ['#!/bin/sh', `sleep ${seconds}`, ''].join('\n'))
   /** What the script is run with besides the PC's own environment. */
-  world.env = {}
+  // F39 (part 7): a heavy-run lock of this world's own, so nothing a landing here starts ever waits behind (or blocks) a real gate.
+  world.env = { HEAVY_RUN_LOCK: join(root, 'heavy.lock') }
   /** A branch from main's head with `files` in one commit; the checkout goes back to main. Gives the branch's head. */
   world.branch = (name, files = { 'feature.txt': `${name}\n` }) => {
     git(world.main, 'switch', '-q', '-c', name)
@@ -368,15 +369,95 @@ test('the mod gate runs only when the branch touches mods/workers/, and a failin
   assertCleanedUp(world)
 })
 
+test('F39: two landings a minute apart: the second refuses at once, before any gate, naming who lands what; the gate beats the lock', LONG, async t => {
+  const world = await makeWorld(t)
+  world.branch('feat-a', { 'a.txt': 'a\n' })
+  await world.boards()
+  world.config({ gateBoard: world.gate('board-slow-pass'), lockBeatSeconds: 1, pollMs: 200 })
+  world.env.GATE_SLOW_MS = '9000'
+  const first = world.land('feat-a', '-By', 'chat 3')
+  const lock = join(world.data, 'landing.lock')
+  const until = async (check, what) => { for (let n = 0; n < 600; n += 1) { const got = check(); if (got) return got; await new Promise(done => setTimeout(done, 100)) } throw new Error(`no ${what}`) }
+  const taken = await until(() => existsSync(lock) && JSON.parse(readFileSync(lock, 'utf8')), 'landing lock')
+  const logs = () => readdirSync(join(world.data, 'landings')).filter(name => name.endsWith('.log'))
+  await until(() => existsSync(join(world.data, 'landings')) && logs().length === 1, 'gate log of the first landing')
+  const second = await world.land('feat-a', '-By', 'chat 4')
+  assert.equal(second.status, 1)
+  assert.equal(lines(second.out).at(-1), `refused: chat 3 lands feat-a since ${hhmm(taken.since)}: land after it`)
+  assert.equal(logs().length, 1, 'the second ran no gate')
+  const beaten = await until(() => { try { const now = JSON.parse(readFileSync(lock, 'utf8')); return now.at !== taken.at && now } catch { return false } }, 'a beat during the gate')
+  assert.equal(beaten.since, taken.since, 'a beat keeps when it was taken')
+  const done = await first
+  assert.equal(done.status, 0, done.out)
+  assertCleanedUp(world)
+})
+
+test('F39: a land.ps1 killed mid-gate frees the landing lock at once: the next landing breaks it and lands', LONG, async t => {
+  const world = await makeWorld(t)
+  const head = world.branch('feat-a', { 'a.txt': 'a\n' })
+  await world.boards()
+  world.config({ gateBoard: world.gate('board-slow-pass'), lockBeatSeconds: 1, pollMs: 200 })
+  world.env.GATE_SLOW_MS = '6000'
+  const first = world.land('feat-a', '-By', 'chat 3')
+  const lock = join(world.data, 'landing.lock')
+  const until = async (check, what) => { for (let n = 0; n < 600; n += 1) { const got = check(); if (got) return got; await new Promise(done => setTimeout(done, 100)) } throw new Error(`no ${what}`) }
+  const taken = await until(() => existsSync(lock) && JSON.parse(readFileSync(lock, 'utf8')), 'landing lock')
+  // The lock names land.ps1's own process: killed as a chat's cut call or a crash would end it, mid-gate.
+  process.kill(taken.pid)
+  await first
+  // Its gate ends by itself a few seconds later; then the next landing.
+  await new Promise(done => setTimeout(done, 8000))
+  world.config({ gateBoard: world.gate('board-pass'), lockBeatSeconds: 1, pollMs: 200 })
+  const second = await world.land('feat-a', '-By', 'chat 4')
+  assert.equal(second.status, 0, second.out)
+  assert.ok(lines(second.out).includes(`broke a stale landing lock of chat 3 (feat-a, since ${hhmm(taken.since)}: its landing is gone)`), second.out)
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), head)
+})
+
+test('F39 (a): the new runner\'s output keeps what land.ps1 reads: a stalled run names its open files, and each is run again alone', LONG, async t => {
+  const world = await makeWorld(t)
+  const head = world.branch('feat')
+  await world.boards()
+  world.config({ gateBoard: world.gate('board-stalled'), gateFile: `${world.gate('board-pass')} {file}` })
+  const ran = await world.land('feat')
+  assert.equal(ran.status, 0, ran.out)
+  const log = readFileSync(world.landings().at(-1).gateLog, 'utf8')
+  assert.match(log, /one-at-a-time: test runs now/)
+  assert.match(log, /stalled: no test output for 15 minutes; files still open: test\/alpha\.test\.mjs \(waits for a page\)/)
+  assert.match(log, /===== rerun alone: test\/alpha\.test\.mjs =====/)
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), head)
+  assertCleanedUp(world)
+})
+
+test('F39 (part 6): a process the gate left outside its tree, inside its worktree (a WMI-started board), is ended at the teardown', LONG, async t => {
+  const world = await makeWorld(t)
+  const head = world.branch('feat')
+  await world.boards()
+  const pidFile = join(world.tmp, '..', `sleeper-${process.pid}.pid`)
+  world.env.GATE_PID_FILE = pidFile
+  world.config({ gateBoard: world.gate('board-pass-leave-sleeper') })
+  const ran = await world.land('feat')
+  assert.equal(ran.status, 0, ran.out)
+  const sleeper = Number(readFileSync(pidFile, 'utf8'))
+  rmSync(pidFile, { force: true })
+  let alive = true
+  try { process.kill(sleeper, 0) } catch { alive = false }
+  assert.equal(alive, false, 'the sleeper is gone')
+  assert.match(readFileSync(world.landings().at(-1).gateLog, 'utf8'), /teardown: ended 1 process\(es\) the gate left in its worktree: node\.exe \(\d+\)/)
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), head)
+  assertCleanedUp(world)
+})
+
 test('a lock another landing holds for 5 minutes refuses this one; its lock stays', LONG, async t => {
   const world = await makeWorld(t)
   world.branch('feat')
   await world.boards()
   const since = new Date(Date.now() - 5 * MIN).toISOString()
-  writeFileSync(join(world.data, 'landing.lock'), JSON.stringify({ by: 'chat 1', branch: 'mod-x', at: since, pid: 1 }))
+  // F39: a living process holds it (land.ps1 breaks a lock whose landing is gone at once).
+  writeFileSync(join(world.data, 'landing.lock'), JSON.stringify({ by: 'chat 1', branch: 'mod-x', at: since, pid: process.pid }))
   const ran = await world.land('feat', '-By', 'chat 3')
   assert.equal(ran.status, 1)
-  assert.equal(lines(ran.out).at(-1), `refused: a landing by chat 1 of mod-x holds the lock since ${hhmm(since)}`)
+  assert.equal(lines(ran.out).at(-1), `refused: chat 1 lands mod-x since ${hhmm(since)}: land after it`)
   assert.equal(JSON.parse(readFileSync(join(world.data, 'landing.lock'), 'utf8')).by, 'chat 1', 'the other landing\'s lock is not removed')
   assert.equal(git(world.main, 'rev-parse', 'HEAD'), world.before)
   assert.equal(world.worktrees(), 1)
@@ -388,7 +469,7 @@ test('a lock older than 15 minutes is broken with a line, and the landing goes o
   const head = world.branch('feat')
   await world.boards()
   const since = new Date(Date.now() - 16 * MIN).toISOString()
-  writeFileSync(join(world.data, 'landing.lock'), JSON.stringify({ by: 'chat 1', branch: 'mod-x', at: since, pid: 1 }))
+  writeFileSync(join(world.data, 'landing.lock'), JSON.stringify({ by: 'chat 1', branch: 'mod-x', at: since, pid: process.pid }))
   const ran = await world.land('feat', '-By', 'chat 3')
   assert.equal(ran.status, 0, ran.out)
   assert.ok(lines(ran.out).includes(`broke a stale landing lock of chat 1 (mod-x, since ${hhmm(since)})`), ran.out)
@@ -825,14 +906,15 @@ test('the gate runs without colour (NO_COLOR, no FORCE_COLOR) and a refusal name
   const world = await makeWorld(t)
   world.branch('feat')
   world.env.FORCE_COLOR = '1'
-  // A lock held by another landing ends the run right after the gate: the log is all this needs.
-  writeFileSync(join(world.data, 'landing.lock'), JSON.stringify({ by: 'chat 1', branch: 'x', at: new Date().toISOString(), pid: 1 }))
+  // The gate prints its environment, then passes: the log is all this needs (F39: a held lock now refuses before any gate, so
+  // this run lands, and the second part lands another branch).
+  await world.boards()
   world.config({ gateBoard: world.gate('print-env') })
-  const first = await world.land('feat')
-  assert.equal(first.status, 1, first.out)
+  await world.land('feat')
   assert.match(readFileSync(world.landings()[0].gateLog, 'utf8'), /env NO_COLOR=1 FORCE_COLOR=unset/)
+  world.branch('feat2')
   world.config({ gateBoard: world.gate('board-fail-files'), gateFile: `${world.gate('board-fail')} {file}` })
-  const failed = await world.land('feat')
+  const failed = await world.land('feat2')
   assert.equal(failed.status, 1)
   assert.match(lines(failed.out).at(-1), /^refused: the gate failed on [0-9a-f]{7}: the summary says fail 2; failing test files: test\/alpha\.test\.mjs, test\/beta\.test\.mjs; rerun alone: test\/alpha\.test\.mjs failed again \(the summary says fail 2\) \(see /)
   const log = readFileSync(world.landings().at(-1).gateLog, 'utf8')
@@ -980,12 +1062,12 @@ test('no push in the script is forced, and no command in it takes work back by f
   assert.equal(forcesAPush(source.replace("@('push', $remote, 'main')", "@('push', '-f', $remote, 'main')")), true)
 })
 
-test('the debugger check comes before the fast-forward in the order of the run, the lock after the gate', () => {
+test('the debugger check comes before the fast-forward in the order of the run, the lock before the gate (F39)', () => {
   const run = text().slice(text().indexOf('function Invoke-Run'))
   const at = word => run.indexOf(word)
-  assert.ok(at('Test-Ready $false') < at('Test-Debugger') && at('Test-Debugger') < at('Invoke-Gate'), 'the early debugger check, then the gate')
-  assert.ok(at('Invoke-Gate') < at("'lock-take'"), 'the gate runs before the lock')
-  assert.ok(at("'lock-take'") < at('Test-Ready $true'), 'the second look is under the lock')
+  assert.ok(at('Test-Ready $false') < at('Test-Debugger') && at('Test-Debugger') < at("'lock-take'"), 'the early checks, then the lock')
+  assert.ok(at("'lock-take'") < at('\n  Invoke-Gate'), 'F39: the lock is taken before the gate')
+  assert.ok(at('\n  Invoke-Gate') < at('Test-Ready $true'), 'the second look is under the lock, after the gate')
   assert.ok(run.lastIndexOf('Test-Debugger') < at("'merge', '--ff-only', $script:headFull"), 'the second debugger check is before the fast-forward')
   assert.ok(at("'merge', '--ff-only', $script:headFull") < at('Publish-Main'), 'main moves, then it is pushed')
 })

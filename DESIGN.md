@@ -7950,7 +7950,7 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   checkout is the repository's first working tree) and the PC's list of boards (`boards.json`: the ports; a trial copy is a board
   of the list whose remote `local` is the main checkout); a list that cannot be read, or that names no trial copy, is a refusal
   (`-NoTrial` lands the main board alone).
-- **The gate** runs BEFORE the lock (it takes about ten minutes): `git worktree add --detach` of the head in a temporary
+- **The gate** runs BEFORE the lock until F39, UNDER it since (it takes about ten minutes; see "F39" below): `git worktree add --detach` of the head in a temporary
   folder, a junction `node_modules` to the main checkout's, `npm test` there (2026-11-11: below-normal priority on half the
   PC's cores, and it waits its turn in the PC's one queue of heavy runs, `tools/one-at-a-time.mjs`, so a landing never runs
   beside another heavy run. F14 (2026-11-14, the person: speed up): the gate's run goes FIRST-CLASS in that queue (HEAVY_RUN_FIRST=1:
@@ -8866,3 +8866,29 @@ returns on `isClosing`, and a look already under way is refused at the same door
 land.ps1's POST (land.ps1 reads the refusal as "waiting for it to come back anyway"). test/boardSelfBoard.test.mjs runs both orders
 on a real copy that is a git folder of its own. Left for a later step: the keeper stamps the board's own log lines with the time
 (the diagnosis had to lean on the start checks' clock words).
+
+## F39: the test queue never starves a worker, never runs two gates at once (2026-11-21, chat 4, the person's yes)
+
+What happened on 2026-11-21. Worker gates queued from 10:30, 10:48, 10:58 and 11:20, and the four landings (first-class since F14)
+went first every time, so workers sat idle 50-100 minutes. Two land.ps1 runs a minute apart (11:10 and 11:11) each ran a gate, and
+one of them was wasted. A test (taskWindowPage.test.mjs, inside a test: its two headless-browser tests never reported) hung for the
+gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, and a second gate started beside it.
+
+- **A run at work keeps its slot** (tools/one-at-a-time.mjs). The holder beats: it writes a new `beat` into its slot file every
+  minute (HEAVY_RUN_BEAT_MS) while its command runs. A lock is stale when its process is gone, it cannot be read, or its beat is
+  older than 5 minutes (a reused process id). A lock without a beat (an older copy's) keeps the age rule, now 75 minutes, above
+  land.ps1's 60-minute gate clock (a test reads both).
+- **Fair order** (`queueOrder`, one pure function, so two runs never both think it is their turn). A first-class ticket counts as
+  if it came 30 minutes earlier than it did. A landing jumps at most 30 minutes ahead, and a worker that has waited 30 minutes or
+  more goes before a landing that came after that. Today's case replayed (test/oneAtATime.test.mjs): B1283, A2, Worker 3, A1/A3/A4,
+  A7, Worker 1, Worker 5, Worker 4. F14's "runs now" line and the gate clock stay as they are.
+- **One landing at a time, whole** (tools/land.ps1, src/landing.mjs). The landing lock is taken BEFORE the gate, and the gate's
+  poll loop beats it once a minute (`lockBeatSeconds`). A second land.ps1 refuses at once, before any gate: "<by> lands <branch>
+  since HH:MM: land after it". `since` is when the lock was taken, kept across the beats. The "main moved during the gate"
+  re-check stays under the lock.
+- **A hung test costs minutes, not the hour** (tools/test.mjs). node --test runs with `--test-timeout` (10 minutes,
+  TEST_TIMEOUT_MS) and `--test-force-exit`, so a test that hangs inside itself fails and its file ends even with a timer it left
+  running. A stall watchdog ends the run with its whole tree when there has been no output for 15 minutes (TEST_STALL_MS): a file
+  that hangs at its top level. It ends with "stalled: ...; files still open: ..." and one `test at <file>:1:1` line per file. A
+  second reporter (tools/openFilesReporter.mjs) writes which files are taken up and ended, and land.ps1's "run the failing files
+  again alone" takes the files from those lines.

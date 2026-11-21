@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_SLOTS, aheadOf, pidRuns, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
+import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, MAX_AGE_MS, aheadOf, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
 
 const HELPER = fileURLToPath(new URL('../tools/one-at-a-time.mjs', import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), 'heavy-run-test-'))
@@ -116,9 +116,10 @@ test('F14: a first-class run (HEAVY_RUN_FIRST=1, a landing\'s gate) goes ahead o
   assert.ok(Number(one.out) <= Number(two.out), 'the ordinary runs keep their order')
   assert.match(three.err, /one-at-a-time: gate runs now \(waited \d+ s\)/)
   assert.match(one.err, /one-at-a-time: first runs now \(waited \d+ s\)/)
-  // The pure order: a first-class ticket counts only earlier first-class ones; an ordinary one every earlier ticket and every first-class one.
-  const order = [{ name: 'a', first: false }, { name: 'b', first: false }, { name: 'c', first: true }, { name: 'd', first: true }]
-  assert.deepEqual([aheadOf(order, 'c', true), aheadOf(order, 'd', true), aheadOf(order, 'a', false), aheadOf(order, 'b', false)], [0, 1, 2, 3])
+  // The pure order (F39): tickets a few seconds apart, the two first-class ones go before the ordinary ones that came just before.
+  const name = (seconds) => `${String(Date.parse('2026-11-21T10:00:00Z') + seconds * 1000).padStart(15, '0')}-00000001.json`
+  const order = [{ name: name(0), first: false }, { name: name(1), first: false }, { name: name(2), first: true }, { name: name(3), first: true }]
+  assert.deepEqual([aheadOf(order, name(2), true), aheadOf(order, name(3), true), aheadOf(order, name(0), false), aheadOf(order, name(1), false)], [0, 1, 2, 3])
 })
 
 test('it says who it waits for once in a while, not at every look', async () => {
@@ -139,7 +140,8 @@ test('a lock whose process is gone, that is too old or that cannot be read is ta
   const gone = spawnSync(process.execPath, ['-e', '0']).pid
   const cases = {
     'its process is gone': lockText({ pid: gone }),
-    'it is older than 45 minutes': lockText({ startedAt: new Date(Date.now() - 46 * 60 * 1000).toISOString() }),
+    'it is older than 75 minutes and does not beat': lockText({ startedAt: new Date(Date.now() - 76 * 60 * 1000).toISOString() }),
+    'its beat is older than 5 minutes': lockText({ startedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(), beat: new Date(Date.now() - 6 * 60 * 1000).toISOString() }),
     'an empty file': '',
     'a file of zeros': '\0'.repeat(120),
     'text that is not JSON': 'half a lock {"pid": ',
@@ -233,14 +235,54 @@ test('a signal while waiting ends the wait and leaves the other run its lock', a
   assert.equal(readFileSync(lock, 'utf8'), text)
 })
 
-test('whyStale: a lock is stale when it cannot be read, its process is gone, or it is older than 45 minutes', () => {
+test('whyStale: a lock is stale when it cannot be read, its process is gone, its beat is older than 5 minutes, or (no beat) older than 75 minutes', () => {
   const now = Date.parse('2026-10-25T12:00:00Z')
-  const info = (minutesAgo) => ({ pid: 4242, label: 'x', cwd: 'y', startedAt: new Date(now - minutesAgo * 60000).toISOString() })
+  const info = (minutesAgo, beatAgo = null) => ({ pid: 4242, label: 'x', cwd: 'y', startedAt: new Date(now - minutesAgo * 60000).toISOString(), ...(beatAgo === null ? {} : { beat: new Date(now - beatAgo * 60000).toISOString() }) })
   assert.equal(whyStale(info(10), now, () => true), null)
-  assert.equal(whyStale(info(44), now, () => true), null)
-  assert.match(whyStale(info(46), now, () => true), /older than 45 minutes/)
+  assert.equal(whyStale(info(74), now, () => true), null)
+  assert.match(whyStale(info(76), now, () => true), /older than 75 minutes and does not beat/)
   assert.match(whyStale(info(1), now, () => false), /process is gone/)
   assert.match(whyStale(null, now, () => true), /cannot be read/)
+  // F39, the real case (2026-11-21 12:05): a gate past 45 and past 60 minutes, alive and beating, keeps its slot.
+  assert.equal(whyStale(info(46, 1), now, () => true), null)
+  assert.equal(whyStale(info(61, 0.5), now, () => true), null)
+  assert.equal(whyStale(info(300, 4), now, () => true), null, 'beating: however long it runs')
+  assert.match(whyStale(info(20, 6), now, () => true), /beat is older than 5 minutes/)
+  assert.match(whyStale(info(61, 1), now, () => false), /process is gone/, 'a dead holder frees it at once')
+  assert.equal(BEAT_STALE_MS, 5 * 60 * 1000)
+})
+
+test('F39: the age rule for a lock without a beat is longer than land.ps1\'s gate clock', () => {
+  const land = readFileSync(new URL('../tools/land.ps1', import.meta.url), 'utf8')
+  const gate = Number(land.match(/\$gateMinutes = \[double\](\d+)/)[1])
+  assert.ok(MAX_AGE_MS > gate * 60 * 1000, `${MAX_AGE_MS / 60000} min > ${gate} min`)
+})
+
+test('F39: the real case of 2026-11-21 replayed: a first-class ticket counts 30 minutes earlier, so a worker waiting 30+ minutes goes before a later landing', () => {
+  const at = (hhmm) => Date.parse(`2026-11-21T${hhmm}:00Z`)
+  const ticket = (hhmm, label, first = false) => ({ name: `${String(at(hhmm)).padStart(15, '0')}-${String(label.length).padStart(8, '0')}.json`, first, label })
+  const tickets = [
+    ticket('10:30', 'Worker 3 B1294'), ticket('10:48', 'Worker 1 B1300'), ticket('10:58', 'Worker 5 B1279'), ticket('11:20', 'Worker 4 B1295'),
+    ticket('10:33', 'land B1283', true), ticket('10:54', 'land A2', true), ticket('11:10', 'land A1/A3/A4', true), ticket('11:11', 'land A7', true),
+  ]
+  assert.deepEqual(queueOrder(tickets).map((one) => one.label), [
+    'land B1283', 'land A2', 'Worker 3 B1294', 'land A1/A3/A4', 'land A7', 'Worker 1 B1300', 'Worker 5 B1279', 'Worker 4 B1295',
+  ])
+  // Today's rule put all four landings first: Worker 3, there since 10:30, would have waited for the landing of 11:11 too.
+  assert.ok(aheadOf(tickets, tickets[0].name, false) < aheadOf(tickets, tickets[6].name, true), 'Worker 3 (40 min) before the landing of 11:10')
+  assert.equal(FIRST_LEAD_MS, 30 * 60 * 1000)
+  // The same order for every run: each one's place is its index in the one order.
+  for (const [n, one] of queueOrder(tickets).entries()) assert.equal(aheadOf(tickets, one.name, one.first), n)
+})
+
+test('F39: the holder beats while its command runs, and gives the lock back after', async () => {
+  const lock = newLock()
+  const run = start(lock, 'beating', node('setTimeout(() => {}, 1500)'), { HEAVY_RUN_BEAT_MS: '200' })
+  const seen = await until(() => existsSync(lock) && JSON.parse(readFileSync(lock, 'utf8')), 'the lock')
+  const firstBeat = seen.beat
+  await until(() => { try { const now = JSON.parse(readFileSync(lock, 'utf8')); return now.beat !== firstBeat && now } catch { return false } }, 'a newer beat', 5000)
+  assert.equal((await run.done).code, 0)
+  assert.equal(existsSync(lock), false)
 })
 
 test('npm test runs through the helper, and the README says that the tests wait their turn', () => {

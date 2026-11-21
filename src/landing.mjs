@@ -7,6 +7,16 @@ import { existsSync, linkSync, readdirSync, readFileSync, renameSync, statSync, 
 import { randomBytes } from 'node:crypto'
 import { basename, join } from 'node:path'
 
+/** F39: whether a process runs (EPERM: it runs, but is not ours). */
+export function pidRuns(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return error?.code !== 'ESRCH'
+  }
+}
+
 /** A landing lock older than this is a crashed landing's: it is broken. */
 export const STALE_LOCK_MS = 15 * 60_000
 /** What a landings line's `result` says. */
@@ -112,8 +122,10 @@ export function lockHolder(file, now = Date.now()) {
     read = null
   }
   const at = typeof read?.at === 'string' && Number.isFinite(Date.parse(read.at)) ? read.at : null
-  if (at === null) return { by: 'unknown', branch: 'unknown', at: new Date(modified).toISOString(), pid: null, ageMs: now - modified }
-  return { by: typeof read.by === 'string' ? read.by : 'unknown', branch: typeof read.branch === 'string' ? read.branch : 'unknown', at, pid: Number.isInteger(read.pid) ? read.pid : null, ageMs: now - Date.parse(at) }
+  if (at === null) return { by: 'unknown', branch: 'unknown', at: new Date(modified).toISOString(), since: new Date(modified).toISOString(), pid: null, ageMs: now - modified }
+  // F39: `since` is when the landing took the lock (its beats move `at`); a lock of before F39 has none: its `at`.
+  const since = typeof read.since === 'string' && Number.isFinite(Date.parse(read.since)) ? read.since : at
+  return { by: typeof read.by === 'string' ? read.by : 'unknown', branch: typeof read.branch === 'string' ? read.branch : 'unknown', at, since, pid: Number.isInteger(read.pid) ? read.pid : null, ageMs: now - Date.parse(at) }
 }
 
 /** A gate log older than this with no landings line is a cut landing's (the gate takes 10 to 60 minutes): no landing runs for it. */
@@ -153,8 +165,8 @@ export function landedLines({ dir }) {
 }
 
 /**
- * The branch a landing (tools/land.ps1) runs for now, or null. The lock while it stands and is younger than its stale limit (the
- * script takes it only AFTER the gate), else the newest gate log `<dir>/landings/<stamp>-<branch>.log` younger than RUNNING_LOG_MS
+ * The branch a landing (tools/land.ps1) runs for now, or null. The lock while it stands and is younger than its stale limit (since
+ * F39 the script takes it BEFORE the gate and beats during it), else the newest gate log `<dir>/landings/<stamp>-<branch>.log` younger than RUNNING_LOG_MS
  * that no landings line names yet (`gateLog`): the gate of a landing in progress. P1 (2026-11-09, the double hold guard): the
  * hand-over gives no step back whose branch this names.
  */
@@ -182,8 +194,8 @@ export function runningLanding({ dir, now = Date.now(), staleMs = STALE_LOCK_MS,
  * broken and taken. Two that find a stale lock at once break it one after the other (a guard file), and the second sees the
  * first's fresh lock.
  */
-export function takeLock(file, { by, branch, pid, now = Date.now(), staleMs = STALE_LOCK_MS }) {
-  const info = { by, branch, at: new Date(now).toISOString(), pid }
+export function takeLock(file, { by, branch, pid, now = Date.now(), staleMs = STALE_LOCK_MS, runs = null }) {
+  const info = { by, branch, at: new Date(now).toISOString(), since: new Date(now).toISOString(), pid }
   const guard = `${file}.breaking`
   let broke = null
   for (let tries = 0; tries < 40; tries += 1) {
@@ -194,7 +206,11 @@ export function takeLock(file, { by, branch, pid, now = Date.now(), staleMs = ST
       nap(20)
       continue
     }
-    if (holder.ageMs <= staleMs) return { ok: false, why: `a landing by ${holder.by} of ${holder.branch} holds the lock since ${hhmm(holder.at)}` }
+    // F39: the words a second landing gets at once, before any gate.
+    // F39: with `runs` (land.ps1 asks for it), a lock whose landing process is gone is stale at once: a land.ps1 killed mid-gate (the
+    // lock is held through the whole gate) frees it for the next one, long before the age rule.
+    const isGone = typeof runs === 'function' && Number.isInteger(holder.pid) && !runs(holder.pid)
+    if (holder.ageMs <= staleMs && !isGone) return { ok: false, why: `${holder.by} lands ${holder.branch} since ${hhmm(holder.since)}: land after it` }
     // Stale: one breaker at a time; a guard a crashed breaker left is removed once it is a minute old.
     if (!createWhole(guard, { pid, at: new Date().toISOString() })) {
       const left = lockHolder(guard)
@@ -210,9 +226,9 @@ export function takeLock(file, { by, branch, pid, now = Date.now(), staleMs = ST
     }
     try {
       const again = lockHolder(file, now)
-      if (again !== null && again.at === holder.at && again.pid === holder.pid && again.ageMs > staleMs) {
+      if (again !== null && again.at === holder.at && again.pid === holder.pid && (again.ageMs > staleMs || isGone)) {
         unlinkSync(file)
-        broke = `broke a stale landing lock of ${holder.by} (${holder.branch}, since ${hhmm(holder.at)})`
+        broke = `broke a stale landing lock of ${holder.by} (${holder.branch}, since ${hhmm(holder.since)}${isGone ? ': its landing is gone' : ''})`
       }
     } finally {
       try {
@@ -233,7 +249,7 @@ export function refreshLock(file, token, now = Date.now()) {
   const holder = lockHolder(file, now)
   if (holder === null) return { ok: false, why: 'the landing lock is gone' }
   if (holder.pid !== token.pid || holder.at !== token.at) return { ok: false, why: `the landing lock was taken over by ${holder.by} (${holder.branch}, since ${hhmm(holder.at)})` }
-  const next = { by: holder.by, branch: holder.branch, at: new Date(now).toISOString(), pid: token.pid }
+  const next = { by: holder.by, branch: holder.branch, at: new Date(now).toISOString(), since: holder.since, pid: token.pid }
   const temp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
   writeFileSync(temp, JSON.stringify(next))
   renameSync(temp, file)
