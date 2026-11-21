@@ -1873,7 +1873,8 @@ function focusRun(node, items, prefix, partner) {
  */
 const spellReportOf = (lane, kept = null) => {
   const report = Number.isFinite(lane?.report?.at) ? lane.report : Number.isFinite(kept?.at) ? kept : null
-  return report === null ? lane?.ownReport ?? null : { state: report.state, since: report.since ?? null, at: report.at, run: report.run ?? null }
+  // F38 (B1300): the report's own time rides along (`heardAt`), so the spell is never the board's start a kept report was moved to.
+  return report === null ? lane?.ownReport ?? null : { state: report.state, since: report.since ?? null, at: report.at, run: report.run ?? null, ...(Number.isFinite(report.heardAt) ? { heardAt: report.heardAt } : {}) }
 }
 
 export function buildState(raw, options) {
@@ -2035,6 +2036,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     const isAppAfter = saved !== null && Number.isFinite(raw.appStartedAt) && raw.appStartedAt > saved.at
     // F26b: the time it was really heard rides along (`heardAt`): the timers count no work the board did not hear (holderTimers.mjs).
     // F9's review: `heardAt` keeps the report's own time, which the unloaded-mod check (src/modGone.mjs) compares with the unload.
+    // F38 (B1300): the wake code reads it too (chatReport.mjs `heardTimeOf`): the lane's reading follows the moved `at` (the person's
+    // word above), but the chat's sleep, its wake spell and "it ran since the failed wake" keep the report's own time.
     const entry = isOld && !isAppAfter ? { ...saved, at: board.startedAt, heardAt: saved.at } : saved
     // Gap 1: no report from this session while its card says a mod that reports: unknown, then off, never guessed.
     if (entry === null || entry.session !== chat.cliSessionId) {
