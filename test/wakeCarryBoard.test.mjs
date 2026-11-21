@@ -458,3 +458,19 @@ test('B1304: the same silent hand send with no free carrier: the courier\'s word
   }, 'the courier\'s word after the silent hand send')
   assert.deepEqual([carried.length, carried[0].to], [1, 'the courier'])
 })
+
+test('F38 (B1300, chat 1 review 2): the running board moves a kept spell the lane reads again (A, B, then A) to the newest place, its tries with it', { timeout: 240_000 }, async t => {
+  // A wakes.json from before F38: Worker 2's own spell, then a later spell the board once took (a board start) after it.
+  const entry = (spell, attempts) => ({ spell, attempts, turnEndedAt: null, told: { failed: false, nobody: false } })
+  const tried = { path: 'message', at: SPELL + MIN, by: 'Worker 1', jobId: 'wake:own:Worker 2', sentAt: SPELL + MIN, runBefore: 1, verdict: 'failed', verdictAt: SPELL + 3 * MIN, why: 'no report within 2 minutes of the message', step: null }
+  const later = NOW - 10 * MIN
+  const { record } = await boardWith(t, { refused: false, facts: { wakes: { 'Worker 2': [entry(SPELL, [tried]), entry(later, [])] } } })
+  let kept = []
+  for (const end = Date.now() + 150_000; Date.now() < end;) {
+    kept = (await record()).wakes['Worker 2'] ?? []
+    if (kept.at(-1)?.spell === SPELL) break
+    await new Promise(done => setTimeout(done, 500))
+  }
+  assert.deepEqual(kept.map(one => one.spell), [later, SPELL], 'the lane reads its own spell: that entry is the newest')
+  assert.equal(kept.at(-1).attempts[0].jobId, 'wake:own:Worker 2', 'its tries moved with it')
+})
