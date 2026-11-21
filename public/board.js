@@ -748,6 +748,22 @@ function storeNote(store, workFlags = []) {
 }
 // store:end
 
+// settingsIgnored:start
+/**
+ * T5.2 A7: the note on top while the project's settings file is in use (`state.settingsIgnored`: `{ file, keys }`) and config.json
+ * still holds project keys: the board ignores them there. Null: none (no settings file, or nothing left in config.json).
+ */
+function settingsIgnoredNote(ignored) {
+  const keys = Array.isArray(ignored?.keys) ? ignored.keys.filter(key => typeof key === 'string' && key !== '') : []
+  if (keys.length === 0) return null
+  const file = typeof ignored.file === 'string' && ignored.file !== '' ? ignored.file : 'the project\'s settings file'
+  const named = keys.map(key => `"${key}"`)
+  const listed = named.length < 2 ? named.join('') : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`
+  const one = keys.length === 1
+  return `config.json still holds ${listed}: the board ignores ${one ? 'it' : 'them'} there and reads the project's settings from ${file}. Move ${one ? 'it' : 'them'} into ${file} (or delete ${one ? 'it' : 'them'} from config.json).`
+}
+// settingsIgnored:end
+
 // setAside:start
 /**
  * B406: the note on top when the board set data files aside at its start (`state.setAside`: `{ file, aside }`): each
@@ -1791,6 +1807,14 @@ function openSupervisor() {
   $('supervisor').scrollIntoView({ block: 'nearest' })
 }
 
+/** T5.2 A7: the note on top about project keys left in config.json (see `settingsIgnoredNote`). */
+function drawSettingsIgnoredNote(state) {
+  const text = settingsIgnoredNote(state.settingsIgnored)
+  const note = $('settings-ignored-note')
+  note.hidden = text === null
+  if (text !== null) note.textContent = text
+}
+
 /** B406: the note on top about the data files set aside at the start (see `setAsideNote`). */
 function drawSetAsideNote(state) {
   const text = setAsideNote(state.setAside)
@@ -2545,8 +2569,11 @@ function pauseRing(pause) {
 function pauseLines(pause) {
   if (pause === null || pause === undefined || pause.state === 'pausing') return []
   // B1273: the Claude app is on another account: one calm line, nothing for the person but switching back.
-  // The review: with one button, for a deliberate move of the board to this account (the app's account becomes the board's).
-  if (pause.state === 'away') return [{ tone: 'muted', text: pause.line ?? 'The Claude app is on another account: the board\'s chats wait; switch back and they go on.', button: { label: pause.take ?? 'Run the board on this account', action: 'take-account' } }]
+  // B1283 (F37): the decision is an ask in Needs your attention (run the board here, or keep waiting); the line links to it.
+  if (pause.state === 'away') {
+    const text = pause.line ?? 'The Claude app is on another account: the board\'s chats wait; switch back and they go on.'
+    return [typeof pause.ask === 'string' ? { tone: 'muted', text, link: { label: `Decide (${pause.ask})`, href: `#details=${pause.ask}` } } : { tone: 'muted', text }]
+  }
   if (pause.state === 'running') return (pause.notStarted ?? []).map(one => ({ tone: 'muted', text: `${one.chat} did not start after the resume: ${one.ids.join(', ')}.` }))
   const until = Number.isFinite(pause.until) ? ` The board goes on without waiting at ${clock(pause.until)}.` : ''
   const lines = [{ tone: '', text: pause.waiting.length === 0 ? `Resuming since ${clock(pause.since)}: every chat that holds a step has started again.` : `Resuming since ${clock(pause.since)}: not started yet: ${pause.waiting.map(one => `${one.chat} (${one.ids.join(', ')})`).join(', ')}.${until}` }]
@@ -2632,13 +2659,6 @@ function drawRestart(state) {
   }
   // Pause and resume: the pause's own lines, with Resume all while pausing.
   for (const one of pauseLines(pause)) {
-    // B1273: a line with a button of its own (the away line's "Run the board on this account").
-    if (one.button !== undefined) {
-      const row = el('div', 'restart-ask')
-      row.append(line(one.tone, one.text), button(one.button.label, 'is-quiet', one.button.action))
-      parts.push(row)
-      continue
-    }
     if (one.link === undefined) {
       parts.push(line(one.tone, one.text))
       continue
@@ -7254,8 +7274,6 @@ $('restart').addEventListener('click', event => {
   if (button.dataset.restart === 'pause-all') return sendWork({ action: 'pause-all' }, 'restart')
   if (button.dataset.restart === 'resume') return sendWork({ action: 'resume-all' }, 'restart')
   if (button.dataset.restart === 'end-resume') return sendWork({ action: 'end-resume' }, 'restart')
-  // B1273: the away line's button: the board runs on the app's account from now on.
-  if (button.dataset.restart === 'take-account') return sendWork({ action: 'take-account' }, 'restart')
   send({ to: board.restart.main, command: button.dataset.restart }, 'restart')
 })
 // "Ask the main chat to start it", wherever it stands: on a card, in the details, on the advisor's tab.
@@ -23423,6 +23441,7 @@ function draw(state) {
   drawModNote(state)
   drawStoreNote(state)
   drawSetAsideNote(state)
+  drawSettingsIgnoredNote(state)
   drawLoopsNote(state)
   drawCpu(state)
   drawMainGame(state)

@@ -13,7 +13,7 @@
 // outcome.
 
 import { RESTART_COMMAND, restartWords } from './modRollout.mjs'
-import { EFFORTS, chatEffort, effortOf, effortWords, isSetRefused, modelOf, runSettings, sameModel, setsRefusedOf, settingOf } from './effort.mjs'
+import { EFFORTS, chatEffort, effortOf, effortWords, isSetRefused, modelOf, readBackMarkOf, runSettings, sameModel, setsRefusedOf, settingOf } from './effort.mjs'
 import { CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, HANDOVER_COMMAND, contractOf, decide, envelopesOf, failedWhy, isClearOwedOnly, mergeStages, onSequence } from './handover.mjs'
 import { giveBackStep } from './giveBack.mjs'
 import { GIVE_BACK_MINUTES, RESUME_MINUTES, continuationOf, standOf } from './holderTimers.mjs'
@@ -361,6 +361,9 @@ export async function handoverPass({ state, dir, outbox, apply, config, installe
           await outbox.update(message.id, { state: 'failed', failedAt: now, settledAt: now, outcome: { cleared: null, set: false, typed: false, restarted: null, background: false, why: word?.why ?? 'the set word did not arrive' } })
         }
       }
+      // B1282 (X207): a set word for a step Main took is read back once the app's file shows its setting, so a later loss is known as one.
+      const readBack = readBackMarkOf(lane, outbox.outbox())
+      if (readBack !== null) await outbox.update(readBack, { readBackAt: now })
       const restart = outbox.outbox().findLast(one => one.command === HANDOVER_COMMAND && one.to === lane.name && one.restart === true)
       const main = state.restart?.main ?? null
       if (restart !== undefined && restart.state === 'delivered' && main !== null && !outbox.outbox().some(one => one.command === RESTART_COMMAND && one.about === lane.name && one.at >= restart.at)) {

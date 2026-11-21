@@ -127,7 +127,8 @@ function whyClosedNow(message, ctx) {
     if (message.state === 'failed' && isSetRefused(message)) return { state: 'dropped', refused: true, why: "the app refuses the board's set calls; it runs on its current model" }
     // B1207 (X26 back): a waiting word for a held step's changed setting (`changed`) is moot once the step wants another setting again
     // (changed back before Main set it): never typed later, setting the worker to what its step no longer wants.
-    if (message.state === 'waiting' && message.changed === true && typeof message.forStep === 'string' && items instanceof Map) {
+    // B1282: a lost setting's word (`lost`) the same way: moot once its step is no longer that worker's or wants another setting.
+    if (message.state === 'waiting' && (message.changed === true || message.lost === true) && typeof message.forStep === 'string' && items instanceof Map) {
       const step = items.get(message.forStep)
       // Review 2 (lens 2): and once its step is gone or no longer that worker's (reported, given back): never typed into its next step.
       const isHeld = step !== undefined && ['taken', 'in progress', 'waiting on you'].includes(value(step, 'State')) && plainName(value(step, 'Owner'), ctx.prefix ?? '') === plainName(message.about, ctx.prefix ?? '')

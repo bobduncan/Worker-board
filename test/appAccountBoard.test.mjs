@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 
 import { answer, typed } from '../fixtures/lines.mjs'
 import { migrateBacklog, stamp } from '../src/work/migrate.mjs'
-import { writeStore } from '../src/work/store.mjs'
+import { readStore, writeStore } from '../src/work/store.mjs'
 import { AWAY_LINE } from '../src/appAccount.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -129,11 +129,21 @@ test('the app on another account: the board holds by itself (no hand-out, no wak
   assert.equal(seen.reconciled.handOutHeld, true)
   const early = (await outbox()).filter(one => one.command === 'handover' || one.step === 'B738')
   assert.deepEqual(early, [], `no hand-out while away: ${JSON.stringify(early).slice(0, 900)}`)
-  // Back on the board's account: after the settle time the hold lifts and B738 goes to Worker 4.
+  // B1283 (F37): past the settle the board filed its one ask in the store (a decide of the board's own, routed to the person).
+  const askOf = async () => [...(await readStore(join(project, '.claude', 'work'))).items.values()].find(item => item.head.get('Kind') === 'ask' && /^The Claude app is on account/.test(item.head.get('Title') ?? ''))
+  await until(async () => (await askOf()) !== undefined, 'the account ask in the store')
+  const asked = await askOf()
+  assert.deepEqual([asked.head.get('State'), asked.head.get('Asks'), asked.head.get('Options')], ['open', 'decide', 'A Run the board on this account | B Keep waiting until I switch back'])
+  assert.equal((await state()).pause.ask, asked.head.get('Id'), 'the away line links to it')
+  await new Promise(done => setTimeout(done, 3000))
+  assert.equal([...(await readStore(join(project, '.claude', 'work'))).items.values()].filter(item => item.head.get('Kind') === 'ask').length, 1, 'one ask, not one per read')
+  // Back on the board's account: after the settle time the hold lifts, the ask closes by itself and B738 goes to Worker 4.
   await writeFile(appConfig, JSON.stringify({ locale: 'en', lastKnownAccountUuid: BOARD }))
   await until(async () => (await outbox()).some(one => one.command === 'handover' && one.step === 'B738'), 'the hand-over of B738 once back')
   assert.equal((await outbox()).find(one => one.step === 'B738').to, 'Worker 4')
   seen = await state()
   assert.notEqual(seen.pause?.state, 'away')
   assert.equal(seen.account.away, false)
+  await until(async () => (await askOf())?.head.get('State') === 'withdrawn', 'the ask withdrawn once home')
+  assert.match((await askOf()).sections.get('History')?.join('\n') ?? '', /withdrawn: the Claude app came back to 26b81206; nothing to decide/)
 })
