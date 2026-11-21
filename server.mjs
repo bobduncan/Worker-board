@@ -99,7 +99,7 @@ import { readSetup, setupAction, startSetup, FINISHED as SETUP_FINISHED } from '
 import { providerCards, mayUse as mayUseProvider, verifyOne, checkKey } from './src/providers/choose.mjs'
 import { KEY_VARIABLE, keyChecked, saveKey } from './src/providers/elevenlabs-key.mjs'
 import { ASSET_KINDS, PROVIDERS, checkProvidersFull, providerFor } from './src/providers/index.mjs'
-import { assetReader, assetsFolderOf, listAssets } from './src/assets.mjs'
+import { assetReader, listAssets } from './src/assets.mjs'
 import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
 import { titleProblem } from './src/work/askWords.mjs'
 import { recapRoundDue } from './src/recapCard.mjs'
@@ -2000,8 +2000,10 @@ async function main(args) {
   // The asset wait (2026-11-11, the B1124 case): the asset requests go into the raw (src/work/assetWait.mjs reads the open ones of a
   // holder as its wait), with the provider's time limit for a job (the Design tab's seconds, once read below) for the Late past it.
   let assetSecondsNow = () => null
-  // The trial copy and a branch board show the wait too: the requests are read wherever the work folder is; only the queue is the delivering board's.
-  const assetsRead = workDir === null ? null : assetReader(resolve(HERE, assetsFolderOf(workDir)))
+  // The trial copy and a branch board show the wait too: the requests are read wherever they are kept; only the queue is the delivering board's.
+  // T5.2 A2 (chat 1's review, finding 7): the same folder the requests are written to (`assetsOf`: `<data>/pictures/assets` once the data
+  // moves), never `assets` beside the store by itself.
+  const assetsRead = workDir === null ? null : assetReader(resolve(HERE, assetsOf(config)))
   // B467: a folder of requests that cannot be read is shown as a failed loop, and the state goes on without the requests.
   const withAssets = async sources => ({ ...sources, assets: assetsRead === null ? [] : await assetsRead().catch(error => { loops.failed('asset-requests', error); return [] }), assetSeconds: assetSecondsNow() })
   let readLines = raw => raw.historyLines ?? store.lines()
@@ -4534,7 +4536,7 @@ async function main(args) {
         // what waited too long (src/work/autopilot.mjs); on its own, so a failure stops no delivery.
         await loops.run('autopilot', () => autopilotNow(state))
         const done = await deliverWork({
-          state, dir: workDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
+          state, dir: workDir, assetsDir, outbox: store, apply: body => workAction(body, 'server'), now: clock(), maxChars: config.maxMessageChars,
           newId: () => randomBytes(8).toString('hex'), keep,
         })
         if (done.moved.length + done.sent.length + done.withdrawn.length + done.closed.length > 0) {

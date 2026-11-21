@@ -154,10 +154,13 @@ export async function pullFor({ dir, result, state, outbox, now, maxChars, newId
   return sent === null ? none : result
 }
 
-/** B949: the asset requests by id (the asset words are judged by them), or undefined when they cannot be read: the words then hold. */
-async function assetsOf(dir) {
+/**
+ * B949: the asset requests by id (the asset words are judged by them), or undefined when they cannot be read: the words then hold.
+ * T5.2 A2: read from `assetsDir`, the folder the requests are written to (the server's `assetsOf(config)`), not a folder beside the store.
+ */
+async function assetsOf(assetsDir) {
   try {
-    return new Map((await listAssets(assetsFolderOf(dir))).map(record => [record.id, record]))
+    return new Map((await listAssets(assetsDir)).map(record => [record.id, record]))
   } catch {
     return undefined
   }
@@ -169,11 +172,11 @@ async function assetsOf(dir) {
  * waits and nothing else waits for that chat. B589: a line that failed and is not tried again too (X3: the chat's
  * session was stopped as it took it); one whose step is still that chat's stays failed, for the person to see.
  */
-async function withdrawStale({ dir, outbox, prefix, fs, now = Date.now() }) {
+async function withdrawStale({ dir, assetsDir, outbox, prefix, fs, now = Date.now() }) {
   const lines = outbox.outbox().filter(message => message.command === 'work' && (message.state === 'waiting' || isFailedForGood(message)))
   if (lines.length === 0) return []
   const items = (await readStore(dir, fs)).items
-  const assets = lines.some(message => message.kind === 'asset') ? await assetsOf(dir) : undefined
+  const assets = lines.some(message => message.kind === 'asset') ? await assetsOf(assetsDir) : undefined
   const gone = []
   for (const message of lines) {
     const why = workLineWhy(message, items, { prefix, now, assets })
@@ -249,10 +252,12 @@ function startWords(start, state, maxChars) {
 /**
  * One refresh: `state.reconciled` (state.mjs; null while the store cannot be read) carried out. `apply(body)` is the work
  * API as the server. `{ moved, sent, withdrawn, closed }`: the ids moved, the messages sent, withdrawn and closed. (T8.5
- * step 6: the board gives a worker its task in the hand-over's one decision, handoverBoard.mjs, not here.)
+ * step 6: the board gives a worker its task in the hand-over's one decision, handoverBoard.mjs, not here.) T5.2 A2: `assetsDir` is
+ * where the asset requests are kept (the server's `assetsOf(config)`); left out, `assets` beside the store, as before.
  */
-export async function deliverWork({ state, dir, outbox, apply, now, maxChars, newId, fs, keep }) {
+export async function deliverWork({ state, dir, assetsDir = null, outbox, apply, now, maxChars, newId, fs, keep }) {
   const done = { moved: [], sent: [], withdrawn: [], closed: [] }
+  assetsDir ??= dir === null ? null : assetsFolderOf(dir)
   const plan = state?.reconciled ?? null
   if (plan === null || dir === null) return done
   // Redesign Part 2, at rollout: the tasks queued before the redesign go back on the ready list first, once.
@@ -277,7 +282,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   }
   // B532: the words that no longer matter are closed with their reason, the ones that failed to be typed are retried.
   done.closed = await sweepOutbox({ dir, outbox, state, now, keep, fs })
-  done.withdrawn = await withdrawStale({ dir, outbox, prefix: state.chatPrefix ?? '', fs, now })
+  done.withdrawn = await withdrawStale({ dir, assetsDir, outbox, prefix: state.chatPrefix ?? '', fs, now })
   // The review of Pause 2: while the person pauses (2026-10-19: pausing only) no line goes out that starts a turn: no
   // step delivered, no check's word, no note-wake to the main chat. They go at Resume all, as when running.
   if (isHolding(state?.pause)) return done
@@ -305,9 +310,9 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
   }
   // B949: the ready words the sweep dropped as "gone" (its fault) go once more, while their step is still that chat's.
   // The asset-stop rerun (2026-11-11): and a failed request's word, when none ever reached its chat (A245).
-  const resends = assetResends(outbox.outbox(), (await readStore(dir, fs)).items, await assetsOf(dir), { prefix: state.chatPrefix ?? '', now })
+  const resends = assetResends(outbox.outbox(), (await readStore(dir, fs)).items, await assetsOf(assetsDir), { prefix: state.chatPrefix ?? '', now })
   for (const one of resends) {
-    const line = one.state === 'failed' ? `asset ${one.id} failed: ${one.why}` : `asset ${one.id} ready: ${join(assetsFolderOf(dir), one.id)}`
+    const line = one.state === 'failed' ? `asset ${one.id} failed: ${one.why}` : `asset ${one.id} ready: ${join(assetsDir, one.id)}`
     lines.push({ key: one.key, words: { ...workWords(one.chat, one.id, line), kind: 'asset' } })
   }
   for (const one of lines) {

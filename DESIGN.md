@@ -8744,7 +8744,9 @@ Still with `data` empty everything is exactly today's path. With it set:
   is a runtime file, `<data>/local/backlog.md`. A whole path of its own (a copy's) stays. sources.mjs reads the threads there.
 - **The runtime files** (`localFile`): sync-loop.json, limit-readings.json, sync.json, supervisor.json, supervisor-sweep.json and
   board-errors.log go to `<data>/local` (ignored by the data branch), today the project's `.claude`.
-- **The assets** (`assetsOf`): `<data>/pictures/assets`, today `assets` beside the store; server.mjs's `assetsDir` uses it.
+- **The assets** (`assetsOf`): `<data>/pictures/assets`, today `assets` beside the store; server.mjs's `assetsDir` uses it. T5.2 A2
+  (chat 1's review, finding 7): the readers too: the state's asset wait (`assetsRead`) and the delivery's judge and resends
+  (deliver.mjs `assetsDir`), which read `assets` beside the store before; with `data` empty the two folders are one.
 - **Every picture reader and writer** takes a home `{ root, abs }` (`pictureHomeOf(config)`; server.mjs `pictureHome(root)`) in place of
   the project folder: src/pictures.mjs (findPicture, readDemo, findDemo, pictureTooBig, pictureProblem, adoptPicture, listPictures,
   the bare-name search), talkPicture.mjs, ideas.mjs `placeReferences`; recaps.mjs, recapCard.mjs and tools/evidence.mjs resolve their
