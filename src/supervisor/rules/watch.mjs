@@ -36,6 +36,7 @@ import { isSleep, stallWords } from '../../stallWords.mjs'
 import { STOP_HANDS_MS, isHandTaken, isTaskStopWord } from '../../hands.mjs'
 import { triedWords } from '../../wake.mjs'
 import { isRethinkHold, rethinkWords } from '../../work/rethink.mjs'
+import { focusGoalsOf } from '../../stepStatus.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -748,6 +749,21 @@ function personHold(view, held) {
   return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps))
 }
 
+/** B1295: a held why that is a hold in words (guards.mjs `readyHold`: "waits for: <words>", set by work block, cleared by the partner or Main). */
+const WORDS_HOLD = /^waits for: /
+
+/**
+ * B1295 (X209: B1159 in review behind its fix B1288, held in words by the partner on purpose, read as stuck every hour): whether a
+ * held fix waits on purpose: a hold in words (not the rethink, which `personHold` reads) on a fix whose Goal is the focus goal or
+ * a goal under it. The rule none-ready (stepStatus.mjs `noneReadyOf`) already takes such a hold to the partner and Main whenever
+ * a worker is free; outside the focus nothing else follows it up, so review-held judges it there as before.
+ */
+function focusWordsHold(view, fixId, held) {
+  if (!WORDS_HOLD.test(held ?? '') || isRethinkHold(held) || typeof view.focus !== 'string') return false
+  const goal = valueOf(view.items.get(fixId), 'Goal')
+  return typeof goal === 'string' && focusGoalsOf(view.focus, view.goals).has(goal)
+}
+
 /** B1021: the states in which a step is with a worker that was given it or took it. */
 const MOVING = ['queued', 'taken', 'in progress']
 /** F5 verifier 3, 6: the states of the step a Touches overlap hold waits for in which the hold is a wait. */
@@ -889,7 +905,8 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
   }
   if (wait.kind === 'fix' && wait.held !== null) {
     // B1021 (X148): nothing is handed out while a limit is full, and a block by steps that move is a wait the board planned.
-    if (isPaused(view) || isFull(view) || personHold(view, wait.held) || holdMoves(view, wait.held)) return not
+    // B1295 (X209): a hold in words on a fix of the focus goal is a wait on purpose (none-ready follows it up).
+    if (isPaused(view) || isFull(view) || personHold(view, wait.held) || holdMoves(view, wait.held) || focusWordsHold(view, wait.end, wait.held)) return not
     // Counted per why, from when the board first saw this hold (the fix's Since is its move to refined, long before a
     // blocker or an ask may have cleared: B614 refined at 16:39, blocked by B623 until 19:56), and from the end of a full limit.
     const key = `review-held ${wait.end} ${wait.held.slice(0, 80)}`

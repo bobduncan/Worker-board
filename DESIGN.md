@@ -4265,7 +4265,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   "blocked by B<n>, ..." when every blocker waits for the person alone, `waitsForPerson`: their answer, verdict in a recap or Accept, also at
   the end of the blocker's chain of fixes with no link at work; one blocker that waits for a check or a worker keeps it a case; once their wait
   ends the hold counts from then, as nothing was watched meanwhile; B1021, X148: nor is a block by steps that all move, `holdMoves`: each
-  with a worker, or behind a chain at work or ending in a refined fix not held; and nothing is said while a limit is full, the rule does not run,
+  with a worker, or behind a chain at work or ending in a refined fix not held; B1295, X209: nor is a hold in words, "waits for: <words>"
+  (work block, not the rethink), on a fix whose Goal is the focus goal or under it, a wait on purpose that none-ready already takes to
+  the partner and Main; outside the focus it is a case at 60 min as before; and nothing is said while a limit is full, the rule does not run,
   the watch forgets the key and the hold counts again from the limit's reset at the earliest, `limitEndOf`; a chain that stands still after it fires as before); one case per chain, named by its first step, with the
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
   <why>" on the Backlog tab, in work next and list, and in the health summary, which counts review chains, not steps),
