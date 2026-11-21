@@ -117,13 +117,13 @@ import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isF
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
-import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandRefusedAlone, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { listedWhere, parseList, readAccountFolders } from './src/appChats.mjs'
-import { SIDE_CHATS_FILE, STALE_SIDE_WHY, sideChatsOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf, staleSideWords } from './src/work/sideWord.mjs'
+import { SIDE_CHATS_FILE, SIDE_WORD, STALE_SIDE_WHY, sideChatsOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf, staleSideWords } from './src/work/sideWord.mjs'
 import { accountWatch } from './src/appAccount.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
@@ -4037,6 +4037,13 @@ async function main(args) {
         if (PROBE_JOB.test(id)) {
           if (sent.includes(id) && !doubt.includes(id)) woke = [noteHandSent(wakes, checked.chat, clock()), noteSendLifted(wakes, clock())].includes(true) || woke
           else if (failed.includes(id) && isSendRefusal(why[id])) woke = noteHandRefused(wakes, checked.chat, clock()) || woke
+          continue
+        }
+        // B1307 (chat 1's crossing 2): a side word's send counts for this hand alone: one that went lifts its own mark, one the app
+        // refused marks it, never the board-wide refusal and never a start or wake try (it is no wake: no attempt in the record).
+        if (store.outbox().some(one => one.id === id && one.command === SIDE_WORD)) {
+          if (sent.includes(id) && !doubt.includes(id) && noteHandSent(wakes, checked.chat, clock())) woke = true
+          if (failed.includes(id) && isSendRefusal(why[id]) && noteHandRefusedAlone(wakes, checked.chat, clock())) woke = true
           continue
         }
         const chat = wakeChatOf(id)

@@ -160,3 +160,20 @@ test('the hands: a side word is a hand\'s job to its own app id, only for a hand
   // The record keeps the wait's own minute, so the key is the step and that minute.
   assert.equal(sideKeyOf('B1300', waitsOnOf(b1300(waitsLine('chat 1', WAIT_AT)))), 'B1300:2026-11-21 10:49')
 })
+
+test('chat 1\'s crossing 2: a refused side send marks that hand alone, never the board-wide refusal; the route counts it before any wake', async () => {
+  const { noteHandRefused, noteHandRefusedAlone } = await import('../src/wakeCarry.mjs')
+  const record = {}
+  assert.equal(noteHandRefusedAlone(record, 'Worker 2', at(12, 21)), true)
+  assert.deepEqual(record, { refusedHands: { 'Worker 2': at(12, 21) } })
+  // The control: the wake path's mark would also set the board-wide refusal on a record where no hand went since the lift.
+  const wake = {}
+  noteHandRefused(wake, 'Worker 2', at(12, 21))
+  assert.equal(wake.sendsRefusedSince, at(12, 21))
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  const done = server.slice(server.indexOf('handsDone: counted('))
+  const side = done.indexOf('one.command === SIDE_WORD')
+  assert.ok(side > 0 && side < done.indexOf('const chat = wakeChatOf(id)'), 'the side word branch comes before the wake path')
+  assert.match(done.slice(side, side + 500), /noteHandRefusedAlone\(wakes, checked\.chat, clock\(\)\)[\s\S]*continue/)
+})

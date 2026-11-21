@@ -121,6 +121,18 @@ export function noteHandRefused(record, hand, at) {
 }
 
 /**
+ * B1307 (chat 1, 2026-11-21): a hand's send the app refused that is no wake (a side word): it marks that hand alone, never the board's
+ * refusal (X205), and no wake attempt counts it. True when the mark changed.
+ */
+export function noteHandRefusedAlone(record, hand, at) {
+  if (!isTime(at) || typeof hand !== 'string' || hand === '' || hand === COURIER) return false
+  const marks = record.refusedHands ?? {}
+  if (isTime(marks[hand]) && marks[hand] >= at) return false
+  record.refusedHands = { ...marks, [hand]: at }
+  return true
+}
+
+/**
  * B1279 (X205): when a hand's own code send last went, or null: the record's `handSentAt`, or else the newest message attempt a hand sent
  * (`sentAt` set: its hand said ok; never a carried one, whose `sentAt` is its carrier's turn, nor a refused one). The live record of
  * 2026-11-19 had Main's sends of 20:17 and 20:20 as attempts only: B1271, which writes `handSentAt`, landed at 22:41.
