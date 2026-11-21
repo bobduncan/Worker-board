@@ -300,7 +300,9 @@ export async function deliverWork({ state, dir, assetsDir = null, outbox, apply,
   ]
   // Redesign Part 2: one more worker, asked of the main chat once per need (`startKey`); the reconciler names none while
   // the person pauses or a limit is full.
-  const start = plan.start ?? null
+  // B1279 (X205): a worker of the list the wake procedure starts (`byWake`, src/wake.mjs `wakeNeeds`) gets no start word: one no hand
+  // could carry waited 3 h for Main, renewed every 10 min. A spawn stays a word.
+  const start = plan.start?.byWake === true ? null : plan.start ?? null
   const startWord = start === null ? null : startWords(start, state, maxChars)
   if (startWord !== null) {
     const workers = (state.chats ?? []).filter(lane => !lane.isLeftover && !lane.isMain)
