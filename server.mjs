@@ -4454,8 +4454,8 @@ async function main(args) {
           for (const id of staleSideWords(store.outbox(), now)) if (await store.close(id, 'dropped', STALE_SIDE_WHY, now)) sides += 1
           const due = (state.sideWordsDue ?? []).filter(one => sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) === null)
           if (due.length > 0) {
-            const chats = sideChatsOf((await readHead(localFile(config, SIDE_CHATS_FILE), 16 * 1024).catch(() => null))?.text ?? '')
-            const folders = await readAccountFolders(config.appSessions).catch(() => null)
+            const chats = sideChatsOf((await readHead(localFile(config, SIDE_CHATS_FILE), 16 * 1024).catch(error => { loops.failed('side-chats', error); return null }))?.text ?? '')
+            const folders = await readAccountFolders(config.appSessions).catch(error => { loops.failed('side-chats-folders', error); return null })
             const whereOf = folders === null ? null : id => listedWhere(id, folders, { account: state.account?.board ?? null })
             for (const one of due) {
               if (sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) !== null) continue
