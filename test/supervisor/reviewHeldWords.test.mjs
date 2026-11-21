@@ -78,7 +78,22 @@ test('X209: under 60 min the hold outside the focus is no case yet', () => {
 })
 
 test('X209: the health summary still counts the chain as held, and does not call it late', () => {
-  const text = healthSummary(view('G95', WORDS, { seen: seenFor(WORDS) }), NOW)
-  assert.match(text, /1 held/)
-  assert.doesNotMatch(text, /review-held/)
+  const lines = board => healthSummary(board, NOW).split('\n').filter(line => /B1159 review|in review:/.test(line))
+  const quiet = lines(view('G95', WORDS, { seen: seenFor(WORDS) }))
+  assert.equal(quiet.length, 2, quiet.join('\n'))
+  assert.match(quiet.join('\n'), /1 behind a fix the ready list holds/)
+  for (const line of quiet) assert.doesNotMatch(line, /^- !/, line)
+  // The control: outside the focus both lines carry the "!".
+  for (const line of lines(view('G12', WORDS, { seen: seenFor(WORDS) }))) assert.match(line, /^- ! /, line)
+})
+
+test('chat 1 review: the hold in words on a focus fix is quiet for 12 h; past it a forgotten hold is a case again', () => {
+  const seenAt = minutes => new Map([[`review-held B1288 ${WORDS.slice(0, 80)}`, ago(minutes)]])
+  const check = minutes => WATCH_RULES.find(one => one.id === 'review-held').check(view('G95', WORDS), { seen: seenAt(minutes), observed: [] })
+  assert.deepEqual(check(12 * 60), [])
+  assert.deepEqual(check(12 * 60 + 1).map(one => [one.rule, one.key]), [['review-held', 'review-held B1159']])
+  // The key stays with the watch meanwhile, so the hold's time counts on (reviewLateOf names it while quiet).
+  const board = view('G95', WORDS)
+  const wait = reviewWaitOf(board.items.get('B1159'), board.items, board.held, NOW, board.recaps)
+  assert.equal(reviewLateOf(board, board.items.get('B1159'), wait, () => ago(83)).key, `review-held B1288 ${WORDS.slice(0, 80)}`)
 })
