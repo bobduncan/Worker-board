@@ -105,6 +105,11 @@ test('F38 the live case: Worker 4\'s sleep is one spell across the starts of 00:
   const facts = { record, senderClaims: false, canLaunch: true }
   const { unwakeable, waking } = wakeableOf([{ ...later, appSession: null }], facts)
   assert.deepEqual([unwakeable.has('Worker 4'), waking.has('Worker 4')], [true, false])
+  // Chat 1's review 3: the failed wake now outlives the restarts, so a board started the next morning names its day.
+  const nextDay = build({ now: at(9, 0, 0, 22), startedAt: at(8, 50, 0, 22), record })
+  const morning = lane(nextDay)
+  assert.deepEqual([morning.state, morning.why], ['off', 'woken at yesterday 00:42, it did not start'])
+  assert.equal(nextDay.wakeNotice?.text, 'could not wake Worker 4: the app did not start it (launched yesterday 00:42); open its chat')
 })
 
 test('F38 a board start after the failed wake proves no life: ranSince reads the report\'s own time; a fresh report or a new run does', () => {
@@ -132,6 +137,8 @@ test('F38 a chat off with no sleep of its own (busy on no task, silent) has its 
   const main = lane(build({ now: START_2 + 6 * MIN, startedAt: START_2, reports }), 'Main')
   assert.deepEqual([main.state, main.isRunning, main.asleepSince ?? null], ['off', false, null])
   assert.equal(spellOf(main), LAST - 30_000)
+  // Chat 1's review 4: its words name the same own time as its spell, never the start.
+  assert.equal(main.why, `silent since ${hm(LAST - 30_000)}`)
   // A side lane's report as its spell reads it (state.mjs spellReportOf) keeps the own time too.
   assert.equal(spellOf({ isRunning: false, report: null, ownReport: { state: 'idle', at: START_2, heardAt: LAST, run: RUN } }), LAST)
 })

@@ -81,7 +81,7 @@ import { rethinkFocusOf } from './work/rethinkFocus.mjs'
 import { countsOf, sinceClock, statusOf } from './chatStatus.mjs'
 import { factsOf, offMsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
-import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
+import { backgroundOf, heardTimeOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
 import { MOD_GONE_WHY, modGoneOf, modUnloadedAt } from './modGone.mjs'
 /** F9's review: a board-call popup counts for the asking spell it was filed in; filed this long before the spell began it is an old one. */
 const BOARD_CALL_SLACK_MS = 2 * 60_000
@@ -913,9 +913,9 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
       ...(Number.isFinite(reported.entry.heardAt) ? { heardAt: reported.entry.heardAt } : {}) },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
     offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
-      : reported.why === 'silent' ? `silent since ${sinceClock(reported.entry.at, now)}`
+      : reported.why === 'silent' ? `silent since ${sinceClock(heardTimeOf(reported.entry), now)}`
         // T13 part 3: a wake that did not take.
-        : reported.why === 'woken' ? `woken at ${hourMinute(reported.wokenAt)}, it did not start` : 'the app started again after its last report',
+        : reported.why === 'woken' ? `woken at ${sinceClock(reported.wokenAt, now)}, it did not start` : 'the app started again after its last report',
     // T13 part 3: its process ended while its last report stands (chatReport.mjs `asleepLane`): asleep since when, or null.
     // F9's review: a chat whose Workers mod was unloaded is never asleep for the board (a wake would reach no mod).
     asleep: modGone === null && reported?.asleep === true,
@@ -3279,7 +3279,7 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
   return {
     ...built, chats, ...roles,
     // P5: the kept reports the lanes read (the same `lane.report` the hasRunSince above reads), so the notice itself leaves out a chat that ran since its failed wake.
-    wakeNotice: noticeOf(record, targets, now, hourMinute, { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }),
+    wakeNotice: noticeOf(record, targets, now, ms => sinceClock(ms, now), { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }),
     wakes: newestSpells(record),
     // The review of 2026-11-02 (7): the board-wide spell now (nobody runs since), for the rule nobody-answers-wakes.
     wakeBoardSince: nobody?.since ?? null,
