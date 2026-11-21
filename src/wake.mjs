@@ -748,12 +748,14 @@ function needOf(lane, { state, waiting, prefix, resumeList, ownerName }) {
  * could take in its spell (`wakeOf` final: the message and the launch tried and failed, or no id to reach it), until it runs again or the
  * app's return re-opens the spell (G1); `waking`: one whose wake is on its way (a message held or sent, a launch waiting for its verdict).
  * `lanes` the board's chats; `facts` the server's `{ record, senderClaims, canLaunch }`. Two Sets of names; empty without a record.
+ * B1304 (B1279's point 2): `lastLaunch`, whether the record's newest launch with a verdict (any chat's, the board-wide spell's too) started
+ * its chat ('started'), did not ('failed'), or null when no launch has a verdict: the hand-out asks for a new worker only while it may.
  */
 export function wakeableOf(lanes, facts) {
   const unwakeable = new Set()
   const waking = new Set()
   const record = facts?.record ?? null
-  if (record === null) return { unwakeable, waking }
+  if (record === null) return { unwakeable, waking, lastLaunch: null }
   for (const lane of lanes ?? []) {
     if (lane === null || lane === undefined || lane.isLeftover === true || typeof lane.name !== 'string') continue
     const spell = spellOf(lane)
@@ -762,7 +764,20 @@ export function wakeableOf(lanes, facts) {
     if (wake.final === true && !ranSince(record, lane.name, spell, lane.report ?? null)) unwakeable.add(lane.name)
     else if (['on-its-way', 'sent', 'launched'].includes(wake.state)) waking.add(lane.name)
   }
-  return { unwakeable, waking }
+  return { unwakeable, waking, lastLaunch: lastLaunchOf(record) }
+}
+
+/** B1304: 'started' or 'failed', the verdict of the record's newest launch that has one (by its verdict's time), or null. */
+export function lastLaunchOf(record) {
+  let newest = null
+  for (const entries of record?.wakes?.values() ?? []) {
+    for (const attempt of (entries ?? []).flatMap(entry => entry.attempts ?? [])) {
+      if (attempt.path !== 'launch' || !['woke', 'failed'].includes(attempt.verdict)) continue
+      const at = isTime(attempt.verdictAt) ? attempt.verdictAt : attempt.at
+      if (newest === null || at >= newest.at) newest = { at, verdict: attempt.verdict }
+    }
+  }
+  return newest === null ? null : newest.verdict === 'woke' ? 'started' : 'failed'
 }
 
 /**

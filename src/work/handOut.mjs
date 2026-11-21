@@ -362,7 +362,7 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
 
 /**
  * Whether the board asks for one more worker now: `{ start: name }` (a worker of the list whose chat is off, the one off
- * longest first), `{ spawn: 1 }` (a new one), or null. `maxWorkers` left out is 5 (B-max); null when it is given as no
+ * longest first), `{ spawn: 1 }` (a new one; B1304: only when the wake record's last launch did not fail), or null. `maxWorkers` left out is 5 (B-max); null when it is given as no
  * number (the board starts none),
  * while held (the person pauses, a limit is full), while an idle worker is left after this pass's gives, or when the
  * workers not off are `maxWorkers` already. Only tasks a new worker could take count: ready, kept for nobody (a pinned
@@ -377,12 +377,12 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
   // B1279 (X205): with the wake record (`wakeable`, wake.mjs `wakeableOf`) the one wake procedure starts the worker (`byWake`), and the
   // hand-out never asks for one it cannot wake (every path failed in its spell) nor counts one it is waking as off (it is on its way).
   const start = wakeable === null ? startFor : args => withWake(startFor(args))
-  return start({ ready, gives, idle, lanes, maxWorkers, items, sent, now, prefix, refused, offAfterMs, unwakeable: wakeable?.unwakeable ?? new Set(), waking: wakeable?.waking ?? new Set() })
+  return start({ ready, gives, idle, lanes, maxWorkers, items, sent, now, prefix, refused, offAfterMs, unwakeable: wakeable?.unwakeable ?? new Set(), waking: wakeable?.waking ?? new Set(), lastLaunch: wakeable?.lastLaunch ?? null })
 }
 
 const withWake = start => (start !== null && typeof start.start === 'string' ? { ...start, byWake: true } : start)
 
-function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, prefix, refused, offAfterMs, unwakeable, waking }) {
+function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, prefix, refused, offAfterMs, unwakeable, waking, lastLaunch = null }) {
   const handed = new Set(gives.map(one => one.id))
   const scratch = new Map(items)
   for (const one of gives) {
@@ -424,10 +424,15 @@ function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, pre
   if (isFull()) return null
   const offs = workers.filter(isOff)
   const off = offs.filter(mayStart).sort((a, b) => (a.offSince ?? 0) - (b.offSince ?? 0) || byId(a.name, b.name))[0]
-  // B1279: off workers that cannot be woken now: none is asked for, and they are named (`passedOver`), so the board's notice
-  // "could not wake ...; open its chat" stands for them for as long as the ready work waits (never "nothing waits for it").
-  if (off === undefined && offs.some(lane => unwakeable.has(lane.name))) return { passedOver: offs.filter(lane => unwakeable.has(lane.name)).map(lane => lane.name) }
-  return off === undefined ? { spawn: 1 } : { start: off.name }
+  if (off !== undefined) return { start: off.name }
+  // B1279: off workers that cannot be woken now are named (`passedOver`), so the board's notice "could not wake ...; open its chat"
+  // stands for them for as long as the ready work waits (never "nothing waits for it").
+  const passedOver = offs.filter(lane => unwakeable.has(lane.name)).map(lane => lane.name)
+  // B1304 (B1279's point 2): a new worker only when the last launch did start a chat (or none was tried yet), else none: a new chat is
+  // made the way a launch is, and while launches start nothing it would only add one more chat that never runs.
+  const spawn = lastLaunch === 'failed' ? null : { spawn: 1 }
+  if (passedOver.length > 0) return spawn === null ? { passedOver } : { ...spawn, passedOver }
+  return spawn
 }
 
 /**

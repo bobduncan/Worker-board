@@ -336,8 +336,9 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     offAfterMs: Number.isFinite(settings.offAfterMinutes) ? settings.offAfterMinutes * MIN : Infinity,
     // B1279 (X205): who the wake procedure can start now; with it, the start is a wake need, never a start word.
     wakeable })
-  // B1279: the off workers the hand-out passed over (none of them can be woken now) while ready work waits: no start, but the notice.
-  const start = Array.isArray(asked?.passedOver) ? null : asked
+  // B1279: the off workers the hand-out passed over (none of them can be woken now) while ready work waits: the notice, and no start but
+  // a new worker's when the last launch did start a chat (B1304).
   const passedOver = Array.isArray(asked?.passedOver) ? asked.passedOver : []
+  const start = asked === null ? null : asked.spawn > 0 ? { spawn: asked.spawn } : Array.isArray(asked.passedOver) ? null : asked
   return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, start, retired, stranded, handOutHeld, startsByWake: wakeable !== null, passedOver }
 }
