@@ -16,6 +16,7 @@ import { save, DATA_BRANCH, PRACTICE_BRANCH } from '../src/carry/save.mjs'
 import { load } from '../src/carry/load.mjs'
 import { recordFileFor, readRecord } from '../src/carry/record.mjs'
 import * as realSet from '../src/carry/set.mjs'
+import { rootsOf } from '../tools/carry.mjs'
 import * as realPictures from '../src/carry/pictures.mjs'
 import { cp } from 'node:fs/promises'
 
@@ -546,4 +547,57 @@ test('a load whose branch origin lacks (no save of that kind yet) touches nothin
   const p = sideOf(e, { remote, dataDir, picturesFolder: null, state: { now: 1794850000000 } })
   assert.deepEqual((await load(p.roots, { ...p.options, practice: true }, p.deps)).refusals.map(one => one.code), ['empty'])
   assert.ok(p.logs.some(one => /origin has no workerboard-practice yet \(no practice save/.test(one)))
+})
+
+test('T5.2 A8, the switched-on layout for real (chat 1\'s review 1-4): a data home that is not the carry folder: its store travels as data/ and lands in B\'s data home; board-settings.json travels without PC keys and lands where B\'s own `data` says before the file exists; a secret in it refuses the save; B\'s raw config.json keys stay', LONG, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'carry-a8-on-'))
+  t.after(() => rm(root, { recursive: true, force: true }).catch(() => {}))
+  const a = await pc(root, 'A')
+  const b = await pc(root, 'B')
+  const remote = await makeRemote(root, a.git)
+  await fillA(a, remote)
+  // A's data home, beside the project (not the carry folder <game>/.workerboard): the store, a goal file, the project's settings.
+  const dataA = join(a.project, 'data-home')
+  await mkdir(join(dataA, '.claude', 'work'), { recursive: true })
+  await writeFile(join(dataA, '.claude', 'work', 'B7.md'), 'Id: B7\nKind: step\nTitle: Moved step\nState: ready\nOwner: -\nSince: 2026-11-21 10:00\nBranch: none\n')
+  await writeFile(join(dataA, '.claude', 'work', 'pause.json'), JSON.stringify({ state: 'pausing', since: 1794820000000, by: 'you' }))
+  await writeFile(join(dataA, '.claude', 'goals.md'), '# Goals\n')
+  await writeFile(join(dataA, 'board-settings.json'), JSON.stringify({ name: 'Moved project', weekStopAt: 90, port: 4399, data: 'never', token: KEY }))
+  await writeFile(join(a.boardDir, 'config.json'), JSON.stringify({ project: a.project, gameRepo: a.gameRepo, data: dataA, work: '.claude/work', goals: '.claude/goals.md', pictureRoots: ['pictures'], port: 4399 }))
+  const env = { ...a.env }
+  const depsOf = side => ({
+    git: side.git, set: realSet, pictures: picturesFake, fs,
+    boardAnswers: async () => [], keepers: async () => [], lockAgeMs: async () => null,
+    secrets: async () => [{ kind: 'bridge key', value: KEY }], driveFree: async () => 1e12, lacks: async () => [],
+  })
+  const rootsA = await rootsOf({ boardDir: a.boardDir, flags: { remote }, env, git: a.git })
+  assert.deepEqual([rootsA.dataHome, rootsA.dataDir === rootsA.dataHome], [dataA, false], 'the data home is not the carry folder: no in-place refusal')
+  const logsA = []
+  let done = await save({ ...rootsA, config: rootsA.configGiven }, { log: text => logsA.push(text), now: 1794831000000 }, { ...depsOf(a), recordFile: rootsA.recordFile })
+  assert.ok(!done.ok && done.refusals.some(one => /secret/i.test(one.code) || /secret/i.test(one.text)), `the secret in board-settings.json refuses the save: ${JSON.stringify(done.refusals)}`)
+  await writeFile(join(dataA, 'board-settings.json'), JSON.stringify({ name: 'Moved project', weekStopAt: 90, port: 4399, data: 'never' }))
+  done = await save({ ...rootsA, config: rootsA.configGiven }, { log: text => logsA.push(text), now: 1794831000000 }, { ...depsOf(a), recordFile: rootsA.recordFile })
+  assert.equal(done.ok, true, `${JSON.stringify(done.refusals)}\n${logsA.join('\n')}`)
+  const inBranch = lines(await a.git(rootsA.dataDir, ['ls-files']))
+  assert.ok(inBranch.includes('data/.claude/work/B7.md') && inBranch.includes('data/.claude/goals.md') && inBranch.includes('settings/board-settings.json'), inBranch.join('\n'))
+  const carriedSettings = JSON.parse(await readFile(join(rootsA.dataDir, 'settings', 'board-settings.json'), 'utf8'))
+  assert.deepEqual(carriedSettings, { name: 'Moved project', weekStopAt: 90 }, 'no PC key travels in the project\'s settings')
+
+  // B: a fresh clone, its own data home named in config.json (the file not there yet), and raw keys of its own.
+  await b.ok(b.project, ['clone', '-q', remote, b.gameRepo])
+  await mkdir(join(b.boardDir, 'data'), { recursive: true })
+  const dataB = join(b.project, 'data-home')
+  await writeFile(join(b.boardDir, 'config.json'), JSON.stringify({ project: b.project, gameRepo: b.gameRepo, data: dataB, port: 4398, label: 'the B PC', codex: 'C:/tools/codex.exe' }))
+  const rootsB = await rootsOf({ boardDir: b.boardDir, flags: { remote }, env: { ...b.env }, git: b.git })
+  assert.equal(rootsB.projectSettingsFile, join(dataB, 'board-settings.json'), 'named before it exists')
+  const logsB = []
+  done = await load({ ...rootsB, config: rootsB.configGiven }, { log: text => logsB.push(text), now: 1794832000000 }, { ...depsOf(b), recordFile: rootsB.recordFile })
+  assert.equal(done.ok, true, `${JSON.stringify(done.refusals)}\n${logsB.join('\n')}`)
+  assert.equal(await readFile(join(dataB, '.claude', 'work', 'B7.md'), 'utf8'), await readFile(join(dataA, '.claude', 'work', 'B7.md'), 'utf8'), 'review 1: data/ lands in B\'s data home')
+  assert.equal(existsSync(join(dataB, '.claude', 'goals.md')), true, 'the goal file landed in the data home too')
+  assert.deepEqual(JSON.parse(await readFile(join(dataB, 'board-settings.json'), 'utf8')), { name: 'Moved project', weekStopAt: 90 }, 'review 2: placed where B\'s data says')
+  assert.ok(done.warnings.every(one => !/stays in the data folder/.test(one)), done.warnings.join('\n'))
+  const configB = JSON.parse(await readFile(join(b.boardDir, 'config.json'), 'utf8'))
+  assert.deepEqual([configB.label, configB.codex, configB.data, configB.port, configB.project], ['the B PC', 'C:/tools/codex.exe', dataB, 4398, b.project], 'review 4: B\'s raw keys stay')
+  assert.equal(configB.work, '.claude/work', 'a project key came with the carried config')
 })

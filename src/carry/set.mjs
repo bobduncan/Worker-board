@@ -189,6 +189,23 @@ export function settingsFromCarry(carried, { project, boardDir, current = {} } =
 /** T5.2 A8: the project's settings file (P4's board-settings.json, named by loadConfig as `settingsFile` once `data` is set), or null. */
 export const projectSettingsFileOf = config => (typeof config?.settingsFile === 'string' && config.settingsFile !== '' ? config.settingsFile : null)
 
+/**
+ * T5.2 A8 (chat 1's review, 3): the text of `settings/board-settings.json`: the project's settings file without any PC key (a PC key
+ * there is ignored by the board anyway, and must not reach the other PC); null for a file that is no JSON object (not carried).
+ */
+export function carriedProjectSettings(text) {
+  let raw
+  try {
+    raw = JSON.parse(String(text).replace(/^\uFEFF/, ''))
+  } catch {
+    return null
+  }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const carried = { ...raw }
+  for (const key of PC_KEYS) delete carried[key]
+  return `${JSON.stringify(carried, null, 2)}\n`
+}
+
 const lines = value => (Array.isArray(value) ? value.filter(line => typeof line === 'string') : [])
 
 /** From the user's settings, only `{ defaultMode, allow, autoMode }` (autoMode: allow and environment). Never hooks, plugins or the rest. */

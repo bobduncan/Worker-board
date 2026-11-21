@@ -15,7 +15,7 @@ import { branchFor, clockOf } from './save.mjs'
 import { dataOf, picturesOf } from '../projectPaths.mjs'
 
 const slashes = path => String(path).replace(/\\/g, '/')
-const SET_ROOTS = ['home/', 'board/', 'memory/']
+const SET_ROOTS = ['home/', 'data/', 'board/', 'memory/']
 export const stampOf = ms => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '').replace('T', '-')
 
 /**
@@ -114,15 +114,17 @@ export async function load(roots, options = {}, deps) {
   // ---- settings
   const carriedText = await fs.readFile(join(roots.dataDir, 'settings', 'config.json'), 'utf8').catch(() => null)
   if (carriedText !== null) {
-    // A first load has no config.json here (roots.config null): nothing of this PC's to keep.
-    const next = set.settingsFromCarry(JSON.parse(carriedText), { project: roots.project, boardDir: roots.boardDir, current: roots.config ?? {} })
+    // A first load has no config.json here (roots.config null): nothing of this PC's to keep. Review 4: what this PC keeps is its RAW
+    // config.json (codex, label, sync, %ENV% paths as written), never the parsed config with its defaults.
+    const currentRaw = roots.config === null ? {} : await fs.readFile(join(roots.boardDir, 'config.json'), 'utf8').then(text => JSON.parse(text.replace(/^\uFEFF/, '')) ?? {}).catch(() => roots.config ?? {})
+    const next = set.settingsFromCarry(JSON.parse(carriedText), { project: roots.project, boardDir: roots.boardDir, current: currentRaw })
     if (!dryRun) { await writeAtomic(join(roots.boardDir, 'config.json'), `${JSON.stringify(next, null, 2)}\n`); journal(join(roots.boardDir, 'config.json')) }
   }
   // T5.2 A8: the project's settings file goes where this PC's `data` says (loadConfig's `settingsFile`); a PC without `data` keeps it in
   // the data folder only and is told.
   const projectSettingsText = await fs.readFile(join(roots.dataDir, 'settings', 'board-settings.json'), 'utf8').catch(() => null)
   if (projectSettingsText !== null) {
-    const target = set.projectSettingsFileOf?.(roots.config) ?? null
+    const target = roots.projectSettingsFile ?? set.projectSettingsFileOf?.(roots.config) ?? null
     if (target === null) warnings.push('settings/board-settings.json was carried, but this PC has no data home (config.json `data`): it stays in the data folder')
     else if (!dryRun) { await fs.mkdir(dirname(target), { recursive: true }); await writeAtomic(target, projectSettingsText); journal(target) }
   }

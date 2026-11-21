@@ -8841,3 +8841,9 @@ JSON. Now (nothing changes with `data` and `chatHome` empty; the tests pin today
 - **The moved layout** (the data home IS the data folder, the design's `<game>/.workerboard`): `save` refuses in one line, "the data lives
   in the data folder already: saving is a commit (Round C), not a copy", before it reads or writes anything; Round C replaces that
   refusal with the commit and push.
+- **Chat 1's review (2026-11-21)**: load places `data/` back (its set roots name it); the settings file's place comes from config.json's
+  OWN `data` (`settingsFileOf(raw, boardDir, env)`, in the roots), so a first load on a switched-on PC places it before the file exists; the
+  project's settings travel without any PC key (`carriedProjectSettings`) and the settings texts are scanned for secrets with the files;
+  load keeps this PC's RAW config.json keys (codex, label, sync, %ENV% paths as written), never the parsed config; a relative `data` or
+  `chatHome` is the board folder's, never the working folder's. The two-PC test runs the switched-on layout for real (a data home that is
+  not the carry folder, a secret in board-settings.json refused, B's own `data` named before the file exists, B's raw keys kept).

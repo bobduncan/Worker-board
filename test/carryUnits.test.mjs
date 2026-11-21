@@ -13,6 +13,8 @@ import { createServer } from 'node:http'
 
 import { boardsAnswering, optionsOf, parseArgs, rootsOf, secretsOf } from '../tools/carry.mjs'
 import { save } from '../src/carry/save.mjs'
+import { carriedProjectSettings } from '../src/carry/set.mjs'
+import { PC_KEYS } from '../src/config.mjs'
 import { readFileSync } from 'node:fs'
 import { blobOf } from '../src/carry/git.mjs'
 import { boardStepsOf, heldStepsOf, heldWordsOf, loadGuards, reviewStepsOf, saveGuards, secretValuesOf, secretsIn, LOCK_FRESH_MS } from '../src/carry/guards.mjs'
@@ -224,9 +226,21 @@ test('T5.2 A8: the roots know the chat home and the data home: the memory and th
     const saveCode = readFileSync(new URL('../src/carry/save.mjs', import.meta.url), 'utf8')
     const loadCode = readFileSync(new URL('../src/carry/load.mjs', import.meta.url), 'utf8')
     assert.match(saveCode, /const SET_ROOTS = \['home\/', 'data\/', 'board\/', 'memory\/'\]/)
-    assert.match(saveCode, /settings\['settings\/board-settings\.json'\] = projectSettingsText/)
+    assert.match(saveCode, /settings\['settings\/board-settings\.json'\] = projectSettings$/m)
+    assert.match(saveCode, /secretsIn\(\[\.\.\.files, \.\.\.Object\.entries\(settings\)/, 'review 3: the settings are scanned too')
     assert.match(saveCode, /chatHome: roots\.chatHome \?\? null, dataHome: roots\.dataHome \?\? null/)
     assert.match(loadCode, /chatHome: roots\.chatHome \?\? null, dataHome: roots\.dataHome \?\? null/)
-    assert.match(loadCode, /const target = set\.projectSettingsFileOf\?\.\(roots\.config\) \?\? null\n[^]*?writeAtomic\(target, projectSettingsText\)/)
+    assert.match(loadCode, /const SET_ROOTS = \['home\/', 'data\/', 'board\/', 'memory\/'\]/, 'review 1: load places data/ back')
+    assert.match(loadCode, /const target = roots\.projectSettingsFile \?\? set\.projectSettingsFileOf\?\.\(roots\.config\) \?\? null\n[^]*?writeAtomic\(target, projectSettingsText\)/)
+    // Review 2 and 5: the settings file's place comes from config.json's own `data` before the file exists; a relative `data` is the board folder's.
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, chatHome: '..', data: '../game/.workerboard-rel' }))
+    const relative = await rootsOf({ boardDir: board, flags, env, git })
+    assert.deepEqual([relative.chatHome, relative.dataHome, relative.projectSettingsFile], [wrap, join(game, '.workerboard-rel'), join(game, '.workerboard-rel', 'board-settings.json')])
+    assert.equal(relative.config.settingsFile, null, 'loadConfig names no file while it does not exist; the roots do')
+    // Review 3: the project's settings travel without PC keys; a file that is no JSON object is not carried.
+    const carried = JSON.parse(carriedProjectSettings(JSON.stringify({ name: 'Moved', weekStopAt: 90, ...Object.fromEntries(PC_KEYS.map(key => [key, 'x'])) })))
+    assert.deepEqual(carried, { name: 'Moved', weekStopAt: 90 })
+    assert.equal(carriedProjectSettings('{ broken'), null)
+    assert.equal(carriedProjectSettings('[1]'), null)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

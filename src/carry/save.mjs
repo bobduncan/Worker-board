@@ -98,11 +98,27 @@ export async function save(roots, options = {}, deps) {
     const { count } = await commitsNotOnOrigin(git, repo)
     if (files.length > 0 || count > 0) mainsDirty.push({ repo: basename(repo), files, ahead: count })
   }
+  // The rehearsal of 2026-11-17: config.json's OWN JSON travels, never the parsed config (its defaults, routing and weekStopAt among
+  // them, landed as values on the other PC). The two folder paths are the parsed ones (%ENV% filled) for B2 to write relative.
+  const configText = await fs.readFile(join(roots.boardDir, 'config.json'), 'utf8').catch(() => null)
+  const configRaw = configText === null ? null : JSON.parse(configText)
+  const ownConfig = configRaw === null ? roots.config : { ...configRaw, ...(typeof configRaw.project === 'string' ? { project: roots.config.project } : {}), ...(typeof configRaw.gameRepo === 'string' ? { gameRepo: roots.config.gameRepo } : {}) }
+  const settings = { 'settings/config.json': JSON.stringify(set.carriedSettings(ownConfig, { project: roots.project, boardDir: roots.boardDir }), null, 2) + '\n' }
+  const userSettings = await fs.readFile(roots.userSettingsFile, 'utf8').then(text => JSON.parse(text)).catch(() => ({}))
+  settings['settings/user.json'] = JSON.stringify(set.carriedUserSettings(userSettings), null, 2) + '\n'
+  // T5.2 A8: the project's settings file (P4's board-settings.json, only with `data` set) travels without its PC keys; load puts it where
+  // the other PC's `data` says. Without it, config.json's own keys are the project's, as before. The file is named by the roots (config.json's
+  // own `data`, review 2), else by the parsed config.
+  const projectSettingsFile = roots.projectSettingsFile ?? set.projectSettingsFileOf?.(roots.config) ?? null
+  const projectSettingsText = projectSettingsFile === null ? null : await fs.readFile(projectSettingsFile, 'utf8').catch(() => null)
+  const projectSettings = projectSettingsText === null ? null : set.carriedProjectSettings?.(projectSettingsText) ?? null
+  if (projectSettings !== null) settings['settings/board-settings.json'] = projectSettings
+  // Review 3: the settings texts are scanned for secrets with the files.
   const secrets = await deps.secrets()
   const facts = {
     pause, boardAnswers: await deps.boardAnswers(), keepers: await deps.keepers(), lockAgeMs: await deps.lockAgeMs(),
     dirtySteps, notFastForward, mainsDirty, originAhead, lastLoadWasPractice: record.last?.command === 'load' && record.last.kind === 'practice',
-    secrets: secretsIn(files, secrets),
+    secrets: secretsIn([...files, ...Object.entries(settings).map(([to, text]) => ({ to, text }))], secrets),
     oversized, remotePublic: await isAnonymouslyReadable(git, roots.boardDir, roots.remote), driveShort: null,
     reviewSteps: reviewStepsOf(items),
     noCheckpointSince: held.filter(step => pause?.state === 'pausing' && !(Number.isFinite(checkpointOf(items.get(step.id))?.at) && checkpointOf(items.get(step.id)).at >= pause.since)).map(step => ({ id: step.id, chat: step.chat })),
@@ -167,19 +183,7 @@ export async function save(roots, options = {}, deps) {
   const inSet = new Set(files.map(one => one.to))
   const removed = tracked.filter(path => !inSet.has(path))
   if (!dryRun) for (const path of removed) { await fs.rm(join(roots.dataDir, ...path.split('/')), { force: true }); journal(join(roots.dataDir, ...path.split('/'))) }
-  // The rehearsal of 2026-11-17: config.json's OWN JSON travels, never the parsed config (its defaults, routing and weekStopAt among
-  // them, landed as values on the other PC). The two folder paths are the parsed ones (%ENV% filled) for B2 to write relative.
-  const configText = await fs.readFile(join(roots.boardDir, 'config.json'), 'utf8').catch(() => null)
-  const configRaw = configText === null ? null : JSON.parse(configText)
-  const ownConfig = configRaw === null ? roots.config : { ...configRaw, ...(typeof configRaw.project === 'string' ? { project: roots.config.project } : {}), ...(typeof configRaw.gameRepo === 'string' ? { gameRepo: roots.config.gameRepo } : {}) }
-  const settings = { 'settings/config.json': JSON.stringify(set.carriedSettings(ownConfig, { project: roots.project, boardDir: roots.boardDir }), null, 2) + '\n' }
-  const userSettings = await fs.readFile(roots.userSettingsFile, 'utf8').then(text => JSON.parse(text)).catch(() => ({}))
-  settings['settings/user.json'] = JSON.stringify(set.carriedUserSettings(userSettings), null, 2) + '\n'
-  // T5.2 A8: the project's settings file (P4's board-settings.json, only with `data` set) travels as it is; load puts it where the other
-  // PC's `data` says. Without it, config.json's own keys are the project's, as before.
-  const projectSettingsFile = set.projectSettingsFileOf?.(roots.config) ?? null
-  const projectSettingsText = projectSettingsFile === null ? null : await fs.readFile(projectSettingsFile, 'utf8').catch(() => null)
-  if (projectSettingsText !== null) settings['settings/board-settings.json'] = projectSettingsText
+  // (The settings texts stand above, before the secret scan.)
 
   // ---- pictures to the Drive folder
   const copied = roots.picturesFolder === null ? { copied: 0, same: 0, missing: [], bytes: 0, record: [] }
