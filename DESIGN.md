@@ -8821,3 +8821,23 @@ words as 'copied', put them on the clipboard with a bar on top ("paste with Ctrl
   23:18-23:20), and a mod's words beside a prompt stood on the personal one. So the guard does not stop the person's-words filing
   (B298) here: prompt.submit's job stays where it is, the move is not needed, and 0.35.0 takes the probe out (the mark beside a
   prompt, the route, data/mod-probe.json's writer). The second part of B1274 ends there.
+
+## T5.2 A8: the carry tool knows the two homes (2026-11-21, chat 3)
+
+Chat 1's review of 2026-11-20, finding 14 (and 5, 18): the carry tool read every path from the project folder and config.json's own
+JSON. Now (nothing changes with `data` and `chatHome` empty; the tests pin today's `to` paths beside the moved ones):
+- **The roots** (tools/carry.mjs `rootsOf`): `chatHome` (chatHomeOf) and `dataHome` (dataOf); the memory is the chats' transcripts folder
+  (config `transcripts`, derived from the chat home); the secret scan reads the bridge key from `chatFile(config, 'board.json')`.
+- **What travels** (src/carry/set.mjs `carrySet`): the store, the goal map and the records are placed with the table (the data home, else
+  the project), the assets with `assetsOf`, the picture roots under `picturesOf`; the home files (CLAUDE.md, hooks, list.json, .codex) come
+  from the chat home. A file under the data home goes to `data/<path>`, one under the chat home to `home/<path>`; in neither home: skipped
+  with its why.
+- **Where it goes back** (`targetOf`, load.mjs): `home/` to the chat home, `data/` to the data home (not placed without one), `game/`,
+  `board/` and `memory/` as before. The data branch prunes `data/` with the other roots.
+- **The settings**: `carriedSettings` keeps every PC key (config.mjs PC_KEYS: appAccount, chatHome, data, the paths, the ports, Codex,
+  the pictures home) out of settings/config.json, but `project` and `gameRepo`, which travel relative to the board folder as before;
+  `settingsFromCarry` keeps this PC's PC keys. The project's board-settings.json (P4) travels as `settings/board-settings.json` and load
+  writes it where this PC's `data` says (a PC without `data` is told it stays in the data folder).
+- **The moved layout** (the data home IS the data folder, the design's `<game>/.workerboard`): `save` refuses in one line, "the data lives
+  in the data folder already: saving is a commit (Round C), not a copy", before it reads or writes anything; Round C replaces that
+  refusal with the commit and push.

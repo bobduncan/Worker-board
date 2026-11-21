@@ -3,11 +3,11 @@
 // local bare remote and fakes for the board checks; nothing here reads boards.json or another checkout by itself.
 
 import * as nodeFs from 'node:fs'
-import { join, basename, dirname, relative } from 'node:path'
+import { join, basename, dirname, relative, resolve } from 'node:path'
 import { hostname } from 'node:os'
 
 import { readStore } from '../work/store.mjs'
-import { assetsFolderOf } from '../assets.mjs'
+import { assetsOf, dataOf, picturesOf } from '../projectPaths.mjs'
 import { parsePause, checkpointOf } from '../work/pause.mjs'
 import { valueOf } from '../work/item.mjs'
 import { aheadOf, blobOf, commitAndPush, ensureDataClone, isAnonymouslyReadable, lines, localBranches, peekDataClone, pushBranch, pushIsFastForward, remoteBranch, trackedChanges, commitsNotOnOrigin } from './git.mjs'
@@ -20,7 +20,11 @@ export const PRACTICE_BRANCH = 'workerboard-practice'
 export const branchFor = practice => (practice ? PRACTICE_BRANCH : DATA_BRANCH)
 export const messageFor = practice => (practice ? 'Board data: practice save' : 'Board data: save')
 /** The data folder's places that travel under git and are pruned to the set. */
-const SET_ROOTS = ['home/', 'board/', 'memory/']
+const SET_ROOTS = ['home/', 'data/', 'board/', 'memory/']
+
+/** T5.2 A8: the folder the picture roots stand in (the table's picturesOf once `data` is set; the project today). */
+const picturesBaseOf = roots => (roots.config && dataOf(roots.config) !== null ? picturesOf(roots.config) : roots.project)
+const samePath = (a, b) => resolve(String(a)).replace(/[\\/]+$/, '').toLowerCase() === resolve(String(b)).replace(/[\\/]+$/, '').toLowerCase()
 
 const slashes = path => String(path).replace(/\\/g, '/')
 const two = n => String(n).padStart(2, '0')
@@ -38,8 +42,15 @@ export async function save(roots, options = {}, deps) {
   const noBranches = options.noBranches === true || practice
   const { git, set, pictures, fs } = deps
   const branch = branchFor(practice)
-  const record = await readRecord(deps.recordFile, fs)
   const warnings = []
+  // T5.2 A8, the moved layout (the data home IS the data folder, the design's <game>/.workerboard): copying it onto itself is no save.
+  // Round C makes the save a commit of that folder; until then it is refused in one line.
+  if (typeof roots.dataHome === 'string' && roots.dataHome !== '' && samePath(roots.dataHome, roots.dataDir)) {
+    const text = 'the data lives in the data folder already: saving is a commit (Round C), not a copy'
+    log(`Refused: ${text}`)
+    return { ok: false, refusals: [{ code: 'in-place', text, who: 'Round C' }], warnings, dryRun }
+  }
+  const record = await readRecord(deps.recordFile, fs)
 
   // ---- what is here
   // A read of its own (a fresh fs object): readStore shares a listing taken within 1.5 s with no board write between, and the board is off here.
@@ -58,7 +69,7 @@ export async function save(roots, options = {}, deps) {
   const originAhead = originHead !== null && lastHere !== originHead ? { branch, origin: originHead, last: lastHere } : null
 
   // ---- the files that travel
-  const carried = await set.carrySet({ config: roots.config, project: roots.project, boardDir: roots.boardDir, memoryDir: roots.memoryDir, userSettingsFile: roots.userSettingsFile, fs })
+  const carried = await set.carrySet({ config: roots.config, project: roots.project, boardDir: roots.boardDir, memoryDir: roots.memoryDir, chatHome: roots.chatHome ?? null, dataHome: roots.dataHome ?? null, userSettingsFile: roots.userSettingsFile, fs })
   const files = []
   const oversized = []
   for (const one of carried.files) {
@@ -101,12 +112,13 @@ export async function save(roots, options = {}, deps) {
   const keepSet = roots.keepSetFile === null ? null : await fs.readFile(roots.keepSetFile, 'utf8').then(text => JSON.parse(text)).catch(() => null)
   const since = Number.isFinite(keepSet?.made) ? keepSet.made : Number.isFinite(Date.parse(keepSet?.made)) ? Date.parse(keepSet.made) : 0
   const changedTexts = files.filter(one => one.text !== null && one.mtimeMs >= since).map(one => one.text)
-  // The picture roots and the asset folder (B3 reads both), relative to the project.
-  const pictureRoots = [...(roots.config.pictureRoots ?? []), slashes(relative(roots.project, assetsFolderOf(roots.workDir)))].filter(root => root !== '' && !root.startsWith('..'))
+  // The picture roots and the asset folder (B3 reads both), relative to the folder they stand in (T5.2 A8: picturesOf; the project today).
+  const picturesBase = picturesBaseOf(roots)
+  const pictureRoots = [...(roots.config.pictureRoots ?? []), slashes(relative(picturesBase, assetsOf(roots.config)))].filter(root => root !== '' && !root.startsWith('..'))
   // B3 takes the node:fs module (streams, statfs); no keep set means no pictures, said.
   const pictureFs = deps.pictureFs ?? nodeFs
   if (roots.picturesFolder !== null && roots.keepSetFile === null) warnings.push('no keep set (--keep-set <file>): no picture listed; the pictures did not travel')
-  const list = roots.picturesFolder === null || roots.keepSetFile === null ? [] : await pictures.pictureList({ keepSetFile: roots.keepSetFile, project: roots.project, roots: pictureRoots, since, changedTexts, fs: pictureFs })
+  const list = roots.picturesFolder === null || roots.keepSetFile === null ? [] : await pictures.pictureList({ keepSetFile: roots.keepSetFile, project: picturesBase, roots: pictureRoots, since, changedTexts, fs: pictureFs })
   for (const path of list.missing ?? []) warnings.push(`picture ${path}: listed but gone`)
   for (const one of list.skipped ?? []) warnings.push(`picture ${one.path}: ${one.why}`)
   const need = list.reduce((sum, one) => sum + (one.size ?? 0), 0)
@@ -163,10 +175,15 @@ export async function save(roots, options = {}, deps) {
   const settings = { 'settings/config.json': JSON.stringify(set.carriedSettings(ownConfig, { project: roots.project, boardDir: roots.boardDir }), null, 2) + '\n' }
   const userSettings = await fs.readFile(roots.userSettingsFile, 'utf8').then(text => JSON.parse(text)).catch(() => ({}))
   settings['settings/user.json'] = JSON.stringify(set.carriedUserSettings(userSettings), null, 2) + '\n'
+  // T5.2 A8: the project's settings file (P4's board-settings.json, only with `data` set) travels as it is; load puts it where the other
+  // PC's `data` says. Without it, config.json's own keys are the project's, as before.
+  const projectSettingsFile = set.projectSettingsFileOf?.(roots.config) ?? null
+  const projectSettingsText = projectSettingsFile === null ? null : await fs.readFile(projectSettingsFile, 'utf8').catch(() => null)
+  if (projectSettingsText !== null) settings['settings/board-settings.json'] = projectSettingsText
 
   // ---- pictures to the Drive folder
   const copied = roots.picturesFolder === null ? { copied: 0, same: 0, missing: [], bytes: 0, record: [] }
-    : await pictures.toDrive({ list, project: roots.project, folder: roots.picturesFolder, name: basename(roots.project), dryRun, fs: pictureFs })
+    : await pictures.toDrive({ list, project: picturesBase, folder: roots.picturesFolder, name: basename(roots.project), dryRun, fs: pictureFs })
   if (roots.picturesFolder === null) warnings.push('no Drive folder (--pictures): the pictures did not travel')
 
   // ---- times, held words, board steps, the save's own record

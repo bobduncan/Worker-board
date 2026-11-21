@@ -12,6 +12,7 @@ import { loadGuards } from './guards.mjs'
 import { parseTimes, restoreTimes } from './times.mjs'
 import { readRecord, writeRecord } from './record.mjs'
 import { branchFor, clockOf } from './save.mjs'
+import { dataOf, picturesOf } from '../projectPaths.mjs'
 
 const slashes = path => String(path).replace(/\\/g, '/')
 const SET_ROOTS = ['home/', 'board/', 'memory/']
@@ -50,7 +51,8 @@ export async function load(roots, options = {}, deps) {
   const saved = savedText === null ? null : JSON.parse(savedText)
   if (saved === null) { log(`Nothing to load: ${branch} holds no save yet`); return { ok: false, refusals: [{ code: 'empty', text: `${branch} holds no save yet`, who: 'the other PC' }], warnings } }
   facts.practiceData = saved.kind === 'practice' && !practice
-  const targetsOf = { project: roots.project, boardDir: roots.boardDir, memoryDir: roots.memoryDir }
+  // T5.2 A8: `home/` goes back to the chat home, `data/` to the data home (the project today; `data/` is not placed without one).
+  const targetsOf = { project: roots.project, boardDir: roots.boardDir, memoryDir: roots.memoryDir, chatHome: roots.chatHome ?? null, dataHome: roots.dataHome ?? null }
 
   // ---- --pictures-only: the pictures step again, after a full load (the record keeps the Drive folder given)
   if (options.picturesOnly) {
@@ -116,6 +118,14 @@ export async function load(roots, options = {}, deps) {
     const next = set.settingsFromCarry(JSON.parse(carriedText), { project: roots.project, boardDir: roots.boardDir, current: roots.config ?? {} })
     if (!dryRun) { await writeAtomic(join(roots.boardDir, 'config.json'), `${JSON.stringify(next, null, 2)}\n`); journal(join(roots.boardDir, 'config.json')) }
   }
+  // T5.2 A8: the project's settings file goes where this PC's `data` says (loadConfig's `settingsFile`); a PC without `data` keeps it in
+  // the data folder only and is told.
+  const projectSettingsText = await fs.readFile(join(roots.dataDir, 'settings', 'board-settings.json'), 'utf8').catch(() => null)
+  if (projectSettingsText !== null) {
+    const target = set.projectSettingsFileOf?.(roots.config) ?? null
+    if (target === null) warnings.push('settings/board-settings.json was carried, but this PC has no data home (config.json `data`): it stays in the data folder')
+    else if (!dryRun) { await fs.mkdir(dirname(target), { recursive: true }); await writeAtomic(target, projectSettingsText); journal(target) }
+  }
   // ---- a practice load starts paused
   if (practice && !dryRun) {
     await fs.mkdir(roots.workDir, { recursive: true })
@@ -172,7 +182,9 @@ export async function load(roots, options = {}, deps) {
 async function fromDrive({ roots, pictures, fs, dryRun, log, journal }) {
   if (roots.picturesFolder === null) { log('No Drive folder (--pictures): the pictures were not copied'); return { copied: 0, kept: 0, missing: [] } }
   const record = await fs.readFile(join(roots.dataDir, 'pictures.json'), 'utf8').then(text => JSON.parse(text)).catch(() => [])
-  const got = await pictures.fromDrive({ record, project: roots.project, folder: roots.picturesFolder, name: roots.project.split(/[\\/]/).filter(Boolean).at(-1), dryRun, fs: nodeFs })
+  // T5.2 A8: the pictures stand where the table puts the roots (picturesOf once `data` is set; the project today); the Drive folder keeps the project's name.
+  const picturesBase = roots.config && dataOf(roots.config) !== null ? picturesOf(roots.config) : roots.project
+  const got = await pictures.fromDrive({ record, project: picturesBase, folder: roots.picturesFolder, name: roots.project.split(/[\\/]/).filter(Boolean).at(-1), dryRun, fs: nodeFs })
   for (const one of got.copiedPaths ?? []) journal(one)
   return { copied: got.copied ?? 0, kept: got.kept ?? 0, missing: got.missing ?? [] }
 }

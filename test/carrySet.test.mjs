@@ -5,7 +5,10 @@ import * as nodeFs from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { carriedSettings, carriedUserSettings, carrySet, mergeUserSettings, settingsFromCarry, targetOf } from '../src/carry/set.mjs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { carriedSettings, carriedUserSettings, carrySet, mergeUserSettings, projectSettingsFileOf, settingsFromCarry, targetOf } from '../src/carry/set.mjs'
+import { PC_KEYS } from '../src/config.mjs'
 
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'carry-real')
 const project = join(FIXTURE, 'project')
@@ -110,7 +113,7 @@ test('targetOf gives every carried file its own place back; settings have none; 
   assert.equal(targetOf('home/../x', { project, boardDir, memoryDir }), null)
 })
 
-test('settings round-trip: appSessions, usageHistory, transcripts and picturesHome never travel; project and gameRepo travel relative to the board folder', () => {
+test('settings round-trip: no PC key travels (appSessions, usageHistory, transcripts, picturesHome, the ports among them); project and gameRepo travel relative to the board folder', () => {
   const config = fixtureConfig()
   const carried = carriedSettings(config, { project, boardDir })
   for (const key of ['appSessions', 'usageHistory', 'transcripts', 'picturesHome']) assert.ok(!(key in carried), key)
@@ -126,7 +129,7 @@ test('settings round-trip: appSessions, usageHistory, transcripts and picturesHo
   assert.equal(back.appSessions, 'mine')
   assert.equal(back.name, config.name)
   const bare = settingsFromCarry(carried, { project, boardDir: other, current: {} })
-  assert.equal(bare.port, config.port)
+  assert.equal('port' in bare, false, 'T5.2 A8: a PC key never travels; a PC without one of its own runs on the default')
   assert.deepEqual(settingsFromCarry(carriedSettings(back, { project: back.project, boardDir: other }), { project: back.project, boardDir: other, current: back }), back)
 })
 
@@ -163,4 +166,55 @@ test('merging user settings keeps everything the other PC has, adds only the lin
   const empty = mergeUserSettings({}, carried)
   assert.equal(empty.merged.permissions.defaultMode, 'auto')
   assert.ok(empty.added.includes('permissions.defaultMode: auto'))
+})
+
+test('T5.2 A8: every PC key (config.mjs PC_KEYS) but project and gameRepo stays here, checked against the list itself, so a new PC key cannot slip through; the other PC keeps its own', () => {
+  const config = { ...fixtureConfig(), ...Object.fromEntries(PC_KEYS.map(key => [key, `mine-${key}`])), project, gameRepo: join(project, 'game') }
+  const carried = carriedSettings(config, { project, boardDir })
+  for (const key of PC_KEYS) assert.equal(key in carried, ['project', 'gameRepo'].includes(key), key)
+  assert.equal(carried.name, config.name, 'a project key travels')
+  const theirs = Object.fromEntries(PC_KEYS.filter(key => !['project', 'gameRepo'].includes(key)).map(key => [key, `theirs-${key}`]))
+  const back = settingsFromCarry(JSON.parse(JSON.stringify(carried)), { project, boardDir, current: theirs })
+  for (const key of Object.keys(theirs)) assert.equal(back[key], theirs[key], key)
+  assert.equal(back.project, project)
+  assert.ok(PC_KEYS.includes('chatHome') && PC_KEYS.includes('data') && PC_KEYS.includes('appAccount'), 'the keys the review named are PC keys')
+  // The project's settings file: named by loadConfig once `data` is set; none today.
+  assert.equal(projectSettingsFileOf({ settingsFile: 'D:/x/.workerboard/board-settings.json' }), 'D:/x/.workerboard/board-settings.json')
+  assert.equal(projectSettingsFileOf(fixtureConfig()), null)
+  assert.equal(projectSettingsFileOf(null), null)
+})
+
+test('T5.2 A8: with the chat home and the data home set, the home files come from the chat home (`home/`), the store, the goal map and the records from the data home (`data/`), the assets and the picture roots where the table puts them; targetOf gives each its place back; a path in neither home is skipped', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'carry-homes-'))
+  try {
+    const wrap = join(root, 'wrap')
+    const game = join(wrap, 'game')
+    const data = join(game, '.workerboard')
+    const put = (file, text = 'x') => { mkdirSync(join(root, ...file.split('/').slice(0, -1)), { recursive: true }); writeFileSync(join(root, ...file.split('/')), text) }
+    put('wrap/CLAUDE.md'); put('wrap/.claude/hooks/h.ps1'); put('wrap/.claude/chats/list.json', '{}'); put('wrap/.claude/board.json', '{"key":"k"}'); put('wrap/.codex/AGENTS.md')
+    put('wrap/game/README.md'); put('wrap/game/.claude/work/B9.md', 'Id: B9')
+    put('wrap/game/.workerboard/.claude/work/B1.md', 'Id: B1'); put('wrap/game/.workerboard/.claude/work/names.json', '{}'); put('wrap/game/.workerboard/.claude/goals.md', '# G')
+    put('wrap/game/.workerboard/.claude/brainstorms/t.md'); put('wrap/game/.workerboard/pictures/assets/A1/request.json', '{}'); put('wrap/game/.workerboard/pictures/assets/A1/1.png')
+    put('wrap/game/.workerboard/pictures/pictures/G1/demo/demo.json', '{}'); put('wrap/game/.workerboard/pictures/pictures/G1/demo/a.png')
+    put('elsewhere/goals.md')
+    const config = { project: game, gameRepo: game, chatHome: wrap, data, work: '.claude/work', goals: '.claude/goals.md', goalsHistory: '.claude/goals.history', brainstorms: '.claude/brainstorms', goalAsks: '.claude/goal-asks', designKinds: '.claude/design.json', pictureRoots: ['pictures'] }
+    const got = await carrySet({ config, boardDir: join(root, 'board'), memoryDir: join(root, 'memory'), fs: nodeFs })
+    assert.deepEqual(got.files.map(one => `${one.kind} ${one.to}`).sort(), [
+      'goals data/.claude/brainstorms/t.md', 'goals data/.claude/goals.md',
+      'home home/.claude/chats/list.json', 'home home/.claude/hooks/h.ps1', 'home home/.codex/AGENTS.md', 'home home/CLAUDE.md',
+      'record data/pictures/assets/A1/request.json', 'record data/pictures/pictures/G1/demo/demo.json',
+      'store data/.claude/work/B1.md',
+    ], 'the old store in the project and the bridge key stay out; names.json and the pictures too')
+    const homes = { project: game, boardDir: join(root, 'board'), memoryDir: join(root, 'memory'), chatHome: wrap, dataHome: data }
+    for (const one of got.files) assert.equal(slash(targetOf(one.to, homes)), one.from, one.to)
+    assert.equal(targetOf('data/.claude/work/B1.md', { ...homes, dataHome: null }), null, 'no data home: data/ is not placed')
+    assert.equal(slash(targetOf('home/CLAUDE.md', { project: game, boardDir: 'b', memoryDir: 'm' })), slash(join(game, 'CLAUDE.md')), 'today: home/ is the project')
+    // A whole path in neither home is skipped with its why.
+    const away = await carrySet({ config: { ...config, goals: join(root, 'elsewhere', 'goals.md') }, boardDir: join(root, 'board'), memoryDir: join(root, 'memory'), fs: nodeFs })
+    assert.deepEqual(away.skipped.map(one => one.why), ['config goals lies outside the chat home and the data home'])
+    // The chat home set alone (data empty): the store stays in the project, carried under home/ relative to the chat home.
+    const homeOnly = await carrySet({ config: { ...config, data: '' }, boardDir: join(root, 'board'), memoryDir: join(root, 'memory'), fs: nodeFs })
+    assert.ok(homeOnly.files.some(one => one.to === 'home/game/.claude/work/B9.md'), homeOnly.files.map(one => one.to).join('\n'))
+    assert.ok(homeOnly.files.every(one => !one.to.startsWith('data/')))
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })

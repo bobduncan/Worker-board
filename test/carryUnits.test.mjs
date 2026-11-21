@@ -11,7 +11,9 @@ import { join } from 'node:path'
 
 import { createServer } from 'node:http'
 
-import { boardsAnswering, optionsOf, parseArgs } from '../tools/carry.mjs'
+import { boardsAnswering, optionsOf, parseArgs, rootsOf, secretsOf } from '../tools/carry.mjs'
+import { save } from '../src/carry/save.mjs'
+import { readFileSync } from 'node:fs'
 import { blobOf } from '../src/carry/git.mjs'
 import { boardStepsOf, heldStepsOf, heldWordsOf, loadGuards, reviewStepsOf, saveGuards, secretValuesOf, secretsIn, LOCK_FRESH_MS } from '../src/carry/guards.mjs'
 import { parseTimes, restoreTimes, timesOf } from '../src/carry/times.mjs'
@@ -187,4 +189,44 @@ test('the boards of the project that answer: the PC\'s list (boards.json under W
   writeFileSync(join(dir, 'boards.json'), JSON.stringify({ boards: [] }))
   writeFileSync(join(boardDir, 'data', 'port.json'), JSON.stringify({ port }))
   assert.deepEqual(await boardsAnswering({ project, boardDir, env }), [{ port, project }])
+})
+
+test('T5.2 A8: the roots know the chat home and the data home: the memory and the bridge key are the chats\' (the chat home), the data home is config `data`; today both are the project; the secret scan reads the bridge file given', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'carry-roots-'))
+  try {
+    const env = { USERPROFILE: join(root, 'user'), LOCALAPPDATA: join(root, 'local') }
+    const git = async () => ({ out: '', err: '', code: 1 })
+    const flags = { remote: 'https://example.test/game.git' }
+    const [wrap, board] = [join(root, 'wrap'), join(root, 'wrap', 'board')]
+    const game = join(wrap, 'game')
+    mkdirSync(board, { recursive: true }); mkdirSync(join(wrap, '.claude'), { recursive: true }); mkdirSync(join(game, '.claude'), { recursive: true })
+    writeFileSync(join(wrap, '.claude', 'board.json'), JSON.stringify({ key: 'wrapkeywrapkeywrapkey' }))
+    writeFileSync(join(game, '.claude', 'board.json'), JSON.stringify({ key: 'gamekeygamekeygamekey' }))
+    // Today: project only.
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game }))
+    const today = await rootsOf({ boardDir: board, flags, env, git })
+    assert.deepEqual([today.chatHome, today.dataHome, today.bridgeFile], [game, null, join(game, '.claude', 'board.json')])
+    assert.equal(today.memoryDir, join(today.config.transcripts, 'memory'), 'the memory is the chats\' transcripts folder')
+    assert.deepEqual((await secretsOf({ bridgeFile: today.bridgeFile, env })).filter(one => one.kind === 'bridge key').map(one => one.value), ['gamekeygamekeygamekey'])
+    // The settings on: the chat home is the wrapper, the data home the game's .workerboard.
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, chatHome: wrap, data: join(game, '.workerboard') }))
+    const moved = await rootsOf({ boardDir: board, flags, env, git })
+    assert.deepEqual([moved.chatHome, moved.dataHome, moved.bridgeFile], [wrap, join(game, '.workerboard'), join(wrap, '.claude', 'board.json')])
+    assert.equal(moved.memoryDir, join(moved.config.transcripts, 'memory'))
+    assert.notEqual(moved.config.transcripts, today.config.transcripts, 'the transcripts follow the chat home')
+    assert.deepEqual((await secretsOf({ bridgeFile: moved.bridgeFile, env })).filter(one => one.kind === 'bridge key').map(one => one.value), ['wrapkeywrapkeywrapkey'])
+    assert.equal(moved.dataDir, join(game, '.workerboard'), 'the data folder is the data home: the moved layout')
+    // The moved layout: save refuses in one line before it reads or writes anything.
+    const logs = []
+    const done = await save({ ...moved, config: moved.configGiven }, { log: text => logs.push(text) }, { fs: { readFile: async () => { throw new Error('not read') } }, recordFile: join(board, 'data', 'carry.json') })
+    assert.deepEqual([done.ok, done.refusals.map(one => one.code), logs], [false, ['in-place'], ['Refused: the data lives in the data folder already: saving is a commit (Round C), not a copy']])
+    // The wiring: save carries the project's settings file and the data/ root; load puts the file where this PC's data says and places data/ in the data home.
+    const saveCode = readFileSync(new URL('../src/carry/save.mjs', import.meta.url), 'utf8')
+    const loadCode = readFileSync(new URL('../src/carry/load.mjs', import.meta.url), 'utf8')
+    assert.match(saveCode, /const SET_ROOTS = \['home\/', 'data\/', 'board\/', 'memory\/'\]/)
+    assert.match(saveCode, /settings\['settings\/board-settings\.json'\] = projectSettingsText/)
+    assert.match(saveCode, /chatHome: roots\.chatHome \?\? null, dataHome: roots\.dataHome \?\? null/)
+    assert.match(loadCode, /chatHome: roots\.chatHome \?\? null, dataHome: roots\.dataHome \?\? null/)
+    assert.match(loadCode, /const target = set\.projectSettingsFileOf\?\.\(roots\.config\) \?\? null\n[^]*?writeAtomic\(target, projectSettingsText\)/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })

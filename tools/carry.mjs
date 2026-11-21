@@ -20,6 +20,7 @@ import { dirname, join, resolve, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { loadConfig, transcriptsOf, workFolder } from '../src/config.mjs'
+import { chatFile, chatHomeOf, dataOf } from '../src/projectPaths.mjs'
 import { boardsFile, readBoards, readOwnPort, whoseBoard } from '../src/ports.mjs'
 import { LIST_SCRIPT, keepersOf, parseProcessList, powershell } from '../src/keeperStart.mjs'
 import { lockHolder } from '../src/landing.mjs'
@@ -50,7 +51,11 @@ export function parseArgs(argv) {
   return { command, flags, anyway }
 }
 
-/** The roots of this board folder: its config (or the first load's --project and --game), store, data, memory, settings. */
+/**
+ * The roots of this board folder: its config (or the first load's --project and --game), store, data, memory, settings. T5.2 A8: and the
+ * two homes the table knows, `chatHome` (the chats' folder: the home files, the memory, the bridge key) and `dataHome` (config `data`,
+ * null today: the store and the goal map), so what travels and where it goes back follow the settings.
+ */
 export async function rootsOf({ boardDir = HERE, flags = {}, env = process.env, git }) {
   const configFile = join(boardDir, 'config.json')
   const hasConfig = await access(configFile).then(() => true, () => false)
@@ -68,9 +73,13 @@ export async function rootsOf({ boardDir = HERE, flags = {}, env = process.env, 
   const record = await readRecord(recordFile, fs)
   const picturesFolder = flags.pictures ? resolve(flags.pictures) : record.picturesHome
   const keepSetFile = flags['keep-set'] ? resolve(flags['keep-set']) : record.keepSet
-  const memoryDir = join(transcriptsOf(project, env), 'memory')
+  const chatHome = chatHomeOf(config) || project
+  const dataHome = dataOf(config)
+  // The memory is the chats' (their transcripts folder, derived from the chat home by parseConfig; the project's on a first load).
+  const memoryDir = join(hasConfig && typeof config.transcripts === 'string' && config.transcripts !== '' ? config.transcripts : transcriptsOf(chatHome, env), 'memory')
+  const bridgeFile = chatFile(config, 'board.json')
   const userSettingsFile = join(homedir(), '.claude', 'settings.json')
-  return { boardDir, project, config: hasConfig ? config : null, configGiven: config, gameRepo, workDir: workFolder(config), dataDir, isExplicitData, remote, picturesFolder, keepSetFile, memoryDir, userSettingsFile, recordFile }
+  return { boardDir, project, chatHome, dataHome, bridgeFile, config: hasConfig ? config : null, configGiven: config, gameRepo, workDir: workFolder(config), dataDir, isExplicitData, remote, picturesFolder, keepSetFile, memoryDir, userSettingsFile, recordFile }
 }
 
 /** The boards of `project` that answer: the PC's list (boards.json) and this folder's own data/port.json, each asked whose it is. */
@@ -95,10 +104,10 @@ export async function keepersHere(boardDir) {
   return keepersOf(listed.processes, boardDir)
 }
 
-/** The secret values that must never travel: the bridge key, the Codex token, the ElevenLabs key. `[{ kind, value }]`. */
-export async function secretsOf({ project, env = process.env }) {
+/** The secret values that must never travel: the bridge key (its file in the chat home, `bridgeFile`), the Codex token, the ElevenLabs key. `[{ kind, value }]`. */
+export async function secretsOf({ bridgeFile, env = process.env }) {
   const out = []
-  const bridge = await readFile(join(project, '.claude', 'board.json'), 'utf8').catch(() => null)
+  const bridge = typeof bridgeFile !== 'string' || bridgeFile === '' ? null : await readFile(bridgeFile, 'utf8').catch(() => null)
   if (bridge !== null) for (const value of secretValuesOf({ texts: [bridge] })) out.push({ kind: 'bridge key', value })
   const codex = await readFile(join(userCodexHome(env), 'auth.json'), 'utf8').catch(() => null)
   if (codex !== null) for (const value of secretValuesOf({ texts: [codex] })) out.push({ kind: 'Codex token', value })
@@ -174,7 +183,7 @@ export async function main(argv) {
     boardAnswers: () => boardsAnswering({ project: roots.project, boardDir: roots.boardDir }),
     keepers: () => keepersHere(roots.boardDir),
     lockAgeMs: async () => lockHolder(join(roots.boardDir, 'data', 'landing.lock'))?.ageMs ?? null,
-    secrets: () => secretsOf({ project: roots.project }),
+    secrets: () => secretsOf({ bridgeFile: roots.bridgeFile }),
     driveFree: freeBytes,
     lacks: () => lacksOf({ gameRepo: roots.gameRepo, git }),
   }
