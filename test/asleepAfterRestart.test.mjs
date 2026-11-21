@@ -445,10 +445,19 @@ test('review (3): after the take-back ended its need, "could not wake" and its i
   // Weeder sleeps free (no need: nothing waits for it any more); its spell's message failed.
   const facts = wakesOf(new Map([['Weeder', { since: APP, at: at(18, 20) }]]))
   Object.assign(facts.record.wakes.get('Weeder')[0].attempts[0], { verdict: 'failed', verdictAt: at(18, 22), why: 'no report within 2 minutes of the message' })
-  const raw = buildState({
+  const build = items => buildState({
     listText: '{"prefix":"Garden · ","main":"Lead","supervisor":"Watcher"}', appChatTexts: NAMES.map(app), tails: Object.fromEntries(NAMES.map(name => [`cli-${name}`, tail])),
-    planLineTexts: {}, work: storeWith(), adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: APP,
+    planLineTexts: {}, work: storeWith({ items }), adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: APP,
   }, { lines: [], outbox: [], runs: [], now: NOW, config, seen: { shown: {}, other: {} }, board: { startedAt: STARTED, offSince: null }, reports: new Map(REPORTS), wakes: facts })
+  // B1279 (X205, chat 1's review 4): with B20 ready and no worker to take it, the hand-out passes Weeder over (it cannot be woken now):
+  // its wake is needed, and the line stays the attention line for as long as B20 waits.
+  const waits = build([held('B12', 'Digger'), ready('B20')])
+  assert.deepEqual(waits.reconciled.passedOver, ['Weeder'])
+  assert.deepEqual([lane(waits, 'Weeder').wake.need, lane(waits, 'Weeder').wake.final], [true, true])
+  assert.equal(waits.wakeNotice.tone, 'attention')
+  assert.match(waits.wakeNotice.text, /^could not wake Weeder: .*; open its chat$/)
+  // Nothing ready: no need any more.
+  const raw = build([held('B12', 'Digger')])
   const weeder = lane(raw, 'Weeder')
   assert.deepEqual([weeder.wake.need, weeder.wake.final, weeder.flags[0]?.kind], [false, true, 'wake failed'])
   // P5: the line stands for the whole spell, now quiet (nothing waits for Weeder); the flag and the incident below stay as they were.

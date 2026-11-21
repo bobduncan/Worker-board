@@ -114,10 +114,10 @@ import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/code
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
-import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, noteHandRefused, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
@@ -2825,6 +2825,8 @@ async function main(args) {
    */
   const carryPass = async (state, now) => {
     let changed = await applyCarryCloses(state, now)
+    // B1279: a hand's send the attempts prove is kept as the record's own fact before the attempts are pruned.
+    if (keepHandWent(wakes)) changed = true
     const refused = sendsRefusedOf(wakes, store.outbox())
     // Verifier 7, 11: the refusal the record's attempts or the outbox show becomes the record's own fact, so pruned spells never lift it.
     if (refused !== null && noteSendRefused(wakes, refused.since)) changed = true
@@ -2862,6 +2864,19 @@ async function main(args) {
         await store.sayAll(words)
       }
       for (const word of words) console.log(`Wake: the app refuses the hands' sends: the message to ${word.about} goes through ${carrierWords(word.to)} at ${timeOf(now)}.`)
+    } else if (carrying === null && !isHolding(state.pause)) {
+      // B1279 (X205): the hands may send, but a hand's send went and brought no report: ONE carry word for that spell before the launch.
+      const outbox = store.outbox().filter(message => !isLate(message, now, keep))
+      const needs = wakeNeedsNow(state, wakeNeeds(state, outbox, { resumeList: await resumeListOf(state), canLaunch: canLaunchNow() }), now)
+        .filter(need => carryAfterSilent(wakes, need))
+      if (needs.length > 0) {
+        const words = carryPlan(wakes, { needs, lanes: carriersOf(state), main: state.restart?.main ?? null, now, newId: () => randomBytes(8).toString('hex'), runOf: chat => reports?.get(chat)?.run ?? null, outbox: store.outbox(), courierAlive: courierAlive(lastCourierAt, now) })
+        if (words.length > 0) {
+          changed = true
+          await store.sayAll(words)
+        }
+        for (const word of words) console.log(`Wake: the hand's message to ${word.about} brought no report: it goes again through ${carrierWords(word.to)} at ${timeOf(now)}.`)
+      }
     }
     if (changed) wakesChanged()
     return carrying
