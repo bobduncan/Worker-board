@@ -105,6 +105,23 @@ export function resolveStored(config, stored, { boardDir = null } = {}) {
 }
 
 /**
+ * T5.2 A6a: a picture path a chat names, relative to its own folder (the chat home), in the board's stored form: a path under the data
+ * home's pictures folder becomes its root-relative form (`<picture root>/<subject>/<name>`), one under the project folder its project-relative form.
+ * Anything else, and every path with `data` unset (today: the chat home is the project), stays as the chat gave it. PURE.
+ */
+export function storedOfChatPath(config, chatPath) {
+  const path = String(chatPath ?? '')
+  const home = chatHomeOf(config)
+  if (dataOf(config) === null || path === '' || isAbsolute(path) || home === '') return path
+  const whole = resolve(home, ...parts(slashes(path)))
+  for (const base of [picturesOf(config), config.project].filter(isSet)) {
+    const rel = relative(resolve(base), whole)
+    if (rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)) return slashes(rel)
+  }
+  return path
+}
+
+/**
  * A real path in the words to a chat: relative to the chat home, written with / (`.claude/work/B12.md` today); a path outside the
  * chat home, or one that is not absolute, stays as it is (with /).
  */
