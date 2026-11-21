@@ -362,7 +362,7 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
 
 /**
  * Whether the board asks for one more worker now: `{ start: name }` (a worker of the list whose chat is off, the one off
- * longest first), `{ spawn: 1 }` (a new one; B1304: only when the wake record's last launch did not fail), or null. `maxWorkers` left out is 5 (B-max); null when it is given as no
+ * longest first), `{ spawn: 1 }` (a new one; B1304: in place of workers it cannot wake only when the wake record's last launch did not fail), or null. `maxWorkers` left out is 5 (B-max); null when it is given as no
  * number (the board starts none),
  * while held (the person pauses, a limit is full), while an idle worker is left after this pass's gives, or when the
  * workers not off are `maxWorkers` already. Only tasks a new worker could take count: ready, kept for nobody (a pinned
@@ -400,8 +400,11 @@ function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, pre
   // The person, 2026-10-25: "ensure the board can't make more than the allowed limit": the workers on their way count
   // toward `maxWorkers` too, so a start word sent before the last one reported never makes one too many. A worker on
   // its way may already show as a lane with no report yet: those and the pending starts are the same chats, counted once.
+  // B1304 (chat 1's review 3): an off worker the board cannot wake now still holds its place under `maxWorkers`: it may run again (the app's
+  // return, the person opening it as the notice says), and a replacement beside it would then make one too many.
+  const holdsPlace = lane => !isOff(lane) || unwakeable.has(lane.name)
   const isFull = (others = workers) => {
-    const running = others.filter(lane => !isOff(lane))
+    const running = others.filter(holdsPlace)
     const reporting = running.filter(lane => lane.report != null).length
     return reporting + Math.max(running.length - reporting, pending) >= maxWorkers
   }
@@ -420,19 +423,21 @@ function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, pre
     givable += 1
     if (item !== undefined) scratch.set(one.id, { ...item, head: new Map(item.head).set('State', 'queued') })
   }
-  if (givable - pending <= 0) return null
-  if (isFull()) return null
+  if (givable <= 0) return null
   const offs = workers.filter(isOff)
+  // B1279: off workers that cannot be woken now are named (`passedOver`), so the board's notice "could not wake ...; open its chat"
+  // stands for them for as long as the ready work waits (never "nothing waits for it"); B1304 (chat 1's review 2): also while a start
+  // or a new worker is on its way, or the workers are full.
+  const passedOver = offs.filter(lane => unwakeable.has(lane.name)).map(lane => lane.name)
+  const none = passedOver.length > 0 ? { passedOver } : null
+  if (givable - pending <= 0 || isFull()) return none
   const off = offs.filter(mayStart).sort((a, b) => (a.offSince ?? 0) - (b.offSince ?? 0) || byId(a.name, b.name))[0]
   if (off !== undefined) return { start: off.name }
-  // B1279: off workers that cannot be woken now are named (`passedOver`), so the board's notice "could not wake ...; open its chat"
-  // stands for them for as long as the ready work waits (never "nothing waits for it").
-  const passedOver = offs.filter(lane => unwakeable.has(lane.name)).map(lane => lane.name)
-  // B1304 (B1279's point 2): a new worker only when the last launch did start a chat (or none was tried yet), else none: a new chat is
-  // made the way a launch is, and while launches start nothing it would only add one more chat that never runs.
-  const spawn = lastLaunch === 'failed' ? null : { spawn: 1 }
-  if (passedOver.length > 0) return spawn === null ? { passedOver } : { ...spawn, passedOver }
-  return spawn
+  if (passedOver.length === 0) return { spawn: 1 }
+  // B1304 (B1279's point 2, chat 1's review 1): a new worker in place of the ones it cannot wake only when the last launch did start a
+  // chat (wake.mjs `lastLaunchOf`: recent, after the app's return): while launches start nothing it would be one more chat that never
+  // runs. Held, the notice says so (`held`); it holds the replacement only, never the plain new worker above.
+  return lastLaunch?.verdict === 'failed' ? { passedOver, held: { at: lastLaunch.at } } : { spawn: 1, passedOver, replaces: true }
 }
 
 /**

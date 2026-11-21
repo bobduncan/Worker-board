@@ -340,5 +340,7 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // a new worker's when the last launch did start a chat (B1304).
   const passedOver = Array.isArray(asked?.passedOver) ? asked.passedOver : []
   const start = asked === null ? null : asked.spawn > 0 ? { spawn: asked.spawn } : Array.isArray(asked.passedOver) ? null : asked
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, start, retired, stranded, handOutHeld, startsByWake: wakeable !== null, passedOver }
+  // B1304: a new worker asked for in their place (`replaces`), or held as the last launch started nothing (`held`): the notice says which.
+  const replacement = passedOver.length === 0 ? null : asked.replaces === true ? { asked: true } : Number.isFinite(asked.held?.at) ? { heldAt: asked.held.at } : null
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, start, retired, stranded, handOutHeld, startsByWake: wakeable !== null, passedOver, replacement }
 }

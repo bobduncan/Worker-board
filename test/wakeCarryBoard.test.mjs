@@ -68,7 +68,7 @@ const SPELL = NOW - 40 * MIN
  * A board over a made-up project: Main and Worker 1 report idle (they run), Worker 2 never reported (asleep). `refused`: the wake record
  * holds the live refusal of a hand's send (08:16's, at today's time). `lines` the outbox; `attempts` more attempts of Worker 2's spell.
  */
-async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NOW - 30 * MIN, byModel = false, pause = null, files = {}, facts = {} }) {
+async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NOW - 30 * MIN, byModel = false, pause = null, files = {}, facts = {}, launchable = false }) {
   const dir = await mkdtemp(join(tmpdir(), 'board-carry-'))
   const started = []
   t.after(async () => {
@@ -91,7 +91,10 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   const chats = join(project, '.claude', 'chats')
   await put(join(chats, 'list.json'), '{"prefix":"Game - ","main":"Main"}')
   const appChat = (name, sessionId, cliSessionId) => JSON.stringify({ title: `Game - ${name}`, sessionId, cliSessionId, cwd: project, isArchived: false, createdAt: NOW - 600 * MIN, lastActivityAt: NOW - 2 * MIN })
-  for (const [name, sessionId, cli, role] of [['Main', 'local_main', 'main-id', 'main'], ['Worker 1', 'local_w1', 'w1-id', 'worker'], ['Worker 2', 'local_w2', 'w2-id', 'worker']]) {
+  // B1304: `launchable`, Worker 2's CLI session id is a UUID (the board may launch it), and the copy records launches in `launches.jsonl`
+  // (WORKER_BOARD_OPEN_STUB) instead of starting the real program.
+  const w2 = launchable ? '2b2b2b2b-2b2b-4b2b-8b2b-2b2b2b2b2b2b' : 'w2-id'
+  for (const [name, sessionId, cli, role] of [['Main', 'local_main', 'main-id', 'main'], ['Worker 1', 'local_w1', 'w1-id', 'worker'], ['Worker 2', 'local_w2', w2, 'worker']]) {
     await put(join(app, 'a', 'b', `${sessionId}.json`), appChat(name, sessionId, cli))
     // Worker 2 wrote nothing lately (its session ended at SPELL): never read as running before its report comes.
     if (name === 'Worker 2') continue
@@ -101,7 +104,8 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'carry', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
   // Landing 1 ships A off; a board copy that tests A (landing 2) turns it on.
-  const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_CARRY_BY_MODEL: byModel ? '1' : '0' })
+  const launchFile = join(dir, 'launches.jsonl')
+  const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_CARRY_BY_MODEL: byModel ? '1' : '0', WORKER_BOARD_OPEN_STUB: launchFile })
   const base = `http://127.0.0.1:${port}`
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   const call = (path, body, headers = {}) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.27.1', ...headers }, body: JSON.stringify(body) })
@@ -114,14 +118,15 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   }
   for (const [chat, session] of [['Main', 'main-id'], ['Worker 1', 'w1-id']]) await json('/api/bridge/report', { chat, session, report: { state: 'idle', since: NOW - 2 * MIN, seq: 1, run: 1 } })
   // Worker 2's session ended at SPELL: it does not run (its spell).
-  await json('/api/bridge/report', { chat: 'Worker 2', session: 'w2-id', report: { state: 'ended', since: SPELL, seq: 1, run: 1 } })
+  await json('/api/bridge/report', { chat: 'Worker 2', session: w2, report: { state: 'ended', since: SPELL, seq: 1, run: 1 } })
   const claim = async (chat = 'Worker 1') => (await json('/api/bridge/hands', { chat, session: chat === 'Main' ? 'main-id' : 'w1-id', mod: '0.27.1', can: ['send'] })).jobs ?? []
   const words = async () => foldOutbox(await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8'))
   const record = async () => JSON.parse(await readFile(join(board, 'data', 'wakes.json'), 'utf8'))
   // B1271: the state as the page reads it (the wake facts the lanes, the notice and the rules read).
   const token = /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
   const state = () => fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
-  return { out, call, json, claim, words, record, state }
+  const launches = () => readFile(launchFile, 'utf8').then(text => text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line)), () => [])
+  return { out, call, json, claim, words, record, state, launches }
 }
 
 /** The page's word to wake Worker 2 (a B577 wake word): a hand's job, but only while the app runs the hands' sends. */
@@ -421,7 +426,9 @@ const SILENT = { path: 'message', at: SILENT_AT - 10 * MIN, by: 'Main', jobId: `
 
 test('B1304 (X205) on the board: the hands may send, a hand\'s send to Worker 2 went and brought no report: ONE carry word to a free chat\'s model, kept in the record, never a second', { timeout: 240_000 }, async t => {
   const answerWord = { id: 'answer000000005', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
-  const { claim, words, record } = await boardWith(t, { refused: false, lines: [answerWord], attempts: [SILENT], byModel: true })
+  const { claim, words, record, state, launches } = await boardWith(t, { refused: false, lines: [answerWord], attempts: [SILENT], byModel: true, launchable: true })
+  // The board may launch Worker 2 here (its lane's ways): the carry word still goes first.
+  await until(async () => (await state()).chats.find(lane => lane.name === 'Worker 2')?.wake?.need === true, "Worker 2's wake needed")
   let carried = []
   await until(async () => {
     carried = (await words()).filter(one => one.command === 'wake-carry' && one.about === 'Worker 2')
@@ -437,6 +444,7 @@ test('B1304 (X205) on the board: the hands may send, a hand\'s send to Worker 2 
   assert.deepEqual((await claim()).filter(job => job.chat === 'Worker 2'), [], 'no hand job beside it')
   await new Promise(done => setTimeout(done, 3000))
   assert.equal((await words()).filter(one => one.command === 'wake-carry' && one.about === 'Worker 2').length, 1, 'never a second word for the spell')
+  assert.deepEqual(await launches(), [], 'no launch while the carry word is on its way')
 })
 
 test('B1304: the same silent hand send with no free carrier: the courier\'s word once it calls', { timeout: 240_000 }, async t => {

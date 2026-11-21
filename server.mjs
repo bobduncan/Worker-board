@@ -23,7 +23,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { constants as osConstants, setPriority } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -2753,7 +2753,11 @@ async function main(args) {
     wakesChanged()
     isOpening = true
     try {
-      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
+      // B1304 (chat 1's review, minor): a board copy under test records its launches in this file instead of starting the real program.
+      const stub = process.env.WORKER_BOARD_OPEN_STUB ?? ''
+      const done = stub !== '' ? await appendFile(stub, `${JSON.stringify({ chat: target.chat, session: target.session, at: now })}
+`).then(() => ({ launched: true, ok: true, why: null }))
+        : await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
       if (!done.launched) {
         // Nothing was launched: no try spent (the ⚙ row says why).
         wakeGivenBack(wakes, key, jobId)
