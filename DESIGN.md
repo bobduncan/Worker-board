@@ -6293,7 +6293,15 @@ although the line was typed only at 11:07:22.
 **One record.** `src/wake.mjs` (pure) and `data/wakes.json` (kept as `data/reports.json` is: written a second after a change,
 a torn file set aside). Per chat, its spells (newest last, six kept): a spell is the chat's sleep (`asleepSince`; an off chat
 without one: its ended report's since, its report's time, else 0 (a spell value already kept is never a new entry); a chat read Not running after a
-wake keeps its sleep's since, `sleepSince`). The key `*` holds the board-wide "nobody runs" spells. Each spell holds its
+wake keeps its sleep's since, `sleepSince`). F38 (B1300): every one of these times is the report's own time
+(`chatReport.mjs` `heardTimeOf`: `heardAt`, else `at`), never the board's start that T13 moves a kept report to: the
+lane reads as the report said after a start (the person's word of 2026-10-28) and the age clock counts from the start, but a
+start begins no new sleep. Seen live 2026-11-21 00:35-00:55: Worker 4's dead chat got a new spell at each start (00:36:54,
+00:45:05), one failed launch each, so "could not wake" never went final. The same own time decides "it ran after the failed
+wake" (`ranSince`) and a carrier's proof of life (`wakeCarry.mjs` `canCarry`); `heard` keeps `at` behind its run check, and
+`inFirstTurn` keeps it (a moved report only ends that wait). The server's pass moves a kept entry the lane reads again
+(A, B, then A: a wakes.json from before F38 holds board-start spells after the chat's own one) to the newest place with its
+tries (`newSpell` `move`), since `heard`, `personAgain` and `turnEnded` read the newest entry. The key `*` holds the board-wide "nobody runs" spells. Each spell holds its
 attempts `{ path: message | launch, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why }`, `turnEndedAt` and `told`.
 Every old counter went into it: MAX_WAKE_TRIES, OPEN_TRIES, WAKE_AGAIN_MS, WAKE_PENDING_MS, WAKER_AGAIN_MS,
 RESUME_AGAIN_MS with `resumesSent`, `asleepWoken`, `opens[]` and `failuresOf`, the asleep look's minute.
