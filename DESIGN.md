@@ -6209,7 +6209,9 @@ is off it is a wake word (say.mjs `isWakeWord`), as RESUME_STEP was. B1294 (X109
 00:34, its line of 00:39:56 waited and the give-back at 00:55 closed it, but rule 8 named it at 00:51): the line's own
 cure is the give-back, so it carries `giveBackMs` (the setting `giveBackAfterMinutes` when it was written; an older line
 the default 15) and rule 8 names it only after that and `undeliveredMinutes` (holderTimers.mjs `goOnWaitMs`, watch.mjs
-`isUndelivered`), as a task stop waits STOP_HANDS_MS first. Every other word keeps the plain limit. The sweep does not
+`isUndelivered`), as a task stop waits STOP_HANDS_MS first. Like the give-back, that wait counts the board's running time:
+the board's off time since the line (a stop, a PC sleep: watch.mjs `boardOffMs`) is left out (chat 1's review). Every
+other word keeps the plain limit on wall time. The sweep does not
 close the line when its worker's lane reads running: a kept report read as working right after a board start (00:45:09)
 would have closed a line that still mattered.
 
