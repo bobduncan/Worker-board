@@ -744,6 +744,8 @@ function lateStart(port, timeoutMs) {
 
 /** B404: how long a restart waits for the reconciler's pass and the running checks before the board ends. */
 const RESTART_WAIT_MS = 10_000
+/** The restart route's answer while the board leaves already: one restart at a time. */
+export const RESTART_UNDER_WAY = 'The board restarts already: one restart at a time; it comes back by itself.'
 
 const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
 /** Whether `text` is valid JSON (after the byte-order mark a Windows editor may put first). */
@@ -3085,6 +3087,10 @@ async function main(args) {
   // at a safe moment (src/selfUpdate.mjs).
   const restartNow = async () => {
     if (!canRestart) return { ok: false, status: 409, why: 'This board was started without its keeper: start it once from where it was started.' }
+    // One restart per landing (2026-11-21 00:34, B1283's rollback): land.ps1's POST /api/restart and the B454 self-update both fired
+    // around one fast-forward, two restarts in a row, and the second new board was not up within the landing's 90 s. While this board
+    // leaves, a second ask is refused, whoever asks first (land.ps1 reads the refusal as "it comes back by itself" and waits).
+    if (isClosing) return { ok: false, status: 409, why: RESTART_UNDER_WAY }
     // B128: a new start on a broken settings file would stop the board: this one keeps running instead.
     // B467: one Windows holds is not "not there": its own words, and the board keeps running.
     const settings = await readFile(join(HERE, 'config.json'), 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? 'it is not there' : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
@@ -4317,6 +4323,8 @@ async function main(args) {
       if (!seen.restart) return
       const done = await restartNow()
       if (!done.ok) {
+        // Refused because a restart is under way already (land.ps1's POST came first): no refusal to remember, the board leaves.
+        if (isClosing) return
         selfUpdate.refused(done.why)
         updateShown = selfUpdate.look({ isNewer: true, canRestart, blockers: ['the new version'] }).shown
         return

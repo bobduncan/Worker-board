@@ -8834,3 +8834,14 @@ words as 'copied', put them on the clipboard with a bar on top ("paste with Ctrl
   23:18-23:20), and a mod's words beside a prompt stood on the personal one. So the guard does not stop the person's-words filing
   (B298) here: prompt.submit's job stays where it is, the move is not needed, and 0.35.0 takes the probe out (the mark beside a
   prompt, the route, data/mod-probe.json's writer). The second part of B1274 ends there.
+
+## One restart per landing (2026-11-21, chat 3, chat 1's fix A)
+
+B1283's first landing (00:08-00:36) rolled back although both boards came up on the new code: main's fast-forward made the board
+start itself anew (B454, src/selfUpdate.mjs) while land.ps1 also asked it to restart (POST /api/restart), two restarts in a row,
+and the second new board was not up within the landing's 90 s (which stay an honest alarm). `restartNow` now refuses a second ask
+with 409 while the board leaves (`isClosing`), whoever asked first: land.ps1's POST then the self-update (the self-update's look
+returns on `isClosing`, and a look already under way is refused at the same door and remembers no refusal), or the self-update then
+land.ps1's POST (land.ps1 reads the refusal as "waiting for it to come back anyway"). test/boardSelfBoard.test.mjs runs both orders
+on a real copy that is a git folder of its own. Left for a later step: the keeper stamps the board's own log lines with the time
+(the diagnosis had to lean on the start checks' clock words).
