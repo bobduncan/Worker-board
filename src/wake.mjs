@@ -96,8 +96,11 @@ const countedOf = entry => (isTime(entry?.reopenedAt) ? (entry.attempts ?? []).f
 /**
  * A new spell entry for `chat` when its newest is of another spell (life came, or a new sleep began); the server calls it
  * from its pass with each lane's `spellOf`, and `claim` does before the first attempt. True when one was added.
+ * F38 (the core review, 3): `move` (the server's pass only) puts a kept entry the lane reads again (A, B, then A) last, with
+ * its tries kept: `heard`, `personAgain`, `turnEnded` and `inFirstTurn` read the newest entry while `claim` writes into
+ * the entry of the spell, so a wake claimed into A would never hear its report. True when it moved one.
  */
-export function newSpell(record, chat, spell, now = Date.now()) {
+export function newSpell(record, chat, spell, now = Date.now(), { move = false } = {}) {
   if (!isTime(spell) || typeof chat !== 'string' || chat === '') return false
   // F27 (the review, 2): a spent spell 0 that is not the chat's newest entry (a real spell came between) is replaced ONCE when the lane reads
   // spell 0 again: it becomes the newest with its spent tries moved aside (`revivedAt`, its own mark: never G1's `reopenedAt`, which is the
@@ -114,7 +117,12 @@ export function newSpell(record, chat, spell, now = Date.now()) {
   }
   // The review of 2026-11-02: a spell value a kept entry already has (A, B, then A again) is that entry, never a new one:
   // the cap of one try per path holds for it.
-  if (entriesOf(record, chat).some(one => one.spell === spell)) return false
+  const kept = entriesOf(record, chat).findLast(one => one.spell === spell)
+  if (kept !== undefined) {
+    if (!move || entriesOf(record, chat).at(-1) === kept) return false
+    record.wakes.set(chat, [...entriesOf(record, chat).filter(one => one !== kept), kept])
+    return true
+  }
   const entries = [...entriesOf(record, chat), { spell, attempts: [], turnEndedAt: null, told: { failed: false, nobody: false } }]
   record.wakes.set(chat, entries.slice(-WAKE_SPELLS_KEPT))
   return true

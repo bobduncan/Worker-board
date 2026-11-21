@@ -90,6 +90,8 @@ test('F38 the live case: Worker 4\'s sleep is one spell across the starts of 00:
   assert.deepEqual([again.state, again.isRunning, spellOf(again)], ['working', true, null], 'T13\'s first 30 s after a start are unchanged')
   const later = lane(build({ now: at(0, 50, 10), startedAt: START_2, record }))
   assert.equal(later.isRunning, false)
+  // What the person sees: Not running, "woken at 00:42, it did not start", asleep since its own report (never the start).
+  assert.deepEqual([later.state, later.why, later.sleepSince], ['off', 'woken at 00:42, it did not start', LAST])
   assert.equal(spellOf(later), LAST, 'one spell across both starts')
   // Its launch was tried in this spell and failed: no second launch, and the wake is final: "could not wake" once.
   assert.equal(nextPath(record, { chat: 'Worker 4', spell: spellOf(later), senderClaims: false, paths: ['launch'] }), null)
@@ -153,4 +155,27 @@ test('F38 a carrier proves its mod lives by its report\'s own time, never by a k
   const main = { name: 'Main', isRunning: true, state: 'free', appSession: 'local_Main', unjoined: null, report: { state: 'idle', at: START_2, heardAt: LAST, background: false } }
   assert.equal(canCarry(main, 'Worker 4', START_2 + 10_000), false, 'the moved report is 10 minutes old by its own time')
   assert.equal(canCarry({ ...main, report: { state: 'idle', at: START_2 + 5_000, background: false } }, 'Worker 4', START_2 + 10_000), true, 'its first ping after the start')
+})
+
+test('F38 the landing: wakes.json kept board-start spells after its own one; the pass moves the own one last, so its wake hears the report', async () => {
+  const { heard } = await import('../src/wake.mjs')
+  const record = emptyWakes()
+  // Before F38: the spell of 00:35:30 (the chat's own), then the board's starts of 00:36:54 and 00:45:05 as spells.
+  newSpell(record, 'Worker 4', LAST)
+  newSpell(record, 'Worker 4', START_1)
+  newSpell(record, 'Worker 4', START_2)
+  // Without the pass's word the kept entry stays where it is (A, B, A is that entry, the 2026-11-02 review).
+  assert.equal(newSpell(record, 'Worker 4', LAST), false)
+  assert.deepEqual(record.wakes.get('Worker 4').map(one => one.spell), [LAST, START_1, START_2])
+  // The server's pass: the lane reads its own time again, so that entry becomes the newest, its tries kept.
+  record.wakes.get('Worker 4')[0].attempts.push({ path: 'message', at: LAST + 1_000, by: 'Main', jobId: 'm-old', sentAt: LAST + 2_000, runBefore: RUN, verdict: 'failed', verdictAt: LAST + 5_000, why: 'x', step: null })
+  assert.equal(newSpell(record, 'Worker 4', LAST, at(0, 50), { move: true }), true)
+  assert.deepEqual(record.wakes.get('Worker 4').map(one => one.spell), [START_1, START_2, LAST])
+  assert.equal(record.wakes.get('Worker 4').at(-1).attempts.length, 1, 'the tries move with it: the cap of one per path holds')
+  assert.equal(newSpell(record, 'Worker 4', LAST, at(0, 50), { move: true }), false, 'already the newest: nothing changes')
+  // A launch claimed now goes into that entry, and the chat's report hears it.
+  const attempt = claim(record, { chat: 'Worker 4', spell: LAST, path: 'launch', by: 'board', jobId: 'launch-now', now: at(0, 50), runBefore: RUN, paths: ['launch'] })
+  assert.ok(attempt)
+  sent(record, 'Worker 4', 'launch-now', at(0, 50))
+  assert.equal(heard(record, 'Worker 4', { state: 'busy', run: at(0, 50, 20), at: at(0, 50, 30) }, at(0, 50, 30))?.verdict, 'woke')
 })

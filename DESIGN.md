@@ -6291,7 +6291,9 @@ lane reads as the report said after a start (the person's word of 2026-10-28) an
 start begins no new sleep. Seen live 2026-11-21 00:35-00:55: Worker 4's dead chat got a new spell at each start (00:36:54,
 00:45:05), one failed launch each, so "could not wake" never went final. The same own time decides "it ran after the failed
 wake" (`ranSince`) and a carrier's proof of life (`wakeCarry.mjs` `canCarry`); `heard` keeps `at` behind its run check, and
-`inFirstTurn` keeps it (a moved report only ends that wait). The key `*` holds the board-wide "nobody runs" spells. Each spell holds its
+`inFirstTurn` keeps it (a moved report only ends that wait). The server's pass moves a kept entry the lane reads again
+(A, B, then A: a wakes.json from before F38 holds board-start spells after the chat's own one) to the newest place with its
+tries (`newSpell` `move`), since `heard`, `personAgain` and `turnEnded` read the newest entry. The key `*` holds the board-wide "nobody runs" spells. Each spell holds its
 attempts `{ path: message | launch, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why }`, `turnEndedAt` and `told`.
 Every old counter went into it: MAX_WAKE_TRIES, OPEN_TRIES, WAKE_AGAIN_MS, WAKE_PENDING_MS, WAKER_AGAIN_MS,
 RESUME_AGAIN_MS with `resumesSent`, `asleepWoken`, `opens[]` and `failuresOf`, the asleep look's minute.
