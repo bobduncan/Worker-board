@@ -122,7 +122,8 @@ import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTal
 import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { parseList, readAccountFolders } from './src/appChats.mjs'
+import { listedWhere, parseList, readAccountFolders } from './src/appChats.mjs'
+import { SIDE_CHATS_FILE, STALE_SIDE_WHY, sideChatsOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf, staleSideWords } from './src/work/sideWord.mjs'
 import { accountWatch } from './src/appAccount.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
@@ -3853,7 +3854,7 @@ async function main(args) {
       const setsRefusedNow = setsRefusedOf(store.outbox(), clock())
       // B1271 (chat 1's review, minor): a start or wake word a carry word carries is never a hand's too (the carry may switch on and off).
       const carried = new Set(store.outbox().filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state) && typeof one.of === 'string').map(one => one.of))
-      const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
+      const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers, now: clock() })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
@@ -4438,6 +4439,27 @@ async function main(args) {
         // B812 (X109): checked and put in the outbox in one go, so a look that runs beside this one says none again.
         const stops = await sayStopWords(state, store, sentNow, now, () => randomBytes(8).toString('hex'))
         if (stops.length > 0) readState.reset()
+        // B1307 (F40): a late wait on a side chat: one word to that chat by a hand (its app id from the local side-chats.json, the one the
+        // app lists under the board's account), checked against the outbox and said in one go; none found: the record of why, so the
+        // person's card comes at once. A word no hand sent within 10 min is given up (the card then comes, with why).
+        if (!isHolding(state.pause)) {
+          let sides = 0
+          for (const id of staleSideWords(store.outbox(), now)) if (await store.close(id, 'dropped', STALE_SIDE_WHY, now)) sides += 1
+          const due = (state.sideWordsDue ?? []).filter(one => sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) === null)
+          if (due.length > 0) {
+            const chats = sideChatsOf((await readHead(localFile(config, SIDE_CHATS_FILE), 16 * 1024).catch(() => null))?.text ?? '')
+            const folders = await readAccountFolders(config.appSessions).catch(() => null)
+            const whereOf = folders === null ? null : id => listedWhere(id, folders, { account: state.account?.board ?? null })
+            for (const one of due) {
+              if (sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) !== null) continue
+              const word = sideWordFor({ late: one, worker: one.chat, wait: one.wait, found: sideSessionOf(one.who, chats, whereOf), now })
+              await store.say({ id: randomBytes(8).toString('hex'), ...word })
+              console.log(`B1307: ${word.state === 'waiting' ? `a word to ${one.who} about ${one.chat}'s late wait on ${one.id}` : `no word to ${one.who} about ${one.id} (${word.why})`} at ${timeOf(now)}.`)
+              sides += 1
+            }
+          }
+          if (sides > 0) readState.reset()
+        }
       }
       // Signals change 4: words that wait for a chat that is not running are the wake procedure's need (src/wake.mjs), no
       // start word by the clock any more. Only the board that delivers.

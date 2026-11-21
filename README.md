@@ -535,6 +535,10 @@ pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's 
 (`work`, `.claude\work` unless set), on the chats' `work` calls and your clicks, with `backlog.md` written from it as a
 view (see "The work store" above).
 
+It reads one file of yours beside its runtime files, never in git: `<project>\.claude\side-chats.json` (B1307), the app ids of
+your side chats, `{ "chat 1": ["local_..."], "chat 2": ["local_..."] }` (one id per Claude account you use). A worker's wait on
+such a chat that runs late goes to that chat first, as one word; without its id the Late comes to you at once, saying so.
+
 ## Safety
 
 The server listens on 127.0.0.1 only. The page gets a random token at each start; reading needs it, and sending

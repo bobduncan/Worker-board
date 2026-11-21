@@ -7594,6 +7594,21 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
   with its holder, and ONE Late under Needs your attention (`lateWaitOf`, kind `wait late`, the page's KINDS "Waits late"): "Worker 4
   waits for chat 1 (its go to land) since 11:24 (95 min) on B1081", the step linked in the title, with the person's action (ask the
   chat, or tell the worker to go on and unblock) and one way, "Open Worker 4's chat". The worker's own answer names the setting.
+- **A side chat is asked first** (B1307, F40; the person's "Yes, build F40", 2026-11-21: Worker 1 waited on chat 1 for B1300 from
+  10:49, the person got the Late at 136 min and carried it to chat 1 by hand). A late wait on "chat 1" to "chat 4" first gets ONE word
+  to that chat, by a hand's send (`src/work/sideWord.mjs`; hands.mjs `handJobs`, command `side-word`, the chat's own app id; start,
+  wake and the wake record untouched): "Worker 1 waits for you on B1300 since 10:49 (<what>). Give it your answer, or tell it to go
+  on without you; the person is asked at HH:MM if it still waits." The delivering board's look says it (server.mjs, from the state's
+  `sideWordsDue`), checked against the outbox in one go. Its key is the step and the wait's own minute, so a renewed block is a new
+  wait with a new clock, and the word is an outbox record: a board restart finds it and says none again. The Late waits while the
+  word waits for a hand (`SIDE_HAND_MS`, 10 min; past it the board gives the word up) and `SIDE_ANSWER_MS` (30 min) of running time
+  after it went; the lane says "...; asked chat 1 at HH:MM" meanwhile (plain). Answered is the wait cleared, renewed or the step moved:
+  the Late never comes. Unanswered, the Late comes as before with "Then the board asked chat 1 at HH:MM; no answer in 30 min." The ids
+  are this PC's, never in git: the local runtime file `side-chats.json` (projectPaths.mjs `localFile`), `{ "chat 1": ["local_..."] }`,
+  one id per account; the one the app lists under the board's account goes (appChats.mjs `listedWhere`). No id, only another
+  account's, a send the app refused, no hand in 10 min: the record says why and the Late comes at once with it ("Then the board could
+  not ask chat 1: chat 1 is not known to the board ..."). A board that says no word (a copy that only shows) holds the Late 10 min past
+  the limit at most. Waits on Main, a worker or an asset are as before; "chat 0" only reads and is never asked.
 - **The forgotten record**: the answer to `work step` with a checkpoint while a wait stands says "You still wait on chat 1 since
   HH:MM (its go to land): work unblock B<n> once it gave its answer." Chat 1's go messages say "unblock first" (roles/main.md).
 - **Resume all** leaves a step with a standing wait out of its resume list (pause.mjs `isResumed`): a resume would only wake the

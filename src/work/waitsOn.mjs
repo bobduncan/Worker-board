@@ -6,6 +6,8 @@
 // person), by a report, a take and a give-back. Its lane is parked (state.mjs: `suspended { by: 'parked', kind: 'chat' }`), so
 // no "go on" line and no give-back for `waitOnMinutes` (90) of the board's running time; past it one Late on the person's list,
 // and still no give-back. Separate from `Waits for` (B306: rethink holds, main/person-only) and from `Blocked by` (steps).
+// B1307 (F40): a late wait on a side chat ("chat 1".."chat 4") first gets one word to that chat by a hand's send; the person's Late
+// comes only 30 min of running time after it went, or at once with the why when it could not go (work/sideWord.mjs, state.mjs).
 
 import { isHeld } from './askHold.mjs'
 import { isKeptLook } from './keptLook.mjs'
@@ -85,7 +87,7 @@ export function waitWhoProblem(who, { self = '', names = [], prefix = '' } = {})
 export const waitReminder = (wait, id) => (wait === null ? '' : ` You still wait on ${wait.who} since ${hourMinute(wait.since)} (${wait.what}): work unblock ${id} once it gave its answer.`)
 
 /** The lane's suspension for a standing wait (the parked shape, kind chat): every reader treats it as on purpose. */
-export const waitSuspension = wait => (wait === null ? null : { by: 'parked', kind: 'chat', on: [wait.who], what: wait.what, since: wait.since, limit: null, named: null })
+export const waitSuspension = wait => (wait === null ? null : { by: 'parked', kind: 'chat', on: [wait.who], what: wait.what, since: wait.since, limit: null, named: null, ...(typeof wait.asked === 'string' ? { asked: wait.asked } : {}) })
 
 /** Whether a lane's suspension is a chat wait (state.mjs `card`, `waitSuspension`). */
 export const isChatWait = held => held?.by === 'parked' && held.kind === 'chat'
@@ -133,7 +135,9 @@ export function chatWaitWords(held) {
   const who = Array.isArray(held?.on) && typeof held.on[0] === 'string' ? held.on[0] : 'a chat'
   const what = typeof held?.what === 'string' && held.what !== '' ? ` (${held.what})` : ''
   const since = Number.isFinite(held?.since) ? ` since ${hourMinute(held.since)}` : ''
-  return `waits for ${who}${what}${since}`
+  // B1307: a late wait on a side chat the board asked itself: "; asked chat 1 at 12:19" (plain: the person's card waits).
+  const asked = typeof held?.asked === 'string' && held.asked !== '' ? `; ${held.asked}` : ''
+  return `waits for ${who}${what}${since}${asked}`
 }
 
 /**
@@ -147,5 +151,5 @@ export function lateWaitOf({ chat, wait, stepId = null, runningMs, limitMs = WAI
   const ran = runningMs(wait.since)
   if (!(ran >= limitMs)) return null
   const minutes = Math.floor(ran / MIN)
-  return { chat, id: stepId, who: wait.who, what: wait.what, since: wait.since, minutes, text: `${chat} ${chatWaitWords(waitSuspension(wait))} (${minutes} min)` }
+  return { chat, id: stepId, who: wait.who, what: wait.what, since: wait.since, minutes, limitMs, wait, text: `${chat} ${chatWaitWords(waitSuspension({ ...wait, asked: null }))} (${minutes} min)` }
 }
