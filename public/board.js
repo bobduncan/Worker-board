@@ -367,6 +367,8 @@ let timer = null
 let awaySince = null
 /** True while the person is asked whether they really want to pause all chats. */
 let isAskingPause = false
+/** Shut down (src/shutdown.mjs): the page asks before it shuts the board down. */
+let isAskingShutdown = false
 
 // Small helpers
 
@@ -2595,12 +2597,11 @@ function drawRestart(state) {
   const pauseAll = $('pause-all')
   pauseAll.hidden = restart === null || restart.main === null || pause?.state === 'pausing'
   pauseAll.disabled = sending.has('restart')
+  const shutdown = state.shutdown ?? null
+  const shutDown = $('shut-down')
+  shutDown.hidden = state.canShutdown !== true || shutdown !== null
+  shutDown.disabled = sending.has('restart')
   const line = (className, text) => el('p', className, text)
-  // Signals change 4 (2026-11-02): the opener's line went into the one wake notice under Needs your attention (`state.wakeNotice`).
-  if (restart === null || restart.main === null) {
-    box.hidden = true
-    return
-  }
   const button = (label, className, command) => {
     const node = el('button', `button ${className}`, label)
     node.type = 'button'
@@ -2608,7 +2609,27 @@ function drawRestart(state) {
     node.disabled = sending.has('restart')
     return node
   }
-  const parts = []
+  // Shut down: its question, and the shutdown on its way, said with or without a main chat.
+  const shutdownParts = []
+  if (shutdown !== null) {
+    const row = el('div', 'restart-ask')
+    const why = shutdown.isNow ? 'The board is shutting down now.' : `Shutting down: every chat is paused, and the board stops once each has ended its turn, at ${clock(shutdown.until)} at the latest.`
+    row.append(line('', `${why} It stays stopped until you start it again (its icon, or npm run resume).`))
+    if (!shutdown.isNow) row.append(button('Shut down now', 'is-quiet', 'shutdown-now'))
+    shutdownParts.push(row)
+  } else if (isAskingShutdown) {
+    const ask = el('div', 'restart-ask')
+    ask.append(line('', 'Shut down the board? Every chat is paused first (each writes its checkpoint and ends its turn), then the board stops and stays stopped: no chat, hook or watcher starts it again. Start it again with its icon, or npm run resume; then Resume all.'), button('Shut down', '', 'shutdown'), button('Shut down now', 'is-quiet', 'shutdown-now'), button('No', 'is-quiet', 'cancel'))
+    shutdownParts.push(ask)
+  }
+  // Signals change 4 (2026-11-02): the opener's line went into the one wake notice under Needs your attention (`state.wakeNotice`).
+  if (restart === null || restart.main === null) {
+    if (problems.has('restart') && shutdownParts.length > 0) shutdownParts.push(line('problem', problems.get('restart')))
+    box.hidden = shutdownParts.length === 0
+    if (shutdownParts.length > 0) fill(box, shutdownParts)
+    return
+  }
+  const parts = [...shutdownParts]
   // P5: each chat it names opens that chat's window.
   for (const text of stoppedLines(restart, state.chats ?? [])) {
     const node = line('alert', '')
@@ -7243,11 +7264,22 @@ takeAnswers($('details'))
 takeAnswers($('advisor-focus'))
 $('pause-all').addEventListener('click', () => {
   isAskingPause = true
+  isAskingShutdown = false
+  redrawNeeds()
+})
+$('shut-down').addEventListener('click', () => {
+  isAskingShutdown = true
+  isAskingPause = false
   redrawNeeds()
 })
 $('restart').addEventListener('click', event => {
   const button = event.target.closest('[data-restart]')
-  if (button === null || board === null || board.restart.main === null) return
+  if (button === null || board === null) return
+  // Shut down (src/shutdown.mjs): also without a main chat.
+  if (['shutdown', 'shutdown-now', 'cancel'].includes(button.dataset.restart)) isAskingShutdown = false
+  if (button.dataset.restart === 'shutdown') return sendWork({ action: 'shutdown' }, 'restart')
+  if (button.dataset.restart === 'shutdown-now') return sendWork({ action: 'shutdown', now: true }, 'restart')
+  if ((board.restart?.main ?? null) === null) return button.dataset.restart === 'cancel' ? redrawNeeds() : undefined
   isAskingPause = false
   if (button.dataset.restart === 'cancel') return redrawNeeds()
   // Pause and resume (spec 2026-10-18): both write pause.json; the board types "resume" into a main chat that runs.
@@ -23542,6 +23574,7 @@ function clockSeconds(ms) {
 function bannerOf({ good, failure, leaving, back, openedAt, now }) {
   const demo = good?.isDemo === true ? ' · demo data' : ''
   if (failure !== null) {
+    if (leaving?.why === 'shutdown') return { text: `Shut down at ${clock(leaving.at)} · start it again with its icon, or npm run resume`, tone: 'quiet' }
     if (leaving !== null && now - failure.since < RESTART_GIVE_UP_MS) return { text: 'Restarting · a new version starts, usually back within 30 s', tone: 'quiet' }
     if (leaving !== null) return { text: `Off since ${clock(leaving.at)}`, tone: 'attention' }
     if (failure.kind === 'slow') {
@@ -23576,7 +23609,7 @@ function bannerAnswered(state) {
   const tick = state.board?.loop?.lastTickAt
   banner.good = { at: now, boardNow, loopAt: Number.isFinite(tick) ? tick : null, isDemo: state.isDemo === true }
   banner.failure = null
-  banner.leaving = state.board?.restart?.state === 'leaving' ? { at: Number.isFinite(state.board.restart.at) ? state.board.restart.at : boardNow } : null
+  banner.leaving = state.board?.restart?.state === 'leaving' ? { at: Number.isFinite(state.board.restart.at) ? state.board.restart.at : boardNow, why: state.board.restart.why ?? null } : null
   const stop = state.board?.lastStop
   if (stop !== null && stop !== undefined && stop.to !== banner.explained) {
     banner.explained = stop.to
