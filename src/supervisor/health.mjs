@@ -204,6 +204,8 @@ function onPurposeOf(lane, held, view) {
 function switchWords(switching, now, nextCheckAt = null) {
   if (switching === null || (!switching.mismatch && switching.state !== 'switched')) return ''
   if (switching.state === 'switched') return ' (switched)'
+  // B1282 (X207): read back, then lost.
+  if (switching.state === 'lost') return ` (switched ${dayClockOf(switching.setAt, now)}, lost ${dayClockOf(switching.lostAt, now)}${switching.late ? `, ${lasting(switching.since)} since` : ''})`
   // B1160 review 8: the app refuses the board's set calls: it runs on, known and quiet.
   if (switching.state === 'refused') return ` (runs on: the app refuses the board's set calls${!Number.isFinite(nextCheckAt) ? '' : nextCheckAt <= now ? '; next check when a worker is free' : `; next check ${dayClockOf(nextCheckAt, now)}`})`
   const asked = switching.state === 'asked' ? `switch asked ${dayClockOf(switching.askedAt, now)}` : ''

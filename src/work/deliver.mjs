@@ -75,6 +75,20 @@ const isUntaken = (message, now, keep) => message !== undefined && ((message.sta
  * chat that is not running is woken by the wake procedure, src/wake.mjs), the key is written after. The message, or
  * null when it is not sent (sent before, or the outbox could not take it).
  */
+/**
+ * Whether the plan's set word `one` is held this refresh: no main chat, or the newest word for the chat (`last`; `mine()` all of its words)
+ * is one for the same setting of the last half hour (B468), unless it failed for a passing reason (B813), the app refused it for a changed
+ * setting (B1207 review 5) or it was moot. B1282 (X207): a lost setting's word is the effort plan's to time (effort.mjs `readBackOf`, its
+ * half hour after a word that never reached Main): held here only behind a lost word for the same step and setting still on its way (not
+ * lost, not met, not read back), should two refreshes plan it before the state shows the first (chat 1's review 2: a second loss after
+ * the first word was read back or met goes at once).
+ */
+const isLostOnItsWay = (one, last) => last?.lost === true && last.forStep === one.step && sameTarget(last, one.level, one.model ?? null)
+  && !['expired', 'failed', 'dropped'].includes(last.state) && !Number.isFinite(last.readBackAt)
+export const isEffortWordHeld = (one, last, mine, now) => one.to === null || (one.lost === true ? isLostOnItsWay(one, last)
+  : last !== undefined && sameTarget(last, one.level, one.model ?? null) && now - last.at < AGAIN_MS
+  && !goesAgain(last, mine(), now) && !(one.changed === true && isSetRefused(last)) && !isMootChanged(last))
+
 export function sendOnce({ dir, key, words, outbox, state, now, maxChars, newId, fs, keep }) {
   return oneAtATime(dir, async () => {
     const { record } = await readDeliveredFile(dir, fs)
@@ -324,7 +338,7 @@ export async function deliverWork({ state, dir, outbox, apply, now, maxChars, ne
     const last = lastWord(outbox.outbox(), one.chat, state.chatPrefix ?? '', one.session ?? null)
     const mine = () => outbox.outbox().filter(message => message.command === 'worker-effort' && message.about === last.about)
     // B1207 review 5 (both lenses): a changed setting's word goes again at once when the app refused the last one (now for Main's model).
-    if ((last !== undefined && sameTarget(last, one.level, one.model ?? null) && now - last.at < AGAIN_MS && !goesAgain(last, mine(), now) && !(one.changed === true && isSetRefused(last)) && !isMootChanged(last)) || one.to === null) continue
+    if (isEffortWordHeld(one, last, mine, now)) continue
     const message = { id: newId(), at: now, ...effortWords(one), state: 'waiting' }
     try {
       await outbox.say(message)
