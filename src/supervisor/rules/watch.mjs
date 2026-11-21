@@ -1063,20 +1063,25 @@ export function switchOf(lane, item, view) {
   const isModelSet = typeof own?.model === 'string'
   const mismatch = effort !== null && (effort !== want.level || (isModelSet && family !== null && family !== want.family))
   // B1160 review 8: a run the app's refusal left unset (`refused`, effort.mjs) is known and quiet: the board decided it runs on.
-  const state = own?.isSet === true ? 'switched' : own?.refused === true ? 'refused' : own?.asked != null ? 'asked' : 'none'
+  // B1282 (X207): a setting read back and lost since (`lost`, effort.mjs): its own state, counted from the loss.
+  const lost = own?.isSet !== true && Number.isFinite(own?.lost?.at) && Number.isFinite(own?.lost?.setAt) ? own.lost : null
+  const state = own?.isSet === true ? 'switched' : lost !== null ? 'lost' : own?.refused === true ? 'refused' : own?.asked != null ? 'asked' : 'none'
   const takenAt = takenAtOf(item)
   // B1207 (X26 back: B1196 changed to high at 16:12, 22 min after its take, and the rule fired 1 min later): a step whose setting
   // changed after its hand-over (`changed`, effort.mjs) counts its minutes from that change, never from the take.
   const changed = Number.isFinite(own?.changed?.at) ? own.changed : null
-  const began = changed === null || !Number.isFinite(takenAt) ? takenAt : Math.max(takenAt, changed.at)
+  const began = lost !== null ? lost.at : changed === null || !Number.isFinite(takenAt) ? takenAt : Math.max(takenAt, changed.at)
   const from = afterPause(view, began)
   const since = view.now - from - boardOffMs(view, from)
-  const late = mismatch && state !== 'switched' && state !== 'refused' && !isPaused(view) && !isFull(view) && Number.isFinite(since) && since > view.settings.switchMinutes * MIN
+  // B1282: quiet while the loss's set word is being written or is open (waiting, taken).
+  const isLostAsking = lost !== null && (lost.asking === true || ['waiting', 'taken'].includes(lost.word?.state))
+  const late = mismatch && state !== 'switched' && state !== 'refused' && !isLostAsking && !isPaused(view) && !isFull(view) && Number.isFinite(since) && since > view.settings.switchMinutes * MIN
   return {
     runs: `${family ?? 'a model not known'} · ${effort ?? 'effort not known'}`, wants: `${want.family} · ${want.level}`, mismatch, state,
     askedAt: own?.asked?.at ?? null, askState: own?.asked?.state ?? null, takenAt, since, late,
-    changedAt: changed === null || !Number.isFinite(began) ? null : began, handedAs: changed?.fromWords ?? null,
+    changedAt: changed === null || lost !== null || !Number.isFinite(began) ? null : began, handedAs: changed?.fromWords ?? null,
     thenAs: changed?.then ?? null, thenAt: changed?.thenAt ?? null,
+    setAt: lost?.setAt ?? null, lostAt: lost?.at ?? null, lostWord: lost?.word ?? null,
   }
 }
 
@@ -1095,9 +1100,12 @@ function effortMismatch(view) {
     found.push({
       // Signals change 6 (Addendum 2; X110 'effort-mismatch Worker 4 B810'): the key is the rule and the chat only; the step is in the text.
       rule: 'effort-mismatch', key: `effort-mismatch ${lane.name}`, subject: lane.name,
-      text: at.changedAt === null ? `${lane.name} runs ${at.runs} ${minutes(at.since)} min after it took ${id}, which wants ${at.wants}`
+      // B1282 (X207): a setting lost after its read-back says so, with the minutes since the loss.
+      text: at.state === 'lost' ? `${lane.name} runs ${at.runs} again since ${clockOf(at.lostAt)} (${minutes(at.since)} min): ${id} was switched to ${at.wants} at ${clockOf(at.setAt)} (read back)`
+        : at.changedAt === null ? `${lane.name} runs ${at.runs} ${minutes(at.since)} min after it took ${id}, which wants ${at.wants}`
         : `${lane.name} runs ${at.runs} ${minutes(at.since)} min after ${id} changed to ${at.wants} at ${clockOf(at.changedAt)} (its hand-over asked ${at.handedAs ?? 'another setting'}${at.thenAs === null ? '' : `, then ${at.thenAs} at ${clockOf(at.thenAt)}`})`,
-      evidence: `took ${id} at ${clockOf(at.takenAt)}${at.changedAt === null ? '' : `; its setting changed at ${clockOf(at.changedAt)}`}; ${at.state === 'asked' ? `switch asked ${clockOf(at.askedAt)} (${at.askState ?? 'not known'}), not read back` : 'no switch asked'}; the app's file says ${at.runs}`,
+      evidence: at.state === 'lost' ? `took ${id} at ${clockOf(at.takenAt)}; switched to ${at.wants} at ${clockOf(at.setAt)} (read back), runs ${at.runs} again since ${clockOf(at.lostAt)}; ${at.lostWord === null ? 'no set word asked for the loss (no main chat)' : `set word for the loss asked ${clockOf(at.lostWord.at)} (${at.lostWord.state ?? 'not known'})`}; the app's file says ${at.runs}`
+        : `took ${id} at ${clockOf(at.takenAt)}${at.changedAt === null ? '' : `; its setting changed at ${clockOf(at.changedAt)}`}; ${at.state === 'asked' ? `switch asked ${clockOf(at.askedAt)} (${at.askState ?? 'not known'}), not read back` : 'no switch asked'}; the app's file says ${at.runs}`,
     })
   }
   return found

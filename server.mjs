@@ -744,6 +744,8 @@ function lateStart(port, timeoutMs) {
 
 /** B404: how long a restart waits for the reconciler's pass and the running checks before the board ends. */
 const RESTART_WAIT_MS = 10_000
+/** The restart route's answer while the board leaves already: one restart at a time. */
+export const RESTART_UNDER_WAY = 'The board restarts already: one restart at a time; it comes back by itself.'
 
 const argAfter = (args, name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
 /** Whether `text` is valid JSON (after the byte-order mark a Windows editor may put first). */
@@ -1031,6 +1033,20 @@ async function main(args) {
     ...(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS !== undefined && Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS) >= 0 ? { settleMs: Number(process.env.WORKER_BOARD_ACCOUNT_SETTLE_MS), everyMs: 500 } : {}),
     folders: () => readAccountFolders(config.appSessions),
     list: async () => parseList(await readFile(chatFile(config, 'chats', 'list.json'), 'utf8').catch(absentAs(''))),
+    // B1283 (F37): the one ask per switch away, in the board's name (as the asset queue's), read back by its id; a copy that only shows asks nothing.
+    ask: isShowOnly ? null : {
+      file: async ({ title, text, options, advice }) => {
+        const asked = await workAction({ action: 'ask', kind: 'decide', title, text: text.join('\n'), options, advice }, 'server')
+        if (asked.ok) readState.reset()
+        else console.error(`The account ask could not be filed: ${asked.why ?? asked.status}`)
+        return asked.ok ? asked.result.id ?? null : null
+      },
+      close: async (id, why) => { await workAction({ action: 'withdraw', id, why }, 'server'); readState.reset() },
+      stateOf: async id => {
+        const item = (await readStore(workFolder(config))).items.get(id)
+        return item === undefined ? null : { state: item.head.get('State'), answer: item.sections.get('Answer') ?? [] }
+      },
+    },
   })
   const storeWork = isDemo || config.project === '' ? null : storeKeeper({ dir: workFolder(config), clock })
   // Every store read asks the account first (cached a few seconds): a loop that reads the store before the first state read (the
@@ -2062,6 +2078,9 @@ async function main(args) {
       // B1273: the app's account first (the store read below holds while it is another), then, while away, the board's chats the
       // app's account alone lists are copied into the board's (at most every minute; never on a copy that only shows).
       const accountNow = account === null ? null : await loops.run('app-account', () => account.read())
+      // B1283, chat 1's review (the deadlock): the ask is filed and kept AFTER the read, not awaited: it writes through the work API,
+      // whose write waits for a state read, which is this read.
+      if (account !== null && !isShowOnly) void loops.run('app-account-ask', () => account.tend())
       if (accountNow?.away === true && !isShowOnly) await loops.run('app-account-import', () => account.importMissing())
       return readSources(config, folders, undefined, branches, work, () => account?.now() ?? null)
     }
@@ -3070,6 +3089,10 @@ async function main(args) {
   // at a safe moment (src/selfUpdate.mjs).
   const restartNow = async () => {
     if (!canRestart) return { ok: false, status: 409, why: 'This board was started without its keeper: start it once from where it was started.' }
+    // One restart per landing (2026-11-21 00:34, B1283's rollback): land.ps1's POST /api/restart and the B454 self-update both fired
+    // around one fast-forward, two restarts in a row, and the second new board was not up within the landing's 90 s. While this board
+    // leaves, a second ask is refused, whoever asks first (land.ps1 reads the refusal as "it comes back by itself" and waits).
+    if (isClosing) return { ok: false, status: 409, why: RESTART_UNDER_WAY }
     // B128: a new start on a broken settings file would stop the board: this one keeps running instead.
     // B467: one Windows holds is not "not there": its own words, and the board keeps running.
     const settings = await readFile(join(HERE, 'config.json'), 'utf8').then(configProblem, error => (error?.code === 'ENOENT' ? 'it is not there' : `it cannot be read (${error?.code ?? error?.message ?? 'unknown'})`))
@@ -3661,13 +3684,6 @@ async function main(args) {
     bridgeKey,
     // B297: the page's actions on the work store, as the person. B299: an answer to an ask wakes the chat that asked.
     work: async body => {
-      // B1273, the review: "Run the board on this account" on the away line: the app's account becomes the board's (a deliberate move).
-      if (body?.action === 'take-account') {
-        if (account === null) return { ok: false, status: 409, why: 'This board reads no Claude account.' }
-        const taken = await account.take()
-        readState.reset()
-        return taken
-      }
       // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
       if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
       // B775: the check's start types a word to the partner after the store has written it.
@@ -4309,6 +4325,8 @@ async function main(args) {
       if (!seen.restart) return
       const done = await restartNow()
       if (!done.ok) {
+        // Refused because a restart is under way already (land.ps1's POST came first): no refusal to remember, the board leaves.
+        if (isClosing) return
         selfUpdate.refused(done.why)
         updateShown = selfUpdate.look({ isNewer: true, canRestart, blockers: ['the new version'] }).shown
         return
