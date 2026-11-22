@@ -990,7 +990,8 @@ function drawCodeJobs(state) {
   $('code-jobs-about').textContent = problem ?? (open ? `What the board does not do by itself yet, the main chat does.${steps.length === 0 ? '' : ` ${steps.join('; ')}.`} ${checked}` : checked)
 }
 
-$('code-jobs-open').addEventListener('click', () => { $('settings').open = true })
+// 2026-11-22: the click stops here, or the page's "a click elsewhere folds it" listener folds the panel again at once.
+$('code-jobs-open').addEventListener('click', event => { event.stopPropagation(); $('settings').open = true })
 
 $('code-jobs-allow').addEventListener('click', async () => {
   if (board === null || sending.has('code-jobs')) return
