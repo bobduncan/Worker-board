@@ -2137,6 +2137,16 @@ showed while the two asks were open; both came with the answers.
   before is current (its lane says free for those seconds; seen at 08:24:38 for Worker 4).
 - Tests: `test/warningsSeeAsks.test.mjs` (the two cases with their own times).
 
+## The main chat corrects a step's Touches (B49)
+
+- A Touches line written too wide held other steps on a false overlap until that step ended, and nobody could change it.
+- **`work touches B<id>` (`text`, `why`)**, the main chat alone: every Touches line of Context and any Touches section
+  become the one new line, in the first one's place. History keeps the old line, the new one and the why; nothing else in
+  the step changes.
+- Refused for a done or dropped step, for any other chat, and for a line in which `touchesOf` reads no path (it would
+  switch the overlap guard off for that step). The guard is unchanged: the next hand-out reads the new line.
+- Not in it: Touches changes by workers or the partner, or a check of Touches against a step's real files.
+
 ## A chat renamed keeps its work (B313)
 
 Seen live on 2026-10-18: the person renamed the worker chats (Support to Worker 1, Board to Worker 2, Features to

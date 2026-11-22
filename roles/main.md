@@ -121,6 +121,7 @@ back at once and its lane says "held: <why>"; one not answered in 10 minutes giv
   "Fix of X<n>: ..." marked `priority` fix (the partner refines it) and names it the incident's fix: a fix, so the board
   gives it first, as any. An incident whose condition went for an hour closes itself.
 - A chat renamed keeps its work: the board moves its open items to the new name by itself (B313); for a rename it could not see (a chat replaced by a new one, or a name two chats had, said on top), run `work rename` (`from`, `to`).
+- A step's Touches written too wide hold other steps on a false overlap: correct them with `work touches B<id>` (`text` the new line, naming its real files; `why`), for a step not done or dropped (B49). The next hand-out reads it.
 - Everything the worker needs stands in the step, written with `work new`: the user's own words, quoted; what is asked
   and what is not; "Touches: ..."; who else works nearby and on what; where pictures are (copy a picture into the
   project's picture folder first). The title is the "in short" line: 5 to 10 words of your own, starting with a verb.

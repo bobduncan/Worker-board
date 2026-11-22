@@ -19,7 +19,7 @@ import { stepLine, stepNotes } from './adapter.mjs'
 import { GIVE_GUARD, flowHandsOut, mayMove } from './flow.mjs'
 import { isPlacedBefore } from './handOut.mjs'
 import { handedBackOf } from '../clearOwed.mjs'
-import { blockersOpen, CLEARED, overlapsIn, waitIds, waitWords } from './guards.mjs'
+import { blockersOpen, CLEARED, overlapsIn, touchesOf, waitIds, waitWords } from './guards.mjs'
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { isAlike, joinTarget, stepOfAsk } from './askPlace.mjs'
 import { askStepOf } from './askStep.mjs'
@@ -72,7 +72,7 @@ export { overlapsIn, sinceMs }
 export const isReadAction = action => READS.has(action)
 
 const READS = new Set(['next', 'list', 'pause-state', 'health', ...ROUTING_READS])
-const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'notes-came-down', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'rethink-hold', 'rethink-free', 'accept-cards', 'popup-asks', 'landed-waits', 'autopilot', 'autopilot-undo', 'recap-answered', 'holds-ended', 'asset'])
+const CHANGES = new Set(['incident', 'incident-fix', 'incident-told', 'incidents-fixed', 'incidents-rekey', 'incident-gone', 'asks-withdrawn', 'notes-came-down', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'read', 'note', 'report', 'block', 'unblock', 'new', 'queue', 'pin', 'add-to-queue', 'remove-from-queue', 'close', 'drop', 'refine', 'refined', 'answer', 'tick', 'delete', 'refine-answer', 'refine-accept', 'check', 'checked', 'instruction', 'turn-ended', 'pull', 'advance', 'requeue', 'unqueue', 'recheck', 'undo', 'touches', 'rename', 'pause-all', 'resume-all', 'resumed', 'end-resume', 'overturn', 'seen', 'approve-recaps', 'partner-answer', 'escalate', 'partner-answers', 'obsolete-check', 'obsolete', 'obsolete-close', 'recheck-stuck', 'recheck-base', 'retire-queue', 'qa-task', 'qa-end', 'words', 'rethink-hold', 'rethink-free', 'accept-cards', 'popup-asks', 'landed-waits', 'autopilot', 'autopilot-undo', 'recap-answered', 'holds-ended', 'asset'])
 /**
  * Focus 2: the partner's drafts of the focus goal's goal definition and how. They change the goal map, not the store: the
  * board's `goalDraft` (src/focus.mjs) writes them; only the chat the list names the partner (role advisor) sends them.
@@ -105,6 +105,8 @@ const ROLES = {
   // Redesign Part 2 (2026-10-25): the person pins a task to a worker; the board unpins one whose chat is gone.
   pin: ['person', 'server'],
   rename: ['main', 'person', 'server'],
+  // B49: a step's Touches line, corrected by the main chat alone.
+  touches: ['main'],
   // Partner answers (2026-10-19): the partner answers an ask routed to it, or hands it to the person; so does the board
   // when the partner did not answer in time. Autopilot (2026-10-31): and the main chat, an ask routed to it (Route: main).
   'partner-answer': ['advisor', 'main'],
@@ -5316,6 +5318,41 @@ async function rename(body, w) {
   return { ok: true, result: { text, moved, failed, changed: moved.length > 0 } }
 }
 
+/** B49: the longest Touches line the main chat may write. */
+const TOUCHES_CHARS = 1000
+const isTouchesLine = one => /^Touches:/.test(one.trim())
+
+/**
+ * B49: the main chat replaces the Touches of a step not done or dropped ("id", "text", "why"): a line written too wide held
+ * other steps on a false overlap, and nobody could clear it. Every Touches line of Context and any Touches section become
+ * the one new line, in the first one's place; History keeps the old line, the new one and the why. A line in which
+ * touchesOf reads no path is refused: it would switch the overlap guard off for this step. The guard itself is unchanged:
+ * the next hand-out reads the new line.
+ */
+async function touches(body, w) {
+  const found = await load(body.id, w, { kind: ['step'] })
+  if (!found.ok) return found
+  const id = valueOf(found.item, 'Id')
+  if (['done', 'dropped'].includes(stateOf(found.item))) return refuse(409, `${id} is ${stateOf(found.item)}: its Touches stay as they were.`)
+  const why = line(body.why, 300)
+  if (why === '') return refuse(400, 'Say why in "why".')
+  const given = typeof body.text === 'string' ? body.text.replace(/\s+/g, ' ').trim().replace(/^Touches:\s*/i, '') : ''
+  if (given.length > TOUCHES_CHARS) return refuse(400, `A Touches line holds at most ${TOUCHES_CHARS} characters.`)
+  const wanted = `  Touches: ${given}`
+  if (touchesOf({ sections: new Map([['Context', [wanted]]]) }).length === 0) return refuse(400, 'Name at least one path in "text" (a bare test folder is none): a line without one switches the overlap guard off for this step.')
+  const context = found.item.sections.get('Context') ?? []
+  const section = found.item.sections.get('Touches') ?? []
+  const old = [...context.filter(isTouchesLine).map(one => one.trim().replace(/^Touches:\s*/, '')), ...section.map(one => one.trim())].join('; ')
+  if (old === given) return { ok: true, result: { id, text: `${id}'s Touches already read: ${given}`, changed: false } }
+  const first = context.findIndex(isTouchesLine)
+  const kept = first < 0 ? underStep(found.item, [wanted]) : copy(found.item)
+  if (first >= 0) kept.sections.set('Context', context.flatMap((one, at) => (at === first ? [wanted] : isTouchesLine(one) ? [] : [one])))
+  kept.sections.delete('Touches')
+  const item = said(kept, w, `Touches corrected: "${old === '' ? '(none)' : old}" → "${given}" (${why})`)
+  const done = await save(item, found.text, w)
+  return done.ok ? changed(item) : done
+}
+
 // ---- incidents (the supervisor, spec 2026-10-24) ----
 
 /** The incident a finding's key counts: the store's incident of that Key (the lowest id when there were two), or undefined. */
@@ -5641,6 +5678,7 @@ const CHANGE = {
   'refine-answer': refineText,
   'refine-accept': refineText,
   undo,
+  touches,
   rename,
   'pause-all': pauseWrite,
   'resume-all': pauseWrite,
