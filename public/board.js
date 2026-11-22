@@ -3963,9 +3963,11 @@ function workersView(workers, now, mod = null) {
   const ask = workers.ask ?? null
   const main = `the main chat, ${workers.mainTitle},`
   const lines = (() => {
-    const done = ask === null || (ask.state === 'delivered' && !ask.isOpen && ask.arrived >= ask.count)
+    const isLost = ask !== null && (ask.state === 'expired' || ask.state === 'failed')
+    // 2026-11-22: with workers on the board, a lost ask is old news after an hour, as a lost remove ask's line; with none it still matters.
+    const done = ask === null || (ask.state === 'delivered' && !ask.isOpen && ask.arrived >= ask.count) || (isLost && !isAlone && now - ask.at >= 60 * MIN)
     if (done) return [{ tone: '', text: isAlone ? `The board asks ${main} for three workers as soon as its chat is open.` : `Asks ${main} to start one more worker. Any worker takes any task.` }]
-    if (ask.state === 'expired' || ask.state === 'failed') return [{ tone: 'problem', text: `The ask of ${clock(ask.at)} did not reach the main chat: open its chat, then ask again.` }]
+    if (isLost) return [{ tone: 'problem', text: `The ask of ${clock(ask.at)} did not reach the main chat: open its chat, then ask again.` }]
     const asked = `${ask.why === 'button' ? 'You asked' : 'The board asked'} ${main} for ${workersWord(ask.count)} at ${clock(ask.at)}`
     if (!ask.isOpen) return [{ tone: '', text: `${asked}; ${ask.arrived === 0 ? 'none has come' : `${ask.arrived} of ${ask.count} came`}.` }]
     const first = { tone: 'asked', text: ask.arrived > 0 ? `${asked}: ${ask.arrived} of ${ask.count} ${ask.arrived === 1 ? 'has' : 'have'} come.` : `${asked}.` }
