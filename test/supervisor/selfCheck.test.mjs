@@ -820,7 +820,12 @@ test('F55: a dead owner\'s lock, a lapsed lock and a claim left behind (a proces
   file = ''
   assert.deepEqual([await taken('after')(), JSON.parse(file).pid, claim.store.text], [false, 7, theirs], 'the claim is not this process\'s after the write: no; theirs stays')
   claim.store.text = null
-  // a claim Windows holds for the moment (another's removal under way, EPERM): the other's this round, nothing taken away
+  // a claim Windows holds for the moment (another's removal under way, EPERM) at the create (review b) or at the read: the other's this
+  // round, no failure, nothing taken away
+  claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock })
+  const heldCreate = loopOwner({ read: async () => file, write: async text => { file = text }, claim: { ...claim, create: async () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }) } }, alive: () => true, pid: 7, port: 4310, now: () => clock })
+  file = ''
+  assert.deepEqual([await heldCreate(), file, JSON.parse(claim.store.text).pid], [false, '', 9])
   claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock })
   const heldClaim = loopOwner({ read: async () => file, write: async text => { file = text }, claim: { ...claim, read: async () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }) } }, alive: () => true, pid: 7, port: 4310, now: () => clock })
   file = ''

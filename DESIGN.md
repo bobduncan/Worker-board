@@ -9038,3 +9038,7 @@ read-back, both answered yes, and the loser learnt it only at its next check. No
   system, one winner, a reader never sees an empty claim), test/supervisor/loopClaimRace.test.mjs (two real processes,
   test/fixtures/loopClaimRacer.mjs: 300 rounds on an empty lock, 300 with a dead claim seeded, 200 under the holder: never two owners,
   no claim left behind), selfCheck.test.mjs (the claim taken away before or after the write, a failed removal, the aged own lock).
+- **Chat 1's re-check of c42f3e5b**: (a) a folder without hard links (exFAT, FAT32, some network or synced folders) refuses `link` with
+  something other than EEXIST or a held file: the claim is then written under its own name with `wx` (exclusive still, only no longer
+  never-empty), so a board on such a folder runs its loops at all. (b) A `create` that meets a claim Windows holds for the moment (EPERM,
+  its removal under way) is the other's this round, no loop-lock failure, as the read path already had it.

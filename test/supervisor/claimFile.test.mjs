@@ -14,7 +14,7 @@ test('the claim is never written under its own name: the text goes whole to a fi
   const made = new Map()
   const fs = {
     mkdir: async () => {},
-    writeFile: async (file, text, options) => { calls.push(['writeFile', file, options?.flag]); made.set(file, text) },
+    writeFile: async (file, text, options) => { calls.push(['writeFile', file, options?.flag]); if (options?.flag === 'wx' && made.has(file)) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' }); made.set(file, text) },
     link: async (from, to) => { calls.push(['link', from, to]); if (made.has(to)) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' }); made.set(to, made.get(from)) },
     rm: async file => { calls.push(['rm', file]); made.delete(file) },
     readFile: async file => { if (!made.has(file)) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return made.get(file) },
@@ -41,6 +41,26 @@ test('the claim is never written under its own name: the text goes whole to a fi
   await retrying.create('{"pid":9}')
   await retrying.remove()
   assert.deepEqual([busy <= 0, made.has(claim)], [true, false], 'a file Windows held for a moment is removed on a later try')
+  // Review a: a folder without hard links: the link fails with ENOTSUP or EISDIR, and the claim is written under its own name with wx instead
+  for (const code of ['ENOTSUP', 'EISDIR', 'ENOSYS']) {
+    calls.length = 0
+    made.clear()
+    const noLinks = claimPorts(claim, { ...fs, link: async () => { calls.push(['link']); throw Object.assign(new Error(code), { code }) } })
+    await noLinks.create('{"pid":7}')
+    assert.deepEqual(calls.map(([what, file, flag]) => [what, file === claim ? 'claim' : 'beside', flag ?? null]), [['writeFile', 'beside', 'wx'], ['link', 'beside', null], ['writeFile', 'claim', 'wx'], ['rm', 'beside', null]], code)
+    assert.deepEqual([[...made.keys()], await noLinks.read()], [[claim], '{"pid":7}'], `${code}: the claim is made all the same`)
+    await assert.rejects(noLinks.create('{"pid":8}'), error => error.code === 'EEXIST', `${code}: a standing claim still refuses (wx)`)
+    assert.equal(await noLinks.read(), '{"pid":7}')
+  }
+  // ... but EEXIST and a held file (EPERM, EBUSY) from the link are the claim's own answers: no fallback write
+  for (const code of ['EEXIST', 'EPERM', 'EBUSY']) {
+    calls.length = 0
+    made.clear()
+    const refusing = claimPorts(claim, { ...fs, link: async () => { throw Object.assign(new Error(code), { code }) } })
+    await assert.rejects(refusing.create('{"pid":7}'), error => error.code === code, code)
+    assert.ok(calls.every(([what, file]) => what !== 'writeFile' || file !== claim), `${code}: nothing written under the claim's name`)
+    assert.deepEqual([...made.keys()], [], `${code}: the file beside is gone`)
+  }
 })
 
 test('on the real file system: of many creates at once exactly one wins, the claim is never read empty, and no file is left beside it', { timeout: 60_000 }, async t => {

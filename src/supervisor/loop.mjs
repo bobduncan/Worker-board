@@ -545,6 +545,8 @@ export function loopOwner({ read, write, claim, alive, pid, port, now }) {
       await claim.create(mine)
       return mine
     } catch (error) {
+      // Review b: a claim Windows holds for the moment (its removal under way: EPERM, not EEXIST) is the other's this round, no failure.
+      if (BUSY.includes(error?.code)) return null
       if (error?.code !== 'EEXIST') throw error
     }
     // Another claim stands: a live one of this moment is theirs (the gate asks again in a second); one left behind is taken away.

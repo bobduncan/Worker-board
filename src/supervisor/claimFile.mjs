@@ -8,7 +8,7 @@
 import { link, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-import { besideOf, removeFile } from '../write.mjs'
+import { BUSY, besideOf, removeFile } from '../write.mjs'
 
 /** The claim file of a loop lock: beside it, `<lock>.claim`. */
 export const claimFileOf = lock => `${lock}.claim`
@@ -16,6 +16,9 @@ export const claimFileOf = lock => `${lock}.claim`
 /**
  * The `claim` ports of `loopOwner` on `claimFile`: `create(text)` (exclusive: EEXIST when a claim stands; never seen empty),
  * `read()` (its text; ENOENT when none), `remove()` (nothing there is fine; tried again while Windows holds it). `fs` for tests.
+ * Review a: a folder without hard links (exFAT, FAT32, some network or synced folders) refuses `link` with something other than
+ * EEXIST or a held file: the claim is then written under its own name with `wx` (exclusive still, only no longer never-empty), so
+ * the board on such a folder runs its loops at all.
  */
 export function claimPorts(claimFile, fs = { link, mkdir, readFile, rm, writeFile }) {
   return {
@@ -24,7 +27,12 @@ export function claimPorts(claimFile, fs = { link, mkdir, readFile, rm, writeFil
       const beside = besideOf(claimFile)
       try {
         await fs.writeFile(beside, text, { flag: 'wx' })
-        await fs.link(beside, claimFile)
+        try {
+          await fs.link(beside, claimFile)
+        } catch (error) {
+          if (error?.code === 'EEXIST' || BUSY.includes(error?.code)) throw error
+          await fs.writeFile(claimFile, text, { flag: 'wx' })
+        }
       } finally {
         await fs.rm(beside, { force: true }).catch(() => {})
       }
