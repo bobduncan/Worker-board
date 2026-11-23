@@ -5,6 +5,7 @@
 // (handover.mjs `decide`, which calls `match` for that one worker); the take-back and stuck clocks are gone. The code
 // says "step"; the person reads "task".
 
+import { heardTimeOf } from '../chatReport.mjs'
 import { chatEffort, effortOf, familyOf, modelOf } from './effort.mjs'
 import { UNDER_WAY, overlapIn, readyHold } from './guards.mjs'
 import { isFix, sinceMs, valueOf } from './item.mjs'
@@ -360,7 +361,8 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
     if (word.command === 'start') {
       const lane = workers.find(one => plain(one.name, prefix) === plain(word.about, prefix))
       // T13 part 3: an asleep worker's start (its task's line wakes it) is counted as the worker it is already, not twice.
-      if (lane !== undefined && lane.asleep !== true && !(lane.report?.at > word.at)) pending += 1
+      // F48: answered by a report really heard after the word; a board start moves a kept report's `at`, not its `heardAt`.
+      if (lane !== undefined && lane.asleep !== true && !(heardTimeOf(lane.report) > word.at)) pending += 1
     }
   }
   return pending
