@@ -13,7 +13,9 @@
 // TEST_TIMEOUT_MS), which ends a test that hangs inside itself (taskWindowPage.test.mjs hung that way for an hour on 2026-11-21).
 // And a stall watchdog: no output of the run for 15 minutes (TEST_STALL_MS) while it is open, a file that hangs at its top
 // level, ends the run with its whole tree and a line naming the test files still open (tools/openFilesReporter.mjs writes them
-// to a file of their own), so land.ps1's "run the failing files again alone" can take them.
+// to a file of their own). A stalled run is a refusal (src/landing.mjs gatePassed), never rerun file by file: node --test held
+// back the results of the files after the open one. The watchdog also ends what the run started outside its tree that names its
+// folder (on a path boundary; never in a folder that is or holds a board's, nor when the list of boards cannot be read).
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
@@ -75,12 +77,29 @@ export function stallLines(open, stallMs, cwd = process.cwd()) {
 
 /** F39, review 9: the folders of the boards on this PC (boards.json): a run there never sweeps them. */
 export function boardFolders(env = process.env) {
+  let text
   try {
-    const read = JSON.parse(readFileSync(join(env.WORKER_BOARD_HOME || join(os.homedir(), '.worker-board'), 'boards.json'), 'utf8').replace(/^\uFEFF/, ''))
-    return (Array.isArray(read?.boards) ? read.boards : []).map(one => one?.folder).filter(one => typeof one === 'string' && one !== '')
-  } catch {
-    return []
+    text = readFileSync(join(env.WORKER_BOARD_HOME || join(os.homedir(), '.worker-board'), 'boards.json'), 'utf8')
+  } catch (error) {
+    // No list: no board on this PC. Any other trouble: null, and the sweep fails closed (F39, the re-check).
+    return error?.code === 'ENOENT' ? [] : null
   }
+  try {
+    const read = JSON.parse(text.replace(/^\uFEFF/, ''))
+    if (!Array.isArray(read?.boards)) return null
+    return read.boards.map(one => one?.folder).filter(one => typeof one === 'string' && one !== '')
+  } catch {
+    return null
+  }
+}
+
+/** F39, the re-check: whether `folder` is a board's folder or holds one (a run in the project folder holds the live board's). */
+export function holdsBoard(folder, boards) {
+  const top = resolve(folder).toLowerCase().replace(/[\\/]+$/, '')
+  return boards.some(one => {
+    const board = resolve(one).toLowerCase().replace(/[\\/]+$/, '')
+    return board === top || board.startsWith(`${top}\\`) || board.startsWith(`${top}/`)
+  })
 }
 
 /** F39, review 9: the pattern a command line must match to name `folder`: the folder, then a \\, a quote, a space or the end. */
@@ -95,9 +114,9 @@ export function insidePattern(folder) {
  */
 export function stopInside(folder, since, run = spawnSync, boards = boardFolders()) {
   if (process.platform !== 'win32') return
-  // Never a board's own folder: a run there would end the board itself, restarted after the run began.
-  const same = one => resolve(one).toLowerCase() === resolve(folder).toLowerCase()
-  if (boards.some(same)) return
+  // Never a board's own folder, nor one that holds a board (a run there would end the board itself, restarted after the run
+  // began); and never when the list of boards cannot be read (fails closed).
+  if (!Array.isArray(boards) || holdsBoard(folder, boards)) return
   const pattern = insidePattern(folder).replace(/'/g, "''")
   const script = [
     `$since = [DateTime]::FromFileTimeUtc(${Math.floor(since * 10000 + 116444736000000000)})`,

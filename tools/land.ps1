@@ -796,7 +796,13 @@ function Invoke-GateCommand([string]$Command, [string]$WorkDir, [string]$Output)
     # F39: the landing lock's beat while the gate runs (it is taken before the gate), once a minute.
     # A lock lost during the gate (another landing broke it) ends the gate: never gate on without the lock (F39, review).
     if (($now - $beatAt).TotalSeconds -ge $lockBeatSeconds) {
-      try { Update-LockBeat $true } catch { Stop-GateTree $process; throw }
+      # One retry first (a busy file, a slow node): only a second failure ends the gate.
+      try { Update-LockBeat $true } catch {
+        $script:refused = $false
+        $script:why = $null
+        Start-Sleep -Milliseconds 1000
+        try { Update-LockBeat $true } catch { Stop-GateTree $process; throw }
+      }
       $beatAt = $now
     }
     if ($null -eq $clockFrom) {

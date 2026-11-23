@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { join } from 'node:path'
 import { failingFiles, gateVerdict } from '../src/landing.mjs'
-import { LOW, STALL_MS, TEST_TIMEOUT_MS, halfTheCores, insidePattern, openFiles, runTests, stallLines, stopInside } from '../tools/test.mjs'
+import { LOW, STALL_MS, TEST_TIMEOUT_MS, boardFolders, halfTheCores, holdsBoard, insidePattern, openFiles, runTests, stallLines, stopInside } from '../tools/test.mjs'
 
 test('B351: npm test runs the tests through tools/test.mjs, on half the cores, at least one', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
@@ -189,6 +189,13 @@ test('F39 review 9: the sweep names a folder only on a path boundary, and never 
   const run = (...args) => calls.push(args)
   stopInside('D:/boards/x/worker-board', Date.now(), run, ['D:\\boards\\x\\worker-board'])
   assert.equal(calls.length, 0, 'a board folder is never swept')
+  // The re-check: a folder that holds a board (the project folder around it) is never swept either, and nothing is swept when
+  // the list of boards cannot be read.
+  stopInside('D:/boards/x', Date.now(), run, ['D:\\boards\\x\\worker-board'])
+  stopInside('D:/temp/run-2', Date.now(), run, null)
+  assert.equal(calls.length, 0, 'a folder holding a board, or no readable list: no sweep')
+  assert.equal(holdsBoard('D:/boards', ['D:\\boards\\x\\worker-board']), true)
+  assert.equal(holdsBoard('D:/boards/x/worker-board-t5', ['D:\\boards\\x\\worker-board']), false)
   if (process.platform === 'win32') {
     stopInside('D:/temp/run-1', Date.now(), run, ['D:\\boards\\x\\worker-board'])
     assert.equal(calls.length, 1)
@@ -216,4 +223,16 @@ test('F39 review 10: with piped output the run counts on close, after the tail o
   const code = await runTests({ files: ['x'], cores: 2, start, setPriority: () => {}, out: stream, err: stream })
   assert.equal(code, 0)
   assert.match(seen.text, /ℹ fail 0/)
+})
+
+test('F39, the re-check: the list of boards fails closed: a broken boards.json gives null, a missing one no boards', t => {
+  const home = mkdtempSync(join(os.tmpdir(), 'boards-home-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  assert.deepEqual(boardFolders({ WORKER_BOARD_HOME: home }), [])
+  writeFileSync(join(home, 'boards.json'), '{ torn')
+  assert.equal(boardFolders({ WORKER_BOARD_HOME: home }), null)
+  writeFileSync(join(home, 'boards.json'), '{}')
+  assert.equal(boardFolders({ WORKER_BOARD_HOME: home }), null, 'no list of boards in it: unreadable too')
+  writeFileSync(join(home, 'boards.json'), JSON.stringify({ boards: [{ folder: 'D:\\boards\\x\\worker-board' }] }))
+  assert.deepEqual(boardFolders({ WORKER_BOARD_HOME: home }), ['D:\\boards\\x\\worker-board'])
 })

@@ -84,6 +84,9 @@ export function gatePassed(output, kind = 'board', exitCode = undefined) {
   // --test held back the results of the files after the open one, so a failure there would be lost.
   const stalled = /^stalled: no test output for .+$/m.exec(stripAnsi(output))
   if (stalled !== null) return { ok: false, why: `the test run stalled (${stalled[0].trim()})`, stalled: true }
+  // F39, the re-check: the same for a run the one-at-a-time helper stopped at its cap (its results are cut off as well).
+  const capped = /^one-at-a-time: .+ ran longer than \d+ minutes and was stopped\s*$/m.exec(stripAnsi(output))
+  if (capped !== null) return { ok: false, why: `the test run was stopped at its cap (${capped[0].trim()})`, stalled: true }
   const pattern = kind === 'mod' ? /^\s*(\d+) fail\s*$/ : /^(?:ℹ|#) fail (\d+)\s*$/
   const fails = stripAnsi(output).split(/\r?\n/).map(line => pattern.exec(line)?.[1]).filter(found => found !== undefined).map(Number)
   if (fails.length === 0) return { ok: false, why: `no summary line in the output (a line "${kind === 'mod' ? 'N fail' : 'fail N'}" is missing)` }

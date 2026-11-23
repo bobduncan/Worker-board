@@ -467,3 +467,16 @@ test('F39 review 6: a ticket with an old beat (a reused pid), or an old copy\'s 
   }
   assert.equal(TICKET_MAX_AGE_MS, 3 * 60 * 60000)
 })
+
+test('F39, the re-check: a waiter whose queue folder is removed makes it again and still runs', async () => {
+  const lock = newLock()
+  writeFileSync(lock, lockText())
+  const waiter = start(lock, 'patient', quick)
+  await until(() => /waiting for/.test(waiter.err), 'the waiter waiting')
+  rmSync(`${lock}.queue`, { recursive: true, force: true })
+  await until(() => existsSync(`${lock}.queue`), 'the queue folder made again', 5000)
+  rmSync(lock)
+  const result = await waiter.done
+  assert.equal(result.code, 0)
+  assert.match(result.out, /ran/)
+})

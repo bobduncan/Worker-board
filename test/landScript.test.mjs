@@ -398,6 +398,34 @@ test('F39: two landings a minute apart: the second refuses at once, before any g
   assertCleanedUp(world)
 })
 
+test('F39, the re-check: the landing lock says "land" before main moves (the watcher and the closers wait only for that phase)', LONG, async t => {
+  const world = await makeWorld(t)
+  const head = world.branch('feat')
+  await world.boards()
+  world.config({ gateBoard: world.gate('board-slow-pass') })
+  world.env.GATE_SLOW_MS = '2000'
+  const lock = join(world.data, 'landing.lock')
+  const before = git(world.main, 'rev-parse', 'HEAD')
+  const phaseNow = () => { try { return JSON.parse(readFileSync(lock, 'utf8')).phase ?? 'none' } catch { return 'none' } }
+  const seen = { gate: false, atMove: null }
+  let watching = true
+  const watch = (async () => {
+    while (watching && seen.atMove === null) {
+      if (phaseNow() === 'gate') seen.gate = true
+      // main first, then the lock: once main has moved, the lock read after it must already say "land".
+      if (git(world.main, 'rev-parse', 'HEAD') !== before) seen.atMove = phaseNow()
+      await new Promise(done => setTimeout(done, 20))
+    }
+  })()
+  const ran = await world.land('feat')
+  watching = false
+  await watch
+  assert.equal(ran.status, 0, ran.out)
+  assert.equal(git(world.main, 'rev-parse', 'HEAD'), head)
+  assert.equal(seen.gate, true, 'the lock said "gate" while the gate ran')
+  assert.equal(seen.atMove, 'land', 'the lock said "land" by the time main had moved')
+})
+
 test('F39: a land.ps1 killed mid-gate frees the landing lock at once: the next landing breaks it and lands', LONG, async t => {
   const world = await makeWorld(t)
   const head = world.branch('feat-a', { 'a.txt': 'a\n' })
@@ -1103,4 +1131,10 @@ test('the script is plain ASCII and has no syntax error in Windows PowerShell', 
     '$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile($env:LAND_SCRIPT, [ref]$null, [ref]$errors); $errors.Count'],
   { encoding: 'utf8', env: { ...process.env, LAND_SCRIPT: SCRIPT }, windowsHide: true })
   assert.equal(ran.stdout.trim(), '0', ran.stdout + ran.stderr)
+})
+
+test('F39, the re-check: a failed beat during the gate is tried once more before it ends the gate', () => {
+  const source = readFileSync(SCRIPT, 'utf8').replace(/\r\n/g, '\n')
+  const loop = source.slice(source.indexOf('function Invoke-GateCommand'), source.indexOf('function Add-FileBytes'))
+  assert.match(loop, /try \{ Update-LockBeat \$true \} catch \{\n\s+\$script:refused = \$false\n\s+\$script:why = \$null\n\s+Start-Sleep -Milliseconds 1000\n\s+try \{ Update-LockBeat \$true \} catch \{ Stop-GateTree \$process; throw \}/)
 })

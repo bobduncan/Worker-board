@@ -8888,7 +8888,8 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
   land.ps1's 60-minute gate clock (a test reads both).
 - **Fair order** (`queueOrder`, one pure function, so two runs never both think it is their turn). A first-class ticket counts as
   if it came 30 minutes earlier than it did. A landing jumps at most 30 minutes ahead, and a worker that has waited 30 minutes or
-  more goes before a landing that came after that. Today's case replayed (test/oneAtATime.test.mjs): B1283, A2, Worker 3, A1/A3/A4,
+  more goes before a landing that came after that (an old copy's ordinary ticket goes after every other: see the review fixes
+  below). Today's case replayed (test/oneAtATime.test.mjs): B1283, A2, Worker 3, A1/A3/A4,
   A7, Worker 1, Worker 5, Worker 4. F14's "runs now" line and the gate clock stay as they are.
 - **One landing at a time, whole** (tools/land.ps1, src/landing.mjs). The landing lock is taken BEFORE the gate, and the gate's
   poll loop beats it once a minute (`lockBeatSeconds`). A second land.ps1 refuses at once, before any gate: "<by> lands <branch>
@@ -8897,9 +8898,8 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
 - **A hung test costs minutes, not the hour** (tools/test.mjs). node --test runs with `--test-timeout` (10 minutes,
   TEST_TIMEOUT_MS) and `--test-force-exit`, so a test that hangs inside itself fails and its file ends even with a timer it left
   running. A stall watchdog ends the run with its whole tree when there has been no output for 15 minutes (TEST_STALL_MS): a file
-  that hangs at its top level. It ends with "stalled: ...; files still open: ..." and one `test at <file>:1:1` line per file. A
-  second reporter (tools/openFilesReporter.mjs) writes which files are taken up and ended, and land.ps1's "run the failing files
-  again alone" takes the files from those lines.
+  that hangs at its top level. It ends with "stalled: ...; files still open: ..." (a second reporter, tools/openFilesReporter.mjs,
+  writes which files are taken up and ended). Since the review a stall is a refusal with no rerun (see below).
 
 **F39, chat 1's review (2026-11-21), the fixes:**
 - **Old and new copies side by side** (blocker 1). Copies of before F39 run in open worktrees and the game until they merge main.
@@ -8920,5 +8920,5 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
   the carry guards read, so a dead board is not left alone through an hour-long gate.
 - **land.ps1**: the rerun alone defaults to `node tools/test.mjs {file}`, after Stop-FolderProcesses. A lock lost during the gate
   stops the gate and refuses. The sweep of a cut landing's gate first ends what it left running there.
-- **tools/test.mjs**: the sweep names a folder only on a path boundary, never a board's own folder (boards.json), never its own
-  powershell. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.
+- **tools/test.mjs**: the sweep names a folder only on a path boundary, never in a folder that is or holds a board's (boards.json;
+  an unreadable list: no sweep), never its own powershell. A run the helper stopped at its cap is refused like a stall. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.

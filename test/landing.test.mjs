@@ -357,3 +357,11 @@ test('F39 review 7: the lock says its phase: "gate" when taken, "land" once refr
   writeFileSync(old, JSON.stringify({ by: 'chat 1', branch: 'x', at: new Date(NOW - MIN).toISOString(), pid: process.pid }))
   assert.equal(lockHolder(old, NOW).phase, 'land')
 })
+
+test('F39, the re-check: a run the one-at-a-time helper stopped at its cap is refused like a stall, with no file to rerun', () => {
+  const output = ['✔ one (1ms)', 'test at test/a.test.mjs:2:1', 'one-at-a-time: test ran longer than 120 minutes and was stopped'].join('\n')
+  const verdict = gateVerdict(output, 'board', 124)
+  assert.equal(verdict.ok, false)
+  assert.equal(verdict.why, 'the test run was stopped at its cap (one-at-a-time: test ran longer than 120 minutes and was stopped)')
+  assert.equal(verdict.files, undefined)
+})

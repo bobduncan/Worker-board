@@ -43,7 +43,8 @@
 //   and a second gate started beside it).
 // - F39: fair order (queueOrder, one pure function, so two runs never both think it is their turn): a first-class ticket counts as
 //   if it came 30 minutes earlier than it did. A landing jumps at most 30 minutes ahead; a worker that has waited 30 minutes or
-//   more goes before a landing that came after that (on 2026-11-21 workers sat 50-100 minutes behind four landings).
+//   more goes before a landing that came after that (on 2026-11-21 workers sat 50-100 minutes behind four landings). An old
+//   copy's ordinary ticket is the one exception: it goes after every other ticket (see the next point).
 // - F39, chat 1's review: copies of before F39 run beside this one (open worktrees, the game) until they merge main. A ticket of this
 //   copy says `order: 2`; an unmarked ordinary ticket (an old copy's) is ranked by the old rule, after every first-class ticket,
 //   as the old copy ranks itself, so the two never both wait for each other. Each beat also moves `startedAt` (old copies judge a
@@ -309,8 +310,18 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
   // F39, review: the ticket's beat at every look; one dropped meanwhile (an old beat after a PC sleep) is made again.
   const beatTicket = () => {
     const next = ticketOf(new Date().toISOString())
-    if (rewriteLock(ticket, ticketText, next)) ticketText = next
-    else if (createLock(ticket, next)) ticketText = next
+    if (rewriteLock(ticket, ticketText, next)) {
+      ticketText = next
+      return
+    }
+    // F39, the re-check: the queue folder itself may be gone (a clean-up of the temporary folder): made again.
+    try {
+      if (createLock(ticket, next)) ticketText = next
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+      mkdirSync(queue, { recursive: true })
+      if (createLock(ticket, next)) ticketText = next
+    }
   }
   const watched = new Map()
   const leave = () => giveBack(ticket, ticketText)
