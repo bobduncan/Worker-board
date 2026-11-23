@@ -28,7 +28,7 @@ function readRun(file, read) {
  * there is no queue or it cannot be read. `tool` the tool's module; `env`, `now`, `runs` (pidRuns), `read` and `list` are the tests' seams.
  */
 export function readTestQueue({ tool, env = process.env, now = Date.now(), runs = tool.pidRuns, read = readFileSync, list = readdirSync }) {
-  const { aheadOf, lockPath, slotCountOf, slotPath, slotsOf, whyStale } = tool
+  const { BEAT_STALE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, lockPath, queueOrder, slotCountOf, slotPath, slotsOf, whyStale } = tool
   const file = lockPath(env)
   const found = []
   const running = []
@@ -36,20 +36,28 @@ export function readTestQueue({ tool, env = process.env, now = Date.now(), runs 
     const info = readRun(slotPath(file, n), read)
     if (info !== null && whyStale(info, now, runs) === null) running.push(info)
   }
-  for (const info of running) found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'running', since: Date.parse(info.startedAt), ahead: 0 })
+  // F39: a holder's `startedAt` moves with every beat; `since` keeps when it took the slot.
+  for (const info of running) found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'running', since: Date.parse(info.since ?? info.startedAt), ahead: 0 })
   let names = []
   try {
     names = list(`${file}.queue`).filter(name => name.endsWith('.json')).sort()
   } catch {
     return found
   }
+  // F39: a ticket whose process is gone, whose beat is older than 5 minutes, or an old copy's (no beat) older than 3 hours is dropped by the
+  // runs themselves; here it is only left out, never removed.
+  const live = info => {
+    const beat = Date.parse(info.beat)
+    return runs(info.pid) && (Number.isFinite(beat) ? now - beat <= BEAT_STALE_MS : now - Date.parse(info.startedAt) <= TICKET_MAX_AGE_MS)
+  }
   const tickets = names.map(name => ({ name, info: readRun(path.join(`${file}.queue`, name), read) }))
-    .filter(one => one.info !== null && runs(one.info.pid))
-  const order = tickets.map(one => ({ name: one.name, first: one.info.first === true }))
-  for (const { name, info } of tickets) {
+    .filter(one => one.info !== null && live(one.info))
+  const order = queueOrder(tickets.map(one => ({ name: one.name, first: one.info.first === true, fair: one.info.order === ORDER_MARK })))
+  // In the order they go (F39's queueOrder), not the order of the file names.
+  for (const { name, info } of order.map(one => tickets.find(ticket => ticket.name === one.name))) {
     // A run that already holds a slot has left the queue (its ticket goes when it takes its turn): not counted twice.
     if (running.some(one => one.pid === info.pid)) continue
-    found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'waiting', since: Date.parse(info.startedAt), ahead: running.length + aheadOf(order, name, info.first === true) })
+    found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'waiting', since: Date.parse(info.startedAt), ahead: running.length + order.findIndex(one => one.name === name) })
   }
   return found
 }

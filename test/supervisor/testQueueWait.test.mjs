@@ -117,12 +117,39 @@ test('readTestQueue: the lock, its slot files and the tickets, live pids only, i
       ['C:\\Work\\other-b9', 'waiting', 2],
     ], 'the dead pid\'s ticket and the unreadable one are none; each waiting run counts the one that runs and the tickets before it')
     assert.equal(found[1].since, at(10, 58))
-    // a lock whose process is gone, or older than 45 minutes, is stale: not running
-    assert.deepEqual(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now: at(13, 30), runs: alive }).filter(one => one.state === 'running'), [])
+    // a lock whose process is gone, or older than 75 minutes without a beat (F39), is stale: not running
+    assert.deepEqual(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now: at(13, 45), runs: alive }).filter(one => one.state === 'running'), [])
     assert.equal(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: pid => pid !== 11 && alive(pid) }).filter(one => one.state === 'running').length, 0)
     // nothing was written or removed (read only): the dead ticket still stands
     assert.equal(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: path.join(dir, 'none.lock') }, now }).length, 0)
     assert.deepEqual(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: alive }).length, 3)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('readTestQueue with F39 tickets: a beat keeps a holder at work, a stale beat drops a ticket, a first-class ticket goes 30 min earlier, the holder keeps its since', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'testq-'))
+  try {
+    const lock = path.join(dir, 'one-heavy-run.lock')
+    const queue = `${lock}.queue`
+    mkdirSync(queue)
+    const now = at(14, 0)
+    const iso = ms => new Date(ms).toISOString()
+    // a holder that took its slot at 12:30 and beat a minute ago: at work (past the 75 min a lock without a beat gets) (startedAt moves with its beats)
+    writeFileSync(lock, JSON.stringify({ pid: 11, label: 'test', cwd: 'C:\\Work\\worker-board-b1300', since: iso(at(12, 30)), startedAt: iso(now - MIN), beat: iso(now - MIN), order: tool.ORDER_MARK }))
+    const put = (name, body) => writeFileSync(path.join(queue, name), JSON.stringify({ order: tool.ORDER_MARK, ...body }))
+    const ms = at => String(at).padStart(15, '0')
+    put(`${ms(at(12, 0))}-00000044.json`, { pid: 44, label: 'test', cwd: FOLDER, startedAt: iso(at(12, 0)), beat: iso(now - MIN) })
+    put(`${ms(at(12, 10))}-00000055.json`, { pid: 55, label: 'test', cwd: 'C:\\Work\\gate-b9', startedAt: iso(at(12, 10)), beat: iso(now - MIN), first: true })
+    put(`${ms(at(12, 20))}-00000066.json`, { pid: 66, label: 'test', cwd: 'C:\\Work\\old-beat-b8', startedAt: iso(at(12, 20)), beat: iso(now - 6 * MIN) })
+    const found = readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: () => true })
+    assert.deepEqual(found.map(one => [one.cwd, one.state, one.ahead]), [
+      ['C:\\Work\\worker-board-b1300', 'running', 0],
+      ['C:\\Work\\gate-b9', 'waiting', 1],
+      [FOLDER, 'waiting', 2],
+    ], 'the first-class ticket of 12:10 goes before the ordinary one of 12:00; the ticket with a 6 min old beat is left out')
+    assert.equal(found[0].since, at(12, 30), 'the holder since, not its moving startedAt')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
