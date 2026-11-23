@@ -9006,3 +9006,39 @@ step walked every item for its held asks, and every word for its refine word, tw
 index of asks by their `Of` (work/links.mjs, which falls back to a scan when the store changes size), and the newest refine word
 per step from one map per list per build (`newestRefines`). The output is the same on a copy of the real store (backlog and whole
 state hashed before and after); a build there went from 2106 ms to 662 ms.
+
+## F55: one claim for the loops (2026-11-23, chat 3, chat 1's finding)
+
+test/oneLoopProcess.test.mjs ("two board processes on one project") failed in 4 of 5 landing gates and once alone: in the failing runs
+the process the lock did NOT name had done owner-only work (a chat log given up, the start check), so both processes held the loops for a
+moment. The cause was B488's claim: write the lock, wait 80 ms, read it back. On a busy PC the other process's write landed after that
+read-back, both answered yes, and the loser learnt it only at its next check. Now (src/supervisor/loop.mjs `loopOwner`):
+- **The claim file** `<lock>.claim` beside `sync-loop.json`, made with the file system's exclusive create (`wx`, server.mjs `claim.create`):
+  of two processes that claim at once, one has it and the other meets EEXIST at once. A new claim (no lock, a dead owner's, a lapsed one)
+  is made under it: the lock is read AGAIN under the claim (the other claimant may have written it meanwhile: then no, without writing),
+  then written, and the claim is removed whatever happened (`finally`). No settle, no read-back.
+- **A claim left behind** (a board gone between claim and write, or hanging there) is abandoned once its process is dead, or after
+  CLAIM_STALE_MS (30 s: a pid Windows gave again), or when it is torn; it is taken away and the claim made once more (one retry).
+  A live young claim is the other's: no, and the gate asks again in a second. The exit handler takes an own claim away with the lock.
+- **The heartbeat** (the holder's own lock written again, B934 unflushed) takes no claim and is unchanged.
+- Tests: test/supervisor/selfCheck.test.mjs (the two interleavings B488 could not see, 40 racing rounds with one owner each, dead owner,
+  lapsed lock, dead or old or torn claim, a live young claim kept, a vanished claim, a failed write lets go, the heartbeat makes no claim);
+  component.test.mjs pins the server's wiring (the claim ports from claimFile.mjs, the unflushed lock, no settle); oneLoopProcess ran 10 times
+  through the queue.
+- **Chat 1's core review (2026-11-23, two lenses and real two-process probes: main 14 double owners in 40 rounds, f1c7f508 0 in 44 under
+  long stalls, but 11 in 1500 at 20 ms bursts and 68 in 167 with a dead claim seeded)**: (1) `writeFile` with `wx` opened the claim empty
+  and filled it a step later; the other read '' and took it away as torn. The claim is now a hard link (src/supervisor/claimFile.mjs): the
+  whole text goes to a file beside, `link` gives it the claim's name in one step (EEXIST when a claim stands), the file beside goes in a
+  finally. (2) A removal by name could take another's fresh claim: `takeClaim` keeps the exact text it made and the claim is this process's
+  only while it reads that text, checked before the lock write and after it; only an own claim is removed; after an abandoned claim is
+  taken away the round answers no, so two processes that both took it away do not both claim now. (3) Only an own lock at most
+  FRESH_OWN_MS (LOOP_LOCK_MS / 2) old is a heartbeat without a claim; an older own lock (a PC asleep) claims like a new one. (4) The
+  removal changes no answer, and the port uses the retrying removeFile; a claim Windows holds for the moment (EPERM while its removal
+  is under way) is the other's this round. Proof: test/supervisor/claimFile.test.mjs (the ports; 24 creates at once on the real file
+  system, one winner, a reader never sees an empty claim), test/supervisor/loopClaimRace.test.mjs (two real processes,
+  test/fixtures/loopClaimRacer.mjs: 300 rounds on an empty lock, 300 with a dead claim seeded, 200 under the holder: never two owners,
+  no claim left behind), selfCheck.test.mjs (the claim taken away before or after the write, a failed removal, the aged own lock).
+- **Chat 1's re-check of c42f3e5b**: (a) a folder without hard links (exFAT, FAT32, some network or synced folders) refuses `link` with
+  something other than EEXIST or a held file: the claim is then written under its own name with `wx` (exclusive still, only no longer
+  never-empty), so a board on such a folder runs its loops at all. (b) A `create` that meets a claim Windows holds for the moment (EPERM,
+  its removal under way) is the other's this round, no loop-lock failure, as the read path already had it.
