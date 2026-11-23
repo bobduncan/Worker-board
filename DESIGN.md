@@ -1629,6 +1629,8 @@ in `art-inbox/worker-board/b262/`.
   a time (per area: how many tasks, the typical working time, how far estimates were off; an area under 5 tasks is
   still a guess), and shows "Estimates lately: 7x too high" on the Overview (its tooltip per area) and "estimate 1 h,
   took 6 min" in the Backlog tab's "Recently finished". The tasks of one step are one there. Nothing is kept by hand.
+  F42: a step's estimate is its refine Size (else the minutes of its take); a task kept without one takes it where it is read
+  (`withStepSizes`), so "Estimates lately" reads the newest tasks, not those from before the `Estimate` head line went out of use.
   The picture: `art-inbox/worker-board/2026-10-14-b185-task-times.png`.
 - An estimate older than 15 minutes of work is marked as old. In step 4 the mod reminded a working chat to renew it (the
   reminder was dropped in 0.25.1 with the classic hooks: the person knows, and it was small).
@@ -4375,6 +4377,8 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
   an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a
   state read under a second ago.
+  F42 (X213, X214: a 47 h PC sleep in the middle of a state rebuild): a state built more than the gap time (`GAP_MS`) before its read
+  ended is read once more (`src/afterSleep.mjs`), so no caller after a wake counts "now" with the off time from before the sleep.
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a

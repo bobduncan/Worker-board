@@ -60,6 +60,7 @@ import { readHead } from './src/files.mjs'
 import { chatsByRole, oldModNeed } from './src/oldMods.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
+import { readAfterSleep } from './src/afterSleep.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog } from './src/hearing.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
@@ -67,7 +68,8 @@ import { workCallRecord } from './src/workCalls.mjs'
 import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
-import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
+import { areaOf, freshScan, keptTasks, listText, readOn, withStepSizes } from './src/taskTimes.mjs'
+import { sizeOf } from './src/work/held.mjs'
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
@@ -2471,7 +2473,8 @@ async function main(args) {
   // P7, the review: the none-ready episode (state.mjs `noWorkSeen`), in memory as planSeen: a restart starts it from the
   // longest-free worker's since again.
   let noWorkSeen = null
-  const readState = cached(() => trackJob('state rebuild', async () => {
+  // F42: an answer built before a PC sleep is read again (src/afterSleep.mjs).
+  const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {
     rebuilds += 1
     if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
@@ -2503,7 +2506,8 @@ async function main(args) {
       // board-fast-answer: the day's work-call figures for the Supervisor's health line (src/workCalls.mjs).
       workCalls: workCalls.today(clock()),
       finishedSeen: finishedSeen ?? {},
-      taskTimes: taskTimes.tasks,
+      // F42: a kept task without an estimate counts its step's size.
+      taskTimes: withStepSizes(taskTimes.tasks, raw.work?.items),
       // Stability numbers (2026-11-05, task 4): what the loop above last recorded; the demo shows made-up days.
       stability: isDemo ? demoStability(clock()) : keepStability?.latest() ?? null,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
@@ -2515,7 +2519,7 @@ async function main(args) {
       // Signals change 7 (B914): when each worker's own plan words last changed, as the last read saw them (memory only).
       planSeen,
       noWorkSeen,
-      now: clock(),
+      now: built(clock()),
       config: { ...config, project },
     })
     planSeen = state.planSeen ?? {}
@@ -2535,7 +2539,7 @@ async function main(args) {
     return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside,
       // T5.2 A7: the project keys config.json still holds while the project's settings file is in use (ignored: the amber line).
       settingsIgnored: isDemo || typeof config.settingsFile !== 'string' ? null : { file: basename(config.settingsFile), keys: config.settingsIgnored ?? [] }, check: checker?.view() ?? null, clicksUnsent: (await clicks.settle(one => movedOn(one, state, store.outbox()), clock()), await clicks.unsent()) }
-  }), STATE_MS)
+  })), STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
   // at the first look. Tasks a worker reported are added to the list, and the list the chats read is written anew.
@@ -2552,7 +2556,7 @@ async function main(args) {
         const item = items.get(id)
         if (item === undefined) return null
         const words = [item.head.get('Title') ?? '', ...(item.sections.get('Context') ?? []), ...(item.sections.get('Touches') ?? []).map(one => `Touches: ${one}`)].join('\n')
-        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), effort: effortOf(item).level }
+        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`) ?? sizeOf(item), effort: effortOf(item).level }
       }
       const added = []
       const routingRecords = [...items.values()].map(item => ({ item, read: readRoutingRecord(item) }))
@@ -2585,7 +2589,7 @@ async function main(args) {
       if (historyFrom === undefined) {
         // B934: the board's own measure, made again from the transcripts: no flush.
         await writeUnflushed(TASK_TIMES_FILE, JSON.stringify(taskTimes))
-        if (added.length > 0 || !hasList) await writeUnflushed(TASK_LIST_FILE, listText(taskTimes.tasks, clock()))
+        if (added.length > 0 || !hasList) await writeUnflushed(TASK_LIST_FILE, listText(withStepSizes(taskTimes.tasks, items), clock()))
         hasList = true
       }
       if (added.length > 0) readState.reset()

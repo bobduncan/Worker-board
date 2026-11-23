@@ -11,6 +11,7 @@ import { open } from 'node:fs/promises'
 
 import { PAUSED } from './limits.mjs'
 import { EFFORTS } from './work/effort.mjs'
+import { sizeOf } from './work/held.mjs'
 import { endsTurn, hasToolResult, isCommandText, parseTail, textOf } from './transcript.mjs'
 
 const MIN = 60_000
@@ -191,6 +192,20 @@ export function offWords(ratio) {
   if (ratio >= 1.5) return `${ratio >= 10 ? Math.round(ratio) : Math.round(ratio * 10) / 10}x too high`
   if (ratio <= 1 / 1.5) return `${Math.round(10 / ratio) / 10}x too low`
   return 'about right'
+}
+
+/**
+ * F42 (the Overview's "Estimates lately: 5.9x too high" read ten tasks of 24-25 October): a step's estimate is its refine Size now
+ * (held.mjs `sizeOf`), no longer the old `Estimate` head line. A kept task without an estimate takes its step's size where it is read;
+ * the kept list itself stays as it is.
+ */
+export function withStepSizes(tasks, items) {
+  return tasks.map(task => {
+    if (task.estimateMin !== null && task.estimateMin !== undefined) return task
+    const item = task.step === null ? undefined : items?.get?.(task.step)
+    const size = item === undefined ? null : sizeOf(item)
+    return size === null ? task : { ...task, estimateMin: size }
+  })
 }
 
 /** A task's estimate against its working time: estimate / took, or null without an estimate. */
