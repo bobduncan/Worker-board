@@ -163,7 +163,11 @@ test('F39: a file that hangs at its top level ends the run at the stall watchdog
   const { folder, file } = hangFolder(t, 'hangs-on-top.test.mjs', sleeperCode)
   const { seen, stream } = sink()
   const began = Date.now()
-  const code = await runTests({ files: [file], cores: 2, start: realStart(), setPriority: () => {}, timeoutMs: 600_000, stallMs: 3000, watchMs: 250, out: stream, err: stream, cwd: folder })
+  // A list of boards of its own: without a readable list the sweep does nothing.
+  const home = mkdtempSync(join(os.tmpdir(), 'boards-home-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  writeFileSync(join(home, 'boards.json'), JSON.stringify({ boards: [] }))
+  const code = await runTests({ files: [file], cores: 2, start: realStart(), setPriority: () => {}, timeoutMs: 600_000, stallMs: 3000, watchMs: 250, out: stream, err: stream, cwd: folder, env: { ...process.env, WORKER_BOARD_HOME: home } })
   assert.equal(code, 1)
   assert.ok(Date.now() - began < 60_000, 'ended at the watchdog')
   assert.match(seen.text, /stalled: no test output for 3 seconds; files still open: .*hangs-on-top\.test\.mjs \(at its top level\)/)
@@ -228,7 +232,7 @@ test('F39 review 10: with piped output the run counts on close, after the tail o
 test('F39, the re-check: the list of boards fails closed: a broken boards.json gives null, a missing one no boards', t => {
   const home = mkdtempSync(join(os.tmpdir(), 'boards-home-'))
   t.after(() => rmSync(home, { recursive: true, force: true }))
-  assert.deepEqual(boardFolders({ WORKER_BOARD_HOME: home }), [])
+  assert.equal(boardFolders({ WORKER_BOARD_HOME: home }), null, 'no list: no sweep')
   writeFileSync(join(home, 'boards.json'), '{ torn')
   assert.equal(boardFolders({ WORKER_BOARD_HOME: home }), null)
   writeFileSync(join(home, 'boards.json'), '{}')

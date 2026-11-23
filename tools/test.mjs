@@ -80,9 +80,10 @@ export function boardFolders(env = process.env) {
   let text
   try {
     text = readFileSync(join(env.WORKER_BOARD_HOME || join(os.homedir(), '.worker-board'), 'boards.json'), 'utf8')
-  } catch (error) {
-    // No list: no board on this PC. Any other trouble: null, and the sweep fails closed (F39, the re-check).
-    return error?.code === 'ENOENT' ? [] : null
+  } catch {
+    // No list, or one that cannot be read: null, and the sweep fails closed (F39, the re-check). land.ps1's own clean-up of its gate
+    // folder does not depend on this.
+    return null
   }
   try {
     const read = JSON.parse(text.replace(/^\uFEFF/, ''))
@@ -146,7 +147,7 @@ function stopTree(child) {
 export function runTests({
   files, cores = os.cpus().length, start = spawn, setPriority = os.setPriority, node = process.execPath,
   timeoutMs = positive(process.env.TEST_TIMEOUT_MS, TEST_TIMEOUT_MS), stallMs = positive(process.env.TEST_STALL_MS, STALL_MS),
-  watchMs = positive(process.env.TEST_WATCH_MS, WATCH_MS), out = process.stdout, err = process.stderr, cwd = process.cwd(),
+  watchMs = positive(process.env.TEST_WATCH_MS, WATCH_MS), out = process.stdout, err = process.stderr, cwd = process.cwd(), env = process.env,
 }) {
   const lower = (...args) => {
     try {
@@ -188,7 +189,7 @@ export function runTests({
       }
       out.write(`\n${stallLines(openFiles(text), stallMs, cwd).join('\n')}\n`)
       stopTree(child)
-      stopInside(cwd, began)
+      stopInside(cwd, began, spawnSync, boardFolders(env))
     }, watchMs)
     let ended = false
     const done = (code) => {
