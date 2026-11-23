@@ -1022,20 +1022,51 @@ export function checkpointLate(item, view) {
   const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
   // The asset wait: while the provider draws, the holder runs no turn and writes no checkpoint: a quiet checkpoint is no fault then.
   if (owner?.state !== 'working' || owner.heldBy === 'asset') return null
-  const began = sinceMs(valueOf(item, 'Since'))
-  if (!Number.isFinite(began)) return null
+  const stretch = stretchOf(item, view, owner)
+  if (stretch === null) return null
+  const { began, checkpoint, written, counted } = stretch
   // B1302 (X211): the holder's test run waits its turn in the PC's one-at-a-time queue (or runs there): it writes no checkpoint
-  // meanwhile (a run waited up to 1 h 45 min), so no case; and the quiet time counts from the last pass that saw it there.
-  const queue = testQueueOf(item, view)
-  if (queue.run !== null) return null
-  const checkpoint = checkpointOf(item)
-  const written = Number.isFinite(checkpoint?.at) && checkpoint.at >= began ? checkpoint.at : null
-  const from = Math.max(written ?? began, queue.seenAt ?? 0)
-  const counted = at => view.now - afterPause(view, at) - boardOffMs(view, afterPause(view, at)) - (owner === undefined ? 0 : standingStillMs(view, owner.name, afterPause(view, at)))
+  // meanwhile (a run waited up to 1 h 45 min), so no case; and the quiet time counts from the last pass that saw it there. The cap
+  // (queueExcuseOf): past 3 x checkpointMinutes from the last checkpoint the queue excuses nothing, so a chat that loops on test runs is reported.
+  const excused = queueExcuseOf(item, view)
+  if (excused.run !== null) return null
+  const from = Math.max(written ?? began, excused.seenAt ?? 0)
   const quiet = counted(from)
   // B1175 (X196): `stopped` is the time its lane stood stopped since the checkpoint (the quiet time already leaves it out).
-  const late = { step: view.now - began, checkpoint, quiet, stopped: standingStillMs(view, owner.name, afterPause(view, from)), queueSeen: queue.seenAt !== null && queue.seenAt > (written ?? began) ? queue.seenAt : null }
+  const late = { step: view.now - began, checkpoint, quiet, stopped: standingStillMs(view, owner.name, afterPause(view, from)), queueSeen: excused.seenAt !== null && excused.seenAt > (written ?? began) ? excused.seenAt : null }
   return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
+}
+
+/**
+ * B1302: where a step's stretch in progress stands, for the quiet-time rule and the queue's cap: `began` (its Since), `checkpoint`, `written`
+ * (the checkpoint's time when it is from this stretch, else null) and `counted(at)` (the running time since `at`: the person's pauses, the
+ * board off and the worker's stopped time left out). Null when its Since is not a time. `owner` the worker's lane, or undefined.
+ */
+function stretchOf(item, view, owner) {
+  const began = sinceMs(valueOf(item, 'Since'))
+  if (!Number.isFinite(began)) return null
+  const checkpoint = checkpointOf(item)
+  const written = Number.isFinite(checkpoint?.at) && checkpoint.at >= began ? checkpoint.at : null
+  const counted = at => view.now - afterPause(view, at) - boardOffMs(view, afterPause(view, at)) - (owner === undefined ? 0 : standingStillMs(view, owner.name, afterPause(view, at)))
+  return { began, checkpoint, written, counted }
+}
+
+/** B1302 (the review of c055ddd2): the queue excuses a quiet step for at most this many times the checkpoint limit, from its last checkpoint (or the start of its stretch). */
+const QUEUE_EXCUSE_TIMES = 3
+
+/**
+ * B1302 (X211): what the PC's test queue excuses of a step in progress: `{ run, seenAt }` (`testQueueOf`), or none (`{ run: null, seenAt: null }`)
+ * once more than QUEUE_EXCUSE_TIMES x checkpointMinutes of running time passed since its last checkpoint: a chat that runs tests again
+ * and again without a checkpoint is the loop the rule is for (the longest honest wait, 105 min in the line and 120 min of run, stays
+ * under 360 min; X211's 2 h 15 too). Capped, the queue is neither used nor shown, also while a run still goes.
+ */
+export function queueExcuseOf(item, view) {
+  const none = { run: null, seenAt: null }
+  const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
+  const stretch = stretchOf(item, view, owner)
+  if (stretch === null) return none
+  if (stretch.counted(stretch.written ?? stretch.began) > QUEUE_EXCUSE_TIMES * view.settings.checkpointMinutes * MIN) return none
+  return testQueueOf(item, view)
 }
 
 /**

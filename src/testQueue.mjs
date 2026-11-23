@@ -8,6 +8,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 
+import { namesStep } from './work/stepNames.mjs'
 
 /** What a lock or a ticket file says, `{ pid, label, cwd, startedAt, first }` with a live pid, or null (unreadable, not a run, gone). */
 function readRun(file, read) {
@@ -69,11 +70,10 @@ export const folderKey = cwd => String(cwd ?? '').replace(/\\/g, '/').replace(/\
 const baseOf = cwd => folderKey(cwd).split('/').at(-1) ?? ''
 
 /**
- * Whether a folder is a step's own: its name ends in `-b<id>` or has `-b<id>-` in it (`worker-board-b1302`, `check-b1279`,
- * `check-b1279-before`), for each of `ids` (the step's own and the one a Quality Assurance task checks); the id by whole
- * number, so b12 is not b123's. PURE.
+ * Whether a folder is a step's own, by the board's one rule (`namesStep`, src/work/stepNames.mjs: `worker-board-b1302`, `check-b1279`,
+ * `check-b1279-before`, `wt-b917b`; b12 is not b123's), for each of `ids` (the step's own and the one a Quality Assurance task checks). PURE.
  */
 export function isFolderOf(cwd, ids) {
   const base = baseOf(cwd)
-  return ids.some(id => typeof id === 'string' && /^b\d+$/i.test(id) && new RegExp(`(?:^|-)${id.toLowerCase()}(?:-|$)`).test(base))
+  return ids.some(id => namesStep(base, id))
 }

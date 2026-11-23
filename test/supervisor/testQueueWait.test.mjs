@@ -73,7 +73,7 @@ test('the ticket is gone at 12:40 with no checkpoint: no case until 120 min afte
 })
 
 test('another folder\'s ticket is no help: a case as now (b12 is not b1297, b1279\'s neighbour b12790 is not b1279)', () => {
-  for (const cwd of ['C:\\Work\\project\\check-b1300', 'C:\\Work\\project\\check-b129', 'C:\\Work\\project\\check-b12790', 'C:\\Work\\project\\b1279x', 'C:\\Work\\b1279\\other']) {
+  for (const cwd of ['C:\\Work\\project\\check-b1300', 'C:\\Work\\project\\check-b129', 'C:\\Work\\project\\check-b12790', 'C:\\Work\\b1279\\other']) {
     const found = check(view(at(12, 25), { queue: [ticket(cwd, at(10, 58))], seen: new Map([[folderKey(cwd), at(12, 24)]]) }))
     assert.deepEqual(found.map(one => one.subject), ['B1297'], cwd)
   }
@@ -84,6 +84,7 @@ test('the folder names: -b<id> by whole number, either case, a "-before" tail to
   assert.equal(isFolderOf('C:\\Work\\project\\check-b1279', ids), true)
   assert.equal(isFolderOf('C:/Work/project/Check-B1279-before/', ids), true)
   assert.equal(isFolderOf('C:\\Work\\lava-tactics-b1297', ids), true)
+  assert.equal(isFolderOf('C:\\Work\\wt-b917b', ['B917']), true, 'the board rule (namesStep): a name a step really used')
   assert.equal(isFolderOf('C:\\Work\\project\\check-b12', ids), false)
   assert.equal(isFolderOf('C:\\Work\\project\\check-b12799', ids), false)
   assert.equal(isFolderOf('C:\\Work\\project\\check-b1279', [null, undefined, 'nope']), false)
@@ -93,6 +94,28 @@ test('a step in another state, or whose worker does not work, still gets no case
   const store = items(item({ Id: 'B7', Kind: 'step', State: 'review', Since: stamp(at(10, 4)), Owner: 'Picker' }))
   assert.deepEqual(check(view(at(12, 25), { store })), [])
   assert.deepEqual(testQueueOf(qa(), view(at(12, 25))), { run: null, seenAt: null })
+})
+
+test('the cap (the review of c055ddd2): a chat that runs tests again and again with no checkpoint is reported once 3 x 120 min passed since its last checkpoint', () => {
+  // B1297's shape: in progress since 10:04, checkpoint 10:18; a test run waits or runs at every pass, the last one seen a few minutes ago
+  const run = since => ticket(FOLDER, since)
+  const board = (now, queue = []) => view(now, { queue, seen: new Map([[folderKey(FOLDER), now - 5 * MIN]]) })
+  const after = minutes => at(10, 18) + minutes * MIN
+  // 358 min after the checkpoint: a run goes now: still excused (the longest honest wait, 105 min in line + 120 min of run, stays silent)
+  assert.deepEqual(check(board(after(358), [run(at(15, 0))])), [])
+  // 361 min after: the queue no longer excuses it, with a run still going, with the last pass 5 min ago, and with no run now
+  const looping = check(board(after(361), [run(at(15, 0))]))
+  assert.deepEqual(looping.map(one => one.subject), ['B1297'])
+  assert.doesNotMatch(looping[0].evidence, /test queue/, 'queueSeen is not shown once capped')
+  assert.match(looping[0].text, /no checkpoint for 6 h 1 min/, 'the quiet time counts from the checkpoint: the runs seen reset nothing')
+  assert.equal(check(board(after(361)))[0]?.subject, 'B1297')
+  // the health line says nothing of the queue then, and marks the step
+  const line = healthSummary(board(after(361), [run(at(15, 0))]), after(361)).split('\n').find(one => /B1297 in progress/.test(one)) ?? ''
+  assert.doesNotMatch(line, /test queue/)
+  assert.match(line, /^- ! B1297/)
+  // a checkpoint written later restarts the count
+  const fresh = items(item({ ...Object.fromEntries(qa().head), Checkpoint: `none · next · ${stamp(at(15, 0))}:00` }))
+  assert.deepEqual(check(view(at(15, 0) + 358 * MIN, { queue: [run(at(16, 0))], store: fresh })), [])
 })
 
 test('readTestQueue: the lock, its slot files and the tickets, live pids only, in the order they go', () => {

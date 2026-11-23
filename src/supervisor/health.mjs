@@ -17,7 +17,7 @@ import { readingAgeMinutes } from '../limits.mjs'
 import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from '../work/waitsOn.mjs'
 import { assetWaitWords, isAssetWait } from '../work/assetWait.mjs'
 import { envelopesOf, lastClearWhyOf } from '../work/handover.mjs'
-import { boardOffMs, checkpointLate, familyOf, reviewLateOf, switchOf, testQueueOf, testQueueWords, undeliveredWords, wordMatters } from './rules/watch.mjs'
+import { boardOffMs, checkpointLate, familyOf, reviewLateOf, switchOf, queueExcuseOf, testQueueWords, undeliveredWords, wordMatters } from './rules/watch.mjs'
 import { workCallsWords } from '../workCalls.mjs'
 
 const MIN = 60_000
@@ -404,7 +404,7 @@ function stepLines(view, now) {
       : checkpoint === null ? ' [no checkpoint]'
         : ` [last checkpoint ${Number.isFinite(checkpoint.at) ? `${lasting(now - checkpoint.at - boardOffMs(view, checkpoint.at))} ago` : 'at a time not known'} (${checkpoint.commit ?? 'none'}): ${oneLine(checkpoint.next, 60)}]`
     // B1302 (X211): a step whose test run waits its turn in the PC's test queue, or runs there, says so (and is no stale checkpoint).
-    const queued = state === 'in progress' ? testQueueOf(item, view).run : null
+    const queued = state === 'in progress' ? queueExcuseOf(item, { ...view, now }).run : null
     const queueWords = queued === null ? '' : ` (${testQueueWords(queued)})`
     // The steps every chat holds stay whatever is cut; a chat's queue before the rest.
     const tier = isChats && HELD.includes(state) ? 0 : isChats ? 1 : 2
