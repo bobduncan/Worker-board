@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-import { readAfterSleep } from '../src/afterSleep.mjs'
+import { gapsNow, keptSinceJump, readAfterSleep } from '../src/afterSleep.mjs'
 import { cached } from '../src/folders.mjs'
 import { GAP_MS, gapsOf } from '../src/history.mjs'
 import { checkpointLate } from '../src/supervisor/rules/watch.mjs'
@@ -78,8 +78,40 @@ test('a read that names no build time is read once', async () => {
   assert.equal(reads, 1)
 })
 
+test('the off time at the call: the sleep counts before the look wrote its gap line and after, once; a state of before it has none', () => {
+  const lines = [...LINES]
+  const store = { lines: () => lines, aliveAt: () => LAST_LOOK }
+  const now = WOKE + 5_000
+  assert.deepEqual(gapsOf(LINES, BUILT, LAST_LOOK), [], 'what a state read before the sleep holds')
+  assert.deepEqual(gapsNow(store, now), [{ from: LAST_LOOK, to: now }], 'before the look wrote it')
+  lines.push({ at: LAST_LOOK, gap: true }, { at: WOKE, chat: 'Main', state: 'unknown', task: '', step: null })
+  const after = { lines: () => lines, aliveAt: () => WOKE }
+  assert.deepEqual(gapsNow(after, now), [{ from: LAST_LOOK, to: WOKE }], 'after it')
+  assert.deepEqual(gapsNow({ lines: () => LINES }, now), [], 'a store without a last look')
+})
+
+test('a kept state from before a jump is none, so the caller reads; a reset alone does not make it old', async () => {
+  let clock = 1_000_000
+  let reads = 0
+  const read = cached(async () => { reads += 1; return `answer ${reads}` }, 5_000, () => clock)
+  assert.equal(keptSinceJump(read, clock), null, 'nothing read yet')
+  await read()
+  assert.equal(keptSinceJump(read, clock), 'answer 1')
+  read.reset()
+  assert.equal(read.readAt(), -Infinity)
+  assert.equal(keptSinceJump(read, clock), 'answer 1', 'a health call after a reset does not wait for a read (B736)')
+  clock += GAP_MS
+  assert.equal(keptSinceJump(read, clock), 'answer 1', 'the gap time itself is no jump')
+  clock += 1
+  assert.equal(keptSinceJump(read, clock), null)
+  assert.equal(await read(), 'answer 2')
+  assert.equal(keptSinceJump(read, clock), 'answer 2')
+})
+
 test('the board reads its state through it, with the time the state counts from', async () => {
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /action: 'holds-ended', gaps: gapsNow\(store, clock\(\)\)/)
+  assert.match(server, /keptState: \(\) => keptSinceJump\(readState, clock\(\)\),/)
   assert.match(server, /const readState = cached\(\(\) => readAfterSleep\(built => trackJob\('state rebuild'/)
   assert.match(server, /noWorkSeen,\n\s+now: built\(clock\(\)\),/)
 })

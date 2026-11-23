@@ -1630,7 +1630,8 @@ in `art-inbox/worker-board/b262/`.
   still a guess), and shows "Estimates lately: 7x too high" on the Overview (its tooltip per area) and "estimate 1 h,
   took 6 min" in the Backlog tab's "Recently finished". The tasks of one step are one there. Nothing is kept by hand.
   F42: a step's estimate is its refine Size (else the minutes of its take); a task kept without one takes it where it is read
-  (`withStepSizes`), so "Estimates lately" reads the newest tasks, not those from before the `Estimate` head line went out of use.
+  (`withStepSizes`), so "Estimates lately" reads the newest ten tasks, not those from before the `Estimate` head line went out of use.
+  It says only those ten (1.6x too high on 2026-11-23); over all 329 tasks with an estimate the typical figure was about 6x.
   The picture: `art-inbox/worker-board/2026-10-14-b185-task-times.png`.
 - An estimate older than 15 minutes of work is marked as old. In step 4 the mod reminded a working chat to renew it (the
   reminder was dropped in 0.25.1 with the classic hooks: the person knows, and it was small).
@@ -4378,7 +4379,9 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a
   state read under a second ago.
   F42 (X213, X214: a 47 h PC sleep in the middle of a state rebuild): a state built more than the gap time (`GAP_MS`) before its read
-  ended is read once more (`src/afterSleep.mjs`), so no caller after a wake counts "now" with the off time from before the sleep.
+  ended is read once more (`src/afterSleep.mjs`). The hold's end takes its gaps at the call (`gapsNow`), and the Supervisor's health and
+  sweep checks leave a kept state from before such a jump (`keptSinceJump`). Other readers of `readState.last()` can still see one until
+  the next read.
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a

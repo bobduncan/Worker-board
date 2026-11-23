@@ -60,7 +60,7 @@ import { readHead } from './src/files.mjs'
 import { chatsByRole, oldModNeed } from './src/oldMods.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
-import { readAfterSleep } from './src/afterSleep.mjs'
+import { gapsNow, keptSinceJump, readAfterSleep } from './src/afterSleep.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog } from './src/hearing.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
@@ -4626,7 +4626,7 @@ async function main(args) {
         // Only when the state this pass read shows a held ask (its quiet `held` line): with nothing held the call would be a full work call every 10 seconds.
         await loops.run('holds-ended', async () => {
           if (!heldIn(state)) return
-          const ended = await workAction({ action: 'holds-ended', gaps: state.gaps ?? [] }, 'server')
+          const ended = await workAction({ action: 'holds-ended', gaps: gapsNow(store, clock()) }, 'server')
           if (!ended.ok) throw new Error(ended.why ?? 'holds-ended was refused')
           await sendWakes(ended)
           if (ended.result.changed === true) readState.reset()
@@ -4669,7 +4669,7 @@ async function main(args) {
         },
         // B736 (X89: work health timed out twice while the board was busy): the health summary reads what the board has.
         assets: () => assetRequests(),
-        keptState: () => readState.last() ?? null,
+        keptState: () => keptSinceJump(readState, clock()),
         keptItems: () => work.last?.()?.items ?? null,
         outbox: () => store.outbox(),
         keep,

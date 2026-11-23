@@ -10,21 +10,23 @@ import { parseItem } from '../src/work/item.mjs'
 
 const MIN = 60_000
 const NOV = new Date(2026, 10, 21, 12).getTime()
-const OCT = new Date(2026, 9, 24, 23).getTime()
 const task = (step, estimateMin, workMin, at) => ({ step, steps: step === null ? [] : [step], worker: 'Worker 1', area: 'game', estimateMin, startedAt: at - workMin * MIN, reportedAt: at, workMs: workMin * MIN, effort: null, ranOn: null, tokens: null })
 const sized = (id, size) => parseItem(`Id: ${id}\nKind: step\nTitle: A step\nState: done\n\n## Refined\n  What: a thing\n  Size: ${size}\n`)
-/** The ten of 24-25 October, each with its old estimate. */
-const OLD = [[45, 8], [180, 71], [90, 15], [45, 1], [45, 13], [60, 12], [210, 20], [45, 14], [45, 1], [90, 6]].map(([estimate, work], i) => task(`B${570 + i}`, estimate, work, OCT + i * MIN))
-/** The newest ten, as the store has them: no estimate on the task, the Size on the step. */
-const NEW = [['B1300', 90, 71], ['B1288', 45, 158], ['B1282', 90, 114], ['B1286', 30, 1], ['B1293', 120, 42], ['B1290', 60, 55], ['B1289', 45, 28], ['B1159', 90, 7], ['B1269', 60, 4], ['B1270', 45, 30]]
-const KEPT = [...OLD, ...NEW.map(([id, , work], i) => task(id, null, work, NOV + i * MIN))]
-const ITEMS = new Map(NEW.map(([id, size]) => [id, sized(id, `about ${size} min`)]))
+const row = ([step, estimateMin, startedAt, reportedAt, workMs]) => ({ step, steps: [step], worker: 'Worker 1', area: 'game', estimateMin, startedAt, reportedAt, workMs, effort: null, ranOn: null, tokens: null })
+/** The live task-times of 2026-11-23: the ten of 24-25 October that still carry an old estimate: step, estimate, started, reported, worked. */
+const OLD = [['B570', 180, 1792870320380, 1792874734616, 4278334], ['B576', 45, 1792874218282, 1792874694751, 476469], ['B571', 90, 1792874521814, 1792875399677, 877863], ['B580', 45, 1792875033793, 1792875825694, 791899], ['B584', 60, 1792875456574, 1792876148919, 692345], ['B579', 210, 1792875556750, 1792876766747, 1209997], ['B574', 45, 1792875598657, 1792875605816, 7159], ['B581', 45, 1792878168668, 1792878978712, 810044], ['B592', 45, 1792916667351, 1792916708994, 41643], ['B594', 90, 1792918018473, 1792918545046, 344754]].map(row)
+/** The same file's newest ten steps (B1293 in two tasks), with no estimate on the task. */
+const NEW = [['B1276', null, 1795127473904, 1795128634923, 1139002], ['B1269', null, 1795130709736, 1795130999529, 267077], ['B1282', null, 1795130831959, 1795253593149, 6825672], ['B1159', null, 1795209354875, 1795209774230, 419355], ['B1289', null, 1795211109458, 1795212764864, 1655406], ['B1290', null, 1795211140605, 1795214591903, 3304807], ['B1293', null, 1795214704107, 1795250906279, 2224251], ['B1293', null, 1795250735499, 1795251053894, 312044], ['B1288', null, 1795251678227, 1795261151462, 9462928], ['B1286', null, 1795251860093, 1795251897329, 37236], ['B1300', null, 1795253650483, 1795265993401, 4251550]].map(row)
+/** Those steps' refine sizes in the store, in minutes. */
+const SIZES = [['B1300', 90], ['B1288', 45], ['B1282', 90], ['B1286', 30], ['B1293', 120], ['B1290', 60], ['B1289', 45], ['B1159', 90], ['B1269', 60], ['B1276', 30]]
+const KEPT = [...OLD, ...NEW]
+const ITEMS = new Map(SIZES.map(([id, size]) => [id, sized(id, `about ${size} min`)]))
 
-test('the real case: the line reads the newest tasks by their size, no longer those of October', () => {
-  assert.equal(taskTimesOf(KEPT).lately.off, '5.8x too high', 'as the board read it before')
+test('the real case: the line reads the newest ten tasks by their size, no longer those of October', () => {
+  assert.equal(taskTimesOf(KEPT).lately.off, '5.9x too high', 'as the board read it before')
   const times = taskTimesOf(withStepSizes(KEPT, ITEMS))
   assert.equal(times.lately.count, 10)
-  assert.equal(times.lately.off, '1.6x too high')
+  assert.equal(times.lately.off, '1.6x too high', 'the newest ten only: over all tasks the typical figure was about 6x')
   assert.equal(times.byStep.B1300.estimateMin, 90)
 })
 
