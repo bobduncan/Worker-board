@@ -51,6 +51,7 @@ import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { boardView, exitAt, keptStart, lastStopOf, stopWhy, writeStop } from './src/boardSelf.mjs'
 import { START_ANEW, keep, startEnv } from './src/keeper.mjs'
+import { isShutdownDue, shutdownSign, shutdownView } from './src/shutdown.mjs'
 import { boardAddress, gamePortFor, workerPort, boardsFile, readBoards, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
 import { findClaude, marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
 import { dayRecaps } from './src/dayRecap.mjs'
@@ -2144,6 +2145,9 @@ async function main(args) {
   let updateShown = null
   // Signals change 1: set where the exit for a new version is decided (restartNow), before the wait; the state says it.
   let leaving = null
+  // Shut down (src/shutdown.mjs): the person's shutdown on its way, `{ at, isNow }`, or null; `stopBy` the sign's `by` the exit writes.
+  let shutdown = null
+  let stopBy = null
   // Signals change 1: set once the server listens: only then the board's exit is written as a stop (data/stop.json).
   let isUp = false
   let callsNow = 0
@@ -3136,6 +3140,49 @@ async function main(args) {
       process.exit(START_ANEW)
     } }
   }
+  // Shut down (2026-11-21, src/shutdown.mjs): Pause all first, then the board ends once the pause is safe, after SHUTDOWN_WAIT_MS at
+  // the latest, or at once for "Shut down now"; its stop sign (`by: 'command'`) holds it down until the person starts it again.
+  let shutdownTimer = null
+  const shutdownLook = async () => {
+    if (shutdown === null || leaving !== null) return
+    let pause = null
+    try {
+      pause = (await readState()).pause ?? null
+    } catch {
+      // the state could not be read: the wait's end still stops the board
+    }
+    if (!isShutdownDue({ shutdown, pause, now: clock() })) return
+    clearInterval(shutdownTimer)
+    isClosing = true
+    leaving = { at: clock(), why: 'shutdown' }
+    console.log(`Shut down: ${shutdown.isNow ? 'at once, on the person\'s word' : pause?.isSafe === true ? 'every chat ended its turn' : 'the wait for the chats ended'}; the board stops and stays down until it is started again (npm run resume, or its icon).`)
+    const inTime = await settleWithin([reconciling, ...runningChecks.values()], RESTART_WAIT_MS)
+    if (!inTime) console.log('Shut down: the board did not wait longer than 10 s for its running work.')
+    await reportsSave?.flush()
+    await workCalls.flush()
+    await wakesSave?.flush()
+    // The page sees `leaving` once before the board ends, as for a restart (Gap 2 of the live proof).
+    const wait = exitAt({ leavingAt: leaving.at, workSettledAt: clock(), refreshSeconds: config.refreshSeconds, waitMs: RESTART_WAIT_MS }) - clock()
+    if (wait > 0) await new Promise(done => setTimeout(done, wait))
+    stopBy = 'command'
+    process.exit(0)
+  }
+  const shutdownNow = async body => {
+    if (isDemo) return { ok: false, status: 409, why: 'This is the demo: stop it where it was started.' }
+    if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Shut down the board that delivers: http://${HOST}:${recordingPort}/` }
+    if (leaving !== null) return { ok: true, result: shutdownView(shutdown ?? { at: leaving.at, isNow: true }) }
+    const state = await readState()
+    // Pause all first, unless the chats are paused already: nothing is handed out, woken or reopened from here on.
+    if (workDir !== null && state.pause?.state !== 'pausing') {
+      const paused = await workAction({ action: 'pause-all' }, 'person')
+      if (!paused.ok) return paused
+      readState.reset()
+    }
+    shutdown = { at: shutdown?.at ?? clock(), isNow: body?.now === true || shutdown?.isNow === true }
+    if (shutdownTimer === null) shutdownTimer = setInterval(() => void shutdownLook(), 5_000)
+    void shutdownLook()
+    return { ok: true, result: shutdownView(shutdown) }
+  }
   const server = createBoard({
     token: pageToken,
     // B319: the demo is no project's.
@@ -3192,6 +3239,8 @@ async function main(args) {
       return lightState({ ...state, advisor, talkPartner, waits, waitsAsOf, waitAgain: !isDemo && !isShowOnly && bridgeKey !== null, stuckTalks: stuckTalksOf({ state, outbox: store.outbox(), now: clock() }), forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), autopilotCleared: await autopilotClearedNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
         // Signals change 1: the board's own clock, its work loop's last run, a restart on its way, and why it was off.
         board: boardView({ now: clock(), startedAt, aliveAt: store.aliveAt?.() ?? null, leaving, waiting: updateShown?.state === 'waiting' ? updateShown : null, lastStop: lastStopOf(store.startedGap ?? null, startedAt) }), mod: await modNow(),
+        // Shut down: the shutdown on its way (`{ at, until, isNow }`), and whether this board can be shut down from the page.
+        shutdown: shutdownView(shutdown), canShutdown: !isDemo && !isShowOnly,
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
@@ -3701,6 +3750,8 @@ async function main(args) {
     work: async body => {
       // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
       if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
+      // Shut down: the person's button on the page (src/shutdown.mjs).
+      if (body?.action === 'shutdown') return shutdownNow(body)
       // B775: the check's start types a word to the partner after the store has written it.
       if (body?.action === 'obsolete-check') return obsoleteStart()
       // B360, the review: an Overturn of a goal's recap opens the goal first; the recap closes only once it is open.
@@ -4213,7 +4264,8 @@ async function main(args) {
   process.on('exit', code => {
     // Signals change 1: why the board ended, for the next start's gap line (a board that records, once it listened).
     // F10: the sign names the start it belongs to (`started`), so the watcher tells a stale sign from the last board's (G4).
-    if (isUp && !isDemo && historyFrom === undefined) writeStop(join(HERE, 'data', 'stop.json'), { at: clock(), why: stopWhy({ code }), started: startedAt })
+    // Shut down: the person's stop (`by: 'command'`), which holds the board down (src/shutdown.mjs `shutdownSign`).
+    if (isUp && !isDemo && historyFrom === undefined) writeStop(join(HERE, 'data', 'stop.json'), stopBy === 'command' && code === 0 ? shutdownSign({ at: clock(), started: startedAt }) : { at: clock(), why: stopWhy({ code }), started: startedAt })
     games.stopAll()
     // A picture that is being made ends with the board, and its folder under the temporary folder goes with it.
     making?.stop()
