@@ -64,11 +64,13 @@ test('the spawn gets CODEX_HOME = the clean folder, not the person\'s', async t 
   assert.notEqual(seen.codexHome, user)
 })
 
-test('the clean config.toml holds the model and effort only', async t => {
+test('the clean config.toml holds the model and effort only, and on Windows the sandbox that needs no setup first', async t => {
   const { user, clean } = await setup(t)
   await prepareCodexHome({ home: clean, userHome: user })
   const text = await readFile(join(clean, 'config.toml'), 'utf8')
-  const sandbox = process.platform === 'win32' ? '\n[windows]\nsandbox = "elevated"\n' : ''
+  // 2026-11-22: the elevated sandbox alone asked for its one-time setup at every command in the clean home (a popup each
+  // time, and the picture's copy refused); the Codex app's own choice, MXC where Windows has it, needs none.
+  const sandbox = process.platform === 'win32' ? '\n[features]\nprefer_mxc = true\n\n[windows]\nsandbox = "elevated"\n' : ''
   assert.equal(text, 'model = "gpt-x"\nmodel_reasoning_effort = "high"\n' + sandbox)
   for (const word of ['notify', 'hook', 'plugins', 'mcp_servers', 'marketplaces', 'computer']) assert.ok(!text.includes(word), word)
   assert.equal(await readFile(join(clean, 'cap_sid'), 'utf8'), 'S-1-fake')

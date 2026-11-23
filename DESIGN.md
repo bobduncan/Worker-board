@@ -5999,6 +5999,25 @@ and free workers sat idle. Never a way around the refusal (no permission or mode
   says "after its setting changed HH:MM". Steps handed before B1207 landed carry no `wants`: a change on one whose hand-over set
   nothing stays unseen until its next hand-over. Tests:
   `test/work/effortChanged.test.mjs` (the real case's records), `handoverBoard.test.mjs` (`wants`).
+- A setting lost after its read-back (B1282, X207: Worker 3 got B1279 at opus · high at 23:50, set by Main's model and read back by
+  the hand-over pass; at 00:00 an account move brought back the other account's record of the chat, sonnet · medium, and nothing
+  asked again: the sequence drops the plan's words, the refusal asks none, the half hour's hold kept the word that set it; the rule
+  said "switch asked 23:50, not read back"). Read back (`readBackOf`) is only what the board saw: the envelope set by Main's model
+  (`setByMain`, at its take) or one that needed no set (its `wants`, no set and nothing asked: the file showed it; chat 1's review 3), a set word for the step the sweep closed `met`, or one Main took that the hand-over pass saw shown by
+  the app's file (`readBackAt`, `readBackMarkOf`: the lane's newest step word, taken or delivered, its own session, an effort the
+  file names); a hand's delivered set alone is none. A held step read back at its setting whose worker the file now shows at another
+  (an effort or a model it names, no word for another setting on its way) is lost: one set word to Main at once (`lost`, why "B12 was
+  set to opus · high at HH:MM (read back) and Worker N runs sonnet · medium again"), through the sequence, past the half hour's hold
+  of the word that set it (deliver.mjs `isEffortWordHeld`) and while the refusal stands, then for Main's model. None while a lost word since the newest read-back is on its way (not expired, failed or dropped); one that
+  never reached Main asks again after the half hour (chat 1's review 1: in X207 Main took nothing from 00:00 to 00:19, and a word kept 10
+  min expires), one the app refused at once, for Main's model. That word met or read back is a new read-back, so a second loss gets its
+  own; the delivery holds a lost word only behind one for the same step still on its way (review 2). A step changed after its hand-over
+  (B1207) counts too, read back at its new setting by its words.
+  The sweep drops a waiting lost word moot as a changed one. The run carries `lost: { setAt, at, runs, asking, word }`, `at` the
+  loss's first word's time (the reading that saw it), `word` its newest. effort-mismatch's state `lost` counts from the loss, is quiet while its word is
+  being written or open (waiting, taken), then says "Worker N runs sonnet · medium again since 00:00 (11 min): B12 was switched to
+  opus · high at 23:50 (read back)"; "not read back" stays for a worker never read back. The health summary says "(switched HH:MM,
+  lost HH:MM)". Tests: `test/work/effortLost.test.mjs` (X207's records and timeline, the hand-over pass's mark).
 - Tests: `test/work/setRefused.test.mjs` and `setRefusedReview.test.mjs` (the refusal's real words; B1160 sent again without a take-back; no set word while refused; an
   old failed envelope holds nothing; the effort plan silent; B1163 to the Opus · high worker with no set; Sonnet workers never kept off
   sonnet steps; the plain row words). The owed set through a model turn of Main (decision 4) is the second landing.
@@ -6266,7 +6285,15 @@ although the line was typed only at 11:07:22.
 **One record.** `src/wake.mjs` (pure) and `data/wakes.json` (kept as `data/reports.json` is: written a second after a change,
 a torn file set aside). Per chat, its spells (newest last, six kept): a spell is the chat's sleep (`asleepSince`; an off chat
 without one: its ended report's since, its report's time, else 0 (a spell value already kept is never a new entry); a chat read Not running after a
-wake keeps its sleep's since, `sleepSince`). The key `*` holds the board-wide "nobody runs" spells. Each spell holds its
+wake keeps its sleep's since, `sleepSince`). F38 (B1300): every one of these times is the report's own time
+(`chatReport.mjs` `heardTimeOf`: `heardAt`, else `at`), never the board's start that T13 moves a kept report to: the
+lane reads as the report said after a start (the person's word of 2026-10-28) and the age clock counts from the start, but a
+start begins no new sleep. Seen live 2026-11-21 00:35-00:55: Worker 4's dead chat got a new spell at each start (00:36:54,
+00:45:05), one failed launch each, so "could not wake" never went final. The same own time decides "it ran after the failed
+wake" (`ranSince`) and a carrier's proof of life (`wakeCarry.mjs` `canCarry`); `heard` keeps `at` behind its run check, and
+`inFirstTurn` keeps it (a moved report only ends that wait). The server's pass moves a kept entry the lane reads again
+(A, B, then A: a wakes.json from before F38 holds board-start spells after the chat's own one) to the newest place with its
+tries (`newSpell` `move`), since `heard`, `personAgain` and `turnEnded` read the newest entry. The key `*` holds the board-wide "nobody runs" spells. Each spell holds its
 attempts `{ path: message | launch, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why }`, `turnEndedAt` and `told`.
 Every old counter went into it: MAX_WAKE_TRIES, OPEN_TRIES, WAKE_AGAIN_MS, WAKE_PENDING_MS, WAKER_AGAIN_MS,
 RESUME_AGAIN_MS with `resumesSent`, `asleepWoken`, `opens[]` and `failuresOf`, the asleep look's minute.
@@ -8745,7 +8772,9 @@ Still with `data` empty everything is exactly today's path. With it set:
   is a runtime file, `<data>/local/backlog.md`. A whole path of its own (a copy's) stays. sources.mjs reads the threads there.
 - **The runtime files** (`localFile`): sync-loop.json, limit-readings.json, sync.json, supervisor.json, supervisor-sweep.json and
   board-errors.log go to `<data>/local` (ignored by the data branch), today the project's `.claude`.
-- **The assets** (`assetsOf`): `<data>/pictures/assets`, today `assets` beside the store; server.mjs's `assetsDir` uses it.
+- **The assets** (`assetsOf`): `<data>/pictures/assets`, today `assets` beside the store; server.mjs's `assetsDir` uses it. T5.2 A2
+  (chat 1's review, finding 7): the readers too: the state's asset wait (`assetsRead`) and the delivery's judge and resends
+  (deliver.mjs `assetsDir`), which read `assets` beside the store before; with `data` empty the two folders are one.
 - **Every picture reader and writer** takes a home `{ root, abs }` (`pictureHomeOf(config)`; server.mjs `pictureHome(root)`) in place of
   the project folder: src/pictures.mjs (findPicture, readDemo, findDemo, pictureTooBig, pictureProblem, adoptPicture, listPictures,
   the bare-name search), talkPicture.mjs, ideas.mjs `placeReferences`; recaps.mjs, recapCard.mjs and tools/evidence.mjs resolve their
@@ -8797,10 +8826,23 @@ real chat; 11-19: the app was on the other account until ~19:11 and the Advisor 
   account's list when the person switches back. `boardChats` keeps the real chat of a transcript over a newer launch stub (the
   11-05 case: the stub had hidden the real chat). Back on the board's account the hold lifts and the wake loop wakes each chat
   that holds a step or words, once, with its usual line; no wake was tried while away, so none failed for good.
-- **Moving the board for good** (chat 1's review): the away line has one button, "Run the board on this account": the app's
-  account becomes the board's, recorded in data/app-account.json as the person's (`by: 'person'`) and kept in memory at once; the
-  hold ends without the settle. A read of the app's config.json that finds no account while away (cut short, gone a moment) keeps
-  the last account known, and only a whole chat file is copied.
+- **Moving the board for good**, B1283 (F37; the person, 2026-11-20: "make this button a needs my attention thing instead ... let it
+  automatically detect, and put it in the attention so i can decide myself"): once the away has lasted the settle (a quick flip back
+  files nothing) the board files ONE ask in Needs your attention, in its own name as the asset queue does (`accountWatch`'s `ask`
+  adapter: work `ask` as 'server', a decide routed to the person, never the partner: its words name the Claude app and an account,
+  the person's hands): "The Claude app is on account <8 chars>: run the board there?", A "Run the board on this account" (the
+  app's account becomes the board's, recorded as the person's, `by: 'person'`; the hold ends at once), B "Keep waiting until I
+  switch back" (the hold stays and no new ask comes while the app stays on that account). The ask's id and the B stand in
+  data/app-account.json, so a restart while away files no second one and reads the answer of the first. When the app comes home
+  the open ask is withdrawn by the board with "the Claude app came back to <8 chars>; nothing to decide" and the B is forgotten. The
+  muted line stays and links to the ask (`Decide (Q<n>)`); the page has no account button any more. A copy that only shows files
+  nothing. Accounts are named by their first 8 characters: the board cannot tell personal from work reliably.
+  Chat 1's review (2026-11-20): the ask is kept AFTER the account read, single-flight and never awaited by it (the board files it
+  through the work API, whose write waits for a state read, which waits for the account read: kept inside the read it deadlocked the
+  board under writes); a failed store read leaves the ask as it is; A counts only while the app is still on the account it was asked
+  for (a stale A moves nothing); A and B are read by their letter or their words; an ask withdrawn by someone else is not filed again
+  in the same away. A read of the app's
+  config.json that finds no account while away keeps the last account known, and only a whole chat file is copied.
 - **Not verified live**: that the app shows a chat copied into an inactive account's folder at the next switch (the skill's own
   copies needed an app restart because it wrote the ACTIVE account's folder). A copy that does not show costs nothing: the next
   start-up check lists the chat as before.
@@ -8828,3 +8870,14 @@ words as 'copied', put them on the clipboard with a bar on top ("paste with Ctrl
   23:18-23:20), and a mod's words beside a prompt stood on the personal one. So the guard does not stop the person's-words filing
   (B298) here: prompt.submit's job stays where it is, the move is not needed, and 0.35.0 takes the probe out (the mark beside a
   prompt, the route, data/mod-probe.json's writer). The second part of B1274 ends there.
+
+## One restart per landing (2026-11-21, chat 3, chat 1's fix A)
+
+B1283's first landing (00:08-00:36) rolled back although both boards came up on the new code: main's fast-forward made the board
+start itself anew (B454, src/selfUpdate.mjs) while land.ps1 also asked it to restart (POST /api/restart), two restarts in a row,
+and the second new board was not up within the landing's 90 s (which stay an honest alarm). `restartNow` now refuses a second ask
+with 409 while the board leaves (`isClosing`), whoever asked first: land.ps1's POST then the self-update (the self-update's look
+returns on `isClosing`, and a look already under way is refused at the same door and remembers no refusal), or the self-update then
+land.ps1's POST (land.ps1 reads the refusal as "waiting for it to come back anyway"). test/boardSelfBoard.test.mjs runs both orders
+on a real copy that is a git folder of its own. Left for a later step: the keeper stamps the board's own log lines with the time
+(the diagnosis had to lean on the start checks' clock words).
