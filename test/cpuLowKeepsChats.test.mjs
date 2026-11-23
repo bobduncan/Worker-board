@@ -1,6 +1,6 @@
 // F44, the real case (2026-11-21 and 11-23): five chats lost their Workers mod ("Link gone"), all five under "CPU for Claude: Low". At Idle on
 // two crowded cores a chat's hooks thread starved (hooks took up to 287 s) and the CLI's watchdog unloaded the mod until the process
-// restarted. Under Low a chat's own claude.exe now stays at Normal on all cores; only what it starts is limited. Back at Full, a test run
+// restarted. Under Low a chat's own claude.exe now runs at BelowNormal on all cores (above all Idle work, below a game); what it starts is limited. Back at Full, a test run
 // that Low left at Idle on two cores with its parent gone gets its priority and cores back. Made-up processes; Windows is replaced: no
 // test here changes a real process.
 
@@ -17,6 +17,7 @@ const CLI = 'C:\\Apps\\claude-code\\2.1.0\\claude.exe --output-format stream-jso
 const ALL = String(0xFFFFFF)
 const LOW = String(0xC00000)
 const IDLE = 4
+const BELOW = 6
 const NORMAL = 8
 
 const desktop = { pid: 100, parent: 1, name: 'Claude.exe', commandLine: '"C:\\Apps\\Claude\\Claude.exe"', priority: NORMAL, created: 10 }
@@ -46,7 +47,7 @@ function fake(list, { masks = new Map(), failSets = 0 } = {}) {
           failing -= 1
           throw new Error('Access is denied')
         }
-        for (const change of changes) if (state.has(change.pid)) state.get(change.pid).priority = change.priority === 'Idle' ? IDLE : NORMAL
+        for (const change of changes) if (state.has(change.pid)) state.get(change.pid).priority = { Idle: IDLE, BelowNormal: BELOW, Normal: NORMAL }[change.priority]
         return changes.map(one => one.pid)
       },
     },
@@ -60,13 +61,13 @@ async function limiterOn(t, windows, { level = 'low', cores = 24 } = {}) {
 }
 const byPid = (sets, pid) => sets.flat().filter(one => one.pid === pid)
 
-test('the real case: a chat Low had put at Idle gets Normal on all cores first; what it started stays limited', async t => {
+test('the real case: a chat Low had put at Idle gets BelowNormal on all cores first; what it started stays limited', async t => {
   const windows = fake([desktop, chat(IDLE), bash(IDLE), tests(IDLE), game])
   const limiter = await limiterOn(t, windows)
   await limiter.apply()
   const [first] = windows.calls.sets
   assert.equal(first[0].pid, 200, 'the chat goes first: a pass cut short must not leave it starved')
-  assert.deepEqual([first[0].priority, first[0].affinity, first[0].eco], ['Normal', ALL, false])
+  assert.deepEqual([first[0].priority, first[0].affinity, first[0].eco], ['BelowNormal', ALL, false])
   for (const pid of [201, 202]) assert.deepEqual(byPid(windows.calls.sets, pid).map(one => [one.priority, one.affinity, one.eco]), [['Idle', LOW, true]])
   for (const pid of [100, 500]) assert.deepEqual(byPid(windows.calls.sets, pid), [], `process ${pid} is not touched`)
   assert.equal(limiter.view().count, 2, 'the count says what is limited')
@@ -76,21 +77,44 @@ test('the real case: a chat Low had put at Idle gets Normal on all cores first; 
   assert.deepEqual(windows.calls.sets, [])
 })
 
-test('a chat already at Normal is still set once (its cores are not in the listing), and again when it is found below Normal', async t => {
+test('a chat at BelowNormal counts as done under Low: no pass rewrites it; one found at another priority is set again', async t => {
   const windows = fake([desktop, chat(NORMAL)])
   const limiter = await limiterOn(t, windows)
   await limiter.apply()
-  assert.deepEqual(byPid(windows.calls.sets, 200).map(one => [one.priority, one.affinity]), [['Normal', ALL]])
+  assert.deepEqual(byPid(windows.calls.sets, 200).map(one => [one.priority, one.affinity]), [['BelowNormal', ALL]], 'a new chat, born at Normal')
+  assert.equal(windows.state.get(200).priority, BELOW)
   windows.calls.sets.length = 0
-  await limiter.apply()
-  assert.deepEqual(windows.calls.sets, [])
-  windows.state.get(200).priority = IDLE
-  await limiter.apply()
-  assert.deepEqual(byPid(windows.calls.sets, 200).map(one => one.priority), ['Normal'])
+  for (let pass = 0; pass < 3; pass += 1) await limiter.apply()
+  assert.deepEqual(windows.calls.sets, [], 'done: three passes write nothing')
+  for (const found of [IDLE, NORMAL]) {
+    windows.state.get(200).priority = found
+    windows.calls.sets.length = 0
+    await limiter.apply()
+    assert.deepEqual(byPid(windows.calls.sets, 200).map(one => one.priority), ['BelowNormal'], `found at ${found}`)
+  }
 })
 
-test('a set that failed for a chat is tried again on the next pass', async t => {
-  const windows = fake([desktop, chat(NORMAL)], { failSets: 1 })
+test('a chat the board has not set yet is set once, also at BelowNormal: the listing holds no cores', async t => {
+  const windows = fake([desktop, chat(BELOW)])
+  const limiter = await limiterOn(t, windows)
+  await limiter.apply()
+  assert.deepEqual(byPid(windows.calls.sets, 200).map(one => [one.priority, one.affinity, one.eco]), [['BelowNormal', ALL, false]])
+})
+
+test('back at Full a chat at BelowNormal gets Normal on all cores', async t => {
+  const windows = fake([desktop, chat(BELOW), bash(IDLE)])
+  const limiter = await limiterOn(t, windows)
+  await limiter.apply()
+  assert.equal(windows.state.get(200).priority, BELOW)
+  windows.calls.sets.length = 0
+  await limiter.set('full')
+  assert.deepEqual(byPid(windows.calls.sets, 200).map(one => [one.priority, one.affinity, one.eco]), [['Normal', ALL, false]])
+  assert.equal(windows.state.get(200).priority, NORMAL)
+  assert.equal(windows.state.get(201).priority, NORMAL)
+})
+
+test('a set that failed for a chat is tried again on the next pass, also when its priority already reads right (its cores may not)', async t => {
+  const windows = fake([desktop, chat(BELOW)], { failSets: 1 })
   const limiter = await limiterOn(t, windows)
   await limiter.apply()
   await limiter.apply()
@@ -100,16 +124,16 @@ test('a set that failed for a chat is tried again on the next pass', async t => 
   assert.deepEqual(windows.calls.sets, [], 'once it went, it is done')
 })
 
-test('a child born at Normal under a Normal chat after Low was set ends up limited on the next pass, with what it started', async t => {
+test('a child born at BelowNormal under a chat after Low was set ends up limited on the next pass, with what it started', async t => {
   const windows = fake([desktop, chat(NORMAL)])
   const limiter = await limiterOn(t, windows)
   await limiter.apply()
   windows.calls.sets.length = 0
-  windows.state.set(201, bash(NORMAL))
-  windows.state.set(202, tests(NORMAL))
+  windows.state.set(201, bash(BELOW))
+  windows.state.set(202, tests(BELOW))
   await limiter.apply()
   for (const pid of [201, 202]) assert.deepEqual(byPid(windows.calls.sets, pid).map(one => [one.priority, one.affinity, one.eco]), [['Idle', LOW, true]])
-  assert.deepEqual(byPid(windows.calls.sets, 200), [], 'the chat itself is left at Normal')
+  assert.deepEqual(byPid(windows.calls.sets, 200), [], 'the chat itself is left as it is')
   assert.equal(windows.state.get(201).priority, IDLE)
   // A child a limited process starts later inherits Idle; it still gets its cores once.
   windows.calls.sets.length = 0
@@ -178,7 +202,7 @@ test('back at Full the stranded get Normal on all cores; a failed reading of the
   broken.calls.sets.length = 0
   await other.set('full')
   assert.deepEqual(byPid(broken.calls.sets, 300), [])
-  assert.deepEqual(byPid(broken.calls.sets, 200).map(one => one.priority), ['Normal'], 'the rest of the restore still runs')
+  assert.ok(byPid(broken.calls.sets, 200).every(one => one.priority === 'Normal') && byPid(broken.calls.sets, 200).length > 0, 'the rest of the restore still runs')
 })
 
 test('Full from the start reads no cores and changes nothing', async t => {

@@ -1,13 +1,14 @@
 // B311: "CPU for Claude". The person, 2026-10-18, while playing: the workers made the PC lag. B735 (2026-10-27): two
 // choices the person picks, no game detection. Full: everything the project started runs at Normal priority on all
-// cores. Low: the chats' trees, what the board's own processes started, the vite servers, codex and a headless browser
+// cores. Low: what the chats and the board's own processes started, the vite servers, codex and a headless browser
 // run at Idle priority on the last two cores, in efficiency mode where Windows has it, so a game or any other program
 // never slows. Never the desktop app, never a program the project did not start. The board's own processes (its server
 // and its keeper) stay at Normal on all cores in Low too (the person, 2026-10-30, the board blank for minutes at Idle
 // while a game ran: "it should not slow the board itself").
-// F44 (2026-11-23): so does each chat's own claude.exe. At Idle on two crowded cores its hooks thread starved (hooks took up to 287 s)
-// and the CLI's watchdog, which reads 5 s without an answer as a crash, unloaded the Workers mod until the process restarted: "Link
-// gone". Under Low only what the chats START is limited: a child is born at Normal on all cores and is limited on the next pass.
+// F44 (2026-11-23): a chat's own claude.exe no longer runs at Idle either. There, on two crowded cores, its hooks thread starved (hooks
+// took up to 287 s) and the CLI's watchdog, which reads 5 s without an answer as a crash, unloaded the Workers mod until the process
+// restarted: "Link gone". Under Low a chat runs at BelowNormal on all cores: above all Idle work, below a game. Windows hands BelowNormal
+// to what the chat starts, so a child is born below the game, and the next pass limits it to Idle on the last two cores.
 //
 // Windows only: the processes are read with one PowerShell call per refresh, and set with a second one only when a
 // process needs it. Elsewhere the control says "not available here" and nothing runs.
@@ -175,17 +176,21 @@ export function changesFor(chosen, level, applied, cores, { all = false } = {}) 
   return { changes }
 }
 
-/** F44: what `applied` holds for a chat's own process the board set to Normal on all cores under Low. */
+/** F44: a chat's own priority under Low: above all Idle work, below a game; Windows hands it to what the chat starts. */
+export const CHAT_PRIORITY = 'BelowNormal'
+
+/** F44: what `applied` holds for a chat's own process the board set to `CHAT_PRIORITY` on all cores under Low. */
 const CHAT_KEPT = 'chat'
 
 /**
- * F44: what to set so the chats' own processes run at Normal on all cores under Low: each once (its cores and efficiency mode are not in
- * the listing), and again whenever Windows reports it below Normal.
+ * F44: what to set so the chats' own processes run at `CHAT_PRIORITY` on all cores under Low, efficiency mode off. A chat the board set
+ * and Windows reports at that priority is done, so no pass rewrites it. The listing holds no cores: one the board has not set yet is set
+ * once, and one found at another priority again.
  */
 export function chatChanges(chats, applied, cores) {
   const affinity = affinityMask(cores, 'full')
-  return chats.filter(one => one.priority !== BASE_PRIORITY.Normal || applied.get(one.key) !== CHAT_KEPT)
-    .map(one => ({ pid: one.pid, key: one.key, priority: 'Normal', affinity, eco: false }))
+  return chats.filter(one => one.priority !== BASE_PRIORITY[CHAT_PRIORITY] || applied.get(one.key) !== CHAT_KEPT)
+    .map(one => ({ pid: one.pid, key: one.key, priority: CHAT_PRIORITY, affinity, eco: false }))
 }
 
 /**
@@ -389,7 +394,7 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
     // The board's own processes are roots of what is chosen (their children are limited), never limited themselves.
     const own = new Set(spare.filter(Number.isInteger))
     const found = chosenProcesses(list, await sessions(), { boardPids: spare }).filter(one => !own.has(one.pid))
-    // F44: under Low a chat's own process is kept at Normal on all cores; what it starts is limited.
+    // F44: under Low a chat's own process is kept at BelowNormal on all cores; what it starts is limited. Full's `found` gives it Normal back.
     const chats = current === 'low' ? found.filter(isChatProcess) : []
     const chosen = current === 'low' ? found.filter(one => !isChatProcess(one)) : found
     const { changes } = changesFor(chosen, current, applied, cores, { all: current === 'full' })

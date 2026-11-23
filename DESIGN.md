@@ -2304,10 +2304,12 @@ lagged the game (78% CPU: the board's own server and the vite servers ran at Nor
   handed its own Idle priority on (B440); that pass is tried again each pass until Windows took both.
 - **The chats under Low (F44, 2026-11-23).** Five chats lost their Workers mod ("Link gone"), all under Low: at Idle on two crowded cores
   a chat's hooks thread starved (hooks took up to 287 s) and the CLI's watchdog, which reads 5 s without an answer as a crash, unloaded the
-  mod until the process restarted. So a chat's own `claude.exe` (`isChatProcess`: a command line that names a session) is set to Normal on
-  all cores with efficiency mode off, first in each pass, once and again whenever Windows reports it below Normal (`chatChanges`). What it
-  starts is limited as before; since Windows hands a child a Normal parent's Normal and all cores, a child runs so until the next pass
-  (`refreshSeconds`). A limited child's own children inherit Idle.
+  mod until the process restarted. So a chat's own `claude.exe` (`isChatProcess`: a command line that names a session) runs at BelowNormal
+  on all cores with efficiency mode off (`CHAT_PRIORITY`, `chatChanges`), first in each pass: set once, and again only when Windows reports
+  another priority. Above all Idle work, below a game. Windows hands BelowNormal and all cores to what the chat starts, so a child is born
+  below the game and the next pass (`refreshSeconds`) limits it to Idle on the last two cores; a limited child's own children inherit
+  Idle. Full gives the chats Normal back. **The risk left:** a game that loads all logical cores for 5 s can still starve a chat's hooks
+  thread, and the watchdog then unloads its mod.
 - **What Low left behind (F44).** A process whose parent is gone is in no tree, so Full's restore missed it (a test run stayed at Idle on
   two cores). The restore passes also give back `strandedProcesses`: Idle, on exactly Low's cores (read by `MASK_SCRIPT`, which sets
   nothing), a tool's program (`STRANDED_NAMES`: never a game, a browser or the desktop app), its parent gone, and what it started with the
