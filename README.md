@@ -264,11 +264,15 @@ and the briefings for the main chat and the workers.
   `check` in `/api/state` and `data/check.json`. The account in use is a guess (the folder with the newest chat) and can flip
   right after a switch. DESIGN.md, "The start-up check".
 - "CPU for Claude" in the head (B311, B735, Windows only): two choices you pick, no game detection. Full: everything
-  the project started runs at normal priority on all cores. Low: the chats and what they started, the board itself and
-  its keeper, the vite servers, codex and a headless browser run at the lowest priority on the last two cores, in
-  efficiency mode where Windows has it, so a game or any other program never slows (tests and builds run slower). The
+  the project started runs at normal priority on all cores. Low: what the chats and the board start, the vite servers,
+  codex and a headless browser run at the lowest priority on the last two cores, in efficiency mode where Windows has
+  it, so a game keeps the rest of the PC (tests and builds run slower). The chats' own processes run just below normal
+  priority on all cores, since a chat starved at the lowest priority loses its Workers mod (F44); what they start is born
+  below a game too and is limited at the board's next refresh, also when what started it has ended. A game that loads
+  every core can still starve a chat. The board and its keeper stay at normal priority on all cores. Going back to Full
+  also gives back what Low left behind with its parent gone. The
   board keeps applying it at every refresh, also to what starts later, and a restart of the board keeps it limited;
-  it remembers the choice in `data\cpu.json`. Never the Claude app itself, your own Edge or another program. Under
+  it remembers the choice in `data\cpu.json`. Never the Claude app itself, your own Edge or a game. Under
   Full the board gives itself normal priority and all cores back at its start. The last two cores count all of the
   PC's cores, not the ones the board may use. A level saved before (Strong) reads as Low, Off and Gentle as Full.
 - "✕ Remove" on a worker's lane asks the main chat to close that worker; a worker that is not free gets a warning

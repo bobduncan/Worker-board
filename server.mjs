@@ -23,7 +23,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { constants as osConstants, setPriority } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -60,6 +60,7 @@ import { readHead } from './src/files.mjs'
 import { chatsByRole, oldModNeed } from './src/oldMods.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
+import { gapsNow, keptSinceJump, readAfterSleep } from './src/afterSleep.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog } from './src/hearing.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
@@ -67,7 +68,8 @@ import { workCallRecord } from './src/workCalls.mjs'
 import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
-import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
+import { areaOf, freshScan, keptTasks, listText, readOn, withStepSizes } from './src/taskTimes.mjs'
+import { sizeOf } from './src/work/held.mjs'
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
@@ -2476,7 +2478,8 @@ async function main(args) {
   // P7, the review: the none-ready episode (state.mjs `noWorkSeen`), in memory as planSeen: a restart starts it from the
   // longest-free worker's since again.
   let noWorkSeen = null
-  const readState = cached(() => trackJob('state rebuild', async () => {
+  // F42: an answer built before a PC sleep is read again (src/afterSleep.mjs).
+  const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {
     rebuilds += 1
     if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
@@ -2508,7 +2511,8 @@ async function main(args) {
       // board-fast-answer: the day's work-call figures for the Supervisor's health line (src/workCalls.mjs).
       workCalls: workCalls.today(clock()),
       finishedSeen: finishedSeen ?? {},
-      taskTimes: taskTimes.tasks,
+      // F42: a kept task without an estimate counts its step's size.
+      taskTimes: withStepSizes(taskTimes.tasks, raw.work?.items),
       // Stability numbers (2026-11-05, task 4): what the loop above last recorded; the demo shows made-up days.
       stability: isDemo ? demoStability(clock()) : keepStability?.latest() ?? null,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
@@ -2520,7 +2524,7 @@ async function main(args) {
       // Signals change 7 (B914): when each worker's own plan words last changed, as the last read saw them (memory only).
       planSeen,
       noWorkSeen,
-      now: clock(),
+      now: built(clock()),
       config: { ...config, project },
     })
     planSeen = state.planSeen ?? {}
@@ -2540,7 +2544,7 @@ async function main(args) {
     return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside,
       // T5.2 A7: the project keys config.json still holds while the project's settings file is in use (ignored: the amber line).
       settingsIgnored: isDemo || typeof config.settingsFile !== 'string' ? null : { file: basename(config.settingsFile), keys: config.settingsIgnored ?? [] }, check: checker?.view() ?? null, clicksUnsent: (await clicks.settle(one => movedOn(one, state, store.outbox()), clock()), await clicks.unsent()) }
-  }), STATE_MS)
+  })), STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
   // at the first look. Tasks a worker reported are added to the list, and the list the chats read is written anew.
@@ -2557,7 +2561,7 @@ async function main(args) {
         const item = items.get(id)
         if (item === undefined) return null
         const words = [item.head.get('Title') ?? '', ...(item.sections.get('Context') ?? []), ...(item.sections.get('Touches') ?? []).map(one => `Touches: ${one}`)].join('\n')
-        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), effort: effortOf(item).level }
+        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`) ?? sizeOf(item), effort: effortOf(item).level }
       }
       const added = []
       const routingRecords = [...items.values()].map(item => ({ item, read: readRoutingRecord(item) }))
@@ -2590,7 +2594,7 @@ async function main(args) {
       if (historyFrom === undefined) {
         // B934: the board's own measure, made again from the transcripts: no flush.
         await writeUnflushed(TASK_TIMES_FILE, JSON.stringify(taskTimes))
-        if (added.length > 0 || !hasList) await writeUnflushed(TASK_LIST_FILE, listText(taskTimes.tasks, clock()))
+        if (added.length > 0 || !hasList) await writeUnflushed(TASK_LIST_FILE, listText(withStepSizes(taskTimes.tasks, items), clock()))
         hasList = true
       }
       if (added.length > 0) readState.reset()
@@ -2758,7 +2762,11 @@ async function main(args) {
     wakesChanged()
     isOpening = true
     try {
-      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
+      // B1304 (chat 1's review, minor): a board copy under test records its launches in this file instead of starting the real program.
+      const stub = process.env.WORKER_BOARD_OPEN_STUB ?? ''
+      const done = stub !== '' ? await appendFile(stub, `${JSON.stringify({ chat: target.chat, session: target.session, at: now })}
+`).then(() => ({ launched: true, ok: true, why: null }))
+        : await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
       if (!done.launched) {
         // Nothing was launched: no try spent (the ⚙ row says why).
         wakeGivenBack(wakes, key, jobId)
@@ -4656,7 +4664,7 @@ async function main(args) {
         // Only when the state this pass read shows a held ask (its quiet `held` line): with nothing held the call would be a full work call every 10 seconds.
         await loops.run('holds-ended', async () => {
           if (!heldIn(state)) return
-          const ended = await workAction({ action: 'holds-ended', gaps: state.gaps ?? [] }, 'server')
+          const ended = await workAction({ action: 'holds-ended', gaps: gapsNow(store, clock()) }, 'server')
           if (!ended.ok) throw new Error(ended.why ?? 'holds-ended was refused')
           await sendWakes(ended)
           if (ended.result.changed === true) readState.reset()
@@ -4699,7 +4707,7 @@ async function main(args) {
         },
         // B736 (X89: work health timed out twice while the board was busy): the health summary reads what the board has.
         assets: () => assetRequests(),
-        keptState: () => readState.last() ?? null,
+        keptState: () => keptSinceJump(readState, clock()),
         keptItems: () => work.last?.()?.items ?? null,
         outbox: () => store.outbox(),
         keep,

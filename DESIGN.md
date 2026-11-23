@@ -1629,6 +1629,9 @@ in `art-inbox/worker-board/b262/`.
   a time (per area: how many tasks, the typical working time, how far estimates were off; an area under 5 tasks is
   still a guess), and shows "Estimates lately: 7x too high" on the Overview (its tooltip per area) and "estimate 1 h,
   took 6 min" in the Backlog tab's "Recently finished". The tasks of one step are one there. Nothing is kept by hand.
+  F42: a step's estimate is its refine Size (else the minutes of its take); a task kept without one takes it where it is read
+  (`withStepSizes`), so "Estimates lately" reads the newest ten tasks, not those from before the `Estimate` head line went out of use.
+  It says only those ten (1.6x too high on 2026-11-23); over all 329 tasks with an estimate the typical figure was about 6x.
   The picture: `art-inbox/worker-board/2026-10-14-b185-task-times.png`.
 - An estimate older than 15 minutes of work is marked as old. In step 4 the mod reminded a working chat to renew it (the
   reminder was dropped in 0.25.1 with the classic hooks: the person knows, and it was small).
@@ -2274,7 +2277,8 @@ iterfere with dota ... dont make the mode specific to dota": Strong (Idle on hal
 lagged the game (78% CPU: the board's own server and the vite servers ran at Normal).
 
 - **Two choices** the person picks, one click each, no game detection: **Full** (Normal priority, all cores, efficiency
-  mode off) and **Low** (Idle priority on the last two logical cores, efficiency mode on). Kept in `data/cpu.json`, so
+  mode off) and **Low** (what the chats and the board start: Idle priority on the last two logical cores, efficiency mode on;
+  the chats themselves at BelowNormal on all cores, F44). Kept in `data/cpu.json`, so
   it survives a restart; `cpuLimit` in config.json gives the level until one is clicked ("full" unless set). A level
   saved before reads on (`parseLevel`): "strong" is Low, "off" and "gentle" are Full. A copy of the board beside the
   person's starts at Full whatever config.json says, and applies only what was clicked on it.
@@ -2297,11 +2301,38 @@ lagged the game (78% CPU: the board's own server and the vite servers ran at Nor
   once from outside (`setPriority`): a board at Idle starts its helper at Idle, which a busy PC starved for minutes. Full
   lists nothing at all, apart from three passes (`RESTORE_PASSES`) right after Low was switched off, which give every
   chosen process Normal, all cores and efficiency mode off back (a process born while Low was on inherited it). A process that
-  cannot be set (gone, access denied) is passed over quietly and not tried again at that level; a listing that fails is
+  cannot be set (gone, access denied) is passed over quietly and not tried again at that level, except a chat's own process,
+  which is tried each pass until it took (F44); a listing that fails is
   one red line on top, gone at the next listing that works.
 - **The board under Low** is limited like the rest and stays so across its own restart (B735). Under Full its first
   pass gives the board and its keeper Normal and all cores (`boardChanges`), since a chat that started the board
   handed its own Idle priority on (B440); that pass is tried again each pass until Windows took both.
+- **The chats under Low (F44, 2026-11-23).** Five chats lost their Workers mod ("Link gone"), all under Low: at Idle on two crowded cores
+  a chat's hooks thread starved (hooks took up to 287 s) and the CLI's watchdog, which reads 5 s without an answer as a crash, unloaded the
+  mod until the process restarted. So a chat's own `claude.exe` (`isChatProcess`: a session named by an argument of its own, never words in
+  a quoted prompt, and no one-off `claude -p`, which is limited with its tree) runs at BelowNormal
+  on all cores with efficiency mode off (`CHAT_PRIORITY`, `chatChanges`), first in each pass: set once, and again only when Windows reports
+  another priority. Above all Idle work, below a game. Windows hands BelowNormal and all cores to what the chat starts, so a child is born
+  below the game and the next pass (`refreshSeconds`) limits it to Idle on the last two cores; a limited child's own children inherit
+  Idle. Full gives the chats Normal back. **What Low no longer promises:** it keeps the project below a game, not off it.
+  - A game that loads all logical cores for 5 s can still starve a chat's hooks thread, and the watchdog then unloads its mod.
+  - Until the next pass a new child runs at BelowNormal on all cores: below the game's threads, beside whatever else is below them.
+  - A test run started in that window counts 24 cores, starts its 12 vitest workers, and is then squeezed onto 2 cores: it runs slowly
+    until it ends. Accepted: Low is for playing, and a run started under it is expected to be slow.
+- **What Low left behind (F44).** A process whose parent is gone is in no tree, so Full's restore missed it (a test run stayed at Idle on
+  two cores). The restore passes also give back `strandedProcesses`: Idle, on exactly Low's cores (read by `MASK_SCRIPT`, which sets
+  nothing), a tool's program (`STRANDED_NAMES`: never a game, a browser or the desktop app), its parent gone, and what it started with the
+  same mark. Without a reading of the cores none is touched.
+- **What a chat started whose starter ended before the next pass (F44).** It is in no tree and would stay at BelowNormal on all cores for
+  life. `orphansOf` limits it under Low and Full gives it back. It is told apart by all of: a tool's program, exactly BelowNormal (a program
+  of the person's starts at Normal), its parent gone, and born since Low was switched on. The command line is no test: on the live PC 0 of
+  24 `node.exe` under the chats named the project's folder. **What this can get wrong:** a program of the person's with a tool's name that
+  a launcher started at BelowNormal during Low and then left. It runs at Idle until Full gives it back.
+  Accepted too (chat 1's final check): a worker a remembered orphan starts during Full, a helper of another program that runs at BelowNormal
+  (ASUS Armoury's do) limited until Full, `-p` as another flag's value, and doubled quotes in a command line.
+  The board remembers what it limited or gave back outside a tree (`pid@created`, in memory), so Low, Full, Low limits it again.
+- **No compiler (F44).** The efficiency call is made with Reflection.Emit, not `Add-Type`: each set used to start the C# compiler, and sets
+  that did not end cleanly left about 31,000 files in Temp. A failing efficiency call stops nothing: priority and cores are set first.
 - **Windows only.** Elsewhere the control says "not available here" and nothing runs; `POST /api/cpu` answers 409.
 - **The head** shows the level lit and what applies: "full power", or "15 processes on 2 cores, lowest priority: tests
   and builds run slower". `POST /api/cpu {level}` takes the click, from the board's own page only (token, origin, JSON,
@@ -4378,6 +4409,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
   an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a
   state read under a second ago.
+  F42 (X213, X214: a 47 h PC sleep in the middle of a state rebuild): a state built more than the gap time (`GAP_MS`) before its read
+  ended is read once more (`src/afterSleep.mjs`). The hold's end takes its gaps at the call (`gapsNow`), and the Supervisor's health and
+  sweep checks leave a kept state from before such a jump (`keptSinceJump`). Other readers of `readState.last()` can still see one until
+  the next read.
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
@@ -5497,7 +5532,7 @@ its turn back at once, one 10-minute net. The reconciler's own give, its later l
   last 10 minutes that have not reported yet (a start word whose worker has not reported since; a spawn word, which
   carries how many workers had reported then), no idle worker is left after the gives, and fewer workers than
   `maxWorkers` (5 unless set, B-max) are not off, the main chat is asked once per need (`board-start <who> <how
-  many ran> <start window>`, once per 10-minute window, B728: a once-ever key silenced a start for ever after one went for the same worker and count): `start "<worker>"` for a worker of the list whose chat is off or free and known not to run (shown "Not running"; the one off longest first; B1279, X205: with the wake record the start is a wake need of that worker, `byWake`, carried by the wake procedure and never a start word only a hand could carry, `workerStart` passes over one whose wake failed on every path in its spell and counts one it is waking as on its way, a start word of it still waiting is closed at the outbox sweep (`reconciled.startsByWake`), and when none can be woken the hand-out names them (`passedOver`): no start and no spawn, and the one wake notice, "could not wake Worker 4: ...; open its chat", stays the attention line for them for as long as the ready work waits, also with no try in the spell), else `spawn
+  many ran> <start window>`, once per 10-minute window, B728: a once-ever key silenced a start for ever after one went for the same worker and count): `start "<worker>"` for a worker of the list whose chat is off or free and known not to run (shown "Not running"; the one off longest first; B1279, X205: with the wake record the start is a wake need of that worker, `byWake`, carried by the wake procedure and never a start word only a hand could carry, `workerStart` passes over one whose wake failed on every path in its spell and counts one it is waking as on its way, a start word of it still waiting is closed at the outbox sweep (`reconciled.startsByWake`), and when none can be woken the hand-out names them (`passedOver`, also while a start or a new worker is on its way or the workers are full, B1304): no start, a new worker in their place only when the last launch did start a chat (B1304: `wakeableOf`'s `lastLaunch`, wake.mjs `lastLaunchOf`: the record's newest launch with a verdict, any chat's, of the last 2 hours, a failed one older than the app's return or cut off by the board's restart not counted; none counts as may), the notice adding "a new worker is asked for in its place" (for as long as that spawn word is on its way) or "no new worker in its place: the last launch (HH:MM) started no chat"; a worker it cannot wake keeps its place under `maxWorkers` (it may run again; counted apart from the workers on their way, and as reported in a spawn word, so its own later report is not the new worker's), and the one wake notice, "could not wake Worker 4: ...; open its chat", stays the attention line for them for as long as the ready work waits, also with no try in the spell), else (no worker off, or the replacement above) `spawn
   workers` with `Count: 1`, `Why: ready tasks wait and no worker is free`. `maxWorkers` set to no number (a unit test only) asks for none.
   Main does this without judgment: it is the board's hands (roles/main.md, "Main is the board's hands").
 - **The flow** (`src/work/flow.mjs`, `examples/work/flow.json`): `{ "from": "refined", "to": "queued", "by": "server",
@@ -6201,14 +6236,22 @@ asks come; only a checkpoint after it, or a busy spell of over 2 minutes after i
 that ended, or a busy report heard for that long), starts the 15 minutes anew.
 
 **The envelope** (outbox command `handover`): `{ kind: "resume", step: null, clear: null, restart: false, set: null,
-line: "go on with ...", back: null, resume: "resume B12 <spell start ms>" }`. Its `step` is null, so the decision's
+line: "go on with ...", back: null, resume: "resume B12 <spell start ms>", giveBackMs }`. Its `step` is null, so the decision's
 in-flight task and the hand-over's own envelope logic never read it (the decision reads only the resume envelopes for
 the timers); its `resume` marker makes it once per spell, as `back` does. The Workers mod 0.27.x reads the unknown kind
 as `task` (board.ts `parseEnvelope`) and, with no clear, set or restart, types the line as the board's word and settles
 it once: no mod change. The outbox sweep keeps it while its worker holds that step taken or in progress and drops it
 once not ("Worker N no longer holds B12"); its next take brings it to a running chat; for an asleep chat the waiting
 envelope is what has the board open it (opener.mjs `asleepWithWork` counts every waiting word by `to`); for a chat that
-is off it is a wake word (say.mjs `isWakeWord`), as RESUME_STEP was.
+is off it is a wake word (say.mjs `isWakeWord`), as RESUME_STEP was. B1294 (X109, 2026-11-21: Worker 4's chat hung at
+00:34, its line of 00:39:56 waited and the give-back at 00:55 closed it, but rule 8 named it at 00:51): the line's own
+cure is the give-back, so it carries `giveBackMs` (the setting `giveBackAfterMinutes` when it was written; an older line
+the default 15) and rule 8 names it only after that and `undeliveredMinutes` (holderTimers.mjs `goOnWaitMs`, watch.mjs
+`isUndelivered`), as a task stop waits STOP_HANDS_MS first. Like the give-back, that wait counts the board's running time:
+the board's off time since the line (a stop, a PC sleep: watch.mjs `boardOffMs`) is left out (chat 1's review). Every
+other word keeps the plain limit on wall time. The sweep does not
+close the line when its worker's lane reads running: a kept report read as working right after a board start (00:45:09)
+would have closed a line that still mattered.
 
 **After `giveBackAfterMinutes` (15) from the line being written, not delivered** (a chat the app will not open must not
 hold its step for ever), with no progress: the decision says `giveBack: { step, chat, askedAt }` and `close` (the line
@@ -6423,7 +6466,7 @@ idle Main waited untaken (X203, three times by 20:40). Now:
   message, start or wake job until its own send went (`noteHandSent`, any send of it the hands' answer reports, or its own daily
   probe, `probeDue(..., hand)`, `probeBy`). The board's refusal (`sendsRefusedSince`) follows only when no hand's send went since the
   last lift (`handSentAt`, or else the newest message attempt a hand sent, `handWentAt`, kept as `handSentAt` once found (`keepHandWent`, as the record prunes attempts), B1279: a record written before B1271 kept no `handSentAt`, and one hand's refusal then stopped every hand's start and wake for a day, X205; the probe's own send counts); after a lift an attempt or an outbox line no longer revives it by itself.
-- A hand's send that went and brought no report (B1279, X205: on 2026-11-19 three such sends started nothing, one model turn's send at once) is followed by ONE carry word for that spell before the launch (`nextPath` with `carry`, `carryAfterSilent`, server.mjs `carryPass` while the hands may send), to a free chat's model or the courier; nobody to carry it: the launch goes as before. A hand never gets that message again in the spell.
+- A hand's send that went and brought no report (B1279, X205: on 2026-11-19 three such sends started nothing, one model turn's send at once) is followed by ONE carry word for that spell before the launch (`nextPath` with `carry`, `carryAfterSilent`, server.mjs `carryPass` while the hands may send), to a free chat's model or the courier; nobody to carry it: the launch goes as before. A hand never gets that message again in the spell. (B1304: the live branch is tested on a running board copy, test/wakeCarryBoard.test.mjs.)
 - A refused send spends no message try (`nextPath` counts only the attempts that were not refused): the next hand that may send takes
   the message at once; a refused hand is held off by its own mark (once its own send went it may try again), a hand whose try went
   without a report never gets that message again in the spell (`handTried`). A refused hand alone is no sender (server.mjs `handsNow`,
