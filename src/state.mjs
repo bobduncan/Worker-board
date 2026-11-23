@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
-import { chatFile, chatHomeOf, resolveStored } from './projectPaths.mjs'
+import { backlogViewOf, chatFile, chatHomeOf, resolveStored } from './projectPaths.mjs'
 import { allWords, closedForYou, minutesOf, sizeMinutes, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
@@ -1949,7 +1949,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // B296, B301: the backlog from the work store, the one source of the work. `store` is the line about it on the Backlog
   // tab and, when it cannot be read, on top of the page; `raw.work` is missing where the board has no store. Nothing is
   // drawn from the backlog file instead.
-  const shown = storeBacklog(raw.work, { prefix, names }, { backlog: config.project === '' ? null : resolveStored(config, config.backlog) })
+  const shown = storeBacklog(raw.work, { prefix, names }, { backlog: config.project === '' ? null : backlogViewOf(config) })
   const backlog = shown.backlog
   const workOk = shown.store?.ok === true
   // The asset wait (2026-11-11, the B1124 case): the asset requests as the server read them (src/assets.mjs, `raw.assets`): an open one

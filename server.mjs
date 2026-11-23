@@ -45,7 +45,7 @@ import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
-import { assetsOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, wordsPath } from './src/projectPaths.mjs'
+import { assetsOf, backlogViewOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, wordsPath } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -1084,7 +1084,8 @@ async function main(args) {
       return null
     }
   }
-  const viewFile = workDir === null ? null : !isShowOnly ? resolveStored(config, config.backlog) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
+  // T5.2 A1: the generated view is a runtime file (`backlogViewOf`: `<data>/local/backlog.md` once the data moves), never written into the game checkout.
+  const viewFile = workDir === null ? null : !isShowOnly ? backlogViewOf(config) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
   /**
    * Focus 2 (spec 2026-10-18, sections 3 and 6): a move of the Focus page, or a draft of the partner's (the page's route,
@@ -1814,6 +1815,9 @@ async function main(args) {
     // The Product owner (2026-10-31): its talks' drafts, asks and notes (work/api.mjs OWNER_MAY), nothing of a worker's.
     if (state.productOwner) roles.set(state.productOwner.name, 'owner')
     return {
+      // T5.2 A3 (chat 1's review, finding 11): the store's path as the chat reaches it, for the step files a take or next answer names
+      // (work/api.mjs rowWordsBlock); before, only the evaluate word had it and the answers fell back to the default prefix.
+      workPrefix: `${wordsPath(config, workFolder(config))}/`,
       // The supervisor's Task 5: the board's health summary for the supervisor chat's sweep (src/supervisor/health.mjs).
       ...(supervisor === null ? {} : { health: () => supervisor.health() }),
       // P1 of the one wait system: the limit of a recorded wait on a chat, for the work API's answer (src/work/waitsOn.mjs).
@@ -1850,7 +1854,7 @@ async function main(args) {
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
       chats: [...roles.keys()],
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlapsOfStore: true,
-      viewFile, boardUrl: boardAddress(HOST, config), backlogFile: resolveStored(config, config.backlog),
+      viewFile, boardUrl: boardAddress(HOST, config), backlogFile: backlogViewOf(config),
       // Part C of the asset providers: the requests' folder and the provider in use for each kind (the work tool's `asset`).
       ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), providerOf: kind => providerFor(config, kind), tools: () => assetTools() } }),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.

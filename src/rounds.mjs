@@ -5,7 +5,7 @@
 
 import { join } from 'node:path'
 
-import { resolveStored, wordsPath } from './projectPaths.mjs'
+import { backlogViewOf, resolveStored, wordsPath } from './projectPaths.mjs'
 
 const HEAD = 'Round from the board\'s clock:'
 
@@ -70,7 +70,7 @@ function settingLines({ board, config }) {
     `The game plan: ${inGame(config.gamePlan)}`,
     `Your decisions: ${inGame(config.advisorDecisions)}`,
     config.advisorReadFirst.length === 0 ? null : `Read first: ${config.advisorReadFirst.join(', ')}`,
-    `The backlog: ${config.project === '' ? config.backlog : resolveStored(config, config.backlog)} (your suggestions under "${config.advisorSuggestions}")`,
+    `The backlog: ${config.project === '' ? config.backlog : backlogViewOf(config)} (your suggestions under "${config.advisorSuggestions}")`,
     // B354: the project's kinds of work, each with its definition of done and reference folder, for the Standard lines.
     (config.kinds ?? []).length === 0 ? null : `Kinds of work, paths from your folder: ${config.kinds.map(one => `${one.kind} (done: ${wordsPath(config, resolveStored(config, one.done))}; references: ${wordsPath(config, resolveStored(config, one.reference))})`).join('; ')}`,
   ]
