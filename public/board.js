@@ -748,6 +748,21 @@ function storeNote(store, workFlags = []) {
 }
 // store:end
 
+// homeFiles:start
+/**
+ * T5.2 A6b: the note on top about the chat home's rules files (`state.homeFiles`: `[{ name, kind, state: 'differs' }]`): the first that
+ * differs from what it should be, and how many more. Its two buttons act on that one. Null: none.
+ */
+function homeFilesNote(files) {
+  const list = Array.isArray(files) ? files.filter(one => one?.state === 'differs' && typeof one.name === 'string') : []
+  if (list.length === 0) return null
+  const [first] = list
+  const what = first.kind === 'pointer' ? 'it should only point at its copy with the board\'s data' : 'it is a copy of the template with the board\'s data'
+  const more = list.length > 1 ? ` (and ${list.length - 1} more after it)` : ''
+  return { name: first.name, text: `${first.name} in the chat home differs from its template: ${what}${more}.` }
+}
+// homeFiles:end
+
 // setAside:start
 /**
  * B406: the note on top when the board set data files aside at its start (`state.setAside`: `{ file, aside }`): each
@@ -1789,6 +1804,33 @@ function openSupervisor() {
   if ($('view-overview').dataset.mode === 'simple') document.querySelector('#overview-mode [data-overview-mode="details"]')?.click()
   setSupervisorOpen(true)
   $('supervisor').scrollIntoView({ block: 'nearest' })
+}
+
+/** T5.2 A6b: the note on top about a home file (see `homeFilesNote`); its buttons send the person's click for that file. */
+let homeFileShown = null
+function drawHomeFilesNote(state) {
+  const shown = homeFilesNote(state.homeFiles)
+  homeFileShown = shown?.name ?? null
+  $('home-files-note').hidden = shown === null
+  if (shown !== null) $('home-files-note-text').textContent = shown.text
+}
+for (const [id, action] of [['home-files-write', 'write'], ['home-files-adopt', 'adopt']]) {
+  $(id).addEventListener('click', async () => {
+    if (homeFileShown === null) return
+    const button = $(id)
+    button.disabled = true
+    button.textContent = action === 'write' ? 'Writing…' : 'Copying…'
+    try {
+      const answer = await fetch('/api/home-file', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': TOKEN }, body: JSON.stringify({ name: homeFileShown, action }) })
+      if (!answer.ok) throw new Error((await answer.text()).trim() || `refused (${answer.status})`)
+      await read()
+    } catch (error) {
+      $('home-files-note-text').textContent = `Not done: ${error instanceof Error ? error.message : 'the board did not answer'}`
+    } finally {
+      button.disabled = false
+      button.textContent = action === 'write' ? 'Write again' : 'Copy this PC\'s into the template'
+    }
+  })
 }
 
 /** B406: the note on top about the data files set aside at the start (see `setAsideNote`). */
@@ -23423,6 +23465,7 @@ function draw(state) {
   drawModNote(state)
   drawStoreNote(state)
   drawSetAsideNote(state)
+  drawHomeFilesNote(state)
   drawLoopsNote(state)
   drawCpu(state)
   drawMainGame(state)
